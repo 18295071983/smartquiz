@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
@@ -253,7 +255,7 @@ public class QuestionDetailActivity extends AppCompatActivity {
                 difficultyTextView.setTextColor(getResources().getColor(R.color.colorHard));
                 break;
             default:
-                difficultyTextView.setTextColor(getResources().getColor(R.color.colorPrimary));
+                difficultyTextView.setTextColor(ThemeColors.attr(this, R.attr.colorPrimary));
                 break;
         }
 
@@ -265,7 +267,7 @@ public class QuestionDetailActivity extends AppCompatActivity {
             correctAnswerTextView.setTextColor(getResources().getColor(R.color.colorCorrect));
         } else {
             correctAnswerTextView.setText("正确答案: 无");
-            correctAnswerTextView.setTextColor(getResources().getColor(R.color.colorPrimary));
+            correctAnswerTextView.setTextColor(ThemeColors.attr(this, R.attr.colorPrimary));
         }
 
         setVisibleText(explanationTextView, "解析", question.getExplanation());
@@ -305,7 +307,7 @@ public class QuestionDetailActivity extends AppCompatActivity {
             boolean isCorrect = correctLetters.contains(key);
             tv.setTextColor(isCorrect
                     ? getResources().getColor(R.color.colorCorrect)
-                    : getResources().getColor(R.color.text_primary));
+                    : ThemeColors.attr(this, R.attr.colorControlText));
             if (isCorrect) {
                 tv.setBackgroundColor(getResources().getColor(R.color.colorCorrectLight));
             }

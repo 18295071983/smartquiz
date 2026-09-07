@@ -17,7 +17,7 @@
             android:text="配置名称"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
@@ -40,7 +40,7 @@
             android:text="服务类型"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <Spinner
@@ -58,7 +58,7 @@
             android:text="API 地址"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
@@ -81,7 +81,7 @@
             android:text="API Key"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
@@ -113,7 +113,7 @@
                 android:text="测试连通性"
                 android:textSize="@dimen/text_13"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 app:cornerRadius="@dimen/radius_10"
                 android:layout_marginEnd="@dimen/space_8"/>
 
@@ -125,7 +125,7 @@
                 android:text="获取模型列表"
                 android:textSize="@dimen/text_13"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="@dimen/radius_10"/>
         </LinearLayout>
 
@@ -155,7 +155,7 @@
                 android:layout_weight="1"
                 android:text="等待测试..."
                 android:textSize="@dimen/text_13"
-                android:textColor="@color/text_secondary"/>
+                android:textColor="?attr/colorControlTextSecondary"/>
 
             <ProgressBar
                 android:id="@+id/pb_testing"
@@ -179,7 +179,7 @@
                 android:text="选择模型"
                 android:textSize="@dimen/text_14"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:layout_marginBottom="@dimen/space_8"/>
 
             <Spinner
@@ -196,7 +196,7 @@
                 android:layout_height="wrap_content"
                 android:text="可用模型：加载中..."
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
         </LinearLayout>
 
         <!-- 隐藏的模型名称输入框，用于保存用户选择的模型 -->
@@ -229,7 +229,7 @@
                     android:text="使用量"
                     android:textSize="@dimen/text_14"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
 
                 <View
                     android:layout_width="@dimen/size_0"
@@ -242,7 +242,7 @@
                     android:layout_height="wrap_content"
                     android:text="0%"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/primary"/>
+                    android:textColor="?attr/colorPrimary"/>
             </LinearLayout>
 
             <ProgressBar
@@ -253,7 +253,7 @@
                 android:layout_marginVertical="@dimen/space_8"
                 android:max="100"
                 android:progress="0"
-                android:progressTint="@color/primary"/>
+                android:progressTint="?attr/colorPrimary"/>
 
             <TextView
                 android:id="@+id/tv_usage_detail"
@@ -261,7 +261,7 @@
                 android:layout_height="wrap_content"
                 android:text="已用: 0 / 总量: 未知"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"/>
+                android:textColor="?attr/colorControlTextSecondary"/>
         </LinearLayout>
 
         <!-- 分类（可选） -->
@@ -271,7 +271,7 @@
             android:text="分类（可选）"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <Spinner
@@ -289,7 +289,7 @@
             android:text="超时时间（秒）"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
@@ -313,7 +313,7 @@
             android:text="描述（可选）"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout

@@ -13,6 +13,7 @@ import com.oilquiz.app.R;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 初始化步骤指示器控件
  *
@@ -71,7 +72,7 @@ public class InitStepIndicatorView extends LinearLayout {
             labelLp.topMargin = dp(4);
             label.setText(item.label);
             label.setTextSize(11);
-            label.setTextColor(Color.argb(150, 255, 255, 255));
+            label.setTextColor(ThemeColors.get(R.color.hc_96ffffff));
             itemLayout.addView(label, labelLp);
             item.labelView = label;
 
@@ -93,7 +94,7 @@ public class InitStepIndicatorView extends LinearLayout {
         if (state == 0) {
             item.ring.setBackgroundResource(R.drawable.ai_init_step_ring);
             item.dot.setAlpha(0.35f);
-            if (item.labelView != null) item.labelView.setTextColor(Color.argb(120, 255, 255, 255));
+            if (item.labelView != null) item.labelView.setTextColor(ThemeColors.get(R.color.hc_78ffffff));
         } else if (state == 1) {
             item.ring.setBackgroundResource(R.drawable.ai_init_step_ring_active);
             item.dot.setAlpha(1f);

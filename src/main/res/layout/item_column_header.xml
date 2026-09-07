@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:text="列名"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/on_surface_variant"
+        android:textColor="?attr/colorOnSurfaceVariant"
         android:layout_marginBottom="@dimen/space_4"/>
 
     <Spinner

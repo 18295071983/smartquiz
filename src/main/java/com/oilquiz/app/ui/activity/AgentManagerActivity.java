@@ -16,6 +16,7 @@ import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
 import com.oilquiz.app.R;
 
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * Agent 管理页：手动管理 Agent 的长期记忆 / 动态工具 / 工作区 / 使用统计。
  *
@@ -90,7 +91,7 @@ public class AgentManagerActivity extends AppCompatActivity {
             TextView tv = new TextView(requireContext());
             tv.setText(text);
             tv.setTextSize(13);
-            tv.setTextColor(0xFF94A3B8);
+            tv.setTextColor(ThemeColors.get(R.color.hc_ff94a3b8));
             tv.setGravity(android.view.Gravity.CENTER);
             tv.setPadding(0, dp(24), 0, 0);
             container.addView(tv);

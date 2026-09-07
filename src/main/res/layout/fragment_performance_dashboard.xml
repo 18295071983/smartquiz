@@ -39,7 +39,7 @@
                         android:layout_height="wrap_content"
                         android:text="TPS"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
@@ -49,7 +49,7 @@
                         android:text="0.0"
                         android:textSize="@dimen/text_24"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -74,7 +74,7 @@
                         android:layout_height="wrap_content"
                         android:text="延迟"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
@@ -84,7 +84,7 @@
                         android:text="0.0ms"
                         android:textSize="@dimen/text_24"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -118,7 +118,7 @@
                         android:layout_height="wrap_content"
                         android:text="GPU 使用率"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
@@ -128,7 +128,7 @@
                         android:text="0%"
                         android:textSize="@dimen/text_24"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -153,7 +153,7 @@
                         android:layout_height="wrap_content"
                         android:text="内存使用率"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
@@ -163,7 +163,7 @@
                         android:text="0%"
                         android:textSize="@dimen/text_24"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -196,7 +196,7 @@
                         android:layout_height="wrap_content"
                         android:text="温度"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
@@ -206,7 +206,7 @@
                         android:text="0°C"
                         android:textSize="@dimen/text_24"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -231,7 +231,7 @@
                         android:layout_height="wrap_content"
                         android:text="性能评分"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
@@ -241,7 +241,7 @@
                         android:text="0"
                         android:textSize="@dimen/text_24"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -274,7 +274,7 @@
                         android:layout_height="wrap_content"
                         android:text="KV 缓存命中率"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
@@ -284,7 +284,7 @@
                         android:text="--"
                         android:textSize="@dimen/text_24"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -299,7 +299,7 @@
                         android:layout_height="wrap_content"
                         android:text="上下文占用"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
@@ -309,7 +309,7 @@
                         android:text="--"
                         android:textSize="@dimen/text_24"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -340,7 +340,7 @@
             android:text="优化建议"
             android:textSize="@dimen/text_18"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_16" />
 
         <androidx.recyclerview.widget.RecyclerView

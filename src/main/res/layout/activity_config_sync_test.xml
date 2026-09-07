@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     android:fillViewport="true">
 
     <LinearLayout
@@ -30,7 +30,7 @@
                 android:background="@android:drawable/dialog_holo_light_frame"
                 android:clickable="true"
                 android:focusable="true"
-                android:textColor="@color/primary" />
+                android:textColor="?attr/colorPrimary" />
 
             <TextView
                 android:layout_width="@dimen/size_0"
@@ -39,7 +39,7 @@
                 android:text="配置同步测试"
                 android:textSize="@dimen/text_24"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary" />
+                android:textColor="?attr/colorControlText" />
         </LinearLayout>
 
         <!-- 概述卡片 -->
@@ -62,7 +62,7 @@
                     android:text="📊 配置同步测试"
                     android:textSize="@dimen/text_18"
                     android:textStyle="bold"
-                    android:textColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
                     android:layout_marginBottom="@dimen/space_8" />
 
                 <TextView
@@ -70,7 +70,7 @@
                     android:layout_height="wrap_content"
                     android:text="用于测试配置同步管理器（ConfigSyncManager）的功能，包括本地同步、远程同步和数据库检查。"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -81,7 +81,7 @@
             android:text="同步操作"
             android:textSize="@dimen/text_16"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginTop="@dimen/space_20"
             android:layout_marginBottom="@dimen/space_12" />
 
@@ -91,7 +91,7 @@
             android:layout_height="wrap_content"
             app:cardCornerRadius="12dp"
             app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             android:layout_marginBottom="@dimen/space_12">
 
             <LinearLayout
@@ -121,7 +121,7 @@
                         android:text="Assets 同步"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_4" />
 
                     <TextView
@@ -129,7 +129,7 @@
                         android:layout_height="wrap_content"
                         android:text="从 assets/ai_usage_config_default.json 加载默认配置并初始化数据库"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/text_secondary" />
+                        android:textColor="?attr/colorControlTextSecondary" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
@@ -139,8 +139,8 @@
                     android:layout_height="@dimen/size_40"
                     android:text="同步"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/primary"
-                    app:strokeColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
+                    app:strokeColor="?attr/colorPrimary"
                     app:cornerRadius="@dimen/radius_20" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -151,7 +151,7 @@
             android:layout_height="wrap_content"
             app:cardCornerRadius="12dp"
             app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             android:layout_marginBottom="@dimen/space_12">
 
             <LinearLayout
@@ -181,7 +181,7 @@
                         android:text="远程同步"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_4" />
 
                     <TextView
@@ -189,7 +189,7 @@
                         android:layout_height="wrap_content"
                         android:text="从 Gitee 远程仓库拉取最新配置并更新数据库"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/text_secondary" />
+                        android:textColor="?attr/colorControlTextSecondary" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
@@ -199,8 +199,8 @@
                     android:layout_height="@dimen/size_40"
                     android:text="同步"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/primary"
-                    app:strokeColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
+                    app:strokeColor="?attr/colorPrimary"
                     app:cornerRadius="@dimen/radius_20" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -211,7 +211,7 @@
             android:text="检查结果"
             android:textSize="@dimen/text_16"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginTop="@dimen/space_20"
             android:layout_marginBottom="@dimen/space_12" />
 
@@ -221,7 +221,7 @@
             android:layout_height="wrap_content"
             app:cardCornerRadius="12dp"
             app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             android:layout_marginBottom="@dimen/space_12">
 
             <LinearLayout
@@ -251,7 +251,7 @@
                         android:text="数据库检查"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_4" />
 
                     <TextView
@@ -259,7 +259,7 @@
                         android:layout_height="wrap_content"
                         android:text="查看数据库中存储的配置数据（服务商、模型、价格）"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/text_secondary" />
+                        android:textColor="?attr/colorControlTextSecondary" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
@@ -269,8 +269,8 @@
                     android:layout_height="@dimen/size_40"
                     android:text="检查"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/primary"
-                    app:strokeColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
+                    app:strokeColor="?attr/colorPrimary"
                     app:cornerRadius="@dimen/radius_20" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -281,7 +281,7 @@
             android:layout_height="wrap_content"
             app:cardCornerRadius="12dp"
             app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             android:layout_marginBottom="@dimen/space_12">
 
             <LinearLayout
@@ -311,7 +311,7 @@
                         android:text="同步结果检查"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_4" />
 
                     <TextView
@@ -319,7 +319,7 @@
                         android:layout_height="wrap_content"
                         android:text="查看最近一次同步的状态、来源和版本信息"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/text_secondary" />
+                        android:textColor="?attr/colorControlTextSecondary" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
@@ -329,8 +329,8 @@
                     android:layout_height="@dimen/size_40"
                     android:text="检查"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/primary"
-                    app:strokeColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
+                    app:strokeColor="?attr/colorPrimary"
                     app:cornerRadius="@dimen/radius_20" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

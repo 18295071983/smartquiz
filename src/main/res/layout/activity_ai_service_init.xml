@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0D0A28">
+    android:background="@color/hc_ff0d0a28">
 
     <!-- 极光背景 -->
     <com.oilquiz.app.ui.widget.AuroraBackgroundView
@@ -30,10 +30,10 @@
         android:layout_marginEnd="20dp"
         android:background="@drawable/ai_init_close_bg"
         android:text="✕"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/hc_ffffffff"
         android:textSize="18sp"
         app:cornerRadius="22dp"
-        app:rippleColor="#33FFFFFF"
+        app:rippleColor="@color/hc_33ffffff"
         app:iconTint="@android:color/transparent"
         app:strokeColor="@android:color/transparent"
         android:insetTop="0dp"
@@ -88,7 +88,7 @@
                 android:layout_marginTop="8dp"
                 android:text="AI 服务初始化"
                 android:textSize="20sp"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/hc_ffffffff"
                 android:textStyle="bold" />
 
             <TextView
@@ -98,7 +98,7 @@
                 android:layout_marginTop="4dp"
                 android:text="下载模型 · 选择启用 · 初始化服务"
                 android:textSize="12sp"
-                android:textColor="#B0FFFFFF" />
+                android:textColor="@color/hc_b0ffffff" />
 
             <!-- ═══════════ 步骤指示器控件 ═══════════ -->
             <com.oilquiz.app.ui.widget.InitStepIndicatorView
@@ -120,7 +120,7 @@
                 <ProgressBar
                     android:layout_width="34dp"
                     android:layout_height="34dp"
-                    android:indeterminateTint="#8E6CFF" />
+                    android:indeterminateTint="@color/hc_ff8e6cff" />
 
                 <TextView
                     android:id="@+id/tv_check_status"
@@ -129,7 +129,7 @@
                     android:layout_marginTop="12dp"
                     android:text="正在检测当前配置状态…"
                     android:textSize="14sp"
-                    android:textColor="#D0FFFFFF" />
+                    android:textColor="@color/hc_d0ffffff" />
             </LinearLayout>
 
             <!-- ═══════════ 模型选择控件（选下载模型）═══════════ -->
@@ -146,7 +146,7 @@
                     android:layout_height="wrap_content"
                     android:text="🎯 选择要下载的模型"
                     android:textSize="15sp"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/hc_ffffffff"
                     android:textStyle="bold" />
 
                 <TextView
@@ -155,7 +155,7 @@
                     android:layout_marginTop="5dp"
                     android:text="选择一个模型开始下载，下载完成后可进入下一步启用。"
                     android:textSize="12sp"
-                    android:textColor="#90FFFFFF" />
+                    android:textColor="@color/hc_90ffffff" />
 
                 <ScrollView
                     android:layout_width="match_parent"
@@ -178,7 +178,7 @@
                     android:gravity="center"
                     android:text=""
                     android:textSize="12sp"
-                    android:textColor="#8E6CFF" />
+                    android:textColor="@color/hc_ff8e6cff" />
             </LinearLayout>
 
             <!-- ═══════════ 下载/初始化进度控件 ═══════════ -->
@@ -203,7 +203,7 @@
                     android:layout_height="wrap_content"
                     android:text="✅ 下载完成 · 选择要启用的模型"
                     android:textSize="15sp"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/hc_ffffffff"
                     android:textStyle="bold" />
 
                 <TextView
@@ -212,7 +212,7 @@
                     android:layout_marginTop="5dp"
                     android:text="从已下载的模型列表中选择一个，点击后开始初始化服务。"
                     android:textSize="12sp"
-                    android:textColor="#90FFFFFF" />
+                    android:textColor="@color/hc_90ffffff" />
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/model_list_recycler"
@@ -233,7 +233,7 @@
                     android:gravity="center"
                     android:text=""
                     android:textSize="13sp"
-                    android:textColor="#8E6CFF" />
+                    android:textColor="@color/hc_ff8e6cff" />
             </LinearLayout>
 
             <!-- ═══════════ 完成态 ═══════════ -->
@@ -258,7 +258,7 @@
                     android:layout_marginTop="8dp"
                     android:text="AI 服务已就绪"
                     android:textSize="19sp"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/hc_ffffffff"
                     android:textStyle="bold" />
 
                 <TextView
@@ -268,7 +268,7 @@
                     android:layout_marginTop="6dp"
                     android:text=""
                     android:textSize="13sp"
-                    android:textColor="#8E6CFF"
+                    android:textColor="@color/hc_ff8e6cff"
                     android:maxLines="2"
                     android:ellipsize="end" />
 
@@ -279,7 +279,7 @@
                     android:gravity="center"
                     android:text="本地模型已加载，现在可以离线对话、识图与智能问答了"
                     android:textSize="13sp"
-                    android:textColor="#B0FFFFFF" />
+                    android:textColor="@color/hc_b0ffffff" />
             </LinearLayout>
 
             <!-- ═══════════ 底部导航 ═══════════ -->
@@ -302,7 +302,7 @@
                     android:paddingEnd="14dp"
                     android:text="上一步"
                     android:textSize="14sp"
-                    android:textColor="#90FFFFFF"
+                    android:textColor="@color/hc_90ffffff"
                     android:visibility="gone" />
 
                 <com.google.android.material.button.MaterialButton
@@ -313,11 +313,11 @@
                     android:layout_marginStart="10dp"
                     android:background="@drawable/ai_init_btn_bg"
                     android:text="开始下载"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/hc_ffffffff"
                     android:textSize="16sp"
                     android:textStyle="bold"
                     app:cornerRadius="26dp"
-                    app:rippleColor="#33FFFFFF"
+                    app:rippleColor="@color/hc_33ffffff"
                     android:textAllCaps="false"
                     android:insetTop="0dp"
                     android:insetBottom="0dp" />
@@ -330,7 +330,7 @@
                 android:layout_marginTop="10dp"
                 android:text="需要网络下载模型，之后完全离线可用"
                 android:textSize="12sp"
-                android:textColor="#80FFFFFF" />
+                android:textColor="@color/hc_80ffffff" />
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

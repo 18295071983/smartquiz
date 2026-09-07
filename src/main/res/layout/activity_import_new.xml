@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.ImportActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="导入功能"
-            app:titleTextColor="@color/on_surface"/>
+            app:titleTextColor="?attr/colorOnSurface"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -41,7 +41,7 @@
                 android:indeterminate="false"
                 android:max="100"
                 android:progress="0"
-                android:progressTint="@color/primary"
+                android:progressTint="?attr/colorPrimary"
                 android:layout_marginBottom="@dimen/space_16" />
             
             <!-- 状态文本 -->
@@ -51,7 +51,7 @@
                 android:layout_height="wrap_content"
                 android:text="准备导入..."
                 android:textSize="@dimen/text_16"
-                android:textColor="@color/on_surface"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginBottom="@dimen/space_8" />
             
             <TextView
@@ -60,7 +60,7 @@
                 android:layout_height="wrap_content"
                 android:text="0%"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/on_surface_variant"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 android:layout_marginBottom="@dimen/space_20" />
             
             <!-- 统计卡片 -->
@@ -69,7 +69,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -85,7 +85,7 @@
                         android:text="导入选项"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_16" />
                     
                     <LinearLayout
@@ -107,7 +107,7 @@
                             android:layout_weight="1"
                             android:text="准备导入..."
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_surface" />
+                            android:textColor="?attr/colorOnSurface" />
                             
                     </LinearLayout>
                     
@@ -139,7 +139,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="成功"
                                 android:textSize="@dimen/text_12"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                                 
                         </LinearLayout>
                         
@@ -164,7 +164,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="失败"
                                 android:textSize="@dimen/text_12"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                                 
                         </LinearLayout>
                         
@@ -182,14 +182,14 @@
                                 android:text="0"
                                 android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
-                                android:textColor="@color/on_surface" />
+                                android:textColor="?attr/colorOnSurface" />
                                 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="总计"
                                 android:textSize="@dimen/text_12"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                                 
                         </LinearLayout>
                         
@@ -201,7 +201,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="@dimen/size_48"
                         android:text="AI解析"
-                        app:backgroundTint="@color/primary"
+                        app:backgroundTint="?attr/colorPrimary"
                         android:textColor="@android:color/white"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"/>
@@ -215,7 +215,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface_variant"
+                app:cardBackgroundColor="?attr/colorSurfaceVariant"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -231,7 +231,7 @@
                         android:text="提示信息"
                         android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_8" />
                         
                     <TextView
@@ -239,7 +239,7 @@
                         android:layout_height="wrap_content"
                         android:text="• 导入前请确保文件格式正确\n• 大批量导入可能需要较长时间\n• 导入过程中请勿关闭应用"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:lineSpacingExtra="4dp" />
                         
                 </LinearLayout>
@@ -256,7 +256,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8">
         
         <com.google.android.material.button.MaterialButton
@@ -265,7 +265,7 @@
             android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="取消"
-            app:backgroundTint="@color/secondary"
+            app:backgroundTint="?attr/colorSecondary"
             android:textColor="@android:color/white"
             android:layout_marginEnd="@dimen/space_8"
             app:cornerRadius="@dimen/radius_12"
@@ -277,7 +277,7 @@
             android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="开始导入"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>

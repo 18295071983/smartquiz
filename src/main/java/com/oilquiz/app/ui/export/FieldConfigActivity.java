@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 字段配置Activity
  * 用于配置导出字段
@@ -172,7 +173,7 @@ public class FieldConfigActivity extends AppCompatActivity {
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
                 ));
                 checkBox.setTextSize(15, android.util.TypedValue.COMPLEX_UNIT_SP);
-                checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xff6200ee));
+                checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(ThemeColors.attr(getContext(), R.attr.colorPrimary)));
                 layout.addView(checkBox);
                 
                 convertView.setTag(checkBox);

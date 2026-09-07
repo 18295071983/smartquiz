@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat.history;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
@@ -140,8 +142,7 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
         // 当前会话高亮：背景 + "当前"标签
         boolean isCurrent = isCurrentSession(session);
-        holder.cardView.setCardBackgroundColor(context.getColor(
-                isCurrent ? R.color.primary_container : R.color.surface));
+        holder.cardView.setCardBackgroundColor(ThemeColors.get(context, isCurrent ? R.color.primary_container : R.color.surface));
         if (holder.currentTag != null) {
             holder.currentTag.setVisibility(isCurrent ? View.VISIBLE : View.GONE);
         }

@@ -24,6 +24,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final String TAG = "AttachmentAdapter";
@@ -428,7 +429,7 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         
         // 可以在这里添加选中标记（如勾选图标）
         if (isSelected(position)) {
-            itemView.setBackgroundColor(Color.parseColor("#E3F2FD")); // 浅蓝色背景
+            itemView.setBackgroundColor(ThemeColors.get(R.color.hc_ffe3f2fd)); // 浅蓝色背景
         } else {
             itemView.setBackgroundColor(Color.TRANSPARENT);
         }

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
@@ -558,7 +560,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                     ? activeConfig.selectedModel : activeConfig.modelName;
             if (onlineModelInfo != null) {
                 onlineModelInfo.setText(modelName != null ? modelName : activeConfig.name);
-                onlineModelInfo.setTextColor(getResources().getColor(R.color.text_primary));
+                onlineModelInfo.setTextColor(ThemeColors.attr(this, R.attr.colorControlText));
             }
             // 上下文窗口：配置时 API 检测到的真实值或配置表推断值（实际驱动历史压缩阈值）
             if (onlineContextWindow != null) {
@@ -593,7 +595,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             }
             if (onlineModelInfo != null) {
                 onlineModelInfo.setText("请在 AI 中心配置");
-                onlineModelInfo.setTextColor(getResources().getColor(R.color.text_tertiary));
+                onlineModelInfo.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextHint));
             }
             if (onlineContextWindow != null) {
                 onlineContextWindow.setText("-");

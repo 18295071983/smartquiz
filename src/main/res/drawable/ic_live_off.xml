@@ -6,9 +6,9 @@
     android:viewportHeight="24">
     <!-- 实时暂停：两条竖线（pause 风格） -->
     <path
-        android:fillColor="#9E9E9E"
+        android:fillColor="@color/hc_ff9e9e9e"
         android:pathData="M8,5h3v14h-3z"/>
     <path
-        android:fillColor="#9E9E9E"
+        android:fillColor="@color/hc_ff9e9e9e"
         android:pathData="M13,5h3v14h-3z"/>
 </vector>

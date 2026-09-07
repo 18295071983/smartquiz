@@ -31,7 +31,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_hint"
+                android:textColor="?attr/colorControlTextHint"
                 android:layout_marginEnd="@dimen/space_6"/>
 
             <TextView
@@ -48,7 +48,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_hint"/>
+                android:textColor="?attr/colorControlTextHint"/>
         </LinearLayout>
 
         <TextView
@@ -57,7 +57,7 @@
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_12"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_2"/>
 
         <TextView
@@ -65,7 +65,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_11"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:fontFamily="monospace"
             android:background="@drawable/code_block_background"
             android:padding="@dimen/space_6"

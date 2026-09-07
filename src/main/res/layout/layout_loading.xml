@@ -11,7 +11,7 @@
         android:layout_width="@dimen/size_48"
         android:layout_height="@dimen/size_48"
         android:indeterminate="true"
-        android:indeterminateTint="@color/primary"
+        android:indeterminateTint="?attr/colorPrimary"
         android:layout_marginBottom="@dimen/space_16"/>
 
     <TextView
@@ -20,7 +20,7 @@
         android:layout_height="wrap_content"
         android:text="加载中..."
         android:textSize="@dimen/text_16"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:layout_marginBottom="@dimen/space_8"/>
 
     <TextView
@@ -29,7 +29,7 @@
         android:layout_height="wrap_content"
         android:text="请稍候"
         android:textSize="@dimen/text_14"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:layout_marginBottom="@dimen/space_24"/>
 
     <com.google.android.material.button.MaterialButton
@@ -37,8 +37,8 @@
         android:layout_width="wrap_content"
         android:layout_height="@dimen/size_48"
         android:text="取消"
-        app:backgroundTint="@color/primary"
-        android:textColor="@color/on_primary"
+        app:backgroundTint="?attr/colorPrimary"
+        android:textColor="?attr/colorOnPrimary"
         app:cornerRadius="@dimen/radius_12"
         android:textAllCaps="false"
         android:layout_marginTop="@dimen/space_16"/>

@@ -15,9 +15,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="模型下载"
-            app:titleTextColor="@color/text_primary"/>
+            app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <LinearLayout
@@ -26,7 +26,7 @@
         android:orientation="vertical"
         android:paddingHorizontal="12dp"
         android:paddingVertical="8dp"
-        android:background="@color/surface_variant">
+        android:background="?attr/colorSurfaceVariant">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -38,14 +38,14 @@
                 android:layout_width="@dimen/size_18"
                 android:layout_height="@dimen/size_18"
                 android:src="@drawable/ic_download"
-                android:tint="@color/text_secondary"/>
+                android:tint="?attr/colorControlTextSecondary"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="下载源"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginStart="@dimen/space_8"/>
 
             <TextView
@@ -54,7 +54,7 @@
                 android:layout_height="wrap_content"
                 android:text="HF Mirror (国内)"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:textStyle="bold"
                 android:layout_marginStart="@dimen/space_4"/>
 
@@ -85,14 +85,14 @@
                 android:layout_width="@dimen/size_18"
                 android:layout_height="@dimen/size_18"
                 android:src="@drawable/ic_download"
-                android:tint="@color/text_secondary"/>
+                android:tint="?attr/colorControlTextSecondary"/>
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="下载方式"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginStart="@dimen/space_8"/>
 
             <TextView
@@ -101,7 +101,7 @@
                 android:layout_height="wrap_content"
                 android:text="自定义下载器"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:textStyle="bold"
                 android:layout_marginStart="@dimen/space_4"/>
 
@@ -136,8 +136,8 @@
                 android:layout_weight="1"
                 android:text="🤖 AI 中心"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/on_secondary_container"
-                app:backgroundTint="@color/secondary_container"
+                android:textColor="?attr/colorOnSecondaryContainer"
+                app:backgroundTint="?attr/colorSecondaryContainer"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
                 android:layout_marginEnd="@dimen/space_6"
@@ -150,8 +150,8 @@
                 android:layout_weight="1"
                 android:text="⚙️ AI 服务"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/on_secondary_container"
-                app:backgroundTint="@color/secondary_container"
+                android:textColor="?attr/colorOnSecondaryContainer"
+                app:backgroundTint="?attr/colorSecondaryContainer"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
                 android:minWidth="@dimen/min_0"/>
@@ -163,8 +163,8 @@
                 android:layout_weight="1"
                 android:text="⚡ 一键初始化"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/on_primary"
-                app:backgroundTint="@color/primary"
+                android:textColor="?attr/colorOnPrimary"
+                app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
                 android:layout_marginStart="@dimen/space_6"
@@ -177,7 +177,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_12"
-        android:background="@color/card_background">
+        android:background="?attr/colorCardBackground">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -218,8 +218,8 @@
         android:paddingStart="@dimen/space_16"
         android:text="已下载 0 个模型"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_secondary"
-        android:background="@color/background"/>
+        android:textColor="?attr/colorControlTextSecondary"
+        android:background="?attr/colorBackground"/>
 
     <TextView
         android:id="@+id/tv_search_hint"
@@ -228,8 +228,8 @@
         android:padding="@dimen/space_12"
         android:paddingStart="@dimen/space_16"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_secondary"
-        android:background="@color/background"
+        android:textColor="?attr/colorControlTextSecondary"
+        android:background="?attr/colorBackground"
         android:visibility="gone"/>
 
     <androidx.recyclerview.widget.RecyclerView

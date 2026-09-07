@@ -4,11 +4,11 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginVertical="@dimen/space_4"
-    app:cardBackgroundColor="@color/surface"
+    app:cardBackgroundColor="?attr/colorSurface"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
     app:strokeWidth="@dimen/stroke_1"
-    app:strokeColor="@color/outline">
+    app:strokeColor="?attr/colorOutline">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -22,7 +22,7 @@
             android:id="@+id/rb_select"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:buttonTint="@color/primary"/>
+            android:buttonTint="?attr/colorPrimary"/>
 
         <LinearLayout
             android:layout_width="@dimen/size_0"
@@ -38,7 +38,7 @@
                 android:text="OpenAI API"
                 android:textSize="@dimen/text_14"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
 
             <TextView
                 android:id="@+id/tv_api_url"
@@ -46,7 +46,7 @@
                 android:layout_height="wrap_content"
                 android:text="api.openai.com"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginTop="@dimen/space_2"/>
 
             <TextView
@@ -55,7 +55,7 @@
                 android:layout_height="wrap_content"
                 android:text="模型: GPT-4o"
                 android:textSize="@dimen/text_11"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:layout_marginTop="@dimen/space_4"/>
         </LinearLayout>
 
@@ -67,7 +67,7 @@
             android:src="@drawable/ic_edit"
             android:background="?attr/selectableItemBorderless"
             android:contentDescription="编辑"
-            app:tint="@color/text_secondary"/>
+            app:tint="?attr/colorControlTextSecondary"/>
 
         <ImageButton
             android:id="@+id/btn_delete"

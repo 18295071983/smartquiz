@@ -16,7 +16,7 @@
         android:text="quiz_backup_20231001_120000.json"
         android:textSize="@dimen/text_16"
         android:fontFamily="sans-serif-medium"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:layout_marginBottom="@dimen/space_12" />
 
     <!-- 文件信息 -->
@@ -31,7 +31,7 @@
             android:layout_height="wrap_content"
             android:text="10.5 KB"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginRight="@dimen/space_24" />
         <TextView
             android:id="@+id/textViewDate"
@@ -39,7 +39,7 @@
             android:layout_height="wrap_content"
             android:text="2023-10-01 12:00:00"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary" />
+            android:textColor="?attr/colorControlTextSecondary" />
     </LinearLayout>
 
     <!-- 操作按钮 -->

@@ -4,7 +4,7 @@
     <item android:id="@android:id/background">
         <shape android:shape="rectangle">
             <corners android:radius="4dp" />
-            <solid android:color="@color/surface_variant" />
+            <solid android:color="?attr/colorSurfaceVariant" />
         </shape>
     </item>
     <!-- 进度层 -->
@@ -12,7 +12,7 @@
         <clip>
             <shape android:shape="rectangle">
                 <corners android:radius="4dp" />
-                <solid android:color="@color/primary" />
+                <solid android:color="?attr/colorPrimary" />
             </shape>
         </clip>
     </item>

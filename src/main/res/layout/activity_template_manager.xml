@@ -39,7 +39,7 @@
             android:layout_weight="1"
             android:text="批量启用"
             android:layout_marginEnd="@dimen/space_8"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
@@ -59,7 +59,7 @@
             android:layout_weight="1"
             android:text="批量禁用"
             android:layout_marginEnd="@dimen/space_8"
-            app:backgroundTint="@color/secondary"
+            app:backgroundTint="?attr/colorSecondary"
             android:textColor="@android:color/white"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
@@ -70,7 +70,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="批量复制"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>

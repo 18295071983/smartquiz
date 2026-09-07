@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.QuizActivity">
 
     <!-- 顶部工具栏 -->
@@ -35,7 +35,7 @@
                     android:text=""
                     android:textSize="@dimen/text_15"
                     android:textStyle="bold"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:visibility="gone"/>
             </LinearLayout>
         </com.google.android.material.appbar.MaterialToolbar>
@@ -60,7 +60,7 @@
             android:text="得分: 0"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/primary"
+            android:textColor="?attr/colorPrimary"
             android:layout_marginEnd="@dimen/space_12"
             android:visibility="gone"/>
 
@@ -72,8 +72,8 @@
             android:layout_weight="1"
             android:max="10"
             android:progress="1"
-            android:progressTint="@color/primary"
-            android:progressBackgroundTint="@color/primary_container"/>
+            android:progressTint="?attr/colorPrimary"
+            android:progressBackgroundTint="?attr/colorPrimaryContainer"/>
 
         <TextView
             android:id="@+id/textViewProgress"
@@ -82,7 +82,7 @@
             android:text="1/10"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginStart="@dimen/space_12"/>
     </LinearLayout>
 
@@ -132,7 +132,7 @@
                         android:text="1"
                         android:textSize="@dimen/text_17"
                         android:textStyle="bold"
-                        android:textColor="@color/primary"
+                        android:textColor="?attr/colorPrimary"
                         android:background="@drawable/question_number_bg"
                         android:gravity="center"
                         android:layout_marginEnd="@dimen/space_12"/>
@@ -144,7 +144,7 @@
                         android:layout_height="wrap_content"
                         android:text="单选题"
                         android:textSize="@dimen/text_13"
-                        android:textColor="@color/primary"
+                        android:textColor="?attr/colorPrimary"
                         android:background="@drawable/question_type_tag_bg"
                         android:paddingHorizontal="12dp"
                         android:paddingVertical="4dp"/>
@@ -157,7 +157,7 @@
                     android:layout_height="wrap_content"
                     android:text="这是一道测试题目，请问以下哪个选项是正确的？"
                     android:textSize="@dimen/text_18"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:lineSpacingExtra="6dp"
                     android:layout_marginBottom="@dimen/space_20"/>
 
@@ -181,8 +181,8 @@
                     app:boxCornerRadiusTopEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
                     app:boxCornerRadiusBottomEnd="12dp"
-                    app:boxStrokeColor="@color/primary"
-                    app:hintTextColor="@color/primary">
+                    app:boxStrokeColor="?attr/colorPrimary"
+                    app:hintTextColor="?attr/colorPrimary">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/editTextUserAnswer"
                         android:layout_width="match_parent"
@@ -195,7 +195,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_48"
                     android:text="提交答案"
-                    app:backgroundTint="@color/primary"
+                    app:backgroundTint="?attr/colorPrimary"
                     android:textColor="@android:color/white"
                     android:layout_marginBottom="@dimen/space_16"
                     app:cornerRadius="@dimen/radius_12"
@@ -230,7 +230,7 @@
                             android:text="解析"
                             android:textSize="@dimen/text_15"
                             android:textStyle="bold"
-                            android:textColor="@color/primary"/>
+                            android:textColor="?attr/colorPrimary"/>
                     </LinearLayout>
                     <TextView
                         android:id="@+id/textViewExplanation"
@@ -238,7 +238,7 @@
                         android:layout_height="wrap_content"
                         android:text="这是题目的解析内容，帮助你理解知识点。"
                         android:textSize="@dimen/text_15"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:lineSpacingExtra="4dp"/>
                 </LinearLayout>
 
@@ -250,8 +250,8 @@
                     android:layout_height="@dimen/size_48"
                     android:text="查看答案"
                     android:textSize="@dimen/text_15"
-                    android:textColor="@color/primary"
-                    app:strokeColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
+                    app:strokeColor="?attr/colorPrimary"
                     app:strokeWidth="@dimen/stroke_1_5"
                     android:layout_marginBottom="@dimen/space_8"
                     app:cornerRadius="@dimen/radius_12"
@@ -321,7 +321,7 @@
             android:layout_height="wrap_content"
             android:text="题目导航"
             android:textSize="@dimen/text_11"
-            android:textColor="@color/text_tertiary"
+            android:textColor="?attr/colorControlTextHint"
             android:paddingHorizontal="20dp"
             android:paddingTop="@dimen/space_8"
             android:paddingBottom="@dimen/space_0"/>
@@ -359,7 +359,7 @@
                 android:layout_weight="1"
                 android:text="← 上一题"
                 android:textSize="@dimen/text_15"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 app:strokeColor="@color/border"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginEnd="@dimen/space_8"
@@ -387,7 +387,7 @@
                 android:layout_weight="1"
                 android:text="下一题 →"
                 android:textSize="@dimen/text_15"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>

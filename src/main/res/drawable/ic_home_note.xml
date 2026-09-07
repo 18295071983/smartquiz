@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#D97706"
-                android:endColor="#FBBF24" />
+                android:startColor="@color/hc_ffd97706"
+                android:endColor="@color/hc_fffbbf24" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 笔记本封面（白色渐变） -->
@@ -30,8 +30,8 @@
                 android:type="linear"
                 android:startX="4" android:startY="3.5"
                 android:endX="18.5" android:endY="21"
-                android:startColor="#FFFFFF"
-                android:endColor="#FEF3C7" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_fffef3c7" />
         </aapt:attr>
     </path>
 
@@ -42,14 +42,14 @@
                 android:type="linear"
                 android:startX="14.5" android:startY="3.5"
                 android:endX="18.5" android:endY="7.5"
-                android:startColor="#FBBF24"
-                android:endColor="#D97706" />
+                android:startColor="@color/hc_fffbbf24"
+                android:endColor="@color/hc_ffd97706" />
         </aapt:attr>
     </path>
 
     <!-- 装订环（深琥珀） -->
     <path
-        android:fillColor="#B45309"
+        android:fillColor="@color/hc_ffb45309"
         android:pathData="M4.6,8 H6 V10.5 H4.6 Z M4.6,12 H6 V14.5 H4.6 Z M4.6,16 H6 V18.5 H4.6 Z" />
 
     <!-- 文字行（深琥珀） -->
@@ -59,8 +59,8 @@
                 android:type="linear"
                 android:startX="7.5" android:startY="11"
                 android:endX="14" android:endY="17"
-                android:startColor="#B45309"
-                android:endColor="#92400E" />
+                android:startColor="@color/hc_ffb45309"
+                android:endColor="@color/hc_ff92400e" />
         </aapt:attr>
     </path>
 </vector>

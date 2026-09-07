@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.EnvironmentCheckActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,8 +16,8 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
-            app:titleTextColor="@color/on_surface" />
+            android:background="?attr/colorSurface"
+            app:titleTextColor="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -36,7 +36,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/primary_container"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -51,7 +51,7 @@
                         android:layout_width="@dimen/size_48"
                         android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_check_circle"
-                        android:tint="@color/on_primary_container"
+                        android:tint="?attr/colorOnPrimaryContainer"
                         android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
@@ -66,7 +66,7 @@
                             android:text="环境检测完成"
                             android:textSize="@dimen/text_16"
                             android:textStyle="bold"
-                            android:textColor="@color/on_primary_container"
+                            android:textColor="?attr/colorOnPrimaryContainer"
                             android:layout_marginBottom="@dimen/space_4" />
                         
                         <TextView
@@ -74,7 +74,7 @@
                             android:layout_height="wrap_content"
                             android:text="设备环境正常，可以运行应用"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_primary_container" />
+                            android:textColor="?attr/colorOnPrimaryContainer" />
                         
                     </LinearLayout>
                     
@@ -87,7 +87,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_16">
                 
@@ -103,7 +103,7 @@
                         android:text="设备信息"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_12" />
                     
                     <LinearLayout
@@ -114,7 +114,7 @@
                         <View
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_1"
-                            android:background="@color/surface_variant"
+                            android:background="?attr/colorSurfaceVariant"
                             android:layout_marginBottom="@dimen/space_12" />
                         
                         <LinearLayout
@@ -129,7 +129,7 @@
                                 android:layout_weight="1"
                                 android:text="制造商"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_manufacturer"
@@ -138,7 +138,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -155,7 +155,7 @@
                                 android:layout_weight="1"
                                 android:text="品牌"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_brand"
@@ -164,7 +164,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -181,7 +181,7 @@
                                 android:layout_weight="1"
                                 android:text="型号"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_model"
@@ -190,7 +190,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -206,7 +206,7 @@
                                 android:layout_weight="1"
                                 android:text="硬件"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_hardware"
@@ -215,7 +215,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -231,7 +231,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_16">
                 
@@ -247,7 +247,7 @@
                         android:text="系统信息"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_12" />
                     
                     <LinearLayout
@@ -258,7 +258,7 @@
                         <View
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_1"
-                            android:background="@color/surface_variant"
+                            android:background="?attr/colorSurfaceVariant"
                             android:layout_marginBottom="@dimen/space_12" />
                         
                         <LinearLayout
@@ -273,7 +273,7 @@
                                 android:layout_weight="1"
                                 android:text="Android版本"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_android_version"
@@ -282,7 +282,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -299,7 +299,7 @@
                                 android:layout_weight="1"
                                 android:text="SDK级别"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_sdk_int"
@@ -308,7 +308,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -325,7 +325,7 @@
                                 android:layout_weight="1"
                                 android:text="安全补丁"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_security_patch"
@@ -334,7 +334,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -350,7 +350,7 @@
                                 android:layout_weight="1"
                                 android:text="语言"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_language"
@@ -359,7 +359,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -375,7 +375,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_16">
                 
@@ -391,7 +391,7 @@
                         android:text="硬件信息"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_12" />
                     
                     <LinearLayout
@@ -402,7 +402,7 @@
                         <View
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_1"
-                            android:background="@color/surface_variant"
+                            android:background="?attr/colorSurfaceVariant"
                             android:layout_marginBottom="@dimen/space_12" />
                         
                         <LinearLayout
@@ -417,7 +417,7 @@
                                 android:layout_weight="1"
                                 android:text="CPU架构"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_cpu_abi"
@@ -426,7 +426,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -443,7 +443,7 @@
                                 android:layout_weight="1"
                                 android:text="处理器数量"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_processors"
@@ -452,7 +452,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -469,7 +469,7 @@
                                 android:layout_weight="1"
                                 android:text="相机"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_camera"
@@ -478,7 +478,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -494,7 +494,7 @@
                                 android:layout_weight="1"
                                 android:text="GPS"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_gps"
@@ -503,7 +503,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -519,7 +519,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_16">
                 
@@ -535,7 +535,7 @@
                         android:text="内存信息"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_12" />
                     
                     <LinearLayout
@@ -546,7 +546,7 @@
                         <View
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_1"
-                            android:background="@color/surface_variant"
+                            android:background="?attr/colorSurfaceVariant"
                             android:layout_marginBottom="@dimen/space_12" />
                         
                         <LinearLayout
@@ -561,7 +561,7 @@
                                 android:layout_weight="1"
                                 android:text="总内存"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_total_memory"
@@ -570,7 +570,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -586,7 +586,7 @@
                                 android:layout_weight="1"
                                 android:text="可用内存"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_available_memory"
@@ -595,7 +595,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -611,7 +611,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_16">
                 
@@ -627,7 +627,7 @@
                         android:text="存储信息"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_12" />
                     
                     <LinearLayout
@@ -638,7 +638,7 @@
                         <View
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_1"
-                            android:background="@color/surface_variant"
+                            android:background="?attr/colorSurfaceVariant"
                             android:layout_marginBottom="@dimen/space_12" />
                         
                         <LinearLayout
@@ -653,7 +653,7 @@
                                 android:layout_weight="1"
                                 android:text="内部存储"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_internal_storage"
@@ -662,7 +662,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -678,7 +678,7 @@
                                 android:layout_weight="1"
                                 android:text="外部存储"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                             
                             <TextView
                                 android:id="@+id/tv_external_storage"
@@ -687,7 +687,7 @@
                                 android:layout_weight="2"
                                 android:text="-"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textStyle="bold" />
                             
                         </LinearLayout>
@@ -707,7 +707,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         app:cardElevation="8dp"
-        app:cardBackgroundColor="@color/surface"
+        app:cardBackgroundColor="?attr/colorSurface"
         app:cardCornerRadius="16dp"
         android:layout_margin="@dimen/space_16">
         
@@ -723,7 +723,7 @@
                 android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="复制信息"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
                 android:layout_marginEnd="@dimen/space_8"
                 app:cornerRadius="@dimen/radius_12"
@@ -735,7 +735,7 @@
                 android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="分享报告"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>

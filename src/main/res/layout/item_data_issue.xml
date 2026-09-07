@@ -5,7 +5,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="@dimen/space_16"
-    android:background="@color/surface"
+    android:background="?attr/colorSurface"
     android:elevation="@dimen/elev_2"
     android:layout_marginBottom="@dimen/space_8">
 
@@ -20,7 +20,7 @@
             android:layout_width="@dimen/size_24"
             android:layout_height="@dimen/size_24"
             android:src="@drawable/ic_info"
-            android:tint="@color/primary"
+            android:tint="?attr/colorPrimary"
             android:layout_marginEnd="@dimen/space_12"/>
         <TextView
             android:id="@+id/issueRowNumber"
@@ -28,7 +28,7 @@
             android:layout_height="wrap_content"
             android:text="行 1"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginEnd="@dimen/space_12"/>
         <TextView
             android:id="@+id/issueDescription"
@@ -37,13 +37,13 @@
             android:layout_weight="1"
             android:text="问题描述"
             android:textSize="@dimen/text_16"
-            android:textColor="@color/on_surface"/>
+            android:textColor="?attr/colorOnSurface"/>
         <ImageView
             android:id="@+id/issueStatusIcon"
             android:layout_width="@dimen/size_24"
             android:layout_height="@dimen/size_24"
             android:src="@drawable/ic_info"
-            android:tint="@color/text_secondary"/>
+            android:tint="?attr/colorControlTextSecondary"/>
     </LinearLayout>
 
     <LinearLayout
@@ -58,7 +58,7 @@
             android:layout_height="wrap_content"
             android:text="输入值"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
@@ -86,7 +86,7 @@
             android:layout_width="wrap_content"
             android:layout_height="@dimen/size_36"
             android:text="跳过"
-            app:backgroundTint="@color/secondary"
+            app:backgroundTint="?attr/colorSecondary"
             android:textColor="@android:color/white"
             android:layout_marginEnd="@dimen/space_8"
             app:cornerRadius="@dimen/radius_12"
@@ -96,7 +96,7 @@
             android:layout_width="wrap_content"
             android:layout_height="@dimen/size_36"
             android:text="应用"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>

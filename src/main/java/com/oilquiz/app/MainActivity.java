@@ -63,6 +63,16 @@ public class MainActivity extends BaseActivity {
         
         // 否则正常调用父类 onCreate，加载原生界面
         super.onCreate(savedInstanceState);
+
+        // 跟随系统壁纸需要读壁纸文件：Android 13+ 请求 READ_MEDIA_IMAGES（小米 HyperOS 的壁纸 API 依赖该权限）
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{android.Manifest.permission.READ_MEDIA_IMAGES}, 1001);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override

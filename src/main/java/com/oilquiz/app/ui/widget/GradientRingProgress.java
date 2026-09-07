@@ -16,6 +16,8 @@ import android.view.animation.DecelerateInterpolator;
 
 import androidx.annotation.Nullable;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * AI 初始化进度环
  *
@@ -38,8 +40,8 @@ public class GradientRingProgress extends View {
 
     private float progress = 0f;        // 0-100
     private float displayedProgress = 0f;
-    private int ringColorStart = 0xFF8B5CF6;
-    private int ringColorEnd = 0xFF06B6D4;
+    private int ringColorStart;
+    private int ringColorEnd = ThemeColors.get(R.color.hc_ff06b6d4);
     private ValueAnimator animator;
 
     public GradientRingProgress(Context context) {
@@ -60,14 +62,14 @@ public class GradientRingProgress extends View {
         trackPaint.setStyle(Paint.Style.STROKE);
         trackPaint.setStrokeCap(Paint.Cap.ROUND);
         trackPaint.setStrokeWidth(dp(10));
-        trackPaint.setColor(Color.argb(40, 255, 255, 255));
+        trackPaint.setColor(ThemeColors.get(R.color.hc_28ffffff));
 
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setColor(Color.WHITE);
         textPaint.setFakeBoldText(true);
 
         subPaint.setTextAlign(Paint.Align.CENTER);
-        subPaint.setColor(Color.argb(180, 255, 255, 255));
+        subPaint.setColor(ThemeColors.get(R.color.hc_b4ffffff));
 
         headPaint.setStyle(Paint.Style.FILL);
         headGlowPaint.setStyle(Paint.Style.FILL);
@@ -125,9 +127,9 @@ public class GradientRingProgress extends View {
             double rad = Math.toRadians(-90 + sweep);
             float hx = (float) (cx + r * Math.cos(rad));
             float hy = (float) (cy + r * Math.sin(rad));
-            headGlowPaint.setColor(Color.argb(90, 139, 92, 246));
+            headGlowPaint.setColor((ringColorStart & 0x00FFFFFF) | 0x5A000000);
             canvas.drawCircle(hx, hy, dp(12), headGlowPaint);
-            headPaint.setColor(0xFF06B6D4);
+            headPaint.setColor(ThemeColors.get(R.color.hc_ff06b6d4));
             canvas.drawCircle(hx, hy, dp(5), headPaint);
         }
 

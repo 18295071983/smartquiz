@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import androidx.appcompat.app.AlertDialog;
 import android.content.Intent;
 import android.os.Build;
@@ -440,7 +442,7 @@ public class QuizActivity extends BaseActivity {
         // 使用用户选择的主题色
         currentThemeColor = themeColorManager.getCurrentThemeColorValue(this);
         int primaryColor = currentThemeColor;
-        int darkColor = getResources().getColor(darkColorRes);
+        int darkColor = ThemeColors.get(this, darkColorRes);
         
         // 更新顶部栏背景
         com.google.android.material.appbar.MaterialToolbar toolbar = findViewById(R.id.toolbar);
@@ -1216,7 +1218,7 @@ public class QuizActivity extends BaseActivity {
                     navButton.setTextColor(getResources().getColor(R.color.white));
                 } else {
                     navButton.setBackgroundResource(R.drawable.nav_button_unanswered);
-                    navButton.setTextColor(getResources().getColor(R.color.text_secondary));
+                    navButton.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
                 }
                 
                 // 标记的题目显示星号
@@ -1679,7 +1681,7 @@ public class QuizActivity extends BaseActivity {
         optionView.setButtonDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         optionView.setText("  " + letterKey + ". " + optionText);
         optionView.setTextAppearance(R.style.TextAppearance_SmartQuiz_BodyLarge);
-        optionView.setTextColor(getResources().getColor(R.color.text_primary));
+        optionView.setTextColor(ThemeColors.attr(this, R.attr.colorControlText));
         optionView.setGravity(android.view.Gravity.CENTER_VERTICAL);
         
         // 布局参数（动态间距）
@@ -1759,8 +1761,8 @@ public class QuizActivity extends BaseActivity {
      * 未选中 → option_bg_default + 默认文字色
      */
     private void updateOptionBackgrounds() {
-        int selectedColor = getResources().getColor(R.color.primary);
-        int defaultColor = getResources().getColor(R.color.text_primary);
+        int selectedColor = ThemeColors.attr(this, R.attr.colorPrimary);
+        int defaultColor = ThemeColors.attr(this, R.attr.colorControlText);
         
         for (com.google.android.material.radiobutton.MaterialRadioButton rb : radioButtons) {
             if (rb.isChecked()) {

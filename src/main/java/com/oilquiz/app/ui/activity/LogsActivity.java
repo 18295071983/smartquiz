@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.Editable;
@@ -723,7 +725,7 @@ public class LogsActivity extends BaseActivity {
                     } else if (SOURCE_AI.equals(item.source)) {
                         holder.tvSource.setTextColor(getResources().getColor(R.color.ai_color, null));
                     } else {
-                        holder.tvSource.setTextColor(getResources().getColor(R.color.text_secondary, null));
+                        holder.tvSource.setTextColor(ThemeColors.get(LogsActivity.this, R.color.text_secondary));
                     }
                 } catch (Exception ignored) {
                 }
@@ -738,7 +740,7 @@ public class LogsActivity extends BaseActivity {
                         holder.tvLevel.setTextColor(getResources().getColor(R.color.warning_color, null));
                         holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag_warning);
                     } else {
-                        holder.tvLevel.setTextColor(getResources().getColor(R.color.primary_color, null));
+                        holder.tvLevel.setTextColor(ThemeColors.get(LogsActivity.this, R.color.primary_color));
                         holder.tvLevel.setBackgroundResource(R.drawable.rounded_tag);
                     }
                 } catch (Exception ignored) {

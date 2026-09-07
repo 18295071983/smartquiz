@@ -13,6 +13,8 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 代码卡片组件：深色代码块 + 语言标签 + 一键复制。
  *
@@ -54,7 +56,7 @@ public class CodeCardView implements ChatComponent {
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(context, 10), dp(context, 6), dp(context, 6), dp(context, 6));
-        header.setBackgroundColor(0xFF1E293B);
+        header.setBackgroundColor(ThemeColors.get(R.color.hc_ff1e293b));
 
         String langLabel = TextUtils.isEmpty(language) ? "代码" : language.toUpperCase();
         if (!TextUtils.isEmpty(title)) {
@@ -63,14 +65,14 @@ public class CodeCardView implements ChatComponent {
         TextView langTv = new TextView(context);
         langTv.setText(langLabel);
         langTv.setTextSize(10);
-        langTv.setTextColor(0xFF94A3B8);
+        langTv.setTextColor(ThemeColors.get(R.color.hc_ff94a3b8));
         header.addView(langTv, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView copyBtn = new TextView(context);
         copyBtn.setText("复制");
         copyBtn.setTextSize(11);
-        copyBtn.setTextColor(0xFF60A5FA);
+        copyBtn.setTextColor(ThemeColors.get(R.color.hc_ff60a5fa));
         copyBtn.setPadding(dp(context, 8), dp(context, 3), dp(context, 8), dp(context, 3));
         copyBtn.setBackground(copyButtonBackground(context));
         copyBtn.setGravity(Gravity.CENTER);
@@ -86,7 +88,7 @@ public class CodeCardView implements ChatComponent {
         TextView codeTv = new TextView(context);
         codeTv.setText(code);
         codeTv.setTextSize(12);
-        codeTv.setTextColor(0xFFE2E8F0);
+        codeTv.setTextColor(ThemeColors.get(R.color.hc_ffe2e8f0));
         codeTv.setTypeface(android.graphics.Typeface.MONOSPACE);
         codeTv.setLineSpacing(0, 1.3f);
         codeTv.setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 10));
@@ -99,14 +101,14 @@ public class CodeCardView implements ChatComponent {
 
     private static android.graphics.drawable.Drawable codeBackground(Context context) {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(0xFF0F172A);
+        gd.setColor(ThemeColors.get(R.color.hc_ff0f172a));
         gd.setCornerRadius(dp(context, 10));
         return gd;
     }
 
     private static android.graphics.drawable.Drawable copyButtonBackground(Context context) {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(0x1A60A5FA);
+        gd.setColor(ThemeColors.get(R.color.hc_1a60a5fa));
         gd.setCornerRadius(dp(context, 5));
         return gd;
     }

@@ -1,5 +1,7 @@
 package com.oilquiz.app.resource;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Color;
@@ -131,7 +133,7 @@ public class ColorResourceProvider {
      */
     private int loadColorFromResource(@ColorRes int colorResId) {
         try {
-            return ResourcesCompat.getColor(resources, colorResId, null);
+            return ThemeColors.get(context, colorResId);
         } catch (Exception e) {
             Log.e(TAG, "Error loading color resource: " + colorResId, e);
             // 返回一个基于资源ID的唯一颜色，确保不同的资源ID返回不同的颜色

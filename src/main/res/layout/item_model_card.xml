@@ -14,7 +14,7 @@
         android:orientation="horizontal"
         android:padding="@dimen/space_16"
         android:gravity="center"
-        android:background="@color/surface">
+        android:background="?attr/colorSurface">
 
         <ImageView
             android:id="@+id/model_icon"
@@ -36,7 +36,7 @@
                 android:text="模型名称"
                 android:textSize="@dimen/text_18"
                 android:textStyle="bold"
-                android:textColor="@color/on_surface" />
+                android:textColor="?attr/colorOnSurface" />
 
             <TextView
                 android:id="@+id/model_description"
@@ -44,7 +44,7 @@
                 android:layout_height="wrap_content"
                 android:text="模型描述"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginTop="@dimen/space_4" />
 
         </LinearLayout>

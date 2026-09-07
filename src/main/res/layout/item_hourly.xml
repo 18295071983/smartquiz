@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:text="现在"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_tertiary"
+        android:textColor="?attr/colorControlTextHint"
         android:textStyle="bold"/>
 
     <ImageView
@@ -30,7 +30,7 @@
         android:layout_height="wrap_content"
         android:text="25°"
         android:textSize="@dimen/text_16"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:textStyle="bold"
         android:layout_marginTop="@dimen/space_8"/>
 

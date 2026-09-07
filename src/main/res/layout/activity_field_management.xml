@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="字段管理"
-            app:titleTextColor="@color/text_primary"/>
+            app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -48,7 +48,7 @@
                         android:text="选择表"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     <Spinner
                         android:id="@+id/spinnerTable"
@@ -68,7 +68,7 @@
                             android:layout_weight="1"
                             android:layout_marginEnd="@dimen/space_8"
                             android:text="加载字段"
-                            app:backgroundTint="@color/primary"
+                            app:backgroundTint="?attr/colorPrimary"
                             android:textColor="@android:color/white"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -79,7 +79,7 @@
                             android:layout_weight="1"
                             android:layout_marginStart="@dimen/space_8"
                             android:text="添加字段"
-                            app:backgroundTint="@color/secondary"
+                            app:backgroundTint="?attr/colorSecondary"
                             android:textColor="@android:color/white"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -104,7 +104,7 @@
                         android:text="字段列表"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rvFields"
@@ -117,7 +117,7 @@
                         android:layout_height="wrap_content"
                         android:text="请先选择表并加载字段"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:gravity="center"
                         android:padding="@dimen/space_20"
                         android:visibility="visible"/>
@@ -140,14 +140,14 @@
                         android:text="操作说明"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="• 点击字段可查看详细信息\n• SQLite不支持直接删除/修改字段\n• 如需修改字段，请通过数据库版本升级\n• 添加字段操作会直接执行\n• 操作前请备份数据库"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:lineSpacingExtra="4dp"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

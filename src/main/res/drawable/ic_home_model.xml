@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#D97706"
-                android:endColor="#FBBF24" />
+                android:startColor="@color/hc_ffd97706"
+                android:endColor="@color/hc_fffbbf24" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 芯片外壳（白色渐变） -->
@@ -30,8 +30,8 @@
                 android:type="linear"
                 android:startX="6" android:startY="7"
                 android:endX="18" android:endY="17"
-                android:startColor="#FFFFFF"
-                android:endColor="#FEF3C7" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_fffef3c7" />
         </aapt:attr>
     </path>
 
@@ -42,14 +42,14 @@
                 android:type="linear"
                 android:startX="9" android:startY="9.5"
                 android:endX="15" android:endY="14.5"
-                android:startColor="#F59E0B"
-                android:endColor="#B45309" />
+                android:startColor="@color/hc_fff59e0b"
+                android:endColor="@color/hc_ffb45309" />
         </aapt:attr>
     </path>
 
     <!-- 内核内小方块（白色，细节） -->
     <path
-        android:fillColor="#FEF3C7"
+        android:fillColor="@color/hc_fffef3c7"
         android:pathData="M11,11 H13 V13 H11 Z" />
 
     <!-- 四周引脚（深琥珀） -->
@@ -59,8 +59,8 @@
                 android:type="linear"
                 android:startX="5" android:startY="5"
                 android:endX="19" android:endY="19"
-                android:startColor="#F59E0B"
-                android:endColor="#B45309" />
+                android:startColor="@color/hc_fff59e0b"
+                android:endColor="@color/hc_ffb45309" />
         </aapt:attr>
     </path>
 </vector>

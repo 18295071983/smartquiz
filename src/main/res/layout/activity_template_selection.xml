@@ -32,7 +32,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginBottom="@dimen/space_8" />
 
         <TextView
@@ -89,7 +89,7 @@
             android:layout_height="wrap_content"
             android:text="导出格式"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginBottom="@dimen/space_8"
             android:layout_marginTop="@dimen/space_8" />
 
@@ -112,7 +112,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="下一步"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 

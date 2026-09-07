@@ -43,7 +43,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginTop="@dimen/space_2" />
 
             <TextView
@@ -51,7 +51,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_11"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:layout_marginTop="@dimen/space_2" />
 
         </LinearLayout>
@@ -67,7 +67,7 @@
                 android:layout_height="wrap_content"
                 android:text="保存"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:padding="@dimen/space_8" />
 
             <TextView
@@ -76,7 +76,7 @@
                 android:layout_height="wrap_content"
                 android:text="分享"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:padding="@dimen/space_8" />
 
         </LinearLayout>

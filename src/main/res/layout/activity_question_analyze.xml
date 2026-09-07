@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.QuestionAnalyzeActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="题目分析"
-            app:titleTextColor="@color/text_primary"/>
+            app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -35,7 +35,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/card_background"
+                app:cardBackgroundColor="?attr/colorCardBackground"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
@@ -49,7 +49,7 @@
                         android:text="题目信息"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     
                     <com.google.android.material.textfield.TextInputLayout
@@ -63,14 +63,14 @@
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary">
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/question_text_input"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="textMultiLine"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:minLines="3"/>
                     </com.google.android.material.textfield.TextInputLayout>
                     
@@ -85,14 +85,14 @@
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary">
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/options_input"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="textMultiLine"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:minLines="4"/>
                     </com.google.android.material.textfield.TextInputLayout>
                     
@@ -107,13 +107,13 @@
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary">
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/correct_answer_input"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:textColor="@color/text_primary"/>
+                            android:textColor="?attr/colorControlText"/>
                     </com.google.android.material.textfield.TextInputLayout>
                     
                     <com.google.android.material.button.MaterialButton
@@ -122,8 +122,8 @@
                         android:layout_height="@dimen/size_48"
                         android:text="分析题目"
                         android:textAllCaps="false"
-                        android:textColor="@color/on_primary"
-                        app:backgroundTint="@color/primary"
+                        android:textColor="?attr/colorOnPrimary"
+                        app:backgroundTint="?attr/colorPrimary"
                         app:cornerRadius="@dimen/radius_12"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -132,7 +132,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/card_background"
+                app:cardBackgroundColor="?attr/colorCardBackground"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
@@ -146,7 +146,7 @@
                         android:text="分析结果"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     
                     <LinearLayout
@@ -167,7 +167,7 @@
                             android:layout_height="wrap_content"
                             android:text="加载中..."
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:layout_marginBottom="@dimen/space_8"/>
                         <TextView
                             android:id="@+id/loading_submessage"
@@ -175,7 +175,7 @@
                             android:layout_height="wrap_content"
                             android:text=""
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_secondary"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:layout_marginBottom="@dimen/space_8"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_cancel"
@@ -199,7 +199,7 @@
                             android:layout_height="wrap_content"
                             android:text="题目:"
                             android:textSize="@dimen/text_16"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:layout_marginBottom="@dimen/space_8"/>
                     
                     <TextView
@@ -208,7 +208,7 @@
                         android:layout_height="wrap_content"
                         android:text="选项:"
                         android:textSize="@dimen/text_16"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     
                     <TextView
@@ -226,7 +226,7 @@
                         android:text="解析:"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:id="@+id/explanation"
@@ -234,7 +234,7 @@
                         android:layout_height="wrap_content"
                         android:text="解析内容将显示在这里"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_16"/>
                     
                     <TextView
@@ -243,7 +243,7 @@
                         android:text="知识点:"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:id="@+id/knowledge_points"
@@ -251,7 +251,7 @@
                         android:layout_height="wrap_content"
                         android:text="知识点将显示在这里"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_16"/>
                     
                     <TextView
@@ -260,7 +260,7 @@
                         android:text="学习建议:"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:id="@+id/learning_suggestions"
@@ -268,7 +268,7 @@
                         android:layout_height="wrap_content"
                         android:text="学习建议将显示在这里"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_16"/>
                     
                     <LinearLayout
@@ -282,8 +282,8 @@
                             android:layout_weight="1"
                             android:text="保存分析"
                             android:textAllCaps="false"
-                            android:textColor="@color/on_primary"
-                            app:backgroundTint="@color/primary"
+                            android:textColor="?attr/colorOnPrimary"
+                            app:backgroundTint="?attr/colorPrimary"
                             app:cornerRadius="@dimen/radius_12"
                             android:layout_marginEnd="@dimen/space_8"/>
                         <com.google.android.material.button.MaterialButton
@@ -293,8 +293,8 @@
                             android:layout_weight="1"
                             android:text="分享"
                             android:textAllCaps="false"
-                            android:textColor="@color/on_secondary"
-                            app:backgroundTint="@color/secondary"
+                            android:textColor="?attr/colorOnSecondary"
+                            app:backgroundTint="?attr/colorSecondary"
                             app:cornerRadius="@dimen/radius_12"
                             android:layout_marginEnd="@dimen/space_8"/>
                         <com.google.android.material.button.MaterialButton
@@ -304,8 +304,8 @@
                             android:layout_weight="1"
                             android:text="复制"
                             android:textAllCaps="false"
-                            android:textColor="@color/on_secondary"
-                            app:backgroundTint="@color/secondary"
+                            android:textColor="?attr/colorOnSecondary"
+                            app:backgroundTint="?attr/colorSecondary"
                             app:cornerRadius="@dimen/radius_12"/>
                     </LinearLayout>
                     </LinearLayout>

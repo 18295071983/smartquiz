@@ -43,7 +43,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_14"
                 android:lineSpacingExtra="4sp"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:fontFamily="sans-serif" />
 
         </ScrollView>

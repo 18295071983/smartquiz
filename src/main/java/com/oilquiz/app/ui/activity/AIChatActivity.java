@@ -112,6 +112,7 @@ import android.os.Build;
 
 import dagger.hilt.android.AndroidEntryPoint;
 
+import com.oilquiz.app.theme.ThemeColors;
 @AndroidEntryPoint
 public class AIChatActivity extends BaseActivity {
 
@@ -1585,7 +1586,7 @@ public class AIChatActivity extends BaseActivity {
         TextView titleView = new TextView(this);
         titleView.setText(flow.toolDisplayName + "  步骤 " + (currentStepIdx[0] + 1) + "/" + activeSteps.size());
         titleView.setTextSize(16);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -1595,8 +1596,8 @@ public class AIChatActivity extends BaseActivity {
         if (currentStepIdx[0] > 0) {
             android.widget.Button prevBtn = new android.widget.Button(this);
             prevBtn.setText("上一步");
-            prevBtn.setBackgroundColor(0xFFEEEEEE);
-            prevBtn.setTextColor(0xFF666666);
+            prevBtn.setBackgroundColor(ThemeColors.get(R.color.hc_ffeeeeee));
+            prevBtn.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams prevParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             prevBtn.setLayoutParams(prevParams);
@@ -1613,7 +1614,7 @@ public class AIChatActivity extends BaseActivity {
 
         // 分隔线
         View divider = new View(this);
-        divider.setBackgroundColor(0xFFE0E0E0);
+        divider.setBackgroundColor(ThemeColors.get(R.color.hc_ffe0e0e0));
         LinearLayout.LayoutParams divParams = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 1);
         divParams.topMargin = 16;
@@ -1628,7 +1629,7 @@ public class AIChatActivity extends BaseActivity {
             ctxBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
             ctxBar.setPadding(dp(12), dp(10), dp(12), dp(10));
             android.graphics.drawable.GradientDrawable ctxBg = new android.graphics.drawable.GradientDrawable();
-            ctxBg.setColor(0xFFE3F2FD);
+            ctxBg.setColor(ThemeColors.get(R.color.hc_ffe3f2fd));
             ctxBg.setCornerRadius(dp(8));
             ctxBar.setBackground(ctxBg);
             LinearLayout.LayoutParams ctxLp = new LinearLayout.LayoutParams(
@@ -1646,7 +1647,7 @@ public class AIChatActivity extends BaseActivity {
             }
             ctxText.setText(ctxSummary);
             ctxText.setTextSize(13);
-            ctxText.setTextColor(0xFF1565C0);
+            ctxText.setTextColor(ThemeColors.get(R.color.hc_ff1565c0));
             ctxText.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             ctxBar.addView(ctxText);
@@ -1655,7 +1656,7 @@ public class AIChatActivity extends BaseActivity {
             TextView modifyBtn = new TextView(this);
             modifyBtn.setText("修改");
             modifyBtn.setTextSize(13);
-            modifyBtn.setTextColor(0xFF1565C0);
+            modifyBtn.setTextColor(ThemeColors.get(R.color.hc_ff1565c0));
             modifyBtn.setTypeface(null, android.graphics.Typeface.BOLD);
             modifyBtn.setPadding(dp(8), dp(4), dp(4), dp(4));
             modifyBtn.setOnClickListener(v -> {
@@ -1672,14 +1673,14 @@ public class AIChatActivity extends BaseActivity {
             TextView stepTitle = new TextView(this);
             stepTitle.setText("确认执行");
             stepTitle.setTextSize(15);
-            stepTitle.setTextColor(0xFF3F51B5);
+            stepTitle.setTextColor(ThemeColors.get(R.color.hc_ff3f51b5));
             stepTitle.setTypeface(null, android.graphics.Typeface.BOLD);
             container.addView(stepTitle);
         } else {
             TextView stepTitle = new TextView(this);
             stepTitle.setText(step.title);
             stepTitle.setTextSize(15);
-            stepTitle.setTextColor(0xFF3F51B5);
+            stepTitle.setTextColor(ThemeColors.get(R.color.hc_ff3f51b5));
             stepTitle.setTypeface(null, android.graphics.Typeface.BOLD);
             container.addView(stepTitle);
 
@@ -1687,7 +1688,7 @@ public class AIChatActivity extends BaseActivity {
                 TextView descView = new TextView(this);
                 descView.setText(step.description);
                 descView.setTextSize(13);
-                descView.setTextColor(0xFF666666);
+                descView.setTextColor(ThemeColors.get(R.color.hc_ff666666));
                 LinearLayout.LayoutParams descParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 descParams.topMargin = 8;
@@ -1711,9 +1712,9 @@ public class AIChatActivity extends BaseActivity {
                     card.setClickable(true);
                     // 卡片背景：圆角16dp 白底 边框1dp
                     final android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
-                    cardBg.setColor(0xFFFFFFFF);
+                    cardBg.setColor(ThemeColors.get(R.color.hc_ffffffff));
                     cardBg.setCornerRadius(dp(16));
-                    cardBg.setStroke(dp(1), 0xFFE0E0E0);
+                    cardBg.setStroke(dp(1), ThemeColors.get(R.color.hc_ffe0e0e0));
                     card.setBackground(cardBg);
                     card.setElevation(dp(2));
                     LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
@@ -1735,19 +1736,19 @@ public class AIChatActivity extends BaseActivity {
                     TextView labelTv = new TextView(this);
                     labelTv.setText(opt.label);
                     labelTv.setTextSize(15);
-                    labelTv.setTextColor(0xFF333333);
+                    labelTv.setTextColor(ThemeColors.get(R.color.hc_ff333333));
                     labelTv.setLayoutParams(new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
                     card.addView(labelTv);
 
                     // 若该选项已被选中，使用选中色高亮
                     if (opt.value.equals(selectedParams.get(step.paramKey))) {
-                        cardBg.setColor(0xFFE8EAF6);
+                        cardBg.setColor(ThemeColors.get(R.color.hc_ffe8eaf6));
                     }
 
                     card.setOnClickListener(v -> {
                         // 选中瞬间高亮，记录选择后重新计算 activeSteps 并前进
-                        cardBg.setColor(0xFFE8EAF6);
+                        cardBg.setColor(ThemeColors.get(R.color.hc_ffe8eaf6));
                         selectedParams.put(step.paramKey, opt.value);
                         activeStepsHolder[0] = flow.getActiveSteps(selectedParams);
                         currentStepIdx[0]++;
@@ -1788,7 +1789,7 @@ public class AIChatActivity extends BaseActivity {
                 TextView loadingView = new TextView(this);
                 loadingView.setText("⏳ 正在获取可选列表...");
                 loadingView.setTextSize(12);
-                loadingView.setTextColor(getColor(R.color.text_secondary));
+                loadingView.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
                 optionsBox.addView(loadingView);
 
                 final ToolGuideFlow.GuideStep.DynamicOptionsSpec spec = step.dynamicOptions;
@@ -1801,14 +1802,14 @@ public class AIChatActivity extends BaseActivity {
                             TextView failView = new TextView(this);
                             failView.setText("ℹ️ 未能获取列表，请直接输入");
                             failView.setTextSize(12);
-                            failView.setTextColor(getColor(R.color.text_secondary));
+                            failView.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
                             optionsBox.addView(failView);
                             return;
                         }
                         TextView tipView = new TextView(this);
                         tipView.setText("👇 点击选择（或在上方直接输入）");
                         tipView.setTextSize(12);
-                        tipView.setTextColor(getColor(R.color.text_secondary));
+                        tipView.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
                         LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                         tipLp.bottomMargin = dp(6);
@@ -1823,10 +1824,10 @@ public class AIChatActivity extends BaseActivity {
                             TextView chip = new TextView(this);
                             chip.setText(val.isEmpty() ? (spec.allOptionLabel != null ? spec.allOptionLabel : "全部") : val);
                             chip.setTextSize(13);
-                            chip.setTextColor(0xFF333333);
+                            chip.setTextColor(ThemeColors.get(R.color.hc_ff333333));
                             chip.setPadding(dp(12), dp(10), dp(12), dp(10));
                             android.graphics.drawable.GradientDrawable chipBg = new android.graphics.drawable.GradientDrawable();
-                            chipBg.setColor(0xFFF5F5F5);
+                            chipBg.setColor(ThemeColors.get(R.color.hc_fff5f5f5));
                             chipBg.setCornerRadius(dp(8));
                             chip.setBackground(chipBg);
                             LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
@@ -1846,7 +1847,7 @@ public class AIChatActivity extends BaseActivity {
                             TextView moreView = new TextView(this);
                             moreView.setText("… 共 " + values.size() + " 项，其余请直接输入");
                             moreView.setTextSize(11);
-                            moreView.setTextColor(0xFFAAAAAA);
+                            moreView.setTextColor(ThemeColors.get(R.color.hc_ffaaaaaa));
                             optionsBox.addView(moreView);
                         }
                     });
@@ -1856,8 +1857,8 @@ public class AIChatActivity extends BaseActivity {
             // 下一步按钮
             android.widget.Button nextBtn = new android.widget.Button(this);
             nextBtn.setText("下一步");
-            nextBtn.setBackgroundColor(0xFF6200EE);
-            nextBtn.setTextColor(0xFFFFFFFF);
+            nextBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            nextBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             nextLp.topMargin = 24;
@@ -1890,12 +1891,12 @@ public class AIChatActivity extends BaseActivity {
                 valueView.setText("（尚未选择）");
             }
             valueView.setTextSize(12);
-            valueView.setTextColor(0xFF555555);
+            valueView.setTextColor(ThemeColors.get(R.color.hc_ff555555));
             valueView.setMaxLines(3);
             valueView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             int padDp = (int) (12 * getResources().getDisplayMetrics().density);
             valueView.setPadding(padDp, padDp / 2, padDp, padDp / 2);
-            valueView.setBackgroundColor(0xFFF5F5F5);
+            valueView.setBackgroundColor(ThemeColors.get(R.color.hc_fff5f5f5));
             LinearLayout.LayoutParams vvLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             vvLp.topMargin = padDp;
@@ -1937,8 +1938,8 @@ public class AIChatActivity extends BaseActivity {
             // 3. 下一步按钮（与 INPUT 分支一致，使用同一个 selectedParams 聚合）
             android.widget.Button nextBtn = new android.widget.Button(this);
             nextBtn.setText("下一步");
-            nextBtn.setBackgroundColor(0xFF6200EE);
-            nextBtn.setTextColor(0xFFFFFFFF);
+            nextBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            nextBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             nextLp.topMargin = padDp * 2;
@@ -1971,7 +1972,7 @@ public class AIChatActivity extends BaseActivity {
             }
             summaryView.setText(sb.toString().trim());
             summaryView.setTextSize(13);
-            summaryView.setTextColor(0xFF333333);
+            summaryView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
             LinearLayout.LayoutParams sumLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             sumLp.topMargin = 16;
@@ -1981,8 +1982,8 @@ public class AIChatActivity extends BaseActivity {
             // 执行工具按钮
             android.widget.Button execBtn = new android.widget.Button(this);
             execBtn.setText("⚡ 执行工具");
-            execBtn.setBackgroundColor(0xFF6200EE);
-            execBtn.setTextColor(0xFFFFFFFF);
+            execBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            execBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams execLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             execLp.topMargin = 24;
@@ -2397,7 +2398,7 @@ public class AIChatActivity extends BaseActivity {
         TextView titleView = new TextView(this);
         titleView.setText("工具执行缺少参数，请补充：");
         titleView.setTextSize(15);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         layout.addView(titleView);
 
@@ -2411,7 +2412,7 @@ public class AIChatActivity extends BaseActivity {
             TextView label = new TextView(this);
             label.setText(mp.description);
             label.setTextSize(13);
-            label.setTextColor(0xFF666666);
+            label.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             labelLp.topMargin = 16;
@@ -2438,12 +2439,12 @@ public class AIChatActivity extends BaseActivity {
                 valueView.setText((tempStep.paramValue != null && !tempStep.paramValue.isEmpty())
                         ? tempStep.paramValue : "（尚未选择）");
                 valueView.setTextSize(12);
-                valueView.setTextColor(0xFF555555);
+                valueView.setTextColor(ThemeColors.get(R.color.hc_ff555555));
                 valueView.setMaxLines(3);
                 valueView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
                 int padDp = (int) (12 * getResources().getDisplayMetrics().density);
                 valueView.setPadding(padDp, padDp / 2, padDp, padDp / 2);
-                valueView.setBackgroundColor(0xFFF5F5F5);
+                valueView.setBackgroundColor(ThemeColors.get(R.color.hc_fff5f5f5));
                 LinearLayout.LayoutParams vvLp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 vvLp.topMargin = 4;
@@ -2500,8 +2501,8 @@ public class AIChatActivity extends BaseActivity {
 
         android.widget.Button submitBtn = new android.widget.Button(this);
         submitBtn.setText("提交并重试");
-        submitBtn.setBackgroundColor(0xFF6200EE);
-        submitBtn.setTextColor(0xFFFFFFFF);
+        submitBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+        submitBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         btnLp.topMargin = 24;
@@ -2619,7 +2620,7 @@ public class AIChatActivity extends BaseActivity {
         TextView titleView = new TextView(this);
         titleView.setText((flow.icon != null ? flow.icon + " " : "") + flow.displayName);
         titleView.setTextSize(18);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         container.addView(titleView);
 
@@ -2628,7 +2629,7 @@ public class AIChatActivity extends BaseActivity {
             TextView descView = new TextView(this);
             descView.setText(flow.description);
             descView.setTextSize(13);
-            descView.setTextColor(0xFF666666);
+            descView.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             dlp.topMargin = 8;
@@ -2638,7 +2639,7 @@ public class AIChatActivity extends BaseActivity {
 
         // 分隔线
         View divider = new View(this);
-        divider.setBackgroundColor(0xFFE0E0E0);
+        divider.setBackgroundColor(ThemeColors.get(R.color.hc_ffe0e0e0));
         LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 1);
         divLp.topMargin = 16;
@@ -2650,7 +2651,7 @@ public class AIChatActivity extends BaseActivity {
         TextView stepsTitle = new TextView(this);
         stepsTitle.setText("执行步骤:");
         stepsTitle.setTextSize(14);
-        stepsTitle.setTextColor(0xFF3F51B5);
+        stepsTitle.setTextColor(ThemeColors.get(R.color.hc_ff3f51b5));
         stepsTitle.setTypeface(null, android.graphics.Typeface.BOLD);
         container.addView(stepsTitle);
         if (flow.steps != null) {
@@ -2659,7 +2660,7 @@ public class AIChatActivity extends BaseActivity {
                 TextView stepView = new TextView(this);
                 stepView.setText((i + 1) + ". " + (s.icon != null ? s.icon + " " : "") + s.actionDescription);
                 stepView.setTextSize(14);
-                stepView.setTextColor(0xFF333333);
+                stepView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
                 LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 slp.topMargin = 8;
@@ -2671,8 +2672,8 @@ public class AIChatActivity extends BaseActivity {
         // 开始执行按钮
         android.widget.Button startBtn = new android.widget.Button(this);
         startBtn.setText("🚀 开始执行");
-        startBtn.setBackgroundColor(0xFF6200EE);
-        startBtn.setTextColor(0xFFFFFFFF);
+        startBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+        startBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         startLp.topMargin = 24;
@@ -3006,7 +3007,7 @@ public class AIChatActivity extends BaseActivity {
         TextView titleView = new TextView(this);
         titleView.setText("🔧 " + step.actionDescription + " 需要补充信息：");
         titleView.setTextSize(15);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         layout.addView(titleView);
 
@@ -3015,7 +3016,7 @@ public class AIChatActivity extends BaseActivity {
             TextView label = new TextView(this);
             label.setText(mp.description);
             label.setTextSize(13);
-            label.setTextColor(0xFF666666);
+            label.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             labelLp.topMargin = 16;
@@ -3035,8 +3036,8 @@ public class AIChatActivity extends BaseActivity {
 
         android.widget.Button submitBtn = new android.widget.Button(this);
         submitBtn.setText("提交并重试");
-        submitBtn.setBackgroundColor(0xFF6200EE);
-        submitBtn.setTextColor(0xFFFFFFFF);
+        submitBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+        submitBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         btnLp.topMargin = 24;
@@ -3108,7 +3109,7 @@ public class AIChatActivity extends BaseActivity {
         titleView.setText((step.icon != null ? step.icon + " " : "") + gs.title
                 + "  (" + (idx[0] + 1) + "/" + step.guideSteps.size() + ")");
         titleView.setTextSize(16);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         container.addView(titleView);
 
@@ -3117,7 +3118,7 @@ public class AIChatActivity extends BaseActivity {
             TextView descView = new TextView(this);
             descView.setText(gs.description);
             descView.setTextSize(13);
-            descView.setTextColor(0xFF666666);
+            descView.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             dlp.topMargin = 8;
@@ -3137,9 +3138,9 @@ public class AIChatActivity extends BaseActivity {
                     card.setPadding(dp(16), dp(16), dp(16), dp(16));
                     card.setClickable(true);
                     final android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
-                    cardBg.setColor(0xFFFFFFFF);
+                    cardBg.setColor(ThemeColors.get(R.color.hc_ffffffff));
                     cardBg.setCornerRadius(dp(16));
-                    cardBg.setStroke(dp(1), 0xFFE0E0E0);
+                    cardBg.setStroke(dp(1), ThemeColors.get(R.color.hc_ffe0e0e0));
                     card.setBackground(cardBg);
                     card.setElevation(dp(2));
                     LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
@@ -3159,13 +3160,13 @@ public class AIChatActivity extends BaseActivity {
                     TextView labelTv = new TextView(this);
                     labelTv.setText(opt.label);
                     labelTv.setTextSize(15);
-                    labelTv.setTextColor(0xFF333333);
+                    labelTv.setTextColor(ThemeColors.get(R.color.hc_ff333333));
                     labelTv.setLayoutParams(new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
                     card.addView(labelTv);
 
                     card.setOnClickListener(v -> {
-                        cardBg.setColor(0xFFE8EAF6);
+                        cardBg.setColor(ThemeColors.get(R.color.hc_ffe8eaf6));
                         collected.put(gs.paramKey, opt.value);
                         idx[0]++;
                         renderCompositeCollectStep(dialog, step, collected, idx, callback);
@@ -3193,8 +3194,8 @@ public class AIChatActivity extends BaseActivity {
 
             android.widget.Button nextBtn = new android.widget.Button(this);
             nextBtn.setText("下一步");
-            nextBtn.setBackgroundColor(0xFF6200EE);
-            nextBtn.setTextColor(0xFFFFFFFF);
+            nextBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            nextBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams nbLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             nbLp.topMargin = dp(24);
@@ -3224,12 +3225,12 @@ public class AIChatActivity extends BaseActivity {
                 valueView.setText("（尚未选择）");
             }
             valueView.setTextSize(12);
-            valueView.setTextColor(0xFF555555);
+            valueView.setTextColor(ThemeColors.get(R.color.hc_ff555555));
             valueView.setMaxLines(3);
             valueView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             int padDp = dp(12);
             valueView.setPadding(padDp, padDp / 2, padDp, padDp / 2);
-            valueView.setBackgroundColor(0xFFF5F5F5);
+            valueView.setBackgroundColor(ThemeColors.get(R.color.hc_fff5f5f5));
             LinearLayout.LayoutParams vvLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             vvLp.topMargin = padDp;
@@ -3269,8 +3270,8 @@ public class AIChatActivity extends BaseActivity {
 
             android.widget.Button nextBtn = new android.widget.Button(this);
             nextBtn.setText("下一步");
-            nextBtn.setBackgroundColor(0xFF6200EE);
-            nextBtn.setTextColor(0xFFFFFFFF);
+            nextBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            nextBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             nextLp.topMargin = padDp * 2;
@@ -7130,10 +7131,10 @@ public class AIChatActivity extends BaseActivity {
         boolean on = aiConfig != null && aiConfig.isLocalAgentEnabled();
         if (on) {
             chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.primary)));
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
             chip.setTextColor(getColor(R.color.white));
             chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.primary)));
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
             chip.setText("智能助手 ON");
             chip.setChipIconTint(android.content.res.ColorStateList.valueOf(
                     getColor(R.color.white)));
@@ -7155,10 +7156,10 @@ public class AIChatActivity extends BaseActivity {
         boolean on = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
         if (on) {
             chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.primary)));
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
             chip.setTextColor(getColor(R.color.white));
             chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.primary)));
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
             chip.setText("🧠 深度思考 ON");
         } else {
             chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
@@ -8563,7 +8564,7 @@ public class AIChatActivity extends BaseActivity {
             if (voiceInputMode) {
                 holdToTalk.setText("按住 说话");
                 holdToTalk.setBackgroundResource(R.drawable.rounded_edittext);
-                holdToTalk.setTextColor(getResources().getColor(R.color.text_secondary, getTheme()));
+                holdToTalk.setTextColor(ThemeColors.get(this, R.color.text_secondary));
             }
         }
         if (btnVoice != null) {
@@ -8644,15 +8645,15 @@ public class AIChatActivity extends BaseActivity {
         if (slideToCancel) {
             holdToTalk.setText("松开 取消");
             holdToTalk.setBackgroundResource(R.drawable.rounded_edittext_error);
-            holdToTalk.setTextColor(0xFFE53935);
+            holdToTalk.setTextColor(ThemeColors.get(R.color.hc_ffe53935));
         } else if (pressed) {
             holdToTalk.setText("松开 结束");
             holdToTalk.setBackgroundResource(R.drawable.rounded_edittext_pressed);
-            holdToTalk.setTextColor(getResources().getColor(R.color.on_primary_container, getTheme()));
+            holdToTalk.setTextColor(ThemeColors.get(this, R.color.on_primary_container));
         } else {
             holdToTalk.setText("按住 说话");
             holdToTalk.setBackgroundResource(R.drawable.rounded_edittext);
-            holdToTalk.setTextColor(getResources().getColor(R.color.text_secondary, getTheme()));
+            holdToTalk.setTextColor(ThemeColors.get(this, R.color.text_secondary));
         }
     }
 
@@ -8735,8 +8736,8 @@ public class AIChatActivity extends BaseActivity {
         if (btnAutoTts == null) return;
         btnAutoTts.setText(autoTtsEnabled ? "🔊" : "🔇");
         btnAutoTts.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                getResources().getColor(autoTtsEnabled ? R.color.primary_container : R.color.surface_variant, getTheme())));
-        btnAutoTts.setTextColor(getResources().getColor(autoTtsEnabled ? R.color.on_primary_container : R.color.text_secondary, getTheme()));
+                ThemeColors.get(this, autoTtsEnabled ? R.color.primary_container : R.color.surface_variant)));
+        btnAutoTts.setTextColor(ThemeColors.get(this, autoTtsEnabled ? R.color.on_primary_container : R.color.text_secondary));
     }
 
     /** AI 消息完成后，若自动朗读开启则自动朗读（清洗后无有效内容则跳过，同一消息不重复朗读） */

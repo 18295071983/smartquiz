@@ -43,7 +43,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginTop="@dimen/space_2" />
 
         </LinearLayout>
@@ -80,7 +80,7 @@
                     android:layout_width="@dimen/size_0"
                     android:layout_height="@dimen/size_2"
                     android:layout_weight="1"
-                    android:background="@color/divider"
+                    android:background="?attr/colorDivider"
                     android:layout_marginHorizontal="@dimen/space_4" />
 
                 <View
@@ -94,7 +94,7 @@
                     android:layout_width="@dimen/size_0"
                     android:layout_height="@dimen/size_2"
                     android:layout_weight="1"
-                    android:background="@color/divider"
+                    android:background="?attr/colorDivider"
                     android:layout_marginHorizontal="@dimen/space_4" />
 
                 <View
@@ -108,7 +108,7 @@
                     android:layout_width="@dimen/size_0"
                     android:layout_height="@dimen/size_2"
                     android:layout_weight="1"
-                    android:background="@color/divider"
+                    android:background="?attr/colorDivider"
                     android:layout_marginHorizontal="@dimen/space_4" />
 
                 <View
@@ -136,7 +136,7 @@
                 android:text="初始化"
                 android:textSize="@dimen/text_12"
                 android:textAlignment="center"
-                android:textColor="@color/primary" />
+                android:textColor="?attr/colorPrimary" />
 
             <TextView
                 android:id="@+id/step_label_2"
@@ -146,7 +146,7 @@
                 android:text="上下文"
                 android:textSize="@dimen/text_12"
                 android:textAlignment="center"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
             <TextView
                 android:id="@+id/step_label_3"
@@ -156,7 +156,7 @@
                 android:text="编码"
                 android:textSize="@dimen/text_12"
                 android:textAlignment="center"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
             <TextView
                 android:id="@+id/step_label_4"
@@ -166,7 +166,7 @@
                 android:text="生成"
                 android:textSize="@dimen/text_12"
                 android:textAlignment="center"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
         </LinearLayout>
 
@@ -198,7 +198,7 @@
             android:layout_marginEnd="@dimen/space_4"
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
-            app:cardBackgroundColor="@color/surface_variant">
+            app:cardBackgroundColor="?attr/colorSurfaceVariant">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -211,7 +211,7 @@
                     android:layout_height="wrap_content"
                     android:text="Token数"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary" />
+                    android:textColor="?attr/colorControlTextSecondary" />
 
                 <TextView
                     android:id="@+id/stats_tokens"
@@ -234,7 +234,7 @@
             android:layout_marginHorizontal="@dimen/space_4"
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
-            app:cardBackgroundColor="@color/surface_variant">
+            app:cardBackgroundColor="?attr/colorSurfaceVariant">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -247,7 +247,7 @@
                     android:layout_height="wrap_content"
                     android:text="速度"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary" />
+                    android:textColor="?attr/colorControlTextSecondary" />
 
                 <TextView
                     android:id="@+id/stats_speed"
@@ -270,7 +270,7 @@
             android:layout_marginStart="@dimen/space_4"
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
-            app:cardBackgroundColor="@color/surface_variant">
+            app:cardBackgroundColor="?attr/colorSurfaceVariant">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -283,7 +283,7 @@
                     android:layout_height="wrap_content"
                     android:text="预计剩余"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary" />
+                    android:textColor="?attr/colorControlTextSecondary" />
 
                 <TextView
                     android:id="@+id/stats_remaining"

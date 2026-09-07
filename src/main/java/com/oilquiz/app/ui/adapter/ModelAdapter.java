@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.adapter;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -239,16 +241,16 @@ public class ModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
                     statusTextView.setText("当前使用");
                     statusTextView.setTextColor(context.getResources().getColor(R.color.success_color));
                     if (modelCard != null) {
-                        modelCard.setBackgroundColor(context.getResources().getColor(R.color.card_background));
+                        modelCard.setBackgroundColor(ThemeColors.attr(context, R.attr.colorCardBackground));
                     }
-                    itemView.setBackgroundColor(context.getResources().getColor(R.color.card_background));
+                    itemView.setBackgroundColor(ThemeColors.attr(context, R.attr.colorCardBackground));
                 } else {
                     statusTextView.setText("点击切换");
-                    statusTextView.setTextColor(context.getResources().getColor(R.color.primary));
+                    statusTextView.setTextColor(ThemeColors.attr(context, R.attr.colorPrimary));
                     if (modelCard != null) {
-                        modelCard.setBackgroundColor(context.getResources().getColor(R.color.background));
+                        modelCard.setBackgroundColor(ThemeColors.attr(context, R.attr.colorBackground));
                     }
-                    itemView.setBackgroundColor(context.getResources().getColor(R.color.background));
+                    itemView.setBackgroundColor(ThemeColors.attr(context, R.attr.colorBackground));
                 }
             } catch (Exception e) {
                 e.printStackTrace();

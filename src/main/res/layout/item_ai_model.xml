@@ -39,7 +39,7 @@
                         android:text="模型名称"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <!-- 模型描述 -->
@@ -49,7 +49,7 @@
                         android:layout_height="wrap_content"
                         android:text="模型描述"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <!-- 性能评分 -->
@@ -113,7 +113,7 @@
                         android:layout_height="wrap_content"
                         android:text="质量评分:"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginEnd="@dimen/space_8" />
 
                     <TextView
@@ -122,7 +122,7 @@
                         android:layout_height="wrap_content"
                         android:text="9.0"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -138,7 +138,7 @@
                         android:layout_height="wrap_content"
                         android:text="使用场景:"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginEnd="@dimen/space_8" />
 
                     <TextView
@@ -147,7 +147,7 @@
                         android:layout_height="wrap_content"
                         android:text="聊天, 问答, 写作"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -163,7 +163,7 @@
                         android:layout_height="wrap_content"
                         android:text="架构:"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginEnd="@dimen/space_8" />
 
                     <TextView
@@ -172,7 +172,7 @@
                         android:layout_height="wrap_content"
                         android:text="Transformer"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -188,7 +188,7 @@
                         android:layout_height="wrap_content"
                         android:text="上下文长度:"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginEnd="@dimen/space_8" />
 
                     <TextView
@@ -197,7 +197,7 @@
                         android:layout_height="wrap_content"
                         android:text="4096"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 
@@ -213,7 +213,7 @@
                         android:layout_height="wrap_content"
                         android:text="词汇表大小:"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginEnd="@dimen/space_8" />
 
                     <TextView
@@ -222,7 +222,7 @@
                         android:layout_height="wrap_content"
                         android:text="32000"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary" />
+                        android:textColor="?attr/colorControlText" />
 
                 </LinearLayout>
 

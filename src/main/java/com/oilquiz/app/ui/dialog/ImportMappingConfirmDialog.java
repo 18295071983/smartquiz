@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.dialog;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.app.Dialog;
 import android.content.Context;
 import android.view.LayoutInflater;
@@ -83,7 +85,7 @@ public class ImportMappingConfirmDialog extends Dialog {
         TextView srcTitle = new TextView(getContext());
         srcTitle.setText("🔎 映射来源：" + sourceText + "（可修改下方映射后确认）");
         srcTitle.setTextSize(12f);
-        srcTitle.setTextColor(getContext().getResources().getColor(R.color.primary));
+        srcTitle.setTextColor(ThemeColors.attr(getContext(), R.attr.colorPrimary));
         srcTitle.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
         container.addView(srcTitle);
 
@@ -92,14 +94,14 @@ public class ImportMappingConfirmDialog extends Dialog {
             TextView docTitle = new TextView(getContext());
             docTitle.setText("📖 已检测到题库说明（用于优化识别）：");
             docTitle.setTextSize(12f);
-            docTitle.setTextColor(getContext().getResources().getColor(R.color.primary));
+            docTitle.setTextColor(ThemeColors.attr(getContext(), R.attr.colorPrimary));
             docTitle.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
             container.addView(docTitle);
 
             TextView docBody = new TextView(getContext());
             docBody.setText(docHint.trim());
             docBody.setTextSize(11f);
-            docBody.setTextColor(getContext().getResources().getColor(R.color.text_secondary));
+            docBody.setTextColor(ThemeColors.attr(getContext(), R.attr.colorControlTextSecondary));
             docBody.setLineSpacing(0, 1.2f);
             docBody.setPadding(0, 2, 0, 8);
             container.addView(docBody);

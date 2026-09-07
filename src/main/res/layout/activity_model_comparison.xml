@@ -37,7 +37,7 @@
             android:layout_height="wrap_content"
             android:text="模型A:"
             android:textSize="@dimen/text_16"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_gravity="center_vertical"
             android:layout_marginEnd="@dimen/space_16" />
 
@@ -62,7 +62,7 @@
             android:layout_height="wrap_content"
             android:text="模型B:"
             android:textSize="@dimen/text_16"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_gravity="center_vertical"
             android:layout_marginEnd="@dimen/space_16" />
 

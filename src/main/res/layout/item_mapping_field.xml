@@ -6,7 +6,7 @@
     android:layout_marginBottom="@dimen/space_12"
     app:cardCornerRadius="16dp"
     app:cardElevation="3dp"
-    app:cardBackgroundColor="@color/surface"
+    app:cardBackgroundColor="?attr/colorSurface"
     app:cardUseCompatPadding="true">
 
     <LinearLayout
@@ -26,9 +26,9 @@
             app:boxCornerRadiusBottomStart="12dp"
             app:boxCornerRadiusTopEnd="12dp"
             app:boxCornerRadiusTopStart="12dp"
-            app:boxBackgroundColor="@color/background"
+            app:boxBackgroundColor="?attr/colorBackground"
             app:boxStrokeWidth="0dp"
-            app:hintTextColor="@color/text_tertiary"
+            app:hintTextColor="?attr/colorControlTextHint"
             android:hint="字段名称">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -36,7 +36,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_16"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:fontFamily="sans-serif-medium"
                 android:paddingVertical="14dp"
                 android:paddingHorizontal="12dp"

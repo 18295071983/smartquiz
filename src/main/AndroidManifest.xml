@@ -14,6 +14,7 @@
 
     <!-- 存储权限 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
@@ -152,9 +153,6 @@
             android:exported="false" />
         <activity
             android:name=".ui.activity.ThemeActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ui.activity.ThemeColorActivity"
             android:exported="false" />
         <activity
             android:name=".ui.activity.DeviceInfoActivity"
@@ -347,12 +345,6 @@
         <activity
             android:name=".ai.model.ModelComparisonActivity"
             android:exported="false" />
-
-        <activity
-            android:name=".ui.ThemeSwitcherActivity"
-            android:exported="false"
-            android:label="色系切换"
-            android:theme="@style/Theme.OilQuizApp" />
 
         <activity
             android:name=".ui.activity.EnvironmentCheckActivity"

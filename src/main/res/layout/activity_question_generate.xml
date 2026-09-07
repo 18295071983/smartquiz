@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.QuestionGenerateActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="题目生成"
-            app:titleTextColor="@color/text_primary"/>
+            app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -38,7 +38,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/primary_container"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -53,7 +53,7 @@
                         android:layout_width="@dimen/size_48"
                         android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_analyze"
-                        android:tint="@color/on_primary_container"
+                        android:tint="?attr/colorOnPrimaryContainer"
                         android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
@@ -68,7 +68,7 @@
                             android:text="AI题目生成"
                             android:textSize="@dimen/text_18"
                             android:textStyle="bold"
-                            android:textColor="@color/on_primary_container"
+                            android:textColor="?attr/colorOnPrimaryContainer"
                             android:layout_marginBottom="@dimen/space_4" />
                         
                         <TextView
@@ -76,7 +76,7 @@
                             android:layout_height="wrap_content"
                             android:text="使用AI智能生成题目"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_primary_container" />
+                            android:textColor="?attr/colorOnPrimaryContainer" />
                         
                     </LinearLayout>
                     
@@ -89,7 +89,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/card_background"
+                app:cardBackgroundColor="?attr/colorCardBackground"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -105,7 +105,7 @@
                         android:text="生成设置"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_16" />
                     
                     <com.google.android.material.textfield.TextInputLayout
@@ -117,8 +117,8 @@
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary"
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary"
                         android:layout_marginBottom="@dimen/space_12">
                         
                         <com.google.android.material.textfield.TextInputEditText
@@ -126,7 +126,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:textSize="@dimen/text_16"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:inputType="number" />
                         
                     </com.google.android.material.textfield.TextInputLayout>
@@ -140,8 +140,8 @@
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary"
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary"
                         android:layout_marginBottom="@dimen/space_12">
                         
                         <com.google.android.material.textfield.TextInputEditText
@@ -149,7 +149,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:textSize="@dimen/text_16"
-                            android:textColor="@color/text_primary" />
+                            android:textColor="?attr/colorControlText" />
                         
                     </com.google.android.material.textfield.TextInputLayout>
                     
@@ -166,7 +166,7 @@
                             android:layout_weight="1"
                             android:text="题目类型"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary" />
+                            android:textColor="?attr/colorControlText" />
                         
                         <Spinner
                             android:id="@+id/type_spinner"
@@ -190,7 +190,7 @@
                             android:layout_weight="1"
                             android:text="难度等级"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary" />
+                            android:textColor="?attr/colorControlText" />
                         
                         <Spinner
                             android:id="@+id/difficulty_spinner"
@@ -211,7 +211,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/card_background"
+                app:cardBackgroundColor="?attr/colorCardBackground"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
 
@@ -227,7 +227,7 @@
                         android:text="AI模型"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12" />
 
                     <RadioGroup
@@ -282,7 +282,7 @@
                             android:layout_weight="1"
                             android:text="在线服务状态"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_secondary" />
+                            android:textColor="?attr/colorControlTextSecondary" />
 
                         <TextView
                             android:id="@+id/tv_usage_info"
@@ -290,7 +290,7 @@
                             android:layout_height="wrap_content"
                             android:text=""
                             android:textSize="@dimen/text_11"
-                            android:textColor="@color/text_tertiary" />
+                            android:textColor="?attr/colorControlTextHint" />
 
                     </LinearLayout>
 
@@ -311,7 +311,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/card_background"
+                app:cardBackgroundColor="?attr/colorCardBackground"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
 
@@ -327,7 +327,7 @@
                         android:text="高级设置"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_16" />
                     
                     <com.google.android.material.textfield.TextInputLayout
@@ -339,8 +339,8 @@
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary"
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary"
                         android:layout_marginBottom="@dimen/space_12">
                         
                         <com.google.android.material.textfield.TextInputEditText
@@ -348,7 +348,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:inputType="textMultiLine|textCapSentences"
                             android:gravity="top" />
                         
@@ -368,7 +368,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8">
         
         <com.google.android.material.button.MaterialButton
@@ -379,8 +379,8 @@
             android:textSize="@dimen/text_16"
             android:textStyle="bold"
             android:textAllCaps="false"
-            android:textColor="@color/on_primary"
-            app:backgroundTint="@color/primary"
+            android:textColor="?attr/colorOnPrimary"
+            app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_12" />
         
     </LinearLayout>
@@ -401,7 +401,7 @@
             android:text="生成结果"
             android:textSize="@dimen/text_18"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_16" />
         
         <androidx.recyclerview.widget.RecyclerView
@@ -420,7 +420,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8"
         android:visibility="gone">
         
@@ -433,8 +433,8 @@
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
             android:textAllCaps="false"
-            android:textColor="@color/on_primary"
-            app:backgroundTint="@color/primary"
+            android:textColor="?attr/colorOnPrimary"
+            app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:layout_marginEnd="@dimen/space_8" />
         
@@ -447,8 +447,8 @@
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
             android:textAllCaps="false"
-            android:textColor="@color/on_secondary"
-            app:backgroundTint="@color/secondary"
+            android:textColor="?attr/colorOnSecondary"
+            app:backgroundTint="?attr/colorSecondary"
             app:cornerRadius="@dimen/radius_12"
             android:layout_marginEnd="@dimen/space_8" />
         

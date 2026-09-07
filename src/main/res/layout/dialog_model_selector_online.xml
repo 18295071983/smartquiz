@@ -13,7 +13,7 @@
         android:text="🌐 在线模型"
         android:textSize="@dimen/text_14"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:paddingVertical="8dp"/>
 
     <!-- 在线模型列表 -->

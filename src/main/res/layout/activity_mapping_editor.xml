@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.MappingEditorActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -18,7 +18,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/primary"
+            android:background="?attr/colorPrimary"
             app:title="字段映射"
             app:titleTextColor="@color/white"
             app:navigationIcon="@drawable/ic_back"
@@ -50,7 +50,7 @@
                     android:layout_height="wrap_content"
                     app:cardCornerRadius="16dp"
                     app:cardElevation="2dp"
-                    app:cardBackgroundColor="@color/primary_container"
+                    app:cardBackgroundColor="?attr/colorPrimaryContainer"
                     android:layout_marginBottom="@dimen/space_16">
 
                     <LinearLayout
@@ -65,7 +65,7 @@
                             android:text="字段映射配置"
                             android:textSize="@dimen/text_19"
                             android:textStyle="bold"
-                            android:textColor="@color/on_primary_container"
+                            android:textColor="?attr/colorOnPrimaryContainer"
                             android:layout_marginBottom="@dimen/space_5"/>
 
                         <TextView
@@ -73,7 +73,7 @@
                             android:layout_height="wrap_content"
                             android:text="将Excel列映射到对应的题目字段"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_primary_container" />
+                            android:textColor="?attr/colorOnPrimaryContainer" />
 
                     </LinearLayout>
 
@@ -98,7 +98,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_18"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         app:elevation="@dimen/elev_8"
         app:layout_constraintBottom_toBottomOf="parent">
 
@@ -188,7 +188,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8"
         app:layout_constraintBottom_toBottomOf="parent"
         android:visibility="gone">
@@ -203,7 +203,7 @@
             android:layout_height="wrap_content"
             android:text="处理中..."
             android:textSize="@dimen/text_14"
-            android:textColor="@color/on_surface"
+            android:textColor="?attr/colorOnSurface"
             android:gravity="center"/>
     </LinearLayout>
 

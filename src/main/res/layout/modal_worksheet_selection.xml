@@ -24,7 +24,7 @@
             android:gravity="center"
             android:padding="@dimen/space_16"
             android:text="选择工作表"
-            android:textColor="@color/on_surface"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="@dimen/text_18"
             android:textStyle="bold" />
 
@@ -32,8 +32,8 @@
             android:id="@+id/sheet_list_view"
             android:layout_width="match_parent"
             android:layout_height="@dimen/size_200"
-            android:background="@color/surface"
-            android:divider="@color/text_secondary"
+            android:background="?attr/colorSurface"
+            android:divider="?attr/colorControlTextSecondary"
             android:dividerHeight="1dp"
             android:padding="@dimen/space_8" />
 
@@ -52,7 +52,7 @@
                 android:textColor="@android:color/white"
                 android:textSize="@dimen/text_16"
                 android:layout_marginEnd="@dimen/space_8"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
 
@@ -61,10 +61,10 @@
                 android:layout_width="@dimen/size_120"
                 android:layout_height="wrap_content"
                 android:text="取消"
-                android:textColor="@color/on_surface"
+                android:textColor="?attr/colorOnSurface"
                 android:textSize="@dimen/text_16"
                 android:layout_marginStart="@dimen/space_8"
-                app:backgroundTint="@color/surface_variant"
+                app:backgroundTint="?attr/colorSurfaceVariant"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
 

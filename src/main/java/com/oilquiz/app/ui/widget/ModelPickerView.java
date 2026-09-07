@@ -13,6 +13,8 @@ import com.oilquiz.app.ai.model.ModelDownloadManager;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 模型选择控件（用于选择要下载的预置模型）
  *
@@ -108,7 +110,7 @@ public class ModelPickerView extends LinearLayout {
 
         TextView desc = new TextView(getContext());
         desc.setTextSize(11);
-        desc.setTextColor(Color.argb(160, 255, 255, 255));
+        desc.setTextColor(ThemeColors.get(R.color.hc_a0ffffff));
         desc.setText(preset.description);
         desc.setMaxLines(2);
         LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(
@@ -126,7 +128,7 @@ public class ModelPickerView extends LinearLayout {
 
         TextView size = new TextView(getContext());
         size.setTextSize(12);
-        size.setTextColor(Color.argb(200, 255, 255, 255));
+        size.setTextColor(ThemeColors.get(R.color.hc_c8ffffff));
         long mb = preset.sizeMB > 0 ? preset.sizeMB : 0;
         size.setText(mb >= 1024 ? String.format("%.1f GB", mb / 1024f) : mb + " MB");
         right.addView(size);
@@ -165,21 +167,21 @@ public class ModelPickerView extends LinearLayout {
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(dp(12));
         if (selected) {
-            bg.setColor(0x338E6CFF);
-            bg.setStroke(dp(2), 0xFF8E6CFF);
+            bg.setColor(ThemeColors.get(R.color.hc_338e6cff));
+            bg.setStroke(dp(2), ThemeColors.get(R.color.hc_ff8e6cff));
         } else {
-            bg.setColor(0x14FFFFFF);
-            bg.setStroke(dp(1), 0x2EFFFFFF);
+            bg.setColor(ThemeColors.get(R.color.hc_14ffffff));
+            bg.setStroke(dp(1), ThemeColors.get(R.color.hc_2effffff));
         }
         card.setBackground(bg);
         if (checkView instanceof TextView) {
             TextView ck = (TextView) checkView;
             if (selected) {
                 ck.setText("●");
-                ck.setTextColor(0xFF8E6CFF);
+                ck.setTextColor(ThemeColors.get(R.color.hc_ff8e6cff));
             } else {
                 ck.setText("○");
-                ck.setTextColor(0x66FFFFFF);
+                ck.setTextColor(ThemeColors.get(R.color.hc_66ffffff));
             }
         }
     }

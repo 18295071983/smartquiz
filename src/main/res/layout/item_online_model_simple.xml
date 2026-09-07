@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="@dimen/space_8"
-    app:cardBackgroundColor="@color/surface_variant"
+    app:cardBackgroundColor="?attr/colorSurfaceVariant"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp">
 
@@ -33,7 +33,7 @@
                     android:text="模型名称"
                     android:textSize="@dimen/text_14"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
 
                 <TextView
                     android:id="@+id/tv_model_status"
@@ -41,7 +41,7 @@
                     android:layout_height="wrap_content"
                     android:text="状态"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:layout_marginTop="@dimen/space_2"/>
             </LinearLayout>
 

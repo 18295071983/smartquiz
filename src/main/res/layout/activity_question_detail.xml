@@ -146,7 +146,7 @@
                 android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="编辑"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
                 android:layout_marginEnd="@dimen/space_8"
                 app:cornerRadius="@dimen/radius_12"

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.adapter;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.os.Looper;
 import android.view.LayoutInflater;
@@ -622,7 +624,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                     statusTextView.setTextColor(context.getResources().getColor(R.color.success_color));
                 } else {
                     statusTextView.setText(R.string.click_to_switch);
-                    statusTextView.setTextColor(context.getResources().getColor(R.color.primary));
+                    statusTextView.setTextColor(ThemeColors.attr(context, R.attr.colorPrimary));
                 }
 
                 // Enable button

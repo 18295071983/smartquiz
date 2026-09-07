@@ -28,7 +28,7 @@
             android:id="@+id/message_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:textSize="@dimen/text_12"
             android:lineSpacingExtra="2dp" />
 

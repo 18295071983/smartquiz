@@ -4,7 +4,7 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:padding="@dimen/space_12"
-    android:background="@color/surface">
+    android:background="?attr/colorSurface">
 
     <!-- 类型指示器 -->
     <View
@@ -27,7 +27,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginBottom="@dimen/space_4"/>
 
         <!-- 日志消息 -->
@@ -36,7 +36,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:maxLines="3"
             android:ellipsize="end"/>
 

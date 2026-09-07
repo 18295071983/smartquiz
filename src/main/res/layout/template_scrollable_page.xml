@@ -6,7 +6,7 @@
     android:fillViewport="true"
     android:overScrollMode="always"
     android:scrollbars="vertical"
-    android:background="@color/background">
+    android:background="?attr/colorBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -20,7 +20,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.App.Headline3"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:paddingBottom="@dimen/space_8" />
 
         <!-- 副标题区域 -->
@@ -29,7 +29,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textAppearance="@style/TextAppearance.App.Body2"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:paddingBottom="@dimen/space_16" />
 
         <!-- 内容区域 -->

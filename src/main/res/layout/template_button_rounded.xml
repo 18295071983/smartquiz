@@ -7,9 +7,9 @@
     android:minWidth="@dimen/min_120"
     android:textAllCaps="false"
     android:textAppearance="@style/TextAppearance.App.Button"
-    android:textColor="@color/on_primary"
-    app:backgroundTint="@color/primary"
+    android:textColor="?attr/colorOnPrimary"
+    app:backgroundTint="?attr/colorPrimary"
     app:cornerRadius="@dimen/radius_24"
     app:elevation="@dimen/elev_4"
-    app:rippleColor="@color/primary_light"
+    app:rippleColor="?attr/colorPrimaryContainer"
     app:strokeWidth="@dimen/stroke_0" />

@@ -29,8 +29,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:checked="false"
-            app:trackTint="@color/secondary"
-            app:thumbTint="@color/primary" />
+            app:trackTint="?attr/colorSecondary"
+            app:thumbTint="?attr/colorPrimary" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -55,8 +55,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:checked="false"
-            app:trackTint="@color/secondary"
-            app:thumbTint="@color/primary" />
+            app:trackTint="?attr/colorSecondary"
+            app:thumbTint="?attr/colorPrimary" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -132,7 +132,7 @@
             android:layout_height="wrap_content"
             android:text="默认题目"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginBottom="@dimen/space_4" />
 
         <androidx.appcompat.widget.AppCompatEditText
@@ -158,7 +158,7 @@
             android:layout_height="wrap_content"
             android:text="默认选项"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginBottom="@dimen/space_4" />
 
         <androidx.appcompat.widget.AppCompatEditText
@@ -184,7 +184,7 @@
             android:layout_height="wrap_content"
             android:text="默认答案"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginBottom="@dimen/space_4" />
 
         <androidx.appcompat.widget.AppCompatEditText

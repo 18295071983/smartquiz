@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.dialog;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.app.Dialog;
 import android.content.Context;
 import android.view.LayoutInflater;
@@ -63,7 +65,7 @@ public class FieldGuideDialog extends Dialog {
             TextView title = new TextView(context);
             title.setText(e.getKey());
             title.setTextSize(13f);
-            title.setTextColor(context.getResources().getColor(R.color.primary));
+            title.setTextColor(ThemeColors.attr(context, R.attr.colorPrimary));
             title.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
             title.setPadding(0, first ? 0 : 10, 0, 2);
             container.addView(title);
@@ -112,7 +114,7 @@ public class FieldGuideDialog extends Dialog {
                 + "· 判断题：选项“对/错”自动识别题型\n"
                 + "· 填空题：空1~空12答案自动合并写入正确答案（分号分隔）");
         special.setTextSize(11f);
-        special.setTextColor(context.getResources().getColor(R.color.text_secondary));
+        special.setTextColor(ThemeColors.attr(context, R.attr.colorControlTextSecondary));
         special.setLineSpacing(0, 1.2f);
         special.setPadding(0, 10, 0, 0);
         container.addView(special);

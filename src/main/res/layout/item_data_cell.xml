@@ -11,6 +11,6 @@
         android:layout_height="wrap_content"
         android:text="单元格内容"
         android:textSize="@dimen/text_14"
-        android:textColor="@color/on_surface"/>
+        android:textColor="?attr/colorOnSurface"/>
 
 </LinearLayout>

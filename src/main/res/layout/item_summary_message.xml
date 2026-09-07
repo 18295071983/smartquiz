@@ -39,7 +39,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
         </LinearLayout>
 
@@ -63,7 +63,7 @@
                 android:layout_height="wrap_content"
                 android:text="📋 复制总结"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:background="?attr/selectableItemBackground"
                 android:padding="@dimen/space_4" />
 
@@ -73,7 +73,7 @@
                 android:layout_height="wrap_content"
                 android:text="📤 导出"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:background="?attr/selectableItemBackground"
                 android:padding="@dimen/space_4"
                 android:layout_marginStart="@dimen/space_8" />

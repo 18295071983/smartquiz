@@ -10,6 +10,7 @@ import android.view.View;
 
 import com.oilquiz.app.R;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class TemperatureBarView extends View {
 
     private Paint barPaint;
@@ -22,8 +23,8 @@ public class TemperatureBarView extends View {
     private float tempCurrent = 20;
     private float tempMaxRange = 40;
     private float tempMinRange = -10;
-    private int barColor = 0xFFFF6B35;
-    private int bgColor = 0x33FFFFFF;
+    private int barColor = ThemeColors.get(R.color.hc_ffff6b35);
+    private int bgColor = ThemeColors.get(R.color.hc_33ffffff);
 
     public TemperatureBarView(Context context) {
         super(context);
@@ -48,7 +49,7 @@ public class TemperatureBarView extends View {
             tempCurrent = a.getFloat(R.styleable.TemperatureBarView_temp_current, 20);
             tempMaxRange = a.getFloat(R.styleable.TemperatureBarView_temp_max_range, 40);
             tempMinRange = a.getFloat(R.styleable.TemperatureBarView_temp_min_range, -10);
-            barColor = a.getColor(R.styleable.TemperatureBarView_temp_bar_color, 0xFFFF6B35);
+            barColor = a.getColor(R.styleable.TemperatureBarView_temp_bar_color, ThemeColors.get(R.color.hc_ffff6b35));
             a.recycle();
         }
 
@@ -64,7 +65,7 @@ public class TemperatureBarView extends View {
 
         currentMarkerPaint = new Paint();
         currentMarkerPaint.setStyle(Paint.Style.FILL);
-        currentMarkerPaint.setColor(0xFFFFFFFF);
+        currentMarkerPaint.setColor(ThemeColors.get(R.color.hc_ffffffff));
         currentMarkerPaint.setAntiAlias(true);
 
         barRect = new RectF();

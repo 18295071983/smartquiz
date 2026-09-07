@@ -7,12 +7,13 @@
     android:padding="@dimen/space_20">
 
     <EditText
+                        android:background="@drawable/rounded_edittext"
         android:id="@+id/template_name"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="模板名称"
         android:inputType="text"
-        android:textColor="@color/on_surface"
+        android:textColor="?attr/colorOnSurface"
         android:layout_marginBottom="@dimen/space_16"/>
 
     <Spinner
@@ -41,8 +42,8 @@
             android:layout_height="wrap_content"
             android:text="取消"
             android:layout_marginEnd="@dimen/space_12"
-            app:backgroundTint="@color/surface_variant"
-            android:textColor="@color/on_surface"
+            app:backgroundTint="?attr/colorSurfaceVariant"
+            android:textColor="?attr/colorOnSurface"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 
@@ -51,7 +52,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="保存"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />

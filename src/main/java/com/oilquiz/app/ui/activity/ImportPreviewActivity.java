@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -333,7 +335,7 @@ public class ImportPreviewActivity extends AppCompatActivity {
                 h.itemView.setBackgroundResource(R.color.warning_container);
             } else {
                 h.tvMissing.setVisibility(View.GONE);
-                h.itemView.setBackgroundResource(R.color.surface);
+                h.itemView.setBackgroundColor(ThemeColors.get(h.itemView.getContext(), R.color.surface));
             }
         }
 

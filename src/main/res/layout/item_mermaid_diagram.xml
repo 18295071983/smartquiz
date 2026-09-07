@@ -6,7 +6,7 @@
     android:layout_marginVertical="@dimen/space_8"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
-    app:cardBackgroundColor="@color/secondary_container">
+    app:cardBackgroundColor="?attr/colorSecondaryContainer">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -27,7 +27,7 @@
                 android:layout_height="wrap_content"
                 android:text="📊 思维导图"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/on_secondary_container"
+                android:textColor="?attr/colorOnSecondaryContainer"
                 android:textStyle="bold"/>
         </LinearLayout>
 
@@ -37,7 +37,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/on_secondary_container"
+            android:textColor="?attr/colorOnSecondaryContainer"
             android:fontFamily="monospace"
             android:lineSpacingExtra="4dp"
             android:paddingStart="@dimen/space_16"/>

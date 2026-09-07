@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 @Tool(
     value = "app_toolkit",
     description = "应用工具集，聚合天气/计算/OCR/图像/网页等能力，通过action指定具体操作",
@@ -876,7 +878,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         // 默认白色背景
-        int colorInt = 0xFFFFFFFF;
+        int colorInt = ThemeColors.get(R.color.hc_ffffffff);
         if (color != null) {
             try {
                 if (color.startsWith("#")) {
@@ -933,7 +935,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         // 默认白色背景
-        int bgColor = 0xFFFFFFFF;
+        int bgColor = ThemeColors.get(R.color.hc_ffffffff);
         if (backgroundColor != null) {
             try {
                 bgColor = android.graphics.Color.parseColor(backgroundColor);
@@ -942,7 +944,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         // 默认黑色文字
-        int txtColor = 0xFF000000;
+        int txtColor = ThemeColors.get(R.color.hc_ff000000);
         if (textColor != null) {
             try {
                 txtColor = android.graphics.Color.parseColor(textColor);

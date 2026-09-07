@@ -12,7 +12,7 @@
         android:layout_margin="@dimen/space_8"
         app:cardCornerRadius="12dp"
         app:cardElevation="2dp"
-        app:cardBackgroundColor="@color/surface">
+        app:cardBackgroundColor="?attr/colorSurface">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -42,7 +42,7 @@
                     android:layout_weight="1"
                     android:text="正在初始化..."
                     android:textSize="@dimen/text_16"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:textStyle="bold" />
 
             </LinearLayout>
@@ -94,7 +94,7 @@
                     android:layout_height="wrap_content"
                     android:text="Token: 0"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:visibility="gone" />
 
                 <View
@@ -108,7 +108,7 @@
                     android:layout_height="wrap_content"
                     android:text="0.0 token/s"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:visibility="gone" />
 
             </LinearLayout>
@@ -121,7 +121,7 @@
                 android:layout_marginTop="@dimen/space_4"
                 android:text="已用时间: 0秒"
                 android:textSize="@dimen/text_11"
-                android:textColor="@color/text_hint" />
+                android:textColor="?attr/colorControlTextHint" />
 
         </LinearLayout>
 

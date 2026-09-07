@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#DB2777"
-                android:endColor="#F472B6" />
+                android:startColor="@color/hc_ffdb2777"
+                android:endColor="@color/hc_fff472b6" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 调色板（白色渐变） -->
@@ -30,27 +30,27 @@
                 android:type="linear"
                 android:startX="3.5" android:startY="3.5"
                 android:endX="20.2" android:endY="20.5"
-                android:startColor="#FFFFFF"
-                android:endColor="#FCE7F3" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_fffce7f3" />
         </aapt:attr>
     </path>
 
     <!-- 拇指孔（深粉） -->
     <path
-        android:fillColor="#BE185D"
+        android:fillColor="@color/hc_ffbe185d"
         android:pathData="M6.8,12 m-1,0 a1,1 0 1,0 2,0 a1,1 0 1,0 -2,0" />
 
     <!-- 色点（多彩） -->
     <path
-        android:fillColor="#F43F5E"
+        android:fillColor="@color/hc_fff43f5e"
         android:pathData="M9.4,7.2 m-1.05,0 a1.05,1.05 0 1,0 2.1,0 a1.05,1.05 0 1,0 -2.1,0" />
     <path
-        android:fillColor="#F59E0B"
+        android:fillColor="@color/hc_fff59e0b"
         android:pathData="M12.9,6.4 m-1.05,0 a1.05,1.05 0 1,0 2.1,0 a1.05,1.05 0 1,0 -2.1,0" />
     <path
-        android:fillColor="#10B981"
+        android:fillColor="@color/hc_ff10b981"
         android:pathData="M16,7.8 m-1.05,0 a1.05,1.05 0 1,0 2.1,0 a1.05,1.05 0 1,0 -2.1,0" />
     <path
-        android:fillColor="#3B82F6"
+        android:fillColor="@color/hc_ff3b82f6"
         android:pathData="M17.4,10.9 m-1.05,0 a1.05,1.05 0 1,0 2.1,0 a1.05,1.05 0 1,0 -2.1,0" />
 </vector>

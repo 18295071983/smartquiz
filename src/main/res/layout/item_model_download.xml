@@ -6,7 +6,7 @@
     android:layout_marginBottom="@dimen/space_12"
     app:cardCornerRadius="12dp"
     app:cardElevation="2dp"
-    app:cardBackgroundColor="@color/card_background">
+    app:cardBackgroundColor="?attr/colorCardBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -25,7 +25,7 @@
                 android:layout_width="@dimen/size_40"
                 android:layout_height="@dimen/size_40"
                 android:src="@drawable/ic_ai_model"
-                android:tint="@color/primary"
+                android:tint="?attr/colorPrimary"
                 android:contentDescription="模型图标"/>
 
             <LinearLayout
@@ -42,7 +42,7 @@
                     android:text="模型名称"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
 
                 <TextView
                     android:id="@+id/tv_status"
@@ -50,7 +50,7 @@
                     android:layout_height="wrap_content"
                     android:text="未下载"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:layout_marginTop="@dimen/space_2"/>
             </LinearLayout>
         </LinearLayout>
@@ -61,7 +61,7 @@
             android:layout_height="wrap_content"
             android:text="模型描述"
             android:textSize="@dimen/text_13"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginTop="@dimen/space_8"
             android:maxLines="2"
             android:ellipsize="end"/>
@@ -78,7 +78,7 @@
                 android:layout_height="wrap_content"
                 android:text="大小: 330 MB"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
 
             <TextView
                 android:id="@+id/tv_info"
@@ -87,7 +87,7 @@
                 android:layout_weight="1"
                 android:text="精度: Q4_K_M"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"
+                android:textColor="?attr/colorControlTextHint"
                 android:layout_marginStart="@dimen/space_12"/>
         </LinearLayout>
 
@@ -105,8 +105,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/size_8"
                 android:progress="0"
-                android:progressTint="@color/primary"
-                android:progressBackgroundTint="@color/divider"/>
+                android:progressTint="?attr/colorPrimary"
+                android:progressBackgroundTint="?attr/colorDivider"/>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -121,7 +121,7 @@
                     android:layout_weight="1"
                     android:text="0 MB / 0 MB"
                     android:textSize="@dimen/text_11"
-                    android:textColor="@color/text_tertiary"/>
+                    android:textColor="?attr/colorControlTextHint"/>
 
                 <TextView
                     android:id="@+id/tv_speed"
@@ -129,7 +129,7 @@
                     android:layout_height="wrap_content"
                     android:text="0 MB/s"
                     android:textSize="@dimen/text_11"
-                    android:textColor="@color/primary"/>
+                    android:textColor="?attr/colorPrimary"/>
             </LinearLayout>
         </LinearLayout>
 

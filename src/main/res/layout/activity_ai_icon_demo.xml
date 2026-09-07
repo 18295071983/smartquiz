@@ -4,14 +4,14 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     android:orientation="vertical"
     tools:context=".ui.activity.AIIconDemoActivity">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/card_background"
+        android:background="?attr/colorCardBackground"
         android:elevation="@dimen/elev_4"
         android:orientation="horizontal"
         android:padding="@dimen/space_16">
@@ -25,7 +25,7 @@
             android:focusable="true"
             android:padding="@dimen/space_8"
             android:src="@drawable/ic_back"
-            android:tint="@color/text_primary"
+            android:tint="?attr/colorControlText"
             android:contentDescription="返回"/>
 
         <LinearLayout
@@ -41,14 +41,14 @@
                 android:text="AI图标演示"
                 android:textSize="@dimen/text_20"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="查看和测试所有AI图标"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginTop="@dimen/space_2"/>
         </LinearLayout>
     </LinearLayout>
@@ -57,12 +57,12 @@
         android:id="@+id/tabLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/card_background"
+        android:background="?attr/colorCardBackground"
         app:tabGravity="fill"
         app:tabMode="fixed"
-        app:tabIndicatorColor="@color/primary"
-        app:tabSelectedTextColor="@color/primary"
-        app:tabTextColor="@color/text_secondary"/>
+        app:tabIndicatorColor="?attr/colorPrimary"
+        app:tabSelectedTextColor="?attr/colorPrimary"
+        app:tabTextColor="?attr/colorControlTextSecondary"/>
 
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/viewPager"
@@ -73,7 +73,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/card_background"
+        android:background="?attr/colorCardBackground"
         android:orientation="vertical"
         android:padding="@dimen/space_16">
 
@@ -83,14 +83,14 @@
             android:text="智能图标测试"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="输入意图类型，测试图标自动匹配"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginTop="@dimen/space_4"/>
 
         <LinearLayout
@@ -109,7 +109,7 @@
                 android:maxLines="1"
                 android:background="@drawable/edittext_background"
                 android:padding="@dimen/space_12"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:textSize="@dimen/text_14"/>
 
             <Button
@@ -118,7 +118,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/space_8"
                 android:text="测试"
-                android:backgroundTint="@color/primary"
+                android:backgroundTint="?attr/colorPrimary"
                 android:textColor="@color/white"/>
         </LinearLayout>
 
@@ -153,7 +153,7 @@
                     android:text=""
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
 
                 <TextView
                     android:id="@+id/tvTestIconDesc"
@@ -161,7 +161,7 @@
                     android:layout_height="wrap_content"
                     android:text=""
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:layout_marginTop="@dimen/space_2"/>
             </LinearLayout>
         </LinearLayout>
@@ -178,7 +178,7 @@
                 android:layout_height="wrap_content"
                 android:text="快速测试: "
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"/>
+                android:textColor="?attr/colorControlTextSecondary"/>
 
             <TextView
                 android:id="@+id/tvQuick1"
@@ -186,7 +186,7 @@
                 android:layout_height="wrap_content"
                 android:text="translate"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:clickable="true"
                 android:paddingStart="@dimen/space_4"
                 android:paddingEnd="@dimen/space_8"/>
@@ -197,7 +197,7 @@
                 android:layout_height="wrap_content"
                 android:text="ocr"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:clickable="true"
                 android:paddingEnd="@dimen/space_8"/>
 
@@ -207,7 +207,7 @@
                 android:layout_height="wrap_content"
                 android:text="agent"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:clickable="true"
                 android:paddingEnd="@dimen/space_8"/>
 
@@ -217,7 +217,7 @@
                 android:layout_height="wrap_content"
                 android:text="success"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:clickable="true"
                 android:paddingEnd="@dimen/space_8"/>
         </LinearLayout>

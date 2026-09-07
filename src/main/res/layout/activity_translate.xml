@@ -53,6 +53,7 @@
             android:layout_marginBottom="@dimen/space_16">
 
             <EditText
+                        android:background="@drawable/rounded_edittext"
                 android:id="@+id/input_text"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -87,8 +88,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="翻译"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:layout_marginBottom="@dimen/space_16" />
@@ -123,8 +124,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="复制"
-                app:backgroundTint="@color/secondary"
-                android:textColor="@color/on_secondary"
+                app:backgroundTint="?attr/colorSecondary"
+                android:textColor="?attr/colorOnSecondary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
                 android:layout_marginEnd="@dimen/space_8" />
@@ -135,8 +136,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="分享"
-                app:backgroundTint="@color/secondary"
-                android:textColor="@color/on_secondary"
+                app:backgroundTint="?attr/colorSecondary"
+                android:textColor="?attr/colorOnSecondary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
 

@@ -28,7 +28,7 @@
             android:text="模型名称"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
         <LinearLayout
             android:layout_width="wrap_content"
@@ -42,7 +42,7 @@
                 android:layout_height="wrap_content"
                 android:text="gpt-4"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"/>
+                android:textColor="?attr/colorControlTextSecondary"/>
 
             <TextView
                 android:id="@+id/model_link_status"
@@ -63,7 +63,7 @@
         android:layout_height="wrap_content"
         android:text="150ms"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_tertiary"
+        android:textColor="?attr/colorControlTextHint"
         android:layout_marginEnd="@dimen/space_8"/>
 
     <TextView
@@ -72,6 +72,6 @@
         android:layout_height="wrap_content"
         android:text="$0.0030"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_tertiary"/>
+        android:textColor="?attr/colorControlTextHint"/>
 
 </LinearLayout>

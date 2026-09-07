@@ -19,6 +19,8 @@ import com.oilquiz.app.util.QWeatherIconMapper;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 public class WeatherTrendChartView extends View {
 
     private static final float MIN_HOURLY_ITEM_WIDTH_DP = 60f;
@@ -135,56 +137,56 @@ public class WeatherTrendChartView extends View {
         float density = getResources().getDisplayMetrics().density;
 
         tempLinePaint = new Paint();
-        tempLinePaint.setColor(0xFF64B5F6);
+        tempLinePaint.setColor(ThemeColors.get(R.color.hc_ff64b5f6));
         tempLinePaint.setStrokeWidth(3 * density);
         tempLinePaint.setStyle(Paint.Style.STROKE);
         tempLinePaint.setAntiAlias(true);
         tempLinePaint.setStrokeCap(Paint.Cap.ROUND);
 
         tempFillPaint = new Paint();
-        tempFillPaint.setColor(0x3364B5F6);
+        tempFillPaint.setColor(ThemeColors.get(R.color.hc_3364b5f6));
         tempFillPaint.setStyle(Paint.Style.FILL);
         tempFillPaint.setAntiAlias(true);
 
         tempPointPaint = new Paint();
-        tempPointPaint.setColor(0xFF1976D2);
+        tempPointPaint.setColor(ThemeColors.get(R.color.hc_ff1976d2));
         tempPointPaint.setStyle(Paint.Style.FILL);
         tempPointPaint.setAntiAlias(true);
 
         tempTextPaint = new Paint();
-        tempTextPaint.setColor(0xFF1976D2);
+        tempTextPaint.setColor(ThemeColors.get(R.color.hc_ff1976d2));
         tempTextPaint.setTextSize(12 * density);
         tempTextPaint.setAntiAlias(true);
         tempTextPaint.setTypeface(Typeface.DEFAULT_BOLD);
 
         gridPaint = new Paint();
-        gridPaint.setColor(0x20CCCCCC);
+        gridPaint.setColor(ThemeColors.get(R.color.hc_20cccccc));
         gridPaint.setStrokeWidth(1 * density);
         gridPaint.setAntiAlias(true);
         gridPaint.setStyle(Paint.Style.STROKE);
 
         axisPaint = new Paint();
-        axisPaint.setColor(0x40CCCCCC);
+        axisPaint.setColor(ThemeColors.get(R.color.hc_40cccccc));
         axisPaint.setStrokeWidth(1 * density);
         axisPaint.setAntiAlias(true);
 
         precipitationPaint = new Paint();
-        precipitationPaint.setColor(0xFF90CAF9);
+        precipitationPaint.setColor(ThemeColors.get(R.color.hc_ff90caf9));
         precipitationPaint.setStyle(Paint.Style.FILL);
         precipitationPaint.setAntiAlias(true);
 
         precipHighPaint = new Paint();
-        precipHighPaint.setColor(0xFF42A5F5);
+        precipHighPaint.setColor(ThemeColors.get(R.color.hc_ff42a5f5));
         precipHighPaint.setStyle(Paint.Style.FILL);
         precipHighPaint.setAntiAlias(true);
 
         precipitationTextPaint = new Paint();
-        precipitationTextPaint.setColor(0xFF64B5F6);
+        precipitationTextPaint.setColor(ThemeColors.get(R.color.hc_ff64b5f6));
         precipitationTextPaint.setTextSize(10 * density);
         precipitationTextPaint.setAntiAlias(true);
 
         humidityLinePaint = new Paint();
-        humidityLinePaint.setColor(0xFFFFB74D);
+        humidityLinePaint.setColor(ThemeColors.get(R.color.hc_ffffb74d));
         humidityLinePaint.setStrokeWidth(2 * density);
         humidityLinePaint.setStyle(Paint.Style.STROKE);
         humidityLinePaint.setAntiAlias(true);
@@ -192,29 +194,29 @@ public class WeatherTrendChartView extends View {
         humidityLinePaint.setAlpha(180);
 
         humidityFillPaint = new Paint();
-        humidityFillPaint.setColor(0x33FFB74D);
+        humidityFillPaint.setColor(ThemeColors.get(R.color.hc_33ffb74d));
         humidityFillPaint.setStyle(Paint.Style.FILL);
         humidityFillPaint.setAntiAlias(true);
 
         humidityTextPaint = new Paint();
-        humidityTextPaint.setColor(0xFFFFB74D);
+        humidityTextPaint.setColor(ThemeColors.get(R.color.hc_ffffb74d));
         humidityTextPaint.setTextSize(10 * density);
         humidityTextPaint.setAntiAlias(true);
 
         labelPaint = new Paint();
-        labelPaint.setColor(0xFF666666);
+        labelPaint.setColor(ThemeColors.get(R.color.hc_ff666666));
         labelPaint.setTextSize(11 * density);
         labelPaint.setAntiAlias(true);
         labelPaint.setTextAlign(Paint.Align.CENTER);
 
         touchIndicatorPaint = new Paint();
-        touchIndicatorPaint.setColor(0x801976D2);
+        touchIndicatorPaint.setColor(ThemeColors.get(R.color.hc_801976d2));
         touchIndicatorPaint.setStrokeWidth(2 * density);
         touchIndicatorPaint.setStyle(Paint.Style.STROKE);
         touchIndicatorPaint.setAntiAlias(true);
 
         tooltipBgPaint = new Paint();
-        tooltipBgPaint.setColor(0xE61976D2);
+        tooltipBgPaint.setColor(ThemeColors.get(R.color.hc_e61976d2));
         tooltipBgPaint.setStyle(Paint.Style.FILL);
         tooltipBgPaint.setAntiAlias(true);
 
@@ -230,27 +232,27 @@ public class WeatherTrendChartView extends View {
 
         dailyRangePaint = new Paint();
         dailyRangePaint.setStyle(Paint.Style.FILL);
-        dailyRangePaint.setColor(0x1564B5F6);
+        dailyRangePaint.setColor(ThemeColors.get(R.color.hc_1564b5f6));
 
         dailyHighPaint = new Paint();
-        dailyHighPaint.setColor(0xFFF4511E);
+        dailyHighPaint.setColor(ThemeColors.get(R.color.hc_fff4511e));
         dailyHighPaint.setStyle(Paint.Style.FILL);
         dailyHighPaint.setAntiAlias(true);
 
         dailyLowPaint = new Paint();
-        dailyLowPaint.setColor(0xFF42A5F5);
+        dailyLowPaint.setColor(ThemeColors.get(R.color.hc_ff42a5f5));
         dailyLowPaint.setStyle(Paint.Style.FILL);
         dailyLowPaint.setAntiAlias(true);
 
         dailyHighLinePaint = new Paint();
-        dailyHighLinePaint.setColor(0xFFF4511E);
+        dailyHighLinePaint.setColor(ThemeColors.get(R.color.hc_fff4511e));
         dailyHighLinePaint.setStrokeWidth(2.5f * density);
         dailyHighLinePaint.setStyle(Paint.Style.STROKE);
         dailyHighLinePaint.setAntiAlias(true);
         dailyHighLinePaint.setStrokeCap(Paint.Cap.ROUND);
 
         dailyLowLinePaint = new Paint();
-        dailyLowLinePaint.setColor(0xFF42A5F5);
+        dailyLowLinePaint.setColor(ThemeColors.get(R.color.hc_ff42a5f5));
         dailyLowLinePaint.setStrokeWidth(2.5f * density);
         dailyLowLinePaint.setStyle(Paint.Style.STROKE);
         dailyLowLinePaint.setAntiAlias(true);
@@ -763,11 +765,11 @@ public class WeatherTrendChartView extends View {
             canvas.drawCircle(itemCenterX, highY, pointRadius, dailyHighPaint);
             canvas.drawCircle(itemCenterX, lowY, pointRadius, dailyLowPaint);
 
-            tempTextPaint.setColor(0xFFF4511E);
+            tempTextPaint.setColor(ThemeColors.get(R.color.hc_fff4511e));
             tempTextPaint.setTextAlign(Paint.Align.CENTER);
             canvas.drawText(data.highTemp + "°", itemCenterX, highY - pointRadius - 8, tempTextPaint);
 
-            tempTextPaint.setColor(0xFF42A5F5);
+            tempTextPaint.setColor(ThemeColors.get(R.color.hc_ff42a5f5));
             canvas.drawText(data.lowTemp + "°", itemCenterX, lowY + pointRadius + 14, tempTextPaint);
 
             float dayIconSize = 16 * density;
@@ -892,7 +894,7 @@ public class WeatherTrendChartView extends View {
                 dayLabel = dayLabel.substring(5);
             }
             labelPaint.setTextAlign(Paint.Align.CENTER);
-            labelPaint.setColor(0xFF666666);
+            labelPaint.setColor(ThemeColors.get(R.color.hc_ff666666));
             canvas.drawText(dayLabel, itemCenterX, bottom + 20, labelPaint);
 
             if (i == 0 || i == dataCount - 1) {
@@ -974,9 +976,9 @@ public class WeatherTrendChartView extends View {
         float textWidth = labelPaint.measureText(message);
         float x = (getWidth() - textWidth) / 2;
         float y = getHeight() / 2;
-        labelPaint.setColor(0xFF999999);
+        labelPaint.setColor(ThemeColors.get(R.color.hc_ff999999));
         canvas.drawText(message, x, y, labelPaint);
-        labelPaint.setColor(0xFF666666);
+        labelPaint.setColor(ThemeColors.get(R.color.hc_ff666666));
     }
 
     private float getYForTemp(int temp, float top, float bottom) {

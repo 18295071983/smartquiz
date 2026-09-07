@@ -31,14 +31,14 @@
                 android:layout_weight="1"
                 android:textSize="@dimen/text_14"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
 
             <TextView
                 android:id="@+id/tv_stats"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_11"
-                android:textColor="@color/text_secondary"/>
+                android:textColor="?attr/colorControlTextSecondary"/>
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

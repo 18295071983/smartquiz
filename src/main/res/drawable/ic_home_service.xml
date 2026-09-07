@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#4F46E5"
-                android:endColor="#818CF8" />
+                android:startColor="@color/hc_ff4f46e5"
+                android:endColor="@color/hc_ff818cf8" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 闪电主体（白色渐变） -->
@@ -30,13 +30,13 @@
                 android:type="linear"
                 android:startX="5.4" android:startY="2.2"
                 android:endX="18" android:endY="21.8"
-                android:startColor="#FFFFFF"
-                android:endColor="#E0E7FF" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_ffe0e7ff" />
         </aapt:attr>
     </path>
 
     <!-- 闪电高光（半透明白，左上切角） -->
     <path
-        android:fillColor="#B3FFFFFF"
+        android:fillColor="@color/hc_b3ffffff"
         android:pathData="M12.4,4.2 L7.6,11.2 H11.2 L10.9,13.4 L14.8,8.8 H11.6 Z" />
 </vector>

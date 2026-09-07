@@ -191,7 +191,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/space_6"
         android:textSize="@dimen/text_11"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:lineSpacingExtra="2dp"
         android:visibility="gone"/>
 

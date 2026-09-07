@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.ModelImportActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="模型导入"
-            app:titleTextColor="@color/on_surface"/>
+            app:titleTextColor="?attr/colorOnSurface"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -38,7 +38,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/primary_container"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -53,7 +53,7 @@
                         android:layout_width="@dimen/size_48"
                         android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_analyze"
-                        android:tint="@color/on_primary_container"
+                        android:tint="?attr/colorOnPrimaryContainer"
                         android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
@@ -68,7 +68,7 @@
                             android:text="AI模型导入"
                             android:textSize="@dimen/text_18"
                             android:textStyle="bold"
-                            android:textColor="@color/on_primary_container"
+                            android:textColor="?attr/colorOnPrimaryContainer"
                             android:layout_marginBottom="@dimen/space_4" />
                         
                         <TextView
@@ -76,7 +76,7 @@
                             android:layout_height="wrap_content"
                             android:text="导入自定义AI模型"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_primary_container" />
+                            android:textColor="?attr/colorOnPrimaryContainer" />
                         
                     </LinearLayout>
                     
@@ -89,7 +89,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -105,7 +105,7 @@
                         android:text="选择模型文件"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_16" />
                     
                     <com.google.android.material.button.MaterialButton
@@ -115,8 +115,8 @@
                         android:text="选择模型文件"
                         android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        app:backgroundTint="@color/primary"
-                        android:textColor="@color/on_primary"
+                        app:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"
                         android:layout_marginBottom="@dimen/space_16" />
@@ -127,7 +127,7 @@
                         android:layout_height="wrap_content"
                         android:text="未选择文件"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_16" />
                         
                 </LinearLayout>
@@ -139,7 +139,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/secondary_container"
+                app:cardBackgroundColor="?attr/colorSecondaryContainer"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -154,7 +154,7 @@
                         android:layout_width="@dimen/size_40"
                         android:layout_height="@dimen/size_40"
                         android:src="@drawable/ic_ai_download"
-                        android:tint="@color/on_secondary_container"
+                        android:tint="?attr/colorOnSecondaryContainer"
                         android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
@@ -169,7 +169,7 @@
                             android:text="没有本地模型？"
                             android:textSize="@dimen/text_15"
                             android:textStyle="bold"
-                            android:textColor="@color/on_secondary_container"
+                            android:textColor="?attr/colorOnSecondaryContainer"
                             android:layout_marginBottom="@dimen/space_2" />
                         
                         <TextView
@@ -177,7 +177,7 @@
                             android:layout_height="wrap_content"
                             android:text="在线下载预训练模型"
                             android:textSize="@dimen/text_13"
-                            android:textColor="@color/on_secondary_container" />
+                            android:textColor="?attr/colorOnSecondaryContainer" />
                         
                     </LinearLayout>
                     
@@ -188,8 +188,8 @@
                         android:text="去下载"
                         android:textSize="@dimen/text_13"
                         android:textStyle="bold"
-                        app:backgroundTint="@color/secondary"
-                        android:textColor="@color/on_secondary"
+                        app:backgroundTint="?attr/colorSecondary"
+                        android:textColor="?attr/colorOnSecondary"
                         app:cornerRadius="@dimen/radius_20"
                         android:textAllCaps="false"
                         app:icon="@drawable/ic_download"
@@ -210,7 +210,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8">
         
         <com.google.android.material.button.MaterialButton
@@ -220,8 +220,8 @@
             android:text="导入模型"
             android:textSize="@dimen/text_16"
             android:textStyle="bold"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
             
@@ -243,14 +243,14 @@
             android:text="导入进度"
             android:textSize="@dimen/text_18"
             android:textStyle="bold"
-            android:textColor="@color/on_surface"
+            android:textColor="?attr/colorOnSurface"
             android:layout_marginBottom="@dimen/space_16" />
             
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/surface"
+            app:cardBackgroundColor="?attr/colorSurface"
             app:cardCornerRadius="12dp"
             android:layout_marginBottom="@dimen/space_16">
             
@@ -266,7 +266,7 @@
                     android:layout_height="wrap_content"
                     android:text="正在导入模型..."
                     android:textSize="@dimen/text_16"
-                    android:textColor="@color/on_surface"
+                    android:textColor="?attr/colorOnSurface"
                     android:layout_marginBottom="@dimen/space_12" />
                     
                 <ProgressBar
@@ -283,7 +283,7 @@
                     android:layout_height="wrap_content"
                     android:text="0%"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/on_surface_variant"
+                    android:textColor="?attr/colorOnSurfaceVariant"
                     android:layout_gravity="end"
                     android:layout_marginTop="@dimen/space_8" />
                     
@@ -309,14 +309,14 @@
             android:text="导入结果"
             android:textSize="@dimen/text_18"
             android:textStyle="bold"
-            android:textColor="@color/on_surface"
+            android:textColor="?attr/colorOnSurface"
             android:layout_marginBottom="@dimen/space_16" />
             
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:cardElevation="2dp"
-            app:cardBackgroundColor="@color/surface"
+            app:cardBackgroundColor="?attr/colorSurface"
             app:cardCornerRadius="12dp"
             android:layout_marginBottom="@dimen/space_16">
             
@@ -333,7 +333,7 @@
                     android:text="导入状态: 成功"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/on_surface"
+                    android:textColor="?attr/colorOnSurface"
                     android:layout_marginBottom="@dimen/space_8" />
                     
                 <TextView
@@ -342,7 +342,7 @@
                     android:layout_height="wrap_content"
                     android:text="模型导入成功，已添加到模型列表"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/on_surface_variant" />
+                    android:textColor="?attr/colorOnSurfaceVariant" />
                     
             </LinearLayout>
             
@@ -357,7 +357,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8"
         android:visibility="gone">
         
@@ -369,8 +369,8 @@
             android:text="查看模型"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:layout_marginEnd="@dimen/space_8" />
@@ -383,8 +383,8 @@
             android:text="导入另一个"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@color/on_secondary"
+            app:backgroundTint="?attr/colorSecondary"
+            android:textColor="?attr/colorOnSecondary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
             

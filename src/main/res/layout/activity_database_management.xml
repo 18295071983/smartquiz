@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="数据库管理"
-            app:titleTextColor="@color/text_primary"/>
+            app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -48,7 +48,7 @@
                         android:text="数据库版本"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -61,7 +61,7 @@
                             android:layout_weight="1"
                             android:text="当前版本:"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_secondary"/>
+                            android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tvCurrentVersion"
                             android:layout_width="@dimen/size_0"
@@ -69,7 +69,7 @@
                             android:layout_weight="1"
                             android:text="加载中..."
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:gravity="right"/>
                     </LinearLayout>
                     <LinearLayout
@@ -83,7 +83,7 @@
                             android:layout_weight="1"
                             android:text="最新版本:"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_secondary"/>
+                            android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tvLatestVersion"
                             android:layout_width="@dimen/size_0"
@@ -91,7 +91,7 @@
                             android:layout_weight="1"
                             android:text="加载中..."
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:gravity="right"/>
                     </LinearLayout>
                     <LinearLayout
@@ -105,7 +105,7 @@
                             android:layout_weight="1"
                             android:text="更新状态:"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_secondary"/>
+                            android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tvUpdateStatus"
                             android:layout_width="@dimen/size_0"
@@ -113,7 +113,7 @@
                             android:layout_weight="1"
                             android:text="加载中..."
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:gravity="right"/>
                     </LinearLayout>
                     <LinearLayout
@@ -126,7 +126,7 @@
                             android:layout_weight="1"
                             android:text="数据库大小:"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_secondary"/>
+                            android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tvDatabaseSize"
                             android:layout_width="@dimen/size_0"
@@ -134,7 +134,7 @@
                             android:layout_weight="1"
                             android:text="加载中..."
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:gravity="right"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -157,7 +157,7 @@
                         android:text="升级进度"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     <LinearLayout
                         android:id="@+id/layoutUpgradeProgress"
@@ -170,14 +170,14 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:indeterminate="true"
-                            android:indeterminateTint="@color/primary"/>
+                            android:indeterminateTint="?attr/colorPrimary"/>
                         <TextView
                             android:id="@+id/tvUpgradeProgress"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="升级中..."
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_secondary"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:layout_marginTop="@dimen/space_8"/>
                     </LinearLayout>
                     <TextView
@@ -186,7 +186,7 @@
                         android:layout_height="wrap_content"
                         android:text="暂无更新信息"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginBottom="@dimen/space_12"/>
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -198,7 +198,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="检查更新"
-                            app:backgroundTint="@color/primary"
+                            app:backgroundTint="?attr/colorPrimary"
                             android:textColor="@android:color/white"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
@@ -208,7 +208,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="备份"
-                            app:backgroundTint="@color/secondary"
+                            app:backgroundTint="?attr/colorSecondary"
                             android:textColor="@android:color/white"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
@@ -218,7 +218,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="恢复"
-                            app:backgroundTint="@color/secondary"
+                            app:backgroundTint="?attr/colorSecondary"
                             android:textColor="@android:color/white"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
@@ -228,7 +228,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="数据备份"
-                            app:backgroundTint="@color/primary"
+                            app:backgroundTint="?attr/colorPrimary"
                             android:textColor="@android:color/white"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -244,7 +244,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="验证"
-                            app:backgroundTint="@color/primary"
+                            app:backgroundTint="?attr/colorPrimary"
                             android:textColor="@android:color/white"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
@@ -280,7 +280,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="字段管理"
-                            app:backgroundTint="@color/primary"
+                            app:backgroundTint="?attr/colorPrimary"
                             android:textColor="@android:color/white"
                             android:layout_marginEnd="@dimen/space_8"
                             app:cornerRadius="@dimen/radius_12"
@@ -290,7 +290,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="@dimen/size_40"
                             android:text="初始化数据库"
-                            app:backgroundTint="@color/secondary"
+                            app:backgroundTint="?attr/colorSecondary"
                             android:textColor="@android:color/white"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
@@ -316,7 +316,7 @@
                         android:text="版本历史"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"
                         android:gravity="center"/>
                     <androidx.recyclerview.widget.RecyclerView
@@ -343,7 +343,7 @@
                         android:text="备份列表"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"
                         android:gravity="center"/>
                     <androidx.recyclerview.widget.RecyclerView
@@ -357,7 +357,7 @@
                         android:layout_height="wrap_content"
                         android:text="暂无备份"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginTop="@dimen/space_12"
                         android:gravity="center"
                         android:visibility="gone"/>

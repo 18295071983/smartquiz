@@ -15,6 +15,6 @@
         android:text="分组标题"
         android:textSize="@dimen/text_14"
         android:textStyle="bold"
-        android:textColor="@color/text_secondary"/>
+        android:textColor="?attr/colorControlTextSecondary"/>
 
 </LinearLayout>

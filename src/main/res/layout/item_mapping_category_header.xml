@@ -12,7 +12,7 @@
     <View
         android:layout_width="@dimen/size_3"
         android:layout_height="@dimen/size_16"
-        android:background="@color/primary"
+        android:background="?attr/colorPrimary"
         android:layout_marginEnd="@dimen/space_8"/>
 
     <TextView
@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:textSize="@dimen/text_13"
         android:textStyle="bold"
-        android:textColor="@color/primary"
+        android:textColor="?attr/colorPrimary"
         android:letterSpacing="0.05"
         tools:ignore="HardcodedText"
         xmlns:tools="http://schemas.android.com/tools"/>

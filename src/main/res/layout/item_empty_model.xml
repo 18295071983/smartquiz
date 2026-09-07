@@ -20,7 +20,7 @@
         android:layout_marginTop="@dimen/space_16"
         android:text="@string/no_models_available"
         android:textSize="@dimen/text_14"
-        android:textColor="@color/text_tertiary"
+        android:textColor="?attr/colorControlTextHint"
         android:gravity="center"/>
 
 </LinearLayout>

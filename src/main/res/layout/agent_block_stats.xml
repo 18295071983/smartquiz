@@ -10,7 +10,7 @@
         android:id="@+id/view_status_indicator"
         android:layout_width="@dimen/size_3"
         android:layout_height="match_parent"
-        android:background="@color/text_secondary"
+        android:background="?attr/colorControlTextSecondary"
         android:layout_marginEnd="@dimen/space_8"/>
 
     <LinearLayout
@@ -25,7 +25,7 @@
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_12"
             android:textStyle="bold"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginBottom="@dimen/space_6"/>
 
         <LinearLayout
@@ -43,7 +43,7 @@
                     android:layout_height="wrap_content"
                     android:text="总步数"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_hint"/>
+                    android:textColor="?attr/colorControlTextHint"/>
                 <TextView
                     android:id="@+id/tv_steps"
                     android:layout_width="wrap_content"
@@ -51,7 +51,7 @@
                     android:text="0"
                     android:textSize="@dimen/text_14"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
             </LinearLayout>
 
             <LinearLayout
@@ -64,7 +64,7 @@
                     android:layout_height="wrap_content"
                     android:text="Token"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_hint"/>
+                    android:textColor="?attr/colorControlTextHint"/>
                 <TextView
                     android:id="@+id/tv_tokens"
                     android:layout_width="wrap_content"
@@ -72,7 +72,7 @@
                     android:text="0"
                     android:textSize="@dimen/text_14"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
             </LinearLayout>
 
             <LinearLayout
@@ -85,7 +85,7 @@
                     android:layout_height="wrap_content"
                     android:text="速度"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_hint"/>
+                    android:textColor="?attr/colorControlTextHint"/>
                 <TextView
                     android:id="@+id/tv_tps"
                     android:layout_width="wrap_content"
@@ -93,7 +93,7 @@
                     android:text="0 t/s"
                     android:textSize="@dimen/text_14"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
             </LinearLayout>
 
             <LinearLayout
@@ -106,7 +106,7 @@
                     android:layout_height="wrap_content"
                     android:text="耗时"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_hint"/>
+                    android:textColor="?attr/colorControlTextHint"/>
                 <TextView
                     android:id="@+id/tv_time"
                     android:layout_width="wrap_content"
@@ -114,7 +114,7 @@
                     android:text="0s"
                     android:textSize="@dimen/text_14"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

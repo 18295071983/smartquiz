@@ -264,7 +264,7 @@
                     android:text="检查答案"
                     android:textSize="@dimen/text_16"
                     android:textColor="@color/white"
-                    app:backgroundTint="@color/primary"
+                    app:backgroundTint="?attr/colorPrimary"
                     app:cornerRadius="@dimen/radius_12"
                     android:paddingVertical="14dp"
                     android:layout_marginTop="@dimen/space_20"
@@ -298,7 +298,7 @@
                 android:text="标记"
                 android:textSize="@dimen/text_16"
                 android:textColor="@color/white"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginEnd="@dimen/space_8"/>
 
@@ -310,7 +310,7 @@
                 android:text="上一题"
                 android:textSize="@dimen/text_16"
                 android:textColor="@color/white"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="@dimen/radius_12"/>
         </LinearLayout>
 
@@ -327,7 +327,7 @@
                 android:text="显示答案"
                 android:textSize="@dimen/text_16"
                 android:textColor="@color/white"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginEnd="@dimen/space_8"/>
 
@@ -339,7 +339,7 @@
                 android:text="下一题"
                 android:textSize="@dimen/text_16"
                 android:textColor="@color/white"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="@dimen/radius_12"/>
         </LinearLayout>
     </LinearLayout>

@@ -29,6 +29,8 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 public class OfficePreviewEngine extends BasePreviewEngine {
     private static final String TAG = "OfficePreviewEngine";
     private static final String[] SUPPORTED_EXTENSIONS = {".doc", ".docx", ".ppt", ".pptx"};
@@ -146,7 +148,7 @@ public class OfficePreviewEngine extends BasePreviewEngine {
         
         // 绘制标题
         Paint titlePaint = new Paint();
-        titlePaint.setColor(Color.parseColor("#3B82F6"));
+        titlePaint.setColor(ThemeColors.get(R.color.hc_ff3b82f6));
         titlePaint.setTextSize(20);
         titlePaint.setTypeface(Typeface.DEFAULT_BOLD);
         titlePaint.setAntiAlias(true);
@@ -163,12 +165,12 @@ public class OfficePreviewEngine extends BasePreviewEngine {
         
         // 绘制分隔线
         Paint linePaint = new Paint();
-        linePaint.setColor(Color.parseColor("#E5E7EB"));
+        linePaint.setColor(ThemeColors.get(R.color.hc_ffe5e7eb));
         canvas.drawLine(margin, 70, width - margin, 70, linePaint);
         
         // 绘制正文
         TextPaint textPaint = new TextPaint();
-        textPaint.setColor(Color.parseColor("#1F2937"));
+        textPaint.setColor(ThemeColors.get(R.color.hc_ff1f2937));
         textPaint.setTextSize(16);
         textPaint.setAntiAlias(true);
         
@@ -201,7 +203,7 @@ public class OfficePreviewEngine extends BasePreviewEngine {
         // 如果还有更多文本，显示省略提示
         if (texts.size() > lineCount) {
             Paint morePaint = new Paint();
-            morePaint.setColor(Color.parseColor("#9CA3AF"));
+            morePaint.setColor(ThemeColors.get(R.color.hc_ff9ca3af));
             morePaint.setTextSize(14);
             morePaint.setAntiAlias(true);
             canvas.drawText("... (更多内容)", margin, height - 30, morePaint);
@@ -239,7 +241,7 @@ public class OfficePreviewEngine extends BasePreviewEngine {
         
         // 绘制图标背景
         Paint bgPaint = new Paint();
-        bgPaint.setColor(Color.parseColor("#3B82F6"));
+        bgPaint.setColor(ThemeColors.get(R.color.hc_ff3b82f6));
         canvas.drawRect(20, 20, 280, 200, bgPaint);
         
         // 绘制文件类型
@@ -277,7 +279,7 @@ public class OfficePreviewEngine extends BasePreviewEngine {
         
         // 绘制提示信息
         paint.setTextSize(12);
-        paint.setColor(Color.parseColor("#6B7280"));
+        paint.setColor(ThemeColors.get(R.color.hc_ff6b7280));
         canvas.drawText("点击查看完整内容", width / 2, 320, paint);
         
         return bitmap;

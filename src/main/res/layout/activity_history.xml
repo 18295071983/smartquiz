@@ -64,7 +64,7 @@
             android:layout_height="wrap_content"
             android:text="暂无导入历史"
             android:textSize="@dimen/text_16"
-            android:textColor="@color/text_secondary"/>
+            android:textColor="?attr/colorControlTextSecondary"/>
     </LinearLayout>
 
 </LinearLayout>

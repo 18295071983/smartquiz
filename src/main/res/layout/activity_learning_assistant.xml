@@ -17,7 +17,7 @@
             android:layout_height="?attr/actionBarSize"
             android:background="?attr/colorSurface"
             app:title="学习助手"
-            app:titleTextColor="@color/text_primary"/>
+            app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -47,7 +47,7 @@
                         android:text="助手模式"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_16"/>
                     
                     <RadioGroup
@@ -92,7 +92,7 @@
                         android:text="学习计划设置"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     
                     <com.google.android.material.textfield.TextInputLayout
@@ -132,8 +132,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="@dimen/size_48"
                         android:text="生成计划"
-                        app:backgroundTint="@color/primary"
-                        android:textColor="@color/on_primary"
+                        app:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"
                         android:layout_marginTop="@dimen/space_16"/>
@@ -159,7 +159,7 @@
                         android:text="概念解释设置"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     
                     <com.google.android.material.textfield.TextInputLayout
@@ -186,8 +186,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="@dimen/size_48"
                         android:text="解释概念"
-                        app:backgroundTint="@color/primary"
-                        android:textColor="@color/on_primary"
+                        app:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"
                         android:layout_marginTop="@dimen/space_16"/>
@@ -213,7 +213,7 @@
                         android:text="考试准备设置"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     
                     <com.google.android.material.textfield.TextInputLayout
@@ -247,8 +247,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="@dimen/size_48"
                         android:text="生成准备计划"
-                        app:backgroundTint="@color/primary"
-                        android:textColor="@color/on_primary"
+                        app:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"
                         android:layout_marginTop="@dimen/space_16"/>
@@ -273,7 +273,7 @@
                         android:text="结果"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_12"/>
                     
                     <LinearLayout
@@ -294,7 +294,7 @@
                             android:layout_height="wrap_content"
                             android:text="加载中..."
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:layout_marginBottom="@dimen/space_8"/>
                         <TextView
                             android:id="@+id/loading_submessage"
@@ -302,7 +302,7 @@
                             android:layout_height="wrap_content"
                             android:text=""
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_secondary"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:layout_marginBottom="@dimen/space_8"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_cancel"
@@ -326,7 +326,7 @@
                             android:layout_height="wrap_content"
                             android:text="生成的内容将显示在这里"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/text_secondary"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:layout_marginBottom="@dimen/space_16"/>
                     </LinearLayout>
                     
@@ -342,8 +342,8 @@
                             android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="保存"
-                            app:backgroundTint="@color/primary"
-                            android:textColor="@color/on_primary"
+                            app:backgroundTint="?attr/colorPrimary"
+                            android:textColor="?attr/colorOnPrimary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"
                             android:layout_marginEnd="@dimen/space_8"/>
@@ -353,8 +353,8 @@
                             android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="分享"
-                            app:backgroundTint="@color/secondary"
-                            android:textColor="@color/on_secondary"
+                            app:backgroundTint="?attr/colorSecondary"
+                            android:textColor="?attr/colorOnSecondary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"
                             android:layout_marginEnd="@dimen/space_8"/>
@@ -364,8 +364,8 @@
                             android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="复制"
-                            app:backgroundTint="@color/secondary"
-                            android:textColor="@color/on_secondary"
+                            app:backgroundTint="?attr/colorSecondary"
+                            android:textColor="?attr/colorOnSecondary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"/>
                     </LinearLayout>

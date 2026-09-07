@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Intent;
 import android.content.ContentResolver;
 import android.net.Uri;
@@ -340,13 +342,13 @@ public class ImportActivity extends BaseActivity {
             statusIcon.setColorFilter(getResources().getColor(R.color.error_color));
         } else if (status.contains("分析") || status.contains("检测")) {
             statusIcon.setImageResource(R.drawable.ic_analyze);
-            statusIcon.setColorFilter(getResources().getColor(R.color.primary_color));
+            statusIcon.setColorFilter(ThemeColors.attr(this, R.attr.colorPrimary));
         } else if (status.contains("保存")) {
             statusIcon.setImageResource(R.drawable.ic_save);
-            statusIcon.setColorFilter(getResources().getColor(R.color.primary_color));
+            statusIcon.setColorFilter(ThemeColors.attr(this, R.attr.colorPrimary));
         } else {
             statusIcon.setImageResource(R.drawable.ic_import_file);
-            statusIcon.setColorFilter(getResources().getColor(R.color.primary_color));
+            statusIcon.setColorFilter(ThemeColors.attr(this, R.attr.colorPrimary));
         }
     }
     

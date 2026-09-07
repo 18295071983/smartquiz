@@ -25,7 +25,7 @@
             android:layout_width="match_parent"
             android:layout_height="@dimen/size_4"
             android:layout_gravity="bottom"
-            android:progressTint="@color/primary"
+            android:progressTint="?attr/colorPrimary"
             android:visibility="gone" />
 
         <FrameLayout

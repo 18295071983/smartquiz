@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="工具集"
-            app:titleTextColor="@color/text_primary"/>
+            app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -37,7 +37,7 @@
                 android:text="工具分类"
                 android:textSize="@dimen/text_20"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:layout_marginBottom="@dimen/space_16"/>
 
             <!-- 数据库相关 -->
@@ -59,14 +59,14 @@
                         android:text="数据库工具"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="数据库详情、数据库管理"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -89,14 +89,14 @@
                         android:text="导入导出工具"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="导入指南、导入、导出"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -119,14 +119,14 @@
                         android:text="文件预览工具"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="Office文档、Office界面、Pdfium、文件渲染"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -149,14 +149,14 @@
                         android:text="AI工具"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="AI聊天、AI中心、文字识别、AI服务状态"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -179,14 +179,14 @@
                         android:text="题目工具"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="题库管理"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -209,14 +209,14 @@
                         android:text="学习工具"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="学习笔记、学习计划、错题集、学习历史"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -239,14 +239,14 @@
                         android:text="设置与数据"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="主题设置、语言设置、数据备份"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -269,14 +269,14 @@
                         android:text="其他工具"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
+                        android:textColor="?attr/colorControlText"
                         android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="API配置、文件渲染、环境检查、系统日志、天气详情"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

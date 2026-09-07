@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     android:fillViewport="true"
     tools:context=".ui.activity.AICenterActivity">
 
@@ -22,7 +22,7 @@
             android:layout_marginBottom="@dimen/space_12"
             android:clickable="true"
             android:focusable="true"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp"
             app:rippleColor="@color/primary_alpha_20">
@@ -50,21 +50,21 @@
                         android:text="在线服务状态"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                     <TextView
                         android:id="@+id/tv_service_status"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="点击配置API服务"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:layout_marginTop="@dimen/space_2"/>
                 </LinearLayout>
                 <ImageView
                     android:layout_width="@dimen/size_24"
                     android:layout_height="@dimen/size_24"
                     android:src="@drawable/ic_chevron_right"
-                    app:tint="@color/text_tertiary"
+                    app:tint="?attr/colorControlTextHint"
                     android:contentDescription="箭头"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -75,7 +75,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp">
             <LinearLayout
@@ -104,7 +104,7 @@
                         android:text="在线模型"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switch_online_mode"
                         android:layout_width="wrap_content"
@@ -117,7 +117,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_12"
-                    app:cardBackgroundColor="@color/surface_variant"
+                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
                     app:cardCornerRadius="12dp"
                     app:cardElevation="0dp">
                     <LinearLayout
@@ -130,7 +130,7 @@
                             android:layout_height="wrap_content"
                             android:text="当前模型"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_secondary"/>
+                            android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tv_current_online_model"
                             android:layout_width="match_parent"
@@ -138,7 +138,7 @@
                             android:text="GPT-4o"
                             android:textSize="@dimen/text_16"
                             android:textStyle="bold"
-                            android:textColor="@color/primary"
+                            android:textColor="?attr/colorPrimary"
                             android:layout_marginTop="@dimen/space_2"/>
                         <TextView
                             android:id="@+id/tv_current_online_provider"
@@ -146,7 +146,7 @@
                             android:layout_height="wrap_content"
                             android:text="OpenAI"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_tertiary"
+                            android:textColor="?attr/colorControlTextHint"
                             android:layout_marginTop="@dimen/space_2"/>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
@@ -164,7 +164,7 @@
                         android:layout_weight="1"
                         android:text="API配置列表"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_refresh_models"
                         style="@style/Widget.Material3.Button.OutlinedButton"
@@ -192,7 +192,7 @@
                     android:gravity="center"
                     android:text="暂无在线模型，点击下方按钮添加配置"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_tertiary"
+                    android:textColor="?attr/colorControlTextHint"
                     android:background="@drawable/empty_bg_dashed"
                     android:visibility="gone"/>
 
@@ -215,7 +215,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp">
             <LinearLayout
@@ -244,7 +244,7 @@
                         android:text="导入模型"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switch_local_mode"
                         android:layout_width="wrap_content"
@@ -256,7 +256,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_12"
-                    app:cardBackgroundColor="@color/surface_variant"
+                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
                     app:cardCornerRadius="12dp"
                     app:cardElevation="0dp">
                     <LinearLayout
@@ -269,7 +269,7 @@
                             android:layout_height="wrap_content"
                             android:text="当前模型"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_secondary"/>
+                            android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tv_current_local_model"
                             android:layout_width="match_parent"
@@ -277,7 +277,7 @@
                             android:text="未加载模型"
                             android:textSize="@dimen/text_16"
                             android:textStyle="bold"
-                            android:textColor="@color/primary"
+                            android:textColor="?attr/colorPrimary"
                             android:layout_marginTop="@dimen/space_2"/>
                         <TextView
                             android:id="@+id/tv_local_model_info"
@@ -285,7 +285,7 @@
                             android:layout_height="wrap_content"
                             android:text="点击加载模型"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_tertiary"
+                            android:textColor="?attr/colorControlTextHint"
                             android:layout_marginTop="@dimen/space_2"/>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
@@ -303,7 +303,7 @@
                         android:layout_weight="1"
                         android:text="本地模型列表"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_refresh_local_models"
                         style="@style/Widget.Material3.Button.OutlinedButton"
@@ -331,7 +331,7 @@
                     android:gravity="center"
                     android:text="暂无本地模型，请先导入或下载模型"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_tertiary"
+                    android:textColor="?attr/colorControlTextHint"
                     android:background="@drawable/empty_bg_dashed"
                     android:visibility="gone"/>
 
@@ -373,7 +373,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp">
             <LinearLayout
@@ -394,14 +394,14 @@
                         android:text="📊 本次会话 Token 消耗"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                     <TextView
                         android:id="@+id/tv_token_cost"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="约 ¥0.00"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/primary"/>
+                        android:textColor="?attr/colorPrimary"/>
                 </LinearLayout>
 
                 <LinearLayout
@@ -422,7 +422,7 @@
                             android:layout_height="wrap_content"
                         android:text="输入"
                         android:textSize="@dimen/text_11"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tv_input_tokens"
                             android:layout_width="wrap_content"
@@ -430,20 +430,20 @@
                             android:text="0"
                             android:textSize="@dimen/text_22"
                             android:textStyle="bold"
-                            android:textColor="@color/primary"
+                            android:textColor="?attr/colorPrimary"
                             android:layout_marginTop="@dimen/space_4"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="tokens"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/on_primary_container"
+                            android:textColor="?attr/colorOnPrimaryContainer"
                             android:alpha="0.5"/>
                     </LinearLayout>
 
                     <View android:layout_width="@dimen/size_1"
                         android:layout_height="@dimen/size_40"
-                        android:background="@color/divider"/>
+                        android:background="?attr/colorDivider"/>
 
                     <LinearLayout
                         android:layout_width="@dimen/size_0"
@@ -456,7 +456,7 @@
                             android:layout_height="wrap_content"
                             android:text="输出"
                             android:textSize="@dimen/text_11"
-                            android:textColor="@color/text_secondary"/>
+                            android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tv_output_tokens"
                             android:layout_width="wrap_content"
@@ -464,19 +464,19 @@
                             android:text="0"
                             android:textSize="@dimen/text_22"
                             android:textStyle="bold"
-                            android:textColor="@color/secondary"
+                            android:textColor="?attr/colorSecondary"
                             android:layout_marginTop="@dimen/space_4"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="tokens"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_tertiary"/>
+                            android:textColor="?attr/colorControlTextHint"/>
                     </LinearLayout>
 
                     <View android:layout_width="@dimen/size_1"
                         android:layout_height="@dimen/size_40"
-                        android:background="@color/on_primary_container"
+                        android:background="?attr/colorOnPrimaryContainer"
                         android:alpha="0.2"/>
 
                     <LinearLayout
@@ -490,7 +490,7 @@
                             android:layout_height="wrap_content"
                             android:text="总计"
                             android:textSize="@dimen/text_11"
-                            android:textColor="@color/text_secondary"/>
+                            android:textColor="?attr/colorControlTextSecondary"/>
                         <TextView
                             android:id="@+id/tv_total_tokens"
                             android:layout_width="wrap_content"
@@ -505,7 +505,7 @@
                             android:layout_height="wrap_content"
                             android:text="tokens"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_tertiary"/>
+                            android:textColor="?attr/colorControlTextHint"/>
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
@@ -516,7 +516,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             app:cardCornerRadius="16dp"
             app:cardElevation="2dp">
             <LinearLayout
@@ -531,7 +531,7 @@
                     android:text="🤖 AI功能"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginBottom="@dimen/space_12"/>
                 
                 <GridLayout

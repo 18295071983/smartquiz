@@ -24,7 +24,7 @@
             android:text="1"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/primary"
+            android:textColor="?attr/colorPrimary"
             android:background="@drawable/question_number_bg"
             android:gravity="center"
             android:layout_marginEnd="@dimen/space_10"/>
@@ -36,7 +36,7 @@
             android:layout_height="wrap_content"
             android:text="单选题"
             android:textSize="@dimen/text_11"
-            android:textColor="@color/primary"
+            android:textColor="?attr/colorPrimary"
             android:background="@drawable/question_type_tag_bg"
             android:paddingHorizontal="10dp"
             android:paddingVertical="3dp"/>
@@ -78,7 +78,7 @@
         android:layout_height="wrap_content"
         android:text="题目内容"
         android:textSize="@dimen/text_15"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:lineSpacingExtra="4dp"
         android:layout_marginBottom="@dimen/space_12"/>
 
@@ -113,8 +113,8 @@
             android:layout_height="wrap_content"
             android:text="默认"
             android:textSize="@dimen/text_11"
-            android:textColor="@color/text_secondary"
-            android:background="@color/surface_variant"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:background="?attr/colorSurfaceVariant"
             android:paddingHorizontal="8dp"
             android:paddingVertical="3dp"
             android:layout_marginEnd="@dimen/space_8"/>
@@ -125,8 +125,8 @@
             android:layout_height="wrap_content"
             android:text="中等"
             android:textSize="@dimen/text_11"
-            android:textColor="@color/text_secondary"
-            android:background="@color/surface_variant"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:background="?attr/colorSurfaceVariant"
             android:paddingHorizontal="8dp"
             android:paddingVertical="3dp"/>
     </LinearLayout>
@@ -150,7 +150,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="@dimen/text_13"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:background="@drawable/explanation_bg"
         android:padding="@dimen/space_10"
         android:layout_marginTop="@dimen/space_8"

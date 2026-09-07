@@ -24,7 +24,7 @@
             android:layout_height="wrap_content"
             android:text="Model Name"
             android:textSize="@dimen/text_15"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:textStyle="bold"/>
 
         <TextView
@@ -33,7 +33,7 @@
             android:layout_height="wrap_content"
             android:text="Context: 8K"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:layout_marginTop="@dimen/space_2"/>
 
     </LinearLayout>

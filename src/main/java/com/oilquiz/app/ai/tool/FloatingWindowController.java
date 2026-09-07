@@ -9,6 +9,8 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.TextView;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 悬浮窗控制器：创建/关闭可拖动的系统级悬浮窗（需 SYSTEM_ALERT_WINDOW 权限）。
  * 供 SystemConnectTool 使用；单例持有当前悬浮窗 View，重复创建先关闭旧的。
@@ -31,9 +33,9 @@ public class FloatingWindowController {
         tv.setText(text);
         tv.setTextSize(14);
         tv.setPadding(dp(context, 14), dp(context, 10), dp(context, 14), dp(context, 10));
-        tv.setTextColor(0xFFFFFFFF);
+        tv.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(0xCC1E293B);
+        bg.setColor(ThemeColors.get(R.color.hc_cc1e293b));
         bg.setCornerRadius(dp(context, 10));
         tv.setBackground(bg);
         tv.setElevation(dp(context, 6));

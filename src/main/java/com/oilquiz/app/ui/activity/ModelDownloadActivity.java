@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class ModelDownloadActivity extends BaseActivity {
 
     private static final String TAG = "ModelDownloadActivity";
@@ -903,7 +904,7 @@ public class ModelDownloadActivity extends BaseActivity {
                             mvh.llProgress.setVisibility(View.VISIBLE);
                             mvh.progressBar.setProgress(progress);
                             mvh.tvStatus.setText("下载中... " + progress + "%");
-                            mvh.tvStatus.setTextColor(0xFFFF9800);
+                            mvh.tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                             mvh.btnAction.setText("暂停");
                             
                             // 显示已下载大小和总大小
@@ -952,7 +953,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     if (holder instanceof ModelViewHolder) {
                         ModelViewHolder mvh = (ModelViewHolder) holder;
                         mvh.tvStatus.setText("已暂停");
-                        mvh.tvStatus.setTextColor(0xFFFF9800);
+                        mvh.tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                         mvh.btnAction.setText("继续");
                         if (mvh.tvSpeed != null) mvh.tvSpeed.setText("");
                     }
@@ -1002,7 +1003,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     if (holder instanceof ModelViewHolder) {
                         ModelViewHolder mvh = (ModelViewHolder) holder;
                         mvh.tvStatus.setText("下载失败");
-                        mvh.tvStatus.setTextColor(0xFFF44336);
+                        mvh.tvStatus.setTextColor(ThemeColors.get(R.color.hc_fff44336));
                         mvh.llProgress.setVisibility(View.GONE);
                         mvh.btnAction.setText("重试");
                     } else {
@@ -1127,9 +1128,9 @@ public class ModelDownloadActivity extends BaseActivity {
                     StringBuilder status = new StringBuilder("已下载");
                     if (mmprojAvailable) {
                         status.append(" | 多模态");
-                        tvStatus.setTextColor(0xFF00BCD4);  // 青色标识多模态可用
+                        tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff00bcd4));  // 青色标识多模态可用
                     } else {
-                        tvStatus.setTextColor(0xFF4CAF50);
+                        tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff4caf50));
                     }
                     tvStatus.setText(status.toString());
                     llProgress.setVisibility(View.GONE);
@@ -1157,7 +1158,7 @@ public class ModelDownloadActivity extends BaseActivity {
                 } else if (isPaused && progress != null) {
                     // 暂停状态：显示已下载进度，提供“继续”按钮
                     tvStatus.setText("已暂停 " + progress.getProgressPercent() + "%");
-                    tvStatus.setTextColor(0xFFFF9800);
+                    tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(progress.getProgressPercent());
                     if (tvSpeed != null) tvSpeed.setText("");
@@ -1178,7 +1179,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     long speedBps = progress.getSpeedBps();
                     
                     tvStatus.setText("下载中... " + percent + "%");
-                    tvStatus.setTextColor(0xFFFF9800);
+                    tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(percent);
                     
@@ -1196,7 +1197,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     });
                 } else {
                     tvStatus.setText("在线");
-                    tvStatus.setTextColor(0xFF2196F3);
+                    tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff2196f3));
                     llProgress.setVisibility(View.GONE);
                     btnAction.setText("下载");
                     btnAction.setOnClickListener(v -> {
@@ -1301,7 +1302,7 @@ public class ModelDownloadActivity extends BaseActivity {
                 
                 if (isDownloaded) {
                     tvStatus.setText("已下载");
-                    tvStatus.setTextColor(0xFF4CAF50);
+                    tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff4caf50));
                     llProgress.setVisibility(View.GONE);
                     btnAction.setText("使用");
                     btnDelete.setVisibility(View.VISIBLE);
@@ -1317,7 +1318,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     });
                 } else if (isPaused && progress != null) {
                     tvStatus.setText("已暂停 " + progress.getProgressPercent() + "%");
-                    tvStatus.setTextColor(0xFFFF9800);
+                    tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(progress.getProgressPercent());
                     if (tvSpeed != null) tvSpeed.setText("");
@@ -1333,7 +1334,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     });
                 } else if (isDownloading && progress != null) {
                     tvStatus.setText("下载中... " + progress.getProgressPercent() + "%");
-                    tvStatus.setTextColor(0xFFFF9800);
+                    tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(progress.getProgressPercent());
                     btnAction.setText("暂停");
@@ -1343,7 +1344,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     });
                 } else {
                     tvStatus.setText("在线");
-                    tvStatus.setTextColor(0xFF2196F3);
+                    tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff2196f3));
                     llProgress.setVisibility(View.GONE);
                     // 搜索结果：downloadUrl 是 resolve/main/ 基础路径 → 调文件列表 API 显示 .gguf 文件供选择
                     if (downloadUrl != null && downloadUrl.endsWith("/resolve/main/")) {
@@ -1369,7 +1370,7 @@ public class ModelDownloadActivity extends BaseActivity {
 
             private void startDownload(String modelId, String downloadUrl) {
                 tvStatus.setText("开始下载...");
-                tvStatus.setTextColor(0xFFFF9800);
+                tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                 llProgress.setVisibility(View.VISIBLE);
                 progressBar.setProgress(0);
                 if (tvSpeed != null) tvSpeed.setText("");

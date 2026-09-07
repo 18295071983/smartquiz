@@ -5,6 +5,7 @@
     android:id="@+id/drawer_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.AIChatActivity">
 
     <LinearLayout
@@ -12,7 +13,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:background="@color/background">
+        android:background="@android:color/transparent">
 
         <!-- 合并头部：状态信息 + 右侧抽屉按钮，同一渐变胶囊容器 -->
         <LinearLayout
@@ -74,7 +75,7 @@
                             android:layout_weight="1"
                             android:text="@string/chat_service_not_initialized"
                             android:textSize="@dimen/text_11"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:maxLines="1"
                             android:ellipsize="end"/>
 
@@ -85,7 +86,7 @@
                             android:layout_marginStart="@dimen/space_8"
                             android:text=""
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_secondary"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:visibility="gone"/>
                     </LinearLayout>
 
@@ -114,7 +115,7 @@
                             android:layout_marginStart="@dimen/space_6"
                             android:text=""
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/text_secondary"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:visibility="gone"/>
 
                         <TextView
@@ -124,7 +125,7 @@
                             android:layout_marginStart="@dimen/space_8"
                             android:text="🔵 0 tokens"
                             android:textSize="@dimen/text_11"
-                            android:textColor="@color/primary"
+                            android:textColor="?attr/colorPrimary"
                             android:textStyle="bold"
                             android:visibility="gone"/>
                     </LinearLayout>
@@ -144,7 +145,7 @@
                             android:layout_weight="1"
                             android:text="状态机: --"
                             android:textSize="@dimen/text_11"
-                            android:textColor="@color/text_secondary"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:maxLines="1"
                             android:ellipsize="end"/>
 
@@ -155,7 +156,7 @@
                             android:layout_marginStart="@dimen/space_8"
                             android:text="KV: --"
                             android:textSize="@dimen/text_11"
-                            android:textColor="@color/text_secondary"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:visibility="gone"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -170,7 +171,7 @@
                 style="@style/Widget.Material3.Button.IconButton"
                 app:icon="@drawable/ic_menu_hamburger"
                 app:iconSize="20dp"
-                app:iconTint="@color/text_primary"
+                app:iconTint="?attr/colorControlText"
                 android:contentDescription="工具中心"/>
         </LinearLayout>
 
@@ -215,7 +216,7 @@
                     android:text="开始你的AI对话"
                     android:textSize="@dimen/text_20"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginBottom="@dimen/space_8"/>
 
                 <TextView
@@ -223,7 +224,7 @@
                     android:layout_height="wrap_content"
                     android:text="输入消息开始对话，或尝试以下快捷命令："
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:gravity="center"
                     android:layout_marginBottom="@dimen/space_24"/>
 
@@ -238,24 +239,24 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="帮我总结这段文字"
-                        app:chipBackgroundColor="@color/surface_variant"
-                        android:textColor="@color/text_primary"/>
+                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
+                        android:textColor="?attr/colorControlText"/>
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/chip_empty_example2"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="解释这段代码"
-                        app:chipBackgroundColor="@color/surface_variant"
-                        android:textColor="@color/text_primary"/>
+                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
+                        android:textColor="?attr/colorControlText"/>
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/chip_empty_example3"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="今天天气如何"
-                        app:chipBackgroundColor="@color/surface_variant"
-                        android:textColor="@color/text_primary"/>
+                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
+                        android:textColor="?attr/colorControlText"/>
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_clear_chat"
                 android:layout_width="wrap_content"
@@ -285,7 +286,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@color/surface"
+            android:background="@android:color/transparent"
             android:visibility="gone">
             <LinearLayout
                 android:layout_width="match_parent"
@@ -300,15 +301,15 @@
                     android:text="处理日志"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_clear_log"
                     android:layout_width="wrap_content"
                     android:layout_height="@dimen/size_32"
                     android:text="清空"
                     android:textSize="@dimen/text_11"
-                    app:backgroundTint="@color/surface_variant"
-                    android:textColor="@color/text_secondary"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
+                    android:textColor="?attr/colorControlTextSecondary"
                     app:cornerRadius="@dimen/radius_16"
                     android:textAllCaps="false"
                     android:layout_marginEnd="@dimen/space_8"/>
@@ -318,8 +319,8 @@
                     android:layout_height="@dimen/size_32"
                     android:text="收起"
                     android:textSize="@dimen/text_11"
-                    app:backgroundTint="@color/surface_variant"
-                    android:textColor="@color/text_secondary"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
+                    android:textColor="?attr/colorControlTextSecondary"
                     app:cornerRadius="@dimen/radius_16"
                     android:textAllCaps="false"/>
             </LinearLayout>
@@ -334,7 +335,7 @@
                     android:text=""
                     android:textSize="@dimen/text_12"
                     android:fontFamily="monospace"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:padding="@dimen/space_12"/>
             </ScrollView>
         </LinearLayout>
@@ -343,7 +344,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@color/surface"
+            android:background="@android:color/transparent"
             android:elevation="@dimen/elev_8">
 
             <androidx.recyclerview.widget.RecyclerView
@@ -359,7 +360,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/size_1"
-                android:background="@color/surface_variant"/>
+                android:background="?attr/colorSurfaceVariant"/>
 
             <!-- 语音输入录音状态横幅 -->
             <LinearLayout
@@ -396,7 +397,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="手指上滑，取消发送"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:textSize="@dimen/text_12"
                     android:layout_marginStart="@dimen/space_8"/>
             </LinearLayout>
@@ -428,7 +429,7 @@
                         app:chipIconSize="20dp"
                         app:chipIconTint="@color/chip_gray_text"
                         app:chipBackgroundColor="@color/chip_gray_bg"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         app:chipStrokeWidth="1dp"
                         app:chipStrokeColor="@color/border_light"
                         app:checkedIconVisible="false"/>
@@ -439,7 +440,7 @@
                         android:text="🧠 深度思考"
                         android:checkable="true"
                         app:chipBackgroundColor="@color/chip_gray_bg"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         app:chipStrokeWidth="1dp"
                         app:chipStrokeColor="@color/border_light"
                         app:checkedIconVisible="false"/>
@@ -469,7 +470,7 @@
                         style="@style/Widget.Material3.Button.TextButton"
                         app:icon="@drawable/ic_attachment"
                         app:iconSize="22dp"
-                        app:iconTint="@color/text_secondary"
+                        app:iconTint="?attr/colorControlTextSecondary"
                         android:contentDescription="附加"
                         android:layout_marginStart="@dimen/space_4"/>
                     <EditText
@@ -483,8 +484,8 @@
                         android:maxLines="5"
                         android:minHeight="@dimen/min_52"
                         android:inputType="textMultiLine"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_secondary"
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlText"
                         android:layout_marginHorizontal="@dimen/space_8"/>
 
                     <!-- 微信式"按住 说话"：语音模式下替换输入框，按住录音/上滑取消/松开结束 -->
@@ -497,7 +498,7 @@
                         android:background="@drawable/rounded_edittext"
                         android:gravity="center"
                         android:text="按住 说话"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         android:textSize="@dimen/text_15"
                         android:textStyle="bold"
                         android:visibility="gone"/>
@@ -510,7 +511,7 @@
                         style="@style/Widget.Material3.Button.TextButton"
                         app:icon="@drawable/ic_mic"
                         app:iconSize="22dp"
-                        app:iconTint="@color/text_secondary"
+                        app:iconTint="?attr/colorControlTextSecondary"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
                         app:iconPadding="0dp"
@@ -528,7 +529,7 @@
                     style="@style/Widget.Material3.Button.IconButton"
                     app:icon="@drawable/ic_send_message"
                     app:iconSize="22dp"
-                    app:iconTint="@color/on_primary"
+                    app:iconTint="?attr/colorOnPrimary"
                     android:contentDescription="发送"/>
 
                 <!-- 停止按钮：生成时与发送按钮切换显示（同位置） -->
@@ -558,7 +559,7 @@
         android:layout_width="@dimen/size_300"
         android:layout_height="match_parent"
         android:layout_gravity="right"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_16">
         <include layout="@layout/view_tool_drawer"/>
     </FrameLayout>
@@ -568,7 +569,7 @@
         android:layout_width="@dimen/size_320"
         android:layout_height="match_parent"
         android:layout_gravity="left"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_16">
 
         <LinearLayout
@@ -582,7 +583,7 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:padding="@dimen/space_16"
-                android:background="@color/surface_variant">
+                android:background="?attr/colorSurfaceVariant">
                 <TextView
                     android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
@@ -590,15 +591,15 @@
                     android:text="对话历史"
                     android:textSize="@dimen/text_18"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_new_conversation"
                     android:layout_width="wrap_content"
                     android:layout_height="@dimen/size_32"
                     android:text="＋ 新建"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/on_primary_container"
-                    app:backgroundTint="@color/primary_container"
+                    android:textColor="?attr/colorOnPrimaryContainer"
+                    app:backgroundTint="?attr/colorPrimaryContainer"
                     app:cornerRadius="@dimen/radius_16"
                     android:textAllCaps="false"
                     android:layout_marginEnd="@dimen/space_8"
@@ -609,12 +610,12 @@
                     android:id="@+id/btn_close_history"
                     android:layout_width="@dimen/size_36"
                     android:layout_height="@dimen/size_36"
-                    app:backgroundTint="@color/surface_variant"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
                     app:icon="@drawable/ic_clear"
                     app:iconGravity="textStart"
                     app:iconPadding="0dp"
                     app:cornerRadius="@dimen/radius_18"
-                    app:iconTint="@color/text_primary"
+                    app:iconTint="?attr/colorControlText"
                     android:contentDescription="关闭"/>
             </LinearLayout>
 
@@ -626,7 +627,7 @@
                 android:gravity="center"
                 android:text="暂无历史对话\n开始你的第一个对话吧"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:visibility="gone"/>
 
             <androidx.recyclerview.widget.RecyclerView

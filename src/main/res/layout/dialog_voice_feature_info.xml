@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background">
+    android:background="?attr/colorBackground">
 
     <TextView
         android:layout_width="match_parent"
@@ -12,7 +12,7 @@
         android:text="语音功能配置指南"
         android:textSize="@dimen/text_18"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:gravity="center"
         android:paddingBottom="@dimen/space_16"/>
 
@@ -39,7 +39,7 @@
                     android:text="🎙️ 语音识别（ASR）"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
                     android:paddingBottom="@dimen/space_10"/>
 
                 <!-- 功能介绍 -->
@@ -49,7 +49,7 @@
                     android:text="功能介绍"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:paddingBottom="@dimen/space_4"/>
 
                 <TextView
@@ -57,7 +57,7 @@
                     android:layout_height="wrap_content"
                     android:text="将语音实时转换为文字，支持多种服务商的语音识别模型。在 AI 对话界面中，点击麦克风按钮即可使用语音输入功能，系统会自动将您说的话转换为文字发送。"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp"/>
 
                 <!-- 支持的模型 -->
@@ -67,7 +67,7 @@
                     android:text="支持的模型"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_12"
                     android:paddingBottom="@dimen/space_4"/>
 
@@ -76,7 +76,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ qwen3-asr-flash（百炼，推荐，实时识别）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -84,7 +84,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ paraformer-v2（百炼，非实时高精度）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -92,7 +92,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ fun-asr-flash（百炼，非实时，多语种）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -100,7 +100,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ gummy-realtime-v1（百炼，实时双工）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -108,7 +108,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ whisper-1（OpenAI 兼容）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -116,7 +116,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ 16k_zh（讯飞，中文专用）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <!-- 配置方法 -->
@@ -126,7 +126,7 @@
                     android:text="配置方法"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_12"
                     android:paddingBottom="@dimen/space_4"/>
 
@@ -135,7 +135,7 @@
                     android:layout_height="wrap_content"
                     android:text="1. 在「模型管理」页面，点击「功能专用模型」标题行，查看本指南"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -143,7 +143,7 @@
                     android:layout_height="wrap_content"
                     android:text="2. 点击「🎙️ 语音识别模型」这一行"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -151,7 +151,7 @@
                     android:layout_height="wrap_content"
                     android:text="3. 从列表中选择对应的 ASR 模型（如 qwen3-asr-flash）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -159,7 +159,7 @@
                     android:layout_height="wrap_content"
                     android:text="4. 如果未选择专用模型，系统会自动使用可用的语音服务商端点"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
             </LinearLayout>
@@ -168,7 +168,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/size_1"
-                android:background="@color/divider"
+                android:background="?attr/colorDivider"
                 android:layout_marginVertical="@dimen/space_16"/>
 
             <!-- ========== 语音合成（TTS）========== -->
@@ -183,7 +183,7 @@
                     android:text="🔊 语音合成（TTS）"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
                     android:paddingBottom="@dimen/space_10"/>
 
                 <!-- 功能介绍 -->
@@ -193,7 +193,7 @@
                     android:text="功能介绍"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:paddingBottom="@dimen/space_4"/>
 
                 <TextView
@@ -201,7 +201,7 @@
                     android:layout_height="wrap_content"
                     android:text="将文字转换为自然语音，支持多种音色选择。可用于朗读回复、语音播报、辅助学习等场景。在「语音配置」界面可以选择音色并试听效果。"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp"/>
 
                 <!-- 支持的模型 -->
@@ -211,7 +211,7 @@
                     android:text="支持的模型"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_12"
                     android:paddingBottom="@dimen/space_4"/>
 
@@ -220,7 +220,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ qwen3-tts-flash（百炼，推荐，实时合成）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -228,7 +228,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ qwen-tts / qwen3-tts（百炼，Qwen-TTS 系列）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -236,7 +236,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ cosyvoice-v3（百炼，75 个音色，支持方言）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -244,7 +244,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ cosyvoice-v2 / cosyvoice-v1（百炼，经典版本）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -252,7 +252,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ tts-1 / tts-1-hd（OpenAI 兼容）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -260,7 +260,7 @@
                     android:layout_height="wrap_content"
                     android:text="▸ xfyun-tts（讯飞，专业语音合成）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <!-- 推荐音色 -->
@@ -270,7 +270,7 @@
                     android:text="推荐音色（qwen3-tts-flash）"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_12"
                     android:paddingBottom="@dimen/space_4"/>
 
@@ -279,7 +279,7 @@
                     android:layout_height="wrap_content"
                     android:text="★ Cherry（女声·阳光积极）— 推荐首选"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -287,7 +287,7 @@
                     android:layout_height="wrap_content"
                     android:text="☆ Serena（女声·温柔）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -295,7 +295,7 @@
                     android:layout_height="wrap_content"
                     android:text="☆ Ethan（男声·标准普通话）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -303,7 +303,7 @@
                     android:layout_height="wrap_content"
                     android:text="☆ Chelsie（女声·二次元虚拟女友）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -311,7 +311,7 @@
                     android:layout_height="wrap_content"
                     android:text="☆ Momo（女声·撒娇搞怪）"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -319,7 +319,7 @@
                     android:layout_height="wrap_content"
                     android:text="... 共 48 个音色可选，支持方言和多语种"
                     android:textSize="@dimen/text_11"
-                    android:textColor="@color/text_tertiary"
+                    android:textColor="?attr/colorControlTextHint"
                     android:lineSpacingExtra="3dp"/>
 
                 <!-- 配置方法 -->
@@ -329,7 +329,7 @@
                     android:text="配置方法"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_12"
                     android:paddingBottom="@dimen/space_4"/>
 
@@ -338,7 +338,7 @@
                     android:layout_height="wrap_content"
                     android:text="1. 点击「🔊 语音合成模型」这一行，选择 TTS 模型"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -346,7 +346,7 @@
                     android:layout_height="wrap_content"
                     android:text="2. 点击「🎵 语音合成音色」这一行，选择喜欢的音色"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -354,7 +354,7 @@
                     android:layout_height="wrap_content"
                     android:text="3. 在弹出的音色列表中，点击「试听」按钮预览效果"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
                 <TextView
@@ -362,7 +362,7 @@
                     android:layout_height="wrap_content"
                     android:text="4. 确认音色后点击「确定」保存"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="3dp"/>
 
             </LinearLayout>
@@ -371,7 +371,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/size_1"
-                android:background="@color/divider"
+                android:background="?attr/colorDivider"
                 android:layout_marginVertical="@dimen/space_16"/>
 
             <!-- ========== 使用提示 ========== -->
@@ -386,7 +386,7 @@
                     android:text="💡 使用提示"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:paddingBottom="@dimen/space_10"/>
 
                 <TextView
@@ -395,7 +395,7 @@
                     android:text="1. API Key 共用"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:paddingBottom="@dimen/space_2"/>
 
                 <TextView
@@ -403,7 +403,7 @@
                     android:layout_height="wrap_content"
                     android:text="语音识别和语音合成使用与聊天模型相同的 API Key。在「API 配置」页面设置一次即可。"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp"/>
 
                 <TextView
@@ -412,7 +412,7 @@
                     android:text="2. 自动选择"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_8"
                     android:paddingBottom="@dimen/space_2"/>
 
@@ -421,7 +421,7 @@
                     android:layout_height="wrap_content"
                     android:text="如果不配置专用语音模型，系统会自动检测可用的语音服务商端点（百炼/讯飞/火山/百度/OpenAI）。"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp"/>
 
                 <TextView
@@ -430,7 +430,7 @@
                     android:text="3. 离线兜底"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_8"
                     android:paddingBottom="@dimen/space_2"/>
 
@@ -439,7 +439,7 @@
                     android:layout_height="wrap_content"
                     android:text="当在线语音服务不可用时，语音识别功能会自动回退到 Android 系统自带的语音识别（需要设备支持语音识别服务）。"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp"/>
 
                 <TextView
@@ -448,7 +448,7 @@
                     android:text="4. 多服务商支持"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_8"
                     android:paddingBottom="@dimen/space_2"/>
 
@@ -457,7 +457,7 @@
                     android:layout_height="wrap_content"
                     android:text="系统支持百炼、讯飞、火山引擎、百度、OpenAI 等 5 大服务商，可根据需求和价格自由切换。"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp"/>
 
                 <TextView
@@ -466,7 +466,7 @@
                     android:text="5. 配置独立"
                     android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginTop="@dimen/space_8"
                     android:paddingBottom="@dimen/space_2"/>
 
@@ -475,7 +475,7 @@
                     android:layout_height="wrap_content"
                     android:text="语音识别（ASR）和语音合成（TTS）完全独立配置，互不影响。聊天模型的切换不会影响语音功能。"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp"/>
 
             </LinearLayout>
@@ -498,7 +498,7 @@
         android:layout_marginTop="@dimen/space_8"
         android:layout_marginBottom="@dimen/space_8"
         android:layout_marginHorizontal="@dimen/space_16"
-        app:backgroundTint="@color/primary"
-        android:textColor="@color/on_primary"/>
+        app:backgroundTint="?attr/colorPrimary"
+        android:textColor="?attr/colorOnPrimary"/>
 
 </LinearLayout>

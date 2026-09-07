@@ -7,7 +7,7 @@
     android:layout_height="wrap_content"
     android:layout_marginBottom="@dimen/space_8"
     app:cardElevation="1dp"
-    app:cardBackgroundColor="@color/surface"
+    app:cardBackgroundColor="?attr/colorSurface"
     app:cardCornerRadius="12dp"
     app:strokeWidth="@dimen/stroke_2"
     app:strokeColor="@android:color/transparent">
@@ -42,7 +42,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_15"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:maxLines="1"
                 android:ellipsize="end" />
 
@@ -52,7 +52,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/space_2"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/on_surface_variant"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 android:maxLines="1"
                 android:ellipsize="end" />
 
@@ -67,8 +67,8 @@
             android:textSize="@dimen/text_11"
             app:chipMinHeight="28dp"
             app:chipCornerRadius="14dp"
-            app:chipBackgroundColor="@color/primary_container"
-            android:textColor="@color/on_primary_container"
+            app:chipBackgroundColor="?attr/colorPrimaryContainer"
+            android:textColor="?attr/colorOnPrimaryContainer"
             android:visibility="gone"
             android:layout_marginStart="@dimen/space_6" />
 

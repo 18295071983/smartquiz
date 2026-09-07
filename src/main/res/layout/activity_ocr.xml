@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.OCRActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="文字识别"
-            app:titleTextColor="@color/on_surface"/>
+            app:titleTextColor="?attr/colorOnSurface"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -39,7 +39,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/primary_container"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
 
@@ -55,7 +55,7 @@
                         android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_ocr"
                         android:contentDescription="OCR图标"
-                        android:tint="@color/on_primary_container"
+                        android:tint="?attr/colorOnPrimaryContainer"
                         android:layout_marginEnd="@dimen/space_16" />
 
                     <LinearLayout
@@ -70,7 +70,7 @@
                             android:text="AI文字识别"
                             android:textSize="@dimen/text_18"
                             android:textStyle="bold"
-                            android:textColor="@color/on_primary_container"
+                            android:textColor="?attr/colorOnPrimaryContainer"
                             android:layout_marginBottom="@dimen/space_4" />
 
                         <TextView
@@ -78,7 +78,7 @@
                             android:layout_height="wrap_content"
                             android:text="识别图片中的文字"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_primary_container" />
+                            android:textColor="?attr/colorOnPrimaryContainer" />
 
                     </LinearLayout>
 
@@ -91,7 +91,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_20">
 
@@ -107,7 +107,7 @@
                         android:text="选择图片"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_16" />
 
                     <LinearLayout
@@ -124,8 +124,8 @@
                         android:text="拍照"
                         android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        app:backgroundTint="@color/primary"
-                        android:textColor="@color/on_primary"
+                        app:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"
                         android:layout_marginEnd="@dimen/space_8"/>
@@ -138,8 +138,8 @@
                         android:text="从相册选择"
                         android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        app:backgroundTint="@color/secondary"
-                        android:textColor="@color/on_secondary"
+                        app:backgroundTint="?attr/colorSecondary"
+                        android:textColor="?attr/colorOnSecondary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"
                         android:layout_marginEnd="@dimen/space_8"/>
@@ -173,7 +173,7 @@
                         android:layout_height="@dimen/size_200"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:background="@color/surface_variant"
+                        android:background="?attr/colorSurfaceVariant"
                         android:padding="@dimen/space_16"
                         android:layout_marginBottom="@dimen/space_16">
 
@@ -191,7 +191,7 @@
                             android:layout_height="wrap_content"
                             android:text="预览图片"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_surface_variant" />
+                            android:textColor="?attr/colorOnSurfaceVariant" />
 
                     </LinearLayout>
 
@@ -204,7 +204,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_20">
 
@@ -220,7 +220,7 @@
                         android:text="识别设置"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_16" />
 
                     <LinearLayout
@@ -236,7 +236,7 @@
                             android:layout_weight="1"
                             android:text="语言"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_surface" />
+                            android:textColor="?attr/colorOnSurface" />
 
                         <Spinner
                             android:id="@+id/spinner_language"
@@ -270,7 +270,7 @@
                                 android:src="@drawable/ic_ai_model"
                                 android:contentDescription="OCR模型"
                                 android:layout_marginEnd="@dimen/space_8"
-                                app:tint="@color/primary" />
+                                app:tint="?attr/colorPrimary" />
 
                             <TextView
                                 android:layout_width="@dimen/size_0"
@@ -278,14 +278,14 @@
                                 android:layout_weight="1"
                                 android:text="OCR 模型"
                                 android:textSize="@dimen/text_14"
-                                android:textColor="@color/on_surface" />
+                                android:textColor="?attr/colorOnSurface" />
 
                             <ImageView
                                 android:layout_width="@dimen/size_16"
                                 android:layout_height="@dimen/size_16"
                                 android:src="@drawable/ic_chevron_right"
                                 android:contentDescription="更多"
-                                app:tint="@color/on_surface_variant" />
+                                app:tint="?attr/colorOnSurfaceVariant" />
 
                         </LinearLayout>
 
@@ -295,7 +295,7 @@
                             android:layout_height="wrap_content"
                             android:text="自动选择（推荐）"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/primary"
+                            android:textColor="?attr/colorPrimary"
                             android:layout_marginStart="@dimen/space_28"
                             android:layout_marginTop="@dimen/space_2" />
 
@@ -311,7 +311,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_20"
                 android:visibility="gone">
@@ -328,7 +328,7 @@
                         android:layout_height="wrap_content"
                         android:text="处理中..."
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_8" />
 
                     <ProgressBar
@@ -349,7 +349,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:visibility="gone">
 
@@ -365,7 +365,7 @@
                         android:text="识别结果"
                         android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:layout_marginBottom="@dimen/space_12" />
 
                     <com.google.android.material.textfield.TextInputLayout
@@ -377,8 +377,8 @@
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary">
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/et_recognized_text"
@@ -386,7 +386,7 @@
                             android:layout_height="wrap_content"
                             android:minHeight="@dimen/min_180"
                             android:textSize="@dimen/text_15"
-                            android:textColor="@color/on_surface"
+                            android:textColor="?attr/colorOnSurface"
                             android:inputType="textMultiLine"
                             android:gravity="top|start"
                             android:scrollbars="vertical"
@@ -409,7 +409,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8"
         android:visibility="gone">
 
@@ -420,8 +420,8 @@
             android:text="复制文本"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:layout_marginBottom="@dimen/space_10"/>
@@ -433,8 +433,8 @@
             android:text="分享文本"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@color/on_secondary"
+            app:backgroundTint="?attr/colorSecondary"
+            android:textColor="?attr/colorOnSecondary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             android:layout_marginBottom="@dimen/space_10"/>
@@ -472,7 +472,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8">
 
         <com.google.android.material.button.MaterialButton
@@ -482,8 +482,8 @@
             android:text="开始识别"
             android:textSize="@dimen/text_16"
             android:textStyle="bold"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
 

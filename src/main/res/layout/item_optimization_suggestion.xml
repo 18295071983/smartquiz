@@ -28,7 +28,7 @@
                 android:text="优化建议标题"
                 android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:layout_marginBottom="@dimen/space_8" />
 
             <!-- 建议描述 -->
@@ -38,7 +38,7 @@
                 android:layout_height="wrap_content"
                 android:text="建议描述内容"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginBottom="@dimen/space_12" />
 
             <!-- 优先级和改进幅度 -->

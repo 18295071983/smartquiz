@@ -14,7 +14,7 @@
         android:layout_weight="1"
         android:text="题干"
         android:textSize="@dimen/text_13"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:maxLines="1"
         android:ellipsize="end"/>
 

@@ -13,6 +13,8 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 文件卡片组件：图标 + 文件名 + 大小 + 打开按钮。
  *
@@ -229,7 +231,7 @@ public class FileCardView implements ChatComponent {
             }
             if (!decoded) {
                 com.bumptech.glide.Glide.with(context).load(target)
-                        .error(new android.graphics.drawable.ColorDrawable(0xFF1E293B))
+                        .error(new android.graphics.drawable.ColorDrawable(ThemeColors.get(R.color.hc_ff1e293b)))
                         .into(photoView);
             }
 

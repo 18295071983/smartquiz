@@ -22,10 +22,10 @@
         android:pathData="M9,16.5L4.5,12L6.09,10.41L9,13.33L17.91,4.42L19.5,6L9,16.5Z" />
     
     <path
-        android:fillColor="@color/secondary"
+        android:fillColor="?attr/colorSecondary"
         android:pathData="M18,3L19.5,4.5L16.5,7.5L15,6L18,3Z" />
     
     <path
-        android:fillColor="@color/secondary"
+        android:fillColor="?attr/colorSecondary"
         android:pathData="M6,3L7.5,4.5L4.5,7.5L3,6L6,3Z" />
 </vector>

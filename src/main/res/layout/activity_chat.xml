@@ -12,7 +12,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/primary"
+            android:background="?attr/colorPrimary"
             app:titleTextColor="@color/white" />
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -28,7 +28,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_8"
-        android:background="@color/surface">
+        android:background="?attr/colorSurface">
 
         <com.google.android.material.chip.ChipGroup
             android:id="@+id/quick_actions_chip_group"
@@ -59,7 +59,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="发送"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
@@ -81,8 +81,8 @@
             android:text="选择模型"
             android:layout_gravity="end"
             android:layout_marginTop="@dimen/space_8"
-            app:backgroundTint="@color/surface_variant"
-            android:textColor="@color/on_surface"
+            app:backgroundTint="?attr/colorSurfaceVariant"
+            android:textColor="?attr/colorOnSurface"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 

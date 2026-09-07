@@ -15,7 +15,7 @@
             android:layout_height="wrap_content"
             android:text="模型名称"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_4"/>
         <EditText
             android:id="@+id/et_name"
@@ -36,7 +36,7 @@
             android:layout_height="wrap_content"
             android:text="下载链接"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_4"/>
         <EditText
             android:id="@+id/et_url"
@@ -54,7 +54,7 @@
         android:layout_height="wrap_content"
         android:text="支持格式: GGUF, PyTorch(.bin/.pt), ONNX, TensorFlow(.tflite)"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:layout_marginTop="@dimen/space_8"/>
 
 </LinearLayout>

@@ -19,7 +19,7 @@
             android:layout_height="wrap_content"
             android:text="检测格式: "
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"/>
+            android:textColor="?attr/colorControlTextSecondary"/>
 
         <TextView
             android:id="@+id/tv_detected_format"
@@ -28,7 +28,7 @@
             android:text="JSON"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/primary"/>
+            android:textColor="?attr/colorPrimary"/>
 
         <View
             android:layout_width="@dimen/size_0"
@@ -41,7 +41,7 @@
             android:layout_height="wrap_content"
             android:text="检测到 0 个配置"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_tertiary"/>
+            android:textColor="?attr/colorControlTextHint"/>
     </LinearLayout>
 
     <!-- 配置列表 -->
@@ -51,7 +51,7 @@
         android:text="检测到的配置"
         android:textSize="@dimen/text_14"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:layout_marginBottom="@dimen/space_8"/>
 
     <ScrollView
@@ -88,7 +88,7 @@
             android:layout_height="wrap_content"
             android:text="未检测到有效配置"
             android:textSize="@dimen/text_16"
-            android:textColor="@color/text_secondary"/>
+            android:textColor="?attr/colorControlTextSecondary"/>
 
         <TextView
             android:id="@+id/tv_error_message"
@@ -97,7 +97,7 @@
             android:layout_marginTop="@dimen/space_8"
             android:text=""
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_tertiary"/>
+            android:textColor="?attr/colorControlTextHint"/>
     </LinearLayout>
 
     <!-- 预览详情 -->
@@ -116,7 +116,7 @@
             android:text="配置详情"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_12"/>
 
         <!-- 服务类型 -->
@@ -131,7 +131,7 @@
                 android:layout_height="wrap_content"
                 android:text="服务类型"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
 
             <TextView
                 android:id="@+id/tv_preview_service_type"
@@ -139,7 +139,7 @@
                 android:layout_height="wrap_content"
                 android:text=""
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
         </LinearLayout>
 
         <!-- API Key -->
@@ -154,7 +154,7 @@
                 android:layout_height="wrap_content"
                 android:text="API Key"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
 
             <TextView
                 android:id="@+id/tv_preview_api_key"
@@ -162,7 +162,7 @@
                 android:layout_height="wrap_content"
                 android:text=""
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
         </LinearLayout>
 
         <!-- API Host -->
@@ -177,7 +177,7 @@
                 android:layout_height="wrap_content"
                 android:text="API 地址"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
 
             <TextView
                 android:id="@+id/tv_preview_api_host"
@@ -185,7 +185,7 @@
                 android:layout_height="wrap_content"
                 android:text=""
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
         </LinearLayout>
 
         <!-- 模型名称 -->
@@ -199,7 +199,7 @@
                 android:layout_height="wrap_content"
                 android:text="默认模型"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
 
             <TextView
                 android:id="@+id/tv_preview_model"
@@ -207,7 +207,7 @@
                 android:layout_height="wrap_content"
                 android:text=""
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
         </LinearLayout>
     </LinearLayout>
 

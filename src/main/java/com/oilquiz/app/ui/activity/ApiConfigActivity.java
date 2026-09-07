@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class ApiConfigActivity extends BaseActivity {
 
     private static final String TAG = "ApiConfigActivity";
@@ -901,7 +902,7 @@ public class ApiConfigActivity extends BaseActivity {
         tvCurrentPath.setText(currentPath);
         tvCurrentPath.setTextSize(12);
         tvCurrentPath.setPadding(16, 0, 0, 16);
-        tvCurrentPath.setTextColor(0xFF666666);
+        tvCurrentPath.setTextColor(ThemeColors.get(R.color.hc_ff666666));
         layout.addView(tvCurrentPath);
 
         TextView tvInputLabel = new TextView(this);
@@ -945,7 +946,7 @@ public class ApiConfigActivity extends BaseActivity {
             tvResetInfo.setText("\n点击\"恢复默认\"可使用应用自动创建的目录");
             tvResetInfo.setTextSize(11);
             tvResetInfo.setPadding(0, 12, 0, 0);
-            tvResetInfo.setTextColor(0xFF999999);
+            tvResetInfo.setTextColor(ThemeColors.get(R.color.hc_ff999999));
             layout.addView(tvResetInfo);
         }
 

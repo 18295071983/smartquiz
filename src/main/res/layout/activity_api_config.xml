@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.ApiConfigActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="API配置管理"
-            app:titleTextColor="@color/on_surface"/>
+            app:titleTextColor="?attr/colorOnSurface"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <LinearLayout
@@ -26,7 +26,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="@dimen/space_8"
-        android:background="@color/surface">
+        android:background="?attr/colorSurface">
 
         <EditText
             android:id="@+id/et_search"
@@ -36,7 +36,7 @@
             android:hint="搜索API配置..."
             android:paddingHorizontal="12dp"
             android:background="@drawable/rounded_edittext"
-            android:textColor="@color/on_surface"
+            android:textColor="?attr/colorOnSurface"
             android:inputType="text"
             android:drawableStart="@android:drawable/ic_menu_search"
             android:drawablePadding="8dp"
@@ -48,7 +48,7 @@
             android:layout_height="@dimen/size_48"
             android:text="添加"
             android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             app:cornerRadius="@dimen/radius_12"
             android:insetTop="0dp"
@@ -95,7 +95,7 @@
                 android:text="暂无API配置"
                 android:textSize="@dimen/text_18"
                 android:textStyle="bold"
-                android:textColor="@color/on_surface"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginBottom="@dimen/space_8" />
 
             <TextView
@@ -103,7 +103,7 @@
                 android:layout_height="wrap_content"
                 android:text="点击右上角'添加'按钮创建第一个API配置"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/on_surface_variant"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 android:gravity="center" />
         </LinearLayout>
     </FrameLayout>
@@ -112,13 +112,13 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8">
 
         <View
             android:layout_width="match_parent"
             android:layout_height="@dimen/size_1"
-            android:background="@color/outline" />
+            android:background="?attr/colorOutline" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -133,7 +133,7 @@
                 android:layout_weight="1"
                 android:text="导入JSON"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginEnd="@dimen/space_4"
@@ -147,7 +147,7 @@
                 android:layout_weight="1"
                 android:text="导出JSON"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginHorizontal="@dimen/space_4"
@@ -161,7 +161,7 @@
                 android:layout_weight="1"
                 android:text="导入配置"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginHorizontal="@dimen/space_4"
@@ -175,7 +175,7 @@
                 android:layout_weight="1"
                 android:text="扫描存档"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginStart="@dimen/space_4"
@@ -197,7 +197,7 @@
                 android:layout_weight="1"
                 android:text="设置存档路径"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginEnd="@dimen/space_4"
@@ -211,7 +211,7 @@
                 android:layout_weight="1"
                 android:text="批量测试"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:layout_marginStart="@dimen/space_4"

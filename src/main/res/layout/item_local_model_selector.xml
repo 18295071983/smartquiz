@@ -4,11 +4,11 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginVertical="@dimen/space_4"
-    app:cardBackgroundColor="@color/surface"
+    app:cardBackgroundColor="?attr/colorSurface"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
     app:strokeWidth="@dimen/stroke_1"
-    app:strokeColor="@color/outline">
+    app:strokeColor="?attr/colorOutline">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -22,7 +22,7 @@
             android:id="@+id/rb_select"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:buttonTint="@color/secondary"/>
+            android:buttonTint="?attr/colorSecondary"/>
 
         <LinearLayout
             android:layout_width="@dimen/size_0"
@@ -38,7 +38,7 @@
                 android:text="Llama-2-7B-Chat"
                 android:textSize="@dimen/text_14"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -52,13 +52,13 @@
                     android:layout_height="wrap_content"
                     android:text="3.8 GB"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"/>
+                    android:textColor="?attr/colorControlTextSecondary"/>
 
                 <View
                     android:layout_width="@dimen/size_1"
                     android:layout_height="match_parent"
                     android:layout_marginHorizontal="@dimen/space_8"
-                    android:background="@color/outline"/>
+                    android:background="?attr/colorOutline"/>
 
                 <TextView
                     android:id="@+id/tv_model_format"
@@ -66,7 +66,7 @@
                     android:layout_height="wrap_content"
                     android:text="Q4_K_M"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"/>
+                    android:textColor="?attr/colorControlTextSecondary"/>
             </LinearLayout>
         </LinearLayout>
 

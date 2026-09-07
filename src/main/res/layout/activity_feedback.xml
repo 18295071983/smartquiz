@@ -17,7 +17,7 @@
         android:textStyle="bold"
         android:layout_marginBottom="@dimen/space_24"
         android:layout_gravity="center_horizontal"
-        android:textColor="@color/text_primary"/>
+        android:textColor="?attr/colorControlText"/>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -34,7 +34,7 @@
             android:text="@string/feedback_type"
             android:textSize="@dimen/text_16"
             android:fontFamily="sans-serif-medium"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_12"/>
 
         <Spinner
@@ -64,7 +64,7 @@
             android:text="@string/feedback_content"
             android:textSize="@dimen/text_16"
             android:fontFamily="sans-serif-medium"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_12"/>
 
         <EditText
@@ -97,7 +97,7 @@
             android:text="@string/contact_info"
             android:textSize="@dimen/text_16"
             android:fontFamily="sans-serif-medium"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_12"/>
 
         <EditText
@@ -138,7 +138,7 @@
         android:layout_height="wrap_content"
         android:text="@string/feedback_note"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="@dimen/space_16"
         android:lineSpacingExtra="2dp"

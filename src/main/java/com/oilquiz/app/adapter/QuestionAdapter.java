@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final int TYPE_HEADER = 0;
@@ -231,8 +232,8 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             letterView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             letterView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             letterView.setTextColor(isCorrect
-                ? 0xFF4CAF50  // success green
-                : 0xFF666666);
+                ? ThemeColors.get(R.color.hc_ff4caf50)  // success green
+                : ThemeColors.get(R.color.hc_ff666666));
             letterView.setGravity(android.view.Gravity.CENTER);
             int letterSize = (int) (28 * density);
             LinearLayout.LayoutParams letterLp = new LinearLayout.LayoutParams(letterSize, letterSize);
@@ -244,8 +245,8 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             contentView.setText(value);
             contentView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
             contentView.setTextColor(isCorrect
-                ? 0xFF4CAF50
-                : 0xFF333333);
+                ? ThemeColors.get(R.color.hc_ff4caf50)
+                : ThemeColors.get(R.color.hc_ff333333));
             contentView.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             optionRow.addView(contentView);

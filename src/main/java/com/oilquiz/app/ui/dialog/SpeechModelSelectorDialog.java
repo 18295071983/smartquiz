@@ -1,5 +1,9 @@
 package com.oilquiz.app.ui.dialog;
 
+import com.oilquiz.app.R;
+
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
@@ -465,8 +469,7 @@ public class SpeechModelSelectorDialog {
 
             holder.rbSelected.setChecked(isSelected);
             holder.cardModel.setStrokeColor(isSelected
-                    ? holder.itemView.getContext().getResources().getColor(
-                            com.oilquiz.app.R.color.primary)
+                    ? ThemeColors.get(holder.itemView.getContext(), R.color.primary)
                     : Color.TRANSPARENT);
 
             holder.itemView.setOnClickListener(v -> clickListener.onItemClick(item));

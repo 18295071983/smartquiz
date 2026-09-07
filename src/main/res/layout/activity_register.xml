@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     android:fillViewport="true"
     android:overScrollMode="always"
     tools:context=".ui.activity.RegisterActivity">
@@ -28,7 +28,7 @@
                 android:layout_height="@dimen/size_80"
                 app:cardCornerRadius="24dp"
                 app:cardElevation="8dp"
-                app:cardBackgroundColor="@color/primary"
+                app:cardBackgroundColor="?attr/colorPrimary"
                 android:layout_marginBottom="@dimen/space_24">
 
                 <ImageView
@@ -36,7 +36,7 @@
                     android:layout_height="@dimen/size_48"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_person"
-                    android:tint="@color/on_primary"
+                    android:tint="?attr/colorOnPrimary"
                     android:contentDescription="@string/app_name" />
 
             </com.google.android.material.card.MaterialCardView>
@@ -47,7 +47,7 @@
                 android:text="@string/app_name"
                 android:textSize="@dimen/text_28"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:layout_marginBottom="@dimen/space_8" />
 
             <TextView
@@ -55,7 +55,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/register_title"
                 android:textSize="@dimen/text_16"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
         </LinearLayout>
 
@@ -66,7 +66,7 @@
             android:layout_marginHorizontal="@dimen/space_16"
             app:cardCornerRadius="24dp"
             app:cardElevation="4dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -82,7 +82,7 @@
                     android:layout_marginBottom="@dimen/space_16"
                     android:hint="请输入用户名"
                     app:startIconDrawable="@drawable/ic_person"
-                    app:startIconTint="@color/primary"
+                    app:startIconTint="?attr/colorPrimary"
                     app:boxCornerRadiusTopStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
@@ -94,8 +94,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textPersonName"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_tertiary" />
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlTextHint" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -107,7 +107,7 @@
                     android:layout_marginBottom="@dimen/space_16"
                     android:hint="@string/email_hint"
                     app:startIconDrawable="@drawable/ic_settings"
-                    app:startIconTint="@color/primary"
+                    app:startIconTint="?attr/colorPrimary"
                     app:boxCornerRadiusTopStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
@@ -119,8 +119,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textEmailAddress"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_tertiary" />
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlTextHint" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -132,7 +132,7 @@
                     android:layout_marginBottom="@dimen/space_16"
                     android:hint="请输入手机号"
                     app:startIconDrawable="@drawable/ic_settings"
-                    app:startIconTint="@color/primary"
+                    app:startIconTint="?attr/colorPrimary"
                     app:boxCornerRadiusTopStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
@@ -144,8 +144,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="phone"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_tertiary" />
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlTextHint" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -157,9 +157,9 @@
                     android:layout_marginBottom="@dimen/space_16"
                     android:hint="@string/password_hint"
                     app:startIconDrawable="@drawable/ic_settings"
-                    app:startIconTint="@color/primary"
+                    app:startIconTint="?attr/colorPrimary"
                     app:endIconMode="password_toggle"
-                    app:endIconTint="@color/primary"
+                    app:endIconTint="?attr/colorPrimary"
                     app:boxCornerRadiusTopStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
@@ -171,8 +171,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textPassword"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_tertiary" />
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlTextHint" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -184,9 +184,9 @@
                     android:layout_marginBottom="@dimen/space_8"
                     android:hint="@string/confirm_password_hint"
                     app:startIconDrawable="@drawable/ic_settings"
-                    app:startIconTint="@color/primary"
+                    app:startIconTint="?attr/colorPrimary"
                     app:endIconMode="password_toggle"
-                    app:endIconTint="@color/primary"
+                    app:endIconTint="?attr/colorPrimary"
                     app:boxCornerRadiusTopStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
@@ -198,8 +198,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textPassword"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_tertiary" />
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlTextHint" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -211,11 +211,11 @@
                     android:text="@string/register_button"
                     android:textAllCaps="false"
                     android:textSize="@dimen/text_16"
-                    android:textColor="@color/on_primary"
-                    app:backgroundTint="@color/primary"
+                    android:textColor="?attr/colorOnPrimary"
+                    app:backgroundTint="?attr/colorPrimary"
                     app:cornerRadius="@dimen/radius_12"
                     app:elevation="@dimen/elev_4"
-                    app:rippleColor="@color/primary_light"
+                    app:rippleColor="?attr/colorPrimaryContainer"
                     android:layout_marginTop="@dimen/space_16" />
 
                 <!-- 进度条 -->
@@ -226,7 +226,7 @@
                     android:layout_gravity="center"
                     android:layout_marginTop="@dimen/space_16"
                     android:visibility="gone"
-                    android:indeterminateTint="@color/primary" />
+                    android:indeterminateTint="?attr/colorPrimary" />
 
             </LinearLayout>
 
@@ -245,7 +245,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/has_account"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginEnd="@dimen/space_8" />
 
             <com.google.android.material.button.MaterialButton
@@ -255,7 +255,7 @@
                 android:text="@string/login_title"
                 android:textAllCaps="false"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 style="@style/Widget.MaterialComponents.Button.TextButton" />
 
         </LinearLayout>

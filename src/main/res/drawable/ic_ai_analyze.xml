@@ -6,15 +6,15 @@
     android:viewportHeight="24">
     
     <path
-        android:fillColor="@color/primary_container"
+        android:fillColor="?attr/colorPrimaryContainer"
         android:pathData="M3,3H21V21H3V3ZM5,5V19H19V5H5Z" />
     
     <path
-        android:fillColor="@color/primary"
+        android:fillColor="?attr/colorPrimary"
         android:pathData="M5,5H19V19H5V5Z" />
     
     <path
-        android:fillColor="@color/secondary"
+        android:fillColor="?attr/colorSecondary"
         android:pathData="M7,15H9V11H7V15ZM11,15H13V7H11V15ZM15,15H17V9H15V15Z" />
     
     <path

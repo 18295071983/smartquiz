@@ -9,7 +9,7 @@
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="@color/primary"
+        android:background="?attr/colorPrimary"
         android:title="文件预览"
         app:titleTextColor="@color/white"/>
 
@@ -82,7 +82,7 @@
                 android:layout_weight="1"
                 android:text="设置"
                 android:layout_marginEnd="@dimen/space_4"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
@@ -94,7 +94,7 @@
                 android:layout_weight="1"
                 android:text="自动映射"
                 android:layout_marginEnd="@dimen/space_4"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
@@ -117,7 +117,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="清除映射"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
@@ -147,7 +147,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="下一步"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>

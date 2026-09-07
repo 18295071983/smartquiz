@@ -138,7 +138,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="@dimen/space_8"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:gravity="center_vertical">
 
         <TextView
@@ -149,7 +149,7 @@
             android:paddingHorizontal="8dp"
             android:gravity="center_vertical"
             android:text="共 0 条"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_load_more"
@@ -157,8 +157,8 @@
             android:layout_height="@dimen/size_36"
             android:text="加载更多"
             android:textAllCaps="false"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@color/on_secondary"
+            app:backgroundTint="?attr/colorSecondary"
+            android:textColor="?attr/colorOnSecondary"
             app:cornerRadius="@dimen/radius_12"/>
     </LinearLayout>
 
@@ -167,7 +167,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_refresh_logs"
@@ -176,8 +176,8 @@
             android:layout_weight="1"
             android:text="刷新"
             android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_clear_logs"
@@ -198,8 +198,8 @@
             android:layout_marginStart="@dimen/space_8"
             android:text="复制"
             android:textAllCaps="false"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@color/on_secondary"
+            app:backgroundTint="?attr/colorSecondary"
+            android:textColor="?attr/colorOnSecondary"
             app:cornerRadius="@dimen/radius_12"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_export_logs"
@@ -209,8 +209,8 @@
             android:layout_marginStart="@dimen/space_8"
             android:text="导出"
             android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_share_logs"
@@ -220,8 +220,8 @@
             android:layout_marginStart="@dimen/space_8"
             android:text="分享"
             android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"/>
     </LinearLayout>
 

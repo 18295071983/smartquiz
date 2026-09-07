@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#2563EB"
-                android:endColor="#60A5FA" />
+                android:startColor="@color/hc_ff2563eb"
+                android:endColor="@color/hc_ff60a5fa" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 窗口（白色渐变） -->
@@ -30,14 +30,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="4"
                 android:endX="22" android:endY="19"
-                android:startColor="#FFFFFF"
-                android:endColor="#DBEAFE" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_ffdbeafe" />
         </aapt:attr>
     </path>
 
     <!-- 标题栏（深蓝圆点组） -->
     <path
-        android:fillColor="#93C5FD"
+        android:fillColor="@color/hc_ff93c5fd"
         android:pathData="M5,6.6 m-0.9,0 a0.9,0.9 0 1,0 1.8,0 a0.9,0.9 0 1,0 -1.8,0 M8.2,6.6 m-0.9,0 a0.9,0.9 0 1,0 1.8,0 a0.9,0.9 0 1,0 -1.8,0 M11.4,6.6 m-0.9,0 a0.9,0.9 0 1,0 1.8,0 a0.9,0.9 0 1,0 -1.8,0" />
 
     <!-- 代码符号（深蓝） -->
@@ -47,8 +47,8 @@
                 android:type="linear"
                 android:startX="6" android:startY="10.4"
                 android:endX="18" android:endY="17.6"
-                android:startColor="#2563EB"
-                android:endColor="#1D4ED8" />
+                android:startColor="@color/hc_ff2563eb"
+                android:endColor="@color/hc_ff1d4ed8" />
         </aapt:attr>
     </path>
 </vector>

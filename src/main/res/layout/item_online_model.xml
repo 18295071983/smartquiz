@@ -7,8 +7,8 @@
     app:cardCornerRadius="12dp"
     app:cardElevation="1dp"
     app:strokeWidth="@dimen/stroke_1"
-    app:strokeColor="@color/outline"
-    app:cardBackgroundColor="@color/card_background">
+    app:strokeColor="?attr/colorOutline"
+    app:cardBackgroundColor="?attr/colorCardBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -42,7 +42,7 @@
                     android:text="模型名称"
                     android:textSize="@dimen/text_15"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:maxLines="1"
                     android:ellipsize="end"/>
                 <TextView
@@ -51,7 +51,7 @@
                     android:layout_height="wrap_content"
                     android:text="gpt-4"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:layout_marginTop="@dimen/space_2"
                     android:maxLines="1"
                     android:ellipsize="end"/>
@@ -63,7 +63,7 @@
                 android:layout_height="wrap_content"
                 android:text="点击切换"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:paddingHorizontal="4dp"
                 android:paddingVertical="3dp"/>
         </LinearLayout>
@@ -75,7 +75,7 @@
             android:layout_height="wrap_content"
             android:text="api.openai.com"
             android:textSize="@dimen/text_11"
-            android:textColor="@color/text_tertiary"
+            android:textColor="?attr/colorControlTextHint"
             android:layout_marginTop="@dimen/space_6"
             android:maxLines="1"
             android:ellipsize="end"/>
@@ -102,7 +102,7 @@
                 android:layout_height="@dimen/size_36"
                 android:text="刷新模型"
                 android:textSize="@dimen/text_11"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_8"
                 android:textAllCaps="false"
@@ -124,7 +124,7 @@
                 android:layout_height="@dimen/size_32"
                 android:text="@string/disable"
                 android:textSize="@dimen/text_11"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_8"
                 android:textAllCaps="false"
@@ -139,7 +139,7 @@
                 android:layout_height="@dimen/size_32"
                 android:text="编辑"
                 android:textSize="@dimen/text_11"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_8"
                 android:textAllCaps="false"

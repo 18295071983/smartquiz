@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:text="穿衣"
         android:textSize="@dimen/text_11"
-        android:textColor="@color/text_tertiary"/>
+        android:textColor="?attr/colorControlTextHint"/>
 
     <TextView
         android:id="@+id/tv_index_value"

@@ -3,6 +3,8 @@ package com.oilquiz.app.weather.model;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 public class WeatherWarningData {
     public List<WarningItem> warnings = new ArrayList<>();
     public String fxLink;
@@ -85,17 +87,17 @@ public class WeatherWarningData {
 
         public int getColorResource() {
             switch (severityColor != null ? severityColor.toLowerCase() : "") {
-                case "red": return 0xFFFF0000;
-                case "orange": return 0xFFFFA500;
-                case "amber": return 0xFFFFBF00;
-                case "yellow": return 0xFFFFFF00;
-                case "blue": return 0xFF0000FF;
-                case "green": return 0xFF00FF00;
-                case "purple": return 0xFF800080;
-                case "gray": return 0xFF808080;
-                case "black": return 0xFF000000;
-                case "white": return 0xFFFFFFFF;
-                default: return 0xFFFF0000;
+                case "red": return ThemeColors.get(R.color.hc_ffff0000);
+                case "orange": return ThemeColors.get(R.color.hc_ffffa500);
+                case "amber": return ThemeColors.get(R.color.hc_ffffbf00);
+                case "yellow": return ThemeColors.get(R.color.hc_ffffff00);
+                case "blue": return ThemeColors.get(R.color.hc_ff0000ff);
+                case "green": return ThemeColors.get(R.color.hc_ff00ff00);
+                case "purple": return ThemeColors.get(R.color.hc_ff800080);
+                case "gray": return ThemeColors.get(R.color.hc_ff808080);
+                case "black": return ThemeColors.get(R.color.hc_ff000000);
+                case "white": return ThemeColors.get(R.color.hc_ffffffff);
+                default: return ThemeColors.get(R.color.hc_ffff0000);
             }
         }
 

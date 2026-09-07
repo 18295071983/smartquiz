@@ -50,7 +50,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_8"
             android:textSize="@dimen/text_13"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:visibility="gone" />
 
         <Button
@@ -60,7 +60,7 @@
             android:layout_marginTop="@dimen/space_8"
             android:text="💡 尝试改进方案"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/primary"
+            android:textColor="?attr/colorPrimary"
             android:background="?attr/selectableItemBackground"
             android:visibility="gone" />
 

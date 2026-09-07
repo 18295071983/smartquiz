@@ -51,7 +51,7 @@
                     android:layout_height="wrap_content"
                     android:text="当前"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/on_primary_container"
+                    android:textColor="?attr/colorOnPrimaryContainer"
                     android:background="@drawable/tag_current_background"
                     android:paddingStart="@dimen/space_6"
                     android:paddingEnd="@dimen/space_6"
@@ -73,14 +73,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary" />
+                    android:textColor="?attr/colorControlTextSecondary" />
 
                 <TextView
                     android:id="@+id/history_message_count"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_secondary"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:layout_marginStart="@dimen/space_8" />
 
             </LinearLayout>

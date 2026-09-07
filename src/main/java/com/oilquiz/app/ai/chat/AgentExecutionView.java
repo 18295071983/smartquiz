@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.chat;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
@@ -110,10 +112,10 @@ public class AgentExecutionView extends LinearLayout {
         // 日志标签颜色：使用主题色资源（浅色/夜间自动适配），替代硬编码十六进制，
         // 避免夜间模式下深底浅字/浅底深字对比度不足看不清
         int typeColorRes = getTypeColorRes(type);
-        String typeColorHex = colorToHex(getContext().getResources().getColor(typeColorRes));
+        String typeColorHex = colorToHex(ThemeColors.get(getContext(), typeColorRes));
         // 内容正文使用主题主文字色（text_primary，比 text_secondary 更深），
         // 保证浅色/夜间两种主题下日志都清晰可读
-        String contentColorHex = colorToHex(getContext().getResources().getColor(R.color.text_primary));
+        String contentColorHex = colorToHex(ThemeColors.attr(getContext(), R.attr.colorControlText));
         String prefix = "<font color=\"" + typeColorHex + "\">" + getTypeIcon(type) + " [" + type + "]</font> ";
         logView.setText(android.text.Html.fromHtml(prefix
                 + "<font color=\"" + contentColorHex + "\">" + escapeHtml(content) + "</font>",

@@ -4,7 +4,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="@dimen/space_8"
-    android:background="@color/surface_variant"
+    android:background="?attr/colorSurfaceVariant"
     android:layout_marginRight="@dimen/space_8">
 
     <TextView
@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:text=".XLSX"
         android:textSize="@dimen/text_14"
-        android:textColor="@color/on_surface_variant"
+        android:textColor="?attr/colorOnSurfaceVariant"
         android:layout_marginBottom="@dimen/space_4"/>
 
 </LinearLayout>

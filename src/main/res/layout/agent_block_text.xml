@@ -31,7 +31,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_hint"
+                android:textColor="?attr/colorControlTextHint"
                 android:layout_marginEnd="@dimen/space_6"/>
 
             <TextView
@@ -41,14 +41,14 @@
                 android:layout_weight="1"
                 android:textSize="@dimen/text_13"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
 
             <TextView
                 android:id="@+id/tv_duration"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_hint"/>
+                android:textColor="?attr/colorControlTextHint"/>
         </LinearLayout>
 
         <TextView
@@ -56,7 +56,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:lineSpacingExtra="2dp"
             android:textIsSelectable="true"/>
     </LinearLayout>

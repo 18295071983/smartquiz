@@ -189,7 +189,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="@dimen/space_5"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
@@ -219,7 +219,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/space_5"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
@@ -280,13 +280,12 @@
 
             </LinearLayout>
 
-            <!-- AI 聊天（全宽重点卡，渐变底） -->
+            <!-- AI 聊天（全宽重点卡，透明底） -->
             <LinearLayout
                 android:id="@+id/btn_question_generate"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="@dimen/space_10"
-                android:background="@drawable/bg_home_header"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground"
@@ -380,7 +379,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="@dimen/space_5"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"
@@ -411,7 +410,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/space_5"
                     android:layout_weight="1"
-                    android:background="@drawable/weather_card_glass"
+
                     android:clickable="true"
                     android:focusable="true"
                     android:foreground="?attr/selectableItemBackground"

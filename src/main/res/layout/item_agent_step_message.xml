@@ -31,7 +31,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:lineSpacingExtra="2dp" />
 
         <!-- 推理模式标签（小标签） -->
@@ -40,7 +40,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:background="@drawable/agent_step_tag_background"
             android:paddingStart="@dimen/space_6"
             android:paddingEnd="@dimen/space_6"
@@ -58,7 +58,7 @@
         android:paddingStart="@dimen/space_24"
         android:paddingTop="@dimen/space_4"
         android:textSize="@dimen/text_13"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:lineSpacingExtra="2dp"
         android:visibility="gone" />
 

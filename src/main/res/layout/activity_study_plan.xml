@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="@dimen/space_16"
-    android:background="@color/background">
+    android:background="?attr/colorBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,14 +17,14 @@
             android:text="学习计划"
             android:textSize="@dimen/text_24"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_16" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             android:padding="@dimen/space_16"
             android:layout_marginBottom="@dimen/space_16">
 
@@ -33,16 +33,17 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="计划名称"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:layout_marginBottom="@dimen/space_8" />
 
             <EditText
+                    android:background="@drawable/rounded_edittext"
                 android:id="@+id/et_target_questions"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="目标题目数"
                 android:inputType="number"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:layout_marginBottom="@dimen/space_8" />
 
             <com.google.android.material.button.MaterialButton
@@ -52,8 +53,8 @@
                 android:text="添加计划"
                 android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                app:backgroundTint="@color/primary"
-                android:textColor="@color/on_primary"
+                app:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
                 app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
 

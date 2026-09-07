@@ -2,9 +2,9 @@
 <!-- 实时思考面板背景：浅底 + 圆角 + 细边框（IDE 式 dimmed 思考区） -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#0D9EACEA" />
+    <solid android:color="@color/hc_0d9eacea" />
     <corners android:radius="8dp" />
     <stroke
         android:width="0.5dp"
-        android:color="#339EACEA" />
+        android:color="@color/hc_339eacea" />
 </shape>

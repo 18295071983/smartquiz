@@ -5,6 +5,8 @@ import android.app.Application;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.appcompat.app.AppCompatDelegate;
 
@@ -49,7 +51,32 @@ public class SmartQuizApplication extends Application {
         applyThemeMode();
         super.onCreate();
         instance = this;
-        
+
+        // 后台线程预生成内置壁纸（仅首次或版本更新时）
+        new Thread(() -> {
+            try {
+                com.oilquiz.app.theme.WallpaperStore.ensureBuiltin(this);
+            } catch (Throwable ignored) {
+            }
+        }, "wallpaper-init").start();
+
+        // 应用壁纸跟随：系统壁纸变化时，若开启「跟随系统壁纸」模式，重建前台页面刷新背景
+        try {
+            android.app.WallpaperManager wm = android.app.WallpaperManager.getInstance(this);
+            wm.addOnColorsChangedListener((listener, which) -> {
+                if (com.oilquiz.app.theme.AppWallpaperManager.getMode(this)
+                        != com.oilquiz.app.theme.AppWallpaperManager.MODE_FOLLOW_SYSTEM) {
+                    return;
+                }
+                android.app.Activity a = currentActivity;
+                if (a != null && !a.isFinishing() && !a.isDestroyed()) {
+                    a.runOnUiThread(a::recreate);
+                }
+            }, new android.os.Handler(android.os.Looper.getMainLooper()));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "register wallpaper listener failed: " + t.getMessage());
+        }
+
         // 立即初始化异常处理器（必须最先初始化）
         try {
             GlobalExceptionHandler.init(this);
@@ -148,9 +175,21 @@ public class SmartQuizApplication extends Application {
     public static SmartQuizApplication getInstance() {
         return instance;
     }
+
     
     private void registerActivityLifecycle() {
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
+            @Override
+            public void onActivityPreCreated(Activity activity, Bundle savedInstanceState) {
+                // 在 setContentView 之前注入主题 overlay：系统动态色开启时用原生 Material You 配色，
+                // 否则用自定义（7 预设色 + 24 色相网格）overlay
+                if (com.oilquiz.app.manager.ThemeManager.isSystemDynamicColor(activity)) {
+                    activity.getTheme().applyStyle(R.style.OilQuizDynamicOverlay, true);
+                } else {
+                    com.oilquiz.app.manager.ThemeManager.applyThemeOverlay(activity);
+                }
+            }
+
             @Override
             public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
                 currentActivity = activity;
@@ -164,6 +203,18 @@ public class SmartQuizApplication extends Application {
             @Override
             public void onActivityResumed(Activity activity) {
                 currentActivity = activity;
+                // 应用壁纸到页面根布局（跟随系统壁纸 / 壁纸库 / 关闭，全局统一）
+                try {
+                    android.view.ViewGroup wc = (android.view.ViewGroup) activity.findViewById(android.R.id.content);
+                    android.view.View root = (wc != null && wc.getChildCount() > 0) ? wc.getChildAt(0) : wc;
+                    com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
+                    // 双保险：页面渲染完成后再次应用，防止页面代码 setBackground 覆盖壁纸
+                    if (root != null) {
+                        final android.view.View fRoot = root;
+                        root.post(() -> com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot));
+                    }
+                } catch (Throwable ignored) {
+                }
                 resumeCount++;
                 if (isBackground) {
                     // 应用从后台回到前台
@@ -656,19 +707,6 @@ public class SmartQuizApplication extends Application {
     }
 
     private void applyThemeMode() {
-        SharedPreferences prefs = getSharedPreferences("theme_preferences", MODE_PRIVATE);
-        int themeMode = prefs.getInt("current_theme", 2);
-        switch (themeMode) {
-            case 0:
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
-                break;
-            case 1:
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
-                break;
-            case 2:
-            default:
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
-                break;
-        }
+        com.oilquiz.app.manager.ThemeManager.applyNightMode(this);
     }
 }

@@ -45,6 +45,7 @@
             android:layout_marginBottom="@dimen/space_8" />
 
         <EditText
+                    android:background="@drawable/rounded_edittext"
             android:id="@+id/editTextAnswer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

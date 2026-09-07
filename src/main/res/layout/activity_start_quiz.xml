@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.StartQuizActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="开始测验"
-            app:titleTextColor="@color/on_surface"/>
+            app:titleTextColor="?attr/colorOnSurface"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -38,7 +38,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/primary_container"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -53,7 +53,7 @@
                         android:layout_width="@dimen/size_48"
                         android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_quiz"
-                        android:tint="@color/on_primary_container"
+                        android:tint="?attr/colorOnPrimaryContainer"
                         android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
@@ -68,7 +68,7 @@
                             android:text="准备好开始测验了吗？"
                             android:textSize="@dimen/text_18"
                             android:textStyle="bold"
-                            android:textColor="@color/on_primary_container"
+                            android:textColor="?attr/colorOnPrimaryContainer"
                             android:layout_marginBottom="@dimen/space_4" />
                         
                         <TextView
@@ -76,7 +76,7 @@
                             android:layout_height="wrap_content"
                             android:text="选择合适的模式开始学习"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_primary_container" />
+                            android:textColor="?attr/colorOnPrimaryContainer" />
                         
                     </LinearLayout>
                     
@@ -91,7 +91,7 @@
                 android:text="测验模式"
                 android:textSize="@dimen/text_18"
                 android:textStyle="bold"
-                android:textColor="@color/on_surface"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginBottom="@dimen/space_12" />
             
             <RadioGroup
@@ -108,14 +108,14 @@
                 android:text="题目设置"
                 android:textSize="@dimen/text_18"
                 android:textStyle="bold"
-                android:textColor="@color/on_surface"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginBottom="@dimen/space_12" />
             
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -138,7 +138,7 @@
                             android:layout_weight="1"
                             android:text="题目类型"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_surface" />
+                            android:textColor="?attr/colorOnSurface" />
                         
                         <Spinner
                             android:id="@+id/spinnerQuestionType"
@@ -162,7 +162,7 @@
                             android:layout_weight="1"
                             android:text="题目顺序"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_surface" />
+                            android:textColor="?attr/colorOnSurface" />
                         
                         <Spinner
                             android:id="@+id/spinnerQuestionOrder"
@@ -188,7 +188,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="@dimen/space_16"
-        android:background="@color/surface"
+        android:background="?attr/colorSurface"
         android:elevation="@dimen/elev_8">
         
         <com.google.android.material.button.MaterialButton
@@ -198,7 +198,7 @@
             android:text="开始测验"
             android:textSize="@dimen/text_16"
             android:textStyle="bold"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />

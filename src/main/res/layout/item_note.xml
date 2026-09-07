@@ -4,7 +4,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="@dimen/space_16"
-    android:background="@color/surface">
+    android:background="?attr/colorSurface">
 
     <TextView
         android:id="@+id/tv_note_title"
@@ -13,7 +13,7 @@
         android:text="笔记标题"
         android:textSize="@dimen/text_18"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:layout_marginBottom="@dimen/space_8" />
 
     <TextView
@@ -22,7 +22,7 @@
         android:layout_height="wrap_content"
         android:text="笔记内容"
         android:textSize="@dimen/text_14"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:layout_marginBottom="@dimen/space_8" />
 
     <TextView
@@ -31,7 +31,7 @@
         android:layout_height="wrap_content"
         android:text="2024-01-01"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:layout_marginBottom="@dimen/space_8" />
 
     <LinearLayout
@@ -46,8 +46,8 @@
             android:layout_weight="1"
             android:text="编辑"
             android:layout_marginEnd="@dimen/space_8"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
             app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             xmlns:app="http://schemas.android.com/apk/res-auto"/>

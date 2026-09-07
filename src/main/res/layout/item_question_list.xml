@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="@color/surface"
+    android:background="?attr/colorSurface"
     android:padding="@dimen/space_14"
     android:layout_marginBottom="@dimen/space_1">
 
@@ -23,7 +23,7 @@
             android:text="1"
             android:textSize="@dimen/text_13"
             android:textStyle="bold"
-            android:textColor="@color/primary"
+            android:textColor="?attr/colorPrimary"
             android:background="@drawable/question_number_bg"
             android:gravity="center"
             android:layout_marginEnd="@dimen/space_12"/>
@@ -48,7 +48,7 @@
                     android:layout_height="wrap_content"
                     android:text="单选"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
                     android:background="@drawable/question_type_tag_bg"
                     android:paddingHorizontal="6dp"
                     android:paddingVertical="2dp"
@@ -60,7 +60,7 @@
                     android:layout_height="wrap_content"
                     android:text="中等"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_tertiary"/>
+                    android:textColor="?attr/colorControlTextHint"/>
             </LinearLayout>
 
             <TextView
@@ -69,7 +69,7 @@
                 android:layout_height="wrap_content"
                 android:text="题目内容"
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:lineSpacingExtra="2dp"
                 android:layout_marginBottom="@dimen/space_4"/>
 
@@ -79,7 +79,7 @@
                 android:layout_height="wrap_content"
                 android:text="默认"
                 android:textSize="@dimen/text_11"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
         </LinearLayout>
 
         <!-- 右侧：操作按钮 -->
@@ -130,7 +130,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:background="@drawable/explanation_bg"
         android:padding="@dimen/space_8"
         android:layout_marginTop="@dimen/space_4"

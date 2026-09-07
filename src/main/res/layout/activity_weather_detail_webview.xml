@@ -76,7 +76,7 @@
                 android:layout_height="wrap_content"
                 android:text="正在加载天气数据..."
                 android:textSize="@dimen/text_16"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginTop="@dimen/space_16" />
 
         </LinearLayout>

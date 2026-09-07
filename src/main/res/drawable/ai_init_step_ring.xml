@@ -2,8 +2,8 @@
 <!-- 初始化步骤圆环（未到） -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="#14000000" />
+    <solid android:color="@color/hc_14000000" />
     <stroke
         android:width="2dp"
-        android:color="#26FFFFFF" />
+        android:color="@color/hc_26ffffff" />
 </shape>

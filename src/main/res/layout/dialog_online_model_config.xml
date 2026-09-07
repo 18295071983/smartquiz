@@ -13,7 +13,7 @@
         android:text="配置在线模型"
         android:textSize="@dimen/text_20"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:layout_marginBottom="@dimen/space_20"/>
 
     <!-- 模型名称 -->
@@ -113,7 +113,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:visibility="gone"
         android:layout_marginBottom="@dimen/space_12"
         android:paddingStart="@dimen/space_4"
@@ -133,7 +133,7 @@
             android:layout_weight="1"
             android:text="测试连通性"
             android:textSize="@dimen/text_12"
-            app:backgroundTint="@color/secondary"
+            app:backgroundTint="?attr/colorSecondary"
             app:cornerRadius="@dimen/radius_8"
             android:textAllCaps="false"
             android:layout_marginEnd="@dimen/space_8"/>
@@ -145,7 +145,7 @@
             android:layout_weight="1"
             android:text="获取模型列表"
             android:textSize="@dimen/text_12"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_8"
             android:textAllCaps="false"/>
     </LinearLayout>
@@ -159,7 +159,7 @@
         android:visibility="gone"
         android:layout_marginBottom="@dimen/space_16"
         android:padding="@dimen/space_12"
-        android:background="@color/card_background">
+        android:background="?attr/colorCardBackground">
 
         <TextView
             android:id="@+id/usage_text"
@@ -167,7 +167,7 @@
             android:layout_height="wrap_content"
             android:text="使用量: 加载中..."
             android:textSize="@dimen/text_13"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -184,7 +184,7 @@
                 android:layout_weight="1"
                 android:max="100"
                 android:progress="0"
-                android:progressTint="@color/primary"/>
+                android:progressTint="?attr/colorPrimary"/>
 
             <TextView
                 android:id="@+id/usage_percent_text"
@@ -192,7 +192,7 @@
                 android:layout_height="wrap_content"
                 android:text="0%"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:layout_marginStart="@dimen/space_8"/>
         </LinearLayout>
     </LinearLayout>
@@ -213,7 +213,7 @@
             android:text="可用模型"
             android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
         <FrameLayout
@@ -223,7 +223,7 @@
                 android:id="@+id/models_recycler"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@color/card_background"
+                android:background="?attr/colorCardBackground"
                 app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
 
             <ProgressBar
@@ -241,7 +241,7 @@
                 android:layout_marginTop="@dimen/space_60"
                 android:text="加载中..."
                 android:textSize="@dimen/text_14"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:visibility="gone"/>
         </FrameLayout>
     </LinearLayout>
@@ -259,7 +259,7 @@
             android:layout_height="@dimen/size_40"
             android:text="取消"
             style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:textAllCaps="false"
             android:layout_marginEnd="@dimen/space_8"/>
 
@@ -268,7 +268,7 @@
             android:layout_width="wrap_content"
             android:layout_height="@dimen/size_40"
             android:text="保存"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_8"
             android:textAllCaps="false"/>
     </LinearLayout>

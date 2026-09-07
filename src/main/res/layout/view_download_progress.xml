@@ -32,7 +32,7 @@
                 android:layout_weight="1"
                 android:text="📦 主模型"
                 android:textSize="13sp"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/hc_ffffffff"
                 android:textStyle="bold" />
 
             <TextView
@@ -41,7 +41,7 @@
                 android:layout_height="wrap_content"
                 android:text="0%"
                 android:textSize="12sp"
-                android:textColor="#90FFFFFF" />
+                android:textColor="@color/hc_90ffffff" />
         </LinearLayout>
 
         <ProgressBar
@@ -52,14 +52,14 @@
             android:layout_marginTop="8dp"
             android:max="100"
             android:progress="0"
-            android:progressTint="#6EC6FF"
-            android:progressBackgroundTint="#26FFFFFF" />
+            android:progressTint="@color/hc_ff6ec6ff"
+            android:progressBackgroundTint="@color/hc_26ffffff" />
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="14dp"
-            android:background="#1AFFFFFF" />
+            android:background="@color/hc_1affffff" />
 
         <LinearLayout
             android:id="@+id/mmproj_container"
@@ -82,7 +82,7 @@
                     android:layout_weight="1"
                     android:text="🧩 视觉模块"
                     android:textSize="13sp"
-                    android:textColor="#C8FFFFFF"
+                    android:textColor="@color/hc_c8ffffff"
                     android:textStyle="bold" />
 
                 <TextView
@@ -91,7 +91,7 @@
                     android:layout_height="wrap_content"
                     android:text="0 / 0 MB"
                     android:textSize="12sp"
-                    android:textColor="#90FFFFFF" />
+                    android:textColor="@color/hc_90ffffff" />
             </LinearLayout>
 
             <ProgressBar
@@ -102,8 +102,8 @@
                 android:layout_marginTop="8dp"
                 android:max="100"
                 android:progress="0"
-                android:progressTint="#8E6CFF"
-                android:progressBackgroundTint="#26FFFFFF" />
+                android:progressTint="@color/hc_ff8e6cff"
+                android:progressBackgroundTint="@color/hc_26ffffff" />
         </LinearLayout>
     </LinearLayout>
 
@@ -115,6 +115,6 @@
         android:gravity="center"
         android:minHeight="40dp"
         android:text="准备就绪，即将开始…"
-        android:textColor="#D0FFFFFF"
+        android:textColor="@color/hc_d0ffffff"
         android:textSize="14sp" />
 </LinearLayout>

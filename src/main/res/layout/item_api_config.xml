@@ -7,7 +7,7 @@
     android:layout_margin="@dimen/space_8"
     app:cardElevation="4dp"
     app:cardCornerRadius="16dp"
-    app:cardBackgroundColor="@color/card_background">
+    app:cardBackgroundColor="?attr/colorCardBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -36,7 +36,7 @@
                 android:layout_weight="1"
                 android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:maxLines="1"
                 android:ellipsize="end"/>
 
@@ -67,7 +67,7 @@
                 android:layout_height="wrap_content"
                 android:text="已选模型："
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
 
             <TextView
                 android:id="@+id/tv_model_name"
@@ -75,7 +75,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:textSize="@dimen/text_13"
-                android:textColor="@color/primary"
+                android:textColor="?attr/colorPrimary"
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="end"/>
@@ -102,7 +102,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:fontFamily="monospace"
                 android:maxLines="1"
                 android:ellipsize="middle"/>
@@ -131,7 +131,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"
+                android:textColor="?attr/colorControlTextHint"
                 android:maxLines="1"
                 android:ellipsize="end"/>
         </LinearLayout>
@@ -140,7 +140,7 @@
         <View
             android:layout_width="match_parent"
             android:layout_height="@dimen/size_1"
-            android:background="@color/outline"
+            android:background="?attr/colorOutline"
             android:layout_marginVertical="@dimen/space_12"
             android:alpha="0.3"/>
 
@@ -164,7 +164,7 @@
                     android:layout_height="wrap_content"
                     android:text="使用量"
                     android:textSize="@dimen/text_12"
-                    android:textColor="@color/text_tertiary"/>
+                    android:textColor="?attr/colorControlTextHint"/>
 
                 <View
                     android:layout_width="@dimen/size_0"
@@ -177,7 +177,7 @@
                     android:layout_height="wrap_content"
                     android:text="0%"
                     android:textSize="@dimen/text_11"
-                    android:textColor="@color/primary"
+                    android:textColor="?attr/colorPrimary"
                     android:textStyle="bold"/>
             </LinearLayout>
 
@@ -189,7 +189,7 @@
                 android:layout_marginTop="@dimen/space_4"
                 android:max="100"
                 android:progress="0"
-                android:progressTint="@color/primary"/>
+                android:progressTint="?attr/colorPrimary"/>
 
             <TextView
                 android:id="@+id/tv_usage_detail"
@@ -197,7 +197,7 @@
                 android:layout_height="wrap_content"
                 android:text="已用: 0 / 总量: 未知"
                 android:textSize="@dimen/text_11"
-                android:textColor="@color/text_tertiary"
+                android:textColor="?attr/colorControlTextHint"
                 android:layout_marginTop="@dimen/space_2"/>
         </LinearLayout>
 
@@ -213,7 +213,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_secondary"/>
+                android:textColor="?attr/colorControlTextSecondary"/>
 
             <TextView
                 android:id="@+id/tv_latency"
@@ -234,7 +234,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"/>
+                android:textColor="?attr/colorControlTextHint"/>
         </LinearLayout>
 
         <!-- 最后使用时间 -->
@@ -243,7 +243,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="@dimen/text_11"
-            android:textColor="@color/text_tertiary"
+            android:textColor="?attr/colorControlTextHint"
             android:layout_marginTop="@dimen/space_2"
             android:visibility="gone"/>
 
@@ -263,7 +263,7 @@
                 android:text="测试"
                 android:textSize="@dimen/text_12"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
+                app:backgroundTint="?attr/colorSecondary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_10"
                 android:layout_marginEnd="@dimen/space_6"
@@ -278,7 +278,7 @@
                 android:text="编辑"
                 android:textSize="@dimen/text_12"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
                 app:cornerRadius="@dimen/radius_10"
                 android:layout_marginHorizontal="@dimen/space_6"

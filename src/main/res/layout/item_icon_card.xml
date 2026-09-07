@@ -6,7 +6,7 @@
     android:layout_margin="@dimen/space_4"
     android:clickable="true"
     android:focusable="true"
-    app:cardBackgroundColor="@color/card_background"
+    app:cardBackgroundColor="?attr/colorCardBackground"
     app:cardCornerRadius="12dp"
     app:cardElevation="2dp"
     app:rippleColor="@color/primary_alpha_20">
@@ -31,7 +31,7 @@
             android:layout_marginTop="@dimen/space_8"
             android:textSize="@dimen/text_12"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
+            android:textColor="?attr/colorControlText"
             android:gravity="center"
             android:maxLines="1"
             android:ellipsize="end"/>
@@ -42,7 +42,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_2"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_tertiary"
+            android:textColor="?attr/colorControlTextHint"
             android:gravity="center"
             android:maxLines="1"
             android:ellipsize="end"/>

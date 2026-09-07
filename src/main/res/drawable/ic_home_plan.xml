@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#2563EB"
-                android:endColor="#60A5FA" />
+                android:startColor="@color/hc_ff2563eb"
+                android:endColor="@color/hc_ff60a5fa" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 日历主体（白色渐变） -->
@@ -30,24 +30,24 @@
                 android:type="linear"
                 android:startX="3" android:startY="4.5"
                 android:endX="21" android:endY="21"
-                android:startColor="#FFFFFF"
-                android:endColor="#DBEAFE" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_ffdbeafe" />
         </aapt:attr>
     </path>
 
     <!-- 悬挂环（白色） -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="@color/hc_ffffffff"
         android:pathData="M7.8,2.8 V6.2 M16.2,2.8 V6.2" />
 
     <!-- 表头条（深蓝） -->
     <path
-        android:fillColor="#BFDBFE"
+        android:fillColor="@color/hc_ffbfdbfe"
         android:pathData="M3,9.2 H21 V10.8 H3 Z" />
 
     <!-- 日期格子（浅蓝虚线感） -->
     <path
-        android:fillColor="#93C5FD"
+        android:fillColor="@color/hc_ff93c5fd"
         android:pathData="M5.2,12.6 H8.4 V15.4 H5.2 Z M9.8,12.6 H13 V15.4 H9.8 Z M14.4,12.6 H17.6 V15.4 H14.4 Z M5.2,16.8 H8.4 V19.2 H5.2 Z M9.8,16.8 H13 V19.2 H9.8 Z" />
 
     <!-- 今日圆点（深蓝，实心强调） -->
@@ -57,8 +57,8 @@
                 android:type="linear"
                 android:startX="9.9" android:startY="11.9"
                 android:endX="14.1" android:endY="16.1"
-                android:startColor="#3B82F6"
-                android:endColor="#1D4ED8" />
+                android:startColor="@color/hc_ff3b82f6"
+                android:endColor="@color/hc_ff1d4ed8" />
         </aapt:attr>
     </path>
 </vector>

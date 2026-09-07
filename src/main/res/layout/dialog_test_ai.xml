@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="@dimen/space_16"
-    android:background="@color/surface">
+    android:background="?attr/colorSurface">
 
     <TextView
         android:layout_width="match_parent"
@@ -13,7 +13,7 @@
         android:text="测试AI功能"
         android:textSize="@dimen/text_18"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:layout_marginBottom="@dimen/space_16"/>
 
     <com.google.android.material.textfield.TextInputLayout
@@ -25,8 +25,8 @@
         app:boxCornerRadiusTopEnd="12dp"
         app:boxCornerRadiusTopStart="12dp"
         app:boxStrokeWidth="2dp"
-        app:boxStrokeColor="@color/outline"
-        app:hintTextColor="@color/primary"
+        app:boxStrokeColor="?attr/colorOutline"
+        app:hintTextColor="?attr/colorPrimary"
         android:layout_marginBottom="@dimen/space_16">
 
         <com.google.android.material.textfield.TextInputEditText
@@ -35,7 +35,7 @@
             android:layout_height="match_parent"
             android:gravity="top"
             android:inputType="textMultiLine"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
     </com.google.android.material.textfield.TextInputLayout>
 
@@ -59,7 +59,7 @@
             android:layout_height="wrap_content"
             android:text="AI正在思考..."
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_secondary"/>
+            android:textColor="?attr/colorControlTextSecondary"/>
     </LinearLayout>
 
     <ScrollView
@@ -75,7 +75,7 @@
             android:layout_height="wrap_content"
             android:text=""
             android:textSize="@dimen/text_14"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
     </ScrollView>
 
     <LinearLayout
@@ -90,8 +90,8 @@
             android:layout_height="@dimen/size_48"
             android:text="取消"
             android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            app:backgroundTint="@color/surface_variant"
+            android:textColor="?attr/colorControlText"
+            app:backgroundTint="?attr/colorSurfaceVariant"
             app:cornerRadius="@dimen/radius_12"
             android:layout_marginEnd="@dimen/space_8"/>
 
@@ -101,8 +101,8 @@
             android:layout_height="@dimen/size_48"
             android:text="发送"
             android:textAllCaps="false"
-            android:textColor="@color/on_primary"
-            app:backgroundTint="@color/primary"
+            android:textColor="?attr/colorOnPrimary"
+            app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_12"/>
     </LinearLayout>
 

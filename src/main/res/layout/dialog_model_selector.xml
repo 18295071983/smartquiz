@@ -21,7 +21,7 @@
             android:text="选择模型"
             android:textSize="@dimen/text_18"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
         <ImageButton
             android:id="@+id/btn_close"
@@ -30,7 +30,7 @@
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBorderless"
             android:contentDescription="关闭"
-            app:tint="@color/text_secondary"/>
+            app:tint="?attr/colorControlTextSecondary"/>
     </LinearLayout>
 
     <!-- Tab 切换 -->
@@ -41,9 +41,9 @@
         android:layout_marginTop="@dimen/space_16"
         app:tabMode="fixed"
         app:tabGravity="fill"
-        app:tabIndicatorColor="@color/primary"
-        app:tabSelectedTextColor="@color/primary"
-        app:tabTextColor="@color/text_secondary"/>
+        app:tabIndicatorColor="?attr/colorPrimary"
+        app:tabSelectedTextColor="?attr/colorPrimary"
+        app:tabTextColor="?attr/colorControlTextSecondary"/>
 
     <!-- ViewPager -->
     <androidx.viewpager2.widget.ViewPager2
@@ -66,7 +66,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="取消"
-            android:textColor="@color/text_secondary"/>
+            android:textColor="?attr/colorControlTextSecondary"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_confirm"
@@ -74,7 +74,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/space_8"
             android:text="确定"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             app:cornerRadius="@dimen/radius_20"/>
     </LinearLayout>
 

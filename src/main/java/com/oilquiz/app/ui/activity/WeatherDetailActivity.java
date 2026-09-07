@@ -43,6 +43,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class WeatherDetailActivity extends AppCompatActivity {
 
     private static final String TAG = "WeatherDetail";
@@ -1209,11 +1210,11 @@ public class WeatherDetailActivity extends AppCompatActivity {
     }
 
     private static int uvColor(int uv) {
-        if (uv <= 2) return 0xFF10B981;
-        if (uv <= 5) return 0xFFF59E0B;
-        if (uv <= 7) return 0xFFEF4444;
-        if (uv <= 10) return 0xFF7C3AED;
-        return 0xFF991B1B;
+        if (uv <= 2) return ThemeColors.get(R.color.hc_ff10b981);
+        if (uv <= 5) return ThemeColors.get(R.color.hc_fff59e0b);
+        if (uv <= 7) return ThemeColors.get(R.color.hc_ffef4444);
+        if (uv <= 10) return ThemeColors.get(R.color.hc_ff7c3aed);
+        return ThemeColors.get(R.color.hc_ff991b1b);
     }
 
     private static String humidityComfort(int h) {
@@ -1223,9 +1224,9 @@ public class WeatherDetailActivity extends AppCompatActivity {
     }
 
     private static int humidityColor(int h) {
-        if (h < 40) return 0xFFFB923C;
-        if (h <= 70) return 0xFF22D3EE;
-        return 0xFF8B5CF6;
+        if (h < 40) return ThemeColors.get(R.color.hc_fffb923c);
+        if (h <= 70) return ThemeColors.get(R.color.hc_ff22d3ee);
+        return ThemeColors.get(R.color.hc_ff8b5cf6);
     }
 
     private static int alertBgDrawable(String level) {
@@ -2201,12 +2202,12 @@ public class WeatherDetailActivity extends AppCompatActivity {
     }
 
     private int getLevelColor(String level) {
-        if (level == null) return 0xFF60A5FA;
-        if (level.contains("红")) return 0xFFEF4444;
-        if (level.contains("橙")) return 0xFFF97316;
-        if (level.contains("黄")) return 0xFFEAB308;
-        if (level.contains("蓝")) return 0xFF3B82F6;
-        return 0xFF60A5FA;
+        if (level == null) return ThemeColors.get(R.color.hc_ff60a5fa);
+        if (level.contains("红")) return ThemeColors.get(R.color.hc_ffef4444);
+        if (level.contains("橙")) return ThemeColors.get(R.color.hc_fff97316);
+        if (level.contains("黄")) return ThemeColors.get(R.color.hc_ffeab308);
+        if (level.contains("蓝")) return ThemeColors.get(R.color.hc_ff3b82f6);
+        return ThemeColors.get(R.color.hc_ff60a5fa);
     }
 
     private View buildAlertCard(AlertInfo info, boolean addTopMargin) {
@@ -2224,7 +2225,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         // 圆角背景 + 等级颜色边
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setCornerRadius(24);
-        bg.setColor(0x1AFFFFFF);
+        bg.setColor(ThemeColors.get(R.color.hc_1affffff));
         bg.setStroke(4, getLevelColor(info.level));
         card.setBackground(bg);
 
@@ -2251,7 +2252,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         TextView tvLevel = new TextView(this);
         tvLevel.setText(info.level);
         tvLevel.setTextSize(11);
-        tvLevel.setTextColor(0xFFFFFFFF);
+        tvLevel.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         tvLevel.setPadding(24, 6, 24, 6);
         android.graphics.drawable.GradientDrawable levelBg = new android.graphics.drawable.GradientDrawable();
         levelBg.setCornerRadius(20);
@@ -2479,20 +2480,20 @@ public class WeatherDetailActivity extends AppCompatActivity {
     }
 
     private int getAqiColor(String aqi, String category) {
-        if (category.contains("优")) return 0xFF22C55E;
-        if (category.contains("良")) return 0xFFEAB308;
-        if (category.contains("轻度")) return 0xFFF97316;
-        if (category.contains("中度")) return 0xFFEF4444;
-        if (category.contains("重度") || category.contains("严重")) return 0xFF991B1B;
+        if (category.contains("优")) return ThemeColors.get(R.color.hc_ff22c55e);
+        if (category.contains("良")) return ThemeColors.get(R.color.hc_ffeab308);
+        if (category.contains("轻度")) return ThemeColors.get(R.color.hc_fff97316);
+        if (category.contains("中度")) return ThemeColors.get(R.color.hc_ffef4444);
+        if (category.contains("重度") || category.contains("严重")) return ThemeColors.get(R.color.hc_ff991b1b);
         try {
             int val = Integer.parseInt(aqi);
-            if (val <= 50) return 0xFF22C55E;
-            if (val <= 100) return 0xFFEAB308;
-            if (val <= 150) return 0xFFF97316;
-            if (val <= 200) return 0xFFEF4444;
-            return 0xFF991B1B;
+            if (val <= 50) return ThemeColors.get(R.color.hc_ff22c55e);
+            if (val <= 100) return ThemeColors.get(R.color.hc_ffeab308);
+            if (val <= 150) return ThemeColors.get(R.color.hc_fff97316);
+            if (val <= 200) return ThemeColors.get(R.color.hc_ffef4444);
+            return ThemeColors.get(R.color.hc_ff991b1b);
         } catch (NumberFormatException e) {
-            return 0xFF60A5FA;
+            return ThemeColors.get(R.color.hc_ff60a5fa);
         }
     }
 

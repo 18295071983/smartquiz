@@ -24,6 +24,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * Pdfium PDF 预览 Activity
  * 使用免费的 PdfiumAndroid 库渲染 PDF
@@ -68,12 +70,12 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         rootLayout.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
-        rootLayout.setBackgroundColor(0xFF333333);
+        rootLayout.setBackgroundColor(ThemeColors.get(R.color.hc_ff333333));
         
         // 标题栏
         LinearLayout titleBar = new LinearLayout(this);
         titleBar.setOrientation(LinearLayout.HORIZONTAL);
-        titleBar.setBackgroundColor(0xFF3B82F6);
+        titleBar.setBackgroundColor(ThemeColors.get(R.color.hc_ff3b82f6));
         titleBar.setPadding(20, 20, 20, 20);
         
         Button btnBack = new Button(this);
@@ -82,12 +84,12 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         
         TextView tvTitle = new TextView(this);
         tvTitle.setText("PDF 预览");
-        tvTitle.setTextColor(0xFFFFFFFF);
+        tvTitle.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         tvTitle.setTextSize(18);
         tvTitle.setPadding(20, 0, 20, 0);
         
         tvPageInfo = new TextView(this);
-        tvPageInfo.setTextColor(0xFFFFFFFF);
+        tvPageInfo.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         tvPageInfo.setTextSize(14);
         
         titleBar.addView(btnBack);
@@ -97,7 +99,7 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         // 页面控制按钮
         LinearLayout controlBar = new LinearLayout(this);
         controlBar.setOrientation(LinearLayout.HORIZONTAL);
-        controlBar.setBackgroundColor(0xFF444444);
+        controlBar.setBackgroundColor(ThemeColors.get(R.color.hc_ff444444));
         controlBar.setPadding(10, 10, 10, 10);
         
         btnPrev = new Button(this);
@@ -120,7 +122,7 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         
         pageContainer = new LinearLayout(this);
         pageContainer.setOrientation(LinearLayout.VERTICAL);
-        pageContainer.setBackgroundColor(0xFF666666);
+        pageContainer.setBackgroundColor(ThemeColors.get(R.color.hc_ff666666));
         pageContainer.setPadding(20, 20, 20, 20);
         
         scrollView.addView(pageContainer);
@@ -232,7 +234,7 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
             imageView.setImageBitmap(pageBitmaps.get(i));
             imageView.setAdjustViewBounds(true);
             imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            imageView.setBackgroundColor(0xFFFFFFFF);
+            imageView.setBackgroundColor(ThemeColors.get(R.color.hc_ffffffff));
             
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,

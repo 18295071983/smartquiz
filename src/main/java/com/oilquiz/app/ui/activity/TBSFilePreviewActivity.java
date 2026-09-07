@@ -22,6 +22,8 @@ import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * TBS SDK 文件预览 Activity
  * 
@@ -73,12 +75,12 @@ public class TBSFilePreviewActivity extends Activity {
         // 创建简单的加载界面
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setBackgroundColor(0xFF2C3E50);
+        layout.setBackgroundColor(ThemeColors.get(R.color.hc_ff2c3e50));
         
         // 状态文本
         statusText = new TextView(this);
         statusText.setText("正在初始化 TBS 预览...");
-        statusText.setTextColor(0xFFFFFFFF);
+        statusText.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         statusText.setTextSize(16);
         statusText.setPadding(40, 40, 40, 20);
         layout.addView(statusText);

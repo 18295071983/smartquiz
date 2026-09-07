@@ -6,34 +6,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- 渐变圆角底 -->
-    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="2" android:startY="2"
-                android:endX="22" android:endY="22"
-                android:startColor="#7C3AED"
-                android:endColor="#A78BFA" />
-        </aapt:attr>
-    </path>
-
-    <!-- 底部微光 -->
-    <path
-        android:fillColor="#22FFFFFF"
-        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 统计柱（白色渐变） -->
-    <path android:pathData="M6,13.5 H8.5 V18.5 H6 Z M10.75,9.8 H13.25 V18.5 H10.75 Z M15.5,6.2 H18 V18.5 H15.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="6" android:startY="6.2"
-                android:endX="18" android:endY="18.5"
-                android:startColor="#FFFFFF"
-                android:endColor="#EDE9FE" />
-        </aapt:attr>
-    </path>
+    <path android:pathData="M6,13.5 H8.5 V18.5 H6 Z M10.75,9.8 H13.25 V18.5 H10.75 Z M15.5,6.2 H18 V18.5 H15.5 Z" android:fillColor="?attr/colorPrimary" />
 
     <!-- 柱顶小方块（深紫强调） -->
     <path android:pathData="M6,12.8 H8.5 V14.2 H6 Z M10.75,9.1 H13.25 V10.5 H10.75 Z M15.5,5.5 H18 V6.9 H15.5 Z">
@@ -42,13 +17,13 @@
                 android:type="linear"
                 android:startX="6" android:startY="5.5"
                 android:endX="18" android:endY="14.2"
-                android:startColor="#8B5CF6"
-                android:endColor="#6D28D9" />
+                android:startColor="?attr/colorPrimary"
+                android:endColor="?attr/colorPrimaryDark" />
         </aapt:attr>
     </path>
 
     <!-- 底线（浅紫） -->
     <path
-        android:fillColor="#C4B5FD"
+        android:fillColor="?attr/colorPrimaryContainer"
         android:pathData="M4.5,19.6 H19.5" />
 </vector>

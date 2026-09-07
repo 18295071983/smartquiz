@@ -17,7 +17,7 @@
             android:layout_marginBottom="@dimen/space_12"
             app:cardElevation="2dp"
             app:cardCornerRadius="12dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -31,7 +31,7 @@
                     android:text="📊 当前状态"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginBottom="@dimen/space_12"/>
 
                 <LinearLayout
@@ -45,20 +45,20 @@
                         android:layout_height="wrap_content"
                         android:text="服务状态"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_status_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_0_5"
-                    android:background="@color/divider"/>
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -71,19 +71,19 @@
                         android:layout_height="wrap_content"
                         android:text="状态描述"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_desc_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_0_5"
-                    android:background="@color/divider"/>
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -96,19 +96,19 @@
                         android:layout_height="wrap_content"
                         android:text="进度"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_progress_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_0_5"
-                    android:background="@color/divider"/>
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:id="@+id/detail_error_row"
@@ -123,7 +123,7 @@
                         android:layout_height="wrap_content"
                         android:text="错误信息"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_error_value"
                         android:layout_width="wrap_content"
@@ -141,7 +141,7 @@
             android:layout_marginBottom="@dimen/space_12"
             app:cardElevation="2dp"
             app:cardCornerRadius="12dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -155,7 +155,7 @@
                     android:text="🔧 运行信息"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginBottom="@dimen/space_12"/>
 
                 <LinearLayout
@@ -169,19 +169,19 @@
                         android:layout_height="wrap_content"
                         android:text="Native库"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_lib_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_0_5"
-                    android:background="@color/divider"/>
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -194,19 +194,19 @@
                         android:layout_height="wrap_content"
                         android:text="模型名称"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_model_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_0_5"
-                    android:background="@color/divider"/>
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -219,19 +219,19 @@
                         android:layout_height="wrap_content"
                         android:text="优化模式"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_opt_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_0_5"
-                    android:background="@color/divider"/>
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:id="@+id/detail_mem_row"
@@ -246,20 +246,20 @@
                         android:layout_height="wrap_content"
                         android:text="内存使用"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_mem_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:id="@+id/detail_mem_divider"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_0_5"
-                    android:background="@color/divider"
+                    android:background="?attr/colorDivider"
                     android:visibility="gone"/>
 
                 <LinearLayout
@@ -275,20 +275,20 @@
                         android:layout_height="wrap_content"
                         android:text="推理速度"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_speed_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:id="@+id/detail_speed_divider"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/size_0_5"
-                    android:background="@color/divider"
+                    android:background="?attr/colorDivider"
                     android:visibility="gone"/>
 
                 <LinearLayout
@@ -304,13 +304,13 @@
                         android:layout_height="wrap_content"
                         android:text="Token计数"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_secondary"/>
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_token_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="@dimen/text_14"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
             </LinearLayout>
@@ -323,7 +323,7 @@
             android:layout_marginBottom="@dimen/space_12"
             app:cardElevation="2dp"
             app:cardCornerRadius="12dp"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             android:visibility="gone">
 
             <LinearLayout
@@ -338,7 +338,7 @@
                     android:text="📋 模型信息"
                     android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:layout_marginBottom="@dimen/space_12"/>
 
                 <TextView
@@ -346,7 +346,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textSize="@dimen/text_13"
-                    android:textColor="@color/text_primary"
+                    android:textColor="?attr/colorControlText"
                     android:lineSpacingExtra="3dp"
                     android:fontFamily="monospace"/>
 

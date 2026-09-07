@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final int VIEW_TYPE_IMAGE = 0;
@@ -286,7 +287,7 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
         // 加载失败时显示占位图
         if (!loaded) {
             holder.imageView.setImageResource(R.drawable.ic_ai_image);
-            holder.imageView.setColorFilter(holder.itemView.getContext().getColor(R.color.text_secondary));
+            holder.imageView.setColorFilter(ThemeColors.get(holder.itemView.getContext(), R.color.text_secondary));
         } else {
             holder.imageView.clearColorFilter();
         }
@@ -327,16 +328,16 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
 
         if (attachment.hasError()) {
             holder.fileStatus.setText("失败: " + (attachment.errorMessage != null ? attachment.errorMessage : ""));
-            holder.fileStatus.setTextColor(0xFFFF4444);
+            holder.fileStatus.setTextColor(ThemeColors.get(R.color.hc_ffff4444));
         } else if (attachment.isUploading()) {
             holder.fileStatus.setText("上传中... " + attachment.uploadProgress + "%");
-            holder.fileStatus.setTextColor(0xFF2196F3);
+            holder.fileStatus.setTextColor(ThemeColors.get(R.color.hc_ff2196f3));
         } else if (attachment.status == ChatMessage.AttachmentStatus.PROCESSING) {
             holder.fileStatus.setText("处理中...");
-            holder.fileStatus.setTextColor(0xFF2196F3);
+            holder.fileStatus.setTextColor(ThemeColors.get(R.color.hc_ff2196f3));
         } else if (attachment.status == ChatMessage.AttachmentStatus.PENDING) {
             holder.fileStatus.setText("等待上传...");
-            holder.fileStatus.setTextColor(0xFFFF9800);
+            holder.fileStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
         } else {
             holder.fileStatus.setVisibility(View.GONE);
         }

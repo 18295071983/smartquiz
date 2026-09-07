@@ -17,6 +17,8 @@ import androidx.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 分钟级降水趋势图：渐变面积图显示未来2小时每5分钟的降水量。
  *
@@ -97,37 +99,37 @@ public class MinutelyPrecipChartView extends View {
         pointPaint.setStyle(Paint.Style.FILL);
         pointPaint.setAntiAlias(true);
 
-        timePaint.setColor(0x99FFFFFF);
+        timePaint.setColor(ThemeColors.get(R.color.hc_99ffffff));
         timePaint.setTextSize(10 * density);
         timePaint.setTextAlign(Paint.Align.CENTER);
 
-        nowLinePaint.setColor(0xFFFFFFFF);
+        nowLinePaint.setColor(ThemeColors.get(R.color.hc_ffffffff));
         nowLinePaint.setStrokeWidth(1f * density);
         nowLinePaint.setAlpha(140);
         nowLinePaint.setStyle(Paint.Style.STROKE);
         nowLinePaint.setPathEffect(new android.graphics.DashPathEffect(
                 new float[]{4 * density, 3 * density}, 0));
 
-        nowBadgePaint.setColor(0xFFFFFFFF);
+        nowBadgePaint.setColor(ThemeColors.get(R.color.hc_ffffffff));
         nowBadgePaint.setAntiAlias(true);
 
-        nowBadgeTextPaint.setColor(0xFF1976D2);
+        nowBadgeTextPaint.setColor(ThemeColors.get(R.color.hc_ff1976d2));
         nowBadgeTextPaint.setTextSize(10 * density);
         nowBadgeTextPaint.setTypeface(Typeface.DEFAULT_BOLD);
         nowBadgeTextPaint.setTextAlign(Paint.Align.CENTER);
 
-        gridPaint.setColor(0x14FFFFFF);
+        gridPaint.setColor(ThemeColors.get(R.color.hc_14ffffff));
         gridPaint.setStrokeWidth(1f * density);
 
-        baselinePaint.setColor(0x33FFFFFF);
+        baselinePaint.setColor(ThemeColors.get(R.color.hc_33ffffff));
         baselinePaint.setStrokeWidth(1f * density);
 
-        endLabelPaint.setColor(0x80FFFFFF);
+        endLabelPaint.setColor(ThemeColors.get(R.color.hc_80ffffff));
         endLabelPaint.setTextSize(10 * density);
         endLabelPaint.setTypeface(Typeface.DEFAULT_BOLD);
         endLabelPaint.setTextAlign(Paint.Align.CENTER);
 
-        noDataPaint.setColor(0x66FFFFFF);
+        noDataPaint.setColor(ThemeColors.get(R.color.hc_66ffffff));
         noDataPaint.setTextSize(12 * density);
         noDataPaint.setTextAlign(Paint.Align.CENTER);
     }
@@ -228,7 +230,7 @@ public class MinutelyPrecipChartView extends View {
             canvas.drawPath(curvePath, linePaint);
 
             // 绘制关键点：当前点（第一点）和峰值点
-            pointPaint.setColor(0xFFFFFFFF);
+            pointPaint.setColor(ThemeColors.get(R.color.hc_ffffffff));
             canvas.drawCircle(xs[0], ys[0], 4 * density, pointPaint);
             pointPaint.setColor(adjustAlpha(areaColor, 1.0f));
             canvas.drawCircle(xs[0], ys[0], 2.5f * density, pointPaint);
@@ -239,7 +241,7 @@ public class MinutelyPrecipChartView extends View {
                 if (dataList.get(i).precip > dataList.get(peakIdx).precip) peakIdx = i;
             }
             if (peakIdx != 0 && dataList.get(peakIdx).precip >= MODERATE_RAIN) {
-                pointPaint.setColor(0xFFFFFFFF);
+                pointPaint.setColor(ThemeColors.get(R.color.hc_ffffffff));
                 canvas.drawCircle(xs[peakIdx], ys[peakIdx], 3.5f * density, pointPaint);
                 pointPaint.setColor(adjustAlpha(areaColor, 1.0f));
                 canvas.drawCircle(xs[peakIdx], ys[peakIdx], 2 * density, pointPaint);
@@ -328,17 +330,17 @@ public class MinutelyPrecipChartView extends View {
     private int getAreaColor(float maxPrecip, String type) {
         boolean isSnow = "snow".equals(type);
         if (isSnow) {
-            if (maxPrecip < LIGHT_RAIN) return 0x40E0F7FF;
-            if (maxPrecip < MODERATE_RAIN) return 0xFFB3E5FC;
-            if (maxPrecip < HEAVY_RAIN) return 0xFF90CAF9;
-            return 0xFF64B5F6;
+            if (maxPrecip < LIGHT_RAIN) return ThemeColors.get(R.color.hc_40e0f7ff);
+            if (maxPrecip < MODERATE_RAIN) return ThemeColors.get(R.color.hc_ffb3e5fc);
+            if (maxPrecip < HEAVY_RAIN) return ThemeColors.get(R.color.hc_ff90caf9);
+            return ThemeColors.get(R.color.hc_ff64b5f6);
         }
         // rain
-        if (maxPrecip < LIGHT_RAIN) return 0x4090CAF9;
-        if (maxPrecip < MODERATE_RAIN) return 0xFF64B5F6;   // 浅蓝
-        if (maxPrecip < HEAVY_RAIN) return 0xFF1976D2;       // 蓝
-        if (maxPrecip < STORM_RAIN) return 0xFF1565C0;       // 深蓝
-        return 0xFF7B1FA2;                                    // 紫色(暴雨)
+        if (maxPrecip < LIGHT_RAIN) return ThemeColors.get(R.color.hc_4090caf9);
+        if (maxPrecip < MODERATE_RAIN) return ThemeColors.get(R.color.hc_ff64b5f6);   // 浅蓝
+        if (maxPrecip < HEAVY_RAIN) return ThemeColors.get(R.color.hc_ff1976d2);       // 蓝
+        if (maxPrecip < STORM_RAIN) return ThemeColors.get(R.color.hc_ff1565c0);       // 深蓝
+        return ThemeColors.get(R.color.hc_ff7b1fa2);                                    // 紫色(暴雨)
     }
 
     private int adjustAlpha(int color, float alpha) {

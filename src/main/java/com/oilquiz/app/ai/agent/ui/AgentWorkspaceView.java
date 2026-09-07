@@ -1,5 +1,7 @@
 package com.oilquiz.app.ai.agent.ui;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
@@ -315,7 +317,7 @@ public class AgentWorkspaceView {
     }
 
     private int color(int resId) {
-        return context.getColor(resId);
+        return ThemeColors.get(context, resId);
     }
 
     private android.graphics.drawable.Drawable cardBackground() {

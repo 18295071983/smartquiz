@@ -1,5 +1,7 @@
 package com.oilquiz.app;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import com.oilquiz.app.ui.base.BaseActivity;
 import android.content.Context;
 import android.content.Intent;
@@ -1269,7 +1271,7 @@ public class WebViewActivity extends BaseActivity {
                 tabTitle.setText("新标签");
             }
             tabTitle.setTextSize(14);
-            tabTitle.setTextColor(getResources().getColor(R.color.text_secondary));
+            tabTitle.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             tabTitle.setGravity(android.view.Gravity.CENTER);
             tabTitle.setSingleLine(true);
             tabTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1286,7 +1288,7 @@ public class WebViewActivity extends BaseActivity {
             closeButton.setText("×");
             closeButton.setTextSize(16);
             closeButton.setPadding(8, 4, 8, 4);
-            closeButton.setTextColor(getResources().getColor(R.color.text_secondary));
+            closeButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             closeButton.setAllCaps(false);
             closeButton.setBackgroundResource(android.R.color.transparent);
             closeButton.setClickable(true);
@@ -1491,7 +1493,7 @@ public class WebViewActivity extends BaseActivity {
         if (tabIndex < 0 || tabIndex >= tabList.size()) return;
         
         // 确保选中标签页的文字颜色保持为primary色
-        tabList.get(tabIndex).setTextColor(getResources().getColor(R.color.primary));
+        tabList.get(tabIndex).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
         
         // 确保关闭按钮的文字颜色也保持为primary色
         android.view.ViewParent tabParent = tabList.get(tabIndex).getParent();
@@ -1500,7 +1502,7 @@ public class WebViewActivity extends BaseActivity {
             for (int j = 0; j < tabLayout.getChildCount(); j++) {
                 View child = tabLayout.getChildAt(j);
                 if (child instanceof Button) {
-                    ((Button) child).setTextColor(getResources().getColor(R.color.primary));
+                    ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                     ((Button) child).setBackgroundResource(android.R.color.transparent);
                 }
             }
@@ -1608,7 +1610,7 @@ public class WebViewActivity extends BaseActivity {
                 if (currentTabIndex >= 0 && currentTabIndex < tabList.size()) {
                     tabList.get(currentTabIndex).setText(title);
                     // 确保选中标签页的文字颜色保持为primary色
-                    tabList.get(currentTabIndex).setTextColor(getResources().getColor(R.color.primary));
+                    tabList.get(currentTabIndex).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                     // 确保关闭按钮的文字颜色也保持为primary色
                     android.view.ViewParent tabParent = tabList.get(currentTabIndex).getParent();
                     if (tabParent instanceof LinearLayout) {
@@ -1616,7 +1618,7 @@ public class WebViewActivity extends BaseActivity {
                         for (int j = 0; j < tabLayout.getChildCount(); j++) {
                             View child = tabLayout.getChildAt(j);
                             if (child instanceof Button) {
-                                ((Button) child).setTextColor(getResources().getColor(R.color.primary));
+                                ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                                 ((Button) child).setBackgroundResource(android.R.color.transparent);
                             }
                         }
@@ -1664,7 +1666,7 @@ public class WebViewActivity extends BaseActivity {
         newTabButton.setText("+");
         newTabButton.setTextSize(18);
         newTabButton.setPadding(16, 12, 16, 12);
-        newTabButton.setTextColor(getResources().getColor(R.color.text_secondary));
+        newTabButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
         newTabButton.setAllCaps(false);
         newTabButton.setBackgroundResource(android.R.color.transparent);
         newTabButton.setMinWidth(0);
@@ -1714,24 +1716,24 @@ public class WebViewActivity extends BaseActivity {
                 if (i == index) {
                     // 选中状态 - 类似底部导航栏激活状态
                     tabLayout.setBackgroundResource(android.R.color.transparent);
-                    tabList.get(i).setTextColor(getResources().getColor(R.color.primary));
+                    tabList.get(i).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                     // 找到关闭按钮并修改其文字颜色
                     for (int j = 0; j < tabLayout.getChildCount(); j++) {
                         View child = tabLayout.getChildAt(j);
                         if (child instanceof Button) {
-                            ((Button) child).setTextColor(getResources().getColor(R.color.primary));
+                            ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                             ((Button) child).setBackgroundResource(android.R.color.transparent);
                         }
                     }
                 } else {
                     // 未选中状态
                     tabLayout.setBackgroundResource(android.R.color.transparent);
-                    tabList.get(i).setTextColor(getResources().getColor(R.color.text_secondary));
+                    tabList.get(i).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
                     // 找到关闭按钮并修改其文字颜色
                     for (int j = 0; j < tabLayout.getChildCount(); j++) {
                         View child = tabLayout.getChildAt(j);
                         if (child instanceof Button) {
-                            ((Button) child).setTextColor(getResources().getColor(R.color.text_secondary));
+                            ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
                             ((Button) child).setBackgroundResource(android.R.color.transparent);
                         }
                     }
@@ -3042,8 +3044,9 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openThemeColor() {
+            // 主题色/模式设置统一收敛到 ThemeActivity
             runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.ThemeColorActivity.class);
+                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.ThemeActivity.class);
                 startActivity(intent);
             });
         }

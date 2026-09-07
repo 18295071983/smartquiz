@@ -26,7 +26,7 @@
                 android:layout_height="wrap_content"
                 android:text="1"
                 android:textSize="@dimen/text_12"
-                android:textColor="@color/text_tertiary"
+                android:textColor="?attr/colorControlTextHint"
                 android:textStyle="bold"/>
 
             <TextView
@@ -36,7 +36,7 @@
                 android:layout_weight="1"
                 android:text="题干"
                 android:textSize="@dimen/text_13"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:maxLines="2"
                 android:ellipsize="end"/>
         </LinearLayout>
@@ -49,7 +49,7 @@
             android:layout_marginStart="@dimen/space_30"
             android:text=""
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:visibility="gone"/>
 
         <TextView
@@ -60,7 +60,7 @@
             android:layout_marginStart="@dimen/space_30"
             android:text="答案"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorControlTextSecondary"
             android:maxLines="1"
             android:ellipsize="end"/>
 

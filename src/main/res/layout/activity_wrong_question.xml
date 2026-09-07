@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.WrongQuestionActivity">
 
     <com.google.android.material.appbar.AppBarLayout
@@ -16,9 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="错题本"
-            app:titleTextColor="@color/on_surface"/>
+            app:titleTextColor="?attr/colorOnSurface"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
@@ -38,7 +38,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/secondary_container"
+                app:cardBackgroundColor="?attr/colorSecondaryContainer"
                 app:cardCornerRadius="16dp"
                 android:layout_marginBottom="@dimen/space_20">
                 
@@ -53,7 +53,7 @@
                         android:layout_width="@dimen/size_48"
                         android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_error"
-                        android:tint="@color/on_secondary_container"
+                        android:tint="?attr/colorOnSecondaryContainer"
                         android:layout_marginEnd="@dimen/space_16" />
                     
                     <LinearLayout
@@ -68,7 +68,7 @@
                             android:text="错题统计"
                             android:textSize="@dimen/text_18"
                             android:textStyle="bold"
-                            android:textColor="@color/on_secondary_container"
+                            android:textColor="?attr/colorOnSecondaryContainer"
                             android:layout_marginBottom="@dimen/space_4" />
                         
                         <TextView
@@ -77,7 +77,7 @@
                             android:layout_height="wrap_content"
                             android:text="共 0 道错题"
                             android:textSize="@dimen/text_14"
-                            android:textColor="@color/on_secondary_container" />
+                            android:textColor="?attr/colorOnSecondaryContainer" />
                         
                     </LinearLayout>
                     
@@ -98,7 +98,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     app:cardElevation="2dp"
-                    app:cardBackgroundColor="@color/surface"
+                    app:cardBackgroundColor="?attr/colorSurface"
                     app:cardCornerRadius="12dp"
                     android:layout_marginEnd="@dimen/space_8"
                     android:clickable="true"
@@ -115,7 +115,7 @@
                             android:layout_width="@dimen/size_32"
                             android:layout_height="@dimen/size_32"
                             android:src="@drawable/ic_quiz"
-                            android:tint="@color/primary"
+                            android:tint="?attr/colorPrimary"
                             android:layout_marginBottom="@dimen/space_8" />
                         
                         <TextView
@@ -124,7 +124,7 @@
                             android:text="复习全部"
                             android:textSize="@dimen/text_14"
                             android:textStyle="bold"
-                            android:textColor="@color/on_surface" />
+                            android:textColor="?attr/colorOnSurface" />
                         
                     </LinearLayout>
                     
@@ -136,7 +136,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     app:cardElevation="2dp"
-                    app:cardBackgroundColor="@color/surface"
+                    app:cardBackgroundColor="?attr/colorSurface"
                     app:cardCornerRadius="12dp"
                     android:layout_marginStart="@dimen/space_8"
                     android:clickable="true"
@@ -162,7 +162,7 @@
                             android:text="清空全部"
                             android:textSize="@dimen/text_14"
                             android:textStyle="bold"
-                            android:textColor="@color/on_surface" />
+                            android:textColor="?attr/colorOnSurface" />
                         
                     </LinearLayout>
                     
@@ -177,7 +177,7 @@
                 android:text="错题列表"
                 android:textSize="@dimen/text_18"
                 android:textStyle="bold"
-                android:textColor="@color/on_surface"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginBottom="@dimen/space_12" />
             
         </LinearLayout>

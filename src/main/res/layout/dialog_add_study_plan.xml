@@ -44,6 +44,7 @@
 
     <!-- 难度 -->
     <EditText
+                    android:background="@drawable/rounded_edittext"
         android:id="@+id/editTextDifficulty"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

@@ -34,7 +34,7 @@
             android:layout_marginTop="@dimen/space_4"
             android:text="初始化"
             android:textSize="@dimen/text_12"
-            android:textColor="@color/text_secondary" />
+            android:textColor="?attr/colorControlTextSecondary" />
 
     </LinearLayout>
 

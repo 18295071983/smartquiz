@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class QuestionTypeMapperActivity extends AppCompatActivity {
 
     public static final String EXTRA_DETECTED_QUESTION_TYPES = "detected_question_types";
@@ -200,7 +201,7 @@ public class QuestionTypeMapperActivity extends AppCompatActivity {
         TextView arrowText = new TextView(this);
         arrowText.setText(" → ");
         arrowText.setTextSize(18);
-        arrowText.setTextColor(android.graphics.Color.parseColor("#6200EE"));
+        arrowText.setTextColor(ThemeColors.attr(this, R.attr.colorPrimary));
         arrowText.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT

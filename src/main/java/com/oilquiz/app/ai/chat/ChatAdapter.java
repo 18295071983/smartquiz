@@ -46,6 +46,7 @@ import java.util.Locale;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final int VIEW_TYPE_USER = 0;
@@ -307,9 +308,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int colorOnSurface = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOnSurface);
         int colorOnSurfaceVariant = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant);
         int colorOutlineVariant = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOutlineVariant);
-        int colorPrimary = ctx.getColor(R.color.primary);
-        int colorTextSecondary = ctx.getColor(R.color.text_secondary);
-        int colorTextTertiary = ctx.getColor(R.color.text_tertiary);
+        int colorPrimary = ThemeColors.attr(ctx, R.attr.colorPrimary);
+        int colorTextSecondary = ThemeColors.attr(ctx, R.attr.colorControlTextSecondary);
+        int colorTextTertiary = ThemeColors.attr(ctx, R.attr.colorControlTextHint);
 
         // ===== 根容器 =====
         LinearLayout root = new LinearLayout(ctx);
@@ -582,7 +583,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (ctx.getTheme().resolveAttribute(attrRes, tv, true)) {
             return tv.data;
         }
-        return 0xFF1E293B; // 兜底
+        return ThemeColors.get(R.color.hc_ff1e293b); // 兜底
     }
 
     /** 获取 selectableItemBackground（点击水波纹） */
@@ -1136,7 +1137,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             
             holder.statusIcon.setVisibility(View.VISIBLE);
             holder.statusIcon.setImageResource(R.drawable.ic_check_double);
-            holder.statusIcon.setColorFilter(context.getColor(R.color.text_secondary));
+            holder.statusIcon.setColorFilter(ThemeColors.attr(context, R.attr.colorControlTextSecondary));
             
             if (message.tokensGenerated > 0) {
                 float seconds = message.generationTimeMs > 0 ? message.generationTimeMs / 1000.0f : 0;
@@ -1428,7 +1429,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView tv = new TextView(ctx);
                 tv.setText("⚠ 组件 " + data.type + " 渲染失败");
                 tv.setTextSize(12);
-                tv.setTextColor(ctx.getColor(R.color.text_secondary));
+                tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
                 LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 flp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
@@ -1451,7 +1452,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView foldRow = new TextView(ctx);
                 foldRow.setText("🔧 工具过程 " + toolCalls.size() + " 个  ▶");
                 foldRow.setTextSize(12);
-                foldRow.setTextColor(ctx.getColor(R.color.text_secondary));
+                foldRow.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
                 foldRow.setPadding(dpToPx(4, ctx), dpToPx(6, ctx), dpToPx(4, ctx), dpToPx(6, ctx));
                 foldRow.setOnClickListener(v -> toggleAgentToolsExpanded(holder, message));
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -1476,7 +1477,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     TextView collapseRow = new TextView(ctx);
                     collapseRow.setText("▲ 收起工具过程");
                     collapseRow.setTextSize(11);
-                    collapseRow.setTextColor(ctx.getColor(R.color.text_secondary));
+                    collapseRow.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
                     collapseRow.setPadding(dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx));
                     collapseRow.setOnClickListener(v -> toggleAgentToolsExpanded(holder, message));
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -1577,7 +1578,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         // 渲染失败降级占位（不显示组件源码）
                         TextView tv = createSegmentTextView(ctx, holder.messageText);
                         tv.setText("⚠ 组件 " + seg.component.type + " 渲染失败");
-                        tv.setTextColor(ctx.getColor(R.color.text_secondary));
+                        tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
                         holder.contentHost.addView(tv);
                         newCache.add(tv);
                         compIdx++;
@@ -1750,7 +1751,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     @Override
                     public void updateDrawState(android.text.TextPaint ds) {
                         super.updateDrawState(ds);
-                        ds.setColor(holder.itemView.getContext().getColor(R.color.primary));
+                        ds.setColor(ThemeColors.get(holder.itemView.getContext(), R.color.primary));
                         ds.setUnderlineText(true);
                     }
                 }, helpIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1774,7 +1775,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     @Override
                     public void updateDrawState(android.text.TextPaint ds) {
                         super.updateDrawState(ds);
-                        ds.setColor(holder.itemView.getContext().getColor(R.color.primary));
+                        ds.setColor(ThemeColors.get(holder.itemView.getContext(), R.color.primary));
                         ds.setUnderlineText(true);
                     }
                 }, guideIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1798,7 +1799,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     @Override
                     public void updateDrawState(android.text.TextPaint ds) {
                         super.updateDrawState(ds);
-                        ds.setColor(holder.itemView.getContext().getColor(R.color.primary));
+                        ds.setColor(ThemeColors.get(holder.itemView.getContext(), R.color.primary));
                         ds.setUnderlineText(true);
                     }
                 }, iconIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1823,7 +1824,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 @Override
                 public void updateDrawState(android.text.TextPaint ds) {
                     super.updateDrawState(ds);
-                    ds.setColor(holder.itemView.getContext().getColor(R.color.primary));
+                    ds.setColor(ThemeColors.get(holder.itemView.getContext(), R.color.primary));
                     ds.setUnderlineText(true);
                     ds.setFakeBoldText(true);
                 }
@@ -2125,8 +2126,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             final int chipStart = (mainContent == null ? 0 : mainContent.length()) + 2;
             final int chipEnd = ssb.length();
             if (chipStart < chipEnd) {
-                ssb.setSpan(new BackgroundColorSpan(0xFFE3F2FD), chipStart, chipEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                ssb.setSpan(new ForegroundColorSpan(0xFF1565C0), chipStart, chipEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                ssb.setSpan(new BackgroundColorSpan(ThemeColors.get(R.color.hc_ffe3f2fd)), chipStart, chipEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                ssb.setSpan(new ForegroundColorSpan(ThemeColors.get(R.color.hc_ff1565c0)), chipStart, chipEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 final String messageId = message.id;
                 ClickableSpan clickSpan = new ClickableSpan() {
                     @Override

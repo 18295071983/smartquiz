@@ -6,7 +6,7 @@
     android:layout_marginVertical="@dimen/space_8"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
-    app:cardBackgroundColor="@color/surface_variant">
+    app:cardBackgroundColor="?attr/colorSurfaceVariant">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -21,7 +21,7 @@
             android:gravity="center_vertical"
             android:paddingHorizontal="12dp"
             android:paddingVertical="6dp"
-            android:background="@color/surface">
+            android:background="?attr/colorSurface">
 
             <TextView
                 android:id="@+id/tv_code_language"
@@ -30,7 +30,7 @@
                 android:layout_weight="1"
                 android:text="java"
                 android:textSize="@dimen/text_11"
-                android:textColor="@color/text_secondary"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:textAllCaps="true"/>
 
             <ImageButton
@@ -40,7 +40,7 @@
                 android:src="@drawable/ic_copy"
                 android:background="?attr/selectableItemBorderless"
                 android:contentDescription="复制代码"
-                app:tint="@color/text_secondary"/>
+                app:tint="?attr/colorControlTextSecondary"/>
         </LinearLayout>
 
         <!-- 代码内容区域 -->
@@ -55,7 +55,7 @@
                 android:layout_height="wrap_content"
                 android:padding="@dimen/space_12"
                 android:textSize="@dimen/text_13"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/colorControlText"
                 android:fontFamily="monospace"
                 android:lineSpacingExtra="2dp"/>
         </HorizontalScrollView>

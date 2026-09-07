@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * AI 服务初始化界面的极光背景
  *
@@ -30,9 +32,9 @@ import java.util.Random;
 public class AuroraBackgroundView extends View {
 
     private static final int[] BG_COLORS = {
-            Color.rgb(13, 10, 40),   // 深蓝紫
-            Color.rgb(24, 16, 58),
-            Color.rgb(44, 20, 74)
+            ThemeColors.get(R.color.hc_ff0d0a28),   // 深蓝紫
+            ThemeColors.get(R.color.hc_ff18103a),
+            ThemeColors.get(R.color.hc_ff2c144a)
     };
     private static final int BLOBS = 3;
     private static final int PARTICLES = 46;
@@ -75,7 +77,7 @@ public class AuroraBackgroundView extends View {
                 b.vx = (random.nextFloat() * 18f + 6f) * (random.nextBoolean() ? 1 : -1);
                 b.vy = (random.nextFloat() * 14f + 4f) * (random.nextBoolean() ? 1 : -1);
                 b.alpha = 0.10f + random.nextFloat() * 0.10f;
-                b.color = (i % 2 == 0) ? 0xFF8B5CF6 : 0xFF06B6D4;
+                b.color = (i % 2 == 0) ? ThemeColors.attr(getContext(), R.attr.colorPrimary) : ThemeColors.get(R.color.hc_ff06b6d4);
                 blobs.add(b);
             }
         }

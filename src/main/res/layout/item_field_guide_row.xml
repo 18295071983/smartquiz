@@ -19,7 +19,7 @@
             android:text="题干"
             android:textSize="@dimen/text_13"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
         <TextView
             android:id="@+id/tv_field_required"
@@ -41,12 +41,12 @@
         android:layout_height="wrap_content"
         android:text="别名"
         android:textSize="@dimen/text_11"
-        android:textColor="@color/text_secondary"
+        android:textColor="?attr/colorControlTextSecondary"
         android:layout_marginTop="@dimen/space_2"/>
 
     <View
         android:layout_width="match_parent"
         android:layout_height="@dimen/size_1"
-        android:background="@color/divider"
+        android:background="?attr/colorDivider"
         android:layout_marginTop="@dimen/space_6"/>
 </LinearLayout>

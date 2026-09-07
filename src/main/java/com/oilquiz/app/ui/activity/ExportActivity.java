@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
@@ -386,15 +388,15 @@ public class ExportActivity extends AppCompatActivity {
         if (chip == null) return;
         if (selected) {
             chip.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    getColor(com.oilquiz.app.R.color.primary)));
+                    ThemeColors.get(this, R.color.primary)));
             chip.setTextColor(android.graphics.Color.WHITE);
             chip.setStrokeWidth(0);
         } else {
             chip.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    getColor(com.oilquiz.app.R.color.surface)));
-            chip.setTextColor(getColor(com.oilquiz.app.R.color.primary));
+                    ThemeColors.get(this, R.color.surface)));
+            chip.setTextColor(ThemeColors.get(this, R.color.primary));
             chip.setStrokeColor(android.content.res.ColorStateList.valueOf(
-                    getColor(com.oilquiz.app.R.color.primary)));
+                    ThemeColors.get(this, R.color.primary)));
             chip.setStrokeWidth(2);
         }
     }

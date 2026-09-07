@@ -21,6 +21,8 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * AI 文生图 / 文生视频页面（百炼 DashScope 通义万相）。
  *
@@ -122,13 +124,13 @@ public class MediaGenActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16), dp(16), dp(16), dp(16));
-        root.setBackgroundColor(0xFFF8FAFC);
+        root.setBackgroundColor(ThemeColors.get(R.color.hc_fff8fafc));
 
         TextView title = new TextView(this);
         title.setText("🎨 AI 文生图 / 视频（百炼通义万相）");
         title.setTextSize(18);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(0xFF111827);
+        title.setTextColor(ThemeColors.get(R.color.hc_ff111827));
         root.addView(title);
 
         // 模式切换
@@ -173,7 +175,7 @@ public class MediaGenActivity extends Activity {
         Button btnOptimize = new Button(this);
         btnOptimize.setText("✨ AI优化");
         btnOptimize.setTextSize(11);
-        btnOptimize.setBackgroundColor(0xFF8B5CF6);
+        btnOptimize.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
         btnOptimize.setTextColor(Color.WHITE);
         btnOptimize.setPadding(dp(8), 0, dp(8), 0);
         btnOptimize.setOnClickListener(v -> optimizePrompt());
@@ -187,7 +189,7 @@ public class MediaGenActivity extends Activity {
         etPrompt.setMaxLines(6);
         etPrompt.setGravity(Gravity.TOP | Gravity.START);
         etPrompt.setTextSize(14);
-        etPrompt.setBackgroundColor(0xFFFFFFFF);
+        etPrompt.setBackgroundColor(ThemeColors.get(R.color.hc_ffffffff));
         root.addView(etPrompt);
 
         // 模型 + 尺寸 + 时长
@@ -205,7 +207,7 @@ public class MediaGenActivity extends Activity {
         Button btnRefreshModels = new Button(this);
         btnRefreshModels.setText("🔄 刷新模型");
         btnRefreshModels.setTextSize(11);
-        btnRefreshModels.setBackgroundColor(0xFF64748B);
+        btnRefreshModels.setBackgroundColor(ThemeColors.get(R.color.hc_ff64748b));
         btnRefreshModels.setTextColor(Color.WHITE);
         btnRefreshModels.setPadding(dp(6), 0, dp(6), 0);
         btnRefreshModels.setOnClickListener(v -> refreshModels());
@@ -234,21 +236,21 @@ public class MediaGenActivity extends Activity {
         btnGenerate.setText("🚀 生成" + (mode.equals("video") ? "视频" : "图片"));
         btnGenerate.setTextSize(15);
         btnGenerate.setTextColor(Color.WHITE);
-        btnGenerate.setBackgroundColor(0xFF2563EB);
+        btnGenerate.setBackgroundColor(ThemeColors.get(R.color.hc_ff2563eb));
         btnGenerate.setPadding(0, dp(12), 0, dp(12));
         btnGenerate.setOnClickListener(v -> onGenerate());
         root.addView(btnGenerate);
 
         tvStatus = new TextView(this);
         tvStatus.setTextSize(13);
-        tvStatus.setTextColor(0xFF374151);
+        tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff374151));
         tvStatus.setPadding(0, dp(8), 0, dp(4));
         root.addView(tvStatus);
 
         // 费用提示（文生视频按秒计费，尺寸越大越贵）
         tvCostHint = new TextView(this);
         tvCostHint.setTextSize(11);
-        tvCostHint.setTextColor(0xFFB45309);
+        tvCostHint.setTextColor(ThemeColors.get(R.color.hc_ffb45309));
         tvCostHint.setPadding(0, dp(2), 0, dp(6));
         root.addView(tvCostHint);
 
@@ -262,7 +264,7 @@ public class MediaGenActivity extends Activity {
         resultArea.addView(imgResult);
         tvVideoInfo = new TextView(this);
         tvVideoInfo.setTextSize(13);
-        tvVideoInfo.setTextColor(0xFF374151);
+        tvVideoInfo.setTextColor(ThemeColors.get(R.color.hc_ff374151));
         tvVideoInfo.setVisibility(View.GONE);
         resultArea.addView(tvVideoInfo);
         videoActions = new LinearLayout(this);
@@ -270,12 +272,12 @@ public class MediaGenActivity extends Activity {
         videoActions.setVisibility(View.GONE);
         Button btnPlay = new Button(this);
         btnPlay.setText("▶ 播放");
-        btnPlay.setBackgroundColor(0xFF059669);
+        btnPlay.setBackgroundColor(ThemeColors.get(R.color.hc_ff059669));
         btnPlay.setTextColor(Color.WHITE);
         btnPlay.setOnClickListener(v -> playVideo());
         Button btnShare = new Button(this);
         btnShare.setText("分享");
-        btnShare.setBackgroundColor(0xFF7C3AED);
+        btnShare.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
         btnShare.setTextColor(Color.WHITE);
         btnShare.setOnClickListener(v -> shareVideo());
         videoActions.addView(btnPlay, rowWeight());
@@ -289,11 +291,11 @@ public class MediaGenActivity extends Activity {
         taskArea.setPadding(0, dp(8), 0, 0);
         tvTask = new TextView(this);
         tvTask.setTextSize(12);
-        tvTask.setTextColor(0xFF6B7280);
+        tvTask.setTextColor(ThemeColors.get(R.color.hc_ff6b7280));
         taskArea.addView(tvTask);
         btnQuery = new Button(this);
         btnQuery.setText("🔄 查询进度");
-        btnQuery.setBackgroundColor(0xFFF59E0B);
+        btnQuery.setBackgroundColor(ThemeColors.get(R.color.hc_fff59e0b));
         btnQuery.setTextColor(Color.WHITE);
         btnQuery.setVisibility(View.GONE);
         btnQuery.setOnClickListener(v -> onQuery());
@@ -311,10 +313,10 @@ public class MediaGenActivity extends Activity {
 
     private void setMode(String m) {
         mode = m;
-        btnImageMode.setBackgroundColor(mode.equals("image") ? 0xFF2563EB : 0xFFE5E7EB);
-        btnImageMode.setTextColor(mode.equals("image") ? Color.WHITE : 0xFF374151);
-        btnVideoMode.setBackgroundColor(mode.equals("video") ? 0xFF2563EB : 0xFFE5E7EB);
-        btnVideoMode.setTextColor(mode.equals("video") ? Color.WHITE : 0xFF374151);
+        btnImageMode.setBackgroundColor(mode.equals("image") ? ThemeColors.get(R.color.hc_ff2563eb) : ThemeColors.get(R.color.hc_ffe5e7eb));
+        btnImageMode.setTextColor(mode.equals("image") ? Color.WHITE : ThemeColors.get(R.color.hc_ff374151));
+        btnVideoMode.setBackgroundColor(mode.equals("video") ? ThemeColors.get(R.color.hc_ff2563eb) : ThemeColors.get(R.color.hc_ffe5e7eb));
+        btnVideoMode.setTextColor(mode.equals("video") ? Color.WHITE : ThemeColors.get(R.color.hc_ff374151));
         spDuration.setVisibility(mode.equals("video") ? View.VISIBLE : View.GONE);
         etPrompt.setHint(mode.equals("video")
                 ? "描述视频内容与运镜，如：一只橘猫在草地上打滚，镜头缓缓推进…"
@@ -711,7 +713,7 @@ public class MediaGenActivity extends Activity {
         TextView tv = new TextView(this);
         tv.setText(text);
         tv.setTextSize(13);
-        tv.setTextColor(0xFF374151);
+        tv.setTextColor(ThemeColors.get(R.color.hc_ff374151));
         tv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         tv.setPadding(0, dp(10), 0, dp(2));
         return tv;
@@ -724,7 +726,7 @@ public class MediaGenActivity extends Activity {
         TextView nameTv = new TextView(this);
         nameTv.setText(name);
         nameTv.setTextSize(13);
-        nameTv.setTextColor(0xFF374151);
+        nameTv.setTextColor(ThemeColors.get(R.color.hc_ff374151));
         nameTv.setPadding(0, 0, dp(10), 0);
         row.addView(nameTv);
         row.addView(field, new LinearLayout.LayoutParams(0,

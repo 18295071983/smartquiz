@@ -6,7 +6,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.AIImportActivity">
 
     <!-- 顶部工具栏 -->
@@ -18,9 +18,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="AI 导入题库"
-            app:titleTextColor="@color/on_surface" />
+            app:titleTextColor="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <!-- 内容区：可滚动，避免小屏溢出 -->
@@ -42,7 +42,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_12">
 
@@ -57,8 +57,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="@dimen/size_48"
                         android:text="选择题库文件"
-                        app:backgroundTint="@color/primary"
-                        android:textColor="@color/on_primary"
+                        app:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
                         app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false" />
 
@@ -69,7 +69,7 @@
                         android:layout_marginTop="@dimen/space_8"
                         android:text="尚未选择文件"
                         android:textSize="@dimen/text_13"
-                        android:textColor="@color/on_surface_variant"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:singleLine="true"
                         android:ellipsize="middle" />
 
@@ -85,8 +85,8 @@
                             android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="取消"
-                            app:backgroundTint="@color/secondary"
-                            android:textColor="@color/on_secondary"
+                            app:backgroundTint="?attr/colorSecondary"
+                            android:textColor="?attr/colorOnSecondary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"
                             android:layout_marginEnd="@dimen/space_8" />
@@ -97,8 +97,8 @@
                             android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="智能导入"
-                            app:backgroundTint="@color/primary"
-                            android:textColor="@color/on_primary"
+                            app:backgroundTint="?attr/colorPrimary"
+                            android:textColor="?attr/colorOnPrimary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false" />
                     </LinearLayout>
@@ -110,7 +110,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_12">
 
@@ -132,7 +132,7 @@
                             android:text="🤖 AI 模型"
                             android:textSize="@dimen/text_14"
                             android:textStyle="bold"
-                            android:textColor="@color/on_surface" />
+                            android:textColor="?attr/colorOnSurface" />
 
                         <TextView
                             android:id="@+id/tvModelInfo"
@@ -141,7 +141,7 @@
                             android:layout_weight="1"
                             android:text="自动选择"
                             android:textSize="@dimen/text_12"
-                            android:textColor="@color/primary"
+                            android:textColor="?attr/colorPrimary"
                             android:layout_marginStart="@dimen/space_8"
                             android:layout_marginEnd="@dimen/space_8"
                             android:singleLine="true"
@@ -153,8 +153,8 @@
                             android:layout_height="@dimen/size_36"
                             android:text="切换"
                             android:textSize="@dimen/text_12"
-                            app:backgroundTint="@color/secondary"
-                            android:textColor="@color/on_secondary"
+                            app:backgroundTint="?attr/colorSecondary"
+                            android:textColor="?attr/colorOnSecondary"
                             app:cornerRadius="@dimen/radius_8"
                             android:textAllCaps="false"
                             android:paddingStart="@dimen/space_12"
@@ -183,7 +183,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_12">
 
@@ -199,7 +199,7 @@
                         android:text="📝 题库说明（可选）"
                         android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface" />
+                        android:textColor="?attr/colorOnSurface" />
 
                     <TextView
                         android:layout_width="match_parent"
@@ -207,7 +207,7 @@
                         android:layout_marginTop="@dimen/space_4"
                         android:text="填写字段约定或特殊规则，AI 导入时参考，识别列含义更准。"
                         android:textSize="@dimen/text_11"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <EditText
                         android:id="@+id/etUserGuide"
@@ -221,7 +221,7 @@
                         android:background="@drawable/ai_import_input_bg"
                         android:padding="@dimen/space_10"
                         android:textSize="@dimen/text_13"
-                        android:textColor="@color/on_surface"
+                        android:textColor="?attr/colorOnSurface"
                         android:hint="例：题干列叫「题目内容」，选项用分号分隔，答案在最后一列，题型是单选题…"
                         android:importantForAutofill="no" />
 
@@ -244,14 +244,14 @@
                                 android:layout_height="wrap_content"
                                 android:text="缺失字段智能填充"
                                 android:textSize="@dimen/text_13"
-                                android:textColor="@color/on_surface" />
+                                android:textColor="?attr/colorOnSurface" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="用 AI 补全缺失的题型/难度/分类/解析"
                                 android:textSize="@dimen/text_11"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <androidx.appcompat.widget.SwitchCompat
@@ -281,14 +281,14 @@
                                 android:layout_height="wrap_content"
                                 android:text="CPU 推理（上下文 8192）"
                                 android:textSize="@dimen/text_13"
-                                android:textColor="@color/on_surface" />
+                                android:textColor="?attr/colorOnSurface" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="默认开启：切换立即生效（应用内热切换，无需重启）"
                                 android:textSize="@dimen/text_11"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <androidx.appcompat.widget.SwitchCompat
@@ -327,7 +327,7 @@
                         android:layout_height="wrap_content"
                         android:text="检测"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9" />
                 </LinearLayout>
 
@@ -336,7 +336,7 @@
                     android:layout_height="wrap_content"
                     android:text="→"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/on_surface_variant"
+                    android:textColor="?attr/colorOnSurfaceVariant"
                     android:layout_marginBottom="@dimen/space_14" />
 
                 <LinearLayout
@@ -357,7 +357,7 @@
                         android:layout_height="wrap_content"
                         android:text="映射"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9" />
                 </LinearLayout>
 
@@ -366,7 +366,7 @@
                     android:layout_height="wrap_content"
                     android:text="→"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/on_surface_variant"
+                    android:textColor="?attr/colorOnSurfaceVariant"
                     android:layout_marginBottom="@dimen/space_14" />
 
                 <LinearLayout
@@ -387,7 +387,7 @@
                         android:layout_height="wrap_content"
                         android:text="解析"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9" />
                 </LinearLayout>
 
@@ -396,7 +396,7 @@
                     android:layout_height="wrap_content"
                     android:text="→"
                     android:textSize="@dimen/text_14"
-                    android:textColor="@color/on_surface_variant"
+                    android:textColor="?attr/colorOnSurfaceVariant"
                     android:layout_marginBottom="@dimen/space_14" />
 
                 <LinearLayout
@@ -417,7 +417,7 @@
                         android:layout_height="wrap_content"
                         android:text="入库"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9" />
                 </LinearLayout>
             </LinearLayout>
@@ -446,13 +446,13 @@
                         android:text="00:00"
                         android:textSize="@dimen/text_15"
                         android:textStyle="bold"
-                        android:textColor="@color/primary" />
+                        android:textColor="?attr/colorPrimary" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="耗时"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -468,7 +468,7 @@
                         android:text="等待"
                         android:textSize="@dimen/text_13"
                         android:textStyle="bold"
-                        android:textColor="@color/secondary"
+                        android:textColor="?attr/colorSecondary"
                         android:singleLine="true"
                         android:ellipsize="end" />
                     <TextView
@@ -476,7 +476,7 @@
                         android:layout_height="wrap_content"
                         android:text="步骤"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -498,7 +498,7 @@
                         android:layout_height="wrap_content"
                         android:text="推理 t/s"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -514,13 +514,13 @@
                         android:text="0"
                         android:textSize="@dimen/text_15"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface" />
+                        android:textColor="?attr/colorOnSurface" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Token"
                         android:textSize="@dimen/text_12"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -529,7 +529,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:layout_marginBottom="@dimen/space_12">
 
@@ -546,7 +546,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:visibility="gone">
 
@@ -569,7 +569,7 @@
                             android:layout_height="wrap_content"
                             android:text="进度"
                             android:textSize="@dimen/text_13"
-                            android:textColor="@color/on_surface_variant" />
+                            android:textColor="?attr/colorOnSurfaceVariant" />
 
                         <TextView
                             android:id="@+id/tvProgress"
@@ -579,7 +579,7 @@
                             android:text="0/0"
                             android:textSize="@dimen/text_14"
                             android:textStyle="bold"
-                            android:textColor="@color/secondary"
+                            android:textColor="?attr/colorSecondary"
                             android:layout_marginStart="@dimen/space_8"
                             android:gravity="end" />
                     </LinearLayout>
@@ -609,7 +609,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="成功"
                                 android:textSize="@dimen/text_12"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <LinearLayout
@@ -631,7 +631,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="失败"
                                 android:textSize="@dimen/text_12"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <LinearLayout
@@ -647,13 +647,13 @@
                                 android:text="0"
                                 android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
-                                android:textColor="@color/on_surface" />
+                                android:textColor="?attr/colorOnSurface" />
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="总计"
                                 android:textSize="@dimen/text_12"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <LinearLayout
@@ -669,13 +669,13 @@
                                 android:text="0"
                                 android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
-                                android:textColor="@color/secondary" />
+                                android:textColor="?attr/colorSecondary" />
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="重复"
                                 android:textSize="@dimen/text_12"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>

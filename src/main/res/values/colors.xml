@@ -42,7 +42,7 @@
     <color name="surface_elevated">#FFFFFF</color>
 
     <!-- 深度思考开关：关闭灰色 / 开启主色 -->
-    <color name="chip_gray_bg">#F1F5F9</color>
+    <color name="chip_gray_bg">#66FFFFFF</color>
     <color name="chip_gray_text">#64748B</color>
     <color name="chip_gray_stroke">#E2E8F0</color>
 
