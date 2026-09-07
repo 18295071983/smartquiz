@@ -48,6 +48,8 @@ public class SmartQuizApplication extends Application {
 
     @Override
     public void onCreate() {
+        // 恢复用户上次选择的语言（须在 Activity 创建前调用）
+        com.oilquiz.app.manager.LanguageManager.applyLanguage(this);
         applyThemeMode();
         super.onCreate();
         instance = this;

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 13+ 应用内语言偏好声明（per-app language），配合 AppCompatDelegate.setApplicationLocales 使用 -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="zh"/>
+    <locale android:name="en"/>
+    <locale android:name="zh-TW"/>
+</locale-config>
