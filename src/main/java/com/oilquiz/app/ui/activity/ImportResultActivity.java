@@ -94,8 +94,8 @@ public class ImportResultActivity extends BaseActivity {
         tvSuccessCount.setText(String.valueOf(successCount));
         tvFailedCount.setText(String.valueOf(failedCount));
         tvSkippedCount.setText(String.valueOf(skippedCount));
-        tvImportTime.setText(String.format("%.2f秒", importTime / 1000.0));
-        tvFileName.setText(fileName != null ? fileName : "未知文件");
+        tvImportTime.setText(String.format(getString(R.string.h_ae4e6627), importTime / 1000.0));
+        tvFileName.setText(fileName != null ? fileName : getString(R.string.h_94cd9443));
 
         // 计算成功率
         double successRate = totalQuestions > 0 ? (successCount * 100.0 / totalQuestions) : 0;

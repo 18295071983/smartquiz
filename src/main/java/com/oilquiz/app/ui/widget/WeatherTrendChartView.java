@@ -911,7 +911,7 @@ public class WeatherTrendChartView extends View {
             canvas.drawLine(itemCenterX, top, itemCenterX, bottom, touchIndicatorPaint);
 
             DailyData data = dailyDataList.get(touchIndex);
-            String tooltipText = String.format("%s\n高: %d° 低: %d°\n%s %s\n湿度: %d%%",
+            String tooltipText = String.format(getContext().getString(R.string.h_970f00ea),
                     data.dateLabel, data.highTemp, data.lowTemp,
                     data.windDirection != null ? data.windDirection : "",
                     data.windScale != null ? data.windScale : "",
@@ -972,7 +972,7 @@ public class WeatherTrendChartView extends View {
     }
 
     private void drawNoDataMessage(Canvas canvas) {
-        String message = isHourlyMode ? "暂无逐小时数据" : "暂无每日预报数据";
+        String message = isHourlyMode ? getContext().getString(R.string.h_75378edd) : getContext().getString(R.string.h_7075e4d2);
         float textWidth = labelPaint.measureText(message);
         float x = (getWidth() - textWidth) / 2;
         float y = getHeight() / 2;

@@ -148,7 +148,7 @@ public class ImportActivity extends BaseActivity {
                     v2ImportMain.cancel();
                 }
                 appendLog("用户取消导入");
-                Toast.makeText(ImportActivity.this, "导入已取消", Toast.LENGTH_SHORT).show();
+                Toast.makeText(ImportActivity.this, getString(R.string.h_06d2bea0), Toast.LENGTH_SHORT).show();
                 finish();
             }
         });
@@ -171,7 +171,7 @@ public class ImportActivity extends BaseActivity {
             buttonAIParse.setOnClickListener(v -> {
                 if (v2Finished) return;
                 if (currentFile == null || !currentFile.exists()) {
-                    Toast.makeText(this, "请先选择要导入的文件", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_feb6f854), Toast.LENGTH_SHORT).show();
                     importQuestions();
                     return;
                 }
@@ -238,11 +238,11 @@ public class ImportActivity extends BaseActivity {
             if (isFinishing() || isDestroyed()) return;
             v2Finished = true;
             statusText.setText(title);
-            progressText.setText("导入结束，请查看结果摘要");
+            progressText.setText(getString(R.string.h_8d9cdb1a));
             progressBarHorizontal.setProgress(100);
             if (summaryText != null) summaryText.setText(msg);
             if (summaryCard != null) summaryCard.setVisibility(View.VISIBLE);
-            buttonCancel.setText("关闭");
+            buttonCancel.setText(getString(R.string.h_b15d9127));
             // “开始导入”按钮在该页未绑定逻辑，结束后隐藏避免误解
             MaterialButton startBtn = findViewById(R.id.btnStartImport);
             if (startBtn != null) startBtn.setVisibility(View.GONE);
@@ -256,9 +256,9 @@ public class ImportActivity extends BaseActivity {
         lastLoggedProgress = "";
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
-            if (importLogText != null) importLogText.setText("等待导入开始...");
+            if (importLogText != null) importLogText.setText(getString(R.string.h_c353f532));
             if (summaryCard != null) summaryCard.setVisibility(View.GONE);
-            buttonCancel.setText("取消");
+            buttonCancel.setText(getString(R.string.h_625fb26b));
             MaterialButton startBtn = findViewById(R.id.btnStartImport);
             if (startBtn != null) startBtn.setVisibility(View.VISIBLE);
         });
@@ -307,8 +307,8 @@ public class ImportActivity extends BaseActivity {
         invalidQuestions = 0;
         
         progressBarHorizontal.setProgress(0);
-        statusText.setText("准备导入...");
-        progressText.setText("等待文件选择...");
+        statusText.setText(getString(R.string.h_89e9705b));
+        progressText.setText(getString(R.string.h_d816b32e));
     }
     
     private void updateProgressDisplay(String status, int current, int total) {
@@ -319,12 +319,12 @@ public class ImportActivity extends BaseActivity {
                 if (total > 0) {
                     int progress = (int) ((current * 100.0) / total);
                     progressBarHorizontal.setProgress(progress);
-                    progressText.setText(String.format("进度: %d/%d (%d%%)", current, total, progress));
+                    progressText.setText(String.format(getString(R.string.h_24bdad2e), current, total, progress));
                     
                     // 更新状态图标
                     updateStatusIcon(status);
                 } else {
-                    progressText.setText("处理中...");
+                    progressText.setText(getString(R.string.h_2fb90b05));
                 }
             }
         });
@@ -444,7 +444,7 @@ public class ImportActivity extends BaseActivity {
                 });
                 startActivityForResult(fallback, REQUEST_CODE_PICK_FILE);
             } catch (Exception ex) {
-                Toast.makeText(this, "无法打开文件选择器: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_b5586d9b) + ex.getMessage(), Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -533,8 +533,8 @@ public class ImportActivity extends BaseActivity {
             new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle(title)
                 .setMessage("❌ " + message)
-                .setPositiveButton("继续查看", null)
-                .setNegativeButton("关闭页面", (dialog, which) -> finish())
+                .setPositiveButton(getString(R.string.h_4a975967), null)
+                .setNegativeButton(getString(R.string.h_0d3bbd76), (dialog, which) -> finish())
                 .setCancelable(false)
                 .show();
         });
@@ -575,9 +575,9 @@ public class ImportActivity extends BaseActivity {
                             @Override
                             public void run() {
                                 new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                                    .setTitle("文件错误")
-                                    .setMessage("❌ Excel文件中没有工作表，请检查文件内容。")
-                                    .setPositiveButton("确定", (dialog, which) -> finish())
+                                    .setTitle(getString(R.string.h_d3c72e4b))
+                                    .setMessage(getString(R.string.h_e8f94d57))
+                                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                                     .setCancelable(false)
                                     .show();
                             }
@@ -611,9 +611,9 @@ public class ImportActivity extends BaseActivity {
                     @Override
                     public void run() {
                         new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                            .setTitle("处理失败")
-                            .setMessage("❌ 处理文件失败:\n\n" + e.getMessage())
-                            .setPositiveButton("确定", (dialog, which) -> finish())
+                            .setTitle(getString(R.string.h_1012e098))
+                            .setMessage(getString(R.string.h_d1bd7acb) + e.getMessage())
+                            .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                             .setCancelable(false)
                             .show();
                     }
@@ -646,12 +646,12 @@ public class ImportActivity extends BaseActivity {
             String detail = bp.ingestOffset > 0
                     ? "已入库 " + bp.ingestOffset + " 行" : "解析到第 " + bp.parseRowIndex + " 行";
             new androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle("检测到未完成的导入")
-                    .setMessage("上次导入「" + srcName + "」未完成（" + detail + "）。\n\n"
+                    .setTitle(getString(R.string.h_345e81b6))
+                    .setMessage(getString(R.string.h_ff1b1e28) + srcName + getString(R.string.h_be4af239) + detail + "）。\n\n"
                             + "「继续续导」：从上次进度继续，已导入题目不会重复；\n"
                             + "「删除断点重来」：清除进度后从头导入。")
-                    .setPositiveButton("继续续导", (d, w) -> proceed.run())
-                    .setNegativeButton("删除断点重来", (d, w) -> {
+                    .setPositiveButton(getString(R.string.h_b0f943d6), (d, w) -> proceed.run())
+                    .setNegativeButton(getString(R.string.h_5d5b2966), (d, w) -> {
                         com.oilquiz.app.ai.importing.v2.ImportBreakpointStore.clear();
                         appendLog("已清除导入断点，重新开始导入");
                         proceed.run();
@@ -753,12 +753,12 @@ public class ImportActivity extends BaseActivity {
                 }
                 
                 new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                        .setTitle("选择工作表")
+                        .setTitle(getString(R.string.h_9601ff4e))
                         .setItems(sheetNames, (dialog, which) -> {
                             // 选择工作表后，跳转到文件预览界面
                             startFilePreview(file, which);
                         })
-                        .setNegativeButton("取消", (dialog, which) -> finish())
+                        .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> finish())
                         .show();
             }
         });
@@ -805,9 +805,9 @@ public class ImportActivity extends BaseActivity {
                     @Override
                     public void run() {
                         new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                            .setTitle("分析失败")
-                            .setMessage("❌ 生成导入确认信息失败:\n\n" + message)
-                            .setPositiveButton("确定", (dialog, which) -> finish())
+                            .setTitle(getString(R.string.h_6aee2d39))
+                            .setMessage(getString(R.string.h_d911b36f) + message)
+                            .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                             .setCancelable(false)
                             .show();
                     }
@@ -840,29 +840,29 @@ public class ImportActivity extends BaseActivity {
             public void run() {
                 // 显示导入确认对话框
                 StringBuilder message = new StringBuilder();
-                message.append("工作表: " + confirmation.selectedSheetName + "\n");
-                message.append("总题目数: " + confirmation.totalItems + "\n");
-                message.append("有效题目: " + confirmation.validItems + "\n");
-                message.append("无效题目: " + confirmation.invalidItems + "\n");
-                message.append("重复题目: " + confirmation.duplicateItems + "\n");
-                message.append("\n字段映射:");
+                message.append(getString(R.string.h_10953ae2) + confirmation.selectedSheetName + "\n");
+                message.append(getString(R.string.h_406ee329) + confirmation.totalItems + "\n");
+                message.append(getString(R.string.h_8fd71d23) + confirmation.validItems + "\n");
+                message.append(getString(R.string.h_2f2e3568) + confirmation.invalidItems + "\n");
+                message.append(getString(R.string.h_250a6679) + confirmation.duplicateItems + "\n");
+                message.append(getString(R.string.h_91db8a87));
                 for (String field : confirmation.fieldMapping.keySet()) {
-                    message.append("\n" + field + " -> 列 " + (confirmation.fieldMapping.get(field) + 1));
+                    message.append("\n" + field + getString(R.string.h_7d4ccfd2) + (confirmation.fieldMapping.get(field) + 1));
                 }
                 
                 new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                        .setTitle("导入确认")
+                        .setTitle(getString(R.string.h_81eea51a))
                         .setMessage(message.toString())
-                        .setPositiveButton("开始导入", (dialog, which) -> {
+                        .setPositiveButton(getString(R.string.h_7d2ff42c), (dialog, which) -> {
                             // 快速路径：字段映射已确认，直接导入（不再强制跳题型映射/数据修复，
                             // 简单文件一键导入；需要高级处理用"高级处理"）
                             performImport(file, sheetIndex, confirmation.fieldMapping);
                         })
-                        .setNeutralButton("编辑映射", (dialog, which) -> {
+                        .setNeutralButton(getString(R.string.h_cb14eb12), (dialog, which) -> {
                             // 编辑映射（含 AI 自动映射）
                             editMapping(file, sheetIndex, confirmation);
                         })
-                        .setNegativeButton("取消", (dialog, which) -> finish())
+                        .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> finish())
                         .show();
             }
         });
@@ -973,7 +973,7 @@ public class ImportActivity extends BaseActivity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(ImportActivity.this, "文件不存在，请检查文件路径", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(ImportActivity.this, getString(R.string.h_c1cab586), Toast.LENGTH_SHORT).show();
                                 finish();
                             }
                         });
@@ -982,7 +982,7 @@ public class ImportActivity extends BaseActivity {
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Toast.makeText(ImportActivity.this, "无法获取文件路径", Toast.LENGTH_SHORT).show();
+                                    Toast.makeText(ImportActivity.this, getString(R.string.h_9e85dc13), Toast.LENGTH_SHORT).show();
                                     finish();
                                 }
                             });
@@ -996,7 +996,7 @@ public class ImportActivity extends BaseActivity {
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Toast.makeText(ImportActivity.this, "无法创建临时文件", Toast.LENGTH_SHORT).show();
+                                    Toast.makeText(ImportActivity.this, getString(R.string.h_1039b548), Toast.LENGTH_SHORT).show();
                                     finish();
                                 }
                             });
@@ -1005,7 +1005,7 @@ public class ImportActivity extends BaseActivity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(ImportActivity.this, "不支持的文件类型，请选择本地文件", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(ImportActivity.this, getString(R.string.h_1f3a6509), Toast.LENGTH_SHORT).show();
                                 finish();
                             }
                         });
@@ -1014,7 +1014,7 @@ public class ImportActivity extends BaseActivity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Toast.makeText(ImportActivity.this, "导入失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            Toast.makeText(ImportActivity.this, getString(R.string.h_45332d13) + e.getMessage(), Toast.LENGTH_SHORT).show();
                             finish();
                         }
                     });
@@ -1145,7 +1145,7 @@ public class ImportActivity extends BaseActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(ImportActivity.this, "生成导入确认信息失败: " + message, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(ImportActivity.this, getString(R.string.h_62f8c6ba) + message, Toast.LENGTH_SHORT).show();
                         finish();
                     }
                 });
@@ -1186,9 +1186,9 @@ public class ImportActivity extends BaseActivity {
                 msg.append("\n").append(m);
             }
             runOnUiThread(() -> new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                    .setTitle("SQL导入失败")
+                    .setTitle(getString(R.string.h_f0a0d8d4))
                     .setMessage("❌ " + msg.toString())
-                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                     .setCancelable(false)
                     .show());
         }
@@ -1224,9 +1224,9 @@ public class ImportActivity extends BaseActivity {
                     public void run() {
                         // 显示详细的错误信息
                         new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                            .setTitle("导入失败")
-                            .setMessage("❌ 导入过程中发生错误:\n\n" + message)
-                            .setPositiveButton("确定", (dialog, which) -> finish())
+                            .setTitle(getString(R.string.h_fddcd7c6))
+                            .setMessage(getString(R.string.h_8589d0f5) + message)
+                            .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                             .setCancelable(false)
                             .show();
                     }
@@ -1281,9 +1281,9 @@ public class ImportActivity extends BaseActivity {
                             public void onError(String error) {
                                 runOnUiThread(() -> {
                                     new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                                        .setTitle("保存失败")
-                                        .setMessage("❌ 保存题目到数据库失败:\n\n" + error)
-                                        .setPositiveButton("确定", (dialog, which) -> finish())
+                                        .setTitle(getString(R.string.h_6de920b4))
+                                        .setMessage(getString(R.string.h_f12e5b08) + error)
+                                        .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                                         .setCancelable(false)
                                         .show();
                                 });
@@ -1304,9 +1304,9 @@ public class ImportActivity extends BaseActivity {
                         public void onError(String error) {
                             runOnUiThread(() -> {
                                 new androidx.appcompat.app.AlertDialog.Builder(ImportActivity.this)
-                                    .setTitle("保存失败")
-                                    .setMessage("❌ 保存题目到数据库失败:\n\n" + error)
-                                    .setPositiveButton("确定", (dialog, which) -> finish())
+                                    .setTitle(getString(R.string.h_6de920b4))
+                                    .setMessage(getString(R.string.h_f12e5b08) + error)
+                                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                                     .setCancelable(false)
                                     .show();
                             });

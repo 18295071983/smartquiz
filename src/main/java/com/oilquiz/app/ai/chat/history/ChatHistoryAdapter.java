@@ -124,18 +124,18 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     private void bindHeader(HeaderViewHolder holder, Date date) {
         holder.headerText.setText(formatDateHeader(date));
-        holder.countText.setText("对话记录");
+        holder.countText.setText(context.getString(R.string.h_50161b08));
     }
 
     private void bindSessionItem(HistoryViewHolder holder, ConversationSession session) {
         // 标题
-        holder.previewText.setText(session.title != null ? session.title : "新对话");
+        holder.previewText.setText(session.title != null ? session.title : context.getString(R.string.h_1ac07a4b));
 
         // 时间：今天显示 HH:mm，昨天显示"昨天 HH:mm"，更早显示日期
         holder.timeText.setText(formatItemTime(session.updatedAt));
 
         // 消息数
-        holder.messageCountText.setText(String.format(Locale.getDefault(), "%d条消息", session.getMessageCount()));
+        holder.messageCountText.setText(String.format(Locale.getDefault(), context.getString(R.string.h_a9c08747), session.getMessageCount()));
 
         // 图标
         holder.iconText.setText("💬");
@@ -208,15 +208,15 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     private void showDeleteConfirmDialog(ConversationSession session) {
         new MaterialAlertDialogBuilder(context)
-            .setTitle("删除对话记录")
-            .setMessage("确定要删除这个对话吗？\n\n" +
-                       "标题: " + session.title + "\n" +
+            .setTitle(context.getString(R.string.h_aa40b2cc))
+            .setMessage(context.getString(R.string.h_6b3e0657) +
+                       context.getString(R.string.h_243e4ec1) + session.title + "\n" +
                        "消息数: " + session.getMessageCount() + "条\n\n" +
                        "此操作不可撤销")
-            .setPositiveButton("删除", (dialog, which) -> {
+            .setPositiveButton(context.getString(R.string.h_2f4aaddd), (dialog, which) -> {
                 if (clickListener != null) clickListener.onItemDelete(session);
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(context.getString(R.string.h_625fb26b), null)
             .show();
     }
 

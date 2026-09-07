@@ -1,5 +1,6 @@
 package com.oilquiz.app.ai.chat;
 
+import com.oilquiz.app.SmartQuizApplication;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.chat.component.ComponentContentSplitter;
@@ -775,7 +776,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 语音消息标识：来源语音的 USER 消息在气泡上方显示 "🎤 语音" 标签，与文字消息区分
         if (holder.blockLabel != null) {
             if (message.voiceInput) {
-                holder.blockLabel.setText("🎤 语音");
+                holder.blockLabel.setText(SmartQuizApplication.getAppContext().getString(R.string.h_d38d0f21));
                 holder.blockLabel.setVisibility(View.VISIBLE);
             } else {
                 holder.blockLabel.setText("");
@@ -909,13 +910,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             for (int i = 0; i < rounds.size(); i++) {
                 String r = rounds.get(i);
                 if (r == null || r.trim().isEmpty()) continue;
-                sb.append("\n[第 ").append(i + 1).append(" 轮思考]\n").append(r.trim());
+                sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)).append(i + 1).append(SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e)).append(r.trim());
             }
             // 当前轮（最后一轮,thinkingContent 可能等于 thinkingRounds 末位，去重）
             String cur = displayContent.trim();
             String lastRound = rounds.isEmpty() ? "" : rounds.get(rounds.size() - 1).trim();
             if (!cur.isEmpty() && !cur.equals(lastRound)) {
-                sb.append("\n[第 ").append(rounds.size() + 1).append(" 轮思考]\n").append(cur);
+                sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)).append(rounds.size() + 1).append(SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e)).append(cur);
             }
             displayContent = sb.toString();
         }
@@ -1144,7 +1145,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 float speed = message.tokensPerSecond > 0 
                     ? message.tokensPerSecond 
                     : (message.generationTimeMs > 0 ? (message.tokensGenerated * 1000.0f) / message.generationTimeMs : 0);
-                String statusStr = String.format("已完成 · %d token · %.1fs · %.1f t/s",
+                String statusStr = String.format(context.getString(R.string.h_4f54d8ba),
                     message.tokensGenerated, seconds, speed);
                 if (message.usingGPU && message.gpuLayers > 0) {
                     statusStr += " · GPU " + message.gpuLayers + "层";
@@ -1427,7 +1428,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (view == null) {
                 // 渲染失败降级占位（不显示组件源码）
                 TextView tv = new TextView(ctx);
-                tv.setText("⚠ 组件 " + data.type + " 渲染失败");
+                tv.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ce08c6dd) + data.type + SmartQuizApplication.getAppContext().getString(R.string.h_56e45313));
                 tv.setTextSize(12);
                 tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
                 LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
@@ -1450,7 +1451,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (!toolCalls.isEmpty()) {
             if (toolsCollapsed) {
                 TextView foldRow = new TextView(ctx);
-                foldRow.setText("🔧 工具过程 " + toolCalls.size() + " 个  ▶");
+                foldRow.setText(SmartQuizApplication.getAppContext().getString(R.string.h_17f41f0b) + toolCalls.size() + SmartQuizApplication.getAppContext().getString(R.string.h_c8290962));
                 foldRow.setTextSize(12);
                 foldRow.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
                 foldRow.setPadding(dpToPx(4, ctx), dpToPx(6, ctx), dpToPx(4, ctx), dpToPx(6, ctx));
@@ -1475,7 +1476,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 // 展开态底部提供收起入口
                 if (allToolsDone) {
                     TextView collapseRow = new TextView(ctx);
-                    collapseRow.setText("▲ 收起工具过程");
+                    collapseRow.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ef56d078));
                     collapseRow.setTextSize(11);
                     collapseRow.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
                     collapseRow.setPadding(dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx));
@@ -1577,7 +1578,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (view == null) {
                         // 渲染失败降级占位（不显示组件源码）
                         TextView tv = createSegmentTextView(ctx, holder.messageText);
-                        tv.setText("⚠ 组件 " + seg.component.type + " 渲染失败");
+                        tv.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ce08c6dd) + seg.component.type + SmartQuizApplication.getAppContext().getString(R.string.h_56e45313));
                         tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
                         holder.contentHost.addView(tv);
                         newCache.add(tv);
@@ -1662,7 +1663,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (tokensGenerated > 0) {
                     float seconds = generationTimeMs > 0 ? generationTimeMs / 1000.0f : 0;
                     float speed = generationTimeMs > 0 ? (tokensGenerated * 1000.0f) / generationTimeMs : 0;
-                    text.setText(String.format("生成中... %d token · %.1fs · %.1f t/s", tokensGenerated, seconds, speed));
+                    text.setText(String.format(SmartQuizApplication.getAppContext().getString(R.string.h_20b4237a), tokensGenerated, seconds, speed));
                 } else {
                     text.setText(R.string.chat_status_generating);
                 }
@@ -1672,7 +1673,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (tokensGenerated > 0) {
                     float seconds = generationTimeMs > 0 ? generationTimeMs / 1000.0f : 0;
                     float speed = generationTimeMs > 0 ? (tokensGenerated * 1000.0f) / generationTimeMs : 0;
-                    text.setText(String.format("已完成 · %d token · %.1fs · %.1f t/s", tokensGenerated, seconds, speed));
+                    text.setText(String.format(SmartQuizApplication.getAppContext().getString(R.string.h_4f54d8ba), tokensGenerated, seconds, speed));
                 } else {
                     text.setText(R.string.chat_status_completed);
                 }
@@ -1707,7 +1708,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (message.isAgentGroupHeader) {
             StringBuilder sb = new StringBuilder();
             sb.append(message.agentGroupCollapsed ? "▶" : "▼");
-            sb.append(" 🤖 Agent执行过程");
+            sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_ed851eb6));
             // 摘要信息
             int steps = message.agentGroupStepCount;
             int tools = message.agentGroupToolCount;
@@ -1715,10 +1716,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 sb.append(" (");
                 if (steps > 0) sb.append(steps).append("步");
                 if (steps > 0 && tools > 0) sb.append(" | ");
-                if (tools > 0) sb.append(tools).append("工具");
+                if (tools > 0) sb.append(tools).append(SmartQuizApplication.getAppContext().getString(R.string.h_20dce2c6));
                 sb.append(")");
             }
-            if (message.agentGroupCollapsed) sb.append(" · 点击展开");
+            if (message.agentGroupCollapsed) sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_64df64c4));
             holder.messageText.setText(sb.toString());
             if (message.systemType != null) {
                 holder.systemIcon.setText("🤖");
@@ -1736,7 +1737,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         SpannableStringBuilder spannable = new SpannableStringBuilder(message.content);
         
         // 查找并设置可点击的"帮助"文本
-        int helpIndex = message.content.indexOf("帮助");
+        int helpIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_92e3a830));
         while (helpIndex >= 0) {
             int endIndex = helpIndex + 2;
             if (endIndex <= message.content.length()) {
@@ -1756,11 +1757,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     }
                 }, helpIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
-            helpIndex = message.content.indexOf("帮助", endIndex);
+            helpIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_92e3a830), endIndex);
         }
         
         // 查找并设置可点击的"教程"文本
-        int guideIndex = message.content.indexOf("教程");
+        int guideIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_b7824d5c));
         while (guideIndex >= 0) {
             int endIndex = guideIndex + 2;
             if (endIndex <= message.content.length()) {
@@ -1780,11 +1781,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     }
                 }, guideIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
-            guideIndex = message.content.indexOf("教程", endIndex);
+            guideIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_b7824d5c), endIndex);
         }
         
         // 查找并设置可点击的帮助图标提示
-        int iconIndex = message.content.indexOf("帮助图标");
+        int iconIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_267bf2f9));
         while (iconIndex >= 0) {
             int endIndex = iconIndex + 4;
             if (endIndex <= message.content.length()) {
@@ -1804,7 +1805,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     }
                 }, iconIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
-            iconIndex = message.content.indexOf("帮助图标", endIndex);
+            iconIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_267bf2f9), endIndex);
         }
         
         // 查找并设置可点击的"🚀 强行使用本地Agent"文本（本地Agent拦截引导消息）
@@ -1866,7 +1867,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (info == null) {
             // 兼容旧 TOOL_RESULT 消息（已与工具调用合并渲染）：无 ToolCallInfo，直接显示内容为结果
             holder.toolName.setText(message.content != null && !message.content.isEmpty()
-                    ? message.content : "工具结果");
+                    ? message.content : SmartQuizApplication.getAppContext().getString(R.string.h_879cbfca));
             holder.toolStatus.setText(R.string.chat_status_completed);
             if (holder.toolResultContainer != null) {
                 holder.toolResultContainer.setVisibility(View.VISIBLE);
@@ -2019,7 +2020,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         if (info.executionTimeMs > 0) {
-            holder.toolTime.setText("执行耗时: " + info.executionTimeMs + "ms");
+            holder.toolTime.setText(SmartQuizApplication.getAppContext().getString(R.string.h_25856aec) + info.executionTimeMs + "ms");
         }
 
         holder.btnCopyResult.setOnClickListener(v -> {
@@ -2048,7 +2049,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 长结果支持折叠
         if (holder.btnViewDetails != null) {
             holder.btnViewDetails.setVisibility(View.VISIBLE);
-            holder.btnViewDetails.setText(info.resultExpanded ? "收起" : "展开结果");
+            holder.btnViewDetails.setText(info.resultExpanded ? SmartQuizApplication.getAppContext().getString(R.string.h_def9e98b) : SmartQuizApplication.getAppContext().getString(R.string.h_fe0a2c38));
         }
         if (info.resultExpanded) {
             holder.toolResult.setMaxLines(Integer.MAX_VALUE);
@@ -2096,7 +2097,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     && info.result.length() < 800;
             if (!duplicateRaw && baseContent != null && baseContent.length() > 0
                     && !info.interpretedMessage.contentEquals(baseContent)) {
-                sb.append("\n\n───────────────\n📋 原始结果：\n");
+                sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_129d0a0f));
                 sb.append(baseContent);
             }
             if (applyMarkdown) {
@@ -2171,93 +2172,93 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
                     description.append("💭 ").append(stepInfo.thought);
                 } else {
-                    description.append("💭 正在分析问题...");
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_eed93c0c));
                 }
                 break;
             case PLANNING:
                 if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
                     // 显示具体的意图分析结果
-                    description.append("📋 已识别到用户意图：").append(stepInfo.thought);
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_e1510213)).append(stepInfo.thought);
                     if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-                        description.append("\n计划执行：").append(stepInfo.action);
+                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_b01a18bd)).append(stepInfo.action);
                     }
                 } else {
-                    description.append("📋 正在分析用户意图...");
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_b5c7f7a2));
                 }
                 break;
             case ACTING:
                 if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-                    description.append("⚙️ 正在执行：").append(stepInfo.action);
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_04c76d51)).append(stepInfo.action);
                     if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
-                        description.append("\n执行结果：").append(stepInfo.observation);
+                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_acac05fd)).append(stepInfo.observation);
                     }
                 } else {
-                    description.append("⚙️ 正在执行操作...");
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_0aad2da9));
                 }
                 break;
             case OBSERVING:
                 if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
-                    description.append("👁️ 执行结果：").append(stepInfo.observation);
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_2a8126f5)).append(stepInfo.observation);
                     if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                        description.append("\n分析：").append(stepInfo.thought);
+                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_2ed56b05)).append(stepInfo.thought);
                     }
                 } else {
-                    description.append("👁️ 正在分析执行结果...");
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_ee1be032));
                 }
                 break;
             case REFLECTING:
                 if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                    description.append("🔄 反思：").append(stepInfo.thought);
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_821a7c42)).append(stepInfo.thought);
                     if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-                        description.append("\n改进建议：").append(stepInfo.action);
+                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_967876bc)).append(stepInfo.action);
                     }
                 } else {
-                    description.append("🔄 正在反思...");
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_e2f0f38e));
                 }
                 break;
             case TOOL_CALLING:
                 if (stepInfo.action != null && !stepInfo.action.isEmpty()) {
-                    description.append("🔧 调用工具：").append(stepInfo.action);
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_74b3bd13)).append(stepInfo.action);
                     if (stepInfo.observation != null && !stepInfo.observation.isEmpty()) {
-                        description.append("\n工具返回：").append(stepInfo.observation);
+                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_5ae08a6b)).append(stepInfo.observation);
                     }
                 } else {
-                    description.append("🔧 正在调用工具...");
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_181e086c));
                 }
                 break;
             case REASONING:
                 if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
-                    description.append("🧠 推理过程：").append(stepInfo.thought);
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_f27b7129)).append(stepInfo.thought);
                     if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
-                        description.append("\n推理结论：").append(stepInfo.detail);
+                        description.append(SmartQuizApplication.getAppContext().getString(R.string.h_e05c2bda)).append(stepInfo.detail);
                     }
                 } else {
-                    description.append("🧠 正在推理分析...");
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_24030883));
                 }
                 break;
             case LOOPING:
-                description.append("🔁 循环处理中...");
+                description.append(SmartQuizApplication.getAppContext().getString(R.string.h_62402e9c));
                 if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
                     description.append("\n").append(stepInfo.detail);
                 }
                 if (stepInfo.iteration > 0 && stepInfo.totalIterations > 0) {
-                    description.append("\n进度：").append(stepInfo.iteration).append("/").append(stepInfo.totalIterations);
+                    description.append(SmartQuizApplication.getAppContext().getString(R.string.h_499acacb)).append(stepInfo.iteration).append("/").append(stepInfo.totalIterations);
                 }
                 break;
             case PAUSED:
-                description.append("⏸️ 已暂停，等待用户输入");
+                description.append(SmartQuizApplication.getAppContext().getString(R.string.h_a2466280));
                 if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
                     description.append("\n").append(stepInfo.detail);
                 }
                 break;
             case COMPLETED:
-                description.append("✅ 任务完成");
+                description.append(SmartQuizApplication.getAppContext().getString(R.string.h_f8c4c633));
                 if (stepInfo.detail != null && !stepInfo.detail.isEmpty()) {
                     description.append("\n").append(stepInfo.detail);
                 }
                 break;
             default:
-                description.append("📌 正在处理...");
+                description.append(SmartQuizApplication.getAppContext().getString(R.string.h_1d956dde));
                 if (stepInfo.thought != null && !stepInfo.thought.isEmpty()) {
                     description.append("\n").append(stepInfo.thought);
                 }
@@ -2325,7 +2326,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (reflection == null) return;
 
         holder.reflectionIcon.setText("🔍");
-        holder.reflectionLabel.setText("反思总结");
+        holder.reflectionLabel.setText(SmartQuizApplication.getAppContext().getString(R.string.h_c086bda6));
 
         if (reflection.analysis != null && !reflection.analysis.isEmpty()) {
             holder.reflectionAnalysis.setText(reflection.analysis);
@@ -2333,7 +2334,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (reflection.improvements != null && !reflection.improvements.isEmpty()) {
             holder.reflectionImprovements.setVisibility(View.VISIBLE);
-            holder.reflectionImprovements.setText("📈 改进方向:\n" + reflection.improvements);
+            holder.reflectionImprovements.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ecbc64cc) + reflection.improvements);
         } else {
             holder.reflectionImprovements.setVisibility(View.GONE);
         }
@@ -2356,10 +2357,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         // 设置状态
         if (summary.isSuccess) {
-            holder.summaryStatus.setText("✅ 成功");
+            holder.summaryStatus.setText(SmartQuizApplication.getAppContext().getString(R.string.h_8a28fd77));
             holder.summaryStatus.setTextColor(holder.itemView.getContext().getColor(R.color.agent_summary_success));
         } else {
-            holder.summaryStatus.setText("❌ 失败");
+            holder.summaryStatus.setText(SmartQuizApplication.getAppContext().getString(R.string.h_1f21bef7));
             holder.summaryStatus.setTextColor(holder.itemView.getContext().getColor(R.color.agent_summary_error));
         }
 
@@ -2383,7 +2384,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void bindSummaryMessage(SummaryMessageViewHolder holder, ChatMessage message) {
         holder.summaryIcon.setText("📊");
-        holder.summaryLabel.setText("总结");
+        holder.summaryLabel.setText(SmartQuizApplication.getAppContext().getString(R.string.h_25f9c7fa));
         holder.summaryContent.post(() -> {
             int availableWidth = holder.itemView.getWidth()
                 - holder.itemView.getPaddingLeft()
@@ -2396,10 +2397,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (message.summaryInfo != null) {
             if (message.summaryInfo.stepsCount > 0) {
-                holder.summaryMeta.setText("共执行 " + message.summaryInfo.stepsCount + " 个步骤");
+                holder.summaryMeta.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ba889559) + message.summaryInfo.stepsCount + SmartQuizApplication.getAppContext().getString(R.string.h_668fffcd));
             }
             if (message.summaryInfo.totalTimeMs > 0) {
-                holder.summaryMeta.setText(holder.summaryMeta.getText() + " · 耗时 " + message.summaryInfo.totalTimeMs + "ms");
+                holder.summaryMeta.setText(holder.summaryMeta.getText() + SmartQuizApplication.getAppContext().getString(R.string.h_67ec4a7b) + message.summaryInfo.totalTimeMs + "ms");
             }
         }
 
@@ -2419,7 +2420,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (message.errorDetail != null && !message.errorDetail.isEmpty()) {
             holder.errorDetail.setVisibility(View.VISIBLE);
-            holder.errorDetail.setText("详细信息:\n" + message.errorDetail);
+            holder.errorDetail.setText(SmartQuizApplication.getAppContext().getString(R.string.h_4cb2e994) + message.errorDetail);
         } else {
             holder.errorDetail.setVisibility(View.GONE);
         }
@@ -2911,7 +2912,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             String label;
             boolean isAgentRound = message.agentMode && message.taskProgress != null && message.taskProgress > 0;
             if (isAgentRound) {
-                label = "💭 第" + message.taskProgress + "轮思考";
+                label = SmartQuizApplication.getAppContext().getString(R.string.h_8aaa43c5) + message.taskProgress + SmartQuizApplication.getAppContext().getString(R.string.h_ad32c319);
             } else {
                 label = "💭 思考过程";
             }
@@ -2943,7 +2944,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 } else {
                     messageText.setVisibility(View.GONE);
                     if (thinkingLabel != null) {
-                        thinkingLabel.setText(label + (processing ? " (思考中，点击展开)" : " (已折叠)"));
+                        thinkingLabel.setText(label + (processing ? SmartQuizApplication.getAppContext().getString(R.string.h_1e913a58) : SmartQuizApplication.getAppContext().getString(R.string.h_7492ce53)));
                     }
                 }
             }
@@ -2973,7 +2974,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         thinkingLabel.setText(label);
                     } else {
                         messageText.setVisibility(View.GONE);
-                        thinkingLabel.setText(label + " (已折叠)");
+                        thinkingLabel.setText(label + SmartQuizApplication.getAppContext().getString(R.string.h_7492ce53));
                     }
                 });
             }
@@ -3360,7 +3361,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (message.agentExecutionState != null) {
             message.agentExecutionState.complete(finalContent);
-            message.agentExecutionState.addLog("COMPLETE", "执行完成");
+            message.agentExecutionState.addLog("COMPLETE", SmartQuizApplication.getAppContext().getString(R.string.h_c044a14e));
         }
 
         notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);
@@ -3376,7 +3377,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             message.agentExecutionState.addBlock(
                 com.oilquiz.app.ai.agent.AgentExecutionState.BlockType.ERROR,
                 "执行错误", error);
-            message.agentExecutionState.addLog("ERROR", "执行失败: " + error);
+            message.agentExecutionState.addLog("ERROR", SmartQuizApplication.getAppContext().getString(R.string.h_23cc6892) + error);
         }
 
         notifyItemChanged(position, PAYLOAD_AGENT_UPDATE);

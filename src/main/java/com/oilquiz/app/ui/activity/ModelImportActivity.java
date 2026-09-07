@@ -113,7 +113,7 @@ public class ModelImportActivity extends AppCompatActivity {
                         // 导入另一个模型
                         selectedModelUri = null;
                         if (modelPathTextView != null) {
-                            modelPathTextView.setText("未选择文件");
+                            modelPathTextView.setText(getString(R.string.h_46edf8b7));
                         }
                         View resultContainer = findViewById(R.id.result_container);
                         View actionsContainer = findViewById(R.id.actions_container);
@@ -141,7 +141,7 @@ public class ModelImportActivity extends AppCompatActivity {
             updateModelStatus();
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_58c10e4c) + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
     
@@ -155,12 +155,12 @@ public class ModelImportActivity extends AppCompatActivity {
             resources.permissions().requestStoragePermission(this, new PermissionResourceProvider.PermissionCallback() {
                 @Override
                 public void onGranted() {
-                    Toast.makeText(ModelImportActivity.this, "存储权限已授予", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ModelImportActivity.this, getString(R.string.h_3587abc9), Toast.LENGTH_SHORT).show();
                 }
 
                 @Override
                 public void onDenied(List<String> deniedPermissions) {
-                    Toast.makeText(ModelImportActivity.this, "需要存储权限才能导入模型", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ModelImportActivity.this, getString(R.string.h_5e9761c4), Toast.LENGTH_SHORT).show();
                 }
             });
             return false;
@@ -187,12 +187,12 @@ public class ModelImportActivity extends AppCompatActivity {
      */
     private void loadSelectedModel() {
         if (selectedModelUri == null) {
-            Toast.makeText(this, "请先选择模型文件", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_1a309dc1), Toast.LENGTH_SHORT).show();
             return;
         }
         
         if (!ModelFileSelector.isValidModelUri(this, selectedModelUri)) {
-            Toast.makeText(this, "请选择有效的.gguf模型文件", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_3e077148), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -207,7 +207,7 @@ public class ModelImportActivity extends AppCompatActivity {
             // 重置进度
             progressBar.setProgress(0);
             progressPercentageTextView.setText("0%");
-            importProgressTextView.setText("正在导入模型...");
+            importProgressTextView.setText(getString(R.string.h_853df94f));
         });
         
         // 在后台线程中加载模型
@@ -242,8 +242,8 @@ public class ModelImportActivity extends AppCompatActivity {
                     if (modelName != null) {
                         findViewById(R.id.result_container).setVisibility(View.VISIBLE);
                         findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
-                        importStatusTextView.setText("导入状态: 成功");
-                        importMessageTextView.setText("模型导入成功，已添加到模型列表");
+                        importStatusTextView.setText(getString(R.string.h_1eea18ce));
+                        importMessageTextView.setText(getString(R.string.h_5cf01c1b));
 
                         // 自动切换到新导入的模型（使用热切换）
                         AIService aiService = AIService.getInstance(ModelImportActivity.this);
@@ -252,7 +252,7 @@ public class ModelImportActivity extends AppCompatActivity {
                             public void onSwitchStarted(String fromModel, String toModel) {
                                 runOnUiThread(() -> {
                                     Toast.makeText(ModelImportActivity.this,
-                                        "正在切换到新模型: " + toModel, Toast.LENGTH_SHORT).show();
+                                        getString(R.string.h_0239f57c) + toModel, Toast.LENGTH_SHORT).show();
                                 });
                             }
 
@@ -266,10 +266,10 @@ public class ModelImportActivity extends AppCompatActivity {
                                 runOnUiThread(() -> {
                                     if (success) {
                                         Toast.makeText(ModelImportActivity.this,
-                                            "已自动切换到新模型: " + model, Toast.LENGTH_SHORT).show();
+                                            getString(R.string.h_0056ac68) + model, Toast.LENGTH_SHORT).show();
                                     } else {
                                         Toast.makeText(ModelImportActivity.this,
-                                            "模型切换失败", Toast.LENGTH_SHORT).show();
+                                            getString(R.string.h_b9c8e7b7), Toast.LENGTH_SHORT).show();
                                     }
                                 });
                             }
@@ -278,7 +278,7 @@ public class ModelImportActivity extends AppCompatActivity {
                             public void onSwitchFailed(String reason) {
                                 runOnUiThread(() -> {
                                     Toast.makeText(ModelImportActivity.this,
-                                        "模型切换失败: " + reason, Toast.LENGTH_SHORT).show();
+                                        getString(R.string.h_70a7d4d9) + reason, Toast.LENGTH_SHORT).show();
                                 });
                             }
                         });
@@ -287,9 +287,9 @@ public class ModelImportActivity extends AppCompatActivity {
                     } else {
                         findViewById(R.id.result_container).setVisibility(View.VISIBLE);
                         findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
-                        importStatusTextView.setText("导入状态: 失败");
-                        importMessageTextView.setText("模型加载失败");
-                        Toast.makeText(this, "模型加载失败", Toast.LENGTH_SHORT).show();
+                        importStatusTextView.setText(getString(R.string.h_8f35e073));
+                        importMessageTextView.setText(getString(R.string.h_5eb96784));
+                        Toast.makeText(this, getString(R.string.h_5eb96784), Toast.LENGTH_SHORT).show();
                     }
                     importModelButton.setEnabled(true);
                 });
@@ -301,9 +301,9 @@ public class ModelImportActivity extends AppCompatActivity {
                     
                     findViewById(R.id.result_container).setVisibility(View.VISIBLE);
                     findViewById(R.id.actions_container).setVisibility(View.VISIBLE);
-                    importStatusTextView.setText("导入状态: 错误");
-                    importMessageTextView.setText("模型加载出错: " + e.getMessage());
-                    Toast.makeText(this, "模型加载出错: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    importStatusTextView.setText(getString(R.string.h_506ba504));
+                    importMessageTextView.setText(getString(R.string.h_2f0f752e) + e.getMessage());
+                    Toast.makeText(this, getString(R.string.h_2f0f752e) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     importModelButton.setEnabled(true);
                 });
             }
@@ -325,13 +325,13 @@ public class ModelImportActivity extends AppCompatActivity {
                     }
                     modelPathTextView.setText(status.toString());
                 } else {
-                    modelPathTextView.setText("暂无可用模型");
+                    modelPathTextView.setText(getString(R.string.h_2d6b332e));
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
             if (modelPathTextView != null) {
-                modelPathTextView.setText("加载模型状态失败");
+                modelPathTextView.setText(getString(R.string.h_11c16161));
             }
         }
     }
@@ -362,12 +362,12 @@ public class ModelImportActivity extends AppCompatActivity {
                     selectedModelUri = uri;
                     String fileName = ModelFileSelector.getFileNameFromUri(this, uri);
                     if (fileName != null) {
-                        modelPathTextView.setText("已选择: " + fileName);
-                        Toast.makeText(this, "已选择文件: " + fileName, Toast.LENGTH_SHORT).show();
+                        modelPathTextView.setText(getString(R.string.h_ad674f46) + fileName);
+                        Toast.makeText(this, getString(R.string.h_1359960a) + fileName, Toast.LENGTH_SHORT).show();
                         Log.i(TAG, "Selected model file: " + fileName + " (Uri: " + uri + ")");
                     } else {
-                        modelPathTextView.setText("无法获取文件名");
-                        Toast.makeText(this, "无法获取文件名", Toast.LENGTH_SHORT).show();
+                        modelPathTextView.setText(getString(R.string.h_ea2e8bc2));
+                        Toast.makeText(this, getString(R.string.h_ea2e8bc2), Toast.LENGTH_SHORT).show();
                         Log.e(TAG, "Failed to get file name from Uri: " + uri);
                     }
                 }

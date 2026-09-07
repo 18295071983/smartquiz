@@ -140,7 +140,7 @@ public class OCRActivity extends AppCompatActivity {
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 String selectedLang = languageCodes[position];
                 ocrManager.switchRecognizer(selectedLang);
-                Toast.makeText(OCRActivity.this, "已切换到: " + languages[position], Toast.LENGTH_SHORT).show();
+                Toast.makeText(OCRActivity.this, getString(R.string.h_ab98c004) + languages[position], Toast.LENGTH_SHORT).show();
             }
             
             @Override
@@ -178,7 +178,7 @@ public class OCRActivity extends AppCompatActivity {
         String ocrModelId = modelManager.getOCRModelId();
         
         if (ocrModelId == null) {
-            tvOcrModelName.setText("自动选择（推荐）");
+            tvOcrModelName.setText(getString(R.string.h_b789dbfb));
         } else {
             // 优先显示用户指定的具体模型名（同一 API Key 下的某个模型）
             String ocrModelName = modelManager.getOCRModelName();
@@ -189,7 +189,7 @@ public class OCRActivity extends AppCompatActivity {
             } else if (config != null) {
                 tvOcrModelName.setText(config.name);
             } else {
-                tvOcrModelName.setText("自动选择（推荐）");
+                tvOcrModelName.setText(getString(R.string.h_b789dbfb));
             }
         }
     }
@@ -202,7 +202,7 @@ public class OCRActivity extends AppCompatActivity {
         try {
             String engine = ocrManager.getLastEngineLabel();
             if (engine != null && !engine.isEmpty() && !"未知引擎".equals(engine)) {
-                tvOcrModelName.setText("本次识别引擎：" + engine);
+                tvOcrModelName.setText(getString(R.string.h_c69d4624) + engine);
             }
         } catch (Exception e) {
             // 展示失败不影响识别结果
@@ -216,7 +216,7 @@ public class OCRActivity extends AppCompatActivity {
     private void showRecognitionResult(String successText) {
         if (successText != null) {
             resultEditText.setText(successText);
-            Toast.makeText(this, "识别成功！", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_879810c0), Toast.LENGTH_SHORT).show();
         }
         if (resultContainer != null) resultContainer.setVisibility(View.VISIBLE);
         if (actionsContainer != null) actionsContainer.setVisibility(View.VISIBLE);
@@ -302,7 +302,7 @@ public class OCRActivity extends AppCompatActivity {
 
                 @Override
                 public void onDenied(List<String> deniedPermissions) {
-                    Toast.makeText(OCRActivity.this, "需要相机权限才能拍照", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(OCRActivity.this, getString(R.string.h_2ddf9be8), Toast.LENGTH_SHORT).show();
                 }
             });
         } else {
@@ -334,9 +334,9 @@ public class OCRActivity extends AppCompatActivity {
                 imageView.setImageBitmap(selectedImage);
                 imageView.setVisibility(View.VISIBLE);
                 findViewById(R.id.tv_preview_hint).setVisibility(View.GONE);
-                Toast.makeText(this, "图片已加载", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_5a4a645f), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "获取图片失败", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_433e699f), Toast.LENGTH_SHORT).show();
             }
         } else if (requestCode == CAMERA_REQUEST) {
             if (cameraImageUri != null) {
@@ -347,9 +347,9 @@ public class OCRActivity extends AppCompatActivity {
                     imageView.setImageBitmap(selectedImage);
                     imageView.setVisibility(View.VISIBLE);
                     findViewById(R.id.tv_preview_hint).setVisibility(View.GONE);
-                    Toast.makeText(this, "图片已加载", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_5a4a645f), Toast.LENGTH_SHORT).show();
                 } else {
-                    Toast.makeText(this, "无法加载拍摄的图片", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_57418b05), Toast.LENGTH_SHORT).show();
                 }
             } else if (data != null && data.getExtras() != null) {
                 selectedImage = (Bitmap) data.getExtras().get("data");
@@ -359,7 +359,7 @@ public class OCRActivity extends AppCompatActivity {
                     imageView.setImageBitmap(selectedImage);
                     imageView.setVisibility(View.VISIBLE);
                     findViewById(R.id.tv_preview_hint).setVisibility(View.GONE);
-                    Toast.makeText(this, "图片已加载", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_5a4a645f), Toast.LENGTH_SHORT).show();
                 }
             }
         } else if (requestCode == PICK_PDF_REQUEST && data != null && data.getData() != null) {
@@ -369,8 +369,8 @@ public class OCRActivity extends AppCompatActivity {
             resetUiForSelection();
             imageView.setVisibility(View.GONE);
             findViewById(R.id.tv_preview_hint).setVisibility(View.VISIBLE);
-            ((TextView)findViewById(R.id.tv_preview_hint)).setText("已选择PDF文件\n点击开始识别");
-            Toast.makeText(this, "PDF文件已选择", Toast.LENGTH_SHORT).show();
+            ((TextView)findViewById(R.id.tv_preview_hint)).setText(getString(R.string.h_fc690a0d));
+            Toast.makeText(this, getString(R.string.h_b0ae04c0), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -447,7 +447,7 @@ public class OCRActivity extends AppCompatActivity {
     
     private void startRecognition() {
         if (isProcessing) {
-            Toast.makeText(this, "正在处理中，请稍候...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_dbb6345e), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -456,7 +456,7 @@ public class OCRActivity extends AppCompatActivity {
         } else if (selectedPdfUri != null) {
             processPdf();
         } else {
-            Toast.makeText(this, "请先选择图片或PDF文件", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_5b331446), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -480,7 +480,7 @@ public class OCRActivity extends AppCompatActivity {
                 isProcessing = false;
                 showProgress(false, null);
                 
-                resultEditText.setText("识别失败: " + error);
+                resultEditText.setText(getString(R.string.h_da61810f) + error);
                 showRecognitionResult(null);
             }
         });
@@ -505,7 +505,7 @@ public class OCRActivity extends AppCompatActivity {
                 isProcessing = false;
                 showProgress(false, null);
                 
-                resultEditText.setText("PDF识别失败: " + error);
+                resultEditText.setText(getString(R.string.h_bb6a8045) + error);
                 showRecognitionResult(null);
             }
         }, (percent, message) -> {
@@ -537,7 +537,7 @@ public class OCRActivity extends AppCompatActivity {
     private void copyText() {
         String text = resultEditText.getText().toString().trim();
         if (text.isEmpty() || text.startsWith("Error:")) {
-            Toast.makeText(this, "没有可复制的文本", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_1d8c9cf9), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -545,13 +545,13 @@ public class OCRActivity extends AppCompatActivity {
             (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         android.content.ClipData clip = android.content.ClipData.newPlainText("OCR Text", text);
         clipboard.setPrimaryClip(clip);
-        Toast.makeText(this, "文本已复制到剪贴板", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_4a131ed5), Toast.LENGTH_SHORT).show();
     }
     
     private void shareText() {
         String text = resultEditText.getText().toString().trim();
         if (text.isEmpty() || text.startsWith("识别失败") || text.startsWith("PDF识别失败")) {
-            Toast.makeText(this, "没有可分享的文本", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_3da84480), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -564,25 +564,25 @@ public class OCRActivity extends AppCompatActivity {
     private void addToNote() {
         final String text = resultEditText.getText().toString().trim();
         if (text.isEmpty() || text.startsWith("识别失败") || text.startsWith("PDF识别失败")) {
-            Toast.makeText(this, "没有可保存的文本", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_c34088db), Toast.LENGTH_SHORT).show();
             return;
         }
         
         // 创建一个对话框让用户输入笔记标题
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("添加到笔记");
+        builder.setTitle(getString(R.string.h_83b0bc7b));
         
         // 设置输入框
         final EditText input = new EditText(this);
-        input.setHint("请输入笔记标题");
-        input.setText("OCR识别结果");
+        input.setHint(getString(R.string.h_554a28dd));
+        input.setText(getString(R.string.h_3c62c068));
         builder.setView(input);
         
         // 设置按钮
-        builder.setPositiveButton("保存", (dialog, which) -> {
+        builder.setPositiveButton(getString(R.string.h_be5fbbe3), (dialog, which) -> {
             String title = input.getText().toString().trim();
             if (title.isEmpty()) {
-                title = "OCR识别结果";
+                title = getString(R.string.h_3c62c068);
             }
             
             // 保存笔记
@@ -591,20 +591,20 @@ public class OCRActivity extends AppCompatActivity {
                 @Override
                 public void onSuccess(Long result) {
                     runOnUiThread(() -> {
-                        Toast.makeText(OCRActivity.this, "笔记保存成功", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(OCRActivity.this, getString(R.string.h_7e97245e), Toast.LENGTH_SHORT).show();
                     });
                 }
                 
                 @Override
                 public void onError(String error) {
                     runOnUiThread(() -> {
-                        Toast.makeText(OCRActivity.this, "笔记保存失败: " + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(OCRActivity.this, getString(R.string.h_34e82ad6) + error, Toast.LENGTH_SHORT).show();
                     });
                 }
             });
         });
         
-        builder.setNegativeButton("取消", (dialog, which) -> dialog.cancel());
+        builder.setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> dialog.cancel());
         
         builder.show();
     }
@@ -612,7 +612,7 @@ public class OCRActivity extends AppCompatActivity {
     private void saveAsQuestion() {
         String text = resultEditText.getText().toString().trim();
         if (text.isEmpty() || text.startsWith("识别失败") || text.startsWith("PDF识别失败")) {
-            Toast.makeText(this, "请先获取有效文本", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_be0c5a13), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -630,12 +630,12 @@ public class OCRActivity extends AppCompatActivity {
         questionViewModel.addQuestion(question, new QuestionViewModel.AddQuestionCallback() {
             @Override
             public void onSuccess() {
-                Toast.makeText(OCRActivity.this, "保存题目成功", Toast.LENGTH_SHORT).show();
+                Toast.makeText(OCRActivity.this, getString(R.string.h_d6caa7b2), Toast.LENGTH_SHORT).show();
             }
 
             @Override
             public void onError(String error) {
-                Toast.makeText(OCRActivity.this, "保存题目失败：" + error, Toast.LENGTH_SHORT).show();
+                Toast.makeText(OCRActivity.this, getString(R.string.h_9e9563b5) + error, Toast.LENGTH_SHORT).show();
             }
         });
     }

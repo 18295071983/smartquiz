@@ -1,5 +1,6 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.SmartQuizApplication;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.os.Bundle;
@@ -78,7 +79,7 @@ public class FieldManagementActivity extends AppCompatActivity {
             if (selectedTable != null) {
                 loadFields(selectedTable);
             } else {
-                Toast.makeText(this, "请先选择一个表", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_f83b091f), Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -100,7 +101,7 @@ public class FieldManagementActivity extends AppCompatActivity {
             if (selectedTable != null) {
                 showAddFieldDialog(selectedTable);
             } else {
-                Toast.makeText(this, "请先选择一个表", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_f83b091f), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -126,7 +127,7 @@ public class FieldManagementActivity extends AppCompatActivity {
 
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "加载表列表失败: " + e.getMessage(),
+                    Toast.makeText(this, getString(R.string.h_61f14923) + e.getMessage(),
                         Toast.LENGTH_SHORT).show();
                 });
             }
@@ -160,7 +161,7 @@ public class FieldManagementActivity extends AppCompatActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
-                    Toast.makeText(this, "加载字段失败: " + e.getMessage(),
+                    Toast.makeText(this, getString(R.string.h_d8e3587c) + e.getMessage(),
                         Toast.LENGTH_SHORT).show();
                 });
             }
@@ -217,17 +218,17 @@ public class FieldManagementActivity extends AppCompatActivity {
 
             void bind(DatabaseFieldManager.FieldInfo field) {
                 tvFieldName.setText(field.fieldName);
-                tvFieldType.setText("类型: " + field.fieldType);
+                tvFieldType.setText(SmartQuizApplication.getAppContext().getString(R.string.h_d46380d7) + field.fieldType);
 
                 StringBuilder constraints = new StringBuilder();
                 if (field.isPrimaryKey) {
-                    constraints.append("主键 ");
+                    constraints.append(SmartQuizApplication.getAppContext().getString(R.string.h_c1c57e45));
                 }
                 if (!field.isNullable) {
                     constraints.append("NOT NULL ");
                 }
                 if (field.defaultValue != null) {
-                    constraints.append("默认值: ").append(field.defaultValue);
+                    constraints.append(SmartQuizApplication.getAppContext().getString(R.string.h_e8b74bfb)).append(field.defaultValue);
                 }
                 tvFieldConstraints.setText(constraints.toString().trim());
 
@@ -249,7 +250,7 @@ public class FieldManagementActivity extends AppCompatActivity {
      */
     private void showAddFieldDialog(String tableName) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("添加字段");
+        builder.setTitle(getString(R.string.h_4484fa04));
 
         // 创建对话框布局
         LinearLayout layout = new LinearLayout(this);
@@ -258,7 +259,7 @@ public class FieldManagementActivity extends AppCompatActivity {
 
         // 字段名称输入
         EditText etFieldName = new EditText(this);
-        etFieldName.setHint("字段名称");
+        etFieldName.setHint(getString(R.string.h_e996419d));
         etFieldName.setSingleLine(true);
         etFieldName.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -280,7 +281,7 @@ public class FieldManagementActivity extends AppCompatActivity {
 
         // 允许为空选项
         MaterialCheckBox cbNullable = new MaterialCheckBox(this);
-        cbNullable.setText("允许为空");
+        cbNullable.setText(getString(R.string.h_3f2176cd));
         cbNullable.setChecked(true);
         cbNullable.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -290,7 +291,7 @@ public class FieldManagementActivity extends AppCompatActivity {
 
         // 默认值输入
         EditText etDefaultValue = new EditText(this);
-        etDefaultValue.setHint("默认值（可选）");
+        etDefaultValue.setHint(getString(R.string.h_77d7564e));
         etDefaultValue.setSingleLine(true);
         etDefaultValue.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -300,26 +301,26 @@ public class FieldManagementActivity extends AppCompatActivity {
 
         builder.setView(layout);
 
-        builder.setPositiveButton("添加", (dialog, which) -> {
+        builder.setPositiveButton(getString(R.string.h_b58c7549), (dialog, which) -> {
             String fieldName = etFieldName.getText().toString().trim();
             String fieldType = (String) spinnerFieldType.getSelectedItem();
             boolean nullable = cbNullable.isChecked();
             String defaultValue = etDefaultValue.getText().toString().trim();
 
             if (fieldName.isEmpty()) {
-                Toast.makeText(this, "请输入字段名称", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_dfd010b5), Toast.LENGTH_SHORT).show();
                 return;
             }
 
             if (fieldManager.isFieldProtected(fieldName)) {
-                Toast.makeText(this, "不能添加受保护的字段名称", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_98b9344a), Toast.LENGTH_SHORT).show();
                 return;
             }
 
             addField(tableName, fieldName, fieldType, nullable, defaultValue);
         });
 
-        builder.setNegativeButton("取消", null);
+        builder.setNegativeButton(getString(R.string.h_625fb26b), null);
         builder.show();
     }
 
@@ -351,7 +352,7 @@ public class FieldManagementActivity extends AppCompatActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
-                    Toast.makeText(this, "添加字段失败: " + e.getMessage(),
+                    Toast.makeText(this, getString(R.string.h_1efd670d) + e.getMessage(),
                         Toast.LENGTH_SHORT).show();
                 });
             }

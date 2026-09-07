@@ -132,7 +132,7 @@ public class QuestionTypeMapperActivity extends AppCompatActivity {
         
         // 添加提示文本
         TextView noTypesText = new TextView(this);
-        noTypesText.setText("未检测到题型数据\n将使用默认题型映射");
+        noTypesText.setText(getString(R.string.h_5c3ac2dc));
         noTypesText.setTextSize(16);
         noTypesText.setTextColor(SystemUIResourceAdapter.getInstance(this).getTextSecondaryColor());
         noTypesText.setGravity(android.view.Gravity.CENTER);
@@ -148,7 +148,7 @@ public class QuestionTypeMapperActivity extends AppCompatActivity {
     private void addDefaultMappingOptions() {
         // 添加默认题型映射选项，让用户可以为未检测到的题型设置默认映射
         TextView defaultMappingText = new TextView(this);
-        defaultMappingText.setText("默认题型映射:");
+        defaultMappingText.setText(getString(R.string.h_a1a6129c));
         defaultMappingText.setTextSize(16);
         defaultMappingText.setTextColor(SystemUIResourceAdapter.getInstance(this).getTextPrimaryColor());
         defaultMappingText.setPadding(16, 24, 16, 8);
@@ -181,7 +181,7 @@ public class QuestionTypeMapperActivity extends AppCompatActivity {
         // 添加检测到的题型文本
         TextView detectedTypeText = new TextView(this);
         if (detectedType == null || detectedType.trim().isEmpty()) {
-            detectedTypeText.setText("未命名题型");
+            detectedTypeText.setText(getString(R.string.h_66b15c08));
         } else {
             detectedTypeText.setText(detectedType);
         }

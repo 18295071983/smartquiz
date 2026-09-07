@@ -94,7 +94,7 @@ public class WeatherWebViewActivity extends AppCompatActivity {
 
             @Override
             public void onReceivedTitle(WebView view, String title) {
-                if (titleTextView != null && (weatherTitle == null || weatherTitle.equals("天气详情"))) {
+                if (titleTextView != null && (weatherTitle == null || weatherTitle.equals(getString(R.string.h_419b74b2)))) {
                     titleTextView.setText(title);
                 }
             }

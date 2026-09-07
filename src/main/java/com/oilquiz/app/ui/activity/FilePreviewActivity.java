@@ -95,7 +95,7 @@ public class FilePreviewActivity extends AppCompatActivity {
                 setResult(RESULT_OK, resultIntent);
                 finish();
             } else {
-                Toast.makeText(this, "请完成字段映射", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_921ef2ea), Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -113,7 +113,7 @@ public class FilePreviewActivity extends AppCompatActivity {
             contentContainer.setVisibility(View.GONE);
         }
         if (statusText != null) {
-            statusText.setText("正在加载文件内容...");
+            statusText.setText(getString(R.string.h_447dda29));
         }
 
         // 检查file对象是否为null
@@ -126,10 +126,10 @@ public class FilePreviewActivity extends AppCompatActivity {
                     contentContainer.setVisibility(View.VISIBLE);
                 }
                 if (statusText != null) {
-                    statusText.setText("文件路径为空");
+                    statusText.setText(getString(R.string.h_2201ac77));
                     statusText.setVisibility(View.VISIBLE);
                 }
-                Toast.makeText(FilePreviewActivity.this, "文件路径为空，无法加载文件", Toast.LENGTH_SHORT).show();
+                Toast.makeText(FilePreviewActivity.this, getString(R.string.h_8da0929d), Toast.LENGTH_SHORT).show();
             });
             return;
         }
@@ -144,10 +144,10 @@ public class FilePreviewActivity extends AppCompatActivity {
                     contentContainer.setVisibility(View.VISIBLE);
                 }
                 if (statusText != null) {
-                    statusText.setText("文件不存在");
+                    statusText.setText(getString(R.string.h_d9523e34));
                     statusText.setVisibility(View.VISIBLE);
                 }
-                Toast.makeText(FilePreviewActivity.this, "文件不存在，无法加载", Toast.LENGTH_SHORT).show();
+                Toast.makeText(FilePreviewActivity.this, getString(R.string.h_48319955), Toast.LENGTH_SHORT).show();
             });
             return;
         }
@@ -158,7 +158,7 @@ public class FilePreviewActivity extends AppCompatActivity {
             public void onRenderStart() {
                 runOnUiThread(() -> {
                     if (statusText != null) {
-                        statusText.setText("开始渲染文件...");
+                        statusText.setText(getString(R.string.h_4ac73467));
                     }
                 });
             }
@@ -167,7 +167,7 @@ public class FilePreviewActivity extends AppCompatActivity {
             public void onRenderProgress(int current, int total) {
                 runOnUiThread(() -> {
                     if (statusText != null) {
-                        statusText.setText("渲染中: " + current + "/" + total + " 行");
+                        statusText.setText(getString(R.string.h_651e91ce) + current + "/" + total + " 行");
                     }
                     if (progressBar != null && total > 0) {
                         progressBar.setProgress((int) ((float) current / total * 100));
@@ -196,13 +196,13 @@ public class FilePreviewActivity extends AppCompatActivity {
                         }
                         
                         // 显示成功提示
-                        Toast.makeText(FilePreviewActivity.this, "文件加载成功，共" + dataRows.size() + "行数据", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(FilePreviewActivity.this, getString(R.string.h_4be7d9d7) + dataRows.size() + getString(R.string.h_f3d257a2), Toast.LENGTH_SHORT).show();
                     } else {
                         if (statusText != null) {
-                            statusText.setText("文件内容为空或格式错误");
+                            statusText.setText(getString(R.string.h_3fead349));
                             statusText.setVisibility(View.VISIBLE);
                         }
-                        Toast.makeText(FilePreviewActivity.this, "无法读取文件内容", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(FilePreviewActivity.this, getString(R.string.h_70238c3e), Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -217,10 +217,10 @@ public class FilePreviewActivity extends AppCompatActivity {
                         contentContainer.setVisibility(View.VISIBLE);
                     }
                     if (statusText != null) {
-                        statusText.setText("加载失败: " + message);
+                        statusText.setText(getString(R.string.h_4bbdceb5) + message);
                         statusText.setVisibility(View.VISIBLE);
                     }
-                    Toast.makeText(FilePreviewActivity.this, "加载文件失败: " + message, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(FilePreviewActivity.this, getString(R.string.h_04a40cad) + message, Toast.LENGTH_SHORT).show();
                 });
             }
         });
@@ -249,9 +249,9 @@ public class FilePreviewActivity extends AppCompatActivity {
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e("FilePreviewActivity", "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("错误")
-                    .setMessage("没有找到文件选择器应用，请安装文件管理器")
-                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setTitle(getString(R.string.h_7030ff64))
+                    .setMessage(getString(R.string.h_b5ea0a10))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                     .setCancelable(false)
                     .show();
         }
@@ -277,17 +277,17 @@ public class FilePreviewActivity extends AppCompatActivity {
                         finish();
                     } else {
                         AppLogger.e("FilePreviewActivity", "SAF 文件复制失败: " + uri);
-                        Toast.makeText(this, "无法读取所选文件", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_c15415d3), Toast.LENGTH_SHORT).show();
                         finish();
                     }
                 } catch (Exception e) {
                     AppLogger.e("FilePreviewActivity", "处理文件选择结果失败", e);
-                    Toast.makeText(this, "处理文件选择结果失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_4fa68124) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     finish();
                 }
             } else {
                 AppLogger.e("FilePreviewActivity", "文件选择返回空 Uri");
-                Toast.makeText(this, "文件选择返回空 Uri", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_39bd3ae1), Toast.LENGTH_SHORT).show();
                 finish();
             }
         } else if (requestCode == REQUEST_CODE_FILE_PICKER) {

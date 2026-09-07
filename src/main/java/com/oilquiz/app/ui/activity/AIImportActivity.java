@@ -1,5 +1,6 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.SmartQuizApplication;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.ClipData;
@@ -182,7 +183,7 @@ public class AIImportActivity extends BaseActivity {
                                     ? "已热切换为 CPU 推理（上下文 8192）"
                                     : "已热切换为 GPU 推理（上下文 4096）");
                         } else if (r == -1) {
-                            showToast("后端切换失败，已恢复原设置；请重启 App 后再试");
+                            showToast(getString(R.string.h_f8b52f61));
                             btn.setChecked(com.oilquiz.app.ai.importing.v2.ImportLlmEngine
                                     .isCpuInferenceEnabled(AIImportActivity.this));
                         }
@@ -224,7 +225,7 @@ public class AIImportActivity extends BaseActivity {
         // 开始智能导入（v2 管线：自动分析字段，单文件/多文件均支持）
         btnStartImport.setOnClickListener(v -> {
             if (currentFile == null && selectedFiles.isEmpty()) {
-                showToast("请先选择题库文件");
+                showToast(getString(R.string.h_e74c3ec4));
                 return;
             }
             // 导入管线 Python 需读写公共目录 /storage/emulated/0/OilQuiz/，
@@ -248,7 +249,7 @@ public class AIImportActivity extends BaseActivity {
             if (activeV2Main != null) {
                 activeV2Main.cancel();
             }
-            showToast("已取消");
+            showToast(getString(R.string.h_2111ccbb));
         });
 
         // 模型切换
@@ -312,12 +313,12 @@ public class AIImportActivity extends BaseActivity {
     private void requestPublicStoragePermission() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             new AlertDialog.Builder(this)
-                    .setTitle("需要\"所有文件访问\"权限")
-                    .setMessage("AI 导入通过 Python 在公共目录 /storage/emulated/0/OilQuiz/ 解析题库源文件、生成临时 CSV，\n"
+                    .setTitle(getString(R.string.h_a902a02e))
+                    .setMessage(getString(R.string.h_a65def34)
                             + "未授予时 Python 无法读写该目录。\n"
                             + "请点击\"去授权\"开启\"所有文件访问\"权限，然后重新开始导入。")
-                    .setPositiveButton("去授权", (d, w) -> openAllFilesAccessSetting())
-                    .setNegativeButton("取消", null)
+                    .setPositiveButton(getString(R.string.h_4a1c90d8), (d, w) -> openAllFilesAccessSetting())
+                    .setNegativeButton(getString(R.string.h_625fb26b), null)
                     .show();
         } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             requestPermissions(new String[]{
@@ -339,7 +340,7 @@ public class AIImportActivity extends BaseActivity {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
             } catch (Exception ex) {
-                showToast("无法打开权限设置页面: " + ex.getMessage());
+                showToast(getString(R.string.h_7bf382b4) + ex.getMessage());
             }
         }
     }
@@ -350,7 +351,7 @@ public class AIImportActivity extends BaseActivity {
         if (requestCode == REQUEST_CODE_STORAGE_PERMISSION) {
             boolean granted = grantResults.length > 0
                     && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
-            showToast(granted ? "存储权限已授予，请重新开始导入" : "需要存储权限才能导入题库，请授予后重试");
+            showToast(granted ? getString(R.string.h_83e1601a) : getString(R.string.h_b0561685));
         }
     }
 
@@ -376,7 +377,7 @@ public class AIImportActivity extends BaseActivity {
      * 导出为 .md 后走 v2 导入；无匹配表时弹选择对话框兜底。
      */
     private void smartSelectSheetAndImport(File file) {
-        showToast("正在检测工作表...");
+        showToast(getString(R.string.h_f2e66a38));
         // 用独立线程池（不占 ExcelUtil 共享单线程池，避免与其他导入排队互相阻塞）
         java.util.concurrent.ExecutorService detectExecutor =
                 java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -385,7 +386,7 @@ public class AIImportActivity extends BaseActivity {
                 List<com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile> profiles =
                         com.oilquiz.app.ai.importing.ExcelSheetPicker.analyzeSheets(file);
                 if (profiles.isEmpty()) {
-                    runOnUiThread(() -> showToast("未能识别工作表，尝试直接导入"));
+                    runOnUiThread(() -> showToast(getString(R.string.h_b76bb7ef)));
                     runV2Import();
                     return;
                 }
@@ -436,7 +437,7 @@ public class AIImportActivity extends BaseActivity {
                     // 不再中转 .md，保证数据完整）
                     final com.oilquiz.app.ai.importing.ExcelSheetPicker.SheetProfile selected = hits.get(0);
                     runOnUiThread(() -> {
-                        showToast("已检测到题库工作表: " + selected.sheetName + "（" + selected.rowCount + "行）"
+                        showToast(getString(R.string.h_b36455c3) + selected.sheetName + "（" + selected.rowCount + getString(R.string.h_27b84e16)
                                 + (docHint != null ? "，已解析题库说明" : ""));
                         currentFile = file;
                         runV2Import(selected.sheetIndex, docHint, selected.inferredQuestionType);
@@ -449,7 +450,7 @@ public class AIImportActivity extends BaseActivity {
             } catch (Exception e) {
                 Log.e("AIImportActivity", "工作表检测失败: " + e.getMessage(), e);
                 runOnUiThread(() -> {
-                    showToast("工作表检测失败，尝试直接导入");
+                    showToast(getString(R.string.h_9bc92f24));
                     runV2Import();
                 });
             } finally {
@@ -524,17 +525,17 @@ public class AIImportActivity extends BaseActivity {
             names[i] = p.sheetName + "（" + p.rowCount + "行，表头第" + (p.headerRowIndex + 1) + "行）";
         }
         new AlertDialog.Builder(this)
-                .setTitle("选择题库工作表（可多选）")
+                .setTitle(getString(R.string.h_5386c11e))
                 .setMultiChoiceItems(names, checked, (dialog, which, isChecked) ->
                         checked[which] = isChecked)
-                .setPositiveButton("开始导入", (dialog, which) -> {
+                .setPositiveButton(getString(R.string.h_7d2ff42c), (dialog, which) -> {
                     // 收集选中的工作表
                     java.util.List<Integer> selected = new java.util.ArrayList<>();
                     for (int i = 0; i < profiles.size(); i++) {
                         if (checked[i]) selected.add(i);
                     }
                     if (selected.isEmpty()) {
-                        showToast("请至少选择一个工作表");
+                        showToast(getString(R.string.h_78442dae));
                         return;
                     }
                     currentFile = file;
@@ -556,14 +557,14 @@ public class AIImportActivity extends BaseActivity {
                         runV2ImportSheets(idxs, docHint, types);
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
     /** 启动实时监控：计时器 + 每秒刷新耗时/推理速度/Token（真实数据，来自 LlamaHelper） */
     private void startMonitor() {
         importStartTime = System.currentTimeMillis();
-        if (tvMonitorStage != null) tvMonitorStage.setText("启动");
+        if (tvMonitorStage != null) tvMonitorStage.setText(getString(R.string.h_8e54ddfe));
         monitorTick = new Runnable() {
             @Override
             public void run() {
@@ -810,7 +811,7 @@ public class AIImportActivity extends BaseActivity {
                         }
                         if (preview != null && preview.emptyQuestionCount > 0) {
                             if (missDetail.length() > 0) missDetail.append("、");
-                            missDetail.append("题干");
+                            missDetail.append(getString(R.string.h_9e264c43));
                         }
                         String msg = "共 " + missingCount + " 道题缺少字段"
                                 + (missDetail.length() > 0 ? "（" + missDetail + "）" : "") + "。\n\n"
@@ -818,17 +819,17 @@ public class AIImportActivity extends BaseActivity {
                                 + "· AI 辅助填充：更完整，但会调用本地/在线模型（耗时较长）\n"
                                 + "· 不填充：缺失字段留空直接入库（更快，入库默认值兜底）";
                         new AlertDialog.Builder(AIImportActivity.this)
-                                .setTitle("AI 辅助填充（规则已优先补全）")
+                                .setTitle(getString(R.string.h_89a9ad30))
                                 .setMessage(msg)
-                                .setPositiveButton("AI 辅助填充", (dialog, which) -> {
+                                .setPositiveButton(getString(R.string.h_72278bd2), (dialog, which) -> {
                                     d.fillEnabled = true;
                                     latch.countDown();
                                 })
-                                .setNegativeButton("不填充，留空入库", (dialog, which) -> {
+                                .setNegativeButton(getString(R.string.h_c2bdceb8), (dialog, which) -> {
                                     d.fillEnabled = false;
                                     latch.countDown();
                                 })
-                                .setNeutralButton("取消导入", (dialog, which) -> {
+                                .setNeutralButton(getString(R.string.h_b7e344ae), (dialog, which) -> {
                                     d.action = com.oilquiz.app.ai.importing.v2.ImportMain
                                             .InteractionHandler.Decision.CANCEL;
                                     latch.countDown();
@@ -854,39 +855,39 @@ public class AIImportActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     try {
                         StringBuilder msg = new StringBuilder();
-                        msg.append("确认开始导入？\n\n");
+                        msg.append(getString(R.string.h_cf5013ac));
                         if (preview != null) {
-                            msg.append("完整题目：").append(preview.completeCount()).append(" 道\n");
+                            msg.append(getString(R.string.h_4560e686)).append(preview.completeCount()).append(getString(R.string.h_915b0f78));
                             if (preview.emptyQuestionCount > 0) {
-                                msg.append("⚠ 题干为空：").append(preview.emptyQuestionCount)
-                                        .append(" 行（无法导入，计入失败）\n");
+                                msg.append(getString(R.string.h_35460ac0)).append(preview.emptyQuestionCount)
+                                        .append(getString(R.string.h_4ccc9cf5));
                             }
                             long dup = preview.getDuplicateCount();
                             if (dup > 0) {
-                                msg.append("⚠ 重复：").append(dup).append(" 行，仅保留每组第 1 题：\n");
+                                msg.append(getString(R.string.h_10f4b9d3)).append(dup).append(getString(R.string.h_c1a7e7fd));
                                 int shown = 0;
                                 for (com.oilquiz.app.ai.importing.v2.ImportMain
                                         .QualityPreview.DuplicateDetail det
                                         : preview.duplicateDetails) {
                                     if (shown++ >= 5) break;
-                                    msg.append("　· 第 ").append(joinRows(det.rows))
-                                            .append(" 题「").append(truncate(det.question, 36))
+                                    msg.append(getString(R.string.h_c55d2e95)).append(joinRows(det.rows))
+                                            .append(getString(R.string.h_5c6640af)).append(truncate(det.question, 36))
                                             .append("」\n");
                                 }
                                 if (preview.duplicateDetails.size() > 5) {
-                                    msg.append("　…等共 ").append(preview.duplicateDetails.size())
-                                            .append(" 组\n");
+                                    msg.append(getString(R.string.h_e163a37e)).append(preview.duplicateDetails.size())
+                                            .append(getString(R.string.h_4416bbc7));
                                 }
                             }
                             if (!preview.stemVariantDetails.isEmpty()) {
-                                msg.append("ℹ 近似重复（题干相同答案不同，均已保留）：\n");
+                                msg.append(getString(R.string.h_7cfecc53));
                                 int shown = 0;
                                 for (com.oilquiz.app.ai.importing.v2.ImportMain
                                         .QualityPreview.DuplicateDetail det
                                         : preview.stemVariantDetails) {
                                     if (shown++ >= 5) break;
-                                    msg.append("　· 第 ").append(joinRows(det.rows))
-                                            .append(" 题「").append(truncate(det.question, 36))
+                                    msg.append(getString(R.string.h_c55d2e95)).append(joinRows(det.rows))
+                                            .append(getString(R.string.h_5c6640af)).append(truncate(det.question, 36))
                                             .append("」\n");
                                 }
                             }
@@ -897,21 +898,21 @@ public class AIImportActivity extends BaseActivity {
                                     if (missDetail.length() > 0) missDetail.append("、");
                                     missDetail.append(fieldLabel(e.getKey())).append(" ").append(e.getValue()).append(" 题");
                                 }
-                                msg.append("缺字段题目：").append(preview.incompleteCount).append(" 道")
+                                msg.append(getString(R.string.h_d3e61377)).append(preview.incompleteCount).append(" 道")
                                         .append(missDetail.length() > 0 ? "（" + missDetail + "）" : "")
-                                        .append("（已选").append(skipIncompleteVar ? "跳过" : "导入").append("）\n");
+                                        .append(getString(R.string.h_cffaa30e)).append(skipIncompleteVar ? getString(R.string.h_92636e8c) : getString(R.string.h_8d9a071e)).append("）\n");
                             }
                         } else {
-                            msg.append("预计导入：").append(summary.totalRows).append(" 行\n");
+                            msg.append(getString(R.string.h_eeeda977)).append(summary.totalRows).append(getString(R.string.h_5c5e3bed));
                         }
-                        msg.append("\n开始后写入数据库，中途可取消。");
+                        msg.append(getString(R.string.h_e49edbf3));
                         new AlertDialog.Builder(AIImportActivity.this)
-                                .setTitle("确认导入")
+                                .setTitle(getString(R.string.h_3e36a94f))
                                 .setMessage(msg.toString())
-                                .setPositiveButton("开始导入", (dialog, which) -> {
+                                .setPositiveButton(getString(R.string.h_7d2ff42c), (dialog, which) -> {
                                     latch.countDown();
                                 })
-                                .setNegativeButton("取消", (dialog, which) -> {
+                                .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> {
                                     d.action = com.oilquiz.app.ai.importing.v2.ImportMain
                                             .InteractionHandler.Decision.CANCEL;
                                     latch.countDown();
@@ -940,7 +941,7 @@ public class AIImportActivity extends BaseActivity {
             case "knowledgePoint": return "知识点";
             case "subCategory": return "子分类";
             case "tags": return "标签";
-            case "hint": return "提示";
+            case "hint": return SmartQuizApplication.getAppContext().getString(R.string.h_02d9819d);
             case "points": return "分值";
             case "timeLimit": return "时限";
             case "author": return "作者";
@@ -1027,14 +1028,14 @@ public class AIImportActivity extends BaseActivity {
             public void onComplete(com.oilquiz.app.ai.importing.v2.ImportMain.ImportSummary result) {
                 if (isFinishing() || isDestroyed()) return;
                 importFinished = true;
-                btnCancel.setText("关闭");
+                btnCancel.setText(getString(R.string.h_b15d9127));
                 agentView.completeExecution("智能导入");
                 tvSuccessCount.setText(String.valueOf(result.imported));
                 tvDupCount.setText(String.valueOf(result.duplicated));
                 tvTotalCount.setText(String.valueOf(result.totalRows));
                 tvFailedCount.setText(String.valueOf(result.failed));
                 statsCard.setVisibility(View.VISIBLE);
-                if (tvMonitorStage != null) tvMonitorStage.setText("完成");
+                if (tvMonitorStage != null) tvMonitorStage.setText(getString(R.string.h_769d88e4));
                 stopMonitor();
                 String doneMsg = "导入完成: 新增 " + result.imported + " 题";
                 if (result.duplicated > 0) {
@@ -1047,10 +1048,10 @@ public class AIImportActivity extends BaseActivity {
             public void onError(String message) {
                 if (isFinishing() || isDestroyed()) return;
                 importFinished = true;
-                btnCancel.setText("关闭");
+                btnCancel.setText(getString(R.string.h_b15d9127));
                 agentView.failExecution(message);
                 stopMonitor();
-                showLongToast("导入失败: " + message);
+                showLongToast(getString(R.string.h_45332d13) + message);
             }
         };
     }
@@ -1092,7 +1093,7 @@ public class AIImportActivity extends BaseActivity {
         }
 
         new AlertDialog.Builder(this)
-                .setTitle("选择 AI 模型模式")
+                .setTitle(getString(R.string.h_8333bf17))
                 .setSingleChoiceItems(items, checked, (dialog, which) -> {
                     AIImportOrchestrator.ModelMode newMode;
                     switch (which) {
@@ -1107,14 +1108,14 @@ public class AIImportActivity extends BaseActivity {
                     if ((newMode == AIImportOrchestrator.ModelMode.ONLINE_ONLY
                             || newMode == AIImportOrchestrator.ModelMode.ONLINE_PREFERRED)
                             && !hasOnline) {
-                        showLongToast("当前没有已激活的在线模型，请先配置在线模型");
+                        showLongToast(getString(R.string.h_1bf9fc34));
                     }
 
                     orchestrator.setModelMode(newMode);
                     refreshModelInfo();
                     dialog.dismiss();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -1127,7 +1128,7 @@ public class AIImportActivity extends BaseActivity {
                 // 激活新配置的模型
                 onlineModelManager.setActiveModel(config.id);
                 refreshModelInfo();
-                showToast("在线模型已配置并激活");
+                showToast(getString(R.string.h_07dfac43));
             }
 
             @Override
@@ -1200,7 +1201,7 @@ public class AIImportActivity extends BaseActivity {
     /** 显示已选择的文件列表 */
     private void displaySelectedFiles() {
         if (selectedFiles.isEmpty()) {
-            tvFileName.setText("未选择");
+            tvFileName.setText(getString(R.string.h_f0409ecf));
             btnStartImport.setEnabled(false);
             return;
         }
@@ -1211,7 +1212,7 @@ public class AIImportActivity extends BaseActivity {
             btnStartImport.setEnabled(true);
         } else {
             // 多文件：显示数量
-            tvFileName.setText("已选择 " + selectedFiles.size() + " 个文件");
+            tvFileName.setText(getString(R.string.h_943b9226) + selectedFiles.size() + getString(R.string.h_7c645c81));
             btnStartImport.setEnabled(true);
         }
     }

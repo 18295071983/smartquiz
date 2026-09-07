@@ -79,11 +79,11 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         titleBar.setPadding(20, 20, 20, 20);
         
         Button btnBack = new Button(this);
-        btnBack.setText("返回");
+        btnBack.setText(getString(R.string.h_5f411223));
         btnBack.setOnClickListener(v -> finish());
         
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("PDF 预览");
+        tvTitle.setText(getString(R.string.h_2d87bc11));
         tvTitle.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         tvTitle.setTextSize(18);
         tvTitle.setPadding(20, 0, 20, 0);
@@ -103,11 +103,11 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         controlBar.setPadding(10, 10, 10, 10);
         
         btnPrev = new Button(this);
-        btnPrev.setText("上一页");
+        btnPrev.setText(getString(R.string.h_f4f85316));
         btnPrev.setOnClickListener(v -> showPage(currentPage - 1));
         
         btnNext = new Button(this);
-        btnNext.setText("下一页");
+        btnNext.setText(getString(R.string.h_b4e1b508));
         btnNext.setOnClickListener(v -> showPage(currentPage + 1));
         
         controlBar.addView(btnPrev);
@@ -318,9 +318,9 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e(TAG, "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("错误")
-                    .setMessage("没有找到文件选择器应用，请安装文件管理器")
-                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setTitle(getString(R.string.h_7030ff64))
+                    .setMessage(getString(R.string.h_b5ea0a10))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                     .setCancelable(false)
                     .show();
         }

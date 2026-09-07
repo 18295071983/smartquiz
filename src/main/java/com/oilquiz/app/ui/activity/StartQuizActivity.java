@@ -199,7 +199,7 @@ public class StartQuizActivity extends AppCompatActivity {
                     typeList.addAll(questionTypes);
                 } else {
                     // 题库为空，提示用户
-                    Toast.makeText(StartQuizActivity.this, "题库为空，请先在题库管理中导入题目", Toast.LENGTH_LONG).show();
+                    Toast.makeText(StartQuizActivity.this, getString(R.string.h_e4c3fc02), Toast.LENGTH_LONG).show();
                 }
 
                 ArrayAdapter<String> adapter = new ArrayAdapter<>(StartQuizActivity.this,
@@ -222,7 +222,7 @@ public class StartQuizActivity extends AppCompatActivity {
                         android.R.layout.simple_spinner_item, typeList);
                 adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                 spinnerQuestionType.setAdapter(adapter);
-                Toast.makeText(StartQuizActivity.this, "题库加载异常，请检查后重试", Toast.LENGTH_SHORT).show();
+                Toast.makeText(StartQuizActivity.this, getString(R.string.h_8c13ee77), Toast.LENGTH_SHORT).show();
             }
         });
     }

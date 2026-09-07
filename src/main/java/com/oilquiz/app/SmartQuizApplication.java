@@ -238,7 +238,7 @@ public class SmartQuizApplication extends Application {
                                     @Override
                                     public void onHotStartComplete(boolean success, String message) {
                                         com.oilquiz.app.util.AILogger.i("SmartQuizApplication", 
-                                            "热启动结果: " + success + " - " + message);
+                                            getString(R.string.h_9c561bf1) + success + " - " + message);
                                     }
                                 });
                             }
@@ -522,7 +522,7 @@ public class SmartQuizApplication extends Application {
         try {
             final android.content.SharedPreferences prefs = getSharedPreferences("debug_agent_test", MODE_PRIVATE);
             if (!prefs.getBoolean("run", false)) return;
-            final String message = prefs.getString("message", "查一下北京天气");
+            final String message = prefs.getString("message", getString(R.string.h_f44c7e2e));
             prefs.edit().clear().apply();
             new Thread(() -> {
                 try {

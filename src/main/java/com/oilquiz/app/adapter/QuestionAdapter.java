@@ -115,7 +115,7 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
 
         // 题型
         String type = question.getQuestionType();
-        h.questionTypeTextView.setText(type != null ? type : "未分类");
+        h.questionTypeTextView.setText(type != null ? type : context.getString(R.string.h_ecf7ebb5));
 
         // 题目内容（完整显示）
         h.questionTextTextView.setText(question.getQuestionText() != null ? question.getQuestionText() : "");
@@ -161,7 +161,7 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             if (showAnswer) {
                 h.answerTextView.setVisibility(View.VISIBLE);
                 String displayAnswer = question.getDisplayAnswer();
-                h.answerTextView.setText("答案: " + displayAnswer);
+                h.answerTextView.setText(context.getString(R.string.h_2bac46d1) + displayAnswer);
             } else {
                 h.answerTextView.setVisibility(View.GONE);
             }
@@ -313,7 +313,7 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
 
         if (showAnswer && text != null && !text.isEmpty()) {
             h.explanationTextView.setVisibility(View.VISIBLE);
-            h.explanationTextView.setText("💡 解析: " + text);
+            h.explanationTextView.setText(context.getString(R.string.h_9d5e8d04) + text);
         } else {
             h.explanationTextView.setVisibility(View.GONE);
         }

@@ -239,16 +239,16 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 }
 
                 // 已配置（本地或在线）→ 手动初始化本地 AI 服务
-                Toast.makeText(this, "正在初始化AI服务...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_c9fe41a6), Toast.LENGTH_SHORT).show();
 
                 new Thread(() -> {
                     boolean success = aiService.initializeSafe();
 
                     runOnUiThread(() -> {
                         if (success) {
-                            Toast.makeText(this, "AI服务初始化成功", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, getString(R.string.h_05396f2b), Toast.LENGTH_SHORT).show();
                         } else {
-                            Toast.makeText(this, "AI服务初始化失败，请先导入模型", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, getString(R.string.h_f559a2f7), Toast.LENGTH_SHORT).show();
                         }
                         refreshStatus();
                     });
@@ -290,7 +290,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         if (aiEnableSwitch != null) {
             aiEnableSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
                 // 这里可以保存AI功能启用状态
-                Toast.makeText(this, "AI功能已" + (isChecked ? "启用" : "禁用"), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_d0f2a568) + (isChecked ? getString(R.string.h_7854b52a) : getString(R.string.h_710ad08b)), Toast.LENGTH_SHORT).show();
             });
         }
 
@@ -313,7 +313,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
                     OptimizationMode selected = OptimizationMode.fromId(position);
                     aiService.setOptimizationMode(selected);
-                    Toast.makeText(AIServiceStatusActivity.this, "优化模式: " + selected.displayName + "，重启AI对话后生效", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(AIServiceStatusActivity.this, getString(R.string.h_ecf8ff4c) + selected.displayName + getString(R.string.h_76c9800c), Toast.LENGTH_SHORT).show();
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });
@@ -343,7 +343,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 aiConfig.setUseJsonProtocol(isChecked);
                 Toast.makeText(this, isChecked
                         ? "已启用本地推理JSON协议（重启AI对话后生效）"
-                        : "已回退旧推理接口（重启AI对话后生效）", Toast.LENGTH_SHORT).show();
+                        : getString(R.string.h_ce44f945), Toast.LENGTH_SHORT).show();
             });
         }
 
@@ -356,7 +356,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 aiConfig.setLocalAgentEnabled(isChecked);
                 Toast.makeText(this, isChecked
                         ? "本地Agent已启用（含工具调用，新消息即时生效）"
-                        : "本地Agent已禁用（新消息即时生效）", Toast.LENGTH_SHORT).show();
+                        : getString(R.string.h_5d022097), Toast.LENGTH_SHORT).show();
             });
         }
 
@@ -401,7 +401,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         if (inputText.isEmpty() || "自动".equals(inputText) || "auto".equalsIgnoreCase(inputText)) {
             getSharedPreferences("model_state_cache", MODE_PRIVATE)
                     .edit().remove("gpu_layers_manual").apply();
-            Toast.makeText(this, "已恢复自动 GPU 层数", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_5501692f), Toast.LENGTH_SHORT).show();
             boolean modelLoaded = LlamaHelper.isModelInitialized();
             if (modelLoaded && aiService != null) {
                 aiService.reloadModelAsync(null);
@@ -414,11 +414,11 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         try {
             target = Integer.parseInt(inputText);
         } catch (Exception e) {
-            Toast.makeText(this, "请输入 0-36 的整数或“自动”", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_76df4b83), Toast.LENGTH_SHORT).show();
             return;
         }
         if (target < 0 || target > 36) {
-            Toast.makeText(this, "GPU 层数范围 0-36（0=纯CPU，36=全量GPU）", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_6271e9b8), Toast.LENGTH_SHORT).show();
             return;
         }
         int current = 0;
@@ -426,7 +426,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         boolean modelLoaded = LlamaHelper.isModelInitialized();
 
         if (modelLoaded && target == current) {
-            Toast.makeText(this, "GPU 层数未变化（当前 " + current + "）", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_4c2eb49a) + current + "）", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -434,14 +434,14 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 ? "GPU 层数将从 " + current + " 改为 " + target + "，需重新加载模型（数十秒）。继续？"
                 : "GPU 层数将设为 " + target + "（模型未加载，下次加载时生效）。";
         new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("GPU 层数设置")
+                .setTitle(getString(R.string.h_38673981))
                 .setMessage(msg)
-                .setPositiveButton(modelLoaded ? "重载模型" : "确定", (d, w) -> {
+                .setPositiveButton(modelLoaded ? getString(R.string.h_bb00d535) : getString(R.string.h_38cf16f2), (d, w) -> {
                     // 持久化保存手动值（独立 key，加载时优先于自动计算；"恢复自动"删除此 key）
                     getSharedPreferences("model_state_cache", MODE_PRIVATE)
                             .edit().putInt("gpu_layers_manual", target).apply();
                     LlamaHelper.setGPULayers(target);
-                    Toast.makeText(this, "GPU 层数已设为 " + target, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_66c80f21) + target, Toast.LENGTH_SHORT).show();
 
                     if (modelLoaded && aiService != null) {
                         // 原子重载：释放旧模型 + 用新 GPU 层数重新加载（同一串行执行器，避免竞态）
@@ -460,17 +460,17 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                         refreshStatus();
                     }
                 })
-                .setNeutralButton("恢复自动", (d, w) -> {
+                .setNeutralButton(getString(R.string.h_946091b8), (d, w) -> {
                     // 删除手动值，恢复自动计算（按设备/模型/内存）
                     getSharedPreferences("model_state_cache", MODE_PRIVATE)
                             .edit().remove("gpu_layers_manual").apply();
-                    Toast.makeText(this, "已恢复自动 GPU 层数", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_5501692f), Toast.LENGTH_SHORT).show();
                     if (modelLoaded && aiService != null) {
                         aiService.reloadModelAsync(null);
                     }
                     refreshStatus();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -494,7 +494,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                     int selected = Integer.parseInt(tokenOptions.get(pos));
                     AIConfig config = new AIConfig(AIServiceStatusActivity.this);
                     config.setMaxTokens(selected);
-                    Toast.makeText(AIServiceStatusActivity.this, "最大Token数: " + selected, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(AIServiceStatusActivity.this, getString(R.string.h_54ff0e50) + selected, Toast.LENGTH_SHORT).show();
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });
@@ -552,7 +552,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 onlineApiLight.setBackgroundResource(R.drawable.circle_green);
             }
             if (onlineApiStatus != null) {
-                onlineApiStatus.setText("已连接");
+                onlineApiStatus.setText(getString(R.string.h_c5ea9c6a));
                 onlineApiStatus.setTextColor(getResources().getColor(R.color.success));
             }
             // 模型信息
@@ -590,11 +590,11 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 onlineApiLight.setBackgroundResource(R.drawable.circle_red);
             }
             if (onlineApiStatus != null) {
-                onlineApiStatus.setText("未配置");
+                onlineApiStatus.setText(getString(R.string.h_71dc8feb));
                 onlineApiStatus.setTextColor(getResources().getColor(R.color.error));
             }
             if (onlineModelInfo != null) {
-                onlineModelInfo.setText("请在 AI 中心配置");
+                onlineModelInfo.setText(getString(R.string.h_a8076f9b));
                 onlineModelInfo.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextHint));
             }
             if (onlineContextWindow != null) {
@@ -664,14 +664,14 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             }
             // 同步 GPU 层数输入框（重载后显示新值；自动模式下保持"自动"）
             if (gpuLayersInput != null) {
-                gpuLayersInput.setText(isGpuLayersManual() ? String.valueOf(gpuLayers) : "自动");
+                gpuLayersInput.setText(isGpuLayersManual() ? String.valueOf(gpuLayers) : getString(R.string.h_3aed2c11));
             }
             
             if (openclLight != null) {
                 openclLight.setBackgroundResource(openclLoaded ? R.drawable.circle_green : R.drawable.circle_red);
             }
             if (openclStatus != null) {
-                openclStatus.setText(openclLoaded ? "已加载" : "未加载");
+                openclStatus.setText(openclLoaded ? getString(R.string.h_bec33d31) : getString(R.string.h_467b3e03));
                 openclStatus.setTextColor(openclLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
             }
             
@@ -705,7 +705,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 openclLight.setBackgroundResource(R.drawable.circle_red);
             }
             if (openclStatus != null) {
-                openclStatus.setText("未加载");
+                openclStatus.setText(getString(R.string.h_467b3e03));
                 openclStatus.setTextColor(getResources().getColor(R.color.error));
             }
             
@@ -713,7 +713,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 gpuLight.setBackgroundResource(R.drawable.circle_red);
             }
             if (gpuStatus != null) {
-                gpuStatus.setText("未启用");
+                gpuStatus.setText(getString(R.string.h_4637765b));
                 gpuStatus.setTextColor(getResources().getColor(R.color.error));
             }
         }
@@ -735,26 +735,26 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         }
         if (statusText != null) {
             if (modelLoaded) {
-                statusText.setText("运行中");
+                statusText.setText(getString(R.string.h_d679aea3));
                 statusText.setTextColor(successColor);
             } else if (isInitialized) {
-                statusText.setText("初始化中...");
+                statusText.setText(getString(R.string.h_2da32f3c));
                 statusText.setTextColor(warningColor);
             } else {
-                statusText.setText("未运行");
+                statusText.setText(getString(R.string.h_4f8a2f0b));
                 statusText.setTextColor(errorColor);
             }
         }
         
         if (statusHint != null) {
             if (modelLoaded) {
-                statusHint.setText("AI服务已就绪，所有功能可用");
+                statusHint.setText(getString(R.string.h_25d14de1));
                 statusHint.setTextColor(successColor);
             } else if (isInitialized) {
-                statusHint.setText("正在加载模型，请稍候...");
+                statusHint.setText(getString(R.string.h_33ed774e));
                 statusHint.setTextColor(warningColor);
             } else {
-                statusHint.setText("点击下方按钮启动AI服务");
+                statusHint.setText(getString(R.string.h_6fb79429));
                 statusHint.setTextColor(errorColor);
             }
         }
@@ -790,7 +790,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             }
         }
         if (modelName != null) {
-            modelName.setText(currentModel != null ? currentModel : "未选择");
+            modelName.setText(currentModel != null ? currentModel : getString(R.string.h_f0409ecf));
         }
     }
 
@@ -801,7 +801,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             libLight.setBackgroundResource(isLibraryLoaded ? R.drawable.circle_green : R.drawable.circle_red);
         }
         if (libStatus != null) {
-            libStatus.setText(isLibraryLoaded ? "已加载" : "未加载");
+            libStatus.setText(isLibraryLoaded ? getString(R.string.h_bec33d31) : getString(R.string.h_467b3e03));
             libStatus.setTextColor(isLibraryLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
         }
     }
@@ -813,7 +813,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             contextLight.setBackgroundResource(contextActive ? R.drawable.circle_green : R.drawable.circle_red);
         }
         if (contextInfo != null) {
-            contextInfo.setText(contextActive ? "已激活" : "未激活");
+            contextInfo.setText(contextActive ? getString(R.string.h_f6ebf8f5) : getString(R.string.h_d70e9bdf));
             contextInfo.setTextColor(contextActive ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
         }
     }
@@ -898,7 +898,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private void showTestAiDialog() {
         // 检查AI服务是否已初始化
         if (!aiService.isInitialized()) {
-            Toast.makeText(this, "AI服务未初始化，请先初始化AI服务", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_1c70ded4), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -927,7 +927,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 if (etTestInput != null) {
                     String inputText = etTestInput.getText().toString().trim();
                     if (inputText.isEmpty()) {
-                        Toast.makeText(AIServiceStatusActivity.this, "请输入测试文本", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(AIServiceStatusActivity.this, getString(R.string.h_dfb7ed74), Toast.LENGTH_SHORT).show();
                         return;
                     }
 
@@ -968,7 +968,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                                     resultContainer.setVisibility(android.view.View.VISIBLE);
                                 }
                                 if (tvTestResult != null) {
-                                    tvTestResult.setText("生成失败: " + e.getMessage());
+                                    tvTestResult.setText(getString(R.string.h_fe295564) + e.getMessage());
                                 }
                             });
                         }
@@ -1072,7 +1072,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                     modelFilename.setText("-");
                 }
 
-                modelParamsInfo.setText(paramsStr + " / " + meta.nLayer + "层 / ctx:" + meta.nCtxTrain);
+                modelParamsInfo.setText(paramsStr + " / " + meta.nLayer + getString(R.string.h_13933709) + meta.nCtxTrain);
             } else {
                 modelParams.setText("-");
                 modelLayers.setText("-");
@@ -1083,7 +1083,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 modelSpeed.setText("-");
                 modelTokens.setText("-");
                 modelFilename.setText("-");
-                modelParamsInfo.setText("未加载");
+                modelParamsInfo.setText(getString(R.string.h_467b3e03));
             }
         } catch (Exception e) {
             Log.w(TAG, "updateModelArchitectureInfo failed: " + e.getMessage());
@@ -1102,7 +1102,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 int sessionTotal = (stats != null) ? stats.sessionTotalTokens : 0;
                 int sessionCompletion = (stats != null) ? stats.sessionCompletionTokens : 0;
                 modelSpeed.setText(sessionCompletion > 0
-                        ? String.format("API · 累计 %d", sessionCompletion) : "API");
+                        ? String.format(getString(R.string.h_cffe3407), sessionCompletion) : "API");
                 modelTokens.setText(sessionTotal > 0 ? String.valueOf(sessionTotal) : "-");
                 modelMemory.setText("-"); // 在线模式不占用本地内存
                 return;

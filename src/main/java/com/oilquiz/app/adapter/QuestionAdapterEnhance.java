@@ -100,7 +100,7 @@ public class QuestionAdapterEnhance extends RecyclerView.Adapter<QuestionAdapter
                     if (options.containsKey("C")) sb.append("C ");
                     if (options.containsKey("D")) sb.append("D ");
                 } catch (Exception e) {
-                    sb.append("查看选项");
+                    sb.append(context.getString(R.string.h_dc252f2c));
                 }
             }
             

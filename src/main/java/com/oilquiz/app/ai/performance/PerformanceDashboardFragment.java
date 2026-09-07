@@ -182,7 +182,7 @@ public class PerformanceDashboardFragment extends Fragment {
             if (s.gpuWorking && s.gpuLayers > 0) {
                 gpuUsageValue.setText(s.gpuLayers + "层");
             } else if (s.modelLoaded) {
-                gpuUsageValue.setText("未启用");
+                gpuUsageValue.setText(getString(R.string.h_4637765b));
             } else {
                 gpuUsageValue.setText("--");
             }
@@ -286,7 +286,7 @@ public class PerformanceDashboardFragment extends Fragment {
             case PerformanceRuleEngine.ACTION_CLEAR_CONTEXT:
                 if (aiService != null) {
                     aiService.clearChatContext();
-                    Toast.makeText(getContext(), "对话上下文已清理", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(getContext(), getString(R.string.h_f12d8f72), Toast.LENGTH_SHORT).show();
                     refreshSuggestions();
                 }
                 break;
@@ -315,7 +315,7 @@ public class PerformanceDashboardFragment extends Fragment {
             getContext().getSharedPreferences("model_state_cache", android.content.Context.MODE_PRIVATE)
                     .edit().remove("gpu_layers_manual").apply();
         }
-        Toast.makeText(getContext(), "已恢复自动 GPU 层数，正在重载模型...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(getContext(), getString(R.string.h_7ce66b2e), Toast.LENGTH_SHORT).show();
         reloadModel();
     }
 
@@ -347,7 +347,7 @@ public class PerformanceDashboardFragment extends Fragment {
                     break;
             }
         }
-        Toast.makeText(getContext(), applied > 0 ? "已应用 " + applied + " 项优化" : "无需优化，一切正常", Toast.LENGTH_SHORT).show();
+        Toast.makeText(getContext(), applied > 0 ? getString(R.string.h_51f4e6f8) + applied + getString(R.string.h_521071ea) : getString(R.string.h_17fd8e9b), Toast.LENGTH_SHORT).show();
         handler.postDelayed(this::refreshSuggestions, 2000);
     }
 
@@ -359,7 +359,7 @@ public class PerformanceDashboardFragment extends Fragment {
         try { current = LlamaHelper.getGPULayers(); } catch (Exception ignored) {}
         int target = increase ? Math.min(30, current + 10) : Math.max(0, current - 10);
         if (target == current) {
-            Toast.makeText(getContext(), "GPU 层数已到" + (increase ? "上限 30" : "下限 0"), Toast.LENGTH_SHORT).show();
+            Toast.makeText(getContext(), getString(R.string.h_a9013d08) + (increase ? getString(R.string.h_19a343e7) : getString(R.string.h_0818746d)), Toast.LENGTH_SHORT).show();
             return;
         }
         // 持久化 + 设置 + 重载（独立 key，加载时优先于自动计算）
@@ -368,7 +368,7 @@ public class PerformanceDashboardFragment extends Fragment {
                     .edit().putInt("gpu_layers_manual", target).apply();
         }
         LlamaHelper.setGPULayers(target);
-        Toast.makeText(getContext(), "GPU 层数 " + current + " → " + target + "，正在重载模型...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(getContext(), getString(R.string.h_02203c0a) + current + " → " + target + getString(R.string.h_7e02ef2e), Toast.LENGTH_SHORT).show();
         reloadModel();
     }
 

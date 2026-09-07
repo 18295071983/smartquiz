@@ -1,5 +1,6 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.SmartQuizApplication;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -258,7 +259,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         } else if (hasLocation) {
             // ---------- 场景2A：有坐标没城市名 → GPS/系统缓存定位成功 ----------
             // 占位先，后台异步反解析：城市名（顶部）+ 具体地址（副行），并同步给横幅
-            if (tvCity != null) tvCity.setText("当前位置");
+            if (tvCity != null) tvCity.setText(getString(R.string.h_5eac11b4));
             asyncResolveFullAddress(lat, lon, (cityName, detail) -> {
                 city = cityName;
                 if (tvCity != null) tvCity.setText(truncateCityName(cityName));
@@ -281,7 +282,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (hasLocation) {
             tvLocationInfo.setText(String.format(java.util.Locale.US, "%.4f°N, %.4f°E", lat, lon));
         } else {
-            tvLocationInfo.setText("无GPS坐标，使用城市名查询");
+            tvLocationInfo.setText(getString(R.string.h_c63b316f));
         }
     }
 
@@ -329,13 +330,13 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
     /** 尝试通过 GPS/网络定位获取坐标 */
     private void tryGetGpsLocation() {
-        if (tvUpdateTime != null) tvUpdateTime.setText("正在定位...");
+        if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_6db9502a));
         updateLocationInfo();
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
                 && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "Location permission not granted, falling back to city name");
-            if (tvUpdateTime != null) tvUpdateTime.setText("无定位权限，使用城市查询");
+            if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_72c5e9fe));
             loadWeatherData();
             return;
         }
@@ -376,14 +377,14 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 }
             });
             updateLocationInfo();
-            if (tvUpdateTime != null) tvUpdateTime.setText("定位成功，加载中...");
+            if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_e41ae320));
             loadWeatherData();
             return;
         }
 
         // 2. getLastKnownLocation 失败，请求单次定位更新
         Log.d(TAG, "Last known location null, requesting location updates...");
-        if (tvUpdateTime != null) tvUpdateTime.setText("正在获取GPS定位...");
+        if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_b16a4dd3));
 
         final LocationManager lm = locationManager;
         final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -411,7 +412,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
                     }
                 });
                 updateLocationInfo();
-                if (tvUpdateTime != null) tvUpdateTime.setText("定位成功，加载中...");
+                if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_e41ae320));
                 loadWeatherData();
             }
             @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
@@ -426,13 +427,13 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 if (isFinishing() || isDestroyed()) return;
                 if (city != null && !city.isEmpty()) {
                     Log.w(TAG, "GPS timeout, falling back to city name: " + city);
-                    if (tvUpdateTime != null) tvUpdateTime.setText("定位超时，使用城市查询");
+                    if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_5f5b152c));
                     loadWeatherData();
                 } else {
                     Log.w(TAG, "GPS timeout and no city name available");
-                    if (tvUpdateTime != null) tvUpdateTime.setText("定位超时，无法获取天气");
-                    if (tvCity != null) tvCity.setText("未知位置");
-                    if (tvWeather != null) tvWeather.setText("定位失败");
+                    if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_3798353c));
+                    if (tvCity != null) tvCity.setText(getString(R.string.h_0fcd7253));
+                    if (tvWeather != null) tvWeather.setText(getString(R.string.h_9831baf6));
                 }
             }
         }, 10000);
@@ -448,13 +449,13 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 handler.removeCallbacksAndMessages(null);
                 if (city != null && !city.isEmpty()) {
                     Log.w(TAG, "No location provider available, falling back to city name");
-                    if (tvUpdateTime != null) tvUpdateTime.setText("无法定位，使用城市查询");
+                    if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_8872b579));
                     loadWeatherData();
                 } else {
                     Log.w(TAG, "No location provider and no city available");
-                    if (tvUpdateTime != null) tvUpdateTime.setText("无法定位");
-                    if (tvCity != null) tvCity.setText("未知位置");
-                    if (tvWeather != null) tvWeather.setText("无法获取位置");
+                    if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_9160ec6c));
+                    if (tvCity != null) tvCity.setText(getString(R.string.h_0fcd7253));
+                    if (tvWeather != null) tvWeather.setText(getString(R.string.h_eeb9d7a3));
                 }
             }
         } catch (SecurityException e) {
@@ -705,7 +706,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
         if (cardAlertsBanner != null) cardAlertsBanner.setVisibility(View.VISIBLE);
         if (bannerIcon != null) bannerIcon.setText("⚠️");
-        if (bannerTitle != null) bannerTitle.setText(type + "预警");
+        if (bannerTitle != null) bannerTitle.setText(type + getString(R.string.h_969a9f77));
         if (bannerSummary != null) bannerSummary.setText(summary);
         if (bannerTag != null) {
             bannerTag.setText(tagText);
@@ -838,7 +839,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
     private void openPrecipMapDetail() {
         String radarUrl = fxLinkMinutely != null && !fxLinkMinutely.isEmpty() ? fxLinkMinutely : fxLinkCurrent;
         if (radarUrl == null || radarUrl.isEmpty()) {
-            if (tvPrecipTip != null) tvPrecipTip.setText("暂无降水地图链接");
+            if (tvPrecipTip != null) tvPrecipTip.setText(getString(R.string.h_2b6827c2));
             return;
         }
         try {
@@ -847,7 +848,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             startActivity(intent);
         } catch (Exception e) {
             Log.w(TAG, "Cannot open radar map: " + e.getMessage());
-            if (tvPrecipTip != null) tvPrecipTip.setText("无法打开降水地图");
+            if (tvPrecipTip != null) tvPrecipTip.setText(getString(R.string.h_cd55d806));
         }
     }
 
@@ -1009,15 +1010,15 @@ public class WeatherDetailActivity extends AppCompatActivity {
     private void showMockData() {
         if (tvCity != null) tvCity.setText(truncateCityName(city));
         if (tvTemp != null) tvTemp.setText("--°");
-        if (tvWeather != null) tvWeather.setText("加载中...");
+        if (tvWeather != null) tvWeather.setText(getString(R.string.h_26b5bd49));
         if (tvTempRange != null) tvTempRange.setText("");
         if (tvWeatherSummary != null) tvWeatherSummary.setVisibility(View.GONE);
         if (ivCurrentIcon != null) ivCurrentIcon.setText(QWeatherIconFont.getIcon("999"));
 
-        if (chipFeelsLike != null) chipFeelsLike.setText("体感 --°");
-        if (chipCloud != null) chipCloud.setText("云量 --%");
-        if (chipDew != null) chipDew.setText("露点 --°");
-        if (chipVisibility != null) chipVisibility.setText("能见度 --km");
+        if (chipFeelsLike != null) chipFeelsLike.setText(getString(R.string.h_1deb24ab));
+        if (chipCloud != null) chipCloud.setText(getString(R.string.h_4db4795e));
+        if (chipDew != null) chipDew.setText(getString(R.string.h_685a8412));
+        if (chipVisibility != null) chipVisibility.setText(getString(R.string.h_4f917d13));
 
         if (cardAlertsBanner != null) cardAlertsBanner.setVisibility(View.GONE);
         alertExpanded = false;
@@ -1027,7 +1028,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         bannerItems.clear();
         bannerIndex = 0;
 
-        if (tvAirSummary != null) tvAirSummary.setText("-- 空气质量");
+        if (tvAirSummary != null) tvAirSummary.setText(getString(R.string.h_457351af));
         if (tvWindSummary != null) tvWindSummary.setText("--");
         if (tvAirHealth != null) tvAirHealth.setVisibility(View.GONE);
         if (cardAirForecast != null) cardAirForecast.setVisibility(View.GONE);
@@ -1043,14 +1044,14 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (tvSunrise != null) tvSunrise.setText("--:--");
         if (tvSunset != null) tvSunset.setText("--:--");
 
-        if (tvWindDirection != null) tvWindDirection.setText("-- 风");
-        if (tvWindLevel != null) tvWindLevel.setText("--级");
+        if (tvWindDirection != null) tvWindDirection.setText(getString(R.string.h_bf320dfa));
+        if (tvWindLevel != null) tvWindLevel.setText(getString(R.string.h_9508dd9e));
         if (tvWindSpeed != null) tvWindSpeed.setText("-- km/h");
         if (tvCompassDirection != null) tvCompassDirection.setText("");
         if (tvPressureValue != null) tvPressureValue.setText("--");
 
         if (tvAirAqi != null) tvAirAqi.setText("--");
-        if (tvAirCategory != null) tvAirCategory.setText("暂无数据");
+        if (tvAirCategory != null) tvAirCategory.setText(getString(R.string.h_21efd88b));
         if (tvAirPm25Label != null) tvAirPm25Label.setText("PM2.5");
         if (tvAirPm10Label != null) tvAirPm10Label.setText("PM10");
         if (tvAirNo2Label != null) tvAirNo2Label.setText("NO₂");
@@ -1099,11 +1100,11 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (gaugeHumidityArc != null) {
             gaugeHumidityArc.setProgressImmediate(0);
             gaugeHumidityArc.setText("--%");
-            gaugeHumidityArc.setLabel("舒适");
+            gaugeHumidityArc.setLabel(getString(R.string.h_f1d25753));
             gaugeHumidityArc.setArcColor(getResources().getColor(R.color.humidity_comfort));
         }
 
-        if (tvUpdateTime != null) tvUpdateTime.setText("更新于 --:--");
+        if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_4458129c));
     }
 
     private void loadWeatherData() {
@@ -1115,9 +1116,9 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (!hasLocation && (city == null || city.isEmpty())) {
             Log.w(TAG, "No location and no city, cannot load weather");
             runOnUiThread(() -> {
-                if (tvWeather != null) tvWeather.setText("无法获取位置信息");
-                if (tvUpdateTime != null) tvUpdateTime.setText("请先开启定位权限");
-                if (tvCity != null) tvCity.setText("未知位置");
+                if (tvWeather != null) tvWeather.setText(getString(R.string.h_23681583));
+                if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_ce0ea572));
+                if (tvCity != null) tvCity.setText(getString(R.string.h_0fcd7253));
             });
             return;
         }
@@ -1143,8 +1144,8 @@ public class WeatherDetailActivity extends AppCompatActivity {
                     if (result.alerts != null) parseAndUpdateAlerts(result.alerts);
                     if (result.airForecast != null) parseAndUpdateAirForecast(result.airForecast);
                 } else {
-                    if (tvAirCategory != null) tvAirCategory.setText("需要定位才能查询");
-                    if (tvAirSummary != null) tvAirSummary.setText("无GPS坐标");
+                    if (tvAirCategory != null) tvAirCategory.setText(getString(R.string.h_4cbee84f));
+                    if (tvAirSummary != null) tvAirSummary.setText(getString(R.string.h_4a27e834));
                     if (tvAirAqi != null) tvAirAqi.setText("--");
                     if (tvAirPrimaryPollutant != null) tvAirPrimaryPollutant.setVisibility(View.GONE);
                     if (tvAirHealth != null) tvAirHealth.setVisibility(View.GONE);
@@ -1166,15 +1167,15 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
                 if (tvUpdateTime != null) {
                     String time = new SimpleDateFormat("HH:mm", Locale.CHINA).format(new Date());
-                    tvUpdateTime.setText("更新于 " + time);
+                    tvUpdateTime.setText(getString(R.string.h_dde79cba) + time);
                 }
             });
         }).exceptionally(e -> {
             Log.e(TAG, "Failed to load weather data: " + e.getMessage(), e);
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
-                if (tvWeather != null) tvWeather.setText("加载失败");
-                if (tvUpdateTime != null) tvUpdateTime.setText("更新失败: " + e.getMessage());
+                if (tvWeather != null) tvWeather.setText(getString(R.string.h_866b795e));
+                if (tvUpdateTime != null) tvUpdateTime.setText(getString(R.string.h_860225c4) + e.getMessage());
             });
             return null;
         });
@@ -1388,16 +1389,16 @@ public class WeatherDetailActivity extends AppCompatActivity {
         }
         if (tvTempRange != null) {
             if (!highTemp.isEmpty() && !lowTemp.isEmpty()) {
-                tvTempRange.setText("最高" + highTemp + "° 最低" + lowTemp + "°");
+                tvTempRange.setText(getString(R.string.h_9b53e2a0) + highTemp + getString(R.string.h_665f6e4c) + lowTemp + "°");
             } else {
                 tvTempRange.setText("");
             }
         }
 
-        if (chipFeelsLike != null) chipFeelsLike.setText("体感 " + feelsLike + "°");
-        if (chipCloud != null) chipCloud.setText("云量 " + cloud + "%");
-        if (chipDew != null) chipDew.setText("露点 " + dew + "°");
-        if (chipVisibility != null) chipVisibility.setText("能见度 " + (visibility.isEmpty() || visibility.equals("--") ? "--" : visibility + "km"));
+        if (chipFeelsLike != null) chipFeelsLike.setText(getString(R.string.h_af4f1044) + feelsLike + "°");
+        if (chipCloud != null) chipCloud.setText(getString(R.string.h_60221e73) + cloud + "%");
+        if (chipDew != null) chipDew.setText(getString(R.string.h_5b7b89a9) + dew + "°");
+        if (chipVisibility != null) chipVisibility.setText(getString(R.string.h_148fc868) + (visibility.isEmpty() || visibility.equals("--") ? "--" : visibility + "km"));
 
         // 风向风速 - 两个等级（风向 + 风力等级 + 风速）
         if (tvWindDirection != null) {
@@ -1603,7 +1604,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
         if (count == 0) {
             TextView tvEmpty = new TextView(this);
-            tvEmpty.setText("暂无预报数据");
+            tvEmpty.setText(getString(R.string.h_ac7bf3e0));
             tvEmpty.setTextSize(13);
             tvEmpty.setTextColor(getResources().getColor(R.color.future_text_secondary));
             tvEmpty.setPadding(16, 24, 16, 24);
@@ -1728,8 +1729,8 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
         if (weatherText.contains("查询失败") || weatherText.contains("暂无权限") || weatherText.contains("无权限")) {
             String errorMsg = weatherText.replace("空气质量:", "").replace("空气质量", "").trim();
-            if (tvAirCategory != null) tvAirCategory.setText(errorMsg.isEmpty() ? "查询失败" : errorMsg);
-            if (tvAirSummary != null) tvAirSummary.setText("空气质量查询失败");
+            if (tvAirCategory != null) tvAirCategory.setText(errorMsg.isEmpty() ? getString(R.string.h_0d66ed02) : errorMsg);
+            if (tvAirSummary != null) tvAirSummary.setText(getString(R.string.h_94b36989));
             if (tvAirHealth != null) tvAirHealth.setVisibility(View.GONE);
             if (tvAirPrimaryPollutant != null) tvAirPrimaryPollutant.setVisibility(View.GONE);
             currentAirAqi = "";
@@ -1793,10 +1794,10 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 healthAdvice.append(line.substring(5).trim());
             } else if (line.startsWith("一般人群:")) {
                 if (healthAdvice.length() > 0) healthAdvice.append("\n");
-                healthAdvice.append("一般人群: ").append(line.substring(5).trim());
+                healthAdvice.append(getString(R.string.h_2351df51)).append(line.substring(5).trim());
             } else if (line.startsWith("敏感人群:")) {
                 if (healthAdvice.length() > 0) healthAdvice.append("\n");
-                healthAdvice.append("敏感人群: ").append(line.substring(5).trim());
+                healthAdvice.append(getString(R.string.h_e908a14d)).append(line.substring(5).trim());
             } else if (line.startsWith("健康提示:")) {
                 if (healthAdvice.length() > 0) healthAdvice.append("\n");
                 healthAdvice.append(line.substring(5).trim());
@@ -1817,7 +1818,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
         if (tvAirPrimaryPollutant != null) {
             if (!primaryPollutant.isEmpty()) {
-                tvAirPrimaryPollutant.setText("🟡 首要污染物: " + primaryPollutant);
+                tvAirPrimaryPollutant.setText(getString(R.string.h_5130aa9b) + primaryPollutant);
                 tvAirPrimaryPollutant.setVisibility(View.VISIBLE);
             } else {
                 tvAirPrimaryPollutant.setVisibility(View.GONE);
@@ -1993,7 +1994,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (!level.isEmpty() && !level.equals("预警")) {
             sb.append("[").append(level).append(type).append("]");
         } else {
-            sb.append("[").append(type).append("预警]");
+            sb.append("[").append(type).append(SmartQuizApplication.getAppContext().getString(R.string.h_d5e41258));
         }
 
         // 关键内容：显示完整描述
@@ -2009,7 +2010,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
         // 如果还有其他预警，附上数量和类型
         if (sorted.size() > 1) {
-            sb.append("（另有");
+            sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_68cbd329));
             for (int i = 1; i < sorted.size(); i++) {
                 AlertInfo other = sorted.get(i);
                 String otherType = extractAlertType(other.title);
@@ -2018,7 +2019,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
                 if (!otherLevel.isEmpty()) {
                     sb.append(otherLevel).append(otherType);
                 } else {
-                    sb.append(otherType).append("预警");
+                    sb.append(otherType).append(SmartQuizApplication.getAppContext().getString(R.string.h_969a9f77));
                 }
             }
             sb.append("）");
@@ -2029,7 +2030,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
     /** 从标题中提取预警类型，如 "【橙色】雷电(橙色)" → "雷电" */
     private static String extractAlertType(String title) {
-        if (title == null || title.isEmpty()) return "天气";
+        if (title == null || title.isEmpty()) return SmartQuizApplication.getAppContext().getString(R.string.h_265f273c);
         // 去掉【】部分
         String s = title;
         int bracketEnd = s.indexOf('】');
@@ -2044,10 +2045,10 @@ public class WeatherDetailActivity extends AppCompatActivity {
     /** 从标题中提取颜色等级 */
     private static String extractAlertColor(String title) {
         if (title == null) return "";
-        if (title.contains("红")) return "红色";
-        if (title.contains("橙")) return "橙色";
-        if (title.contains("黄")) return "黄色";
-        if (title.contains("蓝")) return "蓝色";
+        if (title.contains("红")) return SmartQuizApplication.getAppContext().getString(R.string.h_52636511);
+        if (title.contains("橙")) return SmartQuizApplication.getAppContext().getString(R.string.h_d9bbeb44);
+        if (title.contains("黄")) return SmartQuizApplication.getAppContext().getString(R.string.h_ddb86dd3);
+        if (title.contains("蓝")) return SmartQuizApplication.getAppContext().getString(R.string.h_9c9aabab);
         return "";
     }
 
@@ -2078,7 +2079,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
     }
 
     private static class AlertInfo {
-        String title = "天气预警";
+        String title = SmartQuizApplication.getAppContext().getString(R.string.h_4685224b);
         String level = "预警";
         String summary = "";
         String description = "";
@@ -2102,7 +2103,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
             if (line.isEmpty()) continue;
 
             // 第一行是标题行，格式如 【橙色】雷电(橙色)
-            if (line.startsWith("【") && info.title.equals("天气预警")) {
+            if (line.startsWith("【") && info.title.equals(getString(R.string.h_4685224b))) {
                 info.title = line;
                 if (line.contains("红")) info.level = "红色";
                 else if (line.contains("橙")) info.level = "橙色";
@@ -2182,22 +2183,22 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
     private String getAlertEmoji(String title) {
         if (title == null) return "⚠️";
-        if (title.contains("暴雨")) return "🌧️";
-        if (title.contains("雷电") || title.contains("雷暴")) return "⛈️";
-        if (title.contains("大风") || title.contains("强风")) return "💨";
-        if (title.contains("暴雪") || title.contains("大雪")) return "❄️";
-        if (title.contains("高温")) return "🔥";
-        if (title.contains("寒潮") || title.contains("降温")) return "🥶";
-        if (title.contains("道路结冰") || title.contains("冰冻")) return "🧊";
-        if (title.contains("大雾")) return "🌫️";
+        if (title.contains(getString(R.string.h_569d866e))) return "🌧️";
+        if (title.contains(getString(R.string.h_43dfd700)) || title.contains(getString(R.string.h_db5f1712))) return "⛈️";
+        if (title.contains(getString(R.string.h_46ad421d)) || title.contains(getString(R.string.h_cb9bc278))) return "💨";
+        if (title.contains(getString(R.string.h_7cd28c6c)) || title.contains(getString(R.string.h_4fafcc2c))) return "❄️";
+        if (title.contains(getString(R.string.h_ea25b6ea))) return "🔥";
+        if (title.contains(getString(R.string.h_1ea91433)) || title.contains(getString(R.string.h_b04f6fd4))) return "🥶";
+        if (title.contains(getString(R.string.h_5e9bb27c)) || title.contains(getString(R.string.h_e527a26f))) return "🧊";
+        if (title.contains(getString(R.string.h_6ab232c9))) return "🌫️";
         if (title.contains("霾")) return "😷";
-        if (title.contains("沙尘") || title.contains("扬沙")) return "🏜️";
-        if (title.contains("台风")) return "🌀";
-        if (title.contains("海浪") || title.contains("风暴潮")) return "🌊";
-        if (title.contains("干旱")) return "🏜️";
-        if (title.contains("冰雹")) return "🧊";
-        if (title.contains("霜冻")) return "❄️";
-        if (title.contains("森林火险") || title.contains("火灾")) return "🔥";
+        if (title.contains(getString(R.string.h_b2036718)) || title.contains(getString(R.string.h_014e238d))) return "🏜️";
+        if (title.contains(getString(R.string.h_647d33af))) return "🌀";
+        if (title.contains(getString(R.string.h_cb1de6e5)) || title.contains(getString(R.string.h_ea27df54))) return "🌊";
+        if (title.contains(getString(R.string.h_5f776911))) return "🏜️";
+        if (title.contains(getString(R.string.h_33788212))) return "🧊";
+        if (title.contains(getString(R.string.h_5d5b12fb))) return "❄️";
+        if (title.contains(getString(R.string.h_cb3d7529)) || title.contains(getString(R.string.h_596297f1))) return "🔥";
         return "⚠️";
     }
 
@@ -2265,22 +2266,22 @@ public class WeatherDetailActivity extends AppCompatActivity {
         // === 元数据区域 ===
         StringBuilder meta = new StringBuilder();
         if (!info.publishTime.isEmpty() && !info.publishTime.equals("--"))
-            meta.append("发布: ").append(info.publishTime);
+            meta.append(getString(R.string.h_88f892c5)).append(info.publishTime);
         if (!info.sender.isEmpty()) {
             if (meta.length() > 0) meta.append("\n");
-            meta.append("机构: ").append(info.sender);
+            meta.append(getString(R.string.h_84a3191b)).append(info.sender);
         }
         if (!info.effectiveTime.isEmpty()) {
             if (meta.length() > 0) meta.append("\n");
-            meta.append("生效: ").append(info.effectiveTime);
+            meta.append(getString(R.string.h_1bf343fc)).append(info.effectiveTime);
         }
         if (!info.urgency.isEmpty()) {
             if (meta.length() > 0) meta.append("  ");
-            meta.append("紧急: ").append(info.urgency);
+            meta.append(getString(R.string.h_3a68b89c)).append(info.urgency);
         }
         if (!info.certainty.isEmpty()) {
             if (meta.length() > 0) meta.append("  ");
-            meta.append("确定性: ").append(info.certainty);
+            meta.append(getString(R.string.h_bae21822)).append(info.certainty);
         }
 
         if (meta.length() > 0) {
@@ -2314,7 +2315,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
         // === 防御指南 ===
         if (!info.defense.isEmpty()) {
             TextView tvDefenseLabel = new TextView(this);
-            tvDefenseLabel.setText("🛡️ 防御指南");
+            tvDefenseLabel.setText(getString(R.string.h_8aa8b23a));
             tvDefenseLabel.setTextSize(12);
             tvDefenseLabel.setTypeface(null, Typeface.BOLD);
             tvDefenseLabel.setTextColor(getLevelColor(info.level));
@@ -2537,15 +2538,15 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (!todayDayWeather.isEmpty() || !todayNightWeather.isEmpty()) {
             if (!todayDayWeather.isEmpty() && !todayNightWeather.isEmpty()) {
                 if (todayDayWeather.equals(todayNightWeather)) {
-                    sb.append("今天全天").append(todayDayWeather);
+                    sb.append(getString(R.string.h_274efdb9)).append(todayDayWeather);
                 } else {
-                    sb.append("今天白天").append(todayDayWeather)
-                      .append("，夜间").append(todayNightWeather);
+                    sb.append(getString(R.string.h_7929767e)).append(todayDayWeather)
+                      .append(getString(R.string.h_c7ba693e)).append(todayNightWeather);
                 }
             } else if (!todayDayWeather.isEmpty()) {
-                sb.append("今天白天").append(todayDayWeather);
+                sb.append(getString(R.string.h_7929767e)).append(todayDayWeather);
             } else {
-                sb.append("今天夜间").append(todayNightWeather);
+                sb.append(getString(R.string.h_d7befd55)).append(todayNightWeather);
             }
             // 温差
             if (!todayHighTemp.equals("--") && !todayLowTemp.equals("--")) {
@@ -2554,7 +2555,7 @@ public class WeatherDetailActivity extends AppCompatActivity {
                     int low = Integer.parseInt(todayLowTemp);
                     int diff = high - low;
                     sb.append("，").append(low).append("~").append(high).append("°");
-                    if (diff >= 10) sb.append("，温差").append(diff).append("°注意添减衣物");
+                    if (diff >= 10) sb.append(getString(R.string.h_de66c340)).append(diff).append(getString(R.string.h_e9100b89));
                 } catch (NumberFormatException ignored) {}
             }
             sb.append("。");
@@ -2565,24 +2566,24 @@ public class WeatherDetailActivity extends AppCompatActivity {
         boolean hasFeels = !currentFeelsLike.isEmpty() && !currentFeelsLike.equals("--");
         boolean hasVis = !currentVisibility.isEmpty() && !currentVisibility.equals("--");
         if (hasTemp || hasFeels || hasVis) {
-            sb.append(" 当前");
+            sb.append(getString(R.string.h_f8ad32ea));
             if (hasTemp) sb.append(currentTempVal).append("°");
             if (hasFeels && hasTemp) {
                 try {
                     int diff = Integer.parseInt(currentFeelsLike) - Integer.parseInt(currentTempVal);
-                    if (diff >= 3) sb.append("，体感更热约").append(currentFeelsLike).append("°");
-                    else if (diff <= -3) sb.append("，体感更冷约").append(currentFeelsLike).append("°");
+                    if (diff >= 3) sb.append(getString(R.string.h_1a902d11)).append(currentFeelsLike).append("°");
+                    else if (diff <= -3) sb.append(getString(R.string.h_1f38c85b)).append(currentFeelsLike).append("°");
                 } catch (NumberFormatException ignored) {}
             } else if (hasFeels) {
-                sb.append("，体感").append(currentFeelsLike).append("°");
+                sb.append(getString(R.string.h_7e868f04)).append(currentFeelsLike).append("°");
             }
             if (hasVis) {
                 try {
                     double vis = Double.parseDouble(currentVisibility);
-                    if (vis < 1) sb.append("，能见度极差(<1km)");
-                    else if (vis < 5) sb.append("，能见度差(").append(currentVisibility).append("km)");
-                    else if (vis < 10) sb.append("，能见度一般(").append(currentVisibility).append("km)");
-                    else sb.append("，能见度良好(").append(currentVisibility).append("km)");
+                    if (vis < 1) sb.append(getString(R.string.h_95ce7d95));
+                    else if (vis < 5) sb.append(getString(R.string.h_8e057650)).append(currentVisibility).append("km)");
+                    else if (vis < 10) sb.append(getString(R.string.h_ad4463d0)).append(currentVisibility).append("km)");
+                    else sb.append(getString(R.string.h_3ded4e65)).append(currentVisibility).append("km)");
                 } catch (NumberFormatException ignored) {}
             }
             sb.append("。");
@@ -2592,31 +2593,31 @@ public class WeatherDetailActivity extends AppCompatActivity {
         if (!currentWeatherText.isEmpty() && !currentWeatherText.equals("--")) {
             boolean added = false;
             if (currentWeatherText.contains("暴雨") || currentWeatherText.contains("大暴雨")) {
-                sb.append(" 暴雨天气，避免外出。"); added = true;
+                sb.append(getString(R.string.h_2d1065ec)); added = true;
             } else if (currentWeatherText.contains("大雨")) {
-                sb.append(" 雨势较大，出门带伞。"); added = true;
+                sb.append(getString(R.string.h_4bd97296)); added = true;
             } else if (currentWeatherText.contains("雨")) {
-                sb.append(" 有降雨，建议携带雨具。"); added = true;
+                sb.append(getString(R.string.h_66649225)); added = true;
             } else if (currentWeatherText.contains("暴") && currentWeatherText.contains("雪")) {
-                sb.append(" 暴雪天气，注意保暖防滑。"); added = true;
+                sb.append(getString(R.string.h_79978b01)); added = true;
             } else if (currentWeatherText.contains("雪")) {
-                sb.append(" 有降雪，注意路滑。"); added = true;
+                sb.append(getString(R.string.h_30483476)); added = true;
             } else if (currentWeatherText.contains("雾") || currentWeatherText.contains("霾")) {
-                sb.append(" 能见度低，出行注意安全。"); added = true;
+                sb.append(getString(R.string.h_9b7ddd10)); added = true;
             } else if (currentWeatherText.contains("沙尘")) {
-                sb.append(" 沙尘天气，佩戴口罩。"); added = true;
+                sb.append(getString(R.string.h_27d31044)); added = true;
             }
             if (!added) {
                 // 温度提醒
                 if (hasTemp) {
                     try {
                         int temp = Integer.parseInt(currentTempVal);
-                        if (temp <= 0) sb.append(" 天气严寒，注意防冻。");
-                        else if (temp <= 5) sb.append(" 天气寒冷，注意保暖。");
-                        else if (temp >= 35) sb.append(" 酷热天气，注意防暑。");
-                        else if (temp >= 30) sb.append(" 天气炎热，多补充水分。");
+                        if (temp <= 0) sb.append(getString(R.string.h_b001cecf));
+                        else if (temp <= 5) sb.append(getString(R.string.h_f87126c4));
+                        else if (temp >= 35) sb.append(getString(R.string.h_f9797d64));
+                        else if (temp >= 30) sb.append(getString(R.string.h_f3300ec5));
                         else if (temp > 15 && temp < 30 && currentWeatherText.contains("晴")) {
-                            sb.append(" 天气不错，适合外出活动。");
+                            sb.append(getString(R.string.h_a1f59fc0));
                         }
                     } catch (NumberFormatException ignored) {}
                 }
@@ -2789,19 +2790,19 @@ public class WeatherDetailActivity extends AppCompatActivity {
 
             StringBuilder sb = new StringBuilder();
             if (intermittent) {
-                sb.append(String.format("间歇性%s，", typeText));
-                sb.append(String.format("降水持续%d分钟", rainMinutes));
-                sb.append(String.format("，间歇%d分钟", gapMinutes));
+                sb.append(String.format(getString(R.string.h_c63d2db4), typeText));
+                sb.append(String.format(getString(R.string.h_a9f57b3a), rainMinutes));
+                sb.append(String.format(getString(R.string.h_e535deb9), gapMinutes));
             } else {
-                sb.append(String.format("持续%s%d分钟", typeText, rainMinutes));
+                sb.append(String.format(getString(R.string.h_3080e75d), typeText, rainMinutes));
             }
-            sb.append(String.format("，累计%.1fmm（%s）", totalPrecip, levelText));
+            sb.append(String.format(getString(R.string.h_d494de13), totalPrecip, levelText));
 
             // 雨停信息
             if (!rainStopTime.isEmpty()) {
                 sb.append("，").append(rainStopTime).append("停");
             } else {
-                sb.append("，2小时内不会停");
+                sb.append(getString(R.string.h_a2f58ffa));
             }
 
             summary = sb.toString();

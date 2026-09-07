@@ -175,7 +175,7 @@ public class MappingEditorActivity extends AppCompatActivity {
     private void loadSavedMappingsWithToast() {
         loadSavedMappings();
         populateMappingViews();
-        Toast.makeText(this, "已加载保存的映射配置", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_e5ce7412), Toast.LENGTH_SHORT).show();
     }
 
     // 保存映射配置到SharedPreferences
@@ -210,7 +210,7 @@ public class MappingEditorActivity extends AppCompatActivity {
         }
 
         editor.apply();
-        Toast.makeText(this, "映射配置已保存", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_fd948b3b), Toast.LENGTH_SHORT).show();
     }
 
     private void populateMappingViews() {
@@ -264,7 +264,7 @@ public class MappingEditorActivity extends AppCompatActivity {
             btnSelectColumn.setText("列 " + (columnIndex + 1) + ": " + columnHeaders.get(columnIndex));
         } else {
             selectedColumnsMap.put(mappingView, -1);
-            btnSelectColumn.setText("选择列");
+            btnSelectColumn.setText(getString(R.string.h_c9397e93));
         }
 
         // 列选择按钮点击事件
@@ -290,11 +290,11 @@ public class MappingEditorActivity extends AppCompatActivity {
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("选择映射列");
+        builder.setTitle(getString(R.string.h_1d75e445));
         builder.setItems(columnOptions.toArray(new String[0]), (dialog, which) -> {
             if (which == 0) {
                 selectedColumnsMap.put(mappingView, -1);
-                btnSelectColumn.setText("选择列");
+                btnSelectColumn.setText(getString(R.string.h_c9397e93));
             } else {
                 int columnIndex = which - 1;
                 selectedColumnsMap.put(mappingView, columnIndex);
@@ -321,7 +321,7 @@ public class MappingEditorActivity extends AppCompatActivity {
             if (!fieldName.isEmpty() && selectedIndex != null && selectedIndex >= 0) {
                 // 检查列是否已经被其他字段映射
                 if (columnToFieldMap.containsKey(selectedIndex)) {
-                    Toast.makeText(this, "错误：列 " + (selectedIndex + 1) + " 已被字段 '" + columnToFieldMap.get(selectedIndex) + "' 映射", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_50c8f8c2) + (selectedIndex + 1) + getString(R.string.h_4535c522) + columnToFieldMap.get(selectedIndex) + getString(R.string.h_3b8504f0), Toast.LENGTH_SHORT).show();
                     return;
                 }
 

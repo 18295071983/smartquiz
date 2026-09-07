@@ -79,13 +79,13 @@ public class FieldConfigActivity extends AppCompatActivity {
     private void loadTemplate() {
         if (isContentTemplateMode) {
             // 显示内容模板信息
-            templateNameText.setText("内容模板：" + contentTemplateName);
+            templateNameText.setText(getString(R.string.h_92f00bd2) + contentTemplateName);
         } else {
             // 显示导出模板信息
             TemplateManager templateManager = TemplateManager.getInstance();
             template = templateManager.getTemplateById(templateId);
             if (template != null) {
-                templateNameText.setText("模板：" + template.getName());
+                templateNameText.setText(getString(R.string.h_c906734a) + template.getName());
             }
         }
     }

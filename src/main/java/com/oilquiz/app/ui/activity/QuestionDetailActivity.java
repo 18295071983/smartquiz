@@ -92,7 +92,7 @@ public class QuestionDetailActivity extends AppCompatActivity {
         favoriteButton.setOnClickListener(v -> toggleFavorite());
         // 编辑：返回题库页后由列表编辑（复用题库页的编辑对话框）
         editButton.setOnClickListener(v -> {
-            Toast.makeText(this, "请在题库列表中点击题目旁的「编辑」修改", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_bac7dbf8), Toast.LENGTH_SHORT).show();
             finish();
         });
         // 删除：删除当前题目并关闭详情页
@@ -146,14 +146,14 @@ public class QuestionDetailActivity extends AppCompatActivity {
     private void deleteQuestion() {
         if (currentQuestion == null) return;
         new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("删除题目")
-                .setMessage("确定要删除这道题目吗？此操作不可恢复。")
-                .setPositiveButton("删除", (dialog, which) -> {
+                .setTitle(getString(R.string.h_a8eb20bc))
+                .setMessage(getString(R.string.h_ce7e90c3))
+                .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {
                     questionRepository.deleteQuestion(currentQuestion.getId(), new QuestionViewModel.DeleteQuestionCallback() {
                         @Override
                         public void onSuccess() {
                             runOnUiThread(() -> {
-                                Toast.makeText(QuestionDetailActivity.this, "题目已删除", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuestionDetailActivity.this, getString(R.string.h_b1ea3f0f), Toast.LENGTH_SHORT).show();
                                 finish();
                             });
                         }
@@ -161,11 +161,11 @@ public class QuestionDetailActivity extends AppCompatActivity {
                         @Override
                         public void onError(String error) {
                             runOnUiThread(() -> Toast.makeText(QuestionDetailActivity.this,
-                                    "删除失败：" + error, Toast.LENGTH_SHORT).show());
+                                    getString(R.string.h_bc42bb8f) + error, Toast.LENGTH_SHORT).show());
                         }
                     });
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -182,10 +182,10 @@ public class QuestionDetailActivity extends AppCompatActivity {
 
     private void updateFavoriteButton() {
         if (isFavorite) {
-            favoriteButton.setText("取消收藏");
+            favoriteButton.setText(getString(R.string.h_f22cec28));
             favoriteButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_favorite_filled, 0, 0, 0);
         } else {
-            favoriteButton.setText("收藏");
+            favoriteButton.setText(getString(R.string.h_ae336cd0));
             favoriteButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_favorite_empty, 0, 0, 0);
         }
     }
@@ -204,7 +204,7 @@ public class QuestionDetailActivity extends AppCompatActivity {
                                 updateFavoriteButton();
                             } else {
                                 Toast.makeText(QuestionDetailActivity.this,
-                                        "收藏操作失败", Toast.LENGTH_SHORT).show();
+                                        getString(R.string.h_e2ce0dc4), Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
@@ -212,7 +212,7 @@ public class QuestionDetailActivity extends AppCompatActivity {
                     @Override
                     public void onFailure(String error) {
                         runOnUiThread(() -> Toast.makeText(QuestionDetailActivity.this,
-                                "收藏失败：" + error, Toast.LENGTH_SHORT).show());
+                                getString(R.string.h_61c124a9) + error, Toast.LENGTH_SHORT).show());
                     }
                 });
     }
@@ -220,17 +220,17 @@ public class QuestionDetailActivity extends AppCompatActivity {
     private void shareQuestion() {
         if (currentQuestion != null) {
             StringBuilder sb = new StringBuilder();
-            sb.append("题目：").append(currentQuestion.getQuestionText()).append("\n");
+            sb.append(getString(R.string.h_68ec26d1)).append(currentQuestion.getQuestionText()).append("\n");
             Map<String, String> options = currentQuestion.getOptions();
             if (options != null && !options.isEmpty()) {
-                sb.append("选项：\n");
+                sb.append(getString(R.string.h_af4cefc1));
                 for (Map.Entry<String, String> e : new TreeMap<>(options).entrySet()) {
                     if (e.getValue() != null && !e.getValue().isEmpty()) {
                         sb.append(e.getKey()).append(". ").append(e.getValue()).append("\n");
                     }
                 }
             }
-            sb.append("正确答案：").append(currentQuestion.getCorrectAnswer());
+            sb.append(getString(R.string.h_e1edc144)).append(currentQuestion.getCorrectAnswer());
             Intent shareIntent = new Intent(Intent.ACTION_SEND);
             shareIntent.setType("text/plain");
             shareIntent.putExtra(Intent.EXTRA_TEXT, sb.toString());
@@ -241,9 +241,9 @@ public class QuestionDetailActivity extends AppCompatActivity {
     private void displayQuestionDetails(Question question) {
         questionTextTextView.setText(question.getQuestionText());
 
-        setVisibleText(questionTypeTextView, "题型", question.getQuestionType());
-        setVisibleText(categoryTextView, "分类", question.getCategory());
-        difficultyTextView.setText("难度: " + getDifficultyText(question.getDifficulty()));
+        setVisibleText(questionTypeTextView, getString(R.string.h_65a80a7c), question.getQuestionType());
+        setVisibleText(categoryTextView, getString(R.string.h_d0771a42), question.getCategory());
+        difficultyTextView.setText(getString(R.string.h_46b04b28) + getDifficultyText(question.getDifficulty()));
         switch (question.getDifficulty()) {
             case 1:
                 difficultyTextView.setTextColor(getResources().getColor(R.color.colorEasy));
@@ -263,18 +263,18 @@ public class QuestionDetailActivity extends AppCompatActivity {
 
         String correctAnswer = question.getCorrectAnswer();
         if (correctAnswer != null && !correctAnswer.trim().isEmpty()) {
-            correctAnswerTextView.setText("正确答案: " + correctAnswer);
+            correctAnswerTextView.setText(getString(R.string.h_16b46626) + correctAnswer);
             correctAnswerTextView.setTextColor(getResources().getColor(R.color.colorCorrect));
         } else {
-            correctAnswerTextView.setText("正确答案: 无");
+            correctAnswerTextView.setText(getString(R.string.h_da3a7a79));
             correctAnswerTextView.setTextColor(ThemeColors.attr(this, R.attr.colorPrimary));
         }
 
-        setVisibleText(explanationTextView, "解析", question.getExplanation());
-        setVisibleText(analysisTextView, "详细解析", question.getAnalysis());
-        setVisibleText(knowledgePointTextView, "知识点", question.getKnowledgePoint());
-        setVisibleText(tagsTextView, "标签", question.getTags());
-        setVisibleText(hintTextView, "提示", question.getHint());
+        setVisibleText(explanationTextView, getString(R.string.h_aa357cb9), question.getExplanation());
+        setVisibleText(analysisTextView, getString(R.string.h_cf6c394c), question.getAnalysis());
+        setVisibleText(knowledgePointTextView, getString(R.string.h_4648a1c1), question.getKnowledgePoint());
+        setVisibleText(tagsTextView, getString(R.string.h_14d34236), question.getTags());
+        setVisibleText(hintTextView, getString(R.string.h_02d9819d), question.getHint());
     }
 
     /** 动态渲染全部非空选项（A~L），正确答案字母（支持多选如 AB）对应行高亮 */

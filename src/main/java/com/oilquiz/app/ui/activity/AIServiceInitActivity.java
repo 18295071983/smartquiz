@@ -127,7 +127,7 @@ public class AIServiceInitActivity extends BaseActivity
         checkSection.setVisibility(View.VISIBLE);
         btnPrev.setVisibility(View.GONE);
         btnAction.setVisibility(View.GONE);
-        tvCheckStatus.setText("正在检测当前配置状态…");
+        tvCheckStatus.setText(getString(R.string.h_6c4acb63));
 
         new Thread(() -> {
             // 后台已有下载/初始化任务进行中（上次退出未完成）→ 进入监控模式，
@@ -147,12 +147,12 @@ public class AIServiceInitActivity extends BaseActivity
                 if (!need) {
                     done = true;
                     checkSection.setVisibility(View.GONE);
-                    tvTitle.setText("AI 服务已就绪");
+                    tvTitle.setText(getString(R.string.h_92970f05));
                     tvSubtitle.setText(describeConfiguredState());
                     btnAction.setVisibility(View.VISIBLE);
-                    btnAction.setText("去使用");
+                    btnAction.setText(getString(R.string.h_d48da8e6));
                     btnAction.setOnClickListener(v -> finish());
-                    tvHint.setText("无需初始化，直接开始使用 AI 服务");
+                    tvHint.setText(getString(R.string.h_446ec1d0));
                 } else {
                     showModelPicker();
                 }
@@ -185,11 +185,11 @@ public class AIServiceInitActivity extends BaseActivity
         stepIndicator.setActiveStep(STEP_DOWNLOAD, 1);
         btnPrev.setVisibility(View.GONE);
         btnAction.setVisibility(View.GONE);
-        tvTitle.setText("下载进行中");
-        tvSubtitle.setText("上次任务仍在后台下载，正在同步进度…");
+        tvTitle.setText(getString(R.string.h_996093fd));
+        tvSubtitle.setText(getString(R.string.h_07aaf362));
         downloadProgress.reset();
         downloadProgress.setStatus("正在同步后台下载进度…");
-        tvHint.setText("请保持页面打开，下载完成将自动进入下一步");
+        tvHint.setText(getString(R.string.h_353c7371));
         monitorHandler.post(monitorRunnable);
     }
 
@@ -229,8 +229,8 @@ public class AIServiceInitActivity extends BaseActivity
                     hideAllSections();
                     doneSection.setVisibility(View.VISIBLE);
                     stepIndicator.setActiveStep(STEP_DONE, 2);
-                    tvTitle.setText("初始化完成");
-                    tvSubtitle.setText("AI 服务已就绪");
+                    tvTitle.setText(getString(R.string.h_741e41f5));
+                    tvSubtitle.setText(getString(R.string.h_92970f05));
                     if (tvDoneModel != null) {
                         String cur = null;
                         try {
@@ -241,9 +241,9 @@ public class AIServiceInitActivity extends BaseActivity
                     }
                     btnPrev.setVisibility(View.GONE);
                     btnAction.setVisibility(View.VISIBLE);
-                    btnAction.setText("开始使用");
+                    btnAction.setText(getString(R.string.h_85d22db7));
                     btnAction.setOnClickListener(v -> finish());
-                    tvHint.setText("现在可以离线对话、识图与智能问答了");
+                    tvHint.setText(getString(R.string.h_55fa40f7));
                     playCompleteBounce();
                 } else if (AIServiceInitializer.isInitializing()) {
                     // 又起新任务（如重试下载）→ 继续监控
@@ -284,13 +284,13 @@ public class AIServiceInitActivity extends BaseActivity
         hideAllSections();
         modelPickerSection.setVisibility(View.VISIBLE);
         stepIndicator.setActiveStep(STEP_MODEL, 1);
-        tvTitle.setText("选择模型");
-        tvSubtitle.setText("选择一个模型开始下载");
+        tvTitle.setText(getString(R.string.h_f2d3731b));
+        tvSubtitle.setText(getString(R.string.h_f233a9c6));
         btnPrev.setVisibility(View.GONE);
         btnAction.setVisibility(View.VISIBLE);
-        btnAction.setText("开始下载");
+        btnAction.setText(getString(R.string.h_d7f0d336));
         btnAction.setOnClickListener(v -> startDownload(modelPicker.getSelectedId()));
-        tvHint.setText("选择模型后点击「开始下载」");
+        tvHint.setText(getString(R.string.h_6e536ed3));
 
         try {
             ModelDownloadManager manager = ModelDownloadManager.getInstance(this);
@@ -298,18 +298,18 @@ public class AIServiceInitActivity extends BaseActivity
             String def = AIServiceInitializer.DEFAULT_MODEL_ID;
             modelPicker.setModels(list, def);
             if (modelPicker.isEmpty()) {
-                tvTitle.setText("模型列表加载失败");
-                tvSubtitle.setText("请检查网络后重试");
-                btnAction.setText("重试");
+                tvTitle.setText(getString(R.string.h_6787f8b5));
+                tvSubtitle.setText(getString(R.string.h_4d0da61b));
+                btnAction.setText(getString(R.string.h_132c5cdc));
                 btnAction.setOnClickListener(v -> initData());
                 return;
             }
             updatePickHint();
         } catch (Exception e) {
             AILogger.e(TAG, "加载模型列表失败", e);
-            tvTitle.setText("模型列表加载失败");
-            tvSubtitle.setText("请检查网络后重试");
-            btnAction.setText("重试");
+            tvTitle.setText(getString(R.string.h_6787f8b5));
+            tvSubtitle.setText(getString(R.string.h_4d0da61b));
+            btnAction.setText(getString(R.string.h_132c5cdc));
             btnAction.setOnClickListener(v -> initData());
         }
     }
@@ -322,7 +322,7 @@ public class AIServiceInitActivity extends BaseActivity
     private void updatePickHint() {
         if (tvPickHint == null || modelPicker == null) return;
         String nm = modelPicker.getSelectedName();
-        tvPickHint.setText("已选：" + nm + "，点击「开始下载」");
+        tvPickHint.setText(getString(R.string.h_37470051) + nm + getString(R.string.h_670c9e3b));
     }
 
     /** Step 2：下载（复用 AIServiceInitializer） */
@@ -336,11 +336,11 @@ public class AIServiceInitActivity extends BaseActivity
         btnAction.setVisibility(View.GONE);
 
         String name = modelPicker.getSelectedName();
-        tvTitle.setText("正在下载");
+        tvTitle.setText(getString(R.string.h_e4090eb7));
         tvSubtitle.setText(name != null ? name : modelId);
         downloadProgress.reset();
         downloadProgress.setStatus("准备下载…");
-        tvHint.setText("请保持网络畅通，下载过程中请勿退出");
+        tvHint.setText(getString(R.string.h_521de9dd));
 
         final java.util.concurrent.atomic.AtomicBoolean downloadHandled =
                 new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -392,9 +392,9 @@ public class AIServiceInitActivity extends BaseActivity
                             running = false;
                             downloadProgress.updateProgress(0, "❌ " + friendlyError(error));
                             btnAction.setVisibility(View.VISIBLE);
-                            btnAction.setText("重试");
+                            btnAction.setText(getString(R.string.h_132c5cdc));
                             btnAction.setOnClickListener(v -> startDownload(modelPicker.getSelectedId()));
-                            tvHint.setText("可重新尝试，或前往「模型下载」页面手动下载");
+                            tvHint.setText(getString(R.string.h_58c9ec40));
                         });
                     }
                 });
@@ -412,11 +412,11 @@ public class AIServiceInitActivity extends BaseActivity
         selectSection.setVisibility(View.VISIBLE);
         stepIndicator.setActiveStep(STEP_DOWNLOAD, 2);
         stepIndicator.setActiveStep(STEP_SELECT, 1);
-        tvTitle.setText("启用模型");
-        tvSubtitle.setText("选择已下载的模型，初始化服务");
+        tvTitle.setText(getString(R.string.h_4209cb13));
+        tvSubtitle.setText(getString(R.string.h_b0f6aae0));
         btnPrev.setVisibility(View.VISIBLE);
         btnAction.setVisibility(View.GONE);
-        tvHint.setText("点击列表中的模型即可初始化");
+        tvHint.setText(getString(R.string.h_d80bc678));
 
         modelListRecycler.setLayoutManager(new LinearLayoutManager(this));
         modelListRecycler.setNestedScrollingEnabled(false);
@@ -437,7 +437,7 @@ public class AIServiceInitActivity extends BaseActivity
                     : "共 " + modelNames.size() + " 个模型，点击开始初始化");
         } catch (Exception e) {
             AILogger.e(TAG, "加载已下载模型列表失败", e);
-            tvSelectStatus.setText("加载已下载模型列表失败：" + e.getMessage());
+            tvSelectStatus.setText(getString(R.string.h_5aa13619) + e.getMessage());
         }
     }
 
@@ -456,11 +456,11 @@ public class AIServiceInitActivity extends BaseActivity
         stepIndicator.setActiveStep(STEP_SELECT, 1);
         btnPrev.setVisibility(View.GONE);
         btnAction.setVisibility(View.GONE);
-        tvTitle.setText("正在初始化");
+        tvTitle.setText(getString(R.string.h_dddc76ed));
         tvSubtitle.setText(modelName);
         downloadProgress.reset();
         downloadProgress.setStatus("正在初始化…");
-        tvHint.setText("首次加载较慢，请耐心等待");
+        tvHint.setText(getString(R.string.h_f37794e3));
 
         try {
             final AIService aiService = AIService.getInstance(this);
@@ -596,7 +596,7 @@ public class AIServiceInitActivity extends BaseActivity
         unregisterDetailedObserver();
         downloadProgress.updateProgress(0, "❌ " + error);
         btnAction.setVisibility(View.VISIBLE);
-        btnAction.setText("返回选择");
+        btnAction.setText(getString(R.string.h_e6210140));
         btnAction.setOnClickListener(v -> showSelectModel());
     }
 
@@ -606,13 +606,13 @@ public class AIServiceInitActivity extends BaseActivity
         doneSection.setVisibility(View.VISIBLE);
         stepIndicator.setActiveStep(STEP_SELECT, 2);
         stepIndicator.setActiveStep(STEP_DONE, 2);
-        tvTitle.setText("初始化完成");
-        tvSubtitle.setText("AI 服务已就绪");
+        tvTitle.setText(getString(R.string.h_741e41f5));
+        tvSubtitle.setText(getString(R.string.h_92970f05));
         btnPrev.setVisibility(View.GONE);
         btnAction.setVisibility(View.VISIBLE);
-        btnAction.setText("开始使用");
+        btnAction.setText(getString(R.string.h_85d22db7));
         btnAction.setOnClickListener(v -> finish());
-        tvHint.setText("现在可以离线对话、识图与智能问答了");
+        tvHint.setText(getString(R.string.h_55fa40f7));
         playCompleteBounce();
     }
 

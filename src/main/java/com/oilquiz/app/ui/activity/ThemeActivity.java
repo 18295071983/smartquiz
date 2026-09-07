@@ -163,7 +163,7 @@ public class ThemeActivity extends AppCompatActivity {
             rbWallpaperSystem.setChecked(m == AppWallpaperManager.MODE_FOLLOW_SYSTEM);
             rbWallpaperLibrary.setChecked(m == AppWallpaperManager.MODE_LIBRARY);
             rbWallpaperOff.setChecked(m == AppWallpaperManager.MODE_OFF);
-            Toast.makeText(this, m == AppWallpaperManager.MODE_FOLLOW_SYSTEM ? "已跟随系统壁纸" : m == AppWallpaperManager.MODE_LIBRARY ? "已使用壁纸库" : "已关闭壁纸", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, m == AppWallpaperManager.MODE_FOLLOW_SYSTEM ? getString(R.string.h_cfda29cd) : m == AppWallpaperManager.MODE_LIBRARY ? getString(R.string.h_d3b2836a) : getString(R.string.h_a5e67109), Toast.LENGTH_SHORT).show();
             recreate();
         };
         rbWallpaperSystem.setOnClickListener(l);
@@ -183,9 +183,9 @@ public class ThemeActivity extends AppCompatActivity {
             return true;
         }
         new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("需要开启「所有文件访问」权限")
-                .setMessage("跟随系统壁纸需要读取系统壁纸文件，请在系统设置中允许「所有文件访问」。\n\n（小米手机：设置 → 应用 → 答题宝 → 权限管理 → 所有文件访问）")
-                .setPositiveButton("去开启", (d, w) -> {
+                .setTitle(getString(R.string.h_a543ed9a))
+                .setMessage(getString(R.string.h_9e455d55))
+                .setPositiveButton(getString(R.string.h_5e213ddb), (d, w) -> {
                     try {
                         android.content.Intent it = new android.content.Intent(
                                 android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
@@ -196,12 +196,12 @@ public class ThemeActivity extends AppCompatActivity {
                             startActivity(new android.content.Intent(
                                     android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
                         } catch (Throwable ignored2) {
-                            android.widget.Toast.makeText(this, "请在系统设置中手动开启「所有文件访问」",
+                            android.widget.Toast.makeText(this, getString(R.string.h_64c5386f),
                                     android.widget.Toast.LENGTH_LONG).show();
                         }
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
         return false;
     }
@@ -244,7 +244,7 @@ public class ThemeActivity extends AppCompatActivity {
 
         boolean isCurrent = AppWallpaperManager.getMode(this) == AppWallpaperManager.MODE_FOLLOW_SYSTEM;
         TextView name = new TextView(this);
-        name.setText(isCurrent ? "系统壁纸 ✓" : "系统壁纸");
+        name.setText(isCurrent ? getString(R.string.h_e640477f) : getString(R.string.h_ec41a592));
         name.setTextSize(10);
         name.setMaxLines(1);
         name.setGravity(Gravity.CENTER);
@@ -256,7 +256,7 @@ public class ThemeActivity extends AppCompatActivity {
 
         cell.setOnClickListener(v -> {
             AppWallpaperManager.setMode(ThemeActivity.this, AppWallpaperManager.MODE_FOLLOW_SYSTEM);
-            Toast.makeText(ThemeActivity.this, "已跟随系统壁纸", Toast.LENGTH_SHORT).show();
+            Toast.makeText(ThemeActivity.this, getString(R.string.h_cfda29cd), Toast.LENGTH_SHORT).show();
             recreate();
         });
         container.addView(cell, 0);
@@ -314,14 +314,14 @@ public class ThemeActivity extends AppCompatActivity {
             cell.setOnClickListener(v -> {
                 AppWallpaperManager.setLibraryPath(ThemeActivity.this, w.getAbsolutePath());
                 AppWallpaperManager.setMode(ThemeActivity.this, AppWallpaperManager.MODE_LIBRARY);
-                Toast.makeText(ThemeActivity.this, "已应用壁纸库图片", Toast.LENGTH_SHORT).show();
+                Toast.makeText(ThemeActivity.this, getString(R.string.h_a99c80c2), Toast.LENGTH_SHORT).show();
                 recreate();
             });
             cell.setOnLongClickListener(v -> {
                 if (WallpaperStore.isBuiltin(w)) {
-                    Toast.makeText(ThemeActivity.this, "内置壁纸不可删除", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ThemeActivity.this, getString(R.string.h_2b1acef5), Toast.LENGTH_SHORT).show();
                 } else if (WallpaperStore.delete(ThemeActivity.this, w)) {
-                    Toast.makeText(ThemeActivity.this, "壁纸已删除", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ThemeActivity.this, getString(R.string.h_89df9e25), Toast.LENGTH_SHORT).show();
                     fillWallpaperPicker();
                 }
                 return true;
@@ -392,14 +392,14 @@ public class ThemeActivity extends AppCompatActivity {
             cell.setOnClickListener(v -> {
                 AppWallpaperManager.setLibraryPath(ThemeActivity.this, w.getAbsolutePath());
                 AppWallpaperManager.setMode(ThemeActivity.this, AppWallpaperManager.MODE_LIBRARY);
-                Toast.makeText(ThemeActivity.this, "已应用壁纸库图片", Toast.LENGTH_SHORT).show();
+                Toast.makeText(ThemeActivity.this, getString(R.string.h_a99c80c2), Toast.LENGTH_SHORT).show();
                 recreate();
             });
             cell.setOnLongClickListener(v -> {
                 if (WallpaperStore.isBuiltin(w)) {
-                    Toast.makeText(ThemeActivity.this, "内置壁纸不可删除", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ThemeActivity.this, getString(R.string.h_2b1acef5), Toast.LENGTH_SHORT).show();
                 } else if (WallpaperStore.delete(ThemeActivity.this, w)) {
-                    Toast.makeText(ThemeActivity.this, "壁纸已删除", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ThemeActivity.this, getString(R.string.h_89df9e25), Toast.LENGTH_SHORT).show();
                     showWallpaperManagerDialog();
                 }
                 return true;
@@ -411,13 +411,13 @@ public class ThemeActivity extends AppCompatActivity {
         scrollView.addView(grid);
 
         new AlertDialog.Builder(this)
-                .setTitle("选择应用壁纸")
+                .setTitle(getString(R.string.h_502eb6f3))
                 .setView(scrollView)
-                .setPositiveButton("添加壁纸", (d, which) -> pickWallpaperLauncher.launch(
+                .setPositiveButton(getString(R.string.h_155a119b), (d, which) -> pickWallpaperLauncher.launch(
                         new PickVisualMediaRequest.Builder()
                                 .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
                                 .build()))
-                .setNegativeButton("关闭", null)
+                .setNegativeButton(getString(R.string.h_b15d9127), null)
                 .show();
     }
 
@@ -472,7 +472,7 @@ public class ThemeActivity extends AppCompatActivity {
         backArrow.setPadding(0, 0, dp(12), 0);
         topBar.addView(backArrow);
         TextView barTitle = new TextView(this);
-        barTitle.setText("答题宝 · 主题预览");
+        barTitle.setText(getString(R.string.h_57b7276a));
         barTitle.setTextSize(16);
         barTitle.setTextColor(p.onPrimary);
         topBar.addView(barTitle);
@@ -487,12 +487,12 @@ public class ThemeActivity extends AppCompatActivity {
 
         // 标题 + 次要文本
         TextView title = new TextView(this);
-        title.setText("组件实时预览");
+        title.setText(getString(R.string.h_841bfb11));
         title.setTextSize(16);
         title.setTextColor(p.onSurface);
         body.addView(title);
         TextView subtitle = new TextView(this);
-        subtitle.setText("颜色变化即时呈现，所见即所得");
+        subtitle.setText(getString(R.string.h_ead71ec7));
         subtitle.setTextSize(13);
         subtitle.setTextColor(p.onSurfaceVariant);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
@@ -503,7 +503,7 @@ public class ThemeActivity extends AppCompatActivity {
 
         // 高亮块：primaryContainer
         TextView highlight = new TextView(this);
-        highlight.setText("当前主题色区块（primaryContainer）");
+        highlight.setText(getString(R.string.h_5464581f));
         highlight.setTextSize(14);
         highlight.setGravity(Gravity.CENTER_VERTICAL);
         highlight.setPadding(dp(12), dp(12), dp(12), dp(12));
@@ -518,7 +518,7 @@ public class ThemeActivity extends AppCompatActivity {
         body.addView(buttonRow);
 
         TextView solidBtn = new TextView(this);
-        solidBtn.setText("主要按钮");
+        solidBtn.setText(getString(R.string.h_d9113e34));
         solidBtn.setTextSize(14);
         solidBtn.setGravity(Gravity.CENTER);
         solidBtn.setPadding(dp(20), dp(10), dp(20), dp(10));
@@ -531,7 +531,7 @@ public class ThemeActivity extends AppCompatActivity {
         buttonRow.addView(solidBtn);
 
         TextView outlineBtn = new TextView(this);
-        outlineBtn.setText("次要按钮");
+        outlineBtn.setText(getString(R.string.h_21e2f1a9));
         outlineBtn.setTextSize(14);
         outlineBtn.setGravity(Gravity.CENTER);
         outlineBtn.setPadding(dp(20), dp(10), dp(20), dp(10));
@@ -560,14 +560,14 @@ public class ThemeActivity extends AppCompatActivity {
         selectedRow.addView(dot);
 
         TextView selectedText = new TextView(this);
-        selectedText.setText("已选中的列表项");
+        selectedText.setText(getString(R.string.h_2f9d9bdd));
         selectedText.setTextSize(14);
         selectedText.setTextColor(p.onSurface);
         selectedRow.addView(selectedText);
 
         // 输入框占位：outline 描边
         TextView inputPlaceholder = new TextView(this);
-        inputPlaceholder.setText("输入框占位（outline）");
+        inputPlaceholder.setText(getString(R.string.h_55d569d2));
         inputPlaceholder.setTextSize(14);
         inputPlaceholder.setPadding(dp(12), dp(10), dp(12), dp(10));
         GradientDrawable inputBg = new GradientDrawable();
@@ -590,7 +590,7 @@ public class ThemeActivity extends AppCompatActivity {
         switchRow.setPadding(0, dp(12), 0, dp(4));
         body.addView(switchRow);
         TextView switchLabel = new TextView(this);
-        switchLabel.setText("开关控件");
+        switchLabel.setText(getString(R.string.h_d38b7fc2));
         switchLabel.setTextSize(13);
         switchLabel.setTextColor(p.onSurface);
         switchLabel.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -637,7 +637,7 @@ public class ThemeActivity extends AppCompatActivity {
         radioOn.addView(radioDot);
         radioRow.addView(radioOn);
         TextView radioLabel = new TextView(this);
-        radioLabel.setText("单选按钮");
+        radioLabel.setText(getString(R.string.h_f96dabbc));
         radioLabel.setTextSize(13);
         radioLabel.setTextColor(p.onSurface);
         radioRow.addView(radioLabel);
@@ -662,7 +662,7 @@ public class ThemeActivity extends AppCompatActivity {
         checkBox.setBackground(checkBg);
         checkRow.addView(checkBox);
         TextView checkLabel = new TextView(this);
-        checkLabel.setText("复选框");
+        checkLabel.setText(getString(R.string.h_db98f889));
         checkLabel.setTextSize(13);
         checkLabel.setTextColor(p.onSurface);
         checkRow.addView(checkLabel);
@@ -673,7 +673,7 @@ public class ThemeActivity extends AppCompatActivity {
         chipRow.setPadding(0, dp(8), 0, dp(4));
         body.addView(chipRow);
         TextView chipOn = new TextView(this);
-        chipOn.setText("标签已选");
+        chipOn.setText(getString(R.string.h_c1dc4db2));
         chipOn.setTextSize(12);
         chipOn.setPadding(dp(12), dp(6), dp(12), dp(6));
         LinearLayout.LayoutParams chipOnLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -686,7 +686,7 @@ public class ThemeActivity extends AppCompatActivity {
         chipOn.setTextColor(p.onPrimary);
         chipRow.addView(chipOn);
         TextView chipOff = new TextView(this);
-        chipOff.setText("标签未选");
+        chipOff.setText(getString(R.string.h_8f119321));
         chipOff.setTextSize(12);
         chipOff.setPadding(dp(12), dp(6), dp(12), dp(6));
         GradientDrawable chipOffBg = new GradientDrawable();
@@ -731,7 +731,7 @@ public class ThemeActivity extends AppCompatActivity {
         tabOne.setOrientation(LinearLayout.VERTICAL);
         tabOne.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         TextView tabOneText = new TextView(this);
-        tabOneText.setText("选项一");
+        tabOneText.setText(getString(R.string.h_3c34792e));
         tabOneText.setTextSize(13);
         tabOneText.setGravity(Gravity.CENTER);
         tabOneText.setTextColor(p.primary);
@@ -748,7 +748,7 @@ public class ThemeActivity extends AppCompatActivity {
         tabTwo.setOrientation(LinearLayout.VERTICAL);
         tabTwo.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         TextView tabTwoText = new TextView(this);
-        tabTwoText.setText("选项二");
+        tabTwoText.setText(getString(R.string.h_b7abee9d));
         tabTwoText.setTextSize(13);
         tabTwoText.setGravity(Gravity.CENTER);
         tabTwoText.setTextColor(p.onSurfaceVariant);
@@ -831,7 +831,7 @@ public class ThemeActivity extends AppCompatActivity {
             View.OnClickListener skinClick = v -> {
                 if (!skin.id.equals(ThemeManager.getSkin(ThemeActivity.this).id)) {
                     ThemeManager.setSkin(ThemeActivity.this, skin.id);
-                    Toast.makeText(ThemeActivity.this, "已切换「" + skin.displayName + "」皮肤",
+                    Toast.makeText(ThemeActivity.this, getString(R.string.h_ae4833a1) + skin.displayName + getString(R.string.h_c6fe31dc),
                             Toast.LENGTH_SHORT).show();
                     // 重建当前页：主色重置为该皮肤默认色，全局 overlay 立即生效
                     recreate();
@@ -906,7 +906,7 @@ public class ThemeActivity extends AppCompatActivity {
             View.OnClickListener colorClick = v -> {
                 ThemeManager.setThemeColor(ThemeActivity.this, colorArgb);
                 ThemeManager.clearPaletteCache();
-                Toast.makeText(ThemeActivity.this, "已选择" + preset.displayName + "主题",
+                Toast.makeText(ThemeActivity.this, getString(R.string.h_f08afd1f) + preset.displayName + getString(R.string.h_9970ad07),
                         Toast.LENGTH_SHORT).show();
                 // 重建当前页，让全局 overlay 立即生效
                 recreate();
@@ -956,7 +956,7 @@ public class ThemeActivity extends AppCompatActivity {
         );
         textParams.weight = 1;
         textView.setLayoutParams(textParams);
-        textView.setText("自定义颜色");
+        textView.setText(getString(R.string.h_255f442c));
         textView.setTextSize(16);
         textView.setTextColor(ThemeColors.attr(this, R.attr.colorOnSurface));
 
@@ -1017,18 +1017,18 @@ public class ThemeActivity extends AppCompatActivity {
         }
 
         new AlertDialog.Builder(this)
-                .setTitle("自定义主题色")
+                .setTitle(getString(R.string.h_edb9ba13))
                 .setView(layout)
-                .setNegativeButton("取消", (dialog, which) -> {
+                .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> {
                     // 取消：预览区恢复当前实际主题色板
                     boolean dark = ThemeManager.isDarkTheme(ThemeActivity.this);
                     renderThemePreview(ThemeManager.getPalette(ThemeActivity.this, dark));
                 })
-                .setPositiveButton("应用", (dialog, which) -> {
+                .setPositiveButton(getString(R.string.h_5b0520a9), (dialog, which) -> {
                     int argb = 0xFF000000 | (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
                     ThemeManager.setCustomThemeColor(ThemeActivity.this, argb);
                     ThemeManager.clearPaletteCache();
-                    Toast.makeText(ThemeActivity.this, "已应用自定义主题色", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ThemeActivity.this, getString(R.string.h_e4c42812), Toast.LENGTH_SHORT).show();
                     recreate();
                 })
                 .setOnDismissListener(dialog -> {

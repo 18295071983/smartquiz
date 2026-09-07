@@ -79,7 +79,7 @@ public class TBSFilePreviewActivity extends Activity {
         
         // 状态文本
         statusText = new TextView(this);
-        statusText.setText("正在初始化 TBS 预览...");
+        statusText.setText(getString(R.string.h_7450c777));
         statusText.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         statusText.setTextSize(16);
         statusText.setPadding(40, 40, 40, 20);
@@ -115,7 +115,7 @@ public class TBSFilePreviewActivity extends Activity {
         
         // 检查 TBS 是否可用
         if (!tbsManager.isTBSAvailable()) {
-            statusText.setText("TBS SDK 未集成");
+            statusText.setText(getString(R.string.h_ea53cbc9));
             AppLogger.e(TAG, "TBS SDK 未集成");
             showErrorAndFinish("TBS SDK 未集成，请检查 AAR 文件是否正确放置");
             return;
@@ -125,7 +125,7 @@ public class TBSFilePreviewActivity extends Activity {
         // 根据腾讯文档示例，TBS SDK 应该在主 Activity 中初始化
         if (!tbsManager.isInitialized()) {
             AppLogger.w(TAG, "TBS SDK 未初始化，尝试在预览 Activity 中初始化");
-            statusText.setText("正在初始化 TBS SDK...");
+            statusText.setText(getString(R.string.h_c2b2b15f));
             
             // 设置隐私政策同意状态（如果未设置）
             if (!tbsManager.isPrivacyPolicyAccepted()) {
@@ -140,7 +140,7 @@ public class TBSFilePreviewActivity extends Activity {
                     } else {
                         AppLogger.e(TAG, "TBS SDK 初始化失败，错误码: " + errorCode);
                         String errorMsg = getTBSInitErrorMessage(errorCode);
-                        statusText.setText("初始化失败: " + errorMsg);
+                        statusText.setText(getString(R.string.h_58c10e4c) + errorMsg);
                         showErrorAndFinish("TBS SDK 初始化失败: " + errorMsg);
                     }
                 });
@@ -190,10 +190,10 @@ public class TBSFilePreviewActivity extends Activity {
      */
     private void showErrorAndFinish(String error) {
         new android.app.AlertDialog.Builder(this)
-                .setTitle("TBS 预览失败")
+                .setTitle(getString(R.string.h_f03e8739))
                 .setMessage(error)
-                .setPositiveButton("使用备用预览", (dialog, which) -> useAlternativePreview())
-                .setNegativeButton("取消", (dialog, which) -> finish())
+                .setPositiveButton(getString(R.string.h_d353fd7e), (dialog, which) -> useAlternativePreview())
+                .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> finish())
                 .setCancelable(false)
                 .show();
     }
@@ -206,8 +206,8 @@ public class TBSFilePreviewActivity extends Activity {
         
         // 显示预览方式选择对话框
         new android.app.AlertDialog.Builder(this)
-                .setTitle("选择预览方式")
-                .setItems(new String[]{"LibreOffice (开源免费)", "Pdfium (仅PDF)", "WebView (仅表格文件)"}, (dialog, which) -> {
+                .setTitle(getString(R.string.h_406e088d))
+                .setItems(new String[]{getString(R.string.h_bfbf0f9a), getString(R.string.h_85016097), getString(R.string.h_bce2e6d3)}, (dialog, which) -> {
                     switch (which) {
                         case 0:
                             // 使用官方 LibreOffice 查看器预览
@@ -233,7 +233,7 @@ public class TBSFilePreviewActivity extends Activity {
                     }
                     finish();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
     
@@ -269,7 +269,7 @@ public class TBSFilePreviewActivity extends Activity {
     }
     
     private void openFile() {
-        statusText.setText("正在打开文件...");
+        statusText.setText(getString(R.string.h_74880219));
         
         // 检查文件路径
         AppLogger.d(TAG, "准备打开文件: " + filePath);
@@ -292,7 +292,7 @@ public class TBSFilePreviewActivity extends Activity {
             public void onFileOpened() {
                 runOnUiThread(() -> {
                     AppLogger.d(TAG, "TBS 文件已打开");
-                    statusText.setText("文件已打开");
+                    statusText.setText(getString(R.string.h_f9bbd707));
                 });
             }
             
@@ -345,7 +345,7 @@ public class TBSFilePreviewActivity extends Activity {
         }, container);
         
         if (result != 0) {
-            statusText.setText("打开文件失败: " + result);
+            statusText.setText(getString(R.string.h_f4c0d6a9) + result);
             AppLogger.e(TAG, "打开文件失败: " + result);
         } else {
             AppLogger.d(TAG, "TBS 预览启动成功");
@@ -405,9 +405,9 @@ public class TBSFilePreviewActivity extends Activity {
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e(TAG, "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("错误")
-                    .setMessage("没有找到文件选择器应用，请安装文件管理器")
-                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setTitle(getString(R.string.h_7030ff64))
+                    .setMessage(getString(R.string.h_b5ea0a10))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                     .setCancelable(false)
                     .show();
         }

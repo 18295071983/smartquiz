@@ -93,7 +93,7 @@ public class BackupActivity extends BaseActivity {
 
         switchAutoBackup.setOnCheckedChangeListener((buttonView, isChecked) -> {
             autoBackupManager.setAutoBackupEnabled(BackupActivity.this, isChecked);
-            Toast.makeText(BackupActivity.this, isChecked ? "自动备份已开启" : "自动备份已关闭", Toast.LENGTH_SHORT).show();
+            Toast.makeText(BackupActivity.this, isChecked ? getString(R.string.h_c180e543) : getString(R.string.h_be9c6cf8), Toast.LENGTH_SHORT).show();
         });
 
         btnDatabaseDetail.setOnClickListener(new View.OnClickListener() {
@@ -119,13 +119,13 @@ public class BackupActivity extends BaseActivity {
             resources.permissions().requestStoragePermission(this, new PermissionResourceProvider.PermissionCallback() {
                 @Override
                 public void onGranted() {
-                    Toast.makeText(BackupActivity.this, "存储权限已授予", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(BackupActivity.this, getString(R.string.h_3587abc9), Toast.LENGTH_SHORT).show();
                     backupDatabase();
                 }
 
                 @Override
                 public void onDenied(List<String> deniedPermissions) {
-                    Toast.makeText(BackupActivity.this, "存储权限被拒绝，无法执行备份/恢复操作", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(BackupActivity.this, getString(R.string.h_6a44170f), Toast.LENGTH_SHORT).show();
                 }
             });
         } else {
@@ -140,13 +140,13 @@ public class BackupActivity extends BaseActivity {
             resources.permissions().requestStoragePermission(this, new PermissionResourceProvider.PermissionCallback() {
                 @Override
                 public void onGranted() {
-                    Toast.makeText(BackupActivity.this, "存储权限已授予", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(BackupActivity.this, getString(R.string.h_3587abc9), Toast.LENGTH_SHORT).show();
                     pickBackupFile();
                 }
 
                 @Override
                 public void onDenied(List<String> deniedPermissions) {
-                    Toast.makeText(BackupActivity.this, "存储权限被拒绝，无法执行备份/恢复操作", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(BackupActivity.this, getString(R.string.h_6a44170f), Toast.LENGTH_SHORT).show();
                 }
             });
         } else {
@@ -161,7 +161,7 @@ public class BackupActivity extends BaseActivity {
     }
 
     private void backupDatabase() {
-        tvBackupStatus.setText("备份状态：正在备份...");
+        tvBackupStatus.setText(getString(R.string.h_b3208e3d));
         MaterialButton btnBackup = findViewById(R.id.btn_backup);
         MaterialButton btnRestore = findViewById(R.id.btn_restore);
         btnBackup.setEnabled(false);
@@ -170,16 +170,16 @@ public class BackupActivity extends BaseActivity {
         backupViewModel.backupDatabase(this, new BackupViewModel.BackupCallback() {
             @Override
             public void onSuccess(File backupFile) {
-                tvBackupStatus.setText("备份状态：备份成功");
-                Toast.makeText(BackupActivity.this, "备份成功：" + backupFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
+                tvBackupStatus.setText(getString(R.string.h_3a3b37cb));
+                Toast.makeText(BackupActivity.this, getString(R.string.h_bb61a42d) + backupFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
                 btnBackup.setEnabled(true);
                 btnRestore.setEnabled(true);
             }
 
             @Override
             public void onFailure(String error) {
-                tvBackupStatus.setText("备份状态：备份失败");
-                Toast.makeText(BackupActivity.this, "备份失败：" + error, Toast.LENGTH_SHORT).show();
+                tvBackupStatus.setText(getString(R.string.h_47dfa05e));
+                Toast.makeText(BackupActivity.this, getString(R.string.h_09fa1b68) + error, Toast.LENGTH_SHORT).show();
                 btnBackup.setEnabled(true);
                 btnRestore.setEnabled(true);
             }
@@ -207,7 +207,7 @@ public class BackupActivity extends BaseActivity {
     }
 
     private void restoreDatabase(Uri uri) {
-        tvBackupStatus.setText("备份状态：正在恢复...");
+        tvBackupStatus.setText(getString(R.string.h_47a47697));
         MaterialButton btnBackup = findViewById(R.id.btn_backup);
         MaterialButton btnRestore = findViewById(R.id.btn_restore);
         btnBackup.setEnabled(false);
@@ -215,8 +215,8 @@ public class BackupActivity extends BaseActivity {
         
         File backupFile = uriToFile(uri);
         if (backupFile == null) {
-            tvBackupStatus.setText("备份状态：恢复失败");
-            Toast.makeText(this, "无法读取备份文件", Toast.LENGTH_SHORT).show();
+            tvBackupStatus.setText(getString(R.string.h_e24055d9));
+            Toast.makeText(this, getString(R.string.h_eff51593), Toast.LENGTH_SHORT).show();
             btnBackup.setEnabled(true);
             btnRestore.setEnabled(true);
             return;
@@ -225,8 +225,8 @@ public class BackupActivity extends BaseActivity {
         backupViewModel.restoreDatabase(this, backupFile, new BackupViewModel.RestoreCallback() {
             @Override
             public void onSuccess() {
-                tvBackupStatus.setText("备份状态：恢复成功");
-                Toast.makeText(BackupActivity.this, "恢复成功，应用将重启", Toast.LENGTH_SHORT).show();
+                tvBackupStatus.setText(getString(R.string.h_66fc595b));
+                Toast.makeText(BackupActivity.this, getString(R.string.h_bbab9851), Toast.LENGTH_SHORT).show();
                 btnBackup.setEnabled(true);
                 btnRestore.setEnabled(true);
                 restartApp();
@@ -234,8 +234,8 @@ public class BackupActivity extends BaseActivity {
 
             @Override
             public void onFailure(String error) {
-                tvBackupStatus.setText("备份状态：恢复失败");
-                Toast.makeText(BackupActivity.this, "恢复失败：" + error, Toast.LENGTH_SHORT).show();
+                tvBackupStatus.setText(getString(R.string.h_e24055d9));
+                Toast.makeText(BackupActivity.this, getString(R.string.h_5dc657e5) + error, Toast.LENGTH_SHORT).show();
                 btnBackup.setEnabled(true);
                 btnRestore.setEnabled(true);
             }

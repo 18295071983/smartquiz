@@ -118,7 +118,7 @@ public class EnvironmentCheckActivity extends BaseActivity {
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == R.id.action_refresh) {
             updateEnvironmentInfo();
-            Toast.makeText(this, "信息已刷新", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_549fd854), Toast.LENGTH_SHORT).show();
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -140,8 +140,8 @@ public class EnvironmentCheckActivity extends BaseActivity {
         // 硬件信息
         tvCpuAbi.setText(environmentChecker.getHardwareInfo().cpuAbi);
         tvProcessors.setText(String.valueOf(environmentChecker.getRuntimeInfo().availableProcessors));
-        tvCamera.setText(environmentChecker.getHardwareInfo().hasCamera ? "支持" : "不支持");
-        tvGps.setText(environmentChecker.getHardwareInfo().hasGPS ? "支持" : "不支持");
+        tvCamera.setText(environmentChecker.getHardwareInfo().hasCamera ? getString(R.string.h_262b0b07) : getString(R.string.h_5875b0f0));
+        tvGps.setText(environmentChecker.getHardwareInfo().hasGPS ? getString(R.string.h_262b0b07) : getString(R.string.h_5875b0f0));
 
         // 内存信息
         tvTotalMemory.setText(Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().totalMemory));
@@ -170,68 +170,68 @@ public class EnvironmentCheckActivity extends BaseActivity {
 
     private void copyEnvironmentInfo() {
         StringBuilder info = new StringBuilder();
-        info.append("=== 设备环境检测报告 ===\n\n");
-        info.append("【设备信息】\n");
-        info.append("制造商: " + environmentChecker.getDeviceInfo().manufacturer + "\n");
-        info.append("品牌: " + environmentChecker.getDeviceInfo().brand + "\n");
-        info.append("型号: " + environmentChecker.getDeviceInfo().model + "\n");
-        info.append("硬件: " + environmentChecker.getDeviceInfo().hardware + "\n\n");
+        info.append(getString(R.string.h_a169b117));
+        info.append(getString(R.string.h_6836b587));
+        info.append(getString(R.string.h_89a87493) + environmentChecker.getDeviceInfo().manufacturer + "\n");
+        info.append(getString(R.string.h_9690fbfc) + environmentChecker.getDeviceInfo().brand + "\n");
+        info.append(getString(R.string.h_3bab779c) + environmentChecker.getDeviceInfo().model + "\n");
+        info.append(getString(R.string.h_49bfe273) + environmentChecker.getDeviceInfo().hardware + "\n\n");
 
-        info.append("【系统信息】\n");
-        info.append("Android版本: " + environmentChecker.getSystemInfo().androidVersion + "\n");
-        info.append("SDK级别: " + environmentChecker.getSystemInfo().sdkInt + "\n");
-        info.append("安全补丁: " + environmentChecker.getSystemInfo().securityPatch + "\n");
-        info.append("语言: " + environmentChecker.getSystemInfo().language + "\n\n");
+        info.append(getString(R.string.h_1ac0ad81));
+        info.append(getString(R.string.h_0d0b5e32) + environmentChecker.getSystemInfo().androidVersion + "\n");
+        info.append(getString(R.string.h_c64c7d6a) + environmentChecker.getSystemInfo().sdkInt + "\n");
+        info.append(getString(R.string.h_400e18fc) + environmentChecker.getSystemInfo().securityPatch + "\n");
+        info.append(getString(R.string.h_275d0943) + environmentChecker.getSystemInfo().language + "\n\n");
 
-        info.append("【硬件信息】\n");
-        info.append("CPU架构: " + environmentChecker.getHardwareInfo().cpuAbi + "\n");
-        info.append("处理器数量: " + environmentChecker.getRuntimeInfo().availableProcessors + "\n");
-        info.append("相机: " + (environmentChecker.getHardwareInfo().hasCamera ? "支持" : "不支持") + "\n");
-        info.append("GPS: " + (environmentChecker.getHardwareInfo().hasGPS ? "支持" : "不支持") + "\n\n");
+        info.append(getString(R.string.h_9fd4a3a3));
+        info.append(getString(R.string.h_13708454) + environmentChecker.getHardwareInfo().cpuAbi + "\n");
+        info.append(getString(R.string.h_0e2ec228) + environmentChecker.getRuntimeInfo().availableProcessors + "\n");
+        info.append(getString(R.string.h_835677c3) + (environmentChecker.getHardwareInfo().hasCamera ? getString(R.string.h_262b0b07) : getString(R.string.h_5875b0f0)) + "\n");
+        info.append("GPS: " + (environmentChecker.getHardwareInfo().hasGPS ? getString(R.string.h_262b0b07) : getString(R.string.h_5875b0f0)) + "\n\n");
 
-        info.append("【内存信息】\n");
-        info.append("总内存: " + Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().totalMemory) + "\n");
-        info.append("可用内存: " + Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().availableMemory) + "\n\n");
+        info.append(getString(R.string.h_c2fac49b));
+        info.append(getString(R.string.h_5a86cc25) + Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().totalMemory) + "\n");
+        info.append(getString(R.string.h_df803b12) + Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().availableMemory) + "\n\n");
 
-        info.append("【存储信息】\n");
-        info.append("内部存储: " + getStorageInfo(Environment.getDataDirectory()) + "\n");
-        info.append("外部存储: " + getStorageInfo(Environment.getExternalStorageDirectory()) + "\n");
+        info.append(getString(R.string.h_44ad2b27));
+        info.append(getString(R.string.h_d094912c) + getStorageInfo(Environment.getDataDirectory()) + "\n");
+        info.append(getString(R.string.h_0b49db60) + getStorageInfo(Environment.getExternalStorageDirectory()) + "\n");
 
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         ClipData clip = ClipData.newPlainText("环境检测报告", info.toString());
         clipboard.setPrimaryClip(clip);
 
-        Toast.makeText(this, "信息已复制到剪贴板", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_ac5153dc), Toast.LENGTH_SHORT).show();
     }
 
     private void shareEnvironmentInfo() {
         StringBuilder info = new StringBuilder();
-        info.append("=== 设备环境检测报告 ===\n\n");
-        info.append("【设备信息】\n");
-        info.append("制造商: " + environmentChecker.getDeviceInfo().manufacturer + "\n");
-        info.append("品牌: " + environmentChecker.getDeviceInfo().brand + "\n");
-        info.append("型号: " + environmentChecker.getDeviceInfo().model + "\n");
-        info.append("硬件: " + environmentChecker.getDeviceInfo().hardware + "\n\n");
+        info.append(getString(R.string.h_a169b117));
+        info.append(getString(R.string.h_6836b587));
+        info.append(getString(R.string.h_89a87493) + environmentChecker.getDeviceInfo().manufacturer + "\n");
+        info.append(getString(R.string.h_9690fbfc) + environmentChecker.getDeviceInfo().brand + "\n");
+        info.append(getString(R.string.h_3bab779c) + environmentChecker.getDeviceInfo().model + "\n");
+        info.append(getString(R.string.h_49bfe273) + environmentChecker.getDeviceInfo().hardware + "\n\n");
 
-        info.append("【系统信息】\n");
-        info.append("Android版本: " + environmentChecker.getSystemInfo().androidVersion + "\n");
-        info.append("SDK级别: " + environmentChecker.getSystemInfo().sdkInt + "\n");
-        info.append("安全补丁: " + environmentChecker.getSystemInfo().securityPatch + "\n");
-        info.append("语言: " + environmentChecker.getSystemInfo().language + "\n\n");
+        info.append(getString(R.string.h_1ac0ad81));
+        info.append(getString(R.string.h_0d0b5e32) + environmentChecker.getSystemInfo().androidVersion + "\n");
+        info.append(getString(R.string.h_c64c7d6a) + environmentChecker.getSystemInfo().sdkInt + "\n");
+        info.append(getString(R.string.h_400e18fc) + environmentChecker.getSystemInfo().securityPatch + "\n");
+        info.append(getString(R.string.h_275d0943) + environmentChecker.getSystemInfo().language + "\n\n");
 
-        info.append("【硬件信息】\n");
-        info.append("CPU架构: " + environmentChecker.getHardwareInfo().cpuAbi + "\n");
-        info.append("处理器数量: " + environmentChecker.getRuntimeInfo().availableProcessors + "\n");
-        info.append("相机: " + (environmentChecker.getHardwareInfo().hasCamera ? "支持" : "不支持") + "\n");
-        info.append("GPS: " + (environmentChecker.getHardwareInfo().hasGPS ? "支持" : "不支持") + "\n\n");
+        info.append(getString(R.string.h_9fd4a3a3));
+        info.append(getString(R.string.h_13708454) + environmentChecker.getHardwareInfo().cpuAbi + "\n");
+        info.append(getString(R.string.h_0e2ec228) + environmentChecker.getRuntimeInfo().availableProcessors + "\n");
+        info.append(getString(R.string.h_835677c3) + (environmentChecker.getHardwareInfo().hasCamera ? getString(R.string.h_262b0b07) : getString(R.string.h_5875b0f0)) + "\n");
+        info.append("GPS: " + (environmentChecker.getHardwareInfo().hasGPS ? getString(R.string.h_262b0b07) : getString(R.string.h_5875b0f0)) + "\n\n");
 
-        info.append("【内存信息】\n");
-        info.append("总内存: " + Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().totalMemory) + "\n");
-        info.append("可用内存: " + Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().availableMemory) + "\n\n");
+        info.append(getString(R.string.h_c2fac49b));
+        info.append(getString(R.string.h_5a86cc25) + Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().totalMemory) + "\n");
+        info.append(getString(R.string.h_df803b12) + Formatter.formatFileSize(this, environmentChecker.getMemoryInfo().availableMemory) + "\n\n");
 
-        info.append("【存储信息】\n");
-        info.append("内部存储: " + getStorageInfo(Environment.getDataDirectory()) + "\n");
-        info.append("外部存储: " + getStorageInfo(Environment.getExternalStorageDirectory()) + "\n");
+        info.append(getString(R.string.h_44ad2b27));
+        info.append(getString(R.string.h_d094912c) + getStorageInfo(Environment.getDataDirectory()) + "\n");
+        info.append(getString(R.string.h_0b49db60) + getStorageInfo(Environment.getExternalStorageDirectory()) + "\n");
 
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");

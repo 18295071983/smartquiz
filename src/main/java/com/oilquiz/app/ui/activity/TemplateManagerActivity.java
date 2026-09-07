@@ -123,7 +123,7 @@ public class TemplateManagerActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(String error) {
-                Toast.makeText(TemplateManagerActivity.this, "加载模板失败：" + error, Toast.LENGTH_SHORT).show();
+                Toast.makeText(TemplateManagerActivity.this, getString(R.string.h_e0e5eca7) + error, Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -151,14 +151,14 @@ public class TemplateManagerActivity extends AppCompatActivity {
     // 批量删除模板
     private void batchDeleteTemplates() {
         if (selectedTemplates.isEmpty()) {
-            Toast.makeText(this, "请选择要删除的模板", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_8f478488), Toast.LENGTH_SHORT).show();
             return;
         }
         
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("确认删除");
-        builder.setMessage("确定要删除选中的 " + selectedTemplates.size() + " 个模板吗？");
-        builder.setPositiveButton("确定", (dialog, which) -> {
+        builder.setTitle(getString(R.string.h_631cd220));
+        builder.setMessage(getString(R.string.h_dcbbdbb9) + selectedTemplates.size() + getString(R.string.h_2786d9b7));
+        builder.setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
             for (Template template : selectedTemplates) {
                 templateViewModel.deleteTemplate(template.getId(), new TemplateViewModel.DeleteTemplateCallback() {
                     @Override
@@ -168,7 +168,7 @@ public class TemplateManagerActivity extends AppCompatActivity {
                     
                     @Override
                     public void onFailure(String error) {
-                        Toast.makeText(TemplateManagerActivity.this, "删除失败：" + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(TemplateManagerActivity.this, getString(R.string.h_bc42bb8f) + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -178,16 +178,16 @@ public class TemplateManagerActivity extends AppCompatActivity {
             selectedTemplates.clear();
             updateBatchButtons();
             loadTemplates();
-            Toast.makeText(this, "删除成功", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_0007d170), Toast.LENGTH_SHORT).show();
         });
-        builder.setNegativeButton("取消", null);
+        builder.setNegativeButton(getString(R.string.h_625fb26b), null);
         builder.show();
     }
     
     // 批量启用模板
     private void batchEnableTemplates() {
         if (selectedTemplates.isEmpty()) {
-            Toast.makeText(this, "请选择要启用的模板", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_194385be), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -201,7 +201,7 @@ public class TemplateManagerActivity extends AppCompatActivity {
                 
                 @Override
                 public void onFailure(String error) {
-                    Toast.makeText(TemplateManagerActivity.this, "启用失败：" + error, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(TemplateManagerActivity.this, getString(R.string.h_1457f4a0) + error, Toast.LENGTH_SHORT).show();
                 }
             });
         }
@@ -211,13 +211,13 @@ public class TemplateManagerActivity extends AppCompatActivity {
         selectedTemplates.clear();
         updateBatchButtons();
         loadTemplates();
-        Toast.makeText(this, "启用成功", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_c0cd850f), Toast.LENGTH_SHORT).show();
     }
     
     // 批量禁用模板
     private void batchDisableTemplates() {
         if (selectedTemplates.isEmpty()) {
-            Toast.makeText(this, "请选择要禁用的模板", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_a6dd3534), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -231,7 +231,7 @@ public class TemplateManagerActivity extends AppCompatActivity {
                 
                 @Override
                 public void onFailure(String error) {
-                    Toast.makeText(TemplateManagerActivity.this, "禁用失败：" + error, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(TemplateManagerActivity.this, getString(R.string.h_e39eabb8) + error, Toast.LENGTH_SHORT).show();
                 }
             });
         }
@@ -241,13 +241,13 @@ public class TemplateManagerActivity extends AppCompatActivity {
         selectedTemplates.clear();
         updateBatchButtons();
         loadTemplates();
-        Toast.makeText(this, "禁用成功", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_aebce986), Toast.LENGTH_SHORT).show();
     }
     
     // 批量复制模板
     private void batchCopyTemplates() {
         if (selectedTemplates.isEmpty()) {
-            Toast.makeText(this, "请选择要复制的模板", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_4ada159d), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -268,7 +268,7 @@ public class TemplateManagerActivity extends AppCompatActivity {
                 
                 @Override
                 public void onFailure(String error) {
-                    Toast.makeText(TemplateManagerActivity.this, "复制失败：" + error, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(TemplateManagerActivity.this, getString(R.string.h_69951bd9) + error, Toast.LENGTH_SHORT).show();
                 }
             });
         }
@@ -278,7 +278,7 @@ public class TemplateManagerActivity extends AppCompatActivity {
         selectedTemplates.clear();
         updateBatchButtons();
         loadTemplates();
-        Toast.makeText(this, "复制成功", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_20a49536), Toast.LENGTH_SHORT).show();
     }
 
     private void navigateToTemplateEdit(Template template) {

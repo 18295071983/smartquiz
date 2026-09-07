@@ -1,5 +1,6 @@
 package com.oilquiz.app.ai.chat;
 
+import com.oilquiz.app.SmartQuizApplication;
 import android.net.Uri;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -307,7 +308,7 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
             if (attachment.hasError()) {
                 holder.errorOverlay.setVisibility(View.VISIBLE);
                 if (holder.errorText != null) {
-                    holder.errorText.setText(attachment.errorMessage != null ? attachment.errorMessage : "加载失败");
+                    holder.errorText.setText(attachment.errorMessage != null ? attachment.errorMessage : SmartQuizApplication.getAppContext().getString(R.string.h_866b795e));
                 }
             } else {
                 holder.errorOverlay.setVisibility(View.GONE);
@@ -323,20 +324,20 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
 
     private void bindFileAttachment(FileAttachmentViewHolder holder, ChatMessage.Attachment attachment) {
         holder.fileIcon.setText(attachment.getEmoji());
-        holder.fileName.setText(attachment.name != null ? attachment.name : "未知文件");
+        holder.fileName.setText(attachment.name != null ? attachment.name : SmartQuizApplication.getAppContext().getString(R.string.h_94cd9443));
         holder.fileSize.setText(attachment.getDisplaySize());
 
         if (attachment.hasError()) {
-            holder.fileStatus.setText("失败: " + (attachment.errorMessage != null ? attachment.errorMessage : ""));
+            holder.fileStatus.setText(SmartQuizApplication.getAppContext().getString(R.string.h_8c470138) + (attachment.errorMessage != null ? attachment.errorMessage : ""));
             holder.fileStatus.setTextColor(ThemeColors.get(R.color.hc_ffff4444));
         } else if (attachment.isUploading()) {
-            holder.fileStatus.setText("上传中... " + attachment.uploadProgress + "%");
+            holder.fileStatus.setText(SmartQuizApplication.getAppContext().getString(R.string.h_b6478f2a) + attachment.uploadProgress + "%");
             holder.fileStatus.setTextColor(ThemeColors.get(R.color.hc_ff2196f3));
         } else if (attachment.status == ChatMessage.AttachmentStatus.PROCESSING) {
-            holder.fileStatus.setText("处理中...");
+            holder.fileStatus.setText(SmartQuizApplication.getAppContext().getString(R.string.h_2fb90b05));
             holder.fileStatus.setTextColor(ThemeColors.get(R.color.hc_ff2196f3));
         } else if (attachment.status == ChatMessage.AttachmentStatus.PENDING) {
-            holder.fileStatus.setText("等待上传...");
+            holder.fileStatus.setText(SmartQuizApplication.getAppContext().getString(R.string.h_4e5119c5));
             holder.fileStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
         } else {
             holder.fileStatus.setVisibility(View.GONE);
@@ -366,7 +367,7 @@ public class MessageAttachmentAdapter extends RecyclerView.Adapter<RecyclerView.
     }
 
     private void bindModelLink(ModelLinkViewHolder holder, AttachmentItem item) {
-        holder.modelName.setText(item.modelName != null ? item.modelName : "未知模型");
+        holder.modelName.setText(item.modelName != null ? item.modelName : SmartQuizApplication.getAppContext().getString(R.string.h_cb3587fc));
         holder.modelType.setText(item.modelType != null ? item.modelType : "");
 
         // 状态指示器

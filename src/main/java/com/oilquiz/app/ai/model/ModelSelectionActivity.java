@@ -123,7 +123,7 @@ public class ModelSelectionActivity extends AppCompatActivity {
         // 实际切换到选中的本地模型
         String modelName = model.getName();
         inferenceRouter.switchModel(modelName);
-        Toast.makeText(this, "已切换到模型: " + modelName, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_f70a7dc7) + modelName, Toast.LENGTH_SHORT).show();
     }
 
     private void handleModelDownload(Model model) {

@@ -100,7 +100,7 @@ public class LearningAssistantActivity extends AppCompatActivity {
             if (currentTask != null && !currentTask.isDone()) {
                 currentTask.cancel(true);
                 loadingLayout.setVisibility(View.GONE);
-                Toast.makeText(LearningAssistantActivity.this, "操作已取消", Toast.LENGTH_SHORT).show();
+                Toast.makeText(LearningAssistantActivity.this, getString(R.string.h_a45bac47), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -112,8 +112,8 @@ public class LearningAssistantActivity extends AppCompatActivity {
         setupSpinner(conceptDifficultySpinner, difficultyOptions);
 
         // 默认选择
-        planDifficultySpinner.setText("中等", false);
-        conceptDifficultySpinner.setText("中等", false);
+        planDifficultySpinner.setText(getString(R.string.h_eadd05ba), false);
+        conceptDifficultySpinner.setText(getString(R.string.h_eadd05ba), false);
     }
 
     private void setupSpinner(AutoCompleteTextView spinner, String[] options) {
@@ -197,11 +197,11 @@ public class LearningAssistantActivity extends AppCompatActivity {
         String difficulty = planDifficultySpinner.getText().toString();
 
         if (subject.isEmpty()) {
-            Toast.makeText(this, "请输入学习科目", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_9a3d12cb), Toast.LENGTH_SHORT).show();
             return;
         }
         if (weeklyHoursStr.isEmpty()) {
-            Toast.makeText(this, "请输入每周学习时间", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_3af18ee1), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -209,11 +209,11 @@ public class LearningAssistantActivity extends AppCompatActivity {
         try {
             weeklyHours = Integer.parseInt(weeklyHoursStr);
             if (weeklyHours <= 0) {
-                Toast.makeText(this, "每周学习时间必须大于0", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_e0e06b77), Toast.LENGTH_SHORT).show();
                 return;
             }
         } catch (NumberFormatException e) {
-            Toast.makeText(this, "请输入有效的学习时间", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_30068cb9), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -237,7 +237,7 @@ public class LearningAssistantActivity extends AppCompatActivity {
         String difficulty = conceptDifficultySpinner.getText().toString();
 
         if (concept.isEmpty()) {
-            Toast.makeText(this, "请输入要解释的概念", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_3a6cd904), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -261,11 +261,11 @@ public class LearningAssistantActivity extends AppCompatActivity {
         String daysLeftStr = ((TextInputEditText) findViewById(R.id.input_days_left_edit)).getText().toString().trim();
 
         if (examType.isEmpty()) {
-            Toast.makeText(this, "请输入考试类型", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_11c3b109), Toast.LENGTH_SHORT).show();
             return;
         }
         if (daysLeftStr.isEmpty()) {
-            Toast.makeText(this, "请输入剩余天数", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_32a80cd3), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -273,11 +273,11 @@ public class LearningAssistantActivity extends AppCompatActivity {
         try {
             daysLeft = Integer.parseInt(daysLeftStr);
             if (daysLeft <= 0) {
-                Toast.makeText(this, "剩余天数必须大于0", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_1e6bb976), Toast.LENGTH_SHORT).show();
                 return;
             }
         } catch (NumberFormatException e) {
-            Toast.makeText(this, "请输入有效的天数", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_bbce3450), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -298,21 +298,21 @@ public class LearningAssistantActivity extends AppCompatActivity {
     private void generateContent(String prompt, String title) {
         if (!aiService.isInitialized()) {
             if (!aiService.initializeSafe()) {
-                Toast.makeText(this, "AI服务初始化失败，请先导入模型", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_f559a2f7), Toast.LENGTH_SHORT).show();
                 return;
             }
         }
 
         // 更新加载消息
-        if (title.equals("学习计划")) {
-            loadingMessage.setText("生成学习计划中");
-            loadingSubmessage.setText("正在根据您的需求生成个性化学习计划，请稍候...");
-        } else if (title.equals("概念解释")) {
-            loadingMessage.setText("解释概念中");
-            loadingSubmessage.setText("正在生成清晰易懂的概念解释，请稍候...");
-        } else if (title.equals("考试备考建议")) {
-            loadingMessage.setText("生成备考建议中");
-            loadingSubmessage.setText("正在根据考试类型和剩余时间生成备考计划，请稍候...");
+        if (title.equals(getString(R.string.h_99d0dfe7))) {
+            loadingMessage.setText(getString(R.string.h_a71e0fb1));
+            loadingSubmessage.setText(getString(R.string.h_fa17813e));
+        } else if (title.equals(getString(R.string.h_11be49c7))) {
+            loadingMessage.setText(getString(R.string.h_6ebb8f9a));
+            loadingSubmessage.setText(getString(R.string.h_c145e97d));
+        } else if (title.equals(getString(R.string.h_7731015b))) {
+            loadingMessage.setText(getString(R.string.h_b0569798));
+            loadingSubmessage.setText(getString(R.string.h_77dc270a));
         }
         loadingLayout.setVisibility(View.VISIBLE);
 
@@ -329,9 +329,9 @@ public class LearningAssistantActivity extends AppCompatActivity {
                 actionsContainer.setVisibility(View.VISIBLE);
                 resultTitle.setText(title);
                 resultContent.setText(result);
-                Toast.makeText(this, title + "生成成功", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, title + getString(R.string.h_b6c4a445), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "生成失败，请重试", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_9d7f7ec4), Toast.LENGTH_SHORT).show();
             }
         })).exceptionally(throwable -> {
             runOnUiThread(() -> {
@@ -339,7 +339,7 @@ public class LearningAssistantActivity extends AppCompatActivity {
                 loadingLayout.setVisibility(View.GONE);
                 // 显示错误信息
                 Log.e("LearningAssistant", "Error generating content", throwable);
-                Toast.makeText(this, "生成时出错: " + throwable.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_ff291c78) + throwable.getMessage(), Toast.LENGTH_SHORT).show();
             });
             return null;
         });
@@ -348,19 +348,19 @@ public class LearningAssistantActivity extends AppCompatActivity {
     private void saveResult() {
         // 检查是否有生成结果
         if (resultContent.getText().toString().isEmpty()) {
-            Toast.makeText(this, "没有可保存的内容", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_afa9c07e), Toast.LENGTH_SHORT).show();
             return;
         }
         
         // 这里可以实现保存到数据库或文件的逻辑
         // 由于没有具体的保存需求，暂时只显示提示
-        Toast.makeText(this, "内容已保存", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_1c34535a), Toast.LENGTH_SHORT).show();
     }
 
     private void shareResult() {
         // 检查是否有生成结果
         if (resultContent.getText().toString().isEmpty()) {
-            Toast.makeText(this, "没有可分享的内容", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_e9a0e8eb), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -376,14 +376,14 @@ public class LearningAssistantActivity extends AppCompatActivity {
             startActivity(android.content.Intent.createChooser(shareIntent, "分享内容"));
         } catch (Exception e) {
             Log.e("LearningAssistant", "Error sharing result", e);
-            Toast.makeText(this, "分享失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_9074ea4d) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
     private void copyResult() {
         // 检查是否有生成结果
         if (resultContent.getText().toString().isEmpty()) {
-            Toast.makeText(this, "没有可复制的内容", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_42ee3bba), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -395,10 +395,10 @@ public class LearningAssistantActivity extends AppCompatActivity {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             ClipData clip = ClipData.newPlainText("学习助手结果", copyContent.toString());
             clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_4fb42e6e), Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Log.e("LearningAssistant", "Error copying result", e);
-            Toast.makeText(this, "复制失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_abdfe253) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 }

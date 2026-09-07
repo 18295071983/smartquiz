@@ -156,7 +156,7 @@ public class ModelDownloadActivity extends BaseActivity {
         btnAiInit.setVisibility(show ? View.VISIBLE : View.GONE);
         if (show) {
             btnAiInit.setEnabled(true);
-            btnAiInit.setText("⚡ 一键初始化");
+            btnAiInit.setText(getString(R.string.h_bbc09151));
         }
     }
 
@@ -266,7 +266,7 @@ public class ModelDownloadActivity extends BaseActivity {
         btnSearch.setOnClickListener(v -> {
             String query = searchView.getQuery().toString().trim();
             if (TextUtils.isEmpty(query)) {
-                showToast("请输入搜索关键词");
+                showToast(getString(R.string.h_bc362afe));
                 return;
             }
             if (isValidUrl(query)) {
@@ -324,15 +324,15 @@ public class ModelDownloadActivity extends BaseActivity {
         }
         
         new AlertDialog.Builder(this)
-            .setTitle("选择下载源")
+            .setTitle(getString(R.string.h_df27233d))
             .setSingleChoiceItems(MIRROR_NAMES, currentIndex, (dialog, which) -> {
                 ModelDownloadManager.MirrorSource selected = MIRROR_SOURCES[which];
                 modelDownloadManager.setCurrentMirrorSource(selected);
                 updateMirrorSourceDisplay();
-                showToast("已切换到: " + MIRROR_NAMES[which]);
+                showToast(getString(R.string.h_ab98c004) + MIRROR_NAMES[which]);
                 dialog.dismiss();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -371,15 +371,15 @@ public class ModelDownloadActivity extends BaseActivity {
         }
         
         new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("选择下载方式")
+            .setTitle(getString(R.string.h_7e1eb179))
             .setSingleChoiceItems(DOWNLOAD_METHOD_NAMES, currentIndex, (dialog, which) -> {
                 ModelDownloadManager.DownloadMethod selected = DOWNLOAD_METHODS[which];
                 modelDownloadManager.setDownloadMethod(selected);
                 updateDownloadMethodDisplay();
-                showToast("已切换到: " + DOWNLOAD_METHOD_NAMES[which] + "\n" + DOWNLOAD_METHOD_DESCRIPTIONS[which]);
+                showToast(getString(R.string.h_ab98c004) + DOWNLOAD_METHOD_NAMES[which] + "\n" + DOWNLOAD_METHOD_DESCRIPTIONS[which]);
                 dialog.dismiss();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -392,7 +392,7 @@ public class ModelDownloadActivity extends BaseActivity {
 
     private void loadOnlineModels() {
         tvSearchHint.setVisibility(View.VISIBLE);
-        tvSearchHint.setText("提示：在搜索框输入 Hugging Face 模型名称（如：Qwen/Qwen3-8B-GGUF）或直接输入模型下载链接\nLLM 模型 tab 已包含常用国产模型，此处提供特殊量化版本与自定义下载");
+        tvSearchHint.setText(getString(R.string.h_b1683ed4));
 
         List<OnlineModelInfo> onlineModels = getPopularOnlineModels();
         allModelList.addAll(onlineModels);
@@ -463,11 +463,11 @@ public class ModelDownloadActivity extends BaseActivity {
             filterModels();
             return;
         }
-        showToast("正在搜索 " + modelDownloadManager.getCurrentMirrorSource().domain + "...");
+        showToast(getString(R.string.h_91002114) + modelDownloadManager.getCurrentMirrorSource().domain + "...");
         final String query = keyword + " GGUF";
         final String searchApi = getSearchApi();
         if (searchApi == null) {
-            showToast("当前镜像源不支持在线搜索，请切换到 HF 镜像");
+            showToast(getString(R.string.h_4ef6015d));
             return;
         }
         final String resolveBase = getResolveBase();
@@ -495,7 +495,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     int code = response.code();
                     if (code != 200) {
                         final int finalCode = code;
-                        runOnUiThread(() -> showToast("搜索失败 HTTP " + finalCode));
+                        runOnUiThread(() -> showToast(getString(R.string.h_6da2b0d3) + finalCode));
                         response.close();
                         return;
                     }
@@ -517,7 +517,7 @@ public class ModelDownloadActivity extends BaseActivity {
             }
             if (body == null) {
                 final String err = lastErr != null ? lastErr.getMessage() : "unknown";
-                runOnUiThread(() -> showToast("搜索异常（已重试3次）: " + err));
+                runOnUiThread(() -> showToast(getString(R.string.h_a1164b23) + err));
                 return;
             }
 
@@ -554,7 +554,7 @@ public class ModelDownloadActivity extends BaseActivity {
 
                 runOnUiThread(() -> {
                     if (results.isEmpty()) {
-                        showToast("未找到 GGUF 模型，试试其他关键词");
+                        showToast(getString(R.string.h_c9cbb12f));
                         return;
                     }
                     allModelList.clear();
@@ -562,14 +562,14 @@ public class ModelDownloadActivity extends BaseActivity {
                     currentModelList.clear();
                     currentModelList.addAll(results);
                     modelAdapter.notifyDataSetChanged();
-                    tvSearchHint.setText("搜索到 " + results.size() + " 个 GGUF 模型，点击「选择文件」查看该模型下的 .gguf 文件并下载");
+                    tvSearchHint.setText(getString(R.string.h_e455c16a) + results.size() + getString(R.string.h_39616dfd));
                     tvSearchHint.setVisibility(View.VISIBLE);
-                    showToast("找到 " + results.size() + " 个候选");
+                    showToast(getString(R.string.h_e59118bf) + results.size() + getString(R.string.h_f69d7704));
                 });
             } catch (Exception e) {
                 android.util.Log.e("ModelDownload", "search error", e);
                 final String err = e.getMessage();
-                runOnUiThread(() -> showToast("搜索异常: " + err));
+                runOnUiThread(() -> showToast(getString(R.string.h_90b14d0e) + err));
             }
         }).start();
     }
@@ -579,7 +579,7 @@ public class ModelDownloadActivity extends BaseActivity {
      */
     private void showFileNameDialog(String repoId, String baseResolveUrl) {
         android.widget.EditText etFileName = new android.widget.EditText(this);
-        etFileName.setHint("输入 .gguf 文件名，如 qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        etFileName.setHint(getString(R.string.h_2eae8256));
         etFileName.setPadding(48, 24, 48, 24);
         // 预填常见 q4_k_m 文件名（从 repo id 推断）
         String guess = repoId.substring(repoId.lastIndexOf('/') + 1).toLowerCase();
@@ -590,13 +590,13 @@ public class ModelDownloadActivity extends BaseActivity {
         etFileName.setSelection(etFileName.getText().length());
 
         new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("选择模型文件")
-            .setMessage("Repo: " + repoId + "\n\n镜像无法获取文件列表，请输入该 repo 下的具体 .gguf 文件名")
+            .setTitle(getString(R.string.h_7bc30b7a))
+            .setMessage("Repo: " + repoId + getString(R.string.h_cc8d5a31))
             .setView(etFileName)
-            .setPositiveButton("下载", (d, w) -> {
+            .setPositiveButton(getString(R.string.h_f26ef914), (d, w) -> {
                 String fileName = etFileName.getText().toString().trim();
                 if (TextUtils.isEmpty(fileName)) {
-                    showToast("请输入文件名");
+                    showToast(getString(R.string.h_aa2a894d));
                     return;
                 }
                 String fullUrl = baseResolveUrl + fileName;
@@ -613,7 +613,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     }
                 });
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -623,7 +623,7 @@ public class ModelDownloadActivity extends BaseActivity {
      * 复用 SafeDns + 重试3次 + 浏览器 UA。
      */
     private void fetchAndShowRepoFiles(String repoId, String baseResolveUrl) {
-        showToast("正在获取文件列表…");
+        showToast(getString(R.string.h_69bcf811));
         ModelDownloadManager.MirrorSource mirror = modelDownloadManager.getCurrentMirrorSource();
         String mirrorBase = mirror.baseUrl != null ? mirror.baseUrl : "https://hf-mirror.com";
         final String treeApi = mirrorBase + "/api/models/" + repoId + "/tree/main";
@@ -665,7 +665,7 @@ public class ModelDownloadActivity extends BaseActivity {
             if (body == null) {
                 final String err = lastErr != null ? lastErr.getMessage() : "unknown";
                 runOnUiThread(() -> {
-                    showToast("获取文件列表失败: " + err);
+                    showToast(getString(R.string.h_34792ddd) + err);
                     // 失败回退到手动输入文件名
                     showFileNameDialog(repoId, baseResolveUrl);
                 });
@@ -688,7 +688,7 @@ public class ModelDownloadActivity extends BaseActivity {
 
                 runOnUiThread(() -> {
                     if (ggufFiles.isEmpty()) {
-                        showToast("该 repo 下未找到 .gguf 文件");
+                        showToast(getString(R.string.h_2c0ae320));
                         showFileNameDialog(repoId, baseResolveUrl);
                         return;
                     }
@@ -699,7 +699,7 @@ public class ModelDownloadActivity extends BaseActivity {
                         items[i] = f[0] + (f[1].isEmpty() ? "" : "  (" + f[1] + ")");
                     }
                     new androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle("选择 .gguf 文件（" + ggufFiles.size() + "个）")
+                        .setTitle(getString(R.string.h_539be262) + ggufFiles.size() + getString(R.string.h_450500c4))
                         .setItems(items, (d, w) -> {
                             String fileName = ggufFiles.get(w)[0];
                             String fullUrl = baseResolveUrl + fileName;
@@ -714,7 +714,7 @@ public class ModelDownloadActivity extends BaseActivity {
                                     ((ModelAdapter.ModelViewHolder) vh).startDownload(fullUrl, fullUrl);
                                 }
                             });
-                            showToast("开始下载: " + fileName);
+                            showToast(getString(R.string.h_47ea00ab) + fileName);
                         })
                         .setNegativeButton("手动输入", (d, w) -> showFileNameDialog(repoId, baseResolveUrl))
                         .show();
@@ -723,7 +723,7 @@ public class ModelDownloadActivity extends BaseActivity {
                 android.util.Log.e("ModelDownload", "parse tree error", e);
                 final String err = e.getMessage();
                 runOnUiThread(() -> {
-                    showToast("解析文件列表失败: " + err);
+                    showToast(getString(R.string.h_8b2732f3) + err);
                     showFileNameDialog(repoId, baseResolveUrl);
                 });
             }
@@ -792,18 +792,18 @@ public class ModelDownloadActivity extends BaseActivity {
         }
         
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("添加自定义模型")
+        builder.setTitle(getString(R.string.h_8f9a06d1))
                .setView(dialogView)
-               .setPositiveButton("下载", (dialog, which) -> {
+               .setPositiveButton(getString(R.string.h_f26ef914), (dialog, which) -> {
                    String url = etUrl.getText().toString().trim();
                    String name = etName.getText().toString().trim();
                    
                    if (TextUtils.isEmpty(url)) {
-                       showToast("请输入下载链接");
+                       showToast(getString(R.string.h_046fd75c));
                        return;
                    }
                    if (!URLUtil.isValidUrl(url)) {
-                       showToast("请输入有效的URL");
+                       showToast(getString(R.string.h_a7f6ca3f));
                        return;
                    }
                    if (TextUtils.isEmpty(name)) {
@@ -814,9 +814,9 @@ public class ModelDownloadActivity extends BaseActivity {
                    currentModelList.add(0, customModel);
                    modelAdapter.notifyItemInserted(0);
                    recyclerView.scrollToPosition(0);
-                   showToast("已添加自定义模型");
+                   showToast(getString(R.string.h_fe9e6535));
                })
-               .setNegativeButton("取消", null)
+               .setNegativeButton(getString(R.string.h_625fb26b), null)
                .show();
     }
 
@@ -840,7 +840,7 @@ public class ModelDownloadActivity extends BaseActivity {
         }
         
         String sizeText = formatSize(totalSize);
-        tvDownloadStats.setText(String.format("已下载 %d 个模型，总计 %s", downloadedCount, sizeText));
+        tvDownloadStats.setText(String.format(getString(R.string.h_7dffc56d), downloadedCount, sizeText));
     }
 
     private String formatSize(long bytes) {
@@ -903,9 +903,9 @@ public class ModelDownloadActivity extends BaseActivity {
                         if (progress >= 0) {
                             mvh.llProgress.setVisibility(View.VISIBLE);
                             mvh.progressBar.setProgress(progress);
-                            mvh.tvStatus.setText("下载中... " + progress + "%");
+                            mvh.tvStatus.setText(getString(R.string.h_a2e80854) + progress + "%");
                             mvh.tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
-                            mvh.btnAction.setText("暂停");
+                            mvh.btnAction.setText(getString(R.string.h_8d63ef38));
                             
                             // 显示已下载大小和总大小
                             if (mvh.tvProgressInfo != null && totalBytes > 0) {
@@ -952,9 +952,9 @@ public class ModelDownloadActivity extends BaseActivity {
                     RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(i);
                     if (holder instanceof ModelViewHolder) {
                         ModelViewHolder mvh = (ModelViewHolder) holder;
-                        mvh.tvStatus.setText("已暂停");
+                        mvh.tvStatus.setText(getString(R.string.h_a2d930fd));
                         mvh.tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
-                        mvh.btnAction.setText("继续");
+                        mvh.btnAction.setText(getString(R.string.h_27ca568b));
                         if (mvh.tvSpeed != null) mvh.tvSpeed.setText("");
                     }
                     break;
@@ -1002,10 +1002,10 @@ public class ModelDownloadActivity extends BaseActivity {
                     RecyclerView.ViewHolder holder = recyclerView.findViewHolderForAdapterPosition(i);
                     if (holder instanceof ModelViewHolder) {
                         ModelViewHolder mvh = (ModelViewHolder) holder;
-                        mvh.tvStatus.setText("下载失败");
+                        mvh.tvStatus.setText(getString(R.string.h_65e200d3));
                         mvh.tvStatus.setTextColor(ThemeColors.get(R.color.hc_fff44336));
                         mvh.llProgress.setVisibility(View.GONE);
-                        mvh.btnAction.setText("重试");
+                        mvh.btnAction.setText(getString(R.string.h_132c5cdc));
                     } else {
                         notifyItemChanged(i);
                     }
@@ -1064,16 +1064,16 @@ public class ModelDownloadActivity extends BaseActivity {
             private void bindLLMModel(ModelDownloadManager.ModelPresetInfo preset) {
                 tvName.setText(preset.name);
                 tvDescription.setText(preset.description);
-                tvSize.setText("大小: " + preset.sizeMB + " MB");
+                tvSize.setText(getString(R.string.h_8e587998) + preset.sizeMB + " MB");
                 
                 StringBuilder info = new StringBuilder();
-                info.append("精度: ").append(preset.quantization)
-                    .append(" | 上下文: ").append(preset.contextLength / 1024).append("K")
-                    .append(" | 推荐显存: ").append(preset.minRamMB).append(" MB");
+                info.append(getString(R.string.h_dd388bb1)).append(preset.quantization)
+                    .append(getString(R.string.h_a82c4621)).append(preset.contextLength / 1024).append("K")
+                    .append(getString(R.string.h_565866d2)).append(preset.minRamMB).append(" MB");
                 
                 // 显示多模态标识
                 if (preset.multimodal) {
-                    info.append(" | 多模态");
+                    info.append(getString(R.string.h_33f8bcde));
                 }
                 tvInfo.setText(info.toString());
                 
@@ -1085,8 +1085,8 @@ public class ModelDownloadActivity extends BaseActivity {
             private void bindOnlineModel(OnlineModelInfo model) {
                 tvName.setText(model.name);
                 tvDescription.setText(model.description);
-                tvSize.setText("大小: " + model.size);
-                tvInfo.setText("格式: " + model.format + " | 精度: " + model.quantization + 
+                tvSize.setText(getString(R.string.h_8e587998) + model.size);
+                tvInfo.setText(getString(R.string.h_b4ad854c) + model.format + getString(R.string.h_ac54eb42) + model.quantization + 
                     (model.params.isEmpty() ? "" : " | 参数: " + model.params));
                 
                 ivIcon.setImageResource(R.drawable.ic_ai_download);
@@ -1127,14 +1127,14 @@ public class ModelDownloadActivity extends BaseActivity {
                 if (isDownloaded) {
                     StringBuilder status = new StringBuilder("已下载");
                     if (mmprojAvailable) {
-                        status.append(" | 多模态");
+                        status.append(getString(R.string.h_33f8bcde));
                         tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff00bcd4));  // 青色标识多模态可用
                     } else {
                         tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff4caf50));
                     }
                     tvStatus.setText(status.toString());
                     llProgress.setVisibility(View.GONE);
-                    btnAction.setText("使用");
+                    btnAction.setText(getString(R.string.h_ecff77a8));
                     btnDelete.setVisibility(View.VISIBLE);
                     final String finalFileName = fileName;
                     btnAction.setOnClickListener(v -> switchToModel(finalFileName));
@@ -1157,16 +1157,16 @@ public class ModelDownloadActivity extends BaseActivity {
                     });
                 } else if (isPaused && progress != null) {
                     // 暂停状态：显示已下载进度，提供“继续”按钮
-                    tvStatus.setText("已暂停 " + progress.getProgressPercent() + "%");
+                    tvStatus.setText(getString(R.string.h_2c69cae3) + progress.getProgressPercent() + "%");
                     tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(progress.getProgressPercent());
                     if (tvSpeed != null) tvSpeed.setText("");
-                    btnAction.setText("继续");
+                    btnAction.setText(getString(R.string.h_27ca568b));
                     btnAction.setOnClickListener(v -> {
                         modelDownloadManager.resume(modelId);
-                        tvStatus.setText("恢复下载...");
-                        btnAction.setText("暂停");
+                        tvStatus.setText(getString(R.string.h_ccf97d76));
+                        btnAction.setText(getString(R.string.h_8d63ef38));
                         btnAction.setOnClickListener(v2 -> {
                             modelDownloadManager.pause(modelId);
                             updateModelState(modelId, downloadUrl);
@@ -1178,7 +1178,7 @@ public class ModelDownloadActivity extends BaseActivity {
                     long totalMB = progress.getTotalBytes() / (1024 * 1024);
                     long speedBps = progress.getSpeedBps();
                     
-                    tvStatus.setText("下载中... " + percent + "%");
+                    tvStatus.setText(getString(R.string.h_a2e80854) + percent + "%");
                     tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(percent);
@@ -1190,16 +1190,16 @@ public class ModelDownloadActivity extends BaseActivity {
                         tvSpeed.setText(formatSpeed(speedBps));
                     }
                     
-                    btnAction.setText("暂停");
+                    btnAction.setText(getString(R.string.h_8d63ef38));
                     btnAction.setOnClickListener(v -> {
                         modelDownloadManager.pause(modelId);
                         updateModelState(modelId, downloadUrl);
                     });
                 } else {
-                    tvStatus.setText("在线");
+                    tvStatus.setText(getString(R.string.h_68905cf3));
                     tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff2196f3));
                     llProgress.setVisibility(View.GONE);
-                    btnAction.setText("下载");
+                    btnAction.setText(getString(R.string.h_f26ef914));
                     btnAction.setOnClickListener(v -> {
                         startDownload(modelId, downloadUrl);
                     });
@@ -1228,19 +1228,19 @@ public class ModelDownloadActivity extends BaseActivity {
                     com.oilquiz.app.ai.service.AIService aiService =
                             com.oilquiz.app.ai.service.AIService.getInstance(ModelDownloadActivity.this);
                     if (aiService == null) {
-                        showToast("AI 服务未初始化，请先完成初始化");
+                        showToast(getString(R.string.h_94652553));
                         return;
                     }
                     String cur = aiService.getCurrentModelName();
                     if (cur != null && cur.equals(fileName)) {
-                        showToast("该模型已是当前使用模型");
+                        showToast(getString(R.string.h_a7ca3d15));
                         return;
                     }
-                    showToast("正在切换到: " + fileName);
+                    showToast(getString(R.string.h_9ba95af9) + fileName);
                     aiService.hotSwitchModel(fileName, new com.oilquiz.app.ai.service.AIService.HotSwitchCallback() {
                         @Override
                         public void onSwitchStarted(String fromModel, String toModel) {
-                            runOnUiThread(() -> showToast("开始切换模型..."));
+                            runOnUiThread(() -> showToast(getString(R.string.h_452f8726)));
                         }
                         @Override
                         public void onSwitchProgress(int progress, String message) {}
@@ -1248,20 +1248,20 @@ public class ModelDownloadActivity extends BaseActivity {
                         public void onSwitchCompleted(boolean success, String model) {
                             runOnUiThread(() -> {
                                 if (success) {
-                                    showToast("模型切换成功: " + model);
+                                    showToast(getString(R.string.h_24d9c18f) + model);
                                 } else {
-                                    showToast("模型切换失败");
+                                    showToast(getString(R.string.h_b9c8e7b7));
                                 }
                             });
                         }
                         @Override
                         public void onSwitchFailed(String reason) {
-                            runOnUiThread(() -> showToast("模型切换失败: " + reason));
+                            runOnUiThread(() -> showToast(getString(R.string.h_70a7d4d9) + reason));
                         }
                     });
                 } catch (Exception e) {
                     com.oilquiz.app.util.AILogger.w("ModelDownloadActivity", "switchToModel failed: " + e.getMessage());
-                    showToast("切换失败: " + e.getMessage());
+                    showToast(getString(R.string.h_979ab6ba) + e.getMessage());
                 }
             }
 
@@ -1301,10 +1301,10 @@ public class ModelDownloadActivity extends BaseActivity {
                 ModelDownloadManager.DownloadProgress progress = modelDownloadManager.getProgress(downloadUrl);
                 
                 if (isDownloaded) {
-                    tvStatus.setText("已下载");
+                    tvStatus.setText(getString(R.string.h_9719fec8));
                     tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff4caf50));
                     llProgress.setVisibility(View.GONE);
-                    btnAction.setText("使用");
+                    btnAction.setText(getString(R.string.h_ecff77a8));
                     btnDelete.setVisibility(View.VISIBLE);
                     final String finalFileName = fileName;
                     btnAction.setOnClickListener(v -> switchToModel(finalFileName));
@@ -1317,38 +1317,38 @@ public class ModelDownloadActivity extends BaseActivity {
                         updateDownloadStats();
                     });
                 } else if (isPaused && progress != null) {
-                    tvStatus.setText("已暂停 " + progress.getProgressPercent() + "%");
+                    tvStatus.setText(getString(R.string.h_2c69cae3) + progress.getProgressPercent() + "%");
                     tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(progress.getProgressPercent());
                     if (tvSpeed != null) tvSpeed.setText("");
-                    btnAction.setText("继续");
+                    btnAction.setText(getString(R.string.h_27ca568b));
                     btnAction.setOnClickListener(v -> {
                         modelDownloadManager.resume(downloadUrl);
-                        tvStatus.setText("恢复下载...");
-                        btnAction.setText("暂停");
+                        tvStatus.setText(getString(R.string.h_ccf97d76));
+                        btnAction.setText(getString(R.string.h_8d63ef38));
                         btnAction.setOnClickListener(v2 -> {
                             modelDownloadManager.pause(downloadUrl);
                             updateOnlineModelState(downloadUrl);
                         });
                     });
                 } else if (isDownloading && progress != null) {
-                    tvStatus.setText("下载中... " + progress.getProgressPercent() + "%");
+                    tvStatus.setText(getString(R.string.h_a2e80854) + progress.getProgressPercent() + "%");
                     tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                     llProgress.setVisibility(View.VISIBLE);
                     progressBar.setProgress(progress.getProgressPercent());
-                    btnAction.setText("暂停");
+                    btnAction.setText(getString(R.string.h_8d63ef38));
                     btnAction.setOnClickListener(v -> {
                         modelDownloadManager.pause(downloadUrl);
                         updateOnlineModelState(downloadUrl);
                     });
                 } else {
-                    tvStatus.setText("在线");
+                    tvStatus.setText(getString(R.string.h_68905cf3));
                     tvStatus.setTextColor(ThemeColors.get(R.color.hc_ff2196f3));
                     llProgress.setVisibility(View.GONE);
                     // 搜索结果：downloadUrl 是 resolve/main/ 基础路径 → 调文件列表 API 显示 .gguf 文件供选择
                     if (downloadUrl != null && downloadUrl.endsWith("/resolve/main/")) {
-                        btnAction.setText("选择文件");
+                        btnAction.setText(getString(R.string.h_fd7e0c99));
                         btnAction.setOnClickListener(v -> {
                             // 从 resolve/main/ 基础路径中提取 repoId（兼容任意镜像源）
                             String repoId = downloadUrl;
@@ -1360,7 +1360,7 @@ public class ModelDownloadActivity extends BaseActivity {
                             fetchAndShowRepoFiles(repoId, downloadUrl);
                         });
                     } else {
-                        btnAction.setText("下载");
+                        btnAction.setText(getString(R.string.h_f26ef914));
                         btnAction.setOnClickListener(v -> {
                             startDownload(downloadUrl, downloadUrl);
                         });
@@ -1369,20 +1369,20 @@ public class ModelDownloadActivity extends BaseActivity {
             }
 
             private void startDownload(String modelId, String downloadUrl) {
-                tvStatus.setText("开始下载...");
+                tvStatus.setText(getString(R.string.h_753ee97e));
                 tvStatus.setTextColor(ThemeColors.get(R.color.hc_ffff9800));
                 llProgress.setVisibility(View.VISIBLE);
                 progressBar.setProgress(0);
                 if (tvSpeed != null) tvSpeed.setText("");
-                btnAction.setText("暂停");
+                btnAction.setText(getString(R.string.h_8d63ef38));
                 btnAction.setOnClickListener(v -> {
                     modelDownloadManager.pause(modelId);
-                    tvStatus.setText("已暂停");
-                    btnAction.setText("继续");
+                    tvStatus.setText(getString(R.string.h_a2d930fd));
+                    btnAction.setText(getString(R.string.h_27ca568b));
                     btnAction.setOnClickListener(v2 -> {
                         modelDownloadManager.resume(modelId);
-                        tvStatus.setText("恢复下载...");
-                        btnAction.setText("暂停");
+                        tvStatus.setText(getString(R.string.h_ccf97d76));
+                        btnAction.setText(getString(R.string.h_8d63ef38));
                     });
                 });
                 

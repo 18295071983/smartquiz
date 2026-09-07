@@ -53,7 +53,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                     final String content = noteContentEditText.getText().toString().trim();
                     
                     if (title.isEmpty()) {
-                        Toast.makeText(NoteActivity.this, "请输入笔记标题", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(NoteActivity.this, getString(R.string.h_554a28dd), Toast.LENGTH_SHORT).show();
                         return;
                     }
                     
@@ -68,15 +68,15 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                                     @Override
                                     public void run() {
                                         try {
-                                            Toast.makeText(NoteActivity.this, "笔记更新成功", Toast.LENGTH_SHORT).show();
+                                            Toast.makeText(NoteActivity.this, getString(R.string.h_62e6eeb2), Toast.LENGTH_SHORT).show();
                                             editingNote = null;
-                                            addNoteButton.setText("添加笔记");
+                                            addNoteButton.setText(getString(R.string.h_81cbd86e));
                                             noteTitleEditText.setText("");
                                             noteContentEditText.setText("");
                                             loadNotes();
                                         } catch (Exception e) {
                                             e.printStackTrace();
-                                            Toast.makeText(NoteActivity.this, "更新笔记失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                            Toast.makeText(NoteActivity.this, getString(R.string.h_7354c70f) + e.getMessage(), Toast.LENGTH_SHORT).show();
                                         }
                                     }
                                 });
@@ -87,7 +87,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                                 runOnUiThread(new Runnable() {
                                     @Override
                                     public void run() {
-                                        Toast.makeText(NoteActivity.this, "更新笔记失败: " + error, Toast.LENGTH_SHORT).show();
+                                        Toast.makeText(NoteActivity.this, getString(R.string.h_7354c70f) + error, Toast.LENGTH_SHORT).show();
                                     }
                                 });
                             }
@@ -101,13 +101,13 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                                     @Override
                                     public void run() {
                                         try {
-                                            Toast.makeText(NoteActivity.this, "笔记添加成功", Toast.LENGTH_SHORT).show();
+                                            Toast.makeText(NoteActivity.this, getString(R.string.h_2d22d1d7), Toast.LENGTH_SHORT).show();
                                             noteTitleEditText.setText("");
                                             noteContentEditText.setText("");
                                             loadNotes();
                                         } catch (Exception e) {
                                             e.printStackTrace();
-                                            Toast.makeText(NoteActivity.this, "添加笔记失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                            Toast.makeText(NoteActivity.this, getString(R.string.h_0d741dec) + e.getMessage(), Toast.LENGTH_SHORT).show();
                                         }
                                     }
                                 });
@@ -118,7 +118,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                                 runOnUiThread(new Runnable() {
                                     @Override
                                     public void run() {
-                                        Toast.makeText(NoteActivity.this, "添加笔记失败: " + error, Toast.LENGTH_SHORT).show();
+                                        Toast.makeText(NoteActivity.this, getString(R.string.h_0d741dec) + error, Toast.LENGTH_SHORT).show();
                                     }
                                 });
                             }
@@ -126,7 +126,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
-                    Toast.makeText(NoteActivity.this, "操作失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(NoteActivity.this, getString(R.string.h_be4a600c) + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -148,7 +148,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                             }
                         } catch (Exception e) {
                             e.printStackTrace();
-                            Toast.makeText(NoteActivity.this, "加载笔记失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            Toast.makeText(NoteActivity.this, getString(R.string.h_bfaee9de) + e.getMessage(), Toast.LENGTH_SHORT).show();
                         }
                     }
                 });
@@ -159,7 +159,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(NoteActivity.this, "加载笔记失败: " + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(NoteActivity.this, getString(R.string.h_bfaee9de) + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -172,7 +172,7 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
         new AlertDialog.Builder(this)
                 .setTitle(note.getTitle())
                 .setMessage(note.getContent())
-                .setPositiveButton("确定", null)
+                .setPositiveButton(getString(R.string.h_38cf16f2), null)
                 .show();
     }
 
@@ -182,21 +182,21 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
         editingNote = note;
         noteTitleEditText.setText(note.getTitle());
         noteContentEditText.setText(note.getContent());
-        addNoteButton.setText("更新笔记");
+        addNoteButton.setText(getString(R.string.h_281e2b43));
     }
 
     @Override
     public void onDeleteClick(Note note) {
         try {
             if (note == null) {
-                Toast.makeText(this, "笔记不存在", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_65d0074b), Toast.LENGTH_SHORT).show();
                 return;
             }
             // 显示删除确认对话框
             new AlertDialog.Builder(this)
-                    .setTitle("删除笔记")
-                    .setMessage("确定要删除这篇笔记吗？")
-                    .setPositiveButton("确定", (dialog, which) -> {
+                    .setTitle(getString(R.string.h_d8b87379))
+                    .setMessage(getString(R.string.h_92d8c70b))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
                         noteViewModel.deleteNote(note.getId(), new com.oilquiz.app.repository.NoteRepository.RepositoryCallback<Void>() {
                             @Override
                             public void onSuccess(final Void result) {
@@ -204,11 +204,11 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                                     @Override
                                     public void run() {
                                         try {
-                                            Toast.makeText(NoteActivity.this, "删除成功", Toast.LENGTH_SHORT).show();
+                                            Toast.makeText(NoteActivity.this, getString(R.string.h_0007d170), Toast.LENGTH_SHORT).show();
                                             loadNotes(); // 重新加载笔记列表
                                         } catch (Exception e) {
                                             e.printStackTrace();
-                                            Toast.makeText(NoteActivity.this, "删除笔记失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                            Toast.makeText(NoteActivity.this, getString(R.string.h_e0f24bbc) + e.getMessage(), Toast.LENGTH_SHORT).show();
                                         }
                                     }
                                 });
@@ -219,17 +219,17 @@ public class NoteActivity extends AppCompatActivity implements NoteAdapter.OnNot
                                 runOnUiThread(new Runnable() {
                                     @Override
                                     public void run() {
-                                        Toast.makeText(NoteActivity.this, "删除笔记失败: " + error, Toast.LENGTH_SHORT).show();
+                                        Toast.makeText(NoteActivity.this, getString(R.string.h_e0f24bbc) + error, Toast.LENGTH_SHORT).show();
                                     }
                                 });
                             }
                         });
                     })
-                    .setNegativeButton("取消", null)
+                    .setNegativeButton(getString(R.string.h_625fb26b), null)
                     .show();
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "操作失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_be4a600c) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 

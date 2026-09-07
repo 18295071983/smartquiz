@@ -493,7 +493,7 @@ public class MainActivity extends BaseActivity {
         environmentInfo.append(getString(R.string.section_screen_info)).append("\n");
         environmentInfo.append(getString(R.string.resolution) + ": " + info.screenInfo.widthPixels + " x " + info.screenInfo.heightPixels + "\n");
         environmentInfo.append(getString(R.string.screen_density) + ": " + info.screenInfo.densityDpi + " dpi\n");
-        environmentInfo.append(getString(R.string.screen_size) + ": " + String.format(java.util.Locale.getDefault(), "%.2f", info.screenInfo.screenSizeInches) + " 英寸\n");
+        environmentInfo.append(getString(R.string.screen_size) + ": " + String.format(java.util.Locale.getDefault(), "%.2f", info.screenInfo.screenSizeInches) + getString(R.string.h_33d43d64));
         environmentInfo.append(getString(R.string.orientation) + ": " + info.screenInfo.orientation + "\n\n");
 
         // 内存信息

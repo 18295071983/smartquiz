@@ -152,8 +152,8 @@ public class AIIconDemoActivity extends AppCompatActivity {
         } else {
             llTestResult.setVisibility(View.VISIBLE);
             ivTestResult.setImageResource(iconResId);
-            tvTestIconName.setText("默认图标");
-            tvTestIconDesc.setText("未找到匹配的图标，使用默认机器人图标");
+            tvTestIconName.setText(getString(R.string.h_d5719f71));
+            tvTestIconDesc.setText(getString(R.string.h_eaf2e2e0));
         }
     }
 

@@ -199,7 +199,7 @@ public class LogViewerActivity extends AppCompatActivity {
             logAdapter = new LogAdapter(filteredLogItems);
             logListView.setAdapter(logAdapter);
             
-            setTitle("AI 服务日志" + " - " + new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date()));
+            setTitle(getString(R.string.h_f1852c4c) + " - " + new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date()));
             
             loadHistoricalLogs();
             
@@ -214,7 +214,7 @@ public class LogViewerActivity extends AppCompatActivity {
             android.util.Log.d(TAG, "LogViewerActivity onCreate completed");
         } catch (Exception e) {
             android.util.Log.e(TAG, "Error in onCreate: " + e.getMessage());
-            showToast("初始化失败: " + e.getMessage());
+            showToast(getString(R.string.h_58c10e4c) + e.getMessage());
             finish();
         }
     }
@@ -409,7 +409,7 @@ public class LogViewerActivity extends AppCompatActivity {
     }
     
     private void sendMessage(String message) {
-        addLogItem("用户输入: " + message, LOG_TYPE_SUCCESS, "INFO", "用户提交了新消息: " + message);
+        addLogItem(getString(R.string.h_57523f59) + message, LOG_TYPE_SUCCESS, "INFO", getString(R.string.h_6c133587) + message);
         if (inputMessage != null) {
             inputMessage.setText("");
         }
@@ -446,9 +446,9 @@ public class LogViewerActivity extends AppCompatActivity {
             android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             android.content.ClipData clip = android.content.ClipData.newPlainText("AI Service Log", sb.toString());
             clipboard.setPrimaryClip(clip);
-            showToast("日志已复制到剪贴板");
+            showToast(getString(R.string.h_7babe509));
         } else {
-            showToast("日志为空，无法复制");
+            showToast(getString(R.string.h_16b4d929));
         }
     }
     
@@ -464,7 +464,7 @@ public class LogViewerActivity extends AppCompatActivity {
             shareIntent.putExtra(Intent.EXTRA_SUBJECT, "AI Service Log");
             startActivity(Intent.createChooser(shareIntent, "分享日志"));
         } else {
-            showToast("日志为空，无法分享");
+            showToast(getString(R.string.h_c09af2ab));
         }
     }
     
@@ -487,7 +487,7 @@ public class LogViewerActivity extends AppCompatActivity {
 
                     @Override
                     public void onDenied(List<String> deniedPermissions) {
-                        showToast("需要存储权限才能导出日志");
+                        showToast(getString(R.string.h_119e0e02));
                     }
                 });
                 return;
@@ -512,7 +512,7 @@ public class LogViewerActivity extends AppCompatActivity {
                 }
                 
                 writer.close();
-                showToast("日志已导出到: " + logFile.getAbsolutePath());
+                showToast(getString(R.string.h_aefe3830) + logFile.getAbsolutePath());
                 
                 // 显示分享选项
                 Intent shareIntent = new Intent(Intent.ACTION_SEND);
@@ -526,10 +526,10 @@ public class LogViewerActivity extends AppCompatActivity {
                 
             } catch (IOException e) {
                 android.util.Log.e(TAG, "Error exporting log: " + e.getMessage());
-                showToast("导出日志失败: " + e.getMessage());
+                showToast(getString(R.string.h_df3a5427) + e.getMessage());
             }
         } else {
-            showToast("日志为空，无法导出");
+            showToast(getString(R.string.h_db2c37fb));
         }
     }
     
@@ -781,13 +781,13 @@ public class LogViewerActivity extends AppCompatActivity {
                     return;
                 }
                 
-                detailedTitle.setText("详细信息 - " + getLogTypeString(item.type));
+                detailedTitle.setText(getString(R.string.h_f841cc1e) + getLogTypeString(item.type));
                 StringBuilder details = new StringBuilder();
-                details.append("时间: " + item.timestamp + "\n");
-                details.append("级别: " + item.level + "\n");
-                details.append("类型: " + getLogTypeString(item.type) + "\n");
-                details.append("消息: " + item.message + "\n\n");
-                details.append("详细信息:\n" + (TextUtils.isEmpty(item.details) ? "无详细信息" : item.details));
+                details.append(getString(R.string.h_d5b1addf) + item.timestamp + "\n");
+                details.append(getString(R.string.h_da20f914) + item.level + "\n");
+                details.append(getString(R.string.h_d46380d7) + getLogTypeString(item.type) + "\n");
+                details.append(getString(R.string.h_2673f990) + item.message + "\n\n");
+                details.append(getString(R.string.h_4cb2e994) + (TextUtils.isEmpty(item.details) ? getString(R.string.h_76e8f88e) : item.details));
                 detailedContent.setText(details.toString());
                 detailedInfoArea.setVisibility(View.VISIBLE);
             } catch (Exception e) {

@@ -167,12 +167,12 @@ public class ImportGuideActivity extends BaseActivity {
     private void requestPublicStoragePermission() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             new androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle("需要\"所有文件访问\"权限")
-                    .setMessage("题目导入通过 Python 在公共目录 /storage/emulated/0/OilQuiz/ 解析题库源文件，\n"
+                    .setTitle(getString(R.string.h_a902a02e))
+                    .setMessage(getString(R.string.h_8220fcc6)
                             + "未授予时 Python 无法读写该目录，导入会失败。\n"
                             + "请点击\"去授权\"开启\"所有文件访问\"权限，然后重新进入导入。")
-                    .setPositiveButton("去授权", (d, w) -> openAllFilesAccessSetting())
-                    .setNegativeButton("取消", null)
+                    .setPositiveButton(getString(R.string.h_4a1c90d8), (d, w) -> openAllFilesAccessSetting())
+                    .setNegativeButton(getString(R.string.h_625fb26b), null)
                     .show();
         } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             requestPermissions(new String[]{
@@ -194,7 +194,7 @@ public class ImportGuideActivity extends BaseActivity {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
             } catch (Exception ex) {
-                Toast.makeText(this, "无法打开权限设置页面: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_7bf382b4) + ex.getMessage(), Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -219,7 +219,7 @@ public class ImportGuideActivity extends BaseActivity {
             if (requestCode == REQUEST_CODE_IMPORT || requestCode == REQUEST_CODE_TEMPLATE
                     || requestCode == REQUEST_CODE_AI_IMPORT) {
                 // 导入成功，可以显示提示或刷新界面
-                Toast.makeText(this, "导入完成", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_8edceef7), Toast.LENGTH_SHORT).show();
             }
         }
     }

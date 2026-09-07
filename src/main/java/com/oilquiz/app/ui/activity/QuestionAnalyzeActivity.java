@@ -85,7 +85,7 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
             if (currentTask != null && !currentTask.isDone()) {
                 currentTask.cancel(true);
                 loadingLayout.setVisibility(View.GONE);
-                Toast.makeText(QuestionAnalyzeActivity.this, "操作已取消", Toast.LENGTH_SHORT).show();
+                Toast.makeText(QuestionAnalyzeActivity.this, getString(R.string.h_a45bac47), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -127,7 +127,7 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
         String answer = correctAnswer.getText().toString().trim();
 
         if (question.isEmpty()) {
-            Toast.makeText(this, "请输入题目内容", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_27a84ff2), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -149,14 +149,14 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
         // 3. 调用AI服务解析题目
         if (!aiService.isInitialized()) {
             if (!aiService.initializeSafe()) {
-                Toast.makeText(this, "AI服务初始化失败，请先导入模型", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_f559a2f7), Toast.LENGTH_SHORT).show();
                 return;
             }
         }
 
         // 更新加载消息
-        loadingMessage.setText("分析题目中");
-        loadingSubmessage.setText("正在分析题目内容，生成解析、知识点和学习建议，请稍候...");
+        loadingMessage.setText(getString(R.string.h_effdb1bf));
+        loadingSubmessage.setText(getString(R.string.h_6807dc34));
         loadingLayout.setVisibility(View.VISIBLE);
 
         // 异步解析题目
@@ -172,9 +172,9 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
                 actionsContainer.setVisibility(View.VISIBLE);
                 // 解析结果
                 parseAnalysisResult(result);
-                Toast.makeText(this, "题目分析完成", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_93de2efb), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "解析失败，请重试", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_4e0c2396), Toast.LENGTH_SHORT).show();
             }
         })).exceptionally(throwable -> {
             runOnUiThread(() -> {
@@ -182,7 +182,7 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
                 loadingLayout.setVisibility(View.GONE);
                 // 显示错误信息
                 Log.e("QuestionAnalyze", "Error analyzing question", throwable);
-                Toast.makeText(this, "解析时出错: " + throwable.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_4dd291fd) + throwable.getMessage(), Toast.LENGTH_SHORT).show();
             });
             return null;
         });
@@ -191,28 +191,28 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
     private void saveAnalysis() {
         // 检查是否有解析结果
         if (explanation.getText().toString().isEmpty()) {
-            Toast.makeText(this, "没有可保存的解析结果", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_4d68b939), Toast.LENGTH_SHORT).show();
             return;
         }
         
         // 这里可以实现保存到数据库或文件的逻辑
         // 由于没有具体的保存需求，暂时只显示提示
-        Toast.makeText(this, "解析结果已保存", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_f289e5bc), Toast.LENGTH_SHORT).show();
     }
 
     private void shareAnalysis() {
         // 检查是否有解析结果
         if (explanation.getText().toString().isEmpty()) {
-            Toast.makeText(this, "没有可分享的解析结果", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_cfd4047e), Toast.LENGTH_SHORT).show();
             return;
         }
         
         try {
             StringBuilder shareContent = new StringBuilder();
-            shareContent.append("题目解析结果:\n\n");
-            shareContent.append("解析:\n").append(explanation.getText().toString()).append("\n\n");
-            shareContent.append("知识点:\n").append(knowledgePoints.getText().toString()).append("\n\n");
-            shareContent.append("学习建议:\n").append(learningSuggestions.getText().toString());
+            shareContent.append(getString(R.string.h_4560a89e));
+            shareContent.append(getString(R.string.h_2872c034)).append(explanation.getText().toString()).append("\n\n");
+            shareContent.append(getString(R.string.h_a3aebd68)).append(knowledgePoints.getText().toString()).append("\n\n");
+            shareContent.append(getString(R.string.h_0e1502be)).append(learningSuggestions.getText().toString());
             
             android.content.Intent shareIntent = new android.content.Intent(android.content.Intent.ACTION_SEND);
             shareIntent.setType("text/plain");
@@ -221,31 +221,31 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
             startActivity(android.content.Intent.createChooser(shareIntent, "分享解析结果"));
         } catch (Exception e) {
             Log.e("QuestionAnalyze", "Error sharing analysis", e);
-            Toast.makeText(this, "分享失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_9074ea4d) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
     private void copyAnalysis() {
         // 检查是否有解析结果
         if (explanation.getText().toString().isEmpty()) {
-            Toast.makeText(this, "没有可复制的解析结果", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_ef1b5a8a), Toast.LENGTH_SHORT).show();
             return;
         }
         
         try {
             StringBuilder copyContent = new StringBuilder();
-            copyContent.append("题目解析结果:\n\n");
-            copyContent.append("解析:\n").append(explanation.getText().toString()).append("\n\n");
-            copyContent.append("知识点:\n").append(knowledgePoints.getText().toString()).append("\n\n");
-            copyContent.append("学习建议:\n").append(learningSuggestions.getText().toString());
+            copyContent.append(getString(R.string.h_4560a89e));
+            copyContent.append(getString(R.string.h_2872c034)).append(explanation.getText().toString()).append("\n\n");
+            copyContent.append(getString(R.string.h_a3aebd68)).append(knowledgePoints.getText().toString()).append("\n\n");
+            copyContent.append(getString(R.string.h_0e1502be)).append(learningSuggestions.getText().toString());
             
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             ClipData clip = ClipData.newPlainText("解析结果", copyContent.toString());
             clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_4fb42e6e), Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Log.e("QuestionAnalyze", "Error copying analysis", e);
-            Toast.makeText(this, "复制失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_abdfe253) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
     
@@ -281,15 +281,15 @@ public class QuestionAnalyzeActivity extends AppCompatActivity {
             // 如果没有解析到具体部分，使用默认显示
             if (explanation.getText().toString().isEmpty()) {
                 explanation.setText(aiResult);
-                knowledgePoints.setText("请参考解析内容");
-                learningSuggestions.setText("请参考解析内容");
+                knowledgePoints.setText(getString(R.string.h_6b903660));
+                learningSuggestions.setText(getString(R.string.h_6b903660));
             }
         } catch (Exception e) {
             Log.e("QuestionAnalyze", "Error parsing analysis result", e);
             // 解析失败时，直接显示原始结果
             explanation.setText(aiResult);
-            knowledgePoints.setText("解析失败，请参考上面内容");
-            learningSuggestions.setText("解析失败，请参考上面内容");
+            knowledgePoints.setText(getString(R.string.h_c38cdfed));
+            learningSuggestions.setText(getString(R.string.h_c38cdfed));
         }
     }
 }

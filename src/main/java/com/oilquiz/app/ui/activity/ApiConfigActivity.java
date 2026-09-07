@@ -282,14 +282,14 @@ public class ApiConfigActivity extends BaseActivity {
         }
 
         tvStatus.setText(getStatusDisplay(config.getStatus()));
-        tvUsage.setText("使用: " + config.getUseCount() + "次");
+        tvUsage.setText(getString(R.string.h_d4d779f4) + config.getUseCount() + "次");
 
         updateStatusIndicator(statusIndicator, config.getStatus());
 
         // 显示延迟（如果有）
         if (config.getLastUsedAt() > 0) {
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault());
-            tvLastUsed.setText("最后使用: " + sdf.format(new Date(config.getLastUsedAt())));
+            tvLastUsed.setText(getString(R.string.h_49ab797b) + sdf.format(new Date(config.getLastUsedAt())));
             tvLastUsed.setVisibility(View.VISIBLE);
         } else {
             tvLastUsed.setVisibility(View.GONE);
@@ -318,7 +318,7 @@ public class ApiConfigActivity extends BaseActivity {
                 showEditDialog(config);
             } else {
                 Log.e("ApiConfigActivity", "无法编辑：配置对象为空或ID为空");
-                Toast.makeText(this, "无法编辑：配置信息不完整", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_d7d74150), Toast.LENGTH_SHORT).show();
             }
         });
         btnDelete.setOnClickListener(v -> confirmDelete(config));
@@ -372,7 +372,7 @@ public class ApiConfigActivity extends BaseActivity {
 
     private void showEditDialog(@Nullable APIConfig existingConfig) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(existingConfig == null ? "添加API配置" : "编辑API配置");
+        builder.setTitle(existingConfig == null ? getString(R.string.h_bff4d8eb) : getString(R.string.h_df1aee77));
 
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_api_config_edit, null);
         EditText etName = dialogView.findViewById(R.id.et_name);
@@ -467,7 +467,7 @@ public class ApiConfigActivity extends BaseActivity {
                 String serviceType = serviceTypeValues[spinnerService.getSelectedItemPosition()];
 
                 if (apiKey.isEmpty()) {
-                    Toast.makeText(this, "请先输入API Key", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_bbbab591), Toast.LENGTH_SHORT).show();
                     return;
                 }
 
@@ -475,7 +475,7 @@ public class ApiConfigActivity extends BaseActivity {
                     llConnectionStatus.setVisibility(View.VISIBLE);
                 }
                 if (tvConnectionStatus != null) {
-                    tvConnectionStatus.setText("正在测试连接...");
+                    tvConnectionStatus.setText(getString(R.string.h_8d701f1e));
                 }
                 if (pbTesting != null) {
                     pbTesting.setVisibility(View.VISIBLE);
@@ -496,7 +496,7 @@ public class ApiConfigActivity extends BaseActivity {
 
                     if (result.success) {
                         if (tvConnectionStatus != null) {
-                            tvConnectionStatus.setText("连接成功! 延迟: " + result.latency + "ms");
+                            tvConnectionStatus.setText(getString(R.string.h_fa5bc5b3) + result.latency + "ms");
                         }
                         if (statusIndicator != null) {
                             statusIndicator.setBackgroundResource(R.drawable.status_indicator_valid);
@@ -507,7 +507,7 @@ public class ApiConfigActivity extends BaseActivity {
                         }
                     } else {
                         if (tvConnectionStatus != null) {
-                            tvConnectionStatus.setText("连接失败: " + result.message);
+                            tvConnectionStatus.setText(getString(R.string.h_fcc15a0f) + result.message);
                         }
                         if (statusIndicator != null) {
                             statusIndicator.setBackgroundResource(R.drawable.status_indicator_invalid);
@@ -532,7 +532,7 @@ public class ApiConfigActivity extends BaseActivity {
                 String serviceType = serviceTypeValues[spinnerService.getSelectedItemPosition()];
 
                 if (apiKey.isEmpty()) {
-                    Toast.makeText(this, "请先输入API Key", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_bbbab591), Toast.LENGTH_SHORT).show();
                     return;
                 }
 
@@ -540,7 +540,7 @@ public class ApiConfigActivity extends BaseActivity {
                     llModelSection.setVisibility(View.VISIBLE);
                 }
                 if (tvModelList != null) {
-                    tvModelList.setText("正在获取模型列表...");
+                    tvModelList.setText(getString(R.string.h_916702da));
                 }
                 btnFetchModels.setEnabled(false);
 
@@ -563,7 +563,7 @@ public class ApiConfigActivity extends BaseActivity {
                             }
 
                             if (tvModelList != null) {
-                                tvModelList.setText("可用模型：" + models.size() + " 个");
+                                tvModelList.setText(getString(R.string.h_a7dfc193) + models.size() + " 个");
                             }
 
                             // 自动选择当前配置的模型
@@ -577,7 +577,7 @@ public class ApiConfigActivity extends BaseActivity {
                             }
                         } else {
                             if (tvModelList != null) {
-                                tvModelList.setText("未获取到模型列表");
+                                tvModelList.setText(getString(R.string.h_d1ef35f7));
                             }
                         }
                     }))
@@ -585,7 +585,7 @@ public class ApiConfigActivity extends BaseActivity {
                         runOnUiThread(() -> {
                             btnFetchModels.setEnabled(true);
                             if (tvModelList != null) {
-                                tvModelList.setText("获取失败: " + e.getMessage());
+                                tvModelList.setText(getString(R.string.h_bdf02ef7) + e.getMessage());
                             }
                         });
                         return null;
@@ -635,11 +635,11 @@ public class ApiConfigActivity extends BaseActivity {
         }
 
         builder.setView(dialogView);
-        builder.setPositiveButton("保存", (dialog, which) -> {
+        builder.setPositiveButton(getString(R.string.h_be5fbbe3), (dialog, which) -> {
             if (etName == null || etApiKey == null || etApiHost == null || 
                 etModelName == null || etTimeout == null || etDescription == null ||
                 spinnerService == null || spinnerCategory == null) {
-                Toast.makeText(this, "初始化失败，请重试", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_5d86d1c1), Toast.LENGTH_SHORT).show();
                 return;
             }
             
@@ -647,7 +647,7 @@ public class ApiConfigActivity extends BaseActivity {
             String apiKey = etApiKey.getText().toString().trim();
 
             if (name.isEmpty() || apiKey.isEmpty()) {
-                Toast.makeText(this, "名称和API Key不能为空", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_23c73b77), Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -682,10 +682,10 @@ public class ApiConfigActivity extends BaseActivity {
             }
 
             loadApiConfigs();
-            Toast.makeText(this, "保存成功", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_3b108349), Toast.LENGTH_SHORT).show();
         });
 
-        builder.setNegativeButton("取消", null);
+        builder.setNegativeButton(getString(R.string.h_625fb26b), null);
         builder.show();
     }
 
@@ -710,9 +710,9 @@ public class ApiConfigActivity extends BaseActivity {
 
     private void confirmDelete(APIConfig config) {
         new AlertDialog.Builder(this)
-            .setTitle("确认删除")
-            .setMessage("确定要删除 \"" + config.getName() + "\" 吗？此操作不可撤销。")
-            .setPositiveButton("删除", (dialog, which) -> {
+            .setTitle(getString(R.string.h_631cd220))
+            .setMessage(getString(R.string.h_46d31be4) + config.getName() + getString(R.string.h_ee0b8b94))
+            .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {
                 String configId = config.getId();
                 apiKeyManager.deleteAPIConfig(configId);
                 // 同步删除 OnlineModelManager 中对应的配置
@@ -722,20 +722,20 @@ public class ApiConfigActivity extends BaseActivity {
                     Log.e(TAG, "同步删除在线模型配置失败: " + e.getMessage());
                 }
                 loadApiConfigs();
-                Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_5cc23262), Toast.LENGTH_SHORT).show();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
     private void testSingleConfig(APIConfig config) {
-        Toast.makeText(this, "正在测试 " + config.getName() + "...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_6446bdbb) + config.getName() + "...", Toast.LENGTH_SHORT).show();
         
         apiKeyManager.testAPIConnection(config)
             .thenAccept(result -> runOnUiThread(() -> {
                 String message = result.success ? 
                     "测试成功! 延迟: " + result.latency + "ms" : 
-                    "测试失败: " + result.message;
+                    getString(R.string.h_9d9b6ba9) + result.message;
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 loadApiConfigs();
             }));
@@ -743,11 +743,11 @@ public class ApiConfigActivity extends BaseActivity {
 
     private void testAllConfigs() {
         if (filteredConfigs.isEmpty()) {
-            Toast.makeText(this, "没有可测试的配置", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_3702ea82), Toast.LENGTH_SHORT).show();
             return;
         }
 
-        Toast.makeText(this, "开始批量测试 " + filteredConfigs.size() + " 个配置...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_95aab33a) + filteredConfigs.size() + getString(R.string.h_38b7cbce), Toast.LENGTH_SHORT).show();
 
         List<CompletableFuture<APIKeyManager.TestResult>> futures = new ArrayList<>();
         for (APIConfig config : filteredConfigs) {
@@ -789,7 +789,7 @@ public class ApiConfigActivity extends BaseActivity {
         }
 
         if (allConfigs.isEmpty()) {
-            Toast.makeText(this, "没有可导出的配置", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_4ba325cc), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -806,9 +806,9 @@ public class ApiConfigActivity extends BaseActivity {
                 writer.write(json);
             }
 
-            Toast.makeText(this, "已导出到: " + exportFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_38d4b4e6) + exportFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
         } catch (Exception e) {
-            Toast.makeText(this, "导出失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_2e0d8c60) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -833,7 +833,7 @@ public class ApiConfigActivity extends BaseActivity {
         String archivePath = apiKeyManager.getArchivePath();
         apiKeyManager.ensureArchiveDirectoryExists();
 
-        Toast.makeText(this, "正在扫描存档目录...\n" + archivePath, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_dfd08aa7) + archivePath, Toast.LENGTH_SHORT).show();
 
         new Thread(() -> {
             List<APIConfig> foundConfigs = apiKeyManager.scanArchiveDirectory(archivePath);
@@ -841,10 +841,10 @@ public class ApiConfigActivity extends BaseActivity {
             runOnUiThread(() -> {
                 if (foundConfigs.isEmpty()) {
                     new AlertDialog.Builder(this)
-                        .setTitle("扫描结果")
-                        .setMessage("未在存档目录中找到API配置文件\n\n路径：" + archivePath)
-                        .setPositiveButton("确定", null)
-                        .setNeutralButton("修改路径", (dialog, which) -> {
+                        .setTitle(getString(R.string.h_59115b55))
+                        .setMessage(getString(R.string.h_4ce90060) + archivePath)
+                        .setPositiveButton(getString(R.string.h_38cf16f2), null)
+                        .setNeutralButton(getString(R.string.h_f588210f), (dialog, which) -> {
                             showArchivePathDialog();
                         })
                         .show();
@@ -852,9 +852,9 @@ public class ApiConfigActivity extends BaseActivity {
                 }
 
                 new AlertDialog.Builder(this)
-                    .setTitle("发现API配置")
-                    .setMessage("在存档目录中发现 " + foundConfigs.size() + " 个API配置，是否导入？\n\n路径：" + archivePath)
-                    .setPositiveButton("导入", (dialog, which) -> {
+                    .setTitle(getString(R.string.h_739cdfd3))
+                    .setMessage(getString(R.string.h_ed3ee7c5) + foundConfigs.size() + getString(R.string.h_15ee0ae6) + archivePath)
+                    .setPositiveButton(getString(R.string.h_8d9a071e), (dialog, which) -> {
                         for (APIConfig config : foundConfigs) {
                             apiKeyManager.saveAPIConfig(config);
                             // 同步单个配置到在线模型管理器
@@ -865,9 +865,9 @@ public class ApiConfigActivity extends BaseActivity {
                             }
                         }
                         loadApiConfigs();
-                        Toast.makeText(this, "已导入 " + foundConfigs.size() + " 个配置", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_946262ed) + foundConfigs.size() + getString(R.string.h_e45bedbe), Toast.LENGTH_SHORT).show();
                     })
-                    .setNegativeButton("取消", null)
+                    .setNegativeButton(getString(R.string.h_625fb26b), null)
                     .show();
             });
         }).start();
@@ -879,14 +879,14 @@ public class ApiConfigActivity extends BaseActivity {
         boolean isUsingDefault = apiKeyManager.isUsingDefaultArchivePath();
         
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("存档路径设置");
+        builder.setTitle(getString(R.string.h_ef12580c));
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(32, 24, 32, 24);
 
         TextView tvInfo = new TextView(this);
-        tvInfo.setText("设置API配置文件的存档目录路径");
+        tvInfo.setText(getString(R.string.h_e475ca89));
         tvInfo.setTextSize(14);
         tvInfo.setPadding(0, 0, 0, 16);
         layout.addView(tvInfo);
@@ -906,7 +906,7 @@ public class ApiConfigActivity extends BaseActivity {
         layout.addView(tvCurrentPath);
 
         TextView tvInputLabel = new TextView(this);
-        tvInputLabel.setText("输入新路径（自定义）：");
+        tvInputLabel.setText(getString(R.string.h_1fb09821));
         tvInputLabel.setTextSize(12);
         tvInputLabel.setPadding(0, 8, 0, 4);
         layout.addView(tvInputLabel);
@@ -926,7 +926,7 @@ public class ApiConfigActivity extends BaseActivity {
         inputLayout.addView(etPath);
 
         MaterialButton btnBrowse = new MaterialButton(this);
-        btnBrowse.setText("选择");
+        btnBrowse.setText(getString(R.string.h_153fa67a));
         btnBrowse.setCornerRadius(8);
         btnBrowse.setPadding(20, 0, 20, 0);
         LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
@@ -943,7 +943,7 @@ public class ApiConfigActivity extends BaseActivity {
 
         if (!isUsingDefault) {
             TextView tvResetInfo = new TextView(this);
-            tvResetInfo.setText("\n点击\"恢复默认\"可使用应用自动创建的目录");
+            tvResetInfo.setText(getString(R.string.h_7070b4ed));
             tvResetInfo.setTextSize(11);
             tvResetInfo.setPadding(0, 12, 0, 0);
             tvResetInfo.setTextColor(ThemeColors.get(R.color.hc_ff999999));
@@ -952,28 +952,28 @@ public class ApiConfigActivity extends BaseActivity {
 
         builder.setView(layout);
         
-        builder.setPositiveButton("保存", (dialog, which) -> {
+        builder.setPositiveButton(getString(R.string.h_be5fbbe3), (dialog, which) -> {
             String path = etPath.getText().toString().trim();
             if (path.isEmpty()) {
                 apiKeyManager.resetToDefaultArchivePath();
                 apiKeyManager.ensureArchiveDirectoryExists();
-                Toast.makeText(this, "已恢复默认存档路径", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_de9f352a), Toast.LENGTH_SHORT).show();
             } else {
                 apiKeyManager.setArchivePath(path);
                 apiKeyManager.ensureArchiveDirectoryExists();
-                Toast.makeText(this, "存档路径已保存", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_79bc0be3), Toast.LENGTH_SHORT).show();
             }
         });
 
         if (!isUsingDefault) {
-            builder.setNeutralButton("恢复默认", (dialog, which) -> {
+            builder.setNeutralButton(getString(R.string.h_7468f3e5), (dialog, which) -> {
                 apiKeyManager.resetToDefaultArchivePath();
                 apiKeyManager.ensureArchiveDirectoryExists();
-                Toast.makeText(this, "已恢复默认存档路径", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_de9f352a), Toast.LENGTH_SHORT).show();
             });
         }
 
-        builder.setNegativeButton("取消", null);
+        builder.setNegativeButton(getString(R.string.h_625fb26b), null);
         builder.show();
     }
 
@@ -991,7 +991,7 @@ public class ApiConfigActivity extends BaseActivity {
             intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
             startActivityForResult(intent, REQUEST_CODE_SELECT_FOLDER);
         } catch (Exception e) {
-            Toast.makeText(this, "无法打开文件夹选择器: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_3360d889) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1055,13 +1055,13 @@ public class ApiConfigActivity extends BaseActivity {
                 Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
                 intent.setData(Uri.parse("package:" + getPackageName()));
                 startActivity(intent);
-                Toast.makeText(this, "请授予\"所有文件访问\"权限", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, getString(R.string.h_b4061470), Toast.LENGTH_LONG).show();
             } catch (Exception e) {
                 try {
                     Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
                     startActivity(intent);
                 } catch (Exception ex) {
-                    Toast.makeText(this, "无法打开权限设置页面", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_91fb87bf), Toast.LENGTH_SHORT).show();
                 }
             }
         } else {
@@ -1077,9 +1077,9 @@ public class ApiConfigActivity extends BaseActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_CODE_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "权限已授予", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_5ded3757), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "需要存储权限才能导入导出文件", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_5a217bd9), Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -1109,9 +1109,9 @@ public class ApiConfigActivity extends BaseActivity {
                         Log.e(TAG, "同步到在线模型管理器失败: " + e.getMessage());
                     }
                     loadApiConfigs();
-                    Toast.makeText(this, "已导入 " + imported + " 个新配置", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_946262ed) + imported + getString(R.string.h_b6681207), Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(this, "导入失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_45332d13) + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             }
         } else if (requestCode == REQUEST_CODE_SELECT_FOLDER && resultCode == RESULT_OK && data != null) {
@@ -1124,11 +1124,11 @@ public class ApiConfigActivity extends BaseActivity {
                 String path = getRealPathFromTreeUri(treeUri);
                 if (path != null && pendingPathEditText != null) {
                     pendingPathEditText.setText(path);
-                    Toast.makeText(this, "已选择路径: " + path, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_926fa922) + path, Toast.LENGTH_SHORT).show();
                 } else if (path != null) {
                     apiKeyManager.setArchivePath(path);
                     apiKeyManager.ensureArchiveDirectoryExists();
-                    Toast.makeText(this, "存档路径已设置: " + path, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_9cf56df2) + path, Toast.LENGTH_SHORT).show();
                 }
                 pendingPathEditText = null;
             }
@@ -1155,7 +1155,7 @@ public class ApiConfigActivity extends BaseActivity {
                         showImportPreviewDialog(parseResult);
                     }
                 } catch (Exception e) {
-                    Toast.makeText(this, "读取文件失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_4c368c6a) + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             }
         }
@@ -1163,7 +1163,7 @@ public class ApiConfigActivity extends BaseActivity {
 
     private void showImportPreviewDialog(APIConfigParser.ParseResult parseResult) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("导入预览");
+        builder.setTitle(getString(R.string.h_9dec4140));
 
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_import_preview, null);
         
@@ -1179,7 +1179,7 @@ public class ApiConfigActivity extends BaseActivity {
         TextView tvPreviewModel = dialogView.findViewById(R.id.tv_preview_model);
 
         tvDetectedFormat.setText(parseResult.detectedFormat);
-        tvConfigCount.setText("检测到 " + parseResult.configs.size() + " 个配置");
+        tvConfigCount.setText(getString(R.string.h_482f035d) + parseResult.configs.size() + getString(R.string.h_e45bedbe));
 
         if (parseResult.configs.isEmpty()) {
             llNoConfig.setVisibility(View.VISIBLE);
@@ -1202,9 +1202,9 @@ public class ApiConfigActivity extends BaseActivity {
                     tvPreviewServiceType.setText(getServiceTypeDisplay(config.getServiceType()));
                     tvPreviewApiKey.setText(config.getMaskedApiKey());
                     String apiHost = config.getApiHost();
-                    tvPreviewApiHost.setText(apiHost != null && !apiHost.isEmpty() ? apiHost : "未设置");
+                    tvPreviewApiHost.setText(apiHost != null && !apiHost.isEmpty() ? apiHost : getString(R.string.h_fe2d26a2));
                     String modelName = config.getModelName();
-                    tvPreviewModel.setText(modelName != null && !modelName.isEmpty() ? modelName : "未设置");
+                    tvPreviewModel.setText(modelName != null && !modelName.isEmpty() ? modelName : getString(R.string.h_fe2d26a2));
                 }
             }
 
@@ -1215,15 +1215,15 @@ public class ApiConfigActivity extends BaseActivity {
                     tvPreviewServiceType.setText(getServiceTypeDisplay(config.getServiceType()));
                     tvPreviewApiKey.setText(config.getMaskedApiKey());
                     String apiHost = config.getApiHost();
-                    tvPreviewApiHost.setText(apiHost != null && !apiHost.isEmpty() ? apiHost : "未设置");
+                    tvPreviewApiHost.setText(apiHost != null && !apiHost.isEmpty() ? apiHost : getString(R.string.h_fe2d26a2));
                     String modelName = config.getModelName();
-                    tvPreviewModel.setText(modelName != null && !modelName.isEmpty() ? modelName : "未设置");
+                    tvPreviewModel.setText(modelName != null && !modelName.isEmpty() ? modelName : getString(R.string.h_fe2d26a2));
                 }
             });
         }
 
         builder.setView(dialogView);
-        builder.setPositiveButton("导入", (dialog, which) -> {
+        builder.setPositiveButton(getString(R.string.h_8d9a071e), (dialog, which) -> {
             if (!parseResult.configs.isEmpty()) {
                 int selectedId = rgConfigs.getCheckedRadioButtonId();
                 RadioButton selected = rgConfigs.findViewById(selectedId);
@@ -1237,11 +1237,11 @@ public class ApiConfigActivity extends BaseActivity {
                         Log.e(TAG, "同步到在线模型管理器失败: " + e.getMessage());
                     }
                     loadApiConfigs();
-                    Toast.makeText(this, "已导入: " + config.getName(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_5b2dccdb) + config.getName(), Toast.LENGTH_SHORT).show();
                 }
             }
         });
-        builder.setNegativeButton("取消", null);
+        builder.setNegativeButton(getString(R.string.h_625fb26b), null);
         builder.show();
     }
 }

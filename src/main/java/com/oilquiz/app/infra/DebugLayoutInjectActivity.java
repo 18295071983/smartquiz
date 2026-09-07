@@ -1,5 +1,6 @@
 package com.oilquiz.app.infra;
 
+import com.oilquiz.app.R;
 import android.app.Activity;
 import android.os.Bundle;
 import android.util.Log;
@@ -12,7 +13,7 @@ import android.widget.TextView;
  *
  * 用法（adb shell）：
  *  am start -n com.oilquiz.app/.infra.DebugLayoutInjectActivity \
- *    --es layout '{"root":{"type":"column","children":[{"type":"text","text":"divider测试","bold":true},{"type":"divider"},{"type":"input","hint":"点击输入"}]}}'
+ *    --es layout '{"root":{"type":"column","children":[{"type":"text","text":getString(R.string.h_cf9ec974),"bold":true},{"type":"divider"},{"type":"input","hint":getString(R.string.h_d6f251e4)}]}}'
  *
  * 可选 extra：
  *  --es mode dialog|chat  渲染模式（默认 dialog 弹窗；chat 进聊天流）
@@ -43,7 +44,7 @@ public class DebugLayoutInjectActivity extends Activity {
             layoutJson = "{\"root\":{\"type\":\"column\",\"children\":["
                     + "{\"type\":\"text\",\"text\":\"debug注入测试\",\"bold\":true},"
                     + "{\"type\":\"divider\"},"
-                    + "{\"type\":\"input\",\"hint\":\"点击输入测试\",\"key\":\"t1\"}]}}";
+                    + getString(R.string.h_1533a43c);
         }
 
         try {
@@ -96,7 +97,7 @@ public class DebugLayoutInjectActivity extends Activity {
             LinearLayout err = new LinearLayout(this);
             err.setOrientation(LinearLayout.VERTICAL);
             TextView tv = new TextView(this);
-            tv.setText("注入失败: " + e.getMessage());
+            tv.setText(getString(R.string.h_0de5227a) + e.getMessage());
             err.addView(tv);
             setContentView(err);
         }
@@ -166,7 +167,7 @@ public class DebugLayoutInjectActivity extends Activity {
         android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
         if (title != null && !title.isEmpty()) b.setTitle(title);
         b.setView(view);
-        b.setPositiveButton("关闭", (d, w) -> d.dismiss());
+        b.setPositiveButton(getString(R.string.h_b15d9127), (d, w) -> d.dismiss());
         b.setCancelable(true);
         android.app.AlertDialog dialog = b.create();
         // 输入法配置：ADJUST_RESIZE + show 后注入 EditText 触摸弹键盘

@@ -142,11 +142,11 @@ public class LogsActivity extends BaseActivity {
     private void initTabs() {
         if (tabLayout == null) return;
         tabLayout.removeAllTabs();
-        tabLayout.addTab(tabLayout.newTab().setText("全部").setTag(TAB_ALL));
-        tabLayout.addTab(tabLayout.newTab().setText("应用日志").setTag(TAB_APP));
-        tabLayout.addTab(tabLayout.newTab().setText("AI服务").setTag(TAB_AI));
-        tabLayout.addTab(tabLayout.newTab().setText("崩溃").setTag(TAB_CRASH));
-        tabLayout.addTab(tabLayout.newTab().setText("操作记录").setTag(TAB_OP));
+        tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.h_a8b0c204)).setTag(TAB_ALL));
+        tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.h_391cf35a)).setTag(TAB_APP));
+        tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.h_b1821dcb)).setTag(TAB_AI));
+        tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.h_9bf26c4f)).setTag(TAB_CRASH));
+        tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.h_cf8e1f09)).setTag(TAB_OP));
 
         tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override
@@ -245,16 +245,16 @@ public class LogsActivity extends BaseActivity {
     private void updateLiveChip() {
         if (chipLive == null) return;
         if (livePaused && pendingLiveCount > 0) {
-            chipLive.setText("实时(+" + pendingLiveCount + ")");
+            chipLive.setText(getString(R.string.h_0af87f8b) + pendingLiveCount + ")");
         } else {
-            chipLive.setText("实时");
+            chipLive.setText(getString(R.string.h_2843e2f6));
         }
     }
 
     // ==================== 数据加载 ====================
 
     private void loadData() {
-        showToast("正在加载日志...");
+        showToast(getString(R.string.h_f34fa10e));
         new Thread(() -> {
             try {
                 final List<LogItem> newItems = new ArrayList<>();
@@ -297,7 +297,7 @@ public class LogsActivity extends BaseActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     if (!destroyed) {
-                        showToast("加载日志失败: " + e.getMessage());
+                        showToast(getString(R.string.h_a8be487e) + e.getMessage());
                     }
                 });
             }
@@ -444,7 +444,7 @@ public class LogsActivity extends BaseActivity {
             total = filteredItems.size();
         }
         int shown = Math.min(visibleCount, total);
-        tvLogCount.setText("显示 " + shown + " / 共 " + total + " 条");
+        tvLogCount.setText(getString(R.string.h_a1a93bdb) + shown + getString(R.string.h_071f6f15) + total + " 条");
         if (btnLoadMore != null) {
             btnLoadMore.setEnabled(total > visibleCount);
         }
@@ -454,10 +454,10 @@ public class LogsActivity extends BaseActivity {
 
     private void confirmClearLogs() {
         new AlertDialog.Builder(this)
-                .setTitle("清空日志")
-                .setMessage("确定要清空当前选项卡（" + currentTabName() + "）的日志吗？此操作不可撤销。")
-                .setPositiveButton("清空", (dialog, which) -> clearLogs())
-                .setNegativeButton("取消", null)
+                .setTitle(getString(R.string.h_a15a9ef1))
+                .setMessage(getString(R.string.h_8cff227d) + currentTabName() + getString(R.string.h_2513de9f))
+                .setPositiveButton(getString(R.string.h_288f0c40), (dialog, which) -> clearLogs())
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -472,7 +472,7 @@ public class LogsActivity extends BaseActivity {
     }
 
     private void clearLogs() {
-        showToast("正在清空日志...");
+        showToast(getString(R.string.h_503686fc));
         new Thread(() -> {
             boolean ok = false;
             try {
@@ -504,7 +504,7 @@ public class LogsActivity extends BaseActivity {
             final boolean finalOk = ok;
             runOnUiThread(() -> {
                 if (destroyed) return;
-                showToast(finalOk ? currentTabName() + "已清空" : "清空" + currentTabName() + "失败");
+                showToast(finalOk ? currentTabName() + getString(R.string.h_3683077f) : getString(R.string.h_288f0c40) + currentTabName() + getString(R.string.h_acd5cb84));
                 loadData();
             });
         }).start();
@@ -513,7 +513,7 @@ public class LogsActivity extends BaseActivity {
     private void copyLogs() {
         List<LogItem> items = snapshotFiltered();
         if (items.isEmpty()) {
-            showToast("没有可复制的日志");
+            showToast(getString(R.string.h_04a8a976));
             return;
         }
         new Thread(() -> {
@@ -528,10 +528,10 @@ public class LogsActivity extends BaseActivity {
                             (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     android.content.ClipData clip = android.content.ClipData.newPlainText("日志", text);
                     clipboard.setPrimaryClip(clip);
-                    showToast("日志已复制到剪贴板");
+                    showToast(getString(R.string.h_7babe509));
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> showToast("复制日志失败: " + e.getMessage()));
+                runOnUiThread(() -> showToast(getString(R.string.h_cde5f392) + e.getMessage()));
             }
         }).start();
     }
@@ -539,7 +539,7 @@ public class LogsActivity extends BaseActivity {
     private void exportLogs() {
         List<LogItem> items = snapshotFiltered();
         if (items.isEmpty()) {
-            showToast("没有可导出的日志");
+            showToast(getString(R.string.h_c2d5d466));
             return;
         }
         new Thread(() -> {
@@ -557,9 +557,9 @@ public class LogsActivity extends BaseActivity {
                 try (FileWriter writer = new FileWriter(exportFile)) {
                     writer.write(sb.toString());
                 }
-                runOnUiThread(() -> showToast("日志已导出到: " + exportFile.getAbsolutePath()));
+                runOnUiThread(() -> showToast(getString(R.string.h_aefe3830) + exportFile.getAbsolutePath()));
             } catch (Exception e) {
-                runOnUiThread(() -> showToast("导出日志失败: " + e.getMessage()));
+                runOnUiThread(() -> showToast(getString(R.string.h_df3a5427) + e.getMessage()));
             }
         }).start();
     }
@@ -567,7 +567,7 @@ public class LogsActivity extends BaseActivity {
     private void shareLogs() {
         List<LogItem> items = snapshotFiltered();
         if (items.isEmpty()) {
-            showToast("没有可分享的日志");
+            showToast(getString(R.string.h_a997993d));
             return;
         }
         new Thread(() -> {
@@ -596,7 +596,7 @@ public class LogsActivity extends BaseActivity {
                     startActivity(android.content.Intent.createChooser(shareIntent, "分享日志"));
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> showToast("分享日志失败: " + e.getMessage()));
+                runOnUiThread(() -> showToast(getString(R.string.h_74d30689) + e.getMessage()));
             }
         }).start();
     }
@@ -804,9 +804,9 @@ public class LogsActivity extends BaseActivity {
         textView.setText(header + "\n\n" + body);
 
         new AlertDialog.Builder(this)
-                .setTitle("日志详情")
+                .setTitle(getString(R.string.h_e0d9b6f4))
                 .setView(scrollView)
-                .setPositiveButton("关闭", null)
+                .setPositiveButton(getString(R.string.h_b15d9127), null)
                 .show();
     }
 }

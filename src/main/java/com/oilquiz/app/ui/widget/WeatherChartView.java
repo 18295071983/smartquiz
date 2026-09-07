@@ -131,7 +131,7 @@ public class WeatherChartView extends View {
     }
 
     private void drawNoDataMessage(Canvas canvas) {
-        String message = "暂无数据";
+        String message = getContext().getString(R.string.h_21efd88b);
         float textWidth = textPaint.measureText(message);
         float x = (getWidth() - textWidth) / 2;
         float y = getHeight() / 2;

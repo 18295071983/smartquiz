@@ -159,7 +159,7 @@ public class ExportActivity extends AppCompatActivity {
      */
     private void showTemplateSelectDialog() {
         if (sceneTemplates == null || sceneTemplates.isEmpty()) {
-            Toast.makeText(this, "暂无可用模板", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_bf0e4749), Toast.LENGTH_SHORT).show();
             return;
         }
         String[] names = new String[sceneTemplates.size()];
@@ -169,13 +169,13 @@ public class ExportActivity extends AppCompatActivity {
             names[i] = t.getName() + (desc != null && !desc.isEmpty() ? "：" + desc : "");
         }
         new AlertDialog.Builder(this)
-                .setTitle("选择导出模板")
+                .setTitle(getString(R.string.h_f3a4498d))
                 .setItems(names, (dialog, which) -> {
                     Template t = sceneTemplates.get(which);
                     MaterialButton chip = findSceneChip(t);
                     selectSceneTemplate(t, chip);
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -300,7 +300,7 @@ public class ExportActivity extends AppCompatActivity {
             selectedFormat = ExportManager.ExportFormat.valueOf(value);
         } catch (Exception e) {
             Log.e(LOG_PREFIX, "Failed to parse format: " + value + ", error: " + e.getMessage());
-            Toast.makeText(this, "不支持的导出格式：" + label, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_43f98902) + label, Toast.LENGTH_SHORT).show();
             return;
         }
         Log.i(LOG_PREFIX, "Selected format: " + selectedFormat);
@@ -315,7 +315,7 @@ public class ExportActivity extends AppCompatActivity {
             Log.w(LOG_PREFIX, "Template does not support format " + value + ", finding alternative...");
             Template supported = findTemplateForFormat(value);
             if (supported != null) {
-                Toast.makeText(this, "当前模板不支持" + label + "，已切换到「" + supported.getName() + "」", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_c8490185) + label + getString(R.string.h_87bfb0df) + supported.getName() + "」", Toast.LENGTH_SHORT).show();
                 selectSceneTemplate(supported, findSceneChip(supported));
             } else {
                 Log.w(LOG_PREFIX, "No template supports format " + value);
@@ -408,7 +408,7 @@ public class ExportActivity extends AppCompatActivity {
      */
     private void showFieldSelectionDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("选择导出字段");
+        builder.setTitle(getString(R.string.h_fa93dc83));
 
         // 获取所有字段（与模板/导出器共用同一来源）
         List<String> fields = ExportUtils.getQuestionFields();
@@ -438,7 +438,7 @@ public class ExportActivity extends AppCompatActivity {
         scrollView.addView(layout);
         builder.setView(scrollView);
 
-        builder.setPositiveButton("确定", (dialog, which) -> {
+        builder.setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
             // 收集选中的字段
             tempSelectedFields.clear();
             for (int i = 0; i < layout.getChildCount(); i++) {
@@ -449,7 +449,7 @@ public class ExportActivity extends AppCompatActivity {
             }
 
             if (tempSelectedFields.isEmpty()) {
-                Toast.makeText(ExportActivity.this, "请至少选择一个字段", Toast.LENGTH_SHORT).show();
+                Toast.makeText(ExportActivity.this, getString(R.string.h_9ad31f9e), Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -463,11 +463,11 @@ public class ExportActivity extends AppCompatActivity {
                 currentSceneChip = null;
             }
             if (tvTemplateDesc != null) {
-                tvTemplateDesc.setText("已使用自定义字段；重新选择模板可恢复模板字段组合");
+                tvTemplateDesc.setText(getString(R.string.h_efad30ee));
             }
         });
 
-        builder.setNegativeButton("取消", (dialog, which) -> dialog.dismiss());
+        builder.setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> dialog.dismiss());
 
         builder.show();
     }
@@ -496,11 +496,11 @@ public class ExportActivity extends AppCompatActivity {
      */
     private void updateSelectedFieldsText() {
         if (selectedFields == null || selectedFields.isEmpty()) {
-            tvSelectedFields.setText("已选择 0 个字段");
+            tvSelectedFields.setText(getString(R.string.h_db2432ee));
         } else if (selectedFields.size() >= ExportUtils.getQuestionFields().size()) {
-            tvSelectedFields.setText("已选择所有字段（" + selectedFields.size() + " 个）");
+            tvSelectedFields.setText(getString(R.string.h_0a510584) + selectedFields.size() + getString(R.string.h_4c4f372d));
         } else {
-            tvSelectedFields.setText("已选择 " + selectedFields.size() + " 个字段");
+            tvSelectedFields.setText(getString(R.string.h_943b9226) + selectedFields.size() + getString(R.string.h_979c7fe9));
         }
     }
 
@@ -532,7 +532,7 @@ public class ExportActivity extends AppCompatActivity {
         Log.i(LOG_PREFIX, "proceedWithExport called");
         if (selectedFormat == null) {
             Log.e(LOG_PREFIX, "selectedFormat is null");
-            Toast.makeText(this, "请选择导出格式", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_ed8c23e0), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -576,7 +576,7 @@ public class ExportActivity extends AppCompatActivity {
             public void onError(String error) {
                 Log.e(LOG_PREFIX, "getQuestions onError: " + error);
                 errorHolder[0] = error;
-                Toast.makeText(ExportActivity.this, "获取题目失败：" + error, Toast.LENGTH_LONG).show();
+                Toast.makeText(ExportActivity.this, getString(R.string.h_560f33bd) + error, Toast.LENGTH_LONG).show();
             }
         });
     }
@@ -588,7 +588,7 @@ public class ExportActivity extends AppCompatActivity {
         Log.i(LOG_PREFIX, "processAndExport: questions=" + questions.size() + ", format=" + exportFormat);
         
         if (questions.isEmpty()) {
-            Toast.makeText(this, "当前数据库中没有题目可导出", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_6d2cf5cb), Toast.LENGTH_LONG).show();
             return;
         }
         
@@ -605,7 +605,7 @@ public class ExportActivity extends AppCompatActivity {
             }
             Log.i(LOG_PREFIX, "Filtered favorites: " + exportList.size() + " / " + questions.size());
             if (exportList.isEmpty()) {
-                Toast.makeText(this, "没有收藏的题目可导出", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_3632d313), Toast.LENGTH_SHORT).show();
                 return;
             }
         } else if (onlyIncorrect) {
@@ -618,10 +618,10 @@ public class ExportActivity extends AppCompatActivity {
             }
             Log.i(LOG_PREFIX, "Filtered incorrect questions: " + exportList.size() + " / " + questions.size());
             if (exportList.isEmpty()) {
-                Toast.makeText(this, "没有答错过的题目可导出（错题本为空）", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_45fe788c), Toast.LENGTH_SHORT).show();
                 return;
             }
-            Toast.makeText(this, "已过滤出 " + exportList.size() + " 道错题", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_e51b51d0) + exportList.size() + getString(R.string.h_86256a0b), Toast.LENGTH_SHORT).show();
         }
         // 试卷版/模拟考试版：按难度从易到难排序，组卷更合理
         if (sortByDifficulty && exportList.size() > 1) {
@@ -655,7 +655,7 @@ public class ExportActivity extends AppCompatActivity {
         AlertDialog.Builder progressBuilder = new AlertDialog.Builder(ExportActivity.this);
         final ProgressBar[] progressBarRef = new ProgressBar[1];
 
-        progressBuilder.setTitle("导出中");
+        progressBuilder.setTitle(getString(R.string.h_6b148f7f));
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(24, 24, 24, 24);
@@ -667,7 +667,7 @@ public class ExportActivity extends AppCompatActivity {
         progressBarRef[0] = progressBar;
 
         TextView progressText = new TextView(this);
-        progressText.setText("正在生成文件...");
+        progressText.setText(getString(R.string.h_c912eb85));
         progressText.setTextSize(16);
         progressText.setTextColor(SystemUIResourceAdapter.getInstance(this).getTextPrimaryColor());
         progressText.setGravity(android.view.Gravity.CENTER);
@@ -678,7 +678,7 @@ public class ExportActivity extends AppCompatActivity {
 
         progressBuilder.setView(layout);
         progressBuilder.setCancelable(false);
-        progressBuilder.setNegativeButton("关闭", new DialogInterface.OnClickListener() {
+        progressBuilder.setNegativeButton(getString(R.string.h_b15d9127), new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.dismiss();
@@ -758,7 +758,7 @@ public class ExportActivity extends AppCompatActivity {
                     public void run() {
                         if (isFinishing() || isDestroyed()) return;
                         progressDialog.dismiss();
-                        Toast.makeText(ExportActivity.this, "导出失败：" + error, Toast.LENGTH_LONG).show();
+                        Toast.makeText(ExportActivity.this, getString(R.string.h_bccb121f) + error, Toast.LENGTH_LONG).show();
                     }
                 });
             }
@@ -773,42 +773,42 @@ public class ExportActivity extends AppCompatActivity {
      */
     private void showExportCompleteDialog(File file, String savedPath, boolean isWebViewAPK) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("导出完成");
+        builder.setTitle(getString(R.string.h_446e67b3));
 
         String message;
         if (isWebViewAPK) {
             // WebView 应用导出（实际产物为单个 HTML 学习页，文案如实说明）
-            message = "WebView 学习页生成成功！\n\n";
+            message = getString(R.string.h_37b43961);
             if (savedPath != null) {
-                message += "文件已保存到：\n" + savedPath + "\n\n";
+                message += getString(R.string.h_80c99c04) + savedPath + "\n\n";
             }
-            message += "文件大小: " + (file.length() / 1024) + " KB\n\n";
-            message += "使用方法：\n";
-            message += "1. 用系统浏览器或文件管理器直接打开该 HTML 文件\n";
-            message += "2. 或在支持本地 HTML 的阅读器/WebView 应用中打开\n\n";
-            message += "可在系统「文件管理 → 下载 → OilQuiz」中查看";
+            message += getString(R.string.h_8fb3f816) + (file.length() / 1024) + " KB\n\n";
+            message += getString(R.string.h_904182c4);
+            message += getString(R.string.h_fd5a3c78);
+            message += getString(R.string.h_b42d4633);
+            message += getString(R.string.h_a330b6ec);
         } else {
-            message = "导出成功！\n\n文件已保存到：\n" + savedPath
+            message = getString(R.string.h_5f2fa1ee) + savedPath
                     + "\n\n文件大小: " + (file.length() / 1024) + " KB"
                     + "\n\n可在系统「文件管理 → 下载 → OilQuiz」中查看和编辑";
         }
         builder.setMessage(message);
 
-        builder.setPositiveButton("查看文件", new DialogInterface.OnClickListener() {
+        builder.setPositiveButton(getString(R.string.h_9de72a79), new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 openFile(file);
             }
         });
 
-        builder.setNeutralButton("分享文件", new DialogInterface.OnClickListener() {
+        builder.setNeutralButton(getString(R.string.h_4dc67882), new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 shareFile(file);
             }
         });
 
-        builder.setNegativeButton("确定", new DialogInterface.OnClickListener() {
+        builder.setNegativeButton(getString(R.string.h_38cf16f2), new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.dismiss();
@@ -827,28 +827,28 @@ public class ExportActivity extends AppCompatActivity {
             @Override
             public void run() {
                 AlertDialog.Builder builder = new AlertDialog.Builder(ExportActivity.this);
-                builder.setTitle("导出完成");
-                String message = "已生成独立 APK 应用（可直接安装到手机）！\n\n";
+                builder.setTitle(getString(R.string.h_446e67b3));
+                String message = getString(R.string.h_fffcca4c);
                 if (savedPath != null) {
-                    message += "文件已保存到：\n" + savedPath + "\n\n";
+                    message += getString(R.string.h_80c99c04) + savedPath + "\n\n";
                 }
-                message += "文件大小: " + (file.length() / 1024) + " KB\n\n";
-                message += "该 APK 内置当前题库，安装后即可离线刷题。";
+                message += getString(R.string.h_8fb3f816) + (file.length() / 1024) + " KB\n\n";
+                message += getString(R.string.h_c61dc956);
                 builder.setMessage(message);
 
-                builder.setPositiveButton("安装", new DialogInterface.OnClickListener() {
+                builder.setPositiveButton(getString(R.string.h_e655a410), new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         openFile(file);
                     }
                 });
-                builder.setNeutralButton("分享", new DialogInterface.OnClickListener() {
+                builder.setNeutralButton(getString(R.string.h_c31f48f8), new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         shareFile(file);
                     }
                 });
-                builder.setNegativeButton("确定", new DialogInterface.OnClickListener() {
+                builder.setNegativeButton(getString(R.string.h_38cf16f2), new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         dialog.dismiss();
@@ -873,7 +873,7 @@ public class ExportActivity extends AppCompatActivity {
             startActivity(intent);
         } catch (Exception e) {
             Log.e(LOG_PREFIX, "Failed to preview WebView file", e);
-            Toast.makeText(ExportActivity.this, "预览失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(ExportActivity.this, getString(R.string.h_943ad7a2) + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -910,10 +910,10 @@ public class ExportActivity extends AppCompatActivity {
             if (intent.resolveActivity(getPackageManager()) != null) {
                 startActivity(Intent.createChooser(intent, "选择打开方式"));
             } else {
-                Toast.makeText(this, "没有找到可以打开此文件的应用", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_58cc9b4f), Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
-            Toast.makeText(this, "无法打开文件: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_71723529) + e.getMessage(), Toast.LENGTH_SHORT).show();
             e.printStackTrace();
         }
     }
@@ -937,7 +937,7 @@ public class ExportActivity extends AppCompatActivity {
             startActivity(intent);
         } catch (Exception e) {
             Log.e(LOG_PREFIX, "无法安装 APK", e);
-            Toast.makeText(this, "无法安装 APK: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_21a98fc4) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1007,10 +1007,10 @@ public class ExportActivity extends AppCompatActivity {
             if (intent.resolveActivity(getPackageManager()) != null) {
                 startActivity(Intent.createChooser(intent, "分享文件"));
             } else {
-                Toast.makeText(this, "没有找到可以分享此文件的应用", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_d5760453), Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
-            Toast.makeText(this, "无法分享文件: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_122824f6) + e.getMessage(), Toast.LENGTH_SHORT).show();
             e.printStackTrace();
         }
     }
@@ -1023,11 +1023,11 @@ public class ExportActivity extends AppCompatActivity {
         // 检查权限是否授予成功
         if (AppResourceManager.getInstance(this).hasStoragePermission()) {
             // 权限授予成功，继续执行导出操作
-            Toast.makeText(this, "存储权限已授予", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_3587abc9), Toast.LENGTH_SHORT).show();
             proceedWithExport();
         } else {
             // 权限授予失败
-            Toast.makeText(this, "存储权限被拒绝，无法执行导出操作", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_e48aad5b), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1042,7 +1042,7 @@ public class ExportActivity extends AppCompatActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        tvQuestionCount.setText("当前题库共有 " + count + " 道题目");
+                        tvQuestionCount.setText(getString(R.string.h_345a8fe9) + count + getString(R.string.h_bafae10a));
                     }
                 });
             }
@@ -1052,7 +1052,7 @@ public class ExportActivity extends AppCompatActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        tvQuestionCount.setText("当前题库共有 0 道题目");
+                        tvQuestionCount.setText(getString(R.string.h_0b046bbc));
                     }
                 });
             }

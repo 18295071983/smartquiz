@@ -127,7 +127,7 @@ public class MediaGenActivity extends Activity {
         root.setBackgroundColor(ThemeColors.get(R.color.hc_fff8fafc));
 
         TextView title = new TextView(this);
-        title.setText("🎨 AI 文生图 / 视频（百炼通义万相）");
+        title.setText(getString(R.string.h_1f71c424));
         title.setTextSize(18);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(ThemeColors.get(R.color.hc_ff111827));
@@ -137,8 +137,8 @@ public class MediaGenActivity extends Activity {
         LinearLayout modeRow = new LinearLayout(this);
         modeRow.setOrientation(LinearLayout.HORIZONTAL);
         modeRow.setPadding(0, dp(10), 0, dp(4));
-        btnImageMode = modeButton("🖼️ 文生图");
-        btnVideoMode = modeButton("🎬 文生视频");
+        btnImageMode = modeButton(getString(R.string.h_03ae6d4d));
+        btnVideoMode = modeButton(getString(R.string.h_9eb4951b));
         modeRow.addView(btnImageMode, rowWeight());
         modeRow.addView(btnVideoMode, rowWeight());
         root.addView(modeRow);
@@ -150,12 +150,12 @@ public class MediaGenActivity extends Activity {
         loadProvidersFromConfig();
         root.addView(fieldRow("提供商", spProvider));
         etApiUrl = new EditText(this);
-        etApiUrl.setHint("端点 api_url（留空=跟随模型管理配置的百炼端点）");
+        etApiUrl.setHint(getString(R.string.h_74018aa7));
         etApiUrl.setSingleLine(true);
         etApiUrl.setTextSize(13);
         root.addView(fieldRow("端点", etApiUrl));
         etApiKey = new EditText(this);
-        etApiKey.setHint("API Key（已从配置自动填入，可留空；如需覆盖请自行填写）");
+        etApiKey.setHint(getString(R.string.h_c35883ad));
         etApiKey.setSingleLine(true);
         etApiKey.setTextSize(13);
         root.addView(fieldRow("API Key", etApiKey));
@@ -167,13 +167,13 @@ public class MediaGenActivity extends Activity {
         });
 
         // 提示词 + AI 优化按钮
-        TextView lblPrompt = label("画面 / 视频描述");
+        TextView lblPrompt = label(getString(R.string.h_41e8bea9));
         LinearLayout promptHead = new LinearLayout(this);
         promptHead.setOrientation(LinearLayout.HORIZONTAL);
         promptHead.setGravity(Gravity.CENTER_VERTICAL);
         promptHead.addView(lblPrompt);
         Button btnOptimize = new Button(this);
-        btnOptimize.setText("✨ AI优化");
+        btnOptimize.setText(getString(R.string.h_5e2dfe13));
         btnOptimize.setTextSize(11);
         btnOptimize.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
         btnOptimize.setTextColor(Color.WHITE);
@@ -197,7 +197,7 @@ public class MediaGenActivity extends Activity {
         spModel.setThreshold(0);
         spModel.setSingleLine(true);
         spModel.setTextSize(14);
-        spModel.setHint("模型：点开选或直接输入（如 wan2.2-t2i-flash / Seedream）");
+        spModel.setHint(getString(R.string.h_23a27c29));
         spModel.setAdapter(fullListAdapter(IMAGE_MODELS));
         // 点击/聚焦即弹出完整下拉列表（阈值0 + 手动弹）
         spModel.setOnClickListener(v -> spModel.showDropDown());
@@ -205,7 +205,7 @@ public class MediaGenActivity extends Activity {
             if (hasFocus) spModel.showDropDown();
         });
         Button btnRefreshModels = new Button(this);
-        btnRefreshModels.setText("🔄 刷新模型");
+        btnRefreshModels.setText(getString(R.string.h_8900bbdb));
         btnRefreshModels.setTextSize(11);
         btnRefreshModels.setBackgroundColor(ThemeColors.get(R.color.hc_ff64748b));
         btnRefreshModels.setTextColor(Color.WHITE);
@@ -219,7 +219,7 @@ public class MediaGenActivity extends Activity {
         spSize.setThreshold(0);
         spSize.setSingleLine(true);
         spSize.setTextSize(14);
-        spSize.setHint("尺寸：点开选或直接输入（如 1024*1024 / 832*480）");
+        spSize.setHint(getString(R.string.h_6fa3eb5d));
         spSize.setAdapter(fullListAdapter(IMAGE_SIZES));
         spSize.setOnClickListener(v -> spSize.showDropDown());
         spSize.setOnFocusChangeListener((v, hasFocus) -> {
@@ -233,7 +233,7 @@ public class MediaGenActivity extends Activity {
 
         // 生成按钮
         Button btnGenerate = new Button(this);
-        btnGenerate.setText("🚀 生成" + (mode.equals("video") ? "视频" : "图片"));
+        btnGenerate.setText(getString(R.string.h_de7544c7) + (mode.equals("video") ? getString(R.string.h_7fcf42ed) : getString(R.string.h_20def794)));
         btnGenerate.setTextSize(15);
         btnGenerate.setTextColor(Color.WHITE);
         btnGenerate.setBackgroundColor(ThemeColors.get(R.color.hc_ff2563eb));
@@ -271,12 +271,12 @@ public class MediaGenActivity extends Activity {
         videoActions.setOrientation(LinearLayout.HORIZONTAL);
         videoActions.setVisibility(View.GONE);
         Button btnPlay = new Button(this);
-        btnPlay.setText("▶ 播放");
+        btnPlay.setText(getString(R.string.h_20595c40));
         btnPlay.setBackgroundColor(ThemeColors.get(R.color.hc_ff059669));
         btnPlay.setTextColor(Color.WHITE);
         btnPlay.setOnClickListener(v -> playVideo());
         Button btnShare = new Button(this);
-        btnShare.setText("分享");
+        btnShare.setText(getString(R.string.h_c31f48f8));
         btnShare.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
         btnShare.setTextColor(Color.WHITE);
         btnShare.setOnClickListener(v -> shareVideo());
@@ -294,7 +294,7 @@ public class MediaGenActivity extends Activity {
         tvTask.setTextColor(ThemeColors.get(R.color.hc_ff6b7280));
         taskArea.addView(tvTask);
         btnQuery = new Button(this);
-        btnQuery.setText("🔄 查询进度");
+        btnQuery.setText(getString(R.string.h_19d28c81));
         btnQuery.setBackgroundColor(ThemeColors.get(R.color.hc_fff59e0b));
         btnQuery.setTextColor(Color.WHITE);
         btnQuery.setVisibility(View.GONE);
@@ -404,18 +404,18 @@ public class MediaGenActivity extends Activity {
         // 能力提示：检查其他提供商是否支持文生图/文生视频
         String capHint = providerCapabilityHint(apiUrl);
         if (!isBailian) {
-            tvCostHint.setText(capHint + "\n💰 费用按平台计费，生成前请自行确认");
+            tvCostHint.setText(capHint + getString(R.string.h_57b86261));
         } else if (mode.equals("video")) {
-            tvCostHint.setText("💰 视频按秒计费：turbo≈0.3元/5s，plus 更贵（约¥0.5+/秒），"
+            tvCostHint.setText(getString(R.string.h_a07cc2fd)
                     + "1080*1920 等大尺寸单价最高；建议 turbo + 小尺寸");
         } else {
-            tvCostHint.setText("💰 文生图：wan2.2-t2i-flash 按张计费（约 ¥0.15/张），plus 更贵，尺寸越大越贵");
+            tvCostHint.setText(getString(R.string.h_41bc13d5));
         }
     }
 
     /** 动态获取账号可用模型（dashscope_media action=models），更新模型下拉 */
     private void refreshModels() {
-        tvStatus.setText("⏳ 获取可用模型…");
+        tvStatus.setText(getString(R.string.h_c91a981c));
         executor.execute(() -> {
             try {
                 com.oilquiz.app.ai.tool.DashscopeMediaTool tool =
@@ -440,16 +440,16 @@ public class MediaGenActivity extends Activity {
                             spModel.setAdapter(fullListAdapter(arr));
                             spModel.setText(arr.length > 0 ? arr[0] : "", false);
                             spModel.selectAll();
-                            tvStatus.setText("✅ 已动态加载 " + arr.length + " 个模型，请选择");
+                            tvStatus.setText(getString(R.string.h_7635ee34) + arr.length + getString(R.string.h_b07ef529));
                             return;
                         }
                     }
                     String err = (r != null && r.getErrorMessage() != null)
                             ? r.getErrorMessage() : "无可用模型";
-                    tvStatus.setText("❌ 获取模型失败: " + err);
+                    tvStatus.setText(getString(R.string.h_1b138353) + err);
                 });
             } catch (Throwable t) {
-                runOnUiThread(() -> tvStatus.setText("❌ 获取模型失败: " + t.getMessage()));
+                runOnUiThread(() -> tvStatus.setText(getString(R.string.h_1b138353) + t.getMessage()));
             }
         });
     }
@@ -469,7 +469,7 @@ public class MediaGenActivity extends Activity {
     private void onGenerate() {
         String prompt = etPrompt.getText() != null ? etPrompt.getText().toString().trim() : "";
         if (prompt.isEmpty()) {
-            Toast.makeText(this, "请先输入描述", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_f8a56bb2), Toast.LENGTH_SHORT).show();
             return;
         }
         Map<String, Object> params = new HashMap<>();
@@ -497,7 +497,7 @@ public class MediaGenActivity extends Activity {
         if (!apiKey.isEmpty()) params.put("api_key", apiKey);
         currentTaskId = null;
         currentTaskType = mode;
-        tvStatus.setText("⏳ 提交" + (mode.equals("video") ? "视频" : "图片") + "生成任务…");
+        tvStatus.setText(getString(R.string.h_f9fff4d7) + (mode.equals("video") ? getString(R.string.h_7fcf42ed) : getString(R.string.h_20def794)) + getString(R.string.h_f5bb549c));
         tvTask.setText("");
         btnQuery.setVisibility(View.GONE);
         resetResult();
@@ -508,17 +508,17 @@ public class MediaGenActivity extends Activity {
                 com.oilquiz.app.ai.tool.AIToolResult r = tool.execute(params);
                 runOnUiThread(() -> handleToolResult(r));
             } catch (Throwable t) {
-                runOnUiThread(() -> tvStatus.setText("生成失败: " + t.getMessage()));
+                runOnUiThread(() -> tvStatus.setText(getString(R.string.h_fe295564) + t.getMessage()));
             }
         });
     }
 
     private void onQuery() {
         if (currentTaskId == null) {
-            Toast.makeText(this, "没有待查询的任务", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_bca14af7), Toast.LENGTH_SHORT).show();
             return;
         }
-        tvStatus.setText("⏳ 查询任务进度…");
+        tvStatus.setText(getString(R.string.h_d50a7b1c));
         btnQuery.setEnabled(false);
         Map<String, Object> params = new HashMap<>();
         params.put("action", "query");
@@ -542,7 +542,7 @@ public class MediaGenActivity extends Activity {
             } catch (Throwable t) {
                 runOnUiThread(() -> {
                     btnQuery.setEnabled(true);
-                    tvStatus.setText("查询失败: " + t.getMessage());
+                    tvStatus.setText(getString(R.string.h_06960ae4) + t.getMessage());
                 });
             }
         });
@@ -552,7 +552,7 @@ public class MediaGenActivity extends Activity {
     @SuppressWarnings("unchecked")
     private void handleToolResult(com.oilquiz.app.ai.tool.AIToolResult r) {
         if (r == null) {
-            tvStatus.setText("无返回结果");
+            tvStatus.setText(getString(R.string.h_00f82469));
             return;
         }
         Map<String, Object> result = null;
@@ -565,30 +565,30 @@ public class MediaGenActivity extends Activity {
             if (taskId != null && filePath == null) {
                 // 任务处理中（image 未完成 / video 已提交）
                 currentTaskId = String.valueOf(taskId);
-                tvTask.setText("任务ID: " + taskId + "\n生成需数分钟，点下方按钮查询进度");
+                tvTask.setText(getString(R.string.h_8e9c67d5) + taskId + getString(R.string.h_3f12721c));
                 btnQuery.setVisibility(View.VISIBLE);
-                tvStatus.setText(result.get("message") != null ? String.valueOf(result.get("message")) : "任务处理中");
+                tvStatus.setText(result.get("message") != null ? String.valueOf(result.get("message")) : getString(R.string.h_d2690b47));
                 return;
             }
             if (filePath != null) {
                 showResultFile(String.valueOf(filePath),
                         result.get("contentUri") != null ? String.valueOf(result.get("contentUri")) : null);
-                tvStatus.setText("✅ " + (mode.equals("video") ? "视频" : "图片") + "已生成并保存到工作区");
+                tvStatus.setText("✅ " + (mode.equals("video") ? getString(R.string.h_7fcf42ed) : getString(R.string.h_20def794)) + getString(R.string.h_a6186d48));
                 return;
             }
-            tvStatus.setText(result.get("message") != null ? String.valueOf(result.get("message")) : "成功");
+            tvStatus.setText(result.get("message") != null ? String.valueOf(result.get("message")) : getString(R.string.h_330363df));
             return;
         }
         // 失败
         String err = r.getErrorMessage() != null ? r.getErrorMessage() : "未知错误";
         tvStatus.setText("❌ " + err);
-        Toast.makeText(this, "生成失败: " + err, Toast.LENGTH_LONG).show();
+        Toast.makeText(this, getString(R.string.h_fe295564) + err, Toast.LENGTH_LONG).show();
     }
 
     private void showResultFile(String path, String contentUri) {
         File f = new File(path);
         if (!f.exists()) {
-            tvStatus.setText("结果文件不存在: " + path);
+            tvStatus.setText(getString(R.string.h_5d96b975) + path);
             return;
         }
         lastResultPath = path;
@@ -619,7 +619,7 @@ public class MediaGenActivity extends Activity {
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);
         } catch (Exception e) {
-            Toast.makeText(this, "播放失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_81f9c460) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -643,7 +643,7 @@ public class MediaGenActivity extends Activity {
                 shareUri = copyToDownloads(f);
             }
             if (shareUri == null) {
-                Toast.makeText(this, "分享准备失败", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_1f3c5d52), Toast.LENGTH_SHORT).show();
                 return;
             }
             Intent share = new Intent(Intent.ACTION_SEND);
@@ -652,7 +652,7 @@ public class MediaGenActivity extends Activity {
             share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(Intent.createChooser(share, "分享视频"));
         } catch (Exception e) {
-            Toast.makeText(this, "分享失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_9074ea4d) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -818,28 +818,28 @@ public class MediaGenActivity extends Activity {
     private void optimizePrompt() {
         String p = etPrompt.getText() != null ? etPrompt.getText().toString().trim() : "";
         if (p.isEmpty()) {
-            Toast.makeText(this, "请先输入描述再优化", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_5adb72da), Toast.LENGTH_SHORT).show();
             return;
         }
-        tvStatus.setText("⏳ AI 优化描述中…");
+        tvStatus.setText(getString(R.string.h_048d3715));
         executor.execute(() -> {
             try {
                 com.oilquiz.app.ai.model.OnlineModelManager mm =
                         com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this);
                 com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig cfg = mm.getActiveModel();
                 if (cfg == null || cfg.apiKey == null || cfg.apiKey.isEmpty()) {
-                    runOnUiThread(() -> tvStatus.setText("❌ 优化失败：请先在模型管理中配置在线模型 API Key"));
+                    runOnUiThread(() -> tvStatus.setText(getString(R.string.h_238638b2)));
                     return;
                 }
                 String model = cfg.selectedModel != null && !cfg.selectedModel.isEmpty()
                         ? cfg.selectedModel : cfg.modelName;
                 if (model == null || model.isEmpty()) {
-                    runOnUiThread(() -> tvStatus.setText("❌ 优化失败：在线模型未设置模型名"));
+                    runOnUiThread(() -> tvStatus.setText(getString(R.string.h_ac958da7)));
                     return;
                 }
                 String base = cfg.apiUrl == null ? "" : cfg.apiUrl.trim().replaceAll("/+$", "");
                 if (base.isEmpty()) {
-                    runOnUiThread(() -> tvStatus.setText("❌ 优化失败：在线模型未设置接口地址"));
+                    runOnUiThread(() -> tvStatus.setText(getString(R.string.h_2fcd9c70)));
                     return;
                 }
                 org.json.JSONArray msgs = new org.json.JSONArray();
@@ -863,16 +863,16 @@ public class MediaGenActivity extends Activity {
                     if (msg != null) optimized = msg.optString("content", "");
                 }
                 if (optimized.isEmpty()) {
-                    runOnUiThread(() -> tvStatus.setText("❌ 优化失败：模型返回为空，请检查在线模型配置"));
+                    runOnUiThread(() -> tvStatus.setText(getString(R.string.h_288737f6)));
                     return;
                 }
                 final String o = optimized.trim();
                 runOnUiThread(() -> {
                     etPrompt.setText(o);
-                    tvStatus.setText("✅ 描述已由 AI 优化（可继续手动调整）");
+                    tvStatus.setText(getString(R.string.h_c04ca95b));
                 });
             } catch (Throwable t) {
-                runOnUiThread(() -> tvStatus.setText("❌ 优化失败：" + t.getMessage()));
+                runOnUiThread(() -> tvStatus.setText(getString(R.string.h_ea44f337) + t.getMessage()));
             }
         });
     }

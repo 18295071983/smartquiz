@@ -202,7 +202,7 @@ public class WebViewActivity extends BaseActivity {
         setContentView(rootLayout);
         
         // 设置标题和Toolbar
-        String title = customTitle != null ? customTitle : "文件查看器";
+        String title = customTitle != null ? customTitle : getString(R.string.h_d6603825);
         setupToolbar(title);
 
         // 创建标签容器 - 类似底部导航栏样式
@@ -245,7 +245,7 @@ public class WebViewActivity extends BaseActivity {
         // 创建加载状态文本
         loadingStatusText = new TextView(this);
         loadingStatusText.setId(View.generateViewId());
-        loadingStatusText.setText("准备加载...");
+        loadingStatusText.setText(getString(R.string.h_215e98b8));
         loadingStatusText.setTextSize(12);
         loadingStatusText.setTextColor(uiAdapter.getTextSecondaryColor());
         loadingStatusText.setPadding(16, 4, 16, 4);
@@ -282,7 +282,7 @@ public class WebViewActivity extends BaseActivity {
         buttonContainer.addView(navRow, navRowParams);
 
         // 添加返回按钮
-        Button btnBack = createNavButton("◀", "后退");
+        Button btnBack = createNavButton("◀", getString(R.string.h_5094c1a3));
         btnBack.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -300,7 +300,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnBack);
 
         // 添加前进按钮
-        Button btnForward = createNavButton("▶", "前进");
+        Button btnForward = createNavButton("▶", getString(R.string.h_5811e283));
         btnForward.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -318,7 +318,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnForward);
 
         // 添加刷新按钮
-        btnRefresh = createNavButton("🔄", "刷新");
+        btnRefresh = createNavButton("🔄", getString(R.string.h_694fc5ef));
         btnRefresh.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -329,7 +329,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnRefresh);
 
         // 添加主页按钮
-        btnReset = createNavButton("🏠", "主页");
+        btnReset = createNavButton("🏠", getString(R.string.h_b04ec75c));
         btnReset.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -341,7 +341,7 @@ public class WebViewActivity extends BaseActivity {
 
         // 创建添加文件按钮
         Button btnAddFile = new Button(this);
-        btnAddFile.setText("📁 添加文件");
+        btnAddFile.setText(getString(R.string.h_9fb34d09));
         btnAddFile.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -430,7 +430,7 @@ public class WebViewActivity extends BaseActivity {
                     pageProgressBar.setVisibility(View.VISIBLE);
                     pageProgressBar.setProgress(0);
                     loadingStatusText.setVisibility(View.VISIBLE);
-                    loadingStatusText.setText("正在加载...");
+                    loadingStatusText.setText(getString(R.string.h_bd0271ed));
                 });
             }
             
@@ -453,7 +453,7 @@ public class WebViewActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     // 更新进度条
                     pageProgressBar.setProgress(progress);
-                    loadingStatusText.setText("加载中... " + progress + "%");
+                    loadingStatusText.setText(getString(R.string.h_c96070db) + progress + "%");
                 });
             }
             
@@ -472,7 +472,7 @@ public class WebViewActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     // 显示错误状态
                     pageProgressBar.setVisibility(View.GONE);
-                    loadingStatusText.setText("加载失败");
+                    loadingStatusText.setText(getString(R.string.h_866b795e));
                     loadingStatusText.setTextColor(getResources().getColor(R.color.error_color));
                     
                     // 3秒后隐藏错误提示
@@ -533,9 +533,9 @@ public class WebViewActivity extends BaseActivity {
         } catch (android.content.ActivityNotFoundException ex) {
             // 如果没有文件管理器，显示提示
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("提示")
-                    .setMessage("请安装文件管理器来选择文件")
-                    .setPositiveButton("确定", null)
+                    .setTitle(getString(R.string.h_02d9819d))
+                    .setMessage(getString(R.string.h_756d4a53))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), null)
                     .show();
         }
     }
@@ -711,9 +711,9 @@ public class WebViewActivity extends BaseActivity {
     private void showFileErrorDialog(String message) {
         runOnUiThread(() -> {
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("文件打开失败")
+                    .setTitle(getString(R.string.h_ce0c7e18))
                     .setMessage(message)
-                    .setPositiveButton("确定", null)
+                    .setPositiveButton(getString(R.string.h_38cf16f2), null)
                     .show();
         });
     }
@@ -1266,9 +1266,9 @@ public class WebViewActivity extends BaseActivity {
             TextView tabTitle = new TextView(this);
             // 第一个标签为默认标签
             if (tabIndex == 0) {
-                tabTitle.setText("默认标签");
+                tabTitle.setText(getString(R.string.h_0113d26f));
             } else {
-                tabTitle.setText("新标签");
+                tabTitle.setText(getString(R.string.h_20f0dc68));
             }
             tabTitle.setTextSize(14);
             tabTitle.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
@@ -1414,7 +1414,7 @@ public class WebViewActivity extends BaseActivity {
                     pageProgressBar.setProgress(newProgress);
                 }
                 if (loadingStatusText != null) {
-                    loadingStatusText.setText("加载中... " + newProgress + "%");
+                    loadingStatusText.setText(getString(R.string.h_c96070db) + newProgress + "%");
                 }
             }
             
@@ -1451,7 +1451,7 @@ public class WebViewActivity extends BaseActivity {
                                 com.oilquiz.app.ai.model.ModelDownloadManager.getInstance(WebViewActivity.this);
                             dm.downloadFromCustomUrl(fileName, url, null);
                             android.widget.Toast.makeText(WebViewActivity.this,
-                                "已添加模型下载: " + fileName, android.widget.Toast.LENGTH_LONG).show();
+                                getString(R.string.h_42611d28) + fileName, android.widget.Toast.LENGTH_LONG).show();
                             return;
                         } catch (Exception e) {
                             AppLogger.e(TAG, "模型下载失败: " + e.getMessage());
@@ -1749,12 +1749,12 @@ public class WebViewActivity extends BaseActivity {
         
         // 防止关闭默认标签
         if (index == 0) {
-            android.widget.Toast.makeText(this, "默认标签不能关闭", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_69e1adfa), android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         
         if (webViewList.size() == 1) {
-            android.widget.Toast.makeText(this, "至少需要保留一个标签", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_ae735e4b), android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -2006,7 +2006,7 @@ public class WebViewActivity extends BaseActivity {
                     android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
                     startActivity(intent);
                 } catch (Exception e) {
-                    showToast("无法打开链接");
+                    showToast(getString(R.string.h_7ec3be03));
                 }
             });
         }
@@ -2344,10 +2344,10 @@ public class WebViewActivity extends BaseActivity {
                 try {
                     // 清除应用日志
                     AppLogger.clearLogs();
-                    showToast("日志已清除");
+                    showToast(getString(R.string.h_d42d97bd));
                 } catch (Exception e) {
                     AppLogger.e(TAG, "清除日志失败: " + e.getMessage(), e);
-                    showToast("清除日志失败");
+                    showToast(getString(R.string.h_3bee0e63));
                 }
             });
         }
@@ -2359,13 +2359,13 @@ public class WebViewActivity extends BaseActivity {
                     // 导出日志文件
                     File logFile = AppLogger.exportLogs(WebViewActivity.this);
                     if (logFile != null) {
-                        showToast("日志导出成功: " + logFile.getAbsolutePath());
+                        showToast(getString(R.string.h_83dbb868) + logFile.getAbsolutePath());
                     } else {
-                        showToast("日志导出失败");
+                        showToast(getString(R.string.h_ae4679c7));
                     }
                 } catch (Exception e) {
                     AppLogger.e(TAG, "导出日志失败: " + e.getMessage(), e);
-                    showToast("日志导出失败");
+                    showToast(getString(R.string.h_ae4679c7));
                 }
             });
         }
@@ -2556,7 +2556,7 @@ public class WebViewActivity extends BaseActivity {
                 if (intent.resolveActivity(getPackageManager()) != null) {
                     startActivity(intent);
                 } else {
-                    showToast("无法启动相机");
+                    showToast(getString(R.string.h_6aba49b6));
                 }
             });
         }
@@ -2707,10 +2707,10 @@ public class WebViewActivity extends BaseActivity {
                     if (intent != null) {
                         startActivity(intent);
                     } else {
-                        showToast("应用未安装");
+                        showToast(getString(R.string.h_645b9651));
                     }
                 } catch (Exception e) {
-                    showToast("无法打开应用");
+                    showToast(getString(R.string.h_1e1da12f));
                 }
             });
         }
@@ -3088,7 +3088,7 @@ public class WebViewActivity extends BaseActivity {
                     startActivity(intent);
                 } catch (Exception e) {
                     AppLogger.e(TAG, "打开Activity失败: " + e.getMessage(), e);
-                    showToast("功能暂不可用");
+                    showToast(getString(R.string.h_e985bb87));
                 }
             });
         }
@@ -3108,7 +3108,7 @@ public class WebViewActivity extends BaseActivity {
                     loadUrl(targetUrl);
                 } catch (Exception e) {
                     AppLogger.e(TAG, "导航失败: " + e.getMessage(), e);
-                    showToast("页面导航失败");
+                    showToast(getString(R.string.h_393bb104));
                 }
             });
         }

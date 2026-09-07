@@ -28,7 +28,7 @@ public class ToolboxActivity extends AppCompatActivity {
 
         // 设置标题
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle("工具集");
+            getSupportActionBar().setTitle(getString(R.string.h_d1f4a2ca));
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         }
 
@@ -93,7 +93,7 @@ public class ToolboxActivity extends AppCompatActivity {
         // Office文档：选文件用官方查看器；Office界面：官方查看器原始浏览器界面；Pdfium：PDF；文件渲染：通用渲染
         String[] toolNames = {"Office文档", "Office界面", "Pdfium文件预览", "文件渲染"};
         new android.app.AlertDialog.Builder(this)
-                .setTitle("文件预览工具")
+                .setTitle(getString(R.string.h_74e7f8c2))
                 .setItems(toolNames, (dialog, which) -> {
                     switch (which) {
                         case 0: openOfficeDocument(); break;
@@ -102,7 +102,7 @@ public class ToolboxActivity extends AppCompatActivity {
                         case 3: startActivity(new Intent(this, FileRenderActivity.class)); break;
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -113,7 +113,7 @@ public class ToolboxActivity extends AppCompatActivity {
             intent.setClassName(getPackageName(), "org.libreoffice.ui.LibreOfficeUIActivity");
             startActivity(intent);
         } catch (Exception e) {
-            android.widget.Toast.makeText(this, "打开Office界面失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_521f7d28) + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -138,7 +138,7 @@ public class ToolboxActivity extends AppCompatActivity {
             });
             startActivityForResult(intent, REQUEST_OPEN_OFFICE);
         } catch (Exception e) {
-            android.widget.Toast.makeText(this, "打开文件选择失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_ac1d1bd3) + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -155,7 +155,7 @@ public class ToolboxActivity extends AppCompatActivity {
                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     startActivity(intent);
                 } catch (Exception e) {
-                    android.widget.Toast.makeText(this, "打开Office文档失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(this, getString(R.string.h_8a322723) + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
                 }
             }
         }
@@ -212,7 +212,7 @@ public class ToolboxActivity extends AppCompatActivity {
     private void showOtherTools() {
         String[] names = {"API配置", "环境检查", "系统日志", "天气详情"};
         new android.app.AlertDialog.Builder(this)
-                .setTitle("其他工具")
+                .setTitle(getString(R.string.h_77d7cc1c))
                 .setItems(names, (dialog, which) -> {
                     switch (which) {
                         case 0: startActivity(new Intent(this, ApiConfigActivity.class)); break;
@@ -221,7 +221,7 @@ public class ToolboxActivity extends AppCompatActivity {
                         case 3: openWeatherDetail(); break;
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -233,7 +233,7 @@ public class ToolboxActivity extends AppCompatActivity {
             intent.putExtra("title", getString(R.string.weather_detail_title));
             startActivity(intent);
         } catch (Exception e) {
-            android.widget.Toast.makeText(this, "打开天气详情失败: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_8a9e576d) + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -245,7 +245,7 @@ public class ToolboxActivity extends AppCompatActivity {
                 startActivity(new Intent(this, activities[which]));
             }
         });
-        builder.setNegativeButton("取消", null);
+        builder.setNegativeButton(getString(R.string.h_625fb26b), null);
         builder.show();
     }
 }

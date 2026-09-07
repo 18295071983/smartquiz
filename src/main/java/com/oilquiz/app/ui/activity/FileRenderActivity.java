@@ -165,7 +165,7 @@ public class FileRenderActivity extends BaseActivity {
             }
         }
 
-        tvLoading.setText("正在渲染文件…");
+        tvLoading.setText(getString(R.string.h_3f52952d));
         showLoading();
 
         FileRenderEngine engine = PreviewRenderBridge.RenderEngineFactory.getInstance().getEngineForFile(file);
@@ -336,14 +336,14 @@ public class FileRenderActivity extends BaseActivity {
             }
         });
         vv.setOnErrorListener((mp, what, extra) -> {
-            Toast.makeText(this, "视频播放失败，可点「用其他应用打开」", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_cefb7ec9), Toast.LENGTH_LONG).show();
             return true;
         });
         try {
             vv.setVideoURI(Uri.fromFile(vf));
             vv.requestFocus();
         } catch (Throwable t) {
-            Toast.makeText(this, "视频打开失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_8c57a982) + t.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -375,7 +375,7 @@ public class FileRenderActivity extends BaseActivity {
                 startActivity(Intent.createChooser(shareIntent, "分享文件"));
             } catch (Exception e) {
                 Log.e(TAG, "Error sharing file: " + e.getMessage(), e);
-                Toast.makeText(this, "分享失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_9074ea4d) + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -390,7 +390,7 @@ public class FileRenderActivity extends BaseActivity {
                 startActivity(Intent.createChooser(intent, "选择应用打开"));
             } catch (Exception e) {
                 Log.e(TAG, "Error opening file with other app: " + e.getMessage(), e);
-                Toast.makeText(this, "打开失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_64d2fbec) + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -507,15 +507,15 @@ public class FileRenderActivity extends BaseActivity {
 
     private void showImportFileDialog() {
         new android.app.AlertDialog.Builder(this)
-            .setTitle("导入文件")
-            .setMessage("没有文件可供渲染，请选择一个文件导入")
-            .setPositiveButton("选择文件", (dialog, which) -> {
+            .setTitle(getString(R.string.h_7499f450))
+            .setMessage(getString(R.string.h_e509c03c))
+            .setPositiveButton(getString(R.string.h_fd7e0c99), (dialog, which) -> {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.setType("*/*");
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 startActivityForResult(intent, 1001);
             })
-            .setNegativeButton("取消", (dialog, which) -> {
+            .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> {
                 finish();
             })
             .setCancelable(false)
