@@ -320,44 +320,6 @@ public class ModelSelectorActivity extends AppCompatActivity
         }
     }
 
-    /**
-     * 强制从数据源重新同步模型列表，然后刷新 UI。
-     * 用于刷新按钮，确保从 APIKeyManager / SharedPreferences 重新加载最新数据。
-     */
-    private void forceRefreshModels() {
-        try {
-            // 从 APIKeyManager 重新同步在线模型配置
-            int synced = onlineModelManager.importFromAPIKeyManager();
-            if (synced > 0) {
-                AppLogger.i("ModelSelector", "强制同步了 " + synced + " 个在线模型配置");
-            }
-        } catch (Exception e) {
-            AppLogger.w("ModelSelector", "强制同步失败: " + e.getMessage());
-        }
-        // 刷新所有 UI
-        refreshModels();
-        Toast.makeText(this, "模型列表已刷新", Toast.LENGTH_SHORT).show();
-    }
-
-    /**
-     * 安全地更新本地模型adapter，避免RecyclerView正在布局或动画时更新导致崩溃
-     */
-    private void updateLocalModelAdapterSafe(final List<String> modelList, final String currentModel) {
-        if (modelsRecycler == null || modelAdapter == null) {
-            return;
-        }
-        if (modelsRecycler.isComputingLayout() || modelsRecycler.isAnimating()) {
-            // RecyclerView正在计算布局或动画中，延迟到下一帧再更新
-            modelsRecycler.post(() -> {
-                if (modelAdapter != null) {
-                    modelAdapter.updateData(modelList, currentModel);
-                }
-            });
-        } else {
-            modelAdapter.updateData(modelList, currentModel);
-        }
-    }
-
     private void refreshOnlineModels() {
         if (onlineModelsSection == null || onlineModelAdapter == null) {
             return;

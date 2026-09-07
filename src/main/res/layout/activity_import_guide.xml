@@ -82,47 +82,6 @@
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
-                android:id="@+id/cardAIImport"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:cardElevation="6dp"
-                app:cardCornerRadius="8dp"
-                app:strokeWidth="1dp"
-                app:strokeColor="@color/secondary"
-                android:layout_marginBottom="16dp">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="🤖 AI 导入"
-                        android:textSize="18sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/on_surface"
-                        android:layout_marginBottom="8dp"/>
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="AI 智能识别任意格式题库,自动抽取全部字段,无需手动映射"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="16dp"/>
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnAIImport"
-                        android:layout_width="match_parent"
-                        android:layout_height="48dp"
-                        android:text="开始 AI 导入"
-                        app:backgroundTint="@color/secondary"
-                        android:textColor="@android:color/white"
-                        app:cornerRadius="12dp"
-                        android:textAllCaps="false"/>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardDirectImport"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

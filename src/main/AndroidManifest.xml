@@ -362,11 +362,6 @@
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
 
-        <activity
-            android:name=".ui.activity.JwtTestActivity"
-            android:exported="true"
-            android:theme="@style/Theme.OilQuizApp" />
-
         <!-- FileProvider配置 -->
         <provider
             android:name="androidx.core.content.FileProvider"

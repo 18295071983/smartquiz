@@ -667,23 +667,4 @@ public class MainActivity extends BaseActivity {
         super.onDestroy();
         unregisterAiStatusObserver();
     }
-    
-    @Override
-    protected void onPause() {
-        super.onPause();
-        // 天气横幅：离开主界面停止周期定时刷新（避免后台空跑网络请求）
-        try {
-            WeatherBannerView weatherBanner = findViewById(R.id.weather_banner);
-            if (weatherBanner != null) {
-                weatherBanner.onPause();
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        unregisterAiStatusObserver();
-    }
 }

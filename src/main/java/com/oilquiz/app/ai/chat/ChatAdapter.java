@@ -1832,30 +1832,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }, forceIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         
-        // 查找并设置可点击的"🚀 强行使用本地Agent"文本（本地Agent拦截引导消息）
-        final String forceAgentKey = "🚀 强行使用本地Agent";
-        int forceIndex = message.content.indexOf(forceAgentKey);
-        if (forceIndex >= 0) {
-            int endIndex = forceIndex + forceAgentKey.length();
-            final String payload = message.actionPayload;
-            spannable.setSpan(new android.text.style.ClickableSpan() {
-                @Override
-                public void onClick(View widget) {
-                    if (actionClickListener != null) {
-                        actionClickListener.onAction(ChatMessage.Action.forceLocalAgent(payload));
-                    }
-                }
-
-                @Override
-                public void updateDrawState(android.text.TextPaint ds) {
-                    super.updateDrawState(ds);
-                    ds.setColor(holder.itemView.getContext().getColor(R.color.primary));
-                    ds.setUnderlineText(true);
-                    ds.setFakeBoldText(true);
-                }
-            }, forceIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
-        
         holder.messageText.setText(spannable);
         holder.messageText.setMovementMethod(LinkMovementMethod.getInstance());
         

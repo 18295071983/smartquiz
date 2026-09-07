@@ -3312,8 +3312,6 @@ public class AIWeatherManager implements AITool {
 
         String lastFxLink = null;
 
-        String lastFxLink = null;
-
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             for (WeatherProvider provider : providers) {
                 try {
