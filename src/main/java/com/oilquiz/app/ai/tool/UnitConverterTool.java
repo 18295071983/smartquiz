@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.tool.annotation.Tool;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
@@ -17,6 +19,7 @@ import java.util.Map;
  * - to: 目标单位（同上）
  * 温度用线性换算，其余用基准系数（BigDecimal 保留 6 位小数）。
  */
+@Tool(value = "unit_converter", category = "utility")
 public class UnitConverterTool implements AITool {
 
     private static final String TAG = "UnitConverterTool";

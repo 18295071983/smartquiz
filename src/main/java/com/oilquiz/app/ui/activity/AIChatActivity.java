@@ -1426,6 +1426,11 @@ public class AIChatActivity extends BaseActivity {
             chipDeepThink.setChecked(ChatModeManager.getInstance(this).isDeepThinkingEnabled());
             updateDeepThinkChip(chipDeepThink);
             chipDeepThink.setOnClickListener(v -> {
+                if (isGenerating) {
+                    showToast("AI正在生成中，请先停止生成再切换模式");
+                    chipDeepThink.setChecked(ChatModeManager.getInstance(this).isDeepThinkingEnabled());
+                    return;
+                }
                 ChatModeManager manager = ChatModeManager.getInstance(this);
                 boolean wasEnabled = manager.isDeepThinkingEnabled();
                 boolean next = !wasEnabled;
@@ -3356,31 +3361,12 @@ public class AIChatActivity extends BaseActivity {
             processChatMessage(message);
         }
 
-        // 对齐官方：深度思考是"本条"开关——发送后自动复位关闭（下次要深度思考再点开）
-        autoResetDeepThinkingAfterSend();
-    }
-
-    /** 发送后自动关闭深度思考开关（对齐 DeepSeek 官方"发送前决定本条"语义） */
-    private void autoResetDeepThinkingAfterSend() {
-        try {
-            ChatModeManager manager = ChatModeManager.getInstance(this);
-            if (manager.isDeepThinkingEnabled()) {
-                manager.setDeepThinkingEnabled(false);
-                updateModeButtonText();
-                com.google.android.material.chip.Chip chip = findViewById(R.id.chip_deep_think);
-                if (chip != null) {
-                    chip.setChecked(false);
-                    updateDeepThinkChip(chip);
-                }
-                AppLogger.ai(TAG, "Deep thinking auto-reset after send (per-message semantics)");
-            }
-        } catch (Exception e) {
-            AppLogger.aiW(TAG, "autoResetDeepThinking failed: " + e.getMessage());
-        }
+        // 深度思考开关保持用户设定：打开后持续生效，不随本条消息发送后自动复位
+        // （用户偏好：开了就保持，深度思考影响后续所有消息）
     }
 
     private void processMessageWithAttachmentsViaAgent(String originalMessage, List<ChatMessage.Attachment> attachments) {
-        // 同步捕获本条消息的深度思考开关（sendMessage 结束后会 autoReset 复位，异步线程里再读会变 false）
+        // 同步捕获本条消息的深度思考开关（开关保持用户设定，不自动复位）
         boolean thinkingFlag = false;
         try {
             thinkingFlag = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
@@ -3756,7 +3742,7 @@ public class AIChatActivity extends BaseActivity {
     private static final String DEFAULT_ATTACHMENT_MESSAGE = "请分析这些附件的内容";
 
     private void processMessageWithAttachments(String originalMessage, List<ChatMessage.Attachment> attachments) {
-        // 同步捕获本条消息的深度思考开关（sendMessage 结束后会 autoReset 复位）
+        // 同步捕获本条消息的深度思考开关（开关保持用户设定，不自动复位）
         boolean thinkingFlag = false;
         try {
             thinkingFlag = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
@@ -4633,6 +4619,8 @@ public class AIChatActivity extends BaseActivity {
      * 被 processChatMessage 和 processChatMessageWithAgent（降级时）调用
      */
     private void processChatMessageNormal(String message) {
+        // 轮次模式标记：普通对话（上下文隔离重建依据）
+        markLastUserMessageMode(ChatMessage.TURN_MODE_NORMAL);
         if (aiService == null) {
             runOnUiThread(() -> {
                 new androidx.appcompat.app.AlertDialog.Builder(this)
@@ -4727,6 +4715,15 @@ public class AIChatActivity extends BaseActivity {
         isInThinking = enableThinking;
 
         AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
+        // 上下文统一：每次普通对话发送前从 UI 会话历史重建 chatJson 历史，
+        // 与本地 Agent（buildAgentHistory）同一真相源，普通↔Agent 来回切换不失忆
+        if (modelBridge != null) {
+            try {
+                modelBridge.rebuildChatJsonHistoryFromExternal(buildNormalHistoryEntries());
+            } catch (Exception e) {
+                AppLogger.aiW(TAG, "rebuild chat json history failed: " + e.getMessage());
+            }
+        }
         modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
             createBridgeCallback(streamingIndex, streamingId));
     }
@@ -4906,6 +4903,49 @@ public class AIChatActivity extends BaseActivity {
     /** 本地 Agent 多轮上下文：最多携带的历史消息条数（约 2 轮对话，减少 prompt 提升速度） */
     private static final int AGENT_HISTORY_MAX_MESSAGES = 4;
 
+    /** 普通对话重建上下文的最近消息条数上限（与 chatJson 历史容量对齐） */
+    private static final int NORMAL_REBUILD_MAX_ENTRIES = 20;
+
+    /**
+     * 给最后一条 user 消息标记轮次模式（普通/Agent）。
+     * 用于上下文隔离：普通对话重建只取 NORMAL 轮次，本地 Agent 重建只取 AGENT 轮次，
+     * 来回切换互不污染、各自独立。
+     */
+    private void markLastUserMessageMode(int mode) {
+        for (int i = chatHistory.size() - 1; i >= 0; i--) {
+            ChatMessage m = chatHistory.get(i);
+            if (m != null && "user".equals(m.getRole())) {
+                m.turnMode = mode;
+                return;
+            }
+        }
+    }
+
+    /**
+     * 从 UI 会话历史构建普通对话的上下文轮次（{role, content} 对）。
+     * 与本地 Agent（buildAgentHistory）同源：统一以 UI 历史为上下文真相源，
+     * 普通↔Agent 来回切换上下文天然连续。排除当前待发送的 user 消息
+     * （buildChatJsonRequest 会追加它），按最近 N 条裁剪。
+     */
+    private java.util.List<String[]> buildNormalHistoryEntries() {
+        java.util.List<String[]> result = new java.util.ArrayList<>();
+        int count = 0;
+        for (int i = chatHistory.size() - 1; i >= 0; i--) {
+            ChatMessage m = chatHistory.get(i);
+            if (m == null || m.getContent() == null || m.getContent().trim().isEmpty()) continue;
+            String role = m.getRole();
+            if (!"user".equals(role) && !"assistant".equals(role)) continue;
+            // 隔离：跳过 Agent 轮次（普通对话上下文只含普通轮次，不被工具痕迹/思考段污染）
+            if (m.turnMode == ChatMessage.TURN_MODE_AGENT) continue;
+            // 倒序遇到的第一条 user（普通）即当前待发送消息，跳过（发送时由请求构建方追加）
+            if ("user".equals(role) && result.isEmpty()) continue;
+            result.add(0, new String[]{role, m.getContent()});
+            count++;
+            if (count >= NORMAL_REBUILD_MAX_ENTRIES) break;
+        }
+        return result;
+    }
+
     /**
      * 从 UI 对话历史构建本地 Agent 的多轮上下文：
      * 从尾部定位当前用户消息（最后一次 user 消息），跳过它及之后的所有消息
@@ -4916,21 +4956,24 @@ public class AIChatActivity extends BaseActivity {
         java.util.List<AgentLoopEngine.HistoryEntry> result = new java.util.ArrayList<>();
         if (history == null) return result;
 
-        // 从尾部向前找当前用户消息的位置（它就是本次正在处理的问题）
+        // 从尾部向前找当前用户消息的位置（它就是本次正在处理的问题；隔离：只认 Agent 轮次）
         int currentUserIdx = -1;
         for (int i = history.size() - 1; i >= 0; i--) {
             ChatMessage m = history.get(i);
-            if (m != null && "user".equals(m.getRole())) {
+            if (m != null && "user".equals(m.getRole())
+                    && m.turnMode == ChatMessage.TURN_MODE_AGENT) {
                 currentUserIdx = i;
                 break;
             }
         }
         if (currentUserIdx < 0) return result;
 
-        // 收集当前用户消息之前的真实对话轮次
+        // 收集当前用户消息之前的真实对话轮次（隔离：只取 Agent 轮次，普通对话轮次不进入
+        // Agent 上下文，来回切换互不污染；跳过不匹配的轮次继续向前找更早的 Agent 轮次）
         for (int j = currentUserIdx - 1; j >= 0 && result.size() < AGENT_HISTORY_MAX_MESSAGES; j--) {
             ChatMessage m = history.get(j);
             if (m == null || m.getContent() == null || m.getContent().trim().isEmpty()) continue;
+            if (m.turnMode != ChatMessage.TURN_MODE_AGENT) continue;
             String role = m.getRole();
             if (!"user".equals(role) && !"assistant".equals(role)) continue;
             result.add(0, new AgentLoopEngine.HistoryEntry(role, m.getContent()));
@@ -4974,6 +5017,9 @@ public class AIChatActivity extends BaseActivity {
                 processChatMessageNormal(message);
                 return;
             }
+
+            // 确认走 Agent 路径：标记轮次模式（上下文隔离重建依据；降级/视觉追问已提前 return）
+            markLastUserMessageMode(ChatMessage.TURN_MODE_AGENT);
 
             // 同步引擎会话：跟随当前 UI 会话（新对话/清空后 currentSessionId 可能已变化）
             if (agentChatHandler != null) {
@@ -5033,10 +5079,14 @@ public class AIChatActivity extends BaseActivity {
 
             int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 4096;
             // 思考链：仅深度思考模式启用。
-            // 注意：AGENT 模式不启用 thinking——Qwen3-4B 在 thinking+FC 组合下
+            // 本地 Agent 路径强制关闭 thinking——Qwen3-4B 在 thinking+FC 组合下
             // 思考完会"忘记"调用工具（直接回答"无法获取"而非输出 tool_call），
-            // 非思考 FC 模式工具调用更稳定；深度思考模式（非 Agent）单独体验思考链。
-            boolean enableThinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+            // 非思考 FC 模式工具调用更稳定；在线 Agent 保留深度思考
+            //（OnlineAgentEngine 有门控+reasoning_content 规范化，切换安全）。
+            // 深度思考完整体验由普通对话路径承载。
+            boolean localAgentRoute = !useOnlineModel && localAgentEnabled;
+            boolean enableThinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled()
+                    && !localAgentRoute;
             if (outputRouter != null) {
                 outputRouter.reset();
                 outputRouter.setThinkingEnabled(enableThinking);
@@ -5959,6 +6009,14 @@ public class AIChatActivity extends BaseActivity {
             if (messageIndex >= 0 && messageIndex < chatHistory.size()) {
                 ChatMessage finalMsg = chatHistory.get(messageIndex);
                 finalMsg.content = finalContent;
+                // 轮次模式：继承本轮 user 消息的标记（普通/Agent），供上下文隔离重建
+                for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                    ChatMessage u = chatHistory.get(i);
+                    if (u != null && "user".equals(u.getRole())) {
+                        finalMsg.turnMode = u.turnMode;
+                        break;
+                    }
+                }
                 // 兜底：若思考段未在流式阶段被分离（本地 Agent/chatJson 路径原生未下发
                 // reasoning 事件时，思考被当普通 token 流入正文），完成时从正文剥离思考并
                 // 回填 thinkingContent，避免"思考被绑进主消息气泡"。正文干净时为无操作。
@@ -6259,6 +6317,8 @@ public class AIChatActivity extends BaseActivity {
         public void onComplete(String fullText) {
             // 幂等：只处理第一次完成事件（重复/迟到回调直接忽略）
             if (!completed.compareAndSet(false, true)) return;
+            // 上下文统一：普通对话发送前会从 UI 会话历史重建 chatJson 历史，
+            // Agent 轮次（UI 历史已含）届时自然进入普通对话上下文，无需桥接同步。
             completeGeneration(fullText);
             // 清理组ID（执行完成，不插入系统消息）
             runOnUiThread(() -> {
@@ -7018,6 +7078,10 @@ public class AIChatActivity extends BaseActivity {
      * 点击切换深度思考开关：开 ↔ 关
      */
     private void toggleMode() {
+        if (isGenerating) {
+            showToast("AI正在生成中，请先停止生成再切换模式");
+            return;
+        }
         ChatModeManager manager = ChatModeManager.getInstance(AIChatActivity.this);
         boolean next = !manager.isDeepThinkingEnabled();
         ChatModeManager.ChatMode oldMode = manager.getCurrentMode();

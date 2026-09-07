@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 
 import com.oilquiz.app.ai.agent.online.AgentMemoryStore;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
@@ -23,6 +24,7 @@ import java.util.Map;
  * 记忆持久化在 agent_memory.json，跨对话/重启保留；
  * 每次 Agent 执行时会自动注入记忆摘要到系统提示词（无需手动调用）。
  */
+@Tool(value = "memory", category = "memory")
 public class MemoryTool implements AITool {
 
     private static final String TAG = "MemoryTool";

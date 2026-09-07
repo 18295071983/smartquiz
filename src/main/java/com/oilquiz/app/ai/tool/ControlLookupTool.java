@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.tool.annotation.Tool;
+
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -23,6 +25,7 @@ import java.util.Map;
  *
  * 内置低频控件词库（区别于内置 UI 组件库 ComponentRegistry 的卡片类型）。
  */
+@Tool(value = "control_lookup", category = "ui")
 public class ControlLookupTool implements AITool {
 
     private static final String TAG = "ControlLookupTool";

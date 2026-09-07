@@ -298,6 +298,14 @@ public class ChatMessage {
     /** Agent执行组内的工具调用数（仅header使用） */
     public int agentGroupToolCount = 0;
 
+    // ---- 轮次模式标记（普通对话 ↔ Agent 上下文隔离）----
+    /** 轮次模式：普通对话 */
+    public static final int TURN_MODE_NORMAL = 0;
+    /** 轮次模式：Agent（工具循环） */
+    public static final int TURN_MODE_AGENT = 1;
+    /** 本条消息所属轮次的模式。默认 NORMAL（旧历史消息无标记时按普通处理）。 */
+    public int turnMode = TURN_MODE_NORMAL;
+
     /** 在线模型信息 */
     public ModelInfo modelInfo;
 

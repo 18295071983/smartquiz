@@ -51,6 +51,8 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class AIService implements ComponentCallbacks2 {
     private static final String TAG = "AIService";
@@ -3889,6 +3891,14 @@ public class AIService implements ComponentCallbacks2 {
     }
 
     /**
+     * 模式切换指令标记：注入前剥离旧的模式指令段，防止快速切换（普通↔深度思考）
+     * 时指令单向累积互相冲突、挤占上下文预算。
+     */
+    private static final String MODE_SWITCH_MARKER = "[mode-switch]";
+    private static final Pattern MODE_SWITCH_BLOCK =
+            Pattern.compile("(?s)\\[mode-switch\\].*?(?=\\[mode-switch\\]|\\z)");
+
+    /**
      * 追加系统指令（用于模式切换等）：在现有 system 提示词后追加指令，
      * 不污染对话历史、不触发生成（原实现用 chatSend 会把指令当用户消息进上下文）。
      */
@@ -3897,7 +3907,13 @@ public class AIService implements ComponentCallbacks2 {
         synchronized (chatContextLock) {
             try {
                 String current = chatSystemPrompt != null ? chatSystemPrompt : "";
-                String updated = current.isEmpty() ? instruction : current + "\n\n" + instruction;
+                String updated = current;
+                if (instruction.contains(MODE_SWITCH_MARKER)) {
+                    // 模式切换指令：先剥离旧的模式指令段（含上次注入的），再追加最新一条，
+                    // 保证 system 提示词中始终只有一条生效的模式指令
+                    updated = MODE_SWITCH_BLOCK.matcher(updated).replaceAll("").trim();
+                }
+                updated = updated.isEmpty() ? instruction : updated + "\n\n" + instruction;
                 boolean ok = updateChatPrompts(null, updated, null);
                 if (ok) {
                     chatSystemPrompt = updated;

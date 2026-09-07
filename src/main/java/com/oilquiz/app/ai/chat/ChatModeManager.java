@@ -120,6 +120,7 @@ public class ChatModeManager {
         }
 
         StringBuilder sb = new StringBuilder();
+        sb.append("[mode-switch]\n");
         sb.append("[系统指令 - 模式切换]\n\n");
         sb.append("对话模式已从「").append(oldMode.displayName).append("」切换到「").append(newMode.displayName).append("」。\n\n");
         sb.append(instruction);

@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.tool.annotation.Tool;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -12,6 +14,7 @@ import java.util.Map;
  * 参数：
  * - expression: 表达式字符串，如 "3.5 * (2 + 4) / 7"
  */
+@Tool(value = "calculator", category = "utility")
 public class CalculatorTool implements AITool {
 
     private static final String TAG = "CalculatorTool";

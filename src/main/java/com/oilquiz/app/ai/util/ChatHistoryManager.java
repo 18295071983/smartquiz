@@ -225,6 +225,7 @@ public class ChatHistoryManager {
             m.agentGroupCollapsed = msg.agentGroupCollapsed;
             m.agentGroupStepCount = msg.agentGroupStepCount;
             m.agentGroupToolCount = msg.agentGroupToolCount;
+            m.turnMode = msg.turnMode;   // 轮次模式标记（clone() 的 Builder 未覆盖，会话保存后隔离不失效）
             m.agentStepStatus = msg.agentStepStatus;
             m.agentSummary = msg.agentSummary;
             m.hasUserToggledExpand = msg.hasUserToggledExpand;

@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 
 import com.oilquiz.app.ai.model.OnlineModelProfile;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,6 +21,7 @@ import java.util.Map;
  * 2. 调本工具传入完整新表 JSON（可先调 get_models_profile 读当前表，改后回传）
  * 3. 返回更新结果（条目数/版本），后续匹配立即生效
  */
+@Tool(value = "update_models_profile", category = "meta")
 public class UpdateModelsProfileTool implements AITool {
 
     private static final String TAG = "UpdateModelsProfileTool";

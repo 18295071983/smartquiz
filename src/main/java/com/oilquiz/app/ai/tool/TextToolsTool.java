@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.tool.annotation.Tool;
+
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -18,6 +20,7 @@ import java.util.regex.Pattern;
  *           url_encode/url_decode/regex_extract/count/trim）
  * - text: 要处理的文本（regex_extract 额外需要 pattern）
  */
+@Tool(value = "text_tools", category = "utility")
 public class TextToolsTool implements AITool {
 
     private static final String TAG = "TextToolsTool";

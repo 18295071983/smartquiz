@@ -198,6 +198,35 @@ public class ModelExecutionBridge {
         }
     }
 
+    /**
+     * 从外部（UI 会话历史）重建 chatJson 历史，作为普通对话上下文的统一真相源。
+     * 本地 Agent 同源（每次从 UI 历史重建），普通对话与 Agent 来回切换时上下文自然连续，
+     * 不再需要增量同步桥接。
+     * 调用时机：每次普通对话发送前。entries 为 {role, content} 对，不含当前待发送消息
+     * （buildChatJsonRequest 会追加当前 user 消息）。
+     */
+    public synchronized void rebuildChatJsonHistoryFromExternal(java.util.List<String[]> entries) {
+        chatJsonHistory.clear();
+        if (entries != null) {
+            for (String[] e : entries) {
+                if (e == null || e.length < 2) continue;
+                String role = e[0];
+                String content = e[1];
+                if (role == null || role.isEmpty() || content == null || content.isEmpty()) continue;
+                try {
+                    org.json.JSONObject m = new org.json.JSONObject();
+                    m.put("role", role);
+                    m.put("content", content);
+                    chatJsonHistory.add(m);
+                } catch (Exception ignored) {
+                }
+            }
+            while (chatJsonHistory.size() > CHATJSON_HISTORY_LIMIT) {
+                chatJsonHistory.remove(0);
+            }
+        }
+    }
+
     private String buildChatJsonRequest(String message, int maxTokens, boolean enableThinking) {
         try {
             org.json.JSONObject req = new org.json.JSONObject();

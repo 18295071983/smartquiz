@@ -693,7 +693,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                             - aiHolder.itemView.getPaddingLeft()
                             - aiHolder.itemView.getPaddingRight()
                             - dpToPx(2, aiHolder.itemView.getContext());
-                        if (availableWidth <= 0) availableWidth = getScreenWidth(aiHolder.itemView.getContext());
+                        if (availableWidth <= 0) {
+                            // 未布局完成（新建/重建 holder 首帧）：等布局后按真实宽度渲染，
+                            // 避免表格按全屏宽兜底导致列宽错位（重进页面正常、生成完成错位即此根因）
+                            renderWithCorrectWidth(aiHolder, message);
+                            return;
+                        }
                         // 插入式组件渲染：文本段/组件段交替，组件标记在流式中实时生效
                         bindMessageContent(aiHolder, message, availableWidth);
                     });
@@ -793,27 +798,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr) {
-        // 获取 messageText 的实际宽度用于表格自动换行
-        // 使用 ViewTreeObserver 确保在测量完成后获取宽度
-        holder.messageText.getViewTreeObserver().addOnGlobalLayoutListener(
-            new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-                private boolean hasRan = false;
-                @Override
-                public void onGlobalLayout() {
-                    if (hasRan) return;
-                    hasRan = true;
-                    if (holder.messageText.getViewTreeObserver().isAlive()) {
-                        holder.messageText.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-                    }
-                    // 实际可用宽度 = itemView宽度 - 左右padding - 2dp安全余量
-                    int availableWidth = holder.itemView.getWidth()
-                        - holder.itemView.getPaddingLeft()
-                        - holder.itemView.getPaddingRight()
-                        - dpToPx(2, holder.itemView.getContext());
-                    if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
-                    bindMessageContent(holder, message, availableWidth);
-                }
-            });
+        // 获取 messageText 的实际宽度用于表格自动换行：
+        // 已布局（rebind 场景）立即按真实宽度渲染；未布局则等测量完成后渲染。
+        // 修复：生成完成 rebind 时 holder 已布局、onGlobalLayoutListener 不再触发，
+        // 若只依赖 listener 会导致表格仍按流式期间的错误宽度（全屏宽兜底）渲染而排版错位。
+        renderWithCorrectWidth(holder, message);
         if (holder.messageText.getText().length() == 0) {
             // 如果 onGlobalLayout 还没执行，先设置空文本
             holder.messageText.setText("");
@@ -1329,14 +1318,45 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void toggleMessageExpansion(AIMessageViewHolder holder, ChatMessage message) {
         handleLongContent(holder, message);
-        holder.itemView.post(() -> {
+        holder.itemView.post(() -> renderWithCorrectWidth(holder, message));
+    }
+
+    /**
+     * 以"正确宽度"渲染 AI 消息内容（表格按真实可用宽度计算列宽）：
+     * - holder 已布局（isLaidOut 且宽度有效）：立即渲染；
+     * - 未布局完成（新建/重建 holder、布局排队中）：注册一次性 OnGlobalLayoutListener，
+     *   布局完成后按真实宽度渲染。
+     * 用于替代"getWidth()==0 时兜底全屏宽"的旧逻辑——表格按全屏宽分配列宽会导致
+     * 单元格文字重叠/截断，且生成完成 rebind 时 holder 已布局不再触发布局监听，
+     * 旧逻辑无法纠正流式期间产生的错位渲染。
+     */
+    private void renderWithCorrectWidth(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.itemView.isLaidOut() && holder.itemView.getWidth() > 0) {
             int availableWidth = holder.itemView.getWidth()
                 - holder.itemView.getPaddingLeft()
                 - holder.itemView.getPaddingRight()
                 - dpToPx(2, holder.itemView.getContext());
             if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
             bindMessageContent(holder, message, availableWidth);
-        });
+            return;
+        }
+        holder.messageText.getViewTreeObserver().addOnGlobalLayoutListener(
+            new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                private boolean ran = false;
+                @Override
+                public void onGlobalLayout() {
+                    if (ran) return;
+                    ran = true;
+                    if (holder.messageText.getViewTreeObserver().isAlive()) {
+                        holder.messageText.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                    }
+                    int w = holder.itemView.getWidth();
+                    int availableWidth = w - holder.itemView.getPaddingLeft()
+                        - holder.itemView.getPaddingRight() - dpToPx(2, holder.itemView.getContext());
+                    if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
+                    bindMessageContent(holder, message, availableWidth);
+                }
+            });
     }
 
     private Spanned formatMessageContent(String content, int availableWidth) {
