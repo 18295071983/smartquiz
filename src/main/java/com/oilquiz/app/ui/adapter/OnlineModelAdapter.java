@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.adapter;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.os.Looper;
 import android.view.LayoutInflater;
@@ -622,7 +624,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                     statusTextView.setTextColor(context.getResources().getColor(R.color.success_color));
                 } else {
                     statusTextView.setText(R.string.click_to_switch);
-                    statusTextView.setTextColor(context.getResources().getColor(R.color.primary));
+                    statusTextView.setTextColor(ThemeColors.attr(context, R.attr.colorPrimary));
                 }
 
                 // Enable button
@@ -642,7 +644,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                             }
                         }
                     } else {
-                        spinnerAdapter.add("请先获取模型列表");
+                        spinnerAdapter.add(context.getString(R.string.h_a6da27c5));
                     }
                 }
             } finally {
@@ -718,9 +720,9 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                            "是否启用: " + (item.isEnabled ? "是" : "否");
 
             new android.app.AlertDialog.Builder(context)
-                .setTitle("模型详情")
+                .setTitle(context.getString(R.string.h_3388316f))
                 .setMessage(details)
-                .setPositiveButton("确定", null)
+                .setPositiveButton(context.getString(R.string.h_38cf16f2), null)
                 .show();
         }
 
@@ -740,7 +742,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             if (clipboard != null) {
                 android.content.ClipData clip = android.content.ClipData.newPlainText("API URL", text);
                 clipboard.setPrimaryClip(clip);
-                android.widget.Toast.makeText(context, "已复制到剪贴板", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(context, context.getString(R.string.h_4fb42e6e), android.widget.Toast.LENGTH_SHORT).show();
             }
         }
     }

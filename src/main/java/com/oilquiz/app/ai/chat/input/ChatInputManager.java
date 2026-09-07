@@ -23,6 +23,8 @@ import com.oilquiz.app.ui.adapter.AttachmentAdapter;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 管理聊天输入面板：输入框、发送按钮、附件按钮、附件列表。
  * 从 AIChatActivity 中提取的独立模块。
@@ -396,7 +398,7 @@ public class ChatInputManager {
             }
             if (!decoded) {
                 com.bumptech.glide.Glide.with(activity).load(url)
-                        .error(new android.graphics.drawable.ColorDrawable(0xFF1E293B))
+                        .error(new android.graphics.drawable.ColorDrawable(ThemeColors.get(R.color.hc_ff1e293b)))
                         .into(photoView);
             }
 

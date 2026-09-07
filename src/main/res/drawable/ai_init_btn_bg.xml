@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AI 初始化主操作按钮（紫→青渐变，圆角） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:type="linear"
+        android:angle="0"
+        android:startColor="?attr/colorPrimary"
+        android:centerColor="?attr/colorPrimary"
+        android:endColor="@color/hc_ff06b6d4" />
+    <corners android:radius="24dp" />
+</shape>

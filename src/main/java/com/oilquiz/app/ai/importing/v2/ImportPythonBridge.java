@@ -29,6 +29,8 @@ public class ImportPythonBridge {
     private final Context context;
     private PyObject module;
     private boolean initialized = false;
+    /** 最近一次初始化失败的明确原因（如"公共存储权限缺失"），供上层 UI 展示 */
+    private static volatile String lastInitError;
 
     private ImportPythonBridge(Context context) {
         this.context = context.getApplicationContext();
@@ -47,18 +49,54 @@ public class ImportPythonBridge {
 
     public synchronized boolean ensureReady() {
         if (initialized) return true;
+        // 前置权限检查：导入管线目录在公共存储 /storage/emulated/0/OilQuiz/（ImportDirs），
+        // 未授权时 Python 打开文件会抛 PermissionError，必须主动检测而非假设已授权。
+        if (!hasPublicStoragePermission()) {
+            lastInitError = "公共存储权限缺失，Python 无法读写 /storage/emulated/0/OilQuiz/（请先授予\"所有文件访问\"权限）";
+            Log.e(TAG, lastInitError);
+            return false;
+        }
         try {
             if (!Python.isStarted()) {
                 Python.start(new AndroidPlatform(context));
             }
             module = Python.getInstance().getModule(MODULE_NAME);
             initialized = module != null;
+            if (initialized) {
+                lastInitError = null;
+            } else {
+                lastInitError = "Python 预处理模块加载失败: " + MODULE_NAME;
+            }
             Log.i(TAG, "Python 预处理模块加载: " + (initialized ? "成功" : "失败"));
             return initialized;
         } catch (Throwable t) {
-            Log.e(TAG, "Python 初始化失败: " + t.getMessage(), t);
+            lastInitError = "Python 初始化失败: " + t.getMessage();
+            Log.e(TAG, lastInitError, t);
             return false;
         }
+    }
+
+    /** 最近一次初始化失败的明确原因（供上层 UI 展示） */
+    public static String getLastInitError() {
+        return lastInitError;
+    }
+
+    /**
+     * 公共目录读写权限是否已授予（导入管线目录 /storage/emulated/0/OilQuiz/）：
+     * - Android 11+（R）：MANAGE_EXTERNAL_STORAGE（"所有文件访问"）
+     * - Android 6~10（M~R）：READ/WRITE_EXTERNAL_STORAGE
+     */
+    public boolean hasPublicStoragePermission() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            return android.os.Environment.isExternalStorageManager();
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            return android.content.pm.PackageManager.PERMISSION_GRANTED
+                    == context.checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                    && android.content.pm.PackageManager.PERMISSION_GRANTED
+                    == context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        }
+        return true;
     }
 
     /**
@@ -127,7 +165,8 @@ public class ImportPythonBridge {
      */
     private JSONObject callWithRetry(String opName, String opDesc, PyCall call) {
         if (!ensureReady()) {
-            return errorJson(opDesc + "失败: Python 环境初始化失败");
+            String reason = getLastInitError() != null ? getLastInitError() : "Python 环境初始化失败";
+            return errorJson(opDesc + "失败: " + reason);
         }
         Throwable last = null;
         for (int attempt = 0; attempt < 2; attempt++) {

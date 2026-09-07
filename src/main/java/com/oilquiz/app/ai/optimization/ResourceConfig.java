@@ -40,16 +40,18 @@ public class ResourceConfig {
     // ========== 上下文大小 ==========
     /** 上下文大小下限（保证单次推理） */
     private static final int MIN_CONTEXT_SIZE = 2048;
-    /** 上下文大小上限（内存充足时允许大上下文，长对话更久才触发裁剪/超限；匹配 Qwen3-4B 的 32k 窗口） */
-    private static final int MAX_CONTEXT_SIZE = 32768;
+    /** 上下文大小上限（手机端封顶 16K：Qwen3-4B KV≈90KB/token，32K 纯 KV≈2.9GB，
+     *  叠加权重后 6~8GB 设备加载即被杀进程；16K KV≈1.4GB 才是设备可承受的量级） */
+    private static final int MAX_CONTEXT_SIZE = 16384;
     /** 默认上下文大小 */
     private static final int DEFAULT_CONTEXT_SIZE = 4096;
     /** 推理预留 token 数（输入 + 输出） */
     private static final int INFERENCE_RESERVE_TOKENS = 512;
 
     // ========== 内存限制 ==========
-    /** 内存池大小上限（MB）（放宽到 4GB，供 32k 上下文的 KV 缓存使用） */
-    private static final int MAX_MEMORY_POOL_MB = 4096;
+    /** 内存池大小上限（MB）（16K 上下文封顶后 KV≈1.4GB，2GB 池子足够并留余量；
+     *  4GB 池会让 native 在低内存设备上按此预算分配 KV，反而推高峰值内存） */
+    private static final int MAX_MEMORY_POOL_MB = 2048;
     /** 内存池大小下限（MB） */
     private static final int MIN_MEMORY_POOL_MB = 256;
     /** 系统内存保留比例（45%：内存池最多占可用内存 45%，仍留 55% 给系统；用户明确要求大上下文时放宽） */
@@ -110,9 +112,10 @@ public class ResourceConfig {
             threads = Math.min(3, Math.max(2, (int) (cpuCores * THREAD_CORE_RATIO)));
             AILogger.i(TAG, "Medium memory device (3-6GB), using " + threads + " threads");
         } else {
-            // 大内存设备（>6GB）：3-4 线程
-            threads = Math.min(MAX_THREADS, Math.max(3, (int) (cpuCores * THREAD_CORE_RATIO)));
-            AILogger.i(TAG, "High memory device (>6GB), using " + threads + " threads");
+            // 大内存设备（>6GB）：固定 3 线程（2 Prime + 1 Perf），留 1 核给系统/UI，
+            // 避免 4 线程把大核全占导致发热降频、整机卡顿；prefill 由 n_threads_batch(+2) 承担。
+            threads = Math.min(3, Math.max(3, (int) (cpuCores * THREAD_CORE_RATIO)));
+            AILogger.i(TAG, "High memory device (>6GB), using " + threads + " threads (leave 1 core for system)");
         }
 
         // 确保在有效范围内
@@ -238,8 +241,12 @@ public class ResourceConfig {
         double quantFactor = getQuantizationFactor(modelPath);
         long layerSizeMB = estimateLayerSizeMB(modelSizeMB, totalLayers);
 
-        // 考虑量化后的实际每层大小
-        long actualLayerSizeMB = (long) (layerSizeMB * quantFactor);
+        // 每层实际大小：直接取 文件大小/层数，不再乘量化因子。
+        // 关键：modelSizeMB 是 modelFile.length() 即量化后的真实文件大小（如 Q4 的 4.4GB），
+        // 每层大小 = 文件/层数 已是"实际值"。若再乘 getQuantizationFactor()（Q4=0.25），
+        // 会把 Q4 文件按 FP16 摊薄 4 倍 → 层数高估 4 倍 → 误判"4.4GB 模型可全量塞进
+        // 4GB 显存"，实际 VRAM 溢出导致 GPU 驱动崩溃（Vulkan/OpenCL SIGABRT 高危）。
+        long actualLayerSizeMB = layerSizeMB;
 
         AILogger.i(TAG, "Model estimation:");
         AILogger.i(TAG, "  totalLayers=" + totalLayers);
@@ -255,28 +262,31 @@ public class ResourceConfig {
         AILogger.i(TAG, "Memory calculation:");
         AILogger.i(TAG, "  usableGpuMemoryMB=" + usableGpuMemoryMB + "MB (60% of total)");
 
-        // 考虑单次分配限制
-        if (maxMemAllocSizeMB > 0 && usableGpuMemoryMB > maxMemAllocSizeMB) {
-            usableGpuMemoryMB = maxMemAllocSizeMB;
-            AILogger.i(TAG, "  Limited by maxMemAllocSize to " + maxMemAllocSizeMB + "MB");
-        }
+        // 不再用 maxMemAllocSize 钳制可用预算：llama.cpp ggml-alloc 按
+        // CL_DEVICE_MAX_MEM_ALLOC_SIZE（buffer_type get_max_size）自动把大 tensor
+        // 拆成多个 OpenCL buffer，单次分配上限不构成总卸载量的硬约束。
+        // 之前用 maxAlloc 硬卡导致 4B 模型只能卸载 23/36 层，剩余 13 层在 CPU
+        // 上成为每 token 瓶颈（实测 CPU 374%、8-11 tok/s）。
+        // 安全兜底仍保留：AIService 加载时按系统可用内存降级（10/15/20 层），
+        // 模型加载失败自动切 CPU。手机 GPU 为共享内存架构，全量 offload 不增加
+        // 内存总量（权重本就常驻），反而释放 CPU 给 UI。
 
         int gpuLayers;
 
         if (gpuMemoryMB <= 0) {
-            // GPU 显存未知，根据系统内存估算
+            // GPU 显存未知：保守估算。不能按系统总内存拍高层数——系统内存≠GPU显存，
+            // 大内存+小显存设备按内存估 30 层会让 GPU 驱动过载（Vulkan/OpenCL 崩溃高危）。
+            // 档位整体下调：8GB+→28、6-8GB→16、4-6GB→12、<4GB→8。
             if (totalMemoryMB >= 8192) {
-                gpuLayers = 30;
+                gpuLayers = 28;
             } else if (totalMemoryMB >= 6144) {
-                gpuLayers = 25;
+                gpuLayers = 16;
             } else if (totalMemoryMB >= 4096) {
-                gpuLayers = 20;
-            } else if (totalMemoryMB >= 3072) {
-                gpuLayers = 15;
+                gpuLayers = 12;
             } else {
-                gpuLayers = 10;
+                gpuLayers = 8;
             }
-            AILogger.i(TAG, "GPU memory unknown, estimated " + gpuLayers + " layers based on system memory (" + totalMemoryMB + "MB)");
+            AILogger.i(TAG, "GPU memory unknown, conservative estimate " + gpuLayers + " layers based on system memory (" + totalMemoryMB + "MB)");
         } else {
             // 根据可用 GPU 内存计算
             if (usableGpuMemoryMB <= 0 || actualLayerSizeMB <= 0) {
@@ -291,14 +301,11 @@ public class ResourceConfig {
         // 确保不超过上限和模型总层数
         int finalLayers = Math.max(MIN_GPU_LAYERS, Math.min(Math.min(MAX_GPU_LAYERS, totalLayers), gpuLayers));
 
-        // 小模型（<3B）优化：减少 GPU 层数，避免 GPU 带宽瓶颈
-        // 3B 模型建议使用 20-25 层，而不是全部层数
-        if (totalLayers <= 26 && finalLayers > 25) {
-            int suggestedLayers = (int)(totalLayers * 0.8); // 使用 80% 的层数
-            AILogger.i(TAG, "Small model optimization: reducing GPU layers from " + finalLayers +
-                    " to " + suggestedLayers + " (80% of " + totalLayers + " layers)");
-            finalLayers = suggestedLayers;
-        }
+        // 小模型全量 offload：Adreno 8xx 等 SoC GPU 带宽充足，全量 GPU 消除 CPU-GPU 交替
+        // 瓶颈（每 token 跨端同步是 decode 慢的主因）。显存支撑能力已由 usableGpuMemoryMB
+        // 在上文钳制（Calculated layers → clamp totalLayers），不再额外砍 80% 层数。
+        // 注：旧逻辑对小模型按 80% 层数削减（如 26→20），在本设备上导致 6 层 CPU 拖慢 decode，
+        // 故移除。
 
         AILogger.i(TAG, "========== GPU LAYERS RESULT ==========");
         AILogger.i(TAG, "  Final layers: " + finalLayers + "/" + totalLayers);
@@ -347,23 +354,25 @@ public class ResourceConfig {
         int minRequired = MIN_CONTEXT_SIZE;
         int maxAllowed = MAX_CONTEXT_SIZE;
 
-        // 根据可用内存调整上限（档位按用户"内存够用、上下文要大"的要求整体上调，
-        // 上限仍受 MAX_CONTEXT_SIZE=32768 约束）
-        if (availableMemoryMB < 1024) {
-            // 内存极低：4096-8192
+        // 按设备总内存定档（用 totalMemory 而非瞬时 availableMemory：可用内存随后台
+        // 应用大幅波动，会导致同一设备上下文跳变；且 KV 缓存是常驻内存，必须按总内存规划）。
+        // KV 成本参考（Qwen3-4B ≈ 90KB/token）：4K≈0.4GB、8K≈0.7GB、12K≈1.1GB、16K≈1.4GB。
+        if (totalMemoryMB < 4096) {
+            // 极小内存（<4GB）：4K
+            maxAllowed = 4096;
+            AILogger.i(TAG, "Very small device (<4GB total), max context=4096");
+        } else if (totalMemoryMB < 6144) {
+            // 小内存（4-6GB）：8K
             maxAllowed = 8192;
-            AILogger.i(TAG, "Very low available memory (<1GB), max context=8192");
-        } else if (availableMemoryMB < 2048) {
-            // 内存较低：8192-12288
+            AILogger.i(TAG, "Small device (4-6GB total), max context=8192");
+        } else if (totalMemoryMB < 8192) {
+            // 中内存（6-8GB）：12K
             maxAllowed = 12288;
-            AILogger.i(TAG, "Low available memory (<2GB), max context=12288");
-        } else if (availableMemoryMB < 4096) {
-            // 内存一般：12288-16384
-            maxAllowed = 16384;
-            AILogger.i(TAG, "Moderate available memory (<4GB), max context=16384");
+            AILogger.i(TAG, "Mid device (6-8GB total), max context=12288");
         } else {
-            // 内存充足：使用上限（32768），"越过"小上下文限制
+            // 大内存（≥8GB）：16K 封顶（不再放行 32K）
             maxAllowed = MAX_CONTEXT_SIZE;
+            AILogger.i(TAG, "Large device (≥8GB total), max context=" + MAX_CONTEXT_SIZE);
         }
 
         // 确保上下文大小满足单次推理需求

@@ -9,30 +9,30 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:padding="@dimen/space_20">
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_12"
             app:cardElevation="2dp"
             app:cardCornerRadius="12dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="📊 当前状态"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:layout_marginBottom="12dp"/>
+                    android:textColor="?attr/colorControlText"
+                    android:layout_marginBottom="@dimen/space_12"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -40,25 +40,25 @@
                     android:orientation="horizontal"
                     android:paddingVertical="8dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="服务状态"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_status_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"/>
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:background="@color/divider"/>
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -66,24 +66,24 @@
                     android:orientation="horizontal"
                     android:paddingVertical="8dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="状态描述"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_desc_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_primary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:background="@color/divider"/>
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -91,24 +91,24 @@
                     android:orientation="horizontal"
                     android:paddingVertical="8dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="进度"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_progress_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_primary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:background="@color/divider"/>
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:id="@+id/detail_error_row"
@@ -118,17 +118,17 @@
                     android:paddingVertical="8dp"
                     android:visibility="gone">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="错误信息"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_error_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/error"/>
                 </LinearLayout>
 
@@ -138,25 +138,25 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_12"
             app:cardElevation="2dp"
             app:cardCornerRadius="12dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="🔧 运行信息"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:layout_marginBottom="12dp"/>
+                    android:textColor="?attr/colorControlText"
+                    android:layout_marginBottom="@dimen/space_12"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -164,24 +164,24 @@
                     android:orientation="horizontal"
                     android:paddingVertical="8dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="Native库"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_lib_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_primary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:background="@color/divider"/>
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -189,24 +189,24 @@
                     android:orientation="horizontal"
                     android:paddingVertical="8dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="模型名称"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_model_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_primary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:background="@color/divider"/>
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -214,24 +214,24 @@
                     android:orientation="horizontal"
                     android:paddingVertical="8dp">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="优化模式"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_opt_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_primary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:background="@color/divider"/>
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="?attr/colorDivider"/>
 
                 <LinearLayout
                     android:id="@+id/detail_mem_row"
@@ -241,25 +241,25 @@
                     android:paddingVertical="8dp"
                     android:visibility="gone">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="内存使用"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_mem_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_primary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:id="@+id/detail_mem_divider"
                     android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:background="@color/divider"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="?attr/colorDivider"
                     android:visibility="gone"/>
 
                 <LinearLayout
@@ -270,25 +270,25 @@
                     android:paddingVertical="8dp"
                     android:visibility="gone">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="推理速度"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_speed_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_primary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
                 <View
                     android:id="@+id/detail_speed_divider"
                     android:layout_width="match_parent"
-                    android:layout_height="0.5dp"
-                    android:background="@color/divider"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="?attr/colorDivider"
                     android:visibility="gone"/>
 
                 <LinearLayout
@@ -299,18 +299,18 @@
                     android:paddingVertical="8dp"
                     android:visibility="gone">
                     <TextView
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
                         android:text="Token计数"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
                     <TextView
                         android:id="@+id/detail_token_value"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_primary"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
                 </LinearLayout>
 
             </LinearLayout>
@@ -320,33 +320,33 @@
             android:id="@+id/detail_model_info_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="@dimen/space_12"
             app:cardElevation="2dp"
             app:cardCornerRadius="12dp"
-            app:cardBackgroundColor="@color/card_background"
+            app:cardBackgroundColor="?attr/colorCardBackground"
             android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="📋 模型信息"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:layout_marginBottom="12dp"/>
+                    android:textColor="?attr/colorControlText"
+                    android:layout_marginBottom="@dimen/space_12"/>
 
                 <TextView
                     android:id="@+id/detail_model_info_text"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="13sp"
-                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/text_13"
+                    android:textColor="?attr/colorControlText"
                     android:lineSpacingExtra="3dp"
                     android:fontFamily="monospace"/>
 

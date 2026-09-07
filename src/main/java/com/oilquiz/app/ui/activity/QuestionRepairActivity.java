@@ -61,7 +61,7 @@ public class QuestionRepairActivity extends BaseActivity {
         // 无可用模型（本地+在线都没有）时提前提示
         if (!engine.isAiRepairAvailable(this)) {
             btnAiFix.setEnabled(false);
-            btnAiFix.setText("AI修复(无模型)");
+            btnAiFix.setText(getString(R.string.h_1ecd528d));
         }
     }
 
@@ -95,7 +95,7 @@ public class QuestionRepairActivity extends BaseActivity {
                     boolean aiOk = engine.isAiRepairAvailable(this);
                     btnAiFix.setEnabled(aiOk && countAiCandidates() > 0);
                     if (!aiOk && countAiCandidates() > 0) {
-                        Toast.makeText(this, "存在需AI修复的题目，但本地与在线模型均不可用", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_797d1c78), Toast.LENGTH_SHORT).show();
                     }
                 });
             } catch (Exception e) {
@@ -103,7 +103,7 @@ public class QuestionRepairActivity extends BaseActivity {
                     busy = false;
                     hideStatus();
                     setButtonsEnabled(true);
-                    Toast.makeText(this, "扫描失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_6078418b) + e.getMessage(), Toast.LENGTH_SHORT).show();
                 });
             }
         });
@@ -121,7 +121,7 @@ public class QuestionRepairActivity extends BaseActivity {
             runOnUiThread(() -> {
                 busy = false;
                 hideStatus();
-                Toast.makeText(this, "规则修复完成，已写库 " + applied + " 题", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_121f77db) + applied + " 题", Toast.LENGTH_SHORT).show();
                 startScan(); // 重新扫描刷新
             });
         });
@@ -154,7 +154,7 @@ public class QuestionRepairActivity extends BaseActivity {
                 busy = false;
                 hideStatus();
                 pbRepair.setVisibility(android.view.View.GONE);
-                Toast.makeText(this, "AI修复完成：成功 " + fixedFinal + " 题，未能修复 "
+                Toast.makeText(this, getString(R.string.h_372a2eea) + fixedFinal + getString(R.string.h_1b426baf)
                         + failedFinal + " 题", Toast.LENGTH_LONG).show();
                 startScan(); // 重新扫描刷新
             });
@@ -166,7 +166,7 @@ public class QuestionRepairActivity extends BaseActivity {
     private void renderItems(int totalScanned) {
         int autoCnt = countAutoFixable();
         int aiCnt = countAiCandidates();
-        tvStats.setText("共扫描 " + totalScanned + " 题，发现问题 " + items.size() + " 题"
+        tvStats.setText(getString(R.string.h_713064f0) + totalScanned + getString(R.string.h_2b070bf6) + items.size() + " 题"
                 + "\n可规则自动修复: " + autoCnt + " 题 | 需AI修复: " + aiCnt + " 题");
 
         List<String> lines = new ArrayList<>();

@@ -3,6 +3,55 @@
     <attr name="colorBackground" format="color"/>
     <attr name="colorOnBackground" format="color"/>
     <attr name="selectableItemBorderless" format="reference"/>
+
+    <!-- ===== 主题语义色 attr（供 Java 代码经 ThemeColors.attr() 读取）=====
+         Material 库已提供同名 attr，这里显式声明以生成主包 R.attr 符号，
+         使 Java 动态创建控件也能跟随换肤/深浅/动态色。 -->
+    <attr name="colorPrimary" format="color"/>
+    <attr name="colorPrimaryContainer" format="color"/>
+    <attr name="colorSurface" format="color"/>
+    <attr name="colorPrimaryDark" format="color"/>
+    <attr name="colorAccent" format="color"/>
+    <attr name="colorOnPrimary" format="color"/>
+    <attr name="colorOnPrimaryContainer" format="color"/>
+    <attr name="colorSecondary" format="color"/>
+    <attr name="colorSecondaryContainer" format="color"/>
+    <attr name="colorOnSecondaryContainer" format="color"/>
+    <attr name="colorTertiary" format="color"/>
+    <attr name="colorTertiaryContainer" format="color"/>
+    <attr name="colorOnTertiaryContainer" format="color"/>
+    <attr name="colorSurfaceVariant" format="color"/>
+    <attr name="colorOnSurface" format="color"/>
+    <attr name="colorOnSurfaceVariant" format="color"/>
+    <attr name="colorOutline" format="color"/>
+
+    <!-- ===== 控件色板（控件底色 + 控件文字色）=====
+         由 Theme.OilQuizApp.Base 提供映射（31 个主题档位自动继承），
+         动态色档位单独映射到 @android:color/system_*。 -->
+    <!-- 控件通用底色（卡片/输入框/选择器等基底） -->
+    <attr name="colorControlBackground" format="color"/>
+    <!-- 控件主文字色 -->
+    <attr name="colorControlText" format="color"/>
+    <!-- 控件次级文字色 -->
+    <attr name="colorControlTextSecondary" format="color"/>
+    <!-- 控件提示文字色 -->
+    <attr name="colorControlTextHint" format="color"/>
+    <!-- 控件禁用文字色 -->
+    <attr name="colorControlTextDisabled" format="color"/>
+    <!-- 卡片底色 -->
+    <attr name="colorCardBackground" format="color"/>
+    <!-- 卡片上文字色 -->
+    <attr name="colorOnCard" format="color"/>
+    <!-- 输入框底色 -->
+    <attr name="colorInputBackground" format="color"/>
+    <!-- 输入框文字色 -->
+    <attr name="colorOnInput" format="color"/>
+    <!-- 分割线色 -->
+    <attr name="colorDivider" format="color"/>
+    <!-- 顶栏底色 -->
+    <attr name="colorAppBarBackground" format="color"/>
+    <!-- 顶栏文字色 -->
+    <attr name="colorOnAppBar" format="color"/>
     <declare-styleable name="WeatherBannerView">
         <attr name="autoLoad" format="boolean"/>
         <attr name="defaultCity" format="string"/>

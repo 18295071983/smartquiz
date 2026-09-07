@@ -13,7 +13,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:visibility="gone">
 
         <TextView
@@ -22,56 +22,56 @@
             android:layout_height="wrap_content"
             android:text="错误信息"
             android:textColor="?attr/colorError"
-            android:textSize="16sp" />
+            android:textSize="@dimen/text_16" />
 
     </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
         <TextView
             android:id="@+id/questionTextTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="题目文本"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textColor="?attr/colorOnSurface"
-            android:layout_marginBottom="12dp"/>
+            android:layout_marginBottom="@dimen/space_12"/>
 
         <TextView
             android:id="@+id/questionTypeTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="题型"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <TextView
             android:id="@+id/categoryTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="分类"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <TextView
             android:id="@+id/difficultyTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="难度"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="12dp"/>
+            android:layout_marginBottom="@dimen/space_12"/>
 
         <!-- 选项动态容器：支持 A~L 全部选项，仅渲染非空项 -->
         <LinearLayout
@@ -79,87 +79,87 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <TextView
             android:id="@+id/correctAnswerTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="正确答案"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="?attr/colorPrimary"
-            android:layout_marginBottom="12dp"/>
+            android:layout_marginBottom="@dimen/space_12"/>
 
         <TextView
             android:id="@+id/explanationTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="解析"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <TextView
             android:id="@+id/analysisTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="详细解析"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <TextView
             android:id="@+id/knowledgePointTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="知识点"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <TextView
             android:id="@+id/tagsTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="标签"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <TextView
             android:id="@+id/hintTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="提示"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="@dimen/space_16"/>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="16dp">
+            android:layout_marginTop="@dimen/space_16">
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/editButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="编辑"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
-                android:layout_marginEnd="8dp"
-                app:cornerRadius="12dp"
+                android:layout_marginEnd="@dimen/space_8"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/deleteButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
                 android:layout_weight="1"
                 android:text="删除"
                 app:backgroundTint="@color/error"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"/>
         </LinearLayout>
 

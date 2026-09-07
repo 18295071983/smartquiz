@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.adapter;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -232,28 +234,28 @@ public class ModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
 
                 if (modelPathTextView != null) {
                     String modelPath = modelManager.getModelPath(modelName);
-                    modelPathTextView.setText("模型路径: " + (modelPath != null ? modelPath : "未知"));
+                    modelPathTextView.setText(context.getString(R.string.h_5cbff303) + (modelPath != null ? modelPath : context.getString(R.string.h_1622dc9b)));
                 }
 
                 if (isCurrent) {
-                    statusTextView.setText("当前使用");
+                    statusTextView.setText(context.getString(R.string.h_be4cd65b));
                     statusTextView.setTextColor(context.getResources().getColor(R.color.success_color));
                     if (modelCard != null) {
-                        modelCard.setBackgroundColor(context.getResources().getColor(R.color.card_background));
+                        modelCard.setBackgroundColor(ThemeColors.attr(context, R.attr.colorCardBackground));
                     }
-                    itemView.setBackgroundColor(context.getResources().getColor(R.color.card_background));
+                    itemView.setBackgroundColor(ThemeColors.attr(context, R.attr.colorCardBackground));
                 } else {
-                    statusTextView.setText("点击切换");
-                    statusTextView.setTextColor(context.getResources().getColor(R.color.primary));
+                    statusTextView.setText(context.getString(R.string.h_316f7a56));
+                    statusTextView.setTextColor(ThemeColors.attr(context, R.attr.colorPrimary));
                     if (modelCard != null) {
-                        modelCard.setBackgroundColor(context.getResources().getColor(R.color.background));
+                        modelCard.setBackgroundColor(ThemeColors.attr(context, R.attr.colorBackground));
                     }
-                    itemView.setBackgroundColor(context.getResources().getColor(R.color.background));
+                    itemView.setBackgroundColor(ThemeColors.attr(context, R.attr.colorBackground));
                 }
             } catch (Exception e) {
                 e.printStackTrace();
                 modelNameTextView.setText(modelName);
-                statusTextView.setText("加载失败");
+                statusTextView.setText(context.getString(R.string.h_866b795e));
             }
         }
 

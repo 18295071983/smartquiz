@@ -308,7 +308,7 @@ public final class ComponentActions {
                 Toast.makeText(context, "文件不存在: " + path, Toast.LENGTH_SHORT).show();
                 return;
             }
-            // ✅ 优先应用内渲染（FileRenderActivity：TBS/Pdfium/OnlyOffice/文本/图片/视频引擎，
+            // ✅ 优先应用内渲染（FileRenderActivity：TBS/Pdfium/LibreOffice/文本/图片/视频引擎，
             // 不支持的格式有错误页 + "用其他应用打开"兜底），与 FileCardView 打开行为对齐
             try {
                 Intent preview = new Intent(context, com.oilquiz.app.ui.activity.FileRenderActivity.class);

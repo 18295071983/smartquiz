@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import androidx.appcompat.app.AlertDialog;
 import android.content.Intent;
 import android.os.Build;
@@ -440,7 +442,7 @@ public class QuizActivity extends BaseActivity {
         // 使用用户选择的主题色
         currentThemeColor = themeColorManager.getCurrentThemeColorValue(this);
         int primaryColor = currentThemeColor;
-        int darkColor = getResources().getColor(darkColorRes);
+        int darkColor = ThemeColors.get(this, darkColorRes);
         
         // 更新顶部栏背景
         com.google.android.material.appbar.MaterialToolbar toolbar = findViewById(R.id.toolbar);
@@ -517,7 +519,7 @@ public class QuizActivity extends BaseActivity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    Toast.makeText(QuizActivity.this, "初始化题目数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(QuizActivity.this, getString(R.string.h_f53d7d23) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     // 使用模拟数据作为备选
                     try {
                         // 确保questionCount不为负数
@@ -535,7 +537,7 @@ public class QuizActivity extends BaseActivity {
                     } catch (Exception ex) {
                         ex.printStackTrace();
                         Log.e("QuizActivity", "初始化模拟数据也失败: " + ex.getMessage());
-                        Toast.makeText(QuizActivity.this, "初始化模拟数据也失败", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(QuizActivity.this, getString(R.string.h_74752509), Toast.LENGTH_SHORT).show();
                         finish();
                     }
                 }
@@ -576,7 +578,7 @@ public class QuizActivity extends BaseActivity {
                             processQuestionResult(result);
                         } catch (Exception e) {
                             e.printStackTrace();
-                            Toast.makeText(QuizActivity.this, "处理题目数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            Toast.makeText(QuizActivity.this, getString(R.string.h_21f67bf8) + e.getMessage(), Toast.LENGTH_SHORT).show();
                             handleDatabaseError();
                         }
                     }
@@ -594,7 +596,7 @@ public class QuizActivity extends BaseActivity {
                     @Override
                     public void run() {
                         Log.e("QuizActivity", "获取题目失败: " + error);
-                        Toast.makeText(QuizActivity.this, "题库为空或加载异常，将使用示例题目", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(QuizActivity.this, getString(R.string.h_5d61e56d), Toast.LENGTH_SHORT).show();
                         handleDatabaseError();
                     }
                 });
@@ -622,7 +624,7 @@ public class QuizActivity extends BaseActivity {
                                 processQuestionResult(result);
                             } catch (Exception e) {
                                 e.printStackTrace();
-                                Toast.makeText(QuizActivity.this, "处理题目数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuizActivity.this, getString(R.string.h_21f67bf8) + e.getMessage(), Toast.LENGTH_SHORT).show();
                                 handleDatabaseError();
                             }
                         }
@@ -641,13 +643,13 @@ public class QuizActivity extends BaseActivity {
                         public void run() {
                             try {
                                 Log.e("QuizActivity", "获取题目失败: " + error);
-                                Toast.makeText(QuizActivity.this, "题库为空或加载异常，将使用示例题目", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuizActivity.this, getString(R.string.h_5d61e56d), Toast.LENGTH_SHORT).show();
                                 // 使用模拟数据
                                 questions = getMockQuestions(questionCount);
                                 initAnswerLists();
                             } catch (Exception e) {
                                 e.printStackTrace();
-                                Toast.makeText(QuizActivity.this, "初始化模拟数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuizActivity.this, getString(R.string.h_0dddb102) + e.getMessage(), Toast.LENGTH_SHORT).show();
                                 finish();
                             }
                         }
@@ -676,7 +678,7 @@ public class QuizActivity extends BaseActivity {
                                 processQuestionResult(result);
                             } catch (Exception e) {
                                 e.printStackTrace();
-                                Toast.makeText(QuizActivity.this, "初始化题目数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuizActivity.this, getString(R.string.h_f53d7d23) + e.getMessage(), Toast.LENGTH_SHORT).show();
                                 finish();
                             }
                         }
@@ -695,13 +697,13 @@ public class QuizActivity extends BaseActivity {
                         public void run() {
                             try {
                                 Log.e("QuizActivity", "获取题目失败: " + error);
-                                Toast.makeText(QuizActivity.this, "题库为空或加载异常，将使用示例题目", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuizActivity.this, getString(R.string.h_5d61e56d), Toast.LENGTH_SHORT).show();
                                 // 使用模拟数据
                                 questions = getMockQuestions(questionCount);
                                 initAnswerLists();
                             } catch (Exception e) {
                                 e.printStackTrace();
-                                Toast.makeText(QuizActivity.this, "初始化模拟数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuizActivity.this, getString(R.string.h_0dddb102) + e.getMessage(), Toast.LENGTH_SHORT).show();
                                 finish();
                             }
                         }
@@ -738,7 +740,7 @@ public class QuizActivity extends BaseActivity {
                     initAnswerLists();
                 } catch (Exception e) {
                     e.printStackTrace();
-                    Toast.makeText(QuizActivity.this, "初始化模拟数据失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(QuizActivity.this, getString(R.string.h_0dddb102) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     finish();
                 }
             }
@@ -768,7 +770,7 @@ public class QuizActivity extends BaseActivity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Toast.makeText(QuizActivity.this, "初始化模拟数据失败", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(QuizActivity.this, getString(R.string.h_1b20e06f), Toast.LENGTH_SHORT).show();
                             finish();
                         }
                     });
@@ -807,7 +809,7 @@ public class QuizActivity extends BaseActivity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    Toast.makeText(QuizActivity.this, "初始化答案列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(QuizActivity.this, getString(R.string.h_833cf475) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     finish();
                 }
             });
@@ -818,13 +820,13 @@ public class QuizActivity extends BaseActivity {
     private void showCurrentQuestion() {
         if (isFinishing() || isDestroyed()) return;
         if (questions == null || questions.isEmpty() || currentQuestionIndex < 0 || currentQuestionIndex >= questions.size()) {
-            Toast.makeText(this, "题目数据不存在", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_c1850996), Toast.LENGTH_SHORT).show();
             return;
         }
         
         Question question = questions.get(currentQuestionIndex);
         if (question == null) {
-            Toast.makeText(this, "题目对象为空", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_1c0a6432), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -858,7 +860,7 @@ public class QuizActivity extends BaseActivity {
             
             // 得分
             if (textViewScore != null) {
-                textViewScore.setText("得分: " + correctCount);
+                textViewScore.setText(getString(R.string.h_c9fc0b00) + correctCount);
             }
             
             // 题型（只计算一次，缓存到字段供后续方法复用）
@@ -888,7 +890,7 @@ public class QuizActivity extends BaseActivity {
             scrollToCurrentQuestion();
         } catch (Exception e) {
             Log.e("QuizActivity", "显示题目异常: " + e.getMessage(), e);
-            Toast.makeText(this, "显示题目失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_5271dadc) + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
     
@@ -948,11 +950,11 @@ public class QuizActivity extends BaseActivity {
         if (buttonNext != null) {
             if (isLastQuestion) {
                 if (isRecite) {
-                    buttonNext.setText("完成");
+                    buttonNext.setText(getString(R.string.h_769d88e4));
                 } else if (isExam) {
-                    buttonNext.setText("交卷");
+                    buttonNext.setText(getString(R.string.h_ca9df2a8));
                 } else {
-                    buttonNext.setText("完成");
+                    buttonNext.setText(getString(R.string.h_769d88e4));
                 }
             } else {
                 buttonNext.setText("→");
@@ -966,7 +968,7 @@ public class QuizActivity extends BaseActivity {
             // 更新标记状态文字
             if (showMark && markedQuestions != null && currentQuestionIndex < markedQuestions.size()) {
                 boolean isMarked = markedQuestions.get(currentQuestionIndex);
-                buttonMark.setText(isMarked ? "★ 已标记" : "☆ 标记");
+                buttonMark.setText(isMarked ? getString(R.string.h_ad032904) : getString(R.string.h_b08f415b));
             }
         }
     }
@@ -1061,7 +1063,7 @@ public class QuizActivity extends BaseActivity {
         }
         
         StringBuilder answerBuilder = new StringBuilder();
-        answerBuilder.append("正确答案: ");
+        answerBuilder.append(getString(R.string.h_16b46626));
         
         if ("单选题".equals(normalizedType) || "判断题".equals(normalizedType)) {
             // 单选题/判断题：显示选项字母和内容
@@ -1216,7 +1218,7 @@ public class QuizActivity extends BaseActivity {
                     navButton.setTextColor(getResources().getColor(R.color.white));
                 } else {
                     navButton.setBackgroundResource(R.drawable.nav_button_unanswered);
-                    navButton.setTextColor(getResources().getColor(R.color.text_secondary));
+                    navButton.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
                 }
                 
                 // 标记的题目显示星号
@@ -1341,7 +1343,7 @@ public class QuizActivity extends BaseActivity {
         } else {
             // 无时间限制时显示 "无限制"
             if (textViewTimer != null) {
-                textViewTimer.setText("无限制");
+                textViewTimer.setText(getString(R.string.h_bc436447));
             }
         }
     }
@@ -1589,22 +1591,22 @@ public class QuizActivity extends BaseActivity {
             boolean isLongAnswer = "简答题".equals(normalizedType) || "问答题".equals(normalizedType) || "论述题".equals(normalizedType);
             
             if ("填空题".equals(normalizedType)) {
-                answerInputLayout.setHint("请填写答案");
+                answerInputLayout.setHint(getString(R.string.h_4a20b0cf));
                 editTextUserAnswer.setMinLines(1);
                 editTextUserAnswer.setMaxLines(1);
                 editTextUserAnswer.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
             } else if ("简答题".equals(normalizedType)) {
-                answerInputLayout.setHint("请简要回答");
+                answerInputLayout.setHint(getString(R.string.h_059dd8e2));
                 editTextUserAnswer.setMinLines(3);
                 editTextUserAnswer.setMaxLines(6);
                 editTextUserAnswer.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
             } else if ("问答题".equals(normalizedType)) {
-                answerInputLayout.setHint("请详细回答");
+                answerInputLayout.setHint(getString(R.string.h_bf4afae9));
                 editTextUserAnswer.setMinLines(4);
                 editTextUserAnswer.setMaxLines(8);
                 editTextUserAnswer.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
             } else if ("论述题".equals(normalizedType)) {
-                answerInputLayout.setHint("请展开论述");
+                answerInputLayout.setHint(getString(R.string.h_0b3b985e));
                 editTextUserAnswer.setMinLines(5);
                 editTextUserAnswer.setMaxLines(10);
                 editTextUserAnswer.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
@@ -1679,7 +1681,7 @@ public class QuizActivity extends BaseActivity {
         optionView.setButtonDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         optionView.setText("  " + letterKey + ". " + optionText);
         optionView.setTextAppearance(R.style.TextAppearance_SmartQuiz_BodyLarge);
-        optionView.setTextColor(getResources().getColor(R.color.text_primary));
+        optionView.setTextColor(ThemeColors.attr(this, R.attr.colorControlText));
         optionView.setGravity(android.view.Gravity.CENTER_VERTICAL);
         
         // 布局参数（动态间距）
@@ -1759,8 +1761,8 @@ public class QuizActivity extends BaseActivity {
      * 未选中 → option_bg_default + 默认文字色
      */
     private void updateOptionBackgrounds() {
-        int selectedColor = getResources().getColor(R.color.primary);
-        int defaultColor = getResources().getColor(R.color.text_primary);
+        int selectedColor = ThemeColors.attr(this, R.attr.colorPrimary);
+        int defaultColor = ThemeColors.attr(this, R.attr.colorControlText);
         
         for (com.google.android.material.radiobutton.MaterialRadioButton rb : radioButtons) {
             if (rb.isChecked()) {
@@ -2020,7 +2022,7 @@ public class QuizActivity extends BaseActivity {
                     textViewAnswer.setVisibility(View.VISIBLE);
                     if (isCorrect) {
                         textViewAnswer.setTextColor(getResources().getColor(R.color.green));
-                        textViewAnswer.setText("正确答案: " + correctAnswer + " ✓");
+                        textViewAnswer.setText(getString(R.string.h_16b46626) + correctAnswer + " ✓");
                         correctCount++;
                         
                         // 正确答案的动画效果
@@ -2036,7 +2038,7 @@ public class QuizActivity extends BaseActivity {
                                 });
                     } else {
                         textViewAnswer.setTextColor(getResources().getColor(R.color.red));
-                        textViewAnswer.setText("正确答案: " + correctAnswer + " ✗");
+                        textViewAnswer.setText(getString(R.string.h_16b46626) + correctAnswer + " ✗");
                         
                         // 错误答案的动画效果
                         textViewAnswer.animate()
@@ -2075,7 +2077,7 @@ public class QuizActivity extends BaseActivity {
                 
                 // 更新得分显示
                 if (textViewScore != null) {
-                    textViewScore.setText("得分: " + correctCount);
+                    textViewScore.setText(getString(R.string.h_c9fc0b00) + correctCount);
                     // 得分更新的动画效果
                     textViewScore.animate()
                             .scaleX(1.2f)
@@ -2278,7 +2280,7 @@ public class QuizActivity extends BaseActivity {
         
         // 创建结果对话框
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("测验完成");
+        builder.setTitle(getString(R.string.h_8c4144de));
         builder.setMessage(
             modeMessage + "\n"
             + "得分: " + score + "分\n"
@@ -2289,7 +2291,7 @@ public class QuizActivity extends BaseActivity {
         );
         
         // 添加按钮
-        builder.setPositiveButton("查看错题", new android.content.DialogInterface.OnClickListener() {
+        builder.setPositiveButton(getString(R.string.h_9a478318), new android.content.DialogInterface.OnClickListener() {
             @Override
             public void onClick(android.content.DialogInterface dialog, int which) {
                 // 跳转到错题本
@@ -2299,14 +2301,14 @@ public class QuizActivity extends BaseActivity {
             }
         });
         
-        builder.setNegativeButton("返回主页", new android.content.DialogInterface.OnClickListener() {
+        builder.setNegativeButton(getString(R.string.h_2e3eaa52), new android.content.DialogInterface.OnClickListener() {
             @Override
             public void onClick(android.content.DialogInterface dialog, int which) {
                 finish();
             }
         });
         
-        builder.setNeutralButton("重新测验", new android.content.DialogInterface.OnClickListener() {
+        builder.setNeutralButton(getString(R.string.h_d8d24710), new android.content.DialogInterface.OnClickListener() {
             @Override
             public void onClick(android.content.DialogInterface dialog, int which) {
                 // 重新开始测验
@@ -2418,7 +2420,7 @@ public class QuizActivity extends BaseActivity {
             @Override
             public void onFinish() {
                 textViewTimer.setText("00:00");
-                Toast.makeText(QuizActivity.this, "时间到！自动交卷", Toast.LENGTH_LONG).show();
+                Toast.makeText(QuizActivity.this, getString(R.string.h_d2a43ba7), Toast.LENGTH_LONG).show();
                 submitQuiz();
             }
         };

@@ -42,7 +42,8 @@ public class ToolCallCardView implements ChatComponent {
         JSONObject p = data.props != null ? data.props : new JSONObject();
         String toolName = p.optString("toolName", "工具");
         String status = p.optString("status", "running");
-        String summary = p.optString("summary", "");
+        // 优先读取完整 result 生成单行摘要；兼容旧数据直接读 summary 字段
+        String summary = summarize(p.optString("result", p.optString("summary", "")));
 
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);

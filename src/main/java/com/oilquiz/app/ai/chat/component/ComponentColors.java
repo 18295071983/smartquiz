@@ -6,6 +6,7 @@ import androidx.core.content.ContextCompat;
 
 import com.oilquiz.app.R;
 
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 组件色板：统一从 colors.xml 读取，避免代码中硬编码颜色。
  */

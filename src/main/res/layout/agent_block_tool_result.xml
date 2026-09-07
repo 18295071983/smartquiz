@@ -4,17 +4,17 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:background="@drawable/agent_block_result_background"
-    android:padding="10dp">
+    android:padding="@dimen/space_10">
 
     <View
         android:id="@+id/view_status_indicator"
-        android:layout_width="3dp"
+        android:layout_width="@dimen/size_3"
         android:layout_height="match_parent"
         android:background="@color/success"
-        android:layout_marginEnd="8dp"/>
+        android:layout_marginEnd="@dimen/space_8"/>
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical">
@@ -24,22 +24,22 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="4dp">
+            android:layout_marginBottom="@dimen/space_4">
 
             <TextView
                 android:id="@+id/tv_step_number"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="10sp"
-                android:textColor="@color/text_hint"
-                android:layout_marginEnd="6dp"/>
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextHint"
+                android:layout_marginEnd="@dimen/space_6"/>
 
             <TextView
                 android:id="@+id/tv_block_title"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textStyle="bold"
                 android:textColor="@color/success"/>
 
@@ -47,17 +47,17 @@
                 android:id="@+id/tv_duration"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="10sp"
-                android:textColor="@color/text_hint"
-                android:layout_marginEnd="8dp"/>
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextHint"
+                android:layout_marginEnd="@dimen/space_8"/>
 
             <TextView
                 android:id="@+id/btn_toggle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="14sp"
-                android:textColor="@color/text_secondary"
-                android:padding="4dp"
+                android:textSize="@dimen/text_14"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:padding="@dimen/space_4"
                 android:text="▼"/>
         </LinearLayout>
 
@@ -65,17 +65,17 @@
             android:id="@+id/scroll_result"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:maxHeight="400dp">
+            android:maxHeight="@dimen/max_400">
 
             <TextView
                 android:id="@+id/tv_result"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="12sp"
-                android:textColor="@color/text_primary"
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlText"
                 android:fontFamily="monospace"
                 android:background="@drawable/code_block_background"
-                android:padding="8dp"
+                android:padding="@dimen/space_8"
                 android:textIsSelectable="true"/>
         </ScrollView>
     </LinearLayout>

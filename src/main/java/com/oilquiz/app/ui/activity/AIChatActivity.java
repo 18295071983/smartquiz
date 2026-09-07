@@ -31,6 +31,7 @@ import androidx.lifecycle.ViewModel;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.chat.component.QuickToolChipModule;
 import com.oilquiz.app.ai.chat.coordination.AIChatCoordinator;
 import com.oilquiz.app.ai.chat.viewmodel.AIChatViewModel;
 
@@ -39,6 +40,7 @@ import javax.inject.Inject;
 import dagger.hilt.android.AndroidEntryPoint;
 import com.oilquiz.app.ui.activity.QuestionGenerateActivity;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.AIServiceInitializer;
 import com.oilquiz.app.ai.service.AIServiceState;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
@@ -47,7 +49,6 @@ import com.oilquiz.app.ai.service.AIProcessingService;
 import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
-import com.oilquiz.app.ai.tool.AIEntertainmentManager;
 import com.oilquiz.app.ai.tool.AIWeatherManager;
 import com.oilquiz.app.ai.tool.LocationTool;
 import com.oilquiz.app.ai.util.ChatHistoryManager;
@@ -86,13 +87,13 @@ import com.oilquiz.app.ai.chat.status.ServiceStatusManager;
 import com.oilquiz.app.ai.chat.ui.ChatDialogHelper;
 import com.oilquiz.app.ai.chat.history.ChatHistoryController;
 import com.oilquiz.app.ai.util.ConversationSession;
-import com.oilquiz.app.ai.chat.weather.WeatherBannerController;
 import com.oilquiz.app.ai.chat.recovery.NativeRecoveryHandler;
 import com.oilquiz.app.ai.chat.input.ChatInputManager;
 import com.oilquiz.app.ai.chat.input.AttachmentProcessor;
 import com.oilquiz.app.ai.chat.lifecycle.GenerationLifecycleManager;
 import com.oilquiz.app.ai.chat.streaming.StreamingTokenPipeline;
 import com.oilquiz.app.ai.chat.parser.OutputRouter;
+import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 import com.oilquiz.app.ui.base.BaseActivity;
 
 import androidx.drawerlayout.widget.DrawerLayout;
@@ -111,6 +112,7 @@ import android.os.Build;
 
 import dagger.hilt.android.AndroidEntryPoint;
 
+import com.oilquiz.app.theme.ThemeColors;
 @AndroidEntryPoint
 public class AIChatActivity extends BaseActivity {
 
@@ -131,6 +133,27 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.TextView tvApiBalance; // 在线 API 余额显示
     private android.widget.ProgressBar serviceStatusProgress;
     private TextView serviceStatusElapsed;
+    private TextView tvGenPhase;
+    private TextView tvKvStats;
+    // 顶部单行滚动切换：思考内容按行切段，轮播/跟随最新段显示
+    private java.util.List<String> thinkingSegments = new java.util.ArrayList<>();
+    private int thinkingSegmentIndex = 0;
+    private String lastThinkShown;
+    private int lastThinkLineCount = 0;   // 已动画的思考行数：换新行才触发滑入，同段增长仅实时更新
+    private final StringBuilder onlineThinkBuffer = new StringBuilder();  // 在线思考累积（顶部单行）
+
+    // 状态条独立轮询：思考段不走 token 流式回调，需定时刷新 native 状态机 + KV
+    private static final long STATE_POLL_INTERVAL_MS = 800L;
+    private final android.os.Handler statePollHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean statePolling = false;
+    private final Runnable statePollRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!statePolling) return;
+            refreshNativeStateUI();
+            statePollHandler.postDelayed(this, STATE_POLL_INTERVAL_MS);
+        }
+    };
     private androidx.recyclerview.widget.RecyclerView messageList;
     private androidx.recyclerview.widget.RecyclerView attachmentList;
     private androidx.recyclerview.widget.RecyclerView historyList;
@@ -139,7 +162,7 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnSend;
     private MaterialButton btnAttach;
     private MaterialButton btnVoice; // 语音输入按钮（录音→ASR→填入输入框）
-    private android.widget.TextView holdToTalk; // 微信式"按住 说话"按钮（语音模式下替换输入框）
+    private android.widget.TextView holdToTalk; // 微信式getString(R.string.h_134f075e)按钮（语音模式下替换输入框）
     private boolean voiceInputMode = false; // 是否处于语音输入模式（true=按住说话，false=键盘）
     private boolean slideToCancel = false; // 按住说话时是否已上滑到取消区域
     private float pressStartY = 0; // 按住说话按下时的 Y 坐标（上滑取消判定）
@@ -150,6 +173,8 @@ public class AIChatActivity extends BaseActivity {
     private com.oilquiz.app.ai.speech.StreamingTtsSpeaker streamingTtsSpeaker; // 流式按句朗读器（边生成边朗读）
     private boolean streamTtsFed = false; // 本轮生成是否已进行过流式朗读
     private String voiceInputBaseText = ""; // 系统识别开始前输入框已有文本（实时展示部分结果时作为前缀）
+    /** 识别预览后待发送消息是否标记为语音消息（发送时消费并复位） */
+    private volatile boolean pendingVoiceInputSource = false;
     private View voiceRecordingBar; // 录音状态横幅
     private android.widget.TextView tvVoiceRecordingTime; // 录音计时
     private android.widget.TextView tvVoiceRecordingDot; // 录音红点
@@ -161,13 +186,18 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnNewConversation;
     private MaterialButton btnClearAllHistory;
     private MaterialButton btnAgentManager;
+    private MaterialButton btnAICenter;
+    private MaterialButton btnAIService;
+    private MaterialButton btnModelDownload;
+    private MaterialButton btnAiInit;
     private View thinkingIndicator;
-    private Chip chipNormalChat;
     private Chip chipWeather;
     private Chip chipClear;
     /** 快捷工具栏：键盘弹出时自动折叠 */
     private ChipGroup quickActionsChipGroup;
     private ImageView ivQuickExpand;
+    /** 快捷工具 chip 模块：统一管理快捷区工具入口 chip（静态绑定 + 动态构建） */
+    private QuickToolChipModule quickToolModule;
     private boolean quickBarExpanded = true;
     /** 标记是否由键盘弹出自动折叠，键盘隐藏时仅恢复这种情况 */
     private boolean keyboardAutoCollapsed = false;
@@ -176,18 +206,6 @@ public class AIChatActivity extends BaseActivity {
 
     private View emptyStateView;
     private com.google.android.material.chip.ChipGroup emptyStateChips;
-
-    private View weatherBanner;
-    private TextView weatherIcon;
-    private TextView weatherCity;
-    private TextView weatherTemp;
-    private TextView weatherDesc;
-    private TextView weatherHumidity;
-    private TextView weatherWind;
-    private MaterialButton btnWeatherRefresh;
-    private MaterialButton btnWeatherClose;
-    private MaterialButton btnWeatherDetail;
-    // weatherBannerVisible, weatherBannerCity, weatherBannerLat, weatherBannerLon 已移至 WeatherBannerController
 
     private AIChatCoordinator coordinator;
     private AIChatViewModel chatViewModel;
@@ -203,7 +221,7 @@ public class AIChatActivity extends BaseActivity {
     private AttachmentAdapter attachmentAdapter;
     private FileContentExtractor fileContentExtractor;
     private AIToolManager aiToolManager;
-    private AIEntertainmentManager aiEntertainmentManager;
+    private AIWeatherManager weatherManager;
     private AgentService agentService;
     private AgentChatHandler agentChatHandler;
     /** 当前 Agent 回调实例（随 AgentChatHandler 复用，每轮执行前需重置 completed 标志） */
@@ -211,9 +229,10 @@ public class AIChatActivity extends BaseActivity {
     /** 独立 Agent 执行面板已移除：Agent 过程改为组件插入式显示在 AI 消息内 */
     private ModelExecutionBridge modelBridge;
     private AIConfig aiConfig;
+    /** 输入区上方的本地Agent开关（Chip，即时生效） */
+    private com.google.android.material.chip.Chip chipLocalAgent;
     private CacheManager cacheManager;
     private OnlineModelManager onlineModelManager;
-    private AIWeatherManager weatherManager;
     private LocalBroadcastManager localBroadcastManager;
     private AIResultReceiver aiResultReceiver;
     private AITokenReceiver aiTokenReceiver;
@@ -239,6 +258,8 @@ public class AIChatActivity extends BaseActivity {
     private OnlineModelManager.ModelChangeListener modelChangeListener;
     private volatile boolean isInTag = false;
     private volatile StringBuilder tagBuffer = null;
+    /** 模板思考标签（来自 chat template），供 legacy 兜底路径判断思考起止，不硬编码 */
+    private volatile ThinkingTagConfig legacyThinkingTags = ThinkingTagConfig.empty();
     // 流式 UI 更新节流：避免高频 token 导致主线程过载卡顿
     private static final long UI_UPDATE_THROTTLE_MS = 120;
     private volatile long lastTokenUiUpdateTime = 0;
@@ -292,6 +313,22 @@ public class AIChatActivity extends BaseActivity {
             try {
                 ChatMessage msg = chatHistory.get(idx);
                 chatAdapter.updateMessageThinkingContent(idx, msg.thinkingContent);
+                // 顶部单行：thinking 事件驱动（120ms 节流），无 800ms 轮询限制。
+                // 连续性策略：同段内容增长只实时更新文本（不重启动画，自然连续）；
+                // 出现新行（换段）才刮刀式滑入动画，避免频繁重启造成的断续抖动。
+                if (isInThinking && tvGenPhase != null && tvGenPhase.getVisibility() == View.VISIBLE
+                        && msg.thinkingContent != null && !msg.thinkingContent.isEmpty()) {
+                    String disp = "💭 " + buildThinkingSegment(msg.thinkingContent);
+                    if (!disp.equals(lastThinkShown)) {
+                        tvGenPhase.setText(disp);
+                        lastThinkShown = disp;
+                        int lineCount = countThinkingLines(msg.thinkingContent);
+                        if (lineCount != lastThinkLineCount) {
+                            lastThinkLineCount = lineCount;
+                            startThinkingRollerAnim();
+                        }
+                    }
+                }
             } catch (IndexOutOfBoundsException e) {
                 currentStreamingMessageIndex = -1;
             }
@@ -356,7 +393,6 @@ public class AIChatActivity extends BaseActivity {
     private ServiceStatusManager serviceStatusManager;
     private ChatDialogHelper dialogHelper;
     private ChatHistoryController historyController;
-    private WeatherBannerController weatherBannerController;
     private NativeRecoveryHandler recoveryHandler;
     private ChatInputManager inputManager;
     private AttachmentProcessor attachmentProcessor;
@@ -384,28 +420,6 @@ public class AIChatActivity extends BaseActivity {
                 com.oilquiz.app.ai.jni.LlamaHelper.handleMemoryPressure(80);
             }
         }
-    };
-
-    private static final String[][] COMMAND_PATTERNS = {
-        {"生成题目", "app_toolkit"},
-        {"分析题目", "app_toolkit"},
-        {"学习计划", "app_toolkit"},
-        {"统计", "app_toolkit"},
-        {"搜索题目", "app_toolkit"},
-        {"天气", "weather"},
-        {"定位", "app_toolkit"},
-        {"我的位置", "app_toolkit"},
-        {"当前位置", "app_toolkit"},
-        {"导入题目", "app_toolkit"},
-        {"导出题目", "app_toolkit"},
-        {"数据库操作", "database"},
-        {"讲笑话", "entertainment"},
-        {"猜谜语", "entertainment"},
-        {"写诗", "entertainment"},
-        {"讲故事", "entertainment"},
-        {"知识问答", "entertainment"},
-        {"名言", "entertainment"},
-        {"游戏", "entertainment"},
     };
 
     @Override
@@ -455,8 +469,11 @@ public class AIChatActivity extends BaseActivity {
             btnNewConversation = findViewById(R.id.btn_new_conversation);
             btnClearAllHistory = findViewById(R.id.btn_clear_all_history);
             btnAgentManager = findViewById(R.id.btn_agent_manager);
+            btnAICenter = findViewById(R.id.btn_ai_center);
+            btnAIService = findViewById(R.id.btn_ai_service);
+            btnModelDownload = findViewById(R.id.btn_model_download);
+            btnAiInit = findViewById(R.id.btn_ai_init);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
-            chipNormalChat = findViewById(R.id.chip_normal_chat);
             chipWeather = findViewById(R.id.chip_weather);
             chipClear = findViewById(R.id.chip_clear_chat2);
 
@@ -471,22 +488,14 @@ public class AIChatActivity extends BaseActivity {
             emptyStateView = findViewById(R.id.empty_state_view);
             emptyStateChips = findViewById(R.id.empty_state_chips);
 
-            weatherBanner = findViewById(R.id.weather_banner);
-            weatherIcon = findViewById(R.id.weather_icon);
-            weatherCity = findViewById(R.id.weather_city);
-            weatherTemp = findViewById(R.id.weather_temp);
-            weatherDesc = findViewById(R.id.weather_desc);
-            weatherHumidity = findViewById(R.id.weather_humidity);
-            weatherWind = findViewById(R.id.weather_wind);
-            btnWeatherRefresh = findViewById(R.id.btn_weather_refresh);
-            btnWeatherClose = findViewById(R.id.btn_weather_close);
-            btnWeatherDetail = findViewById(R.id.btn_weather_detail);
             serviceStatusBar = findViewById(R.id.service_status_bar);
             serviceStatusIcon = findViewById(R.id.service_status_icon);
             serviceStatusText = findViewById(R.id.service_status_text);
             tvApiBalance = findViewById(R.id.tv_api_balance);
             serviceStatusProgress = findViewById(R.id.service_status_progress);
             serviceStatusElapsed = findViewById(R.id.service_status_elapsed);
+            tvGenPhase = findViewById(R.id.tv_gen_phase);
+            tvKvStats = findViewById(R.id.tv_kv_stats);
             
             if (serviceStatusBar != null) {
                 serviceStatusBar.setOnClickListener(v -> showServiceStatusDetails());
@@ -556,7 +565,7 @@ public class AIChatActivity extends BaseActivity {
             }
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error initializing view: " + e.getMessage());
-            showToast("界面初始化失败: " + e.getMessage());
+            showToast(getString(R.string.h_d8bd0728) + e.getMessage());
             finish();
         }
     }
@@ -582,6 +591,23 @@ public class AIChatActivity extends BaseActivity {
             chatHistoryManager = coordinator.getChatHistoryManager();
             aiConfig = coordinator.getAIConfig();
 
+            // 本地Agent开关（Chip）：切换即写配置，processChatMessage 按 isLocalAgentEnabled() 路由，
+            // 因此下一条消息自动切换本地Agent/普通对话模式，无需重启
+            chipLocalAgent = findViewById(R.id.chip_local_agent);
+            if (chipLocalAgent != null && aiConfig != null) {
+                chipLocalAgent.setChecked(aiConfig.isLocalAgentEnabled());
+                updateAgentChip(chipLocalAgent);
+                chipLocalAgent.setOnClickListener(v -> {
+                    boolean next = !aiConfig.isLocalAgentEnabled();
+                    aiConfig.setLocalAgentEnabled(next);
+                    chipLocalAgent.setChecked(next);
+                    updateAgentChip(chipLocalAgent);
+                    showToast(next
+                            ? "智能助手已为您服务"
+                            : "智能助手已关闭：已进入快速模式");
+                });
+            }
+
             // 注册在线模型变更监听，确保模型切换后名称即时刷新
             registerModelChangeListener();
 
@@ -589,7 +615,7 @@ public class AIChatActivity extends BaseActivity {
             modelBridge = ModelExecutionBridge.getInstance(this, aiService, agentService, aiConfig);
 
             if (aiService == null && !shouldUseOnlineModel()) {
-                showToast("AI服务初始化失败");
+                showToast(getString(R.string.h_16b746be));
                 return;
             }
 
@@ -611,7 +637,6 @@ public class AIChatActivity extends BaseActivity {
 
             cacheManager = new CacheManager(this);
             weatherManager = new AIWeatherManager(this, AIWeatherManager.WeatherProvider.HEFENG);
-            aiEntertainmentManager = new AIEntertainmentManager(this);
 
             // 初始化 Token 统计管理器
             TokenStatsManager.getInstance().registerCallback(tokenStatsCallback);
@@ -668,7 +693,7 @@ public class AIChatActivity extends BaseActivity {
                                         if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
                                         updateEmptyState();
                                         scrollToBottom(true);
-                                        showToast("已恢复上次对话");
+                                        showToast(getString(R.string.h_c753c564));
                                     });
                                 } else {
                                     runOnUiThread(() -> {
@@ -698,7 +723,7 @@ public class AIChatActivity extends BaseActivity {
 
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error initializing data: " + e.getMessage());
-            showToast("数据初始化失败: " + e.getMessage());
+            showToast(getString(R.string.h_8635e3bd) + e.getMessage());
         }
     }
 
@@ -765,6 +790,32 @@ public class AIChatActivity extends BaseActivity {
             if (progress == null) return;
             updateInferenceProgressUI(progress);
         });
+
+        // 在线思考实时流 → 顶部单行显示（增量累积 + 段落切换动画；null 表示思考结束隐藏）
+        chatViewModel.getOnlineThinkingStream().observe(this, s -> {
+            try {
+                if (s == null) {
+                    onlineThinkBuffer.setLength(0);
+                    lastThinkShown = null;
+                    lastThinkLineCount = 0;
+                    if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
+                    return;
+                }
+                onlineThinkBuffer.append(s);
+                String full = onlineThinkBuffer.toString();
+                String disp = "💭 " + buildThinkingSegment(full);
+                if (!disp.equals(lastThinkShown) && tvGenPhase != null) {
+                    tvGenPhase.setVisibility(View.VISIBLE);
+                    tvGenPhase.setText(disp);
+                    lastThinkShown = disp;
+                    int lc = countThinkingLines(full);
+                    if (lc != lastThinkLineCount) {
+                        lastThinkLineCount = lc;
+                        startThinkingRollerAnim();
+                    }
+                }
+            } catch (Exception ignored) {}
+        });
     }
 
     // ========== 状态机 UI 渲染 ==========
@@ -776,22 +827,22 @@ public class AIChatActivity extends BaseActivity {
         switch (state) {
             case IDLE:
                 hideLoading();
-                updateSendButtonState(true, "发送");
+                updateSendButtonState(true, getString(R.string.h_1535fcfa));
                 break;
 
             case LOADING:
                 showLoading("AI模型加载中...", null);
-                updateSendButtonState(false, "加载中...");
+                updateSendButtonState(false, getString(R.string.h_26b5bd49));
                 break;
 
             case READY:
                 hideLoading();
-                updateSendButtonState(true, "发送");
+                updateSendButtonState(true, getString(R.string.h_1535fcfa));
                 break;
 
             case INFERRING:
                 showLoading("AI 正在推理...", null);
-                updateSendButtonState(false, "停止");
+                updateSendButtonState(false, getString(R.string.h_095e938e));
                 break;
 
             case ERROR:
@@ -816,27 +867,27 @@ public class AIChatActivity extends BaseActivity {
 
         switch (error.type) {
             case "INIT":
-                title = "初始化失败";
+                title = getString(R.string.h_ab94e2c3);
                 advice = error.retryable ? "点击重新初始化" : "请重启应用";
                 break;
             case "TIMEOUT":
-                title = "AI 响应超时";
+                title = getString(R.string.h_cd903f81);
                 advice = "模型可能计算较慢，可点击重试或降低上下文长度";
                 break;
             case "NATIVE_CRASH":
-                title = "AI 引擎异常";
+                title = getString(R.string.h_888bdf08);
                 advice = "本地推理引擎崩溃，建议降低上下文长度或切换在线模型";
                 break;
             case "MEMORY":
-                title = "内存不足";
+                title = getString(R.string.h_d8e6a633);
                 advice = "可用内存不足，建议释放后台应用或使用更小的模型";
                 break;
             case "CANCELLED":
-                title = "推理已取消";
+                title = getString(R.string.h_14b4c1f2);
                 advice = "可重新发送消息";
                 break;
             default:
-                title = "AI 推理异常";
+                title = getString(R.string.h_c9887c1b);
                 advice = error.retryable ? "可点击重试" : "请重启应用";
                 break;
         }
@@ -845,12 +896,12 @@ public class AIChatActivity extends BaseActivity {
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("⚠️ " + title)
                 .setMessage(error.message + "\n\n💡 " + advice)
-                .setPositiveButton(error.retryable ? "重试" : "知道了", (d, w) -> {
+                .setPositiveButton(error.retryable ? getString(R.string.h_132c5cdc) : getString(R.string.h_ce26955a), (d, w) -> {
                     if (error.retryable) {
                         chatViewModel.initialize();
                     }
                 })
-                .setNegativeButton("关闭", null)
+                .setNegativeButton(getString(R.string.h_b15d9127), null)
                 .setCancelable(true)
                 .show();
     }
@@ -884,12 +935,12 @@ public class AIChatActivity extends BaseActivity {
      */
     private void showModelUnloadedCard() {
         new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("📦 AI 模型已卸载")
-                .setMessage("因内存不足或系统回收，AI 模型已从内存释放。点击确定重新加载模型。")
-                .setPositiveButton("重新加载", (d, w) -> {
+                .setTitle(getString(R.string.h_b32d465f))
+                .setMessage(getString(R.string.h_7a17bf3a))
+                .setPositiveButton(getString(R.string.h_64ca9bab), (d, w) -> {
                     chatViewModel.initialize();
                 })
-                .setNegativeButton("稍后再说", null)
+                .setNegativeButton(getString(R.string.h_87e4d9ef), null)
                 .setCancelable(true)
                 .show();
     }
@@ -983,7 +1034,7 @@ public class AIChatActivity extends BaseActivity {
                         }
                         // 立即显示思考状态，让用户感知到模型在思考
                         if (currentThinkingContent.length() == 0 && idx >= 0) {
-                            currentThinkingContent.append("正在思考...");
+                            currentThinkingContent.append(getString(R.string.h_17c53a77));
                         }
                     }
                     if (idx >= 0) {
@@ -1047,7 +1098,7 @@ public class AIChatActivity extends BaseActivity {
             @Override
             public void onToolCall(String toolName, org.json.JSONObject parameters) {
                 runOnUiThread(() -> {
-                    showToast("工具调用: " + toolName);
+                    showToast(getString(R.string.h_06c7a8f8) + toolName);
                     // TODO: 显示工具调用 UI
                 });
             }
@@ -1058,10 +1109,10 @@ public class AIChatActivity extends BaseActivity {
                     // 根据数据类型显示不同的 UI
                     if ("天气".equals(dataType)) {
                         // 显示天气卡片
-                        showToast("收到天气数据");
+                        showToast(getString(R.string.h_3963dabd));
                     } else if ("代码".equals(dataType)) {
                         // 显示代码块
-                        showToast("收到代码数据");
+                        showToast(getString(R.string.h_e3f38d79));
                     }
                 });
             }
@@ -1069,7 +1120,7 @@ public class AIChatActivity extends BaseActivity {
             @Override
             public void onError(String error) {
                 runOnUiThread(() -> {
-                    showToast("错误: " + error);
+                    showToast(getString(R.string.h_7449367f) + error);
                     final int idx = resolveStreamingIndex();
                     if (idx >= 0) {
                         ChatMessage msg = chatHistory.get(idx);
@@ -1141,30 +1192,11 @@ public class AIChatActivity extends BaseActivity {
             refreshHistoryDrawer();
         }
 
-        // 4. WeatherBannerController - 天气横幅管理
-        weatherBannerController = new WeatherBannerController(this, message -> showToast(message));
-        // 绑定基本视图
-        if (weatherBanner != null && weatherIcon != null && weatherCity != null 
-            && weatherTemp != null && weatherDesc != null) {
-            weatherBannerController.bindViews(weatherBanner, weatherIcon, weatherCity, weatherTemp, weatherDesc, weatherHumidity, weatherWind);
-        }
-        // 绑定详情区域
-        View weatherDetailContainer = findViewById(R.id.weather_detail_container);
-        TextView weatherFeelsLike = findViewById(R.id.weather_feels_like);
-        TextView weatherWindDir = findViewById(R.id.weather_wind_dir);
-        TextView weatherVisibility = findViewById(R.id.weather_visibility);
-        TextView weatherPressure = findViewById(R.id.weather_pressure);
-        if (weatherDetailContainer != null && weatherFeelsLike != null && weatherWindDir != null 
-            && weatherVisibility != null && weatherPressure != null) {
-            weatherBannerController.bindDetailViews(weatherDetailContainer, weatherFeelsLike,
-                    weatherHumidity, weatherWind, weatherWindDir, weatherVisibility, weatherPressure);
-        }
-
-        // 5. NativeRecoveryHandler - 原生层恢复管理
+        // 4. NativeRecoveryHandler - 原生层恢复管理
         recoveryHandler = new NativeRecoveryHandler(this, uiHandler, new NativeRecoveryHandler.Callback() {
             @Override public void onRecoveryStarted(String message) { addSystemMessage(message); }
             @Override public void onRecoveryProgress(String message, int progress) { if (serviceStatusManager != null) serviceStatusManager.updateRecoveryProgress(message, progress); }
-            @Override public void onRecoveryComplete(String message) { addSystemMessage(message); showToast("恢复完成"); }
+            @Override public void onRecoveryComplete(String message) { addSystemMessage(message); showToast(getString(R.string.h_307f6be3)); }
             @Override public void onRecoveryFailed(String error) { addErrorMessage("恢复失败", error, true); }
             @Override public void onAddSystemMessage(String message) { addSystemMessage(message); }
             @Override public void onShowToast(String message) { showToast(message); }
@@ -1194,7 +1226,7 @@ public class AIChatActivity extends BaseActivity {
             @Override
             public void onExtractionFailed(String attachmentId, String error) {
                 Log.e(TAG, "Extraction failed for attachment: " + attachmentId + ", error: " + error);
-                runOnUiThread(() -> showToast("附件解析失败: " + error));
+                runOnUiThread(() -> showToast(getString(R.string.h_c8e5b7a6) + error));
             }
 
             @Override
@@ -1219,7 +1251,7 @@ public class AIChatActivity extends BaseActivity {
                         chatAdapter.notifyDataSetChanged();
                     }
                     
-                    showToast("✅ AI摘要生成完成");
+                    showToast(getString(R.string.h_cbae4f39));
                 });
             }
         });
@@ -1320,71 +1352,73 @@ public class AIChatActivity extends BaseActivity {
             btnAgentManager.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this, AgentManagerActivity.class)));
         }
+        if (btnAICenter != null) {
+            btnAICenter.setOnClickListener(v ->
+                    startActivity(new Intent(AIChatActivity.this, AICenterActivity.class)));
+        }
+        if (btnAIService != null) {
+            btnAIService.setOnClickListener(v ->
+                    startActivity(new Intent(AIChatActivity.this, AIServiceStatusActivity.class)));
+        }
+        if (btnModelDownload != null) {
+            btnModelDownload.setOnClickListener(v ->
+                    startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class)));
+        }
+        // AI 服务一键初始化：本地与在线均未配置时提供，点击进入精美引导界面
+        if (btnAiInit != null) {
+            updateAiInitButtonVisibility();
+            btnAiInit.setOnClickListener(v -> {
+                if (!AIServiceInitializer.needsInitialization(this)) {
+                    updateAiInitButtonVisibility();
+                    return;
+                }
+                startActivity(new Intent(AIChatActivity.this, AIServiceInitActivity.class));
+            });
+        }
         if (btnClearAllHistory != null) {
             btnClearAllHistory.setOnClickListener(v -> {
                 new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                    .setTitle("清空所有历史")
-                    .setMessage("将删除全部对话记录（含所有会话），此操作不可撤销。确定继续吗？")
-                    .setPositiveButton("清空", (dialog, which) -> {
+                    .setTitle(getString(R.string.h_2e5be76a))
+                    .setMessage(getString(R.string.h_fadd8853))
+                    .setPositiveButton(getString(R.string.h_288f0c40), (dialog, which) -> {
                         clearChat();
                         refreshHistoryDrawer();
                         if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
-                        showToast("已清空");
+                        showToast(getString(R.string.h_3683077f));
                     })
-                    .setNegativeButton("取消", null)
+                    .setNegativeButton(getString(R.string.h_625fb26b), null)
                     .show();
             });
         }
 
-        // 普通对话入口
-        if (chipNormalChat != null) chipNormalChat.setOnClickListener(v -> {
-            animateModeSwitch(() -> {
-                ChatModeManager manager = ChatModeManager.getInstance(this);
-                boolean wasEnabled = manager.isDeepThinkingEnabled();
-                if (manager.setDeepThinkingEnabled(false)) {
-                    injectModeSwitchInstruction(
-                            wasEnabled ? ChatModeManager.ChatMode.DEEP_THINKING : ChatModeManager.ChatMode.NORMAL,
-                            ChatModeManager.ChatMode.NORMAL);
-                }
-                updateModeButtonText();
-                // 同步快捷区深度思考 chip 状态
-                com.google.android.material.chip.Chip chip = findViewById(R.id.chip_deep_think);
-                if (chip != null) {
-                    chip.setChecked(false);
-                    updateDeepThinkChip(chip);
-                }
-                showToast("已关闭深度思考");
-            });
-        });
-
-        if (chipWeather != null) chipWeather.setOnClickListener(v -> showToolGuideDialog("ai_weather"));
-
-        if (chipClear != null) chipClear.setOnClickListener(v -> {
-            clearChat();
-        });
-
-        // 工具快捷输入引导：点击chip弹出参数引导表单
-        Chip chipSearch = findViewById(R.id.chip_search);
-        Chip chipDatabase = findViewById(R.id.chip_database);
-        Chip chipFile = findViewById(R.id.chip_file);
-        Chip chipLocation = findViewById(R.id.chip_location);
-        Chip chipApp = findViewById(R.id.chip_app);
-        Chip chipCalc = findViewById(R.id.chip_calc);
-
-        if (chipSearch != null) chipSearch.setOnClickListener(v -> showToolGuideDialog("network_search"));
-        if (chipDatabase != null) chipDatabase.setOnClickListener(v -> showToolGuideDialog("database"));
-        if (chipFile != null) chipFile.setOnClickListener(v -> showToolGuideDialog("file_reader"));
-        if (chipLocation != null) chipLocation.setOnClickListener(v -> showToolGuideDialog("location"));
-        if (chipApp != null) chipApp.setOnClickListener(v -> showToolGuideDialog("app_operation"));
-        if (chipCalc != null) chipCalc.setOnClickListener(v -> showToolGuideDialog("app_toolkit"));
-
-        // 动态新增聚合方案入口 chip（出行准备🚗/学习查询📚/网页研究🔍），添加到快捷按钮 ChipGroup
+        // 快捷工具 chip 模块：统一绑定抽屉静态 chip 引导 + 动态创建聚合方案 chip
         com.google.android.material.chip.ChipGroup quickGroup = findViewById(R.id.quick_actions_chip_group);
-        if (quickGroup != null) {
-            addCompositeChip(quickGroup, "🚗 出行准备", "go_out");
-            addCompositeChip(quickGroup, "📚 学习查询", "study");
-            addCompositeChip(quickGroup, "🔍 网页研究", "research");
-        }
+        quickToolModule = new QuickToolChipModule(this, new QuickToolChipModule.Callback() {
+            @Override
+            public void onToolGuide(String toolId) {
+                showToolGuideDialog(toolId);
+            }
+
+            @Override
+            public void onCompositeGuide(String flowId) {
+                showCompositeGuideDialog(flowId);
+            }
+
+            @Override
+            public void onClearChat() {
+                clearChat();
+            }
+        });
+        quickToolModule.bindStaticToolChips(
+                findViewById(R.id.chip_weather),
+                findViewById(R.id.chip_search),
+                findViewById(R.id.chip_database),
+                findViewById(R.id.chip_file),
+                findViewById(R.id.chip_location),
+                findViewById(R.id.chip_app),
+                findViewById(R.id.chip_calc),
+                findViewById(R.id.chip_clear_chat2));
+        quickToolModule.addQuickChips(quickGroup);
 
         // 深度思考开关（对齐官方：独立开关，点击开↔关，开启高亮主色/关闭灰色）
         Chip chipDeepThink = findViewById(R.id.chip_deep_think);
@@ -1393,6 +1427,11 @@ public class AIChatActivity extends BaseActivity {
             chipDeepThink.setChecked(ChatModeManager.getInstance(this).isDeepThinkingEnabled());
             updateDeepThinkChip(chipDeepThink);
             chipDeepThink.setOnClickListener(v -> {
+                if (isGenerating) {
+                    showToast(getString(R.string.h_15261c3c));
+                    chipDeepThink.setChecked(ChatModeManager.getInstance(this).isDeepThinkingEnabled());
+                    return;
+                }
                 ChatModeManager manager = ChatModeManager.getInstance(this);
                 boolean wasEnabled = manager.isDeepThinkingEnabled();
                 boolean next = !wasEnabled;
@@ -1404,7 +1443,7 @@ public class AIChatActivity extends BaseActivity {
                 chipDeepThink.setChecked(next);
                 updateDeepThinkChip(chipDeepThink);
                 updateModeButtonText();
-                showToast(next ? "已开启深度思考" : "已关闭深度思考");
+                showToast(next ? getString(R.string.h_72bc1b1d) : getString(R.string.h_814eed44));
             });
         }
 
@@ -1415,32 +1454,19 @@ public class AIChatActivity extends BaseActivity {
             com.google.android.material.chip.Chip chipExample3 = emptyStateChips.findViewById(R.id.chip_empty_example3);
             com.google.android.material.chip.Chip chipClearEmpty = emptyStateChips.findViewById(R.id.chip_clear_chat);
             if (chipExample1 != null) chipExample1.setOnClickListener(v -> {
-                inputMessage.setText("帮我总结这段文字");
+                inputMessage.setText(getString(R.string.h_0d5a55ab));
                 sendMessage();
             });
             if (chipExample2 != null) chipExample2.setOnClickListener(v -> {
-                inputMessage.setText("解释这段代码");
+                inputMessage.setText(getString(R.string.h_3985673f));
                 sendMessage();
             });
             if (chipExample3 != null) chipExample3.setOnClickListener(v -> {
-                inputMessage.setText("今天天气如何");
+                inputMessage.setText(getString(R.string.h_b1d10199));
                 sendMessage();
             });
             if (chipClearEmpty != null) chipClearEmpty.setOnClickListener(v -> {
                 clearChat();
-            });
-        }
-
-        if (btnWeatherRefresh != null) btnWeatherRefresh.setOnClickListener(v -> { if (weatherBannerController != null) weatherBannerController.loadWeather(true); });
-        if (btnWeatherClose != null) btnWeatherClose.setOnClickListener(v -> { if (weatherBannerController != null) weatherBannerController.hide(); });
-        if (btnWeatherDetail != null) btnWeatherDetail.setOnClickListener(v -> { if (weatherBannerController != null) weatherBannerController.toggleDetail(); });
-        if (weatherBanner != null) {
-            weatherBanner.setOnClickListener(v -> {
-                if (weatherBannerController == null) return;
-                Intent intent = new Intent(AIChatActivity.this, WeatherDetailActivity.class);
-                intent.putExtra("city", weatherBannerController.getCurrentCity());
-                if (weatherBannerController.getCurrentLat() != 0 && weatherBannerController.getCurrentLon() != 0) { intent.putExtra("lat", weatherBannerController.getCurrentLat()); intent.putExtra("lon", weatherBannerController.getCurrentLon()); }
-                startActivity(intent);
             });
         }
 
@@ -1464,7 +1490,7 @@ public class AIChatActivity extends BaseActivity {
             isGenerating = false;
             isDirectStreaming = false;
             hideLoadingUI();
-            showToast("操作已取消");
+            showToast(getString(R.string.h_a45bac47));
             addSystemMessage("生成已取消");
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error cancelling: " + e.getMessage());
@@ -1498,7 +1524,7 @@ public class AIChatActivity extends BaseActivity {
     private void showToolGuideDialog(String toolName) {
         ToolGuideFlow flow = ToolGuideFlow.getFlow(toolName);
         if (flow == null) {
-            android.widget.Toast.makeText(this, "暂未提供该工具的引导流程", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_7c0a7cec), android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         // 每次新开工具引导流程，清空上一轮自动获取的上下文
@@ -1558,9 +1584,9 @@ public class AIChatActivity extends BaseActivity {
         headerLayout.setGravity(android.view.Gravity.CENTER_VERTICAL);
 
         TextView titleView = new TextView(this);
-        titleView.setText(flow.toolDisplayName + "  步骤 " + (currentStepIdx[0] + 1) + "/" + activeSteps.size());
+        titleView.setText(flow.toolDisplayName + getString(R.string.h_1d081944) + (currentStepIdx[0] + 1) + "/" + activeSteps.size());
         titleView.setTextSize(16);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -1569,9 +1595,9 @@ public class AIChatActivity extends BaseActivity {
 
         if (currentStepIdx[0] > 0) {
             android.widget.Button prevBtn = new android.widget.Button(this);
-            prevBtn.setText("上一步");
-            prevBtn.setBackgroundColor(0xFFEEEEEE);
-            prevBtn.setTextColor(0xFF666666);
+            prevBtn.setText(getString(R.string.h_eeb69088));
+            prevBtn.setBackgroundColor(ThemeColors.get(R.color.hc_ffeeeeee));
+            prevBtn.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams prevParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             prevBtn.setLayoutParams(prevParams);
@@ -1588,7 +1614,7 @@ public class AIChatActivity extends BaseActivity {
 
         // 分隔线
         View divider = new View(this);
-        divider.setBackgroundColor(0xFFE0E0E0);
+        divider.setBackgroundColor(ThemeColors.get(R.color.hc_ffe0e0e0));
         LinearLayout.LayoutParams divParams = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 1);
         divParams.topMargin = 16;
@@ -1603,7 +1629,7 @@ public class AIChatActivity extends BaseActivity {
             ctxBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
             ctxBar.setPadding(dp(12), dp(10), dp(12), dp(10));
             android.graphics.drawable.GradientDrawable ctxBg = new android.graphics.drawable.GradientDrawable();
-            ctxBg.setColor(0xFFE3F2FD);
+            ctxBg.setColor(ThemeColors.get(R.color.hc_ffe3f2fd));
             ctxBg.setCornerRadius(dp(8));
             ctxBar.setBackground(ctxBg);
             LinearLayout.LayoutParams ctxLp = new LinearLayout.LayoutParams(
@@ -1621,16 +1647,16 @@ public class AIChatActivity extends BaseActivity {
             }
             ctxText.setText(ctxSummary);
             ctxText.setTextSize(13);
-            ctxText.setTextColor(0xFF1565C0);
+            ctxText.setTextColor(ThemeColors.get(R.color.hc_ff1565c0));
             ctxText.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             ctxBar.addView(ctxText);
 
             // 右侧：修改按钮（清空自动上下文，回到手动输入）
             TextView modifyBtn = new TextView(this);
-            modifyBtn.setText("修改");
+            modifyBtn.setText(getString(R.string.h_8347a927));
             modifyBtn.setTextSize(13);
-            modifyBtn.setTextColor(0xFF1565C0);
+            modifyBtn.setTextColor(ThemeColors.get(R.color.hc_ff1565c0));
             modifyBtn.setTypeface(null, android.graphics.Typeface.BOLD);
             modifyBtn.setPadding(dp(8), dp(4), dp(4), dp(4));
             modifyBtn.setOnClickListener(v -> {
@@ -1645,16 +1671,16 @@ public class AIChatActivity extends BaseActivity {
         // 步骤标题与描述（CONFIRM 步骤使用专用标题"确认执行"）
         if (step.type == ToolGuideFlow.GuideStep.StepType.CONFIRM) {
             TextView stepTitle = new TextView(this);
-            stepTitle.setText("确认执行");
+            stepTitle.setText(getString(R.string.h_d575bfd2));
             stepTitle.setTextSize(15);
-            stepTitle.setTextColor(0xFF3F51B5);
+            stepTitle.setTextColor(ThemeColors.get(R.color.hc_ff3f51b5));
             stepTitle.setTypeface(null, android.graphics.Typeface.BOLD);
             container.addView(stepTitle);
         } else {
             TextView stepTitle = new TextView(this);
             stepTitle.setText(step.title);
             stepTitle.setTextSize(15);
-            stepTitle.setTextColor(0xFF3F51B5);
+            stepTitle.setTextColor(ThemeColors.get(R.color.hc_ff3f51b5));
             stepTitle.setTypeface(null, android.graphics.Typeface.BOLD);
             container.addView(stepTitle);
 
@@ -1662,7 +1688,7 @@ public class AIChatActivity extends BaseActivity {
                 TextView descView = new TextView(this);
                 descView.setText(step.description);
                 descView.setTextSize(13);
-                descView.setTextColor(0xFF666666);
+                descView.setTextColor(ThemeColors.get(R.color.hc_ff666666));
                 LinearLayout.LayoutParams descParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 descParams.topMargin = 8;
@@ -1686,9 +1712,9 @@ public class AIChatActivity extends BaseActivity {
                     card.setClickable(true);
                     // 卡片背景：圆角16dp 白底 边框1dp
                     final android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
-                    cardBg.setColor(0xFFFFFFFF);
+                    cardBg.setColor(ThemeColors.get(R.color.hc_ffffffff));
                     cardBg.setCornerRadius(dp(16));
-                    cardBg.setStroke(dp(1), 0xFFE0E0E0);
+                    cardBg.setStroke(dp(1), ThemeColors.get(R.color.hc_ffe0e0e0));
                     card.setBackground(cardBg);
                     card.setElevation(dp(2));
                     LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
@@ -1710,19 +1736,19 @@ public class AIChatActivity extends BaseActivity {
                     TextView labelTv = new TextView(this);
                     labelTv.setText(opt.label);
                     labelTv.setTextSize(15);
-                    labelTv.setTextColor(0xFF333333);
+                    labelTv.setTextColor(ThemeColors.get(R.color.hc_ff333333));
                     labelTv.setLayoutParams(new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
                     card.addView(labelTv);
 
                     // 若该选项已被选中，使用选中色高亮
                     if (opt.value.equals(selectedParams.get(step.paramKey))) {
-                        cardBg.setColor(0xFFE8EAF6);
+                        cardBg.setColor(ThemeColors.get(R.color.hc_ffe8eaf6));
                     }
 
                     card.setOnClickListener(v -> {
                         // 选中瞬间高亮，记录选择后重新计算 activeSteps 并前进
-                        cardBg.setColor(0xFFE8EAF6);
+                        cardBg.setColor(ThemeColors.get(R.color.hc_ffe8eaf6));
                         selectedParams.put(step.paramKey, opt.value);
                         activeStepsHolder[0] = flow.getActiveSteps(selectedParams);
                         currentStepIdx[0]++;
@@ -1734,7 +1760,7 @@ public class AIChatActivity extends BaseActivity {
         } else if (step.type == ToolGuideFlow.GuideStep.StepType.INPUT) {
             // 文本输入框（动态列表步骤同时保留手动输入兜底）
             final EditText editText = new EditText(this);
-            editText.setHint(step.hint != null ? step.hint : "请输入");
+            editText.setHint(step.hint != null ? step.hint : getString(R.string.h_02cc4f8f));
             editText.setTextSize(14);
             if (step.multiline) {
                 editText.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
@@ -1761,9 +1787,9 @@ public class AIChatActivity extends BaseActivity {
                 container.addView(optionsBox);
 
                 TextView loadingView = new TextView(this);
-                loadingView.setText("⏳ 正在获取可选列表...");
+                loadingView.setText(getString(R.string.h_b5e17536));
                 loadingView.setTextSize(12);
-                loadingView.setTextColor(getColor(R.color.text_secondary));
+                loadingView.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
                 optionsBox.addView(loadingView);
 
                 final ToolGuideFlow.GuideStep.DynamicOptionsSpec spec = step.dynamicOptions;
@@ -1774,16 +1800,16 @@ public class AIChatActivity extends BaseActivity {
                         optionsBox.removeAllViews();
                         if (values == null || values.isEmpty()) {
                             TextView failView = new TextView(this);
-                            failView.setText("ℹ️ 未能获取列表，请直接输入");
+                            failView.setText(getString(R.string.h_561c8d80));
                             failView.setTextSize(12);
-                            failView.setTextColor(getColor(R.color.text_secondary));
+                            failView.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
                             optionsBox.addView(failView);
                             return;
                         }
                         TextView tipView = new TextView(this);
-                        tipView.setText("👇 点击选择（或在上方直接输入）");
+                        tipView.setText(getString(R.string.h_5aff2265));
                         tipView.setTextSize(12);
-                        tipView.setTextColor(getColor(R.color.text_secondary));
+                        tipView.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
                         LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                         tipLp.bottomMargin = dp(6);
@@ -1796,12 +1822,12 @@ public class AIChatActivity extends BaseActivity {
                         for (int i = 0; i < shown; i++) {
                             final String val = values.get(i);
                             TextView chip = new TextView(this);
-                            chip.setText(val.isEmpty() ? (spec.allOptionLabel != null ? spec.allOptionLabel : "全部") : val);
+                            chip.setText(val.isEmpty() ? (spec.allOptionLabel != null ? spec.allOptionLabel : getString(R.string.h_a8b0c204)) : val);
                             chip.setTextSize(13);
-                            chip.setTextColor(0xFF333333);
+                            chip.setTextColor(ThemeColors.get(R.color.hc_ff333333));
                             chip.setPadding(dp(12), dp(10), dp(12), dp(10));
                             android.graphics.drawable.GradientDrawable chipBg = new android.graphics.drawable.GradientDrawable();
-                            chipBg.setColor(0xFFF5F5F5);
+                            chipBg.setColor(ThemeColors.get(R.color.hc_fff5f5f5));
                             chipBg.setCornerRadius(dp(8));
                             chip.setBackground(chipBg);
                             LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
@@ -1819,9 +1845,9 @@ public class AIChatActivity extends BaseActivity {
                         }
                         if (values.size() > MAX_OPTIONS) {
                             TextView moreView = new TextView(this);
-                            moreView.setText("… 共 " + values.size() + " 项，其余请直接输入");
+                            moreView.setText(getString(R.string.h_3d2b3f43) + values.size() + getString(R.string.h_ccc34a10));
                             moreView.setTextSize(11);
-                            moreView.setTextColor(0xFFAAAAAA);
+                            moreView.setTextColor(ThemeColors.get(R.color.hc_ffaaaaaa));
                             optionsBox.addView(moreView);
                         }
                     });
@@ -1830,9 +1856,9 @@ public class AIChatActivity extends BaseActivity {
 
             // 下一步按钮
             android.widget.Button nextBtn = new android.widget.Button(this);
-            nextBtn.setText("下一步");
-            nextBtn.setBackgroundColor(0xFF6200EE);
-            nextBtn.setTextColor(0xFFFFFFFF);
+            nextBtn.setText(getString(R.string.h_38ce27d8));
+            nextBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            nextBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             nextLp.topMargin = 24;
@@ -1840,7 +1866,7 @@ public class AIChatActivity extends BaseActivity {
             nextBtn.setOnClickListener(v -> {
                 String value = editText.getText().toString().trim();
                 if (step.required && value.isEmpty()) {
-                    android.widget.Toast.makeText(this, "此项为必填，请输入内容", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(this, getString(R.string.h_879e7d1e), android.widget.Toast.LENGTH_SHORT).show();
                     return;
                 }
                 selectedParams.put(step.paramKey, value);
@@ -1862,15 +1888,15 @@ public class AIChatActivity extends BaseActivity {
                 step.paramValue = selectedParams.get(step.paramKey);
                 valueView.setText(step.paramValue);
             } else {
-                valueView.setText("（尚未选择）");
+                valueView.setText(getString(R.string.h_79203de5));
             }
             valueView.setTextSize(12);
-            valueView.setTextColor(0xFF555555);
+            valueView.setTextColor(ThemeColors.get(R.color.hc_ff555555));
             valueView.setMaxLines(3);
             valueView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             int padDp = (int) (12 * getResources().getDisplayMetrics().density);
             valueView.setPadding(padDp, padDp / 2, padDp, padDp / 2);
-            valueView.setBackgroundColor(0xFFF5F5F5);
+            valueView.setBackgroundColor(ThemeColors.get(R.color.hc_fff5f5f5));
             LinearLayout.LayoutParams vvLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             vvLp.topMargin = padDp;
@@ -1902,7 +1928,7 @@ public class AIChatActivity extends BaseActivity {
 
             MaterialButton manualBtn = new MaterialButton(this, null,
                     com.google.android.material.R.attr.materialButtonOutlinedStyle);
-            manualBtn.setText("手动输入");
+            manualBtn.setText(getString(R.string.h_732f6f55));
             LinearLayout.LayoutParams mbLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             manualBtn.setLayoutParams(mbLp);
             manualBtn.setOnClickListener(v -> showManualPathInput(step, valueView, pickerBtnRef));
@@ -1911,9 +1937,9 @@ public class AIChatActivity extends BaseActivity {
 
             // 3. 下一步按钮（与 INPUT 分支一致，使用同一个 selectedParams 聚合）
             android.widget.Button nextBtn = new android.widget.Button(this);
-            nextBtn.setText("下一步");
-            nextBtn.setBackgroundColor(0xFF6200EE);
-            nextBtn.setTextColor(0xFFFFFFFF);
+            nextBtn.setText(getString(R.string.h_38ce27d8));
+            nextBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            nextBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             nextLp.topMargin = padDp * 2;
@@ -1922,7 +1948,7 @@ public class AIChatActivity extends BaseActivity {
                 String value = (step.paramValue != null) ? step.paramValue : "";
                 value = value.trim();
                 if (step.required && value.isEmpty()) {
-                    android.widget.Toast.makeText(this, "请选择或输入路径", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(this, getString(R.string.h_c9ca3cf6), android.widget.Toast.LENGTH_SHORT).show();
                     return;
                 }
                 selectedParams.put(step.paramKey, value);
@@ -1936,7 +1962,7 @@ public class AIChatActivity extends BaseActivity {
             TextView summaryView = new TextView(this);
             StringBuilder sb = new StringBuilder();
             if (selectedParams.isEmpty()) {
-                sb.append("（无参数）");
+                sb.append(getString(R.string.h_c9f8beec));
             } else {
                 for (Map.Entry<String, String> entry : selectedParams.entrySet()) {
                     if (entry.getValue() != null && !entry.getValue().isEmpty()) {
@@ -1946,7 +1972,7 @@ public class AIChatActivity extends BaseActivity {
             }
             summaryView.setText(sb.toString().trim());
             summaryView.setTextSize(13);
-            summaryView.setTextColor(0xFF333333);
+            summaryView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
             LinearLayout.LayoutParams sumLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             sumLp.topMargin = 16;
@@ -1955,9 +1981,9 @@ public class AIChatActivity extends BaseActivity {
 
             // 执行工具按钮
             android.widget.Button execBtn = new android.widget.Button(this);
-            execBtn.setText("⚡ 执行工具");
-            execBtn.setBackgroundColor(0xFF6200EE);
-            execBtn.setTextColor(0xFFFFFFFF);
+            execBtn.setText(getString(R.string.h_ce4655cc));
+            execBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            execBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams execLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             execLp.topMargin = 24;
@@ -1966,7 +1992,7 @@ public class AIChatActivity extends BaseActivity {
                 // 防重复点击：首次点击后禁用按钮，避免并行重复执行工具
                 if (!execBtn.isEnabled()) return;
                 execBtn.setEnabled(false);
-                execBtn.setText("正在执行...");
+                execBtn.setText(getString(R.string.h_71b56fd8));
 
                 // 收集参数：仅保留当前活跃步骤涉及的参数，
                 // 避免回退改选后旧分支的残留参数被一并提交
@@ -1986,20 +2012,45 @@ public class AIChatActivity extends BaseActivity {
                 // 注入已自动获取的上下文（不覆盖用户已填值）
                 injectAutoContext(execParams);
 
-                // app_toolkit 部分分类（计算/获取信息）无 action 子步骤，直接用分类名作为 action
-                if ("app_toolkit".equals(toolName)
-                        && execParams.containsKey("category") && !execParams.containsKey("action")) {
-                    String cat = String.valueOf(execParams.get("category"));
-                    if ("calculate".equals(cat) || "get_info".equals(cat)) {
-                        execParams.put("action", cat);
+                // app_toolkit 路由：
+                // - 更多工具分类（more_tools）：tool 即独立工具名，切换到该工具执行，移除分类/工具参数；
+                //   其中 unit_converter 的预设换算对 conv_pair 拆分为 from/to；
+                // - 计算/获取信息等无 action 子步骤的分类：直接用分类名作为 action。
+                final String finalToolName;
+                if ("app_toolkit".equals(toolName)) {
+                    String cat = execParams.containsKey("category")
+                            ? String.valueOf(execParams.get("category")) : "";
+                    if ("more_tools".equals(cat) && execParams.containsKey("tool")) {
+                        finalToolName = String.valueOf(execParams.get("tool"));
+                        execParams.remove("category");
+                        execParams.remove("tool");
+                        // 单位换算：预设换算对 "m|km" → from=m, to=km
+                        if ("unit_converter".equals(finalToolName) && execParams.containsKey("conv_pair")) {
+                            String pair = String.valueOf(execParams.get("conv_pair"));
+                            execParams.remove("conv_pair");
+                            String[] parts = pair.split("\\|");
+                            if (parts.length == 2 && !parts[0].isEmpty() && !parts[1].isEmpty()) {
+                                execParams.put("from", parts[0]);
+                                execParams.put("to", parts[1]);
+                            }
+                        }
+                    } else {
+                        if (execParams.containsKey("category") && !execParams.containsKey("action")) {
+                            if ("calculate".equals(cat) || "get_info".equals(cat)) {
+                                execParams.put("action", cat);
+                            }
+                        }
+                        finalToolName = toolName;
                     }
+                } else {
+                    finalToolName = toolName;
                 }
 
                 // 执行前检查缺失的环境上下文
                 List<String> missing = ToolContextProvider.getMissingContext(flow, execParams);
                 if (missing.contains("location") && "ai_weather".equals(toolName)) {
                     // 缺少位置且为天气工具：异步定位后再执行
-                    execBtn.setText("正在定位...");
+                    execBtn.setText(getString(R.string.h_6db9502a));
                     addSystemMessage("📍 正在定位...");
                     final android.widget.Button execBtnRef = execBtn;
                     ToolContextProvider.getCurrentLocation(this, new ToolContextProvider.LocationCallback() {
@@ -2013,22 +2064,22 @@ public class AIChatActivity extends BaseActivity {
                             execParams.put("lat", lat);   // Double类型，天气工具需要Double/Number
                             execParams.put("lon", lon);   // Double类型，天气工具需要Double/Number
                             addSystemMessage("📍 已定位到: " + city);
-                            runGuideToolExecution(dialog, toolName, execParams);
+                            runGuideToolExecution(dialog, finalToolName, execParams);
                         }
                         @Override
                         public void onLocationFailed(String error) {
                             // 定位失败：恢复按钮，提示用户手动输入，不执行工具
                             execBtnRef.setEnabled(true);
-                            execBtnRef.setText("⚡ 执行工具");
+                            execBtnRef.setText(getString(R.string.h_ce4655cc));
                             android.widget.Toast.makeText(AIChatActivity.this,
-                                "定位失败,请手动输入城市", android.widget.Toast.LENGTH_SHORT).show();
+                                getString(R.string.h_fff71a52), android.widget.Toast.LENGTH_SHORT).show();
                         }
                     });
                     return;
                 }
 
                 // 无缺失上下文，直接执行
-                runGuideToolExecution(dialog, toolName, execParams);
+                runGuideToolExecution(dialog, finalToolName, execParams);
             });
             container.addView(execBtn);
         }
@@ -2338,16 +2389,16 @@ public class AIChatActivity extends BaseActivity {
 
         com.google.android.material.bottomsheet.BottomSheetDialog dialog =
                 new com.google.android.material.bottomsheet.BottomSheetDialog(this);
-        dialog.setTitle("🔧 需要补充信息");
+        dialog.setTitle(getString(R.string.h_b573da98));
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(48, 48, 48, 48);
 
         TextView titleView = new TextView(this);
-        titleView.setText("工具执行缺少参数，请补充：");
+        titleView.setText(getString(R.string.h_1d3f6786));
         titleView.setTextSize(15);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         layout.addView(titleView);
 
@@ -2361,7 +2412,7 @@ public class AIChatActivity extends BaseActivity {
             TextView label = new TextView(this);
             label.setText(mp.description);
             label.setTextSize(13);
-            label.setTextColor(0xFF666666);
+            label.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             labelLp.topMargin = 16;
@@ -2377,7 +2428,7 @@ public class AIChatActivity extends BaseActivity {
                 tempStep.description = "请选择" + mp.description + "，或手动输入路径";
                 tempStep.paramKey = mp.key;
                 tempStep.required = mp.required;
-                tempStep.hint = "输入路径";
+                tempStep.hint = getString(R.string.h_1368c593);
                 tempStep.multiline = false;
                 if (params.containsKey(mp.key) && params.get(mp.key) != null) {
                     tempStep.paramValue = String.valueOf(params.get(mp.key));
@@ -2388,12 +2439,12 @@ public class AIChatActivity extends BaseActivity {
                 valueView.setText((tempStep.paramValue != null && !tempStep.paramValue.isEmpty())
                         ? tempStep.paramValue : "（尚未选择）");
                 valueView.setTextSize(12);
-                valueView.setTextColor(0xFF555555);
+                valueView.setTextColor(ThemeColors.get(R.color.hc_ff555555));
                 valueView.setMaxLines(3);
                 valueView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
                 int padDp = (int) (12 * getResources().getDisplayMetrics().density);
                 valueView.setPadding(padDp, padDp / 2, padDp, padDp / 2);
-                valueView.setBackgroundColor(0xFFF5F5F5);
+                valueView.setBackgroundColor(ThemeColors.get(R.color.hc_fff5f5f5));
                 LinearLayout.LayoutParams vvLp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 vvLp.topMargin = 4;
@@ -2424,7 +2475,7 @@ public class AIChatActivity extends BaseActivity {
 
                 MaterialButton manualBtn = new MaterialButton(this, null,
                         com.google.android.material.R.attr.materialButtonOutlinedStyle);
-                manualBtn.setText("手动输入");
+                manualBtn.setText(getString(R.string.h_732f6f55));
                 LinearLayout.LayoutParams mbLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
                 manualBtn.setLayoutParams(mbLp);
                 manualBtn.setOnClickListener(v -> showManualPathInput(tempStep, valueView, pickerBtnRef));
@@ -2433,7 +2484,7 @@ public class AIChatActivity extends BaseActivity {
             } else {
                 // 普通文本输入
                 EditText input = new EditText(this);
-                input.setHint("请输入" + mp.description);
+                input.setHint(getString(R.string.h_02cc4f8f) + mp.description);
                 input.setTextSize(14);
                 LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -2449,9 +2500,9 @@ public class AIChatActivity extends BaseActivity {
         }
 
         android.widget.Button submitBtn = new android.widget.Button(this);
-        submitBtn.setText("提交并重试");
-        submitBtn.setBackgroundColor(0xFF6200EE);
-        submitBtn.setTextColor(0xFFFFFFFF);
+        submitBtn.setText(getString(R.string.h_dc4d6f05));
+        submitBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+        submitBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         btnLp.topMargin = 24;
@@ -2476,7 +2527,7 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
             if (!allFilled) {
-                android.widget.Toast.makeText(this, "请填写所有必填参数", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, getString(R.string.h_4730b746), android.widget.Toast.LENGTH_SHORT).show();
                 return;
             }
             dialog.dismiss();
@@ -2547,19 +2598,6 @@ public class AIChatActivity extends BaseActivity {
         return ToolGuideFlow.GuideStep.StepType.FILE_PICKER;
     }
 
-    /** 动态创建一个聚合方案入口 Chip 并加入 ChipGroup */
-    private void addCompositeChip(com.google.android.material.chip.ChipGroup group,
-                                  String label, final String flowId) {
-        com.google.android.material.chip.Chip chip = new com.google.android.material.chip.Chip(this);
-        chip.setText(label);
-        chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(0xFFE8F5E9));
-        chip.setTextColor(0xFF1B5E20);
-        chip.setChipStrokeWidth(0f);
-        chip.setClickable(true);
-        chip.setOnClickListener(v -> showCompositeGuideDialog(flowId));
-        group.addView(chip);
-    }
-
     /**
      * 显示聚合引导方案对话框：展示方案介绍 + 步骤预览 + "开始执行"按钮。
      *
@@ -2568,7 +2606,7 @@ public class AIChatActivity extends BaseActivity {
     private void showCompositeGuideDialog(String flowId) {
         final CompositeGuideFlow flow = CompositeGuideFlow.getFlow(flowId);
         if (flow == null) {
-            android.widget.Toast.makeText(this, "未找到该聚合方案", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_f97bc2aa), android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         com.google.android.material.bottomsheet.BottomSheetDialog dialog =
@@ -2582,7 +2620,7 @@ public class AIChatActivity extends BaseActivity {
         TextView titleView = new TextView(this);
         titleView.setText((flow.icon != null ? flow.icon + " " : "") + flow.displayName);
         titleView.setTextSize(18);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         container.addView(titleView);
 
@@ -2591,7 +2629,7 @@ public class AIChatActivity extends BaseActivity {
             TextView descView = new TextView(this);
             descView.setText(flow.description);
             descView.setTextSize(13);
-            descView.setTextColor(0xFF666666);
+            descView.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             dlp.topMargin = 8;
@@ -2601,7 +2639,7 @@ public class AIChatActivity extends BaseActivity {
 
         // 分隔线
         View divider = new View(this);
-        divider.setBackgroundColor(0xFFE0E0E0);
+        divider.setBackgroundColor(ThemeColors.get(R.color.hc_ffe0e0e0));
         LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 1);
         divLp.topMargin = 16;
@@ -2611,9 +2649,9 @@ public class AIChatActivity extends BaseActivity {
 
         // 步骤列表预览
         TextView stepsTitle = new TextView(this);
-        stepsTitle.setText("执行步骤:");
+        stepsTitle.setText(getString(R.string.h_00e6a7fc));
         stepsTitle.setTextSize(14);
-        stepsTitle.setTextColor(0xFF3F51B5);
+        stepsTitle.setTextColor(ThemeColors.get(R.color.hc_ff3f51b5));
         stepsTitle.setTypeface(null, android.graphics.Typeface.BOLD);
         container.addView(stepsTitle);
         if (flow.steps != null) {
@@ -2622,7 +2660,7 @@ public class AIChatActivity extends BaseActivity {
                 TextView stepView = new TextView(this);
                 stepView.setText((i + 1) + ". " + (s.icon != null ? s.icon + " " : "") + s.actionDescription);
                 stepView.setTextSize(14);
-                stepView.setTextColor(0xFF333333);
+                stepView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
                 LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 slp.topMargin = 8;
@@ -2633,9 +2671,9 @@ public class AIChatActivity extends BaseActivity {
 
         // 开始执行按钮
         android.widget.Button startBtn = new android.widget.Button(this);
-        startBtn.setText("🚀 开始执行");
-        startBtn.setBackgroundColor(0xFF6200EE);
-        startBtn.setTextColor(0xFFFFFFFF);
+        startBtn.setText(getString(R.string.h_6c710397));
+        startBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+        startBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         startLp.topMargin = 24;
@@ -2967,9 +3005,9 @@ public class AIChatActivity extends BaseActivity {
         layout.setPadding(48, 48, 48, 48);
 
         TextView titleView = new TextView(this);
-        titleView.setText("🔧 " + step.actionDescription + " 需要补充信息：");
+        titleView.setText("🔧 " + step.actionDescription + getString(R.string.h_d7e9fc99));
         titleView.setTextSize(15);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         layout.addView(titleView);
 
@@ -2978,7 +3016,7 @@ public class AIChatActivity extends BaseActivity {
             TextView label = new TextView(this);
             label.setText(mp.description);
             label.setTextSize(13);
-            label.setTextColor(0xFF666666);
+            label.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             labelLp.topMargin = 16;
@@ -2986,7 +3024,7 @@ public class AIChatActivity extends BaseActivity {
             layout.addView(label);
 
             EditText input = new EditText(this);
-            input.setHint("请输入" + mp.description);
+            input.setHint(getString(R.string.h_02cc4f8f) + mp.description);
             input.setTextSize(14);
             LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -2997,9 +3035,9 @@ public class AIChatActivity extends BaseActivity {
         }
 
         android.widget.Button submitBtn = new android.widget.Button(this);
-        submitBtn.setText("提交并重试");
-        submitBtn.setBackgroundColor(0xFF6200EE);
-        submitBtn.setTextColor(0xFFFFFFFF);
+        submitBtn.setText(getString(R.string.h_dc4d6f05));
+        submitBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+        submitBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         btnLp.topMargin = 24;
@@ -3018,7 +3056,7 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
             if (!allFilled) {
-                android.widget.Toast.makeText(this, "请填写所有参数", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, getString(R.string.h_242cc727), android.widget.Toast.LENGTH_SHORT).show();
                 return;
             }
             dialog.dismiss();
@@ -3071,7 +3109,7 @@ public class AIChatActivity extends BaseActivity {
         titleView.setText((step.icon != null ? step.icon + " " : "") + gs.title
                 + "  (" + (idx[0] + 1) + "/" + step.guideSteps.size() + ")");
         titleView.setTextSize(16);
-        titleView.setTextColor(0xFF333333);
+        titleView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
         titleView.setTypeface(null, android.graphics.Typeface.BOLD);
         container.addView(titleView);
 
@@ -3080,7 +3118,7 @@ public class AIChatActivity extends BaseActivity {
             TextView descView = new TextView(this);
             descView.setText(gs.description);
             descView.setTextSize(13);
-            descView.setTextColor(0xFF666666);
+            descView.setTextColor(ThemeColors.get(R.color.hc_ff666666));
             LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             dlp.topMargin = 8;
@@ -3100,9 +3138,9 @@ public class AIChatActivity extends BaseActivity {
                     card.setPadding(dp(16), dp(16), dp(16), dp(16));
                     card.setClickable(true);
                     final android.graphics.drawable.GradientDrawable cardBg = new android.graphics.drawable.GradientDrawable();
-                    cardBg.setColor(0xFFFFFFFF);
+                    cardBg.setColor(ThemeColors.get(R.color.hc_ffffffff));
                     cardBg.setCornerRadius(dp(16));
-                    cardBg.setStroke(dp(1), 0xFFE0E0E0);
+                    cardBg.setStroke(dp(1), ThemeColors.get(R.color.hc_ffe0e0e0));
                     card.setBackground(cardBg);
                     card.setElevation(dp(2));
                     LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
@@ -3122,13 +3160,13 @@ public class AIChatActivity extends BaseActivity {
                     TextView labelTv = new TextView(this);
                     labelTv.setText(opt.label);
                     labelTv.setTextSize(15);
-                    labelTv.setTextColor(0xFF333333);
+                    labelTv.setTextColor(ThemeColors.get(R.color.hc_ff333333));
                     labelTv.setLayoutParams(new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
                     card.addView(labelTv);
 
                     card.setOnClickListener(v -> {
-                        cardBg.setColor(0xFFE8EAF6);
+                        cardBg.setColor(ThemeColors.get(R.color.hc_ffe8eaf6));
                         collected.put(gs.paramKey, opt.value);
                         idx[0]++;
                         renderCompositeCollectStep(dialog, step, collected, idx, callback);
@@ -3139,7 +3177,7 @@ public class AIChatActivity extends BaseActivity {
         } else if (gs.type == ToolGuideFlow.GuideStep.StepType.INPUT) {
             // 文本输入
             final EditText editText = new EditText(this);
-            editText.setHint(gs.hint != null ? gs.hint : "请输入");
+            editText.setHint(gs.hint != null ? gs.hint : getString(R.string.h_02cc4f8f));
             editText.setTextSize(14);
             if (gs.multiline) {
                 editText.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
@@ -3155,9 +3193,9 @@ public class AIChatActivity extends BaseActivity {
             container.addView(editText);
 
             android.widget.Button nextBtn = new android.widget.Button(this);
-            nextBtn.setText("下一步");
-            nextBtn.setBackgroundColor(0xFF6200EE);
-            nextBtn.setTextColor(0xFFFFFFFF);
+            nextBtn.setText(getString(R.string.h_38ce27d8));
+            nextBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            nextBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams nbLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             nbLp.topMargin = dp(24);
@@ -3165,7 +3203,7 @@ public class AIChatActivity extends BaseActivity {
             nextBtn.setOnClickListener(v -> {
                 String value = editText.getText().toString().trim();
                 if (gs.required && value.isEmpty()) {
-                    android.widget.Toast.makeText(this, "此项为必填，请输入内容", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(this, getString(R.string.h_879e7d1e), android.widget.Toast.LENGTH_SHORT).show();
                     return;
                 }
                 collected.put(gs.paramKey, value);
@@ -3184,15 +3222,15 @@ public class AIChatActivity extends BaseActivity {
             if (gs.paramValue != null && !gs.paramValue.isEmpty()) {
                 valueView.setText(gs.paramValue);
             } else {
-                valueView.setText("（尚未选择）");
+                valueView.setText(getString(R.string.h_79203de5));
             }
             valueView.setTextSize(12);
-            valueView.setTextColor(0xFF555555);
+            valueView.setTextColor(ThemeColors.get(R.color.hc_ff555555));
             valueView.setMaxLines(3);
             valueView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             int padDp = dp(12);
             valueView.setPadding(padDp, padDp / 2, padDp, padDp / 2);
-            valueView.setBackgroundColor(0xFFF5F5F5);
+            valueView.setBackgroundColor(ThemeColors.get(R.color.hc_fff5f5f5));
             LinearLayout.LayoutParams vvLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             vvLp.topMargin = padDp;
@@ -3223,7 +3261,7 @@ public class AIChatActivity extends BaseActivity {
 
             MaterialButton manualBtn = new MaterialButton(this, null,
                     com.google.android.material.R.attr.materialButtonOutlinedStyle);
-            manualBtn.setText("手动输入");
+            manualBtn.setText(getString(R.string.h_732f6f55));
             LinearLayout.LayoutParams mbLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             manualBtn.setLayoutParams(mbLp);
             manualBtn.setOnClickListener(v -> showManualPathInput(gs, valueView, pickerBtnRef));
@@ -3231,9 +3269,9 @@ public class AIChatActivity extends BaseActivity {
             container.addView(btnBar);
 
             android.widget.Button nextBtn = new android.widget.Button(this);
-            nextBtn.setText("下一步");
-            nextBtn.setBackgroundColor(0xFF6200EE);
-            nextBtn.setTextColor(0xFFFFFFFF);
+            nextBtn.setText(getString(R.string.h_38ce27d8));
+            nextBtn.setBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
+            nextBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
             LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             nextLp.topMargin = padDp * 2;
@@ -3242,7 +3280,7 @@ public class AIChatActivity extends BaseActivity {
                 String value = (gs.paramValue != null) ? gs.paramValue : "";
                 value = value.trim();
                 if (gs.required && value.isEmpty()) {
-                    android.widget.Toast.makeText(this, "请选择或输入路径", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(this, getString(R.string.h_c9ca3cf6), android.widget.Toast.LENGTH_SHORT).show();
                     return;
                 }
                 collected.put(gs.paramKey, value);
@@ -3256,7 +3294,13 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void sendMessage() {
-        if (isGenerating) { showToast("AI正在生成中，请稍候"); return; }
+        AppLogger.ai(TAG, "[sendMessage] 入口: isGenerating=" + isGenerating
+                + ", inputLen=" + (inputMessage != null ? inputMessage.getText().length() : 0));
+        if (isGenerating) {
+            AppLogger.aiW(TAG, "[sendMessage] 拦截: isGenerating=true，仍在生成中");
+            showToast(getString(R.string.h_05582e8e));
+            return;
+        }
         // 新一轮对话开始：清空上一轮残留的工具组件收集，避免串轮
         com.oilquiz.app.ai.chat.component.ComponentCollector.clear();
         String message = inputMessage.getText().toString().trim();
@@ -3273,17 +3317,23 @@ public class AIChatActivity extends BaseActivity {
         }
 
         // 允许"无文字直接发送图片"（拍照后直接点发送）
-        if (message.isEmpty() && savedAttachments.isEmpty()) { showToast("请输入消息"); return; }
+        if (message.isEmpty() && savedAttachments.isEmpty()) { showToast(getString(R.string.h_b922f77a)); return; }
 
         if (!hasImageAttachment && !ensureModelLoaded(message)) {
+            AppLogger.aiW(TAG, "[sendMessage] ensureModelLoaded 返回 false，仅加入历史不推理，msg=" + message);
             addUserMessage(message);
             inputMessage.setText("");
             return;
         }
+        AppLogger.ai(TAG, "[sendMessage] 通过守卫，进入 processChatMessage: " + message);
 
         if (!savedAttachments.isEmpty()) {
             String userContent = message.isEmpty() ? DEFAULT_ATTACHMENT_MESSAGE : message;
             ChatMessage userMessage = ChatMessage.createUserMessage(userContent, savedAttachments);
+            if (pendingVoiceInputSource) {
+                userMessage.voiceInput = true;
+                pendingVoiceInputSource = false;
+            }
             chatHistory.add(userMessage);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
             scrollToBottom(true);
@@ -3292,22 +3342,12 @@ public class AIChatActivity extends BaseActivity {
             currentAttachments.clear();
             resetAttachmentAdapter();
         } else {
-            addUserMessage(message);
+            boolean fromVoice = pendingVoiceInputSource;
+            pendingVoiceInputSource = false;
+            addUserMessage(message, fromVoice);
         }
 
         inputMessage.setText("");
-
-        if (!message.isEmpty()) {
-            if (message.equalsIgnoreCase("帮助") || message.equalsIgnoreCase("help")) {
-                if (dialogHelper != null) dialogHelper.showGuideDialog(); return;
-            }
-            for (String[] pattern : COMMAND_PATTERNS) {
-                if (message.startsWith(pattern[0])) {
-                    handlePrefixedCommand(message, pattern[0], pattern[1]);
-                    return;
-                }
-            }
-        }
 
         if (!savedAttachments.isEmpty()) {
             String agentMessage = message.isEmpty() ? DEFAULT_ATTACHMENT_MESSAGE : message;
@@ -3322,30 +3362,18 @@ public class AIChatActivity extends BaseActivity {
             processChatMessage(message);
         }
 
-        // 对齐官方：深度思考是"本条"开关——发送后自动复位关闭（下次要深度思考再点开）
-        autoResetDeepThinkingAfterSend();
-    }
-
-    /** 发送后自动关闭深度思考开关（对齐 DeepSeek 官方"发送前决定本条"语义） */
-    private void autoResetDeepThinkingAfterSend() {
-        try {
-            ChatModeManager manager = ChatModeManager.getInstance(this);
-            if (manager.isDeepThinkingEnabled()) {
-                manager.setDeepThinkingEnabled(false);
-                updateModeButtonText();
-                com.google.android.material.chip.Chip chip = findViewById(R.id.chip_deep_think);
-                if (chip != null) {
-                    chip.setChecked(false);
-                    updateDeepThinkChip(chip);
-                }
-                AppLogger.ai(TAG, "Deep thinking auto-reset after send (per-message semantics)");
-            }
-        } catch (Exception e) {
-            AppLogger.aiW(TAG, "autoResetDeepThinking failed: " + e.getMessage());
-        }
+        // 深度思考开关保持用户设定：打开后持续生效，不随本条消息发送后自动复位
+        // （用户偏好：开了就保持，深度思考影响后续所有消息）
     }
 
     private void processMessageWithAttachmentsViaAgent(String originalMessage, List<ChatMessage.Attachment> attachments) {
+        // 同步捕获本条消息的深度思考开关（开关保持用户设定，不自动复位）
+        boolean thinkingFlag = false;
+        try {
+            thinkingFlag = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+        } catch (Exception ignored) {
+        }
+        final boolean visionThinkingEnabled = thinkingFlag;
         List<ChatMessage.Attachment> filtered = new ArrayList<>();
         List<String> skippedFiles = new ArrayList<>();
         for (ChatMessage.Attachment att : attachments) {
@@ -3359,16 +3387,16 @@ public class AIChatActivity extends BaseActivity {
         }
 
         if (!skippedFiles.isEmpty()) {
-            showToast("跳过 " + skippedFiles.size() + " 个文件");
+            showToast(getString(R.string.h_a3e17914) + skippedFiles.size() + getString(R.string.h_7c645c81));
         }
 
         if (filtered.isEmpty()) {
-            showToast("没有可处理的附件，仅发送文字");
+            showToast(getString(R.string.h_8cc7a175));
             processChatMessage(originalMessage);
             return;
         }
 
-        showToast("正在准备附件供AI处理...");
+        showToast(getString(R.string.h_d3430199));
 
         List<Uri> uris = new ArrayList<>();
         for (ChatMessage.Attachment att : filtered) {
@@ -3386,8 +3414,10 @@ public class AIChatActivity extends BaseActivity {
             try {
                 multimodalReady = LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
             } catch (Exception ignored) {}
+            // 本地模型已加载但视觉未就绪（供 OCR 兜底提示使用，final 以便 lambda 捕获）
+            final boolean localVisionNotReady = !multimodalReady && LlamaHelper.isModelInitialized();
             if (allImages && multimodalReady && filtered.size() == 1) {
-                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage);
+                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage, visionThinkingEnabled);
                 return;
             }
 
@@ -3400,19 +3430,23 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> {
                 // 1. 先展示上传状态（状态闭环起点：文件已落盘，开始解析）
                 StringBuilder displayMsg = new StringBuilder();
-                displayMsg.append("📎 已收到 ").append(filtered.size()).append(" 个附件\n\n");
+                displayMsg.append(getString(R.string.h_5f76df07)).append(filtered.size()).append(getString(R.string.h_0cabf767));
                 if (!skippedFiles.isEmpty()) {
-                    displayMsg.append("跳过: ").append(String.join(", ", skippedFiles)).append("\n\n");
+                    displayMsg.append(getString(R.string.h_10aace1e)).append(String.join(", ", skippedFiles)).append("\n\n");
                 }
                 for (ChatMessage.Attachment att : filtered) {
                     Uri uri = Uri.parse(att.url);
                     boolean saved = localFileMap.get(uri) != null;
                     displayMsg.append("• ").append(att.name)
                             .append("（").append(formatFileSize(att.size)).append("）")
-                            .append(saved ? " → 正在解析..." : " → ❗保存失败")
+                            .append(saved ? getString(R.string.h_d7610fbf) : getString(R.string.h_21c163e1))
                             .append("\n");
                 }
-                displayMsg.append("\n⏳ 系统正在解析附件内容，请稍候...");
+                // 本地模型已加载但视觉未就绪时，明确提示走 OCR 的原因（避免静默降级困惑）
+                if (localVisionNotReady) {
+                    displayMsg.append(getString(R.string.h_96262f69));
+                }
+                displayMsg.append(getString(R.string.h_a791b767));
 
                 ChatMessage sysMsg = ChatMessage.createSystemMessage(
                         java.util.UUID.randomUUID().toString(),
@@ -3469,7 +3503,7 @@ public class AIChatActivity extends BaseActivity {
                                 // OCR 识别结果不依赖 AI 模型，先展示给用户；模型不可用时仅提示配置，不阻断
                                 StringBuilder ocrMsg = new StringBuilder();
                                 ocrMsg.append(buildParseSummaryMsg(filtered, results));
-                                ocrMsg.append("\n\n📄 OCR 识别内容预览：\n");
+                                ocrMsg.append(getString(R.string.h_f984477c));
                                 for (com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r : results) {
                                     if (r.isUsable() && r.content != null) {
                                         String snippet = r.content.trim();
@@ -3478,7 +3512,7 @@ public class AIChatActivity extends BaseActivity {
                                                 .append("：").append(snippet).append("\n");
                                     }
                                 }
-                                ocrMsg.append("\n⚠️ 图片已通过 OCR 识别完成。如需 AI 智能分析，请先在模型设置中启用在线模型，或先加载本地模型。");
+                                ocrMsg.append(getString(R.string.h_76c53bd7));
                                 sysMsg.content = ocrMsg.toString();
                                 sysPos = chatHistory.indexOf(sysMsg);
                             if (chatAdapter != null && sysPos >= 0) {
@@ -3515,9 +3549,9 @@ public class AIChatActivity extends BaseActivity {
             java.util.Map<Uri, String> localFileMap, List<String> skippedFiles,
             int doneCount, int totalCount, String currentFile, String stage) {
         StringBuilder sb = new StringBuilder();
-        sb.append("📎 已收到 ").append(filtered.size()).append(" 个附件\n\n");
+        sb.append(getString(R.string.h_5f76df07)).append(filtered.size()).append(getString(R.string.h_0cabf767));
         if (skippedFiles != null && !skippedFiles.isEmpty()) {
-            sb.append("跳过: ").append(String.join(", ", skippedFiles)).append("\n\n");
+            sb.append(getString(R.string.h_10aace1e)).append(String.join(", ", skippedFiles)).append("\n\n");
         }
         int idx = 0;
         for (ChatMessage.Attachment att : filtered) {
@@ -3532,7 +3566,7 @@ public class AIChatActivity extends BaseActivity {
             sb.append("• ").append(att.name).append(" → ").append(statusText).append("\n");
             idx++;
         }
-        sb.append("\n⏳ 正在解析附件（").append(doneCount).append("/").append(totalCount).append("）...");
+        sb.append(getString(R.string.h_6cefb6c9)).append(doneCount).append("/").append(totalCount).append("）...");
         return sb;
     }
 
@@ -3546,23 +3580,23 @@ public class AIChatActivity extends BaseActivity {
             map.put(r.attachmentId, r);
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("📎 附件解析结果\n\n");
+        sb.append(getString(R.string.h_7341b0bb));
         for (ChatMessage.Attachment att : filtered) {
             com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r = map.get(att.id);
             sb.append("• ").append(att.name);
             if (r == null) {
-                sb.append(" → ❓ 状态未知\n");
+                sb.append(getString(R.string.h_eca8e315));
             } else if (r.isUsable()) {
-                sb.append(" → ✅ ").append(r.status == com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseStatus.PARTIAL_SUCCESS ? "部分解析成功" : "解析成功");
+                sb.append(" → ✅ ").append(r.status == com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseStatus.PARTIAL_SUCCESS ? getString(R.string.h_d5c4fa06) : getString(R.string.h_53de0123));
                 sb.append("（").append(methodLabel(r.method)).append("）");
-                if (r.fromCache) sb.append("（缓存）");
+                if (r.fromCache) sb.append(getString(R.string.h_3b870198));
                 if (r.errorMessage != null) sb.append("：").append(r.errorMessage);
                 sb.append("\n");
             } else {
-                sb.append(" → ❌ 解析失败：").append(r.errorMessage != null ? r.errorMessage : "未知错误").append("\n");
+                sb.append(getString(R.string.h_f3ab0bec)).append(r.errorMessage != null ? r.errorMessage : getString(R.string.h_974e7484)).append("\n");
             }
         }
-        sb.append("\n✅ AI 开始分析附件内容...");
+        sb.append(getString(R.string.h_1678e347));
         return sb;
     }
 
@@ -3614,8 +3648,8 @@ public class AIChatActivity extends BaseActivity {
                                                java.util.Map<Uri, String> localFileMap, List<String> skippedFiles,
                                                java.util.Map<String, com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> parseResults) {
         StringBuilder sb = new StringBuilder();
-        sb.append("用户消息: ").append(originalMessage).append("\n\n");
-        sb.append("=== 附件解析状态（系统已预处理，状态确定） ===\n\n");
+        sb.append(getString(R.string.h_793176ee)).append(originalMessage).append("\n\n");
+        sb.append(getString(R.string.h_11214c64));
 
         int successCount = 0;
         int idx = 1;
@@ -3625,43 +3659,43 @@ public class AIChatActivity extends BaseActivity {
             com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r =
                     parseResults != null ? parseResults.get(att.id) : null;
 
-            sb.append("【附件").append(idx).append("】").append(att.name).append("\n");
-            sb.append("  类型: ").append(att.type).append("，大小: ").append(formatFileSize(att.size)).append("\n");
+            sb.append(getString(R.string.h_94e069c2)).append(idx).append("】").append(att.name).append("\n");
+            sb.append(getString(R.string.h_1ee53933)).append(att.type).append(getString(R.string.h_176d6e45)).append(formatFileSize(att.size)).append("\n");
             if (localPath != null) {
-                sb.append("  本地路径: ").append(localPath).append("\n");
+                sb.append(getString(R.string.h_28c797b8)).append(localPath).append("\n");
             }
 
             if (r != null && r.isUsable()) {
                 successCount++;
-                sb.append("  解析状态: ").append(r.status == com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseStatus.PARTIAL_SUCCESS
+                sb.append(getString(R.string.h_764fab2b)).append(r.status == com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseStatus.PARTIAL_SUCCESS
                         ? "PARTIAL_SUCCESS" : "SUCCESS").append("\n");
-                sb.append("  解析方式: ").append(r.method).append(r.fromCache ? "（缓存命中）" : "").append("\n");
+                sb.append(getString(R.string.h_5f27c9db)).append(r.method).append(r.fromCache ? getString(R.string.h_2d8ed504) : "").append("\n");
                 if (r.errorMessage != null) {
-                    sb.append("  备注: ").append(r.errorMessage).append("\n");
+                    sb.append(getString(R.string.h_46bc48a9)).append(r.errorMessage).append("\n");
                 }
-                sb.append("  内容如下:\n");
-                sb.append("--- 附件内容开始 ---\n");
+                sb.append(getString(R.string.h_1e7d25f8));
+                sb.append(getString(R.string.h_24984e0c));
                 String content = r.content;
                 int maxLen = 12000;
                 if (content.length() > maxLen) {
                     sb.append(content, 0, maxLen);
-                    sb.append("\n...(内容过长已截断，完整内容共 ").append(content.length())
-                      .append(" 字符，可用 file_read_lines 工具读取本地路径获取剩余部分)\n");
+                    sb.append(getString(R.string.h_55a2a38e)).append(content.length())
+                      .append(getString(R.string.h_6b35290e));
                 } else {
                     sb.append(content).append("\n");
                 }
-                sb.append("--- 附件内容结束 ---\n");
+                sb.append(getString(R.string.h_dae5a2ac));
             } else {
                 // 失败：明确错误码与原因，禁止模型笼统说"未检测到附件"
-                sb.append("  解析状态: FAILED\n");
+                sb.append(getString(R.string.h_bf63260f));
                 if (r != null) {
-                    sb.append("  错误码: ").append(r.errorCode).append("\n");
-                    sb.append("  失败原因: ").append(r.errorMessage).append("\n");
+                    sb.append(getString(R.string.h_5d89be82)).append(r.errorCode).append("\n");
+                    sb.append(getString(R.string.h_41d16b3d)).append(r.errorMessage).append("\n");
                     if (localPath != null) {
-                        sb.append("  可选操作: 可尝试用工具重新解析（file_parse_text/ocr_recognize）\n");
+                        sb.append(getString(R.string.h_cad33dfa));
                     }
                 } else {
-                    sb.append("  失败原因: 未获取到解析结果\n");
+                    sb.append(getString(R.string.h_03670db5));
                 }
             }
             sb.append("\n");
@@ -3669,27 +3703,27 @@ public class AIChatActivity extends BaseActivity {
         }
 
         if (skippedFiles != null && !skippedFiles.isEmpty()) {
-            sb.append("⚠️ 以下文件已跳过: ").append(String.join(", ", skippedFiles)).append("\n\n");
+            sb.append(getString(R.string.h_d7824330)).append(String.join(", ", skippedFiles)).append("\n\n");
         }
 
-        sb.append("=== 重要规则 ===\n");
+        sb.append(getString(R.string.h_9e0ee86a));
         if (successCount > 0) {
-            sb.append("- 以上 ").append(successCount).append(" 个附件的内容已由系统解析完成并直接提供，请基于上述内容直接回答，无需再调用解析工具\n");
+            sb.append(getString(R.string.h_ee31e1e3)).append(successCount).append(getString(R.string.h_fe85860b));
         }
-        sb.append("- 附件确实已上传，严禁说“未检测到附件”或要求用户重新上传\n");
-        sb.append("- 若某附件解析失败，向用户说明具体失败原因（见错误码），并给出建议\n");
-        sb.append("- 若内容被截断且需要完整内容，可用 file_read_lines 工具按行读取本地路径\n\n");
+        sb.append(getString(R.string.h_f6a98d86));
+        sb.append(getString(R.string.h_447064b9));
+        sb.append(getString(R.string.h_30890ceb));
 
-        sb.append("=== 备用工具（仅在内容截断或需重试时使用） ===\n");
-        sb.append("调用格式: <|tool_call_begin|>app_toolkit|{\"action\": \"名称\", ...}<|tool_call_end|>\n");
+        sb.append(getString(R.string.h_b07b6bc9));
+        sb.append(getString(R.string.h_db5abb31));
         sb.append("- file_parse_text: file_path | file_read_lines: file_path, start_line, line_count\n");
         sb.append("- ocr_recognize: image_path | ocr_recognize_pdf: pdf_path\n\n");
 
         // 直发附件的默认占位文案已表达“分析附件”意图，不再重复注入结尾指令
         if (!DEFAULT_ATTACHMENT_MESSAGE.equals(originalMessage)) {
-            sb.append("请基于附件内容回答用户问题。");
+            sb.append(getString(R.string.h_cf88fe4b));
         } else {
-            sb.append("开始分析。");
+            sb.append(getString(R.string.h_926e80d4));
         }
 
         return sb.toString();
@@ -3709,6 +3743,13 @@ public class AIChatActivity extends BaseActivity {
     private static final String DEFAULT_ATTACHMENT_MESSAGE = "请分析这些附件的内容";
 
     private void processMessageWithAttachments(String originalMessage, List<ChatMessage.Attachment> attachments) {
+        // 同步捕获本条消息的深度思考开关（开关保持用户设定，不自动复位）
+        boolean thinkingFlag = false;
+        try {
+            thinkingFlag = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+        } catch (Exception ignored) {
+        }
+        final boolean visionThinkingEnabled = thinkingFlag;
         // 过滤有效附件（限制数量与大小）
         List<ChatMessage.Attachment> filtered = new ArrayList<>();
         List<String> skippedFiles = new ArrayList<>();
@@ -3723,7 +3764,7 @@ public class AIChatActivity extends BaseActivity {
         }
 
         if (!skippedFiles.isEmpty()) {
-            showToast("跳过 " + skippedFiles.size() + " 个文件");
+            showToast(getString(R.string.h_a3e17914) + skippedFiles.size() + getString(R.string.h_7c645c81));
         }
 
         if (filtered.isEmpty()) {
@@ -3733,7 +3774,7 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
 
-        showToast("正在准备附件供AI处理...");
+        showToast(getString(R.string.h_d3430199));
 
         List<Uri> uris = new ArrayList<>();
         for (ChatMessage.Attachment att : filtered) {
@@ -3756,8 +3797,10 @@ public class AIChatActivity extends BaseActivity {
             try {
                 multimodalReady = LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
             } catch (Exception ignored) {}
+            // 本地模型已加载但视觉未就绪（供 OCR 兜底提示使用，final 以便 lambda 捕获）
+            final boolean localVisionNotReady = !multimodalReady && LlamaHelper.isModelInitialized();
             if (allImages && multimodalReady && filtered.size() == 1) {
-                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage);
+                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage, visionThinkingEnabled);
                 return;
             }
 
@@ -3765,19 +3808,23 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> {
                 // 1. 展示上传状态
                 StringBuilder displayMsg = new StringBuilder();
-                displayMsg.append("📎 已收到 ").append(filtered.size()).append(" 个附件\n\n");
+                displayMsg.append(getString(R.string.h_5f76df07)).append(filtered.size()).append(getString(R.string.h_0cabf767));
                 if (!skippedFiles.isEmpty()) {
-                    displayMsg.append("跳过: ").append(String.join(", ", skippedFiles)).append("\n\n");
+                    displayMsg.append(getString(R.string.h_10aace1e)).append(String.join(", ", skippedFiles)).append("\n\n");
                 }
                 for (ChatMessage.Attachment att : filtered) {
                     Uri uri = Uri.parse(att.url);
                     boolean saved = localFileMap.get(uri) != null;
                     displayMsg.append("• ").append(att.name)
                             .append("（").append(formatFileSize(att.size)).append("）")
-                            .append(saved ? " → 正在解析..." : " → ❗保存失败")
+                            .append(saved ? getString(R.string.h_d7610fbf) : getString(R.string.h_21c163e1))
                             .append("\n");
                 }
-                displayMsg.append("\n⏳ 系统正在解析附件内容，请稍候...");
+                // 本地模型已加载但视觉未就绪时，明确提示走 OCR 的原因（避免静默降级困惑）
+                if (localVisionNotReady) {
+                    displayMsg.append(getString(R.string.h_96262f69));
+                }
+                displayMsg.append(getString(R.string.h_a791b767));
 
                 ChatMessage sysMsg = ChatMessage.createSystemMessage(
                         java.util.UUID.randomUUID().toString(),
@@ -3826,7 +3873,7 @@ public class AIChatActivity extends BaseActivity {
                                 if (r.isUsable()) {
                                     successCount++;
                                     String name = getAttachmentNameById(filtered, r.attachmentId);
-                                    allContent.append("=== 文件: ").append(name).append(" ===\n");
+                                    allContent.append(getString(R.string.h_a234ecf9)).append(name).append(" ===\n");
                                     allContent.append(r.content).append("\n\n");
                                 } else if (r.errorMessage != null) {
                                     failedDesc.add(getAttachmentNameById(filtered, r.attachmentId)
@@ -3864,7 +3911,8 @@ public class AIChatActivity extends BaseActivity {
      */
     private void handleMultimodalImage(ChatMessage.Attachment imageAtt,
                                        java.util.Map<android.net.Uri, String> localFileMap,
-                                       String originalMessage) {
+                                       String originalMessage,
+                                       boolean visionThinkingEnabled) {
         try {
             android.net.Uri uri = android.net.Uri.parse(imageAtt.url);
             String localPath = localFileMap != null ? localFileMap.get(uri) : null;
@@ -3877,11 +3925,260 @@ public class AIChatActivity extends BaseActivity {
 
             final String userText = originalMessage == null || originalMessage.trim().isEmpty()
                     ? "请描述这张图片的内容" : originalMessage;
-            // 用户消息已由 sendMessage 添加（含附件），此处不再重复添加，直接创建 AI 回复消息
+            // 图片预处理：WebP/HEIC 等重编码为 JPEG + 长边降采样，
+            // 解决原生 mtmd(stb_image) 不支持 WebP/HEIC、大图全尺寸解码 OOM 两个问题
+            final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(this, localFile);
+            // 多轮上下文：取当前图片消息之前的 USER/AI 文本消息（图片消息本身不入历史，
+            // 其文本离开图片会误导模型）
+            final java.util.List<ChatMessage> history = buildVisionHistory(1);
+            // 采样参数读用户配置（不再硬编码 0.7/0.9/40）
+            final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
+            final float temperature = aiConfig != null ? aiConfig.getTemperature() : 0.7f;
+            final float topP = aiConfig != null ? aiConfig.getTopP() : 0.9f;
+            final int topK = aiConfig != null ? aiConfig.getTopK() : 40;
 
-            // 创建流式 AI 消息
-            final String msgId = java.util.UUID.randomUUID().toString();
-            ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
+            startLocalVisionGeneration(history, userText, visionImagePath,
+                    maxTokens, temperature, topP, topK, visionThinkingEnabled);
+        } catch (Exception e) {
+            AppLogger.e(TAG, "handleMultimodalImage error: " + e.getMessage(), e);
+            showToast(getString(R.string.h_c7833a66));
+        }
+    }
+
+    /** 构建本地视觉模型的多轮上下文：取 chatHistory 中除末尾 excludeLast 条外的 USER/AI 文本消息，最多 12 条 */
+    private java.util.List<ChatMessage> buildVisionHistory(int excludeLast) {
+        java.util.List<ChatMessage> hist = new java.util.ArrayList<>();
+        int end = Math.max(0, chatHistory.size() - excludeLast);
+        for (int i = 0; i < end; i++) {
+            ChatMessage m = chatHistory.get(i);
+            if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
+                    && m.content != null && !m.content.isEmpty()) {
+                hist.add(m);
+            }
+        }
+        if (hist.size() > 12) {
+            hist = new java.util.ArrayList<>(hist.subList(hist.size() - 12, hist.size()));
+        }
+        return hist;
+    }
+
+    /**
+     * 执行本地视觉推理（共用：新图首轮 / 纯文字追问复用上一张图）。
+     * 含竞态缓解：调用前在工作线程再次确认多模态就绪，避免 UI 线程检查后、生成线程执行前用户切换模型。
+     */
+    private void startLocalVisionGeneration(java.util.List<ChatMessage> history, String userText,
+                                            String visionImagePath, int maxTokens,
+                                            float temperature, float topP, int topK,
+                                            boolean visionThinkingEnabled) {
+        final String msgId = java.util.UUID.randomUUID().toString();
+        ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
+        aiMsg.status = ChatMessage.MessageStatus.GENERATING;
+        // 本方法可能被后台线程调用（附件保存回调链 AttachmentManager→CompletableFuture→handleMultimodalImage），
+        // chatHistory/notifyItemInserted/scrollToBottom 必须在 UI 线程执行，否则抛
+        // IllegalStateException "Cannot call this method while RecyclerView is computing a layout or scrolling"
+        final int[] aiIndexRef = { -1 };
+        runOnUiThread(() -> {
+            chatHistory.add(aiMsg);
+            aiIndexRef[0] = chatHistory.size() - 1;
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndexRef[0]);
+            scrollToBottom();
+            beginGeneration();
+        });
+
+        new Thread(() -> {
+            final StringBuilder full = new StringBuilder();
+            try {
+                // 竞态缓解：工作线程再确认一次多模态就绪（期间用户可能切换模型）
+                if (!LlamaHelper.isMultimodalLoaded() || !LlamaHelper.isModelInitialized()) {
+                    runOnUiThread(() -> {
+                        aiMsg.content = "图片识别失败: 本地视觉模型未就绪（mmproj 未加载或模型已切换），请稍后重试";
+                        aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
+                        endGeneration();
+                    });
+                    return;
+                }
+                LlamaHelper.generateWithImage(history, userText, visionImagePath,
+                        maxTokens, temperature, topP, topK, visionThinkingEnabled,
+                        new LlamaHelper.TokenCallback() {
+                            @Override public void onToken(String token) {
+                                if (token == null) return;
+                                synchronized (full) { full.append(token); }
+                                runOnUiThread(() -> {
+                                    synchronized (full) { aiMsg.content = full.toString(); }
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
+                                });
+                            }
+                            @Override public void onComplete(String fullText) {
+                                runOnUiThread(() -> {
+                                    aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : full.toString();
+                                    aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
+                                    endGeneration();
+                                    scrollToBottom();
+                                    saveHistoryAsync();
+                                });
+                            }
+                            @Override public void onError(String error) {
+                                runOnUiThread(() -> {
+                                    aiMsg.content = "图片识别失败: " + error;
+                                    aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
+                                    endGeneration();
+                                });
+                            }
+                        });
+            } catch (Exception e) {
+                AppLogger.e(TAG, "Multimodal generate error: " + e.getMessage(), e);
+                runOnUiThread(() -> {
+                    aiMsg.content = "图片处理异常: " + e.getMessage();
+                    aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                    if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
+                    endGeneration();
+                });
+            }
+        }).start();
+    }
+
+    /** 解析附件为真实本地文件（优先落盘路径，否则 content:// 复制到缓存） */
+    private java.io.File resolveAttachmentFile(ChatMessage.Attachment att) {
+        try {
+            if (att.localFilePath != null) {
+                java.io.File f = new java.io.File(att.localFilePath);
+                if (f.exists()) return f;
+            }
+            if (att.url != null && !att.url.isEmpty()) {
+                java.io.File f = com.oilquiz.app.util.UriPathResolver.resolveToFile(this, att.url);
+                if (f != null && f.exists()) return f;
+            }
+        } catch (Exception e) {
+            AppLogger.w(TAG, "resolveAttachmentFile failed: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 本地多模态追问：上一轮发过图、当前为纯文字且本地视觉已就绪时，自动复用该图做视觉理解，
+     * 解决"看完图后追问"失效问题。返回 true 表示已接管本轮回复。
+     */
+    private boolean tryFollowUpVision(String message) {
+        try {
+            if (aiService == null) return false;
+            if (!LlamaHelper.isMultimodalLoaded() || !LlamaHelper.isModelInitialized()) return false;
+            if (chatHistory == null || chatHistory.isEmpty()) return false;
+            // 找最近一条带图片的用户消息（当前纯文字消息已在末尾、无图，会被跳过）
+            ChatMessage.Attachment lastImage = null;
+            int lastImageIndex = -1;
+            for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                ChatMessage m = chatHistory.get(i);
+                if (m.type == ChatMessage.MessageType.USER && m.attachments != null) {
+                    for (ChatMessage.Attachment att : m.attachments) {
+                        if (att != null && "image".equals(att.type)) {
+                            lastImage = att;
+                            lastImageIndex = i;
+                            break;
+                        }
+                    }
+                }
+                if (lastImage != null) break;
+            }
+            if (lastImage == null || lastImageIndex < 0) return false;
+            if (lastImageIndex == chatHistory.size() - 1) return false; // 当前消息本身就是带图消息，不应走到这
+            java.io.File imageFile = resolveAttachmentFile(lastImage);
+            if (imageFile == null || !imageFile.exists()) return false;
+
+            final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(this, imageFile);
+            // 历史：图片消息之前的 USER/AI 文本
+            final java.util.List<ChatMessage> history = new java.util.ArrayList<>();
+            for (int i = 0; i < lastImageIndex; i++) {
+                ChatMessage m = chatHistory.get(i);
+                if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
+                        && m.content != null && !m.content.isEmpty()) {
+                    history.add(m);
+                }
+            }
+            if (history.size() > 12) {
+                java.util.List<ChatMessage> trimmed = new java.util.ArrayList<>(history.subList(history.size() - 12, history.size()));
+                history.clear();
+                history.addAll(trimmed);
+            }
+
+            final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
+            final float temperature = aiConfig != null ? aiConfig.getTemperature() : 0.7f;
+            final float topP = aiConfig != null ? aiConfig.getTopP() : 0.9f;
+            final int topK = aiConfig != null ? aiConfig.getTopK() : 40;
+            boolean thinkingFlag = false;
+            try {
+                thinkingFlag = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+            } catch (Exception ignored) {
+            }
+            final boolean thinkingEnabled = thinkingFlag;
+            AppLogger.ai(TAG, "Follow-up vision: reuse image " + imageFile.getName() + " for: " + message);
+            startLocalVisionGeneration(history, message, visionImagePath,
+                    maxTokens, temperature, topP, topK, thinkingEnabled);
+            return true;
+        } catch (Exception e) {
+            AppLogger.w(TAG, "tryFollowUpVision failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 在线视觉追问：上一轮发过图、当前为纯文字且在线模型支持视觉时，
+     * 自动复用该图（base64 注入 OpenAI 兼容消息）做视觉理解，
+     * 解决"看完图后追问"失效问题（原 Agent 文本路径的历史序列化不含图片）。
+     * 返回 true 表示已接管本轮回复。
+     */
+    private boolean tryFollowUpOnlineVision(String message) {
+        try {
+            if (!isOnlineVisionModel()) return false;
+            if (chatHistory == null || chatHistory.isEmpty()) return false;
+            // 找最近一条带图片的用户消息（当前纯文字消息已在末尾、无图，会被跳过）
+            ChatMessage.Attachment lastImage = null;
+            int lastImageIndex = -1;
+            for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                ChatMessage m = chatHistory.get(i);
+                if (m.type == ChatMessage.MessageType.USER && m.attachments != null) {
+                    for (ChatMessage.Attachment att : m.attachments) {
+                        if (att != null && "image".equals(att.type)) {
+                            lastImage = att;
+                            lastImageIndex = i;
+                            break;
+                        }
+                    }
+                }
+                if (lastImage != null) break;
+            }
+            if (lastImage == null || lastImageIndex < 0) return false;
+            if (lastImageIndex == chatHistory.size() - 1) return false; // 当前消息本身就是带图消息，不应走到这
+            final ChatMessage.Attachment fImage = lastImage;
+            java.io.File imageFile = resolveAttachmentFile(lastImage);
+            if (imageFile == null || !imageFile.exists()) return false;
+            if (imageFile.length() > 4L * 1024 * 1024) return false; // 防请求体过大，超 4MB 不走在线视觉
+
+            // 读图转 base64
+            byte[] bytes = java.nio.file.Files.readAllBytes(imageFile.toPath());
+            final String b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+
+            // 历史：图片消息之前的 USER/AI 纯文本（跳过带附件消息，多轮发图时避免把旧图文本/默认文本混入）
+            final java.util.List<ChatMessage> history = new java.util.ArrayList<>();
+            for (int i = 0; i < lastImageIndex; i++) {
+                ChatMessage m = chatHistory.get(i);
+                if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
+                        && (m.attachments == null || m.attachments.isEmpty())
+                        && m.content != null && !m.content.isEmpty()) {
+                    history.add(m);
+                }
+            }
+            if (history.size() > 12) {
+                java.util.List<ChatMessage> trimmed = new java.util.ArrayList<>(history.subList(history.size() - 12, history.size()));
+                history.clear();
+                history.addAll(trimmed);
+            }
+
+            // 创建流式 AI 回复消息
+            ChatMessage aiMsg = ChatMessage.createAIMessage(
+                    java.util.UUID.randomUUID().toString(), "", System.currentTimeMillis(), null, 0, 0);
             aiMsg.status = ChatMessage.MessageStatus.GENERATING;
             chatHistory.add(aiMsg);
             final int aiIndex = chatHistory.size() - 1;
@@ -3890,53 +4187,56 @@ public class AIChatActivity extends BaseActivity {
             beginGeneration();
 
             final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
-            new Thread(() -> {
-                final StringBuilder full = new StringBuilder();
-                try {
-                    LlamaHelper.generateWithImage(new ArrayList<>(),
-                            userText, localFile.getAbsolutePath(),
-                            maxTokens, 0.7f, 0.9f, 40, false,
-                            new LlamaHelper.TokenCallback() {
-                                @Override public void onToken(String token) {
-                                    if (token == null) return;
-                                    synchronized (full) { full.append(token); }
-                                    runOnUiThread(() -> {
-                                        synchronized (full) { aiMsg.content = full.toString(); }
-                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                                    });
-                                }
-                                @Override public void onComplete(String fullText) {
-                                    runOnUiThread(() -> {
-                                        aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : full.toString();
-                                        aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
-                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                                        endGeneration();
-                                        scrollToBottom();
-                                        saveHistoryAsync();
-                                    });
-                                }
-                                @Override public void onError(String error) {
-                                    runOnUiThread(() -> {
-                                        aiMsg.content = "图片识别失败: " + error;
-                                        aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                                        endGeneration();
-                                    });
-                                }
+            com.oilquiz.app.ai.service.OnlineInferenceService ois =
+                    com.oilquiz.app.ai.service.OnlineInferenceService.getInstance(this);
+            OnlineModelManager.OnlineModelConfig active =
+                    onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+            if (ois == null || active == null) {
+                aiMsg.content = "在线模型未配置";
+                aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                endGeneration();
+                return true;
+            }
+
+            AppLogger.ai(TAG, "Follow-up online vision: reuse image " + imageFile.getName() + " for: " + message);
+            ois.generateStreamWithImages(message, java.util.Collections.singletonList(b64),
+                    active, history, maxTokens, new com.oilquiz.app.ai.callback.StreamCallback() {
+                        @Override public void onToken(String token) {
+                            if (token == null) return;
+                            runOnUiThread(() -> {
+                                aiMsg.content = (aiMsg.content == null ? "" : aiMsg.content) + token;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
                             });
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "Multimodal generate error: " + e.getMessage(), e);
-                    runOnUiThread(() -> {
-                        aiMsg.content = "图片处理异常: " + e.getMessage();
-                        aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                        if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                        endGeneration();
+                        }
+                        @Override public void onComplete(String fullText) {
+                            runOnUiThread(() -> {
+                                aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : aiMsg.content;
+                                aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                endGeneration();
+                                scrollToBottom();
+                                saveHistoryAsync();
+                            });
+                        }
+                        @Override public void onError(String error) {
+                            // 在线视觉失败：进入冷却（30s 内不走在线视觉），回退 OCR+Agent
+                            lastOnlineVisionFailAt = System.currentTimeMillis();
+                            runOnUiThread(() -> {
+                                aiMsg.content = "在线图片识别失败: " + error + "\n自动改用本地高精度 OCR 识别...";
+                                aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                endGeneration();
+                                // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）
+                                processMessageWithAttachmentsViaAgent(message,
+                                        java.util.Collections.singletonList(fImage));
+                            });
+                        }
                     });
-                }
-            }).start();
+            return true;
         } catch (Exception e) {
-            AppLogger.e(TAG, "handleMultimodalImage error: " + e.getMessage(), e);
-            showToast("图片处理失败，请重试");
+            AppLogger.w(TAG, "tryFollowUpOnlineVision failed: " + e.getMessage());
+            return false;
         }
     }
 
@@ -3988,7 +4288,7 @@ public class AIChatActivity extends BaseActivity {
             }
             if (localFile.length() > 4L * 1024 * 1024) {
                 AppLogger.w(TAG, "Online multimodal: image > 4MB, falling back to OCR path");
-                showToast("图片超过 4MB，已改用 OCR 识别");
+                showToast(getString(R.string.h_a8f5e4b0));
                 processMessageWithAttachmentsViaAgent(originalMessage, java.util.Collections.singletonList(imageAtt));
                 return;
             }
@@ -4004,11 +4304,16 @@ public class AIChatActivity extends BaseActivity {
             final String msgId = java.util.UUID.randomUUID().toString();
             ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
             aiMsg.status = ChatMessage.MessageStatus.GENERATING;
-            chatHistory.add(aiMsg);
-            final int aiIndex = chatHistory.size() - 1;
-            if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndex);
-            scrollToBottom();
-            beginGeneration();
+            final int[] aiIndexRef = { -1 };
+            // 可能被后台线程调用（附件回调链 AttachmentManager→CompletableFuture→handleOnlineMultimodalImage），
+            // notifyItemInserted/scrollToBottom 必须在 UI 线程执行
+            runOnUiThread(() -> {
+                chatHistory.add(aiMsg);
+                aiIndexRef[0] = chatHistory.size() - 1;
+                if (chatAdapter != null) chatAdapter.notifyItemInserted(aiIndexRef[0]);
+                scrollToBottom();
+                beginGeneration();
+            });
 
             final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
             com.oilquiz.app.ai.service.OnlineInferenceService ois =
@@ -4016,28 +4321,46 @@ public class AIChatActivity extends BaseActivity {
             OnlineModelManager.OnlineModelConfig active =
                     onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
             if (ois == null || active == null) {
-                aiMsg.content = "在线模型未配置";
-                aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
-                endGeneration();
+                runOnUiThread(() -> {
+                    aiMsg.content = "在线模型未配置";
+                    aiMsg.status = ChatMessage.MessageStatus.ERROR;
+                    if (aiIndexRef[0] >= 0 && chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
+                    endGeneration();
+                });
                 return;
             }
 
+            // 多轮上下文：图片消息之前的 USER/AI 纯文本（跳过带附件消息，避免旧图文本混入）
+            final java.util.List<ChatMessage> onlineHistory = new java.util.ArrayList<>();
+            for (int i = 0; i < chatHistory.size() - 1; i++) {
+                ChatMessage m = chatHistory.get(i);
+                if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
+                        && (m.attachments == null || m.attachments.isEmpty())
+                        && m.content != null && !m.content.isEmpty()) {
+                    onlineHistory.add(m);
+                }
+            }
+            if (onlineHistory.size() > 12) {
+                java.util.List<ChatMessage> trimmed = new java.util.ArrayList<>(onlineHistory.subList(onlineHistory.size() - 12, onlineHistory.size()));
+                onlineHistory.clear();
+                onlineHistory.addAll(trimmed);
+            }
+
             ois.generateStreamWithImages(userText, java.util.Collections.singletonList(b64),
-                    active, new java.util.ArrayList<>(),
+                    active, onlineHistory,
                     maxTokens, new com.oilquiz.app.ai.callback.StreamCallback() {
                         @Override public void onToken(String token) {
                             if (token == null) return;
                             runOnUiThread(() -> {
                                 aiMsg.content = (aiMsg.content == null ? "" : aiMsg.content) + token;
-                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                             });
                         }
                         @Override public void onComplete(String fullText) {
                             runOnUiThread(() -> {
                                 aiMsg.content = fullText != null && !fullText.isEmpty() ? fullText : aiMsg.content;
                                 aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
-                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                                 endGeneration();
                                 scrollToBottom();
                                 saveHistoryAsync();
@@ -4047,9 +4370,9 @@ public class AIChatActivity extends BaseActivity {
                             // 在线视觉失败：进入冷却（30s 内不走在线视觉），回退 OCR+Agent
                             lastOnlineVisionFailAt = System.currentTimeMillis();
                             runOnUiThread(() -> {
-                                aiMsg.content = "在线图片识别失败: " + error + "\n自动改用 OCR 识别...";
+                                aiMsg.content = "在线图片识别失败: " + error + "\n自动改用本地高精度 OCR 识别...";
                                 aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
-                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                                 endGeneration();
                                 // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）
                                 processMessageWithAttachmentsViaAgent(originalMessage,
@@ -4060,7 +4383,7 @@ public class AIChatActivity extends BaseActivity {
         } catch (Exception e) {
             AppLogger.e(TAG, "handleOnlineMultimodalImage error: " + e.getMessage(), e);
             lastOnlineVisionFailAt = System.currentTimeMillis();
-            showToast("在线图片处理失败，改用 OCR 识别");
+            showToast(getString(R.string.h_2b587ccc));
             processMessageWithAttachmentsViaAgent(originalMessage, java.util.Collections.singletonList(imageAtt));
         }
     }
@@ -4092,18 +4415,18 @@ public class AIChatActivity extends BaseActivity {
             }
 
             StringBuilder prompt = new StringBuilder();
-            prompt.append("用户上传了 ").append(fileCount).append(" 个附件。");
+            prompt.append(getString(R.string.h_8997e243)).append(fileCount).append(getString(R.string.h_feae15b8));
 
             if (originalMessage != null && !originalMessage.isEmpty() && !originalMessage.equals(DEFAULT_ATTACHMENT_MESSAGE)) {
-                prompt.append("用户问题：").append(originalMessage).append("\n\n");
+                prompt.append(getString(R.string.h_14e8a21e)).append(originalMessage).append("\n\n");
             } else {
-                prompt.append("请分析这些附件的主要内容，并提供摘要。\n\n");
+                prompt.append(getString(R.string.h_e4b86c39));
             }
 
-            prompt.append("=== 附件内容 ===\n\n");
+            prompt.append(getString(R.string.h_4fe2794a));
             prompt.append(attachmentContent);
-            prompt.append("\n=== 附件内容结束 ===\n\n");
-            prompt.append("请根据附件内容回答。如果附件内容不足，请说明。");
+            prompt.append(getString(R.string.h_4b4e3db7));
+            prompt.append(getString(R.string.h_48e86d79));
 
             String finalPrompt = prompt.toString();
 
@@ -4153,19 +4476,19 @@ public class AIChatActivity extends BaseActivity {
         StringBuilder prompt = new StringBuilder();
 
         if (userMessage != null && !userMessage.trim().isEmpty()) {
-            prompt.append("用户需求: ").append(userMessage).append("\n\n");
+            prompt.append(getString(R.string.h_36623a6c)).append(userMessage).append("\n\n");
         } else {
-            prompt.append("用户需求: 请总结以下附件的主要内容\n\n");
+            prompt.append(getString(R.string.h_a485628e));
         }
 
-        prompt.append("=== 附件解析内容 ===\n\n");
+        prompt.append(getString(R.string.h_a4368a9d));
         prompt.append(parsedContent).append("\n\n");
-        prompt.append("=== 总结要求 ===\n");
-        prompt.append("1. 请用清晰的结构总结附件的主要内容\n");
-        prompt.append("2. 提取关键点和重要信息\n");
-        prompt.append("3. 如果是表格数据，请给出数据概览\n");
-        prompt.append("4. 如果用户有特定需求，请优先回答用户的问题\n\n");
-        prompt.append("请开始总结：");
+        prompt.append(getString(R.string.h_b575ddeb));
+        prompt.append(getString(R.string.h_bd78f6c8));
+        prompt.append(getString(R.string.h_5529af52));
+        prompt.append(getString(R.string.h_d6c806dd));
+        prompt.append(getString(R.string.h_29d6d222));
+        prompt.append(getString(R.string.h_dc9307dd));
 
         return prompt.toString();
     }
@@ -4230,8 +4553,8 @@ public class AIChatActivity extends BaseActivity {
         int singleCharLimit = Math.min(totalCharLimit / Math.max(1, extractedMap.size()), MAX_SINGLE_ATTACHMENT_CHARS);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("用户消息: ").append(originalMessage).append("\n\n");
-        sb.append("=== 附件内容 ===\n\n");
+        sb.append(getString(R.string.h_793176ee)).append(originalMessage).append("\n\n");
+        sb.append(getString(R.string.h_4fe2794a));
 
         int totalUsed = 0;
         int idx = 1;
@@ -4240,15 +4563,15 @@ public class AIChatActivity extends BaseActivity {
             String content = entry.getValue();
 
             if (content == null || isExtractFailed(content)) {
-                sb.append("【附件").append(idx++).append("】");
+                sb.append(getString(R.string.h_94e069c2)).append(idx++).append("】");
                 if (fileName != null) sb.append(" ").append(fileName);
-                sb.append("\n(解析失败，跳过该文件)\n\n");
+                sb.append(getString(R.string.h_68e672a0));
                 continue;
             }
 
             int remaining = totalCharLimit - totalUsed;
             if (remaining <= 0) {
-                sb.append("... 附件过多，其余已跳过\n");
+                sb.append(getString(R.string.h_86b05ff3));
                 break;
             }
 
@@ -4257,77 +4580,17 @@ public class AIChatActivity extends BaseActivity {
                 content = content.substring(0, thisLimit) + "\n...[内容已截断]";
             }
 
-            sb.append("【附件").append(idx++).append("】");
+            sb.append(getString(R.string.h_94e069c2)).append(idx++).append("】");
             if (fileName != null) sb.append(" ").append(fileName);
             sb.append("\n");
             sb.append(content).append("\n\n");
             totalUsed += content.length();
         }
 
-        sb.append("=== 附件内容结束 ===\n\n");
-        sb.append("请根据以上附件内容回答用户消息。");
+        sb.append(getString(R.string.h_c65217ea));
+        sb.append(getString(R.string.h_1575bdd9));
 
         return sb.toString();
-    }
-
-    private void handlePrefixedCommand(String message, String prefix, String toolCategory) {
-        String params = message.substring(prefix.length()).trim();
-        if ("entertainment".equals(toolCategory)) {
-            String type = mapEntertainmentType(prefix);
-            if (type != null) executeEntertainment(type, params);
-        } else if ("weather".equals(toolCategory)) {
-            if (weatherBanner != null) {
-                weatherBanner.setVisibility(View.VISIBLE);
-                if (weatherBannerController != null) weatherBannerController.show();
-            }
-
-            // 如果参数为空且有定位权限，加载当前天气横幅
-            if (params.isEmpty() && LocationTool.hasLocationPermission(this) && weatherBannerController != null) {
-                weatherBannerController.loadWeather();
-                return;
-            }
-            
-            // 使用标准的工具调用方式
-            executeTool("ai_weather", params);
-        } else {
-            executeToolByPrefix(prefix, params);
-        }
-    }
-    
-    private String mapEntertainmentType(String prefix) {
-        switch (prefix) {
-            case "讲笑话": return AIEntertainmentManager.EntertainmentType.JOKE;
-            case "猜谜语": return AIEntertainmentManager.EntertainmentType.RIDDLE;
-            case "写诗": return AIEntertainmentManager.EntertainmentType.POEM;
-            case "讲故事": return AIEntertainmentManager.EntertainmentType.STORY;
-            case "知识问答": return AIEntertainmentManager.EntertainmentType.TRIVIA;
-            case "名言": return AIEntertainmentManager.EntertainmentType.QUOTE;
-            case "游戏": return AIEntertainmentManager.EntertainmentType.GAME;
-            default: return null;
-        }
-    }
-
-    private void executeToolByPrefix(String prefix, String params) {
-        String toolName = null;
-        if ("生成题目".equals(prefix)) toolName = "database";
-        else if ("分析题目".equals(prefix)) toolName = "python_calculate";
-        else if ("学习计划".equals(prefix)) toolName = "python_execute";
-        else if ("统计".equals(prefix)) toolName = "python_calculate";
-        else if ("搜索题目".equals(prefix)) toolName = "network_search";
-        else if ("导入题目".equals(prefix)) toolName = "file_reader";
-        else if ("导出题目".equals(prefix)) toolName = "database";
-        else if ("数据库操作".equals(prefix)) toolName = "database";
-        else if ("定位".equals(prefix) || "我的位置".equals(prefix) || "当前位置".equals(prefix)) toolName = "ai_weather";
-
-        if (toolName != null) executeTool(toolName, params);
-        else processChatMessage(prefix + " " + params);
-    }
-
-    private void handleQuickAction(String action) {
-        if ("总结对话".equals(action)) {
-            addUserMessage("总结对话");
-            processChatMessage("总结我们的对话内容，提供一个简洁的概述");
-        } else showToast("请输入需要" + action + "的内容");
     }
 
     private void processChatMessage(String message) {
@@ -4357,12 +4620,36 @@ public class AIChatActivity extends BaseActivity {
      * 被 processChatMessage 和 processChatMessageWithAgent（降级时）调用
      */
     private void processChatMessageNormal(String message) {
-        if (aiService == null) { addSystemMessage("未选择本地模型，请切换到在线模型"); return; }
+        // 轮次模式标记：普通对话（上下文隔离重建依据）
+        markLastUserMessageMode(ChatMessage.TURN_MODE_NORMAL);
+        if (aiService == null) {
+            runOnUiThread(() -> {
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.h_c1d12ffc))
+                        .setMessage(getString(R.string.h_f81e293e) +
+                                "📥 本地Agent模型（推荐）\n" +
+                                "• 支持工具调用（天气/搜索/记忆等）、思考链\n" +
+                                "• 推荐 Qwen3.8-4B-Distill，约2.4GB\n\n" +
+                                "💬 本地普通对话模型\n" +
+                                "• 轻量快速，仅普通对话\n" +
+                                "• 推荐 Qwen3.5-0.8B，约0.5GB\n\n" +
+                                "🌐 在线模型\n" +
+                                "• 功能更强，完整Agent 40+工具\n" +
+                                "• 支持豆包、DeepSeek、通义千问等")
+                        .setPositiveButton(getString(R.string.h_f0597ad8), (d, w) -> {
+                            startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
+                        })
+                        .setNegativeButton(getString(R.string.h_87e4d9ef), null)
+                        .setCancelable(true)
+                        .show();
+            });
+            return;
+        }
         
         synchronized (streamingLock) {
             if (isGenerating) {
                 AppLogger.aiW(TAG, "processChatMessageNormal skipped, already generating");
-                showToast("AI正在生成中，请稍候");
+                showToast(getString(R.string.h_05582e8e));
                 return;
             }
         }
@@ -4375,6 +4662,11 @@ public class AIChatActivity extends BaseActivity {
                 recoveryHandler.setPendingMessage(message);
                 recoveryHandler.triggerAutoRecovery();
             }
+            return;
+        }
+
+        // 本地多模态追问：上一轮发过图、当前纯文字且本地视觉已就绪 → 自动复用该图走视觉理解（不走纯文本/缓存）
+        if (tryFollowUpVision(message)) {
             return;
         }
 
@@ -4418,10 +4710,21 @@ public class AIChatActivity extends BaseActivity {
         if (outputRouter != null) {
             outputRouter.reset();
             outputRouter.setThinkingEnabled(enableThinking);
+            outputRouter.setThinkingTags(LlamaHelper.getThinkingTags());
+            legacyThinkingTags = LlamaHelper.getThinkingTags();
         }
         isInThinking = enableThinking;
 
         AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
+        // 上下文统一：每次普通对话发送前从 UI 会话历史重建 chatJson 历史，
+        // 与本地 Agent（buildAgentHistory）同一真相源，普通↔Agent 来回切换不失忆
+        if (modelBridge != null) {
+            try {
+                modelBridge.rebuildChatJsonHistoryFromExternal(buildNormalHistoryEntries());
+            } catch (Exception e) {
+                AppLogger.aiW(TAG, "rebuild chat json history failed: " + e.getMessage());
+            }
+        }
         modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
             createBridgeCallback(streamingIndex, streamingId));
     }
@@ -4444,30 +4747,90 @@ public class AIChatActivity extends BaseActivity {
      * 按当前实际架构精简：在线模型=完整 Agent，本地模型=普通对话，深度思考=模式。
      */
     private void showWelcomeGuide() {
-        StringBuilder guide = new StringBuilder();
-        guide.append("👋 你好！我是答题宝 AI 助手\n\n");
-        guide.append("我能帮你查天气、搜资料、翻译、做题、生成图片等，直接说需求就行。\n\n");
+        // 检查是否已配置模型（本地或在线）
+        boolean hasLocalModel = false;
+        boolean hasOnlineModel = false;
+        try {
+            if (aiService != null && aiService.getCurrentModelName() != null) {
+                hasLocalModel = true;
+            }
+            if (onlineModelManager != null && onlineModelManager.getActiveModel() != null) {
+                hasOnlineModel = true;
+            }
+        } catch (Exception ignored) {}
 
-        guide.append("🚀 使用方式\n");
-        guide.append("──────────────\n");
-        guide.append("• 在线模型 — 完整 Agent：自动调用工具、多轮推理\n");
-        guide.append("  （模型设置中选择在线模型即可）\n");
-        guide.append("• 本地模型 — 普通对话：离线可用，无需网络\n");
-        guide.append("• 深度思考 — 切换模式后，回答前会先展示思考过程\n\n");
+        if (!hasLocalModel && !hasOnlineModel) {
+            // 没有配置任何模型：用原生对话框引导
+            runOnUiThread(() -> {
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.h_c1d12ffc))
+                        .setMessage(getString(R.string.h_f81e293e) +
+                                "📥 本地模型（推荐）\n" +
+                                "• 离线可用，无需网络，支持工具调用（天气/搜索/记忆等）\n" +
+                                "• 推荐 Qwen3.8-4B-Distill，约2.4GB\n\n" +
+                                "🌐 在线模型\n" +
+                                "• 功能更强，支持 Agent 工具调用\n" +
+                                "• 支持豆包、DeepSeek、通义千问等")
+                        .setPositiveButton(getString(R.string.h_f0597ad8), (d, w) -> {
+                            startActivity(new Intent(AIChatActivity.this, ModelDownloadActivity.class));
+                        })
+                        .setNegativeButton(getString(R.string.h_87e4d9ef), null)
+                        .setCancelable(true)
+                        .show();
+            });
+            return;
+        }
 
-        guide.append("🛠 常用能力\n");
-        guide.append("──────────────\n");
-        guide.append("• 天气 ☁️ 搜索 🔍 翻译 🌐 计算 🔢\n");
-        guide.append("• 查题 📚 文件 📂 定位 📍 图片生成 🎨\n");
-        guide.append("• 结构化信息会自动以卡片/图表展示\n\n");
+        // 已有模型：弹窗显示使用说明，不发送到对话流
+        // 根据当前模型类型（在线/本地）动态显示不同的工具说明
+        boolean isOnlineModel = false;
+        try {
+            if (onlineModelManager != null && onlineModelManager.getActiveModel() != null) {
+                isOnlineModel = true;
+            }
+        } catch (Exception ignored) {}
 
-        guide.append("💡 试试对我说：\n");
-        guide.append("「今天天气怎么样？」\n");
-        guide.append("「帮我画一只橘猫」\n");
-        guide.append("「搜索一下最新油价」🎯");
+        final boolean online = isOnlineModel;
+        // 延迟500ms显示，确保Activity完全初始化
+        new android.os.Handler(getMainLooper()).postDelayed(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            String toolsInfo;
+            String examples;
+            if (online) {
+                toolsInfo = "🛠 完整工具集（在线Agent）\n" +
+                        "• 天气 ☁️ 搜索 🔍 计算 🔢 时间 🕐 定位 📍\n" +
+                        "• 文件 📄 图片生成 🎨 UI组件 🖼️ 数据库 🗄️\n" +
+                        "• 长期记忆 🧠 权限管理 🔐 工作区管理 📁\n" +
+                        "• 工具发现 🔧 共40+工具按需调用";
+                examples = "💡 试试对我说：\n" +
+                        "「今天天气怎么样？」\n" +
+                        "「帮我写一份周报」\n" +
+                        "「画一只橘猫」\n" +
+                        "「搜索一下最新油价」";
+            } else {
+                toolsInfo = "🛠 核心工具（本地Agent）\n" +
+                        "• 天气 ☁️ 时间 🕐 定位 📍 搜索 🔍 记忆 🧠\n" +
+                        "（常驻5个核心工具，模型调用到其他工具时自动动态加入）";
+                examples = "💡 试试对我说：\n" +
+                        "「今天天气怎么样？」\n" +
+                        "「现在几点了？」\n" +
+                        "「搜索一下最新油价」\n" +
+                        "「记住我叫小明」";
+            }
 
-        addAIMessage(guide.toString());
-        scrollToBottom();
+            new androidx.appcompat.app.AlertDialog.Builder(AIChatActivity.this)
+                    .setTitle(getString(R.string.h_9e1bb02b))
+                    .setMessage(getString(R.string.h_557e17b6) +
+                            "🚀 当前模式：" + (online ? "在线模型（完整Agent）" : "本地模型（Agent）") + "\n" +
+                            "• 在线模型 — 完整 Agent：自动调用40+工具、多轮推理\n" +
+                            "• 本地模型 — Agent：5个核心工具（天气/时间/定位/搜索/记忆），无需网络\n" +
+                            "• 深度思考 — 切换模式后，回答前会先展示思考过程\n\n" +
+                            toolsInfo + "\n\n" +
+                            examples)
+                    .setPositiveButton(getString(R.string.h_ce26955a), null)
+                    .setCancelable(true)
+                    .show();
+        }, 500);
     }
 
     /** 关键词匹配辅助方法 */
@@ -4489,50 +4852,50 @@ public class AIChatActivity extends BaseActivity {
         StringBuilder guide = new StringBuilder();
         String lower = userMessage.toLowerCase();
 
-        guide.append("收到你的消息，我正在处理 🤖\n\n");
+        guide.append(getString(R.string.h_ffc2890f));
 
         // 根据用户消息内容智能推荐可能用到的工具
         boolean matched = false;
         if (containsKeyword(lower, "天气", "气温", "下雨", "温度", "weather", "空气质量", "预警")) {
-            guide.append("🌤 检测到你想查天气，我可能会调用天气工具\n");
+            guide.append(getString(R.string.h_cd6a30e5));
             matched = true;
         }
         if (containsKeyword(lower, "搜索", "搜一下", "查一下", "查找", "search", "百度", "google", "最新")) {
-            guide.append("🔍 需要联网搜索最新信息，我可能会调用搜索工具\n");
+            guide.append(getString(R.string.h_dc182f66));
             matched = true;
         }
         if (containsKeyword(lower, "翻译", "translate", "英文", "日文", "韩文")) {
-            guide.append("🌐 需要翻译，我会直接帮你翻译\n");
+            guide.append(getString(R.string.h_4fde242e));
             matched = true;
         }
         if (containsKeyword(lower, "题", "题库", "题目", "quiz", "question", "考试")) {
-            guide.append("📚 需要查询题库，我可能会调用数据库工具\n");
+            guide.append(getString(R.string.h_4fd18118));
             matched = true;
         }
         if (containsKeyword(lower, "位置", "定位", "在哪", "location", "坐标", "附近")) {
-            guide.append("📍 需要位置信息，我可能会调用定位工具\n");
+            guide.append(getString(R.string.h_4fbec1c3));
             matched = true;
         }
         if (containsKeyword(lower, "出行", "出门", "准备", "带伞")) {
-            guide.append("🚗 准备出行，我可能会组合调用定位+天气+空气质量工具\n");
+            guide.append(getString(R.string.h_cf8f2e41));
             matched = true;
         }
         if (containsKeyword(lower, "计算", "算", "calculate", "+", "-", "×", "÷")) {
-            guide.append("🔧 需要计算，我可能会调用计算工具\n");
+            guide.append(getString(R.string.h_f1ebef0a));
             matched = true;
         }
         if (containsKeyword(lower, "时间", "日期", "今天", "明天", "几点", "星期")) {
-            guide.append("🕐 需要时间信息，我会自动获取当前时间\n");
+            guide.append(getString(R.string.h_21a651d8));
             matched = true;
         }
 
         if (matched) {
             guide.append("\n");
         } else {
-            guide.append("我会根据你的问题选择合适的工具来处理\n\n");
+            guide.append(getString(R.string.h_8b243ef2));
         }
 
-        guide.append("⏳ 正在思考中，请稍候...");
+        guide.append(getString(R.string.h_b8c0f495));
 
         addSystemMessage(guide.toString());
         scrollToBottom();
@@ -4540,6 +4903,49 @@ public class AIChatActivity extends BaseActivity {
 
     /** 本地 Agent 多轮上下文：最多携带的历史消息条数（约 2 轮对话，减少 prompt 提升速度） */
     private static final int AGENT_HISTORY_MAX_MESSAGES = 4;
+
+    /** 普通对话重建上下文的最近消息条数上限（与 chatJson 历史容量对齐） */
+    private static final int NORMAL_REBUILD_MAX_ENTRIES = 20;
+
+    /**
+     * 给最后一条 user 消息标记轮次模式（普通/Agent）。
+     * 用于上下文隔离：普通对话重建只取 NORMAL 轮次，本地 Agent 重建只取 AGENT 轮次，
+     * 来回切换互不污染、各自独立。
+     */
+    private void markLastUserMessageMode(int mode) {
+        for (int i = chatHistory.size() - 1; i >= 0; i--) {
+            ChatMessage m = chatHistory.get(i);
+            if (m != null && "user".equals(m.getRole())) {
+                m.turnMode = mode;
+                return;
+            }
+        }
+    }
+
+    /**
+     * 从 UI 会话历史构建普通对话的上下文轮次（{role, content} 对）。
+     * 与本地 Agent（buildAgentHistory）同源：统一以 UI 历史为上下文真相源，
+     * 普通↔Agent 来回切换上下文天然连续。排除当前待发送的 user 消息
+     * （buildChatJsonRequest 会追加它），按最近 N 条裁剪。
+     */
+    private java.util.List<String[]> buildNormalHistoryEntries() {
+        java.util.List<String[]> result = new java.util.ArrayList<>();
+        int count = 0;
+        for (int i = chatHistory.size() - 1; i >= 0; i--) {
+            ChatMessage m = chatHistory.get(i);
+            if (m == null || m.getContent() == null || m.getContent().trim().isEmpty()) continue;
+            String role = m.getRole();
+            if (!"user".equals(role) && !"assistant".equals(role)) continue;
+            // 隔离：跳过 Agent 轮次（普通对话上下文只含普通轮次，不被工具痕迹/思考段污染）
+            if (m.turnMode == ChatMessage.TURN_MODE_AGENT) continue;
+            // 倒序遇到的第一条 user（普通）即当前待发送消息，跳过（发送时由请求构建方追加）
+            if ("user".equals(role) && result.isEmpty()) continue;
+            result.add(0, new String[]{role, m.getContent()});
+            count++;
+            if (count >= NORMAL_REBUILD_MAX_ENTRIES) break;
+        }
+        return result;
+    }
 
     /**
      * 从 UI 对话历史构建本地 Agent 的多轮上下文：
@@ -4551,21 +4957,24 @@ public class AIChatActivity extends BaseActivity {
         java.util.List<AgentLoopEngine.HistoryEntry> result = new java.util.ArrayList<>();
         if (history == null) return result;
 
-        // 从尾部向前找当前用户消息的位置（它就是本次正在处理的问题）
+        // 从尾部向前找当前用户消息的位置（它就是本次正在处理的问题；隔离：只认 Agent 轮次）
         int currentUserIdx = -1;
         for (int i = history.size() - 1; i >= 0; i--) {
             ChatMessage m = history.get(i);
-            if (m != null && "user".equals(m.getRole())) {
+            if (m != null && "user".equals(m.getRole())
+                    && m.turnMode == ChatMessage.TURN_MODE_AGENT) {
                 currentUserIdx = i;
                 break;
             }
         }
         if (currentUserIdx < 0) return result;
 
-        // 收集当前用户消息之前的真实对话轮次
+        // 收集当前用户消息之前的真实对话轮次（隔离：只取 Agent 轮次，普通对话轮次不进入
+        // Agent 上下文，来回切换互不污染；跳过不匹配的轮次继续向前找更早的 Agent 轮次）
         for (int j = currentUserIdx - 1; j >= 0 && result.size() < AGENT_HISTORY_MAX_MESSAGES; j--) {
             ChatMessage m = history.get(j);
             if (m == null || m.getContent() == null || m.getContent().trim().isEmpty()) continue;
+            if (m.turnMode != ChatMessage.TURN_MODE_AGENT) continue;
             String role = m.getRole();
             if (!"user".equals(role) && !"assistant".equals(role)) continue;
             result.add(0, new AgentLoopEngine.HistoryEntry(role, m.getContent()));
@@ -4578,7 +4987,7 @@ public class AIChatActivity extends BaseActivity {
             synchronized (streamingLock) {
                 if (isGenerating) {
                     AppLogger.aiW(TAG, "processChatMessageWithAgent skipped, already generating");
-                    showToast("AI正在生成中，请稍候");
+                    showToast(getString(R.string.h_05582e8e));
                     return;
                 }
             }
@@ -4590,8 +4999,14 @@ public class AIChatActivity extends BaseActivity {
             // 由 AgentChatHandler.startAgentLoop 内部再分流到 AgentSoftwareLayer（本地可调用工具）
             boolean localAgentEnabled = aiConfig != null && aiConfig.isLocalAgentEnabled();
             if (!useOnlineModel && !localAgentEnabled) {
-                addSystemMessage("🤖 本地模型暂不支持 Agent 工具调用，已使用普通对话。");
+                addSystemMessage("🤖 本地 Agent 未开启，已使用普通对话；开启“本地 Agent”开关后，本地模型可调用天气/时间/位置/搜索/记忆等工具。");
                 processChatMessageNormal(message);
+                return;
+            }
+
+            // 在线视觉追问：上一轮发过图、当前纯文字且在线模型支持视觉 → 自动复用该图做视觉理解
+            // （置于 Agent 引擎就绪检查前，看图问答不必走完整 Agent 工具循环）
+            if (useOnlineModel && tryFollowUpOnlineVision(message)) {
                 return;
             }
 
@@ -4603,6 +5018,9 @@ public class AIChatActivity extends BaseActivity {
                 processChatMessageNormal(message);
                 return;
             }
+
+            // 确认走 Agent 路径：标记轮次模式（上下文隔离重建依据；降级/视觉追问已提前 return）
+            markLastUserMessageMode(ChatMessage.TURN_MODE_AGENT);
 
             // 同步引擎会话：跟随当前 UI 会话（新对话/清空后 currentSessionId 可能已变化）
             if (agentChatHandler != null) {
@@ -4662,13 +5080,19 @@ public class AIChatActivity extends BaseActivity {
 
             int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 4096;
             // 思考链：仅深度思考模式启用。
-            // 注意：AGENT 模式不启用 thinking——Qwen3-4B 在 thinking+FC 组合下
+            // 本地 Agent 路径强制关闭 thinking——Qwen3-4B 在 thinking+FC 组合下
             // 思考完会"忘记"调用工具（直接回答"无法获取"而非输出 tool_call），
-            // 非思考 FC 模式工具调用更稳定；深度思考模式（非 Agent）单独体验思考链。
-            boolean enableThinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+            // 非思考 FC 模式工具调用更稳定；在线 Agent 保留深度思考
+            //（OnlineAgentEngine 有门控+reasoning_content 规范化，切换安全）。
+            // 深度思考完整体验由普通对话路径承载。
+            boolean localAgentRoute = !useOnlineModel && localAgentEnabled;
+            boolean enableThinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled()
+                    && !localAgentRoute;
             if (outputRouter != null) {
                 outputRouter.reset();
                 outputRouter.setThinkingEnabled(enableThinking);
+                outputRouter.setThinkingTags(LlamaHelper.getThinkingTags());
+                legacyThinkingTags = LlamaHelper.getThinkingTags();
             }
             isInThinking = enableThinking;
             // 每轮新执行前重置回调完成标志（AgentChatHandler 复用，防止上一轮的 completed=true
@@ -4695,7 +5119,7 @@ public class AIChatActivity extends BaseActivity {
             synchronized (streamingLock) {
                 if (isGenerating) {
                     AppLogger.aiW(TAG, "processChatMessageWithOnlineModel skipped, already generating");
-                    showToast("AI正在生成中，请稍候");
+                    showToast(getString(R.string.h_05582e8e));
                     return;
                 }
             }
@@ -5105,8 +5529,35 @@ public class AIChatActivity extends BaseActivity {
 
             @Override
             public void onThinkingUpdate(String messageId, int stepNumber, String stepType,
-                                          String title, String content, int progress) {}
+                                          String title, String content, int progress) {
+                // 普通对话 chatJson reasoning 事件：思考内容写入思考区（折叠显示）
+                if (content == null || content.isEmpty()) return;
+                appendBridgeThinkingToken(content);
+            }
         };
+    }
+
+    /**
+     * Bridge 普通对话的思考更新（chatJson reasoning 事件）：写入思考区（msg.thinkingContent）。
+     * 与 Agent 路径的 appendAgentThinkingToken 对应；思考默认折叠、可点击展开。
+     */
+    private void appendBridgeThinkingToken(String token) {
+        if (token == null || token.isEmpty()) return;
+        final int idx = resolveStreamingIndex();
+        if (idx < 0) return;
+        String snapshot;
+        synchronized (streamingLock) {
+            if (currentThinkingContent == null) {
+                currentThinkingContent = new StringBuilder();
+            }
+            currentThinkingContent.append(token);
+            snapshot = currentThinkingContent.toString();
+        }
+        isInThinking = true;
+        ChatMessage msg = chatHistory.get(idx);
+        msg.thinkingContent = snapshot;
+        // 定时渲染（120ms 批量），防每 reasoning 事件 notify 导致思考区抽搐
+        scheduleThinkingRefresh(idx);
     }
 
     /**
@@ -5477,14 +5928,14 @@ public class AIChatActivity extends BaseActivity {
             int cacheHitTokens = agentChatHandler != null ? agentChatHandler.getLastCacheHitTokens() : 0;
             if (isAgentModeRun || cacheHitTokens > 0) {
                 StringBuilder sum = new StringBuilder();
-                if (agentGroupToolCount > 0) sum.append("🔧 调用工具 ").append(agentGroupToolCount).append(" 次");
+                if (agentGroupToolCount > 0) sum.append(getString(R.string.h_8680a44b)).append(agentGroupToolCount).append(" 次");
                 if (thinkingRoundCount > 1) {
                     if (sum.length() > 0) sum.append(" · ");
-                    sum.append("🧠 思考 ").append(thinkingRoundCount).append(" 轮");
+                    sum.append(getString(R.string.h_c053d0b8)).append(thinkingRoundCount).append(" 轮");
                 }
                 if (!agentToolNames.isEmpty()) {
                     if (sum.length() > 0) sum.append("\n");
-                    sum.append("工具：").append(String.join("、", agentToolNames));
+                    sum.append(getString(R.string.h_59f941ba)).append(String.join("、", agentToolNames));
                 }
                 // 输入/输出 token 统计（引擎累计的 API 真实 usage：含多轮工具调用全部消耗）
                 if (agentChatHandler != null) {
@@ -5492,7 +5943,7 @@ public class AIChatActivity extends BaseActivity {
                     int outTokens = agentChatHandler.getExecTotalCompletionTokens();
                     if (inTokens > 0 || outTokens > 0) {
                         if (sum.length() > 0) sum.append("\n");
-                        sum.append("📥 输入 ").append(inTokens).append(" · 📤 输出 ").append(outTokens).append(" tokens（累计）");
+                        sum.append(getString(R.string.h_2e38da21)).append(inTokens).append(getString(R.string.h_4522b4c6)).append(outTokens).append(getString(R.string.h_ea69c145));
                     }
                 }
                 // 缓存命中统计（API 返回 usage 时才有；OpenAI prompt_tokens_details.cached_tokens / DeepSeek prompt_cache_hit_tokens）
@@ -5501,10 +5952,10 @@ public class AIChatActivity extends BaseActivity {
                     if (sum.length() > 0) sum.append("\n");
                     if (inTokens > 0) {
                         int hitRate = (int) Math.round(cacheHitTokens * 100.0 / inTokens);
-                        sum.append("⚡ 缓存命中率 ").append(hitRate).append("%（")
+                        sum.append(getString(R.string.h_9efa4828)).append(hitRate).append("%（")
                             .append(cacheHitTokens).append("/").append(inTokens).append(" tokens）");
                     } else {
-                        sum.append("⚡ 缓存命中 ").append(cacheHitTokens).append(" tokens（本轮省去重复计费）");
+                        sum.append(getString(R.string.h_50a70621)).append(cacheHitTokens).append(getString(R.string.h_32a82817));
                     }
                 }
                 // 上下文窗口用量：窗口（配置时 API 检测/配置表推断）+ 已用（最近请求输入）
@@ -5513,10 +5964,10 @@ public class AIChatActivity extends BaseActivity {
                         int[] ctx = agentChatHandler.getContextWindowInfo();
                         if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
                             if (sum.length() > 0) sum.append("\n");
-                            sum.append("🧠 上下文 ").append(formatCtxWindow(ctx[0])).append(" 用 ")
+                            sum.append(getString(R.string.h_0d4eba40)).append(formatCtxWindow(ctx[0])).append(" 用 ")
                                 .append(String.format(java.util.Locale.ROOT, "%.0f%%",
                                         Math.min(100.0, ctx[1] * 100.0 / ctx[0])))
-                                .append("（剩 ").append(formatCtxWindow(ctx[2])).append("）");
+                                .append(getString(R.string.h_8e24373f)).append(formatCtxWindow(ctx[2])).append("）");
                         }
                     } catch (Throwable ignored) {
                     }
@@ -5559,6 +6010,42 @@ public class AIChatActivity extends BaseActivity {
             if (messageIndex >= 0 && messageIndex < chatHistory.size()) {
                 ChatMessage finalMsg = chatHistory.get(messageIndex);
                 finalMsg.content = finalContent;
+                // 轮次模式：继承本轮 user 消息的标记（普通/Agent），供上下文隔离重建
+                for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                    ChatMessage u = chatHistory.get(i);
+                    if (u != null && "user".equals(u.getRole())) {
+                        finalMsg.turnMode = u.turnMode;
+                        break;
+                    }
+                }
+                // 兜底：若思考段未在流式阶段被分离（本地 Agent/chatJson 路径原生未下发
+                // reasoning 事件时，思考被当普通 token 流入正文），完成时从正文剥离思考并
+                // 回填 thinkingContent，避免"思考被绑进主消息气泡"。正文干净时为无操作。
+                ThinkingTagConfig embeddedT = LlamaHelper.getThinkingTags();
+                if (embeddedT.isAvailable() && finalMsg.content != null
+                        && finalMsg.content.contains(embeddedT.getStartTag())) {
+                    int ts = finalMsg.content.indexOf(embeddedT.getStartTag());
+                    int tcClose = -1, tcCloseLen = 0;
+                    for (String et : embeddedT.getEndTags()) {
+                        int p = finalMsg.content.indexOf(et, ts + embeddedT.getStartTag().length());
+                        if (p >= 0 && (tcClose < 0 || p < tcClose)) { tcClose = p; tcCloseLen = et.length(); }
+                    }
+                    if (tcClose >= 0) {
+                        String embeddedThinking =
+                                finalMsg.content.substring(ts + embeddedT.getStartTag().length(), tcClose).trim();
+                        finalMsg.content = (finalMsg.content.substring(0, ts)
+                                + finalMsg.content.substring(tcClose + tcCloseLen)).trim();
+                        if (embeddedThinking.length() > 0) {
+                            synchronized (streamingLock) {
+                                if (currentThinkingContent == null) currentThinkingContent = new StringBuilder();
+                                if (currentThinkingContent.length() == 0) {
+                                    currentThinkingContent.append(embeddedThinking);
+                                    finalMsg.thinkingContent = embeddedThinking;
+                                }
+                            }
+                        }
+                    }
+                }
                 finalMsg.status = ChatMessage.MessageStatus.COMPLETED;
                 // 工具侧桥接：取走本轮工具执行产生的结构化 UI 组件，**合并**到 AI 消息
                 // （不覆盖执行中已插入的工具卡片组件，保证执行中与完成后渲染一致）
@@ -5679,9 +6166,18 @@ public class AIChatActivity extends BaseActivity {
 
     private void processTagBuffer(String tagContent) {
         if (tagContent == null) return;
-        if (tagContent.contains("think")) {
-            isInThinking = !tagContent.contains("/");
+        ThinkingTagConfig cfg = legacyThinkingTags;
+        if (cfg.isAvailable()) {
+            if (tagContent.contains(cfg.getStartTag())) {
+                isInThinking = true;
+            } else {
+                for (String end : cfg.getEndTags()) {
+                    if (tagContent.contains(end)) { isInThinking = false; break; }
+                }
+            }
         }
+        // 模板未提供标签时不切换思考状态：旧逻辑 tagContent.contains("think") 过于宽松，
+        // 会把普通含 "think" 字样的文本误判为思考起止，已弃用。
         if (tagBuffer != null) tagBuffer.setLength(0);
         isInTag = false;
     }
@@ -5717,9 +6213,9 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> {
                 boolean success = result != null && result.success;
                 String resultStr = result != null ? result.result : "无结果";
-                // 完成时传简略摘要（如"北京 26℃ 晴"），执行后的工具行不再空白
+                // 聊天记录存完整工具结果（可追溯）；卡片显示时由 ToolCallCardView 自行 summarize 成单行摘要
                 appendAgentToolCall(toolCallId, toolName, success ? "success" : "failed", null,
-                        com.oilquiz.app.ai.chat.component.ToolCallCardView.summarize(resultStr));
+                        resultStr);
                 setAgentStepStatus(success ? "✅ " + toolName + " 完成" : "⚠️ " + toolName + " 失败");
                 updateAgentStatusBar("✅ " + toolName + " 完成", false);
                 // Agent 模式：过程已插入 AI 消息组件，无独立工具卡片消息，跳过消息更新
@@ -5822,6 +6318,8 @@ public class AIChatActivity extends BaseActivity {
         public void onComplete(String fullText) {
             // 幂等：只处理第一次完成事件（重复/迟到回调直接忽略）
             if (!completed.compareAndSet(false, true)) return;
+            // 上下文统一：普通对话发送前会从 UI 会话历史重建 chatJson 历史，
+            // Agent 轮次（UI 历史已含）届时自然进入普通对话上下文，无需桥接同步。
             completeGeneration(fullText);
             // 清理组ID（执行完成，不插入系统消息）
             runOnUiThread(() -> {
@@ -6191,17 +6689,6 @@ public class AIChatActivity extends BaseActivity {
         }).start();
     }
 
-    private void executeEntertainment(String type, String parameters) {
-        aiEntertainmentManager.executeEntertainment(type, parameters).thenAccept(result -> runOnUiThread(() -> {
-            addAIMessage(result);
-        })).exceptionally(throwable -> {
-            runOnUiThread(() -> {
-                addSystemMessage("娱乐功能出错: " + throwable.getMessage());
-            });
-            return null;
-        });
-    }
-    
     private Map<String, Object> parseParameters(String parameters) {
         Map<String, Object> params = new HashMap<>();
         if (parameters == null || parameters.isEmpty()) {
@@ -6326,14 +6813,14 @@ public class AIChatActivity extends BaseActivity {
      */
     private void showCompressConversationDialog() {
         if (!shouldUseOnlineModel()) {
-            showToast("压缩对话需要在线模型");
+            showToast(getString(R.string.h_7100aac1));
             return;
         }
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("✂️ 压缩对话")
-            .setMessage("将早期对话压缩为摘要（保留最近 8 条），后续对话更省 tokens，上下文不丢失。\n\n确定继续吗？")
-            .setPositiveButton("压缩", (dialog, which) -> {
-                showToast("正在生成摘要...");
+            .setTitle(getString(R.string.h_246bc2af))
+            .setMessage(getString(R.string.h_c0728fc0))
+            .setPositiveButton(getString(R.string.h_6612548a), (dialog, which) -> {
+                showToast(getString(R.string.h_f29a225b));
                 if (agentChatHandler != null) {
                     agentChatHandler.compressHistory(8, summary -> {
                         runOnUiThread(() -> {
@@ -6341,15 +6828,15 @@ public class AIChatActivity extends BaseActivity {
                                 // 消息列表顶部插入摘要提示，说明早期内容已压缩
                                 addSystemMessage("✂️ 对话已压缩：早期内容已生成摘要，后续对话更省 tokens。\n\n📋 摘要：\n" + summary);
                                 scrollToBottom();
-                                showToast("压缩完成");
+                                showToast(getString(R.string.h_36430ddc));
                             } else {
-                                showToast("压缩失败（对话太短或模型不可用）");
+                                showToast(getString(R.string.h_9b616a15));
                             }
                         });
                     });
                 }
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -6461,10 +6948,10 @@ public class AIChatActivity extends BaseActivity {
                         if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
                         updateEmptyState();
                         scrollToBottom(true);
-                        showToast("已切换到: " + loaded.title);
+                        showToast(getString(R.string.h_ab98c004) + loaded.title);
                     });
                 } else {
-                    runOnUiThread(() -> showToast("加载会话失败"));
+                    runOnUiThread(() -> showToast(getString(R.string.h_c59cad21)));
                 }
             }).start();
         } catch (Exception e) {
@@ -6492,7 +6979,7 @@ public class AIChatActivity extends BaseActivity {
                     updateEmptyState();
                 }
                 refreshHistoryDrawer();
-                showToast("已删除");
+                showToast(getString(R.string.h_5cc23262));
             });
         }).start();
     }
@@ -6516,7 +7003,7 @@ public class AIChatActivity extends BaseActivity {
      * 然后重新发送该用户消息。
      */
     private void regenerateMessage(String aiMessageId) {
-        if (isGenerating) { showToast("AI正在生成中，请稍候"); return; }
+        if (isGenerating) { showToast(getString(R.string.h_05582e8e)); return; }
         try {
             // 1. 找到目标 AI 消息的索引
             int aiIndex = -1;
@@ -6524,7 +7011,7 @@ public class AIChatActivity extends BaseActivity {
                 ChatMessage m = chatHistory.get(i);
                 if (m != null && aiMessageId.equals(m.id)) { aiIndex = i; break; }
             }
-            if (aiIndex < 0) { showToast("未找到对应的消息"); return; }
+            if (aiIndex < 0) { showToast(getString(R.string.h_631678c9)); return; }
 
             // 2. 向前找最后一条用户消息
             String userContent = null;
@@ -6537,7 +7024,7 @@ public class AIChatActivity extends BaseActivity {
                     break;
                 }
             }
-            if (userContent == null) { showToast("未找到对应的用户消息"); return; }
+            if (userContent == null) { showToast(getString(R.string.h_2130ef69)); return; }
 
             // 3. 删除 userIndex 之后的所有消息（保留用户消息本身）
             int removeStart = userIndex + 1;
@@ -6558,7 +7045,7 @@ public class AIChatActivity extends BaseActivity {
             AILogger.i(TAG, "Regenerating from user message at index " + userIndex);
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error regenerating message: " + e.getMessage());
-            showToast("重新生成失败");
+            showToast(getString(R.string.h_0b7ce83c));
         }
     }
     
@@ -6592,6 +7079,10 @@ public class AIChatActivity extends BaseActivity {
      * 点击切换深度思考开关：开 ↔ 关
      */
     private void toggleMode() {
+        if (isGenerating) {
+            showToast(getString(R.string.h_15261c3c));
+            return;
+        }
         ChatModeManager manager = ChatModeManager.getInstance(AIChatActivity.this);
         boolean next = !manager.isDeepThinkingEnabled();
         ChatModeManager.ChatMode oldMode = manager.getCurrentMode();
@@ -6605,7 +7096,20 @@ public class AIChatActivity extends BaseActivity {
             chip.setChecked(next);
             updateDeepThinkChip(chip);
         }
-        showToast(next ? "已开启深度思考" : "已关闭深度思考");
+        showToast(next ? getString(R.string.h_72bc1b1d) : getString(R.string.h_814eed44));
+    }
+
+    /**
+     * 更新一键初始化按钮显隐（本地与在线均未配置时显示）
+     */
+    private void updateAiInitButtonVisibility() {
+        if (btnAiInit == null) return;
+        boolean show = AIServiceInitializer.needsInitialization(this);
+        btnAiInit.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            btnAiInit.setEnabled(true);
+            btnAiInit.setText(getString(R.string.h_f696b417));
+        }
     }
 
     /**
@@ -6621,24 +7125,49 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    /** 深度思考开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
-    private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {
+    /** 本地Agent开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
+    private void updateAgentChip(com.google.android.material.chip.Chip chip) {
         if (chip == null) return;
-        boolean on = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+        boolean on = aiConfig != null && aiConfig.isLocalAgentEnabled();
         if (on) {
             chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.primary)));
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
             chip.setTextColor(getColor(R.color.white));
             chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.primary)));
-            chip.setText("🧠 深度思考 ON");
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
+            chip.setText(getString(R.string.h_43435c9f));
+            chip.setChipIconTint(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.white)));
         } else {
             chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
                     getColor(R.color.chip_gray_bg)));
             chip.setTextColor(getColor(R.color.chip_gray_text));
             chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
                     getColor(R.color.chip_gray_stroke)));
-            chip.setText("🧠 深度思考");
+            chip.setText(getString(R.string.h_e224c0b3));
+            chip.setChipIconTint(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_text)));
+        }
+    }
+
+    /** 深度思考开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
+    private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {
+        if (chip == null) return;
+        boolean on = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+        if (on) {
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
+            chip.setTextColor(getColor(R.color.white));
+            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
+            chip.setText(getString(R.string.h_931c3c94));
+        } else {
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_bg)));
+            chip.setTextColor(getColor(R.color.chip_gray_text));
+            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_stroke)));
+            chip.setText(getString(R.string.h_89093f20));
         }
     }
 
@@ -6680,12 +7209,13 @@ public class AIChatActivity extends BaseActivity {
      * 更新 Token 统计 UI（来自 TokenStatsManager 回调）
      */
     private void updateTokenStatsUI(TokenStatsManager.TokenStats stats) {
+        refreshNativeStateUI();
         TextView tvTokenStats = findViewById(R.id.tv_token_stats);
         if (tvTokenStats != null && stats != null) {
             if (stats.requestTotalTokens > 0) {
                 tvTokenStats.setVisibility(View.VISIBLE);
                 // 输入/输出分开统计：请求级（本轮）输入 prompt + 输出 completion
-                String text = String.format("📥 输入 %d · 📤 输出 %d tokens",
+                String text = String.format(getString(R.string.h_986cd3e8),
                         stats.requestPromptTokens, stats.requestCompletionTokens);
                 // Agent 在线模式：追加缓存命中率（引擎透传 API usage）
                 if (agentChatHandler != null) {
@@ -6693,13 +7223,13 @@ public class AIChatActivity extends BaseActivity {
                     int in = agentChatHandler.getLastPromptTokens();
                     if (hit > 0 && in > 0) {
                         int hitRate = (int) Math.round(hit * 100.0 / in);
-                        text += String.format(" · ⚡命中率 %d%%", hitRate);
+                        text += String.format(getString(R.string.h_83afc322), hitRate);
                     }
                     // 追加上下文用量（窗口/已用/剩余）——来自模型 API 上下文大小推断 + 最近请求输入
                     try {
                         int[] ctx = agentChatHandler.getContextWindowInfo();
                         if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
-                            text += String.format(" · 🧠上下文 %s 用 %.0f%%",
+                            text += String.format(getString(R.string.h_d7a0f347),
                                     formatCtxWindow(ctx[0]),
                                     Math.min(100.0, ctx[1] * 100.0 / ctx[0]));
                         }
@@ -6707,13 +7237,223 @@ public class AIChatActivity extends BaseActivity {
                     }
                 }
                 if (stats.sessionTotalTokens > 0) {
-                    text += String.format("（会话累计 %d）", stats.sessionTotalTokens);
+                    text += String.format(getString(R.string.h_b557980d), stats.sessionTotalTokens);
                 }
                 tvTokenStats.setText(text);
             } else {
                 tvTokenStats.setVisibility(View.GONE);
             }
         }
+    }
+
+    /**
+     * 刷新顶部 native 状态条：生成流程状态机阶段（GenPhase）+ KV 增量缓存状态。
+     *
+     * <p>本地推理时实时展示思考段/正文生成阶段；KV 命中率与上下文占用来自
+     * AgentKvCache 统计（JNI nativeGetKvCacheStats）。在线模型不适用 native 状态，
+     * 自动隐藏。</p>
+     */
+    /**
+     * 单行滚动切换：把思考内容按行切段，轮播/跟随最新段。
+     * 内容增长（新段出现）→ 跳到最新段（实时显示最新进展）；
+     * 内容停顿 → 轮播各段（滚动切换效果）。
+     */
+    private String buildThinkingSegment(String think) {
+        java.util.List<String> segs = new java.util.ArrayList<>();
+        for (String line : think.split("\n")) {
+            String t = line.trim();
+            if (!t.isEmpty()) segs.add(t);
+        }
+        if (segs.isEmpty()) {
+            segs.add(think);
+        }
+        int oldSize = thinkingSegments.size();
+        thinkingSegments = segs;
+        if (segs.size() > oldSize) {
+            // 内容增长：显示最新段（最新进展）
+            thinkingSegmentIndex = segs.size() - 1;
+        } else {
+            // 内容停顿：轮播到下一段（滚动切换）
+            thinkingSegmentIndex = (thinkingSegmentIndex + 1) % segs.size();
+        }
+        String seg = segs.get(thinkingSegmentIndex);
+        // 单行截断：保留最新尾部（最新思考）
+        if (seg.length() > 34) seg = seg.substring(seg.length() - 34);
+        return seg;
+    }
+
+    /** 思考文本按 \n 计行数（用于判断是否出现新段） */
+    private int countThinkingLines(String content) {
+        if (content == null) return 0;
+        int n = 1;
+        for (int i = 0; i < content.length(); i++) {
+            if (content.charAt(i) == '\n') n++;
+        }
+        return n;
+    }
+
+    /** 单行段落切换动画：新内容从左往右刮刀式滑入 + 柔和淡入（非跑马灯/打字机） */
+    private void startThinkingRollerAnim() {
+        try {
+            if (tvGenPhase == null) return;
+            android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(true);
+            android.view.animation.TranslateAnimation ta = new android.view.animation.TranslateAnimation(
+                    android.view.animation.Animation.RELATIVE_TO_SELF, -0.6f,
+                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f,
+                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f,
+                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f);
+            ta.setDuration(320);
+            ta.setInterpolator(new android.view.animation.DecelerateInterpolator());
+            android.view.animation.AlphaAnimation aa = new android.view.animation.AlphaAnimation(0.3f, 1f);
+            aa.setDuration(320);
+            set.addAnimation(ta);
+            set.addAnimation(aa);
+            tvGenPhase.startAnimation(set);
+        } catch (Exception ignored) {}
+    }
+
+    /** 状态机阶段英文 → 中文显示 */
+    private String phaseToCn(String phase) {
+        if ("PREPROCESS".equals(phase)) return "预处理";
+        if ("THINKING".equals(phase)) return "思考中";
+        if ("GENERATING".equals(phase)) return "生成中";
+        if ("COMPLETE".equals(phase)) return "完成";
+        if ("ERROR".equals(phase)) return "出错";
+        if ("IDLE".equals(phase)) return "空闲";
+        return phase;
+    }
+
+    private void refreshNativeStateUI() {
+        try {
+            // 在线模型：native 状态机不适用，隐藏
+            boolean useOnline = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
+            if (useOnline) {
+                if (tvKvStats != null) tvKvStats.setVisibility(View.GONE);
+                // tvGenPhase 在线由 onlineThinkingStream observe 实时驱动（思考时显示/结束后隐藏），
+                // 此处不强制 GONE，避免 800ms 轮询与实时 observe 互相覆盖闪烁；在线无 native 状态机/速度
+                return;
+            }
+            // 状态机栏：仅推理进行中显示；空闲/完成/无数据一律隐藏
+            if (tvGenPhase != null) {
+                String j = LlamaHelper.getGenPhase();
+                boolean show = false;
+                if (j != null && !j.isEmpty()) {
+                    org.json.JSONObject o = new org.json.JSONObject(j);
+                    String phase = o.optString("phase", "IDLE");
+                    boolean running = o.optBoolean("running", false);
+                    if (running) {
+                        // 正文生成阶段附上纯 decode 速度（思考段不计，native getDecodeSpeed）
+                        if ("GENERATING".equals(phase)) {
+                            float ds = LlamaHelper.getDecodeSpeed();
+                            if (ds > 0) {
+                                tvGenPhase.setText(String.format(getString(R.string.h_743faf7e), ds));
+                            } else {
+                                tvGenPhase.setText(getString(R.string.h_ad0acdc5));
+                            }
+                        } else if ("PREPROCESS".equals(phase)) {
+                            // prefill 阶段：显示进度 + 吞吐（native 分块 decode 逐块统计）
+                            String pp = LlamaHelper.getPrefillProgress();
+                            if (pp != null && !pp.isEmpty()) {
+                                try {
+                                    org.json.JSONObject po = new org.json.JSONObject(pp);
+                                    int done = po.optInt("done", 0);
+                                    int total = po.optInt("total", 0);
+                                    int pct = po.optInt("pct", 0);
+                                    int prompt = po.optInt("prompt", 0);
+                                    if (total > 0) {
+                                        float ps = LlamaHelper.getPhaseSpeed();
+                                        if (ps > 0) {
+                                            if (prompt > 0) {
+                                                tvGenPhase.setText(String.format(getString(R.string.h_2a8f9dc2), prompt, pct, ps));
+                                            } else {
+                                                tvGenPhase.setText(String.format(getString(R.string.h_f8a477f6), pct, ps));
+                                            }
+                                        } else {
+                                            if (prompt > 0) {
+                                                tvGenPhase.setText(String.format(getString(R.string.h_e3ad3e92), prompt, pct));
+                                            } else {
+                                                tvGenPhase.setText(String.format(getString(R.string.h_2dcef5d6), pct));
+                                            }
+                                        }
+                                    } else {
+                                        tvGenPhase.setText(getString(R.string.h_803f889b));
+                                    }
+                                } catch (Exception ignored) {
+                                    tvGenPhase.setText(getString(R.string.h_803f889b));
+                                }
+                            } else {
+                                tvGenPhase.setText(getString(R.string.h_803f889b));
+                            }
+                            lastThinkShown = null;   // 非思考阶段重置，下次思考重新开始
+                            lastThinkLineCount = 0;
+                        } else if ("THINKING".equals(phase)) {
+                            // 顶部单行由 thinking 事件驱动（120ms 节流，无 800ms 轮询限制）：
+                            // 这里只负责首次进入思考时初始化显示，内容段落切换/动画交给 thinkingRefreshRunnable
+                            if (lastThinkShown == null) {
+                                tvGenPhase.setText("💭 ");
+                                lastThinkShown = "💭 ";
+                            }
+                        } else {
+                            tvGenPhase.setText("⏳ " + phaseToCn(phase));
+                            lastThinkShown = null;   // 非思考阶段重置，下次思考重新开始
+                            lastThinkLineCount = 0;
+                        }
+                        tvGenPhase.setVisibility(View.VISIBLE);
+                        show = true;
+                    }
+                }
+                if (!show) tvGenPhase.setVisibility(View.GONE);
+            }
+            // KV 缓存栏：思考/生成（推理中）隐藏——位置留给思考内容/生成状态显示；
+            // 空闲时显示缓存状态（监控用，性能面板亦有完整卡片）
+            if (tvKvStats != null) {
+                boolean runningNow = false;
+                String gp = LlamaHelper.getGenPhase();
+                if (gp != null && !gp.isEmpty()) {
+                    try {
+                        runningNow = new org.json.JSONObject(gp).optBoolean("running", false);
+                    } catch (Exception ignored) {}
+                }
+                if (runningNow) {
+                    tvKvStats.setVisibility(View.GONE);
+                } else {
+                    String j = LlamaHelper.getKvCacheStats();
+                    boolean show = false;
+                    if (j != null && !j.isEmpty()) {
+                        org.json.JSONObject o = new org.json.JSONObject(j);
+                        double hit = o.optDouble("hit_rate_pct", -1);
+                        double usage = o.optDouble("ctx_usage_pct", -1);
+                        int plans = o.optInt("plans", 0);
+                        if (hit >= 0 && plans > 0) {
+                            tvKvStats.setText(String.format(getString(R.string.h_3e238a20),
+                                    hit, usage >= 0 ? usage : 0));
+                            tvKvStats.setVisibility(View.VISIBLE);
+                            show = true;
+                        }
+                    }
+                    if (!show) tvKvStats.setVisibility(View.GONE);
+                }
+            }
+        } catch (Throwable t) {
+            // 解析失败/异常：隐藏状态条，不影响主流程
+            if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
+            if (tvKvStats != null) tvKvStats.setVisibility(View.GONE);
+        }
+    }
+
+    /** 启动状态条轮询（onResume 时）：立即刷新一次 + 周期刷新，覆盖思考段无 token 回调的场景 */
+    private void startStatePolling() {
+        if (statePolling) return;
+        statePolling = true;
+        refreshNativeStateUI();
+        statePollHandler.removeCallbacks(statePollRunnable);
+        statePollHandler.postDelayed(statePollRunnable, STATE_POLL_INTERVAL_MS);
+    }
+
+    /** 停止状态条轮询（onDestroy 时） */
+    private void stopStatePolling() {
+        statePolling = false;
+        statePollHandler.removeCallbacksAndMessages(null);
     }
 
     /**
@@ -6749,6 +7489,8 @@ public class AIChatActivity extends BaseActivity {
      *   - 回退：使用传入的估算值（基于本地累计 / 耗时计算）
      */
     private void updateStreamingTokenStats(int totalTokens, float tokensPerSecond) {
+        // native 状态条（状态机阶段 + KV 缓存）随推理 token 流式更新实时刷新
+        refreshNativeStateUI();
         TextView tvTokenStats = findViewById(R.id.tv_token_stats);
         if (tvTokenStats != null) {
             tvTokenStats.setVisibility(View.VISIBLE);
@@ -6769,12 +7511,22 @@ public class AIChatActivity extends BaseActivity {
                 displayTps = tokensPerSecond;
                 sourceTag = "🌐";
             } else {
-                // 本地模式：优先使用 native 层
+                // 本地模式：优先使用 native 层；TPS 按状态机阶段切换（思考速度/解码速度）
+                float phaseSpeed = LlamaHelper.getPhaseSpeed();
                 float nativeTps = LlamaHelper.getInferenceSpeed();
                 int nativeTokens = LlamaHelper.getTokenCount();
-                displayTps = nativeTps > 0 ? nativeTps : tokensPerSecond;
+                displayTps = phaseSpeed > 0 ? phaseSpeed : (nativeTps > 0 ? nativeTps : tokensPerSecond);
                 displayTokens = nativeTokens > 0 ? nativeTokens : totalTokens;
                 sourceTag = "⚡"; // 本地 native
+                // 阶段标签：THINKING 思考段用 🧠，GENERATING 正文用 ⚡
+                try {
+                    String pj = LlamaHelper.getGenPhase();
+                    if (pj != null && !pj.isEmpty()) {
+                        String ph = new org.json.JSONObject(pj).optString("phase", "");
+                        if ("THINKING".equals(ph)) sourceTag = "🧠";
+                        else if ("GENERATING".equals(ph)) sourceTag = "⚡";
+                    }
+                } catch (Throwable ignored) {}
             }
 
             if (isGenerating && displayTps > 0) {
@@ -6783,7 +7535,7 @@ public class AIChatActivity extends BaseActivity {
             } else {
                 // 完成态：在线模式优先显示 API 输入/输出统计（本请求）
                 if (useOnline && (onlinePromptTokens > 0 || onlineCompletionTokens > 0)) {
-                    String statsText = String.format("✅ 📥 输入 %d · 📤 输出 %d tokens",
+                    String statsText = String.format(getString(R.string.h_c5d9a5e1),
                             onlinePromptTokens, onlineCompletionTokens);
                     tvTokenStats.setText(statsText);
                 } else {
@@ -6799,13 +7551,13 @@ public class AIChatActivity extends BaseActivity {
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
             if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             endGeneration();
-            showToast("已停止生成");
+            showToast(getString(R.string.h_9b2011e3));
             addSystemMessage("生成已停止");
         } catch (Exception e) { AppLogger.aiE(TAG, "Error stopping: " + e.getMessage()); }
     }
 
     private void regenerateLastMessage() {
-        if (isGenerating) { showToast("正在生成中"); return; }
+        if (isGenerating) { showToast(getString(R.string.h_9447f530)); return; }
         String lastUserMsg = null;
         int lastUserIdx = -1;
         int lastAiIdx = -1;
@@ -6814,7 +7566,7 @@ public class AIChatActivity extends BaseActivity {
             if (msg.type == ChatMessage.MessageType.AI && lastAiIdx < 0) lastAiIdx = i;
             else if (msg.type == ChatMessage.MessageType.USER) { lastUserMsg = msg.content; lastUserIdx = i; break; }
         }
-        if (lastUserMsg == null || lastAiIdx < 0) { showToast("没有可重新生成的消息"); return; }
+        if (lastUserMsg == null || lastAiIdx < 0) { showToast(getString(R.string.h_687b9420)); return; }
         int removeStart = lastUserIdx + 1;
         int originalSize = chatHistory.size();
         int systemMsgCount = 0;
@@ -6889,10 +7641,10 @@ public class AIChatActivity extends BaseActivity {
         if (shouldUseOnlineModel()) {
             return true;
         }
-        if (aiService == null) { showToast("未选择本地模型，请切换到在线模型"); return false; }
+        if (aiService == null) { showToast(getString(R.string.h_24e21aa7)); return false; }
         // 模型文件不存在：明确提示并停止（避免每次发送都触发初始化失败反复报错）
         if (!aiService.isCurrentModelFileExists()) {
-            showToast("模型文件不存在，请重新导入或切换模型");
+            showToast(getString(R.string.h_db87c7aa));
             addSystemMessage("⚠️ 模型文件不存在：当前模型文件可能已被删除，请到模型设置中重新导入模型或切换到在线模型",
                     ChatMessage.SystemMessageType.WARNING);
             return false;
@@ -6932,7 +7684,7 @@ public class AIChatActivity extends BaseActivity {
                         } else {
                             if (serviceStatusManager != null) serviceStatusManager.setLoadingModel(false);
                             addErrorMessage("模型加载失败", "无法初始化AI模型，请检查模型文件是否正确导入", true);
-                            showToast("模型加载失败");
+                            showToast(getString(R.string.h_5eb96784));
                         }
                     });
                 }
@@ -6953,11 +7705,17 @@ public class AIChatActivity extends BaseActivity {
     // ===================== Message Adders =====================
 
     private void addUserMessage(String message) {
+        addUserMessage(message, false);
+    }
+
+    private void addUserMessage(String message, boolean voiceInput) {
         if (chatHistory == null) return;
 
         // 隐藏空状态
         updateEmptyState();
-        chatHistory.add(ChatMessage.createUserMessage(java.util.UUID.randomUUID().toString(), message, System.currentTimeMillis()));
+        ChatMessage msg = ChatMessage.createUserMessage(java.util.UUID.randomUUID().toString(), message, System.currentTimeMillis());
+        msg.voiceInput = voiceInput;
+        chatHistory.add(msg);
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
@@ -7256,7 +8014,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void handleAction(ChatMessage.Action action) {
-        // 处理"强行使用本地Agent"按钮：优先处理，避免被 dialogHelper 当作未知 Action
+        // 处理getString(R.string.h_17f74c43)按钮：优先处理，避免被 dialogHelper 当作未知 Action
         if (action != null && action.type == ChatMessage.ActionType.FORCE_LOCAL_AGENT) {
             forceRunLocalAgent(action.content);
             return;
@@ -7345,7 +8103,7 @@ public class AIChatActivity extends BaseActivity {
     // ===================== UI Init =====================
 
     private void openUri(String url) {
-        if (url != null) { try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)); } catch (Exception e) { showToast("无法打开"); } }
+        if (url != null) { try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)); } catch (Exception e) { showToast(getString(R.string.h_4b33aa1b)); } }
     }
 
     /** 应用内图片预览（PhotoView 双指缩放，点击关闭）——避免依赖系统图片查看器 */
@@ -7453,7 +8211,7 @@ public class AIChatActivity extends BaseActivity {
                             @Override
                             public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
                                 loading.setVisibility(android.view.View.GONE);
-                                showToast("图片加载失败");
+                                showToast(getString(R.string.h_b3b83e12));
                                 return false;
                             }
 
@@ -7571,7 +8329,983 @@ public class AIChatActivity extends BaseActivity {
 
     private void handleAttachFile() {
         if (attachFileLauncher != null) attachFileLauncher.launch(new String[]{"image/*", "application/pdf", "text/plain", "*/*"});
-        else showToast("附件功能初始化中");
+        else showToast(getString(R.string.h_3f036f4f));
+    }
+
+    /** 显示附件选项对话框 */
+    private void showAttachmentOptionsDialog() {
+        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
+        builder.setTitle(getString(R.string.h_a9c3646a))
+            .setItems(new String[]{getString(R.string.h_bbd24cc2), getString(R.string.h_7cfb7c97), getString(R.string.h_e5417e44), getString(R.string.h_0fdd25cd)}, (dialog, which) -> {
+                switch (which) {
+                    case 0: // 拍照
+                        handleTakePhoto();
+                        break;
+                    case 1: // 选择文件
+                        handleAttachFile();
+                        break;
+                    case 2: // 录制语音附件
+                        handleRecordAudio();
+                        break;
+                    case 3: // 语音模型设置
+                        handleSpeechModelConfig();
+                        break;
+                }
+            })
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .show();
+    }
+
+    /** 打开相机拍照 */
+    private void handleTakePhoto() {
+        // ✅ 使用统一的权限管理工具请求相机权限（与OCR界面保持一致）
+        AppResourceManager resources = AppResourceManager.getInstance(this);
+        if (!resources.hasCameraPermission()) {
+            resources.permissions().requestCameraPermission(this, new PermissionResourceProvider.PermissionCallback() {
+                @Override
+                public void onGranted() {
+                    launchCamera();
+                }
+
+                @Override
+                public void onDenied(java.util.List<String> deniedPermissions) {
+                    showToast(getString(R.string.h_3f8b8981));
+                    // 如果用户选择了“不再询问”，引导去设置页面
+                    if (!resources.permissions().shouldShowRequestPermissionRationale(
+                            AIChatActivity.this, android.Manifest.permission.CAMERA)) {
+                        showPermissionSettingsDialog();
+                    }
+                }
+            });
+        } else {
+            launchCamera();
+        }
+    }
+
+    /** 权限已授予后实际启动相机 */
+    private void launchCamera() {
+        try {
+            // 创建临时文件存储照片
+            File photoFile = createImageFile();
+            if (photoFile == null) {
+                showToast(getString(R.string.h_c4eb53c8));
+                return;
+            }
+            
+            currentPhotoUri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                getPackageName() + ".fileprovider",
+                photoFile
+            );
+            
+            if (cameraCaptureLauncher != null) {
+                cameraCaptureLauncher.launch(currentPhotoUri);
+            } else {
+                showToast(getString(R.string.h_b09e35b4));
+            }
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error taking photo: " + e.getMessage());
+            showToast(getString(R.string.h_bcde7221) + e.getMessage());
+        }
+    }
+
+    /** 长按消息弹出语音操作菜单 */
+    private void showMessageSpeechOptions(ChatMessage message) {
+        if (message == null) return;
+        String content = message.getContent();
+        boolean canSpeak = message.isAIMessage() && content != null && !content.trim().isEmpty();
+        if (!canSpeak) return;
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(getString(R.string.h_87b4d00f))
+            .setItems(new String[]{getString(R.string.h_5511e113), getString(R.string.h_c79f16c4)}, (dialog, which) -> {
+                if (which == 0) {
+                    speakMessage(message);
+                } else {
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).stopSpeaking();
+                    showToast(getString(R.string.h_a660a638));
+                }
+            })
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .show();
+    }
+
+    /** 使用 TTS 朗读 AI 消息（优先在线模型，未配置时自动回退系统TTS） */
+    private void speakMessage(ChatMessage message) {
+        speakMessage(message, message != null ? message.id : null);
+    }
+
+    private void speakMessage(ChatMessage message, final String messageId) {
+        String text = toSpeakableText(message.getContent());
+        if (text.isEmpty()) {
+            showToast(getString(R.string.h_6d66ba3b));
+            return;
+        }
+        if (text.length() > 2000) {
+            text = text.substring(0, 2000);
+            showToast(getString(R.string.h_4bc876d2));
+        }
+        speakTextInternal(text, messageId, false);
+    }
+
+    /**
+     * 将 AI 回复转换为可朗读文本：去除代码块、表格、Markdown 符号、
+     * 工具调用痕迹、链接与 emoji；清洗后为空说明内容不适合朗读
+     */
+    private String toSpeakableText(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return "";
+        String t = raw;
+        // 代码块整体省略
+        t = t.replaceAll("(?s)```.*?```", "");
+        // 行内代码去反引号
+        t = t.replaceAll("`([^`]*)`", "$1");
+        // 表格行与分隔行
+        t = t.replaceAll("(?m)^\\s*\\|.*$\\n?", "");
+        // 工具调用/思考痕迹行
+        t = t.replaceAll("(?m)^\\s*🔧.*$\\n?", "");
+        // 图片与链接（保留链接文字）
+        t = t.replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "");
+        t = t.replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1");
+        // Markdown 格式符号
+        t = t.replaceAll("[*_#>~|\\\\]", "");
+        // emoji 与其他特殊符号
+        t = t.replaceAll("[\\p{So}\\p{Cn}]", "");
+        // 压缩空白
+        t = t.replaceAll("\\s+", " ").trim();
+        return t;
+    }
+
+    /** 实际朗读入口：silent=true 时不弹任何提示（自动朗读模式） */
+    private void speakTextInternal(String text, final String messageId, final boolean silent) {
+        speakingMessageId = messageId;
+        if (!silent) {
+            showToast(getString(R.string.h_f3df22c9));
+        }
+        com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).speakLocked(text,
+                new com.oilquiz.app.ai.speech.TTSService.PlaybackCallback() {
+            @Override
+            public void onStart() {
+                if (!silent) {
+                    runOnUiThread(() -> showToast(getString(R.string.h_c5d49541)));
+                }
+            }
+
+            @Override
+            public void onComplete() {
+                runOnUiThread(() -> {
+                    if (messageId != null && messageId.equals(speakingMessageId)) {
+                        speakingMessageId = null;
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                runOnUiThread(() -> {
+                    if (messageId != null && messageId.equals(speakingMessageId)) {
+                        speakingMessageId = null;
+                    }
+                    if (!silent) {
+                        showToast(getString(R.string.h_f9154462));
+                    }
+                });
+            }
+        });
+    }
+
+    /** 处理 AI 消息操作行的"朗读"按钮：同一条消息再次点击则停止 */
+    private void handleSpeakAction(ChatMessage.Action action) {
+        com.oilquiz.app.ai.speech.SpeechManager speech =
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+        if (action.messageId != null && action.messageId.equals(speakingMessageId) && speech.isSpeaking()) {
+            speech.stopSpeaking();
+            speakingMessageId = null;
+            showToast(getString(R.string.h_715ae415));
+            return;
+        }
+        ChatMessage target = null;
+        if (chatHistory != null) {
+            for (ChatMessage m : chatHistory) {
+                if (m != null && m.id != null && m.id.equals(action.messageId)) {
+                    target = m;
+                    break;
+                }
+            }
+        }
+        if (target == null) {
+            // 兼容：直接用 Action 携带的内容构造临时消息
+            target = ChatMessage.createAIMessage(action.content != null ? action.content : "");
+        }
+        speakMessage(target, action.messageId);
+    }
+
+    /**
+     * 微信式语音输入模式切换：点击麦克风按钮在「键盘输入」与「按住说话」之间切换。
+     * 语音模式：输入框隐藏、显示"按住 说话"按钮、麦克风图标变为键盘图标；
+     * 键盘模式：恢复输入框、隐藏按住说话按钮、图标恢复麦克风。
+     */
+    private void toggleVoiceInputMode() {
+        voiceInputMode = !voiceInputMode;
+        // 退出录音状态（若正在按住说话则先取消）
+        if (isSpeechRecording || isOfflineAsrMode) {
+            cancelSpeechRecording();
+            isOfflineAsrMode = false;
+        }
+        updateVoiceInputModeUI();
+    }
+
+    /** 根据语音输入模式刷新输入区 UI */
+    private void updateVoiceInputModeUI() {
+        if (inputMessage != null) {
+            inputMessage.setVisibility(voiceInputMode ? View.GONE : View.VISIBLE);
+        }
+        if (holdToTalk != null) {
+            holdToTalk.setVisibility(voiceInputMode ? View.VISIBLE : View.GONE);
+            if (voiceInputMode) {
+                holdToTalk.setText(getString(R.string.h_134f075e));
+                holdToTalk.setBackgroundResource(R.drawable.rounded_edittext);
+                holdToTalk.setTextColor(ThemeColors.get(this, R.color.text_secondary));
+            }
+        }
+        if (btnVoice != null) {
+            // 语音模式显示键盘图标（点击切回键盘），键盘模式显示麦克风图标
+            btnVoice.setIconResource(voiceInputMode ? R.drawable.ic_keyboard : R.drawable.ic_mic);
+        }
+        if (voiceRecordingBar != null) {
+            voiceRecordingBar.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 微信式"按住 说话"触摸处理：
+     * - 按下：开始录音（先请求权限）
+     * - 上滑超过阈值：进入取消态（红色"松开 取消"）
+     * - 松开：取消区域→取消录音；否则→结束录音并识别
+     * - 取消事件：取消录音
+     */
+    private boolean handleHoldToTalkTouch(android.view.MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+                pressStartY = event.getRawY();
+                slideToCancel = false;
+                // 先请求麦克风权限，授权后启动语音输入流程
+                com.oilquiz.app.resource.PermissionResourceProvider provider =
+                        com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+                provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
+                    @Override
+                    public void onGranted() {
+                        runOnUiThread(() -> startSpeechInputFlow());
+                    }
+
+                    @Override
+                    public void onDenied(java.util.List<String> deniedPermissions) {
+                        showToast(getString(R.string.h_b6cf53e9));
+                        setVoiceButtonEnabled(false);
+                    }
+                });
+                return true;
+            case android.view.MotionEvent.ACTION_MOVE:
+                if (isSpeechRecording || isOfflineAsrMode) {
+                    float dy = pressStartY - event.getRawY();
+                    boolean nowCancel = dy > dpToPx(SLIDE_CANCEL_THRESHOLD_DP);
+                    if (nowCancel != slideToCancel) {
+                        slideToCancel = nowCancel;
+                        updateHoldToTalkPressUI();
+                    }
+                }
+                return true;
+            case android.view.MotionEvent.ACTION_UP:
+                if (slideToCancel) {
+                    cancelSpeechRecording();
+                    isOfflineAsrMode = false;
+                } else if (isSpeechRecording) {
+                    stopSpeechRecording();
+                } else if (isOfflineAsrMode) {
+                    // 系统识别模式：松开结束识别
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).stopOfflineRecognition();
+                }
+                slideToCancel = false;
+                updateHoldToTalkPressUI();
+                return true;
+            case android.view.MotionEvent.ACTION_CANCEL:
+                cancelSpeechRecording();
+                isOfflineAsrMode = false;
+                slideToCancel = false;
+                updateHoldToTalkPressUI();
+                return true;
+            default:
+                return true;
+        }
+    }
+
+    /** 按住说话过程中的按钮视觉反馈：正常按住=变深色，上滑取消=红色"松开 取消" */
+    private void updateHoldToTalkPressUI() {
+        if (holdToTalk == null) return;
+        boolean pressed = isSpeechRecording || isOfflineAsrMode;
+        if (slideToCancel) {
+            holdToTalk.setText(getString(R.string.h_27d9da5c));
+            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext_error);
+            holdToTalk.setTextColor(ThemeColors.get(R.color.hc_ffe53935));
+        } else if (pressed) {
+            holdToTalk.setText(getString(R.string.h_34e08b7b));
+            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext_pressed);
+            holdToTalk.setTextColor(ThemeColors.get(this, R.color.on_primary_container));
+        } else {
+            holdToTalk.setText(getString(R.string.h_134f075e));
+            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext);
+            holdToTalk.setTextColor(ThemeColors.get(this, R.color.text_secondary));
+        }
+    }
+
+    /** dp → px 换算（上滑取消阈值） */
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    /** 语音输入：录音 → ASR 识别 → 文字填入输入框；在线不可用时自动兜底到系统识别 */
+    private void handleSpeechInput() {
+        com.oilquiz.app.ai.speech.SpeechManager speech =
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+        // 离线/系统识别模式：再次点击停止识别并出结果
+        if (isOfflineAsrMode) {
+            speech.stopOfflineRecognition();
+            return;
+        }
+        if (isSpeechRecording) {
+            stopSpeechRecording();
+            return;
+        }
+        // ✅ 使用统一的权限管理工具请求麦克风权限
+        com.oilquiz.app.resource.PermissionResourceProvider provider =
+            com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+        provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
+            @Override
+            public void onGranted() {
+                startSpeechInputFlow();
+            }
+
+            @Override
+            public void onDenied(java.util.List<String> deniedPermissions) {
+                showToast(getString(R.string.h_b6cf53e9));
+                setVoiceButtonEnabled(false);
+            }
+        });
+    }
+
+    /** 选择语音输入路径：在线ASR可用→录音上传识别；否则兜底系统语音识别 */
+    private void startSpeechInputFlow() {
+        com.oilquiz.app.ai.speech.SpeechManager speech =
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+        boolean asrAvail = speech.isAsrAvailable();
+        boolean offlineAvail = speech.isOfflineAsrAvailable();
+        AppLogger.aiD(TAG, "startSpeechInputFlow: asrAvailable=" + asrAvail + ", offlineAvailable=" + offlineAvail);
+        if (asrAvail) {
+            startSpeechRecording();
+        } else if (offlineAvail) {
+            showToast(getString(R.string.h_5a3fe655));
+            startOfflineSpeechRecognition(false);
+        } else {
+            showToast(getString(R.string.h_b2f5500b));
+            setVoiceButtonEnabled(false);
+        }
+    }
+
+    // ===================== 自动语音合成开关 =====================
+
+    /** 切换自动语音合成开关（持久化），关闭时同时停止当前朗读 */
+    private void toggleAutoTts() {
+        autoTtsEnabled = !autoTtsEnabled;
+        getSharedPreferences("ai_chat_prefs", MODE_PRIVATE).edit()
+                .putBoolean("auto_tts_enabled", autoTtsEnabled).apply();
+        updateAutoTtsButtonUI();
+        if (autoTtsEnabled) {
+            showToast(getString(R.string.h_33978d22));
+        } else {
+            lastAutoSpokenMessageId = null;
+            // 关闭开关：停止当前朗读并清空待播队列（保留 streamTtsFed，避免完成时重复整条朗读）
+            if (streamingTtsSpeaker != null) {
+                streamingTtsSpeaker.reset();
+            }
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).stopSpeaking();
+            showToast(getString(R.string.h_220ccbd9));
+        }
+    }
+
+    /** 更新自动语音合成按钮样式（开启时高亮） */
+    private void updateAutoTtsButtonUI() {
+        if (btnAutoTts == null) return;
+        btnAutoTts.setText(autoTtsEnabled ? "🔊" : "🔇");
+        btnAutoTts.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                ThemeColors.get(this, autoTtsEnabled ? R.color.primary_container : R.color.surface_variant)));
+        btnAutoTts.setTextColor(ThemeColors.get(this, autoTtsEnabled ? R.color.on_primary_container : R.color.text_secondary));
+    }
+
+    /** AI 消息完成后，若自动朗读开启则自动朗读（清洗后无有效内容则跳过，同一消息不重复朗读） */
+    private void maybeAutoSpeak(ChatMessage msg) {
+        if (!autoTtsEnabled || msg == null || !msg.isAIMessage()) return;
+        if (msg.id != null && msg.id.equals(lastAutoSpokenMessageId)) return;
+        String text = toSpeakableText(msg.getContent());
+        if (text.length() < 2) return; // 纯代码/表格/空内容不自动朗读
+        if (text.length() > 2000) {
+            text = text.substring(0, 2000);
+        }
+        lastAutoSpokenMessageId = msg.id;
+        speakTextInternal(text, msg.id, true);
+    }
+
+    /** 向流式朗读器投喂 token（仅自动朗读开启时生效） */
+    private void feedStreamingTts(String token) {
+        if (!autoTtsEnabled || token == null || token.isEmpty()) return;
+        if (streamingTtsSpeaker == null) return;
+        streamTtsFed = true;
+        streamingTtsSpeaker.feed(token);
+    }
+
+    /** 新一轮生成开始：重置流式朗读状态 */
+    private void resetStreamingTts() {
+        streamTtsFed = false;
+        if (streamingTtsSpeaker != null) {
+            streamingTtsSpeaker.reset();
+        }
+    }
+
+    /**
+     * 生成完成时的自动朗读收尾：
+     * - 本轮已流式朗读：冲刷剩余缓冲继续播完（若开关已关则静默），不重复整条朗读
+     * - 本轮未流式朗读（如开关中途才开启前已完成）：走原有整条朗读逻辑
+     */
+    private void finishAutoSpeak(ChatMessage msg) {
+        if (streamTtsFed) {
+            if (autoTtsEnabled && streamingTtsSpeaker != null) {
+                streamingTtsSpeaker.finish();
+            }
+            if (msg != null) {
+                lastAutoSpokenMessageId = msg.id;
+            }
+            return;
+        }
+        maybeAutoSpeak(msg);
+    }
+
+    // ===================== 语音输入按钮可用性 =====================
+
+    /** 设置语音输入按钮启用/禁用样式 */
+    private void setVoiceButtonEnabled(boolean enabled) {
+        if (btnVoice == null) return;
+        btnVoice.setEnabled(enabled);
+        btnVoice.setAlpha(enabled ? 1f : 0.4f);
+    }
+
+    /**
+     * 刷新语音输入按钮可用性：
+     * - 麦克风权限未授予：保持可点（用于触发授权，被拒后再禁用）
+     * - 权限已授予：在线ASR 或 系统离线识别可用才启用，否则禁用（不弹引导对话框）
+     */
+    private void updateVoiceButtonAvailability() {
+        if (btnVoice == null || isSpeechRecording || isOfflineAsrMode) return;
+        boolean micGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        boolean available;
+        if (!micGranted) {
+            available = true; // 未授权时保留可点，点击后走授权流程；被拒时再禁用
+        } else {
+            com.oilquiz.app.ai.speech.SpeechManager speech =
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+            available = speech.isAsrAvailable() || speech.isOfflineAsrAvailable();
+        }
+        setVoiceButtonEnabled(available);
+    }
+
+    /** 启动离线/系统语音识别（在线ASR不可用或失败时的兜底，需用户重新说话） */
+    private void startOfflineSpeechRecognition(boolean isFallbackAfterOnlineFail) {
+        isOfflineAsrMode = true;
+        // 记录识别前输入框已有文本，部分结果实时拼接展示
+        voiceInputBaseText = (inputMessage != null && inputMessage.getText() != null)
+                ? inputMessage.getText().toString() : "";
+        updateVoiceRecordingUI(true);
+        com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).startOfflineRecognition(
+                new com.oilquiz.app.ai.speech.SystemSpeechRecognizer.RecognitionCallback() {
+            @Override
+            public void onResult(String text) {
+                // 自动预览：识别结果填入输入框并切回键盘模式，用户确认/修改后再发送（避免识别错误直接发出）
+                previewRecognizedText(text);
+            }
+
+            @Override
+            public void onPartialResult(String text) {
+                // 说话过程中实时把部分结果写入输入框（保留原有前缀）
+                if (inputMessage != null && text != null) {
+                    inputMessage.setText(voiceInputBaseText + text);
+                    inputMessage.setSelection(inputMessage.getText().length());
+                    inputMessage.requestFocus();
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                showToast(getString(R.string.h_b2f5500b));
+            }
+
+            @Override
+            public void onEnd() {
+                isOfflineAsrMode = false;
+                updateVoiceRecordingUI(false);
+            }
+        });
+        if (isFallbackAfterOnlineFail) {
+            showToast(getString(R.string.h_a8c65c1d));
+        }
+    }
+
+    /** 开始语音输入录音 */
+    private void startSpeechRecording() {
+        try {
+            // 麦克风互斥：Agent 语音输入组件正在录音时，应用层录音让位并提示
+            com.oilquiz.app.ai.speech.SpeechManager speechMgr =
+                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+            if (!speechMgr.tryAcquireRecording("app")) {
+                showToast(getString(R.string.h_f455a0c0));
+                return;
+            }
+            File audioFile = createAudioFile();
+            if (audioFile == null) {
+                speechMgr.releaseRecording("app");
+                showToast(getString(R.string.h_d6d558b8));
+                return;
+            }
+            speechRecordingFilePath = audioFile.getAbsolutePath();
+
+            speechMediaRecorder = new MediaRecorder();
+            speechMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            speechMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            speechMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            speechMediaRecorder.setAudioSamplingRate(44100);
+            speechMediaRecorder.setAudioEncodingBitRate(128000);
+            speechMediaRecorder.setOutputFile(speechRecordingFilePath);
+            speechMediaRecorder.prepare();
+            speechMediaRecorder.start();
+
+            isSpeechRecording = true;
+            updateVoiceRecordingUI(true);
+            showToast(getString(R.string.h_90a61206));
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "语音输入录音启动失败: " + e.getMessage());
+            showToast(getString(R.string.h_8339b334) + e.getMessage());
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
+            releaseSpeechRecorder();
+            updateVoiceRecordingUI(false);
+        }
+    }
+
+    /** 更新语音输入的录音状态 UI（按住说话按钮/横幅/计时） */
+    private void updateVoiceRecordingUI(boolean recording) {
+        // 录音状态由"按住 说话"按钮体现（btnVoice 是模式切换按钮，不随录音变化）
+        updateHoldToTalkPressUI();
+        if (voiceRecordingBar != null) {
+            voiceRecordingBar.setVisibility(recording ? View.VISIBLE : View.GONE);
+        }
+        if (recording) {
+            speechRecordingSeconds = 0;
+            if (tvVoiceRecordingTime != null) tvVoiceRecordingTime.setText("00:00");
+            if (speechTimerRunnable != null) speechTimerHandler.removeCallbacks(speechTimerRunnable);
+            speechTimerRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (!isSpeechRecording) return;
+                    speechRecordingSeconds++;
+                    if (tvVoiceRecordingTime != null) {
+                        tvVoiceRecordingTime.setText(String.format(java.util.Locale.US, "%02d:%02d",
+                                speechRecordingSeconds / 60, speechRecordingSeconds % 60));
+                    }
+                    // 红点闪烁
+                    if (tvVoiceRecordingDot != null) {
+                        tvVoiceRecordingDot.setAlpha(speechRecordingSeconds % 2 == 0 ? 1f : 0.3f);
+                    }
+                    speechTimerHandler.postDelayed(this, 1000);
+                }
+            };
+            speechTimerHandler.postDelayed(speechTimerRunnable, 1000);
+        } else {
+            if (speechTimerRunnable != null) {
+                speechTimerHandler.removeCallbacks(speechTimerRunnable);
+                speechTimerRunnable = null;
+            }
+            if (tvVoiceRecordingDot != null) tvVoiceRecordingDot.setAlpha(1f);
+        }
+    }
+
+    /** 停止语音输入录音并执行 ASR 识别 */
+    private void stopSpeechRecording() {
+        if (!isSpeechRecording || speechMediaRecorder == null) return;
+        try {
+            speechMediaRecorder.stop();
+            isSpeechRecording = false;
+            updateVoiceRecordingUI(false);
+            releaseSpeechRecorder();
+            // 释放麦克风占用（Agent 语音输入组件可继续录音）
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
+
+            File audioFile = new File(speechRecordingFilePath);
+            if (!audioFile.exists() || audioFile.length() == 0) {
+                showToast(getString(R.string.h_8f5d6646));
+                return;
+            }
+
+            showToast(getString(R.string.h_4ef018c9));
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this)
+                .recognizeSpeech(audioFile, null)
+                .whenComplete((result, error) -> runOnUiThread(() -> {
+                    audioFile.delete();
+                    if (error != null) {
+                        Throwable cause = error instanceof java.util.concurrent.CompletionException
+                                && error.getCause() != null ? error.getCause() : error;
+                        AppLogger.aiE(TAG, "在线语音识别失败: " + cause.getMessage());
+                        // 兜底：在线识别失败时自动切换系统/离线识别（需重新说话）
+                        if (com.oilquiz.app.ai.speech.SpeechManager.getInstance(AIChatActivity.this)
+                                .isOfflineAsrAvailable()) {
+                            startOfflineSpeechRecognition(true);
+                        } else {
+                            showToast(getString(R.string.h_b2f5500b));
+                        }
+                    } else if (result != null && result.text != null && !result.text.isEmpty()) {
+                        // 自动预览：在线识别完成也填入输入框待确认
+                        previewRecognizedText(result.text);
+                    } else {
+                        showToast(getString(R.string.h_4b5fe010));
+                    }
+                }));
+        } catch (Exception e) {
+            isSpeechRecording = false;
+            updateVoiceRecordingUI(false);
+            releaseSpeechRecorder();
+            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
+            showToast(getString(R.string.h_d4c4ce64) + e.getMessage());
+        }
+    }
+
+    /**
+     * 将识别结果写入输入框：直接操作 EditText（不依赖 ChatInputManager 内部状态，
+     * 避免其未 init 时文本丢失），并让输入框获焦、光标定位到末尾
+     */
+    private void appendRecognizedText(String text) {
+        if (text == null || text.isEmpty()) return;
+        runOnUiThread(() -> {
+            if (inputMessage != null) {
+                inputMessage.append(text);
+                inputMessage.requestFocus();
+                inputMessage.setSelection(inputMessage.getText().length());
+            } else if (inputManager != null) {
+                inputManager.appendText(text);
+            }
+        });
+    }
+
+    /**
+     * 自动预览：识别结果填入输入框并自动切回键盘模式，让用户看到结果、可修改后再点发送。
+     * 避免"识别错误直接发出"的盲盒体验；语音模式下输入框隐藏，故识别完成必须切回键盘模式展示。
+     */
+    private void previewRecognizedText(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            showToast(getString(R.string.h_4b5fe010));
+            return;
+        }
+        final String clean = text.trim();
+        // 标记本次识别预览的消息来源为语音，发送时在 USER 消息上打语音标识
+        pendingVoiceInputSource = true;
+        runOnUiThread(() -> {
+            if (inputMessage != null) {
+                inputMessage.setText(clean);
+                inputMessage.requestFocus();
+                inputMessage.setSelection(inputMessage.getText().length());
+            } else if (inputManager != null) {
+                inputManager.appendText(clean);
+            }
+            // 退出语音模式，展示输入框供用户预览/修改
+            if (voiceInputMode) {
+                voiceInputMode = false;
+                updateVoiceInputModeUI();
+            }
+            showToast(getString(R.string.h_a3d12e2b));
+        });
+    }
+
+    /** 取消语音输入录音：停止录音、删除临时文件、不识别（微信式上滑取消） */
+    private void cancelSpeechRecording() {
+        if (speechMediaRecorder != null) {
+            try {
+                speechMediaRecorder.stop();
+            } catch (Exception ignored) {
+            }
+        }
+        isSpeechRecording = false;
+        releaseSpeechRecorder();
+        // 释放麦克风占用（Agent 语音输入组件可继续录音）
+        com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
+        // 删除临时录音文件
+        if (speechRecordingFilePath != null) {
+            try {
+                File f = new File(speechRecordingFilePath);
+                if (f.exists()) f.delete();
+            } catch (Exception ignored) {
+            }
+            speechRecordingFilePath = null;
+        }
+        updateVoiceRecordingUI(false);
+    }
+
+    /** 释放语音输入录音器 */
+    private void releaseSpeechRecorder() {
+        if (speechMediaRecorder != null) {
+            try {
+                speechMediaRecorder.release();
+            } catch (Exception ignored) {
+            }
+            speechMediaRecorder = null;
+        }
+    }
+
+    /** 语音模型设置：配置语音识别/语音合成专用模型 */
+    private void handleSpeechModelConfig() {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(getString(R.string.h_eddfcc8d))
+            .setItems(new String[]{"🎙️ 语音识别模型（语音转文字）", "🔊 语音合成模型（文字转语音）"},
+                (dialog, which) -> {
+                    if (which == 0) {
+                        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(
+                                AIChatActivity.this,
+                                com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.ASR)
+                            .show();
+                    } else {
+                        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(
+                                AIChatActivity.this,
+                                com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.TTS)
+                            .show();
+                    }
+                })
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .show();
+    }
+
+    /** 处理相机拍摄的照片 */
+    private void handleCameraPhoto(Uri photoUri) {
+        try {
+            // 复制照片到应用缓存目录，得到真实文件路径（FileProvider 的 content:// URI 直接使用会失效）
+            String localPath = copyUriToCacheFile(photoUri);
+            if (localPath == null) {
+                showToast(getString(R.string.h_2a33a288));
+                return;
+            }
+            java.io.File localFile = new java.io.File(localPath);
+            long fileSize = localFile.exists() ? localFile.length() : 0;
+
+            // 创建附件：url 使用 file:// URI 保证路径正确传递，thumbnailPath 用于缩略图显示
+            ChatMessage.Attachment attachment = new ChatMessage.Attachment(
+                "image",
+                Uri.fromFile(localFile).toString(),
+                "photo_" + System.currentTimeMillis() + ".jpg",
+                fileSize
+            );
+            attachment.localFilePath = localPath;
+            attachment.thumbnailPath = localPath;
+
+            // 统一走 inputManager 添加（sendMessage 从 inputManager 取附件）
+            if (inputManager != null) {
+                inputManager.addAttachment(attachment);
+            } else {
+                currentAttachments.add(attachment);
+            }
+            resetAttachmentAdapter();
+            showToast(getString(R.string.h_a2f2a147));
+
+        } catch (Exception e) {
+            AppLogger.aiE(TAG, "Error handling camera photo: " + e.getMessage());
+            showToast(getString(R.string.h_76cf127f) + e.getMessage());
+        }
+    }
+
+    /** 处理录音功能 */
+    private void handleRecordAudio() {
+        if (isRecording) {
+            stopRecording();
+        } else {
+            // ✅ 使用统一的权限管理工具
+            com.oilquiz.app.resource.PermissionResourceProvider provider = 
+                com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+            
+            provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
+                @Override
+                public void onGranted() {
+                    // 权限已授予，开始录音
+                    startRecording();
+                }
+                
+                @Override
+                public void onDenied(java.util.List<String> deniedPermissions) {
+                    showToast(getString(R.string.h_997a1a2c));
+                    setVoiceButtonEnabled(false);
+                }
+            });
+        }
+    }
+
+    /** 开始录音 */
+    private void startRecording() {
+        try {
+            // 创建临时音频文件
+            File audioFile = createAudioFile();
+            if (audioFile == null) {
+                showToast(getString(R.string.h_24f55c59));
+                return;
+            }
+            recordingFilePath = audioFile.getAbsolutePath();
+            
+            // 初始化 MediaRecorder
+            mediaRecorder = new MediaRecorder();
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12+ 使用新的 API
+                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+                mediaRecorder.setAudioSamplingRate(44100);
+                mediaRecorder.setAudioEncodingBitRate(128000);
+            } else {
+                // 旧版本兼容
+                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.DEFAULT);
+                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.DEFAULT);
+            }
+            
+            mediaRecorder.setOutputFile(recordingFilePath);
+            mediaRecorder.prepare();
+            mediaRecorder.start();
+            
+            isRecording = true;
+            showToast(getString(R.string.h_c3f0e02f));
+            
+            // 更新按钮状态（可选：显示录音中提示）
+            updateRecordingUI(true);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            showToast(getString(R.string.h_8339b334) + e.getMessage());
+            releaseMediaRecorder();
+        }
+    }
+
+    /** 停止录音并添加到附件 */
+    private void stopRecording() {
+        if (!isRecording || mediaRecorder == null) {
+            return;
+        }
+        
+        try {
+            mediaRecorder.stop();
+            isRecording = false;
+            
+            // 创建音频附件
+            File audioFile = new File(recordingFilePath);
+            if (audioFile.exists() && audioFile.length() > 0) {
+                Uri audioUri = Uri.fromFile(audioFile);
+                ChatMessage.Attachment attachment = new ChatMessage.Attachment(
+                    "audio",
+                    audioUri.toString(),
+                    "语音消息"
+                );
+                // 统一走 inputManager 添加
+                if (inputManager != null) {
+                    inputManager.addAttachment(attachment);
+                } else {
+                    currentAttachments.add(attachment);
+                }
+                
+                // 刷新附件列表显示
+                refreshAttachmentsUI();
+                
+                showToast(getString(R.string.h_e2a65c56));
+            } else {
+                showToast(getString(R.string.h_ba8cd317));
+            }
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            showToast(getString(R.string.h_61a16521) + e.getMessage());
+        } finally {
+            releaseMediaRecorder();
+            updateRecordingUI(false);
+        }
+    }
+
+    /** 释放 MediaRecorder 资源 */
+    private void releaseMediaRecorder() {
+        if (mediaRecorder != null) {
+            try {
+                mediaRecorder.release();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            mediaRecorder = null;
+        }
+    }
+
+    /** 显示权限设置对话框，引导用户去系统设置页面 */
+    private void showPermissionSettingsDialog() {
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(getString(R.string.h_de440817))
+            .setMessage(getString(R.string.h_372868fa))
+            .setPositiveButton(getString(R.string.h_24114160), (dialog, which) -> {
+                // 打开应用设置页面
+                android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            })
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .show();
+    }
+
+    /** 创建临时音频文件 */
+    private File createAudioFile() throws IOException {
+        String timeStamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+            .format(new java.util.Date());
+        String audioFileName = "AUDIO_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC);
+        if (storageDir == null) {
+            storageDir = getCacheDir();
+        }
+        return File.createTempFile(audioFileName, ".mp4", storageDir);
+    }
+
+    /** 更新录音 UI 状态 */
+    private void updateRecordingUI(boolean recording) {
+        runOnUiThread(() -> {
+            if (recording) {
+                showToast(getString(R.string.h_b1c1d48c));
+            } else {
+                showToast(getString(R.string.h_f4854afd));
+            }
+        });
+    }
+
+    /** 刷新附件列表 UI */
+    private void refreshAttachmentsUI() {
+        // 如果有附件 RecyclerView，刷新它
+        // 这里假设有一个 attachmentRecyclerView
+        // attachmentRecyclerView.getAdapter().notifyDataSetChanged();
+    }
+
+    /** 创建临时图片文件 */
+    private File createImageFile() throws IOException {
+        String timeStamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+            .format(new java.util.Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        
+        File storageDir = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES);
+        if (storageDir == null) {
+            storageDir = getCacheDir();
+        }
+        
+        File image = File.createTempFile(imageFileName, ".jpg", storageDir);
+        return image;
     }
 
     /** 显示附件选项对话框 */
@@ -8585,11 +10319,11 @@ public class AIChatActivity extends BaseActivity {
                     guideDirectoryPickerLauncher.launch(null);
                     break;
                 default:
-                    showToast("不支持的选择器类型");
+                    showToast(getString(R.string.h_71ba40c1));
             }
         } catch (Exception e) {
             AILogger.e("[AIChat]", "启动选择器失败", e);
-            showToast("打开文件管理器失败，请尝试手动输入路径");
+            showToast(getString(R.string.h_fcc5458b));
         }
     }
 
@@ -8619,13 +10353,13 @@ public class AIChatActivity extends BaseActivity {
             }
         } catch (Exception e) {
             AILogger.w("[AIChat]", "路径解析失败，回退手动输入: " + e.getMessage());
-            showToast("无法解析所选路径，请手动输入");
+            showToast(getString(R.string.h_53437401));
             showManualPathInput(step, valueView, pickerBtn);
             return;
         }
 
         if (path == null || path.isEmpty()) {
-            showToast("无法获取路径，请手动输入");
+            showToast(getString(R.string.h_7c1a5043));
             showManualPathInput(step, valueView, pickerBtn);
             return;
         }
@@ -8635,7 +10369,7 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> valueView.setText(path));
         }
         if (pickerBtn != null) {
-            runOnUiThread(() -> pickerBtn.setText("已选择 ✓"));
+            runOnUiThread(() -> pickerBtn.setText(getString(R.string.h_ee1de131)));
         }
     }
 
@@ -8652,24 +10386,24 @@ public class AIChatActivity extends BaseActivity {
         int pad = (int) (18 * getResources().getDisplayMetrics().density);
         et.setPadding(pad, pad / 2, pad, pad / 2);
 
-        String title = step.type == ToolGuideFlow.GuideStep.StepType.IMAGE_PICKER ? "手动输入图片路径"
+        String title = step.type == ToolGuideFlow.GuideStep.StepType.IMAGE_PICKER ? getString(R.string.h_e1e280eb)
                 : step.type == ToolGuideFlow.GuideStep.StepType.DIRECTORY_PICKER ? "手动输入目录路径"
                 : "手动输入文件路径";
         new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setMessage(step.description)
                 .setView(et)
-                .setNegativeButton("取消", null)
-                .setPositiveButton("确定", (d, w) -> {
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
+                .setPositiveButton(getString(R.string.h_38cf16f2), (d, w) -> {
                     String v = et.getText() == null ? "" : et.getText().toString().trim();
                     if (v.isEmpty() && step.required) {
-                        showToast("路径不能为空");
+                        showToast(getString(R.string.h_60aa379b));
                         return;
                     }
                     step.paramValue = v;
                     if (valueView != null) valueView.setText(v);
                     if (pickerBtn != null) {
-                        pickerBtn.setText(v.isEmpty() ? "选择路径" : "已选择 ✓");
+                        pickerBtn.setText(v.isEmpty() ? getString(R.string.h_e3cf912f) : getString(R.string.h_ee1de131));
                     }
                 }).show();
     }
@@ -8816,7 +10550,7 @@ public class AIChatActivity extends BaseActivity {
                 inputManager.addAttachment(attachment);
             }
         }
-        showToast("已添加 " + uris.size() + " 个附件，可预览后发送");
+        showToast(getString(R.string.h_24c5bd08) + uris.size() + getString(R.string.h_e74f5dd7));
         // 附件已添加到输入区（attachmentList 预览），由用户确认后点发送，
         // 不再自动发送（sendMessage 发送时会携带 currentAttachments）
     }
@@ -8834,7 +10568,7 @@ public class AIChatActivity extends BaseActivity {
         for (ChatMessage.Attachment att : savedAttachments) {
             if ("image".equals(att.type)) { hasImageAttachment = true; break; }
         }
-        if (!hasImageAttachment && !isAIReady()) { showToast("AI服务未就绪，请稍后重试"); return; }
+        if (!hasImageAttachment && !isAIReady()) { showToast(getString(R.string.h_efd0d08e)); return; }
 
         inputManager.clearAttachments();
 
@@ -8899,6 +10633,11 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 同步本地Agent开关状态（可能在其他页面切换过）
+        if (chipLocalAgent != null && aiConfig != null) {
+            chipLocalAgent.setChecked(aiConfig.isLocalAgentEnabled());
+            updateAgentChip(chipLocalAgent);
+        }
         updateModeButtonText();
         updateApiBalanceDisplay();
         initAgentChatHandler();
@@ -8917,6 +10656,9 @@ public class AIChatActivity extends BaseActivity {
         // 再次进入页面时定位到最新消息。
         // 延迟执行：确保列表完成 layout（历史可能刚异步加载完成），直接 scrollToPosition 定位到底部
         messageList.postDelayed(() -> scrollToBottom(true), 80);
+
+        // 启动状态条轮询：思考段（THINKING）不产出正文 token，只能靠定时刷新拿到
+        startStatePolling();
     }
 
     private String getFileNameFromUri(Uri uri) {
@@ -9022,6 +10764,7 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopStatePolling();
         try {
             // 释放语音输入录音器与 TTS 播放资源
             releaseSpeechRecorder();

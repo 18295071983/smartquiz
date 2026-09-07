@@ -44,7 +44,7 @@ public class DatabaseDetailActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_database_detail);
 
-        setTitle("数据库详情");
+        setTitle(getString(R.string.h_8ae3343c));
 
         initViews();
         executorService = Executors.newSingleThreadExecutor();
@@ -88,7 +88,7 @@ public class DatabaseDetailActivity extends AppCompatActivity {
         if (isValid()) {
             runOnUiThread(() -> {
                 if (isValid()) {
-                    tvDatabaseStatus.setText("数据库状态：加载中...");
+                    tvDatabaseStatus.setText(getString(R.string.h_ebbc4dab));
                 }
             });
         }
@@ -103,8 +103,8 @@ public class DatabaseDetailActivity extends AppCompatActivity {
                     if (isValid()) {
                         runOnUiThread(() -> {
                             if (isValid()) {
-                                tvDatabaseStatus.setText("数据库状态：未初始化");
-                                Toast.makeText(DatabaseDetailActivity.this, "数据库未初始化", Toast.LENGTH_SHORT).show();
+                                tvDatabaseStatus.setText(getString(R.string.h_6b0e350f));
+                                Toast.makeText(DatabaseDetailActivity.this, getString(R.string.h_ac745b6b), Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
@@ -142,14 +142,14 @@ public class DatabaseDetailActivity extends AppCompatActivity {
                 if (isValid()) {
                     runOnUiThread(() -> {
                         if (isValid()) {
-                            tvDatabaseStatus.setText("数据库状态：正常");
-                            tvDatabaseVersion.setText("数据库版本：" + version);
-                            tvDatabasePath.setText("数据库路径：" + databasePath);
-                            tvUserCount.setText("用户数量：" + userCount);
-                            tvQuestionCount.setText("题目数量：" + questionCount);
-                            tvStudyPlanCount.setText("学习计划数量：" + studyPlanCount);
-                            tvNoteCount.setText("笔记数量：" + noteCount);
-                            tvWrongQuestionCount.setText("错题数量：" + wrongQuestionCount);
+                            tvDatabaseStatus.setText(getString(R.string.h_dcb5aa84));
+                            tvDatabaseVersion.setText(getString(R.string.h_4ceba125) + version);
+                            tvDatabasePath.setText(getString(R.string.h_7f17c115) + databasePath);
+                            tvUserCount.setText(getString(R.string.h_2b177167) + userCount);
+                            tvQuestionCount.setText(getString(R.string.h_01bb3424) + questionCount);
+                            tvStudyPlanCount.setText(getString(R.string.h_d3ffdfe4) + studyPlanCount);
+                            tvNoteCount.setText(getString(R.string.h_7cdd9e97) + noteCount);
+                            tvWrongQuestionCount.setText(getString(R.string.h_1001e404) + wrongQuestionCount);
                         }
                     });
                 }
@@ -159,8 +159,8 @@ public class DatabaseDetailActivity extends AppCompatActivity {
                 if (isValid()) {
                     runOnUiThread(() -> {
                         if (isValid()) {
-                            tvDatabaseStatus.setText("数据库状态：异常");
-                            Toast.makeText(DatabaseDetailActivity.this, "加载数据库详情失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            tvDatabaseStatus.setText(getString(R.string.h_4de5f0cd));
+                            Toast.makeText(DatabaseDetailActivity.this, getString(R.string.h_415ae918) + e.getMessage(), Toast.LENGTH_SHORT).show();
                         }
                     });
                 }

@@ -122,9 +122,16 @@ public class OnlineToolGuide {
         sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit\n");
         sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
         sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
-        sb.append("  4. 查询天气用 ai_weather 工具（当前天气/多日预报完整返回），不要依赖注入的环境信息\n");
+        sb.append("  4. 天气优先用 ai_weather（当前天气/多日预报完整返回；城市用 city，无城市可先 location 定位拿 lat/lon 配合查询），也可用 network_search 搜索天气；不要依赖注入的环境信息\n");
         sb.append("  5. 善用推理能力先思考再行动，可多轮推理和调用工具\n");
-        sb.append("  6. 如果已有足够信息，直接回答用户，不要调用不必要的工具\n\n");
+        sb.append("  6. 调用工具是你正常的工作方式：需要实时信息、计算、行动或外部数据时放心调用，是否调用由你自主判断；信息已足够时自然回答即可\n");
+        sb.append("  7. 按需选参数：多数工具支持多种操作类型（action）与多种参数方式——先按用户需求选最匹配的 action，再填对应参数。\n");
+        sb.append("     例如 ai_weather 可 current(实时)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)，位置可用 city(城市名或和风城市编码) 或 lat+lon 经纬度；\n");
+        sb.append("     network_search 可 search(搜索)/ask(智能问答)/read_url(网页读取)/get_webpage(本地抓取)/extract_info(提取信息)/summarize(摘要)/search_and_read(搜索并阅读)/get_dynamic_content(动态网页)/smart_search(智能搜索)/smart_read(智能阅读)，ask还可选model=concise/detail/research。\n");
+        sb.append("     不确定某工具完整参数时用 tool_registry(action=get, tool=工具名) 查看定义后再调用，不要只重复默认参数。\n");
+        sb.append("  8. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造；不确定的时效性事实先查证再下结论。\n");
+        sb.append("  9. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，工具会解析并返回结果，以工具返回为准；参数有误时工具返回错误，再按工具结果调整。\n");
+        sb.append("  10. 实时信息（时间/位置/天气/新闻/行情/开奖/政策等）一律用工具获取，训练数据不采纳；缺失或不确定时同样直接调对应工具拿真实结果，工具返回的数据是准确实时的，直接采纳。\n\n");
 
         sb.append("═══════════════════════════════════════════════════════\n");
 

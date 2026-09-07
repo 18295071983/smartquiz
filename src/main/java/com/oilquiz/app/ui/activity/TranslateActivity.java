@@ -93,7 +93,7 @@ public class TranslateActivity extends AppCompatActivity {
             if (currentTask != null && !currentTask.isDone()) {
                 currentTask.cancel(true);
                 loadingLayout.setVisibility(View.GONE);
-                Toast.makeText(TranslateActivity.this, "操作已取消", Toast.LENGTH_SHORT).show();
+                Toast.makeText(TranslateActivity.this, getString(R.string.h_a45bac47), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -105,8 +105,8 @@ public class TranslateActivity extends AppCompatActivity {
         setupSpinner(targetLanguageSpinner, languageOptions);
 
         // 默认选择
-        sourceLanguageSpinner.setText("中文", false);
-        targetLanguageSpinner.setText("英文", false);
+        sourceLanguageSpinner.setText(getString(R.string.h_a7bac223), false);
+        targetLanguageSpinner.setText(getString(R.string.h_f9fb6a06), false);
     }
 
     private void setupSpinner(AutoCompleteTextView spinner, String[] options) {
@@ -126,13 +126,13 @@ public class TranslateActivity extends AppCompatActivity {
     private void updateUI() {
         if (radioLanguageDetect.isChecked()) {
             // 语言检测模式
-            inputTextLayout.setHint("输入要检测的文本");
+            inputTextLayout.setHint(getString(R.string.h_5e9c2ff3));
         } else if (radioQuestionTranslate.isChecked()) {
             // 题目翻译模式
-            inputTextLayout.setHint("输入题目（包含选项和答案）");
+            inputTextLayout.setHint(getString(R.string.h_1ea9776a));
         } else {
             // 文本翻译模式
-            inputTextLayout.setHint("输入文本");
+            inputTextLayout.setHint(getString(R.string.h_7bd72694));
         }
     }
 
@@ -163,7 +163,7 @@ public class TranslateActivity extends AppCompatActivity {
         // 1. 获取输入文本
         String input = inputText.getText().toString().trim();
         if (input.isEmpty()) {
-            Toast.makeText(this, "请输入要翻译的文本", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_f467e05d), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -193,21 +193,21 @@ public class TranslateActivity extends AppCompatActivity {
         // 3. 调用AI服务进行翻译
         if (!aiService.isInitialized()) {
             if (!aiService.initializeSafe()) {
-                Toast.makeText(this, "AI服务初始化失败，请先导入模型", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_f559a2f7), Toast.LENGTH_SHORT).show();
                 return;
             }
         }
 
         // 更新加载消息
         if (radioLanguageDetect.isChecked()) {
-            loadingMessage.setText("检测语言中");
-            loadingSubmessage.setText("正在分析文本语言，请稍候...");
+            loadingMessage.setText(getString(R.string.h_9113c7ef));
+            loadingSubmessage.setText(getString(R.string.h_c563f559));
         } else if (radioQuestionTranslate.isChecked()) {
-            loadingMessage.setText("翻译题目中");
-            loadingSubmessage.setText("正在翻译题目内容，请稍候...");
+            loadingMessage.setText(getString(R.string.h_8beafa09));
+            loadingSubmessage.setText(getString(R.string.h_0bd89a98));
         } else {
-            loadingMessage.setText("翻译文本中");
-            loadingSubmessage.setText("正在翻译文本内容，请稍候...");
+            loadingMessage.setText(getString(R.string.h_34e008d0));
+            loadingSubmessage.setText(getString(R.string.h_3c372740));
         }
         loadingLayout.setVisibility(View.VISIBLE);
 
@@ -223,9 +223,9 @@ public class TranslateActivity extends AppCompatActivity {
                 resultContainer.setVisibility(View.VISIBLE);
                 actionsContainer.setVisibility(View.VISIBLE);
                 translateResult.setText(result);
-                Toast.makeText(this, "翻译成功", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_92c9ef31), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "翻译失败，请重试", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_a5d2dadc), Toast.LENGTH_SHORT).show();
             }
         })).exceptionally(throwable -> {
             runOnUiThread(() -> {
@@ -233,7 +233,7 @@ public class TranslateActivity extends AppCompatActivity {
                 loadingLayout.setVisibility(View.GONE);
                 // 显示错误信息
                 Log.e("Translate", "Error translating text", throwable);
-                Toast.makeText(this, "翻译时出错: " + throwable.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_1e9d2db6) + throwable.getMessage(), Toast.LENGTH_SHORT).show();
             });
             return null;
         });
@@ -242,7 +242,7 @@ public class TranslateActivity extends AppCompatActivity {
     private void copyResult() {
         String result = translateResult.getText().toString().trim();
         if (result.isEmpty()) {
-            Toast.makeText(this, "没有可复制的内容", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_42ee3bba), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -250,17 +250,17 @@ public class TranslateActivity extends AppCompatActivity {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             ClipData clip = ClipData.newPlainText("翻译结果", result);
             clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_4fb42e6e), Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Log.e("Translate", "Error copying result", e);
-            Toast.makeText(this, "复制失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_abdfe253) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
     private void shareResult() {
         String result = translateResult.getText().toString().trim();
         if (result.isEmpty()) {
-            Toast.makeText(this, "没有可分享的内容", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_e9a0e8eb), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -272,7 +272,7 @@ public class TranslateActivity extends AppCompatActivity {
             startActivity(android.content.Intent.createChooser(shareIntent, "分享翻译结果"));
         } catch (Exception e) {
             Log.e("Translate", "Error sharing result", e);
-            Toast.makeText(this, "分享失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_9074ea4d) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 }

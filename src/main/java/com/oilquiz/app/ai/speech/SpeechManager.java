@@ -5,6 +5,8 @@ import android.net.Uri;
 
 import com.oilquiz.app.ai.model.OnlineModelManager;
 
+import com.oilquiz.app.util.AILogger;
+
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
 
@@ -28,10 +30,20 @@ import java.util.concurrent.CompletableFuture;
  */
 public class SpeechManager {
 
+    private static final String TAG = "SpeechManager";
+
     private final Context context;
     private final SpeechRecognitionService asrService;
     private final TTSService ttsService;
-    private volatile SystemSpeechRecognizer offlineRecognizer; // 离线/系统语音识别兜底
+    private volatile LocalAsrRecognizer localRecognizer;      // 本地离线 ASR（SenseVoice，App 前台录音，绕开系统后台限制）
+
+    /**
+     * 本地 SenseVoice 离线语音识别开关（用户要求：当前禁用本地语音识别）。
+     * true=使用本地 SenseVoice；false=禁用，语音识别走系统识别兜底 / 在线识别。
+     * 恢复时改为 true 即可，无需其他改动。
+     */
+    private static final boolean LOCAL_ASR_ENABLED = false;
+    private volatile SystemSpeechRecognizer offlineRecognizer; // 系统语音识别兜底（本地模型不可用时）
 
     /** 录音占用者："app"=应用层录音按钮 / "agent"=Agent语音输入组件，同一时间只允许一方录音 */
     private volatile String recordingOwner = null;
@@ -111,25 +123,89 @@ public class SpeechManager {
 
     // ---------- 离线/系统语音识别兜底 ----------
 
-    /** 设备是否有可用的系统语音识别服务（离线兜底） */
+    /**
+     * 设备是否有可用的系统语音识别服务（离线兜底）。
+     * 真实检测设备上是否注册了系统 RecognitionService（如小米小爱语音引擎的
+     * com.xiaomi.mibrain.speech/.asr.AsrService），而非写死禁用。
+     */
     public boolean isOfflineAsrAvailable() {
-        return false; // 已禁用系统语音识别兜底
+        try {
+            // 本地 SenseVoice 已禁用（LOCAL_ASR_ENABLED=false），仅检查系统识别服务
+            if (!LOCAL_ASR_ENABLED) {
+                return SystemSpeechRecognizer.isAvailable(context);
+            }
+            // 优先本地 SenseVoice（完全离线，无系统服务限制）
+            if (localRecognizer == null) {
+                localRecognizer = new LocalAsrRecognizer(context);
+            }
+            if (localRecognizer.isAvailable()) {
+                return true;
+            }
+            // 本地模型未就绪时回退检查系统识别服务
+            return SystemSpeechRecognizer.isAvailable(context);
+        } catch (Exception e) {
+            AILogger.w(TAG, "检查离线语音识别可用性失败: " + e.getMessage());
+            return false;
+        }
     }
 
     /**
      * 启动离线/系统语音识别（实时监听麦克风）
-     * 用于在线 ASR 不可用或调用失败时的兜底；需用户重新说话
+     * 用于在线 ASR 不可用或调用失败时的兜底；需用户重新说话。
+     * 修复：恢复被禁用的系统语音识别兜底，不再强制要求配置在线语音识别模型。
      */
     public void startOfflineRecognition(SystemSpeechRecognizer.RecognitionCallback callback) {
-        // 已禁用系统语音识别兜底
-        if (callback != null) {
-            callback.onError("系统语音识别已禁用，请配置在线语音识别模型（如 qwen3-asr-flash）");
-            callback.onEnd();
+        try {
+            // 本地 SenseVoice 已禁用：直接走系统语音识别兜底
+            if (!LOCAL_ASR_ENABLED) {
+                if (!SystemSpeechRecognizer.isAvailable(context)) {
+                    if (callback != null) {
+                        callback.onError("本地语音识别已禁用且系统识别不可用，请配置在线语音识别模型");
+                        callback.onEnd();
+                    }
+                    return;
+                }
+                if (offlineRecognizer == null) {
+                    offlineRecognizer = new SystemSpeechRecognizer(context);
+                }
+                offlineRecognizer.startListening(callback);
+                return;
+            }
+            // 优先本地 SenseVoice（App 前台录音 + 端侧推理，天然绕开 Android 12+ 后台录音限制）
+            if (localRecognizer == null) {
+                localRecognizer = new LocalAsrRecognizer(context);
+            }
+            if (localRecognizer.isAvailable()) {
+                localRecognizer.startListening(callback);
+                return;
+            }
+            // 本地模型未就绪（如首次加载中/加载失败）：回退系统语音识别
+            if (!SystemSpeechRecognizer.isAvailable(context)) {
+                if (callback != null) {
+                    callback.onError("当前设备没有可用的离线语音识别（本地模型与系统识别均不可用），请稍后重试或配置在线语音识别模型");
+                    callback.onEnd();
+                }
+                return;
+            }
+            if (offlineRecognizer == null) {
+                offlineRecognizer = new SystemSpeechRecognizer(context);
+            }
+            offlineRecognizer.startListening(callback);
+        } catch (Exception e) {
+            AILogger.e(TAG, "启动离线语音识别失败: " + e.getMessage(), e);
+            if (callback != null) {
+                callback.onError("离线语音识别启动失败: " + e.getMessage());
+                callback.onEnd();
+            }
         }
     }
 
     /** 停止离线识别（触发最终结果回调） */
     public void stopOfflineRecognition() {
+        if (LOCAL_ASR_ENABLED && localRecognizer != null && localRecognizer.isListening()) {
+            localRecognizer.stopListening();
+            return;
+        }
         if (offlineRecognizer != null) {
             offlineRecognizer.stopListening();
         }
@@ -137,6 +213,10 @@ public class SpeechManager {
 
     /** 取消离线识别并释放 */
     public void cancelOfflineRecognition() {
+        if (LOCAL_ASR_ENABLED && localRecognizer != null && localRecognizer.isListening()) {
+            localRecognizer.cancel();
+            return;
+        }
         if (offlineRecognizer != null) {
             offlineRecognizer.cancel();
         }
@@ -144,7 +224,8 @@ public class SpeechManager {
 
     /** 是否正在进行离线识别 */
     public boolean isOfflineRecognizing() {
-        return offlineRecognizer != null && offlineRecognizer.isListening();
+        return (LOCAL_ASR_ENABLED && localRecognizer != null && localRecognizer.isListening())
+                || (offlineRecognizer != null && offlineRecognizer.isListening());
     }
 
     /** 获取当前生效的 ASR 模型显示名（用于 UI 展示） */

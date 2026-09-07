@@ -22,7 +22,6 @@ import com.oilquiz.app.util.render.ExcelUtil;
 import com.oilquiz.app.util.render.ExcelRenderer;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import com.oilquiz.app.ui.adapter.FilePreviewAdapter;
@@ -96,7 +95,7 @@ public class FilePreviewActivity extends AppCompatActivity {
                 setResult(RESULT_OK, resultIntent);
                 finish();
             } else {
-                Toast.makeText(this, "请完成字段映射", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_921ef2ea), Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -114,7 +113,7 @@ public class FilePreviewActivity extends AppCompatActivity {
             contentContainer.setVisibility(View.GONE);
         }
         if (statusText != null) {
-            statusText.setText("正在加载文件内容...");
+            statusText.setText(getString(R.string.h_447dda29));
         }
 
         // 检查file对象是否为null
@@ -127,10 +126,10 @@ public class FilePreviewActivity extends AppCompatActivity {
                     contentContainer.setVisibility(View.VISIBLE);
                 }
                 if (statusText != null) {
-                    statusText.setText("文件路径为空");
+                    statusText.setText(getString(R.string.h_2201ac77));
                     statusText.setVisibility(View.VISIBLE);
                 }
-                Toast.makeText(FilePreviewActivity.this, "文件路径为空，无法加载文件", Toast.LENGTH_SHORT).show();
+                Toast.makeText(FilePreviewActivity.this, getString(R.string.h_8da0929d), Toast.LENGTH_SHORT).show();
             });
             return;
         }
@@ -145,10 +144,10 @@ public class FilePreviewActivity extends AppCompatActivity {
                     contentContainer.setVisibility(View.VISIBLE);
                 }
                 if (statusText != null) {
-                    statusText.setText("文件不存在");
+                    statusText.setText(getString(R.string.h_d9523e34));
                     statusText.setVisibility(View.VISIBLE);
                 }
-                Toast.makeText(FilePreviewActivity.this, "文件不存在，无法加载", Toast.LENGTH_SHORT).show();
+                Toast.makeText(FilePreviewActivity.this, getString(R.string.h_48319955), Toast.LENGTH_SHORT).show();
             });
             return;
         }
@@ -159,7 +158,7 @@ public class FilePreviewActivity extends AppCompatActivity {
             public void onRenderStart() {
                 runOnUiThread(() -> {
                     if (statusText != null) {
-                        statusText.setText("开始渲染文件...");
+                        statusText.setText(getString(R.string.h_4ac73467));
                     }
                 });
             }
@@ -168,7 +167,7 @@ public class FilePreviewActivity extends AppCompatActivity {
             public void onRenderProgress(int current, int total) {
                 runOnUiThread(() -> {
                     if (statusText != null) {
-                        statusText.setText("渲染中: " + current + "/" + total + " 行");
+                        statusText.setText(getString(R.string.h_651e91ce) + current + "/" + total + " 行");
                     }
                     if (progressBar != null && total > 0) {
                         progressBar.setProgress((int) ((float) current / total * 100));
@@ -197,13 +196,13 @@ public class FilePreviewActivity extends AppCompatActivity {
                         }
                         
                         // 显示成功提示
-                        Toast.makeText(FilePreviewActivity.this, "文件加载成功，共" + dataRows.size() + "行数据", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(FilePreviewActivity.this, getString(R.string.h_4be7d9d7) + dataRows.size() + getString(R.string.h_f3d257a2), Toast.LENGTH_SHORT).show();
                     } else {
                         if (statusText != null) {
-                            statusText.setText("文件内容为空或格式错误");
+                            statusText.setText(getString(R.string.h_3fead349));
                             statusText.setVisibility(View.VISIBLE);
                         }
-                        Toast.makeText(FilePreviewActivity.this, "无法读取文件内容", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(FilePreviewActivity.this, getString(R.string.h_70238c3e), Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -218,10 +217,10 @@ public class FilePreviewActivity extends AppCompatActivity {
                         contentContainer.setVisibility(View.VISIBLE);
                     }
                     if (statusText != null) {
-                        statusText.setText("加载失败: " + message);
+                        statusText.setText(getString(R.string.h_4bbdceb5) + message);
                         statusText.setVisibility(View.VISIBLE);
                     }
-                    Toast.makeText(FilePreviewActivity.this, "加载文件失败: " + message, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(FilePreviewActivity.this, getString(R.string.h_04a40cad) + message, Toast.LENGTH_SHORT).show();
                 });
             }
         });
@@ -250,9 +249,9 @@ public class FilePreviewActivity extends AppCompatActivity {
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e("FilePreviewActivity", "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("错误")
-                    .setMessage("没有找到文件选择器应用，请安装文件管理器")
-                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setTitle(getString(R.string.h_7030ff64))
+                    .setMessage(getString(R.string.h_b5ea0a10))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                     .setCancelable(false)
                     .show();
         }
@@ -266,28 +265,29 @@ public class FilePreviewActivity extends AppCompatActivity {
             Uri uri = data.getData();
             if (uri != null) {
                 try {
-                    // 将 Uri 转换为文件路径
-                    String path = getPathFromUri(uri);
-                    if (path != null) {
-                        AppLogger.i("FilePreviewActivity", "选择的文件路径: " + path);
+                    // 预览引擎只能加载本地路径，SAF 返回的 content:// Uri 直接用流复制到应用缓存目录
+                    // （Android 10+ 分区存储下无真实路径，不查已废弃的 MediaStore DATA 列）
+                    File cached = com.oilquiz.app.util.UriPathResolver.copyContentUriToCache(this, uri.toString());
+                    if (cached != null && cached.exists()) {
+                        AppLogger.i("FilePreviewActivity", "SAF 文件已复制到缓存: " + cached.getAbsolutePath());
                         // 重新启动预览
                         Intent intent = new Intent(this, FilePreviewActivity.class);
-                        intent.putExtra(EXTRA_FILE_PATH, path);
+                        intent.putExtra(EXTRA_FILE_PATH, cached.getAbsolutePath());
                         startActivity(intent);
                         finish();
                     } else {
-                        AppLogger.e("FilePreviewActivity", "无法获取文件路径");
-                        Toast.makeText(this, "无法获取文件路径", Toast.LENGTH_SHORT).show();
+                        AppLogger.e("FilePreviewActivity", "SAF 文件复制失败: " + uri);
+                        Toast.makeText(this, getString(R.string.h_c15415d3), Toast.LENGTH_SHORT).show();
                         finish();
                     }
                 } catch (Exception e) {
                     AppLogger.e("FilePreviewActivity", "处理文件选择结果失败", e);
-                    Toast.makeText(this, "处理文件选择结果失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_4fa68124) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     finish();
                 }
             } else {
                 AppLogger.e("FilePreviewActivity", "文件选择返回空 Uri");
-                Toast.makeText(this, "文件选择返回空 Uri", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_39bd3ae1), Toast.LENGTH_SHORT).show();
                 finish();
             }
         } else if (requestCode == REQUEST_CODE_FILE_PICKER) {
@@ -295,95 +295,5 @@ public class FilePreviewActivity extends AppCompatActivity {
             AppLogger.i("FilePreviewActivity", "用户取消了文件选择");
             finish();
         }
-    }
-    
-    /**
-     * 从 Uri 获取文件路径
-     */
-    private String getPathFromUri(Uri uri) {
-        try {
-            if (uri.getScheme().equals("content")) {
-                // 对于 content:// 类型的 Uri
-                // 尝试多种方式获取文件路径
-                String[] projections = {
-                    android.provider.MediaStore.Images.Media.DATA,
-                    android.provider.MediaStore.MediaColumns.DATA,
-                    android.provider.MediaStore.Files.FileColumns.DATA
-                };
-                
-                for (String projection : projections) {
-                    try {
-                        android.database.Cursor cursor = getContentResolver().query(uri, new String[]{projection}, null, null, null);
-                        if (cursor != null) {
-                            if (cursor.moveToFirst()) {
-                                int columnIndex = cursor.getColumnIndexOrThrow(projection);
-                                String path = cursor.getString(columnIndex);
-                                cursor.close();
-                                if (path != null && !path.isEmpty()) {
-                                    return path;
-                                }
-                            }
-                            cursor.close();
-                        }
-                    } catch (Exception e) {
-                        // 尝试下一种方式
-                        AppLogger.w("FilePreviewActivity", "尝试获取文件路径失败: " + e.getMessage());
-                    }
-                }
-                
-                // 如果以上方法都失败，尝试使用临时文件方式
-                return getPathFromContentUri(uri);
-            } else if (uri.getScheme().equals("file")) {
-                // 对于 file:// 类型的 Uri
-                return uri.getPath();
-            }
-        } catch (Exception e) {
-            AppLogger.e("FilePreviewActivity", "从 Uri 获取文件路径失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 content:// Uri 获取文件路径（通过创建临时文件）
-     */
-    private String getPathFromContentUri(Uri uri) {
-        try {
-            // 创建临时文件
-            File tempFile = createTempFileFromUri(uri);
-            if (tempFile != null) {
-                return tempFile.getAbsolutePath();
-            }
-        } catch (Exception e) {
-            AppLogger.e("FilePreviewActivity", "从 content Uri 创建临时文件失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 Uri 创建临时文件
-     */
-    private File createTempFileFromUri(Uri uri) throws IOException {
-        // 获取文件类型
-        String mimeType = getContentResolver().getType(uri);
-        String extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
-        if (extension == null) {
-            extension = "tmp";
-        }
-        
-        // 创建临时文件
-        File tempFile = File.createTempFile("preview_", "." + extension, getExternalFilesDir(null));
-        tempFile.deleteOnExit();
-        
-        // 复制文件内容
-        try (java.io.InputStream inputStream = getContentResolver().openInputStream(uri);
-             java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, length);
-            }
-        }
-        
-        return tempFile;
     }
 }

@@ -6,7 +6,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/ai_message_background"
-    android:padding="16dp"
+    android:padding="@dimen/space_16"
     android:visibility="gone">
 
     <LinearLayout
@@ -20,21 +20,21 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="⚙️"
-            android:textSize="24sp" />
+            android:textSize="@dimen/text_24" />
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:layout_marginStart="12dp">
+            android:layout_marginStart="@dimen/space_12">
 
             <TextView
                 android:id="@+id/progress_phase_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="正在初始化..."
-                android:textSize="15sp"
+                android:textSize="@dimen/text_15"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface" />
 
@@ -42,9 +42,9 @@
                 android:id="@+id/progress_info_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:layout_marginTop="2dp" />
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:layout_marginTop="@dimen/space_2" />
 
         </LinearLayout>
 
@@ -54,7 +54,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginTop="12dp">
+        android:layout_marginTop="@dimen/space_12">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -71,50 +71,50 @@
 
                 <View
                     android:id="@+id/step_dot_1"
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
+                    android:layout_width="@dimen/size_10"
+                    android:layout_height="@dimen/size_10"
                     android:background="@drawable/step_dot_active" />
 
                 <View
                     android:id="@+id/step_line_1"
-                    android:layout_width="0dp"
-                    android:layout_height="2dp"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_2"
                     android:layout_weight="1"
-                    android:background="@color/divider"
-                    android:layout_marginHorizontal="4dp" />
+                    android:background="?attr/colorDivider"
+                    android:layout_marginHorizontal="@dimen/space_4" />
 
                 <View
                     android:id="@+id/step_dot_2"
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
+                    android:layout_width="@dimen/size_10"
+                    android:layout_height="@dimen/size_10"
                     android:background="@drawable/step_dot_inactive" />
 
                 <View
                     android:id="@+id/step_line_2"
-                    android:layout_width="0dp"
-                    android:layout_height="2dp"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_2"
                     android:layout_weight="1"
-                    android:background="@color/divider"
-                    android:layout_marginHorizontal="4dp" />
+                    android:background="?attr/colorDivider"
+                    android:layout_marginHorizontal="@dimen/space_4" />
 
                 <View
                     android:id="@+id/step_dot_3"
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
+                    android:layout_width="@dimen/size_10"
+                    android:layout_height="@dimen/size_10"
                     android:background="@drawable/step_dot_inactive" />
 
                 <View
                     android:id="@+id/step_line_3"
-                    android:layout_width="0dp"
-                    android:layout_height="2dp"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_2"
                     android:layout_weight="1"
-                    android:background="@color/divider"
-                    android:layout_marginHorizontal="4dp" />
+                    android:background="?attr/colorDivider"
+                    android:layout_marginHorizontal="@dimen/space_4" />
 
                 <View
                     android:id="@+id/step_dot_4"
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
+                    android:layout_width="@dimen/size_10"
+                    android:layout_height="@dimen/size_10"
                     android:background="@drawable/step_dot_inactive" />
 
             </LinearLayout>
@@ -126,47 +126,47 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="@dimen/space_8">
 
             <TextView
                 android:id="@+id/step_label_1"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="初始化"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textAlignment="center"
-                android:textColor="@color/primary" />
+                android:textColor="?attr/colorPrimary" />
 
             <TextView
                 android:id="@+id/step_label_2"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="上下文"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textAlignment="center"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
             <TextView
                 android:id="@+id/step_label_3"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="编码"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textAlignment="center"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
             <TextView
                 android:id="@+id/step_label_4"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="生成"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textAlignment="center"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
         </LinearLayout>
 
@@ -176,8 +176,8 @@
         android:id="@+id/inference_progress_bar"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="6dp"
-        android:layout_marginTop="12dp"
+        android:layout_height="@dimen/size_6"
+        android:layout_marginTop="@dimen/space_12"
         android:progressDrawable="@drawable/inference_progress_bar"
         android:indeterminate="true"
         android:indeterminateOnly="false"
@@ -189,111 +189,111 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="8dp">
+        android:layout_marginTop="@dimen/space_8">
 
         <com.google.android.material.card.MaterialCardView
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginEnd="4dp"
+            android:layout_marginEnd="@dimen/space_4"
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
-            app:cardBackgroundColor="@color/surface_variant">
+            app:cardBackgroundColor="?attr/colorSurfaceVariant">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="8dp">
+                android:padding="@dimen/space_8">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Token数"
-                    android:textSize="10sp"
-                    android:textColor="@color/text_secondary" />
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary" />
 
                 <TextView
                     android:id="@+id/stats_tokens"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textStyle="bold"
                     android:textColor="?attr/colorOnSurface"
-                    android:layout_marginTop="2dp" />
+                    android:layout_marginTop="@dimen/space_2" />
 
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginHorizontal="4dp"
+            android:layout_marginHorizontal="@dimen/space_4"
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
-            app:cardBackgroundColor="@color/surface_variant">
+            app:cardBackgroundColor="?attr/colorSurfaceVariant">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="8dp">
+                android:padding="@dimen/space_8">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="速度"
-                    android:textSize="10sp"
-                    android:textColor="@color/text_secondary" />
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary" />
 
                 <TextView
                     android:id="@+id/stats_speed"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0.0 t/s"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textStyle="bold"
                     android:textColor="?attr/colorOnSurface"
-                    android:layout_marginTop="2dp" />
+                    android:layout_marginTop="@dimen/space_2" />
 
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="4dp"
+            android:layout_marginStart="@dimen/space_4"
             app:cardCornerRadius="8dp"
             app:cardElevation="0dp"
-            app:cardBackgroundColor="@color/surface_variant">
+            app:cardBackgroundColor="?attr/colorSurfaceVariant">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="8dp">
+                android:padding="@dimen/space_8">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="预计剩余"
-                    android:textSize="10sp"
-                    android:textColor="@color/text_secondary" />
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary" />
 
                 <TextView
                     android:id="@+id/stats_remaining"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="--秒"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textStyle="bold"
                     android:textColor="?attr/colorOnSurface"
-                    android:layout_marginTop="2dp" />
+                    android:layout_marginTop="@dimen/space_2" />
 
             </LinearLayout>
 

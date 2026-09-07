@@ -4,6 +4,7 @@ import android.content.Context;
 import android.net.Uri;
 
 import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.ai.util.NetworkUtil;
 import com.oilquiz.app.util.AILogger;
 
@@ -38,6 +39,7 @@ import okhttp3.Response;
  * - model: 模型（可选，默认 flux，如 flux/flux-realism/flux-anime/turbo）
  * - style: 风格关键词（可选，如 "photorealistic"/"cartoon"/"watercolor"）
  */
+@Tool(value = "image_gen", category = "media")
 public class ImageGenTool implements AITool {
 
     private static final String TAG = "ImageGenTool";

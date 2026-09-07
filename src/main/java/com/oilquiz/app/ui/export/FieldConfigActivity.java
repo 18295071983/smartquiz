@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 字段配置Activity
  * 用于配置导出字段
@@ -78,13 +79,13 @@ public class FieldConfigActivity extends AppCompatActivity {
     private void loadTemplate() {
         if (isContentTemplateMode) {
             // 显示内容模板信息
-            templateNameText.setText("内容模板：" + contentTemplateName);
+            templateNameText.setText(getString(R.string.h_92f00bd2) + contentTemplateName);
         } else {
             // 显示导出模板信息
             TemplateManager templateManager = TemplateManager.getInstance();
             template = templateManager.getTemplateById(templateId);
             if (template != null) {
-                templateNameText.setText("模板：" + template.getName());
+                templateNameText.setText(getString(R.string.h_c906734a) + template.getName());
             }
         }
     }
@@ -172,7 +173,7 @@ public class FieldConfigActivity extends AppCompatActivity {
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
                 ));
                 checkBox.setTextSize(15, android.util.TypedValue.COMPLEX_UNIT_SP);
-                checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(0xff6200ee));
+                checkBox.setButtonTintList(android.content.res.ColorStateList.valueOf(ThemeColors.attr(getContext(), R.attr.colorPrimary)));
                 layout.addView(checkBox);
                 
                 convertView.setTag(checkBox);

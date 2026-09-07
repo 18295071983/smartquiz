@@ -156,7 +156,7 @@ public class QuestionGenerateActivity extends AppCompatActivity {
             if (currentTask != null && !currentTask.isDone()) {
                 currentTask.cancel(true);
                 loadingLayout.setVisibility(View.GONE);
-                Toast.makeText(QuestionGenerateActivity.this, "操作已取消", Toast.LENGTH_SHORT).show();
+                Toast.makeText(QuestionGenerateActivity.this, getString(R.string.h_a45bac47), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -210,7 +210,7 @@ public class QuestionGenerateActivity extends AppCompatActivity {
      */
     private void updateOnlineStatus() {
         if (onlineModelConfigs.isEmpty()) {
-            tvOnlineStatus.setText("未配置任何在线模型");
+            tvOnlineStatus.setText(getString(R.string.h_294bae51));
             statusIndicator.setBackgroundResource(R.drawable.status_indicator_unknown);
             tvUsageInfo.setText("");
             return;
@@ -237,18 +237,18 @@ public class QuestionGenerateActivity extends AppCompatActivity {
         
         if (invalidCount == 0) {
             statusIndicator.setBackgroundResource(R.drawable.status_indicator_valid);
-            tvOnlineStatus.setText("在线服务正常 (" + validCount + " 个)");
+            tvOnlineStatus.setText(getString(R.string.h_cc24d89c) + validCount + getString(R.string.h_5191ee07));
         } else if (validCount > 0) {
             statusIndicator.setBackgroundResource(R.drawable.status_indicator_rate_limited);
-            tvOnlineStatus.setText(validCount + " 正常, " + invalidCount + " 异常");
+            tvOnlineStatus.setText(validCount + getString(R.string.h_2eceb80c) + invalidCount + getString(R.string.h_9766e576));
         } else {
             statusIndicator.setBackgroundResource(R.drawable.status_indicator_invalid);
-            tvOnlineStatus.setText("所有服务不可用");
+            tvOnlineStatus.setText(getString(R.string.h_48321df1));
         }
         
         if (totalLimit > 0) {
             int usagePercent = (int) ((totalUsage * 100) / totalLimit);
-            tvUsageInfo.setText("使用量: " + usagePercent + "%");
+            tvUsageInfo.setText(getString(R.string.h_1c9824a1) + usagePercent + "%");
         }
     }
 
@@ -319,14 +319,14 @@ public class QuestionGenerateActivity extends AppCompatActivity {
         // 3. 调用AI服务生成题目
         if (!aiService.isInitialized()) {
             if (!aiService.initializeSafe()) {
-                Toast.makeText(this, "AI服务初始化失败，请先导入模型", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_f559a2f7), Toast.LENGTH_SHORT).show();
                 return;
             }
         }
 
         // 更新加载消息
-        loadingMessage.setText("生成题目中");
-        loadingSubmessage.setText("正在根据您的需求生成题目，请稍候...");
+        loadingMessage.setText(getString(R.string.h_585b1380));
+        loadingSubmessage.setText(getString(R.string.h_89cfc7f1));
         loadingLayout.setVisibility(View.VISIBLE);
 
         // 异步生成题目
@@ -346,9 +346,9 @@ public class QuestionGenerateActivity extends AppCompatActivity {
                 // 保存到历史记录
                 saveToHistory(generatedQuestions, topic, difficulty, type);
                 
-                Toast.makeText(this, "题目生成成功", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_5dd4109a), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "无法解析生成的题目，请重试", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_97feb126), Toast.LENGTH_SHORT).show();
             }
         })).exceptionally(throwable -> {
             runOnUiThread(() -> {
@@ -356,7 +356,7 @@ public class QuestionGenerateActivity extends AppCompatActivity {
                 loadingLayout.setVisibility(View.GONE);
                 // 显示错误信息
                 Log.e("QuestionGenerate", "Error generating questions", throwable);
-                Toast.makeText(this, "生成题目时出错: " + throwable.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_e84b4d2f) + throwable.getMessage(), Toast.LENGTH_SHORT).show();
             });
             return null;
         });
@@ -485,7 +485,7 @@ public class QuestionGenerateActivity extends AppCompatActivity {
      */
     private void saveQuestions() {
         if (generatedQuestions == null || generatedQuestions.isEmpty()) {
-            Toast.makeText(this, "没有可保存的题目", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_974ef48d), Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -493,13 +493,13 @@ public class QuestionGenerateActivity extends AppCompatActivity {
             DatabaseManager databaseManager = DatabaseManager.getInstance(this);
             boolean success = databaseManager.addQuestions(generatedQuestions).get();
             if (success) {
-                Toast.makeText(this, "成功保存 " + generatedQuestions.size() + " 道题目", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_f159f6ed) + generatedQuestions.size() + getString(R.string.h_bafae10a), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "保存题目失败", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_7e5ad362), Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Log.e("QuestionGenerate", "Error saving questions", e);
-            Toast.makeText(this, "保存题目时出错: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_70362955) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
     
@@ -508,12 +508,12 @@ public class QuestionGenerateActivity extends AppCompatActivity {
      */
     private void shareQuestions() {
         if (generatedQuestions == null || generatedQuestions.isEmpty()) {
-            Toast.makeText(this, "没有可分享的题目", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_505f1c44), Toast.LENGTH_SHORT).show();
             return;
         }
         
         StringBuilder shareContent = new StringBuilder();
-        shareContent.append("生成的题目:\n\n");
+        shareContent.append(getString(R.string.h_fe25e9ad));
         
         for (int i = 0; i < generatedQuestions.size(); i++) {
             Question question = generatedQuestions.get(i);
@@ -533,9 +533,9 @@ public class QuestionGenerateActivity extends AppCompatActivity {
                 shareContent.append("D. " + question.getOptionD()).append("\n");
             }
             
-            shareContent.append("答案: " + question.getCorrectAnswer()).append("\n");
+            shareContent.append(getString(R.string.h_2bac46d1) + question.getCorrectAnswer()).append("\n");
             if (question.getExplanation() != null) {
-                shareContent.append("解析: " + question.getExplanation()).append("\n");
+                shareContent.append(getString(R.string.h_88261eed) + question.getExplanation()).append("\n");
             }
             shareContent.append("\n");
         }
@@ -571,19 +571,19 @@ public class QuestionGenerateActivity extends AppCompatActivity {
      */
     private void exportQuestions() {
         if (generatedQuestions == null || generatedQuestions.isEmpty()) {
-            Toast.makeText(this, "没有可导出的题目", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_ce425bfa), Toast.LENGTH_SHORT).show();
             return;
         }
         
         try {
             // 创建导出内容
             StringBuilder exportContent = new StringBuilder();
-            exportContent.append("# 生成的题目\n\n");
+            exportContent.append(getString(R.string.h_dfc48c1f));
             
             for (int i = 0; i < generatedQuestions.size(); i++) {
                 Question question = generatedQuestions.get(i);
-                exportContent.append("## 题目 " + (i + 1) + "\n");
-                exportContent.append("**题目**: " + question.getQuestionText() + "\n");
+                exportContent.append(getString(R.string.h_878562c1) + (i + 1) + "\n");
+                exportContent.append(getString(R.string.h_ae8aba6a) + question.getQuestionText() + "\n");
                 
                 // 添加选项
                 if (question.getOptionA() != null) {
@@ -599,9 +599,9 @@ public class QuestionGenerateActivity extends AppCompatActivity {
                     exportContent.append("**D**: " + question.getOptionD() + "\n");
                 }
                 
-                exportContent.append("**答案**: " + question.getCorrectAnswer() + "\n");
+                exportContent.append(getString(R.string.h_76c9e04d) + question.getCorrectAnswer() + "\n");
                 if (question.getExplanation() != null) {
-                    exportContent.append("**解析**: " + question.getExplanation() + "\n");
+                    exportContent.append(getString(R.string.h_fcf23825) + question.getExplanation() + "\n");
                 }
                 exportContent.append("\n");
             }
@@ -621,7 +621,7 @@ public class QuestionGenerateActivity extends AppCompatActivity {
             writer.close();
             
             // 提示用户
-            Toast.makeText(this, "题目已导出到: " + exportFile.getAbsolutePath(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_b46f8b84) + exportFile.getAbsolutePath(), Toast.LENGTH_SHORT).show();
             
             // 分享文件
             android.content.Intent shareIntent = new android.content.Intent(android.content.Intent.ACTION_SEND);
@@ -631,7 +631,7 @@ public class QuestionGenerateActivity extends AppCompatActivity {
             startActivity(android.content.Intent.createChooser(shareIntent, "分享导出文件"));
         } catch (Exception e) {
             Log.e("QuestionGenerate", "Error exporting questions", e);
-            Toast.makeText(this, "导出失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_2e0d8c60) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 }

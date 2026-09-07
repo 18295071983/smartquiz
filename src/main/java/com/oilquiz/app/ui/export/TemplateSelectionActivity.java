@@ -275,15 +275,15 @@ public class TemplateSelectionActivity extends AppCompatActivity {
     private void updateUIForTemplateType() {
         if (isContentTemplateMode) {
             // 内容模板模式下，更新UI提示
-            templateName.setText("请选择内容模板");
-            templateFormat.setText("类型: 内容模板");
-            templateDescription.setText("内容模板用于生成特定格式的学习材料");
+            templateName.setText(getString(R.string.h_395c7442));
+            templateFormat.setText(getString(R.string.h_c3f9cc1b));
+            templateDescription.setText(getString(R.string.h_dc5c8ec2));
             templateFields.setText("无");
         } else {
             // 导出模板模式下，更新UI提示
-            templateName.setText("请选择导出模板");
-            templateFormat.setText("格式: " + selectedFormat.name());
-            templateDescription.setText("导出模板用于定义导出文件的格式和布局");
+            templateName.setText(getString(R.string.h_50e5250f));
+            templateFormat.setText(getString(R.string.h_b4ad854c) + selectedFormat.name());
+            templateDescription.setText(getString(R.string.h_294b3945));
             templateFields.setText("无");
         }
     }
@@ -294,7 +294,7 @@ public class TemplateSelectionActivity extends AppCompatActivity {
             templateName.setText(selectedTemplate.getName());
             
             // 显示模板格式
-            templateFormat.setText("格式: " + selectedTemplate.getFormat());
+            templateFormat.setText(getString(R.string.h_b4ad854c) + selectedTemplate.getFormat());
             
             // 显示是否默认模板
             if (selectedTemplate.isDefault()) {
@@ -328,16 +328,16 @@ public class TemplateSelectionActivity extends AppCompatActivity {
         } else if (selectedContentTemplate != null) {
             // 显示内容模板信息
             templateName.setText(selectedContentTemplate.getName());
-            templateFormat.setText("类型: 内容模板");
+            templateFormat.setText(getString(R.string.h_c3f9cc1b));
             templateDefault.setVisibility(View.GONE);
             templateDescription.setText(selectedContentTemplate.getDescription());
-            templateFields.setText("文件: " + selectedContentTemplate.getFilePath());
+            templateFields.setText(getString(R.string.h_9b7536df) + selectedContentTemplate.getFilePath());
         } else {
             // 重置所有字段
-            templateName.setText("模板名称");
-            templateFormat.setText("格式: 无");
+            templateName.setText(getString(R.string.h_a5d1c511));
+            templateFormat.setText(getString(R.string.h_dfda394d));
             templateDefault.setVisibility(View.GONE);
-            templateDescription.setText("请选择一个模板");
+            templateDescription.setText(getString(R.string.h_8c289710));
             templateFields.setText("无");
         }
     }
@@ -347,7 +347,7 @@ public class TemplateSelectionActivity extends AppCompatActivity {
             // 处理内容模板
             if (selectedContentTemplate == null) {
                 // 如果没有选择内容模板，显示提示
-                android.widget.Toast.makeText(this, "请选择一个内容模板", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, getString(R.string.h_4f51ac6e), android.widget.Toast.LENGTH_SHORT).show();
                 return;
             }
 

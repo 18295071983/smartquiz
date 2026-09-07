@@ -11,6 +11,8 @@ import android.text.style.RelativeSizeSpan;
 import android.text.style.StyleSpan;
 import android.text.style.TypefaceSpan;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * Mermaid 图表渲染器：将 Mermaid 图表源码渲染为带样式的代码块。
  *
@@ -52,13 +54,13 @@ public class MermaidContentRenderer implements ContentRenderer {
         // 应用样式
         // 标签：粗体 + 紫色
         sb.setSpan(new StyleSpan(Typeface.BOLD), labelStart, labelStart + label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        sb.setSpan(new ForegroundColorSpan(0xFF7C3AED), labelStart, labelStart + label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sb.setSpan(new ForegroundColorSpan(ThemeColors.get(R.color.hc_ff7c3aed)), labelStart, labelStart + label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
         // 代码：等宽字体 + 浅灰背景 + 缩小
         sb.setSpan(new TypefaceSpan("monospace"), codeStart, codeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        sb.setSpan(new BackgroundColorSpan(0x0F000000), codeStart, codeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sb.setSpan(new BackgroundColorSpan(ThemeColors.get(R.color.hc_0f000000)), codeStart, codeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         sb.setSpan(new RelativeSizeSpan(0.85f), codeStart, codeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        sb.setSpan(new ForegroundColorSpan(0xFF374151), codeStart, codeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        sb.setSpan(new ForegroundColorSpan(ThemeColors.get(R.color.hc_ff374151)), codeStart, codeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
         return sb;
     }

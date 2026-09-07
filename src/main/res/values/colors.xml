@@ -42,7 +42,7 @@
     <color name="surface_elevated">#FFFFFF</color>
 
     <!-- 深度思考开关：关闭灰色 / 开启主色 -->
-    <color name="chip_gray_bg">#F1F5F9</color>
+    <color name="chip_gray_bg">#66FFFFFF</color>
     <color name="chip_gray_text">#64748B</color>
     <color name="chip_gray_stroke">#E2E8F0</color>
 
@@ -95,7 +95,9 @@
     <color name="background_color">#F8FAFC</color>
     <color name="error_color">#EF4444</color>
     <color name="info_color">#8B5CF6</color>
+    <color name="ai_color">#00BCD4</color>
     <color name="warning_color">#F59E0B</color>
+    <color name="lo_page_bg">#E9ECEF</color>
 
     <color name="green_50">#ECFDF5</color>
     <color name="green_100">#D1FAE5</color>
@@ -156,6 +158,8 @@
 
     <color name="background_dark_theme">#121212</color>
     <color name="surface_dark_theme">#1E1E1E</color>
+    <color name="surface_variant_dark_theme">#2A2A2A</color>
+    <color name="outline_dark_theme">#3A3A3A</color>
     <color name="text_primary_dark_theme">#FFFFFF</color>
     <color name="text_secondary_dark_theme">#B0B0B0</color>
 
@@ -330,4 +334,25 @@
     <color name="chart_7">#EC4899</color>
     <color name="chart_8">#64748B</color>
 
+    <!-- 硬编码去重补充（2026-09-01） -->
+    <color name="white_alpha_08">#15FFFFFF</color>
+    <color name="white_alpha_12">#20FFFFFF</color>
+    <color name="white_alpha_19">#30FFFFFF</color>
+    <color name="white_alpha_20">#33FFFFFF</color>
+    <color name="white_alpha_25">#40FFFFFF</color>
+    <color name="white_alpha_50">#80FFFFFF</color>
+    <color name="white_alpha_56">#90FFFFFF</color>
+    <color name="white_alpha_67">#FFFFFFAA</color>
+    <color name="white_alpha_80">#CCFFFFFF</color>
+    <color name="black_alpha_25">#40000000</color>
+    <color name="black_alpha_50">#80000000</color>
+    <color name="red_strong">#E53935</color>
+    <color name="red_alpha_08">#14E53935</color>
+    <color name="gray_450">#6B7280</color>
+    <color name="gray_100b">#F3F4F6</color>
+    <color name="blue_800">#1E40AF</color>
+    <color name="indigo_material">#3F51B5</color>
+    <color name="indigo_pale">#D0D5FF</color>
+    <color name="orange_material">#FF9800</color>
+    <color name="dark_slate">#2A3A4F</color>
 </resources>

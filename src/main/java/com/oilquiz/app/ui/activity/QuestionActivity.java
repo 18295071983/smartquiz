@@ -64,8 +64,8 @@ public class QuestionActivity extends BaseActivity {
         difficultySpinner = findViewById(R.id.spinner_difficulty);
         
         // 初始化按钮文本
-        btnToggleView.setText(isCardViewMode ? "列表视图" : "卡片视图");
-        btnToggleAnswer.setText(isAnswerVisible ? "隐藏答案" : "显示答案");
+        btnToggleView.setText(isCardViewMode ? getString(R.string.h_829cb1dd) : getString(R.string.h_6cef16ed));
+        btnToggleAnswer.setText(isAnswerVisible ? getString(R.string.h_1eea3460) : getString(R.string.h_3bb915e3));
     }
 
     @Override
@@ -218,7 +218,7 @@ public class QuestionActivity extends BaseActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(QuestionActivity.this, "获取题目失败：" + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(QuestionActivity.this, getString(R.string.h_560f33bd) + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -229,7 +229,7 @@ public class QuestionActivity extends BaseActivity {
     private void toggleViewMode() {
         isCardViewMode = !isCardViewMode;
         // 更新按钮文本
-        btnToggleView.setText(isCardViewMode ? "列表视图" : "卡片视图");
+        btnToggleView.setText(isCardViewMode ? getString(R.string.h_829cb1dd) : getString(R.string.h_6cef16ed));
         // 重新加载适配器以应用新的视图模式
         loadQuestions();
     }
@@ -238,7 +238,7 @@ public class QuestionActivity extends BaseActivity {
     private void toggleAnswerVisibility() {
         isAnswerVisible = !isAnswerVisible;
         // 更新按钮文本
-        btnToggleAnswer.setText(isAnswerVisible ? "隐藏答案" : "显示答案");
+        btnToggleAnswer.setText(isAnswerVisible ? getString(R.string.h_1eea3460) : getString(R.string.h_3bb915e3));
         // 重新加载适配器以应用新的答案显示状态
         loadQuestions();
     }
@@ -260,7 +260,7 @@ public class QuestionActivity extends BaseActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(QuestionActivity.this, "搜索失败：" + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(QuestionActivity.this, getString(R.string.h_17946d34) + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -282,12 +282,12 @@ public class QuestionActivity extends BaseActivity {
             public void onDeleteClick(Question question) {
                 // 实现删除逻辑
                 new AlertDialog.Builder(QuestionActivity.this)
-                        .setTitle("确认删除")
-                        .setMessage("确定要删除这道题目吗？")
-                        .setPositiveButton("确定", (dialog, which) -> {
+                        .setTitle(getString(R.string.h_631cd220))
+                        .setMessage(getString(R.string.h_1453c708))
+                        .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
                             deleteQuestion(question.getId());
                         })
-                        .setNegativeButton("取消", null)
+                        .setNegativeButton(getString(R.string.h_625fb26b), null)
                         .show();
             }
 
@@ -299,7 +299,7 @@ public class QuestionActivity extends BaseActivity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(QuestionActivity.this, isFavorited ? "已收藏" : "已取消收藏", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuestionActivity.this, isFavorited ? getString(R.string.h_934ebd87) : getString(R.string.h_3a906c71), Toast.LENGTH_SHORT).show();
                                 // 收藏变更后刷新统计
                                 updateHeaderStats(questions);
                             }
@@ -311,7 +311,7 @@ public class QuestionActivity extends BaseActivity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(QuestionActivity.this, "操作失败: " + error, Toast.LENGTH_SHORT).show();
+                                Toast.makeText(QuestionActivity.this, getString(R.string.h_be4a600c) + error, Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
@@ -372,7 +372,7 @@ public class QuestionActivity extends BaseActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(QuestionActivity.this, "筛选失败：" + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(QuestionActivity.this, getString(R.string.h_28ec095a) + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -398,7 +398,7 @@ public class QuestionActivity extends BaseActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(QuestionActivity.this, "删除成功", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(QuestionActivity.this, getString(R.string.h_0007d170), Toast.LENGTH_SHORT).show();
                         loadQuestions();
                     }
                 });
@@ -409,7 +409,7 @@ public class QuestionActivity extends BaseActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(QuestionActivity.this, "删除失败：" + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(QuestionActivity.this, getString(R.string.h_bc42bb8f) + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -436,7 +436,7 @@ public class QuestionActivity extends BaseActivity {
         }
         isAnswerVisible = true; // 重置时保持答案显示
         if (btnToggleAnswer != null) {
-            btnToggleAnswer.setText("隐藏答案");
+            btnToggleAnswer.setText(getString(R.string.h_1eea3460));
         }
     }
 
@@ -450,10 +450,10 @@ public class QuestionActivity extends BaseActivity {
     
     private void showClearAllConfirmationDialog() {
         new AlertDialog.Builder(this)
-                .setTitle("清空全部题目")
-                .setMessage("确定要清空所有题目吗？此操作不可恢复。")
-                .setPositiveButton("确定", (dialog, which) -> clearAllQuestions())
-                .setNegativeButton("取消", null)
+                .setTitle(getString(R.string.h_8199ac9a))
+                .setMessage(getString(R.string.h_17fd4110))
+                .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> clearAllQuestions())
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
     
@@ -462,14 +462,14 @@ public class QuestionActivity extends BaseActivity {
             @Override
             public void onSuccess(int count) {
                 runOnUiThread(() -> {
-                    Toast.makeText(QuestionActivity.this, "清空成功", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(QuestionActivity.this, getString(R.string.h_2685dc70), Toast.LENGTH_SHORT).show();
                     loadQuestions();
                 });
             }
 
             @Override
             public void onError(String error) {
-                runOnUiThread(() -> Toast.makeText(QuestionActivity.this, "清空失败: " + error, Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(QuestionActivity.this, getString(R.string.h_66812202) + error, Toast.LENGTH_SHORT).show());
             }
         });
     }

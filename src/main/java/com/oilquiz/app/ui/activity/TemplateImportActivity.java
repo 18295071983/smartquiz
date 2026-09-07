@@ -43,7 +43,7 @@ public class TemplateImportActivity extends BaseActivity {
         btnDownloadJson = findViewById(R.id.btnDownloadJson);
         btnGoImport = findViewById(R.id.btnGoImport);
         tvTemplatePath = findViewById(R.id.tvTemplatePath);
-        tvTemplatePath.setText("模板将保存到：内部存储/Download/OilQuiz/");
+        tvTemplatePath.setText(getString(R.string.h_a9a6d7c0));
     }
 
     @Override
@@ -65,7 +65,7 @@ public class TemplateImportActivity extends BaseActivity {
     /** 后台生成指定格式的模板文件（保存到系统下载目录）并反馈结果 */
     private void downloadTemplate(final String format) {
         setButtonsEnabled(false);
-        showToast("正在生成 " + format + " 模板...");
+        showToast(getString(R.string.h_371146a3) + format + getString(R.string.h_eb7c1cf4));
         executor.execute(() -> {
             String savedPath = null;
             try {
@@ -78,11 +78,11 @@ public class TemplateImportActivity extends BaseActivity {
             runOnUiThread(() -> {
                 setButtonsEnabled(true);
                 if (path != null) {
-                    tvTemplatePath.setText("已保存：" + path);
-                    showLongToast("模板已保存到：\n" + path
+                    tvTemplatePath.setText(getString(R.string.h_2d5c2af2) + path);
+                    showLongToast(getString(R.string.h_010e86b2) + path
                             + "\n\n请在文件管理器中打开填写，完成后点击「填好了，去导入」");
                 } else {
-                    showLongToast("模板生成失败，请检查存储权限后重试");
+                    showLongToast(getString(R.string.h_191ace32));
                 }
             });
         });

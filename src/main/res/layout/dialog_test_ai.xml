@@ -4,30 +4,30 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
-    android:background="@color/surface">
+    android:padding="@dimen/space_16"
+    android:background="?attr/colorSurface">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="测试AI功能"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
-        android:layout_marginBottom="16dp"/>
+        android:textColor="?attr/colorControlText"
+        android:layout_marginBottom="@dimen/space_16"/>
 
     <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
-        android:layout_height="120dp"
+        android:layout_height="@dimen/size_120"
         android:hint="请输入测试文本..."
         app:boxCornerRadiusBottomEnd="12dp"
         app:boxCornerRadiusBottomStart="12dp"
         app:boxCornerRadiusTopEnd="12dp"
         app:boxCornerRadiusTopStart="12dp"
         app:boxStrokeWidth="2dp"
-        app:boxStrokeColor="@color/outline"
-        app:hintTextColor="@color/primary"
-        android:layout_marginBottom="16dp">
+        app:boxStrokeColor="?attr/colorOutline"
+        app:hintTextColor="?attr/colorPrimary"
+        android:layout_marginBottom="@dimen/space_16">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/et_test_input"
@@ -35,7 +35,7 @@
             android:layout_height="match_parent"
             android:gravity="top"
             android:inputType="textMultiLine"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
     </com.google.android.material.textfield.TextInputLayout>
 
@@ -46,36 +46,36 @@
         android:orientation="vertical"
         android:gravity="center"
         android:visibility="gone"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="@dimen/space_16">
 
         <ProgressBar
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:indeterminate="true"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="AI正在思考..."
-            android:textSize="14sp"
-            android:textColor="@color/text_secondary"/>
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorControlTextSecondary"/>
     </LinearLayout>
 
     <ScrollView
         android:id="@+id/result_container"
         android:layout_width="match_parent"
-        android:layout_height="120dp"
+        android:layout_height="@dimen/size_120"
         android:visibility="gone"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="@dimen/space_16">
 
         <TextView
             android:id="@+id/tv_test_result"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text=""
-            android:textSize="14sp"
-            android:textColor="@color/text_primary"/>
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorControlText"/>
     </ScrollView>
 
     <LinearLayout
@@ -87,23 +87,23 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_cancel"
             android:layout_width="wrap_content"
-            android:layout_height="48dp"
+            android:layout_height="@dimen/size_48"
             android:text="取消"
             android:textAllCaps="false"
-            android:textColor="@color/text_primary"
-            app:backgroundTint="@color/surface_variant"
-            app:cornerRadius="12dp"
-            android:layout_marginEnd="8dp"/>
+            android:textColor="?attr/colorControlText"
+            app:backgroundTint="?attr/colorSurfaceVariant"
+            app:cornerRadius="@dimen/radius_12"
+            android:layout_marginEnd="@dimen/space_8"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_send"
             android:layout_width="wrap_content"
-            android:layout_height="48dp"
+            android:layout_height="@dimen/size_48"
             android:text="发送"
             android:textAllCaps="false"
-            android:textColor="@color/on_primary"
-            app:backgroundTint="@color/primary"
-            app:cornerRadius="12dp"/>
+            android:textColor="?attr/colorOnPrimary"
+            app:backgroundTint="?attr/colorPrimary"
+            app:cornerRadius="@dimen/radius_12"/>
     </LinearLayout>
 
 </LinearLayout>

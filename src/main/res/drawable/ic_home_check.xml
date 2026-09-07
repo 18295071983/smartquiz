@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#059669"
-                android:endColor="#34D399" />
+                android:startColor="@color/hc_ff059669"
+                android:endColor="@color/hc_ff34d399" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 盾牌（白色渐变） -->
@@ -30,14 +30,14 @@
                 android:type="linear"
                 android:startX="4" android:startY="2.5"
                 android:endX="20" android:endY="21.8"
-                android:startColor="#FFFFFF"
-                android:endColor="#D1FAE5" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_ffd1fae5" />
         </aapt:attr>
     </path>
 
     <!-- 盾牌上部亮区（半透明白） -->
     <path
-        android:fillColor="#59FFFFFF"
+        android:fillColor="@color/hc_59ffffff"
         android:pathData="M12,4.8 L17.6,6.9 V10.8 C17.6,14.9 15.4,17.9 12,19.3 Z" />
 
     <!-- 对勾（深绿渐变） -->
@@ -47,8 +47,8 @@
                 android:type="linear"
                 android:startX="8.1" android:startY="10"
                 android:endX="16.2" android:endY="15.6"
-                android:startColor="#059669"
-                android:endColor="#047857" />
+                android:startColor="@color/hc_ff059669"
+                android:endColor="@color/hc_ff047857" />
         </aapt:attr>
     </path>
 </vector>

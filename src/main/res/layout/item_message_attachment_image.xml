@@ -2,9 +2,9 @@
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/attachment_card"
-    android:layout_width="120dp"
-    android:layout_height="120dp"
-    android:layout_margin="4dp"
+    android:layout_width="@dimen/size_120"
+    android:layout_height="@dimen/size_120"
+    android:layout_margin="@dimen/space_4"
     app:cardCornerRadius="8dp"
     app:cardElevation="2dp">
 
@@ -23,16 +23,16 @@
             android:id="@+id/upload_progress"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="4dp"
+            android:layout_height="@dimen/size_4"
             android:layout_gravity="bottom"
-            android:progressTint="@color/primary"
+            android:progressTint="?attr/colorPrimary"
             android:visibility="gone" />
 
         <FrameLayout
             android:id="@+id/error_overlay"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#80000000"
+            android:background="@color/black_alpha_50"
             android:visibility="gone"
             android:gravity="center">
 
@@ -41,8 +41,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="加载失败"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp" />
+                android:textColor="@color/white"
+                android:textSize="@dimen/text_12" />
 
         </FrameLayout>
 

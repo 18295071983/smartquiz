@@ -1,5 +1,7 @@
 package com.oilquiz.app.adapter;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -82,7 +84,7 @@ public class TemplateAdapter extends BaseAdapter {
 
         // 处理选择模式的视觉效果
         if (isSelectionMode && selectedTemplates.contains(template)) {
-            convertView.setBackgroundColor(context.getResources().getColor(R.color.colorPrimary));
+            convertView.setBackgroundColor(ThemeColors.attr(context, R.attr.colorPrimary));
         } else {
             convertView.setBackgroundColor(context.getResources().getColor(android.R.color.transparent));
         }

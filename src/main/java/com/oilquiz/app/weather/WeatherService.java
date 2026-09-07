@@ -32,9 +32,22 @@ public class WeatherService {
         if (data == null || data.isEmpty()) return false;
         String lower = data.toLowerCase();
         return !data.contains("失败") && !data.contains("暂无权限") && !data.contains("无权限")
-            && !data.contains("错误") && !data.contains("异常") && !data.contains("403")
+            && !data.contains("错误") && !data.contains("403")
             && !data.contains("查询失败") && !data.contains("请稍后")
             && !lower.contains("error") && !lower.contains("forbidden");
+    }
+
+    /**
+     * 校验 SDK 空气质量/预报返回是否为真实错误。
+     * 注意不能用 contains("异常")——SDK 健康建议文本含"极少数异常敏感人群"，
+     * 会把成功数据误判为失败（曾导致成功结果被丢弃后回退 HTTP 遇 403）。
+     * 只认错误前缀/明确的错误特征。
+     */
+    private static boolean isSdkAirResultValid(String result) {
+        if (result == null || result.isEmpty()) return false;
+        return result.contains("AQI") || result.contains("空气质量预报")
+            || (result.startsWith("空气质量") && !result.contains("查询失败") && !result.contains("暂无")
+                && !result.contains("未初始化") && !result.contains("查询异常"));
     }
 
     /** 仅缓存有效响应，跳过错误响应 */
@@ -314,7 +327,7 @@ public class WeatherService {
         // 尝试 SDK，如果失败则回退到 HTTP
         if (sdkManager.isInitialized()) {
             return sdkManager.getAirQuality(location).thenCompose(result -> {
-                if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常")) {
+                if (isSdkAirResultValid(result)) {
                     saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }
@@ -346,7 +359,7 @@ public class WeatherService {
 
         if (sdkManager.isInitialized()) {
             return sdkManager.getAirForecast(location).thenCompose(result -> {
-                if (result != null && !result.contains("失败") && !result.contains("无权限") && !result.contains("异常") && !result.contains("不支持")) {
+                if (isSdkAirResultValid(result)) {
                     saveCacheIfValid(cacheKey, result);
                     return CompletableFuture.completedFuture(result);
                 }

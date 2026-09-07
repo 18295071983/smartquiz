@@ -40,8 +40,6 @@ public class AppOperationTool implements AITool {
     private static final Map<String, Class<?>> PAGE_MAP = new HashMap<>();
     static {
         try {
-            PAGE_MAP.put("user", Class.forName("com.oilquiz.app.ui.activity.UserActivity"));
-            PAGE_MAP.put("用户", Class.forName("com.oilquiz.app.ui.activity.UserActivity"));
             PAGE_MAP.put("question", Class.forName("com.oilquiz.app.ui.activity.QuestionActivity"));
             PAGE_MAP.put("题库", Class.forName("com.oilquiz.app.ui.activity.QuestionActivity"));
             PAGE_MAP.put("quiz", Class.forName("com.oilquiz.app.ui.activity.QuizActivity"));
@@ -72,18 +70,12 @@ public class AppOperationTool implements AITool {
             PAGE_MAP.put("主题", Class.forName("com.oilquiz.app.ui.activity.ThemeActivity"));
             PAGE_MAP.put("language", Class.forName("com.oilquiz.app.ui.activity.LanguageActivity"));
             PAGE_MAP.put("语言", Class.forName("com.oilquiz.app.ui.activity.LanguageActivity"));
-            PAGE_MAP.put("file_preview", Class.forName("com.oilquiz.app.ui.activity.SimpleFilePreviewActivity"));
-            PAGE_MAP.put("文件预览", Class.forName("com.oilquiz.app.ui.activity.SimpleFilePreviewActivity"));
-            PAGE_MAP.put("test", Class.forName("com.oilquiz.app.ui.activity.TestActivity"));
-            PAGE_MAP.put("测试", Class.forName("com.oilquiz.app.ui.activity.TestActivity"));
+            PAGE_MAP.put("file_preview", Class.forName("com.oilquiz.app.ui.activity.FileRenderActivity"));
+            PAGE_MAP.put("文件预览", Class.forName("com.oilquiz.app.ui.activity.FileRenderActivity"));
             PAGE_MAP.put("logs", Class.forName("com.oilquiz.app.ui.activity.LogsActivity"));
             PAGE_MAP.put("日志", Class.forName("com.oilquiz.app.ui.activity.LogsActivity"));
-            PAGE_MAP.put("about", Class.forName("com.oilquiz.app.ui.activity.AboutActivity"));
-            PAGE_MAP.put("关于", Class.forName("com.oilquiz.app.ui.activity.AboutActivity"));
             PAGE_MAP.put("history", Class.forName("com.oilquiz.app.ui.activity.HistoryActivity"));
             PAGE_MAP.put("历史", Class.forName("com.oilquiz.app.ui.activity.HistoryActivity"));
-            PAGE_MAP.put("statistics", Class.forName("com.oilquiz.app.ui.activity.StatisticsActivity"));
-            PAGE_MAP.put("统计", Class.forName("com.oilquiz.app.ui.activity.StatisticsActivity"));
             PAGE_MAP.put("database", Class.forName("com.oilquiz.app.ui.activity.DatabaseManagementActivity"));
             PAGE_MAP.put("数据库管理", Class.forName("com.oilquiz.app.ui.activity.DatabaseManagementActivity"));
             PAGE_MAP.put("ai_center", Class.forName("com.oilquiz.app.ui.activity.AICenterActivity"));

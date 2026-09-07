@@ -19,6 +19,7 @@ import androidx.core.graphics.drawable.DrawableCompat;
 import com.oilquiz.app.R;
 import com.oilquiz.app.manager.ThemeColorManager;
 
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 系统UI资源适配器
  * 自适应调用系统UI框架，根据系统主题动态获取颜色、字体等资源
@@ -84,9 +85,9 @@ public class SystemUIResourceAdapter {
         textSecondaryColor = getThemeColor(android.R.attr.textColorSecondary);
         
         // 获取状态颜色
-        errorColor = Color.parseColor("#B00020");
-        successColor = Color.parseColor("#4CAF50");
-        warningColor = Color.parseColor("#FF9800");
+        errorColor = ThemeColors.get(R.color.hc_ffb00020);
+        successColor = ThemeColors.get(R.color.hc_ff4caf50);
+        warningColor = ThemeColors.get(R.color.hc_ffff9800);
     }
     
     /**
@@ -240,7 +241,7 @@ public class SystemUIResourceAdapter {
      */
     @ColorInt
     public int getAdaptiveBackgroundColor() {
-        return isDarkTheme() ? Color.parseColor("#121212") : Color.WHITE;
+        return isDarkTheme() ? ThemeColors.get(R.color.hc_ff121212) : Color.WHITE;
     }
 
     /**
@@ -248,7 +249,7 @@ public class SystemUIResourceAdapter {
      */
     @ColorInt
     public int getAdaptiveSurfaceColor() {
-        return isDarkTheme() ? Color.parseColor("#1E1E1E") : Color.WHITE;
+        return isDarkTheme() ? ThemeColors.get(R.color.hc_ff1e1e1e) : Color.WHITE;
     }
 
     /**
@@ -257,9 +258,9 @@ public class SystemUIResourceAdapter {
     @ColorInt
     public int getAdaptiveTextColor(boolean isPrimary) {
         if (isDarkTheme()) {
-            return isPrimary ? Color.WHITE : Color.parseColor("#B3B3B3");
+            return isPrimary ? Color.WHITE : ThemeColors.get(R.color.hc_ffb3b3b3);
         } else {
-            return isPrimary ? Color.BLACK : Color.parseColor("#666666");
+            return isPrimary ? Color.BLACK : ThemeColors.get(R.color.hc_ff666666);
         }
     }
 
@@ -268,7 +269,7 @@ public class SystemUIResourceAdapter {
      */
     @ColorInt
     public int getAdaptiveCardBackgroundColor() {
-        return isDarkTheme() ? Color.parseColor("#2C2C2C") : Color.WHITE;
+        return isDarkTheme() ? ThemeColors.get(R.color.hc_ff2c2c2c) : Color.WHITE;
     }
 
     // ==================== 系统资源获取 ====================
@@ -278,7 +279,7 @@ public class SystemUIResourceAdapter {
      */
     @ColorInt
     public int getDividerColor() {
-        return isDarkTheme() ? Color.parseColor("#1FFFFFFF") : Color.parseColor("#1F000000");
+        return isDarkTheme() ? ThemeColors.get(R.color.hc_1fffffff) : ThemeColors.get(R.color.hc_1f000000);
     }
 
     /**
@@ -286,7 +287,7 @@ public class SystemUIResourceAdapter {
      */
     @ColorInt
     public int getDisabledColor() {
-        return isDarkTheme() ? Color.parseColor("#4DFFFFFF") : Color.parseColor("#4D000000");
+        return isDarkTheme() ? ThemeColors.get(R.color.hc_4dffffff) : ThemeColors.get(R.color.hc_4d000000);
     }
 
     /**
@@ -294,7 +295,7 @@ public class SystemUIResourceAdapter {
      */
     @ColorInt
     public int getRippleColor() {
-        return isDarkTheme() ? Color.parseColor("#33FFFFFF") : Color.parseColor("#1F000000");
+        return isDarkTheme() ? ThemeColors.get(R.color.hc_33ffffff) : ThemeColors.get(R.color.hc_1f000000);
     }
 
     /**

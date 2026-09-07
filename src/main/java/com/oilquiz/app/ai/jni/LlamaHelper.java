@@ -5,6 +5,7 @@ import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.ai.util.PromptBuilder;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -488,8 +489,10 @@ public class LlamaHelper {
         AILogger.i(TAG, "[generateStream-Messages] Token检查: promptTokens=" + promptTokens
             + ", maxTokens=" + maxTokens + ", safeRef=" + safeRef
             + ", thread=" + threadName);
-        if (promptTokens + maxTokens >= safeRef) {
-            AILogger.w(TAG, "[generateStream-Messages] ❌ Prompt过长: " + promptTokens + "+" + maxTokens + ">=" + safeRef
+        // 修复：max_tokens 是生成停止上限，不计入 context 预算（见 chatJson）
+        final int GENERATION_RESERVE = 512;
+        if (promptTokens >= safeRef - GENERATION_RESERVE) {
+            AILogger.w(TAG, "[generateStream-Messages] ❌ Prompt过长: " + promptTokens + ">=" + (safeRef - GENERATION_RESERVE)
                 + ", thread=" + threadName);
             if (callback != null) {
                 callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
@@ -573,6 +576,28 @@ public class LlamaHelper {
             return;
         }
 
+        // 最后一扇门：防超 n_ctx assert——prompt 过长时优雅失败，避免 native 崩溃
+        try {
+            int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
+            int promptTokens = 0;
+            for (int i = 0; i < roles.length; i++) {
+                promptTokens += countTokens(new String(contents[i], StandardCharsets.UTF_8));
+            }
+            if (toolsJson != null && toolsJson.length > 0) {
+                promptTokens += countTokens(new String(toolsJson, StandardCharsets.UTF_8));
+            }
+            // 修复：max_tokens 是生成停止上限，不计入 context 预算（见 chatJson）
+            final int GENERATION_RESERVE = 512;
+            if (promptTokens >= safeRef - GENERATION_RESERVE) {
+                AILogger.e(TAG, "[generateWithTools] ❌ Prompt过长: " + promptTokens
+                        + " >= " + (safeRef - GENERATION_RESERVE) + "，拒绝生成避免 native 崩溃");
+                if (callback != null) callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
+                return;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "[generateWithTools] 预算检查失败(放行): " + t.getMessage());
+        }
+
         // 获取推理锁
         long lockStart = System.currentTimeMillis();
         try {
@@ -619,6 +644,26 @@ public class LlamaHelper {
             return;
         }
 
+        // 最后一扇门：防超 n_ctx assert（与 generateStream 一致）——prompt 过长时优雅失败，
+        // 避免 llama.cpp 断言崩溃导致进程退出（Agent 循环/FC 循环都走 chatJson）
+        try {
+            int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
+            int promptTokens = estimateChatJsonPromptTokens(requestJson);
+            // 修复：max_tokens 是生成停止上限，不是 context 预算的一部分。
+            // 原 promptTokens + maxTokens 会把大 max_tokens（如 16384 > n_ctx 12288）
+            // 误判为超长，导致 11 token 的短 prompt 也被拒绝。这里只校验 prompt
+            // 本体是否超出安全窗口，预留固定生成余量（生成到顶时自然截断）。
+            final int GENERATION_RESERVE = 512;
+            if (promptTokens >= safeRef - GENERATION_RESERVE) {
+                AILogger.e(TAG, "[chatJson] ❌ Prompt过长: " + promptTokens
+                        + " >= " + (safeRef - GENERATION_RESERVE) + "，拒绝生成避免 native 崩溃");
+                if (callback != null) callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
+                return;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "[chatJson] 预算检查失败(放行): " + t.getMessage());
+        }
+
         // 获取推理锁（与 generateWithTools 同一把写锁，防止并发推理）
         try {
             if (!inferenceLock.writeLock().tryLock(120, TimeUnit.SECONDS)) {
@@ -646,6 +691,11 @@ public class LlamaHelper {
     }
 
     private static native void nativeChatJson(byte[] requestJson, JsonCallback callback);
+    // ===== KV 记忆引擎（独立 seq 1，长文档 KV 持久化，living-kv 方案）=====
+    private static native boolean nativeKvMemPreload(long handle, String text);
+    private static native byte[] nativeKvMemSave(long handle);
+    private static native boolean nativeKvMemRestore(long handle, byte[] data);
+    private static native String nativeKvMemAsk(long handle, String question, int maxTokens, float temperature);
 
     // 生成文本（流式）- 使用ChatRequest批量传递参数，解决中文编码问题
     public static void generateStream(ChatRequest request, TokenCallback callback) {
@@ -671,6 +721,24 @@ public class LlamaHelper {
                 callback.onError("Invalid request");
             }
             return;
+        }
+
+        // 最后一扇门：防超 n_ctx assert（与 generateStream-Messages 一致）
+        try {
+            int safeRef = getSafeContextReference(contextTotalSize > 0 ? contextTotalSize : 4096);
+            int promptTokens = countTokens(new String(request.getFullPromptUtf8(), StandardCharsets.UTF_8));
+            // 修复：max_tokens 是生成停止上限，不计入 context 预算（见 chatJson）
+            final int GENERATION_RESERVE = 512;
+            if (promptTokens >= safeRef - GENERATION_RESERVE) {
+                AILogger.w(TAG, "[generateStream-ChatRequest] ❌ Prompt过长: " + promptTokens + ">="
+                        + (safeRef - GENERATION_RESERVE) + ", thread=" + threadName);
+                if (callback != null) {
+                    callback.onError("Prompt too long: " + promptTokens + " tokens, aborting");
+                }
+                return;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "[generateStream-ChatRequest] 预算检查失败(放行): " + t.getMessage());
         }
 
         // 获取推理锁，防止并发推理导致 native 层崩溃
@@ -914,6 +982,55 @@ public class LlamaHelper {
     }
 
     private static native float nativeGetInferenceSpeed();
+
+    /**
+     * 纯 decode 速度（tokens/s）：仅统计正文生成阶段（思考段不计），
+     * think_end 后开始计时，反映模型实际解码正文的速度。
+     */
+    public static float getDecodeSpeed() {
+        if (!libraryLoaded) return 0;
+        try {
+            return nativeGetDecodeSpeed();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetDecodeSpeed unavailable: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    private static native float nativeGetDecodeSpeed();
+
+    /**
+     * 当前阶段速度（tokens/s）：按 native 状态机阶段返回对应速度。
+     * THINKING → 思考段速度；GENERATING → 正文解码速度；其他阶段返回 0。
+     * 用于对话页 ⚡ t/s 随推理阶段切换显示。
+     */
+    public static float getPhaseSpeed() {
+        if (!libraryLoaded) return 0;
+        try {
+            return nativeGetPhaseSpeed();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetPhaseSpeed unavailable: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    private static native float nativeGetPhaseSpeed();
+
+    /**
+     * PREPROCESS（prefill）阶段进度 JSON：{"done":已处理,"total":本轮总数,"pct":百分比}。
+     * 用于对话页状态条显示 prefill 进度；空闲返回 0/0。
+     */
+    public static String getPrefillProgress() {
+        if (!libraryLoaded) return null;
+        try {
+            return nativeGetPrefillProgress();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetPrefillProgress unavailable: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static native String nativeGetPrefillProgress();
 
     public static float getMemoryUsage() {
         if (!libraryLoaded) {
@@ -1477,6 +1594,53 @@ public class LlamaHelper {
             return 0;
         }
     }
+
+    /**
+     * 从 chatJson 请求 JSON 估算 prompt token 数（供"最后一扇门"守卫使用）：
+     * 统计 messages[].content + assistant.tool_calls 的 arguments + tools 定义。
+     * 解析失败返回 0（守卫层有兜底放行逻辑，不会误伤）。
+     */
+    public static int estimateChatJsonPromptTokens(String requestJson) {
+        if (requestJson == null || requestJson.isEmpty()) return 0;
+        int tokens = 0;
+        try {
+            org.json.JSONObject req = new org.json.JSONObject(requestJson);
+            org.json.JSONArray msgs = req.optJSONArray("messages");
+            if (msgs != null) {
+                for (int i = 0; i < msgs.length(); i++) {
+                    org.json.JSONObject m = msgs.optJSONObject(i);
+                    if (m == null) continue;
+                    String content = m.optString("content", "");
+                    if (!content.isEmpty()) tokens += countTokens(content);
+                    org.json.JSONArray tcs = m.optJSONArray("tool_calls");
+                    if (tcs != null) {
+                        for (int j = 0; j < tcs.length(); j++) {
+                            org.json.JSONObject tc = tcs.optJSONObject(j);
+                            if (tc == null) continue;
+                            org.json.JSONObject fn = tc.optJSONObject("function");
+                            if (fn != null) tokens += countTokens(fn.optString("arguments", ""));
+                        }
+                    }
+                }
+            }
+            org.json.JSONArray tools = req.optJSONArray("tools");
+            if (tools != null && tools.length() > 0) tokens += countTokens(tools.toString());
+        } catch (Throwable t) {
+            AILogger.w(TAG, "estimateChatJsonPromptTokens failed: " + t.getMessage());
+        }
+        return tokens;
+    }
+
+    /** 从 chatJson 请求 JSON 提取 max_tokens（供守卫使用），缺失/非法返回 0 */
+    public static int extractJsonMaxTokens(String requestJson) {
+        if (requestJson == null || requestJson.isEmpty()) return 0;
+        try {
+            int v = new org.json.JSONObject(requestJson).optInt("max_tokens", 0);
+            return v > 0 ? v : 0;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
     
     private static native int nativeCountTokens(String text);
 
@@ -1584,6 +1748,41 @@ public class LlamaHelper {
             AILogger.e(TAG, "Error updating chat prompts: " + e.getMessage(), e);
             return false;
         }
+    }
+
+    // ===== KV 记忆引擎公开 API（长文档 KV 持久化，living-kv 方案）=====
+    /** 预加载长文本到 KV 记忆（独立 seq 1）。文档会被模型"读"一遍，KV 可随后 kvMemSave 落盘。 */
+    public static boolean kvMemPreload(String text) {
+        if (!libraryLoaded || chatContextHandle == 0) return false;
+        if (text == null || text.isEmpty()) return false;
+        try { return nativeKvMemPreload(chatContextHandle, text); }
+        catch (UnsatisfiedLinkError e) { AILogger.e(TAG, "kvMemPreload: " + e.getMessage(), e); return false; }
+        catch (Exception e) { AILogger.e(TAG, "kvMemPreload: " + e.getMessage(), e); return false; }
+    }
+
+    /** 保存 KV 记忆状态为字节数组（写入文件后即可释放内存，需时再 restore）。 */
+    public static byte[] kvMemSave() {
+        if (!libraryLoaded || chatContextHandle == 0) return null;
+        try { return nativeKvMemSave(chatContextHandle); }
+        catch (UnsatisfiedLinkError e) { AILogger.e(TAG, "kvMemSave: " + e.getMessage(), e); return null; }
+        catch (Exception e) { AILogger.e(TAG, "kvMemSave: " + e.getMessage(), e); return null; }
+    }
+
+    /** 从字节数组恢复 KV 记忆状态（模型重新"记得"文档，无需重新 prefill）。 */
+    public static boolean kvMemRestore(byte[] data) {
+        if (!libraryLoaded || chatContextHandle == 0 || data == null || data.length == 0) return false;
+        try { return nativeKvMemRestore(chatContextHandle, data); }
+        catch (UnsatisfiedLinkError e) { AILogger.e(TAG, "kvMemRestore: " + e.getMessage(), e); return false; }
+        catch (Exception e) { AILogger.e(TAG, "kvMemRestore: " + e.getMessage(), e); return false; }
+    }
+
+    /** 在已恢复的 KV 记忆上提问并生成回答（不重放文档，直接基于记忆续写）。 */
+    public static String kvMemAsk(String question, int maxTokens, float temperature) {
+        if (!libraryLoaded || chatContextHandle == 0) return null;
+        if (question == null) question = "";
+        try { return nativeKvMemAsk(chatContextHandle, question, maxTokens, temperature); }
+        catch (UnsatisfiedLinkError e) { AILogger.e(TAG, "kvMemAsk: " + e.getMessage(), e); return null; }
+        catch (Exception e) { AILogger.e(TAG, "kvMemAsk: " + e.getMessage(), e); return null; }
     }
 
     public static boolean chatAddAssistantToolCall(String toolCallContent) {
@@ -1869,6 +2068,111 @@ public class LlamaHelper {
     private static native boolean nativeHasEnoughContextSpace(long handle, int promptTokens, int maxOutputTokens);
     private static native void nativeClearContextForInference(long handle);
     private static native void nativeCleanupCallback();
+    private static native String nativeGetThinkingTags();
+    private static native String nativeGetKvCacheStats();
+    private static native String nativeGetGenPhase();
+
+    /**
+     * 获取当前推理已累积的思考内容（实时监控模型思考过程）。
+     * chatJson 思考段 token 实时累积到 native 缓冲区，UI 轮询此接口展示模型在想什么。
+     */
+    public static String getThinkingContent() {
+        if (!libraryLoaded) return "";
+        try {
+            return nativeGetThinkingContent();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetThinkingContent unavailable: " + e.getMessage());
+            return "";
+        }
+    }
+
+    private static native String nativeGetThinkingContent();
+
+    /** 模板思考标签缓存：模型固定后标签不变，避免渲染/逐 token 重复走 JNI */
+    private static volatile ThinkingTagConfig cachedThinkingTags = null;
+
+    /**
+     * 获取当前模型 chat template 声明的思考标签 —— 标签来自模板，不硬编码。
+     *
+     * <p>native 在模型加载时（nativeInitModel）已从 GGUF 内置模板提取并缓存，
+     * 覆盖 Qwen3（{@code <think>}）、DeepSeek（{@code [THINK]}）、
+     * GPT-OSS（{@code <|channel|>analysis<|message|>}）、MiniMax、Llama3
+     * 等各自不同的写法。chatJson 路径还会通过 meta 事件再下发一次。</p>
+     *
+     * @return 模板标签配置；模型未加载或模板未声明思考段时返回 isAvailable()==false 的配置，
+     *         调用方应据此跳过思考段识别，而不是回退到硬编码
+     */
+    public static ThinkingTagConfig getThinkingTags() {
+        if (!libraryLoaded) return ThinkingTagConfig.empty();
+        // 命中缓存直接返回（仅缓存"已就绪"结果；模型未加载时返回空但下次重试，避免永久缓存空结果）
+        if (cachedThinkingTags != null) return cachedThinkingTags;
+        try {
+            String json = nativeGetThinkingTags();
+            ThinkingTagConfig cfg = json == null ? ThinkingTagConfig.empty() : ThinkingTagConfig.fromJson(json);
+            if (cfg.isAvailable()) cachedThinkingTags = cfg;
+            return cfg;
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetThinkingTags unavailable: " + e.getMessage());
+            return ThinkingTagConfig.empty();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getThinkingTags failed: " + t.getMessage());
+            return ThinkingTagConfig.empty();
+        }
+    }
+
+    /**
+     * 获取 KV 增量缓存状态与上下文占用监控（native AgentKvCache 统计）。
+     *
+     * <p>返回 JSON：strategy(INCREMENTAL/PARTIAL/FULL)、matched_len、cached_npast、
+     * ctx_size、ctx_usage_pct（上下文占用率）、plans/inc/part/full（策略分布）、
+     * hit_rate_pct（增量命中率）、valid、full_reason（全量原因）。</p>
+     *
+     * <p>用于诊断"为什么没吃到 KV 增量缓存"（普通对话每轮新 prompt 多走 FULL）
+     * 与监控长对话上下文占用（KV 逼近 n_ctx 时的裁剪决策依据）。</p>
+     *
+     * @return JSON 字符串；模型未加载或 JNI 不可用时返回空串
+     */
+    public static String getKvCacheStats() {
+        if (!libraryLoaded) return "";
+        try {
+            return nativeGetKvCacheStats();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetKvCacheStats unavailable: " + e.getMessage());
+            return "";
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getKvCacheStats failed: " + t.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * 获取 native 生成流程状态机的当前阶段（GenPhase + StopCause）。
+     *
+     * <p>返回 JSON：{"phase":"THINKING","stop_cause":"EOS","running":true}。
+     * phase 取值 IDLE/PREPROCESS/THINKING/GENERATING/COMPLETE/ERROR，
+     * 用于对话界面顶部实时展示推理处于思考段还是正文生成、以及完成原因。</p>
+     *
+     * @return JSON 字符串；模型未加载或 JNI 不可用时返回空串
+     */
+    public static String getGenPhase() {
+        if (!libraryLoaded) return "";
+        try {
+            return nativeGetGenPhase();
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetGenPhase unavailable: " + e.getMessage());
+            return "";
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getGenPhase failed: " + t.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * 模型（重新）加载后调用，清除标签缓存，下次 getThinkingTags 重新读取。
+     */
+    public static void invalidateThinkingTagsCache() {
+        cachedThinkingTags = null;
+    }
 
     public static int handleMemoryPressure(int level) {
         if (!libraryLoaded) return 0;

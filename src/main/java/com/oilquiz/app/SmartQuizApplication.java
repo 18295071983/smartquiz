@@ -5,6 +5,8 @@ import android.app.Application;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.appcompat.app.AppCompatDelegate;
 
@@ -46,10 +48,37 @@ public class SmartQuizApplication extends Application {
 
     @Override
     public void onCreate() {
+        // 恢复用户上次选择的语言（须在 Activity 创建前调用）
+        com.oilquiz.app.manager.LanguageManager.applyLanguage(this);
         applyThemeMode();
         super.onCreate();
         instance = this;
-        
+
+        // 后台线程预生成内置壁纸（仅首次或版本更新时）
+        new Thread(() -> {
+            try {
+                com.oilquiz.app.theme.WallpaperStore.ensureBuiltin(this);
+            } catch (Throwable ignored) {
+            }
+        }, "wallpaper-init").start();
+
+        // 应用壁纸跟随：系统壁纸变化时，若开启「跟随系统壁纸」模式，重建前台页面刷新背景
+        try {
+            android.app.WallpaperManager wm = android.app.WallpaperManager.getInstance(this);
+            wm.addOnColorsChangedListener((listener, which) -> {
+                if (com.oilquiz.app.theme.AppWallpaperManager.getMode(this)
+                        != com.oilquiz.app.theme.AppWallpaperManager.MODE_FOLLOW_SYSTEM) {
+                    return;
+                }
+                android.app.Activity a = currentActivity;
+                if (a != null && !a.isFinishing() && !a.isDestroyed()) {
+                    a.runOnUiThread(a::recreate);
+                }
+            }, new android.os.Handler(android.os.Looper.getMainLooper()));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "register wallpaper listener failed: " + t.getMessage());
+        }
+
         // 立即初始化异常处理器（必须最先初始化）
         try {
             GlobalExceptionHandler.init(this);
@@ -148,9 +177,21 @@ public class SmartQuizApplication extends Application {
     public static SmartQuizApplication getInstance() {
         return instance;
     }
+
     
     private void registerActivityLifecycle() {
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
+            @Override
+            public void onActivityPreCreated(Activity activity, Bundle savedInstanceState) {
+                // 在 setContentView 之前注入主题 overlay：系统动态色开启时用原生 Material You 配色，
+                // 否则用自定义（7 预设色 + 24 色相网格）overlay
+                if (com.oilquiz.app.manager.ThemeManager.isSystemDynamicColor(activity)) {
+                    activity.getTheme().applyStyle(R.style.OilQuizDynamicOverlay, true);
+                } else {
+                    com.oilquiz.app.manager.ThemeManager.applyThemeOverlay(activity);
+                }
+            }
+
             @Override
             public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
                 currentActivity = activity;
@@ -164,6 +205,18 @@ public class SmartQuizApplication extends Application {
             @Override
             public void onActivityResumed(Activity activity) {
                 currentActivity = activity;
+                // 应用壁纸到页面根布局（跟随系统壁纸 / 壁纸库 / 关闭，全局统一）
+                try {
+                    android.view.ViewGroup wc = (android.view.ViewGroup) activity.findViewById(android.R.id.content);
+                    android.view.View root = (wc != null && wc.getChildCount() > 0) ? wc.getChildAt(0) : wc;
+                    com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
+                    // 双保险：页面渲染完成后再次应用，防止页面代码 setBackground 覆盖壁纸
+                    if (root != null) {
+                        final android.view.View fRoot = root;
+                        root.post(() -> com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot));
+                    }
+                } catch (Throwable ignored) {
+                }
                 resumeCount++;
                 if (isBackground) {
                     // 应用从后台回到前台
@@ -185,7 +238,7 @@ public class SmartQuizApplication extends Application {
                                     @Override
                                     public void onHotStartComplete(boolean success, String message) {
                                         com.oilquiz.app.util.AILogger.i("SmartQuizApplication", 
-                                            "热启动结果: " + success + " - " + message);
+                                            getString(R.string.h_9c561bf1) + success + " - " + message);
                                     }
                                 });
                             }
@@ -262,6 +315,12 @@ public class SmartQuizApplication extends Application {
      */
     private void preloadAIServiceInternal() {
         try {
+            // 一键初始化进行中：跳过自动预加载，避免与下载/加载互相冲突
+            if (com.oilquiz.app.ai.service.AIServiceInitializer.isInitializing()) {
+                com.oilquiz.app.util.AILogger.i(TAG,
+                        "检测到一键初始化进行中，跳过自动预加载AI服务，避免冲突");
+                return;
+            }
             com.oilquiz.app.util.AILogger.i(TAG, "开始预加载AI服务...");
 
             // 仅当"激活"的在线模型时才跳过本地 GGUF 预加载（激活=当前主用在线，加载本地只会白占内存）。
@@ -284,15 +343,16 @@ public class SmartQuizApplication extends Application {
 
             if (!aiService.isInitialized()) {
                 com.oilquiz.app.util.AILogger.i(TAG, "模型未初始化，尝试加载已导入的模型…");
-                String[] availableModels = aiService.getAvailableModels();
-                if (availableModels != null && availableModels.length > 0) {
-                    String modelName = availableModels[0];
+                // 选择可作主模型的模型：排除 mmproj/CLIP 投影文件（llama.cpp 无法将其作为主模型加载，
+                // 否则报 "CLIP cannot be used as main model" 导致预加载失败、AI 状态错误）
+                String modelName = selectMainModelForPreload(aiService);
+                if (modelName != null) {
                     com.oilquiz.app.util.AILogger.i(TAG, "找到可用模型: " + modelName);
                     // 直接加载模型（预加载在后台异步进行，不会阻塞本次加载）
                     boolean success = aiService.switchModel(modelName);
                     com.oilquiz.app.util.AILogger.i(TAG, "模型加载结果: " + success);
                 } else {
-                    com.oilquiz.app.util.AILogger.i(TAG, "未找到已导入的 .gguf 模型，跳过预加载（assets 中无内置模型）");
+                    com.oilquiz.app.util.AILogger.i(TAG, "未找到可作主模型的 .gguf 模型，跳过预加载（避免误加载 mmproj/CLIP 投影文件）");
                 }
             }
 
@@ -301,6 +361,33 @@ public class SmartQuizApplication extends Application {
         } catch (Exception e) {
             com.oilquiz.app.util.AILogger.e(TAG, "AI服务预加载失败: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 选择自动预加载的主模型：优先当前配置的主模型（非投影文件），
+     * 否则从可用主模型中选第一个（排除 mmproj/CLIP 投影文件）。
+     */
+    private String selectMainModelForPreload(com.oilquiz.app.ai.service.AIService aiService) {
+        try {
+            // 1) 优先当前配置的主模型（非投影文件 + 文件完整）
+            String current = aiService.getCurrentModelName();
+            if (current != null && !current.isEmpty()
+                    && aiService.isMainModelUsable(current)) {
+                return current;
+            }
+            // 2) 从可用主模型中选第一个完整可用的（排除 mmproj/CLIP 与不完整半截文件）
+            String[] mains = aiService.getAvailableMainModels();
+            if (mains != null) {
+                for (String name : mains) {
+                    if (name != null && !name.isEmpty() && aiService.isMainModelUsable(name)) {
+                        return name;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            com.oilquiz.app.util.AILogger.w(TAG, "选择预加载主模型失败: " + e.getMessage());
+        }
+        return null;
     }
 
     /**
@@ -435,7 +522,7 @@ public class SmartQuizApplication extends Application {
         try {
             final android.content.SharedPreferences prefs = getSharedPreferences("debug_agent_test", MODE_PRIVATE);
             if (!prefs.getBoolean("run", false)) return;
-            final String message = prefs.getString("message", "查一下北京天气");
+            final String message = prefs.getString("message", getString(R.string.h_f44c7e2e));
             prefs.edit().clear().apply();
             new Thread(() -> {
                 try {
@@ -622,19 +709,6 @@ public class SmartQuizApplication extends Application {
     }
 
     private void applyThemeMode() {
-        SharedPreferences prefs = getSharedPreferences("theme_preferences", MODE_PRIVATE);
-        int themeMode = prefs.getInt("current_theme", 2);
-        switch (themeMode) {
-            case 0:
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
-                break;
-            case 1:
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
-                break;
-            case 2:
-            default:
-                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
-                break;
-        }
+        com.oilquiz.app.manager.ThemeManager.applyNightMode(this);
     }
 }

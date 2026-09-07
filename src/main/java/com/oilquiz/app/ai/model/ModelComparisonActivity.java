@@ -49,9 +49,7 @@ public class ModelComparisonActivity extends AppCompatActivity {
         models = new ArrayList<>();
         List<ModelPresetConfig.ModelPreset> presets = ModelPresetConfig.loadPresets(this);
         for (ModelPresetConfig.ModelPreset preset : presets) {
-            if (preset.id.matches("\\d+")) {
-                models.add(ModelPresetConfig.toDisplayModel(preset));
-            }
+            models.add(ModelPresetConfig.toDisplayModel(preset));
         }
     }
 

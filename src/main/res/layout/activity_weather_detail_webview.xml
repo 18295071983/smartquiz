@@ -8,39 +8,39 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="#1E40AF"
+        android:background="@color/blue_800"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:elevation="4dp">
+        android:elevation="@dimen/elev_4">
 
         <ImageView
             android:id="@+id/btn_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
             android:src="@drawable/ic_back"
             android:tint="@android:color/white"
-            android:padding="12dp"
+            android:padding="@dimen/space_12"
             android:clickable="true"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackgroundBorderless" />
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="天气详情"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textColor="@android:color/white"
             android:textStyle="bold"
             android:gravity="center" />
 
         <ImageView
             android:id="@+id/btn_refresh"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
             android:src="@drawable/ic_refresh"
             android:tint="@android:color/white"
-            android:padding="12dp"
+            android:padding="@dimen/space_12"
             android:clickable="true"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackgroundBorderless" />
@@ -75,9 +75,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="正在加载天气数据..."
-                android:textSize="16sp"
-                android:textColor="#64748B"
-                android:layout_marginTop="16dp" />
+                android:textSize="@dimen/text_16"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:layout_marginTop="@dimen/space_16" />
 
         </LinearLayout>
 

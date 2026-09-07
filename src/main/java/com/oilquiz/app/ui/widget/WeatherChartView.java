@@ -15,6 +15,8 @@ import androidx.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 public class WeatherChartView extends View {
 
     private Paint linePaint;
@@ -55,18 +57,18 @@ public class WeatherChartView extends View {
 
     private void init() {
         linePaint = new Paint();
-        linePaint.setColor(0xFF64B5F6);
+        linePaint.setColor(ThemeColors.get(R.color.hc_ff64b5f6));
         linePaint.setStrokeWidth(3);
         linePaint.setStyle(Paint.Style.STROKE);
         linePaint.setAntiAlias(true);
 
         pointPaint = new Paint();
-        pointPaint.setColor(0xFF1976D2);
+        pointPaint.setColor(ThemeColors.get(R.color.hc_ff1976d2));
         pointPaint.setStyle(Paint.Style.FILL);
         pointPaint.setAntiAlias(true);
 
         fillPaint = new Paint();
-        fillPaint.setColor(0x4064B5F6);
+        fillPaint.setColor(ThemeColors.get(R.color.hc_4064b5f6));
         fillPaint.setStyle(Paint.Style.FILL);
         fillPaint.setAntiAlias(true);
 
@@ -76,7 +78,7 @@ public class WeatherChartView extends View {
         textPaint.setAntiAlias(true);
 
         touchPaint = new Paint();
-        touchPaint.setColor(0xFF1976D2);
+        touchPaint.setColor(ThemeColors.get(R.color.hc_ff1976d2));
         touchPaint.setStrokeWidth(2);
         touchPaint.setStyle(Paint.Style.STROKE);
         touchPaint.setAntiAlias(true);
@@ -129,11 +131,11 @@ public class WeatherChartView extends View {
     }
 
     private void drawNoDataMessage(Canvas canvas) {
-        String message = "暂无数据";
+        String message = getContext().getString(R.string.h_21efd88b);
         float textWidth = textPaint.measureText(message);
         float x = (getWidth() - textWidth) / 2;
         float y = getHeight() / 2;
-        textPaint.setColor(0xFF999999);
+        textPaint.setColor(ThemeColors.get(R.color.hc_ff999999));
         canvas.drawText(message, x, y, textPaint);
         textPaint.setColor(Color.BLACK);
     }
@@ -153,7 +155,7 @@ public class WeatherChartView extends View {
 
     private void drawGrid(Canvas canvas, float startX, float startY) {
         Paint gridPaint = new Paint();
-        gridPaint.setColor(0x30CCCCCC);
+        gridPaint.setColor(ThemeColors.get(R.color.hc_30cccccc));
         gridPaint.setStrokeWidth(1);
 
         int gridLines = 5;
@@ -244,7 +246,7 @@ public class WeatherChartView extends View {
 
         RectF bubbleRect = new RectF(bubbleX, bubbleY, bubbleX + bubbleWidth, bubbleY + bubbleHeight);
         Paint bubblePaint = new Paint();
-        bubblePaint.setColor(0xFF1976D2);
+        bubblePaint.setColor(ThemeColors.get(R.color.hc_ff1976d2));
         bubblePaint.setStyle(Paint.Style.FILL);
         canvas.drawRoundRect(bubbleRect, 8, 8, bubblePaint);
 

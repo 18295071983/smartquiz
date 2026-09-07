@@ -3,14 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/message_card_error"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="@dimen/space_12">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -22,16 +22,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="⚠️"
-                android:textSize="14sp"
-                android:layout_marginEnd="6dp" />
+                android:textSize="@dimen/text_14"
+                android:layout_marginEnd="@dimen/space_6" />
 
             <TextView
                 android:id="@+id/error_title"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="生成出错"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textColor="@color/error_message_text"
                 android:textStyle="bold" />
 
@@ -41,23 +41,23 @@
             android:id="@+id/error_message"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="@dimen/space_4"
             android:textColor="@color/error_message_text"
-            android:textSize="13sp" />
+            android:textSize="@dimen/text_13" />
 
         <TextView
             android:id="@+id/error_detail"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="@dimen/space_4"
             android:textColor="@color/error_message_text"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:visibility="gone" />
 
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_8"
             android:orientation="horizontal">
 
             <TextView
@@ -65,9 +65,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🔄 重试"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/error_message_text"
-                android:padding="4dp"
+                android:padding="@dimen/space_4"
                 android:background="?attr/selectableItemBackground"
                 android:visibility="gone" />
 
@@ -76,11 +76,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📝 报告"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/error_message_text"
-                android:padding="4dp"
+                android:padding="@dimen/space_4"
                 android:background="?attr/selectableItemBackground"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="@dimen/space_8" />
 
         </LinearLayout>
 

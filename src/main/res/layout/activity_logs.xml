@@ -21,114 +21,208 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="?attr/colorSurface"
+        app:tabMode="scrollable"
         app:tabTextColor="?attr/colorOnSurface"
         app:tabSelectedTextColor="?attr/colorPrimary"/>
+
+    <!-- 搜索栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/space_16"
+        android:paddingEnd="@dimen/space_16"
+        android:paddingTop="@dimen/space_8"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/et_search"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
+            android:layout_weight="1"
+            android:hint="搜索关键字（标签/消息）"
+            android:textSize="@dimen/text_14"
+            android:inputType="text"
+            android:maxLines="1"
+            android:paddingStart="@dimen/space_12"
+            android:paddingEnd="@dimen/space_12"
+            android:background="@drawable/bg_search_input"/>
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_live"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_8"
+            android:text="实时"
+            android:checkable="true"
+            android:checked="true"
+            app:chipIcon="@drawable/ic_live_off"
+            app:checkedIcon="@drawable/ic_live_on"
+            app:chipIconVisible="true"/>
+    </LinearLayout>
+
+    <!-- 级别过滤 -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/space_16"
+        android:paddingEnd="@dimen/space_16"
+        android:scrollbars="none">
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chip_group_levels"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:singleSelection="true"
+            app:selectionRequired="true">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_level_all"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="全部级别"
+                android:checked="true"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_level_v"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="V"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_level_d"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="D"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_level_i"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="I"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_level_w"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="W"/>
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_level_e"
+                style="@style/Widget.MaterialComponents.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="E"/>
+        </com.google.android.material.chip.ChipGroup>
+    </HorizontalScrollView>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_logs"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
-        android:padding="16dp"
+        android:paddingStart="@dimen/space_16"
+        android:paddingEnd="@dimen/space_16"
+        android:paddingTop="@dimen/space_8"
         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
 
+    <!-- 状态栏：显示条数 + 加载更多 -->
     <LinearLayout
-        android:id="@+id/ll_pagination"
+        android:id="@+id/ll_status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="8dp"
-        android:background="@color/surface"
-        android:gravity="center">
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_prev_page"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="上一页"
-            android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"/>
+        android:padding="@dimen/space_8"
+        android:background="?attr/colorSurface"
+        android:gravity="center_vertical">
+
         <TextView
-            android:id="@+id/tv_page_info"
-            android:layout_width="wrap_content"
+            android:id="@+id/tv_log_count"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
-            android:paddingHorizontal="16dp"
-            android:gravity="center"
-            android:text="第 1 页，共 1 页"
-            android:textColor="@color/text_primary"/>
+            android:layout_weight="1"
+            android:paddingHorizontal="8dp"
+            android:gravity="center_vertical"
+            android:text="共 0 条"
+            android:textColor="?attr/colorControlText"/>
+
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_next_page"
+            android:id="@+id/btn_load_more"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="下一页"
+            android:layout_height="@dimen/size_36"
+            android:text="加载更多"
             android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"/>
+            app:backgroundTint="?attr/colorSecondary"
+            android:textColor="?attr/colorOnSecondary"
+            app:cornerRadius="@dimen/radius_12"/>
     </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
-        android:background="@color/surface"
-        android:elevation="8dp">
+        android:padding="@dimen/space_16"
+        android:background="?attr/colorSurface"
+        android:elevation="@dimen/elev_8">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_refresh_logs"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="刷新"
             android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"/>
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
+            app:cornerRadius="@dimen/radius_12"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_clear_logs"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_8"
             android:text="清空"
             android:textAllCaps="false"
             app:backgroundTint="@color/error"
             android:textColor="@color/on_error"
-            app:cornerRadius="12dp"/>
+            app:cornerRadius="@dimen/radius_12"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_copy_logs"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_8"
             android:text="复制"
             android:textAllCaps="false"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@color/on_secondary"
-            app:cornerRadius="12dp"/>
+            app:backgroundTint="?attr/colorSecondary"
+            android:textColor="?attr/colorOnSecondary"
+            app:cornerRadius="@dimen/radius_12"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_export_logs"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_8"
             android:text="导出"
             android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"/>
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
+            app:cornerRadius="@dimen/radius_12"/>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_share_logs"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_8"
             android:text="分享"
             android:textAllCaps="false"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"/>
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
+            app:cornerRadius="@dimen/radius_12"/>
     </LinearLayout>
 
 </LinearLayout>

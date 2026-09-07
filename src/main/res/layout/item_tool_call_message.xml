@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp"
+    android:padding="@dimen/space_8"
     android:background="@drawable/message_card_tool">
 
     <!-- 头部：工具图标 + 工具名 + 状态徽标（点击折叠整个块） -->
@@ -22,15 +22,15 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="🔧"
-            android:textSize="16sp"
-            android:layout_marginEnd="6dp" />
+            android:textSize="@dimen/text_16"
+            android:layout_marginEnd="@dimen/space_6" />
 
         <TextView
             android:id="@+id/tool_name"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="@color/tool_call_label"
             android:textStyle="bold"
             android:singleLine="true"
@@ -40,7 +40,7 @@
             android:id="@+id/tool_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="11sp"
+            android:textSize="@dimen/text_11"
             android:textColor="@color/tool_call_status_default" />
 
         <TextView
@@ -48,16 +48,16 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="▶"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:textColor="@color/tool_call_label"
-            android:layout_marginStart="6dp" />
+            android:layout_marginStart="@dimen/space_6" />
 
         <ProgressBar
             android:id="@+id/tool_progress_small"
             style="?android:attr/progressBarStyleSmall"
-            android:layout_width="16dp"
-            android:layout_height="16dp"
-            android:layout_marginStart="6dp"
+            android:layout_width="@dimen/size_16"
+            android:layout_height="@dimen/size_16"
+            android:layout_marginStart="@dimen/space_6"
             android:visibility="gone" />
     </LinearLayout>
 
@@ -67,7 +67,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="4dp">
+        android:layout_marginBottom="@dimen/space_4">
 
         <LinearLayout
             android:id="@+id/tool_params_header"
@@ -75,7 +75,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:padding="6dp"
+            android:padding="@dimen/space_6"
             android:background="@drawable/message_card_tool"
             android:clickable="true"
             android:focusable="true">
@@ -85,15 +85,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="▼"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/tool_call_label"
-                android:layout_marginEnd="4dp" />
+                android:layout_marginEnd="@dimen/space_4" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📋 参数"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/tool_call_label" />
         </LinearLayout>
 
@@ -102,9 +102,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/message_card_tool"
-            android:padding="10dp"
+            android:padding="@dimen/space_10"
             android:textColor="@color/tool_call_text"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:fontFamily="monospace"
             android:visibility="gone" />
     </LinearLayout>
@@ -123,7 +123,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:padding="6dp"
+            android:padding="@dimen/space_6"
             android:background="@drawable/message_card_tool"
             android:clickable="true"
             android:focusable="true">
@@ -133,16 +133,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="▼"
-                android:textSize="10sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/tool_result_label"
-                android:layout_marginEnd="4dp" />
+                android:layout_marginEnd="@dimen/space_4" />
 
             <TextView
                 android:id="@+id/tool_result_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📤 结果"
-                android:textSize="12sp"
+                android:textSize="@dimen/text_12"
                 android:textColor="@color/tool_result_label" />
         </LinearLayout>
 
@@ -151,9 +151,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/message_card_tool"
-            android:padding="10dp"
+            android:padding="@dimen/space_10"
             android:textColor="@color/tool_call_text"
-            android:textSize="12sp"
+            android:textSize="@dimen/text_12"
             android:fontFamily="monospace"
             android:scrollbars="vertical" />
     </LinearLayout>

@@ -1,0 +1,2 @@
+LibreOffice is licensed under the Mozilla Public License v2.0.
+See https://www.libreoffice.org/download/license/

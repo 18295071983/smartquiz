@@ -16,6 +16,7 @@ import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions;
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 import com.oilquiz.app.ai.service.OnlineOCRService;
+import com.oilquiz.app.ai.util.NativeOcrEngine;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -24,6 +25,8 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -43,6 +46,14 @@ public class OCRManager {
     private final Context context;
     private TextRecognizer currentRecognizer;
     private String currentLanguage;
+
+    // ==================== 实际生效引擎记录（前端 / OCR 工具可追溯） ====================
+    public static final String ENGINE_ONLINE = "online_vision";
+    public static final String ENGINE_RAPIDOCR_V6 = "rapidocr_v6";
+    public static final String ENGINE_MLKIT = "mlkit";
+
+    /** 最近一次 OCR 实际生效的引擎（volatile，跨线程可见） */
+    public volatile String lastEngine = "";
     
     // 语言检测的正则表达式
     private static final Pattern CHINESE_PATTERN = Pattern.compile("[\\u4e00-\\u9fff]");
@@ -64,7 +75,6 @@ public class OCRManager {
             if (currentRecognizer != null) {
                 currentRecognizer.close();
             }
-            
             this.currentLanguage = language;
             
             switch (language) {
@@ -116,6 +126,29 @@ public class OCRManager {
      */
     public String getCurrentLanguage() {
         return currentLanguage;
+    }
+
+    /**
+     * 最近一次 OCR 实际生效的引擎标识（online_vision / rapidocr_v6 / mlkit）
+     */
+    public String getLastEngine() {
+        return lastEngine;
+    }
+
+    /**
+     * 最近一次 OCR 实际生效引擎的中文描述（前端提示用）
+     */
+    public String getLastEngineLabel() {
+        switch (lastEngine) {
+            case ENGINE_ONLINE:
+                return "在线视觉模型";
+            case ENGINE_RAPIDOCR_V6:
+                return "本地高精度 OCR（PP-OCRv6）";
+            case ENGINE_MLKIT:
+                return "本地 ML Kit";
+            default:
+                return "未知引擎";
+        }
     }
     
     /**
@@ -178,6 +211,7 @@ public class OCRManager {
                         // ocrResult 现在包含 text + modelName + modelId（支持多层数据传递）
                         String text = ocrResult.text;
                         if (text != null && !text.isEmpty() && !text.contains("未检测到文字")) {
+                            lastEngine = ENGINE_ONLINE;
                             Log.i(TAG, "在线视觉模型 OCR 成功: " + text.length() + " chars, model=" + ocrResult.modelName);
                             String cleaned = cleanText(text);
                             callback.onSuccess(cleaned);
@@ -210,6 +244,7 @@ public class OCRManager {
             return onlineOCR.recognizeFromFileAsync(filePath, langCode)
                 .thenApply(ocrResult -> {
                     // 从 OCRResult 中提取文本（模型信息可用于多层数据传递）
+                    lastEngine = ENGINE_ONLINE;
                     Log.i(TAG, "在线文件 OCR 完成: model=" + ocrResult.modelName + ", text_len=" + ocrResult.text.length());
                     return ocrResult.text;
                 })
@@ -224,7 +259,8 @@ public class OCRManager {
     }
 
     /**
-     * 本地文件 OCR（同步，阻塞）
+     * 本地文件 OCR（同步，阻塞；仅在工作线程调用）
+     * 优先 RapidOCR（PP-OCRv6 高精度），失败回退 ML Kit
      */
     private String recognizeFileLocal(String filePath) {
         try {
@@ -232,6 +268,20 @@ public class OCRManager {
             Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil.parseImage(new java.io.File(filePath), 2048, 2048);
             if (bitmap == null) return "无法解码图片文件";
 
+            // 优先本地高精度 RapidOCR（PP-OCRv6，同步，工作线程）
+            try {
+                String rapidText = NativeOcrEngine.recognize(context, bitmap);
+                if (rapidText != null && !rapidText.trim().isEmpty()) {
+                    lastEngine = ENGINE_RAPIDOCR_V6;
+                    Log.i(TAG, "RapidOCR 识别成功: " + rapidText.length() + " chars");
+                    return cleanText(rapidText);
+                }
+                Log.w(TAG, "RapidOCR 未识别到文本，回退 ML Kit");
+            } catch (Exception e) {
+                Log.w(TAG, "RapidOCR 识别失败，回退 ML Kit: " + e.getMessage());
+            }
+
+            // 回退 ML Kit（现有流程）
             final String[] result = new String[1];
             final Object lock = new Object();
             synchronized (lock) {
@@ -276,8 +326,28 @@ public class OCRManager {
     
     /**
      * 处理图片进行文字识别（带自动检测）
+     * 优先本地高精度 RapidOCR（PP-OCRv6），失败/无结果回退 ML Kit。
+     * RapidOCR 为同步推理，在独立工作线程执行后回到主线程回调，调用方可保持原有异步语义。
      */
     public void processImage(Bitmap bitmap, OCRCallback callback, boolean retryOnFailure) {
+        new Thread(() -> {
+            String rapidText = NativeOcrEngine.recognize(context, bitmap);
+            if (rapidText != null && !rapidText.trim().isEmpty()) {
+                lastEngine = ENGINE_RAPIDOCR_V6;
+                String cleaned = cleanText(rapidText);
+                new android.os.Handler(android.os.Looper.getMainLooper())
+                        .post(() -> callback.onSuccess(cleaned));
+                return;
+            }
+            Log.w(TAG, "RapidOCR 无结果，回退 ML Kit");
+            mlKitProcess(bitmap, callback, retryOnFailure);
+        }, "rapidocr-process").start();
+    }
+
+    /**
+     * ML Kit 本地识别（原 processImage 实现，作为 RapidOCR 的兜底）
+     */
+    private void mlKitProcess(Bitmap bitmap, OCRCallback callback, boolean retryOnFailure) {
         try {
             InputImage image = InputImage.fromBitmap(bitmap, 0);
             
@@ -298,6 +368,7 @@ public class OCRManager {
                         }
                     }
                     
+                    lastEngine = ENGINE_MLKIT;
                     // 清理文本，避免乱码
                     resultText = cleanText(resultText);
                     callback.onSuccess(resultText);
@@ -394,7 +465,9 @@ public class OCRManager {
                     
                     int pageWidth = page.getWidth();
                     int pageHeight = page.getHeight();
-                    float scale = 3.0f;
+                    // 渲染 scale 3.0→4.0：发票/扫描件小字密集，提高分辨率利于 det 检出；
+                    // 超长边用 4096 上限兜底，避免 OOM。
+                    float scale = 4.0f;
                     if (pageWidth * scale > 4096 || pageHeight * scale > 4096) {
                         scale = 4096f / Math.max(pageWidth, pageHeight);
                     }
@@ -406,47 +479,28 @@ public class OCRManager {
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
                     page.close();
                     
-                    // 使用当前模型识别文字
-                    final int currentPage = i;
-                    final boolean isLastPage = (i == pageCount - 1);
-                    
-                    // 在主线程处理OCR
-                    android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-                    mainHandler.post(() -> {
-                        processImage(bitmap, new OCRCallback() {
-                            @Override
-                            public void onSuccess(String text) {
-                                synchronized (totalText) {
-                                    totalText.append(text);
-                                    totalText.append("\n\n--- 第 ").append(currentPage + 1).append(" 页结束 ---\n\n");
-                                    
-                                    if (isLastPage) {
-                                        String finalText = cleanText(totalText.toString());
-                                        if (progressCallback != null) {
-                                            progressCallback.onProgress(100, "识别完成！");
-                                        }
-                                        callback.onSuccess(finalText);
-                                    }
-                                }
-                            }
-                            
-                            @Override
-                            public void onFailure(String error) {
-                                Log.e(TAG, "第 " + (currentPage + 1) + " 页识别失败: " + error);
-                                // 继续处理下一页
-                                if (isLastPage) {
-                                    String finalText = cleanText(totalText.toString());
-                                    if (progressCallback != null) {
-                                        progressCallback.onProgress(100, "识别完成（部分页面可能识别失败）！");
-                                    }
-                                    callback.onSuccess(finalText);
-                                }
-                            }
-                        });
-                    });
-                    
-                    // 等待一下让主线程处理
-                    Thread.sleep(500);
+                    // 串行同步识别（工作线程）。原实现每页异步 processImage + sleep(500)，
+                    // 而 v6 单页识别可达 10s+，多页会并发调用 RapidOCR 单例
+                    // （ONNX session 非线程安全）导致识别错乱/失败，这里改为逐页串行。
+                    String pageText = recognizePageSync(bitmap);
+                    bitmap.recycle();
+                    if (pageText != null && !pageText.trim().isEmpty()) {
+                        totalText.append(pageText);
+                        totalText.append("\n\n--- 第 ").append(i + 1).append(" 页结束 ---\n\n");
+                    } else {
+                        Log.w(TAG, "第 " + (i + 1) + " 页未识别到文本");
+                    }
+                }
+                
+                String finalText = cleanText(totalText.toString());
+                if (progressCallback != null) {
+                    progressCallback.onProgress(100, "识别完成！");
+                }
+                android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+                if (finalText.trim().isEmpty()) {
+                    mainHandler.post(() -> callback.onFailure("PDF未识别到文字"));
+                } else {
+                    mainHandler.post(() -> callback.onSuccess(finalText));
                 }
                 
             } catch (Exception e) {
@@ -471,6 +525,55 @@ public class OCRManager {
     }
     
     /**
+     * 同步识别一页 PDF 渲染的 Bitmap（工作线程串行调用）。
+     * 优先 RapidOCR（PP-OCRv6），失败/无结果回退 ML Kit（同步等待）。
+     * 返回清理后的文本；无结果返回 null。
+     */
+    private String recognizePageSync(Bitmap bitmap) {
+        // RapidOCR 同步推理（工作线程）
+        try {
+            String t = NativeOcrEngine.recognize(context, bitmap);
+            if (t != null && !t.trim().isEmpty()) {
+                lastEngine = ENGINE_RAPIDOCR_V6;
+                return cleanText(t);
+            }
+            Log.w(TAG, "PDF 页 RapidOCR 无结果，回退 ML Kit");
+        } catch (Exception e) {
+            Log.w(TAG, "PDF 页 RapidOCR 失败，回退 ML Kit: " + e.getMessage());
+        }
+        // ML Kit 兜底（异步，用 CountDownLatch 同步等待结果）
+        try {
+            final String[] result = new String[1];
+            final CountDownLatch latch = new CountDownLatch(1);
+            mlKitProcess(bitmap, new OCRCallback() {
+                @Override
+                public void onSuccess(String text) {
+                    synchronized (result) { result[0] = text; }
+                    latch.countDown();
+                }
+                @Override
+                public void onFailure(String error) {
+                    synchronized (result) { result[0] = "OCR识别失败: " + error; }
+                    latch.countDown();
+                }
+            }, true);
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                Log.w(TAG, "PDF 页 ML Kit 识别超时");
+                return null;
+            }
+            String r;
+            synchronized (result) { r = result[0]; }
+            if (r != null && !r.startsWith("OCR识别失败")) {
+                return cleanText(r);
+            }
+            return null;
+        } catch (Exception e) {
+            Log.w(TAG, "PDF 页 ML Kit 兜底异常: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
      * 清理文本，去除乱码和不可打印字符
      */
     private String cleanText(String text) {
@@ -478,17 +581,15 @@ public class OCRManager {
             return "";
         }
         
-        // 去除不可打印的控制字符（保留换行和制表符）
-        StringBuilder cleaned = new StringBuilder();
-        for (char c : text.toCharArray()) {
-            if (c == '\n' || c == '\r' || c == '\t' || 
-                (c >= 32 && c <= 126) || 
-                (c >= 0x4e00 && c <= 0x9fff) || 
-                (c >= 0x3040 && c <= 0x30ff) || 
-                (c >= 0x31f0 && c <= 0x31ff) || 
-                (c >= 0xac00 && c <= 0xd7af) || 
-                (c >= 0x1100 && c <= 0x11ff) ||
-                (c >= 0xff00 && c <= 0xffef)) {
+        // 仅过滤不可见控制字符（换行/回车/制表保留），保留全部可打印字符。
+        // 原实现用白名单区间，但区间不含中文标点（。、、《》「」）、弯引号、
+        // 破折号、省略号及 CJK 扩展汉字，导致识别结果被删成“残缺”。
+        StringBuilder cleaned = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\n' || c == '\r' || c == '\t') {
+                cleaned.append(c);
+            } else if (!Character.isISOControl(c)) {
                 cleaned.append(c);
             }
         }

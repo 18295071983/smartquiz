@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AI 初始化徽标圆（紫→青渐变） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="?attr/colorPrimary"
+        android:centerColor="?attr/colorPrimary"
+        android:endColor="@color/hc_ff06b6d4" />
+    <stroke
+        android:width="2dp"
+        android:color="@color/hc_33ffffff" />
+</shape>

@@ -51,6 +51,8 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class AIService implements ComponentCallbacks2 {
     private static final String TAG = "AIService";
@@ -1001,6 +1003,21 @@ public class AIService implements ComponentCallbacks2 {
             // 获取上下文大小用于计算 KV 缓存（模型尺寸感知：8B 级大模型自动降档）
             int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, memoryInfo.availableMemoryMB, gpuMemoryMB > 0, modelSizeMB);
 
+            // 用户手动上下文覆盖（参数面板写入 user_model_params）：仿 gpu_layers_manual 机制
+            try {
+                android.content.SharedPreferences userPrefs = context.getSharedPreferences(
+                        "user_model_params", android.content.Context.MODE_PRIVATE);
+                if (!userPrefs.getBoolean("use_auto", true)) {
+                    int manualCtx = userPrefs.getInt("context_size_manual", -1);
+                    if (manualCtx >= 512 && manualCtx <= 32768) {
+                        contextSize = manualCtx;
+                        AILogger.i(TAG, "User manual context override: " + contextSize);
+                    }
+                }
+            } catch (Exception e) {
+                AILogger.w(TAG, "context manual override failed: " + e.getMessage());
+            }
+
             // 检查 GPU 是否支持（使用 gpuMemoryMB > 0 判断，而不是 getGPULayers()）
             boolean hasGpuSupport = gpuMemoryMB > 0 || LlamaHelper.getGPULayers() > 0;
             int gpuLayers = resourceConfig.getOptimalGpuLayers(
@@ -1008,19 +1025,40 @@ public class AIService implements ComponentCallbacks2 {
 
             // 根据系统剩余可用内存动态调整 GPU 层数，防止内存不足导致卡顿或 OOM
             long availMemMB = memoryInfo.availableMemoryMB;
+            // ---- 4B 级大模型内存预检：宁可明确失败/慢跑，也不硬加载导致 OOM 或系统卡死 ----
+            if (modelSizeMB > 1800) {
+                if (availMemMB > 0 && availMemMB < 2200) {
+                    // 可用内存极低：2.3GB 权重 + KV 无论如何装不下，硬加载必然卡死/被杀。
+                    // 明确拒绝并提示，保证"功能正常"（不静默卡死）。
+                    String memErr = "可用内存不足(" + availMemMB + "MB)，无法加载 " + modelSizeMB + "MB 的模型。请释放内存或切换更小模型（如 Qwen3-VL-2B）";
+                    AILogger.e(TAG, "4B model precheck failed: " + memErr);
+                    serviceState.setError(memErr);
+                    notifyError(memErr);
+                    return false;
+                } else if (availMemMB > 0 && availMemMB < 3200) {
+                    // 内存偏紧：GPU offload + 大 KV 有风险，降级为 CPU-only + 更小 context，保证能跑（慢但正常）
+                    AILogger.w(TAG, "4B model with tight memory (" + availMemMB + "MB): forcing CPU-only + smaller context to guarantee functionality");
+                    gpuLayers = 0;
+                    contextSize = Math.min(contextSize, 6144);
+                }
+            }
+            // 4B 级及以上模型（>1800MB）：共享内存 GPU 全量 offload 不增内存总量，且
+            // 半吊子卸载（如 36 层只卸 20，剩 16 层 CPU）会造成每 token CPU-GPU 交替，
+            // 实测仅 8-11 tok/s 且不稳。故内存不足时优先放宽 GPU 层（context 降档已控 KV 内存），
+            // 宁可慢也要避免 CPU-GPU 交替导致的"功能不正常"。
+            boolean bigModel = modelSizeMB > 1800;
             if (gpuLayers > 0 && availMemMB > 0) {
                 int originalGpuLayers = gpuLayers;
                 if (availMemMB < 800) {
-                    // 可用内存极低：大幅降低 GPU 层数，优先保证系统稳定
-                    gpuLayers = Math.min(gpuLayers, 10);
+                    // 可用内存极低：大模型降 context 后仍不足 → 保留较少 GPU 层，优先保证系统稳定
+                    gpuLayers = Math.min(gpuLayers, bigModel ? 14 : 10);
                     AILogger.w(TAG, "Low available memory (" + availMemMB + "MB), reducing GPU layers to " + gpuLayers);
                 } else if (availMemMB < 1500) {
-                    // 可用内存较低：限制到 15 层
-                    gpuLayers = Math.min(gpuLayers, 15);
-                    AILogger.w(TAG, "Moderate-low available memory (" + availMemMB + "MB), reducing GPU layers to " + gpuLayers);
+                    gpuLayers = Math.min(gpuLayers, bigModel ? 22 : 15);
+                    AILogger.w(TAG, "Moderate-low available memory (" + availMemMB + "MB), limiting GPU layers to " + gpuLayers);
                 } else if (availMemMB < 2500) {
-                    // 可用内存一般：限制到 20 层
-                    gpuLayers = Math.min(gpuLayers, 20);
+                    // 非 bigModel 允许 28 层全量（Qwen3VL-2B 28 层全 offload，消除 CPU-GPU 交替瓶颈）
+                    gpuLayers = Math.min(gpuLayers, bigModel ? 30 : 28);
                     AILogger.i(TAG, "Moderate available memory (" + availMemMB + "MB), limiting GPU layers to " + gpuLayers);
                 }
                 if (gpuLayers != originalGpuLayers) {
@@ -1031,6 +1069,14 @@ public class AIService implements ComponentCallbacks2 {
             int threadCount = resourceConfig.getOptimalThreadCount();
             int batchSize = resourceConfig.getOptimalBatchSize(LlamaHelper.getBatchSize());
             int memoryPoolSize = resourceConfig.getOptimalMemoryPoolSize(LlamaHelper.getMemoryPoolSize());
+
+            // 4B 级模型（>1800MB）统一收紧：batch 减半降 prefill 峰值计算内存，
+            // 内存池收紧避免 native 按预算放行过大 KV（权重 2.4GB 常驻，需给系统留余量）。
+            if (modelSizeMB > 1800) {
+                batchSize = Math.min(batchSize, 512);
+                memoryPoolSize = Math.min(memoryPoolSize, 1200);
+                AILogger.i(TAG, "4B model: batch capped to " + batchSize + ", memory pool capped to " + memoryPoolSize + "MB");
+            }
 
             AILogger.i(TAG, "Initializing model with optimized parameters: " +
                     "gpuLayers=" + gpuLayers +
@@ -1077,9 +1123,26 @@ public class AIService implements ComponentCallbacks2 {
             AILogger.i(TAG, "Set memory pool size to " + memoryPoolSize + "MB (KV cache budget)");
 
             // KV cache 类型：默认 F16（最稳）。
-            // Q8_0 量化（setKvCacheType(0)）在部分设备解码时触发 SIGABRT（Vulkan kernel assert），
-            // 暂不自动启用；setKvCacheType API 保留供未来按设备白名单手动开启。
-            int kvCacheType = 1; // F16
+            // Q8_0 量化（setKvCacheType(0)）KV 内存 -50%（8B@6144ctx：0.9GB→0.45GB），native 已做
+            // 初始化失败自动回退 F16 + 异常捕获（Adreno shader 不兼容时安全降级）。
+            // 【判断逻辑修正】不能用"加载时可用内存"决定：加载那一刻内存可能充足，但 4B 模型
+            // 本身 2.3GB+，加载后必然推高系统内存（实测 90%+，可用仅 ~1GB），此时 F16 KV 是压垮
+            // 内存的隐患。故 4B 级模型（>1800MB）一律启用 Q8_0，KV 减半是确定收益。
+            int kvCacheType = 1; // F16 默认
+            if (modelSizeMB > 1800) {
+                // 4B 级模型：无条件启用 Q4_0（KV -75%）。Qwen3 hybrid-attention 模型上 Q4_0 KV 近无损
+                // （llama.cpp 官方实证 BLEU 1.000 @4x 压缩）；不能用"加载时可用内存"判断——加载那一刻
+                // 内存可能显得充足，但模型加载后必然推高系统内存（实测 91-93%），Q8_0 都降不下来。
+                // native 有 Q4_0→Q8_0→F16 逐级回退兜底，shader 不兼容自动降级，不会崩。
+                kvCacheType = 2; // Q4_0：4B 无条件，KV 内存 -75%
+                AILogger.i(TAG, "4B model: enabling Q4_0 KV cache (KV memory ~75% saved, modelSize=" + modelSizeMB + "MB)");
+            } else if (gpuLayers >= 24) {
+                // 小模型 GPU 全量（>=24 层）：保持 F16 KV（默认，快）。
+                // 2B 级模型 F16 KV 仅 ~350MB，Adreno 840 空闲 4.4GB 充足；Q8_0 虽省 ~50%
+                // 但 prefill/decode 的 KV 量化反量化开销显著拖慢吞吐（实测 prefill ~110t/s）。
+                // 大模型内存保护已由上方 modelSizeMB>1800 -> Q4_0 分支负责。
+                // kvCacheType 保持 1（F16），不再强制 Q8_0。
+            }
             LlamaHelper.setKvCacheType(kvCacheType);
 
             int result = LlamaHelper.initModel(
@@ -1494,6 +1557,10 @@ public class AIService implements ComponentCallbacks2 {
                 if (inferenceWakeLock != null && inferenceWakeLock.isHeld()) {
                     try { inferenceWakeLock.release(); } catch (Throwable t) { AILogger.w(TAG, "WakeLock release failed: " + t.getMessage()); }
                 }
+                // 推理结束，标记 AI 空闲（供 AICrashHandler 挂起检测判断）
+                if (crashHandler != null) {
+                    crashHandler.markIdle();
+                }
             }
         });
         
@@ -1668,7 +1735,12 @@ public class AIService implements ComponentCallbacks2 {
                 }
                 throw new RuntimeException("生成失败，可能是内存或模型问题", t);
             }
-        }, executorService);
+        }, executorService).whenComplete((result, ex) -> {
+            // 无论成功或失败（含提前抛出的初始化异常），结束后都标记 AI 空闲
+            if (crashHandler != null) {
+                crashHandler.markIdle();
+            }
+        });
     }
 
     /**
@@ -1890,6 +1962,83 @@ public class AIService implements ComponentCallbacks2 {
         }
         
         return models.toArray(new String[models.size()]);
+    }
+
+    /**
+     * 是否投影文件（mmproj / CLIP / vision projector）。
+     * 投影文件无法作为主模型加载（llama.cpp 报 "CLIP cannot be used as main model"），
+     * 自动预加载 / 主模型选择时必须排除。
+     */
+    public static boolean isProjectionFileName(String fileName) {
+        if (fileName == null) return false;
+        String lower = fileName.toLowerCase();
+        return lower.contains("mmproj") || lower.contains("clip") || lower.contains("projection");
+    }
+
+    /**
+     * 获取可用主模型列表（排除 mmproj / CLIP 投影文件）。
+     * 用于自动预加载等场景，避免把投影文件误当主模型加载导致失败。
+     */
+    public String[] getAvailableMainModels() {
+        java.util.List<String> models = new java.util.ArrayList<>();
+        File modelDir = new File(context.getFilesDir(), MODEL_DIR_NAME);
+        if (modelDir.exists() && modelDir.isDirectory()) {
+            String[] files = modelDir.list();
+            if (files != null) {
+                for (String file : files) {
+                    // P4: 过滤投影文件 + 不完整/损坏文件（半截文件不进入选择列表，避免选中后加载失败）
+                    if (file.endsWith(".gguf") && isMainModelUsable(file)) {
+                        models.add(file);
+                    }
+                }
+            }
+        }
+        return models.toArray(new String[models.size()]);
+    }
+
+    /**
+     * 主模型文件是否完整可用：非投影文件 + 文件存在 + 按 preset 期望大小做完整性校验
+     * （不完整/损坏的半截文件返回 false，避免自动预加载选到坏文件导致 AI 状态错误）。
+     * 非 preset 模型不校验大小（仅文件存在）。
+     */
+    public boolean isMainModelUsable(String modelName) {
+        if (modelName == null || isProjectionFileName(modelName)) return false;
+        String path = findModelPath(modelName);
+        if (path == null) return false;
+        try {
+            long expected = expectedBytesForModelName(modelName);
+            if (expected > 0) {
+                java.io.File f = new java.io.File(path);
+                return f.length() >= (long) (expected * 0.90);
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "isMainModelUsable check failed: " + e.getMessage());
+        }
+        return true;
+    }
+
+    /** 按模型文件名查 preset 期望字节数；未命中返回 -1 */
+    private long expectedBytesForModelName(String modelName) {
+        try {
+            com.oilquiz.app.ai.model.ModelDownloadManager manager =
+                    com.oilquiz.app.ai.model.ModelDownloadManager.getInstance(context);
+            java.util.List<com.oilquiz.app.ai.model.ModelDownloadManager.ModelPresetInfo> list =
+                    manager.getPresetDomesticModels();
+            if (list != null) {
+                for (com.oilquiz.app.ai.model.ModelDownloadManager.ModelPresetInfo p : list) {
+                    if (p == null || p.downloadUrl == null) continue;
+                    String url = p.downloadUrl;
+                    int lastSlash = url.lastIndexOf('/');
+                    String presetFile = lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
+                    if (modelName.equals(presetFile) && p.sizeMB > 0) {
+                        return p.sizeMB * 1024L * 1024L;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "expectedBytesForModelName failed: " + e.getMessage());
+        }
+        return -1L;
     }
 
     /**
@@ -2287,6 +2436,27 @@ public class AIService implements ComponentCallbacks2 {
     /**
      * 释放资源（异步；与模型加载互斥）
      */
+    /**
+     * 卸载当前模型并重置 AI 服务状态（currentModelName / isInitialized）。
+     * 用于删除"当前使用中"的模型文件后，避免后续对话指向已删除文件。
+     * 需在后台线程调用；内部已排队到 executorService。
+     */
+    public void unloadCurrentModel() {
+        executorService.execute(() -> {
+            synchronized (modelInitLock) {
+                try {
+                    releaseNativeResourcesLocked(false);
+                    currentModelName = null;
+                    isInitialized = false;
+                    AILogger.i(TAG, "Current model unloaded (file removed)");
+                    mainHandler.post(this::notifyStatusChange);
+                } catch (Exception e) {
+                    AILogger.e(TAG, "unloadCurrentModel error: " + e.getMessage(), e);
+                }
+            }
+        });
+    }
+
     public void release() {
         if (crashHandler != null) {
             crashHandler.stopMonitoring();
@@ -2470,6 +2640,14 @@ public class AIService implements ComponentCallbacks2 {
         } else if (modelSizeMB >= 3000) {
             contextSize = Math.min(contextSize, 8192);
             AILogger.i(TAG, "Mid-large model (" + modelSizeMB + "MB): context capped to " + contextSize);
+        } else if (modelSizeMB >= 1800) {
+            // 4B 级（Qwen3-VL-4B Q4≈2381MB）也降档：KV 是 2B 的 ~1.6 倍（nLayer 28→36、nEmbd 2048→2560），
+            // 同 context 下内存压力显著更高，且 Agent 场景 6K 足够（历史有压缩）。
+            // 保持 8192（Agent 兼容底线）：Agent 第 1 轮 prompt 实测 ~6974 tokens（2B），
+            // 6144 减生成预留后仅 5632 可用会 Prompt too long。Q4_0 KV @8192 ≈ 288MB
+            // 可控；若 Q4_0 shader 回退 F16（≈768MB）再单独降档/换 Q8_0，不以牺牲 Agent 为代价。
+            contextSize = Math.min(contextSize, 8192);
+            AILogger.i(TAG, "4B-level model (" + modelSizeMB + "MB): context capped to " + contextSize);
         }
 
         AILogger.i(TAG, "calculateOptimalContextSize: mode=" + optimizationMode.displayName 
@@ -3485,7 +3663,41 @@ public class AIService implements ComponentCallbacks2 {
     private long tryCreateChatContextWithFallback(String globalPrompt, String systemPrompt, String normalPrompt, int nThreads) {
         // 首值 0 = 使用模型加载时的完整上下文（native chatCreate 对 ctxSize<=0 取模型 n_ctx，
         // 避免此前 {16384,8192,...} 与模型上下文脱节的误导性尝试）；失败再逐级减半降级。
-        int[] ctxSizes = { 0, 8192, 4096, 2048, 1024 };
+        // 防崩溃加固：低内存设备上 0（=模型完整 n_ctx，如 Qwen3-4B 32768）的 KV 缓存
+        // 峰值可达数 GB（实测 16K≈4.8GB），创建阶段即被系统杀进程，fallback 链根本来不及执行。
+        // 因此按设备总内存钳制首试值：<6GB 先试 4096，<10GB 先试 8192，高内存才用完整 n_ctx。
+        int firstCtx = 0;
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am != null) {
+                android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+                am.getMemoryInfo(mi);
+                long totalMemMB = mi.totalMem / (1024L * 1024L);
+                if (totalMemMB > 0 && totalMemMB < 6144) {
+                    firstCtx = 4096;
+                } else if (totalMemMB < 10240) {
+                    firstCtx = 8192;
+                }
+                AILogger.i(TAG, "Device total RAM=" + totalMemMB + "MB, memory-aware first ctxSize=" + firstCtx);
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Memory-aware ctxSize detection failed: " + t.getMessage());
+        }
+        // 按从大到小构造降序候选（去重，且只取 ≤ firstCtx 的值），保证后续降级只减不增
+        int[] ctxSizes;
+        if (firstCtx <= 0) {
+            ctxSizes = new int[]{0, 8192, 4096, 2048, 1024};
+        } else {
+            java.util.LinkedHashSet<Integer> set = new java.util.LinkedHashSet<>();
+            set.add(firstCtx);
+            for (int c : new int[]{8192, 4096, 2048, 1024}) {
+                if (c < firstCtx) set.add(c);
+            }
+            ctxSizes = new int[set.size()];
+            int idx = 0;
+            for (int c : set) ctxSizes[idx++] = c;
+        }
+        AILogger.i(TAG, "Chat context candidate ctxSizes=" + java.util.Arrays.toString(ctxSizes));
 
         for (int ctxSize : ctxSizes) {
             AILogger.i(TAG, "Trying to create chat context with ctxSize=" + ctxSize);
@@ -3523,8 +3735,8 @@ public class AIService implements ComponentCallbacks2 {
             sb.append("你是答题宝智能助手，一个集成在答题宝App中的AI助手。请用中文简洁、准确地回答用户问题。\n");
             sb.append("【环境上下文】\n");
             java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
-                    "yyyy年M月d日 EEEE HH:mm", java.util.Locale.CHINA);
-            sb.append("当前时间：").append(sdf.format(new java.util.Date()));
+                    "yyyy年M月d日 EEEE", java.util.Locale.CHINA);
+            sb.append("当前日期：").append(sdf.format(new java.util.Date()));
             return sb.toString();
         } catch (Throwable t) {
             AILogger.w(TAG, "buildDefaultChatSystemPrompt failed: " + t.getMessage());
@@ -3679,6 +3891,14 @@ public class AIService implements ComponentCallbacks2 {
     }
 
     /**
+     * 模式切换指令标记：注入前剥离旧的模式指令段，防止快速切换（普通↔深度思考）
+     * 时指令单向累积互相冲突、挤占上下文预算。
+     */
+    private static final String MODE_SWITCH_MARKER = "[mode-switch]";
+    private static final Pattern MODE_SWITCH_BLOCK =
+            Pattern.compile("(?s)\\[mode-switch\\].*?(?=\\[mode-switch\\]|\\z)");
+
+    /**
      * 追加系统指令（用于模式切换等）：在现有 system 提示词后追加指令，
      * 不污染对话历史、不触发生成（原实现用 chatSend 会把指令当用户消息进上下文）。
      */
@@ -3687,7 +3907,13 @@ public class AIService implements ComponentCallbacks2 {
         synchronized (chatContextLock) {
             try {
                 String current = chatSystemPrompt != null ? chatSystemPrompt : "";
-                String updated = current.isEmpty() ? instruction : current + "\n\n" + instruction;
+                String updated = current;
+                if (instruction.contains(MODE_SWITCH_MARKER)) {
+                    // 模式切换指令：先剥离旧的模式指令段（含上次注入的），再追加最新一条，
+                    // 保证 system 提示词中始终只有一条生效的模式指令
+                    updated = MODE_SWITCH_BLOCK.matcher(updated).replaceAll("").trim();
+                }
+                updated = updated.isEmpty() ? instruction : updated + "\n\n" + instruction;
                 boolean ok = updateChatPrompts(null, updated, null);
                 if (ok) {
                     chatSystemPrompt = updated;
@@ -3796,6 +4022,9 @@ public class AIService implements ComponentCallbacks2 {
                     AILogger.w(TAG, "onComplete called multiple times, ignoring duplicate call");
                     return;
                 }
+                if (crashHandler != null) {
+                    crashHandler.markIdle();
+                }
                 synchronized (chatContextLock) {
                     activeChatGenerationCount = Math.max(0, activeChatGenerationCount - 1);
                     chatContextLock.notifyAll();
@@ -3815,6 +4044,9 @@ public class AIService implements ComponentCallbacks2 {
                 if (!completed.compareAndSet(false, true)) {
                     AILogger.w(TAG, "onError called after completion, ignoring duplicate: " + error);
                     return;
+                }
+                if (crashHandler != null) {
+                    crashHandler.markIdle();
                 }
                 synchronized (chatContextLock) {
                     activeChatGenerationCount = Math.max(0, activeChatGenerationCount - 1);

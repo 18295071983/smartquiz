@@ -3,45 +3,45 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="12dp"
+    android:layout_marginBottom="@dimen/space_12"
     android:clickable="true"
     android:focusable="true"
-    app:cardBackgroundColor="@color/card_background"
+    app:cardBackgroundColor="?attr/colorCardBackground"
     app:cardCornerRadius="16dp"
     app:cardElevation="4dp"
     app:rippleColor="@color/primary_alpha_20"
-    app:strokeColor="@color/outline"
-    app:strokeWidth="0dp">
+    app:strokeColor="?attr/colorOutline"
+    app:strokeWidth="@dimen/stroke_0">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <!-- 左侧图标区域 -->
         <FrameLayout
             android:id="@+id/icon_container"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginEnd="16dp"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
+            android:layout_marginEnd="@dimen/space_16"
             android:background="@drawable/bg_icon_circle"
             android:backgroundTint="@color/primary_alpha_20">
 
             <ImageView
                 android:id="@+id/icon"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:layout_width="@dimen/size_24"
+                android:layout_height="@dimen/size_24"
                 android:layout_gravity="center"
                 android:src="@android:drawable/ic_menu_info_details"
-                android:tint="@color/primary" />
+                android:tint="?attr/colorPrimary" />
 
         </FrameLayout>
 
         <!-- 文本内容区域 -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
@@ -51,27 +51,27 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textAppearance="@style/TextAppearance.App.Subtitle1"
-                android:textColor="@color/text_primary" />
+                android:textColor="?attr/colorControlText" />
 
             <TextView
                 android:id="@+id/description"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="@dimen/space_4"
                 android:textAppearance="@style/TextAppearance.App.Body2"
-                android:textColor="@color/text_secondary" />
+                android:textColor="?attr/colorControlTextSecondary" />
 
         </LinearLayout>
 
         <!-- 右侧箭头 -->
         <ImageView
             android:id="@+id/arrow"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="@dimen/size_24"
+            android:layout_height="@dimen/size_24"
+            android:layout_marginStart="@dimen/space_8"
             android:rotation="180"
             android:src="@android:drawable/ic_media_previous"
-            android:tint="@color/text_tertiary" />
+            android:tint="?attr/colorControlTextHint" />
 
     </LinearLayout>
 

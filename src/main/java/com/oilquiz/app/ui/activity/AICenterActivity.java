@@ -192,7 +192,7 @@ public class AICenterActivity extends AppCompatActivity
                 double cost = stats.sessionPromptTokens * 0.03 / 1000 +
                               stats.sessionCompletionTokens * 0.06 / 1000;
                 if (tvTokenCost != null) {
-                    tvTokenCost.setText(String.format("约 ¥%.2f", cost * 7.2));
+                    tvTokenCost.setText(String.format(getString(R.string.h_12f136f2), cost * 7.2));
                 }
             }
         });
@@ -325,7 +325,7 @@ public class AICenterActivity extends AppCompatActivity
             btnRefreshModels.setOnClickListener(v -> {
                 // 刷新当前在线模型列表（各配置的模型下拉框数据来自缓存）
                 refreshOnlineModels();
-                Toast.makeText(this, "模型列表已刷新", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_fd08d15f), Toast.LENGTH_SHORT).show();
             });
         }
 
@@ -344,7 +344,7 @@ public class AICenterActivity extends AppCompatActivity
         if (btnRefreshLocalModels != null) {
             btnRefreshLocalModels.setOnClickListener(v -> {
                 refreshLocalModels();
-                Toast.makeText(this, "本地模型列表已刷新", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_676572ba), Toast.LENGTH_SHORT).show();
             });
         }
 
@@ -403,16 +403,16 @@ public class AICenterActivity extends AppCompatActivity
         if (tvCurrentOnlineModel != null) {
             if (inferenceRouter.isUsingOnlineModel()) {
                 String modelName = inferenceRouter.getCurrentModelName();
-                tvCurrentOnlineModel.setText(modelName != null ? modelName : "未选择模型");
-                tvCurrentOnlineProvider.setText("在线模型");
+                tvCurrentOnlineModel.setText(modelName != null ? modelName : getString(R.string.h_be4bb9e0));
+                tvCurrentOnlineProvider.setText(getString(R.string.h_7fc75577));
             } else {
                 OnlineModelManager.OnlineModelConfig active = onlineModelManager.getActiveModel();
                 if (active != null) {
                     tvCurrentOnlineModel.setText(active.selectedModel != null ? active.selectedModel : active.modelName);
                     tvCurrentOnlineProvider.setText(active.name);
                 } else {
-                    tvCurrentOnlineModel.setText("未选择模型");
-                    tvCurrentOnlineProvider.setText("点击添加配置");
+                    tvCurrentOnlineModel.setText(getString(R.string.h_be4bb9e0));
+                    tvCurrentOnlineProvider.setText(getString(R.string.h_fdb64631));
                 }
             }
         }
@@ -426,10 +426,10 @@ public class AICenterActivity extends AppCompatActivity
         if (tvCurrentLocalModel != null) {
             if (currentModel != null && !currentModel.isEmpty()) {
                 tvCurrentLocalModel.setText(currentModel);
-                tvLocalModelInfo.setText("本地模型已加载");
+                tvLocalModelInfo.setText(getString(R.string.h_dd7aa8f7));
             } else {
-                tvCurrentLocalModel.setText("未加载模型");
-                tvLocalModelInfo.setText("点击管理或下载模型");
+                tvCurrentLocalModel.setText(getString(R.string.h_7bb4fd0e));
+                tvLocalModelInfo.setText(getString(R.string.h_2ef7cb00));
             }
         }
 
@@ -489,10 +489,10 @@ public class AICenterActivity extends AppCompatActivity
         if (onlineConfig != null) {
             // 在线模型：直接切换并即时刷新 UI
             inferenceRouter.switchModel(onlineConfig.id);
-            Toast.makeText(this, "已切换到在线模型: " + modelName, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_9569dd13) + modelName, Toast.LENGTH_SHORT).show();
             refreshOnlineModels();
         } else {
-            Toast.makeText(this, "正在切换到本地模型: " + modelName, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_154f0dc4) + modelName, Toast.LENGTH_SHORT).show();
             onlineModelManager.stopActiveModel();
             aiService.hotSwitchModel(modelName, new AIService.HotSwitchCallback() {
                 @Override
@@ -502,6 +502,117 @@ public class AICenterActivity extends AppCompatActivity
                             "开始切换: " + (fromModel != null ? fromModel : "无") + " → " + toModel,
                             Toast.LENGTH_SHORT).show();
                     });
+                }
+
+                @Override
+                public void onSwitchProgress(int progress, String message) {
+                }
+
+                @Override
+                public void onSwitchCompleted(boolean success, String model) {
+                    runOnUiThread(() -> {
+                        if (success) {
+                            Toast.makeText(AICenterActivity.this,
+                                getString(R.string.h_24d9c18f) + model, Toast.LENGTH_SHORT).show();
+                            refreshLocalModels();
+                        } else {
+                            Toast.makeText(AICenterActivity.this,
+                                getString(R.string.h_b9c8e7b7), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+
+                @Override
+                public void onSwitchFailed(String reason) {
+                    runOnUiThread(() -> {
+                        Toast.makeText(AICenterActivity.this,
+                            getString(R.string.h_70a7d4d9) + reason, Toast.LENGTH_SHORT).show();
+                    });
+                }
+            });
+        }
+    }
+
+    @Override
+    public void onDeleteClick(String modelName) {
+        OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
+        if (config == null) return;
+
+        final String configId = config.id;
+        new AlertDialog.Builder(this)
+            .setTitle(getString(R.string.h_50eaf94d))
+            .setMessage(getString(R.string.h_bf14db74) + config.name + getString(R.string.h_2957e496))
+            .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {
+                try {
+                    APIKeyManager manager = APIKeyManager.getInstance(this);
+                    if (manager.getAPIConfigById(configId) != null) {
+                        manager.deleteAPIConfig(configId);
+                    }
+                } catch (Exception ignored) {
+                }
+                onlineModelManager.removeModel(configId);
+                Toast.makeText(this, getString(R.string.h_6c0d7a63), Toast.LENGTH_SHORT).show();
+                refreshOnlineModels();
+            })
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
+            .show();
+    }
+
+    @Override
+    public void onEnableToggle(String modelName, boolean enabled) {
+        for (OnlineModelManager.OnlineModelConfig config : onlineModelManager.getModelList()) {
+            if (config.name.equals(modelName)) {
+                config.enabled = enabled;
+                onlineModelManager.save();
+                try {
+                    APIKeyManager manager = APIKeyManager.getInstance(this);
+                    APIConfig apiConfig = manager.getAPIConfigById(config.id);
+                    if (apiConfig != null && apiConfig.isActive() != enabled) {
+                        apiConfig.setActive(enabled);
+                        manager.saveAPIConfig(apiConfig);
+                    }
+                } catch (Exception ignored) {
+                }
+                // 如果禁用了当前活跃的在线模型，停止使用它
+                if (!enabled) {
+                    OnlineModelManager.OnlineModelConfig active = onlineModelManager.getActiveModel();
+                    if (active != null && active.id.equals(config.id)) {
+                        onlineModelManager.stopActiveModel();
+                    }
+                }
+                refreshOnlineModels();
+                Toast.makeText(this, enabled ? getString(R.string.h_53ace430) : getString(R.string.h_1c1ed981), Toast.LENGTH_SHORT).show();
+                break;
+            }
+        }
+    }
+
+    @Override
+    public void onAddClick() {
+        showAddOnlineModelDialog();
+    }
+
+    @Override
+    public void onEditClick(String modelName) {
+        OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
+        if (config == null) {
+            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        showEditOnlineModelDialog(config);
+    }
+
+    private void showAddOnlineModelDialog() {
+        OnlineModelConfigDialog dialog = new OnlineModelConfigDialog(this);
+        dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
+            @Override
+            public void onConfigSaved(OnlineModelManager.OnlineModelConfig config) {
+                if (config != null) {
+                    // 通过 InferenceRouter 切换，确保路由状态同步
+                    inferenceRouter.switchModel(config.id);
+                    Toast.makeText(AICenterActivity.this,
+                        getString(R.string.h_8a7f6c2f) + config.name, Toast.LENGTH_SHORT).show();
+                    refreshOnlineModels();
                 }
 
                 @Override
@@ -584,37 +695,6 @@ public class AICenterActivity extends AppCompatActivity
                 Toast.makeText(this, enabled ? "已启用" : "已禁用", Toast.LENGTH_SHORT).show();
                 break;
             }
-        }
-    }
-
-    @Override
-    public void onAddClick() {
-        showAddOnlineModelDialog();
-    }
-
-    @Override
-    public void onEditClick(String modelName) {
-        OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
-        if (config == null) {
-            Toast.makeText(this, "未找到在线模型配置", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        showEditOnlineModelDialog(config);
-    }
-
-    private void showAddOnlineModelDialog() {
-        OnlineModelConfigDialog dialog = new OnlineModelConfigDialog(this);
-        dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
-            @Override
-            public void onConfigSaved(OnlineModelManager.OnlineModelConfig config) {
-                if (config != null) {
-                    // 通过 InferenceRouter 切换，确保路由状态同步
-                    inferenceRouter.switchModel(config.id);
-                    Toast.makeText(AICenterActivity.this,
-                        "在线模型已添加并激活: " + config.name, Toast.LENGTH_SHORT).show();
-                    refreshOnlineModels();
-                }
-            }
 
             @Override
             public void onConfigCancelled() {
@@ -629,7 +709,7 @@ public class AICenterActivity extends AppCompatActivity
             @Override
             public void onConfigSaved(OnlineModelManager.OnlineModelConfig updatedConfig) {
                 Toast.makeText(AICenterActivity.this,
-                    "配置已更新: " + updatedConfig.name, Toast.LENGTH_SHORT).show();
+                    getString(R.string.h_454706a6) + updatedConfig.name, Toast.LENGTH_SHORT).show();
                 refreshOnlineModels();
             }
 
@@ -644,16 +724,16 @@ public class AICenterActivity extends AppCompatActivity
     public void onFetchModelsClick(String modelName) {
         OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
         if (config == null) {
-            Toast.makeText(this, "未找到在线模型配置", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
             return;
         }
 
         if (config.apiKey == null || config.apiKey.isEmpty()) {
-            Toast.makeText(this, "API Key 不能为空", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_1571dfd4), Toast.LENGTH_SHORT).show();
             return;
         }
 
-        Toast.makeText(this, "正在获取模型列表...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_916702da), Toast.LENGTH_SHORT).show();
 
         final String targetConfigId = config.id;
         modelListFetcher.fetchModels(config.apiUrl, config.apiKey)
@@ -672,18 +752,18 @@ public class AICenterActivity extends AppCompatActivity
                             modelsJson.put(obj);
                         }
                         onlineModelManager.saveCachedModels(targetConfigId, modelsJson.toString());
-                        Toast.makeText(this, "获取成功，共 " + models.size() + " 个模型", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_96daed33) + models.size() + getString(R.string.h_44850b04), Toast.LENGTH_SHORT).show();
                         refreshOnlineModels();
                     } catch (Exception e) {
-                        Toast.makeText(this, "保存模型列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_157fa13a) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 } else {
-                    Toast.makeText(this, "未获取到模型列表", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_d1ef35f7), Toast.LENGTH_SHORT).show();
                 }
             }))
             .exceptionally(e -> {
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "获取失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_bdf02ef7) + e.getMessage(), Toast.LENGTH_SHORT).show();
                 });
                 return null;
             });
@@ -693,7 +773,7 @@ public class AICenterActivity extends AppCompatActivity
     public void onModelSelected(String modelName, String selectedModel) {
         OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
         if (config == null) {
-            Toast.makeText(this, "未找到在线模型配置", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -721,7 +801,7 @@ public class AICenterActivity extends AppCompatActivity
         }
         // 自动切换到该在线模型
         inferenceRouter.switchModel(config.id);
-        Toast.makeText(this, "已切换到模型: " + selectedModel, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_f70a7dc7) + selectedModel, Toast.LENGTH_SHORT).show();
         refreshOnlineModels();
     }
 
@@ -745,13 +825,13 @@ public class AICenterActivity extends AppCompatActivity
         }
 
         if (totalCount == 0) {
-            tvServiceStatus.setText("点击配置API服务");
+            tvServiceStatus.setText(getString(R.string.h_c5e73d8b));
         } else if (validCount == totalCount) {
-            tvServiceStatus.setText("已配置 " + totalCount + " 个服务，全部正常");
+            tvServiceStatus.setText(getString(R.string.h_0d296461) + totalCount + getString(R.string.h_329c5719));
         } else if (validCount > 0) {
-            tvServiceStatus.setText(validCount + "/" + totalCount + " 个服务正常");
+            tvServiceStatus.setText(validCount + "/" + totalCount + getString(R.string.h_46b389d6));
         } else {
-            tvServiceStatus.setText("已配置 " + totalCount + " 个服务，全部异常");
+            tvServiceStatus.setText(getString(R.string.h_0d296461) + totalCount + getString(R.string.h_07f016ca));
         }
     }
 }

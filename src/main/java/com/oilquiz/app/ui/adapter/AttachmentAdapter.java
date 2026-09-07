@@ -24,6 +24,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final String TAG = "AttachmentAdapter";
@@ -315,7 +316,7 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         holder.fileIcon.setText(attachment.getEmoji());
 
         if (holder.fileName != null) {
-            holder.fileName.setText(attachment.name != null ? attachment.name : "未知文件");
+            holder.fileName.setText(attachment.name != null ? attachment.name : context.getString(R.string.h_94cd9443));
         }
 
         if (holder.fileSize != null) {
@@ -362,7 +363,7 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         holder.fileIcon.setText("🎵"); // 音频图标
 
         if (holder.fileName != null) {
-            holder.fileName.setText(attachment.name != null ? attachment.name : "语音消息");
+            holder.fileName.setText(attachment.name != null ? attachment.name : context.getString(R.string.h_b2fbad65));
         }
 
         if (holder.fileSize != null) {
@@ -428,7 +429,7 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         
         // 可以在这里添加选中标记（如勾选图标）
         if (isSelected(position)) {
-            itemView.setBackgroundColor(Color.parseColor("#E3F2FD")); // 浅蓝色背景
+            itemView.setBackgroundColor(ThemeColors.get(R.color.hc_ffe3f2fd)); // 浅蓝色背景
         } else {
             itemView.setBackgroundColor(Color.TRANSPARENT);
         }
@@ -436,13 +437,13 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
 
     private void showRemoveDialog(Attachment attachment, int position) {
         new MaterialAlertDialogBuilder(context)
-            .setTitle("🗑️ 删除附件")
-            .setMessage("确定要删除这个附件吗？\n" +
+            .setTitle(context.getString(R.string.h_ba32db0a))
+            .setMessage(context.getString(R.string.h_6d4b209b) +
                        (attachment.name != null ? attachment.name : ""))
-            .setPositiveButton("删除", (dialog, which) -> {
+            .setPositiveButton(context.getString(R.string.h_2f4aaddd), (dialog, which) -> {
                 removeAttachment(position);
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(context.getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -688,45 +689,45 @@ public class AttachmentAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         StringBuilder content = new StringBuilder();
         
         // 标题
-        content.append("📄 ").append(attachment.name != null ? attachment.name : "未知文件").append("\n\n");
+        content.append("📄 ").append(attachment.name != null ? attachment.name : context.getString(R.string.h_94cd9443)).append("\n\n");
         
         // AI摘要（如果有）
         if (attachment.aiSummary != null && !attachment.aiSummary.isEmpty()) {
-            content.append("🤖 AI智能摘要:\n");
+            content.append(context.getString(R.string.h_98dd417c));
             content.append(attachment.aiSummary).append("\n\n---\n\n");
         }
         
         // 提取的原始内容
         if (attachment.extractedContent != null && !attachment.extractedContent.isEmpty()) {
-            content.append("📝 提取内容:\n");
+            content.append(context.getString(R.string.h_91a02ea3));
             // 限制显示长度
             String preview = attachment.extractedContent.length() > 2000 
                 ? attachment.extractedContent.substring(0, 2000) + "...\n[内容过长，已截断]" 
                 : attachment.extractedContent;
             content.append(preview);
         } else if (attachment.isExtracting) {
-            content.append("⏳ 正在解析中...");
+            content.append(context.getString(R.string.h_c28fbfe8));
         } else if (attachment.extractionError != null) {
-            content.append("❌ 解析失败: ").append(attachment.extractionError);
+            content.append(context.getString(R.string.h_42c75848)).append(attachment.extractionError);
         } else {
-            content.append("ℹ️ 暂无提取内容");
+            content.append(context.getString(R.string.h_cd28422c));
         }
         
         // 创建对话框
         androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(context);
-        builder.setTitle("附件内容预览")
+        builder.setTitle(context.getString(R.string.h_8667899b))
             .setMessage(content.toString())
-            .setPositiveButton("复制全文", (dialog, which) -> {
+            .setPositiveButton(context.getString(R.string.h_290b624a), (dialog, which) -> {
                 // 复制到剪贴板
                 if (attachment.extractedContent != null) {
                     android.content.ClipboardManager clipboard = 
                         (android.content.ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
                     android.content.ClipData clip = android.content.ClipData.newPlainText("附件内容", attachment.extractedContent);
                     clipboard.setPrimaryClip(clip);
-                    android.widget.Toast.makeText(context, "✅ 已复制到剪贴板", android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(context, context.getString(R.string.h_0ec7d451), android.widget.Toast.LENGTH_SHORT).show();
                 }
             })
-            .setNegativeButton("关闭", null)
+            .setNegativeButton(context.getString(R.string.h_b15d9127), null)
             .setCancelable(true)
             .show();
     }

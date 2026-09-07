@@ -5,72 +5,72 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.QuestionAnalyzeActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="题目分析"
-            app:titleTextColor="@color/text_primary"/>
+            app:titleTextColor="?attr/colorControlText"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/card_background"
+                app:cardBackgroundColor="?attr/colorCardBackground"
                 app:cardCornerRadius="16dp"
-                android:layout_marginBottom="16dp">
+                android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="题目信息"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
-                        android:layout_marginBottom="12dp"/>
+                        android:textColor="?attr/colorControlText"
+                        android:layout_marginBottom="@dimen/space_12"/>
                     
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/input_question_text"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
+                        android:layout_marginBottom="@dimen/space_12"
                         android:hint="题目文本"
                         app:boxCornerRadiusBottomEnd="12dp"
                         app:boxCornerRadiusBottomStart="12dp"
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary">
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/question_text_input"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="textMultiLine"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:minLines="3"/>
                     </com.google.android.material.textfield.TextInputLayout>
                     
@@ -78,21 +78,21 @@
                         android:id="@+id/input_options"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
+                        android:layout_marginBottom="@dimen/space_12"
                         android:hint="选项 (每行一个)"
                         app:boxCornerRadiusBottomEnd="12dp"
                         app:boxCornerRadiusBottomStart="12dp"
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary">
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/options_input"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="textMultiLine"
-                            android:textColor="@color/text_primary"
+                            android:textColor="?attr/colorControlText"
                             android:minLines="4"/>
                     </com.google.android.material.textfield.TextInputLayout>
                     
@@ -100,31 +100,31 @@
                         android:id="@+id/input_correct_answer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="16dp"
+                        android:layout_marginBottom="@dimen/space_16"
                         android:hint="正确答案"
                         app:boxCornerRadiusBottomEnd="12dp"
                         app:boxCornerRadiusBottomStart="12dp"
                         app:boxCornerRadiusTopEnd="12dp"
                         app:boxCornerRadiusTopStart="12dp"
                         app:boxStrokeWidth="2dp"
-                        app:boxStrokeColor="@color/outline"
-                        app:hintTextColor="@color/primary">
+                        app:boxStrokeColor="?attr/colorOutline"
+                        app:hintTextColor="?attr/colorPrimary">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/correct_answer_input"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:textColor="@color/text_primary"/>
+                            android:textColor="?attr/colorControlText"/>
                     </com.google.android.material.textfield.TextInputLayout>
                     
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_analyze"
                         android:layout_width="match_parent"
-                        android:layout_height="48dp"
+                        android:layout_height="@dimen/size_48"
                         android:text="分析题目"
                         android:textAllCaps="false"
-                        android:textColor="@color/on_primary"
-                        app:backgroundTint="@color/primary"
-                        app:cornerRadius="12dp"/>
+                        android:textColor="?attr/colorOnPrimary"
+                        app:backgroundTint="?attr/colorPrimary"
+                        app:cornerRadius="@dimen/radius_12"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -132,22 +132,22 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="4dp"
-                app:cardBackgroundColor="@color/card_background"
+                app:cardBackgroundColor="?attr/colorCardBackground"
                 app:cardCornerRadius="16dp"
-                android:layout_marginBottom="16dp">
+                android:layout_marginBottom="@dimen/space_16">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="分析结果"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
-                        android:layout_marginBottom="12dp"/>
+                        android:textColor="?attr/colorControlText"
+                        android:layout_marginBottom="@dimen/space_12"/>
                     
                     <LinearLayout
                         android:id="@+id/loadingLayout"
@@ -155,37 +155,37 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:layout_marginBottom="16dp"
+                        android:layout_marginBottom="@dimen/space_16"
                         android:visibility="gone">
                         <ProgressBar
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginBottom="8dp"/>
+                            android:layout_marginBottom="@dimen/space_8"/>
                         <TextView
                             android:id="@+id/loading_message"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="加载中..."
-                            android:textSize="14sp"
-                            android:textColor="@color/text_primary"
-                            android:layout_marginBottom="8dp"/>
+                            android:textSize="@dimen/text_14"
+                            android:textColor="?attr/colorControlText"
+                            android:layout_marginBottom="@dimen/space_8"/>
                         <TextView
                             android:id="@+id/loading_submessage"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text=""
-                            android:textSize="12sp"
-                            android:textColor="@color/text_secondary"
-                            android:layout_marginBottom="8dp"/>
+                            android:textSize="@dimen/text_12"
+                            android:textColor="?attr/colorControlTextSecondary"
+                            android:layout_marginBottom="@dimen/space_8"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_cancel"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
+                            android:layout_height="@dimen/size_36"
                             android:text="取消"
                             android:textAllCaps="false"
                             android:textColor="@color/on_error"
                             app:backgroundTint="@color/error"
-                            app:cornerRadius="12dp"/>
+                            app:cornerRadius="@dimen/radius_12"/>
                     </LinearLayout>
                     
                     <LinearLayout
@@ -198,78 +198,78 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="题目:"
-                            android:textSize="16sp"
-                            android:textColor="@color/text_primary"
-                            android:layout_marginBottom="8dp"/>
+                            android:textSize="@dimen/text_16"
+                            android:textColor="?attr/colorControlText"
+                            android:layout_marginBottom="@dimen/space_8"/>
                     
                     <TextView
                         android:id="@+id/options"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="选项:"
-                        android:textSize="16sp"
-                        android:textColor="@color/text_primary"
-                        android:layout_marginBottom="8dp"/>
+                        android:textSize="@dimen/text_16"
+                        android:textColor="?attr/colorControlText"
+                        android:layout_marginBottom="@dimen/space_8"/>
                     
                     <TextView
                         android:id="@+id/correct_answer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="正确答案:"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textColor="@color/success"
-                        android:layout_marginBottom="16dp"/>
+                        android:layout_marginBottom="@dimen/space_16"/>
                     
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="解析:"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
-                        android:layout_marginBottom="8dp"/>
+                        android:textColor="?attr/colorControlText"
+                        android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:id="@+id/explanation"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="解析内容将显示在这里"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="16dp"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"
+                        android:layout_marginBottom="@dimen/space_16"/>
                     
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="知识点:"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
-                        android:layout_marginBottom="8dp"/>
+                        android:textColor="?attr/colorControlText"
+                        android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:id="@+id/knowledge_points"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="知识点将显示在这里"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="16dp"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"
+                        android:layout_marginBottom="@dimen/space_16"/>
                     
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="学习建议:"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
-                        android:textColor="@color/text_primary"
-                        android:layout_marginBottom="8dp"/>
+                        android:textColor="?attr/colorControlText"
+                        android:layout_marginBottom="@dimen/space_8"/>
                     <TextView
                         android:id="@+id/learning_suggestions"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="学习建议将显示在这里"
-                        android:textSize="14sp"
-                        android:textColor="@color/text_secondary"
-                        android:layout_marginBottom="16dp"/>
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"
+                        android:layout_marginBottom="@dimen/space_16"/>
                     
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -277,36 +277,36 @@
                         android:layout_height="wrap_content">
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_save_analysis"
-                            android:layout_width="0dp"
-                            android:layout_height="48dp"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="保存分析"
                             android:textAllCaps="false"
-                            android:textColor="@color/on_primary"
-                            app:backgroundTint="@color/primary"
-                            app:cornerRadius="12dp"
-                            android:layout_marginEnd="8dp"/>
+                            android:textColor="?attr/colorOnPrimary"
+                            app:backgroundTint="?attr/colorPrimary"
+                            app:cornerRadius="@dimen/radius_12"
+                            android:layout_marginEnd="@dimen/space_8"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_share_analysis"
-                            android:layout_width="0dp"
-                            android:layout_height="48dp"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="分享"
                             android:textAllCaps="false"
-                            android:textColor="@color/on_secondary"
-                            app:backgroundTint="@color/secondary"
-                            app:cornerRadius="12dp"
-                            android:layout_marginEnd="8dp"/>
+                            android:textColor="?attr/colorOnSecondary"
+                            app:backgroundTint="?attr/colorSecondary"
+                            app:cornerRadius="@dimen/radius_12"
+                            android:layout_marginEnd="@dimen/space_8"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_copy_analysis"
-                            android:layout_width="0dp"
-                            android:layout_height="48dp"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="复制"
                             android:textAllCaps="false"
-                            android:textColor="@color/on_secondary"
-                            app:backgroundTint="@color/secondary"
-                            app:cornerRadius="12dp"/>
+                            android:textColor="?attr/colorOnSecondary"
+                            app:backgroundTint="?attr/colorSecondary"
+                            app:cornerRadius="@dimen/radius_12"/>
                     </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>

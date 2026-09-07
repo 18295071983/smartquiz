@@ -3,14 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/message_card_tool"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="@dimen/space_12">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -22,15 +22,15 @@
                 android:id="@+id/tool_icon"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="20sp"
-                android:layout_marginEnd="8dp" />
+                android:textSize="@dimen/text_20"
+                android:layout_marginEnd="@dimen/space_8" />
 
             <TextView
                 android:id="@+id/tool_name"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold" />
 
@@ -38,15 +38,15 @@
                 android:id="@+id/tool_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary" />
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextSecondary" />
 
         </LinearLayout>
 
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_8"
             android:fillViewport="true"
             android:scrollbars="horizontal|vertical"
             android:overScrollMode="ifContentScrolls">
@@ -55,7 +55,7 @@
                 android:id="@+id/tool_result"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="?attr/colorOnSurface" />
 
         </HorizontalScrollView>
@@ -63,7 +63,7 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_8"
             android:orientation="horizontal">
 
             <Button
@@ -71,21 +71,21 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="复制结果"
-                android:textSize="12sp"
-                android:textColor="@color/primary"
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorPrimary"
                 android:background="?attr/selectableItemBackground"
-                android:padding="4dp" />
+                android:padding="@dimen/space_4" />
 
             <Button
                 android:id="@+id/btn_view_details"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="查看详情"
-                android:textSize="12sp"
-                android:textColor="@color/primary"
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorPrimary"
                 android:background="?attr/selectableItemBackground"
-                android:padding="4dp"
-                android:layout_marginStart="8dp" />
+                android:padding="@dimen/space_4"
+                android:layout_marginStart="@dimen/space_8" />
 
         </LinearLayout>
 

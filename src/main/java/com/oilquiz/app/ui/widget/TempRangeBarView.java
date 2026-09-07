@@ -11,6 +11,8 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 public class TempRangeBarView extends View {
 
     private Paint bgPaint;
@@ -42,7 +44,7 @@ public class TempRangeBarView extends View {
         float density = getResources().getDisplayMetrics().density;
 
         bgPaint = new Paint();
-        bgPaint.setColor(0x33FFFFFF);
+        bgPaint.setColor(ThemeColors.get(R.color.hc_33ffffff));
         bgPaint.setStyle(Paint.Style.FILL);
         bgPaint.setAntiAlias(true);
 
@@ -51,10 +53,10 @@ public class TempRangeBarView extends View {
         rangePaint.setAntiAlias(true);
 
         thumbPaint = new Paint();
-        thumbPaint.setColor(0xFFFFFFFF);
+        thumbPaint.setColor(ThemeColors.get(R.color.hc_ffffffff));
         thumbPaint.setStyle(Paint.Style.FILL);
         thumbPaint.setAntiAlias(true);
-        thumbPaint.setShadowLayer(3 * density, 0, 1 * density, 0x40000000);
+        thumbPaint.setShadowLayer(3 * density, 0, 1 * density, ThemeColors.get(R.color.hc_40000000));
     }
 
     public void setTempRange(int low, int high, int current, int globalLow, int globalHigh) {
@@ -95,8 +97,8 @@ public class TempRangeBarView extends View {
         float rangeLeft = barLeft + lowRatio * width;
         float rangeRight = barLeft + highRatio * width;
 
-        int coldColor = 0xFF64B5F6;
-        int warmColor = 0xFFFFA726;
+        int coldColor = ThemeColors.get(R.color.hc_ff64b5f6);
+        int warmColor = ThemeColors.get(R.color.hc_ffffa726);
         LinearGradient gradient = new LinearGradient(
                 rangeLeft, barTop, rangeRight, barTop,
                 coldColor, warmColor, Shader.TileMode.CLAMP

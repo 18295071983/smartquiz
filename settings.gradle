@@ -33,3 +33,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "smartquiz"
+include ":viewer"

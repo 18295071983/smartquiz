@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 下载/初始化进度控件布局：渐变进度环 + 双进度卡 + 状态 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <com.oilquiz.app.ui.widget.GradientRingProgress
+        android:id="@+id/ring_progress"
+        android:layout_width="180dp"
+        android:layout_height="180dp"
+        android:layout_gravity="center_horizontal" />
+
+    <!-- 进度详情卡片（主模型 + 视觉模块 双进度独立） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/ai_init_download_card"
+        android:orientation="vertical"
+        android:padding="14dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="📦 主模型"
+                android:textSize="13sp"
+                android:textColor="@color/hc_ffffffff"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_model_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0%"
+                android:textSize="12sp"
+                android:textColor="@color/hc_90ffffff" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/model_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="6dp"
+            android:layout_marginTop="8dp"
+            android:max="100"
+            android:progress="0"
+            android:progressTint="@color/hc_ff6ec6ff"
+            android:progressBackgroundTint="@color/hc_26ffffff" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="14dp"
+            android:background="@color/hc_1affffff" />
+
+        <LinearLayout
+            android:id="@+id/mmproj_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tv_mmproj_label"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🧩 视觉模块"
+                    android:textSize="13sp"
+                    android:textColor="@color/hc_c8ffffff"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_mmproj_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0 / 0 MB"
+                    android:textSize="12sp"
+                    android:textColor="@color/hc_90ffffff" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/mmproj_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="6dp"
+                android:layout_marginTop="8dp"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="@color/hc_ff8e6cff"
+                android:progressBackgroundTint="@color/hc_26ffffff" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tv_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:gravity="center"
+        android:minHeight="40dp"
+        android:text="准备就绪，即将开始…"
+        android:textColor="@color/hc_d0ffffff"
+        android:textSize="14sp" />
+</LinearLayout>

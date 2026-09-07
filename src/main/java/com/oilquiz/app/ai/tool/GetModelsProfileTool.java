@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 
 import com.oilquiz.app.ai.model.OnlineModelProfile;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -13,6 +14,7 @@ import java.util.Map;
  *
  * 参数：无（可选 query: 模型名关键词，只返回匹配该模型的条目做快速查询）
  */
+@Tool(value = "get_models_profile", category = "meta")
 public class GetModelsProfileTool implements AITool {
 
     private static final String TAG = "GetModelsProfileTool";

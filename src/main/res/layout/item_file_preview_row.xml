@@ -3,16 +3,16 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
-    android:background="@color/surface"
-    android:layout_marginBottom="1dp">
+    android:padding="@dimen/space_16"
+    android:background="?attr/colorSurface"
+    android:layout_marginBottom="@dimen/space_1">
 
     <LinearLayout
         android:id="@+id/headerContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="@dimen/space_8">
         <!-- 标题容器 -->
     </LinearLayout>
 

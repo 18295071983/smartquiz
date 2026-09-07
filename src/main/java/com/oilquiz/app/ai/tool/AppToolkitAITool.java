@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 @Tool(
     value = "app_toolkit",
     description = "应用工具集，聚合天气/计算/OCR/图像/网页等能力，通过action指定具体操作",
@@ -37,9 +39,9 @@ import java.util.concurrent.TimeUnit;
         @Action(name = "weather_forecast", description = "查询天气预报"),
         @Action(name = "calculate", description = "数学计算"),
         @Action(name = "ocr_recognize", description = "OCR文字识别"),
-        @Action(name = "image_label", description = "图片标签识别"),
+        @Action(name = "image_label_recognize", description = "图片标签识别"),
         @Action(name = "object_detect", description = "物体检测"),
-        @Action(name = "webpage_parse", description = "网页解析")
+        @Action(name = "web_parse_html", description = "网页解析")
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
@@ -222,7 +224,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         try {
-            // 优先使用在线视觉模型 OCR，失败自动回退本地 ML Kit
+            // 优先使用在线视觉模型 OCR，失败自动回退本地高精度 OCR（PP-OCRv6），最终 ML Kit 兜底
             com.oilquiz.app.manager.OCRManager ocrManager = toolkit.getOcrManager();
             String resultText = ocrManager.recognizeFileOnlineFirst(imageFile.getAbsolutePath(), language)
                     .get(60, java.util.concurrent.TimeUnit.SECONDS);
@@ -234,7 +236,9 @@ public class AppToolkitAITool implements AITool {
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("status", "success");
             resultMap.put("text", resultText);
-            resultMap.put("engine", "online_vision"); // 标记使用的引擎
+            // 实际生效引擎：在线视觉模型 / 本地高精度 RapidOCR(PP-OCRv6) / ML Kit
+            resultMap.put("engine", ocrManager.getLastEngine());
+            resultMap.put("engine_label", ocrManager.getLastEngineLabel());
             resultMap.put("language", language != null ? language : "auto");
             
             return new AIToolResult(resultMap, parameters);
@@ -874,7 +878,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         // 默认白色背景
-        int colorInt = 0xFFFFFFFF;
+        int colorInt = ThemeColors.get(R.color.hc_ffffffff);
         if (color != null) {
             try {
                 if (color.startsWith("#")) {
@@ -931,7 +935,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         // 默认白色背景
-        int bgColor = 0xFFFFFFFF;
+        int bgColor = ThemeColors.get(R.color.hc_ffffffff);
         if (backgroundColor != null) {
             try {
                 bgColor = android.graphics.Color.parseColor(backgroundColor);
@@ -940,7 +944,7 @@ public class AppToolkitAITool implements AITool {
         }
         
         // 默认黑色文字
-        int txtColor = 0xFF000000;
+        int txtColor = ThemeColors.get(R.color.hc_ff000000);
         if (textColor != null) {
             try {
                 txtColor = android.graphics.Color.parseColor(textColor);

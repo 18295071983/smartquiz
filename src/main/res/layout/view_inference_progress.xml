@@ -9,16 +9,16 @@
         android:id="@+id/content_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="8dp"
+        android:layout_margin="@dimen/space_8"
         app:cardCornerRadius="12dp"
         app:cardElevation="2dp"
-        app:cardBackgroundColor="@color/surface">
+        app:cardBackgroundColor="?attr/colorSurface">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <!-- 阶段标题 -->
             <LinearLayout
@@ -32,17 +32,17 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="⚙️"
-                    android:textSize="24sp"
-                    android:layout_marginEnd="8dp" />
+                    android:textSize="@dimen/text_24"
+                    android:layout_marginEnd="@dimen/space_8" />
 
                 <TextView
                     android:id="@+id/tv_phase"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="正在初始化..."
-                    android:textSize="16sp"
-                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/text_16"
+                    android:textColor="?attr/colorControlText"
                     android:textStyle="bold" />
 
             </LinearLayout>
@@ -53,8 +53,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="8dp">
+                android:layout_marginTop="@dimen/space_12"
+                android:layout_marginBottom="@dimen/space_8">
                 <!-- 动态添加步骤指示器 -->
             </LinearLayout>
 
@@ -63,8 +63,8 @@
                 android:id="@+id/progress_bar"
                 style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="4dp"
-                android:layout_marginTop="8dp"
+                android:layout_height="@dimen/size_4"
+                android:layout_marginTop="@dimen/space_8"
                 android:progressDrawable="@drawable/progress_inference"
                 android:max="100"
                 android:progress="0"
@@ -75,8 +75,8 @@
                 android:id="@+id/indeterminate_progress"
                 style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="4dp"
-                android:layout_marginTop="8dp"
+                android:layout_height="@dimen/size_4"
+                android:layout_marginTop="@dimen/space_8"
                 android:indeterminate="true"
                 android:indeterminateDrawable="@drawable/progress_inference_indeterminate"
                 android:visibility="visible" />
@@ -86,20 +86,20 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="12dp">
+                android:layout_marginTop="@dimen/space_12">
 
                 <TextView
                     android:id="@+id/tv_token_stats"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Token: 0"
-                    android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:visibility="gone" />
 
                 <View
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_0"
                     android:layout_weight="1" />
 
                 <TextView
@@ -107,8 +107,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0.0 token/s"
-                    android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:visibility="gone" />
 
             </LinearLayout>
@@ -118,10 +118,10 @@
                 android:id="@+id/tv_time_elapsed"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="@dimen/space_4"
                 android:text="已用时间: 0秒"
-                android:textSize="11sp"
-                android:textColor="@color/text_hint" />
+                android:textSize="@dimen/text_11"
+                android:textColor="?attr/colorControlTextHint" />
 
         </LinearLayout>
 

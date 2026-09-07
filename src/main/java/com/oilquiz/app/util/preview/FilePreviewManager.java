@@ -199,17 +199,7 @@ public class FilePreviewManager {
      * @param filePath 文件路径
      */
     public void previewWithLibreOffice(Context context, String filePath) {
-        com.oilquiz.app.ui.activity.LibreOfficeKitPreviewActivity.start(context, filePath);
-    }
-    
-    /**
-     * 使用 OnlyOffice 引擎预览文档
-     * 开源免费方案，支持多种 Office 格式
-     * @param context 上下文
-     * @param filePath 文件路径
-     */
-    public void previewWithOnlyOffice(Context context, String filePath) {
-        com.oilquiz.app.ui.activity.OnlyOfficePreviewActivity.start(context, filePath);
+        com.oilquiz.app.util.preview.LibreOfficeViewerLauncher.launch(context, filePath);
     }
     
     /**

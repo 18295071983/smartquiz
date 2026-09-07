@@ -77,7 +77,7 @@ public class DataIssueFixActivity extends BaseActivity {
                 .getSerializableExtra(EXTRA_DATA_ISSUE_REPORT);
 
         if (issueReport == null) {
-            Toast.makeText(this, "没有数据问题需要修复", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_18b3acdf), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -89,7 +89,7 @@ public class DataIssueFixActivity extends BaseActivity {
     @Override
     protected void initListener() {
         btnScanIssues.setOnClickListener(v ->
-                Toast.makeText(this, "请在导入流程中重新扫描", Toast.LENGTH_SHORT).show());
+                Toast.makeText(this, getString(R.string.h_96b876e6), Toast.LENGTH_SHORT).show());
 
         btnFixAll.setOnClickListener(v -> {
             int fixed = 0;
@@ -108,7 +108,7 @@ public class DataIssueFixActivity extends BaseActivity {
             }
             updateStats();
             renderIssueList();
-            Toast.makeText(this, "已自动修复 " + fixed + " 个问题", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_2b9f9b1c) + fixed + getString(R.string.h_fe950644), Toast.LENGTH_SHORT).show();
         });
 
         buttonBatchFix.setOnClickListener(v -> showBatchFixDialog());
@@ -170,7 +170,7 @@ public class DataIssueFixActivity extends BaseActivity {
             spinnerAutoComplete.setText(issue.userCorrectedValue != null ? issue.userCorrectedValue : "");
             spinnerAutoComplete.setEnabled(false);
             buttonSkip.setVisibility(View.GONE);
-            buttonApply.setText("撤销");
+            buttonApply.setText(getString(R.string.h_bd9fcf46));
             buttonApply.setOnClickListener(v -> {
                 issue.isResolved = false;
                 issue.userCorrectedValue = null;
@@ -183,7 +183,7 @@ public class DataIssueFixActivity extends BaseActivity {
             inputArea.setVisibility(View.VISIBLE);
             spinnerAutoComplete.setEnabled(true);
             buttonSkip.setVisibility(View.VISIBLE);
-            buttonApply.setText("应用");
+            buttonApply.setText(getString(R.string.h_5b0520a9));
 
             // 构建建议值列表
             List<String> suggestions = new ArrayList<>();
@@ -232,7 +232,7 @@ public class DataIssueFixActivity extends BaseActivity {
             buttonApply.setOnClickListener(v -> {
                 String value = spinnerAutoComplete.getText().toString().trim();
                 if (value.isEmpty()) {
-                    Toast.makeText(this, "请输入或从下拉选择值", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_6f1b8db1), Toast.LENGTH_SHORT).show();
                     return;
                 }
                 issue.userCorrectedValue = value;
@@ -251,7 +251,7 @@ public class DataIssueFixActivity extends BaseActivity {
                 "统一设置题型为'判断题'"};
 
         new AlertDialog.Builder(this)
-                .setTitle("批量修复")
+                .setTitle(getString(R.string.h_54df148f))
                 .setItems(options, (dialog, which) -> {
                     String value = "";
                     switch (which) {
@@ -261,7 +261,7 @@ public class DataIssueFixActivity extends BaseActivity {
                     }
                     applyBatchFix(ExcelUtil.DataIssueType.MISSING_QUESTION_TYPE, value);
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -274,7 +274,7 @@ public class DataIssueFixActivity extends BaseActivity {
         }
         updateStats();
         renderIssueList();
-        Toast.makeText(this, "批量修复完成", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_d23ab8a7), Toast.LENGTH_SHORT).show();
     }
 
     private void skipAndContinue() {

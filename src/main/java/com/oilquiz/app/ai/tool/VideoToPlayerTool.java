@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
     description = "视频下载转播放工具：输入视频页面链接或直链URL，解析视频源并下载到本地工作区，"
             + "返回 local_path（mp4绝对路径）供 video_player 组件渲染原生播放。"
             + "直链(mp4/webm等扩展名或视频Content-Type)直接下载；网页链接抓取HTML提取og:video或<video>标签src后下载。"
-            + "下载完成后返回文件卡片可直接点击全屏播放。用户说\"播放视频\"时优先用本工具下载后创建 video_player 组件。",
+            + "下载完成后返回文件卡片可直接点击全屏播放。用户说\"播放视频\"时用本工具下载后创建 video_player 组件。",
     category = "media",
     actions = {
         @Action(name = "video_to_player", description = "下载视频到本地并返回可播放路径",

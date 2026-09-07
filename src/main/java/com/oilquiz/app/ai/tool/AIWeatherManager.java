@@ -29,35 +29,32 @@ import java.util.HashMap;
 
 @Tool(
     value = "ai_weather",
-    description = "天气查询工具，获取指定城市的天气信息",
+    description = "天气查询工具：按需查询实时天气/未来几天预报/逐小时/空气质量/预警/生活指数。"
+            + "按用户需求选 action：current(实时)/forecast(未来几天)/hourly(逐小时)/"
+            + "air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)。"
+            + "位置用 city=城市名 或 和风城市编码 或 lat+lon 经纬度(二选一)。"
+            + "要未来天气→forecast，要空气质量→air_quality，要生活指数→indices。",
     category = "weather",
     aliases = {"weather", "get_weather"},
     actions = {
-        @Action(name = "current", description = "Get current weather"),
-        @Action(name = "forecast", description = "Get weather forecast"),
-        @Action(name = "hourly", description = "Get hourly weather"),
-        @Action(name = "air_quality", description = "Get air quality"),
-        @Action(name = "alerts", description = "Get weather alerts"),
-        @Action(name = "indices", description = "Get life indices"),
-        @Action(name = "all", description = "Get all weather info")
+        @Action(name = "current", description = "Get current weather (实时天气)"),
+        @Action(name = "forecast", description = "Get weather forecast (未来几天预报)"),
+        @Action(name = "hourly", description = "Get hourly weather (逐小时天气)"),
+        @Action(name = "air_quality", description = "Get air quality (空气质量)"),
+        @Action(name = "alerts", description = "Get weather alerts (天气预警)"),
+        @Action(name = "indices", description = "Get life indices (生活指数)"),
+        @Action(name = "all", description = "Get all weather info (全部)")
     },
     params = {
-        @Param(name = "city", type = "string", description = "City name", required = false),
-        @Param(name = "lat", type = "float", description = "Latitude", required = false),
-        @Param(name = "lon", type = "float", description = "Longitude", required = false),
-        @Param(name = "action", type = "string", description = "Action type: current/forecast/hourly/air_quality/alerts/indices/all", required = false)
+        @Param(name = "city", type = "string", description = "City name 城市名 或 和风城市编码，与经纬度二选一", required = false),
+        @Param(name = "lat", type = "float", description = "Latitude 纬度(与city二选一，配合lon；别名latitude)", required = false),
+        @Param(name = "lon", type = "float", description = "Longitude 经度(与city二选一，配合lat；别名longitude)", required = false),
+        @Param(name = "action", type = "string", description = "Action type 操作类型，按需求选: current(实时)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)", required = false)
     }
 )
 public class AIWeatherManager implements AITool {
 
     private static final String TAG = "AIWeatherManager";
-    
-    // OpenWeatherMap API URLs
-    private static final String CURRENT_WEATHER_URL = "https://api.openweathermap.org/data/2.5/weather";
-    private static final String ONE_CALL_URL = "https://api.openweathermap.org/data/3.0/onecall";
-    private static final String ONE_CALL_TIMESTAMP_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine";
-    private static final String ONE_CALL_DAILY_AGGREGATION_URL = "https://api.openweathermap.org/data/3.0/onecall/day_summary";
-    private static final String ONE_CALL_OVERVIEW_URL = "https://api.openweathermap.org/data/3.0/onecall/overview";
     
     // 和风天气 API URLs (all use the same JWT-authenticated host)
     private static final String DEFAULT_HEFENG_API_HOST = "https://m278m2y7ak.re.qweatherapi.com";
@@ -298,17 +295,52 @@ public class AIWeatherManager implements AITool {
         }
     }
 
-    private String getOpenWeatherMapApiKey() {
-        APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-        String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.OPENWEATHERMAP);
-        if (apiKey == null || apiKey.isEmpty()) {
-            throw new IllegalStateException("OpenWeatherMap API Key未配置，请在设置中配置");
-        }
-        return apiKey;
-    }
-
     public WeatherProvider getWeatherProvider() {
         return currentProvider;
+    }
+
+    /**
+     * 为和风 API 请求添加 Android 应用标识头（X-Android-Package-Name / X-Android-Cert）。
+     * 官方 SDK 自动携带；第三方 HTTP 直连时若不携带，凭据一旦设置 Android 应用限制即被 403。
+     */
+    private void addAndroidAppHeaders(okhttp3.Request.Builder builder) {
+        try {
+            if (context == null) return;
+            String packageName = context.getPackageName();
+            if (packageName != null && !packageName.isEmpty()) {
+                builder.addHeader("X-Android-Package-Name", packageName);
+            }
+            String certSha1 = getAppCertSha1();
+            if (certSha1 != null && !certSha1.isEmpty()) {
+                builder.addHeader("X-Android-Cert", certSha1);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to add Android app headers: " + t.getMessage());
+        }
+    }
+
+    /** 获取应用签名的 SHA-1 指纹（十六进制大写，冒号分隔），供 X-Android-Cert 头使用 */
+    private String getAppCertSha1() {
+        try {
+            if (context == null) return null;
+            android.content.pm.PackageManager pm = context.getPackageManager();
+            String packageName = context.getPackageName();
+            android.content.pm.PackageInfo info = pm.getPackageInfo(packageName,
+                    android.content.pm.PackageManager.GET_SIGNATURES);
+            if (info.signatures == null || info.signatures.length == 0) return null;
+            byte[] cert = info.signatures[0].toByteArray();
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            byte[] digest = md.digest(cert);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < digest.length; i++) {
+                if (i > 0) sb.append(":");
+                sb.append(String.format(java.util.Locale.US, "%02X", digest[i]));
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to get app cert SHA-1: " + t.getMessage());
+            return null;
+        }
     }
 
     private String httpGet(String urlString) throws Exception {
@@ -324,6 +356,9 @@ public class AIWeatherManager implements AITool {
                     .addHeader("Accept", "application/json")
                     .addHeader("Accept-Language", "zh-CN")
                     .addHeader("Accept-Encoding", "gzip, deflate");
+
+            // 和风第三方 API 调用要求携带 Android 应用标识头，否则凭据设置了应用限制时返回 403 Security Restriction
+            addAndroidAppHeaders(requestBuilder);
 
             String jwtToken = getHefengJwtToken();
             if (jwtToken != null) {
@@ -402,19 +437,12 @@ public class AIWeatherManager implements AITool {
     }
 
     public enum WeatherProvider {
-        OPENWEATHERMAP,
         HEFENG
     }
 
     // 获取当前天气信息（根据选择的提供者调用相应API）
     public CompletableFuture<String> getCurrentWeather(String city) {
-        switch (currentProvider) {
-            case HEFENG:
-                return getHefengCurrentWeather(city);
-            case OPENWEATHERMAP:
-            default:
-                return getOpenWeatherMapCurrentWeather(city);
-        }
+        return getHefengCurrentWeather(city);
     }
 
     public CompletableFuture<String> getCurrentWeatherByLocation(double lat, double lon) {
@@ -422,13 +450,7 @@ public class AIWeatherManager implements AITool {
     }
 
     public CompletableFuture<String> getCurrentWeatherByLocation(double lat, double lon, String cityName) {
-        switch (currentProvider) {
-            case HEFENG:
-                return getHefengCurrentWeatherByLocation(lat, lon, cityName);
-            case OPENWEATHERMAP:
-            default:
-                return getOpenWeatherMapCurrentWeatherByLocation(lat, lon);
-        }
+        return getHefengCurrentWeatherByLocation(lat, lon, cityName);
     }
 
     /**
@@ -444,31 +466,6 @@ public class AIWeatherManager implements AITool {
                 return parseHefengWeatherResponse(response, null);
             } catch (Exception e) {
                 Log.e(TAG, "Error getting weather by location (direct)", e);
-                return "获取天气信息失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // OpenWeatherMap 当前天气查询
-    private CompletableFuture<String> getOpenWeatherMapCurrentWeather(String city) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
-                String urlString = CURRENT_WEATHER_URL + "?q=" + encodedCity + "&appid=" + apiKey + "&units=metric&lang=zh_cn";
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlString).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseCurrentWeatherResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting current weather from OpenWeatherMap", e);
                 return "获取天气信息失败: " + e.getMessage();
             }
         });
@@ -503,29 +500,6 @@ public class AIWeatherManager implements AITool {
             } catch (Exception e) {
                 Log.e(TAG, "Error getting current weather by location from Hefeng", e);
                 return "天气信息:\n查询失败: " + e.getMessage();
-            }
-        });
-    }
-
-    private CompletableFuture<String> getOpenWeatherMapCurrentWeatherByLocation(double lat, double lon) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-
-                String urlString = CURRENT_WEATHER_URL + "?lat=" + lat + "&lon=" + lon + "&appid=" + apiKey + "&units=metric&lang=zh_cn";
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlString).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseCurrentWeatherResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting current weather by location from OpenWeatherMap", e);
-                return "获取天气信息失败: " + e.getMessage();
             }
         });
     }
@@ -896,12 +870,86 @@ public class AIWeatherManager implements AITool {
         put("澳门", "101330101");
     }};
 
+    /** 内置常用城市名列表（供天气意图提取兜底，覆盖 CSV 可能缺失的港澳台等） */
+    public static java.util.List<String> getDefaultCityNames() {
+        return new java.util.ArrayList<>(DEFAULT_CITY_IDS.keySet());
+    }
+
+    /** 内置常用城市表查询：城市名 → 和风城市编码；无则 null */
+    public static String getDefaultCityId(String name) {
+        return name == null ? null : DEFAULT_CITY_IDS.get(name);
+    }
+
     private String getHefengLocationId(String city) throws Exception {
+        // 0. 已是和风城市编码（纯数字 ID）→ 直接返回，不绕查询链路
+        if (city != null && city.matches("\\d{6,12}")) {
+            return city;
+        }
+
+        // 1. 内置常用城市表
         String defaultId = DEFAULT_CITY_IDS.get(city);
         if (defaultId != null) {
             return defaultId;
         }
-        
+
+        // 2. 本地城市 CSV（与天气详情界面同源，免费离线，无需网络）：
+        //    天气详情界面用 QWeatherCityManager 从 assets CSV 查城市 ID，从不调 geo API
+        //    ——这就是详情界面正常而 Agent 403 的原因。这里对齐详情界面。
+        //    注意：模型可能传"银川市/五台县"，CSV 是"银川/五台县"，需去行政后缀模糊匹配。
+        try {
+            com.oilquiz.app.weather.QWeatherCityManager cityMgr =
+                    com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
+            // 1) 精确匹配
+            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
+                    cityMgr.getCityByName(city);
+            // 2) 去后缀匹配（市/县/区/旗/盟/州/地区/自治州）
+            if (entry == null) {
+                String stripped = city.replaceAll("(自治州|地区|市|县|区|旗|盟|州)$", "");
+                if (!stripped.isEmpty() && !stripped.equals(city)) {
+                    entry = cityMgr.getCityByName(stripped);
+                }
+            }
+            // 3) 关键词搜索（含"五台"匹配"五台县"）
+            if (entry == null) {
+                java.util.List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> matches =
+                        cityMgr.searchCities(city);
+                if (matches != null && !matches.isEmpty()) {
+                    entry = matches.get(0);
+                }
+            }
+            if (entry != null && entry.locationId != null) {
+                Log.i(TAG, "Local city lookup hit: " + city + " -> " + entry.locationId
+                        + " (" + entry.nameZh + ")");
+                return entry.locationId;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Local city lookup failed for " + city + ": " + t.getMessage());
+        }
+
+        // Android 系统 Geocoder 正地理编码（地名→坐标）：完全本地系统服务，
+        // 不依赖和风 geo API（该端点 JWT 403）。返回 "经度,纬度" 格式——
+        // 和风 v7 的 location 参数原生支持该格式，调用方无需区分 ID/坐标。
+        try {
+            if (android.location.Geocoder.isPresent()) {
+                android.location.Geocoder geocoder =
+                        new android.location.Geocoder(context, java.util.Locale.CHINA);
+                java.util.List<android.location.Address> addresses =
+                        geocoder.getFromLocationName(city, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    android.location.Address addr = addresses.get(0);
+                    if (addr.hasLatitude() && addr.hasLongitude()) {
+                        String loc = String.format(java.util.Locale.US, "%.4f,%.4f",
+                                addr.getLongitude(), addr.getLatitude());
+                        Log.i(TAG, "System Geocoder hit: " + city + " -> " + loc);
+                        return loc;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "System Geocoder lookup failed for " + city + ": " + t.getMessage());
+        }
+
+        // 3. geo API 兜底（仅在本地 CSV 无此城市时；JWT 认证）
         try {
             String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
             String urlString = getGeocodeUrl() + "?location=" + encodedCity;
@@ -910,13 +958,61 @@ public class AIWeatherManager implements AITool {
                 return locationId;
             }
         } catch (Exception e) {
-            Log.w(TAG, "GeoAPI failed for city " + city + ", using default fallback");
+            Log.w(TAG, "GeoAPI failed for city " + city + ": " + e.getMessage());
         }
         
-        return DEFAULT_CITY_IDS.get("北京");
+        throw new Exception("无法定位城市: " + city + "（本地城市表与 geo 查询均无结果）");
     }
 
     private double[] getHefengLatLon(String city) throws Exception {
+        // 本地 CSV 优先：与 getHefengLocationId 一致，离线可用且不依赖 geo API
+        try {
+            com.oilquiz.app.weather.QWeatherCityManager cityMgr =
+                    com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
+            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
+                    cityMgr.getCityByName(city);
+            if (entry == null) {
+                String stripped = city.replaceAll("(自治州|地区|市|县|区|旗|盟|州)$", "");
+                if (!stripped.isEmpty() && !stripped.equals(city)) {
+                    entry = cityMgr.getCityByName(stripped);
+                }
+            }
+            if (entry == null) {
+                java.util.List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> matches =
+                        cityMgr.searchCities(city);
+                if (matches != null && !matches.isEmpty()) {
+                    entry = matches.get(0);
+                }
+            }
+            if (entry != null) {
+                return new double[]{entry.latitude, entry.longitude};
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Local city lookup failed for " + city + ": " + t.getMessage());
+        }
+
+        // Android 系统 Geocoder 正地理编码（地名→坐标）：完全本地系统服务，
+        // 不依赖和风 geo API（该端点 JWT 403）。CSV 未覆盖的生僻地名也常能解析。
+        try {
+            if (android.location.Geocoder.isPresent()) {
+                android.location.Geocoder geocoder =
+                        new android.location.Geocoder(context, java.util.Locale.CHINA);
+                java.util.List<android.location.Address> addresses =
+                        geocoder.getFromLocationName(city, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    android.location.Address addr = addresses.get(0);
+                    if (addr.hasLatitude() && addr.hasLongitude()) {
+                        Log.i(TAG, "System Geocoder hit: " + city + " -> "
+                                + addr.getLatitude() + "," + addr.getLongitude()
+                                + " (" + addr.getFeatureName() + ")");
+                        return new double[]{addr.getLatitude(), addr.getLongitude()};
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "System Geocoder lookup failed for " + city + ": " + t.getMessage());
+        }
+
         try {
             String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
             String urlString = getGeocodeUrl() + "?location=" + encodedCity;
@@ -927,22 +1023,27 @@ public class AIWeatherManager implements AITool {
                 JsonArray locationArray = jsonObject.getAsJsonArray("location");
                 if (locationArray != null && locationArray.size() > 0) {
                     JsonObject location = locationArray.get(0).getAsJsonObject();
-                    double lat = location.has("lat") ? location.get("lat").getAsDouble() : 39.92;
-                    double lon = location.has("lon") ? location.get("lon").getAsDouble() : 116.41;
+                    if (!location.has("lat") || !location.has("lon")) {
+                        throw new Exception("geo 响应缺少坐标字段（" + city + "）");
+                    }
+                    double lat = location.get("lat").getAsDouble();
+                    double lon = location.get("lon").getAsDouble();
                     return new double[]{lat, lon};
                 }
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to get lat/lon from GeoAPI for city " + city, e);
+            throw new Exception("地理编码失败（" + city + "）: " + e.getMessage());
         }
-        return new double[]{39.92, 116.41};
+        throw new Exception("无法定位城市坐标: " + city);
     }
 
     public String getHefengCityNameByLocation(double lat, double lon) {
         try {
             String location = String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
             String urlString = getGeocodeUrl() + "?location=" + location;
-                String response = httpGet(urlString);
+            // geo 端点：与 getHefengLocationFromGeoAPI 一致走 httpGet(JWT)
+            String response = httpGet(urlString);
 
                 JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
             if (jsonObject.has("code") && "200".equals(jsonObject.get("code").getAsString())) {
@@ -1057,6 +1158,8 @@ public class AIWeatherManager implements AITool {
     }
 
     private String getHefengLocationFromGeoAPI(String urlString, boolean returnId) throws Exception {
+        // geo 端点仅作兜底（本地 CSV 已覆盖绝大多数城市）。走 httpGet(JWT)，
+        // 与天气 v7 端点一致；若仍 403，调用方会得到明确错误并提示用坐标。
         String response = httpGet(urlString);
 
         JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
@@ -1810,6 +1913,18 @@ public class AIWeatherManager implements AITool {
     }
 
     private double[] getCoordinatesFromLocationId(String locationId) {
+        // 本地 CSV 优先（与 getHefengLocationId 一致，离线可用）
+        try {
+            com.oilquiz.app.weather.QWeatherCityManager cityMgr =
+                    com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
+            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
+                    cityMgr.getCityById(locationId);
+            if (entry != null) {
+                return new double[]{entry.latitude, entry.longitude};
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Local city lookup failed for id " + locationId + ": " + t.getMessage());
+        }
         try {
             String urlString = getGeocodeUrl() + "?location=" + locationId;
                 String response = httpGet(urlString);
@@ -2606,467 +2721,6 @@ public class AIWeatherManager implements AITool {
         }
     }
 
-    // 获取详细天气信息（使用One Call 3.0，需要额外订阅）
-    public CompletableFuture<String> getOneCallWeather(double lat, double lon, String exclude, String units, String lang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                StringBuilder urlBuilder = new StringBuilder(ONE_CALL_URL);
-                urlBuilder.append("?lat=").append(lat);
-                urlBuilder.append("&lon=").append(lon);
-                if (exclude != null && !exclude.isEmpty()) {
-                    urlBuilder.append("&exclude=").append(exclude);
-                }
-                if (units != null && !units.isEmpty()) {
-                    urlBuilder.append("&units=").append(units);
-                } else {
-                    urlBuilder.append("&units=metric");
-                }
-                if (lang != null && !lang.isEmpty()) {
-                    urlBuilder.append("&lang=").append(lang);
-                } else {
-                    urlBuilder.append("&lang=zh_cn");
-                }
-                urlBuilder.append("&appid=").append(apiKey);
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlBuilder.toString()).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseOneCallWeatherResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting one call weather", e);
-                return "获取详细天气信息失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // 获取指定时间的天气数据（历史或未来）
-    public CompletableFuture<String> getTimestampWeather(double lat, double lon, long timestamp, String units, String lang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                StringBuilder urlBuilder = new StringBuilder(ONE_CALL_TIMESTAMP_URL);
-                urlBuilder.append("?lat=").append(lat);
-                urlBuilder.append("&lon=").append(lon);
-                urlBuilder.append("&dt=").append(timestamp);
-                if (units != null && !units.isEmpty()) {
-                    urlBuilder.append("&units=").append(units);
-                } else {
-                    urlBuilder.append("&units=metric");
-                }
-                if (lang != null && !lang.isEmpty()) {
-                    urlBuilder.append("&lang=").append(lang);
-                } else {
-                    urlBuilder.append("&lang=zh_cn");
-                }
-                urlBuilder.append("&appid=").append(apiKey);
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlBuilder.toString()).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseTimestampWeatherResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting timestamp weather", e);
-                return "获取指定时间天气信息失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // 获取每日聚合天气数据
-    public CompletableFuture<String> getDailyAggregationWeather(double lat, double lon, long startDate, long endDate, String units, String lang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                StringBuilder urlBuilder = new StringBuilder(ONE_CALL_DAILY_AGGREGATION_URL);
-                urlBuilder.append("?lat=").append(lat);
-                urlBuilder.append("&lon=").append(lon);
-                urlBuilder.append("&start_date=").append(startDate);
-                urlBuilder.append("&end_date=").append(endDate);
-                if (units != null && !units.isEmpty()) {
-                    urlBuilder.append("&units=").append(units);
-                } else {
-                    urlBuilder.append("&units=metric");
-                }
-                if (lang != null && !lang.isEmpty()) {
-                    urlBuilder.append("&lang=").append(lang);
-                } else {
-                    urlBuilder.append("&lang=zh_cn");
-                }
-                urlBuilder.append("&appid=").append(apiKey);
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlBuilder.toString()).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseDailyAggregationResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting daily aggregation weather", e);
-                return "获取每日聚合天气信息失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // 获取天气概览
-    public CompletableFuture<String> getWeatherOverview(double lat, double lon, String units, String lang) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String apiKey = getOpenWeatherMapApiKey();
-                
-                StringBuilder urlBuilder = new StringBuilder(ONE_CALL_OVERVIEW_URL);
-                urlBuilder.append("?lat=").append(lat);
-                urlBuilder.append("&lon=").append(lon);
-                if (units != null && !units.isEmpty()) {
-                    urlBuilder.append("&units=").append(units);
-                } else {
-                    urlBuilder.append("&units=metric");
-                }
-                if (lang != null && !lang.isEmpty()) {
-                    urlBuilder.append("&lang=").append(lang);
-                } else {
-                    urlBuilder.append("&lang=zh_cn");
-                }
-                urlBuilder.append("&appid=").append(apiKey);
-                
-                Request request = NetworkUtil.createApiRequestBuilder(urlBuilder.toString()).build();
-                
-                try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new Exception("HTTP " + response.code());
-                    }
-                    String responseBody = response.body() != null ? response.body().string() : "";
-                    return parseWeatherOverviewResponse(responseBody);
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting weather overview", e);
-                return "获取天气概览失败: " + e.getMessage();
-            }
-        });
-    }
-
-    // 解析当前天气响应
-    private String parseCurrentWeatherResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取城市名称
-            String city = jsonObject.get("name").getAsString();
-            
-            // 获取天气信息
-            JsonArray weatherArray = jsonObject.getAsJsonArray("weather");
-            String weather = "N/A";
-            String description = "N/A";
-            if (weatherArray != null && weatherArray.size() > 0) {
-                JsonObject weatherObject = weatherArray.get(0).getAsJsonObject();
-                weather = weatherObject.get("main").getAsString();
-                description = weatherObject.get("description").getAsString();
-            }
-            
-            // 获取温度信息
-            JsonObject mainObject = jsonObject.getAsJsonObject("main");
-            String temp = mainObject.get("temp").getAsString();
-            String humidity = mainObject.get("humidity").getAsString();
-            
-            // 获取风速信息
-            JsonObject windObject = jsonObject.getAsJsonObject("wind");
-            String windSpeed = windObject.get("speed").getAsString();
-
-            StringBuilder weatherInfo = new StringBuilder();
-            weatherInfo.append("城市: " + city + "\n");
-            weatherInfo.append("天气: " + weather + " - " + description + "\n");
-            weatherInfo.append("温度: " + temp + "°C\n");
-            weatherInfo.append("湿度: " + humidity + "%\n");
-            weatherInfo.append("风速: " + windSpeed + " m/s\n");
-
-            return "天气信息:\n" + weatherInfo.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing current weather response", e);
-            return "解析天气信息失败: " + e.getMessage();
-        }
-    }
-
-    // 解析One Call 3.0天气响应
-    private String parseOneCallWeatherResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取地理位置
-            double lat = jsonObject.get("lat").getAsDouble();
-            double lon = jsonObject.get("lon").getAsDouble();
-            String timezone = jsonObject.get("timezone").getAsString();
-            
-            // 获取当前天气
-            JsonObject current = jsonObject.getAsJsonObject("current");
-            long dt = current.get("dt").getAsLong();
-            double temp = current.get("temp").getAsDouble();
-            double feelsLike = current.get("feels_like").getAsDouble();
-            int humidity = current.get("humidity").getAsInt();
-            double windSpeed = current.get("wind_speed").getAsDouble();
-            
-            // 获取天气描述
-            JsonArray weatherArray = current.getAsJsonArray("weather");
-            String weather = "N/A";
-            String description = "N/A";
-            if (weatherArray != null && weatherArray.size() > 0) {
-                JsonObject weatherObject = weatherArray.get(0).getAsJsonObject();
-                weather = weatherObject.get("main").getAsString();
-                description = weatherObject.get("description").getAsString();
-            }
-            
-            StringBuilder weatherInfo = new StringBuilder();
-            weatherInfo.append("地理位置: " + lat + ", " + lon + "\n");
-            weatherInfo.append("时区: " + timezone + "\n");
-            weatherInfo.append("当前时间: " + new java.util.Date(dt * 1000) + "\n");
-            weatherInfo.append("天气: " + weather + " - " + description + "\n");
-            weatherInfo.append("温度: " + temp + "°C\n");
-            weatherInfo.append("体感温度: " + feelsLike + "°C\n");
-            weatherInfo.append("湿度: " + humidity + "%\n");
-            weatherInfo.append("风速: " + windSpeed + " m/s\n");
-            
-            // 检查是否有分钟预报
-            if (jsonObject.has("minutely")) {
-                JsonArray minutelyArray = jsonObject.getAsJsonArray("minutely");
-                weatherInfo.append("\n1小时分钟预报:\n");
-                for (int i = 0; i < Math.min(10, minutelyArray.size()); i++) {
-                    JsonObject minutely = minutelyArray.get(i).getAsJsonObject();
-                    long minutelyDt = minutely.get("dt").getAsLong();
-                    double precipitation = minutely.get("precipitation").getAsDouble();
-                    weatherInfo.append(new java.util.Date(minutelyDt * 1000) + ": 降水量 " + precipitation + " mm/h\n");
-                }
-            }
-            
-            // 检查是否有小时预报
-            if (jsonObject.has("hourly")) {
-                JsonArray hourlyArray = jsonObject.getAsJsonArray("hourly");
-                weatherInfo.append("\n24小时预报:\n");
-                for (int i = 0; i < Math.min(8, hourlyArray.size()); i++) {
-                    JsonObject hourly = hourlyArray.get(i).getAsJsonObject();
-                    long hourlyDt = hourly.get("dt").getAsLong();
-                    double hourlyTemp = hourly.get("temp").getAsDouble();
-                    int hourlyPop = (int) (hourly.get("pop").getAsDouble() * 100);
-                    weatherInfo.append(new java.util.Date(hourlyDt * 1000) + ": " + hourlyTemp + "°C, 降水概率: " + hourlyPop + "%\n");
-                }
-            }
-            
-            // 检查是否有每日预报
-            if (jsonObject.has("daily")) {
-                JsonArray dailyArray = jsonObject.getAsJsonArray("daily");
-                weatherInfo.append("\n7天预报:\n");
-                for (int i = 0; i < Math.min(3, dailyArray.size()); i++) {
-                    JsonObject daily = dailyArray.get(i).getAsJsonObject();
-                    long dailyDt = daily.get("dt").getAsLong();
-                    JsonObject dailyTemp = daily.getAsJsonObject("temp");
-                    double maxTemp = dailyTemp.get("max").getAsDouble();
-                    double minTemp = dailyTemp.get("min").getAsDouble();
-                    int dailyPop = (int) (daily.get("pop").getAsDouble() * 100);
-                    weatherInfo.append(new java.util.Date(dailyDt * 1000) + ": 最高 " + maxTemp + "°C, 最低 " + minTemp + "°C, 降水概率: " + dailyPop + "%\n");
-                }
-            }
-            
-            // 检查是否有警报
-            if (jsonObject.has("alerts")) {
-                JsonArray alertsArray = jsonObject.getAsJsonArray("alerts");
-                weatherInfo.append("\n天气警报:\n");
-                for (int i = 0; i < alertsArray.size(); i++) {
-                    JsonObject alert = alertsArray.get(i).getAsJsonObject();
-                    String senderName = alert.get("sender_name").getAsString();
-                    String event = alert.get("event").getAsString();
-                    long start = alert.get("start").getAsLong();
-                    long end = alert.get("end").getAsLong();
-                    String alertDescription = alert.get("description").getAsString();
-                    weatherInfo.append("事件: " + event + "\n");
-                    weatherInfo.append("来源: " + senderName + "\n");
-                    weatherInfo.append("开始: " + new java.util.Date(start * 1000) + "\n");
-                    weatherInfo.append("结束: " + new java.util.Date(end * 1000) + "\n");
-                    weatherInfo.append("描述: " + alertDescription + "\n\n");
-                }
-            }
-
-            return "详细天气信息:\n" + weatherInfo.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing one call weather response", e);
-            return "解析详细天气信息失败: " + e.getMessage();
-        }
-    }
-
-    // 解析时间戳天气响应
-    private String parseTimestampWeatherResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取地理位置
-            double lat = jsonObject.get("lat").getAsDouble();
-            double lon = jsonObject.get("lon").getAsDouble();
-            
-            // 获取时间戳天气数据
-            JsonArray dataArray = jsonObject.getAsJsonArray("data");
-            if (dataArray != null && dataArray.size() > 0) {
-                JsonObject data = dataArray.get(0).getAsJsonObject();
-                long dt = data.get("dt").getAsLong();
-                double temp = data.get("temp").getAsDouble();
-                double feelsLike = data.get("feels_like").getAsDouble();
-                int humidity = data.get("humidity").getAsInt();
-                double windSpeed = data.get("wind_speed").getAsDouble();
-                
-                // 获取天气描述
-                JsonArray weatherArray = data.getAsJsonArray("weather");
-                String weather = "N/A";
-                String description = "N/A";
-                if (weatherArray != null && weatherArray.size() > 0) {
-                    JsonObject weatherObject = weatherArray.get(0).getAsJsonObject();
-                    weather = weatherObject.get("main").getAsString();
-                    description = weatherObject.get("description").getAsString();
-                }
-                
-                StringBuilder weatherInfo = new StringBuilder();
-                weatherInfo.append("地理位置: " + lat + ", " + lon + "\n");
-                weatherInfo.append("时间: " + new java.util.Date(dt * 1000) + "\n");
-                weatherInfo.append("天气: " + weather + " - " + description + "\n");
-                weatherInfo.append("温度: " + temp + "°C\n");
-                weatherInfo.append("体感温度: " + feelsLike + "°C\n");
-                weatherInfo.append("湿度: " + humidity + "%\n");
-                weatherInfo.append("风速: " + windSpeed + " m/s\n");
-                
-                return "指定时间天气信息:\n" + weatherInfo.toString();
-            } else {
-                return "未找到指定时间的天气数据";
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing timestamp weather response", e);
-            return "解析指定时间天气信息失败: " + e.getMessage();
-        }
-    }
-
-    // 解析每日聚合天气响应
-    private String parseDailyAggregationResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取地理位置
-            double lat = jsonObject.get("lat").getAsDouble();
-            double lon = jsonObject.get("lon").getAsDouble();
-            
-            // 获取每日聚合数据
-            JsonArray dailyArray = jsonObject.getAsJsonArray("daily");
-            StringBuilder weatherInfo = new StringBuilder();
-            weatherInfo.append("地理位置: " + lat + ", " + lon + "\n\n");
-            weatherInfo.append("每日聚合天气数据:\n");
-            
-            for (int i = 0; i < dailyArray.size(); i++) {
-                JsonObject daily = dailyArray.get(i).getAsJsonObject();
-                long dt = daily.get("dt").getAsLong();
-                JsonObject temp = daily.getAsJsonObject("temp");
-                double maxTemp = temp.get("max").getAsDouble();
-                double minTemp = temp.get("min").getAsDouble();
-                double avgTemp = temp.get("avg").getAsDouble();
-                int humidity = daily.get("humidity").getAsInt();
-                double windSpeed = daily.get("wind_speed").getAsDouble();
-                
-                // 获取天气描述
-                JsonArray weatherArray = daily.getAsJsonArray("weather");
-                String weather = "N/A";
-                String description = "N/A";
-                if (weatherArray != null && weatherArray.size() > 0) {
-                    JsonObject weatherObject = weatherArray.get(0).getAsJsonObject();
-                    weather = weatherObject.get("main").getAsString();
-                    description = weatherObject.get("description").getAsString();
-                }
-                
-                weatherInfo.append("日期: " + new java.util.Date(dt * 1000) + "\n");
-                weatherInfo.append("天气: " + weather + " - " + description + "\n");
-                weatherInfo.append("最高温度: " + maxTemp + "°C\n");
-                weatherInfo.append("最低温度: " + minTemp + "°C\n");
-                weatherInfo.append("平均温度: " + avgTemp + "°C\n");
-                weatherInfo.append("湿度: " + humidity + "%\n");
-                weatherInfo.append("风速: " + windSpeed + " m/s\n\n");
-            }
-            
-            return "每日聚合天气信息:\n" + weatherInfo.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing daily aggregation response", e);
-            return "解析每日聚合天气信息失败: " + e.getMessage();
-        }
-    }
-
-    // 解析天气概览响应
-    private String parseWeatherOverviewResponse(String response) {
-        try {
-            // 使用Gson解析JSON响应
-            JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-            
-            // 获取地理位置
-            double lat = jsonObject.get("lat").getAsDouble();
-            double lon = jsonObject.get("lon").getAsDouble();
-            String timezone = jsonObject.get("timezone").getAsString();
-            
-            // 获取今天的概览
-            JsonObject today = jsonObject.getAsJsonObject("today");
-            String todaySummary = today.get("summary").getAsString();
-            
-            // 获取明天的概览
-            JsonObject tomorrow = jsonObject.getAsJsonObject("tomorrow");
-            String tomorrowSummary = tomorrow.get("summary").getAsString();
-            
-            StringBuilder weatherInfo = new StringBuilder();
-            weatherInfo.append("地理位置: " + lat + ", " + lon + "\n");
-            weatherInfo.append("时区: " + timezone + "\n\n");
-            weatherInfo.append("今天天气概览:\n" + todaySummary + "\n\n");
-            weatherInfo.append("明天天气概览:\n" + tomorrowSummary + "\n");
-            
-            return "天气概览:\n" + weatherInfo.toString();
-        } catch (Exception e) {
-            Log.e(TAG, "Error parsing weather overview response", e);
-            return "解析天气概览失败: " + e.getMessage();
-        }
-    }
-
-    // 简化的天气查询方法（保持向后兼容）
-    public CompletableFuture<String> getWeather(String city) {
-        return getCurrentWeather(city);
-    }
-
-    // 工具使用说明
-    public String getWeatherToolUsage() {
-        return "天气工具使用说明:\n\n" +
-               "1. 基本天气查询: 输入城市名称，例如 '北京天气'\n" +
-               "2. 详细天气查询: 输入经纬度，例如 '详细天气 39.9 116.4'\n" +
-               "3. 历史天气查询: 输入经纬度和时间戳，例如 '历史天气 39.9 116.4 1620000000'\n" +
-               "4. 每日聚合天气: 输入经纬度和日期范围，例如 '每日天气 39.9 116.4 1620000000 1620864000'\n" +
-               "5. 天气概览: 输入经纬度，例如 '天气概览 39.9 116.4'\n\n" +
-               "注意: One Call 3.0 API 需要单独订阅，部分功能可能需要付费使用。\n" +
-               "如果使用默认API密钥，可能会遇到限制或错误。";
-    }
-    
-    @Override
-    public String getName() {
-        return "ai_weather";
-    }
-    
-    @Override
-    public String getDescription() {
-        return "天气查询工具，获取指定城市的天气信息";
-    }
-    
     private void normalizeParameters(Map<String, Object> parameters) {
         if (parameters == null) return;
         
@@ -3105,12 +2759,36 @@ public class AIWeatherManager implements AITool {
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
             normalizeParameters(parameters);
-            String action = (String) parameters.get("action");
+            Object actionObj = parameters.get("action");
+            String action = null;
+            if (actionObj != null) {
+                if (actionObj instanceof String) {
+                    action = (String) actionObj;
+                } else if (actionObj instanceof Number) {
+                    action = String.valueOf(actionObj);
+                } else {
+                    action = String.valueOf(actionObj);
+                }
+            }
             if (action == null) {
                 action = "current";
             }
             
-            String city = (String) parameters.get("city");
+            Object cityObj = parameters.get("city");
+            String city = null;
+            if (cityObj != null) {
+                if (cityObj instanceof String) {
+                    city = (String) cityObj;
+                } else if (cityObj instanceof Number) {
+                    city = String.valueOf(cityObj);
+                } else if (cityObj instanceof org.json.JSONObject) {
+                    // 模型可能传入 {"name":"北京"} 或 {"city":"北京"} 结构
+                    org.json.JSONObject jo = (org.json.JSONObject) cityObj;
+                    city = jo.optString("name", jo.optString("city", jo.optString("location", jo.toString())));
+                } else {
+                    city = String.valueOf(cityObj);
+                }
+            }
             Object latObj = parameters.get("lat");
             Object lonObj = parameters.get("lon");
             Double lat = null;
@@ -3157,15 +2835,6 @@ public class AIWeatherManager implements AITool {
                     }
                     break;
                 }
-                case "one_call": {
-                    if (!useLocation) {
-                        Map<String, Object> err = new HashMap<>();
-                        err.put("status", "error");
-                        err.put("error", "one_call 需要坐标参数 lat/lon");
-                        return new AIToolResult("缺少坐标参数: one_call 需要 lat/lon", err);
-                    }
-                    break;
-                }
                 default:
                     break;
             }
@@ -3185,8 +2854,6 @@ public class AIWeatherManager implements AITool {
                     return getIndicesAITool(city, lat, lon, useLocation);
                 case "all":
                     return getAllWeatherAITool(city, lat, lon, useLocation);
-                case "one_call":
-                    return getOneCallAITool(lat, lon, parameters);
                 default:
                     return getCurrentWeatherAITool(city, lat, lon, useLocation);
             }
@@ -3490,21 +3157,34 @@ public class AIWeatherManager implements AITool {
                 currentFuture = useLocation
                     ? getCurrentWeatherByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
                     : getCurrentWeather(city).exceptionally(e -> "查询失败: " + e.getMessage());
+                // city 为空时不再静默回退"北京"（旧逻辑 6 处硬编码导致"查天气"返回北京天气）
+                String fallbackCity = (city != null && !city.isEmpty()) ? city : null;
+                String noCityMsg = "查询失败: 缺少城市参数(city)或坐标(lat/lon)";
                 forecastFuture = useLocation
                     ? getHefengForecastByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengForecast(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengForecast(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
                 hourlyFuture = useLocation
                     ? getHefengHourlyByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengHourly(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengHourly(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
                 airFuture = useLocation
                     ? getHefengAirQualityByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengAirQuality(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengAirQuality(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
                 alertsFuture = useLocation
                     ? getHefengAlertsByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengAlerts(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengAlerts(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
                 indicesFuture = useLocation
                     ? getHefengIndicesByLocation(lat, lon).exceptionally(e -> "查询失败: " + e.getMessage())
-                    : getHefengIndices(city != null ? city : "北京").exceptionally(e -> "查询失败: " + e.getMessage());
+                    : (fallbackCity != null
+                        ? getHefengIndices(fallbackCity).exceptionally(e -> "查询失败: " + e.getMessage())
+                        : CompletableFuture.completedFuture(noCityMsg));
             }
 
             CompletableFuture.allOf(currentFuture, forecastFuture, hourlyFuture, airFuture, alertsFuture, indicesFuture).get(30, TimeUnit.SECONDS);
@@ -3536,34 +3216,27 @@ public class AIWeatherManager implements AITool {
         }
     }
     
-    private AIToolResult getOneCallAITool(Double lat, Double lon, Map<String, Object> parameters) {
-        if (lat == null || lon == null) {
-            return new AIToolResult("one_call 需要提供经纬度", new HashMap<>());
-        }
-        
-        try {
-            String exclude = (String) parameters.get("exclude");
-            String units = (String) parameters.get("units");
-            String lang = (String) parameters.get("lang");
-            
-            String result = getOneCallWeather(lat, lon, exclude, units, lang).get(10, TimeUnit.SECONDS);
-            
-            Map<String, Object> resultMap = parseWeatherResultToMap(result);
-            return new AIToolResult(resultMap, new HashMap<>());
-        } catch (Exception e) {
-            Log.e(TAG, "Error getting one call weather: " + e.getMessage(), e);
-            return new AIToolResult("获取详细天气信息失败: " + e.getMessage(), new HashMap<>());
-        }
+    @Override
+    public String getName() {
+        return "ai_weather";
     }
-    
+
+    @Override
+    public String getDescription() {
+        return "天气查询工具：按需查询实时天气/未来几天预报/逐小时/空气质量/预警/生活指数（和风天气数据源）。"
+                + "按用户需求选 action：current(实时)/forecast(未来几天)/hourly(逐小时)/"
+                + "air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)。"
+                + "位置用 city=城市名 或 和风城市编码 或 lat+lon 经纬度(二选一)。";
+    }
+
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
-        descriptions.put("action", "操作类型: current(当前天气), forecast(天气预报), hourly(24小时预报), air_quality(空气质量), alerts(天气预警), indices(生活指数), all(全部信息), one_call(详细天气)");
-        descriptions.put("city", "城市名称（用于按城市查询）");
+        
+        descriptions.put("city", "城市名称或和风城市编码（用于按城市查询）");
         descriptions.put("lat", "纬度（用于按坐标查询）");
         descriptions.put("lon", "经度（用于按坐标查询）");
-        descriptions.put("provider", "API提供商: hefeng(和风天气,默认), openweathermap");
+        
         return descriptions;
     }
 
@@ -3636,12 +3309,8 @@ public class AIWeatherManager implements AITool {
     private QueryRetryResult executeSmartQuery(String queryType, String city, Double lat, Double lon) {
         int maxAttempts = 2;
         WeatherProvider[] providers = {currentProvider};
-        
-        if (currentProvider == WeatherProvider.HEFENG) {
-            providers = new WeatherProvider[]{WeatherProvider.HEFENG, WeatherProvider.OPENWEATHERMAP};
-        } else {
-            providers = new WeatherProvider[]{WeatherProvider.OPENWEATHERMAP, WeatherProvider.HEFENG};
-        }
+
+        String lastFxLink = null;
 
         String lastFxLink = null;
 

@@ -21,4 +21,7 @@ public interface LogEntryDao {
 
     @Query("SELECT * FROM log_entry ORDER BY timestamp DESC LIMIT :limit")
     List<LogEntry> getRecentLogEntries(int limit);
+
+    @Query("DELETE FROM log_entry")
+    void deleteAll();
 }

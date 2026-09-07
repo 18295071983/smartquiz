@@ -3,87 +3,87 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:paddingTop="4dp"
-    android:paddingBottom="12dp">
+    android:paddingTop="@dimen/space_4"
+    android:paddingBottom="@dimen/space_12">
 
     <!-- 总题数 -->
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
         android:background="@drawable/stat_card_total"
-        android:padding="14dp"
-        android:layout_marginEnd="6dp">
+        android:padding="@dimen/space_14"
+        android:layout_marginEnd="@dimen/space_6">
         <TextView
             android:id="@+id/totalCountTextView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_24"
             android:textStyle="bold"
-            android:textColor="@color/primary"/>
+            android:textColor="?attr/colorPrimary"/>
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="总题数"
-            android:textSize="12sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginTop="2dp"/>
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginTop="@dimen/space_2"/>
     </LinearLayout>
 
     <!-- 收藏数 -->
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
         android:background="@drawable/stat_card_favorite"
-        android:padding="14dp"
-        android:layout_marginHorizontal="3dp">
+        android:padding="@dimen/space_14"
+        android:layout_marginHorizontal="@dimen/space_3">
         <TextView
             android:id="@+id/favoriteCountTextView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_24"
             android:textStyle="bold"
             android:textColor="@color/tertiary"/>
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="收藏"
-            android:textSize="12sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginTop="2dp"/>
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginTop="@dimen/space_2"/>
     </LinearLayout>
 
     <!-- 分类数 -->
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center"
         android:background="@drawable/stat_card_category"
-        android:padding="14dp"
-        android:layout_marginStart="6dp">
+        android:padding="@dimen/space_14"
+        android:layout_marginStart="@dimen/space_6">
         <TextView
             android:id="@+id/categoryCountTextView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_24"
             android:textStyle="bold"
             android:textColor="@color/success"/>
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="分类"
-            android:textSize="12sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginTop="2dp"/>
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginTop="@dimen/space_2"/>
     </LinearLayout>
 </LinearLayout>

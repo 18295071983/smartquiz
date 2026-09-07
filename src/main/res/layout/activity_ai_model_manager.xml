@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/white"
-    tools:context=".AIModelManagerActivity">
+    >
 
     <!-- 页面标题 -->
     <androidx.appcompat.widget.Toolbar
@@ -30,9 +30,9 @@
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewModels"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="16dp"
+        android:layout_height="@dimen/size_0"
+        android:layout_marginTop="@dimen/space_16"
+        android:layout_marginBottom="@dimen/space_16"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
         app:layout_constraintBottom_toTopOf="@id/buttonAddModel"
         app:layout_constraintStart_toStartOf="parent"
@@ -43,36 +43,36 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_margin="16dp"
+        android:layout_margin="@dimen/space_16"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
         <Button
             android:id="@+id/buttonAddModel"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="添加新模型"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textStyle="bold"
             android:textColor="@color/white"
             android:background="@color/purple_600"
-            app:cornerRadius="12dp"
-            android:layout_marginRight="8dp" />
+            app:cornerRadius="@dimen/radius_12"
+            android:layout_marginRight="@dimen/space_8" />
 
         <Button
             android:id="@+id/buttonTestModel"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="测试模型性能"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textStyle="bold"
             android:textColor="@color/white"
             android:background="@color/teal_600"
-            app:cornerRadius="12dp"
-            android:layout_marginLeft="8dp" />
+            app:cornerRadius="@dimen/radius_12"
+            android:layout_marginLeft="@dimen/space_8" />
 
     </LinearLayout>
 

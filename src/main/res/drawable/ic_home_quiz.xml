@@ -6,38 +6,13 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- 渐变圆角底（深绿→亮绿） -->
-    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="2" android:startY="2"
-                android:endX="22" android:endY="22"
-                android:startColor="#059669"
-                android:endColor="#34D399" />
-        </aapt:attr>
-    </path>
-
-    <!-- 底部微光 -->
-    <path
-        android:fillColor="#22FFFFFF"
-        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 答题卡（白色渐变） -->
-    <path android:pathData="M6.5,3.5 H17.5 C19.16,3.5 20.5,4.84 20.5,6.5 V17.5 C20.5,19.16 19.16,20.5 17.5,20.5 H6.5 C4.84,20.5 3.5,19.16 3.5,17.5 V6.5 C3.5,4.84 4.84,3.5 6.5,3.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="3.5" android:startY="3.5"
-                android:endX="20.5" android:endY="20.5"
-                android:startColor="#FFFFFF"
-                android:endColor="#D1FAE5" />
-        </aapt:attr>
-    </path>
+    <path android:pathData="M6.5,3.5 H17.5 C19.16,3.5 20.5,4.84 20.5,6.5 V17.5 C20.5,19.16 19.16,20.5 17.5,20.5 H6.5 C4.84,20.5 3.5,19.16 3.5,17.5 V6.5 C3.5,4.84 4.84,3.5 6.5,3.5 Z" android:fillColor="?attr/colorPrimary" />
 
     <!-- 顶部细条（答题卡抬头） -->
     <path
-        android:fillColor="#A7F3D0"
+        android:fillColor="?attr/colorPrimaryContainer"
         android:pathData="M3.5,6.5 C3.5,4.84 4.84,3.5 6.5,3.5 H17.5 C19.16,3.5 20.5,4.84 20.5,6.5 V7.5 H3.5 Z" />
 
     <!-- 对勾（深绿，醒目） -->
@@ -47,8 +22,8 @@
                 android:type="linear"
                 android:startX="7.5" android:startY="9.7"
                 android:endX="17" android:endY="16"
-                android:startColor="#059669"
-                android:endColor="#10B981" />
+                android:startColor="?attr/colorPrimaryDark"
+                android:endColor="?attr/colorPrimary" />
         </aapt:attr>
     </path>
 </vector>

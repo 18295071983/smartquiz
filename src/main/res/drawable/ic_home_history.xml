@@ -1,39 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
-    android:width="42dp"
-    android:height="42dp"
+    android:width="56dp"
+    android:height="56dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- 渐变圆角底 -->
-    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="2" android:startY="2"
-                android:endX="22" android:endY="22"
-                android:startColor="#7C3AED"
-                android:endColor="#A78BFA" />
-        </aapt:attr>
-    </path>
-
-    <!-- 底部微光 -->
-    <path
-        android:fillColor="#22FFFFFF"
-        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 时钟外环（白色渐变） -->
-    <path android:pathData="M12,4 C7.58,4 4,7.58 4,12 C4,16.42 7.58,20 12,20 C16.42,20 20,16.42 20,12 C20,7.58 16.42,4 12,4 Z M12,5.8 C15.42,5.8 18.2,8.58 18.2,12 C18.2,15.42 15.42,18.2 12,18.2 C8.58,18.2 5.8,15.42 5.8,12 C5.8,8.58 8.58,5.8 12,5.8 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="4" android:startY="4"
-                android:endX="20" android:endY="20"
-                android:startColor="#FFFFFF"
-                android:endColor="#EDE9FE" />
-        </aapt:attr>
-    </path>
+    <path android:pathData="M12,4 C7.58,4 4,7.58 4,12 C4,16.42 7.58,20 12,20 C16.42,20 20,16.42 20,12 C20,7.58 16.42,4 12,4 Z M12,5.8 C15.42,5.8 18.2,8.58 18.2,12 C18.2,15.42 15.42,18.2 12,18.2 C8.58,18.2 5.8,15.42 5.8,12 C5.8,8.58 8.58,5.8 12,5.8 Z" android:fillColor="?attr/colorPrimary" />
 
     <!-- 时针分针（深紫） -->
     <path android:pathData="M11.2,7.4 H12.8 V12.2 L15.9,14 L14.9,15.5 L11.2,13.2 Z">
@@ -42,13 +17,13 @@
                 android:type="linear"
                 android:startX="11.2" android:startY="7.4"
                 android:endX="15.9" android:endY="15.5"
-                android:startColor="#8B5CF6"
-                android:endColor="#6D28D9" />
+                android:startColor="?attr/colorPrimary"
+                android:endColor="?attr/colorPrimaryDark" />
         </aapt:attr>
     </path>
 
     <!-- 中心轴（深紫） -->
     <path
-        android:fillColor="#6D28D9"
+        android:fillColor="?attr/colorPrimaryDark"
         android:pathData="M12,11.8 m-0.85,0 a0.85,0.85 0 1,0 1.7,0 a0.85,0.85 0 1,0 -1.7,0" />
 </vector>

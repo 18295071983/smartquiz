@@ -21,10 +21,11 @@ import com.oilquiz.app.infra.AppLogger;
 import com.oilquiz.app.util.preview.PdfiumPreviewManager;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * Pdfium PDF 预览 Activity
  * 使用免费的 PdfiumAndroid 库渲染 PDF
@@ -32,9 +33,12 @@ import java.util.List;
 public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity {
     private static final String TAG = "PdfiumPreviewActivity";
     private static final String EXTRA_FILE_PATH = "file_path";
+    /** SAF 返回的 content:// Uri（Android 10+ 无真实路径，直接用 Uri 打开） */
+    private static final String EXTRA_FILE_URI = "file_uri";
     private static final int REQUEST_CODE_FILE_PICKER = 1001;
     
     private String filePath;
+    private Uri fileUri;
     private PdfiumPreviewManager pdfManager;
     private FrameLayout container;
     private TextView tvPageInfo;
@@ -66,26 +70,26 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         rootLayout.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
-        rootLayout.setBackgroundColor(0xFF333333);
+        rootLayout.setBackgroundColor(ThemeColors.get(R.color.hc_ff333333));
         
         // 标题栏
         LinearLayout titleBar = new LinearLayout(this);
         titleBar.setOrientation(LinearLayout.HORIZONTAL);
-        titleBar.setBackgroundColor(0xFF3B82F6);
+        titleBar.setBackgroundColor(ThemeColors.get(R.color.hc_ff3b82f6));
         titleBar.setPadding(20, 20, 20, 20);
         
         Button btnBack = new Button(this);
-        btnBack.setText("返回");
+        btnBack.setText(getString(R.string.h_5f411223));
         btnBack.setOnClickListener(v -> finish());
         
         TextView tvTitle = new TextView(this);
-        tvTitle.setText("PDF 预览");
-        tvTitle.setTextColor(0xFFFFFFFF);
+        tvTitle.setText(getString(R.string.h_2d87bc11));
+        tvTitle.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         tvTitle.setTextSize(18);
         tvTitle.setPadding(20, 0, 20, 0);
         
         tvPageInfo = new TextView(this);
-        tvPageInfo.setTextColor(0xFFFFFFFF);
+        tvPageInfo.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         tvPageInfo.setTextSize(14);
         
         titleBar.addView(btnBack);
@@ -95,15 +99,15 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         // 页面控制按钮
         LinearLayout controlBar = new LinearLayout(this);
         controlBar.setOrientation(LinearLayout.HORIZONTAL);
-        controlBar.setBackgroundColor(0xFF444444);
+        controlBar.setBackgroundColor(ThemeColors.get(R.color.hc_ff444444));
         controlBar.setPadding(10, 10, 10, 10);
         
         btnPrev = new Button(this);
-        btnPrev.setText("上一页");
+        btnPrev.setText(getString(R.string.h_f4f85316));
         btnPrev.setOnClickListener(v -> showPage(currentPage - 1));
         
         btnNext = new Button(this);
-        btnNext.setText("下一页");
+        btnNext.setText(getString(R.string.h_b4e1b508));
         btnNext.setOnClickListener(v -> showPage(currentPage + 1));
         
         controlBar.addView(btnPrev);
@@ -118,7 +122,7 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         
         pageContainer = new LinearLayout(this);
         pageContainer.setOrientation(LinearLayout.VERTICAL);
-        pageContainer.setBackgroundColor(0xFF666666);
+        pageContainer.setBackgroundColor(ThemeColors.get(R.color.hc_ff666666));
         pageContainer.setPadding(20, 20, 20, 20);
         
         scrollView.addView(pageContainer);
@@ -134,32 +138,35 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
     @Override
     protected void initData() {
         filePath = getIntent().getStringExtra(EXTRA_FILE_PATH);
-        if (filePath == null || filePath.isEmpty()) {
-            AppLogger.i(TAG, "文件路径为空，启动文件选择器");
-            launchFilePicker();
-            return;
-        }
-        
-        File file = new File(filePath);
-        if (!file.exists()) {
-            AppLogger.e(TAG, "文件不存在: " + filePath);
-            launchFilePicker();
-            return;
-        }
-        
+        fileUri = getIntent().getParcelableExtra(EXTRA_FILE_URI);
+
         pdfManager = new PdfiumPreviewManager(this);
-        
-        if (pdfManager.openDocument(filePath)) {
+
+        // 优先用 SAF Uri（content://）直开，其次真实路径；都不可用才进文件选择器
+        if (openFromIntent()) {
             totalPages = pdfManager.getPageCount();
             AppLogger.d(TAG, "PDF 打开成功，总页数: " + totalPages);
-            
             // 渲染所有页面
             renderAllPages();
             showAllPages();
         } else {
-            AppLogger.e(TAG, "打开 PDF 失败");
-            finish();
+            AppLogger.i(TAG, "无有效 PDF 来源，启动文件选择器");
+            launchFilePicker();
         }
+    }
+
+    /** 按来源打开 PDF：优先 SAF Uri，其次真实路径；返回是否成功 */
+    private boolean openFromIntent() {
+        if (fileUri != null) {
+            return pdfManager.openDocument(this, fileUri);
+        }
+        if (filePath != null && !filePath.isEmpty()) {
+            File file = new File(filePath);
+            if (file.exists()) {
+                return pdfManager.openDocument(filePath);
+            }
+        }
+        return false;
     }
     
     @Override
@@ -227,7 +234,7 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
             imageView.setImageBitmap(pageBitmaps.get(i));
             imageView.setAdjustViewBounds(true);
             imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            imageView.setBackgroundColor(0xFFFFFFFF);
+            imageView.setBackgroundColor(ThemeColors.get(R.color.hc_ffffffff));
             
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -311,9 +318,9 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e(TAG, "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("错误")
-                    .setMessage("没有找到文件选择器应用，请安装文件管理器")
-                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setTitle(getString(R.string.h_7030ff64))
+                    .setMessage(getString(R.string.h_b5ea0a10))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                     .setCancelable(false)
                     .show();
         }
@@ -326,24 +333,13 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
         if (requestCode == REQUEST_CODE_FILE_PICKER && resultCode == RESULT_OK && data != null) {
             Uri uri = data.getData();
             if (uri != null) {
-                try {
-                    // 将 Uri 转换为文件路径
-                    String path = getPathFromUri(uri);
-                    if (path != null) {
-                        AppLogger.i(TAG, "选择的文件路径: " + path);
-                        // 重新启动预览
-                        Intent intent = new Intent(this, PdfiumPreviewActivity.class);
-                        intent.putExtra(EXTRA_FILE_PATH, path);
-                        startActivity(intent);
-                        finish();
-                    } else {
-                        AppLogger.e(TAG, "无法获取文件路径");
-                        finish();
-                    }
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "处理文件选择结果失败", e);
-                    finish();
-                }
+                // SAF（系统文件管理器）返回 content:// Uri，Android 10+ 下没有真实文件路径，
+                // 直接把 Uri 传给 pdfium 用 ContentResolver.openFileDescriptor 打开，无需解析路径。
+                AppLogger.i(TAG, "选择的文件 Uri: " + uri);
+                Intent intent = new Intent(this, PdfiumPreviewActivity.class);
+                intent.putExtra(EXTRA_FILE_URI, uri);
+                startActivity(intent);
+                finish();
             } else {
                 AppLogger.e(TAG, "文件选择返回空 Uri");
                 finish();
@@ -353,95 +349,5 @@ public class PdfiumPreviewActivity extends com.oilquiz.app.ui.base.BaseActivity 
             AppLogger.i(TAG, "用户取消了文件选择");
             finish();
         }
-    }
-    
-    /**
-     * 从 Uri 获取文件路径
-     */
-    private String getPathFromUri(Uri uri) {
-        try {
-            if (uri.getScheme().equals("content")) {
-                // 对于 content:// 类型的 Uri
-                // 尝试多种方式获取文件路径
-                String[] projections = {
-                    android.provider.MediaStore.Images.Media.DATA,
-                    android.provider.MediaStore.MediaColumns.DATA,
-                    android.provider.MediaStore.Files.FileColumns.DATA
-                };
-                
-                for (String projection : projections) {
-                    try {
-                        android.database.Cursor cursor = getContentResolver().query(uri, new String[]{projection}, null, null, null);
-                        if (cursor != null) {
-                            if (cursor.moveToFirst()) {
-                                int columnIndex = cursor.getColumnIndexOrThrow(projection);
-                                String path = cursor.getString(columnIndex);
-                                cursor.close();
-                                if (path != null && !path.isEmpty()) {
-                                    return path;
-                                }
-                            }
-                            cursor.close();
-                        }
-                    } catch (Exception e) {
-                        // 尝试下一种方式
-                        AppLogger.w(TAG, "尝试获取文件路径失败: " + e.getMessage());
-                    }
-                }
-                
-                // 如果以上方法都失败，尝试使用临时文件方式
-                return getPathFromContentUri(uri);
-            } else if (uri.getScheme().equals("file")) {
-                // 对于 file:// 类型的 Uri
-                return uri.getPath();
-            }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "从 Uri 获取文件路径失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 content:// Uri 获取文件路径（通过创建临时文件）
-     */
-    private String getPathFromContentUri(Uri uri) {
-        try {
-            // 创建临时文件
-            File tempFile = createTempFileFromUri(uri);
-            if (tempFile != null) {
-                return tempFile.getAbsolutePath();
-            }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "从 content Uri 创建临时文件失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 Uri 创建临时文件
-     */
-    private File createTempFileFromUri(Uri uri) throws IOException {
-        // 获取文件类型
-        String mimeType = getContentResolver().getType(uri);
-        String extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
-        if (extension == null) {
-            extension = "pdf";
-        }
-        
-        // 创建临时文件
-        File tempFile = File.createTempFile("pdfium_", "." + extension, getExternalFilesDir(null));
-        tempFile.deleteOnExit();
-        
-        // 复制文件内容
-        try (java.io.InputStream inputStream = getContentResolver().openInputStream(uri);
-             java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, length);
-            }
-        }
-        
-        return tempFile;
     }
 }

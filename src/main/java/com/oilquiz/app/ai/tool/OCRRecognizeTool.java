@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * OCR 文字识别工具（独立注册）：
- * - ocr_recognize      识别图片中的文字（在线视觉模型优先，失败回退本地 ML Kit）
+ * - ocr_recognize      识别图片中的文字（在线视觉模型优先，失败回退本地高精度 RapidOCR/PP-OCRv6，最终 ML Kit 兜底）
  * - ocr_recognize_pdf  识别 PDF 中的文字（逐页 OCR）
  * - ocr_set_language   设置 OCR 识别语言
  * - ocr_get_language   获取当前 OCR 语言
@@ -144,7 +144,9 @@ public class OCRRecognizeTool implements AITool {
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("status", "success");
             resultMap.put("text", resultText);
-            resultMap.put("engine", "online_vision");
+            // 实际生效引擎：在线视觉模型 / 本地高精度 RapidOCR(PP-OCRv6) / ML Kit
+            resultMap.put("engine", ocrManager.getLastEngine());
+            resultMap.put("engine_label", ocrManager.getLastEngineLabel());
             resultMap.put("language", language != null ? language : "auto");
             return new AIToolResult(resultMap, parameters);
         } catch (java.util.concurrent.TimeoutException e) {
@@ -399,14 +401,37 @@ public class OCRRecognizeTool implements AITool {
                 return null;
             }
 
+            // 图片预处理：WebP/HEIC 重编码为 JPEG + 长边降采样（原生 stb 不支持 WebP/HEIC、大图全尺寸解码 OOM）
+            final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(context, imageFile);
+
+            // 采样参数读推理配置（不再硬编码 1024/0.7/0.9/40），读取失败用默认值
+            int maxTokens = 1024;
+            float temperature = 0.7f;
+            float topP = 0.9f;
+            int topK = 40;
+            try {
+                com.oilquiz.app.ai.config.InferenceConfigManager cfgMgr = configManager(context);
+                if (cfgMgr != null && cfgMgr.getCurrentConfig() != null
+                        && cfgMgr.getCurrentConfig().generationParams != null) {
+                    com.oilquiz.app.ai.config.InferenceConfigManager.GenerationParams gp =
+                            cfgMgr.getCurrentConfig().generationParams;
+                    maxTokens = gp.nPredict > 0 ? gp.nPredict : 1024;
+                    temperature = gp.temperature;
+                    topP = gp.topP;
+                    topK = gp.topK;
+                }
+            } catch (Throwable t) {
+                AILogger.d(TAG, "read generation params failed: " + t.getMessage());
+            }
+
             final CountDownLatch latch = new CountDownLatch(1);
             final AtomicReference<String> resultRef = new AtomicReference<>();
             final AtomicReference<String> errorRef = new AtomicReference<>();
             final StringBuilder full = new StringBuilder();
 
             LlamaHelper.generateWithImage(new java.util.ArrayList<>(),
-                    question, imageFile.getAbsolutePath(),
-                    1024, 0.7f, 0.9f, 40, false,
+                    question, visionImagePath,
+                    maxTokens, temperature, topP, topK, false,
                     new LlamaHelper.TokenCallback() {
                         @Override public void onToken(String token) {
                             if (token != null) full.append(token);
@@ -441,6 +466,24 @@ public class OCRRecognizeTool implements AITool {
             AILogger.d(TAG, "imageUnderstandLocal failed: " + e.getMessage());
             return null;
         }
+    }
+
+    private static volatile com.oilquiz.app.ai.config.InferenceConfigManager sConfigManager;
+
+    /** 惰性单例：避免每次工具调用都做 GPU 探测/配置加载（构造较重） */
+    private static com.oilquiz.app.ai.config.InferenceConfigManager configManager(Context c) {
+        if (sConfigManager == null) {
+            synchronized (OCRRecognizeTool.class) {
+                if (sConfigManager == null) {
+                    try {
+                        sConfigManager = new com.oilquiz.app.ai.config.InferenceConfigManager(c);
+                    } catch (Throwable t) {
+                        AILogger.w(TAG, "init InferenceConfigManager failed: " + t.getMessage());
+                    }
+                }
+            }
+        }
+        return sConfigManager;
     }
 
     private static String getStringParam(Map<String, Object> params, String key, String def) {

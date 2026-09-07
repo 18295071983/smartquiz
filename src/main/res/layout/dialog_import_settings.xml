@@ -4,17 +4,17 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="24dp">
+    android:padding="@dimen/space_24">
 
     <!-- 导入设置标题 -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="导入选项"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:textStyle="bold"
         android:textColor="?attr/colorOnSurface"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="@dimen/space_16" />
 
     <!-- 自动修正空单元格 -->
     <LinearLayout
@@ -22,23 +22,23 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/checkBoxAutoCorrect"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:checked="false"
-            app:trackTint="@color/secondary"
-            app:thumbTint="@color/primary" />
+            app:trackTint="?attr/colorSecondary"
+            app:thumbTint="?attr/colorPrimary" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="自动修正空单元格"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="?attr/colorOnSurface"
-            android:layout_marginLeft="12dp" />
+            android:layout_marginLeft="@dimen/space_12" />
 
     </LinearLayout>
 
@@ -48,23 +48,23 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/checkBoxSkipEmpty"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:checked="false"
-            app:trackTint="@color/secondary"
-            app:thumbTint="@color/primary" />
+            app:trackTint="?attr/colorSecondary"
+            app:thumbTint="?attr/colorPrimary" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="跳过空题目"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="?attr/colorOnSurface"
-            android:layout_marginLeft="12dp" />
+            android:layout_marginLeft="@dimen/space_12" />
 
     </LinearLayout>
 
@@ -73,15 +73,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="默认题型"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurface"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginBottom="@dimen/space_4" />
 
         <androidx.appcompat.widget.AppCompatEditText
             android:id="@+id/editTextQuestionType"
@@ -91,7 +91,7 @@
             android:textColor="?attr/colorOnSurface"
             android:inputType="text"
             android:background="?attr/selectableItemBackground"
-            android:padding="12dp" />
+            android:padding="@dimen/space_12" />
     </LinearLayout>
 
     <!-- 默认难度 -->
@@ -99,15 +99,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="默认难度"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurface"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginBottom="@dimen/space_4" />
 
         <androidx.appcompat.widget.AppCompatEditText
             android:id="@+id/editTextDifficulty"
@@ -117,7 +117,7 @@
             android:textColor="?attr/colorOnSurface"
             android:inputType="text"
             android:background="?attr/selectableItemBackground"
-            android:padding="12dp" />
+            android:padding="@dimen/space_12" />
     </LinearLayout>
 
     <!-- 默认题目 -->
@@ -125,15 +125,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="默认题目"
-            android:textSize="14sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginBottom="4dp" />
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginBottom="@dimen/space_4" />
 
         <androidx.appcompat.widget.AppCompatEditText
             android:id="@+id/editTextQuestion"
@@ -143,7 +143,7 @@
             android:textColor="?attr/colorOnSurface"
             android:inputType="text"
             android:background="?attr/selectableItemBackground"
-            android:padding="12dp" />
+            android:padding="@dimen/space_12" />
     </LinearLayout>
 
     <!-- 默认选项 -->
@@ -151,15 +151,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="默认选项"
-            android:textSize="14sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginBottom="4dp" />
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginBottom="@dimen/space_4" />
 
         <androidx.appcompat.widget.AppCompatEditText
             android:id="@+id/editTextOption"
@@ -169,7 +169,7 @@
             android:textColor="?attr/colorOnSurface"
             android:inputType="text"
             android:background="?attr/selectableItemBackground"
-            android:padding="12dp" />
+            android:padding="@dimen/space_12" />
     </LinearLayout>
 
     <!-- 默认答案 -->
@@ -177,15 +177,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginBottom="12dp">
+        android:layout_marginBottom="@dimen/space_12">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="默认答案"
-            android:textSize="14sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginBottom="4dp" />
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginBottom="@dimen/space_4" />
 
         <androidx.appcompat.widget.AppCompatEditText
             android:id="@+id/editTextAnswer"
@@ -195,7 +195,7 @@
             android:textColor="?attr/colorOnSurface"
             android:inputType="text"
             android:background="?attr/selectableItemBackground"
-            android:padding="12dp" />
+            android:padding="@dimen/space_12" />
     </LinearLayout>
 
 </LinearLayout>

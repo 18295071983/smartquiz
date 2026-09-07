@@ -48,13 +48,13 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
             loadStudyPlans();
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_58c10e4c) + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
     private void initViews() {
         try {
-            setTitle("学习计划");
+            setTitle(getString(R.string.h_99d0dfe7));
             
             studyPlanListView = findViewById(R.id.lv_study_plans);
             planNameEditText = findViewById(R.id.et_plan_name);
@@ -66,7 +66,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
             studyPlanListView.setAdapter(studyPlanAdapter);
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "初始化视图失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_2d73a23e) + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -76,7 +76,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
             studyPlanViewModel.init(getApplication());
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "初始化ViewModel失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_ab64d70c) + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -86,7 +86,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
             addPlanButton.setOnClickListener(v -> addStudyPlan());
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "设置监听器失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_36b84ec7) + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -113,11 +113,11 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                                                 .append(plan.getId()).append(")");
                                         System.out.println("处理学习计划 " + (i+1) + ": " + plan.getPlanName());
                                     } else {
-                                        plansInfo.append("\n").append(i+1).append(". 空学习计划");
+                                        plansInfo.append("\n").append(i+1).append(getString(R.string.h_f6e40f14));
                                         System.out.println("处理学习计划 " + (i+1) + ": 空学习计划");
                                     }
                                 } catch (Exception e) {
-                                    plansInfo.append("\n").append(i+1).append(". 处理失败: " + e.getMessage());
+                                    plansInfo.append("\n").append(i+1).append(getString(R.string.h_a7391912) + e.getMessage());
                                     System.out.println("处理学习计划 " + (i+1) + " 失败: " + e.getMessage());
                                     e.printStackTrace();
                                 }
@@ -135,10 +135,10 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                             }
                             
                             // 显示最终结果
-                            Toast.makeText(StudyPlanActivity.this, "显示 " + studyPlansList.size() + " 个学习计划", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(StudyPlanActivity.this, getString(R.string.h_a1a93bdb) + studyPlansList.size() + getString(R.string.h_33e76961), Toast.LENGTH_SHORT).show();
                         } else {
                             System.out.println("学习计划列表为null");
-                            Toast.makeText(StudyPlanActivity.this, "学习计划列表为null", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(StudyPlanActivity.this, getString(R.string.h_dedd3dee), Toast.LENGTH_SHORT).show();
                         }
                     }
                 });
@@ -150,7 +150,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(StudyPlanActivity.this, "加载学习计划失败: " + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(StudyPlanActivity.this, getString(R.string.h_245ca6d3) + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -162,12 +162,12 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
         String targetQuestionsStr = targetQuestionsEditText.getText().toString().trim();
 
         if (planName.isEmpty()) {
-            Toast.makeText(this, "请输入计划名称", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_859f2252), Toast.LENGTH_SHORT).show();
             return;
         }
 
         if (targetQuestionsStr.isEmpty()) {
-            Toast.makeText(this, "请输入目标题目数", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_826e01cf), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -175,11 +175,11 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
         try {
             targetQuestions = Integer.parseInt(targetQuestionsStr);
             if (targetQuestions <= 0) {
-                Toast.makeText(this, "目标题目数必须大于0", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_37bc89de), Toast.LENGTH_SHORT).show();
                 return;
             }
         } catch (NumberFormatException e) {
-            Toast.makeText(this, "请输入有效的数字", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_fde53cbf), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -191,7 +191,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                     public void run() {
                         planNameEditText.setText("");
                         targetQuestionsEditText.setText("");
-                        Snackbar.make(studyPlanListView, "学习计划创建成功", Snackbar.LENGTH_SHORT).show();
+                        Snackbar.make(studyPlanListView, getString(R.string.h_1c9dd2ba), Snackbar.LENGTH_SHORT).show();
                         loadStudyPlans();
                     }
                 });
@@ -202,7 +202,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(StudyPlanActivity.this, "创建学习计划失败: " + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(StudyPlanActivity.this, getString(R.string.h_e108d76c) + error, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -224,20 +224,20 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                         progress * 100,
                         formatDate(plan.getStartDate()),
                         formatDate(plan.getEndDate())))
-                .setPositiveButton("开始学习", (dialog, which) -> {
+                .setPositiveButton(getString(R.string.h_f83453fd), (dialog, which) -> {
                     Intent intent = new Intent(this, QuizActivity.class);
                     intent.putExtra(QuizActivity.EXTRA_QUIZ_MODE, "practice");
                     intent.putExtra(QuizActivity.EXTRA_QUESTION_COUNT, plan.getTargetQuestions() - plan.getCompletedQuestions());
                     startActivity(intent);
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
     private void showPlanOptions(StudyPlan plan) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("学习计划选项")
-                .setItems(new String[]{"查看详情", "编辑计划", "删除计划", "重置进度"}, (dialog, which) -> {
+        builder.setTitle(getString(R.string.h_0344f7e8))
+                .setItems(new String[]{getString(R.string.h_5b48dbb8), getString(R.string.h_55ce1d90), getString(R.string.h_013139dd), getString(R.string.h_4fcf9f22)}, (dialog, which) -> {
                     switch (which) {
                         case 0:
                             showPlanDetails(plan);
@@ -258,7 +258,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
 
     private void editStudyPlan(StudyPlan plan) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("编辑学习计划");
+        builder.setTitle(getString(R.string.h_1b0b4a97));
         
         // 创建线性布局
         LinearLayout layout = new LinearLayout(this);
@@ -267,7 +267,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
         
         // 添加计划名称输入框
         final EditText editTextPlanName = new EditText(this);
-        editTextPlanName.setHint("计划名称");
+        editTextPlanName.setHint(getString(R.string.h_879e393f));
         editTextPlanName.setText(plan.getPlanName());
         LinearLayout.LayoutParams params1 = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 
@@ -279,7 +279,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
         
         // 添加目标题目数输入框
         final EditText editTextTargetQuestions = new EditText(this);
-        editTextTargetQuestions.setHint("目标题目数");
+        editTextTargetQuestions.setHint(getString(R.string.h_b82a6d38));
         editTextTargetQuestions.setText(String.valueOf(plan.getTargetQuestions()));
         editTextTargetQuestions.setInputType(InputType.TYPE_CLASS_NUMBER);
         LinearLayout.LayoutParams params2 = new LinearLayout.LayoutParams(
@@ -290,12 +290,12 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
         layout.addView(editTextTargetQuestions);
         
         builder.setView(layout)
-                .setPositiveButton("保存", (dialog, which) -> {
+                .setPositiveButton(getString(R.string.h_be5fbbe3), (dialog, which) -> {
                     String newName = editTextPlanName.getText().toString().trim();
                     String newTargetStr = editTextTargetQuestions.getText().toString().trim();
                     
                     if (newName.isEmpty()) {
-                        Toast.makeText(this, "请输入计划名称", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_859f2252), Toast.LENGTH_SHORT).show();
                         return;
                     }
                     
@@ -303,11 +303,11 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                     try {
                         newTarget = Integer.parseInt(newTargetStr);
                         if (newTarget <= 0) {
-                            Toast.makeText(this, "目标题目数必须大于0", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, getString(R.string.h_37bc89de), Toast.LENGTH_SHORT).show();
                             return;
                         }
                     } catch (NumberFormatException e) {
-                        Toast.makeText(this, "请输入有效的数字", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_fde53cbf), Toast.LENGTH_SHORT).show();
                         return;
                     }
                     
@@ -317,7 +317,7 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Snackbar.make(studyPlanListView, "学习计划更新成功", Snackbar.LENGTH_SHORT).show();
+                                    Snackbar.make(studyPlanListView, getString(R.string.h_b6f6db5d), Snackbar.LENGTH_SHORT).show();
                                     loadStudyPlans();
                                 }
                             });
@@ -328,28 +328,28 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Toast.makeText(StudyPlanActivity.this, "更新学习计划失败: " + error, Toast.LENGTH_SHORT).show();
+                                    Toast.makeText(StudyPlanActivity.this, getString(R.string.h_a5f9663e) + error, Toast.LENGTH_SHORT).show();
                                 }
                             });
                         }
                     });
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
     private void deleteStudyPlan(StudyPlan plan) {
         new AlertDialog.Builder(this)
-                .setTitle("删除学习计划")
-                .setMessage("确定要删除这个学习计划吗？")
-                .setPositiveButton("确定", (dialog, which) -> {
+                .setTitle(getString(R.string.h_fcf344c7))
+                .setMessage(getString(R.string.h_2495d104))
+                .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
                     studyPlanViewModel.deleteStudyPlan(plan.getId(), new StudyPlanViewModel.StudyPlanCallback<Void>() {
                         @Override
                         public void onSuccess(Void result) {
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Snackbar.make(studyPlanListView, "学习计划删除成功", Snackbar.LENGTH_SHORT).show();
+                                    Snackbar.make(studyPlanListView, getString(R.string.h_9312672b), Snackbar.LENGTH_SHORT).show();
                                     loadStudyPlans();
                                 }
                             });
@@ -360,28 +360,28 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Toast.makeText(StudyPlanActivity.this, "删除学习计划失败: " + error, Toast.LENGTH_SHORT).show();
+                                    Toast.makeText(StudyPlanActivity.this, getString(R.string.h_e07202e2) + error, Toast.LENGTH_SHORT).show();
                                 }
                             });
                         }
                     });
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
     private void resetPlanProgress(StudyPlan plan) {
         new AlertDialog.Builder(this)
-                .setTitle("重置学习进度")
-                .setMessage("确定要重置这个学习计划的进度吗？")
-                .setPositiveButton("确定", (dialog, which) -> {
+                .setTitle(getString(R.string.h_3e9665bd))
+                .setMessage(getString(R.string.h_05137007))
+                .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
                     studyPlanViewModel.resetPlanProgress(plan.getId(), new StudyPlanViewModel.StudyPlanCallback<Void>() {
                         @Override
                         public void onSuccess(Void result) {
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Snackbar.make(studyPlanListView, "学习进度重置成功", Snackbar.LENGTH_SHORT).show();
+                                    Snackbar.make(studyPlanListView, getString(R.string.h_7ef38964), Snackbar.LENGTH_SHORT).show();
                                     loadStudyPlans();
                                 }
                             });
@@ -392,13 +392,13 @@ public class StudyPlanActivity extends AppCompatActivity implements StudyPlanAda
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    Toast.makeText(StudyPlanActivity.this, "重置学习进度失败: " + error, Toast.LENGTH_SHORT).show();
+                                    Toast.makeText(StudyPlanActivity.this, getString(R.string.h_e4577635) + error, Toast.LENGTH_SHORT).show();
                                 }
                             });
                         }
                     });
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.adapter;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -122,7 +124,7 @@ public class FilePreviewAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                         columnToFieldMap.put(columnIndex, selectedField);
                         
                         // 添加高亮效果
-                        headerItem.setBackgroundColor(context.getResources().getColor(R.color.primary_light));
+                        headerItem.setBackgroundColor(ThemeColors.attr(context, R.attr.colorPrimaryContainer));
                     } else {
                         // 移除映射
                         for (Map.Entry<String, Integer> entry : fieldMapping.entrySet()) {
@@ -145,7 +147,7 @@ public class FilePreviewAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             
             // 初始状态的高亮
             if (mappedField != null) {
-                headerItem.setBackgroundColor(context.getResources().getColor(R.color.primary_light));
+                headerItem.setBackgroundColor(ThemeColors.attr(context, R.attr.colorPrimaryContainer));
             }
 
             headerContainer.addView(headerItem);

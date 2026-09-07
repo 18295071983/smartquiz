@@ -22,7 +22,7 @@ public class PerformanceActivity extends AppCompatActivity {
         setContentView(R.layout.activity_performance);
 
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle("性能监控");
+            getSupportActionBar().setTitle(getString(R.string.h_23be93c8));
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         }
 

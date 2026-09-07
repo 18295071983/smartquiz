@@ -215,11 +215,15 @@ public class AIChatViewModel extends AndroidViewModel {
     private final MutableLiveData<Boolean> generatingStateLiveData = new MutableLiveData<>(false);
     private final MutableLiveData<String> errorLiveData = new MutableLiveData<>();
     private final MutableLiveData<Boolean> initializationLiveData = new MutableLiveData<>(false);
+    /** 在线思考实时流：postValue 增量 token；postValue(null) 表示思考结束（顶部单行据此显示/隐藏） */
+    private final MutableLiveData<String> onlineThinkingStream = new MutableLiveData<>();
 
     // 流式生成状态
     private StringBuilder currentStreamingContent;
     private StringBuilder currentThinkingContent;
     private boolean isInThinking = false;
+    /** 本轮是否已实时收到 thinking 增量事件：思考区已实时累积，reasoning 全文跳过防重复 */
+    private volatile boolean thinkingStreamedLocal = false;
     private int currentStreamingMessageIndex = -1;
 
     @Inject
@@ -500,13 +504,25 @@ public class AIChatViewModel extends AndroidViewModel {
                     }
 
                     @Override
+                    public void onThinkingToken(String token) {
+                        // 在线思考：气泡思考区（handleThinkingToken 同步 msg.thinkingContent）
+                        // + 顶部单行实时流（增量 token，null 由 onComplete 发）
+                        if (token != null && !token.isEmpty()) {
+                            handleThinkingToken(token);
+                            onlineThinkingStream.postValue(token);
+                        }
+                    }
+
+                    @Override
                     public void onComplete(String fullText) {
                         completeGeneration(fullText);
+                        onlineThinkingStream.postValue(null);   // 思考结束，顶部单行隐藏
                     }
 
                     @Override
                     public void onError(String error) {
                         handleGenerationError(error);
+                        onlineThinkingStream.postValue(null);
                     }
                 });
             } catch (Exception e) {
@@ -522,34 +538,138 @@ public class AIChatViewModel extends AndroidViewModel {
 
     private void startLocalInference(String message) {
         try {
+        thinkingStreamedLocal = false;
         executor.execute(() -> {
             try {
                 int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
-                aiService.chatSend(message, maxTokens, false, new LlamaHelper.TokenCallback() {
+                // 普通对话改用 chatJson 统一协议（与 Agent 同源）：
+                // C++ 侧完成模板格式化 + 思考剥离 + reasoning 事件广播 + 干净正文 complete；
+                // Java 侧 token->正文、reasoning->思考区（折叠显示）、complete->终态。
+                String requestJson = buildChatJsonRequest(message, maxTokens);
+                if (requestJson == null) {
+                    handleGenerationError("构建推理请求失败");
+                    return;
+                }
+                LlamaHelper.chatJson(requestJson, new LlamaHelper.JsonCallback() {
                     @Override
-                    public void onToken(String token) {
-                        handleStreamingToken(token);
-                    }
-
-                    @Override
-                    public void onComplete(String fullText) {
-                        completeGeneration(fullText);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        handleGenerationError(error);
+                    public void onJson(String json) {
+                        try {
+                            org.json.JSONObject event = new org.json.JSONObject(json);
+                            String type = event.optString("type", "");
+                            switch (type) {
+                                case "token": {
+                                    String token = event.optString("content", "");
+                                    if (!token.isEmpty()) handleStreamingToken(token);
+                                    break;
+                                }
+                                case "thinking": {
+                                    String tk = event.optString("content", "");
+                                    if (!tk.isEmpty()) {
+                                        thinkingStreamedLocal = true;
+                                        handleThinkingToken(tk);
+                                    }
+                                    break;
+                                }
+                                case "reasoning": {
+                                    // 思考已实时累积（thinkingStreamedLocal）则全文跳过防重复
+                                    if (thinkingStreamedLocal) break;
+                                    String reasoning = event.optString("content", "");
+                                    if (!reasoning.isEmpty()) handleThinkingToken(reasoning);
+                                    break;
+                                }
+                                case "complete": {
+                                    String content = event.optString("content", "");
+                                    completeGeneration(content);
+                                    break;
+                                }
+                                case "error": {
+                                    String err = event.optString("message", "未知错误");
+                                    handleGenerationError(err);
+                                    break;
+                                }
+                                default:
+                                    // meta 等事件暂不处理
+                                    break;
+                            }
+                        } catch (Exception e) {
+                            AILogger.e(TAG, "chatJson event parse error: " + e.getMessage());
+                        }
                     }
                 });
             } catch (Exception e) {
                 AILogger.e(TAG, "Local inference failed", e);
-                mainHandler.post(() -> handleGenerationError("推理失败: " + e.getMessage()));
+                handleGenerationError("推理失败: " + e.getMessage());
             }
         });
         } catch (java.util.concurrent.RejectedExecutionException e) {
             AILogger.e(TAG, "Executor rejected local inference task", e);
             handleGenerationError("线程池已关闭，请重启应用");
         }
+    }
+
+    /**
+     * 构造普通对话的 chatJson 请求：无工具（tool_choice=none）、启用思考（enable_thinking=true，
+     * 思考经 reasoning 事件折叠显示）。历史取 chatMessages 中 USER/AI 消息最近 20 条 + 当前消息。
+     */
+    private String buildChatJsonRequest(String message, int maxTokens) {
+        try {
+            org.json.JSONObject req = new org.json.JSONObject();
+            req.put("action", "chat");
+            org.json.JSONArray msgs = new org.json.JSONArray();
+            // 注入当前日期（权威事实）：防止模型用训练截止时间回答"今天几号/最新"类问题
+            try {
+                org.json.JSONObject sys = new org.json.JSONObject();
+                sys.put("role", "system");
+                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                        "yyyy年M月d日 EEEE", java.util.Locale.CHINA);
+                sys.put("content", "当前日期：" + sdf.format(new java.util.Date())
+                        + "。这是系统实时提供的当前时间，回答今天/几号/当前时间/最新等问题以它为准，不要使用训练数据中的旧时间。");
+                msgs.put(sys);
+            } catch (Exception ignored) {}
+            int historyEnd = currentStreamingMessageIndex >= 0 ? currentStreamingMessageIndex : chatMessages.size();
+            List<ChatMessage> snapshot = chatMessages.toImmutableList();
+            int start = Math.max(0, historyEnd - 20);
+            for (int i = start; i < historyEnd; i++) {
+                ChatMessage m = snapshot.get(i);
+                if (m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI) {
+                    org.json.JSONObject msg = new org.json.JSONObject();
+                    msg.put("role", m.getRole());
+                    msg.put("content", m.content != null ? m.content : "");
+                    msgs.put(msg);
+                }
+            }
+            org.json.JSONObject cur = new org.json.JSONObject();
+            cur.put("role", "user");
+            cur.put("content", message);
+            msgs.put(cur);
+            req.put("messages", msgs);
+            req.put("enable_thinking", true);
+            req.put("max_tokens", maxTokens);
+            req.put("temperature", 0.6f);
+            req.put("top_p", 0.9f);
+            req.put("top_k", 40);
+            req.put("tool_choice", "none");
+            return req.toString();
+        } catch (Exception e) {
+            AILogger.e(TAG, "buildChatJsonRequest failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * chatJson reasoning 事件：思考内容实时写入思考区（UI 折叠显示）。
+     * 与旧 chatSend 的 [THINK_BEGIN]/[THINK_END] 标记协议不同——chatJson 走 reasoning 事件直接追加。
+     */
+    private void handleThinkingToken(String reasoning) {
+        if (reasoning == null || reasoning.isEmpty()) return;
+        if (!isInThinking) {
+            isInThinking = true;
+            if (currentThinkingContent == null) {
+                currentThinkingContent = new StringBuilder();
+            }
+        }
+        currentThinkingContent.append(reasoning);
+        mainHandler.post(this::updateStreamingMessage);
     }
 
     // ========== 流式处理 ==========
@@ -626,7 +746,14 @@ public class AIChatViewModel extends AndroidViewModel {
         mainHandler.post(() -> {
             if (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatMessages.size()) {
                 ChatMessage msg = chatMessages.get(currentStreamingMessageIndex);
-                msg.content = fullText != null ? fullText : currentStreamingContent.toString();
+                // 终态正文优先用流式累积的干净 content；不能用 native onComplete 的 fullText 直接覆盖——
+                // 它含原始 <think>…</think> 思考段（本路径只认 [THINK_BEGIN]/[THINK_END] 协议标记，
+                // 模型直接输出的标签会漏分），直接赋值会把思考永久绑进主消息气泡。
+                // 统一再走一遍模板标签剥离兜底：正文干净时 stripThinking 是无操作，不改变行为。
+                String body = currentStreamingContent.length() > 0
+                        ? currentStreamingContent.toString()
+                        : (fullText != null ? fullText : "");
+                msg.content = com.oilquiz.app.ai.jni.LlamaHelper.getThinkingTags().stripThinking(body);
                 msg.status = ChatMessage.MessageStatus.COMPLETED;
                 msg.inferenceProgress = null;
                 chatMessages.notifyItemChanged(currentStreamingMessageIndex);
@@ -799,6 +926,10 @@ public class AIChatViewModel extends AndroidViewModel {
     /**
      * 获取生成状态（可观察）
      */
+    public LiveData<String> getOnlineThinkingStream() {
+        return onlineThinkingStream;
+    }
+
     public LiveData<Boolean> isGenerating() {
         return generatingStateLiveData;
     }

@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.tool.annotation.Tool;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -26,6 +28,7 @@ import java.util.Map;
  * - 输入控件值在重渲染时回填（保留用户已输入的内容）。
  * - 每次编辑后画布即时刷新；get_result 提示用户操作完成。
  */
+@Tool(value = "layout_editor", category = "ui")
 public class LayoutEditorTool implements AITool {
 
     private static final String TAG = "LayoutEditorTool";

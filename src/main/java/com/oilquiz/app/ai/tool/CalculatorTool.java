@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.tool.annotation.Tool;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -12,6 +14,7 @@ import java.util.Map;
  * 参数：
  * - expression: 表达式字符串，如 "3.5 * (2 + 4) / 7"
  */
+@Tool(value = "calculator", category = "utility")
 public class CalculatorTool implements AITool {
 
     private static final String TAG = "CalculatorTool";
@@ -33,7 +36,7 @@ public class CalculatorTool implements AITool {
                 + "支持运算符: + 加 / - 减 / * 乘 / / 除 / % 取余 / ^ 幂 / ( ) 括号；"
                 + "支持小数与负数（如 3.5 * (2 + 4) / 7 或 2^10 或 (15-3)%4）。"
                 + "除零/非法表达式会返回明确错误。纯 Java 解析，无注入风险，计算即时返回。"
-                + "简单数学计算优先用本工具（轻量快速），复杂数据分析用 python_calculate/python_analyze_data。";
+                + "简单数学计算用本工具（轻量快速），复杂数据分析用 python_calculate/python_analyze_data。";
     }
 
     @Override

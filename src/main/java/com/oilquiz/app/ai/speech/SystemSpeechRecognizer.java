@@ -95,7 +95,15 @@ public class SystemSpeechRecognizer {
                 return;
             }
 
-            recognizer = SpeechRecognizer.createSpeechRecognizer(context);
+            // 优先直接绑定系统已注册的识别服务组件（如小米小爱 AsrService），
+            // 避免 voice_recognition_service 未选中时 createSpeechRecognizer 报 "no selected voice recognition service"
+            android.content.ComponentName svc = findRecognitionServiceComponent(context);
+            if (svc != null) {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(context, svc);
+                AILogger.d(TAG, "绑定语音识别服务: " + svc.flattenToString());
+            } else {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(context);
+            }
             recognizer.setRecognitionListener(new RecognitionListener() {
                 @Override
                 public void onReadyForSpeech(Bundle params) {
@@ -172,7 +180,9 @@ public class SystemSpeechRecognizer {
             });
 
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            // 不指定 LANGUAGE_MODEL，让系统使用默认识别引擎（兼容小爱、讯飞、Google 等）
+            // 显式指定自由文本模型与中文，兼容小米小爱等国内引擎（避免引擎按默认英文模型拒绝请求）
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN");
             intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
             AILogger.d(TAG, "启动系统语音识别，调用包: " + context.getPackageName());
@@ -202,6 +212,29 @@ public class SystemSpeechRecognizer {
     public void cancel() {
         mainHandler.post(this::destroyInternal);
     }
+
+
+    /** 查找系统已注册的第一个语音识别服务组件（如 com.xiaomi.mibrain.speech/.asr.AsrService） */
+    private static android.content.ComponentName findRecognitionServiceComponent(Context ctx) {
+        try {
+            android.content.Intent intent = new android.content.Intent("android.speech.RecognitionService");
+            java.util.List<android.content.pm.ResolveInfo> list =
+                    ctx.getPackageManager().queryIntentServices(intent,
+                            android.content.pm.PackageManager.MATCH_ALL);
+            if (list != null) {
+                for (android.content.pm.ResolveInfo ri : list) {
+                    if (ri.serviceInfo != null && ri.serviceInfo.packageName != null
+                            && ri.serviceInfo.name != null && ri.serviceInfo.enabled) {
+                        return new android.content.ComponentName(
+                                ri.serviceInfo.packageName, ri.serviceInfo.name);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
 
     private void destroyInternal() {
         listening = false;

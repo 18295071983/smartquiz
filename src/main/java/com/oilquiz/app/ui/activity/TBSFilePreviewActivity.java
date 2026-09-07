@@ -6,8 +6,6 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.MediaStore;
-import android.webkit.MimeTypeMap;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -21,12 +19,11 @@ import com.oilquiz.app.infra.AppLogger;
 import com.oilquiz.app.util.preview.TBSPreviewManager;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * TBS SDK 文件预览 Activity
  * 
@@ -78,12 +75,12 @@ public class TBSFilePreviewActivity extends Activity {
         // 创建简单的加载界面
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setBackgroundColor(0xFF2C3E50);
+        layout.setBackgroundColor(ThemeColors.get(R.color.hc_ff2c3e50));
         
         // 状态文本
         statusText = new TextView(this);
-        statusText.setText("正在初始化 TBS 预览...");
-        statusText.setTextColor(0xFFFFFFFF);
+        statusText.setText(getString(R.string.h_7450c777));
+        statusText.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
         statusText.setTextSize(16);
         statusText.setPadding(40, 40, 40, 20);
         layout.addView(statusText);
@@ -118,7 +115,7 @@ public class TBSFilePreviewActivity extends Activity {
         
         // 检查 TBS 是否可用
         if (!tbsManager.isTBSAvailable()) {
-            statusText.setText("TBS SDK 未集成");
+            statusText.setText(getString(R.string.h_ea53cbc9));
             AppLogger.e(TAG, "TBS SDK 未集成");
             showErrorAndFinish("TBS SDK 未集成，请检查 AAR 文件是否正确放置");
             return;
@@ -128,7 +125,7 @@ public class TBSFilePreviewActivity extends Activity {
         // 根据腾讯文档示例，TBS SDK 应该在主 Activity 中初始化
         if (!tbsManager.isInitialized()) {
             AppLogger.w(TAG, "TBS SDK 未初始化，尝试在预览 Activity 中初始化");
-            statusText.setText("正在初始化 TBS SDK...");
+            statusText.setText(getString(R.string.h_c2b2b15f));
             
             // 设置隐私政策同意状态（如果未设置）
             if (!tbsManager.isPrivacyPolicyAccepted()) {
@@ -143,7 +140,7 @@ public class TBSFilePreviewActivity extends Activity {
                     } else {
                         AppLogger.e(TAG, "TBS SDK 初始化失败，错误码: " + errorCode);
                         String errorMsg = getTBSInitErrorMessage(errorCode);
-                        statusText.setText("初始化失败: " + errorMsg);
+                        statusText.setText(getString(R.string.h_58c10e4c) + errorMsg);
                         showErrorAndFinish("TBS SDK 初始化失败: " + errorMsg);
                     }
                 });
@@ -193,10 +190,10 @@ public class TBSFilePreviewActivity extends Activity {
      */
     private void showErrorAndFinish(String error) {
         new android.app.AlertDialog.Builder(this)
-                .setTitle("TBS 预览失败")
+                .setTitle(getString(R.string.h_f03e8739))
                 .setMessage(error)
-                .setPositiveButton("使用备用预览", (dialog, which) -> useAlternativePreview())
-                .setNegativeButton("取消", (dialog, which) -> finish())
+                .setPositiveButton(getString(R.string.h_d353fd7e), (dialog, which) -> useAlternativePreview())
+                .setNegativeButton(getString(R.string.h_625fb26b), (dialog, which) -> finish())
                 .setCancelable(false)
                 .show();
     }
@@ -209,24 +206,14 @@ public class TBSFilePreviewActivity extends Activity {
         
         // 显示预览方式选择对话框
         new android.app.AlertDialog.Builder(this)
-                .setTitle("选择预览方式")
-                .setItems(new String[]{"LibreOffice (开源免费)", "OnlyOffice (开源免费)", "Pdfium (仅PDF)", "WebView (仅表格文件)"}, (dialog, which) -> {
+                .setTitle(getString(R.string.h_406e088d))
+                .setItems(new String[]{getString(R.string.h_bfbf0f9a), getString(R.string.h_85016097), getString(R.string.h_bce2e6d3)}, (dialog, which) -> {
                     switch (which) {
                         case 0:
-                            // 使用 LibreOfficeKit 预览
-                            AppLogger.d(TAG, "使用 LibreOfficeKitPreviewActivity 预览文件");
-                            Intent libreOfficeIntent = new Intent(this, LibreOfficeKitPreviewActivity.class);
-                            libreOfficeIntent.putExtra("file_path", filePath);
-                            startActivity(libreOfficeIntent);
+                            // 使用官方 LibreOffice 查看器预览
+                            com.oilquiz.app.util.preview.LibreOfficeViewerLauncher.launch(this, filePath);
                             break;
                         case 1:
-                            // 使用 OnlyOffice 预览
-                            AppLogger.d(TAG, "使用 OnlyOfficePreviewActivity 预览文件");
-                            Intent onlyOfficeIntent = new Intent(this, OnlyOfficePreviewActivity.class);
-                            onlyOfficeIntent.putExtra("file_path", filePath);
-                            startActivity(onlyOfficeIntent);
-                            break;
-                        case 2:
                             // PDF文件使用PdfiumPreviewActivity
                             String ext = getFileExtension(filePath);
                             if (ext.equalsIgnoreCase("pdf")) {
@@ -239,14 +226,14 @@ public class TBSFilePreviewActivity extends Activity {
                                 useWebViewPreview();
                             }
                             break;
-                        case 3:
+                        case 2:
                             // 使用 WebView 预览
                             useWebViewPreview();
                             break;
                     }
                     finish();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
     
@@ -282,7 +269,7 @@ public class TBSFilePreviewActivity extends Activity {
     }
     
     private void openFile() {
-        statusText.setText("正在打开文件...");
+        statusText.setText(getString(R.string.h_74880219));
         
         // 检查文件路径
         AppLogger.d(TAG, "准备打开文件: " + filePath);
@@ -305,7 +292,7 @@ public class TBSFilePreviewActivity extends Activity {
             public void onFileOpened() {
                 runOnUiThread(() -> {
                     AppLogger.d(TAG, "TBS 文件已打开");
-                    statusText.setText("文件已打开");
+                    statusText.setText(getString(R.string.h_f9bbd707));
                 });
             }
             
@@ -358,7 +345,7 @@ public class TBSFilePreviewActivity extends Activity {
         }, container);
         
         if (result != 0) {
-            statusText.setText("打开文件失败: " + result);
+            statusText.setText(getString(R.string.h_f4c0d6a9) + result);
             AppLogger.e(TAG, "打开文件失败: " + result);
         } else {
             AppLogger.d(TAG, "TBS 预览启动成功");
@@ -418,9 +405,9 @@ public class TBSFilePreviewActivity extends Activity {
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e(TAG, "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("错误")
-                    .setMessage("没有找到文件选择器应用，请安装文件管理器")
-                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setTitle(getString(R.string.h_7030ff64))
+                    .setMessage(getString(R.string.h_b5ea0a10))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                     .setCancelable(false)
                     .show();
         }
@@ -434,18 +421,19 @@ public class TBSFilePreviewActivity extends Activity {
             Uri uri = data.getData();
             if (uri != null) {
                 try {
-                    // 将 Uri 转换为文件路径
-                    String path = getPathFromUri(uri);
-                    if (path != null) {
-                        AppLogger.i(TAG, "选择的文件路径: " + path);
+                    // TBS 引擎只能加载本地路径，SAF 返回的 content:// Uri 直接用流复制到应用缓存目录
+                    // （Android 10+ 分区存储下无真实路径，不查已废弃的 MediaStore DATA 列）
+                    File cached = com.oilquiz.app.util.UriPathResolver.copyContentUriToCache(this, uri.toString());
+                    if (cached != null && cached.exists()) {
+                        AppLogger.i(TAG, "SAF 文件已复制到缓存: " + cached.getAbsolutePath());
                         // 重新启动预览
                         Intent intent = new Intent(this, TBSFilePreviewActivity.class);
-                        intent.putExtra(EXTRA_FILE_PATH, path);
+                        intent.putExtra(EXTRA_FILE_PATH, cached.getAbsolutePath());
                         startActivity(intent);
                         finish();
                     } else {
-                        AppLogger.e(TAG, "无法获取文件路径");
-                        showErrorAndFinish("无法获取文件路径");
+                        AppLogger.e(TAG, "SAF 文件复制失败: " + uri);
+                        showErrorAndFinish("无法读取所选文件");
                     }
                 } catch (Exception e) {
                     AppLogger.e(TAG, "处理文件选择结果失败", e);
@@ -460,96 +448,6 @@ public class TBSFilePreviewActivity extends Activity {
             AppLogger.i(TAG, "用户取消了文件选择");
             finish();
         }
-    }
-    
-    /**
-     * 从 Uri 获取文件路径
-     */
-    private String getPathFromUri(Uri uri) {
-        try {
-            if (uri.getScheme().equals("content")) {
-                // 对于 content:// 类型的 Uri
-                // 尝试多种方式获取文件路径
-                String[] projections = {
-                    android.provider.MediaStore.Images.Media.DATA,
-                    android.provider.MediaStore.MediaColumns.DATA,
-                    android.provider.MediaStore.Files.FileColumns.DATA
-                };
-                
-                for (String projection : projections) {
-                    try {
-                        android.database.Cursor cursor = getContentResolver().query(uri, new String[]{projection}, null, null, null);
-                        if (cursor != null) {
-                            if (cursor.moveToFirst()) {
-                                int columnIndex = cursor.getColumnIndexOrThrow(projection);
-                                String path = cursor.getString(columnIndex);
-                                cursor.close();
-                                if (path != null && !path.isEmpty()) {
-                                    return path;
-                                }
-                            }
-                            cursor.close();
-                        }
-                    } catch (Exception e) {
-                        // 尝试下一种方式
-                        AppLogger.w(TAG, "尝试获取文件路径失败: " + e.getMessage());
-                    }
-                }
-                
-                // 如果以上方法都失败，尝试使用临时文件方式
-                return getPathFromContentUri(uri);
-            } else if (uri.getScheme().equals("file")) {
-                // 对于 file:// 类型的 Uri
-                return uri.getPath();
-            }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "从 Uri 获取文件路径失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 content:// Uri 获取文件路径（通过创建临时文件）
-     */
-    private String getPathFromContentUri(Uri uri) {
-        try {
-            // 创建临时文件
-            File tempFile = createTempFileFromUri(uri);
-            if (tempFile != null) {
-                return tempFile.getAbsolutePath();
-            }
-        } catch (Exception e) {
-            AppLogger.e(TAG, "从 content Uri 创建临时文件失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 Uri 创建临时文件
-     */
-    private File createTempFileFromUri(Uri uri) throws IOException {
-        // 获取文件类型
-        String mimeType = getContentResolver().getType(uri);
-        String extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
-        if (extension == null) {
-            extension = "tmp";
-        }
-        
-        // 创建临时文件
-        File tempFile = File.createTempFile("tbs_", "." + extension, getExternalFilesDir(null));
-        tempFile.deleteOnExit();
-        
-        // 复制文件内容
-        try (InputStream inputStream = getContentResolver().openInputStream(uri);
-             FileOutputStream outputStream = new FileOutputStream(tempFile)) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, length);
-            }
-        }
-        
-        return tempFile;
     }
     
     /**

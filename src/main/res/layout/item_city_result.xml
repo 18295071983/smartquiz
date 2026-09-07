@@ -2,14 +2,14 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="#2A3A4F"
+    android:background="@color/dark_slate"
     android:clickable="true"
     android:focusable="true"
     android:orientation="horizontal"
-    android:padding="12dp">
+    android:padding="@dimen/space_12">
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical">
@@ -19,21 +19,21 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/weather_dark_text"
-            android:textSize="15sp"
+            android:textSize="@dimen/text_15"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tv_city_location"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="@dimen/space_2"
             android:textColor="@color/weather_dark_text_tertiary"
-            android:textSize="13sp" />
+            android:textSize="@dimen/text_13" />
     </LinearLayout>
 
     <ImageView
-        android:layout_width="20dp"
-        android:layout_height="20dp"
+        android:layout_width="@dimen/size_20"
+        android:layout_height="@dimen/size_20"
         android:layout_gravity="center_vertical"
         android:src="@drawable/ic_chevron_right"
         android:tint="@color/weather_dark_text_tertiary" />

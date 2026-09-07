@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="@dimen/space_16">
 
     <!-- 建议卡片 -->
     <com.google.android.material.card.MaterialCardView
@@ -18,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <!-- 建议标题 -->
             <TextView
@@ -26,10 +26,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="优化建议标题"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
-                android:layout_marginBottom="8dp" />
+                android:textColor="?attr/colorControlText"
+                android:layout_marginBottom="@dimen/space_8" />
 
             <!-- 建议描述 -->
             <TextView
@@ -37,23 +37,23 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="建议描述内容"
-                android:textSize="14sp"
-                android:textColor="@color/text_secondary"
-                android:layout_marginBottom="12dp" />
+                android:textSize="@dimen/text_14"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:layout_marginBottom="@dimen/space_12" />
 
             <!-- 优先级和改进幅度 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="@dimen/space_12">
 
                 <TextView
                     android:id="@+id/suggestion_priority"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="优先级: 高"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textColor="@color/error" />
 
                 <TextView
@@ -61,9 +61,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="预计改进: 20%"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textColor="@color/success"
-                    android:layout_marginStart="16dp" />
+                    android:layout_marginStart="@dimen/space_16" />
             </LinearLayout>
 
             <!-- 应用按钮 -->

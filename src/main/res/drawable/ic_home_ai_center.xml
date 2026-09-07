@@ -6,34 +6,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
 
-    <!-- 渐变圆角底 -->
-    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="2" android:startY="2"
-                android:endX="22" android:endY="22"
-                android:startColor="#7C3AED"
-                android:endColor="#C084FC" />
-        </aapt:attr>
-    </path>
-
-    <!-- 底部微光 -->
-    <path
-        android:fillColor="#22FFFFFF"
-        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 大脑外壳（白色渐变） -->
-    <path android:pathData="M12,3.4 C8.7,3.4 5.8,6 5.8,9.1 C5.8,10.3 6.2,11.4 6.9,12.3 C6.3,13 6,13.9 6,14.9 C6,17.9 8.7,20.4 12,20.4 C15.3,20.4 18,17.9 18,14.9 C18,13.9 17.7,13 17.1,12.3 C17.8,11.4 18.2,10.3 18.2,9.1 C18.2,6 15.3,3.4 12,3.4 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="5.8" android:startY="3.4"
-                android:endX="18.2" android:endY="20.4"
-                android:startColor="#FFFFFF"
-                android:endColor="#EDE9FE" />
-        </aapt:attr>
-    </path>
+    <path android:pathData="M12,3.4 C8.7,3.4 5.8,6 5.8,9.1 C5.8,10.3 6.2,11.4 6.9,12.3 C6.3,13 6,13.9 6,14.9 C6,17.9 8.7,20.4 12,20.4 C15.3,20.4 18,17.9 18,14.9 C18,13.9 17.7,13 17.1,12.3 C17.8,11.4 18.2,10.3 18.2,9.1 C18.2,6 15.3,3.4 12,3.4 Z" android:fillColor="?attr/colorPrimary" />
 
     <!-- 大脑褶皱（深紫，曲线） -->
     <path android:pathData="M12,6.2 C9.9,6.2 8.1,7.9 8.1,10 C8.1,10.8 8.3,11.5 8.7,12.2 C9.2,11.4 9.8,10.7 10.6,10.2 C10,10.9 9.6,11.8 9.6,12.7 C9.6,14.8 11.2,16.5 12,17.3 C12.8,16.5 14.4,14.8 14.4,12.7 C14.4,11.8 14,10.9 13.4,10.2 C14.2,10.7 14.8,11.4 15.3,12.2 C15.7,11.5 15.9,10.8 15.9,10 C15.9,7.9 14.1,6.2 12,6.2 Z">
@@ -42,13 +17,13 @@
                 android:type="linear"
                 android:startX="8.1" android:startY="6.2"
                 android:endX="15.9" android:endY="17.3"
-                android:startColor="#8B5CF6"
-                android:endColor="#6D28D9" />
+                android:startColor="?attr/colorPrimary"
+                android:endColor="?attr/colorPrimaryDark" />
         </aapt:attr>
     </path>
 
     <!-- 神经元节点（白点） -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="?attr/colorOnPrimaryContainer"
         android:pathData="M12,10.5 m-1,0 a1,1 0 1,0 2,0 a1,1 0 1,0 -2,0 M9.3,12.6 m-0.7,0 a0.7,0.7 0 1,0 1.4,0 a0.7,0.7 0 1,0 -1.4,0 M14.7,12.6 m-0.7,0 a0.7,0.7 0 1,0 1.4,0 a0.7,0.7 0 1,0 -1.4,0" />
 </vector>

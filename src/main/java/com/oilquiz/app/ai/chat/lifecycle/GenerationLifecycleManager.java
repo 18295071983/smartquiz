@@ -7,7 +7,9 @@ import android.view.View;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.StreamingUpdateManager;
+import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -48,6 +50,16 @@ public class GenerationLifecycleManager {
     private long generationStartTime = 0;
     private StreamingUpdateManager streamingUpdateManager;
 
+    /** 模板思考标签：来自 chat template（LlamaHelper.getThinkingTags()），不硬编码 */
+    private ThinkingTagConfig tagConfig = ThinkingTagConfig.empty();
+    /** 跨 token 标签边界缓冲：标签可能被 tokenizer 拆开，凑齐后再判定，避免漏检 */
+    private final StringBuilder tagLookahead = new StringBuilder();
+
+    /** 注入模板思考标签（不硬编码）。调用方从 LlamaHelper.getThinkingTags() 获取后注入。 */
+    public void setThinkingTags(ThinkingTagConfig config) {
+        this.tagConfig = config != null ? config : ThinkingTagConfig.empty();
+    }
+
     private static final int BATCH_TOKEN_COUNT = 20;
     private static final long BATCH_INTERVAL_MS = 50;
 
@@ -66,6 +78,7 @@ public class GenerationLifecycleManager {
         currentStreamingContent = new StringBuilder();
         currentThinkingContent = new StringBuilder();
         isInThinking = false;
+        tagLookahead.setLength(0);
         currentStreamingMessageIndex = messageIndex;
         currentStreamingMessageId = messageId;
         tokenCountSinceLastUpdate = 0;
@@ -92,14 +105,45 @@ public class GenerationLifecycleManager {
         totalTokensGenerated++;
         tokenCountSinceLastUpdate++;
 
-        // Check for thinking tags
-        if (token.contains("<think>")) {
-            isInThinking = true;
-            return;
+        // 跨 token 标签边界缓冲，避免标签被 tokenizer 拆开漏检
+        tagLookahead.append(token);
+        String buf = tagLookahead.toString();
+        if (possibleTagPrefix(buf) != null) {
+            return;   // 标签尚未到齐，保留缓冲等待下一个 token
         }
-        if (token.contains("</think>")) {
-            isInThinking = false;
-            return;
+        tagLookahead.setLength(0);
+
+        // 思考标签来自 chat template（tagConfig），不硬编码 <think>/</think>。
+        // 修复旧实现缺陷：标签所在 token 里标签之后的正文不再被整段丢弃。
+        if (tagConfig.isAvailable()) {
+            String start = tagConfig.getStartTag();
+            if (buf.contains(start)) {
+                isInThinking = true;
+                int s = buf.indexOf(start);
+                String rest = buf.substring(s + start.length());
+                String end = firstEndTagIn(rest);
+                if (end != null) {
+                    int e = rest.indexOf(end);
+                    currentThinkingContent.append(rest.substring(0, e));
+                    isInThinking = false;
+                    String after = rest.substring(e + end.length());
+                    if (!after.isEmpty()) currentStreamingContent.append(after);
+                } else {
+                    currentThinkingContent.append(rest);
+                }
+                flushToUI();
+                return;
+            }
+            String end = firstEndTagIn(buf);
+            if (end != null) {
+                int e = buf.indexOf(end);
+                currentThinkingContent.append(buf.substring(0, e));
+                isInThinking = false;
+                String after = buf.substring(e + end.length());
+                if (!after.isEmpty()) currentStreamingContent.append(after);
+                flushToUI();
+                return;
+            }
         }
 
         if (isInThinking) {
@@ -115,6 +159,46 @@ public class GenerationLifecycleManager {
             tokenCountSinceLastUpdate = 0;
             lastUpdateTime = now;
         }
+    }
+
+    private String firstEndTagIn(String text) {
+        if (!tagConfig.isAvailable()) return null;
+        String first = null;
+        int firstPos = Integer.MAX_VALUE;
+        for (String tag : tagConfig.getEndTags()) {
+            if (tag.isEmpty()) continue;
+            int p = text.indexOf(tag);
+            if (p >= 0 && p < firstPos) {
+                firstPos = p;
+                first = tag;
+            }
+        }
+        return first;
+    }
+
+    /**
+     * 若 text 尾部是某个思考标签（开始/结束）的前缀，返回该后缀，表示标签尚未到齐、需等待
+     * 后续 token 凑齐；否则返回 null。用于解决标签跨 token 漏检。
+     */
+    private String possibleTagPrefix(String text) {
+        if (!tagConfig.isAvailable()) return null;
+        List<String> tags = new ArrayList<>();
+        tags.add(tagConfig.getStartTag());
+        tags.addAll(tagConfig.getEndTags());
+        int n = text.length();
+        int maxSuffix = 0;
+        for (String tag : tags) {
+            if (!tag.isEmpty()) maxSuffix = Math.max(maxSuffix, tag.length() - 1);
+        }
+        for (int len = Math.min(maxSuffix, n); len >= 1; len--) {
+            String suffix = text.substring(n - len);
+            for (String tag : tags) {
+                if (!tag.isEmpty() && tag.startsWith(suffix)) {
+                    return suffix;
+                }
+            }
+        }
+        return null;
     }
 
     /**

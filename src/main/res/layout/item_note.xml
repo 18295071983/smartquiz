@@ -3,36 +3,36 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
-    android:background="@color/surface">
+    android:padding="@dimen/space_16"
+    android:background="?attr/colorSurface">
 
     <TextView
         android:id="@+id/tv_note_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="笔记标题"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
-        android:layout_marginBottom="8dp" />
+        android:textColor="?attr/colorControlText"
+        android:layout_marginBottom="@dimen/space_8" />
 
     <TextView
         android:id="@+id/tv_note_content"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="笔记内容"
-        android:textSize="14sp"
-        android:textColor="@color/text_primary"
-        android:layout_marginBottom="8dp" />
+        android:textSize="@dimen/text_14"
+        android:textColor="?attr/colorControlText"
+        android:layout_marginBottom="@dimen/space_8" />
 
     <TextView
         android:id="@+id/tv_note_date"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="2024-01-01"
-        android:textSize="12sp"
-        android:textColor="@color/text_secondary"
-        android:layout_marginBottom="8dp" />
+        android:textSize="@dimen/text_12"
+        android:textColor="?attr/colorControlTextSecondary"
+        android:layout_marginBottom="@dimen/space_8" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -41,26 +41,26 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_edit"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="编辑"
-            android:layout_marginEnd="8dp"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"
+            android:layout_marginEnd="@dimen/space_8"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             xmlns:app="http://schemas.android.com/apk/res-auto"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_delete"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="删除"
             app:backgroundTint="@color/error"
             android:textColor="@color/on_error"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
             xmlns:app="http://schemas.android.com/apk/res-auto"/>
 

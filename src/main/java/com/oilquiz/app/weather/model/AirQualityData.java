@@ -3,6 +3,8 @@ package com.oilquiz.app.weather.model;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 public class AirQualityData {
     public String aqi;
     public String aqiDisplay;
@@ -55,7 +57,7 @@ public class AirQualityData {
             int a = Integer.parseInt(colorAlpha != null ? colorAlpha : "1");
             return (a << 24) | (r << 16) | (g << 8) | b;
         } catch (Exception e) {
-            return 0xFF00FF00;
+            return ThemeColors.get(R.color.hc_ff00ff00);
         }
     }
 

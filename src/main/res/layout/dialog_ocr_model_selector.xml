@@ -6,7 +6,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/bg_dialog_mode_selector"
-    android:padding="20dp">
+    android:padding="@dimen/space_20">
 
     <!-- 标题栏 -->
     <LinearLayout
@@ -16,29 +16,29 @@
         android:gravity="center_vertical">
 
         <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="@dimen/size_24"
+            android:layout_height="@dimen/size_24"
             android:src="@drawable/ic_ai_model"
-            app:tint="@color/primary" />
+            app:tint="?attr/colorPrimary" />
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="@dimen/space_10"
             android:text="选择 OCR 模型"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textStyle="bold"
-            android:textColor="@color/text_primary" />
+            android:textColor="?attr/colorControlText" />
 
         <ImageView
             android:id="@+id/btn_close"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="@dimen/size_28"
+            android:layout_height="@dimen/size_28"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="4dp"
-            app:tint="@color/on_surface_variant" />
+            android:padding="@dimen/space_4"
+            app:tint="?attr/colorOnSurfaceVariant" />
 
     </LinearLayout>
 
@@ -46,19 +46,19 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="@dimen/space_8"
         android:text="为 OCR 文字识别选择专用视觉模型，不选择则自动使用支持视觉的模型"
-        android:textSize="12sp"
-        android:textColor="@color/on_surface_variant" />
+        android:textSize="@dimen/text_12"
+        android:textColor="?attr/colorOnSurfaceVariant" />
 
     <!-- 模型列表 -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/models_recycler"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="@dimen/space_16"
         android:clipToPadding="false"
-        android:paddingBottom="8dp" />
+        android:paddingBottom="@dimen/space_8" />
 
     <!-- 空状态提示 -->
     <LinearLayout
@@ -67,31 +67,31 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="32dp"
+        android:padding="@dimen/space_32"
         android:visibility="gone">
 
         <ImageView
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
             android:src="@drawable/ic_ai_model"
-            app:tint="@color/on_surface_variant"
+            app:tint="?attr/colorOnSurfaceVariant"
             android:alpha="0.5" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="@dimen/space_12"
             android:text="暂无可用的在线模型"
-            android:textSize="14sp"
-            android:textColor="@color/on_surface_variant" />
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorOnSurfaceVariant" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="@dimen/space_4"
             android:text="请先在模型管理中添加在线模型"
-            android:textSize="12sp"
-            android:textColor="@color/on_surface_variant" />
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorOnSurfaceVariant" />
 
     </LinearLayout>
 

@@ -22,6 +22,8 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 项目级原生 UI 框架：把 JSON 声明的原生控件树（layout）编译渲染成真实 Android View。
  *
@@ -855,7 +857,7 @@ public class NativeLayoutRenderer {
                     av.setImageAlpha(0);
                     TextView letterTv = new TextView(context);
                     letterTv.setText(letter);
-                    letterTv.setTextColor(0xFFFFFFFF);
+                    letterTv.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
                     letterTv.setTextSize(size / 3.0f);
                     letterTv.setGravity(Gravity.CENTER);
                     // 用 FrameLayout 包裹（ImageView 上叠字母）
@@ -910,7 +912,7 @@ public class NativeLayoutRenderer {
                     moreTv.setText("+" + (agTotal - agUrls.length()));
                     moreTv.setTextSize(10);
                     moreTv.setGravity(Gravity.CENTER);
-                    moreTv.setTextColor(0xFFFFFFFF);
+                    moreTv.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
                     android.graphics.drawable.GradientDrawable moreBg = new android.graphics.drawable.GradientDrawable();
                     moreBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
                     moreBg.setColor(ComponentColors.textSecondary(context));
@@ -954,7 +956,7 @@ public class NativeLayoutRenderer {
                 LinearLayout cWrap = new LinearLayout(context);
                 cWrap.setOrientation(LinearLayout.VERTICAL);
                 android.graphics.drawable.GradientDrawable cBg = new android.graphics.drawable.GradientDrawable();
-                cBg.setColor(0xFF1E1E2E);
+                cBg.setColor(ThemeColors.get(R.color.hc_ff1e1e2e));
                 cBg.setCornerRadius(dp(8, density));
                 cWrap.setBackground(cBg);
                 cWrap.setPadding(dp(10, density), dp(8, density), dp(10, density), dp(8, density));
@@ -963,14 +965,14 @@ public class NativeLayoutRenderer {
                     TextView lTv = new TextView(context);
                     lTv.setText(lang);
                     lTv.setTextSize(11);
-                    lTv.setTextColor(0xFF7AA2F7);
+                    lTv.setTextColor(ThemeColors.get(R.color.hc_ff7aa2f7));
                     lTv.setPadding(0, 0, 0, dp(4, density));
                     cWrap.addView(lTv);
                 }
                 TextView codeTv = new TextView(context);
                 codeTv.setText(interpolate(node.optString("code", node.optString("text", "")), props));
                 codeTv.setTextSize(12);
-                codeTv.setTextColor(0xFFCDD6F4);
+                codeTv.setTextColor(ThemeColors.get(R.color.hc_ffcdd6f4));
                 codeTv.setTypeface(android.graphics.Typeface.MONOSPACE);
                 cWrap.addView(codeTv);
                 return cWrap;
@@ -1639,7 +1641,7 @@ return attachLabel(context, node, props, row, density);
                 LinearLayout htmlWrap = new LinearLayout(context);
                 htmlWrap.setOrientation(LinearLayout.VERTICAL);
                 android.webkit.WebView wv = new android.webkit.WebView(context);
-                wv.setBackgroundColor(0x00000000);
+                wv.setBackgroundColor(ThemeColors.get(R.color.hc_00000000));
                 wv.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null);
                 wv.setLayoutParams(new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, dp(maxH, density)));
@@ -1894,7 +1896,7 @@ return attachLabel(context, node, props, row, density);
                     dotBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
                     dotBg.setColor(dotColor);
                     dot.setBackground(dotBg);
-                    dot.setTextColor(0xFFFFFFFF);
+                    dot.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
                     LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(24, density), dp(24, density));
                     stepCol.addView(dot, dotLp);
                     TextView stTitle = new TextView(context);
@@ -2579,7 +2581,7 @@ return attachLabel(context, node, props, sw, density);
                             LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
                     tgBtn.setLayoutParams(tgLp);
                     final boolean selected = val.equals(tgSel);
-                    tgBtn.setTextColor(selected ? 0xFFFFFFFF : ComponentColors.textSecondary(context));
+                    tgBtn.setTextColor(selected ? ThemeColors.get(R.color.hc_ffffffff) : ComponentColors.textSecondary(context));
                     if (selected) {
                         android.graphics.drawable.GradientDrawable selBg = new android.graphics.drawable.GradientDrawable();
                         selBg.setColor(ComponentColors.accent(context));
@@ -2593,7 +2595,7 @@ return attachLabel(context, node, props, sw, density);
                             b.setTextColor(ComponentColors.textSecondary(context));
                             b.setBackground(null);
                         }
-                        tgBtn.setTextColor(0xFFFFFFFF);
+                        tgBtn.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
                         android.graphics.drawable.GradientDrawable selBg2 = new android.graphics.drawable.GradientDrawable();
                         selBg2.setColor(ComponentColors.accent(context));
                         selBg2.setCornerRadius(dp(15, density));
@@ -2773,7 +2775,7 @@ return attachLabel(context, node, props, srWrap, density);
                 }
                 int qrSize = dp(node.has("size") ? (int) Math.round(node.optDouble("size", 160)) : 160, density);
                 int qrColor = node.has("color") ? parseColor(context, node.optString("color", ""))
-                        : 0xFF000000;
+                        : ThemeColors.get(R.color.hc_ff000000);
                 try {
                     java.util.Map<com.google.zxing.EncodeHintType, Object> hints = new java.util.HashMap<>();
                     hints.put(com.google.zxing.EncodeHintType.CHARACTER_SET, "UTF-8");
@@ -2785,7 +2787,7 @@ return attachLabel(context, node, props, srWrap, density);
                             qrSize, qrSize, android.graphics.Bitmap.Config.ARGB_8888);
                     for (int x = 0; x < qrSize; x++) {
                         for (int y = 0; y < qrSize; y++) {
-                            bmp.setPixel(x, y, matrix.get(x, y) ? qrColor : 0xFFFFFFFF);
+                            bmp.setPixel(x, y, matrix.get(x, y) ? qrColor : ThemeColors.get(R.color.hc_ffffffff));
                         }
                     }
                     // 用 LinearLayout 包裹 + 显式固定尺寸：
@@ -2795,7 +2797,7 @@ return attachLabel(context, node, props, srWrap, density);
                     LinearLayout qrWrap = new LinearLayout(context);
                     qrWrap.setOrientation(LinearLayout.VERTICAL);
                     android.graphics.drawable.GradientDrawable qrBox = new android.graphics.drawable.GradientDrawable();
-                    qrBox.setColor(0xFFFFFFFF);
+                    qrBox.setColor(ThemeColors.get(R.color.hc_ffffffff));
                     qrBox.setCornerRadius(dp(8, density));
                     qrWrap.setBackground(qrBox);
                     qrWrap.setPadding(dp(8, density), dp(8, density), dp(8, density), dp(8, density));
@@ -2832,13 +2834,13 @@ return attachLabel(context, node, props, srWrap, density);
                             bcW, bcH, android.graphics.Bitmap.Config.ARGB_8888);
                     for (int x = 0; x < bcW; x++) {
                         for (int y = 0; y < bcH; y++) {
-                            bmp.setPixel(x, y, matrix.get(x, y) ? 0xFF000000 : 0xFFFFFFFF);
+                            bmp.setPixel(x, y, matrix.get(x, y) ? ThemeColors.get(R.color.hc_ff000000) : ThemeColors.get(R.color.hc_ffffffff));
                         }
                     }
                     LinearLayout bcWrap = new LinearLayout(context);
                     bcWrap.setOrientation(LinearLayout.VERTICAL);
                     android.graphics.drawable.GradientDrawable bcBox = new android.graphics.drawable.GradientDrawable();
-                    bcBox.setColor(0xFFFFFFFF);
+                    bcBox.setColor(ThemeColors.get(R.color.hc_ffffffff));
                     bcBox.setCornerRadius(dp(6, density));
                     bcWrap.setBackground(bcBox);
                     bcWrap.setPadding(dp(8, density), dp(8, density), dp(8, density), dp(4, density));
@@ -2977,7 +2979,7 @@ return attachLabel(context, node, props, srWrap, density);
                                     selBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
                                     selBg.setColor(ComponentColors.accent(context));
                                     dayTv.setBackground(selBg);
-                                    dayTv.setTextColor(0xFFFFFFFF);
+                                    dayTv.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
                                 } else if (isToday) {
                                     dayTv.setTextColor(ComponentColors.accent(context));
                                     dayTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);

@@ -4,7 +4,7 @@
     android:id="@+id/attachment_file_card"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
+    android:layout_margin="@dimen/space_4"
     app:cardCornerRadius="8dp"
     app:cardElevation="1dp">
 
@@ -13,18 +13,18 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="12dp">
+        android:padding="@dimen/space_12">
 
         <TextView
             android:id="@+id/file_icon"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:textSize="24sp"
+            android:layout_width="@dimen/size_36"
+            android:layout_height="@dimen/size_36"
+            android:textSize="@dimen/text_24"
             android:gravity="center"
-            android:layout_marginEnd="12dp" />
+            android:layout_marginEnd="@dimen/space_12" />
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
@@ -33,7 +33,7 @@
                 android:id="@+id/file_name"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="?attr/colorOnSurface"
                 android:maxLines="1"
                 android:ellipsize="middle" />
@@ -42,17 +42,17 @@
                 android:id="@+id/file_size"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:layout_marginTop="2dp" />
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:layout_marginTop="@dimen/space_2" />
 
             <TextView
                 android:id="@+id/file_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="11sp"
-                android:textColor="@color/primary"
-                android:layout_marginTop="2dp" />
+                android:textSize="@dimen/text_11"
+                android:textColor="?attr/colorPrimary"
+                android:layout_marginTop="@dimen/space_2" />
 
         </LinearLayout>
 
@@ -66,18 +66,18 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="保存"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:padding="8dp" />
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:padding="@dimen/space_8" />
 
             <TextView
                 android:id="@+id/btn_share"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="分享"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:padding="8dp" />
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:padding="@dimen/space_8" />
 
         </LinearLayout>
 

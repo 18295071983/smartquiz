@@ -76,7 +76,7 @@ public class WrongQuestionActivity extends AppCompatActivity implements WrongQue
 
             @Override
             public void onError(String error) {
-                runOnUiThread(() -> Toast.makeText(WrongQuestionActivity.this, "加载错题失败: " + error, Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(WrongQuestionActivity.this, getString(R.string.h_0298d26c) + error, Toast.LENGTH_SHORT).show());
             }
         });
     }
@@ -132,14 +132,14 @@ public class WrongQuestionActivity extends AppCompatActivity implements WrongQue
     private void updateStats(int count) {
         runOnUiThread(() -> {
             if (statsTextView != null) {
-                statsTextView.setText("共 " + count + " 道错题");
+                statsTextView.setText("共 " + count + getString(R.string.h_86256a0b));
             }
         });
     }
 
     private void reviewAllWrongQuestions() {
         if (currentWrongQuestions == null || currentWrongQuestions.isEmpty()) {
-            Toast.makeText(this, "没有错题需要复习", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_0604a9e0), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -150,10 +150,10 @@ public class WrongQuestionActivity extends AppCompatActivity implements WrongQue
 
     private void showClearAllConfirmationDialog() {
         new AlertDialog.Builder(this)
-                .setTitle("清空错题")
-                .setMessage("确定要清空所有错题吗？此操作不可恢复。")
-                .setPositiveButton("确定", (dialog, which) -> clearAllWrongQuestions())
-                .setNegativeButton("取消", null)
+                .setTitle(getString(R.string.h_3225c25f))
+                .setMessage(getString(R.string.h_3d7b8851))
+                .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> clearAllWrongQuestions())
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -162,14 +162,14 @@ public class WrongQuestionActivity extends AppCompatActivity implements WrongQue
             @Override
             public void onSuccess(Void result) {
                 runOnUiThread(() -> {
-                    Toast.makeText(WrongQuestionActivity.this, "清空成功", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(WrongQuestionActivity.this, getString(R.string.h_2685dc70), Toast.LENGTH_SHORT).show();
                     loadWrongQuestions();
                 });
             }
 
             @Override
             public void onError(String error) {
-                runOnUiThread(() -> Toast.makeText(WrongQuestionActivity.this, "清空失败: " + error, Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(WrongQuestionActivity.this, getString(R.string.h_66812202) + error, Toast.LENGTH_SHORT).show());
             }
         });
     }
@@ -195,16 +195,16 @@ public class WrongQuestionActivity extends AppCompatActivity implements WrongQue
     @Override
     public void onDeleteClick(WrongQuestion wrongQuestion) {
         new AlertDialog.Builder(this)
-                .setTitle("删除错题")
-                .setMessage("确定要删除这道错题吗？")
-                .setPositiveButton("确定", (dialog, which) -> {
+                .setTitle(getString(R.string.h_4d4dafc3))
+                .setMessage(getString(R.string.h_ca0b9d55))
+                .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
                     wrongQuestionViewModel.deleteWrongQuestion(wrongQuestion.getId(), new com.oilquiz.app.repository.WrongQuestionRepository.RepositoryCallback<Void>() {
                            @Override
                            public void onSuccess(Void result) {
                                runOnUiThread(new Runnable() {
                                    @Override
                                    public void run() {
-                                       Toast.makeText(WrongQuestionActivity.this, "删除成功", Toast.LENGTH_SHORT).show();
+                                       Toast.makeText(WrongQuestionActivity.this, getString(R.string.h_0007d170), Toast.LENGTH_SHORT).show();
                                        loadWrongQuestions();
                                    }
                                });
@@ -215,13 +215,13 @@ public class WrongQuestionActivity extends AppCompatActivity implements WrongQue
                                runOnUiThread(new Runnable() {
                                    @Override
                                    public void run() {
-                                       Toast.makeText(WrongQuestionActivity.this, "删除失败: " + error, Toast.LENGTH_SHORT).show();
+                                       Toast.makeText(WrongQuestionActivity.this, getString(R.string.h_ad23f072) + error, Toast.LENGTH_SHORT).show();
                                    }
                                });
                            }
                     });
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 

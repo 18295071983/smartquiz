@@ -4,29 +4,30 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="20dp">
+    android:padding="@dimen/space_20">
 
     <EditText
+                        android:background="@drawable/rounded_edittext"
         android:id="@+id/template_name"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="模板名称"
         android:inputType="text"
-        android:textColor="@color/on_surface"
-        android:layout_marginBottom="16dp"/>
+        android:textColor="?attr/colorOnSurface"
+        android:layout_marginBottom="@dimen/space_16"/>
 
     <Spinner
         android:id="@+id/format_spinner"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="@dimen/space_16"
         android:entries="@array/export_formats"/>
 
     <Spinner
         android:id="@+id/type_spinner"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
+        android:layout_marginBottom="@dimen/space_24"
         android:entries="@array/template_types"/>
 
     <LinearLayout
@@ -40,10 +41,10 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="取消"
-            android:layout_marginEnd="12dp"
-            app:backgroundTint="@color/surface_variant"
-            android:textColor="@color/on_surface"
-            app:cornerRadius="12dp"
+            android:layout_marginEnd="@dimen/space_12"
+            app:backgroundTint="?attr/colorSurfaceVariant"
+            android:textColor="?attr/colorOnSurface"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 
         <com.google.android.material.button.MaterialButton
@@ -51,9 +52,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="保存"
-            app:backgroundTint="@color/primary"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 
     </LinearLayout>

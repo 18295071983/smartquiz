@@ -260,6 +260,8 @@ public class ChatMessage {
 
     /** 是否可重试 */
     public boolean retryable;
+    /** 消息来源是否为语音输入（按住说话识别后发送） */
+    public boolean voiceInput;
 
     /** Agent反思信息 */
     public AgentReflectionInfo agentReflectionInfo;
@@ -295,6 +297,14 @@ public class ChatMessage {
     public int agentGroupStepCount = 0;
     /** Agent执行组内的工具调用数（仅header使用） */
     public int agentGroupToolCount = 0;
+
+    // ---- 轮次模式标记（普通对话 ↔ Agent 上下文隔离）----
+    /** 轮次模式：普通对话 */
+    public static final int TURN_MODE_NORMAL = 0;
+    /** 轮次模式：Agent（工具循环） */
+    public static final int TURN_MODE_AGENT = 1;
+    /** 本条消息所属轮次的模式。默认 NORMAL（旧历史消息无标记时按普通处理）。 */
+    public int turnMode = TURN_MODE_NORMAL;
 
     /** 在线模型信息 */
     public ModelInfo modelInfo;
@@ -1145,6 +1155,7 @@ public class ChatMessage {
         this.agentExecutionState = builder.agentExecutionState;
         this.errorDetail = builder.errorDetail;
         this.retryable = builder.retryable;
+        this.voiceInput = builder.voiceInput;
         this.inferenceProgress = builder.inferenceProgress;
         this.agentGroupId = builder.agentGroupId;
     }
@@ -1639,6 +1650,7 @@ public class ChatMessage {
         private SummaryInfo summaryInfo;
         private String errorDetail;
         private boolean retryable = false;
+        private boolean voiceInput;
         private Integer taskProgress;
         private boolean isExpanded = false;
         private String agentGroupId;
@@ -1778,6 +1790,11 @@ public class ChatMessage {
 
         public Builder retryable(boolean retryable) {
             this.retryable = retryable;
+            return this;
+        }
+
+        public Builder voiceInput(boolean voiceInput) {
+            this.voiceInput = voiceInput;
             return this;
         }
 

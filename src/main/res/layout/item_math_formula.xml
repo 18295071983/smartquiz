@@ -3,10 +3,10 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginVertical="8dp"
+    android:layout_marginVertical="@dimen/space_8"
     app:cardCornerRadius="8dp"
     app:cardElevation="0dp"
-    app:cardBackgroundColor="@color/primary_container">
+    app:cardBackgroundColor="?attr/colorPrimaryContainer">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -20,17 +20,17 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="∑"
-            android:textSize="18sp"
-            android:textColor="@color/primary"
-            android:layout_marginEnd="8dp"/>
+            android:textSize="@dimen/text_18"
+            android:textColor="?attr/colorPrimary"
+            android:layout_marginEnd="@dimen/space_8"/>
 
         <TextView
             android:id="@+id/tv_math_formula"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textSize="16sp"
-            android:textColor="@color/on_primary_container"
+            android:textSize="@dimen/text_16"
+            android:textColor="?attr/colorOnPrimaryContainer"
             android:fontFamily="serif"/>
 
     </LinearLayout>

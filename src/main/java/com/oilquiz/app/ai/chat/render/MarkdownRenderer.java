@@ -30,6 +30,8 @@ import io.noties.markwon.image.ImageSize;
 import io.noties.markwon.image.glide.GlideImagesPlugin;
 import io.noties.markwon.linkify.LinkifyPlugin;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * Markdown 渲染器（基于 Markwon 专业库）
  *
@@ -93,10 +95,10 @@ public class MarkdownRenderer {
             TableTheme tableTheme = new TableTheme.Builder()
                     .tableCellPadding(8)
                     .tableBorderWidth(1)
-                    .tableBorderColor(0xFF999999)
-                    .tableHeaderRowBackgroundColor(0x1A000000)  // 表头浅灰背景
-                    .tableOddRowBackgroundColor(0x00000000)     // 奇数行透明
-                    .tableEvenRowBackgroundColor(0x08000000)    // 偶数行微灰
+                    .tableBorderColor(ThemeColors.get(R.color.hc_ff999999))
+                    .tableHeaderRowBackgroundColor(ThemeColors.get(R.color.hc_1a000000))  // 表头浅灰背景
+                    .tableOddRowBackgroundColor(ThemeColors.get(R.color.hc_00000000))     // 奇数行透明
+                    .tableEvenRowBackgroundColor(ThemeColors.get(R.color.hc_08000000))    // 偶数行微灰
                     .build();
 
             // Prism4j 代码语法高亮（内部组件：markwon-syntax-highlight + prism4j-bundler 已引入）

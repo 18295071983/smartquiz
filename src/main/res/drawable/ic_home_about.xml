@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#475569"
-                android:endColor="#94A3B8" />
+                android:startColor="@color/hc_ff475569"
+                android:endColor="@color/hc_ff94a3b8" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 信息圆（白色渐变） -->
@@ -30,8 +30,8 @@
                 android:type="linear"
                 android:startX="4" android:startY="4"
                 android:endX="20" android:endY="20"
-                android:startColor="#FFFFFF"
-                android:endColor="#E2E8F0" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_ffe2e8f0" />
         </aapt:attr>
     </path>
 
@@ -42,8 +42,8 @@
                 android:type="linear"
                 android:startX="11" android:startY="7.4"
                 android:endX="13" android:endY="16.6"
-                android:startColor="#475569"
-                android:endColor="#334155" />
+                android:startColor="@color/hc_ff475569"
+                android:endColor="@color/hc_ff334155" />
         </aapt:attr>
     </path>
 </vector>

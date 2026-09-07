@@ -318,6 +318,58 @@ public class PermissionResourceProvider {
                 return "接收短信";
             case Manifest.permission.READ_SMS:
                 return "读取短信";
+            case Manifest.permission.POST_NOTIFICATIONS:
+                return "通知";
+            case Manifest.permission.READ_MEDIA_IMAGES:
+                return "读取图片";
+            case Manifest.permission.READ_MEDIA_VIDEO:
+                return "读取视频";
+            case Manifest.permission.READ_MEDIA_AUDIO:
+                return "读取音频";
+            case Manifest.permission.BLUETOOTH_SCAN:
+                return "扫描附近设备";
+            case Manifest.permission.BLUETOOTH_CONNECT:
+                return "连接附近设备";
+            case Manifest.permission.BLUETOOTH_ADVERTISE:
+                return "向附近设备广播";
+            case Manifest.permission.ACCESS_BACKGROUND_LOCATION:
+                return "后台位置信息";
+            case Manifest.permission.CALL_PHONE:
+                return "拨打电话";
+            // —— 以下为 Manifest 声明但非运行时弹窗的普通/特殊权限，补齐保证任意场景都是中文 ——
+            case Manifest.permission.INTERNET:
+                return "网络访问";
+            case Manifest.permission.ACCESS_NETWORK_STATE:
+                return "网络状态";
+            case Manifest.permission.ACCESS_WIFI_STATE:
+                return "WiFi 状态";
+            case Manifest.permission.MANAGE_EXTERNAL_STORAGE:
+                return "所有文件访问";
+            case Manifest.permission.QUERY_ALL_PACKAGES:
+                return "查询已安装应用";
+            case Manifest.permission.MODIFY_AUDIO_SETTINGS:
+                return "修改音频设置";
+            case Manifest.permission.FOREGROUND_SERVICE:
+                return "前台服务";
+            case Manifest.permission.FOREGROUND_SERVICE_DATA_SYNC:
+                return "前台数据同步服务";
+            case Manifest.permission.FOREGROUND_SERVICE_SPECIAL_USE:
+                return "前台特殊用途服务";
+            case Manifest.permission.WAKE_LOCK:
+                return "唤醒锁";
+            case Manifest.permission.SYSTEM_ALERT_WINDOW:
+                return "悬浮窗";
+            case Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS:
+                return "忽略电池优化";
+            case Manifest.permission.REQUEST_INSTALL_PACKAGES:
+                return "安装应用";
+            // —— Agent 工具使用的内部特殊权限别名 ——
+            case "manage_external_storage":
+                return "所有文件访问";
+            case "request_install_packages":
+                return "安装应用";
+            case "read_media":
+                return "媒体文件";
             default:
                 return permission;
         }
@@ -783,7 +835,21 @@ public class PermissionResourceProvider {
                         }
                     }
                 })
-                .setCancelable(false)
+                // 允许返回键/点击外部取消：权限是"可选增强"，用户跳过也应顺畅进入应用，
+                // 不能强迫用户逐个确认；取消视同拒绝并推进后续流程。
+                .setCancelable(true)
+                .setOnCancelListener(new DialogInterface.OnCancelListener() {
+                    @Override
+                    public void onCancel(DialogInterface dialog) {
+                        if (callback != null) {
+                            List<String> deniedList = new ArrayList<>();
+                            for (String p : permissions) {
+                                deniedList.add(p);
+                            }
+                            callback.onDenied(deniedList);
+                        }
+                    }
+                })
                 .show();
     }
 

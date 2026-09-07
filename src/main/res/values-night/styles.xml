@@ -3,18 +3,44 @@
 
     <!-- 基础主题 -->
     <style name="Theme.OilQuizApp.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/purple_500</item>
-        <item name="colorPrimaryVariant">@color/purple_700</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <item name="colorSecondary">@color/teal_200</item>
-        <item name="colorSecondaryVariant">@color/teal_700</item>
-        <item name="colorOnSecondary">@color/black</item>
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryVariant">@color/primary_dark</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+        <item name="colorSecondary">@color/secondary</item>
+        <item name="colorSecondaryVariant">@color/secondary_container</item>
+        <item name="colorOnSecondary">@color/on_secondary</item>
         <item name="android:statusBarColor" tools:targetApi="l">?attr/colorPrimaryVariant</item>
-        <item name="colorSurface">@color/surface_dark</item>
-        <item name="colorOnSurface">@color/text_primary_dark_theme</item>
-        <item name="colorError">@color/error_dark</item>
-        <item name="colorOnError">@color/white</item>
-        <item name="colorOnSurfaceVariant">@color/text_secondary_dark_theme</item>
+        <item name="android:windowBackground">?attr/colorBackground</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorError">@color/error</item>
+        <item name="colorOnError">@color/on_error</item>
+        <!-- Material Design 3 兼容性属性（对齐浅色 Base） -->
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        <item name="colorPrimaryContainer">@color/primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/on_primary_container</item>
+        <item name="colorSecondaryContainer">@color/secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/on_secondary_container</item>
+        <item name="colorTertiary">@color/tertiary</item>
+        <item name="colorTertiaryContainer">@color/tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/on_tertiary_container</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
+        <item name="colorOutline">@color/outline</item>
+        <item name="colorBackground">@color/background</item>
+        <item name="colorOnBackground">@color/on_background</item>
+        <!-- 控件色板：控件底色 + 控件文字色（31 个主题档位自动继承此映射，修复深色模式 Toolbar 崩溃） -->
+        <item name="colorControlBackground">?attr/colorSurfaceVariant</item>
+        <item name="colorControlText">?attr/colorOnSurface</item>
+        <item name="colorControlTextSecondary">?attr/colorOnSurfaceVariant</item>
+        <item name="colorControlTextHint">@color/text_tertiary</item>
+        <item name="colorControlTextDisabled">@color/text_disabled</item>
+        <item name="colorCardBackground">?attr/colorSurface</item>
+        <item name="colorOnCard">?attr/colorOnSurface</item>
+        <item name="colorInputBackground">?attr/colorSurfaceVariant</item>
+        <item name="colorOnInput">?attr/colorOnSurface</item>
+        <item name="colorDivider">?attr/colorOutline</item>
+        <item name="colorAppBarBackground">?attr/colorSurface</item>
+        <item name="colorOnAppBar">?attr/colorOnSurface</item>
     </style>
 
     <style name="Theme.OilQuizApp" parent="Theme.OilQuizApp.Base"/>
@@ -96,8 +122,8 @@
         <item name="android:paddingBottom">12dp</item>
         <item name="android:textSize">16sp</item>
         <item name="android:textColor">@color/white</item>
-        <item name="backgroundTint">@color/purple_500</item>
-        <item name="rippleColor">@color/purple_200</item>
+        <item name="backgroundTint">?attr/colorPrimary</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
         <item name="elevation">4dp</item>
     </style>
 
@@ -109,10 +135,10 @@
         <item name="android:paddingTop">12dp</item>
         <item name="android:paddingBottom">12dp</item>
         <item name="android:textSize">16sp</item>
-        <item name="android:textColor">@color/purple_500</item>
-        <item name="strokeColor">@color/purple_500</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="strokeColor">?attr/colorPrimary</item>
         <item name="strokeWidth">2dp</item>
-        <item name="rippleColor">@color/purple_200</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
     </style>
 
     <!-- SmartQuiz 文本样式 - 深色模式 -->
@@ -141,8 +167,8 @@
         <item name="android:paddingBottom">12dp</item>
         <item name="android:textSize">16sp</item>
         <item name="android:textColor">@color/white</item>
-        <item name="backgroundTint">@color/purple_500</item>
-        <item name="rippleColor">@color/purple_200</item>
+        <item name="backgroundTint">?attr/colorPrimary</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
         <item name="elevation">4dp</item>
     </style>
 
@@ -154,17 +180,17 @@
         <item name="android:paddingTop">12dp</item>
         <item name="android:paddingBottom">12dp</item>
         <item name="android:textSize">16sp</item>
-        <item name="android:textColor">@color/purple_500</item>
-        <item name="strokeColor">@color/purple_500</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="strokeColor">?attr/colorPrimary</item>
         <item name="strokeWidth">2dp</item>
-        <item name="rippleColor">@color/purple_200</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
     </style>
 
     <style name="Widget.App.Button.Text" parent="Widget.MaterialComponents.Button.TextButton">
         <item name="android:textAllCaps">false</item>
         <item name="android:textSize">16sp</item>
-        <item name="android:textColor">@color/purple_500</item>
-        <item name="rippleColor">@color/purple_200</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
     </style>
 
     <style name="Widget.App.Button.Rounded" parent="Widget.App.Button">
@@ -182,8 +208,8 @@
         <item name="android:paddingBottom">8dp</item>
         <item name="android:textSize">14sp</item>
         <item name="android:textColor">@color/white</item>
-        <item name="backgroundTint">@color/purple_500</item>
-        <item name="rippleColor">@color/purple_200</item>
+        <item name="backgroundTint">?attr/colorPrimary</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
         <item name="elevation">2dp</item>
     </style>
 
@@ -207,8 +233,8 @@
     <style name="Widget.App.TextButton" parent="Widget.MaterialComponents.Button.TextButton">
         <item name="android:textAllCaps">false</item>
         <item name="android:textSize">16sp</item>
-        <item name="android:textColor">@color/purple_500</item>
-        <item name="rippleColor">@color/purple_200</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:minWidth">48dp</item>
     </style>
@@ -230,7 +256,7 @@
     <style name="Widget.App.CardView.Outlined" parent="Widget.App.CardView">
         <item name="cardElevation">0dp</item>
         <item name="strokeWidth">2dp</item>
-        <item name="strokeColor">@color/purple_500</item>
+        <item name="strokeColor">?attr/colorPrimary</item>
     </style>
 
     <!-- TextInputLayout 样式 - 深色模式 -->
@@ -239,8 +265,8 @@
         <item name="boxCornerRadiusTopEnd">12dp</item>
         <item name="boxCornerRadiusBottomStart">12dp</item>
         <item name="boxCornerRadiusBottomEnd">12dp</item>
-        <item name="boxStrokeColor">@color/purple_500</item>
-        <item name="hintTextColor">@color/purple_500</item>
+        <item name="boxStrokeColor">?attr/colorPrimary</item>
+        <item name="hintTextColor">?attr/colorPrimary</item>
         <item name="android:textColorHint">@color/text_secondary_dark_theme</item>
     </style>
 
@@ -318,7 +344,7 @@
 
     <!-- 标题栏样式 - 深色模式 -->
     <style name="Widget.App.Toolbar" parent="Widget.MaterialComponents.Toolbar.Primary">
-        <item name="android:background">@color/purple_500</item>
+        <item name="android:background">?attr/colorPrimary</item>
         <item name="titleTextColor">@color/white</item>
         <item name="subtitleTextColor">@color/white</item>
     </style>
@@ -331,8 +357,8 @@
     <!-- 底部导航栏样式 - 深色模式 -->
     <style name="Widget.App.BottomNavigationView" parent="Widget.MaterialComponents.BottomNavigationView">
         <item name="backgroundTint">@color/surface_dark</item>
-        <item name="itemIconTint">@color/purple_500</item>
-        <item name="itemTextColor">@color/purple_500</item>
+        <item name="itemIconTint">?attr/colorPrimary</item>
+        <item name="itemTextColor">?attr/colorPrimary</item>
         <item name="elevation">8dp</item>
         <item name="labelVisibilityMode">labeled</item>
     </style>
@@ -342,7 +368,20 @@
         <item name="colorPrimary">@color/purple_500</item>
         <item name="colorSurface">@color/surface_dark</item>
         <item name="shapeAppearanceOverlay">@style/ShapeAppearance.App.Dialog</item>
-    </style>
+            <!-- 控件色板（对话框档位）：控件底色 + 控件文字色 -->
+        <item name="colorControlBackground">?attr/colorSurfaceVariant</item>
+        <item name="colorControlText">?attr/colorOnSurface</item>
+        <item name="colorControlTextSecondary">?attr/colorOnSurfaceVariant</item>
+        <item name="colorControlTextHint">@color/text_hint</item>
+        <item name="colorControlTextDisabled">@color/text_disabled</item>
+        <item name="colorCardBackground">?attr/colorSurface</item>
+        <item name="colorOnCard">?attr/colorOnSurface</item>
+        <item name="colorInputBackground">?attr/colorSurfaceVariant</item>
+        <item name="colorOnInput">?attr/colorOnSurface</item>
+        <item name="colorDivider">?attr/colorOutline</item>
+        <item name="colorAppBarBackground">?attr/colorSurface</item>
+        <item name="colorOnAppBar">?attr/colorOnSurface</item>
+</style>
 
     <style name="ShapeAppearance.App.Dialog" parent="">
         <item name="cornerFamily">rounded</item>
@@ -367,29 +406,29 @@
 
     <!-- Switch 样式 - 深色模式 -->
     <style name="Widget.App.Switch" parent="Widget.MaterialComponents.CompoundButton.Switch">
-        <item name="thumbTint">@color/purple_500</item>
-        <item name="trackTint">@color/purple_200</item>
+        <item name="thumbTint">?attr/colorPrimary</item>
+        <item name="trackTint">?attr/colorPrimaryContainer</item>
     </style>
 
     <!-- CheckBox 样式 - 深色模式 -->
     <style name="Widget.App.CheckBox" parent="Widget.MaterialComponents.CompoundButton.CheckBox">
-        <item name="buttonTint">@color/purple_500</item>
+        <item name="buttonTint">?attr/colorPrimary</item>
     </style>
 
     <!-- RadioButton 样式 - 深色模式 -->
     <style name="Widget.App.RadioButton" parent="Widget.MaterialComponents.CompoundButton.RadioButton">
-        <item name="buttonTint">@color/purple_500</item>
+        <item name="buttonTint">?attr/colorPrimary</item>
     </style>
 
     <!-- ProgressBar 样式 - 深色模式 -->
     <style name="Widget.App.ProgressBar" parent="Widget.MaterialComponents.CircularProgressIndicator">
-        <item name="indicatorColor">@color/purple_500</item>
-        <item name="trackColor">@color/purple_200</item>
+        <item name="indicatorColor">?attr/colorPrimary</item>
+        <item name="trackColor">?attr/colorPrimaryContainer</item>
     </style>
 
     <style name="Widget.App.ProgressBar.Linear" parent="Widget.MaterialComponents.LinearProgressIndicator">
-        <item name="indicatorColor">@color/purple_500</item>
-        <item name="trackColor">@color/purple_200</item>
+        <item name="indicatorColor">?attr/colorPrimary</item>
+        <item name="trackColor">?attr/colorPrimaryContainer</item>
         <item name="trackCornerRadius">4dp</item>
     </style>
 
@@ -400,10 +439,10 @@
 
     <!-- TabLayout 样式 - 深色模式 -->
     <style name="Widget.App.TabLayout" parent="Widget.MaterialComponents.TabLayout">
-        <item name="tabIndicatorColor">@color/purple_500</item>
-        <item name="tabSelectedTextColor">@color/purple_500</item>
+        <item name="tabIndicatorColor">?attr/colorPrimary</item>
+        <item name="tabSelectedTextColor">?attr/colorPrimary</item>
         <item name="tabTextColor">@color/text_secondary_dark_theme</item>
-        <item name="tabRippleColor">@color/purple_200</item>
+        <item name="tabRippleColor">?attr/colorPrimaryContainer</item>
     </style>
 
     <!-- 通用 Activity 样式 - 深色模式 -->
@@ -421,7 +460,7 @@
 
     <!-- Splash Activity 样式 - 深色模式 -->
     <style name="Theme.App.Activity.Splash" parent="Theme.App.Activity.Fullscreen">
-        <item name="android:windowBackground">@color/purple_500</item>
+        <item name="android:windowBackground">?attr/colorPrimary</item>
     </style>
 
     <!-- 主按钮 - 深色模式 -->
@@ -442,7 +481,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
-        <item name="rippleColor">@color/purple_200</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
     </style>
 
     <!-- 页面标题样式 - 深色模式 -->

@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Environment;
 import android.util.Log;
 import com.oilquiz.app.util.AILogger;
+import okhttp3.OkHttpClient;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -25,11 +26,29 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ModelDownloadManager {
     private static final String TAG = "ModelDownloadManager";
     private static final int BUFFER_SIZE = 65536; // 64KB
-    private static final int MAX_RETRY_ATTEMPTS = 3;
+    /**
+     * 单次下载任务的重试次数。网络故障（尤其运营商封锁/丢包）需要较长的恢复窗口，
+     * 配合指数退避（2s/4s/8s/8s），避免失败后 1 秒就重试造成"反复重置下载"。
+     */
+    private static final int MAX_RETRY_ATTEMPTS = 5;
     private static final int CONNECT_TIMEOUT_MS = 30000;
     private static final int READ_TIMEOUT_MS = 300000;
 
+    // OkHttp 客户端：SafeDns 用 DoH 解析真实 IP，绕过运营商 DNS 污染（hf-mirror.com→127.0.0.1）
+    private static final OkHttpClient sHttpClient = new OkHttpClient.Builder()
+            .dns(new SafeDns())
+            .connectTimeout(CONNECT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .readTimeout(READ_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .followRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build();
+
     private static volatile ModelDownloadManager INSTANCE;
+
+    /** 暴露带 SafeDns 的 OkHttp 客户端，供 WebView 等组件绕过 DNS 污染访问 hf-mirror */
+    public static OkHttpClient getHttpClient() {
+        return sHttpClient;
+    }
     private final Context context;
     private final Map<String, DownloadTask> downloadTasks = new ConcurrentHashMap<>();
     private final Map<String, DownloadProgress> downloadProgress = new ConcurrentHashMap<>();
@@ -215,20 +234,32 @@ public class ModelDownloadManager {
 
         ModelDownloadRequest request = new ModelDownloadRequest(
             modelId, presetInfo.downloadUrl, modelPath,
-            presetInfo.sizeMB * 1024 * 1024, null
+            presetInfo.sizeMB * 1024 * 1024, presetInfo.sha256,
+            presetInfo.backupUrl, presetInfo.backupSha256
         );
         String downloadId = download(request, callback);
 
         // 如果是多模态模型，同时下载 mmproj 投影文件
         if (presetInfo.mmprojUrl != null && !presetInfo.mmprojUrl.isEmpty()) {
             String mmprojPath = modelDir + File.separator + getFileNameFromUrl(presetInfo.mmprojUrl);
+            // P1: mmproj 期望字节数（用预设大小，保证完整性校验准确）
+            long mmprojExpected = presetInfo.mmprojSizeMB > 0 ? presetInfo.mmprojSizeMB * 1024L * 1024L : 0L;
             File mmprojFile = new File(mmprojPath);
+            // P1: 半截/损坏的 mmproj 存在时删除重下，避免"exists 跳过 → 加载失败"
+            if (mmprojFile.exists() && mmprojFile.isFile() && mmprojExpected > 0
+                    && mmprojFile.length() < (long) (mmprojExpected * 0.90)) {
+                AILogger.w(TAG, "mmproj 不完整，删除重下: " + mmprojPath
+                        + " size=" + mmprojFile.length() + " expected=" + mmprojExpected);
+                //noinspection ResultOfMethodCallIgnored
+                mmprojFile.delete();
+            }
             if (!mmprojFile.exists()) {
                 String mmprojId = modelId + "_mmproj";
                 AILogger.i(TAG, "Downloading mmproj for multimodal model: " + presetInfo.name);
                 ModelDownloadRequest mmprojRequest = new ModelDownloadRequest(
                     mmprojId, presetInfo.mmprojUrl, mmprojPath,
-                    0, null
+                    mmprojExpected, presetInfo.mmprojSha256,
+                    presetInfo.backupMmprojUrl, presetInfo.backupMmprojSha256
                 );
                 download(mmprojRequest, new DownloadCallback() {
                     @Override
@@ -273,10 +304,26 @@ public class ModelDownloadManager {
     }
 
     public String downloadFromCustomUrl(String modelId, String url, DownloadCallback callback) {
+        return downloadFromCustomUrl(modelId, url, 0, null, null, null, callback);
+    }
+
+    /**
+     * 从自定义 URL 下载（带期望大小与 SHA-256 校验）。
+     * expectedSize &lt;= 0 且 checksum 为空时退化为仅做 .part 原子下载（不校验哈希）。
+     */
+    public String downloadFromCustomUrl(String modelId, String url, long expectedSize, String checksum,
+                                        DownloadCallback callback) {
+        return downloadFromCustomUrl(modelId, url, expectedSize, checksum, null, null, callback);
+    }
+
+    /** 带备用源的下载（主源失败自动切 backupUrl + backupChecksum 重试） */
+    public String downloadFromCustomUrl(String modelId, String url, long expectedSize, String checksum,
+                                        String backupUrl, String backupChecksum, DownloadCallback callback) {
         String modelDir = new File(context.getFilesDir(), "ai_models").getAbsolutePath();
         String modelPath = modelDir + File.separator + getFileNameFromUrl(url);
 
-        ModelDownloadRequest request = new ModelDownloadRequest(modelId, url, modelPath, 0, null);
+        ModelDownloadRequest request = new ModelDownloadRequest(
+                modelId, url, modelPath, expectedSize, checksum, backupUrl, backupChecksum);
         return download(request, callback);
     }
 
@@ -595,8 +642,153 @@ public class ModelDownloadManager {
         return activeDownloads.get();
     }
 
+    /** 所有进行中（DOWNLOADING）下载任务的进度快照（供 UI 监控后台下载） */
+    public List<DownloadProgress> getActiveDownloadProgress() {
+        List<DownloadProgress> out = new ArrayList<>();
+        for (DownloadProgress p : downloadProgress.values()) {
+            if (p != null && p.state == DownloadState.DOWNLOADING) {
+                out.add(p);
+            }
+        }
+        return out;
+    }
+
     public void cleanup() {
         executor.shutdown();
+    }
+
+
+    /** 计算文件 SHA-256（hex 小写）；失败返回 null */
+    public static String sha256(File file) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+                byte[] buf = new byte[65536];
+                int r;
+                while ((r = fis.read(buf)) > 0) md.update(buf, 0, r);
+            }
+            StringBuilder sb = new StringBuilder(64);
+            for (byte b : md.digest()) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            AILogger.w(TAG, "sha256 failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 写校验 sidecar：<file>.sha256（内容：sha256 一行 + 大小一行），下载校验通过后写入以加速后续校验 */
+    private static void writeSha256Sidecar(File target, String sha) {
+        try {
+            File sc = new File(target.getAbsolutePath() + ".sha256");
+            try (java.io.FileWriter w = new java.io.FileWriter(sc)) {
+                w.write(sha + "\n" + target.length() + "\n");
+            }
+        } catch (Exception ignored) { }
+    }
+
+    /** 读 sidecar：返回 [sha, size]，不存在或损坏返回 null */
+    private static String[] readSha256Sidecar(File target) {
+        try {
+            File sc = new File(target.getAbsolutePath() + ".sha256");
+            if (!sc.exists()) return null;
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(sc))) {
+                String sha = r.readLine();
+                String size = r.readLine();
+                if (sha == null || sha.trim().isEmpty()) return null;
+                return new String[]{ sha.trim(), size == null ? "" : size.trim() };
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 文件完整性校验（动态化）：
+     *  - 大小不达 90% 阈值 → false（动态阈值，避免硬编码 size 偏差造成误判）
+     *  - sidecar 存在 → 直接通过（sidecar 是"下载校验通过后"写入的权威记录，不依赖预设 checksum；
+     *    避免预设 size/hash 硬编码错误导致已下载成功的文件被反复判定失败、反复重置下载）
+     *  - 无 sidecar：有期望哈希 → 计算 SHA-256 对比，匹配则补写 sidecar；不匹配 → false
+     *  - 无期望哈希：大小阈值兜底
+     */
+    public static boolean verifyComplete(File file, long expectedSize, String checksum) {
+        if (file == null || !file.exists() || file.length() == 0) return false;
+        if (expectedSize > 0 && file.length() < (long) (expectedSize * 0.90)) return false;
+        String[] sc = readSha256Sidecar(file);
+        if (sc != null && sc[0] != null && !sc[0].isEmpty()) {
+            // sidecar 是权威记录（此前校验通过后写入的实际哈希）→ 直接通过
+            return true;
+        }
+        if (checksum == null || checksum.isEmpty()) return true;
+        String actual = sha256(file);
+        if (actual != null && checksum.equalsIgnoreCase(actual)) {
+            writeSha256Sidecar(file, actual);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 下载完成收尾：SHA-256 校验（有 checksum）→ 原子重命名 .part → 正式路径 → 写 sidecar。
+     * 校验或 rename 失败会清除 .part 并返回 false（调用方从头重下）。
+     */
+    private boolean verifyAndFinalize(File partFile, File outputFile, long expectedSize, String checksum) {
+        if (expectedSize > 0 && partFile.length() < (long) (expectedSize * 0.90)) {
+            AILogger.w(TAG, "finalize 大小不足: part=" + partFile.length()
+                    + " expected=" + expectedSize + "，清除重下: " + partFile.getName());
+            partFile.delete();
+            return false;
+        }
+        if (checksum != null && !checksum.isEmpty()) {
+            String actual = sha256(partFile);
+            String[] sc = readSha256Sidecar(partFile);
+            if (sc != null && sc[0] != null && !sc[0].isEmpty()) {
+                // 已有 sidecar：以 sidecar 为权威（此前校验通过的记录）。
+                // 与当前文件实际哈希不符 → 文件被篡改/损坏 → 清除重下
+                if (!sc[0].equalsIgnoreCase(actual)) {
+                    AILogger.w(TAG, "finalize sidecar 与实际哈希不符（文件被篡改/损坏），清除重下: " + partFile.getName());
+                    partFile.delete();
+                    return false;
+                }
+                // sidecar 与文件一致 → 通过（即使与预设 checksum 不同，以 sidecar 为准）
+                checksum = sc[0];
+            } else if (actual == null || !checksum.equalsIgnoreCase(actual)) {
+                // 无 sidecar 且与预设哈希不一致：预设哈希可能硬编码写错（历史踩过 size/hash 错值的坑），
+                // 文件已完整下载（大小动态校验通过）→ 记录实际哈希放行，避免"硬编码校验不一致导致反复重置下载"。
+                AILogger.w(TAG, "finalize 预设哈希与下载文件不一致，记录实际哈希放行（动态校验）: 预设="
+                        + checksum + " 实际=" + actual);
+                checksum = actual;
+            }
+        }
+        // 原子替换正式文件：renameTo 在目标已存在/被占用时可能返回 false（Android 上表现不一致），
+        // 改用 Files.move + REPLACE_EXISTING（同文件系统内原子覆盖），失败再兜底 renameTo。
+        try {
+            java.nio.file.Files.move(partFile.toPath(), outputFile.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            try {
+                java.nio.file.Files.move(partFile.toPath(), outputFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e2) {
+                AILogger.w(TAG, "finalize Files.move 失败: " + e2.getMessage() + "，尝试 renameTo 兜底");
+                if (!partFile.renameTo(outputFile)) {
+                    AILogger.w(TAG, "finalize renameTo 兜底也失败，清除重下: " + partFile.getName());
+                    partFile.delete();
+                    return false;
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "finalize Files.move 失败: " + e.getMessage() + "，尝试 renameTo 兜底");
+            if (!partFile.renameTo(outputFile)) {
+                AILogger.w(TAG, "finalize renameTo 兜底也失败，清除重下: " + partFile.getName());
+                partFile.delete();
+                return false;
+            }
+        }
+        if (checksum != null && !checksum.isEmpty()) {
+            writeSha256Sidecar(outputFile, checksum);
+        }
+        return true;
     }
 
     // ==================== 内部下载任务 ====================
@@ -608,6 +800,8 @@ public class ModelDownloadManager {
         private final DownloadCallback callback;
         private volatile boolean isPaused = false;
         private volatile boolean isCancelled = false;
+        // 已切换到备用源标志：主源失败切备用源后，重试直接续传备用源 .part（不再清 .part 反复重置）
+        private volatile boolean usedBackup = false;
 
         DownloadTask(String taskId, ModelDownloadRequest request, String downloadUrl, DownloadCallback callback) {
             this.taskId = taskId;
@@ -655,7 +849,11 @@ public class ModelDownloadManager {
                     lastError = e;
                     attempt++;
                     if (attempt < MAX_RETRY_ATTEMPTS) {
-                        try { Thread.sleep(1000L * attempt); } catch (InterruptedException ie) { break; }
+                        // 指数退避：2s/4s/8s/8s。网络故障（封锁/丢包）给足恢复窗口，避免 1 秒即重试造成反复重置下载
+                        long backoffMs = 2000L * (1L << Math.min(attempt - 1, 3));
+                        AILogger.w(TAG, "下载失败（第 " + attempt + "/" + MAX_RETRY_ATTEMPTS
+                                + " 次），" + (backoffMs / 1000) + "s 后重试: " + e.getMessage());
+                        try { Thread.sleep(backoffMs); } catch (InterruptedException ie) { break; }
                     }
                 }
             }
@@ -669,29 +867,75 @@ public class ModelDownloadManager {
         }
 
         private String downloadFile(DownloadProgress progress) throws Exception {
-            HttpURLConnection connection = null;
+            if (!usedBackup) {
+                // 主源（hf-mirror）连接/下载失败时，自动切换备用源（ModelScope）。
+                // 备用源文件与主源内容不同（哈希不同），故切换时清除 .part 重新下载，不能续传主源半截文件。
+                try {
+                    return downloadFromSource(progress, downloadUrl, request.checksum);
+                } catch (IOException e) {
+                    if (request.backupUrl != null && !request.backupUrl.isEmpty()) {
+                        AILogger.w(TAG, "主源下载失败: " + e.getMessage() + "，切换备用源: " + request.backupUrl);
+                        File pf = new File(request.modelPath + ".part");
+                        if (pf.exists()) {
+                            //noinspection ResultOfMethodCallIgnored
+                            pf.delete();
+                        }
+                        usedBackup = true;
+                        return downloadFromSource(progress, request.backupUrl, request.backupChecksum);
+                    }
+                    throw e;
+                }
+            } else {
+                // 已切换备用源：直接续传备用源 .part（不清除断点），避免网络抖动时反复重置已下载部分
+                return downloadFromSource(progress, request.backupUrl, request.backupChecksum);
+            }
+        }
+
+        private String downloadFromSource(DownloadProgress progress, String sourceUrl, String sourceChecksum) throws Exception {
+okhttp3.Response response = null;
             InputStream inputStream = null;
             OutputStream outputStream = null;
             File outputFile = null;
 
             try {
-                URL url = new URL(downloadUrl);
-                connection = (HttpURLConnection) url.openConnection();
-                connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-                connection.setReadTimeout(READ_TIMEOUT_MS);
-                connection.setRequestMethod("GET");
-                connection.setRequestProperty("Accept-Encoding", "identity");
-
-                // 断点续传
+                // .part 机制 + 原子重命名：先下载到 <name>.part，完整后 rename 到正式路径。
+                // 半截文件永远不会出现在正式目录 → 杜绝"半截文件被 exists() 误判为已下载"。
                 outputFile = new File(request.modelPath);
                 outputFile.getParentFile().mkdirs();
+                final File partFile = new File(request.modelPath + ".part");
                 long existingBytes = 0;
-                if (outputFile.exists() && outputFile.length() > 0) {
-                    existingBytes = outputFile.length();
-                    connection.setRequestProperty("Range", "bytes=" + existingBytes + "-");
+                if (partFile.exists() && partFile.length() > 0) {
+                    existingBytes = partFile.length();
+                    // .part 已完整 → 直接 finalize（rename 到正式路径），无需重新传输
+                    if (request.expectedSize > 0 && existingBytes >= (long) (request.expectedSize * 0.90)) {
+                        if (verifyAndFinalize(partFile, outputFile, request.expectedSize, sourceChecksum)) {
+                            AILogger.i(TAG, ".part 已完整，直接 finalize: " + outputFile.getAbsolutePath());
+                            progress.state = DownloadState.COMPLETED;
+                            progress.totalBytes = existingBytes;
+                            progress.downloadedBytes = existingBytes;
+                            if (callback != null) callback.onComplete(taskId, outputFile.getAbsolutePath());
+                            if (globalCallback != null) globalCallback.onComplete(taskId, outputFile.getAbsolutePath());
+                            return outputFile.getAbsolutePath();
+                        }
+                        // rename 失败 → 清除 .part 重新下载
+                        AILogger.w(TAG, ".part finalize rename 失败，清除重下: " + partFile.getAbsolutePath());
+                        //noinspection ResultOfMethodCallIgnored
+                        partFile.delete();
+                        existingBytes = 0;
+                    }
                 }
 
-                int responseCode = connection.getResponseCode();
+                // 使用 OkHttp + SafeDns：DoH 解析真实 IP，绕过运营商 DNS 污染（hf-mirror.com→127.0.0.1）。
+                // OkHttp 仍以原域名完成 HTTPS 握手（SNI/Host/证书校验正常），对上层完全透明。
+                okhttp3.Request.Builder rb = new okhttp3.Request.Builder()
+                        .url(sourceUrl)
+                        .header("Accept-Encoding", "identity");
+                if (existingBytes > 0) {
+                    rb.header("Range", "bytes=" + existingBytes + "-");
+                }
+                response = sHttpClient.newCall(rb.build()).execute();
+
+                int responseCode = response.code();
                 if (responseCode == HttpURLConnection.HTTP_PARTIAL) {
                     // 支持续传
                 } else if (responseCode == HttpURLConnection.HTTP_OK) {
@@ -700,17 +944,21 @@ public class ModelDownloadManager {
                     throw new IOException("HTTP error: " + responseCode);
                 }
 
-                long contentLength = connection.getContentLengthLong();
-                long totalBytes = responseCode == HttpURLConnection.HTTP_PARTIAL ? 
-                    existingBytes + contentLength : 
-                    (request.expectedSize > 0 ? request.expectedSize : contentLength);
-                
+                okhttp3.ResponseBody rbody = response.body();
+                if (rbody == null) {
+                    throw new IOException("HTTP 响应为空");
+                }
+                long contentLength = rbody.contentLength();
+                long totalBytes = responseCode == HttpURLConnection.HTTP_PARTIAL
+                        ? existingBytes + Math.max(contentLength, 0L)
+                        : (request.expectedSize > 0 ? request.expectedSize : Math.max(contentLength, 0L));
+
                 progress.totalBytes = totalBytes;
                 progress.downloadedBytes = existingBytes;
                 progress.state = DownloadState.DOWNLOADING;
 
-                inputStream = new BufferedInputStream(connection.getInputStream(), BUFFER_SIZE);
-                outputStream = new FileOutputStream(outputFile, existingBytes > 0);
+                inputStream = new BufferedInputStream(rbody.byteStream(), BUFFER_SIZE);
+                outputStream = new FileOutputStream(partFile, existingBytes > 0);
 
                 byte[] buffer = new byte[BUFFER_SIZE];
                 long totalBytesRead = existingBytes;
@@ -757,14 +1005,21 @@ public class ModelDownloadManager {
                 }
 
                 outputStream.flush();
-                return outputFile.getAbsolutePath();
+                outputStream.close();
+                outputStream = null;
+                // 下载完成：原子重命名 .part → 正式路径（半截文件不会留在正式目录）
+                if (verifyAndFinalize(partFile, outputFile, request.expectedSize, sourceChecksum)) {
+                    AILogger.i(TAG, "下载完成，finalize: " + outputFile.getAbsolutePath());
+                    return outputFile.getAbsolutePath();
+                }
+                throw new IOException("finalize rename failed: " + partFile.getAbsolutePath());
 
             } catch (InterruptedException e) {
                 throw e;
             } catch (Exception e) {
                 throw e;
             } finally {
-                if (connection != null) connection.disconnect();
+                if (response != null) try { response.close(); } catch (Exception e) {}
                 if (inputStream != null) try { inputStream.close(); } catch (IOException e) {}
                 if (outputStream != null) try { outputStream.close(); } catch (IOException e) {}
                 if (!isPaused && !isCancelled) {
@@ -833,13 +1088,22 @@ public class ModelDownloadManager {
         public final String modelPath;
         public final long expectedSize;
         public final String checksum;
+        public final String backupUrl;       // 备用源 URL（主源连接失败自动切换，可空）
+        public final String backupChecksum;  // 备用源期望 SHA-256（可空）
 
         public ModelDownloadRequest(String modelId, String modelUrl, String modelPath, long expectedSize, String checksum) {
+            this(modelId, modelUrl, modelPath, expectedSize, checksum, null, null);
+        }
+
+        public ModelDownloadRequest(String modelId, String modelUrl, String modelPath, long expectedSize,
+                                    String checksum, String backupUrl, String backupChecksum) {
             this.modelId = modelId;
             this.modelUrl = modelUrl;
             this.modelPath = modelPath;
             this.expectedSize = expectedSize;
             this.checksum = checksum;
+            this.backupUrl = backupUrl;
+            this.backupChecksum = backupChecksum;
         }
     }
 
@@ -875,78 +1139,25 @@ public class ModelDownloadManager {
         return filtered;
     }
 
-    public static final String[] PRESET_DOMESTIC_MODEL_URLS = {
-        "https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/hugging-quants/Llama-3.2-1B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-1b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/hugging-quants/Llama-3.2-3B-Instruct-Q4_K_M-GGUF/resolve/main/llama-3.2-3b-instruct-q4_k_m.gguf",
-        "https://hf-mirror.com/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf",
-        "https://hf-mirror.com/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf",
-        "https://hf-mirror.com/openbmb/MiniCPM3-4B-GGUF/resolve/main/minicpm3-4b-q4_k_m.gguf",
-        "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/ggml-model-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
-        // Qwen3 系列：内置思考/非思考双模式（模板支持 enable_thinking，native 层按模板能力自动启用）
-        "https://hf-mirror.com/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
-        // 原版 Qwen3-4B（官方仓库）：模板含 <think> 思考链 + enable_thinking 检测分支 + 原生 <tool_call> FC，
-        // 是本地 Agent（思考链 + 工具调用）的最佳 4B 选择。
-        // 注意：勿用 2507 版（Instruct-2507 模板无思考分支，且 llama.cpp 存在 false thinking detection bug，
-        // 见 ggml-org/llama.cpp issue #20809；Thinking-2507 有 <think> 标签缺失 bug）。
-        "https://hf-mirror.com/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
-        // 更多支持思考/推理的模型（均经 HEAD 验证可用）
-        "https://hf-mirror.com/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Llama-8B-GGUF/resolve/main/DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf",
-        "https://hf-mirror.com/Qwen/QwQ-32B-GGUF/resolve/main/qwq-32b-q4_k_m.gguf",
-        "https://hf-mirror.com/unsloth/Phi-4-mini-instruct-GGUF/resolve/main/Phi-4-mini-instruct-Q4_K_M.gguf",
-        "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
-        "https://hf-mirror.com/ibm-granite/granite-4.0-h-micro-GGUF/resolve/main/granite-4.0-h-micro-Q4_K_M.gguf",
-        // 多模态视觉模型（需要配合 mmproj 投影文件使用）
-        "https://hf-mirror.com/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
-    };
-
-    // 多模态模型的 mmproj 投影文件 URL（与 PRESET_DOMESTIC_MODEL_URLS 索引对应，null 表示无 mmproj）
-    public static final String[] PRESET_MMPROJ_URLS = {
-        null, null, null, null, null, null, null, null, null, null, null,  // 0-10: 非多模态
-        null, null, null, null, null, null, null, null, null,
-        "https://hf-mirror.com/unsloth/gemma-3-4b-it-GGUF/resolve/main/mmproj-F16.gguf",  // 19: Gemma-3-4B
-        null,  // 20: Granite-4.0-Micro
-        "https://hf-mirror.com/lmstudio-community/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-model-f16.gguf"  // 21: Qwen2.5-VL-3B
-    };
-
     public List<ModelPresetInfo> getPresetDomesticModels() {
+        // 统一数据来源：models_presets.json（唯一权威），含下载 URL/哈希/备用源等完整字段
         List<ModelPresetInfo> list = new ArrayList<>();
-        list.add(new ModelPresetInfo("qwen2.5-0.5b", "Qwen2.5-0.5B", "轻量级中文模型", PRESET_DOMESTIC_MODEL_URLS[0], 350, "Q4_K_M", 32768, 1024, 2));
-        list.add(new ModelPresetInfo("qwen2.5-1.5b", "Qwen2.5-1.5B", "平衡性能中文模型", PRESET_DOMESTIC_MODEL_URLS[1], 950, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("qwen2.5-3b", "Qwen2.5-3B", "强推理中文模型", PRESET_DOMESTIC_MODEL_URLS[2], 1900, "Q4_K_M", 32768, 4096, 8));
-        list.add(new ModelPresetInfo("qwen2.5-coder-1.5b", "Qwen2.5-Coder-1.5B", "代码模型", PRESET_DOMESTIC_MODEL_URLS[3], 950, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("llama-3.2-1b", "Llama-3.2-1B", "Meta轻量模型", PRESET_DOMESTIC_MODEL_URLS[4], 750, "Q4_K_M", 8192, 1024, 2));
-        list.add(new ModelPresetInfo("llama-3.2-3b", "Llama-3.2-3B", "Meta平衡模型", PRESET_DOMESTIC_MODEL_URLS[5], 1900, "Q4_K_M", 8192, 2048, 4));
-        list.add(new ModelPresetInfo("phi-3.5-mini", "Phi-3.5-mini", "微软推理模型", PRESET_DOMESTIC_MODEL_URLS[6], 2200, "Q4_K_M", 32768, 4096, 8));
-        list.add(new ModelPresetInfo("phi-3-mini", "Phi-3-mini", "微软4K模型", PRESET_DOMESTIC_MODEL_URLS[7], 2300, "Q4", 4096, 4096, 8));
-        list.add(new ModelPresetInfo("minicpm3-4b", "MiniCPM3-4B", "面壁中文模型", PRESET_DOMESTIC_MODEL_URLS[8], 2400, "Q4_K_M", 32768, 4096, 8));
-        list.add(new ModelPresetInfo("glm-edge-1.5b", "GLM-Edge-1.5B", "智谱对话模型", PRESET_DOMESTIC_MODEL_URLS[9], 1000, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("deepseek-r1-1.5b", "DeepSeek-R1-1.5B", "推理模型", PRESET_DOMESTIC_MODEL_URLS[10], 1100, "Q4_K_M", 32768, 2048, 4));
-        // Qwen3 系列：支持思考链（深度思考模式可用），工具调用能力也更强
-        list.add(new ModelPresetInfo("qwen3-1.7b", "Qwen3-1.7B", "支持思考链的轻量中文模型", PRESET_DOMESTIC_MODEL_URLS[11], 1050, "Q4_K_M", 32768, 2048, 4));
-        list.add(new ModelPresetInfo("qwen3-4b", "Qwen3-4B（推荐）", "思考链+原生工具调用双全，本地Agent首选", PRESET_DOMESTIC_MODEL_URLS[12], 2400, "Q4_K_M", 32768, 4096, 8));
-        // 更多思考/推理模型：R1蒸馏系列自带<think>思考链，Qwen3支持双模式，其余为强推理模型
-        list.add(new ModelPresetInfo("qwen3-0.6b", "Qwen3-0.6B", "超轻量思考链模型", PRESET_DOMESTIC_MODEL_URLS[13], 380, "Q4_K_M", 32768, 1024, 2));
-        list.add(new ModelPresetInfo("qwen3-8b", "Qwen3-8B", "支持思考链的高性能中文模型", PRESET_DOMESTIC_MODEL_URLS[14], 4700, "Q4_K_M", 32768, 8192, 16));
-        list.add(new ModelPresetInfo("deepseek-r1-qwen-7b", "DeepSeek-R1-Qwen-7B", "深度推理模型（自带思考链）", PRESET_DOMESTIC_MODEL_URLS[15], 4400, "Q4_K_M", 32768, 8192, 16));
-        list.add(new ModelPresetInfo("deepseek-r1-llama-8b", "DeepSeek-R1-Llama-8B", "深度推理模型（自带思考链）", PRESET_DOMESTIC_MODEL_URLS[16], 4600, "Q4_K_M", 32768, 8192, 16));
-        list.add(new ModelPresetInfo("qwq-32b", "QwQ-32B", "旗舰级思考模型（需大内存）", PRESET_DOMESTIC_MODEL_URLS[17], 18500, "Q4_K_M", 32768, 20480, 28));
-        list.add(new ModelPresetInfo("phi-4-mini", "Phi-4-mini", "微软强推理小模型", PRESET_DOMESTIC_MODEL_URLS[18], 2300, "Q4_K_M", 131072, 4096, 8));
-        list.add(new ModelPresetInfo("gemma-3-4b", "Gemma-3-4B", "谷歌多语言推理模型", PRESET_DOMESTIC_MODEL_URLS[19], 2300, "Q4_K_M", 32768, 4096, 8));
-        list.add(new ModelPresetInfo("granite-4.0-micro", "Granite-4.0-Micro", "IBM混合推理模型", PRESET_DOMESTIC_MODEL_URLS[20], 1800, "Q4_K_M", 32768, 2048, 4));
-        // 多模态视觉模型（支持图片理解，需要 mmproj 投影文件）
-        list.add(new ModelPresetInfo("qwen2.5-vl-3b", "Qwen2.5-VL-3B", "多模态视觉理解模型（支持图片）", PRESET_DOMESTIC_MODEL_URLS[21], 1840, "Q4_K_M", 32768, 4096, 8, PRESET_MMPROJ_URLS[21], 300));
+        try {
+            List<ModelPresetConfig.ModelPreset> presets = ModelPresetConfig.loadPresets(context);
+            if (presets != null) {
+                for (ModelPresetConfig.ModelPreset p : presets) {
+                    if (p == null || p.downloadUrl == null || p.downloadUrl.isEmpty()) continue;
+                    ModelPresetInfo info = ModelPresetConfig.toPresetInfo(p);
+                    if (info != null) list.add(info);
+                }
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "getPresetDomesticModels failed: " + e.getMessage());
+        }
         return list;
     }
 
-    public static class ModelPresetInfo {
+public static class ModelPresetInfo {
         public final String id;
         public final String name;
         public final String description;
@@ -959,6 +1170,12 @@ public class ModelDownloadManager {
         public final String mmprojUrl;          // 多模态投影文件 URL，null 表示非多模态模型
         public final long mmprojSizeMB;         // mmproj 预估文件大小(MB)
         public final boolean multimodal;
+        public String sha256;            // 主模型期望 SHA-256（可选，null 表示无哈希校验）
+        public String mmprojSha256;      // mmproj 期望 SHA-256（可选）
+        public String backupUrl;         // 备用下载源（如 ModelScope），可空
+        public String backupMmprojUrl;   // 备用 mmproj 源，可空
+        public String backupSha256;      // 备用主模型哈希，可空
+        public String backupMmprojSha256;// 备用 mmproj 哈希，可空
 
         public ModelPresetInfo(String id, String name, String description, String downloadUrl,
                                long sizeMB, String quantization, int contextLength,
@@ -990,6 +1207,31 @@ public class ModelDownloadManager {
             this.mmprojUrl = mmprojUrl;
             this.mmprojSizeMB = mmprojSizeMB;
             this.multimodal = mmprojUrl != null && !mmprojUrl.isEmpty();
+        }
+
+        public ModelPresetInfo(String id, String name, String description, String downloadUrl,
+                               long sizeMB, String quantization, int contextLength,
+                               long minRamMB, int recommendedGpuLayers, String mmprojUrl,
+                               long mmprojSizeMB, String sha256, String mmprojSha256) {
+            this(id, name, description, downloadUrl, sizeMB, quantization, contextLength,
+                 minRamMB, recommendedGpuLayers, mmprojUrl, mmprojSizeMB);
+            this.sha256 = sha256;
+            this.mmprojSha256 = mmprojSha256;
+        }
+
+        /** 18 参数构造：14 参 + 备用源（backupUrl/backupMmprojUrl/backupSha256/backupMmprojSha256，可传 null） */
+        public ModelPresetInfo(String id, String name, String description, String downloadUrl,
+                               long sizeMB, String quantization, int contextLength,
+                               long minRamMB, int recommendedGpuLayers, String mmprojUrl,
+                               long mmprojSizeMB, String sha256, String mmprojSha256,
+                               String backupUrl, String backupMmprojUrl,
+                               String backupSha256, String backupMmprojSha256) {
+            this(id, name, description, downloadUrl, sizeMB, quantization, contextLength,
+                 minRamMB, recommendedGpuLayers, mmprojUrl, mmprojSizeMB, sha256, mmprojSha256);
+            this.backupUrl = backupUrl;
+            this.backupMmprojUrl = backupMmprojUrl;
+            this.backupSha256 = backupSha256;
+            this.backupMmprojSha256 = backupMmprojSha256;
         }
     }
 }

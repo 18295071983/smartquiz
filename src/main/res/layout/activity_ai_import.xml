@@ -6,27 +6,27 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.AIImportActivity">
 
     <!-- 顶部工具栏 -->
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="AI 导入题库"
-            app:titleTextColor="@color/on_surface" />
+            app:titleTextColor="?attr/colorOnSurface" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <!-- 内容区：可滚动，避免小屏溢出 -->
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:fillViewport="true"
         android:scrollbars="none">
@@ -35,41 +35,41 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <!-- 文件选择区 -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="@dimen/space_12">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnSelectFile"
                         android:layout_width="match_parent"
-                        android:layout_height="48dp"
+                        android:layout_height="@dimen/size_48"
                         android:text="选择题库文件"
-                        app:backgroundTint="@color/primary"
-                        android:textColor="@color/on_primary"
-                        app:cornerRadius="12dp"
+                        app:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
+                        app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false" />
 
                     <TextView
                         android:id="@+id/tvFileName"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="@dimen/space_8"
                         android:text="尚未选择文件"
-                        android:textSize="13sp"
-                        android:textColor="@color/on_surface_variant"
+                        android:textSize="@dimen/text_13"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:singleLine="true"
                         android:ellipsize="middle" />
 
@@ -77,29 +77,29 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginTop="12dp">
+                        android:layout_marginTop="@dimen/space_12">
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnCancel"
-                            android:layout_width="0dp"
-                            android:layout_height="48dp"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="取消"
-                            app:backgroundTint="@color/secondary"
-                            android:textColor="@color/on_secondary"
-                            app:cornerRadius="12dp"
+                            app:backgroundTint="?attr/colorSecondary"
+                            android:textColor="?attr/colorOnSecondary"
+                            app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false"
-                            android:layout_marginEnd="8dp" />
+                            android:layout_marginEnd="@dimen/space_8" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnStartImport"
-                            android:layout_width="0dp"
-                            android:layout_height="48dp"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="@dimen/size_48"
                             android:layout_weight="1"
                             android:text="智能导入"
-                            app:backgroundTint="@color/primary"
-                            android:textColor="@color/on_primary"
-                            app:cornerRadius="12dp"
+                            app:backgroundTint="?attr/colorPrimary"
+                            android:textColor="?attr/colorOnPrimary"
+                            app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false" />
                     </LinearLayout>
                 </LinearLayout>
@@ -110,9 +110,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="@dimen/space_12">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -124,55 +124,55 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:padding="12dp">
+                        android:padding="@dimen/space_12">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="🤖 AI 模型"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textStyle="bold"
-                            android:textColor="@color/on_surface" />
+                            android:textColor="?attr/colorOnSurface" />
 
                         <TextView
                             android:id="@+id/tvModelInfo"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="自动选择"
-                            android:textSize="12sp"
-                            android:textColor="@color/primary"
-                            android:layout_marginStart="8dp"
-                            android:layout_marginEnd="8dp"
+                            android:textSize="@dimen/text_12"
+                            android:textColor="?attr/colorPrimary"
+                            android:layout_marginStart="@dimen/space_8"
+                            android:layout_marginEnd="@dimen/space_8"
                             android:singleLine="true"
                             android:ellipsize="end" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnSwitchModel"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
+                            android:layout_height="@dimen/size_36"
                             android:text="切换"
-                            android:textSize="12sp"
-                            app:backgroundTint="@color/secondary"
-                            android:textColor="@color/on_secondary"
-                            app:cornerRadius="8dp"
+                            android:textSize="@dimen/text_12"
+                            app:backgroundTint="?attr/colorSecondary"
+                            android:textColor="?attr/colorOnSecondary"
+                            app:cornerRadius="@dimen/radius_8"
                             android:textAllCaps="false"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp" />
+                            android:paddingStart="@dimen/space_12"
+                            android:paddingEnd="@dimen/space_12" />
                     </LinearLayout>
 
                     <!-- 在线模型配置入口（仅在线模式显示） -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnConfigOnline"
                         android:layout_width="match_parent"
-                        android:layout_height="36dp"
-                        android:layout_marginStart="12dp"
-                        android:layout_marginEnd="12dp"
-                        android:layout_marginBottom="10dp"
+                        android:layout_height="@dimen/size_36"
+                        android:layout_marginStart="@dimen/space_12"
+                        android:layout_marginEnd="@dimen/space_12"
+                        android:layout_marginBottom="@dimen/space_10"
                         android:text="配置在线模型"
-                        android:textSize="12sp"
+                        android:textSize="@dimen/text_12"
                         style="@style/Widget.Material3.Button.OutlinedButton"
-                        app:cornerRadius="8dp"
+                        app:cornerRadius="@dimen/radius_8"
                         android:textAllCaps="false"
                         android:visibility="gone" />
                 </LinearLayout>
@@ -183,45 +183,45 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="1dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="@dimen/space_12">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="12dp">
+                    android:padding="@dimen/space_12">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="📝 题库说明（可选）"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface" />
+                        android:textColor="?attr/colorOnSurface" />
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
+                        android:layout_marginTop="@dimen/space_4"
                         android:text="填写字段约定或特殊规则，AI 导入时参考，识别列含义更准。"
-                        android:textSize="11sp"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textSize="@dimen/text_11"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <EditText
                         android:id="@+id/etUserGuide"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="@dimen/space_8"
                         android:minLines="2"
                         android:maxLines="5"
                         android:gravity="top"
                         android:inputType="textMultiLine"
                         android:background="@drawable/ai_import_input_bg"
-                        android:padding="10dp"
-                        android:textSize="13sp"
-                        android:textColor="@color/on_surface"
+                        android:padding="@dimen/space_10"
+                        android:textSize="@dimen/text_13"
+                        android:textColor="?attr/colorOnSurface"
                         android:hint="例：题干列叫「题目内容」，选项用分号分隔，答案在最后一列，题型是单选题…"
                         android:importantForAutofill="no" />
 
@@ -231,10 +231,10 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:layout_marginTop="8dp">
+                        android:layout_marginTop="@dimen/space_8">
 
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical">
@@ -243,15 +243,15 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="缺失字段智能填充"
-                                android:textSize="13sp"
-                                android:textColor="@color/on_surface" />
+                                android:textSize="@dimen/text_13"
+                                android:textColor="?attr/colorOnSurface" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="用 AI 补全缺失的题型/难度/分类/解析"
-                                android:textSize="11sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_11"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <androidx.appcompat.widget.SwitchCompat
@@ -268,10 +268,10 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:layout_marginTop="8dp">
+                        android:layout_marginTop="@dimen/space_8">
 
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical">
@@ -280,15 +280,15 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="CPU 推理（上下文 8192）"
-                                android:textSize="13sp"
-                                android:textColor="@color/on_surface" />
+                                android:textSize="@dimen/text_13"
+                                android:textColor="?attr/colorOnSurface" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="默认开启：切换立即生效（应用内热切换，无需重启）"
-                                android:textSize="11sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_11"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <androidx.appcompat.widget.SwitchCompat
@@ -307,10 +307,10 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="@dimen/space_12">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
@@ -320,14 +320,14 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="📄"
-                        android:textSize="20sp"
+                        android:textSize="@dimen/text_20"
                         android:alpha="0.75" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="检测"
-                        android:textSize="10sp"
-                        android:textColor="@color/on_surface_variant"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9" />
                 </LinearLayout>
 
@@ -335,12 +335,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="→"
-                    android:textSize="14sp"
-                    android:textColor="@color/on_surface_variant"
-                    android:layout_marginBottom="14dp" />
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:layout_marginBottom="@dimen/space_14" />
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
@@ -350,14 +350,14 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🔍"
-                        android:textSize="20sp"
+                        android:textSize="@dimen/text_20"
                         android:alpha="0.75" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="映射"
-                        android:textSize="10sp"
-                        android:textColor="@color/on_surface_variant"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9" />
                 </LinearLayout>
 
@@ -365,12 +365,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="→"
-                    android:textSize="14sp"
-                    android:textColor="@color/on_surface_variant"
-                    android:layout_marginBottom="14dp" />
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:layout_marginBottom="@dimen/space_14" />
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
@@ -380,14 +380,14 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="⚙️"
-                        android:textSize="20sp"
+                        android:textSize="@dimen/text_20"
                         android:alpha="0.75" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="解析"
-                        android:textSize="10sp"
-                        android:textColor="@color/on_surface_variant"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9" />
                 </LinearLayout>
 
@@ -395,12 +395,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="→"
-                    android:textSize="14sp"
-                    android:textColor="@color/on_surface_variant"
-                    android:layout_marginBottom="14dp" />
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:layout_marginBottom="@dimen/space_14" />
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
@@ -410,14 +410,14 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="✅"
-                        android:textSize="20sp"
+                        android:textSize="@dimen/text_20"
                         android:alpha="0.75" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="入库"
-                        android:textSize="10sp"
-                        android:textColor="@color/on_surface_variant"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9" />
                 </LinearLayout>
             </LinearLayout>
@@ -431,10 +431,10 @@
                 android:background="@drawable/ai_import_input_bg"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="10dp"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="@dimen/space_12">
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
@@ -444,19 +444,19 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="00:00"
-                        android:textSize="15sp"
+                        android:textSize="@dimen/text_15"
                         android:textStyle="bold"
-                        android:textColor="@color/primary" />
+                        android:textColor="?attr/colorPrimary" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="耗时"
-                        android:textSize="10sp"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
@@ -466,21 +466,21 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="等待"
-                        android:textSize="13sp"
+                        android:textSize="@dimen/text_13"
                         android:textStyle="bold"
-                        android:textColor="@color/secondary"
+                        android:textColor="?attr/colorSecondary"
                         android:singleLine="true"
                         android:ellipsize="end" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="步骤"
-                        android:textSize="10sp"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
@@ -490,19 +490,19 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="-"
-                        android:textSize="15sp"
+                        android:textSize="@dimen/text_15"
                         android:textStyle="bold"
                         android:textColor="@color/success" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="推理 t/s"
-                        android:textSize="10sp"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
@@ -512,15 +512,15 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textSize="15sp"
+                        android:textSize="@dimen/text_15"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface" />
+                        android:textColor="?attr/colorOnSurface" />
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Token"
-                        android:textSize="10sp"
-                        android:textColor="@color/on_surface_variant" />
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -529,9 +529,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="@dimen/space_12">
 
                 <com.oilquiz.app.ai.chat.AgentExecutionView
                     android:id="@+id/agentView"
@@ -546,7 +546,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
                 android:visibility="gone">
 
@@ -554,7 +554,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <!-- 进度行 -->
                     <LinearLayout
@@ -562,25 +562,25 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:layout_marginBottom="12dp">
+                        android:layout_marginBottom="@dimen/space_12">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="进度"
-                            android:textSize="13sp"
-                            android:textColor="@color/on_surface_variant" />
+                            android:textSize="@dimen/text_13"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
 
                         <TextView
                             android:id="@+id/tvProgress"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="0/0"
-                            android:textSize="14sp"
+                            android:textSize="@dimen/text_14"
                             android:textStyle="bold"
-                            android:textColor="@color/secondary"
-                            android:layout_marginStart="8dp"
+                            android:textColor="?attr/colorSecondary"
+                            android:layout_marginStart="@dimen/space_8"
                             android:gravity="end" />
                     </LinearLayout>
 
@@ -591,7 +591,7 @@
                         android:orientation="horizontal">
 
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
@@ -601,19 +601,19 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="20sp"
+                                android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
                                 android:textColor="@color/success" />
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="成功"
-                                android:textSize="12sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_12"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
@@ -623,19 +623,19 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="20sp"
+                                android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
                                 android:textColor="@color/error" />
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="失败"
-                                android:textSize="12sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_12"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
@@ -645,19 +645,19 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="20sp"
+                                android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
-                                android:textColor="@color/on_surface" />
+                                android:textColor="?attr/colorOnSurface" />
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="总计"
-                                android:textSize="12sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_12"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
 
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
@@ -667,15 +667,15 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="20sp"
+                                android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
-                                android:textColor="@color/secondary" />
+                                android:textColor="?attr/colorSecondary" />
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="重复"
-                                android:textSize="12sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_12"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>

@@ -3,14 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/message_card_background"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="@dimen/space_12">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -22,15 +22,15 @@
                 android:id="@+id/reflection_icon"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="20sp"
-                android:layout_marginEnd="8dp" />
+                android:textSize="@dimen/text_20"
+                android:layout_marginEnd="@dimen/space_8" />
 
             <TextView
                 android:id="@+id/reflection_label"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold" />
 
@@ -40,27 +40,27 @@
             android:id="@+id/reflection_analysis"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textSize="14sp"
+            android:layout_marginTop="@dimen/space_8"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurface" />
 
         <TextView
             android:id="@+id/reflection_improvements"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textSize="13sp"
-            android:textColor="@color/text_secondary"
+            android:layout_marginTop="@dimen/space_8"
+            android:textSize="@dimen/text_13"
+            android:textColor="?attr/colorControlTextSecondary"
             android:visibility="gone" />
 
         <Button
             android:id="@+id/btn_retry_suggestion"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_8"
             android:text="💡 尝试改进方案"
-            android:textSize="12sp"
-            android:textColor="@color/primary"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorPrimary"
             android:background="?attr/selectableItemBackground"
             android:visibility="gone" />
 

@@ -16,11 +16,11 @@ public class AIConfig {
     public enum OptimizationMode {
         /** 极速模式：最小资源占用，最快响应，适合低端设备 */
         TURBO(0, "极速模式", 4096, 64, 1024, 2, false),
-        /** 均衡模式：资源与质量平衡，默认模式 */
-        BALANCED(1, "均衡模式", 8192, 128, 2048, 3, true),
+        /** 均衡模式：资源与质量平衡，默认模式（12K：深度思考+多轮工具对话需要更大上下文） */
+        BALANCED(1, "均衡模式", 12288, 128, 2048, 3, true),
         /** 性能模式：更大上下文，更好回复质量 */
-        PERFORMANCE(2, "性能模式", 12288, 256, 2560, 4, true),
-        /** 极限模式：最大资源利用，适合高端设备 */
+        PERFORMANCE(2, "性能模式", 16384, 256, 2560, 4, true),
+        /** 极限模式：最大资源利用，适合高端设备（受 ResourceConfig 16K 封顶约束） */
         ULTIMATE(3, "极限模式", 16384, 512, 3072, 4, true);
 
         public final int id;
@@ -60,7 +60,7 @@ public class AIConfig {
     private boolean intentRecognitionEnabled = true;
     private boolean agentEnabled = true; // 启用 Agent 模式
     private boolean useJsonProtocol = true;      // 本地推理 JSON 协议开关（spec §10.2 回退用）
-    private boolean localAgentEnabled = false;   // 本地 Agent 复活入口开关（spec §3.1.1，R3-1）
+    private boolean localAgentEnabled = false;   // 本地 Agent 开关（开启后自动启用 FC 工具调用循环）
     private OptimizationMode optimizationMode = OptimizationMode.BALANCED;
 
     public AIConfig(Context context) {
@@ -140,7 +140,7 @@ public class AIConfig {
             prefs.edit().remove("local_agent_enabled").putBoolean("local_agent_enabled", false).apply();
             localAgentEnabled = false;
         }
-        
+
         try {
             optimizationMode = OptimizationMode.fromId(prefs.getInt("optimization_mode", OptimizationMode.BALANCED.id));
         } catch (ClassCastException e) {
@@ -198,6 +198,10 @@ public class AIConfig {
 
     public boolean isLocalAgentEnabled() { return localAgentEnabled; }
     public void setLocalAgentEnabled(boolean localAgentEnabled) { this.localAgentEnabled = localAgentEnabled; saveToPreferences(); }
+
+    // FC 循环随本地 Agent 自动启用，不再单独开关
+    public boolean isFcEnabled() { return localAgentEnabled; }
+    public void setFcEnabled(boolean fcEnabled) { this.localAgentEnabled = fcEnabled; saveToPreferences(); }
 
     public OptimizationMode getOptimizationMode() { return optimizationMode; }
     public void setOptimizationMode(OptimizationMode mode) { this.optimizationMode = mode; saveToPreferences(); }

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
@@ -75,9 +77,9 @@ public class StartQuizActivity extends AppCompatActivity {
             cardView.setLayoutParams(cardParams);
             cardView.setRadius(getResources().getDimensionPixelSize(R.dimen.card_corner_radius_small));
             cardView.setCardElevation(getResources().getDimensionPixelSize(R.dimen.elevation_small));
-            cardView.setCardBackgroundColor(ContextCompat.getColor(this, R.color.card_background));
+            cardView.setCardBackgroundColor(ThemeColors.attr(this, R.attr.colorCardBackground));
             cardView.setStrokeWidth(getResources().getDimensionPixelSize(R.dimen.divider_height));
-            cardView.setStrokeColor(ContextCompat.getColor(this, R.color.primary_color));
+            cardView.setStrokeColor(ThemeColors.attr(this, R.attr.colorPrimary));
             
             LinearLayout cardLayout = new LinearLayout(this);
             cardLayout.setLayoutParams(new LinearLayout.LayoutParams(
@@ -100,7 +102,7 @@ public class StartQuizActivity extends AppCompatActivity {
             );
             radioParams.setMargins(0, 0, getResources().getDimensionPixelSize(R.dimen.spacing_12), 0);
             radioButton.setLayoutParams(radioParams);
-            radioButton.setButtonTintList(ContextCompat.getColorStateList(this, R.color.primary_color));
+            radioButton.setButtonTintList(android.content.res.ColorStateList.valueOf(ThemeColors.get(this, R.color.primary_color)));
             radioButton.setId(View.generateViewId());
             
             TextView textView = new TextView(this);
@@ -112,7 +114,7 @@ public class StartQuizActivity extends AppCompatActivity {
             textView.setLayoutParams(textParams);
             textView.setText(label);
             textView.setTextAppearance(R.style.TextAppearance_SmartQuiz_BodyLarge);
-            textView.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+            textView.setTextColor(ThemeColors.attr(this, R.attr.colorControlText));
             
             cardLayout.addView(radioButton);
             cardLayout.addView(textView);
@@ -137,17 +139,17 @@ public class StartQuizActivity extends AppCompatActivity {
                             TextView tv = (TextView) ll.getChildAt(1);
                             rb.setChecked(false);
                             cv.setCardElevation(getResources().getDimensionPixelSize(R.dimen.elevation_small));
-                            cv.setCardBackgroundColor(ContextCompat.getColor(StartQuizActivity.this, R.color.card_background));
+                            cv.setCardBackgroundColor(ThemeColors.get(StartQuizActivity.this, R.color.card_background));
                             cv.setStrokeWidth(getResources().getDimensionPixelSize(R.dimen.divider_height));
-                            cv.setStrokeColor(ContextCompat.getColor(StartQuizActivity.this, R.color.primary_color));
-                            tv.setTextColor(ContextCompat.getColor(StartQuizActivity.this, R.color.text_primary));
+                            cv.setStrokeColor(ThemeColors.get(StartQuizActivity.this, R.color.primary_color));
+                            tv.setTextColor(ThemeColors.get(StartQuizActivity.this, R.color.text_primary));
                         }
                     }
                     finalRadioButton.setChecked(true);
                     finalCardView.setCardElevation(getResources().getDimensionPixelSize(R.dimen.elevation_medium));
-                    finalCardView.setCardBackgroundColor(ContextCompat.getColor(StartQuizActivity.this, R.color.primary_color));
+                    finalCardView.setCardBackgroundColor(ThemeColors.get(StartQuizActivity.this, R.color.primary_color));
                     finalCardView.setStrokeWidth(getResources().getDimensionPixelSize(R.dimen.divider_height));
-                    finalCardView.setStrokeColor(ContextCompat.getColor(StartQuizActivity.this, R.color.primary_color));
+                    finalCardView.setStrokeColor(ThemeColors.get(StartQuizActivity.this, R.color.primary_color));
                     finalTextView.setTextColor(Color.WHITE);
                     selectedMode = finalValue;
                 }
@@ -156,9 +158,9 @@ public class StartQuizActivity extends AppCompatActivity {
             if (i == 0) {
                 radioButton.setChecked(true);
                 cardView.setCardElevation(getResources().getDimensionPixelSize(R.dimen.elevation_medium));
-                cardView.setCardBackgroundColor(ContextCompat.getColor(this, R.color.primary_color));
+                cardView.setCardBackgroundColor(ThemeColors.attr(this, R.attr.colorPrimary));
                 cardView.setStrokeWidth(getResources().getDimensionPixelSize(R.dimen.divider_height));
-                cardView.setStrokeColor(ContextCompat.getColor(this, R.color.primary_color));
+                cardView.setStrokeColor(ThemeColors.attr(this, R.attr.colorPrimary));
                 textView.setTextColor(Color.WHITE);
                 selectedMode = value;
             }
@@ -197,7 +199,7 @@ public class StartQuizActivity extends AppCompatActivity {
                     typeList.addAll(questionTypes);
                 } else {
                     // 题库为空，提示用户
-                    Toast.makeText(StartQuizActivity.this, "题库为空，请先在题库管理中导入题目", Toast.LENGTH_LONG).show();
+                    Toast.makeText(StartQuizActivity.this, getString(R.string.h_e4c3fc02), Toast.LENGTH_LONG).show();
                 }
 
                 ArrayAdapter<String> adapter = new ArrayAdapter<>(StartQuizActivity.this,
@@ -220,7 +222,7 @@ public class StartQuizActivity extends AppCompatActivity {
                         android.R.layout.simple_spinner_item, typeList);
                 adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                 spinnerQuestionType.setAdapter(adapter);
-                Toast.makeText(StartQuizActivity.this, "题库加载异常，请检查后重试", Toast.LENGTH_SHORT).show();
+                Toast.makeText(StartQuizActivity.this, getString(R.string.h_8c13ee77), Toast.LENGTH_SHORT).show();
             }
         });
     }

@@ -8,22 +8,22 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:padding="@dimen/space_20">
 
         <!-- 配置名称 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="配置名称"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:layout_marginBottom="8dp"/>
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/et_name"
@@ -38,33 +38,33 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="服务类型"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:layout_marginBottom="8dp"/>
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <Spinner
             android:id="@+id/spinner_service_type"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="@dimen/size_56"
             android:background="@drawable/rounded_edittext"
-            android:padding="12dp"
-            android:layout_marginBottom="16dp"/>
+            android:padding="@dimen/space_12"
+            android:layout_marginBottom="@dimen/space_16"/>
 
         <!-- API 地址 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="API 地址"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:layout_marginBottom="8dp"/>
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/et_api_host"
@@ -79,15 +79,15 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="API Key"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:layout_marginBottom="8dp"/>
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             app:endIconMode="password_toggle"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
             <com.google.android.material.textfield.TextInputEditText
@@ -103,30 +103,30 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_test_connection"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
                 android:layout_weight="1"
                 android:text="测试连通性"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/secondary"
-                app:cornerRadius="10dp"
-                android:layout_marginEnd="8dp"/>
+                app:backgroundTint="?attr/colorSecondary"
+                app:cornerRadius="@dimen/radius_10"
+                android:layout_marginEnd="@dimen/space_8"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_fetch_models"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
                 android:layout_weight="1"
                 android:text="获取模型列表"
-                android:textSize="13sp"
+                android:textSize="@dimen/text_13"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/primary"
-                app:cornerRadius="10dp"/>
+                app:backgroundTint="?attr/colorPrimary"
+                app:cornerRadius="@dimen/radius_10"/>
         </LinearLayout>
 
         <!-- 连接状态 -->
@@ -136,31 +136,31 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:padding="12dp"
+            android:padding="@dimen/space_12"
             android:background="@drawable/rounded_card"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             android:visibility="gone">
 
             <View
                 android:id="@+id/status_indicator"
-                android:layout_width="10dp"
-                android:layout_height="10dp"
+                android:layout_width="@dimen/size_10"
+                android:layout_height="@dimen/size_10"
                 android:background="@drawable/status_indicator_unknown"
-                android:layout_marginEnd="8dp"/>
+                android:layout_marginEnd="@dimen/space_8"/>
 
             <TextView
                 android:id="@+id/tv_connection_status"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="等待测试..."
-                android:textSize="13sp"
-                android:textColor="@color/text_secondary"/>
+                android:textSize="@dimen/text_13"
+                android:textColor="?attr/colorControlTextSecondary"/>
 
             <ProgressBar
                 android:id="@+id/pb_testing"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
+                android:layout_width="@dimen/size_20"
+                android:layout_height="@dimen/size_20"
                 android:visibility="gone"/>
         </LinearLayout>
 
@@ -170,40 +170,40 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             android:visibility="gone">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="选择模型"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
-                android:layout_marginBottom="8dp"/>
+                android:textColor="?attr/colorControlText"
+                android:layout_marginBottom="@dimen/space_8"/>
 
             <Spinner
                 android:id="@+id/spinner_model"
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
+                android:layout_height="@dimen/size_56"
                 android:background="@drawable/rounded_edittext"
-                android:padding="12dp"
-                android:layout_marginBottom="8dp"/>
+                android:padding="@dimen/space_12"
+                android:layout_marginBottom="@dimen/space_8"/>
 
             <TextView
                 android:id="@+id/tv_model_list"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="可用模型：加载中..."
-                android:textSize="12sp"
-                android:textColor="@color/text_tertiary"/>
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextHint"/>
         </LinearLayout>
 
         <!-- 隐藏的模型名称输入框，用于保存用户选择的模型 -->
         <EditText
             android:id="@+id/et_model_name"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_0"
             android:visibility="gone"/>
 
         <!-- 使用量显示区域 -->
@@ -212,9 +212,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="12dp"
+            android:padding="@dimen/space_12"
             android:background="@drawable/rounded_card"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             android:visibility="gone">
 
             <LinearLayout
@@ -227,13 +227,13 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="使用量"
-                    android:textSize="14sp"
+                    android:textSize="@dimen/text_14"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
 
                 <View
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_0"
                     android:layout_weight="1"/>
 
                 <TextView
@@ -241,27 +241,27 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0%"
-                    android:textSize="12sp"
-                    android:textColor="@color/primary"/>
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorPrimary"/>
             </LinearLayout>
 
             <ProgressBar
                 android:id="@+id/pb_usage"
                 style="@style/Widget.AppCompat.ProgressBar.Horizontal"
                 android:layout_width="match_parent"
-                android:layout_height="8dp"
-                android:layout_marginVertical="8dp"
+                android:layout_height="@dimen/size_8"
+                android:layout_marginVertical="@dimen/space_8"
                 android:max="100"
                 android:progress="0"
-                android:progressTint="@color/primary"/>
+                android:progressTint="?attr/colorPrimary"/>
 
             <TextView
                 android:id="@+id/tv_usage_detail"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="已用: 0 / 总量: 未知"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"/>
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextSecondary"/>
         </LinearLayout>
 
         <!-- 分类（可选） -->
@@ -269,33 +269,33 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="分类（可选）"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:layout_marginBottom="8dp"/>
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <Spinner
             android:id="@+id/spinner_category"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="@dimen/size_56"
             android:background="@drawable/rounded_edittext"
-            android:padding="12dp"
-            android:layout_marginBottom="16dp"/>
+            android:padding="@dimen/space_12"
+            android:layout_marginBottom="@dimen/space_16"/>
 
         <!-- 超时时间 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="超时时间（秒）"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:layout_marginBottom="8dp"/>
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/et_timeout"
@@ -311,15 +311,15 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="描述（可选）"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:layout_marginBottom="8dp"/>
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
+            android:layout_marginBottom="@dimen/space_8"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/et_description"

@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     android:fillViewport="true"
     android:overScrollMode="always"
     tools:context=".ui.activity.LoginActivity">
@@ -21,19 +21,19 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="32dp">
+            android:padding="@dimen/space_32">
 
             <com.google.android.material.card.MaterialCardView
-                android:layout_width="80dp"
-                android:layout_height="80dp"
+                android:layout_width="@dimen/size_80"
+                android:layout_height="@dimen/size_80"
                 app:cardCornerRadius="24dp"
                 app:cardElevation="8dp"
-                app:cardBackgroundColor="@color/primary"
-                android:layout_marginBottom="24dp">
+                app:cardBackgroundColor="?attr/colorPrimary"
+                android:layout_marginBottom="@dimen/space_24">
 
                 <ImageView
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="@dimen/size_48"
+                    android:layout_height="@dimen/size_48"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_check_circle"
                     android:tint="@android:color/white"
@@ -45,17 +45,17 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/app_name"
-                android:textSize="28sp"
+                android:textSize="@dimen/text_28"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"
-                android:layout_marginBottom="8dp" />
+                android:textColor="?attr/colorControlText"
+                android:layout_marginBottom="@dimen/space_8" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/welcome_back"
-                android:textSize="16sp"
-                android:textColor="@color/text_secondary" />
+                android:textSize="@dimen/text_16"
+                android:textColor="?attr/colorControlTextSecondary" />
 
         </LinearLayout>
 
@@ -63,26 +63,26 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="16dp"
+            android:layout_marginHorizontal="@dimen/space_16"
             app:cardCornerRadius="24dp"
             app:cardElevation="4dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="24dp">
+                android:padding="@dimen/space_24">
 
                 <!-- 邮箱输入框 -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/emailInputLayout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
+                    android:layout_marginBottom="@dimen/space_16"
                     android:hint="@string/email_hint"
                     app:startIconDrawable="@drawable/ic_person"
-                    app:startIconTint="@color/primary"
+                    app:startIconTint="?attr/colorPrimary"
                     app:boxCornerRadiusTopStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
@@ -94,8 +94,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textEmailAddress"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_tertiary" />
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlTextHint" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -104,12 +104,12 @@
                     android:id="@+id/passwordInputLayout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
+                    android:layout_marginBottom="@dimen/space_8"
                     android:hint="@string/password_hint"
                     app:startIconDrawable="@drawable/ic_settings"
-                    app:startIconTint="@color/primary"
+                    app:startIconTint="?attr/colorPrimary"
                     app:endIconMode="password_toggle"
-                    app:endIconTint="@color/primary"
+                    app:endIconTint="?attr/colorPrimary"
                     app:boxCornerRadiusTopStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
@@ -121,8 +121,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="textPassword"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_tertiary" />
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlTextHint" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -134,23 +134,23 @@
                     android:layout_gravity="end"
                     android:text="@string/forgot_password"
                     android:textAllCaps="false"
-                    android:textColor="@color/primary"
-                    android:layout_marginBottom="24dp"
+                    android:textColor="?attr/colorPrimary"
+                    android:layout_marginBottom="@dimen/space_24"
                     style="@style/Widget.MaterialComponents.Button.TextButton" />
 
                 <!-- 登录按钮 -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/loginButton"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="@dimen/size_56"
                     android:text="@string/login_button"
                     android:textAllCaps="false"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textColor="@android:color/white"
-                    app:backgroundTint="@color/primary"
-                    app:cornerRadius="12dp"
-                    app:elevation="4dp"
-                    app:rippleColor="@color/primary_light" />
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_12"
+                    app:elevation="@dimen/elev_4"
+                    app:rippleColor="?attr/colorPrimaryContainer" />
 
                 <!-- 加载进度条 -->
                 <ProgressBar
@@ -158,9 +158,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="@dimen/space_16"
                     android:visibility="gone"
-                    android:indeterminateTint="@color/primary" />
+                    android:indeterminateTint="?attr/colorPrimary" />
 
             </LinearLayout>
 
@@ -172,15 +172,15 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center"
-            android:padding="24dp">
+            android:padding="@dimen/space_24">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/no_account"
-                android:textSize="14sp"
-                android:textColor="@color/text_secondary"
-                android:layout_marginEnd="8dp" />
+                android:textSize="@dimen/text_14"
+                android:textColor="?attr/colorControlTextSecondary"
+                android:layout_marginEnd="@dimen/space_8" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/registerButton"
@@ -188,18 +188,18 @@
                 android:layout_height="wrap_content"
                 android:text="@string/register_button"
                 android:textAllCaps="false"
-                android:textSize="14sp"
-                android:textColor="@color/primary"
+                android:textSize="@dimen/text_14"
+                android:textColor="?attr/colorPrimary"
                 style="@style/Widget.MaterialComponents.Button.TextButton" />
 
         </LinearLayout>
 
         <!-- 底部装饰 -->
         <View
-            android:layout_width="120dp"
-            android:layout_height="4dp"
+            android:layout_width="@dimen/size_120"
+            android:layout_height="@dimen/size_4"
             android:background="@drawable/bg_icon_circle"
-            android:layout_marginBottom="32dp" />
+            android:layout_marginBottom="@dimen/space_32" />
 
     </LinearLayout>
 

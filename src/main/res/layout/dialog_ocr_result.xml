@@ -3,15 +3,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="@dimen/space_16">
 
     <EditText
         android:id="@+id/et_ocr_result"
         android:layout_width="match_parent"
-        android:layout_height="200dp"
+        android:layout_height="@dimen/size_200"
         android:inputType="textMultiLine"
         android:gravity="top"
-        android:padding="12dp"
+        android:padding="@dimen/space_12"
         android:background="@android:drawable/editbox_background_normal"
         android:hint="识别结果将显示在这里" />
 
@@ -19,8 +19,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="提示：您可以编辑识别结果后再导入" 
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/gray"
-        android:layout_marginTop="8dp" />
+        android:layout_marginTop="@dimen/space_8" />
 
 </LinearLayout>

@@ -163,6 +163,24 @@ public class QWeatherCityManager {
         return result;
     }
 
+    /**
+     * 在用户消息中查找命中的城市名（按长度降序，最长匹配优先）。
+     * 用于天气意图提取：直接把用户消息与内置城市表比对，避免正则提取把
+     * "查询下/看一下/今天"等动词·时间词吞进地名（如"查询下五台县的天气"→"五台县"）。
+     */
+    public List<String> findCityNamesInMessage(String message) {
+        List<String> result = new ArrayList<>();
+        if (message == null || message.isEmpty() || !initialized) return result;
+        for (CityEntry city : allCities) {
+            String name = city.nameZh;
+            if (name != null && name.length() >= 2 && message.contains(name)) {
+                result.add(name);
+            }
+        }
+        result.sort((a, b) -> b.length() - a.length());
+        return result;
+    }
+
     public List<CityEntry> getHotCities() {
         String[] hotCityNames = {"北京", "上海", "广州", "深圳", "杭州", "成都", "武汉", "西安",
                 "南京", "重庆", "天津", "苏州", "长沙", "郑州", "青岛", "大连"};

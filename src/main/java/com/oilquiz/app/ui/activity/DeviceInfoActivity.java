@@ -28,7 +28,7 @@ public class DeviceInfoActivity extends AppCompatActivity {
         try {
             ActionBar actionBar = getSupportActionBar();
             if (actionBar != null) {
-                actionBar.setTitle("设备信息");
+                actionBar.setTitle(getString(R.string.h_b967fdef));
                 actionBar.setDisplayHomeAsUpEnabled(true);
             }
         } catch (Exception e) {
@@ -48,7 +48,7 @@ public class DeviceInfoActivity extends AppCompatActivity {
             if (btnRefresh != null) {
                 btnRefresh.setOnClickListener(v -> {
                     btnRefresh.setEnabled(false);
-                    btnRefresh.setText("刷新中...");
+                    btnRefresh.setText(getString(R.string.h_6441bd25));
                     loadDeviceInfo();
                 });
             }
@@ -90,50 +90,50 @@ public class DeviceInfoActivity extends AppCompatActivity {
                 boolean isAdreno = DeviceDetector.isAdrenoGPU();
                 String adrenoSeries = isAdreno ? DeviceDetector.getAdrenoSeries() : null;
                 
-                deviceInfo.append("品牌: ").append(brand != null ? brand : "未知").append("\n");
-                deviceInfo.append("型号: ").append(model != null ? model : "未知").append("\n");
-                deviceInfo.append("设备: ").append(device != null ? device : "未知").append("\n");
-                deviceInfo.append("硬件: ").append(hardware != null ? hardware : "未知").append("\n");
-                deviceInfo.append("GPU: ").append(gpu != null ? gpu : "未知").append("\n");
+                deviceInfo.append(getString(R.string.h_9690fbfc)).append(brand != null ? brand : getString(R.string.h_1622dc9b)).append("\n");
+                deviceInfo.append(getString(R.string.h_3bab779c)).append(model != null ? model : getString(R.string.h_1622dc9b)).append("\n");
+                deviceInfo.append(getString(R.string.h_963669d9)).append(device != null ? device : getString(R.string.h_1622dc9b)).append("\n");
+                deviceInfo.append(getString(R.string.h_49bfe273)).append(hardware != null ? hardware : getString(R.string.h_1622dc9b)).append("\n");
+                deviceInfo.append("GPU: ").append(gpu != null ? gpu : getString(R.string.h_1622dc9b)).append("\n");
                 
                 if (isAdreno && adrenoSeries != null) {
-                    deviceInfo.append("GPU系列: ").append(adrenoSeries).append("\n");
+                    deviceInfo.append(getString(R.string.h_d70c3110)).append(adrenoSeries).append("\n");
                 }
                 
-                deviceInfo.append("CPU核心: ").append(cpuCores).append(" 核").append("\n");
-                deviceInfo.append("总内存: ").append(formatMemory(totalMemory)).append("\n");
-                deviceInfo.append("可用内存: ").append(formatMemory(freeMemory)).append("\n");
-                deviceInfo.append("Android版本: ").append(androidVersion).append("\n");
-                deviceInfo.append("ABI架构: ").append(abis != null ? abis : "未知").append("\n");
+                deviceInfo.append(getString(R.string.h_99950eb0)).append(cpuCores).append(" 核").append("\n");
+                deviceInfo.append(getString(R.string.h_5a86cc25)).append(formatMemory(totalMemory)).append("\n");
+                deviceInfo.append(getString(R.string.h_df803b12)).append(formatMemory(freeMemory)).append("\n");
+                deviceInfo.append(getString(R.string.h_0d0b5e32)).append(androidVersion).append("\n");
+                deviceInfo.append(getString(R.string.h_53254fc6)).append(abis != null ? abis : getString(R.string.h_1622dc9b)).append("\n");
                 
             } catch (Exception e) {
                 Log.e(TAG, "Error getting device info: " + e.getMessage());
-                deviceInfo.append("获取设备信息失败: ").append(e.getMessage()).append("\n");
+                deviceInfo.append(getString(R.string.h_b4258c60)).append(e.getMessage()).append("\n");
             }
             
             try {
                 boolean libLoaded = LlamaHelper.isLibraryLoaded();
-                openclSummary.append("Native库: ").append(libLoaded ? "已加载 ✅" : "未加载 ❌").append("\n");
+                openclSummary.append(getString(R.string.h_92824b02)).append(libLoaded ? getString(R.string.h_c0c2057f) : getString(R.string.h_5b0b0982)).append("\n");
                 
                 if (libLoaded) {
                     boolean openclLoaded = LlamaHelper.isOpenCLLoaded();
                     boolean gpuWorking = LlamaHelper.isGPUWorking();
                     boolean modelInit = LlamaHelper.isModelInitialized();
                     
-                    openclSummary.append("OpenCL库: ").append(openclLoaded ? "已加载 ✅" : "未加载 ❌").append("\n");
+                    openclSummary.append(getString(R.string.h_d3af0136)).append(openclLoaded ? getString(R.string.h_c0c2057f) : getString(R.string.h_5b0b0982)).append("\n");
                     
                     if (openclLoaded) {
-                        openclSummary.append("GPU加速: ");
+                        openclSummary.append(getString(R.string.h_4beb4f75));
                         if (gpuWorking) {
-                            openclSummary.append("已启用 ✅\n");
+                            openclSummary.append(getString(R.string.h_7cffd96e));
                         } else {
-                            openclSummary.append("已就绪（等待模型加载）⚠️\n");
+                            openclSummary.append(getString(R.string.h_921ae75f));
                         }
                     } else {
-                        openclSummary.append("GPU加速: 未启用（OpenCL不可用）❌\n");
+                        openclSummary.append(getString(R.string.h_a13d4391));
                     }
                     
-                    openclSummary.append("模型初始化: ").append(modelInit ? "已加载 ✅" : "未加载 ⚠️").append("\n");
+                    openclSummary.append(getString(R.string.h_98053d3c)).append(modelInit ? getString(R.string.h_c0c2057f) : getString(R.string.h_09fe0fff)).append("\n");
                     
                     int gpuLayers = 0;
                     int threadCount = 0;
@@ -146,16 +146,16 @@ public class DeviceInfoActivity extends AppCompatActivity {
                         Log.e(TAG, "Error getting GPU layers/threads: " + e.getMessage());
                     }
                     
-                    openclSummary.append("\n📊 运行时配置:\n");
+                    openclSummary.append(getString(R.string.h_790b0f05));
                     if (gpuLayers > 0) {
-                        openclSummary.append("   GPU层数: ").append(gpuLayers).append(" / 全部\n");
-                        openclSummary.append("   加速模式: GPU + CPU 混合\n");
+                        openclSummary.append(getString(R.string.h_4e1617ff)).append(gpuLayers).append(getString(R.string.h_0c717857));
+                        openclSummary.append(getString(R.string.h_97c01f1d));
                     } else {
-                        openclSummary.append("   GPU层数: 0\n");
-                        openclSummary.append("   加速模式: 纯CPU\n");
+                        openclSummary.append(getString(R.string.h_689a7244));
+                        openclSummary.append(getString(R.string.h_91808686));
                     }
-                    openclSummary.append("   线程数: ").append(threadCount).append("\n");
-                    openclSummary.append("   批处理大小: ").append(batchSize).append("\n");
+                    openclSummary.append(getString(R.string.h_e245509d)).append(threadCount).append("\n");
+                    openclSummary.append(getString(R.string.h_2e8e2dff)).append(batchSize).append("\n");
                     
                     try {
                         String gpuInfoJson = LlamaHelper.detectGPUInfo();
@@ -178,14 +178,14 @@ public class DeviceInfoActivity extends AppCompatActivity {
                             int doubleVectorWidth = json.optInt("doubleVectorWidth", 0);
                             boolean isAdreno = json.optBoolean("isAdreno", false);
                             
-                            openclSummary.append("\n🎮 GPU硬件信息:\n");
-                            openclSummary.append("   设备: ").append(gpuName).append("\n");
+                            openclSummary.append(getString(R.string.h_f986d5f8));
+                            openclSummary.append(getString(R.string.h_96078d40)).append(gpuName).append("\n");
                             if (isAdreno) {
-                                openclSummary.append("   厂商: Qualcomm Adreno\n");
+                                openclSummary.append(getString(R.string.h_2f2a469a));
                             }
                             
-                            openclSummary.append("\n🔧 后端支持:\n");
-                            openclSummary.append("   OpenCL: ").append(openclLoaded ? "已加载" : "未加载");
+                            openclSummary.append(getString(R.string.h_cecbcbbb));
+                            openclSummary.append("   OpenCL: ").append(openclLoaded ? getString(R.string.h_bec33d31) : getString(R.string.h_467b3e03));
                             if (!openclVersion.isEmpty() && !openclVersion.equals("Unknown")) {
                                 openclSummary.append(" (v").append(openclVersion).append(")");
                             }
@@ -193,48 +193,48 @@ public class DeviceInfoActivity extends AppCompatActivity {
                             openclSummary.append("   Vulkan: ").append(vulkanVersion).append("\n");
                             
                             if (globalMemoryMB > 0) {
-                                openclSummary.append("\n💾 显存信息:\n");
-                                openclSummary.append("   总显存: ").append(formatMemory(globalMemoryMB)).append("\n");
+                                openclSummary.append(getString(R.string.h_a33eb547));
+                                openclSummary.append(getString(R.string.h_73a1214e)).append(formatMemory(globalMemoryMB)).append("\n");
                             }
                             
-                            openclSummary.append("\n⚡ 计算能力:\n");
+                            openclSummary.append(getString(R.string.h_c199f08c));
                             if (maxComputeUnits > 0) {
-                                openclSummary.append("   计算单元: ").append(maxComputeUnits).append(" EU\n");
+                                openclSummary.append(getString(R.string.h_9604bfc3)).append(maxComputeUnits).append(" EU\n");
                             }
                             if (maxFrequencyMHz > 0) {
-                                openclSummary.append("   频率: ").append(maxFrequencyMHz).append(" MHz\n");
+                                openclSummary.append(getString(R.string.h_c1d852fa)).append(maxFrequencyMHz).append(" MHz\n");
                             }
                             
-                            openclSummary.append("\n✅ 浮点支持:\n");
+                            openclSummary.append(getString(R.string.h_cee4b0b1));
                             if (supportsFP16) {
-                                openclSummary.append("   FP16: 支持 ✅");
+                                openclSummary.append(getString(R.string.h_23a8aa37));
                                 if (halfVectorWidth > 0) {
-                                    openclSummary.append(" (向量宽度: ").append(halfVectorWidth).append(")");
+                                    openclSummary.append(getString(R.string.h_238ba2fa)).append(halfVectorWidth).append(")");
                                 }
                                 openclSummary.append("\n");
                             }
                             if (supportsBF16) {
-                                openclSummary.append("   BF16: 支持 ✅\n");
+                                openclSummary.append(getString(R.string.h_8d87e7f3));
                             }
                             if (supportsFP32) {
-                                openclSummary.append("   FP32: 支持 ✅");
+                                openclSummary.append(getString(R.string.h_27574b57));
                                 if (floatVectorWidth > 0) {
-                                    openclSummary.append(" (向量宽度: ").append(floatVectorWidth).append(")");
+                                    openclSummary.append(getString(R.string.h_238ba2fa)).append(floatVectorWidth).append(")");
                                 }
                                 openclSummary.append("\n");
                             }
                             if (supportsFP64) {
-                                openclSummary.append("   FP64: 支持 ✅\n");
+                                openclSummary.append(getString(R.string.h_89d76665));
                             }
                             if (!supportedFPtypes.isEmpty() && !supportedFPtypes.equals("Unknown")) {
-                                openclSummary.append("\n支持类型: ").append(supportedFPtypes).append("\n");
+                                openclSummary.append(getString(R.string.h_0c7ce23a)).append(supportedFPtypes).append("\n");
                             }
                         } else {
-                            openclSummary.append("GPU检测: 未检测到详细信息\n");
+                            openclSummary.append(getString(R.string.h_9c69dc4d));
                         }
                     } catch (Exception e) {
                         Log.e(TAG, "Error parsing GPU info: " + e.getMessage(), e);
-                        openclSummary.append("GPU检测: 解析失败 (").append(e.getMessage()).append(")\n");
+                        openclSummary.append(getString(R.string.h_60df6a17)).append(e.getMessage()).append(")\n");
                     }
                     
                     try {
@@ -244,13 +244,13 @@ public class DeviceInfoActivity extends AppCompatActivity {
                         openclDetail[0] = "获取详细信息失败: " + e.getMessage();
                     }
                 } else {
-                    openclSummary.append("\nNative库尚未加载，无法获取GPU信息\n");
-                    openclSummary.append("请先在AI服务页面初始化模型\n");
+                    openclSummary.append(getString(R.string.h_3bbc5f19));
+                    openclSummary.append(getString(R.string.h_a27e9f97));
                     openclDetail[0] = "Native库未加载";
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Error getting OpenCL info: " + e.getMessage(), e);
-                openclSummary.append("\n获取加速信息失败: ").append(e.getMessage());
+                openclSummary.append(getString(R.string.h_02e1d6c4)).append(e.getMessage());
                 openclDetail[0] = "获取加速信息失败: " + e.getMessage();
             }
             
@@ -266,7 +266,7 @@ public class DeviceInfoActivity extends AppCompatActivity {
                 }
                 if (btnRefresh != null) {
                     btnRefresh.setEnabled(true);
-                    btnRefresh.setText("刷新");
+                    btnRefresh.setText(getString(R.string.h_694fc5ef));
                 }
             });
         }).start();

@@ -153,11 +153,12 @@ public class LocationTool implements AITool {
             parameters.put("action", parameters.get("type"));
         }
         
-        // get_location -> get_current
+        // get_location -> get_current；current 兼容旧提示词写法
         Object action = parameters.get("action");
         if (action != null) {
             String actionStr = action.toString();
-            if ("get_location".equals(actionStr) || "location".equals(actionStr)) {
+            if ("get_location".equals(actionStr) || "location".equals(actionStr)
+                    || "current".equals(actionStr)) {
                 parameters.put("action", "get_current");
             } else if ("get_position".equals(actionStr)) {
                 parameters.put("action", "get_coordinates");

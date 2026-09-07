@@ -1,6 +1,8 @@
 package com.oilquiz.app.infra;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import com.oilquiz.app.util.AILogger;
@@ -12,9 +14,15 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Pattern;
 
 /**
  * 应用级日志记录器
@@ -68,8 +76,62 @@ public class AppLogger {
     private static boolean logsModified = false; // 标记日志是否有修改
     private static StringBuilder pendingLogs = new StringBuilder(); // 待写入的日志缓冲区
     private static final int MAX_BUFFER_SIZE = 1024 * 10; // 10KB 缓冲区大小阈值
-    private static final long FLUSH_INTERVAL = 5 * 60 * 1000; // 5分钟自动刷新间隔
+    private static final long FLUSH_INTERVAL = 1000; // 1秒自动刷新间隔（缩短间隔降低崩溃丢日志风险）
+    private static final int MAX_ROTATED_KEEP = 3; // 每个日志文件保留的轮转份数
     private static long lastFlushTime = System.currentTimeMillis();
+
+    // ========== 实时监听器与结构化日志 ==========
+
+    /**
+     * 日志监听器：每次新增日志时回调（主线程），供日志界面实时刷新
+     */
+    public interface LogListener {
+        void onLogAdded(LogRecord record);
+    }
+
+    /**
+     * 结构化日志记录（时间戳、级别、标签、消息）
+     */
+    public static class LogRecord {
+        public long timestamp;
+        public String level;
+        public String tag;
+        public String message;
+
+        public LogRecord(long timestamp, String level, String tag, String message) {
+            this.timestamp = timestamp;
+            this.level = level;
+            this.tag = tag;
+            this.message = message;
+        }
+    }
+
+    private static final CopyOnWriteArrayList<LogListener> logListeners = new CopyOnWriteArrayList<>();
+    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    public static void addLogListener(LogListener listener) {
+        if (listener != null && !logListeners.contains(listener)) {
+            logListeners.add(listener);
+        }
+    }
+
+    public static void removeLogListener(LogListener listener) {
+        logListeners.remove(listener);
+    }
+
+    private static void notifyListeners(final LogRecord record) {
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                for (LogListener listener : logListeners) {
+                    try {
+                        listener.onLogAdded(record);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        });
+    }
 
     /**
      * 初始化日志记录器
@@ -256,13 +318,21 @@ public class AppLogger {
 
         // 格式化日志条目并添加到缓冲区
         String logEntry = formatLogEntry(level, tag, message);
+        boolean immediateFlush = level.getLevel() >= LogLevel.WARN.getLevel(); // WARN/ERROR/CRASH 立即落盘
         synchronized (fileLock) {
             pendingLogs.append(logEntry);
             logsModified = true;
-            
-            // 检查是否需要自动刷新
-            checkAndFlush();
+
+            if (immediateFlush) {
+                flushLogs();
+            } else {
+                // 检查是否需要自动刷新
+                checkAndFlush();
+            }
         }
+
+        // 通知监听器（实时日志流）
+        notifyListeners(new LogRecord(System.currentTimeMillis(), level.getSymbol(), tag, message));
     }
 
     /**
@@ -331,14 +401,15 @@ public class AppLogger {
 
         synchronized (fileLock) {
             try {
-                // 检查文件大小，如果超过限制则进行清理
+                // 检查文件大小：应用/崩溃日志超过限制时按大小轮转（保留最近 3 份），
+                // 而不是简单裁剪——轮转保证旧日志可追溯且不丢失历史
                 if (logFile.exists()) {
-                    if (fileName.equals(CRASH_LOG_FILE) && logFile.length() > MAX_CRASH_LOG_SIZE) {
-                        trimLogFileInternal(logFile, MAX_CRASH_LOG_LINES);
+                    if (fileName.equals(APP_LOG_FILE) && logFile.length() > MAX_LOG_SIZE) {
+                        rotateLogFile(logFile);
+                    } else if (fileName.equals(CRASH_LOG_FILE) && logFile.length() > MAX_CRASH_LOG_SIZE) {
+                        rotateLogFile(logFile);
                     } else if (fileName.equals(AI_LOG_FILE) && logFile.length() > MAX_AI_LOG_SIZE) {
                         trimLogFileInternal(logFile, MAX_AI_LOG_LINES);
-                    } else if (logFile.length() > MAX_LOG_SIZE) {
-                        trimLogFileInternal(logFile, MAX_LOG_LINES);
                     }
                 }
 
@@ -351,6 +422,48 @@ public class AppLogger {
             } catch (IOException e) {
                 Log.e(TAG, "写入日志文件失败: " + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * 按大小轮转日志文件：当前文件 → .1，.1 → .2，.2 → .3（丢弃最旧的 .3），
+     * 随后新建空文件作为当前文件。必须在 fileLock 内调用。
+     */
+    private static void rotateLogFile(File logFile) {
+        try {
+            File dir = logFile.getParentFile();
+            if (dir == null) {
+                return;
+            }
+
+            File f3 = new File(dir, logFile.getName() + ".3");
+            File f2 = new File(dir, logFile.getName() + ".2");
+            File f1 = new File(dir, logFile.getName() + ".1");
+
+            if (f3.exists() && !f3.delete()) {
+                Log.w(TAG, "删除最旧轮转日志失败: " + f3.getName());
+            }
+            if (f2.exists() && !f2.renameTo(f3)) {
+                Log.w(TAG, "轮转日志失败(.2→.3): " + f2.getName());
+            }
+            if (f1.exists() && !f1.renameTo(f2)) {
+                Log.w(TAG, "轮转日志失败(.1→.2): " + f1.getName());
+            }
+            if (!logFile.renameTo(f1)) {
+                Log.w(TAG, "轮转日志失败(当前→.1): " + logFile.getName());
+            }
+
+            try {
+                if (!logFile.createNewFile()) {
+                    Log.w(TAG, "新建轮转后日志文件失败: " + logFile.getName());
+                }
+            } catch (IOException e) {
+                Log.e(TAG, "新建轮转后日志文件异常: " + e.getMessage());
+            }
+
+            Log.i(TAG, "日志文件已轮转: " + logFile.getName());
+        } catch (Exception e) {
+            Log.e(TAG, "日志文件轮转失败: " + e.getMessage(), e);
         }
     }
 
@@ -869,6 +982,141 @@ public class AppLogger {
      */
     public static boolean isInitialized() {
         return isInitialized;
+    }
+
+    // ========== 结构化日志读取（供统一日志中心使用） ==========
+
+    /**
+     * 读取应用日志（含轮转文件）为结构化记录，最新在前，最多 3000 条
+     */
+    public static List<LogRecord> getStructuredLogs() {
+        List<LogRecord> records = new ArrayList<>();
+        synchronized (fileLock) {
+            for (String content : readAllRotatedContents(APP_LOG_FILE)) {
+                parseAppLogContent(content, records);
+            }
+        }
+        Collections.sort(records, (a, b) -> Long.compare(b.timestamp, a.timestamp));
+        if (records.size() > 3000) {
+            return new ArrayList<>(records.subList(0, 3000));
+        }
+        return records;
+    }
+
+    /**
+     * 读取崩溃报告（含轮转文件）为结构化记录，最新在前
+     */
+    public static List<LogRecord> getCrashReports() {
+        List<LogRecord> reports = new ArrayList<>();
+        synchronized (fileLock) {
+            for (String content : readAllRotatedContents(CRASH_LOG_FILE)) {
+                parseCrashReports(content, reports);
+            }
+        }
+        Collections.sort(reports, (a, b) -> Long.compare(b.timestamp, a.timestamp));
+        return reports;
+    }
+
+    /**
+     * 解析应用日志文本为结构化记录；无法匹配时间戳的行作为上一条的多行消息续行
+     */
+    private static void parseAppLogContent(String content, List<LogRecord> records) {
+        if (content == null || content.isEmpty()) {
+            return;
+        }
+        String[] lines = content.split("\n");
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
+        LogRecord last = null;
+        for (String line : lines) {
+            if (line == null || line.isEmpty()) {
+                continue;
+            }
+            try {
+                String[] parts = line.split(Pattern.quote(" | "), 4);
+                if (parts.length >= 4) {
+                    Date date = sdf.parse(parts[0].trim());
+                    if (date != null) {
+                        last = new LogRecord(date.getTime(), parts[1].trim(), parts[2].trim(), parts[3].trim());
+                        records.add(last);
+                        continue;
+                    }
+                }
+            } catch (ParseException e) {
+                // 非标准日志行，走续行处理
+            }
+            if (last != null) {
+                last.message = last.message + "\n" + line;
+            }
+        }
+    }
+
+    /**
+     * 解析崩溃日志文本，按报告块切分为结构化记录
+     */
+    private static void parseCrashReports(String content, List<LogRecord> reports) {
+        if (content == null || content.isEmpty()) {
+            return;
+        }
+        String banner = "═══════════════════════════════════════\n           应用崩溃报告";
+        String[] blocks = content.split(Pattern.quote(banner));
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault());
+        for (String block : blocks) {
+            if (block == null || block.trim().isEmpty()) {
+                continue;
+            }
+            long ts = System.currentTimeMillis();
+            for (String line : block.split("\n")) {
+                if (line.startsWith("崩溃时间: ")) {
+                    try {
+                        Date d = sdf.parse(line.substring("崩溃时间: ".length()).trim());
+                        if (d != null) {
+                            ts = d.getTime();
+                        }
+                    } catch (ParseException ignored) {
+                    }
+                    break;
+                }
+            }
+            reports.add(new LogRecord(ts, "E", "崩溃报告", block.trim()));
+        }
+    }
+
+    /**
+     * 读取指定日志文件及其全部轮转文件的内容（当前文件在前）
+     */
+    private static List<String> readAllRotatedContents(String fileName) {
+        List<String> contents = new ArrayList<>();
+        File current = getLogFile(fileName);
+        if (current == null) {
+            return contents;
+        }
+        List<File> files = new ArrayList<>();
+        files.add(current);
+        File dir = current.getParentFile();
+        if (dir != null) {
+            for (int i = 1; i <= MAX_ROTATED_KEEP; i++) {
+                File rotated = new File(dir, current.getName() + "." + i);
+                if (rotated.exists()) {
+                    files.add(rotated);
+                }
+            }
+        }
+        for (File file : files) {
+            if (file.length() > 10 * 1024 * 1024) {
+                continue; // 超过 10MB 跳过，防止 OOM
+            }
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line).append("\n");
+                }
+            } catch (IOException e) {
+                Log.e(TAG, "读取日志失败: " + file.getName() + " - " + e.getMessage());
+            }
+            contents.add(sb.toString());
+        }
+        return contents;
     }
 }
 

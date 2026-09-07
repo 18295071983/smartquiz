@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.util.Log;
 
 import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.ai.util.NetworkUtil;
 import com.oilquiz.app.util.AILogger;
 
@@ -38,6 +39,7 @@ import okhttp3.Response;
  *
  * API Key：优先参数 api_key，否则取当前在线模型配置（默认业务空间）的 key。
  */
+@Tool(value = "dashscope_media", category = "media")
 public class DashscopeMediaTool implements AITool {
     private static final String TAG = "DashscopeMediaTool";
 

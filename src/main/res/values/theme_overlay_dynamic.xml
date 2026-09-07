@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        系统动态色 overlay（Material You / 系统控件主题）：
+        开启后 App 控件配色直接映射到 Android 12+ 原生动态色资源（@android:color/system_*）。
+        这些资源由系统按壁纸实时生成，并自带 day/night 变体：
+        - 换壁纸 → 控件配色自动跟随（无需 App 重建）；
+        - 系统深/浅色切换 → 自动切换深浅配色。
+        注意：style 名含点会被 aapt 当作隐式子样式（父样式 ThemeOverlay 由 material 库提供，
+        故不使用带点命名，避免隐式父样式解析）；色值档位只能用系统资源实际存在的
+        0/10/50/100/200…/1000 阶梯（无 90/60 尾数）。
+        由 ThemeManager.isSystemDynamicColor() 控制：开启时注入本 overlay，
+        关闭时注入 7 预设色 + 24 色相网格自定义 overlay（theme_overlays.xml）。
+    -->
+    <style name="OilQuizDynamicOverlay">
+        <item name="colorPrimary">@android:color/system_accent1_500</item>
+        <item name="colorPrimaryVariant">@android:color/system_accent1_700</item>
+        <item name="colorOnPrimary">@android:color/system_accent1_100</item>
+        <item name="colorPrimaryContainer">@android:color/system_accent1_100</item>
+        <item name="colorOnPrimaryContainer">@android:color/system_accent1_900</item>
+
+        <item name="colorSecondary">@android:color/system_accent2_500</item>
+        <item name="colorSecondaryVariant">@android:color/system_accent2_100</item>
+        <item name="colorOnSecondary">@android:color/system_accent2_900</item>
+        <item name="colorSecondaryContainer">@android:color/system_accent2_100</item>
+        <item name="colorOnSecondaryContainer">@android:color/system_accent2_900</item>
+
+        <item name="colorSurface">@android:color/system_neutral1_10</item>
+        <item name="colorOnSurface">@android:color/system_neutral1_900</item>
+        <item name="colorOnSurfaceVariant">@android:color/system_neutral2_800</item>
+        <item name="colorSurfaceVariant">@android:color/system_neutral2_200</item>
+        <item name="colorOutline">@android:color/system_neutral2_500</item>
+
+        <item name="colorBackground">@android:color/system_neutral1_10</item>
+        <item name="colorOnBackground">@android:color/system_neutral1_900</item>
+        <item name="android:windowBackground">@android:color/system_neutral1_10</item>
+        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+
+        <!-- 控件色板（动态色档位）：控件底色 + 控件文字色 -->
+        <item name="colorControlBackground">@android:color/system_neutral2_200</item>
+        <item name="colorControlText">@android:color/system_neutral1_900</item>
+        <item name="colorControlTextSecondary">@android:color/system_neutral2_800</item>
+        <item name="colorControlTextHint">@android:color/system_neutral2_800</item>
+        <item name="colorControlTextDisabled">@android:color/system_neutral2_500</item>
+        <item name="colorCardBackground">@android:color/system_neutral1_10</item>
+        <item name="colorOnCard">@android:color/system_neutral1_900</item>
+        <item name="colorInputBackground">@android:color/system_neutral2_200</item>
+        <item name="colorOnInput">@android:color/system_neutral1_900</item>
+        <item name="colorDivider">@android:color/system_neutral2_500</item>
+        <item name="colorAppBarBackground">@android:color/system_neutral1_10</item>
+        <item name="colorOnAppBar">@android:color/system_neutral1_900</item>
+
+        <item name="colorError">@android:color/system_error_light</item>
+        <item name="colorOnError">@android:color/system_on_error_light</item>
+    </style>
+</resources>

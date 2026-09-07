@@ -14,6 +14,7 @@
 
     <!-- 存储权限 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
 
@@ -74,15 +75,18 @@
     <application
         android:name=".SmartQuizApplication"
         android:allowBackup="true"
+        android:localeConfig="@xml/locales_config"
         android:networkSecurityConfig="@xml/network_security_config"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.OilQuizApp"
         android:largeHeap="true"
-        tools:targetApi="31">
+        tools:targetApi="31"
+        tools:replace="android:theme,android:roundIcon">
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
         <receiver
             android:name=".infra.DebugKeyReceiver"
@@ -122,9 +126,6 @@
         </activity>
 
         <activity
-            android:name=".ui.activity.UserActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.activity.QuestionActivity"
             android:exported="false" />
         <activity
@@ -155,25 +156,13 @@
             android:name=".ui.activity.ThemeActivity"
             android:exported="false" />
         <activity
-            android:name=".ui.activity.ThemeColorActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.activity.DeviceInfoActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ui.activity.StatisticsActivity"
             android:exported="false" />
         <activity
             android:name=".ui.activity.LanguageActivity"
             android:exported="false" />
         <activity
-            android:name=".ui.activity.QuestionBankActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.activity.QuestionDetailActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ui.activity.QuestionEditActivity"
             android:exported="false" />
         <activity
             android:name=".ui.activity.TemplateManagerActivity"
@@ -214,9 +203,6 @@
             android:name=".ui.activity.FieldManagementActivity"
             android:exported="false" />
         <activity
-            android:name=".ui.activity.TestActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.activity.HistoryActivity"
             android:exported="false" />
         <activity
@@ -229,9 +215,6 @@
             android:name=".ui.activity.WebViewFilePreviewActivity"
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
-        <activity
-            android:name=".ui.activity.SimpleFilePreviewActivity"
-            android:exported="false" />
         <activity
             android:name=".ui.activity.SmartMappingActivity"
             android:exported="false" />
@@ -286,31 +269,17 @@
             android:theme="@style/Theme.OilQuizApp"
             android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
 
-        <!-- LibreOfficeKit 文档预览 Activity -->
-        <activity
-            android:name=".ui.activity.LibreOfficeKitPreviewActivity"
-            android:exported="false"
-            android:theme="@style/Theme.OilQuizApp"
-            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
-
-        <!-- OnlyOffice 文档预览 Activity -->
-        <activity
-            android:name=".ui.activity.OnlyOfficePreviewActivity"
-            android:exported="false"
-            android:theme="@style/Theme.OilQuizApp"
-            android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
-
-        <activity
-            android:name=".ui.activity.AboutActivity"
-            android:exported="false"
-            android:theme="@style/Theme.OilQuizApp" />
-
         <activity
             android:name=".ui.activity.ModelImportActivity"
             android:exported="false" />
 
         <activity
             android:name=".ui.activity.ModelDownloadActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OilQuizApp" />
+
+        <activity
+            android:name=".ui.activity.AIServiceInitActivity"
             android:exported="false"
             android:theme="@style/Theme.OilQuizApp" />
 
@@ -365,10 +334,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".ui.activity.TokenizerDemoActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".ui.activity.AIIconDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.OilQuizApp" />
@@ -381,12 +346,6 @@
         <activity
             android:name=".ai.model.ModelComparisonActivity"
             android:exported="false" />
-
-        <activity
-            android:name=".ui.activity.ThemeSwitcherActivity"
-            android:exported="false"
-            android:label="色系切换"
-            android:theme="@style/Theme.OilQuizApp" />
 
         <activity
             android:name=".ui.activity.EnvironmentCheckActivity"

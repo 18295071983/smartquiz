@@ -464,8 +464,6 @@ public class APIKeyManager {
                 return buildOpenAIUrl(apiHost, "https://api.anthropic.com", "/models");
             case APIConfig.ServiceType.GOOGLE:
                 return "https://generativelanguage.googleapis.com/v1/models?key=" + config.getApiKey();
-            case APIConfig.ServiceType.OPENWEATHERMAP:
-                return "https://api.openweathermap.org/data/2.5/weather?q=London&appid=" + config.getApiKey();
             case APIConfig.ServiceType.HEFENG_WEATHER:
                 return (apiHost != null ? apiHost : "https://m278m2y7ak.re.qweatherapi.com") + 
                        "/v7/weather/now?location=101010100&key=" + config.getApiKey();
@@ -787,7 +785,6 @@ public class APIKeyManager {
             if (lowerHost.contains("openai")) return APIConfig.ServiceType.OPENAI;
             if (lowerHost.contains("anthropic")) return APIConfig.ServiceType.ANTHROPIC;
             if (lowerHost.contains("google")) return APIConfig.ServiceType.GOOGLE;
-            if (lowerHost.contains("openweathermap")) return APIConfig.ServiceType.OPENWEATHERMAP;
             if (lowerHost.contains("qweather") || lowerHost.contains("hefeng")) return APIConfig.ServiceType.HEFENG_WEATHER;
             if (lowerHost.contains("bing")) return APIConfig.ServiceType.BING_SEARCH;
         }
@@ -961,7 +958,6 @@ public class APIKeyManager {
     }
 
     public static class Service {
-        public static final String OPENWEATHERMAP = "openweathermap";
         public static final String HEFENG_WEATHER = "hefeng_weather";
         public static final String OPENAI = "openai";
         public static final String GOOGLE_MAPS = "google_maps";

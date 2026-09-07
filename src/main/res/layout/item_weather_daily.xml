@@ -12,25 +12,25 @@
         android:id="@+id/tv_daily_day"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="13sp"
+        android:textSize="@dimen/text_13"
         android:textColor="@color/future_text_secondary"
-        android:minWidth="56dp" />
+        android:minWidth="@dimen/min_56" />
 
     <TextView
         android:id="@+id/tv_daily_icon"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="10dp"
-        android:textSize="20sp"
+        android:layout_marginStart="@dimen/space_10"
+        android:textSize="@dimen/text_20"
         android:textColor="@color/future_text_primary" />
 
     <TextView
         android:id="@+id/tv_daily_text"
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_weight="1"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:textSize="12sp"
+        android:layout_marginStart="@dimen/space_8"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/future_text_tertiary"
         android:maxLines="1"
         android:ellipsize="end" />
@@ -39,22 +39,22 @@
         android:id="@+id/tv_daily_low"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="13sp"
+        android:textSize="@dimen/text_13"
         android:textColor="@color/future_text_tertiary" />
 
     <com.oilquiz.app.ui.widget.TempRangeBarView
         android:id="@+id/bar_daily_temp"
-        android:layout_width="0dp"
+        android:layout_width="@dimen/size_0"
         android:layout_weight="1.2"
-        android:layout_height="24dp"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp" />
+        android:layout_height="@dimen/size_24"
+        android:layout_marginStart="@dimen/space_8"
+        android:layout_marginEnd="@dimen/space_8" />
 
     <TextView
         android:id="@+id/tv_daily_high"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textStyle="bold"
         android:textColor="@color/future_text_primary" />
 </LinearLayout>

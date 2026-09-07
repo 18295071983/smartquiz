@@ -4,23 +4,23 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <!-- 标题 -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="🌐 在线模型"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textStyle="bold"
-        android:textColor="@color/text_primary"
+        android:textColor="?attr/colorControlText"
         android:paddingVertical="8dp"/>
 
     <!-- 在线模型列表 -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_online_models"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"/>
 
     <!-- 添加按钮 -->
@@ -29,11 +29,11 @@
         style="@style/Widget.Material3.Button.OutlinedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="@dimen/space_8"
         android:text="+ 添加 API 配置"
-        android:textSize="13sp"
+        android:textSize="@dimen/text_13"
         app:icon="@drawable/ic_add"
         app:iconSize="18dp"
-        app:cornerRadius="20dp"/>
+        app:cornerRadius="@dimen/radius_20"/>
 
 </LinearLayout>

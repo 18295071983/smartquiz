@@ -75,7 +75,7 @@ public class SmartMappingActivity extends AppCompatActivity {
         
         if (file == null || fieldMapping == null) {
             showErrorState("加载数据失败：文件或字段映射为空");
-            Toast.makeText(this, "无法加载文件数据，请重新选择文件", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_5dfff497), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -144,7 +144,7 @@ public class SmartMappingActivity extends AppCompatActivity {
                     setResult(RESULT_OK, resultIntent);
                     finish();
                 } else {
-                    Toast.makeText(SmartMappingActivity.this, "映射数据未就绪", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(SmartMappingActivity.this, getString(R.string.h_c05afd45), Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -231,7 +231,7 @@ public class SmartMappingActivity extends AppCompatActivity {
                 @Override
                 public void run() {
                     showErrorState("文件不存在或已删除");
-                    Toast.makeText(SmartMappingActivity.this, "文件不存在，请重新选择", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(SmartMappingActivity.this, getString(R.string.h_1d2266e8), Toast.LENGTH_SHORT).show();
                 }
             });
             return;
@@ -242,7 +242,7 @@ public class SmartMappingActivity extends AppCompatActivity {
                 @Override
                 public void run() {
                     showErrorState("字段映射为空");
-                    Toast.makeText(SmartMappingActivity.this, "字段映射配置无效", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(SmartMappingActivity.this, getString(R.string.h_9ef41211), Toast.LENGTH_SHORT).show();
                 }
             });
             return;
@@ -291,7 +291,7 @@ public class SmartMappingActivity extends AppCompatActivity {
                         @Override
                         public void run() {
                             showErrorState("生成映射建议失败: " + e.getMessage());
-                            Toast.makeText(SmartMappingActivity.this, "生成映射建议失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            Toast.makeText(SmartMappingActivity.this, getString(R.string.h_a02aa476) + e.getMessage(), Toast.LENGTH_SHORT).show();
                         }
                     });
                 }
@@ -337,7 +337,7 @@ public class SmartMappingActivity extends AppCompatActivity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                statusText.setText("分析失败");
+                statusText.setText(getString(R.string.h_6aee2d39));
                 progressDetailText.setText(message);
                 progressBar.setVisibility(View.GONE);
             }

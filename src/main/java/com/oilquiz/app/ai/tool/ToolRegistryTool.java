@@ -136,10 +136,22 @@ public class ToolRegistryTool implements AITool {
 
     private AIToolResult getToolSchema(String toolName) {
         try {
-            com.oilquiz.app.ai.tool.openai.ToolDefinition def = com.oilquiz.app.ai.tool.AIToolManager
-                    .getInstance(context).getToolDefinition(toolName);
+            com.oilquiz.app.ai.tool.AIToolManager mgr = com.oilquiz.app.ai.tool.AIToolManager
+                    .getInstance(context);
+            // 模糊解析：模型可能用猜测名（"weather"→"ai_weather"），命中则返回真实工具 schema
+            String resolved = mgr.resolveToolNameFuzzy(toolName);
+            String effective = resolved != null ? resolved : toolName;
+            com.oilquiz.app.ai.tool.openai.ToolDefinition def = mgr.getToolDefinition(effective);
             if (def == null) {
-                return new AIToolResult("工具不存在: " + toolName, null);
+                String hint = "";
+                if (resolved == null) {
+                    // 给出候选，帮助模型纠正工具名
+                    java.util.List<String> candidates = mgr.searchToolNamesByKeyword(toolName, 5);
+                    if (!candidates.isEmpty()) {
+                        hint = "，相近工具: " + String.join(", ", candidates);
+                    }
+                }
+                return new AIToolResult("工具不存在: " + toolName + hint + "（用 tool_registry(list) 查看全部）", null);
             }
             JSONObject schema = new JSONObject();
             schema.put("name", def.getName());
@@ -152,12 +164,17 @@ public class ToolRegistryTool implements AITool {
                     prop.put("description", p.getDescription() != null ? p.getDescription() : "");
                     prop.put("required", p.isRequired());
                     if (p.getDefaultValue() != null) prop.put("default", p.getDefaultValue());
+                    // 枚举值一并返回：模型探测工具时能看清 action/type 的全部可选值，不被限制为默认值
+                    if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
+                        prop.put("enum", new JSONArray(p.getEnumValues()));
+                    }
                     parameters.put(p.getName(), prop);
                 }
             }
             schema.put("parameters", parameters);
             Map<String, Object> result = new HashMap<>();
-            result.put("tool", toolName);
+            result.put("tool", def.getName());
+            result.put("requested_tool", toolName);
             result.put("schema", schema.toString());
             return new AIToolResult(result, null);
         } catch (Exception e) {

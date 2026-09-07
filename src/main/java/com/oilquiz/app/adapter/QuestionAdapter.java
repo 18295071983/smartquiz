@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static final int TYPE_HEADER = 0;
@@ -114,7 +115,7 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
 
         // 题型
         String type = question.getQuestionType();
-        h.questionTypeTextView.setText(type != null ? type : "未分类");
+        h.questionTypeTextView.setText(type != null ? type : context.getString(R.string.h_ecf7ebb5));
 
         // 题目内容（完整显示）
         h.questionTextTextView.setText(question.getQuestionText() != null ? question.getQuestionText() : "");
@@ -160,7 +161,7 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             if (showAnswer) {
                 h.answerTextView.setVisibility(View.VISIBLE);
                 String displayAnswer = question.getDisplayAnswer();
-                h.answerTextView.setText("答案: " + displayAnswer);
+                h.answerTextView.setText(context.getString(R.string.h_2bac46d1) + displayAnswer);
             } else {
                 h.answerTextView.setVisibility(View.GONE);
             }
@@ -231,8 +232,8 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             letterView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             letterView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             letterView.setTextColor(isCorrect
-                ? 0xFF4CAF50  // success green
-                : 0xFF666666);
+                ? ThemeColors.get(R.color.hc_ff4caf50)  // success green
+                : ThemeColors.get(R.color.hc_ff666666));
             letterView.setGravity(android.view.Gravity.CENTER);
             int letterSize = (int) (28 * density);
             LinearLayout.LayoutParams letterLp = new LinearLayout.LayoutParams(letterSize, letterSize);
@@ -244,8 +245,8 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             contentView.setText(value);
             contentView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
             contentView.setTextColor(isCorrect
-                ? 0xFF4CAF50
-                : 0xFF333333);
+                ? ThemeColors.get(R.color.hc_ff4caf50)
+                : ThemeColors.get(R.color.hc_ff333333));
             contentView.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             optionRow.addView(contentView);
@@ -312,7 +313,7 @@ public class QuestionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
 
         if (showAnswer && text != null && !text.isEmpty()) {
             h.explanationTextView.setVisibility(View.VISIBLE);
-            h.explanationTextView.setText("💡 解析: " + text);
+            h.explanationTextView.setText(context.getString(R.string.h_9d5e8d04) + text);
         } else {
             h.explanationTextView.setVisibility(View.GONE);
         }

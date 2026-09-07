@@ -4,41 +4,41 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.DeviceInfoActivity">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             app:cardElevation="4dp"
             app:cardCornerRadius="16dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="设备基本信息"
-                    android:textSize="18sp"
+                    android:textSize="@dimen/text_18"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
                 <TextView
                     android:id="@+id/device_info_text_view"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:textSize="14sp"
-                    android:textColor="@color/text_secondary"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="6dp"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -46,30 +46,30 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             app:cardElevation="4dp"
             app:cardCornerRadius="16dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="AI 加速状态"
-                    android:textSize="18sp"
+                    android:textSize="@dimen/text_18"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
                 <TextView
                     android:id="@+id/opencl_status_text_view"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="@dimen/space_12"
                     android:text="加载中..."
-                    android:textSize="14sp"
-                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorControlText"
                     android:lineSpacingExtra="6dp"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -77,30 +77,30 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/space_16"
             app:cardElevation="4dp"
             app:cardCornerRadius="16dp"
-            app:cardBackgroundColor="@color/card_background">
+            app:cardBackgroundColor="?attr/colorCardBackground">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="@dimen/space_16">
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="GPU 设备检测"
-                    android:textSize="18sp"
+                    android:textSize="@dimen/text_18"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
                 <TextView
                     android:id="@+id/opencl_info_text_view"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="@dimen/space_12"
                     android:text="加载中..."
-                    android:textSize="12sp"
-                    android:textColor="@color/text_secondary"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:lineSpacingExtra="4dp"
                     android:fontFamily="monospace"/>
             </LinearLayout>
@@ -112,9 +112,9 @@
             android:layout_height="wrap_content"
             android:text="刷新"
             android:textAllCaps="false"
-            android:textColor="@color/on_primary"
-            app:backgroundTint="@color/primary"
-            app:cornerRadius="12dp"/>
+            android:textColor="?attr/colorOnPrimary"
+            app:backgroundTint="?attr/colorPrimary"
+            app:cornerRadius="@dimen/radius_12"/>
 
     </LinearLayout>
 

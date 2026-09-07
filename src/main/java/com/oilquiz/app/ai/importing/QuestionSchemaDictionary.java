@@ -14,8 +14,68 @@ import org.json.JSONObject;
  */
 public class QuestionSchemaDictionary {
 
-    /** 题目类型枚举值 */
-    private static final String[] QUESTION_TYPES = {"单选", "多选", "判断", "填空", "简答"};
+    // ======================== 标准题型（全系统唯一权威口径） ========================
+    // 与 com.oilquiz.app.model.Question 的 TYPE_* 常量保持一致；
+    // 入库 questionType 统一为以下 5 种带"题"字格式，其他任何写法（英文/缩写/扩展题型）在
+    // normalizeQuestionType 收口处映射到本组常量。
+
+    /** 单选题 */
+    public static final String TYPE_SINGLE = "单选题";
+    /** 多选题 */
+    public static final String TYPE_MULTIPLE = "多选题";
+    /** 判断题 */
+    public static final String TYPE_TRUE_FALSE = "判断题";
+    /** 填空题 */
+    public static final String TYPE_FILL = "填空题";
+    /** 简答题（含问答/案例分析/计算/综合等主观题） */
+    public static final String TYPE_SHORT_ANSWER = "简答题";
+    /** 未分类（推断兜底值，非标准题型，入库前应被上层忽略或补填） */
+    public static final String TYPE_UNCLASSIFIED = "未分类";
+
+    /** 标准题型枚举值（schema enum 用） */
+    private static final String[] QUESTION_TYPES = {
+            TYPE_SINGLE, TYPE_MULTIPLE, TYPE_TRUE_FALSE, TYPE_FILL, TYPE_SHORT_ANSWER
+    };
+
+    /**
+     * 题型归一化收口：任意写法 → 标准 5 种之一；无法识别返回 null（视为未分类）。
+     * <p>
+     * 覆盖中文全称/简称、英文及缩写（single/multiple/judge/fill/short、sc/mc/tf 等），
+     * 并将扩展主观题型（案例分析/论述/计算/综合/问答）归并为"简答题"。
+     * 空值/无法识别返回 null，由调用方决定是置"未分类"还是置空不填充。
+     */
+    public static String normalizeQuestionType(String raw) {
+        if (raw == null) return null;
+        String t = raw.trim();
+        if (t.isEmpty()) return null;
+        String lc = t.toLowerCase(java.util.Locale.ROOT);
+
+        if (t.contains("多选") || lc.contains("multiple") || lc.matches(".*\\bmc\\b.*")) {
+            return TYPE_MULTIPLE;
+        }
+        if (t.contains("单选") || t.contains("单项选择") || lc.contains("single")
+                || lc.matches(".*\\bsc\\b.*")) {
+            return TYPE_SINGLE;
+        }
+        if (t.contains("判断") || t.contains("对错") || t.contains("是非")
+                || lc.contains("truefalse") || lc.contains("true/false")
+                || lc.contains("judge") || lc.contains("tf")) {
+            return TYPE_TRUE_FALSE;
+        }
+        if (t.contains("填空") || t.contains("完形") || lc.contains("fill") || lc.contains("blank")) {
+            return TYPE_FILL;
+        }
+        if (t.contains("简答") || t.contains("问答") || t.contains("主观")
+                || t.contains("案例") || t.contains("论述") || t.contains("计算") || t.contains("综合")
+                || lc.contains("short") || lc.contains("answer") || lc.contains("saq")) {
+            return TYPE_SHORT_ANSWER;
+        }
+        // 泛指"选择题"按单选处理
+        if (t.contains("选择") || lc.contains("choice")) {
+            return TYPE_SINGLE;
+        }
+        return null;
+    }
 
     private QuestionSchemaDictionary() {
         // 工具类，禁止实例化
@@ -109,7 +169,7 @@ public class QuestionSchemaDictionary {
                 + "2. optionA~L: 选择题选项内容（A~L共12列支持）。无选项的题填\"\"\n"
                 + "3. blankAnswer1~12: 填空题的标准答案（对应空1~空12）。无填空填\"\"\n"
                 + "4. correctAnswer: 最终正确答案。单选填字母(A/B/C/D...)，判断填(对/错)，多选按字母升序填(ABC/ABD...)，填空/简答/问答填答案文本，案例分析填要点\n"
-                + "5. questionType: 题型。优先使用文本开头 DEFAULT_QUESTION_TYPE 提示的统一默认值（若存在）；否则自行判断。取值仅能是以下之一：单选题、多选题、判断题、填空题、简答题、问答题、案例分析题、匹配题、计算题、综合题、未分类\n"
+                + "5. questionType: 题型。优先使用文本开头 DEFAULT_QUESTION_TYPE 提示的统一默认值（若存在）；否则自行判断。取值仅能是以下之一：单选题、多选题、判断题、填空题、简答题（问答题/案例分析/计算/综合等主观题均归为简答题）\n"
                 + "6. category: 分类或科目，原文无则填\"通用\"\n"
                 + "7. explanation/knowledgePoint/difficulty: 解析、知识点、难度（可选，空填\"\"，难度取 简单/中等/困难）\n\n"
                 + "## 提取规则\n"

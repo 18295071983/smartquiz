@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    tools:context=".AIModelDownloadActivity">
+    >
 
     <!-- 顶部导航栏 -->
     <androidx.appcompat.widget.Toolbar
@@ -27,31 +27,31 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
     <!-- HTTP下载部分 -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="HTTP下载"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:textStyle="bold"
-        android:layout_marginBottom="16dp"/>
+        android:layout_marginBottom="@dimen/space_16"/>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@android:color/background_light"
-        android:padding="16dp"
-        android:elevation="2dp"
-        android:layout_marginBottom="24dp">
+        android:padding="@dimen/space_16"
+        android:elevation="@dimen/elev_2"
+        android:layout_marginBottom="@dimen/space_24">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="模型URL:"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <EditText
             android:id="@+id/editTextModelUrl"
@@ -65,8 +65,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="模型文件名:"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginTop="@dimen/space_16"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <EditText
             android:id="@+id/editTextModelName"
@@ -82,7 +82,7 @@
             android:text="HTTP下载"
             android:backgroundTint="@android:color/holo_blue_dark"
             android:textColor="@android:color/white"
-            android:layout_marginTop="16dp"/>
+            android:layout_marginTop="@dimen/space_16"/>
     </LinearLayout>
 
     <!-- Git拉取部分 -->
@@ -90,24 +90,24 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Git拉取"
-        android:textSize="18sp"
+        android:textSize="@dimen/text_18"
         android:textStyle="bold"
-        android:layout_marginBottom="16dp"/>
+        android:layout_marginBottom="@dimen/space_16"/>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@android:color/background_light"
-        android:padding="16dp"
-        android:elevation="2dp"
-        android:layout_marginBottom="24dp">
+        android:padding="@dimen/space_16"
+        android:elevation="@dimen/elev_2"
+        android:layout_marginBottom="@dimen/space_24">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Git仓库URL:"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <EditText
             android:id="@+id/editTextGitUrl"
@@ -121,8 +121,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Git分支:"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginTop="@dimen/space_16"
+            android:layout_marginBottom="@dimen/space_8"/>
 
         <EditText
             android:id="@+id/editTextGitBranch"
@@ -138,7 +138,7 @@
             android:text="Git拉取"
             android:backgroundTint="@android:color/holo_blue_dark"
             android:textColor="@android:color/white"
-            android:layout_marginTop="16dp"/>
+            android:layout_marginTop="@dimen/space_16"/>
     </LinearLayout>
 
     <!-- 下载状态 -->
@@ -147,8 +147,8 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@android:color/background_light"
-        android:padding="16dp"
-        android:elevation="2dp">
+        android:padding="@dimen/space_16"
+        android:elevation="@dimen/elev_2">
 
         <ProgressBar
             android:id="@+id/progressBar"
@@ -157,7 +157,7 @@
             android:progress="0"
             android:max="100"
             android:indeterminate="false"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="@dimen/space_16"/>
 
         <TextView
             android:id="@+id/textViewStatus"
@@ -165,7 +165,7 @@
             android:layout_height="wrap_content"
             android:text="准备就绪"
             android:gravity="center"
-            android:textSize="16sp"/>
+            android:textSize="@dimen/text_16"/>
     </LinearLayout>
 
     </LinearLayout>

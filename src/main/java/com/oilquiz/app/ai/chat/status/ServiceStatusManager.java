@@ -16,6 +16,7 @@ import com.oilquiz.app.ai.inference.InferenceRouter;
 
 import java.util.List;
 
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 管理 AI 服务状态栏的显示、加载计时器、状态详情对话框。
  * 从 AIChatActivity 中提取的独立模块。
@@ -174,7 +175,7 @@ public class ServiceStatusManager {
 
         boolean libLoaded = com.oilquiz.app.ai.jni.LlamaHelper.isLibraryLoaded();
         libValue.setText(libLoaded ? "\u2713 已加载" : "\u2717 未加载");
-        libValue.setTextColor(libLoaded ? 0xFF4CAF50 : 0xFFF44336);
+        libValue.setTextColor(libLoaded ? ThemeColors.get(R.color.hc_ff4caf50) : ThemeColors.get(R.color.hc_fff44336));
 
         String modelName = aiService.getCurrentModelName();
         modelValue.setText(modelName != null ? modelName : "未选择");

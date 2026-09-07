@@ -193,9 +193,9 @@ public class DatabaseManagementActivity extends AppCompatActivity {
 
                             btnUpgrade.setEnabled(!isUpgrading.get());
                             if (!upgradeInfo.needUpgrade) {
-                                btnUpgrade.setText("已是最新");
+                                btnUpgrade.setText(getString(R.string.h_72ac9a72));
                             } else {
-                                btnUpgrade.setText("立即升级");
+                                btnUpgrade.setText(getString(R.string.h_6b4a7fd3));
                             }
                         }
                     });
@@ -205,8 +205,8 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                 if (isValid()) {
                     runOnUiThread(() -> {
                         if (isValid()) {
-                            tvCurrentVersion.setText("获取失败");
-                            Toast.makeText(this, "加载数据库信息失败", Toast.LENGTH_SHORT).show();
+                            tvCurrentVersion.setText(getString(R.string.h_56f0a1c0));
+                            Toast.makeText(this, getString(R.string.h_82e4ce0b), Toast.LENGTH_SHORT).show();
                         }
                     });
                 }
@@ -269,7 +269,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
         DatabaseVersionChecker.UpgradeInfo info = dbManager.getVersionInfo();
 
         if (!info.needUpgrade) {
-            Toast.makeText(this, "数据库已是最新版本", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_0931bdea), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -278,10 +278,10 @@ public class DatabaseManagementActivity extends AppCompatActivity {
             info.currentVersion, info.latestVersion, info.versionsBehind);
 
         if (info.forceUpgrade) {
-            message += "⚠️ 版本过低，建议立即升级\n\n";
+            message += getString(R.string.h_b2395c13);
         }
 
-        message += "升级内容:\n";
+        message += getString(R.string.h_f6360a4e);
         List<String> changes = DatabaseVersionChecker.getChangeSummary(
             info.currentVersion, info.latestVersion);
         for (String change : changes) {
@@ -289,22 +289,22 @@ public class DatabaseManagementActivity extends AppCompatActivity {
         }
 
         new AlertDialog.Builder(this)
-            .setTitle("数据库更新")
+            .setTitle(getString(R.string.h_e1255531))
             .setMessage(message)
-            .setPositiveButton("立即升级", (dialog, which) -> performUpgrade())
-            .setNegativeButton("稍后再说", null)
+            .setPositiveButton(getString(R.string.h_6b4a7fd3), (dialog, which) -> performUpgrade())
+            .setNegativeButton(getString(R.string.h_87e4d9ef), null)
             .show();
     }
 
     private void performUpgrade() {
         if (isUpgrading.get()) {
-            Toast.makeText(this, "升级正在进行中", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_55c30e82), Toast.LENGTH_SHORT).show();
             return;
         }
 
         ProgressDialog progressDialog = new ProgressDialog(this);
-        progressDialog.setTitle("正在升级数据库");
-        progressDialog.setMessage("请稍候...");
+        progressDialog.setTitle(getString(R.string.h_f263e97e));
+        progressDialog.setMessage(getString(R.string.h_885cd96f));
         progressDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
         progressDialog.setMax(100);
         progressDialog.setCancelable(false);
@@ -320,7 +320,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
             @Override
             public void onUpgradeStart(int fromVersion, int toVersion) {
                 runOnUiThread(() -> {
-                    progressDialog.setMessage(String.format("准备升级 v%d → v%d",
+                    progressDialog.setMessage(String.format(getString(R.string.h_4ffa7e4b),
                         fromVersion, toVersion));
                 });
             }
@@ -342,7 +342,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                     layoutUpgradeProgress.setVisibility(View.GONE);
                     isUpgrading.set(false);
 
-                    Toast.makeText(DatabaseManagementActivity.this, "升级成功！", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(DatabaseManagementActivity.this, getString(R.string.h_c854b481), Toast.LENGTH_SHORT).show();
                     loadDatabaseInfo();
                 });
             }
@@ -356,10 +356,10 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                     btnUpgrade.setEnabled(true);
 
                     new AlertDialog.Builder(DatabaseManagementActivity.this)
-                        .setTitle("升级失败")
-                        .setMessage("错误: " + error + "\n\n是否尝试回滚到备份？")
-                        .setPositiveButton("回滚", (d, w) -> performRestore())
-                        .setNegativeButton("取消", null)
+                        .setTitle(getString(R.string.h_4ae2f0a2))
+                        .setMessage(getString(R.string.h_7449367f) + error + getString(R.string.h_0402c89c))
+                        .setPositiveButton(getString(R.string.h_d00b485b), (d, w) -> performRestore())
+                        .setNegativeButton(getString(R.string.h_625fb26b), null)
                         .show();
                 });
             }
@@ -379,17 +379,17 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
                     if (backupPath != null) {
-                        Toast.makeText(this, "备份成功！\n" + backupPath,
+                        Toast.makeText(this, getString(R.string.h_57f444fd) + backupPath,
                             Toast.LENGTH_LONG).show();
                         loadBackupList();
                     } else {
-                        Toast.makeText(this, "备份失败", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_6af91784), Toast.LENGTH_SHORT).show();
                     }
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
-                    Toast.makeText(this, "备份失败: " + e.getMessage(),
+                    Toast.makeText(this, getString(R.string.h_30e37f96) + e.getMessage(),
                         Toast.LENGTH_SHORT).show();
                 });
             }
@@ -400,23 +400,23 @@ public class DatabaseManagementActivity extends AppCompatActivity {
         List<String> backups = dbManager.getBackupList();
 
         if (backups.isEmpty()) {
-            Toast.makeText(this, "没有可用的备份", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_24d4178e), Toast.LENGTH_SHORT).show();
             return;
         }
 
         String[] backupNames = backups.toArray(new String[0]);
 
         new AlertDialog.Builder(this)
-            .setTitle("选择要恢复的备份")
+            .setTitle(getString(R.string.h_3b5af6de))
             .setItems(backupNames, (dialog, which) -> {
                 new AlertDialog.Builder(this)
-                    .setTitle("确认恢复")
-                    .setMessage("恢复备份将覆盖当前数据！\n\n建议先进行备份。")
-                    .setPositiveButton("恢复", (d, w) -> performRestore())
-                    .setNegativeButton("取消", null)
+                    .setTitle(getString(R.string.h_841e5e89))
+                    .setMessage(getString(R.string.h_df56fb63))
+                    .setPositiveButton(getString(R.string.h_c7db6d4f), (d, w) -> performRestore())
+                    .setNegativeButton(getString(R.string.h_625fb26b), null)
                     .show();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -431,16 +431,16 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
                     if (success) {
-                        Toast.makeText(this, "恢复成功！", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_b0a72d0a), Toast.LENGTH_SHORT).show();
                         loadDatabaseInfo();
                     } else {
-                        Toast.makeText(this, "恢复失败", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_2e827d23), Toast.LENGTH_SHORT).show();
                     }
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
-                    Toast.makeText(this, "恢复失败: " + e.getMessage(),
+                    Toast.makeText(this, getString(R.string.h_1c65e1df) + e.getMessage(),
                         Toast.LENGTH_SHORT).show();
                 });
             }
@@ -458,21 +458,21 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
                     if (valid) {
-                        Toast.makeText(this, "数据库完整，无异常",
+                        Toast.makeText(this, getString(R.string.h_7439efc2),
                             Toast.LENGTH_SHORT).show();
                     } else {
                         new AlertDialog.Builder(this)
-                            .setTitle("验证失败")
-                            .setMessage("数据库可能存在损坏，建议备份后重置。")
-                            .setPositiveButton("备份", (d, w) -> performBackup())
-                            .setNegativeButton("稍后", null)
+                            .setTitle(getString(R.string.h_e441b11e))
+                            .setMessage(getString(R.string.h_283b00a6))
+                            .setPositiveButton(getString(R.string.h_664b37da), (d, w) -> performBackup())
+                            .setNegativeButton(getString(R.string.h_bb86dd5c), null)
                             .show();
                     }
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
-                    Toast.makeText(this, "验证失败: " + e.getMessage(),
+                    Toast.makeText(this, getString(R.string.h_9b42e577) + e.getMessage(),
                         Toast.LENGTH_SHORT).show();
                 });
             }
@@ -481,17 +481,17 @@ public class DatabaseManagementActivity extends AppCompatActivity {
 
     private void showResetConfirmDialog() {
         new AlertDialog.Builder(this)
-            .setTitle("⚠️ 危险操作")
-            .setMessage("重置将清空所有数据！\n\n此操作不可恢复。\n\n建议先进行完整备份。")
-            .setPositiveButton("我已备份，继续", (dialog, which) -> {
+            .setTitle(getString(R.string.h_019ff44b))
+            .setMessage(getString(R.string.h_f08e9aaf))
+            .setPositiveButton(getString(R.string.h_4ae53e6e), (dialog, which) -> {
                 new AlertDialog.Builder(this)
-                    .setTitle("再次确认")
-                    .setMessage("确定要重置数据库吗？\n\n所有题目、笔记、学习记录都将被删除！")
-                    .setPositiveButton("确定重置", (d, w) -> performReset())
-                    .setNegativeButton("取消", null)
+                    .setTitle(getString(R.string.h_b44aad55))
+                    .setMessage(getString(R.string.h_069893f5))
+                    .setPositiveButton(getString(R.string.h_bcaeb727), (d, w) -> performReset())
+                    .setNegativeButton(getString(R.string.h_625fb26b), null)
                     .show();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -506,16 +506,16 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
                     if (success) {
-                        Toast.makeText(this, "重置成功！", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_eb0c7067), Toast.LENGTH_SHORT).show();
                         loadDatabaseInfo();
                     } else {
-                        Toast.makeText(this, "重置失败", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_4d713822), Toast.LENGTH_SHORT).show();
                     }
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     progressDialog.dismiss();
-                    Toast.makeText(this, "重置失败: " + e.getMessage(),
+                    Toast.makeText(this, getString(R.string.h_9601d5fc) + e.getMessage(),
                         Toast.LENGTH_SHORT).show();
                 });
             }
@@ -524,21 +524,21 @@ public class DatabaseManagementActivity extends AppCompatActivity {
 
     private void clearOldBackups() {
         new AlertDialog.Builder(this)
-            .setTitle("清理备份")
-            .setMessage("清理后将保留最近 5 个备份。\n\n确定要清理吗？")
-            .setPositiveButton("清理", (d, w) -> {
-                Toast.makeText(this, "旧备份已清理", Toast.LENGTH_SHORT).show();
+            .setTitle(getString(R.string.h_fc336172))
+            .setMessage(getString(R.string.h_fe2a6a6e))
+            .setPositiveButton(getString(R.string.h_e47bb1cd), (d, w) -> {
+                Toast.makeText(this, getString(R.string.h_f6b61a3a), Toast.LENGTH_SHORT).show();
                 loadBackupList();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
     private void initializeDatabase() {
         new AlertDialog.Builder(this)
-            .setTitle("初始化数据库")
-            .setMessage("初始化数据库将重新创建当前数据库结构。\n\n这将：\n• 保留现有数据库版本\n• 重新初始化所有表结构\n• 清除所有数据\n\n是否继续？\n\n建议先进行备份。")
-            .setPositiveButton("初始化", (d, w) -> {
+            .setTitle(getString(R.string.h_063127ae))
+            .setMessage(getString(R.string.h_df4ec7d3))
+            .setPositiveButton(getString(R.string.h_2cb472ff), (d, w) -> {
                 ProgressDialog progressDialog = ProgressDialog.show(
                     this, "初始化数据库", "正在初始化...", true, false);
 
@@ -549,21 +549,21 @@ public class DatabaseManagementActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             progressDialog.dismiss();
                             if (success) {
-                                Toast.makeText(this, "数据库初始化完成", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(this, getString(R.string.h_37d8dc3f), Toast.LENGTH_SHORT).show();
                                 loadDatabaseInfo();
                             } else {
-                                Toast.makeText(this, "数据库初始化失败", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(this, getString(R.string.h_7052f598), Toast.LENGTH_SHORT).show();
                             }
                         });
                     } catch (Exception e) {
                         runOnUiThread(() -> {
                             progressDialog.dismiss();
-                            Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, getString(R.string.h_58c10e4c) + e.getMessage(), Toast.LENGTH_SHORT).show();
                         });
                     }
                 }).start();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -574,7 +574,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
     private boolean reinitializeDatabase(ProgressDialog progressDialog) {
         try {
             runOnUiThread(() -> {
-                progressDialog.setMessage("关闭数据库连接...");
+                progressDialog.setMessage(getString(R.string.h_948b0db8));
             });
 
             // 1. 关闭现有数据库连接
@@ -584,7 +584,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
             Thread.sleep(500);
 
             runOnUiThread(() -> {
-                progressDialog.setMessage("删除旧数据库文件...");
+                progressDialog.setMessage(getString(R.string.h_ea9abdb9));
             });
 
             // 2. 删除现有数据库文件
@@ -607,7 +607,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
             }
 
             runOnUiThread(() -> {
-                progressDialog.setMessage("创建新数据库...");
+                progressDialog.setMessage(getString(R.string.h_ede419fa));
             });
 
             // 3. 重新创建数据库
@@ -617,7 +617,7 @@ public class DatabaseManagementActivity extends AppCompatActivity {
             }
 
             runOnUiThread(() -> {
-                progressDialog.setMessage("初始化完成");
+                progressDialog.setMessage(getString(R.string.h_741e41f5));
             });
 
             // 等待一下确保数据库创建完成
@@ -633,10 +633,10 @@ public class DatabaseManagementActivity extends AppCompatActivity {
     private void toggleVersionHistory() {
         if (rvVersionHistory.getVisibility() == View.VISIBLE) {
             rvVersionHistory.setVisibility(View.GONE);
-            tvVersionHistoryToggle.setText("展开");
+            tvVersionHistoryToggle.setText(getString(R.string.h_e2edde5a));
         } else {
             rvVersionHistory.setVisibility(View.VISIBLE);
-            tvVersionHistoryToggle.setText("收起");
+            tvVersionHistoryToggle.setText(getString(R.string.h_def9e98b));
         }
     }
 

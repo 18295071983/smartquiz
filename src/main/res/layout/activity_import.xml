@@ -5,25 +5,25 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/background"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.ImportActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:elevation="0dp">
+        app:elevation="@dimen/elev_0">
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/surface"
+            android:background="?attr/colorSurface"
             app:title="导入功能"
-            app:titleTextColor="@color/on_surface"/>
+            app:titleTextColor="?attr/colorOnSurface"/>
     </com.google.android.material.appbar.AppBarLayout>
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:fillViewport="true">
         
@@ -31,7 +31,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
             
             <!-- 进度条 -->
             <ProgressBar
@@ -41,8 +41,8 @@
                 android:indeterminate="false"
                 android:max="100"
                 android:progress="0"
-                android:progressTint="@color/primary"
-                android:layout_marginBottom="16dp" />
+                android:progressTint="?attr/colorPrimary"
+                android:layout_marginBottom="@dimen/space_16" />
             
             <!-- 状态文本 -->
             <TextView
@@ -50,18 +50,18 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="准备导入..."
-                android:textSize="16sp"
-                android:textColor="@color/on_surface"
-                android:layout_marginBottom="8dp" />
+                android:textSize="@dimen/text_16"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="@dimen/space_8" />
             
             <TextView
                 android:id="@+id/importProgressText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="0%"
-                android:textSize="14sp"
-                android:textColor="@color/on_surface_variant"
-                android:layout_marginBottom="20dp" />
+                android:textSize="@dimen/text_14"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:layout_marginBottom="@dimen/space_20" />
             
             <!-- 统计卡片 -->
             <com.google.android.material.card.MaterialCardView
@@ -69,45 +69,45 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="导入统计"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/text_18"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
-                        android:layout_marginBottom="16dp" />
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_marginBottom="@dimen/space_16" />
                     
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:layout_marginBottom="16dp">
+                        android:layout_marginBottom="@dimen/space_16">
                         
                         <ImageView
                             android:id="@+id/statusIcon"
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:layout_marginEnd="12dp" />
+                            android:layout_width="@dimen/size_24"
+                            android:layout_height="@dimen/size_24"
+                            android:layout_marginEnd="@dimen/space_12" />
                             
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="准备导入..."
-                            android:textSize="14sp"
-                            android:textColor="@color/on_surface" />
+                            android:textSize="@dimen/text_14"
+                            android:textColor="?attr/colorOnSurface" />
                             
                     </LinearLayout>
                     
@@ -116,10 +116,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="16dp">
+                        android:layout_marginBottom="@dimen/space_16">
                         
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
@@ -130,7 +130,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="20sp"
+                                android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
                                 android:textColor="@color/success" />
                                 
@@ -138,13 +138,13 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="成功"
-                                android:textSize="12sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_12"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                                 
                         </LinearLayout>
                         
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
@@ -155,7 +155,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="20sp"
+                                android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
                                 android:textColor="@color/error" />
                                 
@@ -163,13 +163,13 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="失败"
-                                android:textSize="12sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_12"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                                 
                         </LinearLayout>
                         
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:orientation="vertical"
@@ -180,16 +180,16 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
-                                android:textSize="20sp"
+                                android:textSize="@dimen/text_20"
                                 android:textStyle="bold"
-                                android:textColor="@color/on_surface" />
+                                android:textColor="?attr/colorOnSurface" />
                                 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="总计"
-                                android:textSize="12sp"
-                                android:textColor="@color/on_surface_variant" />
+                                android:textSize="@dimen/text_12"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
                                 
                         </LinearLayout>
                         
@@ -199,11 +199,11 @@
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/buttonAIParse"
                         android:layout_width="match_parent"
-                        android:layout_height="48dp"
+                        android:layout_height="@dimen/size_48"
                         android:text="AI解析"
-                        app:backgroundTint="@color/primary"
-                        android:textColor="@color/on_primary"
-                        app:cornerRadius="12dp"
+                        app:backgroundTint="?attr/colorPrimary"
+                        android:textColor="?attr/colorOnPrimary"
+                        app:cornerRadius="@dimen/radius_12"
                         android:textAllCaps="false"/> 
                 </LinearLayout>
                 
@@ -216,31 +216,31 @@
                 android:layout_height="wrap_content"
                 android:visibility="gone"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="✅ 导入结果摘要"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/success"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:id="@+id/summaryText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textSize="14sp"
-                        android:textColor="@color/on_surface"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorOnSurface"
                         android:lineSpacingExtra="4dp" />
 
                 </LinearLayout>
@@ -253,40 +253,40 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface"
+                app:cardBackgroundColor="?attr/colorSurface"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="导入详细日志"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
-                        android:layout_marginBottom="8dp" />
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <ScrollView
                         android:id="@+id/logScrollView"
                         android:layout_width="match_parent"
-                        android:layout_height="200dp"
-                        android:background="@color/surface_variant"
-                        android:padding="8dp">
+                        android:layout_height="@dimen/size_200"
+                        android:background="?attr/colorSurfaceVariant"
+                        android:padding="@dimen/space_8">
 
                         <TextView
                             android:id="@+id/importLogText"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="等待导入开始..."
-                            android:textSize="11sp"
+                            android:textSize="@dimen/text_11"
                             android:fontFamily="monospace"
-                            android:textColor="@color/on_surface_variant"
+                            android:textColor="?attr/colorOnSurfaceVariant"
                             android:lineSpacingExtra="2dp" />
 
                     </ScrollView>
@@ -300,31 +300,31 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 app:cardElevation="2dp"
-                app:cardBackgroundColor="@color/surface_variant"
+                app:cardBackgroundColor="?attr/colorSurfaceVariant"
                 app:cardCornerRadius="12dp"
-                android:layout_marginBottom="20dp">
+                android:layout_marginBottom="@dimen/space_20">
                 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
                     
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="提示信息"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textStyle="bold"
-                        android:textColor="@color/on_surface"
-                        android:layout_marginBottom="8dp" />
+                        android:textColor="?attr/colorOnSurface"
+                        android:layout_marginBottom="@dimen/space_8" />
                         
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="• 导入前请确保文件格式正确\n• 大批量导入可能需要较长时间\n• 导入在后台执行，可随时点「取消」停止\n• 中断后可重新导入，自动从断点续导"
-                        android:textSize="12sp"
-                        android:textColor="@color/on_surface_variant"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:lineSpacingExtra="4dp" />
                         
                 </LinearLayout>
@@ -340,31 +340,31 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
-        android:background="@color/surface"
-        android:elevation="8dp">
+        android:padding="@dimen/space_16"
+        android:background="?attr/colorSurface"
+        android:elevation="@dimen/elev_8">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCancel"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="取消"
-            app:backgroundTint="@color/secondary"
-            android:textColor="@color/on_secondary"
-            app:cornerRadius="12dp"
+            app:backgroundTint="?attr/colorSecondary"
+            android:textColor="?attr/colorOnSecondary"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
-            android:layout_marginEnd="8dp"/>
+            android:layout_marginEnd="@dimen/space_8"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnStartImport"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
             android:layout_weight="1"
             android:text="开始导入"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"/>
 
     </LinearLayout>

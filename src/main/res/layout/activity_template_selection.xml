@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:padding="@dimen/space_16">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -14,61 +14,61 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="模板选择"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_24"
             android:textStyle="bold"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="@dimen/space_16" />
 
         <TextView
             android:id="@+id/template_name"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
-            android:layout_marginBottom="8dp" />
+            android:layout_marginBottom="@dimen/space_8" />
 
         <TextView
             android:id="@+id/template_format"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="14sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginBottom="8dp" />
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginBottom="@dimen/space_8" />
 
         <TextView
             android:id="@+id/template_default"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="默认模板"
-            android:textSize="18sp"
-            android:layout_marginBottom="8dp" />
+            android:textSize="@dimen/text_18"
+            android:layout_marginBottom="@dimen/space_8" />
 
         <TextView
             android:id="@+id/template_description"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="模板描述"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
+            android:textSize="@dimen/text_14"
+            android:layout_marginBottom="@dimen/space_8" />
 
         <TextView
             android:id="@+id/template_fields"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="模板字段"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
+            android:textSize="@dimen/text_14"
+            android:layout_marginBottom="@dimen/space_8" />
 
         <RadioGroup
             android:id="@+id/template_type_toggle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <RadioButton
                 android:id="@+id/radio_export_template"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="导出模板"
@@ -76,7 +76,7 @@
 
             <RadioButton
                 android:id="@+id/radio_content_template"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="内容模板" />
@@ -88,32 +88,32 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="导出格式"
-            android:textSize="14sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginBottom="8dp"
-            android:layout_marginTop="8dp" />
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginBottom="@dimen/space_8"
+            android:layout_marginTop="@dimen/space_8" />
 
         <Spinner
             android:id="@+id/format_spinner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/rounded_spinner"
-            android:padding="12dp"
-            android:layout_marginBottom="16dp" />
+            android:padding="@dimen/space_12"
+            android:layout_marginBottom="@dimen/space_16" />
 
         <ListView
             android:id="@+id/template_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="@dimen/space_16" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/next_button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="下一步"
-            app:backgroundTint="@color/primary"
-            app:cornerRadius="12dp"
+            app:backgroundTint="?attr/colorPrimary"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 
     </LinearLayout>

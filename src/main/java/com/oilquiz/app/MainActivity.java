@@ -14,33 +14,13 @@ import com.oilquiz.app.resource.SystemUIResourceAdapter;
 import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.ui.widget.WeatherBannerView;
 
-import com.oilquiz.app.ui.activity.UserActivity;
 import com.oilquiz.app.ui.activity.QuestionActivity;
 import com.oilquiz.app.ui.activity.QuizActivity;
 import com.oilquiz.app.ui.activity.StartQuizActivity;
-import com.oilquiz.app.ui.activity.StudyPlanActivity;
-import com.oilquiz.app.ui.activity.WrongQuestionActivity;
-import com.oilquiz.app.ui.activity.NoteActivity;
-import com.oilquiz.app.ui.activity.OCRActivity;
 import com.oilquiz.app.ui.activity.ImportActivity;
 import com.oilquiz.app.ui.activity.ImportGuideActivity;
 import com.oilquiz.app.ui.activity.QuestionGenerateActivity;
-import com.oilquiz.app.ui.activity.EnvironmentCheckActivity;
 import com.oilquiz.app.ui.activity.ExportActivity;
-import com.oilquiz.app.ui.activity.BackupActivity;
-import com.oilquiz.app.ui.activity.ThemeActivity;
-import com.oilquiz.app.ui.activity.LanguageActivity;
-import com.oilquiz.app.ui.activity.SimpleFilePreviewActivity;
-import com.oilquiz.app.ui.activity.TestActivity;
-import com.oilquiz.app.ui.activity.LogsActivity;
-import com.oilquiz.app.ui.activity.AboutActivity;
-import com.oilquiz.app.ui.activity.HistoryActivity;
-import com.oilquiz.app.ui.activity.StatisticsActivity;
-import com.oilquiz.app.ui.activity.DatabaseManagementActivity;
-import com.oilquiz.app.ui.activity.AICenterActivity;
-import com.oilquiz.app.ui.activity.ModelImportActivity;
-import com.oilquiz.app.ui.activity.ModelSelectorActivity;
-import com.oilquiz.app.ui.activity.AIServiceStatusActivity;
 import com.oilquiz.app.ui.activity.ToolboxActivity;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.AIServiceState;
@@ -83,6 +63,16 @@ public class MainActivity extends BaseActivity {
         
         // 否则正常调用父类 onCreate，加载原生界面
         super.onCreate(savedInstanceState);
+
+        // 跟随系统壁纸需要读壁纸文件：Android 13+ 请求 READ_MEDIA_IMAGES（小米 HyperOS 的壁纸 API 依赖该权限）
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{android.Manifest.permission.READ_MEDIA_IMAGES}, 1001);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     @Override
@@ -392,37 +382,11 @@ public class MainActivity extends BaseActivity {
 
         setupButton(R.id.btn_question, QuestionActivity.class);
         setupButton(R.id.btn_quiz, StartQuizActivity.class);
-        setupButton(R.id.btn_study_plan, StudyPlanActivity.class);
-        setupButton(R.id.btn_wrong_question, WrongQuestionActivity.class);
-        setupButton(R.id.btn_note, NoteActivity.class);
-        setupButton(R.id.btn_backup, BackupActivity.class);
-        setupButton(R.id.btn_theme, ThemeActivity.class);
-        setupButton(R.id.btn_history, HistoryActivity.class);
-        setupButton(R.id.btn_about, AboutActivity.class);
+        // 学习计划/错题集/学习笔记/数据备份/主题设置/语言设置/学习历史 已移至工具集
         
 
         
-        // 设置前端题目渲染界面按钮
-        View btnFrontendView = findViewById(R.id.btn_frontend_view);
-        if (btnFrontendView != null) {
-            btnFrontendView.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    openQuestionRenderer();
-                }
-            });
-        }
-        
-        // 设置AI功能中心按钮
-        View btnAiCenter = findViewById(R.id.btn_ai_center);
-        if (btnAiCenter != null) {
-            btnAiCenter.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, AICenterActivity.class));
-                }
-            });
-        }
+        // 天气详情 已移至工具集
         
         // 设置导入导出按钮
         View btnImportExport = findViewById(R.id.btn_import_export);
@@ -447,16 +411,7 @@ public class MainActivity extends BaseActivity {
             });
         }
         
-        // 设置语言设置按钮
-        View btnLanguage = findViewById(R.id.btn_language);
-        if (btnLanguage != null) {
-            btnLanguage.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, LanguageActivity.class));
-                }
-            });
-        }
+        // 语言设置已移至工具集
         
         // 设置AI聊天按钮
         View btnQuestionGenerate = findViewById(R.id.btn_question_generate);
@@ -469,49 +424,11 @@ public class MainActivity extends BaseActivity {
             });
         }
         
-        // 设置OCR按钮
-        View btnOcr = findViewById(R.id.btn_ocr);
-        if (btnOcr != null) {
-            btnOcr.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, OCRActivity.class));
-                }
-            });
-        }
+        // 文字识别 已移至工具集
         
-        // 设置模型管理按钮
-        View btnModelImport = findViewById(R.id.btn_model_import);
-        if (btnModelImport != null) {
-            btnModelImport.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, ModelSelectorActivity.class));
-                }
-            });
-        }
+        // 模型管理/AI服务状态 已移至工具集
         
-        // 设置AI服务状态按钮
-        View btnAiService = findViewById(R.id.btn_ai_service);
-        if (btnAiService != null) {
-            btnAiService.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, AIServiceStatusActivity.class));
-                }
-            });
-        }
-        
-        // 设置系统日志按钮
-        View btnLogs = findViewById(R.id.btn_logs);
-        if (btnLogs != null) {
-            btnLogs.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, LogsActivity.class));
-                }
-            });
-        }
+        // 系统日志 已移至工具集
         
         // 设置工具集按钮
         View btnToolbox = findViewById(R.id.btn_toolbox);
@@ -524,37 +441,11 @@ public class MainActivity extends BaseActivity {
             });
         }
         
-        // 设置数据库管理按钮
-        View btnDatabaseManagement = findViewById(R.id.btn_database_management);
-        if (btnDatabaseManagement != null) {
-            btnDatabaseManagement.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, DatabaseManagementActivity.class));
-                }
-            });
-        }
+        // 数据库管理 已移至工具集
         
-        // 设置原生检测按钮
-        View btnSystemCheck = findViewById(R.id.btn_system_check);
-        if (btnSystemCheck != null) {
-            btnSystemCheck.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, EnvironmentCheckActivity.class));
-                }
-            });
-        }
+        // 原生检测已移动到工具箱中
         
 
-    }
-    
-    // 打开前端题目渲染界面
-    private void openQuestionRenderer() {
-        Intent intent = new Intent(this, WebViewActivity.class);
-        intent.putExtra("url", "https://www.qweather.com");
-        intent.putExtra("title", getString(R.string.weather_detail_title));
-        startActivity(intent);
     }
 
     private void setupButton(int buttonId, final Class<?> activityClass) {
@@ -602,7 +493,7 @@ public class MainActivity extends BaseActivity {
         environmentInfo.append(getString(R.string.section_screen_info)).append("\n");
         environmentInfo.append(getString(R.string.resolution) + ": " + info.screenInfo.widthPixels + " x " + info.screenInfo.heightPixels + "\n");
         environmentInfo.append(getString(R.string.screen_density) + ": " + info.screenInfo.densityDpi + " dpi\n");
-        environmentInfo.append(getString(R.string.screen_size) + ": " + String.format(java.util.Locale.getDefault(), "%.2f", info.screenInfo.screenSizeInches) + " 英寸\n");
+        environmentInfo.append(getString(R.string.screen_size) + ": " + String.format(java.util.Locale.getDefault(), "%.2f", info.screenInfo.screenSizeInches) + getString(R.string.h_33d43d64));
         environmentInfo.append(getString(R.string.orientation) + ": " + info.screenInfo.orientation + "\n\n");
 
         // 内存信息
@@ -738,17 +629,15 @@ public class MainActivity extends BaseActivity {
             android.net.Uri uri = data.getData();
             if (uri != null) {
                 try {
-                    // 将 Uri 转换为文件路径
-                    String path = getPathFromUri(uri);
-                    if (path != null) {
+                    // SAF 返回的 content:// Uri 直接用流复制到应用缓存目录
+                    // （Android 10+ 分区存储下无真实路径，不查已废弃的 MediaStore DATA 列）
+                    java.io.File cached = com.oilquiz.app.util.UriPathResolver.copyContentUriToCache(this, uri.toString());
+                    if (cached != null && cached.exists()) {
+                        String path = cached.getAbsolutePath();
                         switch (requestCode) {
                             case 1004:
                                 // LibreOffice 预览
-                                com.oilquiz.app.ui.activity.LibreOfficeKitPreviewActivity.start(this, path);
-                                break;
-                            case 1005:
-                                // OnlyOffice 预览
-                                com.oilquiz.app.ui.activity.OnlyOfficePreviewActivity.start(this, path);
+                                com.oilquiz.app.util.preview.LibreOfficeViewerLauncher.launch(this, path);
                                 break;
                         }
                     }
@@ -760,93 +649,23 @@ public class MainActivity extends BaseActivity {
         }
     }
     
-    /**
-     * 从 Uri 获取文件路径
-     */
-    private String getPathFromUri(android.net.Uri uri) {
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // 天气横幅：离开主界面停止周期定时刷新（避免后台空跑网络请求）
         try {
-            if (uri.getScheme().equals("content")) {
-                // 对于 content:// 类型的 Uri
-                // 尝试多种方式获取文件路径
-                String[] projections = {
-                    android.provider.MediaStore.Images.Media.DATA,
-                    android.provider.MediaStore.MediaColumns.DATA,
-                    android.provider.MediaStore.Files.FileColumns.DATA
-                };
-                
-                for (String projection : projections) {
-                    try {
-                        android.database.Cursor cursor = getContentResolver().query(uri, new String[]{projection}, null, null, null);
-                        if (cursor != null) {
-                            if (cursor.moveToFirst()) {
-                                int columnIndex = cursor.getColumnIndexOrThrow(projection);
-                                String path = cursor.getString(columnIndex);
-                                cursor.close();
-                                if (path != null && !path.isEmpty()) {
-                                    return path;
-                                }
-                            }
-                            cursor.close();
-                        }
-                    } catch (Exception e) {
-                        // 尝试下一种方式
-                    }
-                }
-                
-                // 如果以上方法都失败，尝试使用临时文件方式
-                return getPathFromContentUri(uri);
-            } else if (uri.getScheme().equals("file")) {
-                // 对于 file:// 类型的 Uri
-                return uri.getPath();
+            WeatherBannerView weatherBanner = findViewById(R.id.weather_banner);
+            if (weatherBanner != null) {
+                weatherBanner.onPause();
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (Exception ignored) {
         }
-        return null;
     }
-    
-    /**
-     * 从 content:// Uri 获取文件路径（通过创建临时文件）
-     */
-    private String getPathFromContentUri(android.net.Uri uri) {
-        try {
-            // 创建临时文件
-            java.io.File tempFile = createTempFileFromUri(uri);
-            if (tempFile != null) {
-                return tempFile.getAbsolutePath();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-    
-    /**
-     * 从 Uri 创建临时文件
-     */
-    private java.io.File createTempFileFromUri(android.net.Uri uri) throws java.io.IOException {
-        // 获取文件类型
-        String mimeType = getContentResolver().getType(uri);
-        String extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
-        if (extension == null) {
-            extension = "tmp";
-        }
-        
-        // 创建临时文件
-        java.io.File tempFile = java.io.File.createTempFile("preview_", "." + extension, getExternalFilesDir(null));
-        tempFile.deleteOnExit();
-        
-        // 复制文件内容
-        try (java.io.InputStream inputStream = getContentResolver().openInputStream(uri);
-             java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, length);
-            }
-        }
-        
-        return tempFile;
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        unregisterAiStatusObserver();
     }
     
     @Override

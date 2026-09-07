@@ -237,7 +237,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
 
             @Override
             public void onRenderProgress(int current, int total) {
-                updateLoadingProgress("渲染中...", String.format("已处理 %d/%d 行", current, total));
+                updateLoadingProgress(getString(R.string.h_88f000a0), String.format(getString(R.string.h_56a83357), current, total));
                 if (total > 0) {
                     progressBar.setProgress((int) ((float) current / total * 100));
                 }
@@ -258,13 +258,13 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                     updateMappedFieldCount();
                     
                     // 显示成功提示
-                    Toast.makeText(WebViewFilePreviewActivity.this, "文件加载成功", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(WebViewFilePreviewActivity.this, getString(R.string.h_db5eded9), Toast.LENGTH_SHORT).show();
                 });
             }
 
             @Override
             public void onRenderError(String message) {
-                showErrorState("加载失败: " + message);
+                showErrorState(getString(R.string.h_4bbdceb5) + message);
             }
         });
     }
@@ -291,7 +291,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             loadingContainer.setVisibility(View.VISIBLE);
             previewWebView.setVisibility(View.GONE);
             progressBar.setVisibility(View.GONE);
-            statusText.setText("加载失败");
+            statusText.setText(getString(R.string.h_866b795e));
             progressDetailText.setText(message);
             
             // 更改图标为错误图标
@@ -324,16 +324,16 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     
     private void performAutoMapping() {
         if (file == null || !file.exists()) {
-            Toast.makeText(this, "请先加载文件", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_eba75b51), Toast.LENGTH_SHORT).show();
             return;
         }
-        Toast.makeText(this, "正在执行自动映射...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_1faa6cc2), Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             try (org.apache.poi.ss.usermodel.Workbook wb = org.apache.poi.ss.usermodel.WorkbookFactory.create(file)) {
                 org.apache.poi.ss.usermodel.Sheet sheet = wb.getSheetAt(sheetIndex);
                 org.apache.poi.ss.usermodel.Row headerRow = sheet.getRow(0);
                 if (headerRow == null) {
-                    runOnUiThread(() -> Toast.makeText(this, "表头为空，无法自动映射", Toast.LENGTH_SHORT).show());
+                    runOnUiThread(() -> Toast.makeText(this, getString(R.string.h_87e6eef1), Toast.LENGTH_SHORT).show());
                     return;
                 }
                 // 清除现有映射
@@ -378,11 +378,11 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                         }
                     }
                     updateMappedFieldCount();
-                    Toast.makeText(this, "自动映射完成，已映射 " + finalMapped + " 个字段", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_10401e7a) + finalMapped + getString(R.string.h_979c7fe9), Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
                 Log.e(TAG, "自动映射失败", e);
-                runOnUiThread(() -> Toast.makeText(this, "自动映射失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(this, getString(R.string.h_a7ed8134) + e.getMessage(), Toast.LENGTH_SHORT).show());
             }
         }).start();
     }
@@ -390,9 +390,9 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     private void clearAllMappings() {
         // 清除所有映射
         new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("清除映射")
-            .setMessage("确定要清除所有字段映射吗？")
-            .setPositiveButton("确定", (dialog, which) -> {
+            .setTitle(getString(R.string.h_d8ac4681))
+            .setMessage(getString(R.string.h_10a06fbf))
+            .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
                 fieldMapping.clear();
                 columnToFieldMap.clear();
                 // 同步重置分隔符状态和独立拆分状态
@@ -402,9 +402,9 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                 showSplitPreview = false;
                 updateMappedFieldCount();
                 loadFilePreview(); // 重新加载预览
-                Toast.makeText(this, "已清除所有映射", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_b356ac4a), Toast.LENGTH_SHORT).show();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -581,7 +581,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             }
             @Override
             public void onRenderProgress(int current, int total) {
-                updateLoadingProgress("渲染拆分预览中...", String.format("已处理 %d/%d 行", current, total));
+                updateLoadingProgress(getString(R.string.h_64b92b2d), String.format(getString(R.string.h_56a83357), current, total));
             }
             @Override
             public void onRenderComplete(String htmlContent) {
@@ -593,12 +593,12 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                     // 页面加载完成后，将虚拟列的默认映射同步到数据结构，保证后续冲突检测和结果传递一致
                     pendingVirtualSync = true;
                     Toast.makeText(WebViewFilePreviewActivity.this,
-                        "拆分预览已加载，可调整虚拟列映射后点击“下一步”", Toast.LENGTH_LONG).show();
+                        getString(R.string.h_fd4d7fd4), Toast.LENGTH_LONG).show();
                 });
             }
             @Override
             public void onRenderError(String message) {
-                showErrorState("拆分预览渲染失败: " + message);
+                showErrorState(getString(R.string.h_25e3739d) + message);
             }
         });
     }
@@ -687,7 +687,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
      */
     private void showSplitColumnDialog() {
         if (file == null || !file.exists()) {
-            Toast.makeText(this, "请先加载文件", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_eba75b51), Toast.LENGTH_SHORT).show();
             return;
         }
         new Thread(() -> {
@@ -695,7 +695,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                 Sheet sheet = wb.getSheetAt(sheetIndex);
                 Row headerRow = sheet.getRow(0);
                 if (headerRow == null) {
-                    runOnUiThread(() -> Toast.makeText(this, "表头为空", Toast.LENGTH_SHORT).show());
+                    runOnUiThread(() -> Toast.makeText(this, getString(R.string.h_da09a19e), Toast.LENGTH_SHORT).show());
                     return;
                 }
                 int lastCol = headerRow.getLastCellNum();
@@ -707,7 +707,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                 }
                 runOnUiThread(() -> {
                     new androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle("选择要拆分的列")
+                        .setTitle(getString(R.string.h_9381dda8))
                         .setItems(colNames, (dialog, which) -> {
                             // 记录独立拆分列索引（不写入 fieldMapping）
                             independentSplitCol = which;
@@ -718,12 +718,12 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                             showSplitPreview = true;
                             loadSplitPreview();
                         })
-                        .setNegativeButton("取消", null)
+                        .setNegativeButton(getString(R.string.h_625fb26b), null)
                         .show();
                 });
             } catch (Exception e) {
                 Log.e(TAG, "读取表头失败", e);
-                runOnUiThread(() -> Toast.makeText(this, "读取表头失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(this, getString(R.string.h_948b228a) + e.getMessage(), Toast.LENGTH_SHORT).show());
             }
         }).start();
     }
@@ -745,10 +745,10 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         String[] presetDelims = {"|", ";", "；", "\t", "||", "///", "###"};
         
         StringBuilder msg = new StringBuilder();
-        msg.append("检测到列 ").append(colIdx + 1).append(" 的选项内容使用分隔符：\n");
+        msg.append(getString(R.string.h_7d64ae3b)).append(colIdx + 1).append(getString(R.string.h_dcfe3ceb));
         msg.append(displayDelim).append("\n\n");
-        msg.append("确认后将自动拆分该列内容到选项A/B/C/D...\n");
-        msg.append("也可选择其他分隔符或输入自定义分隔符。");
+        msg.append(getString(R.string.h_e3ca7094));
+        msg.append(getString(R.string.h_f5b5059b));
 
         android.widget.LinearLayout container = new android.widget.LinearLayout(this);
         container.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -761,7 +761,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         
         if (detected != null) {
             android.widget.RadioButton rbAuto = new android.widget.RadioButton(this);
-            rbAuto.setText("自动检测: " + displayDelim);
+            rbAuto.setText(getString(R.string.h_e4696b15) + displayDelim);
             rbAuto.setTag(detected);
             rbAuto.setChecked(true);
             radioGroup.addView(rbAuto);
@@ -775,18 +775,18 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             radioGroup.addView(rb);
         }
         android.widget.RadioButton rbLetter = new android.widget.RadioButton(this);
-        rbLetter.setText("字母标号(如 A. B. C. D.)");
+        rbLetter.setText(getString(R.string.h_c3f2bf07));
         rbLetter.setTag("LETTER_PATTERN");
         radioGroup.addView(rbLetter);
         android.widget.RadioButton rbNone = new android.widget.RadioButton(this);
-        rbNone.setText("不拆分（每行内容作为一个完整选项）");
+        rbNone.setText(getString(R.string.h_3062814c));
         rbNone.setTag("NONE");
         radioGroup.addView(rbNone);
         container.addView(radioGroup);
 
         // 自定义输入框
         android.widget.EditText customInput = new android.widget.EditText(this);
-        customInput.setHint("或输入自定义分隔符");
+        customInput.setHint(getString(R.string.h_60532691));
         customInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
         android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
             android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
@@ -796,10 +796,10 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         container.addView(customInput);
 
         new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("选项分隔符")
+            .setTitle(getString(R.string.h_e53e248e))
             .setMessage(msg.toString())
             .setView(container)
-            .setPositiveButton("确认", (dlg, w) -> {
+            .setPositiveButton(getString(R.string.h_e83a256e), (dlg, w) -> {
                 String custom = customInput.getText().toString();
                 if (!custom.isEmpty()) {
                     optionsDelimiter = custom;
@@ -837,7 +837,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                     }
                 }
             })
-            .setNegativeButton("返回修改", null)
+            .setNegativeButton(getString(R.string.h_78207226), null)
             .show();
     }
 
@@ -852,65 +852,65 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         
         if (!hasQuestionType || !hasQuestion || !hasCorrectAnswer) {
             StringBuilder message = new StringBuilder();
-            message.append("请完成以下必填字段的映射：\n\n");
+            message.append(getString(R.string.h_ef3e299b));
             
             if (!hasQuestionType) {
-                message.append("❌ 题型（请为\"题型\"字段选择对应的Excel列）\n");
+                message.append(getString(R.string.h_fcd1f176));
             } else {
-                message.append("✅ 题型（已映射到列 " + (fieldMapping.get("题型") + 1) + "）\n");
+                message.append(getString(R.string.h_0576192c) + (fieldMapping.get(getString(R.string.h_65a80a7c)) + 1) + "）\n");
             }
             
             if (!hasQuestion) {
-                message.append("❌ 题目（请为\"题目\"或\"题目内容\"字段选择对应的Excel列）\n");
+                message.append(getString(R.string.h_1bad54b9));
             } else {
                 String questionField = fieldMapping.containsKey("题目") ? "题目" : "题目内容";
-                message.append("✅ " + questionField + "（已映射到列 " + (fieldMapping.get(questionField) + 1) + "）\n");
+                message.append("✅ " + questionField + getString(R.string.h_f2e7294c) + (fieldMapping.get(questionField) + 1) + "）\n");
             }
             
             if (!hasCorrectAnswer) {
-                message.append("❌ 正确答案（请为\"正确答案\"或\"答案\"字段选择对应的Excel列）\n");
+                message.append(getString(R.string.h_62267217));
             } else {
                 String answerField = fieldMapping.containsKey("正确答案") ? "正确答案" : "答案";
-                message.append("✅ " + answerField + "（已映射到列 " + (fieldMapping.get(answerField) + 1) + "）\n");
+                message.append("✅ " + answerField + getString(R.string.h_f2e7294c) + (fieldMapping.get(answerField) + 1) + "）\n");
             }
             
-            message.append("\n当前已配置的映射：\n");
+            message.append(getString(R.string.h_31690f83));
             if (fieldMapping.isEmpty()) {
-                message.append("（暂无映射）\n");
+                message.append(getString(R.string.h_11d919cf));
             } else {
                 for (Map.Entry<String, Integer> entry : fieldMapping.entrySet()) {
-                    message.append("  • " + entry.getKey() + " → 列 " + (entry.getValue() + 1) + "\n");
+                    message.append("  • " + entry.getKey() + getString(R.string.h_cb7429be) + (entry.getValue() + 1) + "\n");
                 }
             }
             
-            message.append("\n💡 提示：选项、解析、难度、分类为可选字段，不配置也能正常导入。");
+            message.append(getString(R.string.h_d965ca37));
             
             new androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("映射配置不完整")
+                .setTitle(getString(R.string.h_0751de62))
                 .setMessage(message.toString())
-                .setPositiveButton("知道了", null)
+                .setPositiveButton(getString(R.string.h_ce26955a), null)
                 .show();
             return;
         }
         
         StringBuilder mappingResult = new StringBuilder();
-        mappingResult.append("📋 映射结果：\n\n");
+        mappingResult.append(getString(R.string.h_bdba11d8));
         
         for (Map.Entry<String, Integer> entry : fieldMapping.entrySet()) {
             int colIdx = entry.getValue();
             if (colIdx >= 1000) {
                 // 虚拟列：显示为拆分列的第N部分
-                mappingResult.append("✅ ").append(entry.getKey()).append(" → 拆分部分 ").append(colIdx - 999).append("\n");
+                mappingResult.append("✅ ").append(entry.getKey()).append(getString(R.string.h_f7e2df38)).append(colIdx - 999).append("\n");
             } else {
-                mappingResult.append("✅ ").append(entry.getKey()).append(" → 列 ").append(colIdx + 1).append("\n");
+                mappingResult.append("✅ ").append(entry.getKey()).append(getString(R.string.h_cb7429be)).append(colIdx + 1).append("\n");
             }
         }
         
         // 显示映射结果对话框
         new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("确认映射配置")
+            .setTitle(getString(R.string.h_35a72186))
             .setMessage(mappingResult.toString())
-            .setPositiveButton("确认并继续", (dialog, which) -> {
+            .setPositiveButton(getString(R.string.h_eca060fa), (dialog, which) -> {
                 // 保存映射结果和设置
                 Intent resultIntent = new Intent();
                 resultIntent.putExtra(EXTRA_RESULT_FIELD_MAPPING, (java.io.Serializable) fieldMapping);
@@ -942,7 +942,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
                 setResult(RESULT_OK, resultIntent);
                 finish();
             })
-            .setNegativeButton("返回修改", null)
+            .setNegativeButton(getString(R.string.h_78207226), null)
             .show();
     }
 
@@ -952,7 +952,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
     private void showSettingsDialog() {
         // 创建设置对话框
         androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-        builder.setTitle("⚙️ 导入设置");
+        builder.setTitle(getString(R.string.h_25b1ba83));
         
         // 自定义设置布局
         android.view.View settingsView = getLayoutInflater().inflate(R.layout.dialog_import_settings, null);
@@ -978,7 +978,7 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         editTextAnswer.setText(defaultAnswer);
         
         // 保存设置
-        builder.setPositiveButton("💾 保存", (dialog, which) -> {
+        builder.setPositiveButton(getString(R.string.h_afcc3e34), (dialog, which) -> {
             autoCorrectEmptyCells = checkBoxAutoCorrect.isChecked();
             skipEmptyQuestions = checkBoxSkipEmpty.isChecked();
             defaultQuestionType = editTextQuestionType.getText().toString().trim();
@@ -987,10 +987,10 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             defaultOption = editTextOption.getText().toString().trim();
             defaultAnswer = editTextAnswer.getText().toString().trim();
             
-            Toast.makeText(this, "✅ 设置已保存", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_77322d90), Toast.LENGTH_SHORT).show();
         });
         
-        builder.setNegativeButton("取消", null);
+        builder.setNegativeButton(getString(R.string.h_625fb26b), null);
         builder.show();
     }
     
@@ -1028,9 +1028,9 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             fieldOptions.add(newOptionField);
             // 重新加载文件预览以更新下拉选项
             loadFilePreview();
-            Toast.makeText(this, "✅ 已添加" + newOptionField, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_acc47889) + newOptionField, Toast.LENGTH_SHORT).show();
         } else {
-            Toast.makeText(this, "❌ 已达到最大选项数量", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_876d7920), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1085,9 +1085,9 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
         } catch (android.content.ActivityNotFoundException ex) {
             AppLogger.e("WebViewFilePreviewActivity", "没有找到文件选择器应用", ex);
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("错误")
-                    .setMessage("没有找到文件选择器应用，请安装文件管理器")
-                    .setPositiveButton("确定", (dialog, which) -> finish())
+                    .setTitle(getString(R.string.h_7030ff64))
+                    .setMessage(getString(R.string.h_b5ea0a10))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> finish())
                     .setCancelable(false)
                     .show();
         }
@@ -1101,28 +1101,29 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             Uri uri = data.getData();
             if (uri != null) {
                 try {
-                    // 将 Uri 转换为文件路径
-                    String path = getPathFromUri(uri);
-                    if (path != null) {
-                        AppLogger.i("WebViewFilePreviewActivity", "选择的文件路径: " + path);
+                    // WebView 只能加载本地路径，SAF 返回的 content:// Uri 直接用流复制到应用缓存目录
+                    // （Android 10+ 分区存储下无真实路径，不查已废弃的 MediaStore DATA 列）
+                    java.io.File cached = com.oilquiz.app.util.UriPathResolver.copyContentUriToCache(this, uri.toString());
+                    if (cached != null && cached.exists()) {
+                        AppLogger.i("WebViewFilePreviewActivity", "SAF 文件已复制到缓存: " + cached.getAbsolutePath());
                         // 重新启动预览
                         Intent intent = new Intent(this, WebViewFilePreviewActivity.class);
-                        intent.putExtra(EXTRA_FILE_PATH, path);
+                        intent.putExtra(EXTRA_FILE_PATH, cached.getAbsolutePath());
                         startActivity(intent);
                         finish();
                     } else {
-                        AppLogger.e("WebViewFilePreviewActivity", "无法获取文件路径");
-                        Toast.makeText(this, "无法获取文件路径", Toast.LENGTH_SHORT).show();
+                        AppLogger.e("WebViewFilePreviewActivity", "SAF 文件复制失败: " + uri);
+                        Toast.makeText(this, getString(R.string.h_c15415d3), Toast.LENGTH_SHORT).show();
                         finish();
                     }
                 } catch (Exception e) {
                     AppLogger.e("WebViewFilePreviewActivity", "处理文件选择结果失败", e);
-                    Toast.makeText(this, "处理文件选择结果失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_4fa68124) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     finish();
                 }
             } else {
                 AppLogger.e("WebViewFilePreviewActivity", "文件选择返回空 Uri");
-                Toast.makeText(this, "文件选择返回空 Uri", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_39bd3ae1), Toast.LENGTH_SHORT).show();
                 finish();
             }
         } else if (requestCode == REQUEST_CODE_FILE_PICKER) {
@@ -1130,95 +1131,5 @@ public class WebViewFilePreviewActivity extends AppCompatActivity {
             AppLogger.i("WebViewFilePreviewActivity", "用户取消了文件选择");
             finish();
         }
-    }
-    
-    /**
-     * 从 Uri 获取文件路径
-     */
-    private String getPathFromUri(Uri uri) {
-        try {
-            if (uri.getScheme().equals("content")) {
-                // 对于 content:// 类型的 Uri
-                // 尝试多种方式获取文件路径
-                String[] projections = {
-                    android.provider.MediaStore.Images.Media.DATA,
-                    android.provider.MediaStore.MediaColumns.DATA,
-                    android.provider.MediaStore.Files.FileColumns.DATA
-                };
-                
-                for (String projection : projections) {
-                    try {
-                        android.database.Cursor cursor = getContentResolver().query(uri, new String[]{projection}, null, null, null);
-                        if (cursor != null) {
-                            if (cursor.moveToFirst()) {
-                                int columnIndex = cursor.getColumnIndexOrThrow(projection);
-                                String path = cursor.getString(columnIndex);
-                                cursor.close();
-                                if (path != null && !path.isEmpty()) {
-                                    return path;
-                                }
-                            }
-                            cursor.close();
-                        }
-                    } catch (Exception e) {
-                        // 尝试下一种方式
-                        AppLogger.w("WebViewFilePreviewActivity", "尝试获取文件路径失败: " + e.getMessage());
-                    }
-                }
-                
-                // 如果以上方法都失败，尝试使用临时文件方式
-                return getPathFromContentUri(uri);
-            } else if (uri.getScheme().equals("file")) {
-                // 对于 file:// 类型的 Uri
-                return uri.getPath();
-            }
-        } catch (Exception e) {
-            AppLogger.e("WebViewFilePreviewActivity", "从 Uri 获取文件路径失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 content:// Uri 获取文件路径（通过创建临时文件）
-     */
-    private String getPathFromContentUri(Uri uri) {
-        try {
-            // 创建临时文件
-            java.io.File tempFile = createTempFileFromUri(uri);
-            if (tempFile != null) {
-                return tempFile.getAbsolutePath();
-            }
-        } catch (Exception e) {
-            AppLogger.e("WebViewFilePreviewActivity", "从 content Uri 创建临时文件失败", e);
-        }
-        return null;
-    }
-    
-    /**
-     * 从 Uri 创建临时文件
-     */
-    private java.io.File createTempFileFromUri(Uri uri) throws java.io.IOException {
-        // 获取文件类型
-        String mimeType = getContentResolver().getType(uri);
-        String extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
-        if (extension == null) {
-            extension = "tmp";
-        }
-        
-        // 创建临时文件
-        java.io.File tempFile = java.io.File.createTempFile("webview_", "." + extension, getExternalFilesDir(null));
-        tempFile.deleteOnExit();
-        
-        // 复制文件内容
-        try (java.io.InputStream inputStream = getContentResolver().openInputStream(uri);
-             java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, length);
-            }
-        }
-        
-        return tempFile;
     }
 }

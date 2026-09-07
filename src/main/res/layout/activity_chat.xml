@@ -12,30 +12,30 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/primary"
+            android:background="?attr/colorPrimary"
             app:titleTextColor="@color/white" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/chat_recycler_view"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
-        android:padding="8dp" />
+        android:padding="@dimen/space_8" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="8dp"
-        android:background="@color/surface">
+        android:padding="@dimen/space_8"
+        android:background="?attr/colorSurface">
 
         <com.google.android.material.chip.ChipGroup
             android:id="@+id/quick_actions_chip_group"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="8dp" />
+            android:layout_marginBottom="@dimen/space_8" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -45,23 +45,23 @@
 
             <EditText
                 android:id="@+id/message_input"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:hint="输入消息..."
-                android:minHeight="48dp"
+                android:minHeight="@dimen/min_48"
                 android:background="@drawable/rounded_edittext"
-                android:padding="8dp"
-                android:layout_marginEnd="8dp" />
+                android:padding="@dimen/space_8"
+                android:layout_marginEnd="@dimen/space_8" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/send_btn"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="发送"
-                app:backgroundTint="@color/primary"
+                app:backgroundTint="?attr/colorPrimary"
                 android:textColor="@android:color/white"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
 
         </LinearLayout>
@@ -72,7 +72,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:visibility="gone"
-            android:layout_marginTop="8dp" />
+            android:layout_marginTop="@dimen/space_8" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/model_selector_btn"
@@ -80,10 +80,10 @@
             android:layout_height="wrap_content"
             android:text="选择模型"
             android:layout_gravity="end"
-            android:layout_marginTop="8dp"
-            app:backgroundTint="@color/surface_variant"
-            android:textColor="@color/on_surface"
-            app:cornerRadius="12dp"
+            android:layout_marginTop="@dimen/space_8"
+            app:backgroundTint="?attr/colorSurfaceVariant"
+            android:textColor="?attr/colorOnSurface"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 
     </LinearLayout>

@@ -13,8 +13,13 @@ add_compile_options(-O3 -DNDEBUG -fno-finite-math-only)
 # SPIRV-Headers 全局包含路径 (Vulkan 后端需要)
 add_compile_options(-I${CMAKE_SOURCE_DIR}/spirv-headers/include)
 
-option(GGML_OPENCL "Enable OpenCL backend" OFF)
-option(GGML_VULKAN "Enable Vulkan backend for GPU acceleration" ON)
+# GPU 后端选型（2026-08 决策）：Adreno 走 OpenCL，Vulkan 降为备用。
+# 依据：Qualcomm 专有 OpenCL 驱动 + GGML_OPENCL_USE_ADRENO_KERNELS（Adreno 专属 kernel），
+# llama.cpp OpenCL 后端在 Adreno 830 实测 663 t/s prefill（llama-adreno 项目），
+# 上游有 Qualcomm 工程师持续维护（IWOCL 2025/2026）；
+# Vulkan 在 Adreno 上高级特性（coopmat/bfloat16/dot）驱动 bug 多，只能走 F16 基础路径。
+option(GGML_OPENCL "Enable OpenCL backend" ON)
+option(GGML_VULKAN "Enable Vulkan backend for GPU acceleration" OFF)
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
@@ -193,6 +198,7 @@ add_library(
     SHARED
     native-lib.cpp
     llama-bridge.cpp
+    agent_kv_cache.cpp
 )
 
 target_link_libraries(

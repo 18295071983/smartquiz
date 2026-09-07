@@ -34,6 +34,33 @@ public class PdfiumPreviewManager {
     }
     
     /**
+     * 通过 SAF 的 content:// Uri 直接打开 PDF（无需解析真实路径）。
+     * Android 10+ 分区存储下 MediaStore DATA 列已废弃，SAF 返回的 Uri 没有真实文件路径，
+     * 正确做法是用 ContentResolver.openFileDescriptor 直接拿 ParcelFileDescriptor，
+     * pdfium 原生支持用 PFD 打开文档。
+     */
+    public boolean openDocument(Context context, Uri uri) {
+        try {
+            closeDocument(); // 先关闭之前的文档
+
+            ParcelFileDescriptor fd = context.getContentResolver().openFileDescriptor(uri, "r");
+            if (fd == null) {
+                AppLogger.e(TAG, "打开 PDF(Uri) 失败: openFileDescriptor 返回 null: " + uri);
+                return false;
+            }
+            pdfDocument = pdfiumCore.newDocument(fd);
+            pageCount = pdfiumCore.getPageCount(pdfDocument);
+            currentFilePath = uri.toString();
+
+            AppLogger.d(TAG, "PDF 打开成功(Uri): " + uri + ", 页数: " + pageCount);
+            return true;
+        } catch (Exception e) {
+            AppLogger.e(TAG, "打开 PDF(Uri) 失败: " + e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
      * 打开 PDF 文件
      * @param filePath PDF 文件路径
      * @return true 如果成功打开

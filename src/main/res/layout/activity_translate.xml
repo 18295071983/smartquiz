@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:padding="@dimen/space_16">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -14,16 +14,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="翻译"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_24"
             android:textStyle="bold"
-            android:layout_marginBottom="24dp" />
+            android:layout_marginBottom="@dimen/space_24" />
 
         <RadioGroup
             android:id="@+id/translate_mode_group"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <RadioButton
                 android:id="@+id/radio_text_translate"
@@ -50,9 +50,10 @@
             android:id="@+id/input_text_layout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <EditText
+                        android:background="@drawable/rounded_edittext"
                 android:id="@+id/input_text"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -65,18 +66,18 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <com.google.android.material.textfield.MaterialAutoCompleteTextView
                 android:id="@+id/source_language_spinner"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginEnd="8dp" />
+                android:layout_marginEnd="@dimen/space_8" />
 
             <com.google.android.material.textfield.MaterialAutoCompleteTextView
                 android:id="@+id/target_language_spinner"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1" />
 
@@ -87,25 +88,25 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="翻译"
-            app:backgroundTint="@color/primary"
-            android:textColor="@color/on_primary"
-            app:cornerRadius="12dp"
+            app:backgroundTint="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimary"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="@dimen/space_16" />
 
         <LinearLayout
             android:id="@+id/result_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <TextView
                 android:id="@+id/translate_result"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="翻译结果"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:minLines="2" />
 
         </LinearLayout>
@@ -115,29 +116,29 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_copy"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="复制"
-                app:backgroundTint="@color/secondary"
-                android:textColor="@color/on_secondary"
-                app:cornerRadius="12dp"
+                app:backgroundTint="?attr/colorSecondary"
+                android:textColor="?attr/colorOnSecondary"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
-                android:layout_marginEnd="8dp" />
+                android:layout_marginEnd="@dimen/space_8" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_share_translate"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="分享"
-                app:backgroundTint="@color/secondary"
-                android:textColor="@color/on_secondary"
-                app:cornerRadius="12dp"
+                app:backgroundTint="?attr/colorSecondary"
+                android:textColor="?attr/colorOnSecondary"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
 
         </LinearLayout>
@@ -149,7 +150,7 @@
             android:orientation="vertical"
             android:gravity="center"
             android:visibility="gone"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <ProgressBar
                 android:layout_width="wrap_content"
@@ -161,14 +162,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="加载中..."
-                android:layout_marginTop="8dp" />
+                android:layout_marginTop="@dimen/space_8" />
 
             <TextView
                 android:id="@+id/loading_submessage"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text=""
-                android:layout_marginTop="4dp" />
+                android:layout_marginTop="@dimen/space_4" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_cancel"
@@ -177,9 +178,9 @@
                 android:text="取消"
                 app:backgroundTint="@color/error"
                 android:textColor="@color/on_error"
-                app:cornerRadius="12dp"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false"
-                android:layout_marginTop="8dp" />
+                android:layout_marginTop="@dimen/space_8" />
 
         </LinearLayout>
 

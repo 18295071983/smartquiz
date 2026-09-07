@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.tool;
 import android.content.Context;
 
 import com.oilquiz.app.ai.agent.online.AgentMemoryStore;
+import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
@@ -23,6 +24,7 @@ import java.util.Map;
  * 记忆持久化在 agent_memory.json，跨对话/重启保留；
  * 每次 Agent 执行时会自动注入记忆摘要到系统提示词（无需手动调用）。
  */
+@Tool(value = "memory", category = "memory")
 public class MemoryTool implements AITool {
 
     private static final String TAG = "MemoryTool";
@@ -43,7 +45,7 @@ public class MemoryTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "长期记忆：跨会话保存/读取/删除用户信息。仅在用户明确要求记住、或主动告知个人信息/偏好时 save（不要擅自把普通聊天内容存为记忆）；需要回忆历史信息时 recall；用户要求忘记某条记忆时 delete。action: save|recall|delete|list|clear";
+        return "长期记忆：跨会话保存/读取/删除用户信息。用户主动告知姓名/称呼/偏好/常驻信息时主动 save（如\"我叫小明\"→save key=user_name value=小明）；用户说\"记住...\"时 save；不要擅自把普通聊天内容存为记忆。需要回忆历史信息时 recall；用户要求忘记某条记忆时 delete。action: save|recall|delete|list|clear";
     }
 
     @Override

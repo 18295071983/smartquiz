@@ -236,6 +236,9 @@ public class AIToolManager {
         registerToolFactory("ocr_recognize", OCRRecognizeTool.class, OCRRecognizeTool::new);
         registerToolFactory("video_to_player", VideoToPlayerTool.class, VideoToPlayerTool::new);
         registerToolFactory("system_connect", SystemConnectTool.class, SystemConnectTool::new);
+        // 纯本地工具：文本处理（JSON/编码/正则）与单位换算（零网络依赖）
+        registerToolFactory("text_tools", TextToolsTool.class, TextToolsTool::new);
+        registerToolFactory("unit_converter", UnitConverterTool.class, UnitConverterTool::new);
         
         try {
             registerToolFactory("python_execute", PythonExecuteTool.class, PythonExecuteTool::new);
@@ -361,7 +364,14 @@ public class AIToolManager {
      * @return 执行结果
      */
     public AIToolResult executeTool(String toolName, Map<String, Object> parameters) {
-        AITool tool = getOrCreateTool(toolName);
+        // 模糊解析：模型可能把工具名猜错（weather→ai_weather 等），先归一化再执行
+        String resolved = resolveToolNameFuzzy(toolName);
+        if (resolved == null) {
+            Map<String, Object> additionalInfo = new HashMap<>();
+            additionalInfo.put("toolName", toolName);
+            return new AIToolResult("工具不存在: " + toolName + "（可用 tool_registry(list) 查看全部工具）", additionalInfo);
+        }
+        AITool tool = getOrCreateTool(resolved);
         if (tool == null) {
             Map<String, Object> additionalInfo = new HashMap<>();
             additionalInfo.put("toolName", toolName);
@@ -471,9 +481,6 @@ public class AIToolManager {
                 if (param.isRequired()) {
                     desc.append("(必填)");
                 }
-                if (param.getDefaultValue() != null) {
-                    desc.append("(默认:").append(param.getDefaultValue()).append(")");
-                }
                 params.put(param.getName(), desc.toString());
             }
         }
@@ -531,7 +538,9 @@ public class AIToolManager {
     public boolean hasTool(String toolName) {
         // 用户动态工具优先（别名不劫持同名动态工具）
         if (dynamicTools.containsKey(toolName)) return true;
-        toolName = resolveToolAlias(toolName);
+        String resolved = resolveToolNameFuzzy(toolName);
+        if (resolved == null) return false;
+        toolName = resolveToolAlias(resolved);
         return toolFactories.containsKey(toolName) || dynamicTools.containsKey(toolName);
     }
 
@@ -545,6 +554,115 @@ public class AIToolManager {
             return "ui_component";
         }
         return name;
+    }
+
+    /**
+     * 模糊工具名解析：本地 4B 模型经常把工具名猜错（缩写/中文/漏前缀/大小写/连字符），
+     * 例如 "weather"→ai_weather、"text-tools"→text_tools、"画图"→image_gen、"python 画图"→python_chart。
+     * 匹配优先级：精确(含别名) > 规范化相等 > 唯一包含 > 唯一描述关键词。
+     * @return 真实注册名；无唯一匹配返回 null（调用方提示候选）
+     */
+    public String resolveToolNameFuzzy(String input) {
+        if (input == null) return null;
+        String trimmed = input.trim();
+        if (trimmed.isEmpty()) return null;
+
+        // 1) 精确 + 别名（动态工具优先，别名为 ui_component 之类）
+        String alias = resolveToolAlias(trimmed);
+        if (toolFactories.containsKey(alias) || dynamicTools.containsKey(alias)) {
+            return alias;
+        }
+
+        // 2) 规范化相等：小写 + 去下划线/连字符/空格，整体相等
+        String norm = normalizeToolName(trimmed);
+        if (!norm.isEmpty()) {
+            for (String name : toolFactories.keySet()) {
+                if (normalizeToolName(name).equals(norm)) return name;
+            }
+            for (String name : dynamicTools.keySet()) {
+                if (normalizeToolName(name).equals(norm)) return name;
+            }
+        }
+
+        // 3) 唯一包含匹配：输入是某工具名的子串，或反之（规范化后）
+        if (norm.length() >= 3) {
+            List<String> candidates = new ArrayList<>();
+            java.util.Set<String> all = new java.util.LinkedHashSet<>();
+            all.addAll(toolFactories.keySet());
+            all.addAll(dynamicTools.keySet());
+            for (String name : all) {
+                String n = normalizeToolName(name);
+                if (n.isEmpty()) continue;
+                if (n.contains(norm) || norm.contains(n)) {
+                    candidates.add(name);
+                }
+            }
+            if (candidates.size() == 1) return candidates.get(0);
+            // 多个候选：优先最短名（最可能是"本体"而非描述词）
+            if (candidates.size() > 1) {
+                candidates.sort((a, b) -> a.length() - b.length());
+                // 长度差显著（最短明显更短）才判定唯一，避免 ai_weather/network_search 同时命中"天气"这类
+                if (candidates.get(0).length() < candidates.get(1).length() - 2) {
+                    return candidates.get(0);
+                }
+            }
+        }
+
+        // 4) 描述关键词匹配（唯一）：模型用中文功能词猜测（"画图"/"换算"/"朗读"）
+        if (trimmed.length() >= 2) {
+            List<String> descMatches = new ArrayList<>();
+            java.util.Set<String> all = new java.util.LinkedHashSet<>();
+            all.addAll(toolFactories.keySet());
+            all.addAll(dynamicTools.keySet());
+            for (String name : all) {
+                ToolDefinition def = getToolDefinition(name);
+                if (def == null || def.getDescription() == null) continue;
+                String d = def.getDescription();
+                if (d.contains(trimmed) || normalizeToolName(d).contains(norm)) {
+                    descMatches.add(name);
+                }
+            }
+            if (descMatches.size() == 1) return descMatches.get(0);
+        }
+        return null;
+    }
+
+    /** 工具名规范化：小写 + 去下划线/连字符/空格/点 */
+    private static String normalizeToolName(String s) {
+        if (s == null) return "";
+        return s.toLowerCase()
+                .replace("_", "").replace("-", "").replace(" ", "")
+                .replace(".", "").replace("/", "");
+    }
+
+    /**
+     * 按关键词搜索工具名（供 tool_registry 未命中时提示候选/修正）。
+     * 匹配：名称规范化包含 / 描述包含。
+     * @return 匹配的工具名列表（最多 limit 个）
+     */
+    public java.util.List<String> searchToolNamesByKeyword(String keyword, int limit) {
+        java.util.List<String> result = new java.util.ArrayList<>();
+        if (keyword == null || keyword.isEmpty()) return result;
+        String kw = keyword.trim().toLowerCase();
+        String normKw = normalizeToolName(keyword);
+        java.util.Set<String> all = new java.util.LinkedHashSet<>();
+        all.addAll(toolFactories.keySet());
+        all.addAll(dynamicTools.keySet());
+        for (String name : all) {
+            if (result.size() >= limit) break;
+            String norm = normalizeToolName(name);
+            if (norm.contains(normKw) || normKw.contains(norm)) {
+                result.add(name);
+                continue;
+            }
+            ToolDefinition def = getToolDefinition(name);
+            if (def != null && def.getDescription() != null
+                    && (def.getDescription().toLowerCase().contains(kw)
+                        || normalizeToolName(def.getDescription()).contains(normKw))) {
+                result.add(name);
+            }
+        }
+        return result;
     }
     
     /**
@@ -771,6 +889,9 @@ public class AIToolManager {
      * 修复本地 Agent 无法调用动态工具的问题（getToolDefinition 对动态工具返回 null）。
      */
     public ToolDefinition resolveToolDefinition(String toolName) {
+        // 模糊解析：模型可能拿猜测名（weather 等）请求 schema，先归一化
+        String resolved = resolveToolNameFuzzy(toolName);
+        if (resolved != null) toolName = resolved;
         // 用户动态工具优先（避免与内置 switch 定义/别名冲突，如用户自建 system_ui_control）
         AITool dyn = dynamicTools.get(toolName);
         if (dyn != null) {
@@ -868,38 +989,41 @@ public class AIToolManager {
         switch (toolName) {
             case "ai_weather":
                 return ToolDefinition.builder("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。"
-                        + "action: current(实时天气,默认)/forecast(未来几天预报)/hourly(逐小时)/air_quality(空气质量)/"
+                        + "action: current(实时天气)/forecast(未来几天预报)/hourly(逐小时)/air_quality(空气质量)/"
                         + "alerts(预警)/indices(生活指数)/all(全部)。"
-                        + "city=城市名(如北京/上海) 或 lat+lon=经纬度二选一。"
+                        + "city=城市名 或 和风城市编码 或 lat+lon=经纬度(经纬度别名 latitude/longitude 也可用)。"
                         + "current 返回温度/体感/天气现象/风向风力/湿度/能见度/紫外线；"
                         + "forecast 返回逐日 {日期,白天/夜间天气,最高/最低温}；air_quality 返回 AQI/PM2.5/PM10/污染等级。"
-                        + "查询天气时优先用本工具（实时数据，禁止凭训练知识编造）。"
                         + "别名: get_weather/weather。")
-                    .addParameter("action", "string", "操作类型: current(实时,默认)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)", false, "current")
-                    .addParameter("city", "string", "城市名称，如：北京、上海（与经纬度二选一）", false)
-                    .addParameter("lat", "number", "纬度（与city二选一，配合lon）", false)
-                    .addParameter("lon", "number", "经度（与city二选一，配合lat）", false)
+                    .addParameter("action", "string", "操作类型: current(实时天气)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)，按用户需求选择", false)
+                    .addParameter("city", "string", "城市名称 或 和风城市编码（与经纬度二选一）", false)
+                    .addParameter("lat", "number", "纬度（与city二选一，配合lon；别名latitude）", false)
+                    .addParameter("lon", "number", "经度（与city二选一，配合lat；别名longitude）", false)
                     .category("weather")
                     .build();
             case "network_search":
                 return ToolDefinition.builder("network_search", "网络搜索工具（秘塔搜索引擎驱动）：联网搜索+智能问答+网页读取。"
                         + "action: search(关键词搜索,返回标题/链接/摘要)/ask(智能问答,返回答案+引用来源)/"
                         + "read_url(读取网页正文)/get_webpage(网页原始内容)/extract_info(提取信息)/"
-                        + "summarize(网页摘要)/search_and_read(搜索并读正文)/smart_search(智能搜索)。"
-                        + "涉及实时/最新/动态信息（新闻、价格、天气、汇率、政策、热点）必须联网搜索，禁止凭训练知识编造。"
+                        + "summarize(网页摘要)/search_and_read(搜索并读正文)/get_dynamic_content(获取JS渲染动态网页内容)/"
+                        + "smart_search(智能搜索,自动读详情)/smart_read(对已有搜索结果逐条读正文生成摘要,需传results)。"
+                        + "涉及实时/最新/动态信息（新闻、价格、天气、汇率、政策、热点）用联网搜索获取，训练数据不采纳。"
                         + "别名: search。")
-                    .addParameter("action", "string", "操作类型: search(搜索)/ask(智能问答)/read_url(网页读取)/get_webpage/extract_info/summarize/search_and_read/smart_search", false, "search")
-                    .addParameter("query", "string", "搜索关键词（用于search等操作）", false)
+                    .addParameter("action", "string", "操作类型: search(搜索)/ask(智能问答)/read_url(网页读取)/get_webpage/extract_info/summarize/search_and_read/get_dynamic_content/smart_search/smart_read", false, "search")
+                    .addParameter("query", "string", "搜索关键词（用于search/search_and_read/smart_search等操作）", false)
                     .addParameter("question", "string", "问题（用于ask操作，秘塔智能问答，返回答案+引用来源）", false)
-                    .addParameter("model", "string", "问答模型: concise(简洁)/detail(深入)/research(研究)，默认concise（用于ask操作）", false, "concise")
+                    .addParameter("model", "string", "问答模型: concise(简洁)/detail(深入)/research(研究)（用于ask操作）", false, "concise")
                     .addParameter("keyword", "string", "搜索关键词（query的别名）", false)
                     .addParameter("limit", "integer", "结果数量限制，默认5", false, 5)
                     .addParameter("num_results", "integer", "返回结果数量（limit的别名）", false, 5)
-                    .addParameter("url", "string", "网页URL（用于read_url/get_webpage操作）", false)
+                    .addParameter("url", "string", "网页URL（用于read_url/get_webpage/get_dynamic_content操作）", false)
+                    .addParameter("maxResults", "integer", "最大结果数（smart_search用）", false, 5)
+                    .addParameter("autoRead", "boolean", "是否自动读取详情（smart_search用）", false, true)
+                    .addParameter("results", "array", "搜索结果数组（smart_read用，传上一步search返回的results）", false)
                     .category("search")
                     .build();
             case "python_calculate":
-                return ToolDefinition.builder("python_calculate", "使用Python进行数学计算")
+                return ToolDefinition.builder("python_calculate", "使用Python进行数学计算，支持复杂/多步/科学计算表达式")
                     .addParameter("expression", "string", "数学表达式，如：2+3*4", true)
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .category("calculator")
@@ -908,7 +1032,7 @@ public class AIToolManager {
                 return ToolDefinition.builder("file_reader", "文件阅读工具：读取全文/按行/区间提取/搜索/实体提取/预览/解析结构化文件(Excel/CSV/JSON/XML)/列目录(list)。自动检测编码(UTF-8/UTF-16/GB18030/GBK)，支持content:// URI(file_uri)。大文件用 read_lines/preview/search_text 分片读取。Excel整表解析用本工具parse_excel；需要按条件查询/修改Excel请用 excel_tool")
                     .addParameter("file_path", "string", "文件路径(支持content://开头URI，与file_uri二选一)", false)
                     .addParameter("file_uri", "string", "content:// URI(文件选择器/分享的Uri，与file_path二选一)", false)
-                    .addParameter("action", "string", "操作类型: read(默认)/read_lines/extract_text/search_text/extract_entities/preview/parse_structured/parse_excel/parse_csv/parse_json/parse_xml/list", false, "read")
+                    .addParameter("action", "string", "操作类型: read/read_lines/extract_text/search_text/extract_entities/preview/parse_structured/parse_excel/parse_csv/parse_json/parse_xml/list", false, "read")
                     .addParameter("directory_path", "string", "目录路径(list用，留空默认应用目录)", false)
                     .addParameter("encoding", "string", "文件编码(留空自动检测UTF-8/UTF-16/GB18030/GBK；也可指定如GBK)", false)
                     .addParameter("startLine", "integer", "起始行号(read_lines用)", false)
@@ -929,7 +1053,7 @@ public class AIToolManager {
                     .build();
             case "file_analyzer":
                 return ToolDefinition.builder("file_analyzer", "文件分析工具：综合分析/统计/关键词/词频/格式检测/目录分析/查找重复文件(大小+内容哈希)")
-                    .addParameter("action", "string", "操作类型: analyze(默认)/statistics/keywords/word_count/detect_format/analyze_directory/find_duplicates", false, "analyze")
+                    .addParameter("action", "string", "操作类型: analyze/statistics/keywords/word_count/detect_format/analyze_directory/find_duplicates", false, "analyze")
                     .addParameter("file_path", "string", "文件路径(analyze/statistics/keywords/word_count/detect_format用)", false)
                     .addParameter("directory_path", "string", "目录路径(analyze_directory/find_duplicates用)", false)
                     .addParameter("topN", "integer", "关键词数量(keywords用，默认10)", false, 10)
@@ -937,7 +1061,7 @@ public class AIToolManager {
                     .build();
             case "file_generator":
                 return ToolDefinition.builder("file_generator", "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）")
-                    .addParameter("action", "string", "操作类型: create(默认)/append/json/config/markdown/template/report/copy/delete", false, "create")
+                    .addParameter("action", "string", "操作类型: create/append/json/config/markdown/template/report/copy/delete", false, "create")
                     .addParameter("file_name", "string", "文件名/路径", true)
                     .addParameter("content", "string", "文件内容(create/append/markdown用)", false)
                     .addParameter("format", "string", "文件格式(可选)", false)
@@ -985,7 +1109,7 @@ public class AIToolManager {
                     .build();
             case "smart_research":
                 return ToolDefinition.builder("smart_research", "智能研究工具，整合搜索和阅读功能，自动完成搜索→选择→阅读→摘要的完整研究流程")
-                    .addParameter("action", "string", "操作类型: research(默认)/quick_search/deep_read/summarize_topic", false, "research")
+                    .addParameter("action", "string", "操作类型: research/quick_search/deep_read/summarize_topic", false, "research")
                     .addParameter("topic", "string", "研究主题(research/quick_search/summarize_topic用，等价于query)", false)
                     .addParameter("query", "string", "查询词(topic的别名，二者传其一即可)", false)
                     .addParameter("depth", "integer", "研究深度(保留参数)", false, 1)
@@ -995,13 +1119,17 @@ public class AIToolManager {
                     .category("research")
                     .build();
             case "location":
-                return ToolDefinition.builder("location", "位置查询工具，获取当前位置信息")
+                return ToolDefinition.builder("location", "位置查询工具：获取当前位置信息（经纬度/城市/详细地址）。"
+                        + "action: get_current(当前经纬度+城市+地址)/get_city(当前城市名)/get_coordinates(经纬度坐标)。"
+                        + "返回含 latitude/longitude/city/district/address 等字段；"
+                        + "位置服务未开启或权限未授予时返回错误提示并引导跳转系统设置。"
+                        + "别名: get_location/get_current_location/get_city/get_coordinates。")
                     .addParameter("action", "string", "操作类型: get_current/get_city/get_coordinates", false, "get_current")
                     .category("location")
                     .build();
             case "webpage_reader":
                 return ToolDefinition.builder("webpage_reader", "网页阅读工具(Jsoup解析)：抓取网页返回标题/描述/标题结构/正文(text字段)/链接/摘要/关键词/分类。read=读取解析；extract=提取关键信息(可传已有content)；summarize=生成摘要；read_multiple=并行批量读取(urls数组)；follow_links=跟踪链接。单页上限5MB")
-                    .addParameter("action", "string", "操作类型: read(默认)/extract/summarize/read_multiple/follow_links", false, "read")
+                    .addParameter("action", "string", "操作类型: read/extract/summarize/read_multiple/follow_links", false, "read")
                     .addParameter("url", "string", "网页URL(read/extract/summarize/follow_links用，与content二选一)", false)
                     .addParameter("urls", "array", "URL列表(read_multiple用，并行抓取)", false)
                     .addParameter("content", "string", "网页内容(extract/summarize用，与url二选一)", false)
@@ -1011,12 +1139,17 @@ public class AIToolManager {
                     .category("web")
                     .build();
             case "system_resource":
-                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command有安全管控：危险命令(rm/reboot/su/dd/chmod/kill/wget等)与敏感路径(/data/data、/proc、/sys、凭据文件)会被拦截，单条命令10秒超时")
-                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
+                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command有安全管控：危险命令(rm/reboot/su/dd/chmod/kill/wget等)与敏感路径(/data/data、/proc、/sys、凭据文件)会被拦截，单条命令10秒超时")
+                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
                     .addParameter("app", "string", "应用名称或包名，支持模糊匹配", false)
                     .addParameter("url", "string", "URL地址", false)
                     .addParameter("phone", "string", "电话号码", false)
                     .addParameter("message", "string", "短信内容", false)
+                    .addParameter("to", "string", "收件人邮箱(send_email用，必填)", false)
+                    .addParameter("subject", "string", "邮件主题(send_email用)", false)
+                    .addParameter("body", "string", "邮件正文(send_email用)", false)
+                    .addParameter("location", "string", "地图查询地点/坐标(open_map用，如\"天安门\"或\"39.9,116.4\")", false)
+                    .addParameter("address", "string", "地图地址(open_map用，location的别名)", false)
                     .addParameter("command", "string", "Shell命令（如: pm list packages, dumpsys activity top, input tap 500 500。危险命令/敏感路径被拦截，10秒超时）", false)
                     .addParameter("setting_type", "string", "设置类型: system/secure/global", false)
                     .addParameter("setting_key", "string", "设置键名", false)
@@ -1034,14 +1167,14 @@ public class AIToolManager {
                     .category("python")
                     .build();
             case "python_analyze_data":
-                return ToolDefinition.builder("python_analyze_data", "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时优先用本工具，复杂任务用python_execute")
+                return ToolDefinition.builder("python_analyze_data", "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时用本工具，复杂任务用python_execute")
                     .addParameter("data", "string", "数据（可选，要分析的数据内容）", false)
                     .addParameter("task", "string", "任务描述（可选，如统计/求平均/去重/排序/转换格式等）", false)
                     .category("python")
                     .build();
             case "python_web_reader":
                 return ToolDefinition.builder("python_web_reader", "Python网页工具(requests+bs4)：抓取网页/API并提取信息。fetch=GET/POST抓取(可带headers/params/JSON body)；extract=bs4提取标题/正文/链接/表格/JSON-LD；fetch_json=请求JSON API。适合登录态/Cookie/自定义请求头/API等Java网页工具不便处理的场景")
-                    .addParameter("action", "string", "操作: fetch(默认)/extract/fetch_json", false, "fetch")
+                    .addParameter("action", "string", "操作: fetch/extract/fetch_json", false, "fetch")
                     .addParameter("url", "string", "目标URL", true)
                     .addParameter("method", "string", "HTTP方法(GET/POST，默认GET)", false, "GET")
                     .addParameter("headers", "object", "自定义请求头JSON，如{\"Cookie\":\"...\",\"User-Agent\":\"...\"}", false)
@@ -1054,7 +1187,7 @@ public class AIToolManager {
                     .build();
             case "python_file_ops":
                 return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=严格解析CSV(标准库RFC4180)/JSON/XML/Excel(xlsx读写)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析/xlsx写入等场景")
-                    .addParameter("action", "string", "操作: read(默认)/parse/write/append/replace", false, "read")
+                    .addParameter("action", "string", "操作: read/parse/write/append/replace", false, "read")
                     .addParameter("file_path", "string", "文件路径", true)
                     .addParameter("content", "string", "内容(write/append用)", false)
                     .addParameter("old_text", "string", "被替换文本(replace用)", false)
@@ -1096,11 +1229,11 @@ public class AIToolManager {
                     .category("tool")
                     .build();
             case "dashscope_media":
-                return ToolDefinition.builder("dashscope_media", "百炼DashScope文生图/文生视频（通义万相）：image=文生图(wan2.2-t2i-flash默认/plus)；video=文生视频(wan2.2-t2v-plus,异步提交返回task_id)；query=按task_id查询进度并下载结果。视频尺寸仅限白名单:1080*1920/1920*1080/1440*1440/1632*1248/1248*1632/480*832/832*480/624*624(其他报错)。生成结果保存到工作区files/，返回文件卡片/图片卡片")
-                    .addParameter("action", "string", "操作: image(文生图)/video(文生视频)/query(按task_id查询并下载)", false, "image")
+                return ToolDefinition.builder("dashscope_media", "百炼DashScope文生图/文生视频（通义万相）：image=文生图(wan2.2-t2i-flash/plus)；video=文生视频(wan2.2-t2v-plus,异步提交返回task_id)；query=按task_id查询进度并下载结果；models=列出可用模型。视频尺寸仅限白名单:1080*1920/1920*1080/1440*1440/1632*1248/1248*1632/480*832/832*480/624*624(其他报错)。生成结果保存到工作区files/，返回文件卡片/图片卡片")
+                    .addParameter("action", "string", "操作: image(文生图)/video(文生视频)/query(按task_id查询并下载)/models(列出可用模型)", false, "image")
                     .addParameter("prompt", "string", "画面/视频描述（必填）", false)
-                    .addParameter("model", "string", "模型(image: wan2.2-t2i-flash默认/wan2.2-t2i-plus；video: wan2.2-t2v-plus默认)", false)
-                    .addParameter("size", "string", "尺寸(image: 1024*1024默认；video: 白名单 1080*1920/1920*1080/1440*1440/1632*1248/1248*1632/480*832/832*480/624*624，默认832*480)", false)
+                    .addParameter("model", "string", "模型(image: wan2.2-t2i-flash/wan2.2-t2i-plus；video: wan2.2-t2v-plus)，按需选择", false)
+                    .addParameter("size", "string", "尺寸(image: 1024*1024；video: 白名单 1080*1920/1920*1080/1440*1440/1632*1248/1248*1632/480*832/832*480/624*624)，按需选择", false)
                     .addParameter("duration", "integer", "视频时长秒数(video用，默认5)", false, 5)
                     .addParameter("task_id", "string", "任务ID(query用)", false)
                     .addParameter("api_key", "string", "百炼API Key(可选，默认取当前在线模型配置)", false)
@@ -1133,7 +1266,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "ui_component_plugin":
-                return ToolDefinition.builder("ui_component_plugin", "原生UI组件插件系统：Agent动态创建/复用原生UI组件插件（任何自定义组件类型，类型安全，兼容校验）与原生layout模板库（可复用控件模板）。插件动作: create(注册插件)/template(取标准模板)/validate(校验定义不落库)/get(查单个)/list(列出全部)/remove(删除)/clear_temporary(清除临时插件)；layout模板动作: register_layout(注册命名layout模板)/layout_list(列出)/layout_remove(删除)/layout_clear_temporary(清除临时模板)。生命周期由任务决定: persist=true(默认)长久落盘可复用, false临时仅内存任务结束即消失。兼容性自动校验: 插件名仅字母数字下划线、params类型限string/number/boolean/array/object、render.card限项目内置卡片、render.layout限项目原生控件框架、render不能为空、monitor.tool限已注册工具。创建组件时自动按params schema校验: 缺必填报错/类型转换/默认值填充。创建后可用ui_component(action=update,component_id=...,props={新参数})动态刷新。**插件/类型/模板的复用**: 注册的插件名和register_type类型名可直接作其他layout树的节点type嵌套({\"type\":\"插件名\"},自动展开其render.layout,节点props覆盖占位)；layout模板注册后任意layout内可用{\"use\":\"模板名\",\"props\":{参数}}引用,模板内{key}由props替换。")
+                return ToolDefinition.builder("ui_component_plugin", "原生UI组件插件系统：Agent动态创建/复用原生UI组件插件（任何自定义组件类型，类型安全，兼容校验）与原生layout模板库（可复用控件模板）。插件动作: create(注册插件)/template(取标准模板)/validate(校验定义不落库)/get(查单个)/list(列出全部)/remove(删除)/clear_temporary(清除临时插件)；layout模板动作: register_layout(注册命名layout模板)/layout_list(列出)/layout_remove(删除)/layout_clear_temporary(清除临时模板)。生命周期由任务决定: persist=true长久落盘可复用, false临时仅内存任务结束即消失。兼容性自动校验: 插件名仅字母数字下划线、params类型限string/number/boolean/array/object、render.card限项目内置卡片、render.layout限项目原生控件框架、render不能为空、monitor.tool限已注册工具。创建组件时自动按params schema校验: 缺必填报错/类型转换/默认值填充。创建后可用ui_component(action=update,component_id=...,props={新参数})动态刷新。**插件/类型/模板的复用**: 注册的插件名和register_type类型名可直接作其他layout树的节点type嵌套({\"type\":\"插件名\"},自动展开其render.layout,节点props覆盖占位)；layout模板注册后任意layout内可用{\"use\":\"模板名\",\"props\":{参数}}引用,模板内{key}由props替换。")
                     .addParameter("action", "string", "操作: create/template/validate/get/list/remove/clear_temporary/register_layout/layout_list/layout_remove/layout_clear_temporary", true)
                     .addParameter("name", "string", "插件名或layout模板名（create/get/remove/register_layout/layout_remove 用），仅字母数字下划线", false)
                     .addParameter("description", "string", "插件或模板用途说明（create/register_layout 用，给模型看）", false)
@@ -1141,7 +1274,7 @@ public class AIToolManager {
                     .addParameter("render", "object", "渲染配置 JSON（create 用，可选）：{card: 项目内置卡片类型(如 info_card/progress_card), title: 标题, props: 卡片固定字段, layout: 项目原生控件框架树(JSON 声明原生 UI，见下)}。layout 示例: {root:{type:'column',children:[{type:'text',text:'标题'},{type:'input',hint:'输入',key:'name'},{type:'button',text:'提交',action:'submit'}]}}；控件 type: 布局 column/row/scroll/card/wrap(流式换行)/grid(网格,columns)/space(弹性空白)/tabs(标签页,tabs=[{label,content}])/stack(层叠)/accordion(折叠面板)/carousel(图片轮播)；展示 text/marquee(跑马灯,speed 0~3)/image/badge/avatar/avatar_group/quote/code/icon；数据 table(headers/rows)/steps(步骤条)/timeline(时间线)/alert(提示条,样式字段用alert_type或variant)/stat(指标卡)/empty(空态)/notice(通知条)/progress_ring(环形进度)；图表 line_chart(折线)/bar_chart(柱状)/pie_chart(饼图)/sparkline(迷你趋势)；工具 qrcode(二维码)/barcode(条形码)/countdown(倒计时)/calendar(日历)/breadcrumb(面包屑)；媒体 video(url或src,title,autoPlay,loop,speed)/audio(url或src,title,artist)/html(富文本)；输入 input/number/password/multiline/otp/email/tel/url/search/search_bar/tag_input；选择 select/switch/checkbox/checkbox_group/radio/radio_group/date/time/datetime/color/rating/toggle(胶囊开关)/dropdown(下拉)/stepper(步进器)/slider_range(双滑块)；交互 button/link(text,url或action)/slider/progress/spinner；文件 file；装饰 divider/divider_v/separator；通用属性 width/height(match/wrap/数字dp/百分比)/margin(数字或对象)/weight或flex(弹性)/align(对齐)/容器spacing/alignItems/justify；自定义模板 use=名字（register_layout注册或layout顶层define）；**嵌套**: 已注册插件名/类型名可直接作layout节点type嵌套({\"type\":\"插件名\"})，未注册类型节点带layout字段现场展开({\"type\":\"x\",\"layout\":{...}})；后端组件: button 可加 tool=后端工具名+tool_params={参数,支持{key}占位符}，点击直接调用后端工具并回传结果", false)
                     .addParameter("layout", "object", "layout模板定义（register_layout 用）：控件树JSON，如{type:'card',title:'{label}',children:[...]}，模板内{key}由use的props替换；注册后任意layout内可用use=模板名引用", false)
                     .addParameter("monitor", "object", "任务监控配置 JSON（create 用，可选）：{tool: 已注册工具名, action: 工具action参数, poll_seconds: 轮询间隔秒数(2~30,默认5), param_map: {组件props字段: 查询参数名}, success_field: 查询结果含该字段即完成(展示该文件路径), error_field: 失败原因字段(可选)}", false)
-                    .addParameter("persist", "boolean", "生命周期（create/register_layout 用）：true=长久插件落盘跨重启保留可复用(默认)；false=临时插件仅内存任务结束即消失", false)
+                    .addParameter("persist", "boolean", "生命周期（create/register_layout 用）：true=长久插件落盘跨重启保留可复用；false=临时插件仅内存任务结束即消失", false)
                     .category("system")
                     .build();
             case "system_ui_control":
@@ -1204,7 +1337,7 @@ public class AIToolManager {
                     .build();
             case "ocr_recognize":
                 return ToolDefinition.builder("ocr_recognize", "图片理解工具：OCR文字识别 + 视觉问答（看图理解）。识别图片/PDF文字，或看图回答用户问题")
-                    .addParameter("action", "string", "操作类型: ocr_recognize(识别图片文字,默认)/ocr_recognize_pdf(识别PDF文字)/image_understand(图片理解视觉问答)/ocr_set_language(设置语言)/ocr_get_language(获取语言)", false, "ocr_recognize")
+                    .addParameter("action", "string", "操作类型: ocr_recognize(识别图片文字)/ocr_recognize_pdf(识别PDF文字)/image_understand(图片理解视觉问答,自动选模型;image_understand_local/online=指定本地/在线视觉模型)/ocr_set_language(设置语言)/ocr_get_language(获取语言)", false, "ocr_recognize")
                     .addParameter("image_path", "string", "图片路径(ocr_recognize/image_understand用)：绝对路径或 content:// 或 file:// URI", false)
                     .addParameter("pdf_path", "string", "PDF路径(ocr_recognize_pdf用)：绝对路径或 content:// 或 file:// URI", false)
                     .addParameter("question", "string", "关于图片的问题(image_understand用，如：图里有什么？描述一下这张图)", false)
@@ -1212,7 +1345,7 @@ public class AIToolManager {
                     .category("utility")
                     .build();
             case "video_to_player":
-                return ToolDefinition.builder("video_to_player", "视频下载转播放工具：输入视频页面链接或直链URL，解析视频源并下载到本地工作区，返回 local_path（mp4绝对路径）供 video_player 组件渲染原生播放。直链(mp4/webm等扩展名或视频Content-Type)直接下载；网页链接抓取HTML提取og:video或<video>标签src后下载。下载完成后返回文件卡片可直接点击全屏播放。用户说\"播放视频\"时优先用本工具下载后创建 video_player 组件")
+                return ToolDefinition.builder("video_to_player", "视频下载转播放工具：输入视频页面链接或直链URL，解析视频源并下载到本地工作区，返回 local_path（mp4绝对路径）供 video_player 组件渲染原生播放。直链(mp4/webm等扩展名或视频Content-Type)直接下载；网页链接抓取HTML提取og:video或<video>标签src后下载。下载完成后返回文件卡片可直接点击全屏播放。用户说\"播放视频\"时用本工具下载后创建 video_player 组件")
                     .addParameter("url", "string", "视频页面链接或直链URL（必填）", true)
                     .addParameter("title", "string", "视频标题（可选，默认取文件名）", false)
                     .addParameter("timeout", "integer", "下载超时秒数（可选，默认120）", false)
@@ -1238,7 +1371,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "ai_create_tool":
-                return ToolDefinition.builder("ai_create_tool", "AI创建工具，使用AI自动生成新工具")
+                return ToolDefinition.builder("ai_create_tool", "AI创建工具：使用AI自动生成新工具（工具名+描述+参数定义+执行逻辑），创建后可直接被后续对话调用")
                     .addParameter("tool_name", "string", "工具名称", true)
                     .addParameter("description", "string", "工具描述", true)
                     .addParameter("parameters", "string", "参数定义", false)
@@ -1247,7 +1380,7 @@ public class AIToolManager {
                     .build();
             case "voice_input":
                 return ToolDefinition.builder("voice_input", "语音输入工具：将语音/音频转换为文字（语音识别ASR）。支持识别音频文件(recognize)、交互式录音识别(record，弹出录音组件让用户说话，点完成结束，录音前自动停止TTS播放防串音)、固定时长录音识别(record_and_recognize，需录音权限)、检查可用性(check)。未配置语音识别模型时提示先配置（如 qwen3-asr-flash / whisper-1）")
-                    .addParameter("action", "string", "操作类型: recognize(默认,识别音频文件)/record(交互式录音组件)/record_and_recognize(固定时长录音)/check(检查可用性)", false, "recognize")
+                    .addParameter("action", "string", "操作类型: recognize(识别音频文件)/record(交互式录音组件)/record_and_recognize(固定时长录音)/check(检查可用性)", false, "recognize")
                     .addParameter("audio_path", "string", "音频文件路径(mp3/m4a/wav/amr等，与audio_uri二选一)", false)
                     .addParameter("audio_uri", "string", "音频content:// URI(与audio_path二选一)", false)
                     .addParameter("language", "string", "语言提示(zh/en)，默认自动检测", false)
@@ -1259,7 +1392,7 @@ public class AIToolManager {
                     .build();
             case "speech_synthesis":
                 return ToolDefinition.builder("speech_synthesis", "语音合成工具：将文字合成为语音并播放，或保存为音频文件(TTS)。在线TTS不可用时自动回退系统TTS。synthesize=阻塞播放；speak=带播放组件朗读(弹出🔊对话框可见可停止,返回component_id,用ui_component get_result等待completed/stopped)；save=保存文件；play=播放音频；stop=停止；voices/set_voice=音色。播放与应用层共享SpeechManager，应用层停止按钮同样生效")
-                    .addParameter("action", "string", "操作类型: synthesize(默认,阻塞播放)/speak(带组件朗读,非阻塞)/save(合成保存为文件)/play(播放音频文件)/stop(停止播放)/check(检查可用性)/voices(获取音色列表)/set_voice(设置音色)", false, "synthesize")
+                    .addParameter("action", "string", "操作类型: synthesize(阻塞播放)/speak(带组件朗读,非阻塞)/save(合成保存为文件)/play(播放音频文件)/stop(停止播放)/check(检查可用性)/voices(获取音色列表)/set_voice(设置音色)", false, "synthesize")
                     .addParameter("text", "string", "要合成/朗读的文字(synthesize/speak/save用)", false)
                     .addParameter("voice", "string", "音色ID(如alloy/echo/nova/shimmer，或sys:系统音色；voices可查列表)", false)
                     .addParameter("title", "string", "播放组件标题(speak用，默认🔊正在朗读)", false)
@@ -1284,7 +1417,7 @@ public class AIToolManager {
                     .addParameter("values", "array", "行数据数组(add_row用，如[\"张三\",18,\"北京\"])", false)
                     .addParameter("new_sheet_name", "string", "新工作表名称(add_sheet用)", false)
                     .addParameter("column_name", "string", "条件列名(query用，别名row_column)", false)
-                    .addParameter("op", "string", "比较操作: eq(等于,默认)/ne/contains/gt/gte/lt/lte", false, "eq")
+                    .addParameter("op", "string", "比较操作: eq(等于)/ne/contains/gt/gte/lt/lte", false, "eq")
                     .addParameter("match_value", "string", "匹配值(query用)", false)
                     .addParameter("row_start", "integer", "起始行号(query用，1-based，含)", false)
                     .addParameter("row_end", "integer", "结束行号(query用，1-based，含)", false)
@@ -1341,7 +1474,13 @@ public class AIToolManager {
             if (defs != null) {
                 for (com.oilquiz.app.ai.tool.openai.ParamDefinition def : defs) {
                     String type = def.getType() != null && !def.getType().isEmpty() ? def.getType() : "string";
-                    if (def.getDefaultValue() != null) {
+                    // 已知枚举参数覆盖：普通 AITool（无结构化参数）的 action/type 等枚举参数，
+                    // 手动补上枚举值，让模型看到全部可选 action（否则 2B 模型只敢用第一个值）
+                    List<String> enumOverride = getParamEnumOverride(tool.getName(), def.getName());
+                    if (enumOverride != null) {
+                        builder.addParameter(def.getName(), type, def.getDescription(),
+                                def.isRequired(), def.getDefaultValue(), enumOverride);
+                    } else if (def.getDefaultValue() != null) {
                         builder.addParameter(def.getName(), type, def.getDescription(),
                                 def.isRequired(), def.getDefaultValue(), def.getEnumValues());
                     } else if (def.getEnumValues() != null && !def.getEnumValues().isEmpty()) {
@@ -1358,6 +1497,45 @@ public class AIToolManager {
             Log.e(TAG, "Error creating ToolDefinition from AITool: " + e.getMessage());
             return null;
         }
+    }
+
+    /** 已知工具的枚举参数覆盖表（工具名 → 参数名 → 枚举值列表）。
+     *  仅用于普通 AITool（getParameterDescriptions 无结构化枚举）的常见枚举参数，补充模型可见性。 */
+    private static final Map<String, Map<String, List<String>>> PARAM_ENUM_OVERRIDES = buildParamEnumOverrides();
+
+    private static Map<String, Map<String, List<String>>> buildParamEnumOverrides() {
+        Map<String, Map<String, List<String>>> map = new HashMap<>();
+        Map<String, List<String>> weather = new HashMap<>();
+        weather.put("action", Arrays.asList("current", "forecast", "hourly",
+                "air_quality", "alerts", "indices", "all"));
+        map.put("ai_weather", weather);
+        Map<String, List<String>> chart = new HashMap<>();
+        chart.put("action", Arrays.asList("bar", "line", "pie", "scatter",
+                "radar", "heatmap", "area", "table"));
+        map.put("python_chart", chart);
+        Map<String, List<String>> appToolkit = new HashMap<>();
+        // 与实际执行 switch 对齐（36 个真实 action，避免分类名调用落到 default 报"未知操作"）
+        appToolkit.put("action", Arrays.asList("weather_current", "weather_forecast", "weather_hourly",
+                "weather_air", "weather_alerts", "weather_indices", "weather_all", "calculate",
+                "ocr_recognize", "ocr_recognize_pdf", "ocr_set_language", "ocr_get_language",
+                "image_label_recognize", "image_label_set_threshold", "image_label_get_threshold",
+                "image_label_load_custom_model", "object_detect", "object_set_threshold",
+                "object_get_threshold", "object_set_multiple", "object_set_classification",
+                "image_save", "image_scale", "image_crop", "image_rotate",
+                "image_generate_color", "image_generate_text",
+                "web_parse_html", "web_get_title", "web_get_links", "web_get_images", "web_get_text",
+                "get_info", "get_guide", "predict_intent", "debug_report"));
+        Map<String, List<String>> memory = new HashMap<>();
+        memory.put("action", Arrays.asList("save", "recall", "delete", "list", "clear"));
+        map.put("memory", memory);
+        return map;
+    }
+
+    /** 查询工具参数的枚举覆盖（无覆盖返回 null） */
+    private static List<String> getParamEnumOverride(String toolName, String paramName) {
+        Map<String, List<String>> params = PARAM_ENUM_OVERRIDES.get(toolName);
+        if (params == null) return null;
+        return params.get(paramName);
     }
     
     /**
@@ -1377,9 +1555,6 @@ public class AIToolManager {
                     sb.append("  - ").append(param.getName());
                     sb.append(" (").append(param.getType()).append(")");
                     if (param.isRequired()) sb.append(" [必填]");
-                    if (param.getDefaultValue() != null) {
-                        sb.append(" 默认: ").append(param.getDefaultValue());
-                    }
                     sb.append(": ").append(param.getDescription()).append("\n");
                 }
                 sb.append("\n");
@@ -1389,3 +1564,5 @@ public class AIToolManager {
         return sb.toString();
     }
 }
+
+

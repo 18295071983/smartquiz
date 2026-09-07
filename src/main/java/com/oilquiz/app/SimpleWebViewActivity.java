@@ -35,9 +35,9 @@ public class SimpleWebViewActivity extends BaseActivity {
         webView = findViewById(R.id.webView);
         progressBar = findViewById(R.id.progressBar);
 
-        // 标题栏：优先取 intent title，默认"HTML 预览"
+        // 标题栏：优先取 intent title，默认getString(R.string.h_fc1d52a4)
         String title = getIntent().getStringExtra("title");
-        setupToolbar(title != null && !title.isEmpty() ? title : "HTML 预览");
+        setupToolbar(title != null && !title.isEmpty() ? title : getString(R.string.h_fc1d52a4));
 
         // 配置 WebView
         setupWebView();
@@ -201,9 +201,9 @@ public class SimpleWebViewActivity extends BaseActivity {
                 try {
                     android.content.Intent intent = new android.content.Intent(
                             SimpleWebViewActivity.this,
-                            com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.class);
+                            com.oilquiz.app.ui.activity.FileRenderActivity.class);
                     intent.putExtra(
-                            com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.EXTRA_FILE_PATH, path);
+                            com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH, path);
                     startActivity(intent);
                 } catch (Exception e) {
                     Log.w(TAG, "通用预览打开失败: " + e.getMessage());
@@ -225,7 +225,7 @@ public class SimpleWebViewActivity extends BaseActivity {
                 } catch (Exception e) {
                     Log.w(TAG, "系统打开失败: " + e.getMessage());
                     android.widget.Toast.makeText(SimpleWebViewActivity.this,
-                            "无法打开该文件（系统无对应应用）", android.widget.Toast.LENGTH_SHORT).show();
+                            getString(R.string.h_faaa7039), android.widget.Toast.LENGTH_SHORT).show();
                 }
             }
 

@@ -1,5 +1,7 @@
 package com.oilquiz.app.ui.adapter;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -175,9 +177,9 @@ public class ModelListAdapter extends RecyclerView.Adapter<ModelListAdapter.Mode
             
             // 根据是否可用设置样式
             if (model.isAvailable()) {
-                modelNameText.setTextColor(context.getResources().getColor(R.color.text_primary));
+                modelNameText.setTextColor(ThemeColors.attr(context, R.attr.colorControlText));
             } else {
-                modelNameText.setTextColor(context.getResources().getColor(R.color.text_tertiary));
+                modelNameText.setTextColor(ThemeColors.attr(context, R.attr.colorControlTextHint));
             }
         }
     }

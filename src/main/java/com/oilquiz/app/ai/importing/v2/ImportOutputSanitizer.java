@@ -161,17 +161,13 @@ public final class ImportOutputSanitizer {
         return out;
     }
 
-    /** 题型归一化：把 LLM 输出的各种写法统一为标准题型名；无法识别原样返回 */
+    /**
+     * 题型归一化：委托 QuestionSchemaDictionary 统一收口为标准 5 种题型。
+     * 无法识别返回空串（不向 questionType 写入非标准值，交由上层填充/置空处理）。
+     */
     static String normalizeQuestionType(String qt) {
-        if (qt == null || qt.trim().isEmpty()) return qt;
-        String t = qt.trim();
-        if (t.contains("多选")) return "多选题";
-        if (t.contains("单选")) return "单选题";
-        if (t.contains("判断")) return "判断题";
-        if (t.contains("填空")) return "填空题";
-        if (t.contains("简答") || t.contains("问答") || t.contains("主观")) return "简答题";
-        if (t.contains("选择")) return "单选题"; // 泛化"选择题"按单选处理
-        return t;
+        String norm = com.oilquiz.app.ai.importing.QuestionSchemaDictionary.normalizeQuestionType(qt);
+        return norm == null ? "" : norm;
     }
 
     /**

@@ -11,24 +11,24 @@
         android:id="@+id/tv_hourly_time"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="12sp"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/future_text_tertiary" />
 
     <TextView
         android:id="@+id/tv_hourly_icon"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:textSize="28sp"
+        android:layout_marginTop="@dimen/space_8"
+        android:textSize="@dimen/text_28"
         android:textColor="@color/future_text_primary" />
 
     <TextView
         android:id="@+id/tv_hourly_temp_level"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
-        android:textSize="11sp"
-        android:textColor="#80FFFFFF"
+        android:layout_marginTop="@dimen/space_5"
+        android:textSize="@dimen/text_11"
+        android:textColor="@color/white_alpha_50"
         android:maxLines="1"
         android:ellipsize="end" />
 
@@ -36,8 +36,8 @@
         android:id="@+id/tv_hourly_temp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="3dp"
-        android:textSize="15sp"
+        android:layout_marginTop="@dimen/space_3"
+        android:textSize="@dimen/text_15"
         android:textColor="@color/future_text_primary"
         android:textStyle="bold" />
 
@@ -45,8 +45,8 @@
         android:id="@+id/tv_hourly_pop"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:textSize="10sp"
+        android:layout_marginTop="@dimen/space_2"
+        android:textSize="@dimen/text_12"
         android:textColor="@color/weather_primary"
         android:visibility="gone" />
 </LinearLayout>

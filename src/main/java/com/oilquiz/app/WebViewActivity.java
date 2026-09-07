@@ -1,5 +1,7 @@
 package com.oilquiz.app;
 
+import com.oilquiz.app.theme.ThemeColors;
+
 import com.oilquiz.app.ui.base.BaseActivity;
 import android.content.Context;
 import android.content.Intent;
@@ -18,7 +20,6 @@ import android.widget.TextView;
 import android.webkit.JavascriptInterface;
 import androidx.annotation.NonNull;
 import com.oilquiz.app.infra.AppLogger;
-import com.oilquiz.app.util.PreviewRenderBridge;
 import com.oilquiz.app.resource.AppResourceManager;
 import com.oilquiz.app.resource.SystemUIResourceAdapter;
 import com.oilquiz.app.resource.PermissionResourceProvider;
@@ -51,7 +52,6 @@ public class WebViewActivity extends BaseActivity {
     private Button btnRefresh;
     private Button btnReset;
     private FrameLayout webViewContainer;
-    private PreviewRenderBridge previewRenderBridge;
     private SystemUIResourceAdapter uiAdapter;
     
     // 标签页相关
@@ -202,7 +202,7 @@ public class WebViewActivity extends BaseActivity {
         setContentView(rootLayout);
         
         // 设置标题和Toolbar
-        String title = customTitle != null ? customTitle : "文件查看器";
+        String title = customTitle != null ? customTitle : getString(R.string.h_d6603825);
         setupToolbar(title);
 
         // 创建标签容器 - 类似底部导航栏样式
@@ -245,7 +245,7 @@ public class WebViewActivity extends BaseActivity {
         // 创建加载状态文本
         loadingStatusText = new TextView(this);
         loadingStatusText.setId(View.generateViewId());
-        loadingStatusText.setText("准备加载...");
+        loadingStatusText.setText(getString(R.string.h_215e98b8));
         loadingStatusText.setTextSize(12);
         loadingStatusText.setTextColor(uiAdapter.getTextSecondaryColor());
         loadingStatusText.setPadding(16, 4, 16, 4);
@@ -282,7 +282,7 @@ public class WebViewActivity extends BaseActivity {
         buttonContainer.addView(navRow, navRowParams);
 
         // 添加返回按钮
-        Button btnBack = createNavButton("◀", "后退");
+        Button btnBack = createNavButton("◀", getString(R.string.h_5094c1a3));
         btnBack.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -300,7 +300,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnBack);
 
         // 添加前进按钮
-        Button btnForward = createNavButton("▶", "前进");
+        Button btnForward = createNavButton("▶", getString(R.string.h_5811e283));
         btnForward.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -318,7 +318,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnForward);
 
         // 添加刷新按钮
-        btnRefresh = createNavButton("🔄", "刷新");
+        btnRefresh = createNavButton("🔄", getString(R.string.h_694fc5ef));
         btnRefresh.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -329,7 +329,7 @@ public class WebViewActivity extends BaseActivity {
         navRow.addView(btnRefresh);
 
         // 添加主页按钮
-        btnReset = createNavButton("🏠", "主页");
+        btnReset = createNavButton("🏠", getString(R.string.h_b04ec75c));
         btnReset.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -341,7 +341,7 @@ public class WebViewActivity extends BaseActivity {
 
         // 创建添加文件按钮
         Button btnAddFile = new Button(this);
-        btnAddFile.setText("📁 添加文件");
+        btnAddFile.setText(getString(R.string.h_9fb34d09));
         btnAddFile.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -367,9 +367,6 @@ public class WebViewActivity extends BaseActivity {
 
     @Override
     protected void initData() {
-        // 初始化PreviewRenderBridge
-        previewRenderBridge = new PreviewRenderBridge(this);
-        
         // 初始化文件预览管理器（包含TBS SDK）
         com.oilquiz.app.util.preview.FilePreviewManager.getInstance().initialize(this);
         
@@ -433,7 +430,7 @@ public class WebViewActivity extends BaseActivity {
                     pageProgressBar.setVisibility(View.VISIBLE);
                     pageProgressBar.setProgress(0);
                     loadingStatusText.setVisibility(View.VISIBLE);
-                    loadingStatusText.setText("正在加载...");
+                    loadingStatusText.setText(getString(R.string.h_bd0271ed));
                 });
             }
             
@@ -456,7 +453,7 @@ public class WebViewActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     // 更新进度条
                     pageProgressBar.setProgress(progress);
-                    loadingStatusText.setText("加载中... " + progress + "%");
+                    loadingStatusText.setText(getString(R.string.h_c96070db) + progress + "%");
                 });
             }
             
@@ -475,7 +472,7 @@ public class WebViewActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     // 显示错误状态
                     pageProgressBar.setVisibility(View.GONE);
-                    loadingStatusText.setText("加载失败");
+                    loadingStatusText.setText(getString(R.string.h_866b795e));
                     loadingStatusText.setTextColor(getResources().getColor(R.color.error_color));
                     
                     // 3秒后隐藏错误提示
@@ -536,9 +533,9 @@ public class WebViewActivity extends BaseActivity {
         } catch (android.content.ActivityNotFoundException ex) {
             // 如果没有文件管理器，显示提示
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("提示")
-                    .setMessage("请安装文件管理器来选择文件")
-                    .setPositiveButton("确定", null)
+                    .setTitle(getString(R.string.h_02d9819d))
+                    .setMessage(getString(R.string.h_756d4a53))
+                    .setPositiveButton(getString(R.string.h_38cf16f2), null)
                     .show();
         }
     }
@@ -653,8 +650,9 @@ public class WebViewActivity extends BaseActivity {
         try {
             AppLogger.d(TAG, "处理选择的文件URI: " + uri.toString());
             
-            // 获取文件路径
-            String filePath = getPathFromUri(uri);
+            // SAF Uri 统一解析为可直接访问的真实文件（content:// 流复制到缓存；file:// 直接取路径）
+            java.io.File resolved = com.oilquiz.app.util.UriPathResolver.resolveToFile(this, uri.toString());
+            String filePath = resolved != null ? resolved.getAbsolutePath() : null;
             AppLogger.d(TAG, "获取到的文件路径: " + filePath);
             
             if (filePath != null) {
@@ -713,9 +711,9 @@ public class WebViewActivity extends BaseActivity {
     private void showFileErrorDialog(String message) {
         runOnUiThread(() -> {
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("文件打开失败")
+                    .setTitle(getString(R.string.h_ce0c7e18))
                     .setMessage(message)
-                    .setPositiveButton("确定", null)
+                    .setPositiveButton(getString(R.string.h_38cf16f2), null)
                     .show();
         });
     }
@@ -735,69 +733,6 @@ public class WebViewActivity extends BaseActivity {
                fileName.endsWith(".xls") || fileName.endsWith(".xlsx") ||
                fileName.endsWith(".ppt") || fileName.endsWith(".pptx") ||
                fileName.endsWith(".csv");
-    }
-    
-    /**
-     * 从URI获取文件路径
-     * @param uri 文件URI
-     * @return 文件路径
-     */
-    private String getPathFromUri(android.net.Uri uri) {
-        String path = null;
-        
-        // 获取原始文件名和扩展名
-        String originalFileName = getFileNameFromUri(uri);
-        String extension = "";
-        if (originalFileName != null && originalFileName.contains(".")) {
-            extension = originalFileName.substring(originalFileName.lastIndexOf("."));
-        }
-        
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
-            // 处理Android 4.4及以上的URI
-            if ("content".equals(uri.getScheme())) {
-                android.content.ContentResolver resolver = getContentResolver();
-                try (java.io.InputStream inputStream = resolver.openInputStream(uri)) {
-                    // 使用原始文件扩展名创建临时文件
-                    // TBS SDK 需要文件在 App 私有目录下，使用 getExternalFilesDir
-                    java.io.File tempDir = new java.io.File(getExternalFilesDir(null), "temp_files");
-                    if (!tempDir.exists()) {
-                        tempDir.mkdirs();
-                    }
-                    java.io.File tempFile = new java.io.File(tempDir, "temp_" + System.currentTimeMillis() + extension);
-                    try (java.io.FileOutputStream outputStream = new java.io.FileOutputStream(tempFile)) {
-                        byte[] buffer = new byte[4096];
-                        int bytesRead;
-                        while ((bytesRead = inputStream.read(buffer)) != -1) {
-                            outputStream.write(buffer, 0, bytesRead);
-                        }
-                    }
-                    path = tempFile.getAbsolutePath();
-                    AppLogger.d(TAG, "Content URI文件已复制到: " + path);
-                    AppLogger.d(TAG, "文件在 App 私有目录下: " + path.startsWith(getExternalFilesDir(null).getAbsolutePath()));
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "从Content URI获取文件路径失败: " + e.getMessage(), e);
-                }
-            } else if ("file".equals(uri.getScheme())) {
-                path = uri.getPath();
-                AppLogger.d(TAG, "File URI路径: " + path);
-            }
-        } else {
-            // 处理Android 4.4以下的URI
-            if ("content".equals(uri.getScheme())) {
-                String[] projection = { android.provider.MediaStore.Images.Media.DATA };
-                try (android.database.Cursor cursor = getContentResolver().query(uri, projection, null, null, null)) {
-                    if (cursor != null && cursor.moveToFirst()) {
-                        int columnIndex = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media.DATA);
-                        path = cursor.getString(columnIndex);
-                    }
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "从Content URI获取文件路径失败: " + e.getMessage(), e);
-                }
-            } else if ("file".equals(uri.getScheme())) {
-                path = uri.getPath();
-            }
-        }
-        return path;
     }
     
     /**
@@ -983,341 +918,16 @@ public class WebViewActivity extends BaseActivity {
      * @param fileUrl 文件URL
      */
     private void loadOfficeFile(File file, String fileUrl) {
-        String fileName = file.getName().toLowerCase();
-        
-        // 检查是否支持 TBS SDK 预览
-        boolean isTbsSupported = isTBSSupportedFile(fileName);
-        boolean isTbsAvailable = com.oilquiz.app.util.preview.FilePreviewManager.getInstance().isX5Available();
-        
-        // 如果 TBS SDK 可用且文件支持，显示选择对话框
-        if (isTbsSupported && isTbsAvailable) {
-            showPreviewOptionDialog(file);
-        } else {
-            // 直接使用内置渲染引擎
-            loadOfficeFileWithInternalEngine(file);
-        }
-    }
-    
-    /**
-     * 检查文件是否支持 TBS SDK 预览
-     */
-    private boolean isTBSSupportedFile(String fileName) {
-        String lowerName = fileName.toLowerCase();
-        return lowerName.endsWith(".doc") || lowerName.endsWith(".docx") ||
-               lowerName.endsWith(".xls") || lowerName.endsWith(".xlsx") ||
-               lowerName.endsWith(".ppt") || lowerName.endsWith(".pptx") ||
-               lowerName.endsWith(".pdf") || lowerName.endsWith(".txt") ||
-               lowerName.endsWith(".epub") || lowerName.endsWith(".chm");
-    }
-    
-    /**
-     * 显示预览选项对话框
-     */
-    private void showPreviewOptionDialog(File file) {
-        runOnUiThread(() -> {
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("选择预览方式")
-                    .setMessage("请选择使用哪种方式预览文件：\n\n" +
-                            "📱 内置引擎 - 使用应用内置的渲染引擎\n" +
-                            "🌐 TBS SDK - 使用腾讯浏览服务（推荐，效果更好）")
-                    .setPositiveButton("TBS SDK", (dialog, which) -> {
-                        loadOfficeFileWithTBS(file);
-                    })
-                    .setNegativeButton("内置引擎", (dialog, which) -> {
-                        loadOfficeFileWithInternalEngine(file);
-                    })
-                    .setCancelable(false)
-                    .show();
-        });
-    }
-    
-    /**
-     * 使用 TBS SDK 加载 Office 文件
-     */
-    private void loadOfficeFileWithTBS(File file) {
-        AppLogger.d(TAG, "使用 TBS SDK 预览文件: " + file.getAbsolutePath());
-        
-        com.oilquiz.app.util.preview.FilePreviewManager previewManager = 
-                com.oilquiz.app.util.preview.FilePreviewManager.getInstance();
-        
-        // 确保 TBS SDK 已初始化
-        if (!previewManager.isX5Initialized()) {
-            previewManager.initializeX5Async((success, errorCode) -> {
-                runOnUiThread(() -> {
-                    if (success) {
-                        AppLogger.d(TAG, "TBS SDK 初始化成功，开始预览");
-                        startTBSPreview(file, previewManager);
-                    } else {
-                        AppLogger.e(TAG, "TBS SDK 初始化失败: " + errorCode);
-                        // 初始化失败，回退到内置引擎
-                        showToast("TBS SDK 初始化失败，使用内置引擎预览");
-                        loadOfficeFileWithInternalEngine(file);
-                    }
-                });
-            });
-        } else {
-            startTBSPreview(file, previewManager);
-        }
-    }
-    
-    /**
-     * 开始 TBS 预览
-     */
-    private void startTBSPreview(File file, com.oilquiz.app.util.preview.FilePreviewManager previewManager) {
-        AppLogger.d(TAG, "启动 TBS 预览 Activity: " + file.getAbsolutePath());
-        
-        // 启动专门的 TBS 预览 Activity
-        com.oilquiz.app.ui.activity.TBSFilePreviewActivity.start(this, file.getAbsolutePath());
-    }
-    
-    /**
-     * 使用内置渲染引擎加载 Office 文件
-     */
-    private void loadOfficeFileWithInternalEngine(File file) {
-        AppLogger.d(TAG, "使用内置引擎渲染文件: " + file.getAbsolutePath());
-        
+        // 方案1：统一使用文件渲染页预览，避免两套渲染管线
         try {
-            previewRenderBridge.renderFile(file, new PreviewRenderBridge.PreviewCallback() {
-                @Override
-                public void onSuccess(Object previewContent) {
-                    runOnUiThread(() -> {
-                        AppLogger.d(TAG, "内置引擎渲染成功");
-                        if (previewContent != null) {
-                            displayRenderedContent(previewContent);
-                        } else {
-                            showOfficeFileError(file, "渲染内容为空");
-                        }
-                    });
-                }
-
-                @Override
-                public void onError(String error) {
-                    runOnUiThread(() -> {
-                        AppLogger.w(TAG, "内置引擎渲染失败: " + error);
-                        // 渲染失败，尝试使用系统应用打开
-                        openWithSystemApp(file);
-                    });
-                }
-
-                @Override
-                public void onProgress(int progress) {
-                    AppLogger.d(TAG, "渲染进度: " + progress + "%");
-                }
-            });
-        } catch (Exception e) {
-            AppLogger.e(TAG, "内置引擎加载异常: " + e.getMessage(), e);
-            openWithSystemApp(file);
-        }
-    }
-    
-    /**
-     * 使用系统应用打开文件
-     * @param file 要打开的文件
-     */
-    private void openWithSystemApp(File file) {
-        try {
-            AppLogger.d(TAG, "使用系统默认应用打开文件: " + file.getAbsolutePath());
-            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
-            android.net.Uri uri = android.net.Uri.fromFile(file);
-            intent.setDataAndType(uri, getMimeType(file.getName()));
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent intent = new Intent(this, com.oilquiz.app.ui.activity.FileRenderActivity.class);
+            intent.putExtra(com.oilquiz.app.ui.activity.FileRenderActivity.EXTRA_FILE_PATH, file.getAbsolutePath());
             startActivity(intent);
         } catch (Exception e) {
-            AppLogger.e(TAG, "系统默认应用打开异常: " + e.getMessage(), e);
-            // 所有方法都失败，显示错误信息
-            showOfficeFileError(file, e.getMessage());
+            AppLogger.e(TAG, "打开文件渲染页失败: " + e.getMessage(), e);
         }
     }
     
-    /**
-     * 显示Office文件加载错误信息
-     * @param file 文件
-     * @param errorMessage 错误信息
-     */
-    private void showOfficeFileError(File file, String errorMessage) {
-        String fileName = file.getName();
-        long fileSize = file.length();
-        
-        StringBuilder errorHtml = new StringBuilder();
-        errorHtml.append("<!DOCTYPE html>");
-        errorHtml.append("<html><head><meta charset='UTF-8'>");
-        errorHtml.append("<meta name='viewport' content='width=device-width, initial-scale=1.0'>");
-        errorHtml.append("<style>");
-        errorHtml.append("body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; text-align: center; }");
-        errorHtml.append(".container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
-        errorHtml.append("h1 { color: #e74c3c; font-size: 24px; margin-bottom: 20px; }");
-        errorHtml.append(".icon { font-size: 64px; margin-bottom: 20px; }");
-        errorHtml.append(".info { background-color: #ecf0f1; padding: 15px; border-radius: 8px; margin: 20px 0; text-align: left; }");
-        errorHtml.append(".info p { margin: 8px 0; color: #555; }");
-        errorHtml.append(".error { color: #e74c3c; margin-top: 15px; padding: 10px; background-color: #fdf2f2; border-radius: 6px; }");
-        errorHtml.append("</style></head><body>");
-        errorHtml.append("<div class='container'>");
-        errorHtml.append("<div class='icon'>📄</div>");
-        errorHtml.append("<h1>无法预览文件</h1>");
-        errorHtml.append("<div class='info'>");
-        errorHtml.append("<p><strong>文件名:</strong> ").append(fileName).append("</p>");
-        errorHtml.append("<p><strong>文件大小:</strong> ").append(fileSize / 1024).append(" KB</p>");
-        errorHtml.append("</div>");
-        errorHtml.append("<div class='error'>");
-        errorHtml.append("<p><strong>错误信息:</strong> ").append(errorMessage != null ? errorMessage : "未知错误").append("</p>");
-        errorHtml.append("</div>");
-        errorHtml.append("<p style='margin-top: 20px; color: #7f8c8d;'>请尝试使用其他应用打开此文件</p>");
-        errorHtml.append("</div></body></html>");
-        
-        loadDataWithBaseURL(null, errorHtml.toString(), "text/html", "UTF-8", null);
-    }
-    
-    /**
-     * 显示渲染后的内容
-     * @param content 渲染后的内容
-     */
-    private void displayRenderedContent(Object content) {
-        if (content instanceof android.graphics.Bitmap) {
-            // 图片渲染结果，使用WebView显示
-            android.graphics.Bitmap bitmap = (android.graphics.Bitmap) content;
-            try {
-                // 将Bitmap保存为临时文件
-                File tempFile = File.createTempFile("preview", ".png", getCacheDir());
-                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile)) {
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
-                }
-                // 加载临时文件
-                loadUrl("file://" + tempFile.getAbsolutePath());
-            } catch (Exception e) {
-                AppLogger.e(TAG, "显示图片失败: " + e.getMessage(), e);
-                loadData("<html><body><h1>加载失败</h1><p>无法显示图片</p></body></html>", "text/html", "UTF-8");
-            }
-        } else if (content instanceof String) {
-            String contentStr = (String) content;
-            // 检查是否是HTML内容（更宽松的检查）
-            String lowerContent = contentStr.toLowerCase().trim();
-            boolean isHtml = lowerContent.startsWith("<!doctype") || 
-                            lowerContent.startsWith("<html") || 
-                            lowerContent.contains("<head") || 
-                            lowerContent.contains("<body") || 
-                            lowerContent.contains("<div") ||
-                            lowerContent.contains("<table") ||
-                            lowerContent.contains("<p>") ||
-                            lowerContent.contains("<h1") ||
-                            lowerContent.contains("<style") ||
-                            lowerContent.contains("<script");
-            
-            if (isHtml) {
-                // HTML渲染结果
-                AppLogger.d(TAG, "Loading HTML content, length: " + contentStr.length());
-                // 使用loadDataWithBaseURL确保正确加载HTML
-                loadDataWithBaseURL(null, contentStr, "text/html", "UTF-8", null);
-            } else {
-                // 文本渲染结果
-                String htmlContent = "<html><head><meta charset=\"UTF-8\"><style>body { font-family: monospace; white-space: pre-wrap; padding: 20px; }</style></head><body>" + contentStr + "</body></html>";
-                loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null);
-            }
-        } else if (content instanceof java.util.Map) {
-            // 包含额外信息的渲染结果
-            java.util.Map<?, ?> contentMap = (java.util.Map<?, ?>) content;
-            if (contentMap.containsKey("bitmaps")) {
-                // 多页PDF渲染结果
-                java.util.List<?> bitmapsList = (java.util.List<?>) contentMap.get("bitmaps");
-                if (bitmapsList != null && !bitmapsList.isEmpty()) {
-                    try {
-                        // 创建HTML页面来显示所有页
-                        StringBuilder htmlBuilder = new StringBuilder();
-                        htmlBuilder.append("<!DOCTYPE html>");
-                        htmlBuilder.append("<html lang=\"zh-CN\">");
-                        htmlBuilder.append("<head>");
-                        htmlBuilder.append("<meta charset=\"UTF-8\">");
-                        htmlBuilder.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">");
-                        htmlBuilder.append("<title>PDF预览</title>");
-                        htmlBuilder.append("<style>");
-                        htmlBuilder.append("body { margin: 0; padding: 10px; background-color: #f5f5f5; }");
-                        htmlBuilder.append(".page-container { margin-bottom: 20px; padding: 10px; background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }");
-                        htmlBuilder.append(".page-container img { width: 100%; height: auto; display: block; }");
-                        htmlBuilder.append(".page-info { text-align: center; margin-top: 5px; font-size: 14px; color: #666; }");
-                        htmlBuilder.append("</style>");
-                        htmlBuilder.append("</head>");
-                        htmlBuilder.append("<body>");
-                        
-                        // 处理每一页
-                        for (int i = 0; i < bitmapsList.size(); i++) {
-                            Object item = bitmapsList.get(i);
-                            if (item instanceof android.graphics.Bitmap) {
-                                android.graphics.Bitmap bitmap = (android.graphics.Bitmap) item;
-                                // 将Bitmap保存为临时文件
-                                File tempFile = File.createTempFile("preview_" + i, ".png", getCacheDir());
-                                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile)) {
-                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
-                                }
-                                // 添加到HTML
-                                htmlBuilder.append("<div class=\"page-container\">");
-                                htmlBuilder.append("<img src=\"file://").append(tempFile.getAbsolutePath()).append("\" alt=\"第").append(i + 1).append("页\">");
-                                htmlBuilder.append("<div class=\"page-info\">第").append(i + 1).append("页</div>");
-                                htmlBuilder.append("</div>");
-                            }
-                        }
-                        
-                        htmlBuilder.append("</body>");
-                        htmlBuilder.append("</html>");
-                        
-                        // 加载HTML内容
-                        loadData(htmlBuilder.toString(), "text/html", "UTF-8");
-                    } catch (Exception e) {
-                        AppLogger.e(TAG, "显示PDF多页失败: " + e.getMessage(), e);
-                        loadData("<html><body><h1>加载失败</h1><p>无法显示PDF文件</p></body></html>", "text/html", "UTF-8");
-                    }
-                }
-            } else if (contentMap.containsKey("bitmap")) {
-                // 图片渲染结果
-                android.graphics.Bitmap bitmap = (android.graphics.Bitmap) contentMap.get("bitmap");
-                try {
-                    // 将Bitmap保存为临时文件
-                    File tempFile = File.createTempFile("preview", ".png", getCacheDir());
-                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile)) {
-                        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
-                    }
-                    // 加载临时文件
-                    loadUrl("file://" + tempFile.getAbsolutePath());
-                } catch (Exception e) {
-                    AppLogger.e(TAG, "显示图片失败: " + e.getMessage(), e);
-                    loadData("<html><body><h1>加载失败</h1><p>无法显示图片</p></body></html>", "text/html", "UTF-8");
-                }
-            } else if (contentMap.containsKey("htmlContent")) {
-                // HTML渲染结果（优先处理）
-                String htmlContent = String.valueOf(contentMap.get("htmlContent"));
-                AppLogger.d(TAG, "Loading HTML content from map, length: " + htmlContent.length());
-                // 使用loadDataWithBaseURL确保相对路径和资源能正确加载
-                loadData(htmlContent, "text/html", "UTF-8");
-            } else if (contentMap.containsKey("content")) {
-                // 文本渲染结果
-                String textContent = String.valueOf(contentMap.get("content"));
-                String htmlContent = "<html><head><meta charset=\"UTF-8\"><style>body { font-family: monospace; white-space: pre-wrap; padding: 20px; }</style></head><body>" + textContent + "</body></html>";
-                loadData(htmlContent, "text/html", "UTF-8");
-            } else if (contentMap.containsKey("textContent")) {
-                // 文本内容渲染结果
-                String textContent = String.valueOf(contentMap.get("textContent"));
-                String htmlContent = "<html><head><meta charset=\"UTF-8\"><style>body { font-family: monospace; white-space: pre-wrap; padding: 20px; }</style></head><body>" + textContent + "</body></html>";
-                loadData(htmlContent, "text/html", "UTF-8");
-            }
-        }
-    }
-    
-    /**
-     * 获取文件MIME类型
-     * @param fileName 文件名
-     * @return MIME类型
-     */
-    private String getMimeType(String fileName) {
-        String fileExt = fileName.substring(fileName.lastIndexOf(".") + 1).toLowerCase();
-        java.util.Map<String, String> mimeTypes = new java.util.HashMap<>();
-        // 文档类型
-        mimeTypes.put("doc", "application/msword");
-        mimeTypes.put("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-        mimeTypes.put("xls", "application/vnd.ms-excel");
-        mimeTypes.put("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        mimeTypes.put("ppt", "application/vnd.ms-powerpoint");
-        mimeTypes.put("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
-        mimeTypes.put("pdf", "application/pdf");
-        return mimeTypes.getOrDefault(fileExt, "application/octet-stream");
-    }
     
     /**
      * 加载图片文件，确保宽度填充，高度可滑动
@@ -1656,12 +1266,12 @@ public class WebViewActivity extends BaseActivity {
             TextView tabTitle = new TextView(this);
             // 第一个标签为默认标签
             if (tabIndex == 0) {
-                tabTitle.setText("默认标签");
+                tabTitle.setText(getString(R.string.h_0113d26f));
             } else {
-                tabTitle.setText("新标签");
+                tabTitle.setText(getString(R.string.h_20f0dc68));
             }
             tabTitle.setTextSize(14);
-            tabTitle.setTextColor(getResources().getColor(R.color.text_secondary));
+            tabTitle.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             tabTitle.setGravity(android.view.Gravity.CENTER);
             tabTitle.setSingleLine(true);
             tabTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1678,7 +1288,7 @@ public class WebViewActivity extends BaseActivity {
             closeButton.setText("×");
             closeButton.setTextSize(16);
             closeButton.setPadding(8, 4, 8, 4);
-            closeButton.setTextColor(getResources().getColor(R.color.text_secondary));
+            closeButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             closeButton.setAllCaps(false);
             closeButton.setBackgroundResource(android.R.color.transparent);
             closeButton.setClickable(true);
@@ -1804,7 +1414,7 @@ public class WebViewActivity extends BaseActivity {
                     pageProgressBar.setProgress(newProgress);
                 }
                 if (loadingStatusText != null) {
-                    loadingStatusText.setText("加载中... " + newProgress + "%");
+                    loadingStatusText.setText(getString(R.string.h_c96070db) + newProgress + "%");
                 }
             }
             
@@ -1828,8 +1438,28 @@ public class WebViewActivity extends BaseActivity {
                 AppLogger.d(TAG, "开始下载: " + url);
                 AppLogger.d(TAG, "文件类型: " + mimeType);
                 AppLogger.d(TAG, "文件大小: " + contentLength + " bytes");
-                
-                // 处理下载请求
+
+                // .gguf 模型文件：用 App 内部下载器下载到 ai_models 目录
+                if (url != null) {
+                    String cleanUrl = url;
+                    int qIdx = cleanUrl.indexOf('?');
+                    if (qIdx > 0) cleanUrl = cleanUrl.substring(0, qIdx);
+                    if (cleanUrl.toLowerCase().endsWith(".gguf")) {
+                        String fileName = cleanUrl.substring(cleanUrl.lastIndexOf('/') + 1);
+                        try {
+                            com.oilquiz.app.ai.model.ModelDownloadManager dm =
+                                com.oilquiz.app.ai.model.ModelDownloadManager.getInstance(WebViewActivity.this);
+                            dm.downloadFromCustomUrl(fileName, url, null);
+                            android.widget.Toast.makeText(WebViewActivity.this,
+                                getString(R.string.h_42611d28) + fileName, android.widget.Toast.LENGTH_LONG).show();
+                            return;
+                        } catch (Exception e) {
+                            AppLogger.e(TAG, "模型下载失败: " + e.getMessage());
+                        }
+                    }
+                }
+
+                // 处理其他下载请求
                 android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
                 intent.setData(android.net.Uri.parse(url));
                 intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -1863,7 +1493,7 @@ public class WebViewActivity extends BaseActivity {
         if (tabIndex < 0 || tabIndex >= tabList.size()) return;
         
         // 确保选中标签页的文字颜色保持为primary色
-        tabList.get(tabIndex).setTextColor(getResources().getColor(R.color.primary));
+        tabList.get(tabIndex).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
         
         // 确保关闭按钮的文字颜色也保持为primary色
         android.view.ViewParent tabParent = tabList.get(tabIndex).getParent();
@@ -1872,7 +1502,7 @@ public class WebViewActivity extends BaseActivity {
             for (int j = 0; j < tabLayout.getChildCount(); j++) {
                 View child = tabLayout.getChildAt(j);
                 if (child instanceof Button) {
-                    ((Button) child).setTextColor(getResources().getColor(R.color.primary));
+                    ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                     ((Button) child).setBackgroundResource(android.R.color.transparent);
                 }
             }
@@ -1980,7 +1610,7 @@ public class WebViewActivity extends BaseActivity {
                 if (currentTabIndex >= 0 && currentTabIndex < tabList.size()) {
                     tabList.get(currentTabIndex).setText(title);
                     // 确保选中标签页的文字颜色保持为primary色
-                    tabList.get(currentTabIndex).setTextColor(getResources().getColor(R.color.primary));
+                    tabList.get(currentTabIndex).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                     // 确保关闭按钮的文字颜色也保持为primary色
                     android.view.ViewParent tabParent = tabList.get(currentTabIndex).getParent();
                     if (tabParent instanceof LinearLayout) {
@@ -1988,7 +1618,7 @@ public class WebViewActivity extends BaseActivity {
                         for (int j = 0; j < tabLayout.getChildCount(); j++) {
                             View child = tabLayout.getChildAt(j);
                             if (child instanceof Button) {
-                                ((Button) child).setTextColor(getResources().getColor(R.color.primary));
+                                ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                                 ((Button) child).setBackgroundResource(android.R.color.transparent);
                             }
                         }
@@ -2036,7 +1666,7 @@ public class WebViewActivity extends BaseActivity {
         newTabButton.setText("+");
         newTabButton.setTextSize(18);
         newTabButton.setPadding(16, 12, 16, 12);
-        newTabButton.setTextColor(getResources().getColor(R.color.text_secondary));
+        newTabButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
         newTabButton.setAllCaps(false);
         newTabButton.setBackgroundResource(android.R.color.transparent);
         newTabButton.setMinWidth(0);
@@ -2086,24 +1716,24 @@ public class WebViewActivity extends BaseActivity {
                 if (i == index) {
                     // 选中状态 - 类似底部导航栏激活状态
                     tabLayout.setBackgroundResource(android.R.color.transparent);
-                    tabList.get(i).setTextColor(getResources().getColor(R.color.primary));
+                    tabList.get(i).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                     // 找到关闭按钮并修改其文字颜色
                     for (int j = 0; j < tabLayout.getChildCount(); j++) {
                         View child = tabLayout.getChildAt(j);
                         if (child instanceof Button) {
-                            ((Button) child).setTextColor(getResources().getColor(R.color.primary));
+                            ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorPrimary));
                             ((Button) child).setBackgroundResource(android.R.color.transparent);
                         }
                     }
                 } else {
                     // 未选中状态
                     tabLayout.setBackgroundResource(android.R.color.transparent);
-                    tabList.get(i).setTextColor(getResources().getColor(R.color.text_secondary));
+                    tabList.get(i).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
                     // 找到关闭按钮并修改其文字颜色
                     for (int j = 0; j < tabLayout.getChildCount(); j++) {
                         View child = tabLayout.getChildAt(j);
                         if (child instanceof Button) {
-                            ((Button) child).setTextColor(getResources().getColor(R.color.text_secondary));
+                            ((Button) child).setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
                             ((Button) child).setBackgroundResource(android.R.color.transparent);
                         }
                     }
@@ -2119,12 +1749,12 @@ public class WebViewActivity extends BaseActivity {
         
         // 防止关闭默认标签
         if (index == 0) {
-            android.widget.Toast.makeText(this, "默认标签不能关闭", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_69e1adfa), android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         
         if (webViewList.size() == 1) {
-            android.widget.Toast.makeText(this, "至少需要保留一个标签", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_ae735e4b), android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -2376,7 +2006,7 @@ public class WebViewActivity extends BaseActivity {
                     android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
                     startActivity(intent);
                 } catch (Exception e) {
-                    showToast("无法打开链接");
+                    showToast(getString(R.string.h_7ec3be03));
                 }
             });
         }
@@ -2574,7 +2204,7 @@ public class WebViewActivity extends BaseActivity {
         @JavascriptInterface
         public void openQuestionBank() {
             runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.QuestionBankActivity.class);
+                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.QuestionActivity.class);
                 startActivity(intent);
             });
         }
@@ -2638,7 +2268,7 @@ public class WebViewActivity extends BaseActivity {
         @JavascriptInterface
         public void openFilePreview() {
             runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.SimpleFilePreviewActivity.class);
+                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.FileRenderActivity.class);
                 startActivity(intent);
             });
         }
@@ -2669,10 +2299,7 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openStatistics() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.StatisticsActivity.class);
-                startActivity(intent);
-            });
+            // 学习统计页面已移除，此处留空避免 JS 调用抛错
         }
         
         @JavascriptInterface
@@ -2685,10 +2312,7 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openAbout() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.AboutActivity.class);
-                startActivity(intent);
-            });
+            // 关于页面已移除（深色适配问题），此处留空避免 JS 调用抛错
         }
         
         @JavascriptInterface
@@ -2701,10 +2325,7 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openUser() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.UserActivity.class);
-                startActivity(intent);
-            });
+            // 用户页已移除，留空避免 JS 调用抛错
         }
         
         @JavascriptInterface
@@ -2723,10 +2344,10 @@ public class WebViewActivity extends BaseActivity {
                 try {
                     // 清除应用日志
                     AppLogger.clearLogs();
-                    showToast("日志已清除");
+                    showToast(getString(R.string.h_d42d97bd));
                 } catch (Exception e) {
                     AppLogger.e(TAG, "清除日志失败: " + e.getMessage(), e);
-                    showToast("清除日志失败");
+                    showToast(getString(R.string.h_3bee0e63));
                 }
             });
         }
@@ -2738,13 +2359,13 @@ public class WebViewActivity extends BaseActivity {
                     // 导出日志文件
                     File logFile = AppLogger.exportLogs(WebViewActivity.this);
                     if (logFile != null) {
-                        showToast("日志导出成功: " + logFile.getAbsolutePath());
+                        showToast(getString(R.string.h_83dbb868) + logFile.getAbsolutePath());
                     } else {
-                        showToast("日志导出失败");
+                        showToast(getString(R.string.h_ae4679c7));
                     }
                 } catch (Exception e) {
                     AppLogger.e(TAG, "导出日志失败: " + e.getMessage(), e);
-                    showToast("日志导出失败");
+                    showToast(getString(R.string.h_ae4679c7));
                 }
             });
         }
@@ -2778,10 +2399,7 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openTest() {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.TestActivity.class);
-                startActivity(intent);
-            });
+            // 测试页已移除，留空避免 JS 调用抛错
         }
         
         @JavascriptInterface
@@ -2805,7 +2423,7 @@ public class WebViewActivity extends BaseActivity {
         @JavascriptInterface
         public void openQuestionBrowse() {
             runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.QuestionBankActivity.class);
+                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.QuestionActivity.class);
                 startActivity(intent);
             });
         }
@@ -2938,7 +2556,7 @@ public class WebViewActivity extends BaseActivity {
                 if (intent.resolveActivity(getPackageManager()) != null) {
                     startActivity(intent);
                 } else {
-                    showToast("无法启动相机");
+                    showToast(getString(R.string.h_6aba49b6));
                 }
             });
         }
@@ -2946,8 +2564,10 @@ public class WebViewActivity extends BaseActivity {
         @JavascriptInterface
         public void pickImage() {
             runOnUiThread(() -> {
-                Intent intent = new Intent(Intent.ACTION_PICK, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                // SAF：ACTION_OPEN_DOCUMENT 无需存储权限，兼容 Android 13+（原 ACTION_PICK+MediaStore 依赖 READ_MEDIA_IMAGES）
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.setType("image/*");
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
                 startActivityForResult(intent, 101);
             });
         }
@@ -3087,10 +2707,10 @@ public class WebViewActivity extends BaseActivity {
                     if (intent != null) {
                         startActivity(intent);
                     } else {
-                        showToast("应用未安装");
+                        showToast(getString(R.string.h_645b9651));
                     }
                 } catch (Exception e) {
-                    showToast("无法打开应用");
+                    showToast(getString(R.string.h_1e1da12f));
                 }
             });
         }
@@ -3424,8 +3044,9 @@ public class WebViewActivity extends BaseActivity {
         
         @JavascriptInterface
         public void openThemeColor() {
+            // 主题色/模式设置统一收敛到 ThemeActivity
             runOnUiThread(() -> {
-                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.ThemeColorActivity.class);
+                Intent intent = new Intent(WebViewActivity.this, com.oilquiz.app.ui.activity.ThemeActivity.class);
                 startActivity(intent);
             });
         }
@@ -3467,7 +3088,7 @@ public class WebViewActivity extends BaseActivity {
                     startActivity(intent);
                 } catch (Exception e) {
                     AppLogger.e(TAG, "打开Activity失败: " + e.getMessage(), e);
-                    showToast("功能暂不可用");
+                    showToast(getString(R.string.h_e985bb87));
                 }
             });
         }
@@ -3487,7 +3108,7 @@ public class WebViewActivity extends BaseActivity {
                     loadUrl(targetUrl);
                 } catch (Exception e) {
                     AppLogger.e(TAG, "导航失败: " + e.getMessage(), e);
-                    showToast("页面导航失败");
+                    showToast(getString(R.string.h_393bb104));
                 }
             });
         }

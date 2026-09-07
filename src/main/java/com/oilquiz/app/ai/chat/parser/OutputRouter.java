@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.chat.parser;
 import com.oilquiz.app.util.AILogger;
 
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,12 +66,24 @@ public class OutputRouter {
         void onStreamComplete(String fullContent);
     }
 
+    /**
+     * native 思考结束控制标记（协议标记，不是模型标签）。
+     * 由 native 生成循环在思考结束时主动插入，Java 按协议识别即可，无需猜模型标签。
+     */
     private static final String THINK_END_MARKER = "[THINK_END]";
 
     private final OutputHandler handler;
     private final StringBuilder textBuffer;
     private final StringBuilder thinkingBuffer;
     private final StringBuilder fullContentBuffer;
+    /**
+     * 模板思考标签：来自 chat template（native meta 事件 / LlamaHelper.getThinkingTags()）。
+     * 不同模型的写法不同（Qwen3 用 &lt;think&gt;、DeepSeek 用 [THINK]、GPT-OSS 用
+     * &lt;|channel|&gt;analysis&lt;|message|&gt;…），因此绝不在 Java 侧写死。
+     */
+    private ThinkingTagConfig tagConfig = ThinkingTagConfig.empty();
+    /** 跨 token 标签边界缓冲：标签可能被 tokenizer 拆开，凑齐后再判定，避免漏检 */
+    private final StringBuilder tagLookahead = new StringBuilder();
 
     private boolean isInThinking = false;
     private boolean isInToolCall = false;
@@ -99,6 +112,15 @@ public class OutputRouter {
     }
 
     /**
+     * 设置思考标签（来自 chat template，不硬编码）。
+     * 调用方从 native meta 事件或 {@code LlamaHelper.getThinkingTags()} 获取后注入。
+     * 传 null 等同于清空（按"该模型无思考段"处理）。
+     */
+    public void setThinkingTags(ThinkingTagConfig config) {
+        this.tagConfig = config != null ? config : ThinkingTagConfig.empty();
+    }
+
+    /**
      * 处理 token
      */
     public void processToken(String token) {
@@ -116,32 +138,51 @@ public class OutputRouter {
         // 记录完整内容（排除内部控制标记）
         fullContentBuffer.append(token);
 
-        // 检查是否是思考标签 <think>（模型自发输出的情况）
-        if (token.contains("<think>")) {
-            if (!isInThinking) {
-                isInThinking = true;
-                thinkingStarted = true;
-                handler.onThinkingStart();
-            }
-            String content = extractAfterTag(token, "<think>");
-            if (!content.isEmpty()) {
-                thinkingBuffer.append(content);
-                handler.onThinkingContent(content);
-            }
-            return;
+        // 思考标签可能跨 token 到达（如 <|thinking_start|> 被 tokenizer 拆开），
+        // 先合并到 tagLookahead 缓冲；若尾部是某标签的前缀则等后续 token 凑齐，避免漏检。
+        tagLookahead.append(token);
+        String buffer = tagLookahead.toString();
+        if (possibleTagPrefix(buffer) != null) {
+            return;   // 标签尚未到齐，保留缓冲等待下一个 token
         }
+        tagLookahead.setLength(0);
 
-        if (token.contains("</think>")) {
-            String content = extractBeforeTag(token, "</think>");
-            if (!content.isEmpty()) {
-                thinkingBuffer.append(content);
-                handler.onThinkingContent(content);
+        // 思考标签来自 chat template（tagConfig），不硬编码 <think>/</think>；
+        // 模板未提供时跳过本段，仍可由 native [THINK_END] / thinkingEnabled 兜底。
+        if (tagConfig.isAvailable()) {
+            String startTag = tagConfig.getStartTag();
+            if (buffer.contains(startTag)) {
+                if (!isInThinking) {
+                    isInThinking = true;
+                    thinkingStarted = true;
+                    handler.onThinkingStart();
+                }
+                String content = extractAfterTag(buffer, startTag);
+                if (!content.isEmpty()) {
+                    thinkingBuffer.append(content);
+                    handler.onThinkingContent(content);
+                }
+                return;
             }
-            if (isInThinking) {
-                isInThinking = false;
-                handler.onThinkingEnd();
+            String endTag = firstEndTagIn(buffer);
+            if (endTag != null) {
+                String content = extractBeforeTag(buffer, endTag);
+                if (!content.isEmpty()) {
+                    thinkingBuffer.append(content);
+                    handler.onThinkingContent(content);
+                }
+                if (isInThinking) {
+                    isInThinking = false;
+                    handler.onThinkingEnd();
+                }
+                // 结束标签之后同 buffer 的内容属于正文，必须下发（否则吞掉正文首个字符）
+                String after = buffer.substring(buffer.indexOf(endTag) + endTag.length());
+                if (!after.isEmpty()) {
+                    textBuffer.append(after);
+                    handler.onTextOutput(after, false);
+                }
+                return;
             }
-            return;
         }
 
         // native 层启用思考时，首个 token 自动进入思考模式
@@ -166,9 +207,17 @@ public class OutputRouter {
 
         if (token.contains("</tool_call>")) {
             isInToolCall = false;
-            // 解析工具调用
+            // 解析工具调用（自适应：JSON 形态 / Qwen3.5 XML 参数形态）
             String jsonContent = extractBetweenTags(fullContentBuffer.toString(), "<tool_call>", "</tool_call>");
             if (jsonContent != null) {
+                if (jsonContent.contains("<function=")) {
+                    JSONObject parsedXml = parseQwen35XmlToolCall(jsonContent);
+                    if (parsedXml != null) {
+                        handler.onToolCall(parsedXml.optString("name", "unknown"),
+                                parsedXml.optJSONObject("parameters"));
+                        return;
+                    }
+                }
                 try {
                     JSONObject jsonData = new JSONObject(jsonContent);
                     String toolName = jsonData.optString("name", "unknown");
@@ -247,6 +296,7 @@ public class OutputRouter {
         isInStructuredData = false;
         currentStructuredDataType = null;
         thinkingStarted = false;
+        tagLookahead.setLength(0);
     }
 
     /**
@@ -272,6 +322,49 @@ public class OutputRouter {
 
     // ========== 辅助方法 ==========
 
+    /** 返回 text 中最早出现的思考结束标签，无则返回 null（多个结束标签取最早） */
+    private String firstEndTagIn(String text) {
+        if (!tagConfig.isAvailable()) return null;
+        String first = null;
+        int firstPos = Integer.MAX_VALUE;
+        for (String tag : tagConfig.getEndTags()) {
+            if (tag.isEmpty()) continue;
+            int p = text.indexOf(tag);
+            if (p >= 0 && p < firstPos) {
+                firstPos = p;
+                first = tag;
+            }
+        }
+        return first;
+    }
+
+    /**
+     * 若 text 尾部是某个思考标签（开始/结束）的“真·前缀”（即比标签本身短），返回该后缀，
+     * 表示标签尚未到齐、需等待后续 token 凑齐；否则返回 null（可直接处理）。
+     * 注意：suffix 必须严格短于标签（suffix.length() < tag.length()），否则完整标签
+     * （如 <think> 整段一个 token 到达）会被误判为“未到齐”而挂起，导致与下一个 token 拼接。
+     */
+    private String possibleTagPrefix(String text) {
+        if (!tagConfig.isAvailable()) return null;
+        List<String> tags = new ArrayList<>();
+        tags.add(tagConfig.getStartTag());
+        tags.addAll(tagConfig.getEndTags());
+        int n = text.length();
+        int maxSuffix = 0;
+        for (String tag : tags) {
+            if (!tag.isEmpty()) maxSuffix = Math.max(maxSuffix, tag.length() - 1);
+        }
+        for (int len = Math.min(maxSuffix, n); len >= 1; len--) {
+            String suffix = text.substring(n - len);
+            for (String tag : tags) {
+                if (!tag.isEmpty() && suffix.length() < tag.length() && tag.startsWith(suffix)) {
+                    return suffix;
+                }
+            }
+        }
+        return null;
+    }
+
     private String extractAfterTag(String text, String tag) {
         int index = text.indexOf(tag);
         if (index >= 0) {
@@ -296,6 +389,75 @@ public class OutputRouter {
             return text.substring(startIndex + startTag.length(), endIndex);
         }
         return null;
+    }
+
+    /**
+     * 解析 Qwen3.5 XML 参数形态的单个工具调用块。
+     * 输入为 tool_call 块内部文本：function=工具名 + 多个 parameter=参数名 值对。
+     * 返回 {name: 工具名, parameters: {参数名: 值}}，解析失败返回 null。
+     */
+    private JSONObject parseQwen35XmlToolCall(String blockText) {
+        final String paramClose = "</" + "parameter>";
+        try {
+            int fnStart = blockText.indexOf("<function=");
+            if (fnStart < 0) return null;
+            int nameStart = fnStart + "<function=".length();
+            int nameEnd = blockText.indexOf('>', nameStart);
+            if (nameEnd <= nameStart) return null;
+            String toolName = blockText.substring(nameStart, nameEnd).trim();
+            if (toolName.isEmpty()) return null;
+
+            JSONObject params = new JSONObject();
+            int searchFrom = nameEnd + 1;
+            while (true) {
+                int pStart = blockText.indexOf("<parameter=", searchFrom);
+                if (pStart < 0) break;
+                int pNameStart = pStart + "<parameter=".length();
+                int pNameEnd = blockText.indexOf('>', pNameStart);
+                if (pNameEnd < 0) break;
+                String paramName = blockText.substring(pNameStart, pNameEnd).trim();
+                int vStart = pNameEnd + 1;
+                int vEnd = blockText.indexOf(paramClose, vStart);
+                if (vEnd < 0) break;
+                String paramValue = blockText.substring(vStart, vEnd).trim();
+                params.put(paramName, tryParseParamValue(paramValue));
+                searchFrom = vEnd + paramClose.length();
+            }
+
+            JSONObject result = new JSONObject();
+            result.put("name", toolName);
+            result.put("parameters", params);
+            return result;
+        } catch (Exception e) {
+            AILogger.w(TAG, "Failed to parse Qwen3.5 XML tool call: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 参数值尝试按 JSON 解析（对象/数组/标量），失败保留为字符串。
+     */
+    private static Object tryParseParamValue(String raw) {
+        String v = raw.trim();
+        if (v.isEmpty()) return "";
+        if (v.startsWith("{")) {
+            try {
+                return new JSONObject(v);
+            } catch (Exception ignored) {
+                // 非 JSON 对象，按普通文本处理
+            }
+        } else if (v.startsWith("[")) {
+            try {
+                return new org.json.JSONArray(v);
+            } catch (Exception ignored) {
+                // 非 JSON 数组，按普通文本处理
+            }
+        }
+        try {
+            return new JSONTokener(v).nextValue();
+        } catch (Exception e) {
+            return v;
+        }
     }
 
     private String extractDataType(String text) {

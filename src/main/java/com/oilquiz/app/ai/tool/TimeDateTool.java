@@ -31,6 +31,12 @@ import java.util.TimeZone;
     actions = {
         @Action(name = "now", description = "获取当前时间/日期/时区",
             params = {}),
+        @Action(name = "date", description = "仅获取当前日期（yyyy-MM-dd）",
+            params = {}),
+        @Action(name = "time", description = "仅获取当前时间（HH:mm:ss）",
+            params = {}),
+        @Action(name = "weekday", description = "仅获取当前星期几",
+            params = {}),
         @Action(name = "timestamp_to_date", description = "时间戳转日期",
             params = {
                 @Param(name = "timestamp", type = "integer", description = "秒级时间戳", required = true)
@@ -60,13 +66,13 @@ public class TimeDateTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "查询当前时间/日期/时区，时间戳与日期互转。action: now|timestamp_to_date|date_to_timestamp|timezone";
+        return "查询当前时间/日期/时区，时间戳与日期互转。action: now|date|time|weekday|timestamp_to_date|date_to_timestamp|timezone";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作：now(默认)|timestamp_to_date|date_to_timestamp|timezone");
+        params.put("action", "操作：now(完整,默认)|date(仅日期)|time(仅时间)|weekday(星期)|timestamp_to_date|date_to_timestamp|timezone");
         params.put("timestamp", "时间戳（秒），timestamp_to_date 时使用");
         params.put("date", "日期字符串（yyyy-MM-dd HH:mm:ss），date_to_timestamp 时使用");
         return params;
@@ -134,6 +140,27 @@ public class TimeDateTool implements AITool {
                     info.put("dst", tz.inDaylightTime(new Date()));
                     return AIToolResult.success("时区: " + tz.getID() + "，UTC偏移: " + offsetStr
                             + (tz.inDaylightTime(new Date()) ? "（夏令时生效）" : ""), info);
+                }
+                case "date": {
+                    long now = System.currentTimeMillis();
+                    String dateStr = formatDate(new Date(now));
+                    Map<String, Object> info = new HashMap<>();
+                    info.put("date", dateStr);
+                    return AIToolResult.success(dateStr, info);
+                }
+                case "time": {
+                    long now = System.currentTimeMillis();
+                    String timeStr = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(now));
+                    Map<String, Object> info = new HashMap<>();
+                    info.put("time", timeStr);
+                    return AIToolResult.success(timeStr, info);
+                }
+                case "weekday": {
+                    long now = System.currentTimeMillis();
+                    String wd = "周" + weekday(new Date(now));
+                    Map<String, Object> info = new HashMap<>();
+                    info.put("weekday", wd);
+                    return AIToolResult.success(wd, info);
                 }
                 case "now":
                 default: {

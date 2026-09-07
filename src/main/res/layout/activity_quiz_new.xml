@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/white"
-    tools:context=".QuizActivity">
+    tools:context=".ui.activity.QuizActivity">
 
     <!-- 顶部状态栏 -->
     <androidx.appcompat.widget.Toolbar
@@ -25,10 +25,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_centerVertical="true"
-                android:layout_marginEnd="16dp"
+                android:layout_marginEnd="@dimen/space_16"
                 android:text="00:00"
                 android:textColor="@color/white"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:fontFamily="sans-serif-medium" />
         </RelativeLayout>
     </androidx.appcompat.widget.Toolbar>
@@ -36,41 +36,41 @@
     <!-- 主要内容区域 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <!-- 进度和导航 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="@dimen/space_16">
 
             <!-- 进度条和筛选 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="@dimen/space_12">
                 <!-- 进度和模式 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
+                    android:layout_marginBottom="@dimen/space_8">
                     <TextView
                         android:id="@+id/textViewProgress"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="1/10"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray_600"
                         android:fontFamily="sans-serif-medium" />
                     <Space
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1" />
                     <TextView
@@ -78,7 +78,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="练习模式"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray_600"
                         android:fontFamily="sans-serif-medium" />
                 </LinearLayout>
@@ -89,18 +89,18 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
+                    android:layout_marginBottom="@dimen/space_8">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="题型筛选:"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray_600"
                         android:fontFamily="sans-serif-medium"
-                        android:layout_marginEnd="8dp" />
+                        android:layout_marginEnd="@dimen/space_8" />
                     <Spinner
                         android:id="@+id/spinnerQuestionType"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:background="@drawable/rounded_corners_gray_light"
@@ -121,7 +121,7 @@
                 android:paddingVertical="12dp"
                 android:background="@color/gray_100"
                 android:paddingHorizontal="8dp"
-                android:elevation="2dp"
+                android:elevation="@dimen/elev_2"
                 android:animateLayoutChanges="true">
                 <!-- 导航按钮将在代码中动态添加 -->
             </LinearLayout>
@@ -130,13 +130,13 @@
         <!-- 题目内容 -->
         <ScrollView
             android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_height="@dimen/size_0"
             android:layout_weight="1"
             android:scrollbars="vertical"
             android:fadeScrollbars="false"
-            android:elevation="2dp"
+            android:elevation="@dimen/elev_2"
             android:background="@color/white"
-            android:padding="16dp"
+            android:padding="@dimen/space_16"
             android:clipToPadding="false">
 
             <LinearLayout
@@ -151,11 +151,11 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="题目内容"
-                    android:textSize="19sp"
+                    android:textSize="@dimen/text_19"
                     android:lineSpacingExtra="6dp"
                     android:fontFamily="sans-serif"
                     android:textColor="@color/black"
-                    android:layout_marginBottom="20dp" />
+                    android:layout_marginBottom="@dimen/space_20" />
 
                 <!-- 选择题和判断题选项 -->
                 <RadioGroup
@@ -170,14 +170,14 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="选项A"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:paddingVertical="14dp"
                         android:paddingHorizontal="16dp"
                         android:background="@drawable/rounded_corners_gray_light"
-                        android:layout_marginBottom="10dp"
+                        android:layout_marginBottom="@dimen/space_10"
                         android:buttonTint="@color/purple_500"
                         android:textColor="@color/black"
-                        android:elevation="1dp"
+                        android:elevation="@dimen/elev_1"
                         android:translationZ="1dp" />
 
                     <RadioButton
@@ -185,14 +185,14 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="选项B"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:paddingVertical="14dp"
                         android:paddingHorizontal="16dp"
                         android:background="@drawable/rounded_corners_gray_light"
-                        android:layout_marginBottom="10dp"
+                        android:layout_marginBottom="@dimen/space_10"
                         android:buttonTint="@color/purple_500"
                         android:textColor="@color/black"
-                        android:elevation="1dp"
+                        android:elevation="@dimen/elev_1"
                         android:translationZ="1dp" />
 
                     <RadioButton
@@ -200,14 +200,14 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="选项C"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:paddingVertical="14dp"
                         android:paddingHorizontal="16dp"
                         android:background="@drawable/rounded_corners_gray_light"
-                        android:layout_marginBottom="10dp"
+                        android:layout_marginBottom="@dimen/space_10"
                         android:buttonTint="@color/purple_500"
                         android:textColor="@color/black"
-                        android:elevation="1dp"
+                        android:elevation="@dimen/elev_1"
                         android:translationZ="1dp" />
 
                     <RadioButton
@@ -215,13 +215,13 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="选项D"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:paddingVertical="14dp"
                         android:paddingHorizontal="16dp"
                         android:background="@drawable/rounded_corners_gray_light"
                         android:buttonTint="@color/purple_500"
                         android:textColor="@color/black"
-                        android:elevation="1dp"
+                        android:elevation="@dimen/elev_1"
                         android:translationZ="1dp" />
                 </RadioGroup>
 
@@ -231,13 +231,13 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:hint="请输入答案"
-                    android:textSize="16sp"
-                    android:padding="16dp"
+                    android:textSize="@dimen/text_16"
+                    android:padding="@dimen/space_16"
                     android:background="@drawable/rounded_corners_gray_light"
                     android:gravity="top"
                     android:minLines="3"
                     android:textColor="@color/black"
-                    android:elevation="1dp"
+                    android:elevation="@dimen/elev_1"
                     android:translationZ="1dp"
                     android:visibility="gone" />
 
@@ -247,12 +247,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="正确答案: "
-                    android:textSize="15sp"
+                    android:textSize="@dimen/text_15"
                     android:textColor="@color/black"
-                    android:padding="16dp"
+                    android:padding="@dimen/space_16"
                     android:background="@drawable/rounded_corners_gray_light"
-                    android:layout_marginTop="16dp"
-                    android:elevation="1dp"
+                    android:layout_marginTop="@dimen/space_16"
+                    android:elevation="@dimen/elev_1"
                     android:translationZ="1dp"
                     android:visibility="gone" />
 
@@ -262,12 +262,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="检查答案"
-                    android:textSize="16sp"
+                    android:textSize="@dimen/text_16"
                     android:textColor="@color/white"
-                    app:backgroundTint="@color/primary"
-                    app:cornerRadius="12dp"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_12"
                     android:paddingVertical="14dp"
-                    android:layout_marginTop="20dp"
+                    android:layout_marginTop="@dimen/space_20"
                     android:visibility="gone"/>
             </LinearLayout>
         </ScrollView>
@@ -279,8 +279,8 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@color/white"
-        android:padding="16dp"
-        android:elevation="8dp"
+        android:padding="@dimen/space_16"
+        android:elevation="@dimen/elev_8"
         android:layout_gravity="bottom"
         android:animateLayoutChanges="true">
 
@@ -289,29 +289,29 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="@dimen/space_8">
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonMark"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="标记"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/white"
-                app:backgroundTint="@color/primary"
-                app:cornerRadius="12dp"
-                android:layout_marginEnd="8dp"/>
+                app:backgroundTint="?attr/colorPrimary"
+                app:cornerRadius="@dimen/radius_12"
+                android:layout_marginEnd="@dimen/space_8"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonPrevious"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="上一题"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/white"
-                app:backgroundTint="@color/primary"
-                app:cornerRadius="12dp"/>
+                app:backgroundTint="?attr/colorPrimary"
+                app:cornerRadius="@dimen/radius_12"/>
         </LinearLayout>
 
         <!-- 第二行按钮 -->
@@ -321,26 +321,26 @@
             android:orientation="horizontal">
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonShowAnswer"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="显示答案"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/white"
-                app:backgroundTint="@color/primary"
-                app:cornerRadius="12dp"
-                android:layout_marginEnd="8dp"/>
+                app:backgroundTint="?attr/colorPrimary"
+                app:cornerRadius="@dimen/radius_12"
+                android:layout_marginEnd="@dimen/space_8"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonNext"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="下一题"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/white"
-                app:backgroundTint="@color/primary"
-                app:cornerRadius="12dp"/>
+                app:backgroundTint="?attr/colorPrimary"
+                app:cornerRadius="@dimen/radius_12"/>
         </LinearLayout>
     </LinearLayout>
 

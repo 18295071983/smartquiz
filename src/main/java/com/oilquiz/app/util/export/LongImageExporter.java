@@ -19,6 +19,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 长图片导出器（现代卡片式设计）
  * 导出为带卡片样式的长图，美化排版、清晰层次
@@ -26,15 +28,15 @@ import java.util.List;
 public class LongImageExporter implements Exporter {
 
     // 颜色常量
-    private static final int BG_COLOR = 0xFFF8FAFC; // 浅灰背景
-    private static final int CARD_BG = 0xFFFFFFFF; // 卡片白底
-    private static final int CARD_BORDER = 0xFFE2E8F0; // 卡片边框
-    private static final int TITLE_COLOR = 0xFF1E293B; // 深蓝标题
-    private static final int TEXT_COLOR = 0xFF334155; // 正文灰
-    private static final int TYPE_COLOR = 0xFF6366F1; // 题型紫色
-    private static final int ANSWER_COLOR = 0xFF10B981; // 答案绿色
-    private static final int EXPLANATION_COLOR = 0xFF0EA5E9; // 解析蓝色
-    private static final int FOOTER_COLOR = 0xFF94A3B8; // 页脚浅灰
+    private static final int BG_COLOR = ThemeColors.get(R.color.hc_fff8fafc); // 浅灰背景
+    private static final int CARD_BG = ThemeColors.get(R.color.hc_ffffffff); // 卡片白底
+    private static final int CARD_BORDER = ThemeColors.get(R.color.hc_ffe2e8f0); // 卡片边框
+    private static final int TITLE_COLOR = ThemeColors.get(R.color.hc_ff1e293b); // 深蓝标题
+    private static final int TEXT_COLOR = ThemeColors.get(R.color.hc_ff334155); // 正文灰
+    private static final int TYPE_COLOR = ThemeColors.get(R.color.hc_ff6366f1); // 题型紫色
+    private static final int ANSWER_COLOR = ThemeColors.get(R.color.hc_ff10b981); // 答案绿色
+    private static final int EXPLANATION_COLOR = ThemeColors.get(R.color.hc_ff0ea5e9); // 解析蓝色
+    private static final int FOOTER_COLOR = ThemeColors.get(R.color.hc_ff94a3b8); // 页脚浅灰
 
     @Override
     public File export(ExportManager.ExportTask task) throws Exception {
@@ -203,7 +205,7 @@ public class LongImageExporter implements Exporter {
                     if (optionValue == null || optionValue.toString().isEmpty()) continue;
                     
                     TextPaint optionPaint = new TextPaint(textPaint);
-                    optionPaint.setColor(0xFF475569);
+                    optionPaint.setColor(ThemeColors.get(R.color.hc_ff475569));
                     StaticLayout optionLayout = new StaticLayout(
                         ExportUtils.OPTION_LABELS[o] + ". " + optionValue,
                         optionPaint, imageWidth - 2 * cardPadding, Layout.Alignment.ALIGN_NORMAL, 1.2f, 0.0f, false
@@ -219,7 +221,7 @@ public class LongImageExporter implements Exporter {
             // 绘制分割线
             if (question.getCorrectAnswer() != null && !question.getCorrectAnswer().isEmpty()) {
                 Paint dividerPaint = new Paint();
-                dividerPaint.setColor(0xFFE2E8F0);
+                dividerPaint.setColor(ThemeColors.get(R.color.hc_ffe2e8f0));
                 dividerPaint.setStrokeWidth(1);
                 canvas.drawLine(cardMargin + cardPadding, cardY, imageWidth - cardMargin - cardPadding, cardY, dividerPaint);
                 cardY += 20;

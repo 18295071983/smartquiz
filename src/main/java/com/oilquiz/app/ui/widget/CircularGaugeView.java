@@ -13,6 +13,7 @@ import android.view.animation.DecelerateInterpolator;
 
 import com.oilquiz.app.R;
 
+import com.oilquiz.app.theme.ThemeColors;
 public class CircularGaugeView extends View {
 
     private Paint arcPaint;
@@ -25,10 +26,10 @@ public class CircularGaugeView extends View {
     private float displayProgress = 0;
     private float maxProgress = 100;
     private int strokeWidth = 12;
-    private int arcColor = 0xFF38BDF8;
-    private int bgColor = 0x33FFFFFF;
-    private int textColor = 0xFFFFFFFF;
-    private int labelColor = 0xB3FFFFFF;
+    private int arcColor = ThemeColors.get(R.color.hc_ff38bdf8);
+    private int bgColor = ThemeColors.get(R.color.hc_33ffffff);
+    private int textColor = ThemeColors.get(R.color.hc_ffffffff);
+    private int labelColor = ThemeColors.get(R.color.hc_b3ffffff);
     private String text = "";
     private String label = "";
     private float textSize = 32;
@@ -56,10 +57,10 @@ public class CircularGaugeView extends View {
             progress = a.getFloat(R.styleable.CircularGaugeView_gauge_progress, 0);
             maxProgress = a.getFloat(R.styleable.CircularGaugeView_gauge_max, 100);
             strokeWidth = a.getDimensionPixelSize(R.styleable.CircularGaugeView_gauge_stroke_width, 12);
-            arcColor = a.getColor(R.styleable.CircularGaugeView_gauge_color, 0xFF38BDF8);
-            bgColor = a.getColor(R.styleable.CircularGaugeView_gauge_bg_color, 0x33FFFFFF);
-            textColor = a.getColor(R.styleable.CircularGaugeView_gauge_text_color, 0xFFFFFFFF);
-            labelColor = a.getColor(R.styleable.CircularGaugeView_gauge_label_color, 0xB3FFFFFF);
+            arcColor = a.getColor(R.styleable.CircularGaugeView_gauge_color, ThemeColors.get(R.color.hc_ff38bdf8));
+            bgColor = a.getColor(R.styleable.CircularGaugeView_gauge_bg_color, ThemeColors.get(R.color.hc_33ffffff));
+            textColor = a.getColor(R.styleable.CircularGaugeView_gauge_text_color, ThemeColors.get(R.color.hc_ffffffff));
+            labelColor = a.getColor(R.styleable.CircularGaugeView_gauge_label_color, ThemeColors.get(R.color.hc_b3ffffff));
             text = a.getString(R.styleable.CircularGaugeView_gauge_text);
             label = a.getString(R.styleable.CircularGaugeView_gauge_label);
             textSize = a.getDimension(R.styleable.CircularGaugeView_gauge_text_size, 32);

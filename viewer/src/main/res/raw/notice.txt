@@ -1,0 +1,2 @@
+LibreOffice - third-party notices.
+This build aggregates third-party software; see build/lo-viewer notices.

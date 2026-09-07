@@ -3,31 +3,31 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:padding="@dimen/space_12"
     android:background="?attr/colorSurface"
-    android:layout_marginBottom="8dp">
+    android:layout_marginBottom="@dimen/space_8">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="@dimen/space_8">
         <TextView
             android:id="@+id/tvErrorNumber"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="错误 1:"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textStyle="bold"
             android:textColor="?attr/colorError"
-            android:layout_marginEnd="8dp"/>
+            android:layout_marginEnd="@dimen/space_8"/>
         <TextView
             android:id="@+id/tvErrorMessage"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="错误信息"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurface"/>
     </LinearLayout>
 

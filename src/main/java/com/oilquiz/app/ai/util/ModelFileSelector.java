@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.util.Log;
 
@@ -40,95 +39,6 @@ public class ModelFileSelector {
         }
         
         return intent;
-    }
-    
-    /**
-     * 从Uri获取文件路径（已废弃，建议使用copyUriToFile方法）
-     * @param context 上下文
-     * @param uri 文件Uri
-     * @return 文件路径
-     */
-    @Deprecated
-    public static String getPathFromUri(Context context, Uri uri) {
-        String path = null;
-        
-        // 处理不同类型的Uri
-        if (DocumentsContract.isDocumentUri(context, uri)) {
-            // 处理DocumentProvider
-            String documentId = DocumentsContract.getDocumentId(uri);
-            if ("com.android.externalstorage.documents".equals(uri.getAuthority())) {
-                // 外部存储
-                String[] split = documentId.split(":");
-                String type = split[0];
-                if ("primary".equalsIgnoreCase(type)) {
-                    path = Environment.getExternalStorageDirectory() + "/" + split[1];
-                }
-            } else if ("com.android.providers.downloads.documents".equals(uri.getAuthority())) {
-                // 下载目录
-                Uri contentUri = Uri.parse("content://downloads/public_downloads" + documentId);
-                path = getPathFromContentUri(context, contentUri);
-            } else if ("com.android.providers.media.documents".equals(uri.getAuthority())) {
-                // 媒体目录
-                String[] split = documentId.split(":");
-                String type = split[0];
-                Uri contentUri = null;
-                if ("image".equals(type)) {
-                    contentUri = android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-                } else if ("video".equals(type)) {
-                    contentUri = android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
-                } else if ("audio".equals(type)) {
-                    contentUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-                }
-                if (contentUri != null) {
-                    path = getPathFromContentUri(context, contentUri);
-                }
-            }
-        } else if ("content".equalsIgnoreCase(uri.getScheme())) {
-            // 处理content:// Uri
-            path = getPathFromContentUri(context, uri);
-        } else if ("file".equalsIgnoreCase(uri.getScheme())) {
-            // 处理file:// Uri
-            path = uri.getPath();
-        }
-        
-        return path;
-    }
-    
-    /**
-     * 从Content Uri获取文件路径（已废弃，建议使用copyUriToFile方法）
-     * @param context 上下文
-     * @param uri Content Uri
-     * @return 文件路径
-     */
-    @Deprecated
-    private static String getPathFromContentUri(Context context, Uri uri) {
-        String path = null;
-        String[] projection = {android.provider.MediaStore.MediaColumns.DATA};
-        
-        try (android.database.Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int columnIndex = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DATA);
-                if (columnIndex != -1) {
-                    path = cursor.getString(columnIndex);
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to get path from content URI", e);
-        }
-        
-        // 如果无法通过ContentResolver获取路径，尝试其他方法
-        if (path == null) {
-            // 对于下载文件
-            if ("content://downloads/public_downloads".equals(uri.getAuthority())) {
-                path = uri.getLastPathSegment();
-            }
-            // 作为最后的尝试，返回Uri的路径
-            if (path == null) {
-                path = uri.getPath();
-            }
-        }
-        
-        return path;
     }
     
     /**

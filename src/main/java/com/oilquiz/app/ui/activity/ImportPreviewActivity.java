@@ -1,5 +1,8 @@
 package com.oilquiz.app.ui.activity;
 
+import com.oilquiz.app.SmartQuizApplication;
+import com.oilquiz.app.theme.ThemeColors;
+
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -94,9 +97,9 @@ public class ImportPreviewActivity extends AppCompatActivity {
 
         if (preview != null) {
             tvTotal.setText("共 " + preview.totalRows + " 行");
-            tvComplete.setText("完整 " + preview.completeCount());
-            tvIncomplete.setText("缺字段 " + preview.incompleteCount);
-            tvSkipped.setText("跳过 " + preview.getDuplicateCount());
+            tvComplete.setText(getString(R.string.h_aae41a4f) + preview.completeCount());
+            tvIncomplete.setText(getString(R.string.h_5c91b7d9) + preview.incompleteCount);
+            tvSkipped.setText(getString(R.string.h_a3e17914) + preview.getDuplicateCount());
             StringBuilder detail = new StringBuilder();
             for (Map.Entry<String, Long> e : preview.missingByField.entrySet()) {
                 if (detail.length() > 0) detail.append("，");
@@ -104,30 +107,30 @@ public class ImportPreviewActivity extends AppCompatActivity {
             }
             if (preview.emptyQuestionCount > 0) {
                 if (detail.length() > 0) detail.append("；");
-                detail.append("题干为空 ").append(preview.emptyQuestionCount).append(" 行（无法导入）");
+                detail.append(getString(R.string.h_9fba2017)).append(preview.emptyQuestionCount).append(getString(R.string.h_2ce6e3c3));
             }
             long dup = preview.getDuplicateCount();
             if (dup > 0) {
                 if (detail.length() > 0) detail.append("；");
-                detail.append("重复 ").append(dup).append(" 行");
+                detail.append(getString(R.string.h_8dd291a0)).append(dup).append(" 行");
             }
-            tvMissingDetail.setText(detail.length() > 0 ? "问题： " + detail : "未发现问题题目");
+            tvMissingDetail.setText(detail.length() > 0 ? getString(R.string.h_8c6f7416) + detail : getString(R.string.h_f066e272));
 
             // 重复/近似重复明细：说明"哪道题重复、为何重复"
             StringBuilder dupText = new StringBuilder();
             for (com.oilquiz.app.ai.importing.v2.ImportMain.QualityPreview.DuplicateDetail d
                     : preview.duplicateDetails) {
                 if (dupText.length() > 0) dupText.append('\n');
-                dupText.append("⚠ 重复：第 ").append(joinRows(d.rows)).append(" 题「")
+                dupText.append(getString(R.string.h_d545c2a4)).append(joinRows(d.rows)).append(getString(R.string.h_5c6640af))
                         .append(truncate(d.question, 56)).append("」\n")
-                        .append("　原因：").append(d.reason);
+                        .append(getString(R.string.h_71279df9)).append(d.reason);
             }
             for (com.oilquiz.app.ai.importing.v2.ImportMain.QualityPreview.DuplicateDetail d
                     : preview.stemVariantDetails) {
                 if (dupText.length() > 0) dupText.append('\n');
-                dupText.append("ℹ 近似重复：第 ").append(joinRows(d.rows)).append(" 题「")
+                dupText.append(getString(R.string.h_539d7ddc)).append(joinRows(d.rows)).append(getString(R.string.h_5c6640af))
                         .append(truncate(d.question, 56)).append("」\n")
-                        .append("　原因：").append(d.reason);
+                        .append(getString(R.string.h_71279df9)).append(d.reason);
             }
             if (dupText.length() > 0) {
                 tvDupDetail.setText(dupText.toString());
@@ -191,7 +194,7 @@ public class ImportPreviewActivity extends AppCompatActivity {
             case "knowledgePoint": return "知识点";
             case "subCategory": return "子分类";
             case "tags": return "标签";
-            case "hint": return "提示";
+            case "hint": return SmartQuizApplication.getAppContext().getString(R.string.h_02d9819d);
             case "points": return "分值";
             case "timeLimit": return "时限";
             case "author": return "作者";
@@ -282,7 +285,7 @@ public class ImportPreviewActivity extends AppCompatActivity {
 
             String question = kv.getOrDefault("questionText", "");
             h.tvIndex.setText(String.valueOf(position + 1));
-            h.tvQuestion.setText(question.isEmpty() ? "（题干为空）" : truncate(question, 60));
+            h.tvQuestion.setText(question.isEmpty() ? getString(R.string.h_e1322390) : truncate(question, 60));
 
             // 动态缺失判断：遍历全部已映射字段（mappedFields），字段值为空即标注缺失。
             // 不硬编码字段名单——文件映射了哪些字段，哪些缺失就会显示。
@@ -300,7 +303,7 @@ public class ImportPreviewActivity extends AppCompatActivity {
                 // 答案预览：题干/答案类字段显示到右侧
                 if ("correctAnswer".equals(field) || "answerText".equals(field)) {
                     answerPreview.setLength(0);
-                    answerPreview.append("答案: ").append(val.isEmpty() ? "空" : truncate(val, 30));
+                    answerPreview.append(getString(R.string.h_2bac46d1)).append(val.isEmpty() ? "空" : truncate(val, 30));
                 }
             }
             h.tvAnswer.setText(answerPreview.length() > 0 ? answerPreview.toString()
@@ -324,16 +327,16 @@ public class ImportPreviewActivity extends AppCompatActivity {
             }
 
             if (miss.length() > 0) {
-                h.tvMissing.setText("缺: " + miss.toString());
+                h.tvMissing.setText(getString(R.string.h_95d20549) + miss.toString());
                 h.tvMissing.setVisibility(View.VISIBLE);
                 h.itemView.setBackgroundResource(R.color.error_container);
             } else if (duplicateRows.contains(position + 1)) {
-                h.tvMissing.setText("⚠ 重复（与前文相同，仅保留 1 题）");
+                h.tvMissing.setText(getString(R.string.h_2492d1b6));
                 h.tvMissing.setVisibility(View.VISIBLE);
                 h.itemView.setBackgroundResource(R.color.warning_container);
             } else {
                 h.tvMissing.setVisibility(View.GONE);
-                h.itemView.setBackgroundResource(R.color.surface);
+                h.itemView.setBackgroundColor(ThemeColors.get(h.itemView.getContext(), R.color.surface));
             }
         }
 

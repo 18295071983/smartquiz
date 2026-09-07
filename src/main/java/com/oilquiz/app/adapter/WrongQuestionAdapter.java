@@ -72,9 +72,9 @@ public class WrongQuestionAdapter extends BaseAdapter {
         WrongQuestion wrongQuestion = wrongQuestions.get(position);
         if (wrongQuestion != null) {
             holder.tvQuestionText.setText(wrongQuestion.getQuestionText());
-            holder.tvCorrectAnswer.setText("正确答案: " + wrongQuestion.getCorrectAnswer());
-            holder.tvUserAnswer.setText("你的答案: " + wrongQuestion.getUserAnswer());
-            holder.tvCategory.setText("分类: " + wrongQuestion.getCategory());
+            holder.tvCorrectAnswer.setText(context.getString(R.string.h_16b46626) + wrongQuestion.getCorrectAnswer());
+            holder.tvUserAnswer.setText(context.getString(R.string.h_ab1f774d) + wrongQuestion.getUserAnswer());
+            holder.tvCategory.setText(context.getString(R.string.h_9fce5962) + wrongQuestion.getCategory());
 
             holder.btnReview.setOnClickListener(v -> {
                 if (listener != null) {

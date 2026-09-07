@@ -205,14 +205,21 @@ public class ToolGuideFlow {
                         new GuideStep.Option("全部", "all")
                 )
         ));
-        // 步骤2：输入城市
-        steps.add(GuideStep.inputStep(
+        // 步骤2：选择城市（点选常用城市；"自动定位"使用当前位置）
+        steps.add(GuideStep.optionStep(
                 "哪个城市?",
-                "留空自动定位",
+                "选择城市（自动定位使用当前位置）",
                 "city",
-                "留空自动定位",
-                false,
-                false
+                Arrays.asList(
+                        new GuideStep.Option("📍 自动定位", ""),
+                        new GuideStep.Option("银川", "银川"),
+                        new GuideStep.Option("北京", "北京"),
+                        new GuideStep.Option("上海", "上海"),
+                        new GuideStep.Option("广州", "广州"),
+                        new GuideStep.Option("深圳", "深圳"),
+                        new GuideStep.Option("西安", "西安"),
+                        new GuideStep.Option("成都", "成都")
+                )
         ));
         // 步骤3：确认执行
         steps.add(GuideStep.confirmStep("确认执行", "信息无误就点执行"));
@@ -327,7 +334,7 @@ public class ToolGuideFlow {
                 false,
                 false,
                 "action", "get_questions",
-                new GuideStep.DynamicOptionsSpec("database", "get_categories", "categories", null, "📖 全部分类（不限）")
+                new GuideStep.DynamicOptionsSpec("database", "get_all_categories", "categories", null, "📖 全部分类（不限）")
         ));
         // 步骤2b：输入搜索关键词（仅 search_questions）
         steps.add(GuideStep.inputStep(
@@ -493,7 +500,8 @@ public class ToolGuideFlow {
                         new GuideStep.Option("图像处理", "image"),
                         new GuideStep.Option("文件解析", "file_parse"),
                         new GuideStep.Option("网页解析", "web_parse"),
-                        new GuideStep.Option("获取信息", "get_info")
+                        new GuideStep.Option("获取信息", "get_info"),
+                        new GuideStep.Option("📦 更多工具", "more_tools")
                 )
         ));
         // 步骤2a：天气具体操作（仅 weather）
@@ -576,14 +584,277 @@ public class ToolGuideFlow {
                 ),
                 "category", "web_parse"
         ));
-        // 步骤3a：输入城市（仅天气相关 action）
+        // 步骤2g：更多工具选择（仅 more_tools，路由到独立工具执行）
+        // 用 paramKey=tool 保存所选工具名，避免与 excel_tool/text_tools/smart_research 自身的 action 参数冲突
+        steps.add(GuideStep.optionStep(
+                "选择工具",
+                "选要使用的独立工具",
+                "tool",
+                Arrays.asList(
+                        new GuideStep.Option("📊 Excel表格", "excel_tool"),
+                        new GuideStep.Option("🎨 AI生图", "image_gen"),
+                        new GuideStep.Option("⚖️ 单位换算", "unit_converter"),
+                        new GuideStep.Option("🔤 文本处理", "text_tools"),
+                        new GuideStep.Option("🔍 智能研究", "smart_research")
+                ),
+                "category", "more_tools"
+        ));
+        // ===== Excel 表格（tool=excel_tool）=====
+        steps.add(GuideStep.optionStep(
+                "Excel 做什么?",
+                "选择要执行的操作",
+                "action",
+                Arrays.asList(
+                        new GuideStep.Option("📋 查看工作表", "sheets"),
+                        new GuideStep.Option("🔍 按条件查询", "query"),
+                        new GuideStep.Option("📌 读单元格", "cell"),
+                        new GuideStep.Option("✏️ 改单元格", "write_cell"),
+                        new GuideStep.Option("➕ 追加行", "add_row"),
+                        new GuideStep.Option("📄 新建工作表", "add_sheet")
+                ),
+                "tool", "excel_tool"
+        ));
+        steps.add(GuideStep.filePickerStep(
+                "选择 Excel 文件",
+                "点击按钮打开文件管理器选择 .xls / .xlsx 文件",
+                "file_path",
+                true,
+                new String[]{
+                        "application/vnd.ms-excel",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "application/vnd.ms-excel.sheet.macroEnabled.12"
+                },
+                false,
+                "tool", "excel_tool"
+        ));
         steps.add(GuideStep.inputStep(
+                "工作表?",
+                "工作表名或索引，默认第一个",
+                "sheet",
+                "默认第一个，可留空",
+                false, false,
+                "tool", "excel_tool"
+        ));
+        steps.add(GuideStep.inputStep(
+                "单元格位置?",
+                "要读写的单元格，如 B3",
+                "cell_ref",
+                "单元格位置，如 A1、B3",
+                true, false,
+                "action", "cell|write_cell"
+        ));
+        steps.add(GuideStep.inputStep(
+                "写入值?",
+                "要写入单元格的值",
+                "value",
+                "数字或文本",
+                true, false,
+                "action", "write_cell"
+        ));
+        steps.add(GuideStep.inputStep(
+                "按哪列筛选?",
+                "作为筛选条件的列名",
+                "column_name",
+                "列名，如 姓名",
+                true, false,
+                "action", "query"
+        ));
+        steps.add(GuideStep.inputStep(
+                "匹配值?",
+                "该列要匹配的值",
+                "match_value",
+                "如 张三",
+                true, false,
+                "action", "query"
+        ));
+        steps.add(GuideStep.optionStep(
+                "比较方式?",
+                "选择比较操作",
+                "op",
+                Arrays.asList(
+                        new GuideStep.Option("等于", "eq"),
+                        new GuideStep.Option("包含", "contains"),
+                        new GuideStep.Option("大于", "gt"),
+                        new GuideStep.Option("大于等于", "gte"),
+                        new GuideStep.Option("小于", "lt"),
+                        new GuideStep.Option("小于等于", "lte")
+                ),
+                "action", "query"
+        ));
+        // ===== AI 生图（tool=image_gen）=====
+        steps.add(GuideStep.inputStep(
+                "画什么?",
+                "描述要生成的图片内容",
+                "prompt",
+                "如：一只可爱的橘猫在草地上晒太阳",
+                true, true,
+                "tool", "image_gen"
+        ));
+        steps.add(GuideStep.optionStep(
+                "图片宽度?",
+                "选择图片宽度（像素）",
+                "width",
+                Arrays.asList(
+                        new GuideStep.Option("512", "512"),
+                        new GuideStep.Option("1024（推荐）", "1024"),
+                        new GuideStep.Option("1536", "1536")
+                ),
+                "tool", "image_gen"
+        ));
+        steps.add(GuideStep.optionStep(
+                "图片高度?",
+                "选择图片高度（像素）",
+                "height",
+                Arrays.asList(
+                        new GuideStep.Option("512", "512"),
+                        new GuideStep.Option("1024（推荐）", "1024"),
+                        new GuideStep.Option("1536", "1536")
+                ),
+                "tool", "image_gen"
+        ));
+        steps.add(GuideStep.optionStep(
+                "生成模型?",
+                "选择模型（可选，默认通用）",
+                "model",
+                Arrays.asList(
+                        new GuideStep.Option("通用", "flux"),
+                        new GuideStep.Option("写实", "flux-realism"),
+                        new GuideStep.Option("动漫", "flux-anime"),
+                        new GuideStep.Option("快速", "turbo")
+                ),
+                "tool", "image_gen"
+        ));
+        steps.add(GuideStep.optionStep(
+                "图片风格?",
+                "选择风格（可选，默认不指定）",
+                "style",
+                Arrays.asList(
+                        new GuideStep.Option("默认", ""),
+                        new GuideStep.Option("写实照片", "photorealistic"),
+                        new GuideStep.Option("卡通", "cartoon"),
+                        new GuideStep.Option("水彩", "watercolor"),
+                        new GuideStep.Option("油画", "oil painting")
+                ),
+                "tool", "image_gen"
+        ));
+        // ===== 单位换算（tool=unit_converter，预设换算对，执行时拆分 from/to）=====
+        steps.add(GuideStep.optionStep(
+                "换哪种?",
+                "选择常用换算",
+                "conv_pair",
+                Arrays.asList(
+                        new GuideStep.Option("📏 米 → 千米", "m|km"),
+                        new GuideStep.Option("📏 千米 → 米", "km|m"),
+                        new GuideStep.Option("📏 米 → 英尺", "m|ft"),
+                        new GuideStep.Option("⚖️ 千克 → 磅", "kg|lb"),
+                        new GuideStep.Option("⚖️ 克 → 千克", "g|kg"),
+                        new GuideStep.Option("📐 平方米 → 公顷", "m2|hectare"),
+                        new GuideStep.Option("🧪 升 → 毫升", "l|ml"),
+                        new GuideStep.Option("🚗 千米/时 → 米/秒", "kmh|mps"),
+                        new GuideStep.Option("🌡️ 摄氏度 → 华氏度", "celsius|fahrenheit"),
+                        new GuideStep.Option("🌡️ 华氏度 → 摄氏度", "fahrenheit|celsius")
+                ),
+                "tool", "unit_converter"
+        ));
+        steps.add(GuideStep.inputStep(
+                "数值?",
+                "输入要换算的数值",
+                "value",
+                "如 100",
+                true, false,
+                "tool", "unit_converter"
+        ));
+        // ===== 文本处理（tool=text_tools）=====
+        steps.add(GuideStep.optionStep(
+                "处理什么?",
+                "选择文本处理操作",
+                "action",
+                Arrays.asList(
+                        new GuideStep.Option("📋 格式化JSON", "json_format"),
+                        new GuideStep.Option("✅ 校验JSON", "json_validate"),
+                        new GuideStep.Option("🔠 转大写", "upper"),
+                        new GuideStep.Option("🔡 转小写", "lower"),
+                        new GuideStep.Option("🔐 Base64编码", "base64_encode"),
+                        new GuideStep.Option("🔓 Base64解码", "base64_decode"),
+                        new GuideStep.Option("🔗 URL编码", "url_encode"),
+                        new GuideStep.Option("🔗 URL解码", "url_decode"),
+                        new GuideStep.Option("🔍 正则提取", "regex_extract"),
+                        new GuideStep.Option("🔢 字数统计", "count"),
+                        new GuideStep.Option("✂️ 去空白", "trim")
+                ),
+                "tool", "text_tools"
+        ));
+        steps.add(GuideStep.inputStep(
+                "文本内容?",
+                "输入要处理的文本",
+                "text",
+                "粘贴或输入文本",
+                true, true,
+                "tool", "text_tools"
+        ));
+        steps.add(GuideStep.inputStep(
+                "正则表达式?",
+                "输入正则（仅正则提取需要）",
+                "pattern",
+                "如 \\d+",
+                false, false,
+                "action", "regex_extract"
+        ));
+        // ===== 智能研究（tool=smart_research）=====
+        steps.add(GuideStep.optionStep(
+                "怎么研究?",
+                "选择研究模式",
+                "action",
+                Arrays.asList(
+                        new GuideStep.Option("🔬 完整研究流程", "research"),
+                        new GuideStep.Option("⚡ 快速搜索", "quick_search"),
+                        new GuideStep.Option("📖 深度阅读", "deep_read"),
+                        new GuideStep.Option("📝 主题摘要", "summarize_topic")
+                ),
+                "tool", "smart_research"
+        ));
+        steps.add(GuideStep.inputStep(
+                "研究主题?",
+                "输入要研究的主题或关键词",
+                "topic",
+                "如：人工智能最新进展",
+                true, false,
+                "tool", "smart_research"
+        ));
+        steps.add(GuideStep.inputStep(
+                "网页地址?",
+                "输入要深度阅读的网页地址",
+                "url",
+                "如 https://example.com",
+                true, false,
+                "action", "deep_read"
+        ));
+        steps.add(GuideStep.optionStep(
+                "返回条数?",
+                "选择搜索结果数量",
+                "maxResults",
+                Arrays.asList(
+                        new GuideStep.Option("3条", "3"),
+                        new GuideStep.Option("5条（推荐）", "5"),
+                        new GuideStep.Option("10条", "10")
+                ),
+                "tool", "smart_research"
+        ));
+        // 步骤3a：选择城市（仅天气相关 action，点选常用城市；"自动定位"使用当前位置）
+        steps.add(GuideStep.optionStep(
                 "哪个城市?",
-                "留空自动定位",
+                "选择城市（自动定位使用当前位置）",
                 "city",
-                "城市名",
-                false,
-                false,
+                Arrays.asList(
+                        new GuideStep.Option("📍 自动定位", ""),
+                        new GuideStep.Option("银川", "银川"),
+                        new GuideStep.Option("北京", "北京"),
+                        new GuideStep.Option("上海", "上海"),
+                        new GuideStep.Option("广州", "广州"),
+                        new GuideStep.Option("深圳", "深圳"),
+                        new GuideStep.Option("西安", "西安"),
+                        new GuideStep.Option("成都", "成都")
+                ),
                 "action", "weather_current|weather_forecast|weather_hourly|weather_air"
         ));
         // 步骤3b：选择图片（仅 OCR/图像相关 action）—— 使用图片选择器
@@ -671,9 +942,9 @@ public class ToolGuideFlow {
         ));
         steps.add(GuideStep.inputStep(
                 "结束行号?",
-                "读到第几行，留空读到末尾",
+                "读到第几行，留空默认读 50 行",
                 "endLine",
-                "例如：100",
+                "例如：100，留空默认 50 行",
                 false, false,
                 "action", "read_lines"
         ));
@@ -737,12 +1008,12 @@ public class ToolGuideFlow {
                         new GuideStep.Option("删除文件", "delete")
                 )
         ));
-        // 文件路径（除 delete/copy 外都需要）
+        // 文件名（未指定绝对路径时自动保存到 Agent 工作区，无需选路径）
         steps.add(GuideStep.inputStep(
-                "文件名/路径?",
-                "输入要生成的文件名或完整路径",
+                "文件名?",
+                "只输文件名即可，默认保存到工作区；如需指定位置可输完整路径",
                 "file_name",
-                "例如：output.txt 或 /sdcard/Download/test.json",
+                "例如 output.txt（自动存到工作区）",
                 true, false,
                 "action", "create|append|json|config|markdown|report|template"
         ));
@@ -765,10 +1036,10 @@ public class ToolGuideFlow {
                 "action", "copy"
         ));
         steps.add(GuideStep.inputStep(
-                "目标路径?",
-                "输入复制后的目标文件路径",
+                "目标文件名?",
+                "输入复制后的目标文件名，默认保存到工作区",
                 "file_name",
-                "目标路径，例如：/sdcard/Download/copy.txt",
+                "例如 copy.txt（自动存到工作区）",
                 true, false,
                 "action", "copy"
         ));
@@ -919,14 +1190,15 @@ public class ToolGuideFlow {
                         new GuideStep.Option("获取应用信息", "get_app_info")
                 )
         ));
-        // 打开应用：应用名
+        // 打开应用：应用名（动态拉取已装应用列表供点选，减少手动输入）
         steps.add(GuideStep.inputStep(
                 "打开哪个应用?",
-                "输入应用名称，如：微信、QQ、支付宝",
+                "从下方选择已安装应用，或直接输入应用名",
                 "app_name",
-                "应用名称",
+                "应用名称，可从下方点选",
                 true, false,
-                "action", "open_app|get_app_info"
+                "action", "open_app|get_app_info",
+                new GuideStep.DynamicOptionsSpec("system_resource", "list_apps", "user_apps", "name", null)
         ));
         // 打开网址：URL
         steps.add(GuideStep.inputStep(

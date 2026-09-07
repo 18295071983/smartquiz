@@ -2,6 +2,7 @@ plugins {
     id "com.android.application" version "8.4.0"
     id "com.google.dagger.hilt.android" version "2.48"
     id "com.chaquo.python" version "16.1.0"
+    id "org.jetbrains.kotlin.android" version "1.9.22"
 }
 
 // 配置资源处理
@@ -38,21 +39,27 @@ android {
         
         // 本地库由 Gradle externalNativeBuild（CMake）直接编译：
         // CMake 产物输出到 src/main/jniLibs/<abi>/（见 src/main/cpp/CMakeLists.txt LIBRARY_OUTPUT_DIRECTORY），
-        // AGP 打包时自动 strip。GGML_VULKAN=ON 为唯一 GPU backend（OpenCL 关闭）。
+        // AGP 打包时自动 strip。GGML_OPENCL=ON 为唯一 GPU backend（Adreno 优化 kernel，Vulkan 关闭）。
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O3 -DNDEBUG -fno-finite-math-only"
-                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=OFF", "-DGGML_VULKAN=ON"
+                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=ON", "-DGGML_VULKAN=OFF"
             }
         }
         ndk {
-            abiFilters "arm64-v8a", "x86_64"
+            // 仅 arm64-v8a：LibreOffice 引擎（viewer 模块 jniLibs）只有 arm64 版，去掉 x86_64 避免模拟器崩溃
+            abiFilters "arm64-v8a"
         }
     }
 
     chaquopy {
         defaultConfig {
             version "3.10"
+            // 构建用 Python 解释器:必须与 Android 端运行时(3.10)字节码兼容,
+            // 即 buildPython 只能是 3.10(或 3.9)。3.12/3.14 的字节码 3.10 无法加载,
+            // 会导致 .pyc 预编译失败(Chaquopy 警告,首次启动变慢)。
+            // 故显式指定 3.10,修复 .pyc 预编译警告。
+            buildPython "C:\\Users\\xiaocong\\AppData\\Local\\Programs\\Python\\Python310\\python.exe"
             pip {
                 // 纯Python包从本地wheel/sdist安装，无需联网
                 install "python-wheels/requests-2.34.2-py3-none-any.whl"
@@ -153,6 +160,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     lint {
         checkReleaseBuilds false
         abortOnError false
@@ -165,7 +176,7 @@ android {
     }
     
     composeOptions {
-        kotlinCompilerExtensionVersion "1.4.8"
+        kotlinCompilerExtensionVersion "1.5.8"
     }
     externalNativeBuild {
         cmake {
@@ -178,6 +189,13 @@ android {
 dependencies {
     // 和风天气 Android SDK
     implementation files('libs/QWeather_Public_Android_V5.2.2.jar')
+    // APK 签名库（App 内导出 APK 用：v1+v2+v3 签名，签名时自动对齐 STORED 条目）
+    implementation files('libs/apksig-8.0.2.jar')
+    // 本地高精度 OCR：RapidOCR4j-Android（RapidOCR Java 移植，PaddleOCR 系模型 + ONNX Runtime + OpenCV，
+    // 端侧离线，中文精度远高于 ML Kit；内部已带 onnxruntime-android:1.18.0 与 opencv:4.9.0）
+    implementation "io.github.hzkitty:rapidocr4j-android:1.0.0"
+    // 本地离线语音识别（SenseVoice）：直接复用 onnxruntime-android（rapidocr4j 已传递同版本，显式声明确保 API 可见）
+    implementation "com.microsoft.onnxruntime:onnxruntime-android:1.18.0"
     implementation "net.i2p.crypto:eddsa:0.3.0"
 
     implementation "androidx.appcompat:appcompat:1.7.0"
@@ -364,4 +382,5 @@ dependencies {
     androidTestImplementation "androidx.test:core:1.5.0"
     androidTestImplementation "androidx.test.ext:junit:1.1.5"
     androidTestImplementation "org.mockito:mockito-android:4.8.1"
+    implementation project(':viewer')
 }

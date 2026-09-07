@@ -9,7 +9,7 @@
     <!-- 顶部标题栏 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="60dp"
+        android:layout_height="@dimen/size_60"
         android:background="@color/purple_600"
         android:orientation="horizontal"
         android:gravity="center_vertical"
@@ -17,17 +17,17 @@
 
         <Button
             android:id="@+id/buttonBack"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="@dimen/size_40"
+            android:layout_height="@dimen/size_40"
             android:background="@drawable/ic_chevron_right"
             android:rotation="180"
-            android:layout_marginRight="16dp" />
+            android:layout_marginRight="@dimen/space_16" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="选择导出格式"
-            android:textSize="20sp"
+            android:textSize="@dimen/text_20"
             android:textColor="@color/white"
             android:textStyle="bold" />
 
@@ -37,21 +37,21 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <!-- 选中格式显示 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@color/white"
-            android:padding="16dp">
+            android:padding="@dimen/space_16">
 
             <TextView
                 android:id="@+id/textSelectedFormat"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="请选择导出格式"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textColor="@color/black" />
 
         </LinearLayout>
@@ -68,11 +68,11 @@
             <!-- Excel格式 -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/cardExcel"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
                 android:layout_columnWeight="1"
                 android:layout_rowWeight="1"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/white">
@@ -82,19 +82,19 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_settings"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Excel"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/black" />
 
@@ -102,9 +102,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=".xlsx"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray"
-                        android:layout_marginTop="2dp" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                 </LinearLayout>
 
@@ -113,11 +113,11 @@
             <!-- CSV格式 -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/cardCsv"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
                 android:layout_columnWeight="1"
                 android:layout_rowWeight="1"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/white">
@@ -127,19 +127,19 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_settings"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="CSV"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/black" />
 
@@ -147,9 +147,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=".csv"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray"
-                        android:layout_marginTop="2dp" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                 </LinearLayout>
 
@@ -158,11 +158,11 @@
             <!-- Markdown格式 -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/cardMarkdown"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
                 android:layout_columnWeight="1"
                 android:layout_rowWeight="1"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/white">
@@ -172,19 +172,19 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_settings"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Markdown"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/black" />
 
@@ -192,9 +192,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=".md"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray"
-                        android:layout_marginTop="2dp" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                 </LinearLayout>
 
@@ -203,11 +203,11 @@
             <!-- HTML格式 -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/cardHtml"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
                 android:layout_columnWeight="1"
                 android:layout_rowWeight="1"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/white">
@@ -217,19 +217,19 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_settings"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="HTML"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/black" />
 
@@ -237,9 +237,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=".html"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray"
-                        android:layout_marginTop="2dp" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                 </LinearLayout>
 
@@ -248,11 +248,11 @@
             <!-- PDF格式 -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/cardPdf"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
                 android:layout_columnWeight="1"
                 android:layout_rowWeight="1"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/white">
@@ -262,19 +262,19 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_settings"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="PDF"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/black" />
 
@@ -282,9 +282,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=".pdf"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray"
-                        android:layout_marginTop="2dp" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                 </LinearLayout>
 
@@ -293,11 +293,11 @@
             <!-- Word格式 -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/cardWord"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
                 android:layout_columnWeight="1"
                 android:layout_rowWeight="1"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/white">
@@ -307,19 +307,19 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_settings"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Word"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/black" />
 
@@ -327,9 +327,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=".docx"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray"
-                        android:layout_marginTop="2dp" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                 </LinearLayout>
 
@@ -338,11 +338,11 @@
             <!-- JSON格式 -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/cardJson"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
                 android:layout_columnWeight="1"
                 android:layout_rowWeight="1"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/white">
@@ -352,19 +352,19 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_settings"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="JSON"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/black" />
 
@@ -372,9 +372,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=".json"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray"
-                        android:layout_marginTop="2dp" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                 </LinearLayout>
 
@@ -383,11 +383,11 @@
             <!-- 长图片格式 -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/cardImage"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
                 android:layout_columnWeight="1"
                 android:layout_rowWeight="1"
-                android:layout_margin="8dp"
+                android:layout_margin="@dimen/space_8"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="4dp"
                 app:cardBackgroundColor="@color/white">
@@ -397,19 +397,19 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_16">
 
                     <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
                         android:src="@drawable/ic_settings"
-                        android:layout_marginBottom="8dp" />
+                        android:layout_marginBottom="@dimen/space_8" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="长图片"
-                        android:textSize="16sp"
+                        android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="@color/black" />
 
@@ -417,9 +417,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text=".png"
-                        android:textSize="14sp"
+                        android:textSize="@dimen/text_14"
                         android:textColor="@color/gray"
-                        android:layout_marginTop="2dp" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                 </LinearLayout>
 
@@ -431,14 +431,14 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonNext"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="@dimen/size_56"
             android:text="下一步"
-            android:textSize="16sp"
+            android:textSize="@dimen/text_16"
             android:textColor="@color/white"
-            app:backgroundTint="@color/primary"
-            app:cornerRadius="12dp"
+            app:backgroundTint="?attr/colorPrimary"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
-            android:layout_marginTop="24dp" />
+            android:layout_marginTop="@dimen/space_24" />
 
     </ScrollView>
 

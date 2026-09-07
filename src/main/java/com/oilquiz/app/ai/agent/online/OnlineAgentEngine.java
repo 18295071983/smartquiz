@@ -993,7 +993,26 @@ public class OnlineAgentEngine {
                         }
                     }
                     result.content = fullContent != null ? fullContent : "";
-                    result.reasoningContent = reasoningContent != null ? reasoningContent : "";
+                    // reasoning_content 兜底：优先用回调参数，为空或比thinkingChain短时用流式收集的内容
+                    String chainReasoning = "";
+                    try {
+                        OnlineThinkingChain.ThinkingBlock activeBlock = thinkingChain.getActiveBlock();
+                        if (activeBlock != null && activeBlock.reasoningContent != null) {
+                            chainReasoning = activeBlock.reasoningContent;
+                        }
+                    } catch (Exception ignored) {}
+                    if (reasoningContent != null && reasoningContent.length() >= chainReasoning.length()) {
+                        result.reasoningContent = reasoningContent;
+                    } else if (!chainReasoning.isEmpty()) {
+                        result.reasoningContent = chainReasoning;
+                        if (reasoningContent == null || reasoningContent.isEmpty()) {
+                            AILogger.w(TAG, "onComplete reasoningContent为空，使用thinkingChain兜底: " + chainReasoning.length() + " chars");
+                        } else {
+                            AILogger.w(TAG, "onComplete reasoningContent不完整(" + reasoningContent.length() + " chars)，使用thinkingChain兜底(" + chainReasoning.length() + " chars)");
+                        }
+                    } else {
+                        result.reasoningContent = "";
+                    }
                     result.toolCalls = toolCalls;
                     result.finishReason = finishReason;
 
@@ -1186,7 +1205,9 @@ public class OnlineAgentEngine {
             notifyStep("环境感知", "⚠️ 位置获取超时，仅使用日期时间");
         }
 
-        sb.append("（以上环境信息已自动获取，回答时可据此理解\"今天\"、\"附近\"等指代）");
+        sb.append("（以上为系统实时获取的当前日期与位置，是当前权威事实；回答今天/现在/最新/几号等问题以此为准，");
+        sb.append("不以训练数据中的旧时间推断。工具与搜索返回的实时数据（新闻、开奖、行情、政策、天气）直接采用其内容，");
+        sb.append("不要用训练知识改写或否定。）");
         return sb.toString();
     }
 

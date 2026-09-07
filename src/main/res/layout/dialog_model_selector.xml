@@ -5,7 +5,7 @@
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/bg_dialog_mode_selector"
-    android:padding="20dp">
+    android:padding="@dimen/space_20">
 
     <!-- 标题栏 -->
     <LinearLayout
@@ -15,22 +15,22 @@
         android:gravity="center_vertical">
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="选择模型"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"/>
+            android:textColor="?attr/colorControlText"/>
 
         <ImageButton
             android:id="@+id/btn_close"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="@dimen/size_32"
+            android:layout_height="@dimen/size_32"
             android:src="@drawable/ic_close"
             android:background="?attr/selectableItemBorderless"
             android:contentDescription="关闭"
-            app:tint="@color/text_secondary"/>
+            app:tint="?attr/colorControlTextSecondary"/>
     </LinearLayout>
 
     <!-- Tab 切换 -->
@@ -38,26 +38,26 @@
         android:id="@+id/tab_layout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="@dimen/space_16"
         app:tabMode="fixed"
         app:tabGravity="fill"
-        app:tabIndicatorColor="@color/primary"
-        app:tabSelectedTextColor="@color/primary"
-        app:tabTextColor="@color/text_secondary"/>
+        app:tabIndicatorColor="?attr/colorPrimary"
+        app:tabSelectedTextColor="?attr/colorPrimary"
+        app:tabTextColor="?attr/colorControlTextSecondary"/>
 
     <!-- ViewPager -->
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/view_pager"
         android:layout_width="match_parent"
-        android:layout_height="450dp"
-        android:layout_marginTop="12dp"/>
+        android:layout_height="@dimen/size_450"
+        android:layout_marginTop="@dimen/space_12"/>
 
     <!-- 底部按钮 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="@dimen/space_16"
         android:gravity="end">
 
         <com.google.android.material.button.MaterialButton
@@ -66,16 +66,16 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="取消"
-            android:textColor="@color/text_secondary"/>
+            android:textColor="?attr/colorControlTextSecondary"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_confirm"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="@dimen/space_8"
             android:text="确定"
-            app:backgroundTint="@color/primary"
-            app:cornerRadius="20dp"/>
+            app:backgroundTint="?attr/colorPrimary"
+            app:cornerRadius="@dimen/radius_20"/>
     </LinearLayout>
 
 </LinearLayout>

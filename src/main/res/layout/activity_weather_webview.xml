@@ -8,29 +8,29 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="#1E40AF"
+        android:background="@color/blue_800"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:elevation="4dp">
+        android:elevation="@dimen/elev_4">
 
         <ImageView
             android:id="@+id/btn_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
             android:src="@drawable/ic_back"
             android:tint="@android:color/white"
-            android:padding="12dp"
+            android:padding="@dimen/space_12"
             android:clickable="true"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackgroundBorderless" />
 
         <TextView
             android:id="@+id/tv_title"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="天气详情"
-            android:textSize="18sp"
+            android:textSize="@dimen/text_18"
             android:textColor="@android:color/white"
             android:textStyle="bold"
             android:gravity="center"
@@ -39,11 +39,11 @@
 
         <ImageView
             android:id="@+id/btn_refresh"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
             android:src="@drawable/ic_refresh"
             android:tint="@android:color/white"
-            android:padding="12dp"
+            android:padding="@dimen/space_12"
             android:clickable="true"
             android:focusable="true"
             android:foreground="?attr/selectableItemBackgroundBorderless" />

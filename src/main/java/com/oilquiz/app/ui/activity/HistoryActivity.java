@@ -134,14 +134,14 @@ public class HistoryActivity extends BaseActivity implements ImportHistoryAdapte
 
     private void clearHistory() {
         new AlertDialog.Builder(this)
-                .setTitle("清空历史记录")
-                .setMessage("确定要清空所有导入历史记录吗？此操作不可恢复。")
-                .setPositiveButton("确定", (dialog, which) -> {
+                .setTitle(getString(R.string.h_86e97bbe))
+                .setMessage(getString(R.string.h_dc9c12fd))
+                .setPositiveButton(getString(R.string.h_38cf16f2), (dialog, which) -> {
                     importHistoryRepository.clearImportHistory();
                     loadHistoryData();
-                    Toast.makeText(this, "历史记录已清空", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_86505e54), Toast.LENGTH_SHORT).show();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 
@@ -161,15 +161,15 @@ public class HistoryActivity extends BaseActivity implements ImportHistoryAdapte
     @Override
     public void onHistoryItemDelete(ImportHistory importHistory, int position) {
         new AlertDialog.Builder(this)
-                .setTitle("删除记录")
-                .setMessage("确定要删除这条导入记录吗？")
-                .setPositiveButton("删除", (dialog, which) -> {
+                .setTitle(getString(R.string.h_a790208c))
+                .setMessage(getString(R.string.h_6229afd6))
+                .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {
                     importHistoryRepository.deleteImportHistory(importHistory.getId());
                     historyAdapter.removeItem(position);
                     loadHistoryData(); // 重新加载以更新统计
-                    Toast.makeText(this, "记录已删除", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_7711bfa2), Toast.LENGTH_SHORT).show();
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
     }
 

@@ -4,44 +4,44 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
-    android:background="@color/surface">
+    android:padding="@dimen/space_16"
+    android:background="?attr/colorSurface">
 
     <TextView
         android:id="@+id/tv_question_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="题目内容"
-        android:textSize="16sp"
-        android:textColor="@color/on_surface"
-        android:layout_marginBottom="8dp" />
+        android:textSize="@dimen/text_16"
+        android:textColor="?attr/colorOnSurface"
+        android:layout_marginBottom="@dimen/space_8" />
 
     <TextView
         android:id="@+id/tv_correct_answer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="正确答案: A"
-        android:textSize="14sp"
-        android:textColor="@color/primary"
-        android:layout_marginBottom="4dp" />
+        android:textSize="@dimen/text_14"
+        android:textColor="?attr/colorPrimary"
+        android:layout_marginBottom="@dimen/space_4" />
 
     <TextView
         android:id="@+id/tv_user_answer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="你的答案: B"
-        android:textSize="14sp"
+        android:textSize="@dimen/text_14"
         android:textColor="@color/error"
-        android:layout_marginBottom="4dp" />
+        android:layout_marginBottom="@dimen/space_4" />
 
     <TextView
         android:id="@+id/tv_category"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="分类: 数学"
-        android:textSize="14sp"
-        android:textColor="@color/text_secondary"
-        android:layout_marginBottom="8dp" />
+        android:textSize="@dimen/text_14"
+        android:textColor="?attr/colorControlTextSecondary"
+        android:layout_marginBottom="@dimen/space_8" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -50,27 +50,27 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_review"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="复习"
-            android:textSize="14sp"
-            app:backgroundTint="@color/primary"
+            android:textSize="@dimen/text_14"
+            app:backgroundTint="?attr/colorPrimary"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false"
-            android:layout_marginEnd="8dp" />
+            android:layout_marginEnd="@dimen/space_8" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_delete"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="删除"
-            android:textSize="14sp"
+            android:textSize="@dimen/text_14"
             app:backgroundTint="@color/error"
             android:textColor="@android:color/white"
-            app:cornerRadius="12dp"
+            app:cornerRadius="@dimen/radius_12"
             android:textAllCaps="false" />
 
     </LinearLayout>

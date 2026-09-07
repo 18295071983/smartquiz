@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 public class PythonToolManager {
     private static final String TAG = "PythonToolManager";
 
@@ -1991,7 +1993,7 @@ public class PythonToolManager {
                             (int) (44 * density), (int) (44 * density));
                     lp.setMargins((int) (4 * density), (int) (4 * density), (int) (4 * density), (int) (4 * density));
                     sw.setLayoutParams(lp);
-                    sw.setBackgroundColor(parseColorSafe(color, 0xFF374151));
+                    sw.setBackgroundColor(parseColorSafe(color, ThemeColors.get(R.color.hc_ff374151)));
                     sw.setOnClickListener(v -> {
                         picked[0] = color;
                         for (int i = 0; i < grid.getChildCount(); i++) {
@@ -2156,7 +2158,7 @@ public class PythonToolManager {
             tv.setTextSize(size);
             tv.setTypeface(bold ? android.graphics.Typeface.DEFAULT_BOLD
                     : android.graphics.Typeface.DEFAULT);
-            tv.setTextColor(parseColorSafe(color, 0xFFDC2626));
+            tv.setTextColor(parseColorSafe(color, ThemeColors.get(R.color.hc_ffdc2626)));
             tv.setPadding((int) (6 * density), (int) (8 * density), (int) (6 * density), (int) (8 * density));
             // 跑马灯滚动：位移动画实现（不依赖系统 marquee 焦点机制，Dialog 内也能滚动）；
             // speed 0=不滚动 1=慢 2=中 3=快，无限循环
@@ -3097,7 +3099,7 @@ public class PythonToolManager {
             final android.widget.TextView roundHint = new android.widget.TextView(act);
             roundHint.setPadding(dp4(8), dp4(4), dp4(8), dp4(4));
             roundHint.setTextSize(12);
-            roundHint.setTextColor(0xFF888888);
+            roundHint.setTextColor(ThemeColors.get(R.color.hc_ff888888));
             setupScrollViewForInput(formHolder);
 
             // ---- 构建单轮表单 view 并装入 formHolder ----

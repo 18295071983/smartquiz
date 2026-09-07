@@ -1,41 +1,31 @@
 package com.oilquiz.app.manager;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 
-import com.oilquiz.app.R;
-
+/**
+ * 主题色管理器（重构版）：保留旧 API 签名以兼容既有调用（QuizActivity 等），
+ * 全部实现委托给 {@link ThemeManager} 统一管理。
+ */
 public class ThemeColorManager {
 
-    private static final String PREF_NAME = "theme_preferences";
-    private static final String KEY_THEME_COLOR = "current_theme_color";
-
+    /** 当前主题色资源 id（兼容旧语义；自定义色返回默认紫色） */
     public int getCurrentThemeColor(Context context) {
-        SharedPreferences preferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        return preferences.getInt(KEY_THEME_COLOR, R.color.theme_blue);
+        return ThemeManager.getThemeColorRes(context);
     }
 
+    /** 当前主题色 ARGB 值（优先自定义色） */
     public int getCurrentThemeColorValue(Context context) {
-        // 首先检查是否启用了自定义颜色
-        SharedPreferences preferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        boolean useCustomColor = preferences.getBoolean("use_custom_color", false);
-        
-        if (useCustomColor) {
-            int customColor = preferences.getInt("custom_theme_color", -1);
-            if (customColor != -1) {
-                return customColor;
-            }
-        }
-        
-        // 如果没有自定义颜色，使用默认的主题色资源
-        int colorRes = getCurrentThemeColor(context);
-        return context.getResources().getColor(colorRes);
+        return ThemeManager.getThemeColor(context);
     }
 
+    /** 旧语义：按资源 id 设置主题色（兼容旧调用点） */
     public void setThemeColor(Context context, int colorRes) {
-        SharedPreferences preferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        SharedPreferences.Editor editor = preferences.edit();
-        editor.putInt(KEY_THEME_COLOR, colorRes);
-        editor.apply();
+        int argb = context.getResources().getColor(colorRes);
+        ThemeManager.setThemeColor(context, argb);
+    }
+
+    /** 直接按 ARGB 设置主题色（新调用推荐） */
+    public void setThemeColorValue(Context context, int argb) {
+        ThemeManager.setThemeColor(context, argb);
     }
 }

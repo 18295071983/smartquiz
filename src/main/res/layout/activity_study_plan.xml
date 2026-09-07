@@ -3,8 +3,8 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp"
-    android:background="@color/background">
+    android:padding="@dimen/space_16"
+    android:background="?attr/colorBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -15,46 +15,47 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="学习计划"
-            android:textSize="24sp"
+            android:textSize="@dimen/text_24"
             android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:layout_marginBottom="16dp" />
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_16" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@color/surface"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp">
+            android:background="?attr/colorSurface"
+            android:padding="@dimen/space_16"
+            android:layout_marginBottom="@dimen/space_16">
 
             <EditText
                 android:id="@+id/et_plan_name"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="计划名称"
-                android:textColor="@color/text_primary"
-                android:layout_marginBottom="8dp" />
+                android:textColor="?attr/colorControlText"
+                android:layout_marginBottom="@dimen/space_8" />
 
             <EditText
+                    android:background="@drawable/rounded_edittext"
                 android:id="@+id/et_target_questions"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="目标题目数"
                 android:inputType="number"
-                android:textColor="@color/text_primary"
-                android:layout_marginBottom="8dp" />
+                android:textColor="?attr/colorControlText"
+                android:layout_marginBottom="@dimen/space_8" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_add_plan"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="@dimen/size_48"
                 android:text="添加计划"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                app:backgroundTint="@color/primary"
-                android:textColor="@color/on_primary"
-                app:cornerRadius="12dp"
+                app:backgroundTint="?attr/colorPrimary"
+                android:textColor="?attr/colorOnPrimary"
+                app:cornerRadius="@dimen/radius_12"
                 android:textAllCaps="false" />
 
         </LinearLayout>

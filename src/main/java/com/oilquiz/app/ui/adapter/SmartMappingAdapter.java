@@ -99,9 +99,9 @@ public class SmartMappingAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                 headerHolder.questionTypeSection.setVisibility(View.VISIBLE);
                 headerHolder.difficultySection.setVisibility(View.VISIBLE);
                 headerHolder.categorySection.setVisibility(View.VISIBLE);
-                headerHolder.questionTypeSection.setText("题型映射 (" + detectedQuestionTypes.size() + ")");
-                headerHolder.difficultySection.setText("难度映射 (" + detectedDifficulties.size() + ")");
-                headerHolder.categorySection.setText("分类映射 (" + detectedCategories.size() + ")");
+                headerHolder.questionTypeSection.setText(context.getString(R.string.h_2afc3718) + detectedQuestionTypes.size() + ")");
+                headerHolder.difficultySection.setText(context.getString(R.string.h_4453dd7d) + detectedDifficulties.size() + ")");
+                headerHolder.categorySection.setText(context.getString(R.string.h_503f44ed) + detectedCategories.size() + ")");
             } else {
                 SectionInfo info = getSectionInfo(position);
                 headerHolder.questionTypeSection.setVisibility(info.section == SHOW_QUESTION_TYPE ? View.VISIBLE : View.GONE);
@@ -110,13 +110,13 @@ public class SmartMappingAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
 
                 switch (info.section) {
                     case SHOW_QUESTION_TYPE:
-                        headerHolder.questionTypeSection.setText("题型映射 (" + detectedQuestionTypes.size() + ")");
+                        headerHolder.questionTypeSection.setText(context.getString(R.string.h_2afc3718) + detectedQuestionTypes.size() + ")");
                         break;
                     case SHOW_DIFFICULTY:
-                        headerHolder.difficultySection.setText("难度映射 (" + detectedDifficulties.size() + ")");
+                        headerHolder.difficultySection.setText(context.getString(R.string.h_4453dd7d) + detectedDifficulties.size() + ")");
                         break;
                     case SHOW_CATEGORY:
-                        headerHolder.categorySection.setText("分类映射 (" + detectedCategories.size() + ")");
+                        headerHolder.categorySection.setText(context.getString(R.string.h_503f44ed) + detectedCategories.size() + ")");
                         break;
                 }
             }
@@ -220,7 +220,7 @@ public class SmartMappingAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
 
     private void setupSpinner(Spinner spinner, List<String> options, Map<String, String> mapping, String detectedValue) {
         List<String> spinnerOptions = new java.util.ArrayList<>();
-        spinnerOptions.add("不映射");
+        spinnerOptions.add(context.getString(R.string.h_d7840b2c));
         spinnerOptions.addAll(options);
 
         ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, spinnerOptions);

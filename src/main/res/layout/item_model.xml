@@ -3,37 +3,37 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="8dp"
+    android:layout_marginBottom="@dimen/space_8"
     app:cardCornerRadius="12dp"
     app:cardElevation="2dp"
-    app:cardBackgroundColor="@color/card_background">
+    app:cardBackgroundColor="?attr/colorCardBackground">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/space_16">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="@dimen/space_8">
             <TextView
                 android:id="@+id/model_name"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="模型名称"
-                android:textSize="16sp"
+                android:textSize="@dimen/text_16"
                 android:textStyle="bold"
-                android:textColor="@color/text_primary"/>
+                android:textColor="?attr/colorControlText"/>
             <TextView
                 android:id="@+id/model_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="可用"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="@color/success"/>
         </LinearLayout>
 
@@ -42,17 +42,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="模型大小: 100MB"
-            android:textSize="14sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginBottom="4dp"/>
+            android:textSize="@dimen/text_14"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:layout_marginBottom="@dimen/space_4"/>
 
         <TextView
             android:id="@+id/model_path"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="模型路径: /storage/emulated/0/models/model.bin"
-            android:textSize="12sp"
-            android:textColor="@color/text_tertiary"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlTextHint"
             android:ellipsize="end"
             android:maxLines="1"/>
 

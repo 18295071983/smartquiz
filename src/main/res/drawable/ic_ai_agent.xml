@@ -6,23 +6,23 @@
     android:viewportHeight="24">
     
     <path
-        android:fillColor="@color/primary_container"
+        android:fillColor="?attr/colorPrimaryContainer"
         android:pathData="M12,2C6.48,2 2,6.48 2,12S6.48,22 12,22 22,17.52 22,12 17.52,2 12,2Z" />
     
     <path
-        android:fillColor="@color/primary"
+        android:fillColor="?attr/colorPrimary"
         android:pathData="M12,4C7.59,4 4,7.59 4,12S7.59,20 12,20 20,16.41 20,12 16.41,4 12,4Z" />
     
     <path
-        android:fillColor="@color/primary_light"
+        android:fillColor="?attr/colorPrimaryContainer"
         android:pathData="M12,6C8.69,6 6,8.69 6,12S8.69,18 12,18 18,15.31 18,12 15.31,6 12,6Z" />
     
     <path
-        android:fillColor="@color/secondary"
+        android:fillColor="?attr/colorSecondary"
         android:pathData="M9,9C8.45,9 8,9.45 8,10C8,10.55 8.45,11 9,11S10,10.55 10,10C10,9.45 9.55,9 9,9Z" />
     
     <path
-        android:fillColor="@color/secondary"
+        android:fillColor="?attr/colorSecondary"
         android:pathData="M15,9C14.45,9 14,9.45 14,10C14,10.55 14.45,11 15,11S16,10.55 16,10C16,9.45 15.55,9 15,9Z" />
     
     <path

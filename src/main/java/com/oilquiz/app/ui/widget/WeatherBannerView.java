@@ -55,6 +55,7 @@ public class WeatherBannerView extends LinearLayout {
     private TextView weatherTemp;
     private TextView weatherDesc;
     private ImageView weatherArrow;
+    private ImageView weatherLocateBtn;
     private View weatherBanner;
     // 天气详情总介绍（一句话汇总，与详情页天气介绍同数据源）
     private TextView weatherSummary;
@@ -181,6 +182,7 @@ public class WeatherBannerView extends LinearLayout {
         weatherTemp = findViewById(R.id.weather_temp);
         weatherDesc = findViewById(R.id.weather_desc);
         weatherArrow = findViewById(R.id.weather_arrow);
+        weatherLocateBtn = findViewById(R.id.weather_locate_btn);
         weatherBanner = findViewById(R.id.weather_banner);
         // 天气详情总介绍
         weatherSummary = findViewById(R.id.weather_summary);
@@ -198,6 +200,13 @@ public class WeatherBannerView extends LinearLayout {
         setClickable(true);
         setFocusable(true);
         setOnClickListener(v -> onBannerClicked());
+
+        // 获取定位按钮：未授予定位权限时显示，点击主动请求定位（需在 bindClickToAllChildren 之后设置，
+        // 覆盖"点横幅跳详情页"的默认监听，让该按钮单独响应定位请求）
+        if (weatherLocateBtn != null) {
+            weatherLocateBtn.setOnClickListener(v -> requestLocationPermissionFromBanner());
+            updateLocateButtonVisibility();
+        }
 
         Typeface iconTypeface = QWeatherIconFont.getTypeface(getContext());
         if (weatherIcon != null) {
@@ -345,6 +354,9 @@ public class WeatherBannerView extends LinearLayout {
 
     public void onResume() {
         long now = System.currentTimeMillis();
+
+        // 刷新获取定位按钮显隐（用户可能已在设置/详情页授权或拒绝）
+        updateLocateButtonVisibility();
 
         // ================================================================
         // 每次 onResume 都检测 SP 缓存是否比自己的 lastRefreshTime 更新
@@ -603,6 +615,42 @@ public class WeatherBannerView extends LinearLayout {
         }
     }
 
+    /**
+     * 获取定位按钮显隐：未授予定位权限时显示（提示可点击定位），有权限时隐藏。
+     * 无权限时横幅用默认城市独立更新天气，用户可点击此按钮主动升级为定位天气。
+     */
+    private void updateLocateButtonVisibility() {
+        if (weatherLocateBtn == null) return;
+        boolean has = AppResourceManager.getInstance(getContext()).hasLocationPermission();
+        weatherLocateBtn.setVisibility(has ? View.GONE : View.VISIBLE);
+    }
+
+    /** 用户点击"获取定位"：主动请求定位权限，授权后立即独立定位并更新天气 */
+    private void requestLocationPermissionFromBanner() {
+        Activity activity = tryGetActivity();
+        if (activity == null) return;
+        if (weatherDesc != null) weatherDesc.setText("正在请求定位权限...");
+        AppResourceManager.getInstance(getContext()).permissions()
+                .requestLocationPermission(activity, new PermissionResourceProvider.PermissionCallback() {
+                    @Override
+                    public void onGranted() {
+                        locationPermissionGranted = true;
+                        post(() -> {
+                            updateLocateButtonVisibility();
+                            locateAndLoadWeather();
+                        });
+                    }
+
+                    @Override
+                    public void onDenied(List<String> deniedPermissions) {
+                        post(() -> {
+                            updateLocateButtonVisibility();
+                            if (weatherDesc != null) weatherDesc.setText("定位权限被拒绝，点击右侧图标重试");
+                        });
+                    }
+                });
+    }
+
     public void requestLocationAndLoad() {
         AppResourceManager resources = AppResourceManager.getInstance(getContext());
         if (resources.hasLocationPermission()) {
@@ -611,31 +659,17 @@ public class WeatherBannerView extends LinearLayout {
             return;
         }
 
-        if (weatherDesc != null) weatherDesc.setText("正在请求定位权限...");
-
-        Activity activity = tryGetActivity();
-        if (activity == null) {
-            if (weatherCity != null) weatherCity.setText("未定位");
-            if (weatherDesc != null) weatherDesc.setText("无法获取Activity");
-            if (weatherTemp != null) weatherTemp.setText("--°");
-            return;
-        }
-
-        resources.permissions().requestLocationPermission(activity, new PermissionResourceProvider.PermissionCallback() {
-            @Override
-            public void onGranted() {
-                locationPermissionGranted = true;
-                post(() -> locateAndLoadWeather());
-            }
-
-            @Override
-            public void onDenied(List<String> deniedPermissions) {
-                locationPermissionGranted = false;
-                post(() -> {
-                    if (weatherCity != null) weatherCity.setText("未定位");
-                    if (weatherDesc != null) weatherDesc.setText("定位权限被拒绝");
-                    if (weatherTemp != null) weatherTemp.setText("--°");
-                });
+        // 无定位权限：不弹权限框。
+        // 横幅保持独立更新——用布局配置的默认城市（currentCity，如"银川"）直接拉取天气，
+        // 并在周期刷新时持续独立刷新，完全不依赖天气详情页先获取数据。
+        locationPermissionGranted = false;
+        post(() -> {
+            if (currentCity != null && !currentCity.isEmpty()) {
+                loadWeatherWithCity(currentCity);
+            } else {
+                if (weatherCity != null) weatherCity.setText("未定位");
+                if (weatherDesc != null) weatherDesc.setText("点击开启定位天气");
+                if (weatherTemp != null) weatherTemp.setText("--°");
             }
         });
     }
@@ -648,31 +682,15 @@ public class WeatherBannerView extends LinearLayout {
             return;
         }
 
-        if (weatherDesc != null) weatherDesc.setText("正在请求定位权限...");
-
-        Activity activity = tryGetActivity();
-        if (activity == null) {
-            if (weatherCity != null) weatherCity.setText("未定位");
-            if (weatherDesc != null) weatherDesc.setText("无法获取Activity");
-            if (weatherTemp != null) weatherTemp.setText("--°");
-            return;
-        }
-
-        resources.permissions().requestLocationPermission(activity, new PermissionResourceProvider.PermissionCallback() {
-            @Override
-            public void onGranted() {
-                locationPermissionGranted = true;
-                post(() -> locateAndRefreshWeather());
-            }
-
-            @Override
-            public void onDenied(List<String> deniedPermissions) {
-                locationPermissionGranted = false;
-                post(() -> {
-                    if (weatherCity != null) weatherCity.setText("未定位");
-                    if (weatherDesc != null) weatherDesc.setText("定位权限被拒绝");
-                    if (weatherTemp != null) weatherTemp.setText("--°");
-                });
+        // 与 requestLocationAndLoad 一致：无权限时不弹权限框，用默认城市独立刷新
+        locationPermissionGranted = false;
+        post(() -> {
+            if (currentCity != null && !currentCity.isEmpty()) {
+                refreshWeatherWithCity(currentCity);
+            } else {
+                if (weatherCity != null) weatherCity.setText("未定位");
+                if (weatherDesc != null) weatherDesc.setText("点击开启定位天气");
+                if (weatherTemp != null) weatherTemp.setText("--°");
             }
         });
     }
@@ -1125,6 +1143,10 @@ public class WeatherBannerView extends LinearLayout {
     private void bindClickToAllChildren(ViewGroup viewGroup) {
         for (int i = 0; i < viewGroup.getChildCount(); i++) {
             View child = viewGroup.getChildAt(i);
+            // 获取定位按钮独立处理（点击请求定位权限），不绑定"跳详情页"，避免覆盖其监听
+            if (child.getId() == R.id.weather_locate_btn) {
+                continue;
+            }
             child.setOnClickListener(v -> onBannerClicked());
             if (child instanceof ViewGroup) {
                 bindClickToAllChildren((ViewGroup) child);

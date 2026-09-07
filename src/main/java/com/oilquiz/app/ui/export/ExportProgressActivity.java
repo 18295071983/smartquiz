@@ -80,7 +80,7 @@ public class ExportProgressActivity extends AppCompatActivity {
     }
 
     private void startExport() {
-        progressText.setText("开始导出...");
+        progressText.setText(getString(R.string.h_432928d3));
 
         // 设置内容模板信息到配置中
         if (isContentTemplateMode) {
@@ -100,7 +100,7 @@ public class ExportProgressActivity extends AppCompatActivity {
                     @Override
                     public void onExportStart() {
                         runOnUiThread(() -> {
-                            progressText.setText("导出中...");
+                            progressText.setText(getString(R.string.h_4062b25e));
                             progressIndicator.setVisibility(View.VISIBLE);
                         });
                     }
@@ -108,7 +108,7 @@ public class ExportProgressActivity extends AppCompatActivity {
                     @Override
                     public void onExportProgress(int progress) {
                         runOnUiThread(() -> {
-                            progressText.setText("导出中... " + progress + "%");
+                            progressText.setText(getString(R.string.h_064917ca) + progress + "%");
                         });
                     }
 
@@ -123,7 +123,7 @@ public class ExportProgressActivity extends AppCompatActivity {
                             String savedPath = ExportFileSaver.copyToDownloads(
                                     ExportProgressActivity.this, file,
                                     getMimeType(file.getAbsolutePath()));
-                            progressText.setText("导出完成！文件已保存到：\n"
+                            progressText.setText(getString(R.string.h_80d8cdc9)
                                     + (savedPath != null ? savedPath : file.getAbsolutePath()));
                             finishButton.setVisibility(View.VISIBLE);
                             viewFileButton.setVisibility(View.VISIBLE);
@@ -136,7 +136,7 @@ public class ExportProgressActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             if (isFinishing() || isDestroyed()) return;
                             progressIndicator.setVisibility(View.GONE);
-                            progressText.setText("导出失败：" + error);
+                            progressText.setText(getString(R.string.h_bccb121f) + error);
                             finishButton.setVisibility(View.VISIBLE);
                         });
                     }
@@ -173,10 +173,10 @@ public class ExportProgressActivity extends AppCompatActivity {
             if (intent.resolveActivity(getPackageManager()) != null) {
                 startActivity(Intent.createChooser(intent, "选择打开方式"));
             } else {
-                android.widget.Toast.makeText(this, "没有找到可以打开此文件的应用", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, getString(R.string.h_58cc9b4f), android.widget.Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
-            android.widget.Toast.makeText(this, "无法打开文件: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_71723529) + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
             e.printStackTrace();
         }
     }
@@ -245,10 +245,10 @@ public class ExportProgressActivity extends AppCompatActivity {
             if (intent.resolveActivity(getPackageManager()) != null) {
                 startActivity(Intent.createChooser(intent, "分享文件"));
             } else {
-                android.widget.Toast.makeText(this, "没有找到可以分享此文件的应用", android.widget.Toast.LENGTH_SHORT).show();
+                android.widget.Toast.makeText(this, getString(R.string.h_d5760453), android.widget.Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
-            android.widget.Toast.makeText(this, "无法分享文件: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, getString(R.string.h_122824f6) + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
             e.printStackTrace();
         }
     }

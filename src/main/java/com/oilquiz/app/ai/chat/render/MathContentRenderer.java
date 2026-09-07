@@ -16,6 +16,8 @@ import android.text.style.TypefaceSpan;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 /**
  * 数学公式渲染器：将 LaTeX 公式渲染为带样式的 Spanned 文本。
  *
@@ -110,17 +112,17 @@ public class MathContentRenderer implements ContentRenderer {
             int start = sb.length();
             sb.append("\n").append(display).append("\n");
             int end = sb.length();
-            sb.setSpan(new BackgroundColorSpan(0x0D6C56F0), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            sb.setSpan(new BackgroundColorSpan(ThemeColors.get(R.color.hc_0d6c56f0)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             sb.setSpan(new RelativeSizeSpan(1.15f), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             sb.setSpan(new StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            sb.setSpan(new ForegroundColorSpan(0xFF333333), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            sb.setSpan(new ForegroundColorSpan(ThemeColors.get(R.color.hc_ff333333)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         } else {
             // 行内公式：等宽 + 深色前景
             int start = sb.length();
             sb.append(formula);
             int end = sb.length();
             sb.setSpan(new TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            sb.setSpan(new ForegroundColorSpan(0xFF6C56F0), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            sb.setSpan(new ForegroundColorSpan(ThemeColors.get(R.color.hc_ff6c56f0)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             sb.setSpan(new StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
 

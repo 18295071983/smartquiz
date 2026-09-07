@@ -5,6 +5,7 @@
     android:id="@+id/drawer_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorBackground"
     tools:context=".ui.activity.AIChatActivity">
 
     <LinearLayout
@@ -12,14 +13,14 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:background="@color/background">
+        android:background="@android:color/transparent">
 
         <!-- 合并头部：状态信息 + 右侧抽屉按钮，同一渐变胶囊容器 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="12dp"
-            android:layout_marginTop="8dp"
+            android:layout_marginHorizontal="@dimen/space_12"
+            android:layout_marginTop="@dimen/space_8"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/status_bar_background"
@@ -29,7 +30,7 @@
             <!-- 模型状态信息（可点击弹出详情） -->
             <LinearLayout
                 android:id="@+id/service_status_bar"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="horizontal"
@@ -40,8 +41,8 @@
 
                 <!-- 状态图标容器（圆形浅紫底） -->
                 <LinearLayout
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
+                    android:layout_width="@dimen/size_36"
+                    android:layout_height="@dimen/size_36"
                     android:background="@drawable/status_icon_bg"
                     android:gravity="center">
                     <TextView
@@ -49,16 +50,16 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="⏳"
-                        android:textSize="18sp"/>
+                        android:textSize="@dimen/text_18"/>
                 </LinearLayout>
 
                 <!-- 三行信息区：服务状态 / 进度+统计 -->
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
-                    android:layout_marginStart="10dp">
+                    android:layout_marginStart="@dimen/space_10">
 
                     <!-- 行1：服务状态 + 余额 -->
                     <LinearLayout
@@ -69,12 +70,12 @@
 
                         <TextView
                             android:id="@+id/service_status_text"
-                            android:layout_width="0dp"
+                            android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="@string/chat_service_not_initialized"
-                            android:textSize="11sp"
-                            android:textColor="@color/text_primary"
+                            android:textSize="@dimen/text_11"
+                            android:textColor="?attr/colorControlText"
                             android:maxLines="1"
                             android:ellipsize="end"/>
 
@@ -82,10 +83,10 @@
                             android:id="@+id/tv_api_balance"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
+                            android:layout_marginStart="@dimen/space_8"
                             android:text=""
-                            android:textSize="10sp"
-                            android:textColor="@color/text_secondary"
+                            android:textSize="@dimen/text_12"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:visibility="gone"/>
                     </LinearLayout>
 
@@ -93,14 +94,14 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="3dp"
+                        android:layout_marginTop="@dimen/space_3"
                         android:orientation="horizontal"
                         android:gravity="center_vertical">
 
                         <ProgressBar
                             android:id="@+id/service_status_progress"
-                            android:layout_width="0dp"
-                            android:layout_height="4dp"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="@dimen/size_4"
                             android:layout_weight="1"
                             style="@style/Widget.AppCompat.ProgressBar.Horizontal"
                             android:progress="0"
@@ -111,21 +112,51 @@
                             android:id="@+id/service_status_elapsed"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="6dp"
+                            android:layout_marginStart="@dimen/space_6"
                             android:text=""
-                            android:textSize="10sp"
-                            android:textColor="@color/text_secondary"
+                            android:textSize="@dimen/text_12"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:visibility="gone"/>
 
                         <TextView
                             android:id="@+id/tv_token_stats"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
+                            android:layout_marginStart="@dimen/space_8"
                             android:text="🔵 0 tokens"
-                            android:textSize="11sp"
-                            android:textColor="@color/primary"
+                            android:textSize="@dimen/text_11"
+                            android:textColor="?attr/colorPrimary"
                             android:textStyle="bold"
+                            android:visibility="gone"/>
+                    </LinearLayout>
+
+                    <!-- 行3：native 状态机阶段 + KV 缓存状态（命中率/上下文占用） -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_3"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tv_gen_phase"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="状态机: --"
+                            android:textSize="@dimen/text_11"
+                            android:textColor="?attr/colorControlTextSecondary"
+                            android:maxLines="1"
+                            android:ellipsize="end"/>
+
+                        <TextView
+                            android:id="@+id/tv_kv_stats"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/space_8"
+                            android:text="KV: --"
+                            android:textSize="@dimen/text_11"
+                            android:textColor="?attr/colorControlTextSecondary"
                             android:visibility="gone"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -134,220 +165,32 @@
             <!-- 右侧抽屉按钮 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_back"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:layout_marginStart="8dp"
+                android:layout_width="@dimen/size_36"
+                android:layout_height="@dimen/size_36"
+                android:layout_marginStart="@dimen/space_8"
                 style="@style/Widget.Material3.Button.IconButton"
                 app:icon="@drawable/ic_menu_hamburger"
                 app:iconSize="20dp"
-                app:iconTint="@color/text_primary"
+                app:iconTint="?attr/colorControlText"
                 android:contentDescription="工具中心"/>
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/weather_banner"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@drawable/weather_banner_background"
-            android:visibility="gone">
-
-            <!-- 摘要行 -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingHorizontal="16dp"
-                android:paddingVertical="10dp"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:id="@+id/weather_icon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="☀️"
-                    android:textSize="28sp" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="12dp">
-
-                    <LinearLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:id="@+id/weather_city"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="定位中..."
-                            android:textSize="14sp"
-                            android:textStyle="bold"
-                            android:textColor="@color/weather_banner_text" />
-
-                        <TextView
-                            android:id="@+id/weather_temp"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="--°C"
-                            android:textSize="20sp"
-                            android:textStyle="bold"
-                            android:textColor="@color/weather_banner_text"
-                            android:layout_marginStart="12dp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/weather_desc"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="加载中..."
-                        android:textSize="12sp"
-                        android:textColor="@color/weather_banner_text_secondary"
-                        android:layout_marginTop="2dp" />
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_weather_detail"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    app:backgroundTint="#33FFFFFF"
-                    app:icon="@drawable/ic_expand_more"
-                    app:iconGravity="textStart"
-                    app:iconPadding="0dp"
-                    app:cornerRadius="16dp"
-                    app:iconTint="@color/weather_banner_text"
-                    app:iconSize="18dp"
-                    android:contentDescription="天气详情" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_weather_refresh"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:layout_marginStart="4dp"
-                    app:backgroundTint="#33FFFFFF"
-                    app:icon="@drawable/ic_refresh"
-                    app:iconGravity="textStart"
-                    app:iconPadding="0dp"
-                    app:cornerRadius="16dp"
-                    app:iconTint="@color/weather_banner_text"
-                    app:iconSize="16dp"
-                    android:contentDescription="刷新天气" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_weather_close"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:layout_marginStart="4dp"
-                    app:backgroundTint="#33FFFFFF"
-                    app:icon="@drawable/ic_clear"
-                    app:iconGravity="textStart"
-                    app:iconPadding="0dp"
-                    app:cornerRadius="16dp"
-                    app:iconTint="@color/weather_banner_text"
-                    app:iconSize="14dp"
-                    android:contentDescription="关闭天气" />
-            </LinearLayout>
-
-            <!-- 详情区域（默认隐藏） -->
-            <LinearLayout
-                android:id="@+id/weather_detail_container"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingHorizontal="16dp"
-                android:paddingBottom="10dp"
-                android:visibility="gone">
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#33FFFFFF"
-                    android:layout_marginBottom="8dp" />
-
-                <GridLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:columnCount="2"
-                    android:useDefaultMargins="true">
-
-                    <TextView
-                        android:id="@+id/weather_feels_like"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:text="体感温度: --°C"
-                        android:textSize="12sp"
-                        android:textColor="@color/weather_banner_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/weather_humidity"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:text="湿度: --%"
-                        android:textSize="12sp"
-                        android:textColor="@color/weather_banner_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/weather_wind"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:text="风速: --"
-                        android:textSize="12sp"
-                        android:textColor="@color/weather_banner_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/weather_wind_dir"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:text="风向: --"
-                        android:textSize="12sp"
-                        android:textColor="@color/weather_banner_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/weather_visibility"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:text="能见度: -- km"
-                        android:textSize="12sp"
-                        android:textColor="@color/weather_banner_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/weather_pressure"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:text="气压: -- hPa"
-                        android:textSize="12sp"
-                        android:textColor="@color/weather_banner_text_secondary" />
-                </GridLayout>
-            </LinearLayout>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
+            android:layout_height="@dimen/size_0"
             android:layout_weight="1"
             android:orientation="vertical">
 
             <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
+                android:layout_height="@dimen/size_0"
                 android:layout_weight="1">
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/message_list"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:padding="16dp"
+                    android:padding="@dimen/space_16"
                     android:clipToPadding="false"/>
 
                 <!-- 空状态视图 -->
@@ -357,33 +200,33 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="32dp"
+                    android:padding="@dimen/space_32"
                     android:visibility="gone">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="🤖"
-                    android:textSize="64sp"
-                    android:layout_marginBottom="16dp"/>
+                    android:textSize="@dimen/text_64"
+                    android:layout_marginBottom="@dimen/space_16"/>
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="开始你的AI对话"
-                    android:textSize="20sp"
+                    android:textSize="@dimen/text_20"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:layout_marginBottom="8dp"/>
+                    android:textColor="?attr/colorControlText"
+                    android:layout_marginBottom="@dimen/space_8"/>
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="输入消息开始对话，或尝试以下快捷命令："
-                    android:textSize="14sp"
-                    android:textColor="@color/text_secondary"
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorControlTextSecondary"
                     android:gravity="center"
-                    android:layout_marginBottom="24dp"/>
+                    android:layout_marginBottom="@dimen/space_24"/>
 
                 <com.google.android.material.chip.ChipGroup
                     android:id="@+id/empty_state_chips"
@@ -396,24 +239,24 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="帮我总结这段文字"
-                        app:chipBackgroundColor="@color/surface_variant"
-                        android:textColor="@color/text_primary"/>
+                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
+                        android:textColor="?attr/colorControlText"/>
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/chip_empty_example2"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="解释这段代码"
-                        app:chipBackgroundColor="@color/surface_variant"
-                        android:textColor="@color/text_primary"/>
+                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
+                        android:textColor="?attr/colorControlText"/>
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/chip_empty_example3"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="今天天气如何"
-                        app:chipBackgroundColor="@color/surface_variant"
-                        android:textColor="@color/text_primary"/>
+                        app:chipBackgroundColor="?attr/colorSurfaceVariant"
+                        android:textColor="?attr/colorControlText"/>
             <com.google.android.material.chip.Chip
                 android:id="@+id/chip_clear_chat"
                 android:layout_width="wrap_content"
@@ -433,7 +276,7 @@
         <View
             android:id="@+id/thinking_indicator"
             android:layout_width="match_parent"
-            android:layout_height="3dp"
+            android:layout_height="@dimen/size_3"
             android:background="@drawable/gradient_primary"
             android:visibility="gone"/>
 
@@ -443,57 +286,57 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@color/surface"
+            android:background="@android:color/transparent"
             android:visibility="gone">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:padding="12dp">
+                android:padding="@dimen/space_12">
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="处理日志"
-                    android:textSize="13sp"
+                    android:textSize="@dimen/text_13"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_clear_log"
                     android:layout_width="wrap_content"
-                    android:layout_height="32dp"
+                    android:layout_height="@dimen/size_32"
                     android:text="清空"
-                    android:textSize="11sp"
-                    app:backgroundTint="@color/surface_variant"
-                    android:textColor="@color/text_secondary"
-                    app:cornerRadius="16dp"
+                    android:textSize="@dimen/text_11"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
+                    android:textColor="?attr/colorControlTextSecondary"
+                    app:cornerRadius="@dimen/radius_16"
                     android:textAllCaps="false"
-                    android:layout_marginEnd="8dp"/>
+                    android:layout_marginEnd="@dimen/space_8"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_toggle_log"
                     android:layout_width="wrap_content"
-                    android:layout_height="32dp"
+                    android:layout_height="@dimen/size_32"
                     android:text="收起"
-                    android:textSize="11sp"
-                    app:backgroundTint="@color/surface_variant"
-                    android:textColor="@color/text_secondary"
-                    app:cornerRadius="16dp"
+                    android:textSize="@dimen/text_11"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
+                    android:textColor="?attr/colorControlTextSecondary"
+                    app:cornerRadius="@dimen/radius_16"
                     android:textAllCaps="false"/>
             </LinearLayout>
             <ScrollView
                 android:id="@+id/log_scroll"
                 android:layout_width="match_parent"
-                android:layout_height="140dp">
+                android:layout_height="@dimen/size_140">
                 <TextView
                     android:id="@+id/log_content"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text=""
-                    android:textSize="10sp"
+                    android:textSize="@dimen/text_12"
                     android:fontFamily="monospace"
-                    android:textColor="@color/text_secondary"
-                    android:padding="12dp"/>
+                    android:textColor="?attr/colorControlTextSecondary"
+                    android:padding="@dimen/space_12"/>
             </ScrollView>
         </LinearLayout>
 
@@ -501,14 +344,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@color/surface"
-            android:elevation="8dp">
+            android:background="@android:color/transparent"
+            android:elevation="@dimen/elev_8">
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/attachment_list"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:maxHeight="120dp"
+                android:maxHeight="@dimen/max_120"
                 android:orientation="horizontal"
                 android:paddingHorizontal="12dp"
                 android:paddingVertical="4dp"
@@ -516,8 +359,8 @@
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/surface_variant"/>
+                android:layout_height="@dimen/size_1"
+                android:background="?attr/colorSurfaceVariant"/>
 
             <!-- 语音输入录音状态横幅 -->
             <LinearLayout
@@ -528,7 +371,7 @@
                 android:gravity="center_vertical"
                 android:paddingHorizontal="16dp"
                 android:paddingVertical="8dp"
-                android:background="#14E53935"
+                android:background="@color/red_alpha_08"
                 android:visibility="gone">
 
                 <TextView
@@ -536,8 +379,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="●"
-                    android:textColor="#E53935"
-                    android:textSize="12sp"/>
+                    android:textColor="@color/red_strong"
+                    android:textSize="@dimen/text_12"/>
 
                 <TextView
                     android:id="@+id/tv_voice_recording_time"
@@ -545,44 +388,51 @@
                     android:layout_height="wrap_content"
                     android:text="00:00"
                     android:textStyle="bold"
-                    android:textColor="#E53935"
-                    android:textSize="13sp"
-                    android:layout_marginStart="8dp"/>
+                    android:textColor="@color/red_strong"
+                    android:textSize="@dimen/text_13"
+                    android:layout_marginStart="@dimen/space_8"/>
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="手指上滑，取消发送"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    android:layout_marginStart="8dp"/>
+                    android:textColor="?attr/colorControlTextSecondary"
+                    android:textSize="@dimen/text_12"
+                    android:layout_marginStart="@dimen/space_8"/>
             </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="8dp"
+                android:padding="@dimen/space_8"
                 android:gravity="center_vertical">
 
-                <!-- 对话模式行（深度思考开关，对齐官方：输入区顶部） -->
+                <!-- 对话模式行：智能助手开关 + 深度思考开关（对齐官方：输入区顶部） -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:paddingHorizontal="4dp"
-                    android:paddingBottom="6dp">
+                    android:paddingBottom="@dimen/space_6">
+                    <!-- 智能助手开关（最左）：开启后AI可用天气/时间/搜索/记忆等工具，即时生效 -->
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chip_normal_chat"
+                        android:id="@+id/chip_local_agent"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="💬 对话"
-                        android:layout_marginEnd="8dp"
-                        app:chipBackgroundColor="@color/primary_container"
-                        android:textColor="@color/on_primary_container"
-                        app:chipStrokeWidth="0dp"/>
+                        android:layout_marginEnd="@dimen/space_8"
+                        android:text="智能助手"
+                        android:checkable="true"
+                        app:chipIcon="@drawable/ic_ai_agent"
+                        app:chipIconSize="20dp"
+                        app:chipIconTint="@color/chip_gray_text"
+                        app:chipBackgroundColor="@color/chip_gray_bg"
+                        android:textColor="?attr/colorControlTextSecondary"
+                        app:chipStrokeWidth="1dp"
+                        app:chipStrokeColor="@color/border_light"
+                        app:checkedIconVisible="false"/>
                     <com.google.android.material.chip.Chip
                         android:id="@+id/chip_deep_think"
                         android:layout_width="wrap_content"
@@ -590,13 +440,13 @@
                         android:text="🧠 深度思考"
                         android:checkable="true"
                         app:chipBackgroundColor="@color/chip_gray_bg"
-                        android:textColor="@color/text_secondary"
+                        android:textColor="?attr/colorControlTextSecondary"
                         app:chipStrokeWidth="1dp"
                         app:chipStrokeColor="@color/border_light"
                         app:checkedIconVisible="false"/>
                     <View
-                        android:layout_width="0dp"
-                        android:layout_height="1dp"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_1"
                         android:layout_weight="1"/>
                 </LinearLayout>
 
@@ -606,37 +456,67 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="horizontal"
                     android:background="@drawable/rounded_edittext"
                     android:gravity="center_vertical"
-                    android:padding="4dp">
+                    android:padding="@dimen/space_4">
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_attach"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
+                        android:layout_width="@dimen/size_44"
+                        android:layout_height="@dimen/size_44"
                         style="@style/Widget.Material3.Button.TextButton"
                         app:icon="@drawable/ic_attachment"
                         app:iconSize="22dp"
-                        app:iconTint="@color/text_secondary"
+                        app:iconTint="?attr/colorControlTextSecondary"
                         android:contentDescription="附加"
-                        android:layout_marginStart="4dp"/>
+                        android:layout_marginStart="@dimen/space_4"/>
                     <EditText
                         android:id="@+id/input_message"
-                        android:layout_width="0dp"
+                        android:layout_width="@dimen/size_0"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:hint="输入消息..."
-                        android:padding="12dp"
+                        android:padding="@dimen/space_12"
                         android:background="@android:color/transparent"
                         android:maxLines="5"
-                        android:minHeight="52dp"
+                        android:minHeight="@dimen/min_52"
                         android:inputType="textMultiLine"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_secondary"
-                        android:layout_marginHorizontal="8dp"/>
+                        android:textColor="?attr/colorControlText"
+                        android:textColorHint="?attr/colorControlText"
+                        android:layout_marginHorizontal="@dimen/space_8"/>
+
+                    <!-- 微信式"按住 说话"：语音模式下替换输入框，按住录音/上滑取消/松开结束 -->
+                    <TextView
+                        android:id="@+id/hold_to_talk"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_52"
+                        android:layout_weight="1"
+                        android:layout_marginHorizontal="@dimen/space_8"
+                        android:background="@drawable/rounded_edittext"
+                        android:gravity="center"
+                        android:text="按住 说话"
+                        android:textColor="?attr/colorControlTextSecondary"
+                        android:textSize="@dimen/text_15"
+                        android:textStyle="bold"
+                        android:visibility="gone"/>
+
+                    <!-- 语音输入按钮：点击开始录音，再次点击结束并识别为文字 -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_voice"
+                        android:layout_width="@dimen/size_44"
+                        android:layout_height="@dimen/size_44"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        app:icon="@drawable/ic_mic"
+                        app:iconSize="22dp"
+                        app:iconTint="?attr/colorControlTextSecondary"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        app:iconPadding="0dp"
+                        android:contentDescription="语音输入"
+                        android:layout_marginEnd="@dimen/space_4"/>
 
                     <!-- 微信式"按住 说话"：语音模式下替换输入框，按住录音/上滑取消/松开结束 -->
                     <TextView
@@ -671,28 +551,28 @@
                 </LinearLayout>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_send"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="12dp"
+                    android:layout_width="@dimen/size_48"
+                    android:layout_height="@dimen/size_48"
+                    android:layout_marginStart="@dimen/space_12"
                     app:backgroundTint="@color/success"
-                    app:cornerRadius="24dp"
+                    app:cornerRadius="@dimen/radius_24"
                     style="@style/Widget.Material3.Button.IconButton"
                     app:icon="@drawable/ic_send_message"
                     app:iconSize="22dp"
-                    app:iconTint="@color/on_primary"
+                    app:iconTint="?attr/colorOnPrimary"
                     android:contentDescription="发送"/>
 
                 <!-- 停止按钮：生成时与发送按钮切换显示（同位置） -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_stop_generation"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="12dp"
+                    android:layout_width="@dimen/size_48"
+                    android:layout_height="@dimen/size_48"
+                    android:layout_marginStart="@dimen/space_12"
                     android:text="@string/chat_stop"
-                    android:textSize="12sp"
+                    android:textSize="@dimen/text_12"
                     android:textColor="@color/on_error"
                     app:backgroundTint="@color/error"
-                    app:cornerRadius="24dp"
+                    app:cornerRadius="@dimen/radius_24"
                     android:textAllCaps="false"
                     android:contentDescription="停止生成"
                     android:visibility="gone"/>
@@ -706,21 +586,21 @@
     <!-- 右侧工具抽屉（模型/深度思考/快捷工具/管理 全部收敛于此） -->
     <FrameLayout
         android:id="@+id/tool_drawer"
-        android:layout_width="300dp"
+        android:layout_width="@dimen/size_300"
         android:layout_height="match_parent"
         android:layout_gravity="right"
-        android:background="@color/surface"
-        android:elevation="16dp">
+        android:background="?attr/colorSurface"
+        android:elevation="@dimen/elev_16">
         <include layout="@layout/view_tool_drawer"/>
     </FrameLayout>
 
     <FrameLayout
         android:id="@+id/history_drawer"
-        android:layout_width="320dp"
+        android:layout_width="@dimen/size_320"
         android:layout_height="match_parent"
         android:layout_gravity="left"
-        android:background="@color/surface"
-        android:elevation="16dp">
+        android:background="?attr/colorSurface"
+        android:elevation="@dimen/elev_16">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -732,16 +612,30 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:padding="16dp"
-                android:background="@color/surface_variant">
+                android:padding="@dimen/space_16"
+                android:background="?attr/colorSurfaceVariant">
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/size_0"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="对话历史"
-                    android:textSize="18sp"
+                    android:textSize="@dimen/text_18"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"/>
+                    android:textColor="?attr/colorControlText"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_new_conversation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="@dimen/size_32"
+                    android:text="＋ 新建"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorOnPrimaryContainer"
+                    app:backgroundTint="?attr/colorPrimaryContainer"
+                    app:cornerRadius="@dimen/radius_16"
+                    android:textAllCaps="false"
+                    android:layout_marginEnd="@dimen/space_8"
+                    android:paddingHorizontal="10dp"
+                    android:minWidth="@dimen/min_0"
+                    android:contentDescription="新建对话"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_new_conversation"
                     android:layout_width="wrap_content"
@@ -758,46 +652,46 @@
                     android:contentDescription="新建对话"/>
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_close_history"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    app:backgroundTint="@color/surface_variant"
+                    android:layout_width="@dimen/size_36"
+                    android:layout_height="@dimen/size_36"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
                     app:icon="@drawable/ic_clear"
                     app:iconGravity="textStart"
                     app:iconPadding="0dp"
-                    app:cornerRadius="18dp"
-                    app:iconTint="@color/text_primary"
+                    app:cornerRadius="@dimen/radius_18"
+                    app:iconTint="?attr/colorControlText"
                     android:contentDescription="关闭"/>
             </LinearLayout>
 
             <TextView
                 android:id="@+id/history_empty_view"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
+                android:layout_height="@dimen/size_0"
                 android:layout_weight="1"
                 android:gravity="center"
                 android:text="暂无历史对话\n开始你的第一个对话吧"
-                android:textSize="14sp"
-                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/text_14"
+                android:textColor="?attr/colorControlTextSecondary"
                 android:visibility="gone"/>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/history_list"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
+                android:layout_height="@dimen/size_0"
                 android:layout_weight="1"
-                android:padding="8dp"
+                android:padding="@dimen/space_8"
                 android:clipToPadding="false"/>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_clear_all_history"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_margin="12dp"
+                android:layout_height="@dimen/size_44"
+                android:layout_margin="@dimen/space_12"
                 android:text="清空所有历史"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 app:backgroundTint="@color/error"
                 android:textColor="@color/on_error"
-                app:cornerRadius="22dp"
+                app:cornerRadius="@dimen/radius_22"
                 android:textAllCaps="false"/>
         </LinearLayout>
     </FrameLayout>

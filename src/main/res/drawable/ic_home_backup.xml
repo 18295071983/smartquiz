@@ -13,14 +13,14 @@
                 android:type="linear"
                 android:startX="2" android:startY="2"
                 android:endX="22" android:endY="22"
-                android:startColor="#059669"
-                android:endColor="#34D399" />
+                android:startColor="@color/hc_ff059669"
+                android:endColor="@color/hc_ff34d399" />
         </aapt:attr>
     </path>
 
     <!-- 底部微光 -->
     <path
-        android:fillColor="#22FFFFFF"
+        android:fillColor="@color/hc_22ffffff"
         android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
 
     <!-- 云朵（白色渐变） -->
@@ -30,14 +30,14 @@
                 android:type="linear"
                 android:startX="2.8" android:startY="6"
                 android:endX="20.8" android:endY="19"
-                android:startColor="#FFFFFF"
-                android:endColor="#D1FAE5" />
+                android:startColor="@color/hc_ffffffff"
+                android:endColor="@color/hc_ffd1fae5" />
         </aapt:attr>
     </path>
 
     <!-- 云朵高光（半透明白） -->
     <path
-        android:fillColor="#59FFFFFF"
+        android:fillColor="@color/hc_59ffffff"
         android:pathData="M9,8.5 C8.2,8.5 7.4,8.8 6.9,9.3 C7.5,9.1 8.2,9 8.9,9.1 C9.4,7.8 10.6,6.8 12,6.4 C10.9,7 10,8.2 9.6,9.4 Z" />
 
     <!-- 上传箭头（深绿渐变） -->
@@ -47,8 +47,8 @@
                 android:type="linear"
                 android:startX="9.4" android:startY="12.4"
                 android:endX="14.6" android:endY="18.6"
-                android:startColor="#059669"
-                android:endColor="#047857" />
+                android:startColor="@color/hc_ff059669"
+                android:endColor="@color/hc_ff047857" />
         </aapt:attr>
     </path>
 </vector>

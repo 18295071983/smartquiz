@@ -168,6 +168,12 @@ public class AIProcessingService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        // [DEBUG] KV 记忆引擎自测入口（adb: am startservice -a com.oilquiz.app.action.KVMEM_TEST）
+        if ("com.oilquiz.app.action.KVMEM_TEST".equals(intent.getAction())) {
+            Log.i(TAG, "KVMEM_TEST triggered");
+            runKvMemSelfTest();
+            return START_NOT_STICKY;
+        }
         // 启动前台服务
         startForegroundService();
         
@@ -249,6 +255,32 @@ public class AIProcessingService extends Service {
 
         // START_STICKY: 如果服务被系统杀了，会自动重启
         return START_STICKY;
+    }
+
+    /** [DEBUG] KV 记忆引擎自测：preload 文档 → save → restore → ask，结果写 AILogger */
+    private void runKvMemSelfTest() {
+        workExecutor.execute(() -> {
+            try {
+                if (aiService == null) aiService = AIService.getInstance(this);
+                if (!LlamaHelper.isChatContextActive()) {
+                    AILogger.w(TAG, "KVMEM_TEST: chat context not active, cannot test");
+                    return;
+                }
+                String doc = "银川是宁夏回族自治区的首府，位于中国西北地区，黄河上游，有'塞上江南'之称。"
+                        + "答题宝是一个用于学习答题的安卓应用，支持本地AI大模型推理。"
+                        + "KV记忆引擎可以让模型在不需要重新读取全文的情况下，直接记住之前读过的内容。";
+                AILogger.i(TAG, "KVMEM_TEST: preload doc, len=" + doc.length());
+                boolean ok1 = LlamaHelper.kvMemPreload(doc);
+                byte[] state = LlamaHelper.kvMemSave();
+                int bytes = state == null ? -1 : state.length;
+                boolean ok2 = LlamaHelper.kvMemRestore(state);
+                String ans = LlamaHelper.kvMemAsk("银川是什么地方的首府？", 128, 0.0f);
+                AILogger.i(TAG, "KVMEM_TEST result: preload=" + ok1 + " saveBytes=" + bytes
+                        + " restore=" + ok2 + " ask=[" + ans + "]");
+            } catch (Throwable t) {
+                AILogger.e(TAG, "KVMEM_TEST error: " + t, t);
+            }
+        });
     }
 
     @Override

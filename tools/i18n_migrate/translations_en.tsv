@@ -1,0 +1,1621 @@
+h_33d43d64	 inches\n
+h_fc1d52a4	HTML Preview
+h_faaa7039	Cannot open this file (no app installed to handle it)
+h_9c561bf1	Hot start result: 
+h_f44c7e2e	Check Beijing weather
+h_d6603825	File Viewer
+h_215e98b8	Preparing to load...
+h_5094c1a3	Back
+h_5811e283	Forward
+h_694fc5ef	Refresh
+h_b04ec75c	Home
+h_9fb34d09	📁 Add File
+h_bd0271ed	Loading...
+h_c96070db	Loading... 
+h_866b795e	Load Failed
+h_02d9819d	Notice
+h_756d4a53	Please install a file manager to choose a file
+h_38cf16f2	OK
+h_ce0c7e18	Failed to open file
+h_0113d26f	Default Tab
+h_20f0dc68	New Tab
+h_42611d28	Model download added: 
+h_69e1adfa	The default tab cannot be closed
+h_ae735e4b	At least one tab must remain
+h_7ec3be03	Cannot open link
+h_d42d97bd	Log cleared
+h_3bee0e63	Failed to clear log
+h_83dbb868	Log exported: 
+h_ae4679c7	Log export failed
+h_6aba49b6	Cannot start camera
+h_645b9651	App not installed
+h_1e1da12f	Cannot open app
+h_e985bb87	Feature unavailable
+h_393bb104	Page navigation failed
+h_ecf7ebb5	Uncategorized
+h_2bac46d1	Answer: 
+h_9d5e8d04	💡 Explanation: 
+h_dc252f2c	View Options
+h_16b46626	Correct Answer: 
+h_ab1f774d	Your Answer: 
+h_9fce5962	Category: 
+h_d38d0f21	🎤 Voice
+h_71505bcf	\n[Round 
+h_1d8b034e	 thinking]\n
+h_4f54d8ba	Done · %d tokens · %.1fs · %.1f t/s
+h_ce08c6dd	⚠ Component 
+h_56e45313	 render failed
+h_17f41f0b	🔧 Tool process 
+h_c8290962	 steps  ▶
+h_ef56d078	▲ Collapse tool process
+h_20b4237a	Generating... %d tokens · %.1fs · %.1f t/s
+h_ed851eb6	 🤖 Agent execution
+h_20dce2c6	Tools
+h_64df64c4	 · tap to expand
+h_92e3a830	Help
+h_b7824d5c	Tutorial
+h_267bf2f9	Help icon
+h_879cbfca	Tool Result
+h_25856aec	Execution time: 
+h_def9e98b	Collapse
+h_fe0a2c38	Expand result
+h_129d0a0f	\n\n───────────────\n📋 Raw result:\n
+h_eed93c0c	💭 Analyzing the question...
+h_e1510213	📋 User intent detected:
+h_b01a18bd	\nPlan to execute:
+h_b5c7f7a2	📋 Analyzing user intent...
+h_04c76d51	⚙️ Executing:
+h_acac05fd	\nExecution result:
+h_0aad2da9	⚙️ Executing actions...
+h_2a8126f5	👁️ Execution result:
+h_2ed56b05	\nAnalysis:
+h_ee1be032	👁️ Analyzing execution result...
+h_821a7c42	🔄 Reflection:
+h_967876bc	\nImprovement suggestions:
+h_e2f0f38e	🔄 Reflecting...
+h_74b3bd13	🔧 Calling tool:
+h_5ae08a6b	\nTool response:
+h_181e086c	🔧 Calling tool...
+h_f27b7129	🧠 Reasoning:
+h_e05c2bda	\nReasoning conclusion:
+h_24030883	🧠 Reasoning...
+h_62402e9c	🔁 Loop processing...
+h_499acacb	\nProgress:
+h_a2466280	⏸️ Paused, waiting for user input
+h_f8c4c633	✅ Task completed
+h_1d956dde	📌 Processing...
+h_c086bda6	Reflection Summary
+h_ecbc64cc	📈 Improvement directions:\n
+h_8a28fd77	✅ Success
+h_1f21bef7	❌ Failed
+h_25f9c7fa	Summary
+h_ba889559	Executed 
+h_668fffcd	 steps
+h_67ec4a7b	 · took 
+h_4cb2e994	Details:\n
+h_8aaa43c5	💭 Round 
+h_ad32c319	 thinking
+h_1e913a58	 (thinking, tap to expand)
+h_7492ce53	 (collapsed)
+h_c044a14e	Execution complete
+h_23cc6892	Execution failed: 
+h_94cd9443	Unknown file
+h_8c470138	Failed: 
+h_b6478f2a	Uploading... 
+h_2fb90b05	Processing...
+h_4e5119c5	Waiting to upload...
+h_cb3587fc	Unknown model
+h_50161b08	Conversation History
+h_1ac07a4b	New Chat
+h_a9c08747	%d messages
+h_aa40b2cc	Delete Conversation
+h_6b3e0657	Delete this conversation?\n\n
+h_243e4ec1	Title: 
+h_2f4aaddd	Delete
+h_625fb26b	Cancel
+h_f70a7dc7	Switched to model: 
+h_4637765b	Not enabled
+h_f12d8f72	Conversation context cleared
+h_7ce66b2e	Auto GPU layers restored, reloading model...
+h_51f4e6f8	Applied 
+h_521071ea	 optimizations
+h_17fd8e9b	No optimization needed, all good
+h_a9013d08	GPU layers reached
+h_19a343e7	upper limit 30
+h_0818746d	lower limit 0
+h_02203c0a	GPU layers 
+h_7e02ef2e	, reloading model...
+h_cf9ec974	divider test
+h_d6f251e4	Tap to input
+h_1533a43c	{\&quot;type\&quot;:\&quot;input\&quot;,\&quot;hint\&quot;:\&quot;点击输入测试\&quot;,\&quot;key\&quot;:\&quot;t1\&quot;}]}}
+h_0de5227a	Injection failed: 
+h_b15d9127	Close
+h_12f136f2	About ¥%.2f
+h_fd08d15f	Model list refreshed
+h_676572ba	Local model list refreshed
+h_be4bb9e0	No model selected
+h_7fc75577	Online Models
+h_fdb64631	Tap to add config
+h_dd7aa8f7	Local model loaded
+h_7bb4fd0e	No model loaded
+h_2ef7cb00	Tap to manage or download models
+h_9569dd13	Switched to online model: 
+h_154f0dc4	Switching to local model: 
+h_24d9c18f	Model switched: 
+h_b9c8e7b7	Model switch failed
+h_70a7d4d9	Model switch failed: 
+h_50eaf94d	Delete Confirmation
+h_bf14db74	Delete online model \&quot;
+h_2957e496	\&quot;?
+h_6c0d7a63	Online model deleted
+h_53ace430	Enabled
+h_1c1ed981	Disabled
+h_aed6aa70	Online model config not found
+h_8a7f6c2f	Online model added and activated: 
+h_454706a6	Config updated: 
+h_1571dfd4	API Key cannot be empty
+h_916702da	Fetching model list...
+h_96daed33	Fetched 
+h_44850b04	 models
+h_157fa13a	Failed to save model list: 
+h_d1ef35f7	No model list fetched
+h_bdf02ef7	Fetch failed: 
+h_c5e73d8b	Tap to configure API service
+h_0d296461	Configured 
+h_329c5719	 services, all OK
+h_46b389d6	 services OK
+h_07f016ca	 services, all abnormal
+h_134f075e	Hold to talk
+h_d8bd0728	UI initialization failed: 
+h_16b746be	AI service initialization failed
+h_c753c564	Previous conversation restored
+h_8635e3bd	Data initialization failed: 
+h_1535fcfa	Send
+h_26b5bd49	Loading...
+h_095e938e	Stop
+h_ab94e2c3	Initialization failed
+h_cd903f81	AI response timeout
+h_888bdf08	AI engine error
+h_d8e6a633	Out of memory
+h_14b4c1f2	Inference canceled
+h_c9887c1b	AI inference error
+h_132c5cdc	Retry
+h_ce26955a	Got it
+h_b32d465f	📦 AI model unloaded
+h_7a17bf3a	The AI model was released from memory due to low memory or system reclaim. Tap OK to reload the model.
+h_64ca9bab	Reload
+h_87e4d9ef	Later
+h_17c53a77	Thinking...
+h_06c7a8f8	Tool call: 
+h_3963dabd	Weather data received
+h_e3f38d79	Code data received
+h_7449367f	Error: 
+h_307f6be3	Restore complete
+h_c8e5b7a6	Attachment parsing failed: 
+h_cbae4f39	✅ AI summary generated
+h_2e5be76a	Clear All History
+h_fadd8853	All conversation records (including every session) will be deleted. This cannot be undone. Continue?
+h_288f0c40	Clear
+h_3683077f	Cleared
+h_15261c3c	AI is generating. Stop generation first to switch mode
+h_72bc1b1d	Deep thinking enabled
+h_814eed44	Deep thinking disabled
+h_0d5a55ab	Summarize this text for me
+h_3985673f	Explain this code
+h_b1d10199	How is the weather today?
+h_a45bac47	Action canceled
+h_7c0a7cec	No guide flow available for this tool yet
+h_1d081944	 Step 
+h_eeb69088	Previous
+h_8347a927	Modify
+h_d575bfd2	Confirm &amp; Execute
+h_02cc4f8f	Please enter
+h_b5e17536	⏳ Fetching options...
+h_561c8d80	ℹ️ Could not fetch the list, please type directly
+h_5aff2265	👇 Tap to select (or type above)
+h_a8b0c204	All
+h_3d2b3f43	… total 
+h_ccc34a10	 items, type the rest directly
+h_38ce27d8	Next
+h_879e7d1e	This field is required. Please enter a value
+h_79203de5	(not selected)
+h_732f6f55	Manual input
+h_c9ca3cf6	Select or enter a path
+h_c9f8beec	(no parameters)
+h_ce4655cc	⚡ Execute tool
+h_71b56fd8	Executing...
+h_6db9502a	Locating...
+h_fff71a52	Location failed, please enter the city manually
+h_b573da98	🔧 More info needed
+h_1d3f6786	The tool is missing parameters, please provide:
+h_1368c593	Enter path
+h_dc4d6f05	Submit &amp; Retry
+h_4730b746	Please fill in all required parameters
+h_f97bc2aa	Aggregated plan not found
+h_00e6a7fc	Execution steps:
+h_6c710397	🚀 Start execution
+h_d7e9fc99	 needs more info:
+h_242cc727	Please fill in all parameters
+h_05582e8e	AI is generating, please wait
+h_b922f77a	Say something first ~ (images are fine too)
+h_a3e17914	Skip 
+h_7c645c81	 files
+h_8cc7a175	No processable attachments, sending text only
+h_d3430199	Preparing attachments for the AI...
+h_5f76df07	📎 Received 
+h_0cabf767	 attachments\n\n
+h_10aace1e	Skipped: 
+h_d7610fbf	 → parsing...
+h_21c163e1	 → ❗save failed
+h_96262f69	\n⚠️ Local vision model not ready (mmproj not loaded). Using local high-precision OCR (PP-OCRv6) for image text.
+h_a791b767	\n⏳ Parsing attachment content, please wait...
+h_f984477c	\n\n📄 OCR result preview:\n
+h_76c53bd7	\n⚠️ Image text extracted via OCR. For AI analysis, enable an online model in model settings, or load a local model first.
+h_6cefb6c9	\n⏳ Parsing attachment (
+h_7341b0bb	📎 Attachment parsing result\n\n
+h_eca8e315	 → ❓ unknown status\n
+h_d5c4fa06	Partially parsed
+h_53de0123	Parsed
+h_3b870198	(cached)
+h_f3ab0bec	 → ❌ parse failed:
+h_974e7484	Unknown error
+h_1678e347	\n✅ AI started analyzing attachment content...
+h_793176ee	User message: 
+h_11214c64	=== Attachment parsing status (preprocessed by system, status confirmed) ===\n\n
+h_94e069c2	[Attachment 
+h_1ee53933	 type: 
+h_176d6e45	, size: 
+h_28c797b8	 local path: 
+h_764fab2b	 parse status: 
+h_5f27c9db	 parse method: 
+h_2d8ed504	(cache hit)
+h_46bc48a9	 note: 
+h_1e7d25f8	 content:\n
+h_24984e0c	--- Attachment content start ---\n
+h_55a2a38e	\n...(content truncated, full content is 
+h_6b35290e	 chars, use file_read_lines to read the local path for the rest)\n
+h_dae5a2ac	--- Attachment content end ---\n
+h_bf63260f	 parse status: FAILED\n
+h_5d89be82	 error code: 
+h_41d16b3d	 failure reason: 
+h_cad33dfa	 options: retry parsing with tools (file_parse_text/ocr_recognize)\n
+h_03670db5	 failure reason: no parse result\n
+h_d7824330	⚠️ The following files were skipped: 
+h_9e0ee86a	=== Important rules ===\n
+h_ee31e1e3	- The above 
+h_fe85860b	 attachments were parsed by the system and provided directly. Answer based on the content above; no need to call parse tools\n
+h_f6a98d86	- The attachments ARE uploaded. Never say "no attachment detected" or ask the user to re-upload\n
+h_447064b9	- If an attachment failed to parse, explain the specific reason (see error code) and give suggestions\n
+h_30890ceb	- If content was truncated and the full content is needed, use file_read_lines to read the local path\n\n
+h_b07b6bc9	=== Fallback tools (only when content is truncated or retry needed) ===\n
+h_db5abb31	Call format: &lt;|tool_call_begin|&gt;app_toolkit|{\&quot;action\&quot;: \&quot;name\&quot;, ...}&lt;|tool_call_end|&gt;\n
+h_cf88fe4b	Answer the user based on the attachment content.
+h_926e80d4	Start analysis.
+h_a234ecf9	=== File: 
+h_c7833a66	Image processing failed, please retry
+h_a8f5e4b0	Image exceeds 4MB, switched to OCR
+h_2b587ccc	Online image processing failed, switched to OCR
+h_8997e243	User uploaded 
+h_feae15b8	 attachments.
+h_14e8a21e	User question:
+h_e4b86c39	Analyze the main content of these attachments and provide a summary.\n\n
+h_4fe2794a	=== Attachment content ===\n\n
+h_4b4e3db7	\n=== Attachment content end ===\n\n
+h_48e86d79	Answer based on the attachment content. If it is insufficient, say so.
+h_36623a6c	User request: 
+h_a485628e	User request: summarize the main content of the following attachments\n\n
+h_a4368a9d	=== Attachment parsed content ===\n\n
+h_b575ddeb	=== Summary requirements ===\n
+h_bd78f6c8	1. Summarize the main content of the attachments in a clear structure\n
+h_5529af52	2. Extract key points and important information\n
+h_d6c806dd	3. If it is table data, give a data overview\n
+h_29d6d222	4. If the user has specific needs, answer their question first\n\n
+h_dc9307dd	Start summarizing:
+h_68e672a0	\n(parse failed, skipped)\n\n
+h_86b05ff3	... too many attachments, the rest were skipped\n
+h_c65217ea	=== Attachment content end ===\n\n
+h_1575bdd9	Answer the user message based on the attachment content above.
+h_c1d12ffc	No model configured yet
+h_f81e293e	Download or configure a model to start chatting:\n\n
+h_f0597ad8	Go to model download
+h_9e1bb02b	How to use
+h_557e17b6	👋 Hi! I am the QuizBao AI assistant\n\n
+h_ffc2890f	Message received, processing 🤖\n\n
+h_cd6a30e5	🌤 I noticed you want to check the weather; I may call the weather tool\n
+h_dc182f66	🔍 I need to search the web for the latest info; I may call the search tool\n
+h_4fde242e	🌐 Need a translation; I will translate directly\n
+h_4fd18118	📚 Need to query the question bank; I may call the database tool\n
+h_4fbec1c3	📍 Need location info; I may call the location tool\n
+h_cf8f2e41	🚗 Planning a trip; I may combine location + weather + air quality tools\n
+h_f1ebef0a	🔧 Need a calculation; I may call the calculator tool\n
+h_21a651d8	🕐 Need time info; I will fetch the current time automatically\n
+h_8b243ef2	I will pick the right tool for your question\n\n
+h_b8c0f495	⏳ Thinking, please wait...
+h_8680a44b	🔧 Tool 
+h_c053d0b8	🧠 Think 
+h_59f941ba	Tool:
+h_2e38da21	📥 In 
+h_4522b4c6	 · 📤 Out 
+h_ea69c145	 tokens (cumulative)
+h_9efa4828	⚡ Cache hit rate 
+h_50a70621	⚡ Cache hit 
+h_32a82817	 tokens (saved this round, no double billing)
+h_0d4eba40	🧠 Context 
+h_8e24373f	(left 
+h_7100aac1	Compressing the conversation requires an online model
+h_246bc2af	✂️ Compress conversation
+h_c0728fc0	Compress early conversation into a summary (keep the latest 8 messages). Later messages use fewer tokens, no context loss.\n\nContinue?
+h_6612548a	Compress
+h_f29a225b	Generating summary...
+h_36430ddc	Compression complete
+h_9b616a15	Compression failed (conversation too short or model unavailable)
+h_ab98c004	Switched to: 
+h_c59cad21	Failed to load session
+h_5cc23262	Deleted
+h_631678c9	Message not found
+h_2130ef69	User message not found
+h_0b7ce83c	Regeneration failed
+h_f696b417	⚡ One-tap setup (auto-download and configure local model)
+h_43435c9f	Smart Assistant ON
+h_e224c0b3	Smart Assistant
+h_931c3c94	🧠 Deep Thinking ON
+h_89093f20	🧠 Deep Thinking
+h_986cd3e8	📥 In %d · 📤 Out %d tokens
+h_83afc322	 · ⚡hit rate %d%%
+h_d7a0f347	 · 🧠context %s used %.0f%%
+h_b557980d	(session total %d)
+h_743faf7e	⏳ Generating · %.1f t/s
+h_ad0acdc5	⏳ Generating
+h_2a8f9dc2	⏳ Preprocessing · %d tok · %d%% · %.1f t/s
+h_f8a477f6	⏳ Preprocessing · %d%% · %.1f t/s
+h_e3ad3e92	⏳ Preprocessing · %d tok · %d%%
+h_2dcef5d6	⏳ Preprocessing · %d%%
+h_803f889b	⏳ Preprocessing
+h_3e238a20	KV ⚡%.0f%% used, %.0f%% total
+h_c5d9a5e1	✅ 📥 In %d · 📤 Out %d tokens
+h_9b2011e3	Generation stopped
+h_9447f530	Generating
+h_687b9420	No message available to regenerate
+h_24e21aa7	No local model selected, switch to an online model
+h_db87c7aa	Model file not found, re-import or switch model
+h_5eb96784	Model load failed
+h_17f74c43	Force local Agent
+h_4b33aa1b	Cannot open
+h_b3b83e12	Image load failed
+h_3f036f4f	Initializing attachment feature
+h_a9c3646a	Choose attachment type
+h_bbd24cc2	📷 Take photo
+h_7cfb7c97	📁 Choose file
+h_e5417e44	🎤 Record voice (as attachment)
+h_0fdd25cd	⚙️ Voice model settings
+h_3f8b8981	❌ Camera permission required to take photos
+h_c4eb53c8	Cannot create photo file
+h_b09e35b4	Camera not initialized
+h_bcde7221	Failed to open camera: 
+h_87b4d00f	Message actions
+h_5511e113	🔊 Read this message
+h_c79f16c4	⏹️ Stop reading
+h_a660a638	Reading stopped
+h_6d66ba3b	Message is empty or cannot be read
+h_4bc876d2	Content is long; reading the first 2000 characters
+h_f3df22c9	🔊 Synthesizing speech...
+h_c5d49541	🔊 Reading; tap the read button again to stop
+h_f9154462	Reading finished
+h_715ae415	⏹️ Reading stopped
+h_b6cf53e9	Recording permission required for voice input
+h_27d9da5c	Release to cancel
+h_34e08b7b	Release to finish
+h_5a3fe655	Use system speech recognition
+h_b2f5500b	Speech recognition unavailable; configure a speech recognition model in model management
+h_33978d22	Auto TTS enabled
+h_220ccbd9	Auto TTS disabled
+h_a8c65c1d	Use system speech recognition, please speak again
+h_f455a0c0	The Agent is using the microphone; please wait for it to finish
+h_d6d558b8	Cannot create recording file
+h_90a61206	Recording; swipe up to cancel · release to finish
+h_8339b334	Recording start failed: 
+h_8f5d6646	Invalid recording file
+h_4ef018c9	🔄 Recognizing speech...
+h_4b5fe010	No speech recognized
+h_d4c4ce64	Recording processing failed: 
+h_a3d12e2b	✅ Recognized; you can edit before sending
+h_eddfcc8d	Voice model settings
+h_2a33a288	Photo save failed
+h_a2f2a147	Photo added
+h_76cf127f	Photo processing failed: 
+h_997a1a2c	Recording permission required for voice features
+h_24f55c59	Cannot create audio file
+h_c3f0e02f	🎤 Recording...
+h_e2a65c56	✅ Recording added
+h_ba8cd317	Recording file is empty
+h_61a16521	Recording save failed: 
+h_de440817	Recording permission required
+h_372868fa	Voice features need recording permission; grant it in settings
+h_24114160	Go to settings
+h_b1c1d48c	🔴 Recording... tap again to stop
+h_f4854afd	⏹️ Recording finished
+h_71ba40c1	Unsupported picker type
+h_fcc5458b	Failed to open file manager; try entering the path manually
+h_53437401	Cannot resolve the selected path; enter it manually
+h_7c1a5043	Cannot get path; enter it manually
+h_ee1de131	Selected ✓
+h_e1e280eb	Enter image path manually
+h_60aa379b	Path cannot be empty
+h_e3cf912f	Choose path
+h_24c5bd08	Added 
+h_e74f5dd7	 attachments; preview before sending
+h_efd0d08e	AI service not ready; retry later
+h_d5719f71	Default icon
+h_eaf2e2e0	No matching icon; using the default robot icon
+h_f8b52f61	Backend switch failed, original settings restored; restart the app and try again
+h_e74c3ec4	Please choose a question bank file first
+h_2111ccbb	Canceled
+h_a902a02e	"All files access" permission required
+h_a65def34	AI import parses question bank source files via Python in /storage/emulated/0/OilQuiz/ and generates a temporary CSV.\n
+h_4a1c90d8	Grant access
+h_7bf382b4	Cannot open permission settings: 
+h_83e1601a	Storage permission granted, restart the import
+h_b0561685	Storage permission required to import question banks; grant it and retry
+h_f2e66a38	Detecting worksheets...
+h_b76bb7ef	Could not identify worksheets; trying direct import
+h_b36455c3	Question bank worksheet detected: 
+h_27b84e16	 rows)
+h_9bc92f24	Worksheet detection failed; trying direct import
+h_5386c11e	Select question bank worksheets (multi-select)
+h_7d2ff42c	Start Import
+h_78442dae	Select at least one worksheet
+h_8e54ddfe	Start
+h_9e264c43	Question stem
+h_89a9ad30	AI-assisted fill (rules applied first)
+h_72278bd2	AI-assisted fill
+h_c2bdceb8	Do not fill, leave empty on import
+h_b7e344ae	Cancel import
+h_cf5013ac	Start import?\n\n
+h_4560e686	Complete questions:
+h_915b0f78	 \n
+h_35460ac0	⚠ Empty stem:
+h_4ccc9cf5	 rows (cannot import, counted as failed)\n
+h_10f4b9d3	⚠ Duplicates:
+h_c1a7e7fd	 rows; only the 1st of each group kept:\n
+h_c55d2e95	 · No. 
+h_5c6640af	 question "
+h_e163a37e	 …etc, total 
+h_4416bbc7	 groups\n
+h_7cfecc53	ℹ Near-duplicates (same stem, different answers; all kept):\n
+h_d3e61377	Questions missing fields:
+h_cffaa30e	(selected 
+h_92636e8c	Skip
+h_8d9a071e	Import
+h_eeeda977	Expected to import:
+h_5c5e3bed	 rows\n
+h_e49edbf3	\nWrites to the database after start; can be canceled midway.
+h_3e36a94f	Confirm Import
+h_769d88e4	Done
+h_45332d13	Import failed: 
+h_8333bf17	Choose AI model mode
+h_1bf9fc34	No active online model; configure one first
+h_07dfac43	Online model configured and activated
+h_f0409ecf	Not selected
+h_943b9226	Selected 
+h_6c4acb63	Checking current configuration...
+h_92970f05	AI service ready
+h_d48da8e6	Start using
+h_446ec1d0	No setup needed; use the AI service directly
+h_996093fd	Download in progress
+h_07aaf362	A previous task is still downloading in the background; syncing progress...
+h_353c7371	Keep this page open; the next step starts automatically when the download finishes
+h_741e41f5	Initialization complete
+h_85d22db7	Get started
+h_55fa40f7	Now you can chat offline, recognize images, and get smart Q&amp;A
+h_f2d3731b	Select model
+h_f233a9c6	Pick a model to start downloading
+h_d7f0d336	Start Download
+h_6e536ed3	Select a model, then tap "Start Download"
+h_6787f8b5	Model list load failed
+h_4d0da61b	Check your network and retry
+h_37470051	Selected:
+h_670c9e3b	, tap "Start Download"
+h_e4090eb7	Downloading
+h_521de9dd	Keep the network connected; do not exit during download
+h_58c9ec40	Retry, or go to "Model Download" to download manually
+h_4209cb13	Enable model
+h_b0f6aae0	Choose a downloaded model to initialize the service
+h_d80bc678	Tap a model in the list to initialize
+h_5aa13619	Failed to load downloaded model list:
+h_dddc76ed	Initializing
+h_f37794e3	First load is slow; please be patient
+h_e6210140	Back to selection
+h_c9fe41a6	Initializing AI service...
+h_05396f2b	AI service initialized
+h_f559a2f7	AI service init failed; import a model first
+h_d0f2a568	AI features 
+h_7854b52a	enabled
+h_710ad08b	disabled
+h_ecf8ff4c	Optimization mode: 
+h_76c9800c	, takes effect after restarting AI chat
+h_ce44f945	Reverted to old inference API (takes effect after restarting AI chat)
+h_5d022097	Local Agent disabled (takes effect immediately for new messages)
+h_5501692f	Auto GPU layers restored
+h_76df4b83	Enter an integer 0-36 or "auto"
+h_6271e9b8	GPU layers range 0-36 (0 = pure CPU, 36 = full GPU)
+h_4c2eb49a	GPU layers unchanged (current 
+h_38673981	GPU layers settings
+h_bb00d535	Reload model
+h_66c80f21	GPU layers set to 
+h_946091b8	Restore auto
+h_54ff0e50	Max tokens: 
+h_c5ea9c6a	Connected
+h_71dc8feb	Not configured
+h_a8076f9b	Configure in the AI Center
+h_3aed2c11	Auto
+h_bec33d31	Loaded
+h_467b3e03	Not loaded
+h_d679aea3	Running
+h_2da32f3c	Initializing...
+h_4f8a2f0b	Not running
+h_25d14de1	AI service ready, all features available
+h_33ed774e	Loading model, please wait...
+h_6fb79429	Tap the button below to start the AI service
+h_f6ebf8f5	Active
+h_d70e9bdf	Inactive
+h_1c70ded4	AI service not initialized; initialize it first
+h_dfb7ed74	Enter test text
+h_fe295564	Generation failed: 
+h_13933709	layers / ctx:
+h_cffe3407	API · total %d
+h_d4d779f4	Used: 
+h_49ab797b	Last used: 
+h_d7d74150	Cannot edit: config incomplete
+h_bff4d8eb	Add API config
+h_df1aee77	Edit API config
+h_bbbab591	Enter an API Key first
+h_8d701f1e	Testing connection...
+h_fa5bc5b3	Connected! Latency: 
+h_fcc15a0f	Connection failed: 
+h_a7dfc193	Available models:
+h_be5fbbe3	Save
+h_5d86d1c1	Init failed; retry
+h_23c73b77	Name and API Key cannot be empty
+h_3b108349	Saved
+h_631cd220	Confirm deletion
+h_46d31be4	Delete \&quot;
+h_ee0b8b94	\&quot;? This cannot be undone.
+h_6446bdbb	Testing 
+h_9d9b6ba9	Test failed: 
+h_3702ea82	Nothing to test
+h_95aab33a	Batch test 
+h_38b7cbce	 configs...
+h_4ba325cc	Nothing to export
+h_38d4b4e6	Exported to: 
+h_2e0d8c60	Export failed: 
+h_dfd08aa7	Scanning archive directory...\n
+h_59115b55	Scan result
+h_4ce90060	No API config found in the archive directory\n\nPath:
+h_f588210f	Change path
+h_739cdfd3	API configs found
+h_ed3ee7c5	Found 
+h_15ee0ae6	 API configs in the archive directory. Import?\n\nPath:
+h_946262ed	Imported 
+h_e45bedbe	 configs
+h_ef12580c	Archive path settings
+h_e475ca89	Set the archive directory for API config files
+h_1fb09821	Enter a new path (custom):
+h_153fa67a	Select
+h_7070b4ed	\nTap "Restore Default" to use the app-created directory
+h_de9f352a	Default archive path restored
+h_79bc0be3	Archive path saved
+h_7468f3e5	Restore Default
+h_3360d889	Cannot open folder picker: 
+h_b4061470	"All files access" permission required
+h_91fb87bf	Cannot open permission settings
+h_5ded3757	Permission granted
+h_5a217bd9	Storage permission required for import/export
+h_b6681207	 new configs
+h_926fa922	Selected path: 
+h_9cf56df2	Archive path set: 
+h_4c368c6a	File read failed: 
+h_9dec4140	Import preview
+h_482f035d	Detected 
+h_fe2d26a2	Not set
+h_5b2dccdb	Imported: 
+h_c180e543	Auto backup enabled
+h_be9c6cf8	Auto backup disabled
+h_3587abc9	Storage permission granted
+h_6a44170f	Storage permission denied; cannot back up or restore
+h_b3208e3d	Backup status: backing up...
+h_3a3b37cb	Backup status: backup successful
+h_bb61a42d	Backup successful:
+h_47dfa05e	Backup status: backup failed
+h_09fa1b68	Backup failed:
+h_47a47697	Backup status: restoring...
+h_e24055d9	Backup status: restore failed
+h_eff51593	Cannot read backup file
+h_66fc595b	Backup status: restore successful
+h_bbab9851	Restore successful; the app will restart
+h_5dc657e5	Restore failed:
+h_8ae3343c	Database details
+h_ebbc4dab	Database status: loading...
+h_6b0e350f	Database status: not initialized
+h_ac745b6b	Database not initialized
+h_dcb5aa84	Database status: OK
+h_4ceba125	Database version:
+h_7f17c115	Database path:
+h_2b177167	Users:
+h_01bb3424	Questions:
+h_d3ffdfe4	Study plans:
+h_7cdd9e97	Notes:
+h_1001e404	Wrong questions:
+h_4de5f0cd	Database status: error
+h_415ae918	Failed to load database details: 
+h_72ac9a72	Already latest
+h_6b4a7fd3	Upgrade Now
+h_56f0a1c0	Fetch failed
+h_82e4ce0b	Failed to load database info
+h_0931bdea	Database is already the latest version
+h_b2395c13	⚠️ Version too old; upgrade now recommended\n\n
+h_f6360a4e	Upgrade contents:\n
+h_e1255531	Database update
+h_55c30e82	Upgrade in progress
+h_f263e97e	Upgrading database
+h_885cd96f	Please wait...
+h_4ffa7e4b	Preparing upgrade v%d → v%d
+h_c854b481	Upgrade successful!
+h_4ae2f0a2	Upgrade failed
+h_0402c89c	\n\nTry to roll back to the backup?
+h_d00b485b	Roll Back
+h_57f444fd	Backup successful!\n
+h_6af91784	Backup failed
+h_30e37f96	Backup failed: 
+h_24d4178e	No backup available
+h_3b5af6de	Choose a backup to restore
+h_841e5e89	Confirm restore
+h_df56fb63	Restoring a backup will overwrite current data!\n\nBackup first is recommended.
+h_c7db6d4f	Restore
+h_b0a72d0a	Restore successful!
+h_2e827d23	Restore failed
+h_1c65e1df	Restore failed: 
+h_7439efc2	Database is intact, no issues
+h_e441b11e	Verification failed
+h_283b00a6	Database may be corrupted; back up before resetting.
+h_664b37da	Backup
+h_bb86dd5c	Later
+h_9b42e577	Verification failed: 
+h_019ff44b	⚠️ Dangerous operation
+h_f08e9aaf	Resetting will erase all data!\n\nThis cannot be undone.\n\nDo a full backup first.
+h_4ae53e6e	I have backed up, continue
+h_b44aad55	Confirm again
+h_069893f5	Reset the database?\n\nAll questions, notes, and study records will be deleted!
+h_bcaeb727	Confirm reset
+h_eb0c7067	Reset successful!
+h_4d713822	Reset failed
+h_9601d5fc	Reset failed: 
+h_fc336172	Clean up backups
+h_fe2a6a6e	Keeps the latest 5 backups after cleanup.\n\nClean up now?
+h_e47bb1cd	Clean
+h_f6b61a3a	Old backups cleaned
+h_063127ae	Initialize database
+h_df4ec7d3	Initializing the database will recreate its structure.\n\nThis will:\n• keep the current database version\n• reinitialize all tables\n• clear all data\n\nContinue?\n\nBackup first is recommended.
+h_2cb472ff	Initialize
+h_37d8dc3f	Database initialization complete
+h_7052f598	Database initialization failed
+h_58c10e4c	Init failed: 
+h_948b0db8	Closing database connection...
+h_ea9abdb9	Deleting old database file...
+h_ede419fa	Creating new database...
+h_e2edde5a	Expand
+h_18b3acdf	No data issues to fix
+h_96b876e6	Rescan in the import flow
+h_2b9f9b1c	Auto-fixed 
+h_fe950644	 issues
+h_bd9fcf46	Undo
+h_5b0520a9	Apply
+h_6f1b8db1	Enter a value or pick from the dropdown
+h_54df148f	Batch fix
+h_d23ab8a7	Batch fix complete
+h_b967fdef	Device info
+h_6441bd25	Refreshing...
+h_9690fbfc	Brand: 
+h_1622dc9b	Unknown
+h_3bab779c	Model: 
+h_963669d9	Device: 
+h_49bfe273	Hardware: 
+h_d70c3110	GPU series: 
+h_99950eb0	CPU cores: 
+h_5a86cc25	Total RAM: 
+h_df803b12	Available RAM: 
+h_0d0b5e32	Android version: 
+h_53254fc6	ABI: 
+h_b4258c60	Failed to get device info: 
+h_92824b02	Native lib: 
+h_c0c2057f	Loaded ✅
+h_5b0b0982	Not loaded ❌
+h_d3af0136	OpenCL lib: 
+h_4beb4f75	GPU acceleration: 
+h_7cffd96e	Enabled ✅\n
+h_921ae75f	Ready (waiting for model load) ⚠️\n
+h_a13d4391	GPU acceleration: not enabled (OpenCL unavailable) ❌\n
+h_98053d3c	Model init: 
+h_09fe0fff	Not loaded ⚠️
+h_790b0f05	\n📊 Runtime config:\n
+h_4e1617ff	   GPU layers: 
+h_0c717857	 / all\n
+h_97c01f1d	   Acceleration: GPU + CPU hybrid\n
+h_689a7244	   GPU layers: 0\n
+h_91808686	   Acceleration: CPU only\n
+h_e245509d	   Threads: 
+h_2e8e2dff	   Batch size: 
+h_f986d5f8	\n🎮 GPU hardware info:\n
+h_96078d40	   Device: 
+h_2f2a469a	   Vendor: Qualcomm Adreno\n
+h_cecbcbbb	\n🔧 Backend support:\n
+h_a33eb547	\n💾 VRAM info:\n
+h_73a1214e	   Total VRAM: 
+h_c199f08c	\n⚡ Compute capability:\n
+h_9604bfc3	   Compute units: 
+h_c1d852fa	   Frequency: 
+h_cee4b0b1	\n✅ Float support:\n
+h_23a8aa37	   FP16: supported ✅
+h_238ba2fa	 (vector width: 
+h_8d87e7f3	   BF16: supported ✅\n
+h_27574b57	   FP32: supported ✅
+h_89d76665	   FP64: supported ✅\n
+h_0c7ce23a	\nSupported types: 
+h_9c69dc4d	GPU detection: no detailed info\n
+h_60df6a17	GPU detection: parse failed (
+h_3bbc5f19	\nNative lib not loaded; cannot get GPU info\n
+h_a27e9f97	Initialize the model on the AI service page first\n
+h_02e1d6c4	\nFailed to get acceleration info: 
+h_549fd854	Info refreshed
+h_262b0b07	Supported
+h_5875b0f0	Not supported
+h_a169b117	=== Device environment report ===\n\n
+h_6836b587	[Device info]\n
+h_89a87493	Manufacturer: 
+h_1ac0ad81	[System info]\n
+h_c64c7d6a	SDK level: 
+h_400e18fc	Security patch: 
+h_275d0943	Language: 
+h_9fd4a3a3	[Hardware info]\n
+h_13708454	CPU architecture: 
+h_0e2ec228	Processor count: 
+h_835677c3	Camera: 
+h_c2fac49b	[Memory info]\n
+h_44ad2b27	[Storage info]\n
+h_d094912c	Internal storage: 
+h_0b49db60	External storage: 
+h_ac5153dc	Info copied to clipboard
+h_bf0e4749	No template available
+h_f3a4498d	Choose export template
+h_43f98902	Unsupported export format:
+h_c8490185	Current template does not support
+h_87bfb0df	, switched to "
+h_fa93dc83	Choose export fields
+h_9ad31f9e	Select at least one field
+h_efad30ee	Using custom fields; reselect a template to restore its field set
+h_db2432ee	0 fields selected
+h_0a510584	All fields selected (
+h_4c4f372d	)
+h_979c7fe9	 fields
+h_ed8c23e0	Choose export format
+h_560f33bd	Failed to get questions:
+h_6d2cf5cb	No questions in the current database to export
+h_3632d313	No favorited questions to export
+h_45fe788c	No wrong questions to export (wrong-question book is empty)
+h_e51b51d0	Filtered 
+h_86256a0b	 wrong questions
+h_6b148f7f	Exporting
+h_c912eb85	Generating file...
+h_bccb121f	Export failed:
+h_446e67b3	Export complete
+h_37b43961	WebView study page generated successfully!\n\n
+h_80c99c04	File saved to:\n
+h_8fb3f816	File size: 
+h_904182c4	How to use:\n
+h_fd5a3c78	1. Open the HTML file with the system browser or file manager\n
+h_b42d4633	2. Or open it in a reader/WebView app that supports local HTML\n\n
+h_a330b6ec	View it under system "Files → Downloads → OilQuiz"
+h_5f2fa1ee	Export successful!\n\nFile saved to:\n
+h_9de72a79	View file
+h_4dc67882	Share file
+h_fffcca4c	Standalone APK generated (installs directly on your phone)!\n\n
+h_c61dc956	This APK bundles the current question bank; offline practice works after install.
+h_e655a410	Install
+h_c31f48f8	Share
+h_943ad7a2	Preview failed:
+h_58cc9b4f	No app found to open this file
+h_71723529	Cannot open file: 
+h_21a98fc4	Cannot install APK: 
+h_d5760453	No app found to share this file
+h_122824f6	Cannot share file: 
+h_e48aad5b	Storage permission denied; cannot export
+h_345a8fe9	Current question bank has 
+h_bafae10a	 questions
+h_0b046bbc	Current question bank has 0 questions
+h_f83b091f	Select a table first
+h_61f14923	Failed to load table list: 
+h_d8e3587c	Failed to load fields: 
+h_d46380d7	Type: 
+h_c1c57e45	Primary key 
+h_e8b74bfb	Default: 
+h_4484fa04	Add field
+h_e996419d	Field name
+h_3f2176cd	Allow null
+h_77d7564e	Default (optional)
+h_b58c7549	Add
+h_dfd010b5	Enter a field name
+h_98b9344a	Cannot use a protected field name
+h_1efd670d	Failed to add field: 
+h_921ef2ea	Complete the field mapping
+h_447dda29	Loading file content...
+h_2201ac77	File path is empty
+h_8da0929d	File path is empty; cannot load
+h_d9523e34	File does not exist
+h_48319955	File does not exist; cannot load
+h_4ac73467	Rendering file...
+h_651e91ce	Rendering: 
+h_4be7d9d7	File loaded, 
+h_f3d257a2	 rows
+h_3fead349	File is empty or malformed
+h_70238c3e	Cannot read file content
+h_4bbdceb5	Load failed: 
+h_04a40cad	File load failed: 
+h_7030ff64	Error
+h_b5ea0a10	No file picker app found; install a file manager
+h_c15415d3	Cannot read the selected file
+h_4fa68124	Failed to handle file picker result: 
+h_39bd3ae1	File picker returned an empty Uri
+h_3f52952d	Rendering file…
+h_cefb7ec9	Video playback failed; tap "Open with another app"
+h_8c57a982	Video open failed: 
+h_9074ea4d	Share failed: 
+h_64d2fbec	Open failed: 
+h_7499f450	Import file
+h_e509c03c	No file to render; import a file first
+h_fd7e0c99	Choose file
+h_86e97bbe	Clear history
+h_dc9c12fd	Clear all import history? This cannot be undone.
+h_86505e54	History cleared
+h_a790208c	Delete record
+h_6229afd6	Delete this import record?
+h_7711bfa2	Record deleted
+h_06d2bea0	Import canceled
+h_feb6f854	Choose a file to import first
+h_8d9cdb1a	Import finished; check the result summary
+h_c353f532	Waiting for import to start...
+h_89e9705b	Preparing import...
+h_d816b32e	Waiting for file selection...
+h_24bdad2e	Progress: %d/%d (%d%%)
+h_b5586d9b	Cannot open file picker: 
+h_4a975967	Continue viewing
+h_0d3bbd76	Close page
+h_d3c72e4b	File error
+h_e8f94d57	❌ No worksheets in the Excel file; check the file content.
+h_1012e098	Processing failed
+h_d1bd7acb	❌ File processing failed:\n\n
+h_345e81b6	Unfinished import detected
+h_ff1b1e28	Previous import "
+h_be4af239	" was not finished (
+h_b0f943d6	Resume import
+h_5d5b2966	Delete checkpoint and restart
+h_9601ff4e	Select worksheet
+h_6aee2d39	Analysis failed
+h_d911b36f	❌ Failed to generate import confirmation:\n\n
+h_10953ae2	Worksheet: 
+h_406ee329	Total questions: 
+h_8fd71d23	Valid questions: 
+h_2f2e3568	Invalid questions: 
+h_250a6679	Duplicate questions: 
+h_91db8a87	\nField mapping:
+h_7d4ccfd2	 → column 
+h_81eea51a	Import confirmation
+h_cb14eb12	Edit mapping
+h_c1cab586	File does not exist; check the file path
+h_9e85dc13	Cannot get file path
+h_1039b548	Cannot create temp file
+h_1f3a6509	Unsupported file type; choose a local file
+h_62f8c6ba	Failed to generate import confirmation: 
+h_f0a0d8d4	SQL import failed
+h_fddcd7c6	Import failed
+h_8589d0f5	❌ An error occurred during import:\n\n
+h_6de920b4	Save failed
+h_f12e5b08	❌ Failed to save questions to the database:\n\n
+h_8220fcc6	Question import parses source files via Python in /storage/emulated/0/OilQuiz/,\n
+h_8edceef7	Import complete
+h_aae41a4f	Complete 
+h_5c91b7d9	Missing fields 
+h_9fba2017	Empty stem 
+h_2ce6e3c3	 rows (cannot import)
+h_8dd291a0	Duplicates 
+h_8c6f7416	Issues: 
+h_f066e272	No issue found in questions
+h_d545c2a4	⚠ Duplicate: No. 
+h_71279df9	 reason:
+h_539d7ddc	ℹ Near-duplicate: No. 
+h_e1322390	(empty stem)
+h_95d20549	Missing: 
+h_2492d1b6	⚠ Duplicate (same as above, only 1 kept)
+h_ae4e6627	%.2fs
+h_eadd05ba	Medium
+h_9a3d12cb	Enter the study subject
+h_3af18ee1	Enter weekly study time
+h_e0e06b77	Weekly study time must be greater than 0
+h_30068cb9	Enter a valid study time
+h_3a6cd904	Enter the concept to explain
+h_11c3b109	Enter the exam type
+h_32a80cd3	Enter the remaining days
+h_1e6bb976	Remaining days must be greater than 0
+h_bbce3450	Enter a valid number of days
+h_99d0dfe7	Study Plan
+h_a71e0fb1	Generating study plan
+h_fa17813e	Generating a personalized study plan based on your needs, please wait...
+h_11be49c7	Concept Explanation
+h_6ebb8f9a	Explaining the concept
+h_c145e97d	Generating a clear concept explanation, please wait...
+h_7731015b	Exam Prep Advice
+h_b0569798	Generating prep advice
+h_77dc270a	Generating a prep plan based on the exam type and remaining time, please wait...
+h_b6c4a445	Generation successful
+h_9d7f7ec4	Generation failed; retry
+h_ff291c78	Error during generation: 
+h_afa9c07e	Nothing to save
+h_1c34535a	Content saved
+h_e9a0e8eb	Nothing to share
+h_42ee3bba	Nothing to copy
+h_4fb42e6e	Copied to clipboard
+h_abdfe253	Copy failed: 
+h_391cf35a	App logs
+h_b1821dcb	AI service
+h_9bf26c4f	Crash
+h_cf8e1f09	Operation log
+h_0af87f8b	Live(+
+h_2843e2f6	Live
+h_f34fa10e	Loading logs...
+h_a8be487e	Failed to load logs: 
+h_a1a93bdb	Showing 
+h_071f6f15	 / total 
+h_a15a9ef1	Clear logs
+h_8cff227d	Clear the current tab (
+h_2513de9f	) logs? This cannot be undone.
+h_503686fc	Clearing logs...
+h_acd5cb84	Failed
+h_04a8a976	No logs to copy
+h_7babe509	Logs copied to clipboard
+h_cde5f392	Failed to copy logs: 
+h_c2d5d466	No logs to export
+h_aefe3830	Logs exported to: 
+h_df3a5427	Failed to export logs: 
+h_a997993d	No logs to share
+h_74d30689	Failed to share logs: 
+h_e0d9b6f4	Log details
+h_f1852c4c	AI service log
+h_57523f59	User input: 
+h_6c133587	User submitted a new message: 
+h_16b4d929	Log is empty; cannot copy
+h_c09af2ab	Log is empty; cannot share
+h_119e0e02	Storage permission required to export logs
+h_db2c37fb	Log is empty; cannot export
+h_f841cc1e	Details - 
+h_d5b1addf	Time: 
+h_da20f914	Level: 
+h_2673f990	Message: 
+h_76e8f88e	No details
+h_e5ce7412	Saved mapping config loaded
+h_fd948b3b	Mapping config saved
+h_c9397e93	Select column
+h_1d75e445	Select mapping column
+h_50c8f8c2	Error: column 
+h_4535c522	 already mapped to field \'
+h_3b8504f0	\'
+h_1f71c424	🎨 AI image/video generation (Bailian Wanxiang)
+h_03ae6d4d	🖼️ Text to image
+h_9eb4951b	🎬 Text to video
+h_74018aa7	Endpoint api_url (empty = use the Bailian endpoint from model management)
+h_c35883ad	API Key (auto-filled from config; can leave empty; fill in to override)
+h_41e8bea9	Scene / video description
+h_5e2dfe13	✨ AI optimize
+h_23a27c29	Model: tap to pick or type (e.g. wan2.2-t2i-flash / Seedream)
+h_8900bbdb	🔄 Refresh models
+h_6fa3eb5d	Size: tap to pick or type (e.g. 1024*1024 / 832*480)
+h_de7544c7	🚀 Generate
+h_7fcf42ed	Video
+h_20def794	Image
+h_20595c40	▶ Play
+h_19d28c81	🔄 Check progress
+h_57b86261	\n💰 Billed by the platform; confirm before generating
+h_a07cc2fd	💰 Video billed per second: turbo≈¥0.3/5s, plus is more expensive (about ¥0.5+/s),
+h_41bc13d5	💰 Text-to-image: wan2.2-t2i-flash billed per image (about ¥0.15/image), plus is more expensive; larger sizes cost more
+h_c91a981c	⏳ Fetching available models...
+h_7635ee34	✅ Dynamically loaded 
+h_b07ef529	 models, please select
+h_1b138353	❌ Failed to fetch models: 
+h_f8a56bb2	Enter a description first
+h_f9fff4d7	⏳ Submitting
+h_f5bb549c	generation task…
+h_bca14af7	No task to check
+h_d50a7b1c	⏳ Checking task progress...
+h_06960ae4	Query failed: 
+h_00f82469	No result returned
+h_8e9c67d5	Task ID: 
+h_3f12721c	\nGeneration takes minutes; tap the button below to check progress
+h_d2690b47	Task processing
+h_a6186d48	Generated and saved to workspace
+h_330363df	Success
+h_5d96b975	Result file missing: 
+h_81f9c460	Playback failed: 
+h_1f3c5d52	Share preparation failed
+h_5adb72da	Enter a description before optimizing
+h_048d3715	⏳ Optimizing description...
+h_238638b2	❌ Optimization failed: configure an online model API Key in model management first
+h_ac958da7	❌ Optimization failed: online model has no model name set
+h_2fcd9c70	❌ Optimization failed: online model has no endpoint set
+h_288737f6	❌ Optimization failed: model returned empty; check the online model config
+h_c04ca95b	✅ Description optimized by AI (keep tweaking manually)
+h_ea44f337	❌ Optimization failed:
+h_bbc09151	⚡ One-tap setup
+h_bc362afe	Enter a search keyword
+h_df27233d	Choose download source
+h_7e1eb179	Choose download method
+h_b1683ed4	Tip: type a Hugging Face model name in the search box (e.g. Qwen/Qwen3-8B-GGUF) or a direct download link\nLLM tab includes common domestic models; this page is for special quantizations and custom downloads
+h_91002114	Searching 
+h_4ef6015d	The current mirror does not support online search; switch to the HF mirror
+h_6da2b0d3	Search failed HTTP 
+h_a1164b23	Search error (retried 3 times): 
+h_c9cbb12f	No GGUF models found; try other keywords
+h_e455c16a	Found 
+h_39616dfd	 GGUF models; tap "Select file" to view and download .gguf files
+h_e59118bf	Found 
+h_f69d7704	 candidates
+h_90b14d0e	Search error: 
+h_2eae8256	Enter a .gguf file name, e.g. qwen2.5-0.5b-instruct-q4_k_m.gguf
+h_7bc30b7a	Select model file
+h_cc8d5a31	\n\nMirror cannot fetch the file list; enter the specific .gguf file name under this repo
+h_f26ef914	Download
+h_aa2a894d	Enter a file name
+h_69bcf811	Fetching file list...
+h_34792ddd	Failed to fetch file list: 
+h_2c0ae320	No .gguf files found under this repo
+h_539be262	Select .gguf file (
+h_450500c4	)
+h_47ea00ab	Start downloading: 
+h_8b2732f3	Failed to parse file list: 
+h_8f9a06d1	Add custom model
+h_046fd75c	Enter the download link
+h_a7f6ca3f	Enter a valid URL
+h_fe9e6535	Custom model added
+h_7dffc56d	Downloaded %d models, total %s
+h_a2e80854	Downloading... 
+h_8d63ef38	Pause
+h_a2d930fd	Paused
+h_27ca568b	Resume
+h_65e200d3	Download failed
+h_8e587998	Size: 
+h_dd388bb1	Precision: 
+h_a82c4621	 | Context: 
+h_565866d2	 | Recommended VRAM: 
+h_33f8bcde	 | Multimodal
+h_b4ad854c	Format: 
+h_ac54eb42	 | Precision: 
+h_ecff77a8	Use
+h_2c69cae3	Paused 
+h_ccf97d76	Resume download...
+h_68905cf3	Online
+h_94652553	AI service not initialized; complete initialization first
+h_a7ca3d15	This model is already the one in use
+h_9ba95af9	Switching to: 
+h_452f8726	Switching model...
+h_979ab6ba	Switch failed: 
+h_9719fec8	Downloaded
+h_753ee97e	Start downloading...
+h_46edf8b7	No file selected
+h_5e9761c4	Storage permission required to import models
+h_1a309dc1	Select a model file first
+h_3e077148	Choose a valid .gguf model file
+h_853df94f	Importing model...
+h_1eea18ce	Import status: success
+h_5cf01c1b	Model imported; added to the model list
+h_0239f57c	Switching to the new model: 
+h_0056ac68	Auto-switched to the new model: 
+h_8f35e073	Import status: failed
+h_506ba504	Import status: error
+h_2f0f752e	Model load error: 
+h_2d6b332e	No model available
+h_11c16161	Failed to load model status
+h_ad674f46	Selected: 
+h_1359960a	Selected file: 
+h_ea2e8bc2	Cannot get file name
+h_04ab5378	No model available; import a model or add an online model
+h_a4d0e139	Failed to refresh model list: 
+h_4d24d2a1	One-tap setup
+h_b555f97c	Type: unknown
+h_6871533f	Follow model default
+h_89e2a0f3	System·
+h_5556b5e7	All services abnormal
+h_554a28dd	Enter a note title
+h_62e6eeb2	Note updated
+h_81cbd86e	Add note
+h_7354c70f	Failed to update note: 
+h_2d22d1d7	Note added
+h_0d741dec	Failed to add note: 
+h_be4a600c	Operation failed: 
+h_bfaee9de	Failed to load notes: 
+h_281e2b43	Update note
+h_65d0074b	Note does not exist
+h_d8b87379	Delete note
+h_92d8c70b	Delete this note?
+h_0007d170	Deleted
+h_e0f24bbc	Failed to delete note: 
+h_b789dbfb	Auto-select (recommended)
+h_c69d4624	Recognition engine this time:
+h_879810c0	Recognition successful!
+h_2ddf9be8	Camera permission required to take photos
+h_5a4a645f	Image loaded
+h_433e699f	Failed to get image
+h_57418b05	Cannot load the captured image
+h_fc690a0d	PDF selected\ntap to start recognition
+h_b0ae04c0	PDF file selected
+h_dbb6345e	Processing, please wait...
+h_5b331446	Choose an image or PDF file first
+h_da61810f	Recognition failed: 
+h_bb6a8045	PDF recognition failed: 
+h_1d8c9cf9	No text to copy
+h_4a131ed5	Text copied to clipboard
+h_3da84480	No text to share
+h_c34088db	No text to save
+h_83b0bc7b	Add to notes
+h_3c62c068	OCR result
+h_7e97245e	Note saved
+h_34e82ad6	Failed to save note: 
+h_be0c5a13	Get valid text first
+h_d6caa7b2	Question saved
+h_9e9563b5	Failed to save question:
+h_5f411223	Back
+h_2d87bc11	PDF preview
+h_f4f85316	Previous page
+h_b4e1b508	Next page
+h_23be93c8	Performance monitor
+h_829cb1dd	List view
+h_6cef16ed	Card view
+h_1eea3460	Hide answer
+h_3bb915e3	Show answer
+h_17946d34	Search failed:
+h_1453c708	Delete this question?
+h_934ebd87	Favorited
+h_3a906c71	Favorite removed
+h_28ec095a	Filter failed:
+h_bc42bb8f	Delete failed:
+h_8199ac9a	Clear all questions
+h_17fd4110	Clear all questions? This cannot be undone.
+h_2685dc70	Cleared
+h_66812202	Clear failed: 
+h_27a84ff2	Enter the question content
+h_effdb1bf	Analyzing the question
+h_6807dc34	Analyzing the question to generate explanation, knowledge points, and study suggestions, please wait...
+h_93de2efb	Question analysis complete
+h_4e0c2396	Analysis failed; retry
+h_4dd291fd	Error during analysis: 
+h_4d68b939	No analysis result to save
+h_f289e5bc	Analysis result saved
+h_cfd4047e	No analysis result to share
+h_4560a89e	Question analysis result:\n\n
+h_2872c034	Explanation:\n
+h_a3aebd68	Knowledge points:\n
+h_0e1502be	Study suggestions:\n
+h_ef1b5a8a	No analysis result to copy
+h_6b903660	Refer to the analysis content
+h_c38cdfed	Analysis failed; refer to the content above
+h_bac7dbf8	Tap "Edit" next to the question in the question bank list to modify it
+h_a8eb20bc	Delete question
+h_ce7e90c3	Delete this question? This cannot be undone.
+h_b1ea3f0f	Question deleted
+h_f22cec28	Remove favorite
+h_ae336cd0	Favorite
+h_e2ce0dc4	Favorite operation failed
+h_61c124a9	Favorite failed:
+h_68ec26d1	Question:
+h_af4cefc1	Options:\n
+h_e1edc144	Correct answer:
+h_65a80a7c	Question type
+h_d0771a42	Category
+h_46b04b28	Difficulty: 
+h_da3a7a79	Correct answer: none
+h_aa357cb9	Explanation
+h_cf6c394c	Detailed explanation
+h_4648a1c1	Knowledge points
+h_14d34236	Tags
+h_294bae51	No online model configured
+h_cc24d89c	Online services OK (
+h_5191ee07	)
+h_2eceb80c	 OK, 
+h_9766e576	 abnormal
+h_48321df1	All services unavailable
+h_1c9824a1	Usage: 
+h_585b1380	Generating questions
+h_89cfc7f1	Generating questions based on your needs, please wait...
+h_5dd4109a	Questions generated
+h_97feb126	Cannot parse the generated questions; retry
+h_e84b4d2f	Error during question generation: 
+h_974ef48d	No questions to save
+h_f159f6ed	Saved 
+h_7e5ad362	Failed to save questions
+h_70362955	Error while saving questions: 
+h_505f1c44	No questions to share
+h_fe25e9ad	Generated questions:\n\n
+h_88261eed	Explanation: 
+h_ce425bfa	No questions to export
+h_dfc48c1f	# Generated questions\n\n
+h_878562c1	## Question 
+h_ae8aba6a	**Question**: 
+h_76c9e04d	**Answer**: 
+h_fcf23825	**Explanation**: 
+h_b46f8b84	Questions exported to: 
+h_1ecd528d	AI repair (no model)
+h_797d1c78	Questions need AI repair, but neither local nor online models are available
+h_6078418b	Scan failed: 
+h_121f77db	Rule repair done, written to DB 
+h_372a2eea	AI repair done: 
+h_1b426baf	 fixed, 
+h_713064f0	scanned 
+h_2b070bf6	 questions, found 
+h_5c3ac2dc	No question-type data detected\nusing default type mapping
+h_a1a6129c	Default type mapping:
+h_66b15c08	Unnamed type
+h_f53d7d23	Failed to init question data: 
+h_74752509	Mock data init failed too
+h_21f67bf8	Failed to process question data: 
+h_5d61e56d	Question bank empty or load failed; using sample questions
+h_0dddb102	Failed to init mock data: 
+h_1b20e06f	Mock data init failed
+h_833cf475	Failed to init answer list: 
+h_c1850996	Question data does not exist
+h_1c0a6432	Question object is null
+h_c9fc0b00	Score: 
+h_5271dadc	Failed to show question: 
+h_ca9df2a8	Submit
+h_ad032904	★ Marked
+h_b08f415b	☆ Mark
+h_bc436447	Unlimited
+h_4a20b0cf	Fill in your answer
+h_059dd8e2	Answer briefly
+h_bf4afae9	Answer in detail
+h_0b3b985e	Elaborate
+h_8c4144de	Quiz complete
+h_9a478318	View wrong questions
+h_2e3eaa52	Back to home
+h_d8d24710	Retake quiz
+h_d2a43ba7	Time is up! Auto-submitting
+h_5dfff497	Cannot load file data; reselect the file
+h_c05afd45	Mapping data not ready
+h_1d2266e8	File does not exist; reselect
+h_9ef41211	Field mapping config invalid
+h_a02aa476	Failed to generate mapping suggestions: 
+h_e4c3fc02	Question bank is empty; import questions in question bank management first
+h_8c13ee77	Question bank load error; check and retry
+h_2d73a23e	View init failed: 
+h_ab64d70c	ViewModel init failed: 
+h_36b84ec7	Listener setup failed: 
+h_f6e40f14	. empty study plan
+h_a7391912	. processing failed: 
+h_33e76961	 study plans
+h_dedd3dee	Study plan list is null
+h_245ca6d3	Failed to load study plans: 
+h_859f2252	Enter a plan name
+h_826e01cf	Enter the target question count
+h_37bc89de	Target question count must be greater than 0
+h_fde53cbf	Enter a valid number
+h_1c9dd2ba	Study plan created
+h_e108d76c	Failed to create study plan: 
+h_f83453fd	Start studying
+h_0344f7e8	Study plan options
+h_5b48dbb8	View details
+h_55ce1d90	Edit plan
+h_013139dd	Delete plan
+h_4fcf9f22	Reset progress
+h_1b0b4a97	Edit study plan
+h_879e393f	Plan name
+h_b82a6d38	Target question count
+h_b6f6db5d	Study plan updated
+h_a5f9663e	Failed to update study plan: 
+h_fcf344c7	Delete study plan
+h_2495d104	Delete this study plan?
+h_9312672b	Study plan deleted
+h_e07202e2	Failed to delete study plan: 
+h_3e9665bd	Reset study progress
+h_05137007	Reset this study plan progress?
+h_7ef38964	Study progress reset
+h_e4577635	Failed to reset study progress: 
+h_7450c777	Initializing TBS preview...
+h_ea53cbc9	TBS SDK not integrated
+h_c2b2b15f	Initializing TBS SDK...
+h_f03e8739	TBS preview failed
+h_d353fd7e	Use fallback preview
+h_406e088d	Choose preview method
+h_bfbf0f9a	LibreOffice (open source, free)
+h_85016097	Pdfium (PDF only)
+h_bce2e6d3	WebView (spreadsheet files only)
+h_74880219	Opening file...
+h_f9bbd707	File opened
+h_f4c0d6a9	Failed to open file: 
+h_a9a6d7c0	Templates saved to: internal storage/Download/OilQuiz/
+h_371146a3	Generating 
+h_eb7c1cf4	 templates...
+h_2d5c2af2	Saved:
+h_010e86b2	Templates saved to:\n
+h_191ace32	Template generation failed; check storage permission and retry
+h_e0e5eca7	Failed to load templates:
+h_8f478488	Choose templates to delete
+h_dcbbdbb9	Delete the selected 
+h_2786d9b7	 templates?
+h_194385be	Choose templates to enable
+h_1457f4a0	Enable failed:
+h_c0cd850f	Enabled
+h_a6dd3534	Choose templates to disable
+h_e39eabb8	Disable failed:
+h_aebce986	Disabled
+h_4ada159d	Choose templates to copy
+h_69951bd9	Copy failed:
+h_20a49536	Copied
+h_cfda29cd	Following system wallpaper
+h_d3b2836a	Using wallpaper library
+h_a5e67109	Wallpaper off
+h_a543ed9a	"All files access" must be enabled
+h_9e455d55	Following the system wallpaper requires reading its file; allow "All files access" in system settings.\n\n(MIUI: Settings → Apps → QuizBao → Permissions → All files access)
+h_5e213ddb	Enable now
+h_64c5386f	Enable "All files access" manually in system settings
+h_e640477f	System wallpaper ✓
+h_ec41a592	System wallpaper
+h_a99c80c2	Wallpaper library image applied
+h_2b1acef5	Built-in wallpaper cannot be deleted
+h_89df9e25	Wallpaper deleted
+h_502eb6f3	Choose a wallpaper to apply
+h_155a119b	Add wallpaper
+h_57b7276a	QuizBao · theme preview
+h_841bfb11	Live component preview
+h_ead71ec7	Color changes apply instantly; what you see is what you get
+h_5464581f	Current theme color block (primaryContainer)
+h_d9113e34	Primary button
+h_21e2f1a9	Secondary button
+h_2f9d9bdd	Selected list item
+h_55d569d2	Input placeholder (outline)
+h_d38b7fc2	Switch control
+h_f96dabbc	Radio button
+h_db98f889	Checkbox
+h_c1dc4db2	Tag selected
+h_8f119321	Tag unselected
+h_3c34792e	Option 1
+h_b7abee9d	Option 2
+h_ae4833a1	Switched to "
+h_c6fe31dc	" skin
+h_f08afd1f	Selected
+h_9970ad07	Theme
+h_255f442c	Custom color
+h_edb9ba13	Custom theme color
+h_e4c42812	Custom theme color applied
+h_d1f4a2ca	Toolbox
+h_74e7f8c2	File preview tool
+h_521f7d28	Failed to open Office UI: 
+h_ac1d1bd3	Failed to open file picker: 
+h_8a322723	Failed to open Office document: 
+h_77d7cc1c	Other tools
+h_8a9e576d	Failed to open weather details: 
+h_a7bac223	Chinese
+h_f9fb6a06	English
+h_5e9c2ff3	Enter text to detect
+h_1ea9776a	Enter a question (with options and answer)
+h_7bd72694	Enter text
+h_f467e05d	Enter the text to translate
+h_9113c7ef	Detecting language
+h_c563f559	Analyzing the text language, please wait...
+h_8beafa09	Translating question
+h_0bd89a98	Translating the question content, please wait...
+h_34e008d0	Translating text
+h_3c372740	Translating the text content, please wait...
+h_92c9ef31	Translation successful
+h_a5d2dadc	Translation failed; retry
+h_1e9d2db6	Error during translation: 
+h_5eac11b4	Current location
+h_c63b316f	No GPS coordinates; using city name
+h_72c5e9fe	No location permission; using city query
+h_e41ae320	Location success, loading...
+h_b16a4dd3	Getting GPS location...
+h_5f5b152c	Location timeout; using city query
+h_3798353c	Location timeout; cannot get weather
+h_0fcd7253	Unknown location
+h_9831baf6	Location failed
+h_8872b579	Cannot locate; using city query
+h_9160ec6c	Cannot locate
+h_eeb9d7a3	Cannot get location
+h_969a9f77	Alert
+h_2b6827c2	No precipitation map link yet
+h_cd55d806	Cannot open precipitation map
+h_1deb24ab	Feels like --°
+h_4db4795e	Cloud --%
+h_685a8412	Dew point --°
+h_4f917d13	Visibility --km
+h_457351af	-- air quality
+h_bf320dfa	-- wind
+h_9508dd9e	--level
+h_21efd88b	No data
+h_f1d25753	Comfortable
+h_4458129c	Updated --:--
+h_23681583	Cannot get location info
+h_ce0ea572	Enable location permission first
+h_4cbee84f	Location required for query
+h_4a27e834	No GPS coordinates
+h_dde79cba	Updated 
+h_860225c4	Update failed: 
+h_9b53e2a0	High
+h_665f6e4c	° Low
+h_af4f1044	Feels like 
+h_60221e73	Cloud 
+h_5b7b89a9	Dew point 
+h_148fc868	Visibility 
+h_ac7bf3e0	No forecast data
+h_0d66ed02	Query failed
+h_94b36989	Air quality query failed
+h_2351df51	General population: 
+h_e908a14d	Sensitive groups: 
+h_5130aa9b	🟡 Primary pollutant: 
+h_d5e41258	alert]
+h_68cbd329	(also 
+h_265f273c	Weather
+h_52636511	Red
+h_d9bbeb44	Orange
+h_ddb86dd3	Yellow
+h_9c9aabab	Blue
+h_4685224b	Weather alert
+h_569d866e	Heavy rain
+h_43dfd700	Thunder
+h_db5f1712	Thunderstorm
+h_46ad421d	Gale
+h_cb9bc278	Strong wind
+h_7cd28c6c	Blizzard
+h_4fafcc2c	Heavy snow
+h_ea25b6ea	High temperature
+h_1ea91433	Cold wave
+h_b04f6fd4	Temperature drop
+h_5e9bb27c	Road icing
+h_e527a26f	Freezing
+h_6ab232c9	Dense fog
+h_b2036718	Sand and dust
+h_014e238d	Blowing sand
+h_647d33af	Typhoon
+h_cb1de6e5	Sea wave
+h_ea27df54	Storm surge
+h_5f776911	Drought
+h_33788212	Hail
+h_5d5b12fb	Frost
+h_cb3d7529	Forest fire risk
+h_596297f1	Fire
+h_88f892c5	Issued: 
+h_84a3191b	Agency: 
+h_1bf343fc	Effective: 
+h_3a68b89c	Urgency: 
+h_bae21822	Certainty: 
+h_8aa8b23a	🛡️ Defense guide
+h_274efdb9	All day today
+h_7929767e	Today daytime
+h_c7ba693e	, at night
+h_d7befd55	Tonight
+h_de66c340	, temperature difference
+h_e9100b89	° dress accordingly
+h_f8ad32ea	 current
+h_1a902d11	, feels about
+h_1f38c85b	, feels about
+h_7e868f04	, feels
+h_95ce7d95	, very poor visibility (&lt;1km)
+h_8e057650	, poor visibility (
+h_ad4463d0	, moderate visibility (
+h_3ded4e65	, good visibility (
+h_2d1065ec	 Heavy rain, avoid going out.
+h_4bd97296	 Heavy rain, bring an umbrella.
+h_66649225	 Rain expected, carry rain gear.
+h_79978b01	 Blizzard, keep warm and watch your step.
+h_30483476	 Snow expected, beware of slippery roads.
+h_9b7ddd10	 Low visibility, stay safe when out.
+h_27d31044	 Sand and dust, wear a mask.
+h_b001cecf	 Severe cold, prevent frostbite.
+h_f87126c4	 Cold weather, keep warm.
+h_f9797d64	 Scorching heat, prevent heatstroke.
+h_f3300ec5	 Hot weather, drink more water.
+h_a1f59fc0	 Nice weather, good for outdoor activities.
+h_c63d2db4	Intermittent %s,
+h_a9f57b3a	precipitation for %d min
+h_e535deb9	, interval %d min
+h_3080e75d	continuous %s for %d min
+h_d494de13	, total %.1fmm (%s)
+h_a2f58ffa	, will not stop within 2 hours
+h_419b74b2	Weather details
+h_88f000a0	Rendering...
+h_56a83357	Processed %d/%d rows
+h_db5eded9	File loaded successfully
+h_eba75b51	Please load a file first
+h_1faa6cc2	Running auto-mapping...
+h_87e6eef1	Header is empty, cannot auto-map
+h_10401e7a	Auto-mapping complete, mapped 
+h_a7ed8134	Auto-mapping failed: 
+h_d8ac4681	Clear mapping
+h_10a06fbf	Clear all field mappings?
+h_b356ac4a	All mappings cleared
+h_64b92b2d	Rendering split preview...
+h_fd4d7fd4	Split preview loaded; adjust virtual column mapping then tap "Next"
+h_25e3739d	Split preview render failed: 
+h_da09a19e	Header is empty
+h_9381dda8	Select the column to split
+h_948b228a	Failed to read header: 
+h_7d64ae3b	Detected column 
+h_dcfe3ceb	 options use the delimiter:\n
+h_e3ca7094	After confirming, the column will be split into options A/B/C/D...\n
+h_f5b5059b	You can also choose another delimiter or enter a custom one.
+h_e4696b15	Auto-detect: 
+h_c3f2bf07	Letter labels (e.g. A. B. C. D.)
+h_3062814c	No split (each row is one full option)
+h_60532691	Or enter a custom delimiter
+h_e53e248e	Option delimiter
+h_e83a256e	Confirm
+h_78207226	Back to edit
+h_ef3e299b	Please map the required fields:\n\n
+h_fcd1f176	❌ Question type (select the Excel column for the "question type" field)\n
+h_0576192c	✅ Question type (mapped to column 
+h_1bad54b9	❌ Question (select the Excel column for the "question" or "question content" field)\n
+h_f2e7294c	 (mapped to column 
+h_62267217	❌ Correct answer (select the Excel column for the "correct answer" or "answer" field)\n
+h_31690f83	\nCurrent mapping:\n
+h_11d919cf	(no mapping yet)\n
+h_cb7429be	 → column 
+h_d965ca37	\n💡 Tip: options, explanation, difficulty, and category are optional fields; import works fine without them.
+h_0751de62	Mapping config incomplete
+h_bdba11d8	📋 Mapping result:\n\n
+h_f7e2df38	 → split part 
+h_35a72186	Confirm mapping config
+h_eca060fa	Confirm &amp; continue
+h_25b1ba83	⚙️ Import settings
+h_afcc3e34	💾 Save
+h_77322d90	✅ Settings saved
+h_acc47889	✅ Added
+h_876d7920	❌ Maximum option count reached
+h_0298d26c	Failed to load wrong questions: 
+h_0604a9e0	No wrong questions to review
+h_3225c25f	Clear wrong questions
+h_3d7b8851	Clear all wrong questions? This cannot be undone.
+h_4d4dafc3	Delete wrong question
+h_ca0b9d55	Delete this wrong question?
+h_ad23f072	Delete failed: 
+h_b2fbad65	Voice message
+h_ba32db0a	🗑️ Delete attachment
+h_6d4b209b	Delete this attachment?\n
+h_98dd417c	🤖 AI summary:\n
+h_91a02ea3	📝 Extracted content:\n
+h_c28fbfe8	⏳ Parsing...
+h_42c75848	❌ Parse failed: 
+h_cd28422c	ℹ️ No extracted content
+h_8667899b	Attachment content preview
+h_290b624a	Copy full text
+h_0ec7d451	✅ Copied to clipboard
+h_5cbff303	Model path: 
+h_be4cd65b	In use
+h_316f7a56	Tap to switch
+h_a6da27c5	Fetch the model list first
+h_3388316f	Model details
+h_2afc3718	Question type mapping (
+h_4453dd7d	Difficulty mapping (
+h_503f44ed	Category mapping (
+h_d7840b2c	No mapping
+h_432928d3	Starting export...
+h_4062b25e	Exporting...
+h_064917ca	Exporting... 
+h_80d8cdc9	Export complete! File saved to:\n
+h_92f00bd2	Content template:
+h_c906734a	Template:
+h_395c7442	Select a content template
+h_c3f9cc1b	Type: content template
+h_dc5c8ec2	Content templates generate study materials in a specific format
+h_50e5250f	Select an export template
+h_294b3945	Export templates define the format and layout of the exported file
+h_9b7536df	File: 
+h_a5d1c511	Template name
+h_dfda394d	Format: none
+h_8c289710	Select a template
+h_4f51ac6e	Select a content template
+h_970f00ea	%s\nHigh: %d° Low: %d°\n%s %s\nHumidity: %d%%
+h_75378edd	No hourly data yet
+h_7075e4d2	No daily forecast yet

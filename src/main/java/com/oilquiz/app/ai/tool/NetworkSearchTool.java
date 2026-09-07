@@ -54,7 +54,8 @@ import org.json.JSONObject;
         @Param(name = "num_results", type = "int", description = "返回结果数量（limit的别名）", required = false),
         @Param(name = "url", type = "string", description = "网页URL（用于read_url、get_webpage、extract_info和get_dynamic_content操作）", required = false),
         @Param(name = "maxResults", type = "int", description = "最大结果数(默认5)", required = false),
-        @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false)
+        @Param(name = "autoRead", type = "boolean", description = "是否自动读取详情(默认true)", required = false),
+        @Param(name = "results", type = "array", description = "搜索结果数组（用于smart_read，传上一步search返回的results）", required = false)
     }
 )
 public class NetworkSearchTool implements AITool {

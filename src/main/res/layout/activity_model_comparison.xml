@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/white"
-    tools:context=".ModelComparisonActivity">
+    tools:context=".ai.model.ModelComparisonActivity">
 
     <!-- 顶部工具栏 -->
     <androidx.appcompat.widget.Toolbar
@@ -22,28 +22,28 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp" />
+        android:padding="@dimen/space_16" />
 
     <!-- 模型A选择器 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/gray_100">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="模型A:"
-            android:textSize="16sp"
-            android:textColor="@color/text_primary"
+            android:textSize="@dimen/text_16"
+            android:textColor="?attr/colorControlText"
             android:layout_gravity="center_vertical"
-            android:layout_marginEnd="16dp" />
+            android:layout_marginEnd="@dimen/space_16" />
 
         <Spinner
             android:id="@+id/model_a_selector"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:background="@drawable/rounded_spinner" />
@@ -54,21 +54,21 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/white">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="模型B:"
-            android:textSize="16sp"
-            android:textColor="@color/text_primary"
+            android:textSize="@dimen/text_16"
+            android:textColor="?attr/colorControlText"
             android:layout_gravity="center_vertical"
-            android:layout_marginEnd="16dp" />
+            android:layout_marginEnd="@dimen/space_16" />
 
         <Spinner
             android:id="@+id/model_b_selector"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:background="@drawable/rounded_spinner" />
@@ -78,21 +78,21 @@
     <WebView
         android:id="@+id/performance_web_view"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="@dimen/size_0"
         android:layout_weight="1"
-        android:padding="16dp" />
+        android:padding="@dimen/space_16" />
 
     <!-- 底部按钮 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="16dp"
+        android:padding="@dimen/space_16"
         android:background="@color/gray_100">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/run_test_button"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/size_0"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="运行性能测试"

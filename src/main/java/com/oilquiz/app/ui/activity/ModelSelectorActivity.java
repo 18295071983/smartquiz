@@ -27,6 +27,7 @@ import com.oilquiz.app.ai.model.InferenceType;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.service.AIService;
+import com.oilquiz.app.ai.service.AIServiceInitializer;
 import com.oilquiz.app.ai.service.ModelListFetcher;
 import com.oilquiz.app.ai.util.APIKeyManager;
 import com.oilquiz.app.ui.adapter.ModelAdapter;
@@ -67,6 +68,8 @@ public class ModelSelectorActivity extends AppCompatActivity
     private TextView tvTtsModelValue;  // 语音合成模型显示
     private TextView tvTtsVoiceValue;  // TTS 音色显示
     private LinearLayout rowFeatureModelsHeader;  // 功能专用模型标题行
+    private View aiInitCard;                      // AI 服务一键初始化卡片
+    private MaterialButton btnAiInit;             // 一键初始化按钮
 
     /** 在线模型配置变更监听器（需在 onDestroy 中注销避免内存泄漏） */
     private OnlineModelManager.ModelChangeListener modelChangeListener;
@@ -90,6 +93,8 @@ public class ModelSelectorActivity extends AppCompatActivity
             addOnlineModelButton = findViewById(R.id.add_online_model_button);
             importLocalModelButton = findViewById(R.id.import_local_model_button);
             btnApiConfig = findViewById(R.id.btn_api_config);
+            aiInitCard = findViewById(R.id.ai_init_card);
+            btnAiInit = findViewById(R.id.btn_ai_init);
             onlineModelsSection = findViewById(R.id.online_models_section);
             onlineModelsEmptyView = findViewById(R.id.online_models_empty);
             localModelsEmptyView = findViewById(R.id.local_models_empty);
@@ -124,6 +129,18 @@ public class ModelSelectorActivity extends AppCompatActivity
             if (btnApiConfig != null) {
                 btnApiConfig.setOnClickListener(v -> {
                     startActivity(new Intent(ModelSelectorActivity.this, ApiConfigActivity.class));
+                });
+            }
+
+            // AI 服务一键初始化入口：仅当本地与在线模型均未配置时显示
+            if (aiInitCard != null && btnAiInit != null) {
+                updateAiInitCardVisibility();
+                btnAiInit.setOnClickListener(v -> {
+                    if (!AIServiceInitializer.needsInitialization(this)) {
+                        updateAiInitCardVisibility();
+                        return;
+                    }
+                    startActivity(new Intent(ModelSelectorActivity.this, AIServiceInitActivity.class));
                 });
             }
 
@@ -178,7 +195,7 @@ public class ModelSelectorActivity extends AppCompatActivity
             onlineModelManager.addListener(modelChangeListener);
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "初始化失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_58c10e4c) + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -211,7 +228,7 @@ public class ModelSelectorActivity extends AppCompatActivity
                 activeDisplayName = currentModel;
             }
             if (currentModelNameTextView != null) {
-                currentModelNameTextView.setText(activeDisplayName != null ? activeDisplayName : "未选择模型");
+                currentModelNameTextView.setText(activeDisplayName != null ? activeDisplayName : getString(R.string.h_be4bb9e0));
             }
 
             // 本地模型列表的"当前使用"高亮：仅当实际使用本地模型时才标记，
@@ -244,11 +261,62 @@ public class ModelSelectorActivity extends AppCompatActivity
             updateCurrentModelDisplay();
 
             if (modelList.isEmpty() && !onlineModelManager.hasModels()) {
-                Toast.makeText(this, "暂无可用模型，请先导入模型或添加在线模型", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_04ab5378), Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             e.printStackTrace();
-            Toast.makeText(this, "刷新模型列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_a4d0e139) + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * 更新 AI 服务一键初始化卡片显隐（本地与在线均未配置时显示）
+     */
+    private void updateAiInitCardVisibility() {
+        if (aiInitCard == null) return;
+        boolean show = AIServiceInitializer.needsInitialization(this);
+        aiInitCard.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (btnAiInit != null) {
+            btnAiInit.setEnabled(true);
+            btnAiInit.setText(getString(R.string.h_4d24d2a1));
+        }
+    }
+
+    /**
+     * 强制从数据源重新同步模型列表，然后刷新 UI。
+     * 用于刷新按钮，确保从 APIKeyManager / SharedPreferences 重新加载最新数据。
+     */
+    private void forceRefreshModels() {
+        try {
+            // 从 APIKeyManager 重新同步在线模型配置
+            int synced = onlineModelManager.importFromAPIKeyManager();
+            if (synced > 0) {
+                AppLogger.i("ModelSelector", "强制同步了 " + synced + " 个在线模型配置");
+            }
+        } catch (Exception e) {
+            AppLogger.w("ModelSelector", "强制同步失败: " + e.getMessage());
+        }
+        // 刷新所有 UI
+        refreshModels();
+        Toast.makeText(this, getString(R.string.h_fd08d15f), Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * 安全地更新本地模型adapter，避免RecyclerView正在布局或动画时更新导致崩溃
+     */
+    private void updateLocalModelAdapterSafe(final List<String> modelList, final String currentModel) {
+        if (modelsRecycler == null || modelAdapter == null) {
+            return;
+        }
+        if (modelsRecycler.isComputingLayout() || modelsRecycler.isAnimating()) {
+            // RecyclerView正在计算布局或动画中，延迟到下一帧再更新
+            modelsRecycler.post(() -> {
+                if (modelAdapter != null) {
+                    modelAdapter.updateData(modelList, currentModel);
+                }
+            });
+        } else {
+            modelAdapter.updateData(modelList, currentModel);
         }
     }
 
@@ -338,10 +406,10 @@ public class ModelSelectorActivity extends AppCompatActivity
         
         if (modelName != null) {
             currentModelNameTextView.setText(modelName);
-            currentModelTypeTextView.setText("类型: " + type.getDisplayName());
+            currentModelTypeTextView.setText(getString(R.string.h_d46380d7) + type.getDisplayName());
         } else {
-            currentModelNameTextView.setText("未选择模型");
-            currentModelTypeTextView.setText("类型: 未知");
+            currentModelNameTextView.setText(getString(R.string.h_be4bb9e0));
+            currentModelTypeTextView.setText(getString(R.string.h_b555f97c));
         }
     }
 
@@ -358,7 +426,7 @@ public class ModelSelectorActivity extends AppCompatActivity
                 if (config != null) {
                     // 通过 InferenceRouter 切换，确保路由状态同步
                     inferenceRouter.switchModel(config.id);
-                    Toast.makeText(ModelSelectorActivity.this, "在线模型已添加并激活: " + config.name, Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ModelSelectorActivity.this, getString(R.string.h_8a7f6c2f) + config.name, Toast.LENGTH_SHORT).show();
                     refreshModels();
                 }
             }
@@ -377,14 +445,14 @@ public class ModelSelectorActivity extends AppCompatActivity
         if (onlineConfig != null) {
             // 在线模型：直接切换并即时刷新 UI
             inferenceRouter.switchModel(onlineConfig.id);
-            Toast.makeText(this, "已切换到在线模型: " + modelName, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_9569dd13) + modelName, Toast.LENGTH_SHORT).show();
             // 即时刷新所有显示
             refreshOnlineModels();
             updateCurrentModelDisplay();
             // 延迟刷新本地模型区域（可能不需要）
             safeDelayedRefreshModels(200);
         } else {
-            Toast.makeText(this, "正在切换到本地模型: " + modelName, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_154f0dc4) + modelName, Toast.LENGTH_SHORT).show();
             onlineModelManager.stopActiveModel();
 
             // 使用热切换，带进度回调
@@ -410,11 +478,11 @@ public class ModelSelectorActivity extends AppCompatActivity
                     runOnUiThread(() -> {
                         if (success) {
                             Toast.makeText(ModelSelectorActivity.this,
-                                "模型切换成功: " + model, Toast.LENGTH_SHORT).show();
+                                getString(R.string.h_24d9c18f) + model, Toast.LENGTH_SHORT).show();
                             refreshModels();
                         } else {
                             Toast.makeText(ModelSelectorActivity.this,
-                                "模型切换失败", Toast.LENGTH_SHORT).show();
+                                getString(R.string.h_b9c8e7b7), Toast.LENGTH_SHORT).show();
                         }
                     });
                 }
@@ -423,7 +491,7 @@ public class ModelSelectorActivity extends AppCompatActivity
                 public void onSwitchFailed(String reason) {
                     runOnUiThread(() -> {
                         Toast.makeText(ModelSelectorActivity.this,
-                            "模型切换失败: " + reason, Toast.LENGTH_SHORT).show();
+                            getString(R.string.h_70a7d4d9) + reason, Toast.LENGTH_SHORT).show();
                     });
                 }
             });
@@ -453,9 +521,9 @@ public class ModelSelectorActivity extends AppCompatActivity
 
         final String configId = config.id; // 提取为 final 变量以用于 lambda
         new AlertDialog.Builder(this)
-            .setTitle("删除确认")
-            .setMessage("确定要删除在线模型 \"" + config.name + "\" 吗？")
-            .setPositiveButton("删除", (dialog, which) -> {
+            .setTitle(getString(R.string.h_50eaf94d))
+            .setMessage(getString(R.string.h_bf14db74) + config.name + getString(R.string.h_2957e496))
+            .setPositiveButton(getString(R.string.h_2f4aaddd), (dialog, which) -> {
                 // 先同步删除 APIKeyManager 中对应的配置（如果存在）
                 try {
                     APIKeyManager manager = APIKeyManager.getInstance(this);
@@ -465,10 +533,10 @@ public class ModelSelectorActivity extends AppCompatActivity
                 } catch (Exception ignored) {
                 }
                 onlineModelManager.removeModel(configId);
-                Toast.makeText(this, "在线模型已删除", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getString(R.string.h_6c0d7a63), Toast.LENGTH_SHORT).show();
                 refreshModels();
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
     }
 
@@ -498,7 +566,7 @@ public class ModelSelectorActivity extends AppCompatActivity
                 }
                 refreshOnlineModels();
                 updateCurrentModelDisplay();
-                Toast.makeText(this, enabled ? "已启用" : "已禁用", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, enabled ? getString(R.string.h_53ace430) : getString(R.string.h_1c1ed981), Toast.LENGTH_SHORT).show();
                 break;
             }
         }
@@ -513,7 +581,7 @@ public class ModelSelectorActivity extends AppCompatActivity
     public void onEditClick(String modelName) {
         OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
         if (config == null) {
-            Toast.makeText(this, "未找到在线模型配置", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
             return;
         }
         showEditOnlineModelDialog(config);
@@ -524,7 +592,7 @@ public class ModelSelectorActivity extends AppCompatActivity
         dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
             @Override
             public void onConfigSaved(OnlineModelManager.OnlineModelConfig updatedConfig) {
-                Toast.makeText(ModelSelectorActivity.this, "配置已更新: " + updatedConfig.name, Toast.LENGTH_SHORT).show();
+                Toast.makeText(ModelSelectorActivity.this, getString(R.string.h_454706a6) + updatedConfig.name, Toast.LENGTH_SHORT).show();
                 refreshModels();
             }
 
@@ -540,16 +608,16 @@ public class ModelSelectorActivity extends AppCompatActivity
     public void onFetchModelsClick(String modelName) {
         OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
         if (config == null) {
-            Toast.makeText(this, "未找到在线模型配置", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
             return;
         }
 
         if (config.apiKey == null || config.apiKey.isEmpty()) {
-            Toast.makeText(this, "API Key 不能为空", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_1571dfd4), Toast.LENGTH_SHORT).show();
             return;
         }
 
-        Toast.makeText(this, "正在获取模型列表...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_916702da), Toast.LENGTH_SHORT).show();
 
         final String targetConfigId = config.id;
         modelListFetcher.fetchModels(config.apiUrl, config.apiKey)
@@ -568,19 +636,19 @@ public class ModelSelectorActivity extends AppCompatActivity
                             modelsJson.put(obj);
                         }
                         onlineModelManager.saveCachedModels(targetConfigId, modelsJson.toString());
-                        Toast.makeText(this, "获取成功，共 " + models.size() + " 个模型", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_96daed33) + models.size() + getString(R.string.h_44850b04), Toast.LENGTH_SHORT).show();
                         // 延迟 300ms 刷新，避免与 RecyclerView 布局/动画状态冲突
                         safeDelayedRefreshOnlineModels(300);
                     } catch (Exception e) {
-                        Toast.makeText(this, "保存模型列表失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, getString(R.string.h_157fa13a) + e.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 } else {
-                    Toast.makeText(this, "未获取到模型列表", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_d1ef35f7), Toast.LENGTH_SHORT).show();
                 }
             }))
             .exceptionally(e -> {
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "获取失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, getString(R.string.h_bdf02ef7) + e.getMessage(), Toast.LENGTH_SHORT).show();
                 });
                 return null;
             });
@@ -613,7 +681,7 @@ public class ModelSelectorActivity extends AppCompatActivity
     public void onModelSelected(String modelName, String selectedModel) {
         OnlineModelManager.OnlineModelConfig config = findOnlineModelByName(modelName);
         if (config == null) {
-            Toast.makeText(this, "未找到在线模型配置", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, getString(R.string.h_aed6aa70), Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -641,7 +709,7 @@ public class ModelSelectorActivity extends AppCompatActivity
         }
         // 自动切换到该在线模型
         inferenceRouter.switchModel(config.id);
-        Toast.makeText(this, "已切换到模型: " + selectedModel, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.h_f70a7dc7) + selectedModel, Toast.LENGTH_SHORT).show();
         refreshOnlineModels();
         updateCurrentModelDisplay();
     }
@@ -717,9 +785,9 @@ public class ModelSelectorActivity extends AppCompatActivity
             String savedVoice = com.oilquiz.app.ai.speech.SpeechManager
                     .getInstance(this).getSavedTtsVoice();
             if (savedVoice == null || savedVoice.isEmpty()) {
-                tvTtsVoiceValue.setText("跟随模型默认");
+                tvTtsVoiceValue.setText(getString(R.string.h_6871533f));
             } else if (savedVoice.startsWith(com.oilquiz.app.ai.speech.TTSService.SYS_VOICE_PREFIX)) {
-                tvTtsVoiceValue.setText("系统·"
+                tvTtsVoiceValue.setText(getString(R.string.h_89e2a0f3)
                         + savedVoice.substring(com.oilquiz.app.ai.speech.TTSService.SYS_VOICE_PREFIX.length()));
             } else {
                 tvTtsVoiceValue.setText(savedVoice);
@@ -760,13 +828,13 @@ public class ModelSelectorActivity extends AppCompatActivity
             serviceStatusBar.setVisibility(View.VISIBLE);
             if (validCount == totalCount) {
                 statusIndicator.setBackgroundResource(R.drawable.status_indicator_valid);
-                tvServiceStatus.setText(validCount + "/" + totalCount + " 个服务正常");
+                tvServiceStatus.setText(validCount + "/" + totalCount + getString(R.string.h_46b389d6));
             } else if (validCount > 0) {
                 statusIndicator.setBackgroundResource(R.drawable.status_indicator_rate_limited);
-                tvServiceStatus.setText(validCount + "/" + totalCount + " 个服务正常");
+                tvServiceStatus.setText(validCount + "/" + totalCount + getString(R.string.h_46b389d6));
             } else {
                 statusIndicator.setBackgroundResource(R.drawable.status_indicator_invalid);
-                tvServiceStatus.setText("全部服务异常");
+                tvServiceStatus.setText(getString(R.string.h_5556b5e7));
             }
         }
     }

@@ -94,8 +94,8 @@ public class ImportResultActivity extends BaseActivity {
         tvSuccessCount.setText(String.valueOf(successCount));
         tvFailedCount.setText(String.valueOf(failedCount));
         tvSkippedCount.setText(String.valueOf(skippedCount));
-        tvImportTime.setText(String.format("%.2f秒", importTime / 1000.0));
-        tvFileName.setText(fileName != null ? fileName : "未知文件");
+        tvImportTime.setText(String.format(getString(R.string.h_ae4e6627), importTime / 1000.0));
+        tvFileName.setText(fileName != null ? fileName : getString(R.string.h_94cd9443));
 
         // 计算成功率
         double successRate = totalQuestions > 0 ? (successCount * 100.0 / totalQuestions) : 0;
@@ -126,8 +126,8 @@ public class ImportResultActivity extends BaseActivity {
         });
 
         btnViewQuestions.setOnClickListener(v -> {
-            // 打开题库管理查看导入的题目
-            Intent intent = new Intent(this, QuestionBankActivity.class);
+            // 打开题目管理查看导入的题目
+            Intent intent = new Intent(this, QuestionActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             startActivity(intent);
             finish();

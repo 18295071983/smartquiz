@@ -1,105 +1,71 @@
 # 答题宝 开发文档
 
+> 设计文档体系（`docs/development`）已按 feature/agent-local 真实代码重写。
+
 ## 文档结构
 
 ```
 docs/
-├── AGENT_ARCHITECTURE.md                  # Agent 智能代理架构设计
-├── AGENT_LOCAL_MODEL_ONLINE_ROUTING.md    # Agent 本地/在线路由设计
-├── AGENT_ROUTING_QUICK_GUIDE.md           # Agent 路由快速指南
-├── ONLINE_AGENT_LOCAL_FALLBACK.md         # 在线 Agent 本地降级方案
-├── ONLINE_AGENT_LOCAL_FALLBACK_SUMMARY.md # 在线 Agent 降级总结
-├── ONLINE_AGENT_LOCAL_FALLBACK_TEST.md    # 在线 Agent 降级测试
-├── ai_rules.md                            # AI 开发规则与规范
+├── ai_rules.md                            # AI 编码助手规则
 ├── QWeather_SDK_Guide.md                  # 和风天气 SDK 集成指南
+├── README.md                              # 本索引
+├── development/                           # 设计文档体系（重写）
+│   ├── 01-project-overview.md             # 项目架构总览
+│   ├── 02-ai-agent-architecture.md        # AI Agent 架构设计
+│   ├── 03-ai-chat-ui.md                   # AI 对话界面设计
+│   ├── 04-ai-service-inference.md         # AI 服务与推理设计
+│   ├── 05-tool-system.md                  # 工具系统设计
+│   ├── 06-data-layer.md                   # 数据层设计
+│   ├── 07-hardware-performance.md         # 硬件与性能
+│   ├── 08-module-inventory.md             # 模块清单
+│   ├── 09-development-guide.md            # 开发规范
+│   ├── 10-database-design.md              # 数据库设计
+│   ├── 11-edge-model-deployment.md        # 端侧大模型部署设计
+│   ├── 12-llama-cpp.md                    # llama.cpp 功能设计
+│   ├── 13-inference-engine.md             # 推理库与推理引擎设计
+│   ├── 14-cmake-build.md                  # CMake 构建设计
+│   ├── 15-question-import.md              # 题库文件导入功能设计
+│   └── 16-ai-coding-conventions.md        # AI 工具编码约定
 ├── database/
-│   └── database_structure.md              # 数据库结构设计 (v24)
-├── development/
-│   ├── ai_feature_design.md               # AI 功能总体设计
-│   ├── ai_ui_interaction_design.md        # AI-UI 交互设计
-│   ├── ai_assisted_thinking_design.md     # AI 辅助思考设计
-│   ├── AI_CHAT_V2.0_DESIGN.md             # AI Chat v2.0 设计
-│   ├── AI_SUMMARY_OPTIMIZATION_PLAN.md    # AI 总结优化计划
-│   ├── android_adaptation.md              # Android 原生适配开发标准化
-│   ├── comprehensive_analysis_report.md   # 综合分析报告
-│   ├── development_standards.md           # 开发标准规范
-│   ├── enhanced_local_library_design.md   # 增强本地库设计
-│   ├── excel_import_feature.md            # Excel 导入功能设计
-│   ├── module_function_design.md          # 模块功能设计 (v2.2)
-│   ├── project_redesign_summary.md        # 项目重设计总结
-│   ├── tech_stack.md                      # 技术栈文档 (v2.3)
-│   ├── testing_strategy.md               # 测试策略文档
-│   ├── ui_resources_design.md             # UI 资源设计
-│   ├── ui_ux_redesign.md                  # UI/UX 重设计文档
-│   ├── user_stories.md                    # 用户故事
-│   ├── AGENT_CHAIN_DESIGN.md              # Agent 链式调用设计
-│   ├── AGENT_HARDWARE_SOFTWARE_DESIGN.md  # Agent 软硬件设计
-│   ├── AGENT_OPTIMIZATION_REPORT.md       # Agent 优化报告
-│   ├── AGENT_PERMISSION_MECHANISM_EXPLAINED.md  # Agent 权限机制说明
-│   ├── CHANGELOG_V2.0.md                  # v2.0 更新日志
-│   ├── FUNCTIONALITY_DETECTION_REPORT.md  # 功能检测报告
-│   ├── FIX_RECORD_AUDIO_PERMISSION.md     # 录音权限修复记录
-│   ├── OPENAI_TOOL_CALLING_DESIGN.md      # OpenAI 工具调用设计
-│   ├── AI_COMPONENT_LAYOUT_DESIGN.md      # AI 组件与布局控件系统设计
-│   ├── RESOURCE_REFACTORING_GUIDE.md      # 资源重构指南
-│   ├── TBS_SDK_INTEGRATION_GUIDE.md       # TBS SDK 集成指南
-│   ├── local_library_inference_engine_design.md  # 本地库推理引擎设计
-│   ├── 应用重构设计文档.md                # 应用重构设计 (v2.0，2026-08-28 依据 git 记录修订)
-│   └── ai_modules/
-│       ├── ai_service_design.md           # AI 服务层设计
-│       ├── ai_chat_v3_acceptance.md       # AI Chat v3 验收标准
-│       ├── ai_chat_v3_debugging.md        # AI Chat v3 调试指南
-│       ├── ai_chat_v3_design.md           # AI Chat v3 设计文档
-│       ├── ai_chat_v3_prd.md              # AI Chat v3 需求文档
-│       ├── ai_chat_v3_rules.md            # AI Chat v3 规则
-│       ├── ai_chat_v3_tasks.md            # AI Chat v3 任务清单
-│       ├── learning_assistant_design.md   # 学习助手设计
-│       ├── llm_service_design.md          # LLM 服务设计
-│       ├── model_manager_design.md        # 模型管理设计
-│       ├── question_analyzer_design.md    # 题目分析器设计
-│       ├── question_generator_design.md   # 题目生成器设计
-│       └── translator_design.md           # 翻译器设计
+│   └── database_structure.md              # 数据库结构（保留参考）
 └── system/
-    ├── api_design.md                      # API 设计文档
+    ├── api_design.md                      # API 设计
     ├── deployment_guide.md                # 部署指南
-    └── system_architecture.md             # 系统架构设计 (v2.4)
+    └── system_architecture.md             # 系统架构
 ```
 
 ## 文档导航
 
 ### 新入开发者
 
-1. **系统架构** → [system_architecture.md](system/system_architecture.md) - 了解整体系统设计
-2. **技术栈** → [tech_stack.md](development/tech_stack.md) - 了解使用的技术栈
-3. **开发规范** → [development_standards.md](development/development_standards.md) - 了解编码规范
-4. **数据库设计** → [database_structure.md](database/database_structure.md) - 了解数据模型
+1. **项目概览** → [development/01-project-overview.md](development/01-project-overview.md)
+2. **系统架构** → [system/system_architecture.md](system/system_architecture.md)
+3. **开发规范** → [development/09-development-guide.md](development/09-development-guide.md)
+4. **数据库设计** → [development/10-database-design.md](development/10-database-design.md)
 
 ### AI 功能开发
 
-1. **AI 总体设计** → [ai_feature_design.md](development/ai_feature_design.md)
-2. **Agent 架构** → [AGENT_ARCHITECTURE.md](AGENT_ARCHITECTURE.md)
-3. **Agent 路由** → [AGENT_ROUTING_QUICK_GUIDE.md](AGENT_ROUTING_QUICK_GUIDE.md)
-4. **在线 Agent** → [ONLINE_AGENT_LOCAL_FALLBACK.md](ONLINE_AGENT_LOCAL_FALLBACK.md)
-5. **Agent 软硬件** → [AGENT_HARDWARE_SOFTWARE_DESIGN.md](development/AGENT_HARDWARE_SOFTWARE_DESIGN.md)
-6. **LLM 服务** → [llm_service_design.md](development/ai_modules/llm_service_design.md)
-7. **AI-UI 交互** → [ai_ui_interaction_design.md](development/ai_ui_interaction_design.md)
-8. **AI 组件与布局控件** → [AI_COMPONENT_LAYOUT_DESIGN.md](development/AI_COMPONENT_LAYOUT_DESIGN.md)
-9. **AI Chat v3** → [ai_chat_v3_design.md](development/ai_modules/ai_chat_v3_design.md)
+1. **Agent 架构** → [development/02-ai-agent-architecture.md](development/02-ai-agent-architecture.md)
+2. **AI 对话界面** → [development/03-ai-chat-ui.md](development/03-ai-chat-ui.md)
+3. **AI 服务与推理** → [development/04-ai-service-inference.md](development/04-ai-service-inference.md)
+4. **工具系统** → [development/05-tool-system.md](development/05-tool-system.md)
+5. **模块清单** → [development/08-module-inventory.md](development/08-module-inventory.md)
+6. **端侧大模型部署** → [development/11-edge-model-deployment.md](development/11-edge-model-deployment.md)
+7. **llama.cpp 功能** → [development/12-llama-cpp.md](development/12-llama-cpp.md)
+
+### 功能模块
+
+1. **数据层** → [development/06-data-layer.md](development/06-data-layer.md)
+2. **硬件与性能** → [development/07-hardware-performance.md](development/07-hardware-performance.md)
 
 ### 语音与天气
 
 1. **天气 SDK** → [QWeather_SDK_Guide.md](QWeather_SDK_Guide.md)
-2. **录音权限** → [FIX_RECORD_AUDIO_PERMISSION.md](development/FIX_RECORD_AUDIO_PERMISSION.md)
-
-### 部署与运维
-
-1. **部署指南** → [deployment_guide.md](system/deployment_guide.md)
-2. **测试策略** → [testing_strategy.md](development/testing_strategy.md)
-3. **API 设计** → [api_design.md](system/api_design.md)
+2. **AI 编码规则** → [ai_rules.md](ai_rules.md)
 
 ## 文档维护
 
-- 文档随代码同步更新，确保准确性
-- 所有文档纳入版本控制管理
-- 重大功能变更时同步更新相关文档
-- 更新日期统一为：2026-08-28
+- 文档与 `feature/agent-local` 分支的源码同步，确保准确性。
+- 设计文档集中在 `docs/development`，按编号组织（01~16）。
+- 重大功能变更时同步更新对应文档。
+- `docs/AGENT_ARCHITECTURE.md`、`AGENT_LOCAL_MODEL_ONLINE_ROUTING.md`、`ONLINE_*` 等早期文档已删除（内容过时或与新文档重复）。

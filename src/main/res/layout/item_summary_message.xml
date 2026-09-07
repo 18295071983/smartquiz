@@ -3,14 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="@dimen/space_8">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/message_card_background"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="@dimen/space_12">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -22,15 +22,15 @@
                 android:id="@+id/summary_icon"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="20sp"
-                android:layout_marginEnd="8dp" />
+                android:textSize="@dimen/text_20"
+                android:layout_marginEnd="@dimen/space_8" />
 
             <TextView
                 android:id="@+id/summary_label"
-                android:layout_width="0dp"
+                android:layout_width="@dimen/size_0"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textSize="14sp"
+                android:textSize="@dimen/text_14"
                 android:textColor="?attr/colorOnSurface"
                 android:textStyle="bold" />
 
@@ -38,8 +38,8 @@
                 android:id="@+id/summary_meta"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary" />
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlTextSecondary" />
 
         </LinearLayout>
 
@@ -47,14 +47,14 @@
             android:id="@+id/summary_content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textSize="14sp"
+            android:layout_marginTop="@dimen/space_8"
+            android:textSize="@dimen/text_14"
             android:textColor="?attr/colorOnSurface" />
 
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_8"
             android:orientation="horizontal">
 
             <Button
@@ -62,21 +62,21 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📋 复制总结"
-                android:textSize="12sp"
-                android:textColor="@color/primary"
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorPrimary"
                 android:background="?attr/selectableItemBackground"
-                android:padding="4dp" />
+                android:padding="@dimen/space_4" />
 
             <Button
                 android:id="@+id/btn_export"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📤 导出"
-                android:textSize="12sp"
-                android:textColor="@color/primary"
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorPrimary"
                 android:background="?attr/selectableItemBackground"
-                android:padding="4dp"
-                android:layout_marginStart="8dp" />
+                android:padding="@dimen/space_4"
+                android:layout_marginStart="@dimen/space_8" />
 
         </LinearLayout>
 
