@@ -219,6 +219,8 @@ public class AIChatActivity extends BaseActivity {
     private AIConfig aiConfig;
     /** 输入区上方的本地Agent开关（Chip，即时生效） */
     private com.google.android.material.chip.Chip chipLocalAgent;
+    /** 输入区上方的联网搜索开关（Chip，切换当前在线模型 supportsWebSearch 即时生效） */
+    private com.google.android.material.chip.Chip chipWebSearch;
     private CacheManager cacheManager;
     private OnlineModelManager onlineModelManager;
     private LocalBroadcastManager localBroadcastManager;
@@ -592,6 +594,26 @@ public class AIChatActivity extends BaseActivity {
                     showToast(next
                             ? "智能助手已为您服务"
                             : "智能助手已关闭：已进入快速模式");
+                });
+            }
+
+            // 联网搜索开关（Chip）：切换当前在线模型的 supportsWebSearch 并持久化，即时生效
+            chipWebSearch = findViewById(R.id.chip_web_search);
+            if (chipWebSearch != null) {
+                updateWebSearchChip();
+                chipWebSearch.setOnClickListener(v -> {
+                    // 从配置状态取反（checkable=false，不受系统自动翻转干扰）
+                    boolean on = false;
+                    try {
+                        OnlineModelManager.OnlineModelConfig cfg = onlineModelManager != null
+                                ? onlineModelManager.getActiveModel() : null;
+                        on = cfg != null && cfg.supportsWebSearch;
+                    } catch (Exception ignored) {
+                    }
+                    boolean next = !on;
+                    chipWebSearch.setChecked(next);
+                    toggleWebSearch(next);
+                    updateWebSearchChip();
                 });
             }
 
@@ -7062,6 +7084,7 @@ public class AIChatActivity extends BaseActivity {
                     lastOnlineModelId = activeModelId;
                     updateModeButtonText();
                     updateApiBalanceDisplay();
+                    updateWebSearchChip();
                 });
             }
         };
@@ -7479,9 +7502,93 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /** 切换当前在线模型的联网搜索能力（写配置持久化，即时生效）。仅服务商声明 webSearch 参数时可用 */
+    private void toggleWebSearch(boolean enabled) {
+        try {
+            OnlineModelManager.OnlineModelConfig cfg = onlineModelManager != null
+                    ? onlineModelManager.getActiveModel() : null;
+            if (cfg == null) {
+                showToast("未配置在线模型，无法开启联网搜索");
+                if (chipWebSearch != null) chipWebSearch.setChecked(false);
+                return;
+            }
+            // 联网搜索可用性：自有 network_search 工具（内置秘塔 Key 兜底）优先，官方 webSearch 支持兜底——
+            // 不被官方服务商能力捆绑（防止"服务商不支持 → 置灰"但自有工具明明可用）
+            boolean supported = com.oilquiz.app.ai.tool.NetworkSearchTool.isAvailable()
+                    || com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                            .supportsModelCapability(cfg.apiUrl, cfg.modelName, "webSearch");
+            if (enabled && !supported) {
+                showToast("当前没有可用的联网搜索能力");
+                if (chipWebSearch != null) chipWebSearch.setChecked(false);
+                updateWebSearchChip();
+                return;
+            }
+            cfg.supportsWebSearch = enabled;
+            // 标记用户手动调整过能力：配置表刷新/能力探测不再覆盖（否则关闭后又被探测回填为默认开）
+            cfg.capabilitiesUserSet = true;
+            if (onlineModelManager != null) {
+                onlineModelManager.updateModelConfig(cfg);
+            }
+            showToast(enabled ? "已开启联网搜索" : "已关闭联网搜索");
+        } catch (Exception e) {
+            showToast("联网搜索切换失败: " + e.getMessage());
+            if (chipWebSearch != null) chipWebSearch.setChecked(false);
+        }
+    }
+
+    /**
+     * 联网搜索 chip 状态：三态。
+     * - 不可用（未配置在线模型 / 服务商未声明 webSearch 参数）→ 置灰禁用，不可点击，防止意外启用；
+     * - 可用且开启 → 主色底白字；
+     * - 可用且关闭 → 灰色底灰字。
+     */
+    private void updateWebSearchChip() {
+        if (chipWebSearch == null) return;
+        boolean available = false;
+        boolean on = false;
+        try {
+            OnlineModelManager.OnlineModelConfig cfg = onlineModelManager != null
+                    ? onlineModelManager.getActiveModel() : null;
+            if (cfg != null && cfg.apiUrl != null && !cfg.apiUrl.isEmpty()) {
+                // 与注入/探测同源 + 自有工具优先：自有 network_search 可用则恒可用（不捆绑官方能力）
+                available = com.oilquiz.app.ai.tool.NetworkSearchTool.isAvailable()
+                        || com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                                .supportsModelCapability(cfg.apiUrl, cfg.modelName, "webSearch");
+                on = available && cfg.supportsWebSearch;
+            }
+        } catch (Exception ignored) {
+        }
+        chipWebSearch.setEnabled(true); // 保持可点击：不可用时点击给原因提示（不切换状态）
+        chipWebSearch.setChecked(on);
+        if (!available) {
+            // 不可用：灰底灰字 + 半透明 + "不可用"标记，点击仅提示原因，不会意外启用
+            chipWebSearch.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_bg)));
+            chipWebSearch.setTextColor(getColor(R.color.chip_gray_text));
+            chipWebSearch.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_stroke)));
+            chipWebSearch.setAlpha(0.5f);
+            chipWebSearch.setText("🔍 联网搜索·不可用");
+        } else if (on) {
+            chipWebSearch.setAlpha(1f);
+            chipWebSearch.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
+            chipWebSearch.setTextColor(getColor(R.color.white));
+            chipWebSearch.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
+        } else {
+            chipWebSearch.setAlpha(1f);
+            chipWebSearch.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_bg)));
+            chipWebSearch.setTextColor(getColor(R.color.chip_gray_text));
+            chipWebSearch.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
+                    getColor(R.color.chip_gray_stroke)));
+            chipWebSearch.setText("🔍 联网搜索");
+        }
+    }
+
     /** 深度思考开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
-    private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {
-        if (chip == null) return;
+    private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {        if (chip == null) return;
         boolean on = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
         if (on) {
             chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
@@ -8891,7 +8998,7 @@ public class AIChatActivity extends BaseActivity {
         });
     }
 
-    /** 执行语音识别工具流程（后台线程：调用 agent 语音识别工具 voice_input 的 record 动作） */
+    /** 执行语音识别工具流程：本地模型未就绪时先预热加载（有加载提示），就绪后再调用 voice_input 工具 */
     private void doVoiceRecognitionTool() {
         final com.oilquiz.app.ai.speech.SpeechManager speech =
                 com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
@@ -8904,9 +9011,28 @@ public class AIChatActivity extends BaseActivity {
         // 预判识别路径（用于本地模型加载提示）：用户显式选本地 SenseVoice 或在线不可用 → 本地
         final boolean useLocal = isLocalAsrSelected() || !speech.isAsrAvailable();
         if (useLocal && !com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.isReady()) {
-            // 本地模型按需加载（首次加载约数秒）：加载前提示
+            // 本地模型按需加载（首次加载约数秒）：提示 + 后台预热，加载完成后再弹录音组件
             showToast(getString(R.string.h_a2b3c4d5));
+            new Thread(() -> {
+                try {
+                    com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.acquire(this);
+                    com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.release(); // 模型保留（TTL 缓存）
+                    runOnUiThread(() -> {
+                        showToast(getString(R.string.h_e6f7a8b9));
+                        startVoiceRecorderTool();
+                    });
+                } catch (Exception e) {
+                    AppLogger.aiE(TAG, "本地语音识别模型预热失败: " + e.getMessage());
+                    runOnUiThread(() -> showToast("本地语音识别模型加载失败: " + e.getMessage()));
+                }
+            }).start();
+        } else {
+            startVoiceRecorderTool();
         }
+    }
+
+    /** 调用 agent 语音识别工具 voice_input 的 record 动作（后台线程：录音组件→识别→填入输入框） */
+    private void startVoiceRecorderTool() {
         new Thread(() -> {
             try {
                 // 直接调用 agent 语音识别工具（voice_input）的 record 动作：
@@ -8921,13 +9047,7 @@ public class AIChatActivity extends BaseActivity {
                 if (r != null && r.isSuccess()) {
                     final String text = r.getAdditionalInfo() != null
                             ? String.valueOf(r.getAdditionalInfo().get("text")) : "";
-                    runOnUiThread(() -> {
-                        // 本地模型初始化已完成 → 提示已就绪（下次识别无需再加载）
-                        if (useLocal) {
-                            showToast(getString(R.string.h_e6f7a8b9));
-                        }
-                        previewRecognizedText(text);
-                    });
+                    runOnUiThread(() -> previewRecognizedText(text));
                 } else {
                     final String err = (r != null && r.getErrorMessage() != null)
                             ? r.getErrorMessage() : "语音识别失败";

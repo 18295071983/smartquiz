@@ -26,6 +26,8 @@ public class OpenAiAsrEngine implements AsrEngine {
 
     private static final String TAG = "OpenAiAsrEngine";
     private static final String ENDPOINT = "/audio/transcriptions";
+    /** OpenAI 兼容端点 /audio/transcriptions 的常见文件上限（Whisper/Groq/Azure 等通常 25MB） */
+    private static final long MAX_RAW_BYTES = 25L * 1024 * 1024;
 
     private final Gson gson = new Gson();
 
@@ -37,6 +39,11 @@ public class OpenAiAsrEngine implements AsrEngine {
     @Override
     public String transcribe(OnlineModelConfig config, String modelName, File audioFile, String language)
             throws Exception {
+        long size = audioFile.length();
+        if (size > MAX_RAW_BYTES) {
+            throw new Exception("音频文件过大（" + (size / 1024 / 1024) + "MB），OpenAI 兼容识别端点通常限制 25MB，"
+                    + "请缩短录音时长或降低采样率");
+        }
         String fullUrl = SpeechHttpClient.buildUrl(config.apiUrl, ENDPOINT);
         AILogger.i(TAG, "OpenAI兼容ASR: model=" + modelName + " url=" + fullUrl);
 

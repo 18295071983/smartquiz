@@ -48,6 +48,13 @@ public class OnlineInferenceService {
 
     private static final String TAG = "OnlineInferenceService";
     private static final int DEFAULT_TIMEOUT_MS = 30000;
+    /**
+     * chat/agent 请求的 read 超时（首 token 前思考/长输出可远超 30s）：
+     * 流式 SSE 下 HttpURLConnection 的 readTimeout 是单次 read 阻塞上限，模型静默思考
+     * （DeepSeek-R1 / Qwen3-Think 等深度思考模型）超过 30s 无数据就会 SocketTimeout，
+     * 与 Agent 引擎的 120s idle 保护矛盾（底层先断）。提升到与 imageGen/ASR 一致。
+     */
+    private static final int CHAT_READ_TIMEOUT_MS = 120_000;
     private static final int DEFAULT_MAX_TOKENS = 16384;
     private static final float DEFAULT_TEMPERATURE = 0.7f;
 
@@ -66,7 +73,10 @@ public class OnlineInferenceService {
 
     private OnlineInferenceService(Context context) {
         this.context = context.getApplicationContext();
-        this.executor = Executors.newFixedThreadPool(2, r -> {
+        // cached 线程池：chat/agent/摘要/翻译/题目生成/embedding 等全部在线请求共用，
+        // 固定小池会被慢请求（HTTP read 最长 120s）占满导致后续请求无限排队（"卡死"）；
+        // cached 下慢请求只占自己的线程，HTTP 超时后自动回收，互不阻塞。
+        this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "Online-Inference-Worker");
             t.setPriority(Thread.NORM_PRIORITY);
             t.setDaemon(true);
@@ -121,7 +131,9 @@ public class OnlineInferenceService {
      */
     public CompletableFuture<String> generateAsync(String prompt, OnlineModelManager.OnlineModelConfig config,
                                                   List<ChatMessage> history, int maxTokens) {
-        return generateAsync(prompt, config, history, maxTokens, true);
+        // 默认不带 tools：摘要/翻译等非 agent 场景发 tools 会触发不支持 function calling 的模型 400；
+        // 需要原生 function calling 的场景显式传 enableTools=true（Agent 引擎走 generateStreamWithToolsV2）
+        return generateAsync(prompt, config, history, maxTokens, false);
     }
 
     /**
@@ -132,7 +144,9 @@ public class OnlineInferenceService {
     public CompletableFuture<String> generateAsync(String prompt, OnlineModelManager.OnlineModelConfig config,
                                                   List<ChatMessage> history, int maxTokens, boolean enableTools) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
+            Exception lastError = null;
+            for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+                try {
                 String apiUrl = config.apiUrl;
                 String modelName = config.modelName;
                 String apiKey = config.apiKey;
@@ -178,10 +192,18 @@ public class OnlineInferenceService {
                     return com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(result);
                 }
                 return result;
-            } catch (Exception e) {
-                AILogger.e(TAG, "Async generate failed: " + e.getMessage(), e);
-                throw new RuntimeException(e);
+                } catch (Exception e) {
+                    lastError = e;
+                    if (attempt < MAX_RETRY_ATTEMPTS - 1 && isRetryableOnlineError(e)) {
+                        AILogger.w(TAG, "在线请求瞬时错误(" + e.getMessage() + ")，" + RETRY_DELAY_MS + "ms 后重试");
+                        try { Thread.sleep(RETRY_DELAY_MS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                        continue;
+                    }
+                    break;
+                }
             }
+            AILogger.e(TAG, "Async generate failed: " + (lastError != null ? lastError.getMessage() : "unknown"), lastError);
+            throw new RuntimeException(lastError != null ? lastError : new RuntimeException("Async generate failed"));
         }, executor);
     }
 
@@ -197,7 +219,9 @@ public class OnlineInferenceService {
     public CompletableFuture<String> generateOnceAsync(String prompt,
             OnlineModelManager.OnlineModelConfig config, int maxTokens) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
+            Exception lastError = null;
+            for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+                try {
                 String apiUrl = config.apiUrl;
                 String modelName = config.modelName;
                 String apiKey = config.apiKey;
@@ -210,11 +234,35 @@ public class OnlineInferenceService {
                 }
                 String result = callOpenAIAPIOnce(apiUrl, apiKey, modelName, prompt, maxTokens);
                 return cleanOrSanitize(result);
-            } catch (Exception e) {
-                AILogger.e(TAG, "generateOnce failed: " + e.getMessage(), e);
-                throw new RuntimeException(e);
+                } catch (Exception e) {
+                    lastError = e;
+                    if (attempt < MAX_RETRY_ATTEMPTS - 1 && isRetryableOnlineError(e)) {
+                        AILogger.w(TAG, "generateOnce 瞬时错误(" + e.getMessage() + ")，" + RETRY_DELAY_MS + "ms 后重试");
+                        try { Thread.sleep(RETRY_DELAY_MS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                        continue;
+                    }
+                    break;
+                }
             }
+            AILogger.e(TAG, "generateOnce failed: " + (lastError != null ? lastError.getMessage() : "unknown"), lastError);
+            throw new RuntimeException(lastError != null ? lastError : new RuntimeException("generateOnce failed"));
         }, executor);
+    }
+
+    /** 瞬时错误自动重试次数（429 限流 / 5xx 服务端抖动 / 网络超时） */
+    private static final int MAX_RETRY_ATTEMPTS = 2;
+    private static final long RETRY_DELAY_MS = 1000L;
+
+    /** 是否值得重试的瞬时错误：限流 429、服务端 5xx、连接/读取超时等（业务 400/401/403 不重试） */
+    private static boolean isRetryableOnlineError(Throwable t) {
+        String m = t != null && t.getMessage() != null ? t.getMessage() : "";
+        if (m.contains("429") || m.contains("500") || m.contains("502") || m.contains("503")
+                || m.contains("504") || m.contains("Read timed out") || m.contains("connect timed out")
+                || m.contains("Connection") || m.contains("connect") || m.contains("timed out")
+                || m.contains("timeout") || m.contains("Socket") || m.contains("refused")) {
+            return true;
+        }
+        return false;
     }
 
     // ==================== 配置表驱动的扩展能力调用 ====================
@@ -250,13 +298,15 @@ public class OnlineInferenceService {
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            pcm.applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+            pcm.applyAuthHeaders(connection, fullUrl, apiKey, config.apiSecret, config.appId);
             connection.setDoOutput(true);
             JsonObject body = new JsonObject();
             body.addProperty("model", model);
@@ -313,13 +363,15 @@ public class OnlineInferenceService {
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(120000);
             connection.setRequestProperty("Content-Type", "application/json");
-            pcm.applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+            pcm.applyAuthHeaders(connection, fullUrl, apiKey, config.apiSecret, config.appId);
             connection.setDoOutput(true);
             JsonObject body = new JsonObject();
             body.addProperty("model", model);
@@ -381,13 +433,15 @@ public class OnlineInferenceService {
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            pcm.applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+            pcm.applyAuthHeaders(connection, fullUrl, apiKey, config.apiSecret, config.appId);
             connection.setDoOutput(true);
             JsonObject body = new JsonObject();
             body.addProperty("model", model);
@@ -591,7 +645,9 @@ public class OnlineInferenceService {
             urlStr = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(urlStr, apiKey);
             URL url = new URL(urlStr);
             HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+            if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(urlStr)) {
+                SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+            }
             try {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(timeoutMs);
@@ -802,7 +858,9 @@ public class OnlineInferenceService {
     /** 打开带统一鉴权的 POST 连接（query-key 已拼 URL） */
     private HttpsURLConnection openProbePost(String fullUrl, String apiKey, int timeoutSec) throws Exception {
         HttpsURLConnection connection = (HttpsURLConnection) new URL(fullUrl).openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         connection.setRequestMethod("POST");
         connection.setConnectTimeout(timeoutSec * 1000);
         connection.setReadTimeout(timeoutSec * 1000);
@@ -895,24 +953,45 @@ public class OnlineInferenceService {
         }
     }
 
-    /** 探测 webSearch：带配置表搜索参数的最小 chat 请求（注入失败不探测） */
+    /** 探测 webSearch：带配置表搜索参数的最小请求（注入失败不探测；端点不匹配时自动重拼） */
     private Boolean doProbeWebSearch(OnlineModelManager.OnlineModelConfig config) throws Exception {
         if (!isProbeUsable(config)) return null;
-        String fullUrl = buildOpenAIUrl(config.apiUrl, "/chat/completions");
+        // 端口重拼：配置表 webSearch.endpoint=responses（DeepSeek/MiniMax 官方 web_search 仅 /responses 生效）
+        // → 探测请求自动重拼到 /responses 并用最小 Responses 请求体，不被 chat/completions 限定死
+        String wse = com.oilquiz.app.ai.model.ProviderConfigManager.get().getWebSearchEndpoint(config.apiUrl);
+        boolean responsesProbe = wse != null && !wse.isEmpty() && !config.apiUrl.contains(wse);
+        String fullUrl = buildOpenAIUrl(config.apiUrl, responsesProbe ? "/responses" : "/chat/completions");
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get()
                 .withAuthQuery(fullUrl, config.apiKey);
         HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
         try {
             JsonObject body = new JsonObject();
             body.addProperty("model", config.modelName);
-            JsonArray messages = new JsonArray();
-            JsonObject user = new JsonObject();
-            user.addProperty("role", "user");
-            user.addProperty("content", "hi");
-            messages.add(user);
-            body.add("messages", messages);
-            body.addProperty("max_tokens", 8);
-            body.addProperty("temperature", 0f);
+            if (responsesProbe) {
+                // 最小 Responses 请求体：input[0].content[0].input_text
+                JsonArray input = new JsonArray();
+                JsonObject user = new JsonObject();
+                user.addProperty("role", "user");
+                JsonArray uc = new JsonArray();
+                JsonObject uct = new JsonObject();
+                uct.addProperty("type", "input_text");
+                uct.addProperty("text", "hi");
+                uc.add(uct);
+                user.add("content", uc);
+                input.add(user);
+                body.add("input", input);
+                body.addProperty("max_output_tokens", 8);
+                body.addProperty("temperature", 0f);
+            } else {
+                JsonArray messages = new JsonArray();
+                JsonObject user = new JsonObject();
+                user.addProperty("role", "user");
+                user.addProperty("content", "hi");
+                messages.add(user);
+                body.add("messages", messages);
+                body.addProperty("max_tokens", 8);
+                body.addProperty("temperature", 0f);
+            }
             applyWebSearch(body, config.apiUrl, true);
             if (!body.has("web_search") && !body.has("tools")) {
                 return null; // 配置表未声明 webSearch 参数 → 不探测
@@ -993,14 +1072,16 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(15000);
             connection.setReadTimeout(15000);
             connection.setRequestProperty("Content-Type", "application/json");
             com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                    .applyAuthHeaders(connection, fullUrl, apiKey, config.apiSecret, config.appId);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 
@@ -1081,15 +1162,16 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         try {
             connection.setRequestMethod("POST");
             // 批量修复输出较长，读超时提升到 90 秒（默认 30 秒对 5 题批量不够）
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(90000);
             connection.setRequestProperty("Content-Type", "application/json");
-            com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 
@@ -1260,13 +1342,15 @@ public class OnlineInferenceService {
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(CHAT_READ_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            pcm.applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setRequestProperty("Accept", stream ? "text/event-stream" : "application/json");
             connection.setDoOutput(true);
 
@@ -1299,7 +1383,10 @@ public class OnlineInferenceService {
             JsonArray uc = new JsonArray();
             JsonObject uct = new JsonObject();
             uct.addProperty("type", "input_text");
-            uct.addProperty("text", prompt);
+            // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
+            String searchPrompt = applySearchToPrompt(prompt, webSearch);
+            boolean ownSearchUsed = searchPrompt != prompt;
+            uct.addProperty("text", searchPrompt);
             uc.add(uct);
             user.add("content", uc);
             input.add(user);
@@ -1307,8 +1394,11 @@ public class OnlineInferenceService {
 
             body.addProperty("max_output_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             body.addProperty("temperature", DEFAULT_TEMPERATURE);
-            // 网络搜索：Responses API 也支持 web_search 工具（OpenAI 托管工具 web_search_preview）
-            applyWebSearch(body, apiUrl, webSearch);
+            // 网络搜索：Responses API 也支持 web_search 工具（OpenAI 托管工具 web_search_preview）；
+            // 自有工具已接管时跳过官方注入
+            if (!ownSearchUsed) {
+                applyWebSearch(body, apiUrl, webSearch);
+            }
             if (stream) body.addProperty("stream", true);
 
             try (OutputStream os = connection.getOutputStream()) {
@@ -1496,15 +1586,16 @@ public class OnlineInferenceService {
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
 
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(CHAT_READ_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setDoOutput(true);
 
             JsonObject requestBody = new JsonObject();
@@ -1532,7 +1623,20 @@ public class OnlineInferenceService {
             JsonArray contentArray = new JsonArray();
             JsonObject textPart = new JsonObject();
             textPart.addProperty("type", "text");
-            textPart.addProperty("text", prompt);
+            // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
+            String searchPrompt = applySearchToPrompt(prompt, webSearch);
+            boolean ownSearchUsed = searchPrompt != prompt;
+            // 端口不匹配（配置表 webSearch.endpoint=responses，如图片+DeepSeek 官方 web_search 仅 /responses 生效）：
+            // 多模态无法重拼到 Responses（图片输入）→ 预搜索失败时跳过官方注入，避免 chat/completions 400
+            if (!ownSearchUsed) {
+                String wse = com.oilquiz.app.ai.model.ProviderConfigManager.get().getWebSearchEndpoint(apiUrl);
+                if (wse != null && !wse.isEmpty() && !apiUrl.contains(wse)) {
+                    AILogger.i(TAG, "webSearch skipped in multimodal path: endpoint '" + wse
+                            + "' required but images cannot route to Responses; own pre-search took over");
+                    ownSearchUsed = true; // 视为已处理，跳过官方注入
+                }
+            }
+            textPart.addProperty("text", searchPrompt);
             contentArray.add(textPart);
             for (String b64 : imageBase64List) {
                 JsonObject imgPart = new JsonObject();
@@ -1550,8 +1654,10 @@ public class OnlineInferenceService {
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             // 深度思考：与文本路径共用注入逻辑（多模态思考模型如 Qwen3-VL 生效）
             applyThinkingParams(requestBody, modelName, enableThinking);
-            // 网络搜索：配置表驱动注入
-            applyWebSearch(requestBody, apiUrl, webSearch);
+            // 网络搜索：自有工具已接管时跳过官方注入
+            if (!ownSearchUsed) {
+                applyWebSearch(requestBody, apiUrl, webSearch);
+            }
             if (stream) {
                 requestBody.addProperty("stream", true);
             }
@@ -1578,6 +1684,29 @@ public class OnlineInferenceService {
         } finally {
             connection.disconnect();
         }
+    }
+
+
+    /**
+     * 应用鉴权头（含 apiSecret/appId）：讯飞 HMAC 签名、百度 OAuth 换 token 都需要，
+     * 从 apiUrl+modelName 反查配置补齐；未找到时退化为仅 apiKey（等价旧行为）。
+     */
+    private void applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager pcm,
+                           HttpURLConnection conn, String url, String apiKey, String modelName) {
+        String apiSecret = null;
+        String appId = null;
+        if (modelName != null && !modelName.isEmpty()) {
+            try {
+                OnlineModelManager.OnlineModelConfig c = OnlineModelManager.getInstance(context)
+                        .findConfig(url, modelName);
+                if (c != null) {
+                    apiSecret = c.apiSecret;
+                    appId = c.appId;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        pcm.applyAuthHeaders(conn, url, apiKey, apiSecret, appId);
     }
 
     /**
@@ -1611,10 +1740,38 @@ public class OnlineInferenceService {
     }
 
     /**
+     * 联网搜索来源路由（优先自有工具）：
+     * - 自有 network_search 工具（秘塔，内置 Key 兜底）可用 → 预搜索并把结果拼入 prompt，返回改写后的 prompt；
+     *   调用方应跳过官方 webSearch 注入（防止与官方 API 工具捆绑/冲突）。
+     * - 预搜索失败/无结果 → 返回原 prompt（引用不变），调用方回退官方 webSearch 注入。
+     */
+    private String applySearchToPrompt(String prompt, boolean webSearch) {
+        if (!webSearch || prompt == null || prompt.isEmpty()) return prompt;
+        try {
+            if (com.oilquiz.app.ai.tool.NetworkSearchTool.isAvailable()) {
+                String searchCtx = com.oilquiz.app.ai.tool.NetworkSearchTool.preSearch(context, prompt, 5);
+                if (searchCtx != null && !searchCtx.isEmpty()) {
+                    return "【联网搜索结果】\n" + searchCtx
+                            + "\n\n请结合以上联网搜索结果回答用户的问题（重要信息请附来源链接）：" + prompt;
+                }
+                AILogger.w(TAG, "own network_search returned empty, fallback to official webSearch");
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "own network_search failed, fallback to official webSearch: " + e.getMessage());
+        }
+        return prompt;
+    }
+
+    /**
      * 向请求体注入网络搜索能力（配置表 services.webSearch 驱动，UI 勾选 supportsWebSearch 生效）：
-     * - param=web_search（智谱/千问/月之暗面/百炼等）→ 扁平布尔 web_search: true
-     * - param=google_search（Gemini）→ tools: [{google_search: {}}]
+     * - param=enable_search（百炼/混元等）→ 扁平布尔 enable_search: true（服务端执行，最稳）
+     * - param=web_search_tool（OpenAI/智谱/讯飞/豆包/千帆等）→ tools:[{type:"web_search"}]
+     * - param=google_search（Gemini）→ tools:[{google_search:{}}]（grounding 自动执行）
+     * - param=kimi_web_search（Kimi）→ tools:[{type:"builtin_function",function:{name:"$web_search"}}]
      * 配置表未声明 webSearch 参数或未勾选时不注入。
+     * 安全守卫：请求体已含 function 类型 tools（agent 工具）时跳过官方注入，
+     * 默认由本地工具（network_search 等）承担联网，避免讯飞等平台"web_search 与 function 不可同时传"返回 400
+     * 以及官方工具与本地工具捆绑。
      */
     private void applyWebSearch(JsonObject requestBody, String apiUrl, boolean webSearch) {
         if (!webSearch) return;
@@ -1623,17 +1780,64 @@ public class OnlineInferenceService {
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         String param = pcm.getServiceParam(apiUrl, "webSearch");
         if (param == null || param.isEmpty()) return; // 配置表未声明 → 不注入
+        // 统一守卫：已有 function 类型工具（agent 模式）→ 不注入官方 webSearch，避免捆绑/400
+        if (requestBody.has("tools") && requestBody.get("tools").isJsonArray()) {
+            for (com.google.gson.JsonElement el : requestBody.getAsJsonArray("tools")) {
+                if (el.isJsonObject() && "function".equals(
+                        el.getAsJsonObject().get("type") != null
+                                ? el.getAsJsonObject().get("type").getAsString() : null)) {
+                    return;
+                }
+            }
+        }
         if ("google_search".equals(param)) {
-            // Gemini 系：OpenAI 兼容 tools 里声明 google_search 工具
-            JsonArray tools = requestBody.has("tools") && requestBody.get("tools").isJsonArray()
-                    ? requestBody.getAsJsonArray("tools") : new JsonArray();
+            // Gemini 系：OpenAI 兼容 tools 里声明 google_search 工具（grounding 自动执行）
+            JsonArray tools = getOrCreateTools(requestBody);
             JsonObject gs = new JsonObject();
             gs.add("google_search", new JsonObject());
             tools.add(gs);
             requestBody.add("tools", tools);
+        } else if ("web_search_tool".equals(param)) {
+            // 服务端托管 web_search 工具（OpenAI/智谱/讯飞/豆包/千帆/百川/360/MiMo/DeepSeek Responses 等）
+            JsonArray tools = getOrCreateTools(requestBody);
+            JsonObject ws = new JsonObject();
+            ws.addProperty("type", "web_search");
+            tools.add(ws);
+            requestBody.add("tools", tools);
+        } else if ("kimi_web_search".equals(param)) {
+            // Kimi 内置 $web_search（builtin_function，服务端执行搜索）
+            JsonArray tools = getOrCreateTools(requestBody);
+            JsonObject kf = new JsonObject();
+            kf.addProperty("type", "builtin_function");
+            JsonObject fn = new JsonObject();
+            fn.addProperty("name", "$web_search");
+            kf.add("function", fn);
+            tools.add(kf);
+            requestBody.add("tools", tools);
+        } else if ("web_search_plugin".equals(param)) {
+            // 商汤 SenseNova：plugins.web_search.search_enable 嵌套插件形态
+            JsonObject plugins = requestBody.has("plugins") && requestBody.get("plugins").isJsonObject()
+                    ? requestBody.getAsJsonObject("plugins") : new JsonObject();
+            JsonObject ws = plugins.has("web_search") && plugins.get("web_search").isJsonObject()
+                    ? plugins.getAsJsonObject("web_search") : new JsonObject();
+            ws.addProperty("search_enable", true);
+            ws.addProperty("result_enable", true);
+            plugins.add("web_search", ws);
+            requestBody.add("plugins", plugins);
         } else {
+            // 扁平布尔形态（enable_search 等）
             requestBody.addProperty(param, true);
         }
+    }
+
+    /** 获取或创建请求体的 tools 数组 */
+    private JsonArray getOrCreateTools(JsonObject requestBody) {
+        if (requestBody.has("tools") && requestBody.get("tools").isJsonArray()) {
+            return requestBody.getAsJsonArray("tools");
+        }
+        JsonArray tools = new JsonArray();
+        requestBody.add("tools", tools);
+        return tools;
     }
 
     /**
@@ -1657,6 +1861,24 @@ public class OnlineInferenceService {
                                   int maxTokens, boolean stream, boolean enableThinking,
                                   boolean webSearch,
                                   StreamCallback callback) throws Exception {
+        // 端口重拼决策（不被端点限定死）：联网搜索需官方注入，但当前 chat/completions 端点不支持
+        // （配置表 webSearch.endpoint=responses，如 DeepSeek/MiniMax 官方 web_search 仅 /responses 生效）→
+        // 先尝试自有 network_search 预搜索；预搜索成功则留在本路径（结果拼入 prompt）；
+        // 预搜索失败则自动重拼 URL 到 /responses 走 Responses API（重建请求体 + 注入官方 web_search 工具）
+        String searchPrompt = prompt;
+        boolean ownSearchUsed = false;
+        if (webSearch) {
+            searchPrompt = applySearchToPrompt(prompt, webSearch);
+            ownSearchUsed = searchPrompt != prompt;
+            if (!ownSearchUsed) {
+                String wse = com.oilquiz.app.ai.model.ProviderConfigManager.get().getWebSearchEndpoint(apiUrl);
+                if (wse != null && !wse.isEmpty() && !apiUrl.contains(wse)) {
+                    AILogger.i(TAG, "webSearch needs endpoint '" + wse + "', re-routing to Responses API: " + apiUrl);
+                    return callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens,
+                            stream, true, callback);
+                }
+            }
+        }
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
@@ -1665,15 +1887,16 @@ public class OnlineInferenceService {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         
         // 禁用SSL证书验证以支持阿里云百炼等服务
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(CHAT_READ_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setRequestProperty("Accept", stream ? "text/event-stream" : "application/json");
             connection.setDoOutput(true);
 
@@ -1713,10 +1936,10 @@ public class OnlineInferenceService {
                 }
             }
             
-            // 添加当前提示
+            // 添加当前提示（联网搜索预搜索结果已在方法开头决策拼入 searchPrompt）
             JsonObject userMessage = new JsonObject();
             userMessage.addProperty("role", "user");
-            userMessage.addProperty("content", prompt);
+            userMessage.addProperty("content", searchPrompt);
             messages.add(userMessage);
             
             requestBody.add("messages", messages);
@@ -1725,8 +1948,10 @@ public class OnlineInferenceService {
 
             // 深度思考：模型支持时按参数名规范传 thinking 开关（与多模态路径共用同一注入逻辑）
             applyThinkingParams(requestBody, modelName, enableThinking);
-            // 网络搜索：按服务商配置表注入 web_search/google_search
-            applyWebSearch(requestBody, apiUrl, webSearch);
+            // 网络搜索：自有工具已接管时跳过官方注入，否则按服务商配置表注入 web_search/google_search
+            if (!ownSearchUsed) {
+                applyWebSearch(requestBody, apiUrl, webSearch);
+            }
             
             if (stream) {
                 requestBody.addProperty("stream", true);
@@ -1767,15 +1992,16 @@ public class OnlineInferenceService {
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
 
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(CHAT_READ_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 
@@ -1927,7 +2153,9 @@ public class OnlineInferenceService {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         
         // 禁用SSL证书验证以支持各种服务
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
         
         try {
             connection.setRequestMethod("POST");
@@ -1935,8 +2163,7 @@ public class OnlineInferenceService {
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
             // Anthropic 鉴权：x-api-key + anthropic-version（按服务商配置表 auth 类型统一处理）
-            com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setRequestProperty("Accept", stream ? "text/event-stream" : "application/json");
             connection.setDoOutput(true);
 
@@ -2394,15 +2621,16 @@ public class OnlineInferenceService {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
 
         // 禁用SSL证书验证以支持阿里云百炼等服务
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
 
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 
@@ -2636,15 +2864,16 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
 
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(CHAT_READ_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setRequestProperty("Accept", "text/event-stream");
             connection.setDoOutput(true);
 
@@ -2874,15 +3103,16 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
 
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+                                applyAuth(com.oilquiz.app.ai.model.ProviderConfigManager.get(), connection, fullUrl, apiKey, modelName);
             connection.setRequestProperty("Accept", "text/event-stream");
             connection.setDoOutput(true);
 

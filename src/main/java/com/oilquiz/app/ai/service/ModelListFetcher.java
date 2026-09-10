@@ -217,7 +217,9 @@ public class ModelListFetcher {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
 
         // 禁用SSL证书验证以支持阿里云百炼等服务
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
 
         try {
             connection.setRequestMethod("GET");
@@ -249,7 +251,9 @@ public class ModelListFetcher {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
 
         // 禁用SSL证书验证以支持各种服务
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
 
         try {
             connection.setRequestMethod("GET");
@@ -452,7 +456,9 @@ public class ModelListFetcher {
                 HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
 
                 // 禁用SSL证书验证以支持阿里云百炼等服务
-                SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+                if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+                    SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+                }
 
                 try {
                     connection.setRequestMethod("GET");

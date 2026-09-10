@@ -73,7 +73,8 @@ public class SpeechRecognitionService {
 
     private SpeechRecognitionService(Context context) {
         this.context = context.getApplicationContext();
-        this.executor = Executors.newFixedThreadPool(2, r -> {
+        // cached 线程池：识别可并发；单请求超时后线程最多被 HTTP read 超时（120s）占用，不会占满池阻塞后续识别
+        this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "SpeechASR-Worker");
             t.setPriority(Thread.NORM_PRIORITY);
             t.setDaemon(true);
@@ -110,38 +111,26 @@ public class SpeechRecognitionService {
         return asrModelOverride;
     }
 
-    /** 是否有可用的在线 ASR 模型配置 */
+    /** 是否有可用的在线 ASR 模型配置（与 SpeechModelSelector.select 同源判断，保证"判定可用"= "能用"） */
     public boolean isAvailable() {
-        // 优先检查是否有语音识别专用模型
         try {
             OnlineModelManager mm = OnlineModelManager.getInstance(context);
-            if (mm.hasFeatureModel(OnlineModelManager.FEATURE_ASR)) {
-                AILogger.d(TAG, "isAvailable: true (has FEATURE_ASR)");
-                return true;
+            // 用户显式选择"本地 SenseVoice"（LOCAL_ASR_ID）→ 在线 ASR 不可用
+            if (com.oilquiz.app.ai.speech.SpeechManager.LOCAL_ASR_ID
+                    .equals(mm.getFeatureModelId(OnlineModelManager.FEATURE_ASR))) {
+                return false;
             }
-        } catch (Exception e) {
-            AILogger.e(TAG, "FEATURE_ASR check failed: " + e.getMessage(), e);
-        }
-        
-        // 快速路径：检查是否有语音服务商的端点配置
-        try {
-            OnlineModelManager mm = OnlineModelManager.getInstance(context);
-            for (OnlineModelManager.OnlineModelConfig config : mm.getModelList()) {
-                if (!config.enabled) continue;
-                if (config.apiUrl != null && (
-                    SpeechModelSelector.isDashScopeEndpoint(config.apiUrl) ||
-                    SpeechModelSelector.isXfyunEndpoint(config.apiUrl) ||
-                    SpeechModelSelector.isVolcanoEndpoint(config.apiUrl) ||
-                    SpeechModelSelector.isBaiduEndpoint(config.apiUrl) ||
-                    SpeechModelSelector.isMimoEndpoint(config.apiUrl))) {
-                    AILogger.d(TAG, "isAvailable: true (endpoint=" + config.name + ")");
-                    return true;
-                }
+            OnlineModelManager.OnlineModelConfig config =
+                    SpeechModelSelector.select(context, SpeechModelSelector.Capability.ASR);
+            // 选得到配置且端点/密钥完整才视为可用（含 OpenAI 兼容 supportsAudio 端点）
+            if (config != null && config.apiUrl != null && !config.apiUrl.isEmpty()
+                    && config.apiKey != null && !config.apiKey.isEmpty()) {
+                return true;
             }
         } catch (Exception e) {
             AILogger.e(TAG, "isAvailable check failed: " + e.getMessage(), e);
         }
-        AILogger.d(TAG, "isAvailable: false (no voice provider endpoint found)");
+        AILogger.d(TAG, "isAvailable: false (no usable ASR model config)");
         return false;
     }
 

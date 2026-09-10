@@ -60,7 +60,7 @@ public class VoiceInputTool implements AITool {
 
     private static final int DEFAULT_RECORD_SECONDS = 15;
     private static final int MAX_RECORD_SECONDS = 60;
-    private static final int DEFAULT_TIMEOUT_SECONDS = 30;
+    private static final int DEFAULT_TIMEOUT_SECONDS = 60;
     private static final int MIN_TIMEOUT_SECONDS = 5;
     private static final int MAX_TIMEOUT_SECONDS = 120;
 
@@ -147,12 +147,14 @@ public class VoiceInputTool implements AITool {
 
         // 用户显式选择"本地 SenseVoice"作为语音识别专用模型 → 本地优先（不再走在线）
         boolean preferLocal = isLocalAsrSelected();
+        boolean usedOnline = false;
+        CompletableFuture<SpeechRecognitionService.RecognitionResult> future = null;
 
         try {
-            CompletableFuture<SpeechRecognitionService.RecognitionResult> future;
             if (audioUri != null && !audioUri.isEmpty()) {
                 // 在线 ASR 可用时优先在线（除非用户显式选本地专用模型）；否则本地 SenseVoice 解码识别
                 if (!preferLocal && speech.isAsrAvailable()) {
+                    usedOnline = true;
                     future = speech.recognizeSpeech(Uri.parse(audioUri), language);
                 } else {
                     future = speech.recognizeSpeechLocal(Uri.parse(audioUri), language);
@@ -163,6 +165,7 @@ public class VoiceInputTool implements AITool {
                     return AIToolResult.fail("音频文件不存在: " + audioPath);
                 }
                 if (!preferLocal && speech.isAsrAvailable()) {
+                    usedOnline = true;
                     future = speech.recognizeSpeech(file, language);
                 } else {
                     future = speech.recognizeSpeechLocal(file, language);
@@ -179,10 +182,18 @@ public class VoiceInputTool implements AITool {
             info.put("model", result.modelName);
             return AIToolResult.success("识别结果: " + result.text, info);
         } catch (TimeoutException e) {
-            return AIToolResult.fail("语音识别超时（" + timeout + "秒），请检查网络后重试");
+            // 通知底层不再等待结果（HTTP 请求由 HttpURLConnection 自身超时兜底回收）
+            if (future != null) {
+                future.cancel(true);
+            }
+            return AIToolResult.fail("语音识别超时（" + timeout + "秒），请检查网络后重试"
+                    + (usedOnline && speech.isOfflineAsrAvailable()
+                        ? "，或切换本地 SenseVoice 后重试（完全离线，不受网络影响）" : ""));
         } catch (Exception e) {
             AILogger.e(TAG, "语音识别失败: " + e.getMessage(), e);
-            return AIToolResult.fail("语音识别失败: " + e.getMessage());
+            return AIToolResult.fail("语音识别失败: " + e.getMessage()
+                    + (usedOnline && speech.isOfflineAsrAvailable()
+                        ? "（可切换本地 SenseVoice 重试，完全离线）" : ""));
         }
     }
 

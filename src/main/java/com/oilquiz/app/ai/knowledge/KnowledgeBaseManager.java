@@ -7,6 +7,9 @@ import android.database.sqlite.SQLiteOpenHelper;
 import android.net.Uri;
 import android.util.Log;
 
+import com.oilquiz.app.ai.model.OnlineModelManager;
+import com.oilquiz.app.ai.model.ProviderConfigManager;
+import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.ai.speech.SpeechManager;
 import com.oilquiz.app.ai.speech.SpeechRecognitionService;
 import com.oilquiz.app.util.fileparser.FileContentExtractor;
@@ -28,7 +31,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 知识库管理器：独立 SQLite 数据库 + FTS5 全文检索。
+ * 知识库管理器：独立 SQLite 数据库 + FTS5 全文检索（bm25 召回）+ 在线语义重排。
+ *
+ * 检索管线（有查询词时）：
+ * 1. FTS5 全文索引（title/category/keywords/content）bm25 相关性召回候选；
+ * 2. 若在线配置可用且配置表声明 embedding 模型 → embedding 余弦相似度重排（语义优先）；
+ * 3. 若配置表同时声明 rerank 模型 → 对重排前若干条做 rerank 精排；
+ * 4. 任一环节未配置/失败/超时 → 自动降级到 bm25 原序，绝不因语义重排失败而返回空。
  *
  * <p>设计要点：
  * <ul>
@@ -49,6 +58,18 @@ public class KnowledgeBaseManager {
     private static final int DEFAULT_TOP_K = 5;
     /** 结果条数上限（防止一次拉取过多） */
     private static final int MAX_TOP_K = 20;
+
+    // ===== 在线语义重排（embedding 余弦重排 + rerank 精排）=====
+    /** 语义重排候选上限（取 bm25 召回的前 N 条做向量重排，控制在线调用次数与延迟） */
+    private static final int SEMANTIC_CANDIDATES = 8;
+    /** rerank 精排条数（对 embedding 重排后的前 N 条精排） */
+    private static final int RERANK_TOP = 5;
+    /** embedding 重排整体超时（含 query + 全部候选向量化） */
+    private static final long EMBEDDING_TIMEOUT_MS = 20000;
+    /** rerank 精排超时 */
+    private static final long RERANK_TIMEOUT_MS = 10000;
+    /** 向量化内容截断长度（防超长文档撑爆 token 限制） */
+    private static final int EMBED_CONTENT_MAX = 300;
 
     private static volatile KnowledgeBaseManager instance;
     private final Context context;
@@ -162,7 +183,7 @@ public class KnowledgeBaseManager {
     // ==================== 检索 ====================
 
     /**
-     * 全文检索知识库。
+     * 全文检索知识库（默认不做语义重排，防止无关在线 embedding/rerank API 消费）。
      *
      * @param query    检索关键词（中文/英文/数字混合均可，自动安全转义）
      * @param category 分类过滤，null 或空表示不过滤
@@ -170,12 +191,23 @@ public class KnowledgeBaseManager {
      * @return JSON 数组，元素含 id/title/category/keywords/content/source/snippet
      */
     public synchronized JSONArray search(String query, String category, int topK) {
+        return search(query, category, topK, false);
+    }
+
+    /**
+     * 全文检索知识库（可显式开启语义重排）。
+     *
+     * @param semanticRerank true=在线可用时对 bm25 召回做 embedding 余弦重排 +（可选）rerank 精排；
+     *                       默认 false=仅 bm25，不消费任何在线 API。
+     */
+    public synchronized JSONArray search(String query, String category, int topK, boolean semanticRerank) {
         JSONArray results = new JSONArray();
         Cursor cursor = null;
+        // try 块外声明：语义重排在 finally 之后仍需访问
+        int limit = (topK <= 0) ? DEFAULT_TOP_K : Math.min(topK, MAX_TOP_K);
+        boolean hasQuery = query != null && !query.trim().isEmpty();
         try {
             SQLiteDatabase db = getReadableDb();
-            int limit = (topK <= 0) ? DEFAULT_TOP_K : Math.min(topK, MAX_TOP_K);
-            boolean hasQuery = query != null && !query.trim().isEmpty();
             boolean hasCategory = category != null && !category.trim().isEmpty();
 
             String sql;
@@ -232,7 +264,160 @@ public class KnowledgeBaseManager {
                 cursor.close();
             }
         }
+        // 语义重排：仅显式开启且有关键词检索时做（默认关闭，防止无关在线 API 消费）
+        if (hasQuery && semanticRerank) {
+            results = applySemanticRerank(results, query, limit);
+        }
         return results;
+    }
+
+    // ==================== 在线语义重排 ====================
+
+    /**
+     * bm25 召回后做语义重排：
+     * 1. 在线配置可用 + 配置表声明 embedding 模型 → query 与候选内容向量化，余弦相似度重排；
+     * 2. 配置表声明 rerank 模型 → 对重排后前若干条 rerank 精排；
+     * 3. 任一环节未配置/失败/超时 → 返回 bm25 原序（不因重排失败返回空或报错）。
+     */
+    private JSONArray applySemanticRerank(JSONArray bm25Results, String query, int limit) {
+        if (bm25Results == null || bm25Results.length() < 2 || limit <= 1) return bm25Results;
+        try {
+            OnlineModelManager omm = OnlineModelManager.getInstance(context);
+            if (omm == null) return bm25Results;
+            OnlineModelManager.OnlineModelConfig cfg = omm.getActiveModel();
+            if (cfg == null || isBlank(cfg.apiUrl) || isBlank(cfg.apiKey)) return bm25Results;
+            ProviderConfigManager pcm = ProviderConfigManager.get();
+            String embModel = pcm.getServiceModel(cfg.apiUrl, "embedding");
+            if (isBlank(embModel)) return bm25Results; // 配置表未声明 embedding 模型 → 不语义重排
+            OnlineInferenceService ois = OnlineInferenceService.getInstance(context);
+            if (ois == null) return bm25Results;
+
+            int n = Math.min(bm25Results.length(), SEMANTIC_CANDIDATES);
+            if (n < 2) return bm25Results;
+
+            // 1) query 向量（超时兜底，失败降级）
+            List<Float> qVec = ois.generateEmbeddingAsync(query, cfg)
+                    .get(EMBEDDING_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (qVec == null || qVec.isEmpty()) return bm25Results;
+
+            // 2) 候选内容并行向量化 + 余弦相似度
+            List<CompletableFuture<List<Float>>> futures = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                JSONObject item = bm25Results.optJSONObject(i);
+                String content = item != null ? item.optString("content", "") : "";
+                if (content.length() > EMBED_CONTENT_MAX) content = content.substring(0, EMBED_CONTENT_MAX);
+                futures.add(ois.generateEmbeddingAsync(content, cfg));
+            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture<?>[0]))
+                    .get(EMBEDDING_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            final List<Float> sims = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                List<Float> cVec = futures.get(i).getNow(null);
+                sims.add((float) cosineSimilarity(qVec, cVec));
+            }
+
+            // 3) 按相似度降序稳定排序（同分保持 bm25 原序）
+            List<Integer> order = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) order.add(i);
+            order.sort((a, b) -> Double.compare(sims.get(b), sims.get(a)));
+            JSONArray reranked = new JSONArray();
+            for (int idx : order) {
+                JSONObject item = bm25Results.optJSONObject(idx);
+                if (item != null) reranked.put(item);
+            }
+            for (int i = n; i < bm25Results.length(); i++) {
+                JSONObject item = bm25Results.optJSONObject(i);
+                if (item != null) reranked.put(item);
+            }
+
+            // 4) rerank 精排（配置表声明 rerank 模型时）
+            String rerankModel = pcm.getServiceModel(cfg.apiUrl, "rerank");
+            if (!isBlank(rerankModel) && reranked.length() >= 2) {
+                int rt = Math.min(RERANK_TOP, reranked.length());
+                List<String> docs = new ArrayList<>();
+                List<JSONObject> originals = new ArrayList<>();
+                for (int i = 0; i < rt; i++) {
+                    JSONObject o = reranked.optJSONObject(i);
+                    if (o == null) continue;
+                    originals.add(o);
+                    String content = o.optString("content", "");
+                    if (content.length() > EMBED_CONTENT_MAX) content = content.substring(0, EMBED_CONTENT_MAX);
+                    docs.add(content);
+                }
+                if (docs.size() >= 2) {
+                    String resp = ois.rerankAsync(query, docs, cfg)
+                            .get(RERANK_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                    List<Integer> newOrder = parseRerankOrder(resp, docs.size());
+                    if (newOrder != null) {
+                        JSONArray reordered = new JSONArray();
+                        for (int idx : newOrder) {
+                            if (idx >= 0 && idx < originals.size()) reordered.put(originals.get(idx));
+                        }
+                        for (int i = rt; i < reranked.length(); i++) {
+                            JSONObject o = reranked.optJSONObject(i);
+                            if (o != null) reordered.put(o);
+                        }
+                        if (reordered.length() == reranked.length()) reranked = reordered;
+                    }
+                }
+            }
+            return reranked;
+        } catch (Exception e) {
+            Log.w(TAG, "语义重排失败，降级 bm25 排序: " + e.getMessage());
+            return bm25Results;
+        }
+    }
+
+    /** 余弦相似度；任一向量为空/长度不一致返回 -1（排到最后） */
+    private static double cosineSimilarity(List<Float> a, List<Float> b) {
+        if (a == null || b == null || a.isEmpty() || a.size() != b.size()) return -1;
+        double dot = 0, na = 0, nb = 0;
+        for (int i = 0; i < a.size(); i++) {
+            double x = a.get(i), y = b.get(i);
+            dot += x * y;
+            na += x * x;
+            nb += y * y;
+        }
+        if (na == 0 || nb == 0) return -1;
+        return dot / (Math.sqrt(na) * Math.sqrt(nb));
+    }
+
+    /**
+     * 解析 rerank 响应中的排序下标（OpenAI 兼容 results[] 或百炼 output.results[]）。
+     * results 已按相关性降序，逐项取 index 即 docs 的新顺序；数量不符返回 null 不采用。
+     */
+    private static List<Integer> parseRerankOrder(String resp, int expected) {
+        if (resp == null || resp.isEmpty()) return null;
+        try {
+            JSONObject root = new JSONObject(resp);
+            JSONArray arr = null;
+            if (root.has("results") && !root.isNull("results")) {
+                arr = root.optJSONArray("results");
+            } else if (root.has("output") && !root.isNull("output")) {
+                JSONObject out = root.optJSONObject("output");
+                if (out != null && out.has("results") && !out.isNull("results")) {
+                    arr = out.optJSONArray("results");
+                }
+            }
+            if (arr == null || arr.length() != expected) return null;
+            List<Integer> order = new ArrayList<>(arr.length());
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null || !o.has("index") || o.isNull("index")) return null;
+                order.add(o.optInt("index", -1));
+            }
+            for (int idx : order) {
+                if (idx < 0 || idx >= expected) return null;
+            }
+            return order;
+        } catch (Exception e) {
+            Log.w(TAG, "rerank 响应解析失败: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
     }
 
     // ==================== 增删 ====================

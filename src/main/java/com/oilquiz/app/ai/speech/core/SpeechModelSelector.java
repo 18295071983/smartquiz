@@ -107,9 +107,15 @@ public final class SpeechModelSelector {
                 }
             }
 
-            // 2. 兜底：返回当前激活模型
-            if (active != null && active.enabled) {
+            // 2. 兜底：返回当前激活模型（必须支持音频，避免把纯文本聊天模型打到 /audio/transcriptions）
+            if (active != null && active.enabled && active.supportsAudio) {
                 return active;
+            }
+            // 3. 兜底：任意支持音频的启用模型
+            for (OnlineModelManager.OnlineModelConfig c : all) {
+                if (c.enabled && c.supportsAudio) {
+                    return c;
+                }
             }
             return null;
         } catch (Exception e) {
@@ -131,12 +137,22 @@ public final class SpeechModelSelector {
             AILogger.w(TAG, "TTS override '" + override + "' 疑似 ASR 模型，回落端点默认 TTS 模型");
             effectiveOverride = null;
         }
+        // ASR 防御：用户可能把 TTS 模型（如 qwen3-tts-flash / cosyvoice / sambert）误配为"语音识别专用模型"，
+        // 不应直接拿去识别，回落端点默认 ASR 模型。
+        if (capability == Capability.ASR && isTtsModelName(override)) {
+            AILogger.w(TAG, "ASR override '" + override + "' 疑似 TTS 模型，回落端点默认 ASR 模型");
+            effectiveOverride = null;
+        }
         if (effectiveOverride != null && !effectiveOverride.isEmpty()) {
             return effectiveOverride;
         }
         String m = config.selectedModel != null ? config.selectedModel : config.modelName;
         if (capability == Capability.TTS && isAsrModelName(m)) {
             AILogger.w(TAG, "TTS selectedModel '" + m + "' 疑似 ASR 模型，回落端点默认 TTS 模型");
+            m = null;
+        }
+        if (capability == Capability.ASR && isTtsModelName(m)) {
+            AILogger.w(TAG, "ASR selectedModel '" + m + "' 疑似 TTS 模型，回落端点默认 ASR 模型");
             m = null;
         }
         if (m != null && !m.isEmpty()) {
@@ -174,6 +190,22 @@ public final class SpeechModelSelector {
         }
         return n.contains("asr") || n.contains("paraformer") || n.contains("sensevoice")
                 || n.contains("whisper") || n.contains("fun-asr") || n.contains("gummy");
+    }
+
+    /**
+     * 判断模型名是否明显为 TTS（语音合成）模型。
+     * 用于在 ASR 场景下拦截被误配为语音识别专用模型的 TTS 模型名。
+     * 注意排除含 asr/paraformer/sensevoice/whisper 的命名，避免误判真正的 ASR 模型。
+     */
+    public static boolean isTtsModelName(String modelName) {
+        if (modelName == null || modelName.isEmpty()) return false;
+        String n = modelName.toLowerCase();
+        if (n.contains("asr") || n.contains("paraformer") || n.contains("sensevoice")
+                || n.contains("whisper") || n.contains("fun-asr") || n.contains("gummy")) {
+            return false;
+        }
+        return n.contains("tts") || n.contains("cosyvoice") || n.contains("sambert")
+                || n.contains("speech") || n.contains("qwen3-tts") || n.contains("qwen-tts");
     }
 
     /**

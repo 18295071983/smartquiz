@@ -66,6 +66,59 @@ public class NetworkSearchTool implements AITool {
     private static final String METASO_CHAT_API_URL = "https://metaso.cn/api/open/search/v2";
     private static final String DEFAULT_METASO_API_KEY = "mk-3B07FA8984EE0A485E5BB237C2B7D517";
     private final Context context;
+
+    /**
+     * 自有搜索工具是否可用：内置默认秘塔 Key 恒在，视为可用。
+     * 网络断开/Key 失效在请求层自然失败（调用方回退官方 webSearch 注入）。
+     */
+    public static boolean isAvailable() {
+        return true;
+    }
+
+    /**
+     * 预搜索：在模型请求前用自有搜索工具（秘塔）搜索，返回适合拼入 prompt 的文本摘要。
+     * 供"联网搜索优先走自有工具"使用；失败/无结果返回 null（调用方回退官方 webSearch）。
+     */
+    public static String preSearch(Context ctx, String query, int limit) {
+        if (ctx == null || query == null || query.trim().isEmpty()) return null;
+        try {
+            NetworkSearchTool tool = new NetworkSearchTool(ctx);
+            return tool.buildSearchPrompt(query.trim(), limit > 0 ? limit : 5);
+        } catch (Exception e) {
+            AILogger.w(TAG, "preSearch failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 执行搜索并格式化为 prompt 可读摘要（1. 标题 / 链接 / 摘要） */
+    private String buildSearchPrompt(String query, int limit) {
+        try {
+            APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
+            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
+            if (apiKey == null || apiKey.isEmpty()) {
+                apiKey = DEFAULT_METASO_API_KEY;
+            }
+            List<Map<String, String>> results = metasoSearch(query, limit, apiKey);
+            if (results == null || results.isEmpty()) return null;
+            StringBuilder sb = new StringBuilder();
+            int i = 1;
+            for (Map<String, String> r : results) {
+                sb.append(i++).append(". ").append(r.getOrDefault("title", "")).append('\n');
+                String url = r.getOrDefault("url", r.getOrDefault("link", ""));
+                if (url != null && !url.isEmpty()) {
+                    sb.append("   链接: ").append(url).append('\n');
+                }
+                String snippet = r.getOrDefault("snippet", "");
+                if (snippet != null && !snippet.isEmpty()) {
+                    sb.append("   摘要: ").append(snippet).append('\n');
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            AILogger.w(TAG, "buildSearchPrompt failed: " + e.getMessage());
+            return null;
+        }
+    }
     
     private static final Pattern TITLE_PATTERN = Pattern.compile("<title[^>]*>([^<]*)</title>", Pattern.CASE_INSENSITIVE);
     private static final Pattern META_DESCRIPTION_PATTERN = Pattern.compile("<meta\\s+name\\s*=\\s*[\"']description[\"']\\s+content\\s*=\\s*[\"']([^\"']*)[\"']", Pattern.CASE_INSENSITIVE);

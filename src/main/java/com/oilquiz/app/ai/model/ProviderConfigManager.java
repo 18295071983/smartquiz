@@ -228,6 +228,15 @@ public class ProviderConfigManager {
         return p != null ? p.name : "Custom";
     }
 
+    /**
+     * 该端点是否需要信任自签/非标准 CA 证书（providers.json 服务商对象声明 trustAllCerts=true 时）。
+     * 默认 false=系统证书校验；未识别服务商（自定义端点）同样返回 false，保持安全默认。
+     */
+    public boolean needsTrustAllCerts(String apiUrl) {
+        Provider p = matchByUrl(apiUrl);
+        return p != null && p.trustAllCerts;
+    }
+
     // ==================== 模型规则（思考参数） ====================
 
     /** 是否支持深度思考：模型名命中任一服务商的 thinking.modelKeywords 即视为思考模型 */
@@ -563,13 +572,25 @@ public class ProviderConfigManager {
     /** 服务预置模型名（embedding/imageGen/rerank/tts/asr），配置表未声明返回 null */
     public String getServiceModel(String apiUrl, String service) {
         Provider p = matchByUrl(apiUrl);
-        if (p == null || service == null) return null;
+        if (p != null) {
+            String v = null;
+            switch (service) {
+                case "embedding": v = p.embeddingModel; break;
+                case "rerank": v = p.rerankModel; break;
+                case "imageGen": v = p.imageModel; break;
+                case "tts": v = p.ttsModel; break;
+                case "asr": v = p.asrModel; break;
+                default: return null;
+            }
+            if (v != null && !v.isEmpty()) return v;
+        }
+        // 未匹配服务商或服务商未声明 → 回退全局配置表（自定义 OpenAI 兼容端点可用全局默认）
+        ProviderTable t = table;
+        if (t == null) return null;
         switch (service) {
-            case "embedding": return p.embeddingModel;
-            case "rerank": return p.rerankModel;
-            case "imageGen": return p.imageModel;
-            case "tts": return p.ttsModel;
-            case "asr": return p.asrModel;
+            case "embedding": return t.embeddingModel;
+            case "rerank": return t.rerankModel;
+            case "imageGen": return t.imageModel;
             default: return null;
         }
     }
@@ -640,6 +661,13 @@ public class ProviderConfigManager {
         if (p == null || p.services == null) return null;
         ServiceConfig sc = getServiceConfig(p, service);
         return sc != null ? sc.param : null;
+    }
+
+    /** webSearch 声明的端点约束（如 "responses"：仅该端点支持注入），null 表示不限端点 */
+    public String getWebSearchEndpoint(String apiUrl) {
+        Provider p = matchByUrl(apiUrl);
+        if (p == null || p.services == null || p.services.webSearch == null) return null;
+        return p.services.webSearch.endpoint;
     }
 
     /** 服务商声明的全部可用服务名列表（UI 展示/设置用） */
@@ -718,6 +746,12 @@ public class ProviderConfigManager {
         public String note;
         public String chatEndpoint;
         public String modelsEndpoint;
+        public String embeddingEndpoint;   // 可选：全局 Embedding 端点
+        public String rerankEndpoint;      // 可选：全局 Rerank 端点
+        public String imageEndpoint;       // 可选：全局文生图端点
+        public String embeddingModel;      // 可选：全局 Embedding 预置模型（未匹配服务商时兜底）
+        public String rerankModel;         // 可选：全局 Rerank 预置模型（未匹配服务商时兜底）
+        public String imageModel;          // 可选：全局文生图预置模型（未匹配服务商时兜底）
         public List<Provider> providers;
     }
 
@@ -742,6 +776,9 @@ public class ProviderConfigManager {
         /** 可选：多轮对话时 assistant 消息必须回传 reasoning_content（如部分在线思考模型的硬性要求，
          *  不回传报 HTTP 400）。true=始终回传（不论是否思考模式）；缺省 false=按规范不回传/仅思考模式回传。 */
         public boolean requiresReasoningInContext;
+        /** 可选：是否信任自签/非标准 CA 证书（内网网关、自建 vLLM/llama.cpp 走 https 自签证书时置 true）。
+         *  默认 false=使用系统证书校验，保证云端 API（百炼/OpenAI/Gemini 等正规 CA）流量不可被中间人截获。 */
+        public boolean trustAllCerts;
         public Services services;           // 可选：服务能力声明（agent/多模态/网络搜索/embedding/rerank/文生图/语音等）
     }
 

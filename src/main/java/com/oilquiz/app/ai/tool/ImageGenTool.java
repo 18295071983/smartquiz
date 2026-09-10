@@ -4,6 +4,9 @@ import android.content.Context;
 import android.net.Uri;
 
 import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.model.OnlineModelManager;
+import com.oilquiz.app.ai.model.ProviderConfigManager;
+import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.ai.util.NetworkUtil;
 import com.oilquiz.app.util.AILogger;
@@ -16,27 +19,32 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * 文生图工具：根据提示词生成图片（Pollinations.ai 免费 API，无需 API Key）。
+ * 文生图工具：根据提示词生成图片。
+ *
+ * 双通道（在线优先，自动降级）：
+ * 1. 在线 imageGen 端口：当前在线模型配置勾选 supportsImageGen 且配置表声明 imageModel 时，
+ *    走 OnlineInferenceService.generateImageAsync（{base}/v1/images/generations，鉴权/SSL 复用引擎），
+ *    支持各服务商官方文生图模型（b64_json 或 url 响应）；
+ * 2. 免费 API 降级：在线未配置/失败/超时时回退 Pollinations.ai（无需 API Key），
+ *    多模型 flux/flux-realism/flux-anime/turbo，失败自动换 flux 重试一次。
  *
  * 增强能力：
- * 1. 多模型：flux（默认）/ flux-realism（写实）/ flux-anime（动漫）/ turbo（快速）
- * 2. 中文提示词自动增强（追加英文质量词，提升生成效果）
- * 3. 相同 prompt+model+尺寸 去重缓存（避免重复请求）
- * 4. 失败降级：模型生成失败自动换 flux 重试一次
- *
- * 生成的图片保存到应用私有目录，通过 FileProvider 提供 content:// URI，
- * 并附带 image_grid 组件数据，对话界面直接内联显示。
+ * 1. 中文提示词自动增强（追加英文质量词，提升生成效果）
+ * 2. 相同 prompt+model+尺寸 去重缓存（避免重复请求）
+ * 3. 生成的图片保存到应用私有目录，通过 FileProvider 提供 content:// URI，
+ *    并附带 image_grid 组件数据，对话界面直接内联显示。
  *
  * 参数：
  * - prompt: 图片描述（必填）
  * - width: 宽度（可选，默认 1024）
  * - height: 高度（可选，默认 1024）
- * - model: 模型（可选，默认 flux，如 flux/flux-realism/flux-anime/turbo）
+ * - model: 模型（可选，默认 flux；在线模式下忽略，使用服务商 imageModel）
  * - style: 风格关键词（可选，如 "photorealistic"/"cartoon"/"watercolor"）
  */
 @Tool(value = "image_gen", category = "media")
@@ -45,6 +53,8 @@ public class ImageGenTool implements AITool {
     private static final String TAG = "ImageGenTool";
     private static final String API_BASE = "https://image.pollinations.ai/prompt/";
     private static final long MAX_IMAGE_BYTES = 12 * 1024 * 1024; // 12MB 上限
+    /** 在线生图最长等待（与引擎 read 120s 对齐，含生成+下载） */
+    private static final long ONLINE_GEN_TIMEOUT_MS = 120000;
 
     /** 可用模型（白名单校验 + 非法回退） */
     private static final String[] SUPPORTED_MODELS = {"flux", "flux-realism", "flux-anime", "turbo"};
@@ -126,11 +136,13 @@ public class ImageGenTool implements AITool {
                 }
             }
 
-            // 增强提示词（中文→英文质量词 + 风格）
-            String enhancedPrompt = enhancePrompt(prompt, style);
-
-            // 生成（含降级重试）
-            File imageFile = generateWithFallback(enhancedPrompt, width, height, model);
+            // 生成：在线 imageGen 端口优先（配置了官方 image 模型时），失败/未配置降级免费 API
+            File imageFile = tryOnlineGenerate(prompt, width, height);
+            if (imageFile == null) {
+                // 增强提示词（中文→英文质量词 + 风格）
+                String enhancedPrompt = enhancePrompt(prompt, style);
+                imageFile = generateWithFallback(enhancedPrompt, width, height, model);
+            }
             if (imageFile == null) {
                 return AIToolResult.fail("文生图失败: 多次尝试后仍无法生成，请稍后再试或更换描述");
             }
@@ -146,6 +158,126 @@ public class ImageGenTool implements AITool {
             AILogger.e(TAG, "Image generation failed: " + e.getMessage(), e);
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             return AIToolResult.fail("文生图失败: " + msg);
+        }
+    }
+
+    /**
+     * 在线 imageGen 端口生成（优先通道，仅当用户单独设置了文生图专用模型时启用）。
+     * 条件：FEATURE_IMAGE_GEN 功能专用模型已设置（apiUrl/apiKey 非空）+ 配置表声明 imageModel。
+     * 未单独设置 → 返回 null，走免费 Pollinations，不消费任何在线生图 API（防止无关消费）。
+     */
+    private File tryOnlineGenerate(String prompt, int width, int height) {
+        try {
+            if (context == null) return null;
+            OnlineModelManager omm = OnlineModelManager.getInstance(context);
+            if (omm == null) return null;
+            // 只读文生图功能专用模型：用户单独设置后才走在线端口
+            OnlineModelManager.OnlineModelConfig cfg = omm.getFeatureModel(OnlineModelManager.FEATURE_IMAGE_GEN);
+            if (cfg == null || cfg.apiUrl == null || cfg.apiUrl.trim().isEmpty()
+                    || cfg.apiKey == null || cfg.apiKey.trim().isEmpty()) {
+                return null;
+            }
+            ProviderConfigManager pcm = ProviderConfigManager.get();
+            String imgModel = pcm.getServiceModel(cfg.apiUrl, "imageGen");
+            if (imgModel == null || imgModel.trim().isEmpty()) return null; // 配置表未声明 imageModel
+
+            OnlineInferenceService ois = OnlineInferenceService.getInstance(context);
+            if (ois == null) return null;
+            AILogger.i(TAG, "在线 imageGen 端口生成（专用模型=" + cfg.name + " / " + imgModel + "）");
+            String result = ois.generateImageAsync(prompt, cfg)
+                    .get(ONLINE_GEN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (result == null || result.trim().isEmpty()) return null;
+            File file = saveOnlineImage(result, width, height);
+            if (file == null) AILogger.w(TAG, "在线生图返回但图片保存失败，降级免费 API");
+            return file;
+        } catch (Exception e) {
+            AILogger.w(TAG, "在线生图不可用，降级免费 API: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 保存在线生图结果：data URL（base64）直接解码落盘；http(s) URL 下载落盘。
+     * 保存到 Agent 工作区目录（与免费通道一致），供 FileProvider 预览。
+     */
+    private File saveOnlineImage(String result, int width, int height) {
+        try {
+            if (result.startsWith("data:image/")) {
+                int comma = result.indexOf(',');
+                if (comma < 0) return null;
+                String mime = result.substring(5, comma); // image/png;base64 形式
+                String b64 = result.substring(comma + 1);
+                byte[] bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
+                if (bytes == null || bytes.length == 0) return null;
+                String ext = ".png";
+                if (mime.contains("jpeg") || mime.contains("jpg")) ext = ".jpg";
+                else if (mime.contains("webp")) ext = ".webp";
+                File dir = com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context).getWorkspaceDir();
+                if (!dir.exists()) dir.mkdirs();
+                File imageFile = new File(dir, "gen_" + System.currentTimeMillis() + ext);
+                try (FileOutputStream output = new FileOutputStream(imageFile)) {
+                    output.write(bytes);
+                }
+                return (imageFile.exists() && imageFile.length() > 0) ? imageFile : null;
+            }
+            if (result.startsWith("http://") || result.startsWith("https://")) {
+                return downloadToFile(result);
+            }
+            return null;
+        } catch (Exception e) {
+            AILogger.e(TAG, "在线图片保存失败: " + e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /** 下载远程图片到工作区（带 Content-Type 校验与体积上限） */
+    private File downloadToFile(String urlStr) {
+        try {
+            Request request = NetworkUtil.createApiRequestBuilder(urlStr)
+                    .get()
+                    .build();
+            try (Response response = IMAGE_CLIENT.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    AILogger.w(TAG, "在线图片下载 HTTP " + response.code() + ": " + response.message());
+                    return null;
+                }
+                okhttp3.ResponseBody body = response.body();
+                if (body == null) return null;
+                String contentType = body.contentType() != null ? body.contentType().toString() : "";
+                if (!contentType.toLowerCase().startsWith("image/")) {
+                    AILogger.w(TAG, "在线图片非图片 Content-Type: " + contentType);
+                    return null;
+                }
+                File dir = com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context).getWorkspaceDir();
+                if (!dir.exists()) dir.mkdirs();
+                String ext = ".jpg";
+                if (contentType.toLowerCase().contains("png")) ext = ".png";
+                else if (contentType.toLowerCase().contains("webp")) ext = ".webp";
+                File imageFile = new File(dir, "gen_" + System.currentTimeMillis() + ext);
+                try (InputStream input = body.byteStream();
+                     FileOutputStream output = new FileOutputStream(imageFile)) {
+                    byte[] buffer = new byte[8192];
+                    long total = 0;
+                    int read;
+                    while ((read = input.read(buffer)) != -1) {
+                        total += read;
+                        if (total > MAX_IMAGE_BYTES) {
+                            output.close();
+                            imageFile.delete();
+                            return null;
+                        }
+                        output.write(buffer, 0, read);
+                    }
+                }
+                if (!imageFile.exists() || imageFile.length() == 0) {
+                    imageFile.delete();
+                    return null;
+                }
+                return imageFile;
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "在线图片下载失败: " + e.getMessage(), e);
+            return null;
         }
     }
 

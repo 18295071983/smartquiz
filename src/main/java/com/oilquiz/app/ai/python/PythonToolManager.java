@@ -3765,12 +3765,45 @@ public class PythonToolManager {
             doneBtn.setOnClickListener(v -> {
                 if (stopped[0]) return;
                 stopped[0] = true;
-                stopRecorder(recorderRef);
                 if (ticker[0] != null) handler.removeCallbacks(ticker[0]);
                 com.oilquiz.app.ai.speech.SpeechManager.getInstance(context).releaseRecording("agent");
-                rt.result.set(audioFile.getAbsolutePath());
-                dialog.dismiss();
-                synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
+                // 停止录音与文件 finalize 放后台线程：MediaRecorder.stop 同步阻塞且录音过短会抛异常，
+                // 避免主线程卡顿；同时必须等录音真正启动（recorderRef 赋值）后再 stop，
+                // 并校验文件有效性，防止把损坏/0 字节文件交给识别（"音频文件不包含音轨"）
+                new Thread(() -> {
+                    long deadline = System.currentTimeMillis() + 3000;
+                    while (recorderRef[0] == null && System.currentTimeMillis() < deadline) {
+                        try {
+                            Thread.sleep(30);
+                        } catch (InterruptedException ignored) {
+                            break;
+                        }
+                    }
+                    android.media.MediaRecorder r = recorderRef[0];
+                    recorderRef[0] = null;
+                    if (r != null) {
+                        try {
+                            r.stop();
+                        } catch (Exception ignored) {
+                        }
+                        try {
+                            r.release();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    boolean valid = audioFile.exists() && audioFile.length() > 1024;
+                    act.runOnUiThread(() -> {
+                        try {
+                            if (dialog.isShowing()) dialog.dismiss();
+                        } catch (Throwable ignored) {
+                        }
+                    });
+                    rt.result.set(valid ? audioFile.getAbsolutePath()
+                            : "cancelled:录音时长过短或未生成有效音频，请重新录音");
+                    synchronized (rt.resultLock) {
+                        rt.resultLock.notifyAll();
+                    }
+                }).start();
             });
 
             // 录音准备/启动放后台线程（MediaRecorder prepare 可能耗时）

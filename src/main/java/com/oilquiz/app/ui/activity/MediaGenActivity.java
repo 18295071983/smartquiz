@@ -71,6 +71,7 @@ public class MediaGenActivity extends Activity {
     private TextView tvTask;
     private Button btnQuery;
     private Button btnImageMode, btnVideoMode;
+    private Button btnFeatureModel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -144,6 +145,16 @@ public class MediaGenActivity extends Activity {
         root.addView(modeRow);
         btnImageMode.setOnClickListener(v -> setMode("image"));
         btnVideoMode.setOnClickListener(v -> setMode("video"));
+
+        // 功能专用模型：文生图/文生视频单独设置（未设置时生成会拒绝/走免费通道，防止无关 API 消费）
+        btnFeatureModel = new Button(this);
+        btnFeatureModel.setTextSize(12);
+        btnFeatureModel.setBackgroundColor(ThemeColors.get(R.color.hc_ffe5e7eb));
+        btnFeatureModel.setTextColor(ThemeColors.get(R.color.hc_ff2563eb));
+        btnFeatureModel.setPadding(dp(8), dp(4), dp(8), dp(4));
+        btnFeatureModel.setOnClickListener(v -> showFeatureModelDialog());
+        root.addView(fieldRow("专用模型", btnFeatureModel));
+        updateFeatureModelLabel();
 
         // 提供商/端点选择：从模型管理配置表动态获取（跟随配置 + 各已配置提供商）
         spProvider = new Spinner(this);
@@ -323,6 +334,40 @@ public class MediaGenActivity extends Activity {
                 : "描述画面，如：一只可爱的橘猫在草地上晒太阳");
         applyProvider();
         resetResult();
+        updateFeatureModelLabel();
+    }
+
+    /** 文生图/文生视频专用模型设置（单独设置后才消费在线媒体 API） */
+    private void showFeatureModelDialog() {
+        com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode m =
+                "video".equals(mode)
+                        ? com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.VIDEO_GEN
+                        : com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog.Mode.IMAGE_GEN;
+        new com.oilquiz.app.ui.dialog.SpeechModelSelectorDialog(this, m)
+                .setListener((id, name) -> updateFeatureModelLabel())
+                .show();
+    }
+
+    /** 专用模型设置状态展示：未设置 → 提示（生图免费/视频拒绝），已设置 → 显示模型名 */
+    private void updateFeatureModelLabel() {
+        if (btnFeatureModel == null) return;
+        try {
+            com.oilquiz.app.ai.model.OnlineModelManager omm =
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this);
+            String feature = "video".equals(mode)
+                    ? com.oilquiz.app.ai.model.OnlineModelManager.FEATURE_VIDEO_GEN
+                    : com.oilquiz.app.ai.model.OnlineModelManager.FEATURE_IMAGE_GEN;
+            String modelId = omm != null ? omm.getFeatureModelId(feature) : null;
+            if (modelId == null || modelId.isEmpty()) {
+                btnFeatureModel.setText("未设置（生图免费 / 视频拒绝）");
+            } else {
+                String name = omm.getFeatureModelName(feature);
+                String display = name != null && !name.isEmpty() ? name : modelId;
+                btnFeatureModel.setText("已设置：" + display);
+            }
+        } catch (Exception e) {
+            btnFeatureModel.setText("未设置");
+        }
     }
 
     /** 提供商下拉数据（与 spProvider 位置对应）：0=跟随模型管理配置，其余=各已配置提供商 */

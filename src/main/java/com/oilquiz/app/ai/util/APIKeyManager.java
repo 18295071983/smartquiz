@@ -408,7 +408,9 @@ public class APIKeyManager {
                 
                 // 如果是HTTPS连接，禁用SSL证书验证以支持阿里云百炼等服务
                 if (connection instanceof HttpsURLConnection) {
-                    SSLSocketFactoryUtil.disableSSLCertificateValidation((HttpsURLConnection) connection);
+                    if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(testUrl)) {
+                        SSLSocketFactoryUtil.disableSSLCertificateValidation((HttpsURLConnection) connection);
+                    }
                 }
                 
                 connection.setRequestMethod("GET");

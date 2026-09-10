@@ -55,6 +55,84 @@ public class SenseVoiceAsr {
 
     private static volatile SenseVoiceAsr INSTANCE;
 
+    /** 模型使用计数：识别线程 acquire 占用、识别完 release 释放；并发识别互不打断 */
+    private static int inUse = 0;
+
+    /** 空闲卸载延时（ms）：识别完保留模型，连续使用零延迟；超时未用才卸载 */
+    private static final long UNLOAD_IDLE_MS = 60_000L;
+    private static android.os.Handler ttlHandler;
+    private static Runnable unloadTask;
+    private static volatile boolean callbacksRegistered = false;
+
+    private static android.os.Handler ttlHandler() {
+        if (ttlHandler == null) {
+            ttlHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        }
+        return ttlHandler;
+    }
+
+    private static void cancelUnloadTask() {
+        if (unloadTask != null) {
+            ttlHandler().removeCallbacks(unloadTask);
+            unloadTask = null;
+        }
+    }
+
+    private static void scheduleUnloadTask() {
+        cancelUnloadTask();
+        unloadTask = SenseVoiceAsr::releaseIfIdle;
+        ttlHandler().postDelayed(unloadTask, UNLOAD_IDLE_MS);
+    }
+
+    /** 空闲卸载：无人使用且模型存在时卸载（TTL 到期或系统低内存时调用）；识别中不打断 */
+    private static void releaseIfIdle() {
+        synchronized (SenseVoiceAsr.class) {
+            if (unloadTask != null) {
+                ttlHandler().removeCallbacks(unloadTask);
+                unloadTask = null;
+            }
+            if (inUse == 0 && INSTANCE != null) {
+                try {
+                    INSTANCE.session.close();
+                } catch (Exception ignored) {
+                }
+                INSTANCE = null;
+                AILogger.i(TAG, "本地 ASR 模型空闲超时已卸载，释放内存（下次识别时重新初始化）");
+            }
+        }
+    }
+
+    /** 系统低内存回调：内存紧张时立即释放 ASR 模型（优先保住常驻的本地 LLM） */
+    private static void registerTrimMemoryCallback(Context context) {
+        if (callbacksRegistered) {
+            return;
+        }
+        try {
+            context.getApplicationContext().registerComponentCallbacks(
+                    new android.content.ComponentCallbacks2() {
+                        @Override
+                        public void onTrimMemory(int level) {
+                            if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+                                    || level == android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+                                releaseIfIdle();
+                            }
+                        }
+
+                        @Override
+                        public void onLowMemory() {
+                            releaseIfIdle();
+                        }
+
+                        @Override
+                        public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+                        }
+                    });
+            callbacksRegistered = true;
+        } catch (Exception e) {
+            AILogger.w(TAG, "注册低内存回调失败: " + e.getMessage());
+        }
+    }
+
     private final OrtEnvironment env;
     private final OrtSession session;
 
@@ -124,37 +202,51 @@ public class SenseVoiceAsr {
         return INSTANCE;
     }
 
+    /**
+     * 获取模型实例并占用（识别前必须调用，识别完必须 {@link #release()}）。
+     * 与 {@link #release()} 配对使用：并发识别各自 acquire，模型在空闲 TTL
+     * 到期或系统低内存时才卸载，识别中途不会被卸载（session 关闭竞态已消除）。
+     */
+    public static SenseVoiceAsr acquire(Context context) {
+        synchronized (SenseVoiceAsr.class) {
+            cancelUnloadTask(); // 有使用：取消待卸载
+            if (INSTANCE == null) {
+                try {
+                    INSTANCE = new SenseVoiceAsr(context.getApplicationContext());
+                    registerTrimMemoryCallback(context);
+                } catch (Exception e) {
+                    AILogger.e(TAG, "本地 ASR 初始化失败: " + e.getMessage(), e);
+                    throw new RuntimeException("本地语音识别模型加载失败: " + e.getMessage(), e);
+                }
+            }
+            inUse++;
+            return INSTANCE;
+        }
+    }
+
+    /** 识别结束释放占用：模型保留（空闲 60s 无使用才卸载，连续识别零延迟） */
+    public static void release() {
+        synchronized (SenseVoiceAsr.class) {
+            if (inUse > 0) {
+                inUse--;
+            }
+            if (inUse == 0) {
+                scheduleUnloadTask(); // 空闲开始计时，超时未用自动卸载
+            }
+        }
+    }
+
     /** 是否已初始化成功（模型已加载） */
     public static boolean isReady() {
         return INSTANCE != null;
     }
 
     /**
-     * 释放模型并重置单例：关闭 ONNX session，把 INSTANCE 置空，让 GC 回收 228MB 模型内存。
-     * 再次调用 {@link #getInstance(Context)} 时重新初始化加载。
-     * 用于"识别完即卸载"策略：避免语音模型与本地 LLM 常驻并发占用内存。
+     * 立即请求卸载（无人使用时卸载；有识别在进行时保持，由其 release 后空闲卸载）。
+     * 识别入口请使用 {@link #acquire(Context)} / {@link #release()}，勿在识别中途直接调用本方法。
      */
-    public void release() {
-        try {
-            if (session != null) {
-                session.close();
-            }
-        } catch (Exception ignored) {
-        }
-        synchronized (SenseVoiceAsr.class) {
-            if (INSTANCE == this) {
-                INSTANCE = null;
-            }
-        }
-        AILogger.i(TAG, "本地 ASR 模型已卸载，释放内存（下次识别时重新初始化）");
-    }
-
-    /** 卸载当前单例模型（无实例时忽略） */
     public static void releaseInstance() {
-        SenseVoiceAsr inst = INSTANCE;
-        if (inst != null) {
-            inst.release();
-        }
+        releaseIfIdle();
     }
 
     // ==================== 对外识别入口 ====================

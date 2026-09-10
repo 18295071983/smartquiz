@@ -149,6 +149,232 @@ public final class AppWallpaperManager {
     }
 
 
+    /**
+     * 实时读取系统壁纸（文件直读优先，避免客户端缓存返回旧壁纸）。
+     * 读取顺序（每级独立 try，逐级兜底）：
+     * ① getWallpaperFile（API 33+，公开 API，直读 WallpaperManagerService 当前壁纸文件——实时、无客户端缓存）；
+     * ② binder 直连（反射读服务端当前壁纸文件，绕过小米 HyperOS 的 READ_EXTERNAL_STORAGE 客户端检查）；
+     * ③ getDrawable()（标准路径，部分 ROM 可能返回缓存的旧壁纸，仅作后备）；
+     * ④ getBitmap 反射（最终后备）。
+     * 全部失败返回 null（调用方决定内置兜底）。
+     */
+    public static Drawable readSystemWallpaperDrawable(Context context) {
+        WallpaperManager wm = null;
+        try {
+            wm = WallpaperManager.getInstance(context);
+        } catch (Throwable ignored) {
+        }
+        Drawable base = null;
+
+        // ① 公开 API 文件直读：getWallpaperFile 直接返回服务端当前壁纸文件 fd（实时，无客户端缓存）
+        if (wm != null && android.os.Build.VERSION.SDK_INT >= 33) {
+            int[] flags = {WallpaperManager.FLAG_SYSTEM, WallpaperManager.FLAG_LOCK};
+            for (int f : flags) {
+                try {
+                    android.os.ParcelFileDescriptor pfd = wm.getWallpaperFile(f);
+                    if (pfd != null) {
+                        Bitmap bmp = BitmapFactory.decodeFileDescriptor(pfd.getFileDescriptor());
+                        pfd.close();
+                        if (bmp != null) {
+                            base = new BitmapDrawable(context.getResources(), bmp);
+                            android.util.Log.i("WallpaperDebug", "系统壁纸: getWallpaperFile 文件直读成功 flag=" + f);
+                            break;
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    android.util.Log.w("WallpaperDebug", "getWallpaperFile flag=" + f + " 失败: " + ignored);
+                }
+            }
+        }
+
+        // ② binder 直连：绕过客户端缓存/权限，直读服务端当前壁纸文件（换壁纸后必返回新图）
+        if (base == null) {
+            base = readSystemWallpaperViaBinder(context);
+        }
+
+        // ③ 标准路径 getDrawable（部分 ROM 可能带缓存，仅作后备）
+        if (base == null && wm != null) {
+            try {
+                base = wm.getDrawable();
+                android.util.Log.i("WallpaperDebug", "系统壁纸: getDrawable=" + (base != null));
+            } catch (Throwable ignored) {
+                android.util.Log.w("WallpaperDebug", "getDrawable 异常: " + ignored);
+            }
+        }
+
+        // ④ getBitmap 反射（最终后备）
+        if (base == null && wm != null) {
+            try {
+                java.lang.reflect.Method m = WallpaperManager.class.getMethod("getBitmap");
+                Object o = m.invoke(wm);
+                if (o instanceof Bitmap) {
+                    base = new BitmapDrawable(context.getResources(), (Bitmap) o);
+                    android.util.Log.i("WallpaperDebug", "系统壁纸: getBitmap 反射成功");
+                }
+            } catch (Throwable ignored) {
+                android.util.Log.w("WallpaperDebug", "getBitmap反射失败: " + ignored);
+            }
+        }
+
+        if (base == null) {
+            if (isLiveWallpaper(context)) {
+                // 动态壁纸无静态壁纸文件：系统不提供当前帧静态图（AOSP 限制），回退内置默认壁纸并标记
+                android.util.Log.w("WallpaperDebug", "当前为动态壁纸，无静态壁纸文件可读，回退内置默认壁纸");
+            } else {
+                android.util.Log.w("WallpaperDebug", "系统壁纸全部读取失败");
+            }
+        }
+        return base;
+    }
+
+    /**
+     * 主动探测：读取系统壁纸文件 fd（getWallpaperFile API 33+ → binder 直连，均直读服务端当前壁纸文件，
+     * 绕过客户端缓存/权限）。
+     */
+    private static android.os.ParcelFileDescriptor readSystemWallpaperPfd(Context context) {
+        WallpaperManager wm = null;
+        try {
+            wm = WallpaperManager.getInstance(context);
+        } catch (Throwable ignored) {
+        }
+        if (wm != null && android.os.Build.VERSION.SDK_INT >= 33) {
+            int[] flags = {WallpaperManager.FLAG_SYSTEM, WallpaperManager.FLAG_LOCK};
+            for (int f : flags) {
+                try {
+                    android.os.ParcelFileDescriptor pfd = wm.getWallpaperFile(f);
+                    if (pfd != null) {
+                        return pfd;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        // binder 直连（绕过小米 HyperOS 客户端权限检查，直读服务端当前壁纸文件）
+        try {
+            Class<?> smCls = Class.forName("android.os.ServiceManager");
+            java.lang.reflect.Method getService = smCls.getDeclaredMethod("getService", String.class);
+            getService.setAccessible(true);
+            Object binderObj = getService.invoke(null, "wallpaper");
+            if (!(binderObj instanceof android.os.IBinder)) {
+                return null;
+            }
+            Class<?> stubCls = Class.forName("android.app.IWallpaperManager$Stub");
+            java.lang.reflect.Method asInterface = stubCls.getDeclaredMethod("asInterface", android.os.IBinder.class);
+            asInterface.setAccessible(true);
+            Object wmSvc = asInterface.invoke(null, (android.os.IBinder) binderObj);
+            Class<?> iwmCls = Class.forName("android.app.IWallpaperManager");
+            java.lang.reflect.Method getFile = iwmCls.getDeclaredMethod("getWallpaperFile", int.class);
+            getFile.setAccessible(true);
+            int[] flags = {1, 2}; // FLAG_SYSTEM=1, FLAG_LOCK=2
+            for (int f : flags) {
+                try {
+                    Object pfdObj = getFile.invoke(wmSvc, f);
+                    if (pfdObj instanceof android.os.ParcelFileDescriptor) {
+                        return (android.os.ParcelFileDescriptor) pfdObj;
+                    }
+                } catch (Throwable ignoredInner) {
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("WallpaperDebug", "binder pfd 直连失败: " + t.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 系统壁纸指纹：壁纸文件头 16KB 字节 + 文件总大小 混合哈希。
+     * 换壁纸后服务端壁纸文件内容必然变化 → 指纹必然不同；读取失败返回 0（不参与比对）。
+     */
+    public static long getSystemWallpaperFingerprint(Context context) {
+        android.os.ParcelFileDescriptor pfd = readSystemWallpaperPfd(context);
+        if (pfd == null) {
+            return 0;
+        }
+        try {
+            long size = pfd.getStatSize();
+            java.io.FileInputStream fis = new java.io.FileInputStream(pfd.getFileDescriptor());
+            long h = 1125899906842597L;
+            byte[] buf = new byte[16384];
+            long total = 0;
+            int n = fis.read(buf);
+            if (n > 0) {
+                total = n;
+                for (int i = 0; i < n; i++) {
+                    h = h * 31 + buf[i];
+                }
+            }
+            // 文件总大小（getStatSize 走 fstat，对 binder 壁纸 fd 可靠；避免 skip 超长在部分 ROM 抛 EINVAL）
+            h = h * 31 + size;
+            return h;
+        } catch (Throwable t) {
+            android.util.Log.w("WallpaperDebug", "壁纸指纹计算失败: " + t.getMessage());
+            return 0;
+        } finally {
+            try {
+                pfd.close();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static volatile long lastFingerprint = 0;
+    private static volatile boolean fingerprintInitialized = false;
+
+    /**
+     * 主动探测：系统壁纸是否已变化（与上次指纹对比）。
+     * 前台周期轮询调用，不依赖系统广播/颜色回调（小米等 ROM 上两者均可能不可靠）。
+     * 读取失败返回 false（不误判）。
+     */
+    public static boolean hasSystemWallpaperChanged(Context context) {
+        long f = getSystemWallpaperFingerprint(context);
+        return f != 0 && wallpaperFingerprintChanged(f);
+    }
+
+    /** 指纹变化判定（内部缓存对比）；首轮仅初始化不判变。 */
+    public static boolean wallpaperFingerprintChanged(long fingerprint) {
+        synchronized (AppWallpaperManager.class) {
+            if (!fingerprintInitialized) {
+                lastFingerprint = fingerprint;
+                fingerprintInitialized = true;
+                return false;
+            }
+            if (fingerprint != lastFingerprint) {
+                lastFingerprint = fingerprint;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 当前系统壁纸是否为动态壁纸（WallpaperService 渲染，无静态壁纸文件） */
+    public static boolean isLiveWallpaper(Context context) {
+        try {
+            WallpaperManager wm = WallpaperManager.getInstance(context);
+            if (wm == null) {
+                return false;
+            }
+            // getWallpaperInfo() 对动态壁纸返回非 null（API 34 起 deprecated 但仍可用）
+            Object info = wm.getWallpaperInfo();
+            return info != null;
+        } catch (Throwable t) {
+            android.util.Log.w("WallpaperDebug", "动态壁纸检测失败: " + t.getMessage());
+            return false;
+        }
+    }
+
+    private static volatile long lastWallpaperRefreshMs = 0;
+    private static final long WALLPAPER_REFRESH_COOLDOWN_MS = 60000L;
+
+    /** 是否处于重建冷却期（指纹探测发现变化后，短时间内不再重建，防轮播/动态壁纸频繁重建闪烁） */
+    public static boolean isWallpaperRefreshCoolingDown() {
+        return android.os.SystemClock.elapsedRealtime() - lastWallpaperRefreshMs < WALLPAPER_REFRESH_COOLDOWN_MS;
+    }
+
+    /** 标记一次壁纸重建（进入冷却） */
+    public static void markWallpaperRefreshed() {
+        lastWallpaperRefreshMs = android.os.SystemClock.elapsedRealtime();
+    }
+
     /** 当前壁纸 drawable（已叠加暗化遮罩）；模式关闭或获取失败返回 null */
     public static Drawable getWallpaperDrawable(Context context) {
         int mode = getMode(context);
@@ -157,59 +383,10 @@ public final class AppWallpaperManager {
         }
         Drawable base = null;
         if (mode == MODE_FOLLOW_SYSTEM) {
-            WallpaperManager wm = null;
-            try {
-                wm = WallpaperManager.getInstance(context);
-                base = wm.getDrawable();
-                android.util.Log.i("WallpaperDebug", "FOLLOW_SYSTEM getDrawable=" + (base != null));
-            } catch (Throwable ignored) {
-                android.util.Log.w("WallpaperDebug", "getDrawable 异常: " + ignored);
-            }
+            // 文件直读优先（getWallpaperFile/binder 直连），避免客户端 getDrawable 缓存返回旧壁纸；
+            // 全部失败回退内置默认壁纸（猫和老鼠），保证页面始终有壁纸背景
+            base = readSystemWallpaperDrawable(context);
             if (base == null) {
-                // 兜底1：getWallpaperFile 读壁纸文件（独立 try，不受上面异常影响）
-                if (wm != null && android.os.Build.VERSION.SDK_INT >= 33) {
-                    int[] flags = {WallpaperManager.FLAG_SYSTEM, WallpaperManager.FLAG_LOCK};
-                    for (int f : flags) {
-                        try {
-                            android.os.ParcelFileDescriptor pfd = wm.getWallpaperFile(f);
-                            if (pfd != null) {
-                                Bitmap bmp = BitmapFactory.decodeFileDescriptor(pfd.getFileDescriptor());
-                                pfd.close();
-                                if (bmp != null) {
-                                    base = new BitmapDrawable(context.getResources(), bmp);
-                                    android.util.Log.i("WallpaperDebug", "getWallpaperFile 读取成功 flag=" + f);
-                                    break;
-                                }
-                            }
-                        } catch (Throwable ignored2) {
-                            android.util.Log.w("WallpaperDebug", "getWallpaperFile flag=" + f + " 失败: " + ignored2);
-                        }
-                    }
-                }
-            }
-            if (base == null) {
-                // 兜底2：getBitmap 反射（独立 try）
-                if (wm != null) {
-                    try {
-                        java.lang.reflect.Method m = WallpaperManager.class.getMethod("getBitmap");
-                        Object o = m.invoke(wm);
-                        if (o instanceof Bitmap) {
-                            base = new BitmapDrawable(context.getResources(), (Bitmap) o);
-                        }
-                    } catch (Throwable ignored3) {
-                        android.util.Log.w("WallpaperDebug", "getBitmap反射失败: " + ignored3);
-                    }
-                }
-            }
-            if (base == null) {
-                // 兜底3：绕过 MIUI 客户端，直接连安卓系统底层 IWallpaperManager Binder 服务。
-                // AOSP 服务端 getWallpaperFile 不校验存储权限（fd 由 system 进程打开后传回），
-                // 可绕开小米 READ_EXTERNAL_STORAGE 检查。
-                base = readSystemWallpaperViaBinder(context);
-            }
-            if (base == null) {
-                // 兜底4（最终兜底）：系统壁纸读取失败（如小米 HyperOS 锁 READ_EXTERNAL_STORAGE），
-                // 回退到内置默认壁纸「猫和老鼠」，保证页面始终有壁纸背景。
                 base = getFallbackDrawable(context);
                 if (base != null) {
                     android.util.Log.w("WallpaperDebug", "系统壁纸读取失败，已回退内置默认壁纸（猫和老鼠）");

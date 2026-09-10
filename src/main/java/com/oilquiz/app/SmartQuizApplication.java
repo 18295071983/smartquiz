@@ -36,6 +36,49 @@ public class SmartQuizApplication extends Application {
     private static android.app.Activity currentActivity;
     private int resumeCount = 0;
     private boolean isBackground = false;
+    /** 主动壁纸探测：前台周期轮询（不依赖系统广播/颜色回调，小米等 ROM 上两者均可能不可靠） */
+    private android.os.Handler wallpaperProbeHandler;
+    private static final long WALLPAPER_PROBE_INTERVAL_MS = 20000L;
+    private final Runnable wallpaperProbeRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (!isBackground
+                        && com.oilquiz.app.theme.AppWallpaperManager.getMode(SmartQuizApplication.this)
+                        == com.oilquiz.app.theme.AppWallpaperManager.MODE_FOLLOW_SYSTEM) {
+                    long f = com.oilquiz.app.theme.AppWallpaperManager
+                            .getSystemWallpaperFingerprint(SmartQuizApplication.this);
+                    android.util.Log.d(TAG, "壁纸主动探测: 指纹=" + f
+                            + ", 动态壁纸=" + com.oilquiz.app.theme.AppWallpaperManager
+                            .isLiveWallpaper(SmartQuizApplication.this));
+                    if (f != 0 && com.oilquiz.app.theme.AppWallpaperManager.wallpaperFingerprintChanged(f)) {
+                        if (com.oilquiz.app.theme.AppWallpaperManager.isWallpaperRefreshCoolingDown()) {
+                            android.util.Log.d(TAG, "壁纸主动探测: 指纹已变但处于重建冷却期，跳过本次重建");
+                        } else {
+                            android.util.Log.i(TAG, "壁纸主动探测: 系统壁纸已变化，刷新前台页面");
+                            com.oilquiz.app.theme.AppWallpaperManager.markWallpaperRefreshed();
+                            refreshWallpaperForFrontActivity();
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "壁纸主动探测失败: " + t.getMessage());
+            } finally {
+                if (wallpaperProbeHandler != null) {
+                    wallpaperProbeHandler.postDelayed(this, WALLPAPER_PROBE_INTERVAL_MS);
+                }
+            }
+        }
+    };
+
+    private void startWallpaperProbe() {
+        try {
+            wallpaperProbeHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+            wallpaperProbeHandler.postDelayed(wallpaperProbeRunnable, WALLPAPER_PROBE_INTERVAL_MS);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "启动壁纸主动探测失败: " + t.getMessage());
+        }
+    }
     
     public static android.app.Activity getCurrentActivity() {
         return currentActivity;
@@ -59,7 +102,14 @@ public class SmartQuizApplication extends Application {
             }
             android.app.Activity a = currentActivity;
             if (a != null && !a.isFinishing() && !a.isDestroyed()) {
-                a.runOnUiThread(a::recreate);
+                // 延迟重建：换壁纸广播发出时 WallpaperManagerService 的文件可能尚未落盘，
+                // 稍等片刻再重建，保证重建后读到的是新壁纸（而非系统侧旧缓存）
+                android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+                h.postDelayed(() -> {
+                    if (!a.isFinishing() && !a.isDestroyed()) {
+                        a.runOnUiThread(a::recreate);
+                    }
+                }, 400);
             }
         } catch (Throwable t) {
             android.util.Log.w(TAG, "refresh wallpaper failed: " + t.getMessage());
@@ -119,6 +169,9 @@ public class SmartQuizApplication extends Application {
         } catch (Throwable t) {
             android.util.Log.w(TAG, "register wallpaper color listener failed: " + t.getMessage());
         }
+
+        // 主动壁纸探测（前台周期轮询指纹）：不依赖系统广播/颜色回调，换壁纸后最多一个轮询周期内跟随
+        startWallpaperProbe();
 
         // 立即初始化异常处理器（必须最先初始化）
         try {
@@ -251,10 +304,12 @@ public class SmartQuizApplication extends Application {
                     android.view.ViewGroup wc = (android.view.ViewGroup) activity.findViewById(android.R.id.content);
                     android.view.View root = (wc != null && wc.getChildCount() > 0) ? wc.getChildAt(0) : wc;
                     com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
-                    // 双保险：页面渲染完成后再次应用，防止页面代码 setBackground 覆盖壁纸
+                    // 多重刷新兜底：换壁纸返回 App 时 onResume 立即读取可能落在系统壁纸服务落盘竞态窗口（旧图），
+                    // 300ms/1200ms 延迟再读两次，覆盖广播/颜色回调错过后的最后一次刷新机会
                     if (root != null) {
                         final android.view.View fRoot = root;
-                        root.post(() -> com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot));
+                        root.postDelayed(() -> com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot), 300);
+                        root.postDelayed(() -> com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot), 1200);
                     }
                 } catch (Throwable ignored) {
                 }

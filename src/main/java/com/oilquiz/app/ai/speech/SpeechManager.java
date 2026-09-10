@@ -159,12 +159,18 @@ public class SpeechManager {
                 if (pcm == null || pcm.length < AudioPcmDecoder.TARGET_SAMPLE_RATE / 4) {
                     throw new Exception("音频过短或未检测到有效语音");
                 }
-                String text = com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.getInstance(context)
-                        .recognize(pcm, pcm.length);
-                if (text == null || text.trim().isEmpty()) {
-                    throw new Exception("未识别到语音内容（音频可能无有效人声或格式不支持）");
+                // 占用模型识别（与流式识别共用实例，识别结束释放；避免并发识别被中途卸载）
+                com.oilquiz.app.ai.speech.asr.SenseVoiceAsr asr =
+                        com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.acquire(context);
+                try {
+                    String text = asr.recognize(pcm, pcm.length);
+                    if (text == null || text.trim().isEmpty()) {
+                        throw new Exception("未识别到语音内容（音频可能无有效人声或格式不支持）");
+                    }
+                    return new SpeechRecognitionService.RecognitionResult(text.trim(), "SenseVoice(本地)");
+                } finally {
+                    com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.release();
                 }
-                return new SpeechRecognitionService.RecognitionResult(text.trim(), "SenseVoice(本地)");
             } catch (Exception e) {
                 AILogger.e(TAG, "本地文件识别失败: " + e.getMessage(), e);
                 throw new RuntimeException(e);
@@ -184,12 +190,18 @@ public class SpeechManager {
                 if (pcm == null || pcm.length < AudioPcmDecoder.TARGET_SAMPLE_RATE / 4) {
                     throw new Exception("音频过短或未检测到有效语音");
                 }
-                String text = com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.getInstance(context)
-                        .recognize(pcm, pcm.length);
-                if (text == null || text.trim().isEmpty()) {
-                    throw new Exception("未识别到语音内容（音频可能无有效人声或格式不支持）");
+                // 占用模型识别（与流式识别共用实例，识别结束释放；避免并发识别被中途卸载）
+                com.oilquiz.app.ai.speech.asr.SenseVoiceAsr asr =
+                        com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.acquire(context);
+                try {
+                    String text = asr.recognize(pcm, pcm.length);
+                    if (text == null || text.trim().isEmpty()) {
+                        throw new Exception("未识别到语音内容（音频可能无有效人声或格式不支持）");
+                    }
+                    return new SpeechRecognitionService.RecognitionResult(text.trim(), "SenseVoice(本地)");
+                } finally {
+                    com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.release();
                 }
-                return new SpeechRecognitionService.RecognitionResult(text.trim(), "SenseVoice(本地)");
             } catch (Exception e) {
                 AILogger.e(TAG, "本地文件识别失败: " + e.getMessage(), e);
                 throw new RuntimeException(e);

@@ -298,7 +298,9 @@ public class OnlineOCRService {
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
-        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
 
         try {
             connection.setRequestMethod("POST");

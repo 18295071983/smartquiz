@@ -404,6 +404,18 @@
                         app:chipStrokeWidth="1dp"
                         app:chipStrokeColor="@color/border_light"
                         app:checkedIconVisible="false"/>
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_web_search"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="@dimen/space_8"
+                        android:text="🔍 联网搜索"
+                        android:checkable="false"
+                        app:chipBackgroundColor="@color/chip_gray_bg"
+                        android:textColor="?attr/colorControlTextSecondary"
+                        app:chipStrokeWidth="1dp"
+                        app:chipStrokeColor="@color/border_light"
+                        app:checkedIconVisible="false"/>
                     <View
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_1"

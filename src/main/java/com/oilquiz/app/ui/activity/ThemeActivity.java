@@ -206,9 +206,10 @@ public class ThemeActivity extends AppCompatActivity {
         return false;
     }
 
-    /** 系统壁纸缩略图格：点击=跟随系统壁纸 */
+    /** 系统壁纸缩略图格：点击=跟随系统壁纸（tag 化，供壁纸变化时动态刷新缩略图） */
     private void addSystemWallpaperCell(LinearLayout container) {
         LinearLayout cell = new LinearLayout(this);
+        cell.setTag("cell_system_wallpaper");
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams cellLp = new LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -216,13 +217,14 @@ public class ThemeActivity extends AppCompatActivity {
         cell.setLayoutParams(cellLp);
 
         ImageView thumb = new ImageView(this);
+        thumb.setTag("thumb_system_wallpaper");
         LinearLayout.LayoutParams thumbLp = new LinearLayout.LayoutParams(dp(72), dp(96));
         thumb.setLayoutParams(thumbLp);
         thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         boolean loaded = false;
         try {
-            WallpaperManager wm = WallpaperManager.getInstance(this);
-            Drawable sys = wm.getDrawable();
+            // 文件直读优先（getWallpaperFile/binder），避免 WallpaperManager.getDrawable 缓存返回旧壁纸
+            Drawable sys = AppWallpaperManager.readSystemWallpaperDrawable(this);
             if (sys != null) {
                 Bitmap sysBmp = Bitmap.createBitmap(dp(72), dp(96), Bitmap.Config.ARGB_8888);
                 android.graphics.Canvas cv = new android.graphics.Canvas(sysBmp);
@@ -244,6 +246,7 @@ public class ThemeActivity extends AppCompatActivity {
 
         boolean isCurrent = AppWallpaperManager.getMode(this) == AppWallpaperManager.MODE_FOLLOW_SYSTEM;
         TextView name = new TextView(this);
+        name.setTag("name_system_wallpaper");
         name.setText(isCurrent ? getString(R.string.h_e640477f) : getString(R.string.h_ec41a592));
         name.setTextSize(10);
         name.setMaxLines(1);
@@ -260,6 +263,123 @@ public class ThemeActivity extends AppCompatActivity {
             recreate();
         });
         container.addView(cell, 0);
+    }
+
+    /**
+     * 动态探测系统壁纸：重新读取系统壁纸并刷新「系统壁纸」格子缩略图与"当前"态。
+     * 驱动源：① onResume（从系统设置换壁纸返回立即更新）② OnColorsChangedListener（Android 12+ 壁纸颜色事件）
+     * ③ ACTION_WALLPAPER_CHANGED 广播（小米等 ROM 颜色事件不可靠时的兜底通道）。
+     */
+    private void refreshSystemWallpaperCell() {
+        try {
+            LinearLayout container = findViewById(R.id.wallpaper_picker_container);
+            if (container == null) {
+                return;
+            }
+            LinearLayout cell = container.findViewWithTag("cell_system_wallpaper");
+            if (cell == null) {
+                return;
+            }
+            ImageView thumb = cell.findViewWithTag("thumb_system_wallpaper");
+            TextView name = cell.findViewWithTag("name_system_wallpaper");
+            boolean loaded = false;
+            try {
+                // 文件直读优先（getWallpaperFile/binder），避免 WallpaperManager.getDrawable 缓存返回旧壁纸
+                Drawable sys = AppWallpaperManager.readSystemWallpaperDrawable(this);
+                if (sys != null && thumb != null) {
+                    Bitmap bmp = Bitmap.createBitmap(dp(72), dp(96), Bitmap.Config.ARGB_8888);
+                    android.graphics.Canvas cv = new android.graphics.Canvas(bmp);
+                    sys.setBounds(0, 0, dp(72), dp(96));
+                    sys.draw(cv);
+                    thumb.setImageBitmap(bmp);
+                    loaded = true;
+                }
+            } catch (Throwable ignored) {
+            }
+            if (!loaded && thumb != null) {
+                thumb.setImageResource(R.drawable.ic_home_theme);
+            }
+            boolean isCurrent = AppWallpaperManager.getMode(this) == AppWallpaperManager.MODE_FOLLOW_SYSTEM;
+            if (name != null) {
+                String label = isCurrent ? getString(R.string.h_e640477f) : getString(R.string.h_ec41a592);
+                if (isCurrent && AppWallpaperManager.isLiveWallpaper(this)) {
+                    // 动态壁纸无静态壁纸文件：系统不提供当前帧，页面回退内置壁纸，此处明确标记
+                    label += " · 动态壁纸";
+                }
+                name.setText(label);
+                name.setTextColor(isCurrent
+                        ? ThemeColors.attr(this, R.attr.colorPrimary)
+                        : ThemeColors.attr(this, R.attr.colorOnSurface));
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("ThemeWallpaper", "refresh system wallpaper cell failed: " + t.getMessage());
+        }
+    }
+
+    private android.app.WallpaperManager.OnColorsChangedListener colorsListener;
+    private android.content.BroadcastReceiver wallpaperReceiver;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 从系统壁纸选择/系统设置返回：立即动态探测系统壁纸并刷新缩略图
+        refreshSystemWallpaperCell();
+        // 延迟再刷一次：覆盖系统壁纸服务文件落盘竞态（立即读取可能仍在切换窗口）
+        new android.os.Handler(android.os.Looper.getMainLooper())
+                .postDelayed(this::refreshSystemWallpaperCell, 600);
+        registerWallpaperListeners();
+    }
+
+    @Override
+    protected void onDestroy() {
+        unregisterWallpaperListeners();
+        super.onDestroy();
+    }
+
+    /** 注册壁纸变化双通道监听：颜色事件（Android 12+）+ ACTION_WALLPAPER_CHANGED 广播（全版本兜底） */
+    private void registerWallpaperListeners() {
+        try {
+            if (colorsListener == null) {
+                colorsListener = (listener, which) ->
+                        new android.os.Handler(android.os.Looper.getMainLooper()).post(this::refreshSystemWallpaperCell);
+                WallpaperManager wm = WallpaperManager.getInstance(this);
+                wm.addOnColorsChangedListener(colorsListener,
+                        new android.os.Handler(android.os.Looper.getMainLooper()));
+            }
+            if (wallpaperReceiver == null) {
+                wallpaperReceiver = new android.content.BroadcastReceiver() {
+                    @Override
+                    public void onReceive(android.content.Context c, android.content.Intent intent) {
+                        refreshSystemWallpaperCell();
+                    }
+                };
+                android.content.IntentFilter filter =
+                        new android.content.IntentFilter(android.content.Intent.ACTION_WALLPAPER_CHANGED);
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    registerReceiver(wallpaperReceiver, filter, android.content.Context.RECEIVER_EXPORTED);
+                } else {
+                    registerReceiver(wallpaperReceiver, filter);
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("ThemeWallpaper", "register wallpaper listeners failed: " + t.getMessage());
+        }
+    }
+
+    /** 注销壁纸监听（防泄漏；Activity 重建/销毁时调用） */
+    private void unregisterWallpaperListeners() {
+        try {
+            if (colorsListener != null) {
+                WallpaperManager.getInstance(this).removeOnColorsChangedListener(colorsListener);
+                colorsListener = null;
+            }
+            if (wallpaperReceiver != null) {
+                unregisterReceiver(wallpaperReceiver);
+                wallpaperReceiver = null;
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("ThemeWallpaper", "unregister wallpaper listeners failed: " + t.getMessage());
+        }
     }
 
     /** 内嵌壁纸选择条：背景图直接点选应用 */

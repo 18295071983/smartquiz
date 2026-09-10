@@ -283,6 +283,7 @@ public class AttachmentProcessor {
                     300    // 限制摘要长度为300 tokens
                 );
                 
+                try {
                 // 等待结果（最多15秒超时）
                 String summary = future.get(15, java.util.concurrent.TimeUnit.SECONDS);
                 
@@ -298,10 +299,12 @@ public class AttachmentProcessor {
                 if (callback != null) {
                     callback.onSummaryGenerated(attachment.id, cleanSummary);
                 }
+                } catch (java.util.concurrent.TimeoutException e) {
+                    Log.e(TAG, "AI summary generation timeout for " + attachment.name, e);
+                    future.cancel(true); // 不再等待底层结果，避免线程滞留
+                    handleRetryOrFallback(attachment, "⏱️ 摘要生成超时，请稍后重试");
+                }
                 
-            } catch (java.util.concurrent.TimeoutException e) {
-                Log.e(TAG, "AI summary generation timeout for " + attachment.name, e);
-                handleRetryOrFallback(attachment, "⏱️ 摘要生成超时，请稍后重试");
             } catch (Exception e) {
                 Log.e(TAG, "Failed to generate AI summary for " + attachment.name, e);
                 handleRetryOrFallback(attachment, "❌ AI摘要生成失败: " + e.getMessage());

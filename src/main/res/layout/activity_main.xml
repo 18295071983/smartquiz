@@ -145,6 +145,14 @@
         </com.google.android.material.card.MaterialCardView>
 
         <!-- ==================== 学习区 ==================== -->
+        <!--
+            【卡片背景规范 · 重要】
+            主界面所有功能卡统一使用 @drawable/weather_card_glass：
+            - 半透明玻璃底（#4DFFFFFF）+ 白色描边（#66FFFFFF）+ 圆角 20dp
+            - 效果：边框内透明，与页面背景融合，风格统一
+            禁止使用渐变实心背景（如 bg_home_header）做卡片底，会与其他卡片风格不一致。
+            新增功能卡时：background 一律填 @drawable/weather_card_glass。
+        -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -280,13 +288,13 @@
 
             </LinearLayout>
 
-            <!-- AI 聊天（全宽重点卡，渐变底） -->
+            <!-- AI 聊天（全宽重点卡；背景已按【卡片背景规范】统一为 weather_card_glass 玻璃透明，勿改回渐变） -->
             <LinearLayout
                 android:id="@+id/btn_question_generate"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="@dimen/space_10"
-                android:background="@drawable/bg_home_header"
+                android:background="@drawable/weather_card_glass"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?attr/selectableItemBackground"

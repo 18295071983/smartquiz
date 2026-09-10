@@ -45,6 +45,8 @@ public class LocalAsrRecognizer {
     private Thread recordThread;
     private List<short[]> chunks = new ArrayList<>();
     private SystemSpeechRecognizer.RecognitionCallback currentCallback;
+    /** 本次识别占用的模型实例（acquire 持有，识别/cancel 后 release 释放） */
+    private volatile SenseVoiceAsr asr;
 
     public LocalAsrRecognizer(Context context) {
         this.context = context.getApplicationContext();
@@ -84,8 +86,8 @@ public class LocalAsrRecognizer {
 
     private void doStart() {
         try {
-            // 确保模型已加载
-            SenseVoiceAsr.getInstance(context);
+            // 占用模型（未加载时阻塞加载，避免与其它识别并发时被卸载）
+            asr = SenseVoiceAsr.acquire(context);
 
             int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE,
                     AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
@@ -108,6 +110,7 @@ public class LocalAsrRecognizer {
             recordThread.start();
         } catch (Exception e) {
             AILogger.e(TAG, "启动本地录音失败: " + e.getMessage(), e);
+            releaseAsrModel();
             postError("启动本地录音失败: " + e.getMessage());
         }
     }
@@ -180,7 +183,7 @@ public class LocalAsrRecognizer {
         }
 
         try {
-            String text = SenseVoiceAsr.getInstance(context).recognize(pcm, pcm.length);
+            String text = asr != null ? asr.recognize(pcm, pcm.length) : "";
             AILogger.i(TAG, "本地识别结果: " + text);
             if (text == null || text.trim().isEmpty()) {
                 postError("未识别到语音内容");
@@ -191,12 +194,12 @@ public class LocalAsrRecognizer {
             AILogger.e(TAG, "本地识别失败: " + e.getMessage(), e);
             postError("本地识别失败: " + e.getMessage());
         }
-        // 识别结束：卸载模型释放内存（再次识别时 doStart 重新初始化加载）
+        // 识别结束：释放模型占用（最后使用者退出时自动卸载，释放内存；再次识别时 doStart 重新加载）
         releaseAsrModel();
         postEnd();
     }
 
-    /** 取消识别（丢弃结果） */
+    /** 取消识别（丢弃结果），并释放模型占用 */
     public void cancel() {
         cancelled = true;
         recording = false;
@@ -213,18 +216,20 @@ public class LocalAsrRecognizer {
         } catch (Exception ignored) {
         }
         releaseRecorder();
+        releaseAsrModel();
         synchronized (chunks) {
             chunks.clear();
         }
     }
 
-    /** 卸载本地 ASR 模型（识别结束后调用，释放 228MB 内存；仅当本次未在录音时执行） */
+    /** 释放本次识别的模型占用（幂等；最后使用者退出时自动卸载，释放 228MB 内存） */
     private void releaseAsrModel() {
         try {
-            SenseVoiceAsr.releaseInstance();
+            SenseVoiceAsr.release();
         } catch (Throwable t) {
-            AILogger.w(TAG, "卸载本地 ASR 模型异常: " + t.getMessage());
+            AILogger.w(TAG, "释放本地 ASR 模型占用异常: " + t.getMessage());
         }
+        asr = null;
     }
 
     private void releaseRecorder() {

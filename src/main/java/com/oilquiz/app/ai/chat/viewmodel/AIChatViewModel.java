@@ -529,7 +529,13 @@ public class AIChatViewModel extends AndroidViewModel {
 
                     @Override
                     public void onError(String error) {
-                        handleGenerationError(error);
+                        // 在线模型失败：本地模型已加载时提示可切换，避免用户以为 AI 不可用
+                        String err = error;
+                        if (isAIServiceInitialized()) {
+                            err = (error == null ? "" : error)
+                                    + "（在线模型失败，本地模型已就绪，可切换后重试）";
+                        }
+                        handleGenerationError(err);
                         onlineThinkingStream.postValue(null);
                     }
                 });

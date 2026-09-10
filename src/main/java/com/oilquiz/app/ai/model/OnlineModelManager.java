@@ -31,6 +31,8 @@ public class OnlineModelManager {
     public static final String FEATURE_CODE = "code";           // 代码生成
     public static final String FEATURE_ASR = "asr";             // 语音识别（Speech-to-Text）
     public static final String FEATURE_TTS = "tts";             // 语音合成（Text-to-Speech）
+    public static final String FEATURE_IMAGE_GEN = "imageGen";  // 文生图（专用模型，未设置则工具不消费在线生图 API）
+    public static final String FEATURE_VIDEO_GEN = "videoGen";  // 文生视频（专用模型，未设置则工具不消费在线视频 API）
     // 后续可继续添加更多功能...
 
     private static volatile OnlineModelManager INSTANCE;
@@ -646,6 +648,21 @@ public class OnlineModelManager {
 
     public OnlineModelConfig getActiveModel() {
         return activeModelId != null ? getModel(activeModelId) : null;
+    }
+
+    /**
+     * 按 apiUrl（+可选 modelName）反查配置。
+     * 引擎侧鉴权需要 apiSecret/appId（讯飞 HMAC、百度 OAuth），
+     * 但内部 HTTP 方法只有 apiUrl/apiKey/modelName，据此找回完整配置。
+     */
+    public OnlineModelConfig findConfig(String apiUrl, String modelName) {
+        if (apiUrl == null) return null;
+        for (OnlineModelConfig c : getModelList()) {
+            if (c == null || c.apiUrl == null || !c.apiUrl.equals(apiUrl)) continue;
+            if (modelName == null || modelName.isEmpty()) return c;
+            if (modelName.equals(c.modelName) || modelName.equals(c.selectedModel)) return c;
+        }
+        return null;
     }
 
     // ========== 功能专用模型通用框架 ==========

@@ -107,6 +107,30 @@ public class DashscopeMediaTool implements AITool {
             }
             String apiKey = parameters.get("api_key") != null
                     ? String.valueOf(parameters.get("api_key")).trim() : null;
+            // 文生图/文生视频：功能专用模型优先（单独设置后才消费在线 API，防止无关消费）
+            boolean isGenAction = "image".equals(action) || "video".equals(action);
+            String genFeature = "video".equals(action)
+                    ? com.oilquiz.app.ai.model.OnlineModelManager.FEATURE_VIDEO_GEN
+                    : com.oilquiz.app.ai.model.OnlineModelManager.FEATURE_IMAGE_GEN;
+            com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig featureCfg =
+                    isGenAction ? resolveFeatureConfig(genFeature) : null;
+            if (featureCfg != null) {
+                // 专用模型已设置：Key / 端点 / 模型名全部以专用配置为准
+                if (featureCfg.apiKey != null && !featureCfg.apiKey.trim().isEmpty()) {
+                    apiKey = featureCfg.apiKey.trim();
+                }
+                if (featureCfg.apiUrl != null && !featureCfg.apiUrl.trim().isEmpty()) {
+                    parameters.put("api_url", featureCfg.apiUrl.trim());
+                }
+                if (featureCfg.modelName != null && !featureCfg.modelName.trim().isEmpty()) {
+                    parameters.put("model", featureCfg.modelName.trim());
+                }
+            } else if (isGenAction && (apiKey == null || apiKey.isEmpty())) {
+                // 生成类动作未设置专用模型且未显式传 api_key → 拒绝，不使用主模型 Key 消费无关 API
+                String label = "video".equals(action) ? "文生视频" : "文生图";
+                return AIToolResult.fail("未设置" + label
+                        + "专用模型：请先在模型管理中选择" + label + "专用模型（防止无关 API 消费）；或显式传入 api_key");
+            }
             if (apiKey == null || apiKey.isEmpty()) {
                 apiKey = resolveDefaultApiKey();
             }
@@ -145,8 +169,25 @@ public class DashscopeMediaTool implements AITool {
         }
     }
 
-    // ==================== 文生图 ====================
+    /**
+     * 读取功能专用模型配置（文生图/文生视频）。
+     * 返回 null 表示用户未单独设置 → 生成类动作不消费任何在线媒体 API。
+     */
+    private com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig resolveFeatureConfig(String feature) {
+        try {
+            com.oilquiz.app.ai.model.OnlineModelManager m =
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(context);
+            if (m == null) return null;
+            com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig c = m.getFeatureModel(feature);
+            if (c != null && c.apiKey != null && !c.apiKey.isEmpty()) return c;
+            return null;
+        } catch (Throwable t) {
+            Log.w(TAG, "读取功能专用模型失败: " + t.getMessage());
+            return null;
+        }
+    }
 
+    // ==================== 文生图 ====================
     private AIToolResult handleImage(Map<String, Object> parameters, String prompt, String apiKey) {
         String model = strParam(parameters, "model", "wan2.2-t2i-flash");
         String size = strParam(parameters, "size", "1024*1024");

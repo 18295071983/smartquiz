@@ -45,10 +45,12 @@ import java.util.List;
  */
 public class SpeechModelSelectorDialog {
 
-    /** 语音功能模式 */
+    /** 功能专用模型模式（语音识别/语音合成/文生图/文生视频） */
     public enum Mode {
         ASR("选择语音识别模型", "为语音识别（语音转文字）选择专用模型，不选择则自动使用支持音频的模型"),
-        TTS("选择语音合成模型", "为语音合成（文字转语音）选择专用模型，不选择则自动使用支持音频的模型");
+        TTS("选择语音合成模型", "为语音合成（文字转语音）选择专用模型，不选择则自动使用支持音频的模型"),
+        IMAGE_GEN("选择文生图模型", "为文生图选择专用模型；未设置时生图工具走免费通道，不消费在线生图 API"),
+        VIDEO_GEN("选择文生视频模型", "为文生视频选择专用模型；未设置时提交会拒绝，防止无关 API 消费");
 
         final String title;
         final String subtitle;
@@ -114,7 +116,13 @@ public class SpeechModelSelectorDialog {
     }
 
     private String featureKey() {
-        return mode == Mode.ASR ? OnlineModelManager.FEATURE_ASR : OnlineModelManager.FEATURE_TTS;
+        switch (mode) {
+            case ASR: return OnlineModelManager.FEATURE_ASR;
+            case TTS: return OnlineModelManager.FEATURE_TTS;
+            case IMAGE_GEN: return OnlineModelManager.FEATURE_IMAGE_GEN;
+            case VIDEO_GEN: return OnlineModelManager.FEATURE_VIDEO_GEN;
+            default: return OnlineModelManager.FEATURE_ASR;
+        }
     }
 
     public void show() {
@@ -232,6 +240,8 @@ public class SpeechModelSelectorDialog {
             switch (mode) {
                 case TTS: capability = "TTS"; break;
                 case ASR: capability = "ASR"; break;
+                case IMAGE_GEN: capability = "imageGen"; break;
+                case VIDEO_GEN: capability = "videoGen"; break;
             }
             ModelListFetcher.getInstance(context)
                     .fetchModels(config.apiUrl, config.apiKey, capability)
@@ -274,6 +284,20 @@ public class SpeechModelSelectorDialog {
                 "qwen-tts", "qwen3-tts", "qwen3.5-tts", "qwen-audio-tts",
                 "x4_", "minimax-tts"
             };
+        } else if (mode == Mode.IMAGE_GEN) {
+            // 文生图模型关键词
+            keywordPattern = new String[]{
+                "image", "t2i", "text2image", "image-synthesis", "text-to-image",
+                "gpt-image", "dall-e", "dalle", "cogview", "flux", "stable-diffusion",
+                "seedream", "wanx", "wan2.2-t2i", "qwen-image", "mj", "midjourney"
+            };
+        } else if (mode == Mode.VIDEO_GEN) {
+            // 文生视频模型关键词
+            keywordPattern = new String[]{
+                "video", "t2v", "text2video", "video-synthesis", "text-to-video",
+                "wan", "seedance", "doubao-seedance", "cogvideox", "kling", "hailuo",
+                "runway", "pika", "sora"
+            };
         } else {
             // ASR 模型白名单关键词
             keywordPattern = new String[]{
@@ -308,6 +332,19 @@ public class SpeechModelSelectorDialog {
                 "tts", "cosyvoice", "speech-02", "speech-01", "speech-2.5",
                 "qwen-tts", "qwen3-tts", "qwen3.5-tts", "qwen-audio-tts",
                 "x4_", "minimax-tts"
+            };
+        } else if (mode == Mode.IMAGE_GEN) {
+            // 文生图模型关键词
+            keywordPattern = new String[]{
+                "image", "t2i", "text2image", "image-synthesis", "text-to-image",
+                "gpt-image", "dall-e", "dalle", "cogview", "flux", "stable-diffusion",
+                "seedream", "wanx", "wan2.2-t2i", "qwen-image"
+            };
+        } else if (mode == Mode.VIDEO_GEN) {
+            // 文生视频模型关键词
+            keywordPattern = new String[]{
+                "video", "t2v", "text2video", "video-synthesis", "text-to-video",
+                "wan", "seedance", "doubao-seedance", "cogvideox", "kling", "hailuo"
             };
         } else {
             // ASR 模型白名单关键词
@@ -366,7 +403,14 @@ public class SpeechModelSelectorDialog {
      */
     private void onItemSelected(ModelItem item) {
         String feature = featureKey();
-        String featureLabel = mode == Mode.ASR ? "语音识别模型" : "语音合成模型";
+        String featureLabel;
+        switch (mode) {
+            case ASR: featureLabel = "语音识别模型"; break;
+            case TTS: featureLabel = "语音合成模型"; break;
+            case IMAGE_GEN: featureLabel = "文生图模型"; break;
+            case VIDEO_GEN: featureLabel = "文生视频模型"; break;
+            default: featureLabel = "专用模型";
+        }
 
         if (item.isAuto) {
             modelManager.setFeatureModel(feature, null);
