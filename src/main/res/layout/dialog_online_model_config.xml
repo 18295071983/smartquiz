@@ -216,6 +216,20 @@
             android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
+        <!-- 实际模型名（可手动输入：免费/未收录模型不在自动获取列表时也能用） -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="模型名（列表未找到可手动输入，如 glm-4-flash）"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+            android:layout_marginBottom="@dimen/space_8">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/input_selected_model"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="@dimen/size_150">
@@ -244,6 +258,54 @@
                 android:textColor="?attr/colorControlTextSecondary"
                 android:visibility="gone"/>
         </FrameLayout>
+    </LinearLayout>
+
+    <!-- 服务能力设置区（agent/多模态/网络搜索等差异化服务，按服务商配置表预置、可手动调整） -->
+    <LinearLayout
+        android:id="@+id/services_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginBottom="@dimen/space_16"
+        android:padding="@dimen/space_12"
+        android:background="?attr/colorCardBackground">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="服务能力（按服务商配置表预置，可手动调整）"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="?attr/colorControlText"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <CheckBox android:id="@+id/svc_agent" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Agent 接口" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+            <CheckBox android:id="@+id/svc_vision" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="多模态" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+            <CheckBox android:id="@+id/svc_web_search" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="网络搜索" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <CheckBox android:id="@+id/svc_embedding" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Embedding" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+            <CheckBox android:id="@+id/svc_rerank" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="Rerank" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+            <CheckBox android:id="@+id/svc_image_gen" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="文生图" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <CheckBox android:id="@+id/svc_function_calling" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="工具调用" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+            <CheckBox android:id="@+id/svc_tts" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="语音合成" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+            <CheckBox android:id="@+id/svc_asr" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="语音识别" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 底部按钮 -->

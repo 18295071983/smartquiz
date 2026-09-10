@@ -181,7 +181,9 @@ public class ModelExecutionBridge {
     }
 
     // ========== chatJson 本地对话历史（无状态协议：每次全量提交，内部维护多轮） ==========
-    private static final int CHATJSON_HISTORY_LIMIT = 20;
+    // 容量对齐 UI 侧上下文预算组装（collectHistoryByBudget 按 KV 预算回溯，本地最多 60 条、
+    // 在线最多 300 条）：不硬截断，避免预算结果被丢弃导致上下文丢失
+    private static final int CHATJSON_HISTORY_LIMIT = 300;
     private final java.util.List<org.json.JSONObject> chatJsonHistory = new java.util.ArrayList<>();
 
     private synchronized void appendChatJsonHistory(String role, String content) {

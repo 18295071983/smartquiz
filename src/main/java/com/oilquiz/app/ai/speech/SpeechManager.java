@@ -9,6 +9,8 @@ import com.oilquiz.app.util.AILogger;
 
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 语音能力统一门面（Speech Facade）
@@ -38,12 +40,17 @@ public class SpeechManager {
     private volatile LocalAsrRecognizer localRecognizer;      // 本地离线 ASR（SenseVoice，App 前台录音，绕开系统后台限制）
 
     /**
-     * 本地 SenseVoice 离线语音识别开关（用户要求：当前禁用本地语音识别）。
-     * true=使用本地 SenseVoice；false=禁用，语音识别走系统识别兜底 / 在线识别。
-     * 恢复时改为 true 即可，无需其他改动。
+     * 本地 SenseVoice 离线语音识别开关。
+     * true=使用本地 SenseVoice（完全离线，绕开系统识别服务与后台限制）；false=禁用。
+     * 2026-09-10 应恢复：此前曾按要求禁用（false），现已重新启用本地语音识别。
      */
-    private static final boolean LOCAL_ASR_ENABLED = false;
+    private static final boolean LOCAL_ASR_ENABLED = true;
+    /** 功能专用模型里"本地 SenseVoice"的端点 ID 标记（与 SpeechModelSelectorDialog/VoiceInputTool 共享） */
+    public static final String LOCAL_ASR_ID = "local";
+    /** 功能专用模型里"系统语音合成"的端点 ID 标记（与 SpeechModelSelectorDialog/TTSService 共享） */
+    public static final String LOCAL_TTS_ID = "local_tts";
     private volatile SystemSpeechRecognizer offlineRecognizer; // 系统语音识别兜底（本地模型不可用时）
+    private final ExecutorService executor = Executors.newCachedThreadPool(); // 本地文件识别专用（解码+推理）
 
     /** 录音占用者："app"=应用层录音按钮 / "agent"=Agent语音输入组件，同一时间只允许一方录音 */
     private volatile String recordingOwner = null;
@@ -119,6 +126,75 @@ public class SpeechManager {
     /** 是否有可用的在线语音识别模型 */
     public boolean isAsrAvailable() {
         return asrService.isAvailable();
+    }
+
+    /**
+     * 是否有任何可用的语音识别能力（在线模型 OR 本地 SenseVoice OR 系统识别服务）。
+     * 供 Agent 语音工具判定：用户启用本地语音识别后，即使未配置在线 ASR 模型也可用。
+     */
+    public boolean isAnyAsrAvailable() {
+        try {
+            if (isAsrAvailable()) return true;
+            return isOfflineAsrAvailable();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 本地语音识别：解码音频文件（m4a/mp3/wav 等）为 16kHz PCM 后交给端侧 SenseVoice。
+     * 供 Agent 录音落盘后的本地识别（不依赖在线 ASR 配置）。
+     */
+    public CompletableFuture<SpeechRecognitionService.RecognitionResult> recognizeSpeechLocal(
+            final File audioFile, final String language) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!LOCAL_ASR_ENABLED) {
+                    throw new Exception("本地语音识别已禁用（LOCAL_ASR_ENABLED=false）");
+                }
+                if (audioFile == null || !audioFile.exists()) {
+                    throw new Exception("音频文件不存在: " + (audioFile != null ? audioFile.getAbsolutePath() : "null"));
+                }
+                float[] pcm = AudioPcmDecoder.decodeFile(context, audioFile);
+                if (pcm == null || pcm.length < AudioPcmDecoder.TARGET_SAMPLE_RATE / 4) {
+                    throw new Exception("音频过短或未检测到有效语音");
+                }
+                String text = com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.getInstance(context)
+                        .recognize(pcm, pcm.length);
+                if (text == null || text.trim().isEmpty()) {
+                    throw new Exception("未识别到语音内容（音频可能无有效人声或格式不支持）");
+                }
+                return new SpeechRecognitionService.RecognitionResult(text.trim(), "SenseVoice(本地)");
+            } catch (Exception e) {
+                AILogger.e(TAG, "本地文件识别失败: " + e.getMessage(), e);
+                throw new RuntimeException(e);
+            }
+        }, executor);
+    }
+
+    /** 本地语音识别：content:// URI 版本 */
+    public CompletableFuture<SpeechRecognitionService.RecognitionResult> recognizeSpeechLocal(
+            final Uri audioUri, final String language) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (!LOCAL_ASR_ENABLED) {
+                    throw new Exception("本地语音识别已禁用（LOCAL_ASR_ENABLED=false）");
+                }
+                float[] pcm = AudioPcmDecoder.decodeUri(context, audioUri);
+                if (pcm == null || pcm.length < AudioPcmDecoder.TARGET_SAMPLE_RATE / 4) {
+                    throw new Exception("音频过短或未检测到有效语音");
+                }
+                String text = com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.getInstance(context)
+                        .recognize(pcm, pcm.length);
+                if (text == null || text.trim().isEmpty()) {
+                    throw new Exception("未识别到语音内容（音频可能无有效人声或格式不支持）");
+                }
+                return new SpeechRecognitionService.RecognitionResult(text.trim(), "SenseVoice(本地)");
+            } catch (Exception e) {
+                AILogger.e(TAG, "本地文件识别失败: " + e.getMessage(), e);
+                throw new RuntimeException(e);
+            }
+        }, executor);
     }
 
     // ---------- 离线/系统语音识别兜底 ----------
@@ -232,6 +308,11 @@ public class SpeechManager {
     public String getCurrentAsrModelDisplay() {
         try {
             OnlineModelManager manager = OnlineModelManager.getInstance(context);
+            String featureId = manager.getFeatureModelId(OnlineModelManager.FEATURE_ASR);
+            // 显式选择本地 SenseVoice（内置离线识别，无需在线配置）
+            if (LOCAL_ASR_ID.equals(featureId)) {
+                return "本地 SenseVoice（内置离线）";
+            }
             String featureName = manager.getFeatureModelName(OnlineModelManager.FEATURE_ASR);
             if (featureName != null && !featureName.isEmpty()) {
                 return featureName;
@@ -240,6 +321,10 @@ public class SpeechManager {
                     manager.getFeatureModel(OnlineModelManager.FEATURE_ASR);
             if (config != null) {
                 return config.selectedModel != null ? config.selectedModel : config.modelName;
+            }
+            // 未配置专用模型：本地可用时提示自动走本地
+            if (isOfflineAsrAvailable()) {
+                return "本地 SenseVoice（自动）";
             }
         } catch (Exception ignored) {
         }
@@ -390,6 +475,11 @@ public class SpeechManager {
     public String getCurrentTtsModelDisplay() {
         try {
             OnlineModelManager manager = OnlineModelManager.getInstance(context);
+            String featureId = manager.getFeatureModelId(OnlineModelManager.FEATURE_TTS);
+            // 显式选择系统语音合成（内置，无需在线模型配置）
+            if (LOCAL_TTS_ID.equals(featureId)) {
+                return "系统语音合成（内置）";
+            }
             String featureName = manager.getFeatureModelName(OnlineModelManager.FEATURE_TTS);
             if (featureName != null && !featureName.isEmpty()) {
                 return featureName;
@@ -398,6 +488,10 @@ public class SpeechManager {
                     manager.getFeatureModel(OnlineModelManager.FEATURE_TTS);
             if (config != null) {
                 return config.selectedModel != null ? config.selectedModel : config.modelName;
+            }
+            // 未配置专用模型：在线不可用时自动回退系统 TTS
+            if (!isOnlineTtsAvailable()) {
+                return "系统语音合成（自动）";
             }
         } catch (Exception ignored) {
         }
@@ -408,10 +502,15 @@ public class SpeechManager {
 
     /**
      * 应用用户配置的 ASR 专用模型（未配置则自动选择）
+     * 显式选择本地 SenseVoice（LOCAL_ASR_ID）时不改动在线 ASR 服务模型名
      */
     private void applyAsrModelConfig() {
         try {
             OnlineModelManager manager = OnlineModelManager.getInstance(context);
+            String featureId = manager.getFeatureModelId(OnlineModelManager.FEATURE_ASR);
+            if (LOCAL_ASR_ID.equals(featureId)) {
+                return; // 本地识别专用：在线 ASR 配置保持不动
+            }
             asrService.setAsrModel(manager.getFeatureModelName(OnlineModelManager.FEATURE_ASR));
         } catch (Exception ignored) {
         }
@@ -419,10 +518,17 @@ public class SpeechManager {
 
     /**
      * 应用用户配置的 TTS 专用模型（未配置则自动选择）
+     * 显式选择"系统语音合成"（LOCAL_TTS_ID）时强制走系统 TTS，不再使用在线模型
      */
     private void applyTtsModelConfig() {
         try {
             OnlineModelManager manager = OnlineModelManager.getInstance(context);
+            String featureId = manager.getFeatureModelId(OnlineModelManager.FEATURE_TTS);
+            if (LOCAL_TTS_ID.equals(featureId)) {
+                ttsService.setForceSystemTts(true);
+                return;
+            }
+            ttsService.setForceSystemTts(false);
             ttsService.setTtsModel(manager.getFeatureModelName(OnlineModelManager.FEATURE_TTS));
         } catch (Exception ignored) {
         }

@@ -416,9 +416,14 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
 
             File dir = getConversationsDir();
             File file = new File(dir, session.id + ".json");
-            FileWriter writer = new FileWriter(file);
+            // 原子写：先写临时文件再 rename，避免退出保存线程与新 Activity 加载线程
+            // 并发读写时读到半写文件（Gson 解析失败 → 会话被跳过 → 历史丢失）
+            File tempFile = new File(dir, session.id + ".json.tmp");
+            FileWriter writer = new FileWriter(tempFile);
             gson.toJson(session, writer);
             writer.close();
+            if (file.exists()) file.delete();
+            tempFile.renameTo(file);
             return session;
         } catch (IOException e) {
             Log.e(TAG, "Error saving conversation session", e);

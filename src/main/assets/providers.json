@@ -1,0 +1,2110 @@
+{
+  "version": "2026-09-10-v3",
+  "note": "在线模型服务商配置表 v3：在 v2 基础上新增 services 对象声明每家服务能力（chat/agent/vision/webSearch/embedding/rerank/imageGen/functionCalling/tts/asr）。thinking.param 取值：'thinking.type'=嵌套对象{thinking:{type:'enabled'}}，'enable_thinking'=扁平布尔，'reasoning_effort'=扁平字符串。auth 枚举：bearer|x-api-key|query-key|apikey-header|hmac-xfyun|oauth-baidu|none。外部更新：覆盖 filesDir/providers.json 后 reload 即生效。 models[] 支持两种形态：纯字符串（仅声明 chat，能力继承服务商级 services）；对象 {\"name\":\"...\",\"capabilities\":[\"chat\",\"vision\",\"agent\",\"webSearch\",\"embedding\",\"rerank\",\"imageGen\",\"functionCalling\",\"tts\",\"asr\",\"thinking\"]}（模型级能力，与服务商级取交集，API 未返回的预置模型自动并入模型列表）。 reasoning 字段归一化：流式/非流式统一按 reasoning_content || reasoning || thinking 非空即用（覆盖 OpenAI 兼容/Ollama /v1/Ollama 原生）。多轮上下文回传策略：默认按规范不回传思考内容（LM Studio/DeepSeek 规范），DeepSeek 思考模式自动补空串；若某在线模型\"不回传 reasoning 会报 400\"，在服务商对象加 \"requiresReasoningInContext\": true（该服务商所有 assistant 消息始终带 reasoning_content，且去掉 thinking 重试时不剥离）。",
+  "chatEndpoint": "/chat/completions",
+  "modelsEndpoint": "/models",
+  "embeddingEndpoint": "/embeddings",
+  "rerankEndpoint": "/rerank",
+  "imageEndpoint": "/images/generations",
+  "ttsEndpoint": "/audio/speech",
+  "asrEndpoint": "/audio/transcriptions",
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "baseUrl": "https://api.openai.com/v1",
+      "urlKeywords": [
+        "openai",
+        "api.openai.com"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "reasoning_effort",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "o1",
+          "o3",
+          "o4",
+          "gpt-5",
+          "gpt-4.1"
+        ],
+        "instruction": "你处于深度推理模式。请先进行充分的内部推理（reasoning），再输出最终答案。\n推理阶段：拆解问题→多角度分析→逐步验证逻辑链条。\n最终回答：结论先行，简洁明确，只保留关键论据，不要输出思考过程。"
+      },
+      "models": [
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "gpt-4.1",
+        "gpt-4o",
+        "gpt-4o-mini",
+        "o3-mini",
+        "o1",
+        "o1-mini"
+      ],
+      "embeddingModel": "text-embedding-3-small",
+      "rerankModel": "",
+      "imageModel": "gpt-image-1",
+      "ttsModel": "tts-1",
+      "asrModel": "whisper-1",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": true,
+          "endpoint": "/responses"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "通过 tools 实现，无独立 web_search 参数"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions"
+        }
+      }
+    },
+    {
+      "id": "dashscope",
+      "name": "阿里百炼 DashScope",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "urlKeywords": [
+        "dashscope",
+        "aliyuncs.com/compatible-mode",
+        "maas.aliyuncs.com"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "qwen3",
+          "qwen3.5",
+          "qwen3.6",
+          "qwen3.7",
+          "qwen3.8",
+          "qwen3-thinking",
+          "qwq",
+          "deepseek-r1",
+          "deepseek-v4"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n最终回答：结论先行，简洁明确，只保留关键论据。"
+      },
+      "models": [
+        "qwen3.8-max",
+        "qwen3.7-max",
+        "qwen3.6-plus",
+        "qwen3.6-flash",
+        "qwen3-max",
+        "qwen3-plus",
+        "qwen3-flash",
+        "qwen3-coder-plus",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "kimi-k2.6",
+        "glm-5.2"
+      ],
+      "embeddingModel": "text-embedding-v3",
+      "rerankEndpoint": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+      "rerankModel": "gte-rerank",
+      "imageEndpoint": "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
+      "imageModel": "wanx2.1-t2i-turbo",
+      "ttsModel": "qwen3-tts-flash",
+      "asrModel": "qwen3-asr-flash",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": true,
+          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation",
+          "note": "百炼原生多模态/Agent 接口"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": true,
+          "param": "web_search",
+          "note": "百炼支持联网搜索插件"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+        }
+      }
+    },
+    {
+      "id": "zhipu",
+      "name": "智谱 GLM",
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "urlKeywords": [
+        "zhipu",
+        "bigmodel",
+        "open.bigmodel.cn"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "thinking.type",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "glm-4.5",
+          "glm-4.6",
+          "glm-4.7",
+          "glm-5",
+          "glm-5.1",
+          "glm-5.2",
+          "glm-5.3"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n最终回答：结论先行，简洁明确，只保留关键论据。"
+      },
+      "models": [
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.2",
+        "glm-5.1",
+        "glm-5",
+        "glm-5-turbo",
+        "glm-4.7",
+        "glm-4.6",
+        "glm-4.5",
+        "glm-4.5-air",
+        "glm-4-flash"
+      ],
+      "embeddingModel": "embedding-3",
+      "rerankModel": "rerank-2",
+      "imageModel": "cogview-4",
+      "ttsModel": "glm-tts",
+      "asrModel": "glm-asr",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": true,
+          "endpoint": "/agent/chat",
+          "note": "智谱 Agent API"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": true,
+          "param": "web_search"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/rerank"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions"
+        }
+      }
+    },
+    {
+      "id": "hunyuan",
+      "name": "腾讯混元",
+      "baseUrl": "https://api.hunyuan.cloud.tencent.com/v1",
+      "urlKeywords": [
+        "hunyuan",
+        "tencent",
+        "api.hunyuan.cloud.tencent.com"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "hunyuan-2.0-thinking",
+          "hunyuan-t1",
+          "hunyuan-a13b",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "hunyuan-turbos-latest",
+        "hunyuan-turbo",
+        "hunyuan-lite",
+        "hunyuan-standard",
+        "hunyuan-2.0-thinking-20251109",
+        "hunyuan-2.0-instruct-20251111",
+        "hunyuan-t1-latest",
+        "hy-mt2-pro"
+      ],
+      "embeddingModel": "hunyuan-embedding",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "https://hunyuan.tencentcloudapi.com",
+          "note": "文生图走腾讯云独立服务，TC3-HMAC 签名"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "腾讯云语音合成独立服务"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "腾讯云语音识别独立服务"
+        }
+      }
+    },
+    {
+      "id": "xfyun",
+      "name": "讯飞星火",
+      "baseUrl": "https://spark-api-open.xf-yun.com/v1",
+      "urlKeywords": [
+        "xfyun",
+        "iflytek",
+        "xf-yun",
+        "spark-api"
+      ],
+      "auth": "bearer",
+      "authNote": "Bearer 后接 APIKey:APISecret 冒号拼接；旧 WebSocket 端点用 HMAC-SHA256 签名需 appId+apiKey+apiSecret",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "spark-x",
+          "x1",
+          "x1.5",
+          "x2",
+          "deepseek",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "spark-x",
+        "4.0Ultra",
+        "generalv3.5",
+        "generalv3.1",
+        "X1",
+        "X1.5",
+        "X2-Flash"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "x4_xiaoyan",
+      "asrModel": "16k_zh",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "https://cn-huabei-1.xf-yun.com/v1/private/sa8a05c27",
+          "note": "Embedding 走独立端点"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "https://api.xf-yun.cn/v1/private/...",
+          "note": "图片生成独立服务"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "wss://tts-api.xfyun.cn/v2/tts",
+          "note": "语音合成 WebSocket 独立服务，鉴权不同"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "wss://iat-api.xfyun.cn/v2/iat",
+          "note": "语音识别 WebSocket 独立服务，鉴权不同"
+        }
+      }
+    },
+    {
+      "id": "volcengine",
+      "name": "火山引擎豆包",
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "urlKeywords": [
+        "volcengine",
+        "volces",
+        "ark.cn-beijing",
+        "doubao",
+        "bytedance"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "thinking.type",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "doubao-1.5",
+          "doubao-seed",
+          "doubao-pro",
+          "doubao-thinking",
+          "deepseek",
+          "glm"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n最终回答：结论先行，简洁明确，只保留关键论据。"
+      },
+      "models": [
+        "doubao-seed-2-1-pro-260628",
+        "doubao-seed-2-1-turbo-260628",
+        "doubao-seed-2-0-pro-260215",
+        "doubao-seed-1-8-251228",
+        "doubao-seed-1-6-250615",
+        "deepseek-v4-pro-ga",
+        "glm-5-2-260617"
+      ],
+      "embeddingModel": "doubao-embedding",
+      "rerankModel": "",
+      "imageModel": "doubao-seedream-5-0",
+      "ttsEndpoint": "https://openspeech.bytedance.com/api/v1/tts",
+      "ttsModel": "zh_female_qingxin",
+      "asrEndpoint": "https://openspeech.bytedance.com/api/v1/asr",
+      "asrModel": "volcengine_streaming_common",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/rerank",
+          "note": "方舟有 Rerank 模型"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "https://openspeech.bytedance.com/api/v1/tts",
+          "note": "语音走 openspeech 独立域名，鉴权 Key 不同"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "https://openspeech.bytedance.com/api/v1/asr",
+          "note": "语音走 openspeech 独立域名，鉴权 Key 不同"
+        }
+      }
+    },
+    {
+      "id": "baidu",
+      "name": "百度千帆",
+      "baseUrl": "https://qianfan.baidubce.com/v2",
+      "urlKeywords": [
+        "baidu",
+        "baidubce",
+        "qianfan",
+        "wenxin",
+        "ernie"
+      ],
+      "auth": "bearer",
+      "authNote": "千帆 v2 OpenAI 兼容端点用 Bearer API Key；老版 aip.baidubce.com 用 OAuth access_token（?access_token=）",
+      "thinking": {
+        "param": "thinking_budget",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "ernie-x1",
+          "ernie-4.5-thinking",
+          "deepseek-r1",
+          "deepseek-v3",
+          "deepseek-v4",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "ernie-5.1",
+        "ernie-4.5-turbo",
+        "ernie-4.5",
+        "ernie-speed",
+        "deepseek-r1",
+        "deepseek-v3.2",
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "glm-5.2",
+        "kimi-k2.6"
+      ],
+      "embeddingModel": "embedding-v1",
+      "rerankModel": "",
+      "imageModel": "ernie-vilg",
+      "ttsModel": "4",
+      "asrModel": "1537",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/rerank",
+          "note": "千帆有 Reranker 模型"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/text2image/image_synthesis",
+          "note": "文生图走老端点"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "https://tsn.baidu.com/text2audio",
+          "note": "百度语音合成独立服务"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "https://vop.baidu.com/server_api",
+          "note": "百度语音识别独立服务"
+        }
+      }
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "baseUrl": "https://api.minimax.cn/v1",
+      "urlKeywords": [
+        "minimax",
+        "minimaxi",
+        "minimax.chat"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "thinking.type",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "minimax-m2",
+          "minimax-m3",
+          "m2",
+          "m3"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "MiniMax-M3",
+        "MiniMax-M2.1-highspeed",
+        "MiniMax-M2",
+        "M2-her"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageEndpoint": "/image_generation",
+      "imageModel": "image-01",
+      "ttsModel": "speech-02-hd",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": true,
+          "endpoint": "/responses",
+          "note": "MiniMax Responses API"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/image_generation"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions",
+          "note": "MiniMax 有 ASR 模型"
+        }
+      }
+    },
+    {
+      "id": "xiaomimimo",
+      "name": "小米 MiMo",
+      "baseUrl": "https://api.xiaomimimo.com/v1",
+      "urlKeywords": [
+        "xiaomimimo",
+        "mimo",
+        "mi.com"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "mimo-v2.5-thinking",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "mimo-v2.5-pro",
+        "mimo-v2.5",
+        "mimo-v2-flash",
+        "mimo-v2.5-thinking"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "mimo-v2.5-tts",
+      "asrModel": "mimo-v2.5-asr",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions"
+        }
+      }
+    },
+    {
+      "id": "moonshot",
+      "name": "月之暗面 Kimi",
+      "baseUrl": "https://api.moonshot.cn/v1",
+      "urlKeywords": [
+        "moonshot",
+        "kimi",
+        "moonshot.cn"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "thinking.type",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "kimi-k2",
+          "kimi-k3",
+          "kimi-k2.6",
+          "kimi-k2.7",
+          "moonshot-v1",
+          "kimi-latest",
+          "kimi-thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n最终回答：结论先行，简洁明确，只保留关键论据。"
+      },
+      "models": [
+        "kimi-k3",
+        "kimi-k2.6",
+        "kimi-k2.7-code",
+        "kimi-latest"
+      ],
+      "embeddingModel": "moonshot-v1-embedding",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": true,
+          "endpoint": "/responses",
+          "note": "Kimi Responses API"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": true,
+          "param": "web_search",
+          "note": "Kimi 支持联网搜索"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "Kimi 无文生图 API"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "Kimi 无 TTS API"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "Kimi 无 ASR API"
+        }
+      }
+    },
+    {
+      "id": "siliconflow",
+      "name": "硅基流动 SiliconFlow",
+      "baseUrl": "https://api.siliconflow.cn/v1",
+      "urlKeywords": [
+        "siliconflow",
+        "siliconflow.cn"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "deepseek-r1",
+          "deepseek-v4",
+          "qwen3",
+          "glm-5",
+          "kimi",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "deepseek-ai/DeepSeek-V4",
+        "deepseek-ai/DeepSeek-R1",
+        "deepseek-ai/DeepSeek-V3",
+        "Qwen/Qwen3-32B",
+        "Qwen/Qwen3-Coder",
+        "Pro/zai-org/GLM-5.1"
+      ],
+      "embeddingModel": "BAAI/bge-m3",
+      "rerankModel": "BAAI/bge-reranker-v2-m3",
+      "imageModel": "stabilityai/stable-diffusion-xl-base-1.0",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/rerank"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions"
+        }
+      }
+    },
+    {
+      "id": "baichuan",
+      "name": "百川智能",
+      "baseUrl": "https://api.baichuan-ai.com/v1",
+      "urlKeywords": [
+        "baichuan",
+        "baichuan-ai.com"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "Baichuan4",
+        "Baichuan3-Turbo",
+        "Baichuan3-Turbo-128k",
+        "Baichuan2-Turbo"
+      ],
+      "embeddingModel": "Baichuan-Embedding",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "百川无文生图 API"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "百川无 TTS API"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "百川无 ASR API"
+        }
+      }
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com",
+      "urlKeywords": [
+        "deepseek",
+        "api.deepseek.com"
+      ],
+      "auth": "bearer",
+      "requiresReasoningInContext": true,
+      "reasoningInContextNote": "官方文档（api-docs.deepseek.com/zh-cn/guides/thinking_mode/）2026-09-10 版：携带 tools 参数的请求必须完整回传历史轮次 reasoning_content（即使该轮未实际工具调用），否则 HTTP 400；未携带 tools 的请求回传会被忽略（无害）。Agent 对话恒带 tools，故恒回传。",
+      "thinking": {
+        "param": "thinking.type",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "deepseek-reasoner",
+          "deepseek-r1",
+          "deepseek-v3",
+          "deepseek-v4",
+          "deepseek-flash",
+          "deepseek-chat"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理（输出在 reasoning_content 思考链中），再给出最终答案。\n思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n最终回答：结论先行，简洁明确，只保留关键论据。"
+      },
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "DeepSeek 无独立 Agent 端点"
+        },
+        "vision": {
+          "enabled": true,
+          "note": "deepseek-v4-flash-vision 等支持视觉"
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "DeepSeek 无原生联网搜索"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "DeepSeek 无 rerank 端点"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "DeepSeek 无文生图 API"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "DeepSeek 无 TTS API"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "DeepSeek 无 ASR API"
+        }
+      }
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic Claude",
+      "baseUrl": "https://api.anthropic.com",
+      "urlKeywords": [
+        "anthropic",
+        "api.anthropic.com"
+      ],
+      "auth": "x-api-key",
+      "authNote": "必须同时发 x-api-key 和 anthropic-version: 2023-06-01 两个 header",
+      "chatEndpoint": "/v1/messages",
+      "thinking": {
+        "param": "thinking.type",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "claude-sonnet",
+          "claude-opus",
+          "claude-3.7",
+          "claude-4",
+          "claude-haiku"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+        "claude-sonnet-3-7"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/v1/messages"
+        },
+        "agent": {
+          "enabled": true,
+          "endpoint": "/v1/messages",
+          "note": "Claude Messages API 本身即 Agent 风格，支持 Computer Use"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "Anthropic 无原生联网搜索"
+        },
+        "embedding": {
+          "enabled": false,
+          "note": "Anthropic 无 Embedding API"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "Anthropic 无 Rerank API"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "Anthropic 无文生图 API"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "Anthropic 无 TTS API"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "Anthropic 无 ASR API"
+        }
+      }
+    },
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "baseUrl": "https://generativelanguage.googleapis.com",
+      "urlKeywords": [
+        "generativelanguage",
+        "gemini.google",
+        "googleapis.com"
+      ],
+      "auth": "query-key",
+      "authNote": "API Key 拼到 URL ?key=xxx；也可用 x-goog-api-key header。原生端点 /v1beta/models/{model}:generateContent",
+      "chatEndpoint": "/v1beta/openai/chat/completions",
+      "modelsEndpoint": "/v1beta/models",
+      "thinking": {
+        "param": "thinking_config.thinking_level",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "gemini-2.5",
+          "gemini-3",
+          "gemini-pro"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview",
+        "gemini-3.1-pro-preview",
+        "gemini-3.5-flash"
+      ],
+      "embeddingModel": "text-embedding-004",
+      "rerankModel": "",
+      "imageModel": "imagen-3.0-generate-002",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/v1beta/openai/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "Gemini 无独立 Agent 端点，通过 generateContent 实现"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": true,
+          "param": "google_search",
+          "note": "Gemini 支持 Google Search 工具"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/v1beta/openai/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "Gemini 无 rerank 端点"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/v1beta/models/imagen-3.0-generate-002:predict",
+          "note": "Imagen 文生图走 :predict RPC 风格"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/v1beta/models/{model}:generateContent",
+          "note": "Gemini TTS 通过 generateContent 输出音频"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/v1beta/models/{model}:generateContent",
+          "note": "Gemini 音频输入理解内置 ASR"
+        }
+      }
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "baseUrl": "https://api.groq.com/openai/v1",
+      "urlKeywords": [
+        "groq",
+        "api.groq.com"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "reasoning_effort",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "grok-4",
+          "grok-3-mini",
+          "gpt-oss",
+          "qwen3"
+        ],
+        "instruction": "你处于深度推理模式。请先进行充分的内部推理，再输出最终答案。"
+      },
+      "models": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3-32b"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "whisper-large-v3",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/rerank",
+          "note": "Groq Reranking API"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "Groq 无文生图，聚焦推理加速"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions"
+        }
+      }
+    },
+    {
+      "id": "together",
+      "name": "Together AI",
+      "baseUrl": "https://api.together.ai/v1",
+      "urlKeywords": [
+        "together",
+        "together.ai",
+        "together.xyz"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "deepseek-r1",
+          "gpt-oss",
+          "qwen3"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "meta-llama/Llama-4-Maverick",
+        "openai/gpt-oss-120b",
+        "deepseek-ai/DeepSeek-R1",
+        "Qwen/Qwen3-32B"
+      ],
+      "embeddingModel": "BAAI/bge-large-en-v1.5",
+      "rerankModel": "",
+      "imageModel": "black-forest-labs/FLUX.1-schnell",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/rerank",
+          "note": "Together 有专用 rerank 端点"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "待核实"
+        }
+      }
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama 本地",
+      "baseUrl": "http://localhost:11434/v1",
+      "urlKeywords": [
+        "ollama",
+        "127.0.0.1",
+        "localhost:11434"
+      ],
+      "auth": "none",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "qwen3",
+          "deepseek-r1",
+          "deepseek-v3",
+          "gpt-oss",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "Ollama 无 Agent 端点"
+        },
+        "vision": {
+          "enabled": true,
+          "note": "多模态模型支持视觉"
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "Ollama 无联网搜索"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "Ollama 无 rerank 端点"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "Ollama 无文生图"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "Ollama 无 TTS"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "Ollama 无 ASR"
+        }
+      }
+    },
+    {
+      "id": "stepfun",
+      "name": "阶跃星辰 StepFun",
+      "baseUrl": "https://api.stepfun.com/v1",
+      "urlKeywords": [
+        "stepfun",
+        "step.ai",
+        "stepfun.com"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "reasoning_effort",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "step-3.7",
+          "step-3.5",
+          "step-audio",
+          "thinking"
+        ],
+        "instruction": "你处于深度推理模式。请先进行充分的内部推理，再输出最终答案。"
+      },
+      "models": [
+        "step-3.7-flash",
+        "step-3.5-flash",
+        "step-3.5-flash-2603",
+        "stepaudio-2.5-chat"
+      ],
+      "embeddingModel": "step-1o-embedding",
+      "rerankModel": "",
+      "imageModel": "step-image-edit-2",
+      "ttsModel": "stepaudio-2.5-tts",
+      "asrModel": "stepaudio-2.5-asr",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations",
+          "note": "Step Image 文生图"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/asr/sse"
+        }
+      }
+    },
+    {
+      "id": "yi",
+      "name": "零一万物 Yi",
+      "baseUrl": "https://api.lingyiwanwu.com/v1",
+      "urlKeywords": [
+        "lingyiwanwu",
+        "01.ai",
+        "yi.lighting",
+        "lingyi"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "yi-lightning",
+        "yi-large",
+        "yi-medium",
+        "yi-medium-200k",
+        "yi-spark",
+        "yi-large-turbo"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true,
+          "note": "Yi-VL 多模态系列"
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "零一万物无文生图 API"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "零一万物无 TTS API"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "零一万物无 ASR API"
+        }
+      }
+    },
+    {
+      "id": "sensenova",
+      "name": "商汤日日新 SenseNova",
+      "baseUrl": "https://token.sensenova.cn/v1",
+      "urlKeywords": [
+        "sensenova",
+        "sensetime",
+        "sensecore",
+        "sensenova.cn"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "reasoning_effort",
+        "defaultEnabled": true,
+        "modelKeywords": [
+          "deepseek",
+          "glm",
+          "kimi",
+          "reasoner",
+          "thinking",
+          "sensenova-6"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "sensenova-6.8-flash-lite",
+        "sensenova-6.7-flash-lite",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "glm-5.2",
+        "kimi-k2.6"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "sensenova-u1-fast",
+      "ttsModel": "sensenova-tts-2.0",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations",
+          "note": "秒画文生图"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions",
+          "note": "SenseNova ASR"
+        }
+      }
+    },
+    {
+      "id": "infini",
+      "name": "无问芯穹 Infini-AI",
+      "baseUrl": "https://cloud.infini-ai.com/maas/v1",
+      "urlKeywords": [
+        "infini-ai",
+        "infinigence",
+        "infini-ai.com",
+        "genstudio"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "deepseek-r1",
+          "deepseek-v4",
+          "kimi-k2",
+          "qwen3",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "kimi-k2.6",
+        "qwen3-max"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/rerank",
+          "note": "GenStudio 提供 Rerank 接口"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations",
+          "note": "聚合多家生图模型"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "待核实"
+        }
+      }
+    },
+    {
+      "id": "yanxi",
+      "name": "京东言犀 JoyAI",
+      "baseUrl": "https://open-omniforce.jdl.com/api/v1",
+      "urlKeywords": [
+        "yanxi",
+        "jdl.com",
+        "jdcloud",
+        "joyai",
+        "joyagent"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "joyai",
+          "言犀",
+          "750b",
+          "1.3t",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "JoyAI-1.0",
+        "JoyAI-LLM-Flash",
+        "JoyAI-LLM-1.3T",
+        "chatrhino-81b-pro"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "joytts",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions",
+          "note": "言犀语音识别"
+        }
+      }
+    },
+    {
+      "id": "zhinao",
+      "name": "360智脑",
+      "baseUrl": "https://api.360.cn/v1",
+      "urlKeywords": [
+        "360",
+        "360cn",
+        "zhinao",
+        "ai.360.com",
+        "360.cn"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "360gpt2-o1",
+          "o1",
+          "deepseek-r1",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "360GPT2-Pro",
+        "360GPT-Turbo",
+        "360GPT-Turbo-32K-Agent",
+        "360-deepseek-r1"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "openai/gpt-image-1",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings",
+          "note": "360 向量模型"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/rerank",
+          "note": "360 重排序模型"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech",
+          "note": "360 语音合成大模型"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions",
+          "note": "360 语音识别大模型"
+        }
+      }
+    },
+    {
+      "id": "huawei",
+      "name": "华为云盘古",
+      "baseUrl": "https://api.modelarts-maas.com/openai",
+      "urlKeywords": [
+        "huaweicloud",
+        "modelarts",
+        "pangu",
+        "modelarts-maas",
+        "huawei"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "pangu",
+          "reasoner",
+          "deepseek",
+          "kimi",
+          "n2",
+          "n4",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "openPangu-2.0-Flash",
+        "openPangu-2.0-Pro",
+        "DeepSeek-V4-Pro",
+        "Kimi-K2.6"
+      ],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/app/search/v1/vector/query",
+          "note": "盘古向量原生路径，非 OpenAI 标准"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "/app/search/v1/vector/query",
+          "note": "盘古向量&重排大模型"
+        },
+        "imageGen": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": false,
+          "note": "华为云语音合成为独立服务"
+        },
+        "asr": {
+          "enabled": false,
+          "note": "华为云语音识别为独立服务"
+        }
+      }
+    },
+    {
+      "id": "bailian-workspace",
+      "name": "阿里百炼专属空间",
+      "baseUrl": "https://{workspace-id}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      "urlKeywords": [
+        "maas.aliyuncs.com",
+        "bailian-workspace",
+        "workspace"
+      ],
+      "auth": "bearer",
+      "authNote": "baseUrl 中的 {workspace-id} 需替换为实际业务空间 ID，地域后缀按实际区域调整",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "qwen3",
+          "qwen3.5",
+          "qwen3-thinking",
+          "qwq"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [
+        "qwen3.8-max",
+        "qwen3.5-plus",
+        "qwen3.5-flash",
+        "qwen3-max",
+        "qwen3-plus",
+        "qwen3-flash"
+      ],
+      "embeddingModel": "text-embedding-v3",
+      "rerankModel": "gte-rerank",
+      "imageModel": "wanx2.1-t2i-turbo",
+      "ttsModel": "qwen3-tts-flash",
+      "asrModel": "qwen3-asr-flash",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": true,
+          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+        },
+        "vision": {
+          "enabled": true
+        },
+        "webSearch": {
+          "enabled": true,
+          "param": "web_search"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings"
+        },
+        "rerank": {
+          "enabled": true,
+          "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/api/v1/services/aigc/multimodal-generation/generation"
+        }
+      }
+    },
+    {
+      "id": "302ai",
+      "name": "302.AI 聚合平台",
+      "baseUrl": "https://api.302.ai/v1",
+      "urlKeywords": [
+        "302.ai",
+        "302ai"
+      ],
+      "auth": "bearer",
+      "thinking": {
+        "param": "enable_thinking",
+        "defaultEnabled": false,
+        "modelKeywords": [
+          "o1",
+          "o3",
+          "deepseek-r1",
+          "qwen3",
+          "glm-5",
+          "kimi",
+          "thinking"
+        ],
+        "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。"
+      },
+      "models": [],
+      "embeddingModel": "",
+      "rerankModel": "",
+      "imageModel": "",
+      "ttsModel": "",
+      "asrModel": "",
+      "services": {
+        "chat": {
+          "enabled": true,
+          "endpoint": "/chat/completions"
+        },
+        "agent": {
+          "enabled": false,
+          "note": "聚合平台，取决于上游模型"
+        },
+        "vision": {
+          "enabled": true,
+          "note": "取决于上游模型"
+        },
+        "webSearch": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "embedding": {
+          "enabled": true,
+          "endpoint": "/embeddings",
+          "note": "聚合平台，取决于上游模型"
+        },
+        "rerank": {
+          "enabled": false,
+          "note": "待核实"
+        },
+        "imageGen": {
+          "enabled": true,
+          "endpoint": "/images/generations",
+          "note": "聚合平台，取决于上游模型"
+        },
+        "functionCalling": {
+          "enabled": true
+        },
+        "tts": {
+          "enabled": true,
+          "endpoint": "/audio/speech",
+          "note": "聚合平台"
+        },
+        "asr": {
+          "enabled": true,
+          "endpoint": "/audio/transcriptions",
+          "note": "聚合平台"
+        }
+      }
+    }
+  ]
+}

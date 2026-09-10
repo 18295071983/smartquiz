@@ -349,7 +349,7 @@ public class OCRRecognizeTool implements AITool {
             final StringBuilder full = new StringBuilder();
 
             ois.generateStreamWithImages(question, java.util.Collections.singletonList(b64),
-                    active, new java.util.ArrayList<>(), 1024,
+                    active, new java.util.ArrayList<>(), 1024, false,
                     new com.oilquiz.app.ai.callback.StreamCallback() {
                         @Override public void onToken(String token) {
                             if (token != null) full.append(token);

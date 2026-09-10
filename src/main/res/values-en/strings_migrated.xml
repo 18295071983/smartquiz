@@ -1621,4 +1621,6 @@
     <string name="h_970f00ea" formatted="false">%s\nHigh: %d° Low: %d°\n%s %s\nHumidity: %d%%</string>
     <string name="h_75378edd">No hourly data yet</string>
     <string name="h_7075e4d2">No daily forecast yet</string>
+    <string name="h_a2b3c4d5">Loading local speech recognition model…</string>
+    <string name="h_e6f7a8b9">Local speech recognition model ready</string>
 </resources>

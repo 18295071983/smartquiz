@@ -10,6 +10,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.oilquiz.app.ai.model.ApiModel;
+import com.oilquiz.app.ai.model.ProviderConfigManager;
 import com.oilquiz.app.ai.util.SSLSocketFactoryUtil;
 import com.oilquiz.app.util.AILogger;
 
@@ -20,7 +21,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -106,6 +110,10 @@ public class ModelListFetcher {
                     models = fetchOpenAIModels(apiUrl, apiKey);
                 }
 
+                // 合并配置表预置模型（providers.json models[]：API 未返回时补录，
+                // 如智谱免费模型；带模型级 capabilities 时精确到模型能力）
+                mergePresetModels(apiUrl, models);
+
                 // 按能力过滤
                 if (capability != null && !capability.isEmpty()) {
                     models = filterByCapability(models, capability);
@@ -131,6 +139,29 @@ public class ModelListFetcher {
             }
         }
         return filtered;
+    }
+
+    /** 合并配置表预置模型：API 未返回的模型补录进列表（按 id 去重），并携带模型级能力 */
+    private void mergePresetModels(String apiUrl, List<ApiModel> models) {
+        try {
+            ProviderConfigManager pcm = ProviderConfigManager.get();
+            List<String> presetNames = pcm.getPredefinedModels(apiUrl);
+            if (presetNames.isEmpty()) return;
+            Set<String> existing = new HashSet<>();
+            for (ApiModel m : models) existing.add(m.id);
+            for (String name : presetNames) {
+                if (existing.contains(name)) continue; // API 已有不覆盖
+                ApiModel pm = new ApiModel(name);
+                pm.source = "preset";
+                pm.contextLength = 0;
+                List<String> caps = pcm.getModelCapabilities(apiUrl, name);
+                if (caps != null && !caps.isEmpty()) pm.capabilities = caps; // 模型级能力
+                models.add(pm);
+                existing.add(name);
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "Merge preset models failed: " + e.getMessage());
+        }
     }
 
     /**
@@ -179,6 +210,8 @@ public class ModelListFetcher {
      */
     private List<ApiModel> fetchOpenAIModels(String apiUrl, String apiKey) throws Exception {
         String fullUrl = buildOpenAIUrl(apiUrl, "/models");
+        // query-key 型服务商（Gemini 等）：密钥走 URL ?key=
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -190,7 +223,8 @@ public class ModelListFetcher {
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Content-Type", "application/json");
 
             int responseCode = connection.getResponseCode();
@@ -221,8 +255,9 @@ public class ModelListFetcher {
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setRequestProperty("x-api-key", apiKey);
-            connection.setRequestProperty("anthropic-version", "2023-06-01");
+            // 统一鉴权：Anthropic → x-api-key + anthropic-version
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
 
             int responseCode = connection.getResponseCode();
             if (responseCode != 200) {
@@ -237,20 +272,12 @@ public class ModelListFetcher {
     }
 
     /**
-     * 构建OpenAI格式的URL，避免重复添加v1路径
+     * 构建OpenAI格式的URL（统一走 ProviderConfigManager 配置驱动的拼装接口）。
+     * 兼容规则：baseUrl 已以版本路径结尾（/v1、/v4 等，如智谱 /api/paas/v4）→ 直接拼 endpoint；
+     * 已以 endpoint 结尾 → 原样返回；否则默认补 /v1 + endpoint。
      */
     private String buildOpenAIUrl(String apiUrl, String endpoint) {
-        String baseUrl = apiUrl;
-        if (baseUrl == null || baseUrl.isEmpty()) {
-            baseUrl = "https://api.openai.com";
-        }
-        baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        
-        if (baseUrl.endsWith("/v1")) {
-            return baseUrl + endpoint;
-        } else {
-            return baseUrl + "/v1" + endpoint;
-        }
+        return com.oilquiz.app.ai.model.ProviderConfigManager.get().buildUrl(apiUrl, endpoint);
     }
 
     /**
@@ -411,16 +438,15 @@ public class ModelListFetcher {
     }
 
     /**
-     * 测试连通性
+     * 测试连通性（URL 拼接统一走 buildOpenAIUrl：兼容 /v1、/v4 等版本路径结尾的地址，
+     * 避免智谱 /api/paas/v4 被错误拼成 /v4/v1/models）
      */
     public CompletableFuture<Boolean> testConnection(String apiUrl, String apiKey) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String fullUrl = apiUrl;
-                if (!fullUrl.endsWith("/")) {
-                    fullUrl += "/";
-                }
-                fullUrl += "v1/models";
+                String fullUrl = buildOpenAIUrl(apiUrl, "/models");
+                // query-key 型服务商（Gemini 等）：密钥走 URL ?key=
+                fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
                 URL url = new URL(fullUrl);
                 HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -433,13 +459,9 @@ public class ModelListFetcher {
                     connection.setConnectTimeout(10000);
                     connection.setReadTimeout(10000);
 
-                    // 设置认证头
-                    if (apiUrl.toLowerCase().contains("anthropic")) {
-                        connection.setRequestProperty("x-api-key", apiKey);
-                        connection.setRequestProperty("anthropic-version", "2023-06-01");
-                    } else {
-                        connection.setRequestProperty("Authorization", "Bearer " + apiKey);
-                    }
+                    // 统一鉴权：按服务商配置表 auth 类型（Anthropic→x-api-key+version；query-key/none→无头；其余 Bearer）
+                    com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                            .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
 
                     int responseCode = connection.getResponseCode();
                     return responseCode == 200;

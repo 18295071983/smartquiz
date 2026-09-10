@@ -1621,4 +1621,6 @@
     <string name="h_970f00ea" formatted="false">%s\n高: %d° 低: %d°\n%s %s\n溼度: %d%%</string>
     <string name="h_75378edd">暫無逐小時資料</string>
     <string name="h_7075e4d2">暫無每日預報資料</string>
+    <string name="h_a2b3c4d5">正在載入本機語音辨識模型…</string>
+    <string name="h_e6f7a8b9">本機語音辨識模型已就緒</string>
 </resources>

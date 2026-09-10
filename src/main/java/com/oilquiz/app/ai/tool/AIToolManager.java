@@ -38,6 +38,7 @@ import com.oilquiz.app.ai.python.PythonWebReaderTool;
 import com.oilquiz.app.ai.python.PythonFileOpsTool;
 import com.oilquiz.app.ai.python.PythonChartTool;
 import com.oilquiz.app.ai.python.AIToolCreatorTool;
+import com.oilquiz.app.ai.knowledge.KnowledgeBaseTool;
 
 /**
  * AI工具管理器，负责管理和执行AI工具
@@ -239,6 +240,8 @@ public class AIToolManager {
         // 纯本地工具：文本处理（JSON/编码/正则）与单位换算（零网络依赖）
         registerToolFactory("text_tools", TextToolsTool.class, TextToolsTool::new);
         registerToolFactory("unit_converter", UnitConverterTool.class, UnitConverterTool::new);
+        // 知识库：独立 SQLite+FTS5，全文检索与管理（内容由用户维护）
+        registerToolFactory("knowledge_base", KnowledgeBaseTool.class, KnowledgeBaseTool::new);
         
         try {
             registerToolFactory("python_execute", PythonExecuteTool.class, PythonExecuteTool::new);
@@ -1379,8 +1382,8 @@ public class AIToolManager {
                     .category("tool")
                     .build();
             case "voice_input":
-                return ToolDefinition.builder("voice_input", "语音输入工具：将语音/音频转换为文字（语音识别ASR）。支持识别音频文件(recognize)、交互式录音识别(record，弹出录音组件让用户说话，点完成结束，录音前自动停止TTS播放防串音)、固定时长录音识别(record_and_recognize，需录音权限)、检查可用性(check)。未配置语音识别模型时提示先配置（如 qwen3-asr-flash / whisper-1）")
-                    .addParameter("action", "string", "操作类型: recognize(识别音频文件)/record(交互式录音组件)/record_and_recognize(固定时长录音)/check(检查可用性)", false, "recognize")
+                return ToolDefinition.builder("voice_input", "语音输入工具：将语音/音频转换为文字（语音识别ASR）。本地语音识别（SenseVoice）已内置启用，无需在线模型配置即可使用；在线模型未配置时自动走本地识别。支持交互式录音(record，弹出录音组件让用户说话，点完成结束，录音前自动停止TTS播放防串音)、固定时长录音识别(record_and_recognize，需录音权限)、识别已有音频文件(recognize)、检查可用性(check)。用户说要用语音/要说话/听写时优先用 record 让用户录音")
+                    .addParameter("action", "string", "操作类型: recognize(识别音频文件)/record(交互式录音组件，推荐)/record_and_recognize(固定时长录音)/check(检查可用性)", false, "recognize")
                     .addParameter("audio_path", "string", "音频文件路径(mp3/m4a/wav/amr等，与audio_uri二选一)", false)
                     .addParameter("audio_uri", "string", "音频content:// URI(与audio_path二选一)", false)
                     .addParameter("language", "string", "语言提示(zh/en)，默认自动检测", false)

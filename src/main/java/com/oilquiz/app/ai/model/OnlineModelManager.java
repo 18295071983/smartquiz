@@ -74,6 +74,14 @@ public class OnlineModelManager {
         public boolean supportsAudio = false;     // 是否支持音频处理
         public boolean supportsCode = false;      // 是否擅长代码生成
         public boolean supportsFunctionCalling = false; // 是否支持原生 function calling（Agent 接管模式判定用）
+        public boolean supportsAgent = false;     // 是否支持 Agent/Responses 类接口
+        public boolean supportsWebSearch = false; // 是否支持网络搜索
+        public boolean supportsEmbedding = false; // 是否支持向量 Embedding
+        public boolean supportsRerank = false;    // 是否支持重排 Rerank
+        public boolean supportsImageGen = false;  // 是否支持文生图
+        public boolean supportsTts = false;       // 是否支持语音合成
+        public boolean supportsAsr = false;       // 是否支持语音识别
+        public boolean capabilitiesUserSet = false; // 用户是否手动调整过服务能力（true 时配置表刷新不再覆盖）
         public double costPerMillionTokens = 0;   // 每百万token成本（美元）
         
         public OnlineModelConfig() {
@@ -108,6 +116,20 @@ public class OnlineModelManager {
                     return supportsCode || capabilities.supportsCodeGeneration;
                 case "function_calling":
                     return supportsFunctionCalling || capabilities.supportsFunctionCalling;
+                case "agent":
+                    return supportsAgent;
+                case "web_search":
+                    return supportsWebSearch;
+                case "embedding":
+                    return supportsEmbedding;
+                case "rerank":
+                    return supportsRerank;
+                case "image_gen":
+                    return supportsImageGen;
+                case "tts":
+                    return supportsTts;
+                case "asr":
+                    return supportsAsr;
                 case "long_context":
                     return contextWindow >= 32768; // 32K+ 视为长上下文
                 default:
@@ -219,6 +241,14 @@ public class OnlineModelManager {
                     config.supportsVision = obj.optBoolean("supportsVision", false);
                     config.supportsCode = obj.optBoolean("supportsCode", false);
                     config.supportsFunctionCalling = obj.optBoolean("supportsFunctionCalling", false);
+                    config.supportsAgent = obj.optBoolean("supportsAgent", false);
+                    config.supportsWebSearch = obj.optBoolean("supportsWebSearch", false);
+                    config.supportsEmbedding = obj.optBoolean("supportsEmbedding", false);
+                    config.supportsRerank = obj.optBoolean("supportsRerank", false);
+                    config.supportsImageGen = obj.optBoolean("supportsImageGen", false);
+                    config.supportsTts = obj.optBoolean("supportsTts", false);
+                    config.supportsAsr = obj.optBoolean("supportsAsr", false);
+                    config.capabilitiesUserSet = obj.optBoolean("capabilitiesUserSet", false);
                     // 配置时检测到的真实上下文窗口（0=未持久化，由 refreshAllContextWindows 按配置表推断兜底）
                     config.contextWindow = obj.optInt("contextWindow", 0);
                     // 窗口是否来自 API 真实检测：仅 true 时保留该值，推断值/旧死值启动时重算
@@ -251,9 +281,45 @@ public class OnlineModelManager {
         refreshAllSupportsVision();
         // 统一刷新所有模型的 supportsFunctionCalling 标记（按模型名自动推断 Agent 接管能力）
         refreshAllSupportsFunctionCalling();
+        // 统一刷新所有模型的服务能力标记（agent/多模态/网络搜索/embedding/rerank/文生图：按服务商配置表 services 声明）
+        refreshAllServiceCapabilities();
         // 统一刷新所有模型的 contextWindow（按模型名推断上下文窗口，供历史压缩/UI展示）
         if (refreshAllContextWindows()) {
             saveToPrefs(); // 重算结果落盘（修正旧 4096 死值）
+        }
+    }
+
+    /**
+     * 刷新所有模型的差异化服务能力标记（agent 接口/多模态/网络搜索/embedding/rerank/文生图等）。
+     * 数据源：服务商配置表 providers.json 的 services 声明（按 apiUrl 匹配服务商），
+     * 配置表未声明时（如用户手填自定义地址）保持用户手动设置值不变。
+     */
+    private void refreshAllServiceCapabilities() {
+        try {
+            com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                    com.oilquiz.app.ai.model.ProviderConfigManager.get();
+            for (OnlineModelConfig config : modelList) {
+                String url = config.apiUrl;
+                if (url == null || url.isEmpty()) continue;
+                // 用户手动调整过能力的配置不覆盖（保留用户设置）
+                if (config.capabilitiesUserSet) continue;
+                // 仅当配置表能识别该服务商时才覆盖（自定义地址不覆盖用户手动设置）
+                if (pcm.matchByUrl(url) == null) continue;
+                // 按「服务商 + 模型名」判能力：配置表预置模型带模型级 capabilities 时精确到模型，
+                // 无模型级声明（API 自动获取/纯字符串预置）继承服务商级 services。
+                config.supportsAgent = pcm.supportsModelCapability(url, config.modelName, "agent");
+                config.supportsVision = pcm.supportsModelCapability(url, config.modelName, "vision");
+                config.supportsWebSearch = pcm.supportsModelCapability(url, config.modelName, "webSearch");
+                config.supportsEmbedding = pcm.supportsModelCapability(url, config.modelName, "embedding");
+                config.supportsRerank = pcm.supportsModelCapability(url, config.modelName, "rerank");
+                config.supportsImageGen = pcm.supportsModelCapability(url, config.modelName, "imageGen");
+                config.supportsFunctionCalling = pcm.supportsModelCapability(url, config.modelName, "functionCalling");
+                config.supportsTts = pcm.supportsModelCapability(url, config.modelName, "tts");
+                config.supportsAsr = pcm.supportsModelCapability(url, config.modelName, "asr");
+                config.supportsAudio = config.supportsAsr || config.supportsAudio;
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "刷新服务能力失败", e);
         }
     }
 
@@ -305,35 +371,12 @@ public class OnlineModelManager {
 
     /**
      * 按模型名关键词判断是否支持深度思考（thinking/reasoning 参数）。
-     * 内置常用模型名单：DeepSeek-R1/Reasoner/V3.1、Qwen3、GLM-4.5、Kimi K2、Doubao-1.5、o1/o3/o4 系列。
+     * 规则来自 ProviderConfigManager 配置表（providers.json 各服务商 thinking.modelKeywords 并集）。
      * 未知模型保守返回 false（不传 thinking 参数，避免 400 报错；用户可在模型设置开启后由
      * isThinkingUnsupportedError 回退兜底）。
      */
     public static boolean isThinkingModelName(String modelName) {
-        if (modelName == null) return false;
-        String m = modelName.toLowerCase();
-        // OpenAI o系列（原生 reasoning_effort 参数）
-        if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")
-            || m.startsWith("o1-") || m.startsWith("o3-") || m.startsWith("o4-")
-            || m.startsWith("o1-mini") || m.startsWith("o3-mini")) return true;
-        // DeepSeek：reasoner / r1 / v3.1+ / v4 原生支持 enable_thinking
-        if (m.contains("deepseek-reasoner") || m.contains("deepseek-r1")
-            || m.contains("deepseek-r1-") || m.contains("deepseek-v3.1")
-            || m.contains("deepseek-v3.2") || m.contains("deepseek-v3.3")
-            || m.contains("deepseek-v4") || m.contains("deepseek-chat")) return true;
-        // Qwen3 全系（enable_thinking + chat_template_kwargs）
-        if (m.contains("qwen3")) return true;
-        // GLM-4.5+ / GLM-5（enable_thinking）
-        if (m.contains("glm-4.5") || m.contains("glm-4.6") || m.contains("glm-4.7")
-            || m.contains("glm-5")) return true;
-        // Kimi K2/K3（thinking 参数）
-        if (m.contains("kimi-k2") || m.contains("kimi-k3")
-            || m.contains("moonshot-v1-128k") || m.contains("moonshot-v1-32k")
-            || m.contains("kimi-latest") || m.contains("kimi-thinking")) return true;
-        // 豆包 1.5 pro（thinking 参数）
-        if (m.contains("doubao-1.5") || m.contains("doubao-pro-32k-250528")
-            || m.contains("doubao-thinking")) return true;
-        return false;
+        return ProviderConfigManager.get().isThinkingModelName(modelName);
     }
 
     /**
@@ -354,48 +397,18 @@ public class OnlineModelManager {
 
     /**
      * 按模型名返回思考指令（注入 system prompt，强化思考质量）。
-     * 不同模型思考风格略有差异，内置常用模型的个性化指令；未知模型返回通用指令。
+     * 指令文本来自 ProviderConfigManager 配置表（各服务商 thinking.instruction）；未知模型返回通用指令。
      */
     public static String getThinkingInstruction(String modelName) {
-        if (modelName != null) {
-            String m = modelName.toLowerCase();
-            // OpenAI o系列：禁止输出思考过程，只给最终答案
-            if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) {
-                return "你处于深度推理模式。请先进行充分的内部推理（reasoning），再输出最终答案。\n"
-                    + "推理阶段：拆解问题→多角度分析→逐步验证逻辑链条。\n"
-                    + "最终回答：结论先行，简洁明确，只保留关键论据，不要输出思考过程。";
-            }
-            // DeepSeek reasoner：思考链在 reasoning_content，回答保持简洁
-            if (m.contains("deepseek-reasoner") || m.contains("deepseek-r1")) {
-                return "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理（输出在 reasoning_content 思考链中），再给出最终答案。\n"
-                    + "思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n"
-                    + "最终回答：结论先行，简洁明确，只保留关键论据。";
-            }
-            // Qwen3：支持 thinking 模式
-            if (m.contains("qwen3")) {
-                return "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n"
-                    + "思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n"
-                    + "最终回答：结论先行，简洁明确，只保留关键论据。";
-            }
-        }
-        // 通用思考指令（兜底）
-        return "你当前处于深度思考模式。对于复杂问题，请先进行系统性的分析推理（输出在 reasoning_content 思考链中），再给出最终答案。\n"
-            + "思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n"
-            + "最终回答：结论先行，简洁明确，只保留关键论据。";
+        return ProviderConfigManager.get().getThinkingInstruction(modelName);
     }
 
     /**
      * 按模型名返回 thinking 参数规范（请求体参数名 + 是否用 chat_template_kwargs 双位置）。
-     * 返回 "enable_thinking"（默认，DeepSeek/Qwen/GLM/豆包）或 "reasoning_effort"（OpenAI o系列）。
+     * 返回配置表服务商 thinking.param（默认 "enable_thinking"，OpenAI o 系 "reasoning_effort"）。
      */
     public static String getThinkingParamName(String modelName) {
-        if (modelName != null) {
-            String m = modelName.toLowerCase();
-            if (m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) {
-                return "reasoning_effort";
-            }
-        }
-        return "enable_thinking";
+        return ProviderConfigManager.get().getThinkingParamName(modelName);
     }
 
     /**
@@ -488,6 +501,14 @@ public class OnlineModelManager {
                 obj.put("supportsVision", config.supportsVision);
                 obj.put("supportsCode", config.supportsCode);
                 obj.put("supportsFunctionCalling", config.supportsFunctionCalling);
+                obj.put("supportsAgent", config.supportsAgent);
+                obj.put("supportsWebSearch", config.supportsWebSearch);
+                obj.put("supportsEmbedding", config.supportsEmbedding);
+                obj.put("supportsRerank", config.supportsRerank);
+                obj.put("supportsImageGen", config.supportsImageGen);
+                obj.put("supportsTts", config.supportsTts);
+                obj.put("supportsAsr", config.supportsAsr);
+                obj.put("capabilitiesUserSet", config.capabilitiesUserSet);
                 obj.put("contextWindow", config.contextWindow);
                 obj.put("contextWindowFromApi", config.contextWindowFromApi);
                 
@@ -1321,9 +1342,9 @@ public class OnlineModelManager {
                 String newModelName = apiConfig.getModelName() != null ? apiConfig.getModelName() : "";
                 if (!equals(existing.modelName, newModelName)) {
                     existing.modelName = newModelName;
-                    if (newModelName != null && !newModelName.isEmpty()) {
-                        existing.selectedModel = newModelName;
-                    }
+                    // 注意：不覆盖 selectedModel——它是用户在模型管理里显式手动输入的模型名
+                    // （如智谱免费模型 glm-4-flash），APIKeyManager 的 modelName 是旧值/列表
+                    // 自动值，同步时覆盖会导致"手动输入的模型名自动跳转到其他模型"
                     changed = true;
                 }
                 if (existing.enabled != apiConfig.isActive()) {
@@ -1422,9 +1443,7 @@ public class OnlineModelManager {
             String newModelName = apiConfig.getModelName() != null ? apiConfig.getModelName() : "";
             if (!equals(existing.modelName, newModelName)) {
                 existing.modelName = newModelName;
-                if (newModelName != null && !newModelName.isEmpty()) {
-                    existing.selectedModel = newModelName;
-                }
+                // 不覆盖 selectedModel（用户手动输入的模型名优先，见 syncFromAPIKeyManager）
                 changed = true;
             }
             if (existing.enabled != apiConfig.isActive()) {
@@ -1477,7 +1496,8 @@ public class OnlineModelManager {
             apiConfig.setName(config.name);
             apiConfig.setApiHost(config.apiUrl);
             apiConfig.setApiKey(config.apiKey);
-            apiConfig.setModelName(config.modelName != null ? config.modelName : config.selectedModel);
+            apiConfig.setModelName(config.selectedModel != null && !config.selectedModel.isEmpty()
+                    ? config.selectedModel : config.modelName);
             apiConfig.setCategory(APIConfig.Category.AI);
             apiConfig.setServiceType(APIConfig.ServiceType.CUSTOM);
             apiConfig.setActive(config.enabled);

@@ -399,6 +399,10 @@ public class APIKeyManager {
                     return result;
                 }
 
+                // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，在 openConnection 前拼好
+                testUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                        .withAuthQuery(testUrl, config.getApiKey());
+
                 URL url = new URL(testUrl);
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 
@@ -411,9 +415,17 @@ public class APIKeyManager {
                 connection.setConnectTimeout(config.getTimeout() * 1000);
                 connection.setReadTimeout(config.getTimeout() * 1000);
 
-                String authHeader = getAuthHeader(config);
-                if (authHeader != null) {
-                    connection.setRequestProperty("Authorization", authHeader);
+                // 统一鉴权：按服务商配置表 auth 类型设置 header
+                // （Anthropic 用 x-api-key+anthropic-version；query-key/none 不设 Authorization；
+                //   未识别服务商默认 Bearer）
+                com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                        com.oilquiz.app.ai.model.ProviderConfigManager.get();
+                String authUrl = config.getApiHost() != null && !config.getApiHost().isEmpty()
+                        ? config.getApiHost() : testUrl;
+                pcm.applyAuthHeaders(connection, authUrl, config.getApiKey(), null, null);
+                // 旧体系特殊服务：Bing 用 Ocp-Apim-Subscription-Key
+                if (APIConfig.ServiceType.BING_SEARCH.equals(config.getServiceType())) {
+                    connection.setRequestProperty("Ocp-Apim-Subscription-Key", config.getApiKey());
                 }
 
                 for (Map.Entry<String, String> entry : config.getCustomHeaders().entrySet()) {
@@ -469,38 +481,22 @@ public class APIKeyManager {
                        "/v7/weather/now?location=101010100&key=" + config.getApiKey();
             case APIConfig.ServiceType.BING_SEARCH:
                 return "https://api.bing.microsoft.com/v7.0/search?q=test";
+            case APIConfig.ServiceType.CUSTOM:
             default:
+                // CUSTOM（及自定义 OpenAI 兼容端点）：按 apiHost 测 /models。
+                // 从模型选择界面添加的在线模型（智谱/DeepSeek/Kimi/百炼等）同步到
+                // 旧体系时 serviceType 均为 CUSTOM——此前落 default 返回 null 导致
+                // API 配置管理界面测试全部报"无法确定测试URL"。
+                if (apiHost != null && !apiHost.isEmpty()) {
+                    return buildOpenAIUrl(apiHost, "https://api.openai.com", "/models");
+                }
                 return null;
         }
     }
 
     private String buildOpenAIUrl(String apiHost, String defaultHost, String endpoint) {
         String baseUrl = (apiHost != null && !apiHost.isEmpty()) ? apiHost : defaultHost;
-        baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        
-        if (baseUrl.endsWith("/v1")) {
-            return baseUrl + endpoint;
-        } else if (baseUrl.endsWith("/v1/")) {
-            return baseUrl.substring(0, baseUrl.length() - 1) + endpoint;
-        } else {
-            return baseUrl + "/v1" + endpoint;
-        }
-    }
-
-    private String getAuthHeader(APIConfig config) {
-        String serviceType = config.getServiceType();
-        String apiKey = config.getApiKey();
-
-        switch (serviceType) {
-            case APIConfig.ServiceType.OPENAI:
-                return "Bearer " + apiKey;
-            case APIConfig.ServiceType.ANTHROPIC:
-                return "x-api-key: " + apiKey;
-            case APIConfig.ServiceType.BING_SEARCH:
-                return null;
-            default:
-                return null;
-        }
+        return com.oilquiz.app.ai.model.ProviderConfigManager.get().buildUrl(baseUrl, endpoint);
     }
 
     public String exportToJson() {

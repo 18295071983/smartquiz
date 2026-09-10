@@ -29,7 +29,8 @@ public class MarkdownContentRenderer implements ContentRenderer {
 
     @Override
     public Spanned render(String segment, Context context, int availableWidth) {
-        return MarkdownRenderer.render(segment, availableWidth);
+        // 带 context 的三参重载：确保 Markwon 已初始化，并处理流式未闭合代码围栏
+        return MarkdownRenderer.render(segment, context, availableWidth);
     }
 
     @Override

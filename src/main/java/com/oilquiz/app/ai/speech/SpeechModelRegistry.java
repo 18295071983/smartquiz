@@ -421,47 +421,20 @@ public final class SpeechModelRegistry {
 
     // ==================== 常用端点模板 ====================
 
-    public static final EndpointTemplate[] ENDPOINT_TEMPLATES = {
-            new EndpointTemplate("阿里云百炼（公共）",
-                    "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    "qwen3-tts-flash", "qwen3-asr-flash"),
-            new EndpointTemplate("智谱 GLM",
-                    "https://open.bigmodel.cn/api/paas/v4",
-                    null, null),
-            new EndpointTemplate("腾讯混元",
-                    "https://api.hunyuan.cloud.tencent.com/v1",
-                    null, null),
-            new EndpointTemplate("讯飞开放平台",
-                    "https://api.xfyun.cn",
-                    "x4_xiaoyan", "16k_zh"),
-            new EndpointTemplate("火山引擎",
-                    "https://openspeech.bytedance.com",
-                    "zh_female_qingxin", "volcengine_streaming_common"),
-            new EndpointTemplate("百度智能云",
-                    "https://aip.baidubce.com",
-                    "4", "1537"),
-            new EndpointTemplate("OpenAI",
-                    "https://api.openai.com/v1",
-                    "tts-1", "whisper-1"),
-            new EndpointTemplate("MiniMax",
-                    "https://api.minimax.chat/v1",
-                    "speech-02-hd", null),
-            new EndpointTemplate("小米 MiMo",
-                    "https://api.xiaomimimo.com/v1",
-                    "mimo-v2.5-tts", "mimo-v2.5-asr"),
-            new EndpointTemplate("月之暗面 Kimi",
-                    "https://api.moonshot.cn/v1",
-                    null, null),
-            new EndpointTemplate("硅基流动 SiliconFlow",
-                    "https://api.siliconflow.cn/v1",
-                    null, null),
-            new EndpointTemplate("百川智能",
-                    "https://api.baichuan-ai.com/v1",
-                    null, null),
-            new EndpointTemplate("DeepSeek（仅对话）",
-                    "https://api.deepseek.com",
-                    null, null),
-    };
+    /**
+     * 常用端点模板（名称 + 地址 + 预置 TTS/ASR 模型），全部来自
+     * ProviderConfigManager 配置表（providers.json）；增删服务更新配置文件即可。
+     */
+    public static EndpointTemplate[] getEndpointTemplates() {
+        java.util.List<com.oilquiz.app.ai.model.ProviderConfigManager.EndpointTemplate> list =
+            com.oilquiz.app.ai.model.ProviderConfigManager.get().getEndpointTemplates();
+        EndpointTemplate[] out = new EndpointTemplate[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            com.oilquiz.app.ai.model.ProviderConfigManager.EndpointTemplate t = list.get(i);
+            out[i] = new EndpointTemplate(t.name, t.apiUrl, t.ttsModel, t.asrModel);
+        }
+        return out;
+    }
 
     // ==================== 缓存与异步 ====================
 

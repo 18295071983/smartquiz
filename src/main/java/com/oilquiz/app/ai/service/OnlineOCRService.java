@@ -294,6 +294,8 @@ public class OnlineOCRService {
         }
 
         String fullUrl = buildUrl(apiUrl, "/chat/completions");
+        // query-key 型服务商（Gemini 等）：密钥走 URL ?key=
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
@@ -303,7 +305,8 @@ public class OnlineOCRService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 

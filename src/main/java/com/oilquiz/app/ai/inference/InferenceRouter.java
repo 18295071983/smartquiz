@@ -381,6 +381,7 @@ public class InferenceRouter {
             
             List<ChatMessage> history = config.history;
             onlineInferenceService.generateStream(prompt, onlineConfig, history, config.maxTokens,
+                config.enableThinking,
                 new StreamCallback() {
                     @Override
                     public void onStart() {
@@ -396,6 +397,12 @@ public class InferenceRouter {
                     public void onThinkingToken(String token) {
                         // 转发在线思考（reasoning_content）增量
                         callback.onThinkingToken(token);
+                    }
+
+                    @Override
+                    public void onThinkingEnd() {
+                        // 转发思考结束信号（正文首次出现或流结束补发）
+                        callback.onThinkingEnd();
                     }
 
                     @Override

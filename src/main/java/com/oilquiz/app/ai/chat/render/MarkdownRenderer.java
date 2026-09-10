@@ -136,17 +136,7 @@ public class MarkdownRenderer {
      * @param availableWidth 实际可用宽度（像素），当前保留用于兼容调用方
      */
     public static Spanned render(String markdown, int availableWidth) {
-        if (markdown == null || markdown.isEmpty()) {
-            return new android.text.SpannableStringBuilder("");
-        }
-        if (!initialized) {
-            return new android.text.SpannableStringBuilder(markdown);
-        }
-        // 表格单元格长文本换行由 TextView breakStrategy=high_quality 原生处理，
-        // 无需手工插入软连字符（旧实现会丢空单元格导致表格列错位）
-        Spanned result = markwon.toMarkdown(markdown);
-        // 替换 URLSpan 为自定义 Span，支持 content:// URI 点击
-        return replaceUrlSpans(result);
+        return render(markdown, (Context) null, availableWidth);
     }
 
     /**
@@ -154,23 +144,53 @@ public class MarkdownRenderer {
      * 注意：调用方需确保已 init，否则回退到纯文本。
      */
     public static Spanned render(String markdown) {
-        if (markdown == null || markdown.isEmpty()) {
-            return new android.text.SpannableStringBuilder("");
-        }
-        if (!initialized) {
-            return new android.text.SpannableStringBuilder(markdown);
-        }
-        Spanned result = markwon.toMarkdown(markdown);
-        // 替换 URLSpan 为自定义 Span，支持 content:// URI 点击
-        return replaceUrlSpans(result);
+        return render(markdown, (Context) null, 0);
     }
 
     /**
      * 带上下文的渲染（确保已初始化）
      */
     public static Spanned render(String markdown, Context context) {
+        return render(markdown, context, 0);
+    }
+
+    /**
+     * 带上下文 + 可用宽度的渲染（确保已初始化）。
+     * 流式生成期间自动闭合未完成的代码围栏（``` 奇数个时补 ```），
+     * 避免 Markwon 把围栏之后的正文整段当作代码块渲染（生成中样式错乱/闪烁）。
+     */
+    public static Spanned render(String markdown, Context context, int availableWidth) {
+        if (markdown == null || markdown.isEmpty()) {
+            return new android.text.SpannableStringBuilder("");
+        }
         ensureInit(context);
-        return render(markdown);
+        if (!initialized) {
+            return new android.text.SpannableStringBuilder(markdown);
+        }
+        String safeMarkdown = closeUnclosedCodeFence(markdown);
+        Spanned result = markwon.toMarkdown(safeMarkdown);
+        // 替换 URLSpan 为自定义 Span，支持 content:// URI 点击
+        return replaceUrlSpans(result);
+    }
+
+    /**
+     * 检测未闭合的代码围栏：行首 ``` 出现奇数次时，在末尾补一个 ``` 临时闭合。
+     * 流式生成中（代码块开头已输出、结束 ``` 尚未到达）Markwon 会把围栏之后
+     * 的所有内容（含已生成的正文）整体解析为代码块，表现为生成中整段变等宽/深色、
+     * 生成完成瞬间才恢复——补闭合后尾部（进行中的代码内容）以代码块样式渲染，
+     * 前面的正文保持正常排版，且渲染稳定不闪烁。
+     */
+    private static String closeUnclosedCodeFence(String markdown) {
+        if (markdown == null || markdown.isEmpty()) return markdown;
+        int fenceCount = 0;
+        for (String line : markdown.split("\n", -1)) {
+            String t = line.trim();
+            // 仅行首 ``` 计入围栏（含 ```java 等语言标记；行内反引号不参与）
+            if (t.startsWith("```")) {
+                fenceCount++;
+            }
+        }
+        return (fenceCount & 1) == 1 ? markdown + "\n```" : markdown;
     }
 
     /**
@@ -563,13 +583,17 @@ public class MarkdownRenderer {
         String text = markdown;
         text = text.replaceAll("```[\\s\\S]*?```", "");
         text = text.replaceAll("`([^`]+)`", "$1");
-        text = text.replaceAll("^#{1,6}\\s+", "");
+        // (?m) 多行模式：清理每行开头的标题标记（旧实现缺 MULTILINE，只处理第一行）
+        text = text.replaceAll("(?m)^#{1,6}\\s+", "");
         text = text.replaceAll("\\*\\*\\*(.+?)\\*\\*\\*", "$1");
         text = text.replaceAll("\\*\\*(.+?)\\*\\*", "$1");
         text = text.replaceAll("\\*(.+?)\\*", "$1");
         text = text.replaceAll("~~(.+?)~~", "$1");
         text = text.replaceAll("\\[([^\\]]+)\\]\\(([^)]+)\\)", "$1");
         text = text.replaceAll("(?m)^>\\s+", "  ");
+        // 任务列表/列表标记清理
+        text = text.replaceAll("(?m)^\\s*[-*+]\\s+", "");
+        text = text.replaceAll("(?m)^\\s*\\d+\\.\\s+", "");
         return text.trim();
     }
 }

@@ -127,15 +127,28 @@ public class UsageTracker {
     }
 
     /**
+     * 构建用量查询 URL，兼容版本路径结尾的 API 地址：
+     * 已以 /v1、/v4 等结尾（如智谱 /api/paas/v4）→ 直接拼 pathSuffix；
+     * 否则默认补 /v1 + pathSuffix（OpenAI/Anthropic 等）。
+     */
+    private String buildApiUrl(String apiUrl, String pathSuffix) {
+        String base = apiUrl;
+        if (base == null || base.isEmpty()) {
+            base = "https://api.openai.com";
+        }
+        base = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        if (base.matches(".*/v\\d+$")) {
+            return base + pathSuffix;
+        }
+        return base + "/v1" + pathSuffix;
+    }
+
+    /**
      * 获取 OpenAI 使用量
      */
     private UsageInfo fetchOpenAIUsage(String apiUrl, String apiKey, String period) throws Exception {
         // OpenAI 的使用量 API
-        String fullUrl = apiUrl;
-        if (!fullUrl.endsWith("/")) {
-            fullUrl += "/";
-        }
-        fullUrl += "v1/usage?aggregate_usage_id=daily_usage";
+        String fullUrl = buildApiUrl(apiUrl, "/usage?aggregate_usage_id=daily_usage");
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -144,7 +157,8 @@ public class UsageTracker {
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Content-Type", "application/json");
 
             int responseCode = connection.getResponseCode();
@@ -167,11 +181,7 @@ public class UsageTracker {
      */
     private UsageInfo fetchAnthropicUsage(String apiUrl, String apiKey, String period) throws Exception {
         // Anthropic 的成本 API
-        String fullUrl = apiUrl;
-        if (!fullUrl.endsWith("/")) {
-            fullUrl += "/";
-        }
-        fullUrl += "v1/users/cost";
+        String fullUrl = buildApiUrl(apiUrl, "/users/cost");
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -180,8 +190,8 @@ public class UsageTracker {
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
-            connection.setRequestProperty("x-api-key", apiKey);
-            connection.setRequestProperty("anthropic-version", "2023-06-01");
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
 
             int responseCode = connection.getResponseCode();
             if (responseCode != 200) {

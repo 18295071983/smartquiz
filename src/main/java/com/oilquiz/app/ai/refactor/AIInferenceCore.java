@@ -266,6 +266,8 @@ public class AIInferenceCore {
         public float topP = 0.9f;
         public int topK = 40;
         public List<ChatMessage> history;
+        /** 深度思考开关（在线对话请求侧）：true 时按模型能力传 thinking 参数并分流 reasoning 到思考区 */
+        public boolean enableThinking = false;
 
         public List<ChatMessage> buildMessages(String userPrompt) {
             List<ChatMessage> messages = new ArrayList<>();

@@ -138,21 +138,35 @@ public class VoiceInputTool implements AITool {
                 MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS);
 
         SpeechManager speech = SpeechManager.getInstance(context);
-        if (!speech.isAsrAvailable()) {
-            return AIToolResult.fail("语音识别服务不可用：未配置在线语音识别模型。"
-                    + "请先在模型设置中为'语音识别'选择模型（如 qwen3-asr-flash / whisper-1）");
+        // 在线模型 OR 本地 SenseVoice OR 系统识别，任一可用即可识别（本地语音识别已启用时无需在线配置）
+        if (!speech.isAnyAsrAvailable()) {
+            return AIToolResult.fail("语音识别服务不可用：未配置在线语音识别模型，且本地语音识别不可用。"
+                    + "请先在模型设置中为'语音识别'选择模型（如 qwen3-asr-flash / whisper-1），"
+                    + "或确认本地语音模型已加载");
         }
+
+        // 用户显式选择"本地 SenseVoice"作为语音识别专用模型 → 本地优先（不再走在线）
+        boolean preferLocal = isLocalAsrSelected();
 
         try {
             CompletableFuture<SpeechRecognitionService.RecognitionResult> future;
             if (audioUri != null && !audioUri.isEmpty()) {
-                future = speech.recognizeSpeech(Uri.parse(audioUri), language);
+                // 在线 ASR 可用时优先在线（除非用户显式选本地专用模型）；否则本地 SenseVoice 解码识别
+                if (!preferLocal && speech.isAsrAvailable()) {
+                    future = speech.recognizeSpeech(Uri.parse(audioUri), language);
+                } else {
+                    future = speech.recognizeSpeechLocal(Uri.parse(audioUri), language);
+                }
             } else {
                 File file = new File(audioPath);
                 if (!file.exists()) {
                     return AIToolResult.fail("音频文件不存在: " + audioPath);
                 }
-                future = speech.recognizeSpeech(file, language);
+                if (!preferLocal && speech.isAsrAvailable()) {
+                    future = speech.recognizeSpeech(file, language);
+                } else {
+                    future = speech.recognizeSpeechLocal(file, language);
+                }
             }
 
             SpeechRecognitionService.RecognitionResult result = future.get(timeout, TimeUnit.SECONDS);
@@ -329,17 +343,34 @@ public class VoiceInputTool implements AITool {
         }
     }
 
+    /** 用户是否在"功能专用模型"中显式选择了本地 SenseVoice（→ 识别本地优先） */
+    private boolean isLocalAsrSelected() {
+        try {
+            return com.oilquiz.app.ai.speech.SpeechManager.LOCAL_ASR_ID.equals(
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(context)
+                            .getFeatureModelId(com.oilquiz.app.ai.model.OnlineModelManager.FEATURE_ASR));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** 检查语音识别可用性 */
     private AIToolResult check() {
         SpeechManager speech = SpeechManager.getInstance(context);
-        boolean available = speech.isAsrAvailable();
+        boolean online = speech.isAsrAvailable();
+        boolean offline = speech.isOfflineAsrAvailable();
+        boolean available = online || offline;
         String model = speech.getCurrentAsrModelDisplay();
         Map<String, Object> info = new HashMap<>();
         info.put("available", available);
+        info.put("online_model", online);
+        info.put("local_available", offline);
         info.put("model", model);
+        info.put("mode", online ? "在线" : (offline ? "本地(SenseVoice/系统识别)" : "无"));
         info.put("hint", "record_and_recognize 操作需要录音权限（可用 permission_manager 请求）");
         return AIToolResult.success("语音识别" + (available ? "可用" : "不可用")
-                + "，当前模型: " + model, info);
+                + "（在线" + (online ? "可用" : "未配置") + " / 本地"
+                + (offline ? "可用" : "不可用") + "），当前模型: " + model, info);
     }
 
     // ==================== 参数工具方法 ====================

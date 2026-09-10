@@ -46,6 +46,26 @@ public class SmartQuizApplication extends Application {
         return instance;
     }
 
+    /**
+     * 壁纸变化后刷新前台页面背景：仅「跟随系统壁纸」模式下生效。
+     * 重建当前 Activity（重建会经 onActivityResumed 重新 applyTo 实时读取新壁纸），
+     * 供 ACTION_WALLPAPER_CHANGED 广播与 OnColorsChangedListener 双通道共用。
+     */
+    private void refreshWallpaperForFrontActivity() {
+        try {
+            if (com.oilquiz.app.theme.AppWallpaperManager.getMode(this)
+                    != com.oilquiz.app.theme.AppWallpaperManager.MODE_FOLLOW_SYSTEM) {
+                return;
+            }
+            android.app.Activity a = currentActivity;
+            if (a != null && !a.isFinishing() && !a.isDestroyed()) {
+                a.runOnUiThread(a::recreate);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "refresh wallpaper failed: " + t.getMessage());
+        }
+    }
+
     @Override
     public void onCreate() {
         // 恢复用户上次选择的语言（须在 Activity 创建前调用）
@@ -53,6 +73,12 @@ public class SmartQuizApplication extends Application {
         applyThemeMode();
         super.onCreate();
         instance = this;
+
+        // 服务商配置表挂载（providers.json：地址/服务/思考参数/地址拼装规则统一从此读取）
+        try {
+            com.oilquiz.app.ai.model.ProviderConfigManager.init(this);
+        } catch (Throwable ignored) {
+        }
 
         // 后台线程预生成内置壁纸（仅首次或版本更新时）
         new Thread(() -> {
@@ -62,21 +88,36 @@ public class SmartQuizApplication extends Application {
             }
         }, "wallpaper-init").start();
 
-        // 应用壁纸跟随：系统壁纸变化时，若开启「跟随系统壁纸」模式，重建前台页面刷新背景
+        // 应用壁纸跟随：系统壁纸变化时，若开启「跟随系统壁纸」模式，重建前台页面刷新背景。
+        // 双通道：① ACTION_WALLPAPER_CHANGED 系统广播为主（AOSP WallpaperManagerService 换壁纸必发，
+        //           各版本/各 ROM 通用，实时）；② OnColorsChangedListener 颜色事件为补充
+        //           （仅 Android 12+，部分 ROM（如小米）颜色事件不可靠，不能作为唯一通道）。
         try {
-            android.app.WallpaperManager wm = android.app.WallpaperManager.getInstance(this);
-            wm.addOnColorsChangedListener((listener, which) -> {
-                if (com.oilquiz.app.theme.AppWallpaperManager.getMode(this)
-                        != com.oilquiz.app.theme.AppWallpaperManager.MODE_FOLLOW_SYSTEM) {
-                    return;
+            android.content.BroadcastReceiver wallpaperReceiver = new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(android.content.Context c, android.content.Intent intent) {
+                    if (intent == null
+                            || !android.content.Intent.ACTION_WALLPAPER_CHANGED.equals(intent.getAction())) {
+                        return;
+                    }
+                    refreshWallpaperForFrontActivity();
                 }
-                android.app.Activity a = currentActivity;
-                if (a != null && !a.isFinishing() && !a.isDestroyed()) {
-                    a.runOnUiThread(a::recreate);
-                }
-            }, new android.os.Handler(android.os.Looper.getMainLooper()));
+            };
+            android.content.IntentFilter wallpaperFilter =
+                    new android.content.IntentFilter(android.content.Intent.ACTION_WALLPAPER_CHANGED);
+            registerReceiver(wallpaperReceiver, wallpaperFilter);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "register wallpaper listener failed: " + t.getMessage());
+            android.util.Log.w(TAG, "register wallpaper broadcast failed: " + t.getMessage());
+        }
+
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                android.app.WallpaperManager wm = android.app.WallpaperManager.getInstance(this);
+                wm.addOnColorsChangedListener((listener, which) -> refreshWallpaperForFrontActivity(),
+                        new android.os.Handler(android.os.Looper.getMainLooper()));
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "register wallpaper color listener failed: " + t.getMessage());
         }
 
         // 立即初始化异常处理器（必须最先初始化）

@@ -344,23 +344,8 @@ public final class OnlineModelProfile {
         return t != null ? new Gson().toJson(t) : null;
     }
 
-    /** 从 API 地址推断服务商显示名（仅展示用） */
+    /** 从 API 地址推断服务商显示名（仅展示用），委托 ProviderConfigManager 配置表（urlKeywords 驱动） */
     private static String providerName(String apiUrl) {
-        if (apiUrl == null) return "Custom";
-        String url = apiUrl.toLowerCase();
-        if (url.contains("anthropic")) return "Anthropic";
-        if (url.contains("generativelanguage") || url.contains("gemini.google")) return "Google";
-        if (url.contains("azure") && url.contains("openai")) return "Azure OpenAI";
-        if (url.contains("openai")) return "OpenAI";
-        if (url.contains("deepseek")) return "DeepSeek";
-        if (url.contains("dashscope") || url.contains("aliyun")) return "阿里云";
-        if (url.contains("zhipu") || url.contains("bigmodel")) return "智谱";
-        if (url.contains("moonshot") || url.contains("kimi")) return "Moonshot";
-        if (url.contains("volces") || url.contains("doubao") || url.contains("ark")) return "火山";
-        if (url.contains("groq")) return "Groq";
-        if (url.contains("together")) return "Together";
-        if (url.contains("ollama")) return "Ollama";
-        if (url.contains("127.0.0.1") || url.contains("localhost")) return "本地";
-        return "Custom";
+        return ProviderConfigManager.get().providerName(apiUrl);
     }
 }

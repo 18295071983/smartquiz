@@ -34,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -60,6 +61,8 @@ public class OnlineInferenceService {
     private final java.util.concurrent.ConcurrentHashMap<String, Boolean> structuredCapabilityCache = new java.util.concurrent.ConcurrentHashMap<>();
     // function calling 能力缓存:key=apiUrl+modelName, value=true支持/false不支持/null未知
     private final java.util.concurrent.ConcurrentHashMap<String, Boolean> functionCallingCapabilityCache = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 能力探测内存缓存：key = apiUrl|modelName|capability */
+    private final java.util.concurrent.ConcurrentHashMap<String, Boolean> capabilityProbeCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     private OnlineInferenceService(Context context) {
         this.context = context.getApplicationContext();
@@ -160,10 +163,10 @@ public class OnlineInferenceService {
                         if (toolsJson != null && !toolsJson.isEmpty()) {
                             result = callOpenAIWithTools(apiUrl, apiKey, modelName, prompt, history, maxTokens, toolsJson);
                         } else {
-                            result = callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, null);
+                            result = callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, false, null);
                         }
                     } else {
-                        result = callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, null);
+                        result = callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, false, null);
                     }
                 }
                 // 清理模型输出中的乱码/非法字符
@@ -212,6 +215,209 @@ public class OnlineInferenceService {
                 throw new RuntimeException(e);
             }
         }, executor);
+    }
+
+    // ==================== 配置表驱动的扩展能力调用 ====================
+    // embedding / imageGen / rerank 端点与预置模型全部由 providers.json 的
+    // services.embedding / services.imageGen / services.rerank + embeddingModel / imageModel / rerankModel 驱动，
+    // 鉴权统一走 applyAuthHeaders + withAuthQuery。UI 勾选 supportsEmbedding 等后即可调用。
+
+    /** 文本向量化（Embedding），返回归一化前的原始向量 */
+    public CompletableFuture<List<Float>> generateEmbeddingAsync(final String text,
+                                                                 final OnlineModelManager.OnlineModelConfig config) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return generateEmbedding(text, config);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Embedding failed: " + e.getMessage(), e);
+                throw new CompletionException(e);
+            }
+        }, executor);
+    }
+
+    private List<Float> generateEmbedding(String text, OnlineModelManager.OnlineModelConfig config) throws Exception {
+        String apiUrl = config.apiUrl;
+        String apiKey = config.apiKey;
+        if (apiUrl == null || apiUrl.isEmpty()) throw new IllegalArgumentException("API URL 不能为空");
+        if (apiKey == null || apiKey.isEmpty()) throw new IllegalArgumentException("API Key 不能为空");
+        if (text == null || text.trim().isEmpty()) throw new IllegalArgumentException("待向量化文本不能为空");
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String model = pcm.getServiceModel(apiUrl, "embedding");
+        if (model == null || model.isEmpty())
+            throw new IllegalArgumentException("配置表未声明该服务商 embedding 模型（embeddingModel）");
+        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "embedding"));
+        fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
+        URL url = new URL(fullUrl);
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        try {
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setRequestProperty("Content-Type", "application/json");
+            pcm.applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+            connection.setDoOutput(true);
+            JsonObject body = new JsonObject();
+            body.addProperty("model", model);
+            body.addProperty("input", text);
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+            int code = connection.getResponseCode();
+            if (code != 200) {
+                throw new Exception("Embedding 请求失败: HTTP " + code + " - " + readErrorStream(connection));
+            }
+            JsonObject resp = gson.fromJson(readFullBody(connection), JsonObject.class);
+            JsonArray data = resp != null && resp.has("data") && resp.get("data").isJsonArray()
+                    ? resp.getAsJsonArray("data") : null;
+            if (data == null || data.size() == 0) throw new Exception("Embedding 响应缺少 data");
+            JsonObject first = data.get(0).getAsJsonObject();
+            JsonArray emb = first != null && first.has("embedding") && first.get("embedding").isJsonArray()
+                    ? first.getAsJsonArray("embedding") : null;
+            if (emb == null) throw new Exception("Embedding 响应缺少 embedding");
+            List<Float> result = new ArrayList<>(emb.size());
+            for (int i = 0; i < emb.size(); i++) result.add(emb.get(i).getAsFloat());
+            return result;
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /** 文生图（ImageGen），返回图片 URL 或 data:image/png;base64 前缀的 data URL */
+    public CompletableFuture<String> generateImageAsync(final String prompt,
+                                                        final OnlineModelManager.OnlineModelConfig config) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return generateImage(prompt, config);
+            } catch (Exception e) {
+                AILogger.e(TAG, "ImageGen failed: " + e.getMessage(), e);
+                throw new CompletionException(e);
+            }
+        }, executor);
+    }
+
+    private String generateImage(String prompt, OnlineModelManager.OnlineModelConfig config) throws Exception {
+        String apiUrl = config.apiUrl;
+        String apiKey = config.apiKey;
+        if (apiUrl == null || apiUrl.isEmpty()) throw new IllegalArgumentException("API URL 不能为空");
+        if (apiKey == null || apiKey.isEmpty()) throw new IllegalArgumentException("API Key 不能为空");
+        if (prompt == null || prompt.trim().isEmpty()) throw new IllegalArgumentException("绘图提示词不能为空");
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String model = pcm.getServiceModel(apiUrl, "imageGen");
+        if (model == null || model.isEmpty())
+            throw new IllegalArgumentException("配置表未声明该服务商 imageGen 模型（imageModel）");
+        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "imageGen"));
+        fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
+        URL url = new URL(fullUrl);
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        try {
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(120000);
+            connection.setRequestProperty("Content-Type", "application/json");
+            pcm.applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+            connection.setDoOutput(true);
+            JsonObject body = new JsonObject();
+            body.addProperty("model", model);
+            body.addProperty("prompt", prompt);
+            body.addProperty("n", 1);
+            body.addProperty("size", "1024x1024");
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+            int code = connection.getResponseCode();
+            if (code != 200) {
+                throw new Exception("文生图请求失败: HTTP " + code + " - " + readErrorStream(connection));
+            }
+            JsonObject resp = gson.fromJson(readFullBody(connection), JsonObject.class);
+            JsonArray data = resp != null && resp.has("data") && resp.get("data").isJsonArray()
+                    ? resp.getAsJsonArray("data") : null;
+            if (data == null || data.size() == 0) throw new Exception("文生图响应缺少 data");
+            JsonObject first = data.get(0).getAsJsonObject();
+            String b64 = first != null && first.has("b64_json") && !first.get("b64_json").isJsonNull()
+                    ? first.get("b64_json").getAsString() : "";
+            if (!b64.isEmpty()) return "data:image/png;base64," + b64;
+            String urlStr = first != null && first.has("url") && !first.get("url").isJsonNull()
+                    ? first.get("url").getAsString() : "";
+            if (urlStr.isEmpty()) throw new Exception("文生图响应既无 url 也无 b64_json");
+            return urlStr;
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /** 重排序（Rerank），返回服务商原始 results JSON（各服务商格式不一，由调用方解析） */
+    public CompletableFuture<String> rerankAsync(final String query, final List<String> documents,
+                                                 final OnlineModelManager.OnlineModelConfig config) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return rerank(query, documents, config);
+            } catch (Exception e) {
+                AILogger.e(TAG, "Rerank failed: " + e.getMessage(), e);
+                throw new CompletionException(e);
+            }
+        }, executor);
+    }
+
+    private String rerank(String query, List<String> documents,
+                          OnlineModelManager.OnlineModelConfig config) throws Exception {
+        String apiUrl = config.apiUrl;
+        String apiKey = config.apiKey;
+        if (apiUrl == null || apiUrl.isEmpty()) throw new IllegalArgumentException("API URL 不能为空");
+        if (apiKey == null || apiKey.isEmpty()) throw new IllegalArgumentException("API Key 不能为空");
+        if (query == null || query.trim().isEmpty() || documents == null || documents.isEmpty())
+            throw new IllegalArgumentException("查询与文档列表不能为空");
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String model = pcm.getServiceModel(apiUrl, "rerank");
+        if (model == null || model.isEmpty())
+            throw new IllegalArgumentException("配置表未声明该服务商 rerank 模型（rerankModel）");
+        String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "rerank"));
+        fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
+        URL url = new URL(fullUrl);
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        try {
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setRequestProperty("Content-Type", "application/json");
+            pcm.applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+            connection.setDoOutput(true);
+            JsonObject body = new JsonObject();
+            body.addProperty("model", model);
+            body.addProperty("query", query);
+            JsonArray docs = new JsonArray();
+            for (String d : documents) docs.add(d);
+            body.add("documents", docs);
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+            int code = connection.getResponseCode();
+            if (code != 200) {
+                throw new Exception("Rerank 请求失败: HTTP " + code + " - " + readErrorStream(connection));
+            }
+            return readFullBody(connection);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /** 读取完整响应体 */
+    private String readFullBody(HttpURLConnection connection) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+        }
+        return sb.toString();
     }
 
     /** 清理模型输出；清理后为空则返回原文 */
@@ -378,9 +584,11 @@ public class OnlineInferenceService {
         return null;
     }
 
-    /** 简单 HTTP GET（带 Bearer 认证），返回响应体或 null */
+    /** 简单 HTTP GET（按服务商配置表鉴权），返回响应体或 null */
     private String httpGet(String urlStr, String apiKey, int timeoutMs) {
         try {
+            // query-key 型服务商（Gemini 等）：密钥走 URL ?key=
+            urlStr = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(urlStr, apiKey);
             URL url = new URL(urlStr);
             HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
@@ -389,9 +597,8 @@ public class OnlineInferenceService {
                 connection.setConnectTimeout(timeoutMs);
                 connection.setReadTimeout(timeoutMs);
                 connection.setRequestProperty("Accept", "application/json");
-                if (apiKey != null && !apiKey.isEmpty()) {
-                    connection.setRequestProperty("Authorization", "Bearer " + apiKey);
-                }
+                com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                        .applyAuthHeaders(connection, urlStr, apiKey, null, null);
                 int code = connection.getResponseCode();
                 if (code != 200) {
                     return null;
@@ -496,6 +703,280 @@ public class OnlineInferenceService {
         }
     }
 
+    // ==================== 能力动态探测（真实请求验证，替代硬编码） ====================
+    // 配置表硬编码 capabilities 会过时/不准确（同一服务商不同模型能力差异大），
+    // 这里用最小真实请求验证模型能力，结果持久化缓存（与 function calling 探测同模式）：
+    // - embedding：POST /embeddings 最小 input（零生成成本）
+    // - vision：POST /chat/completions 带 1x1 透明图（几 token）
+    // - webSearch：POST /chat/completions 带配置表搜索参数（几 token）
+    // - agent：POST /responses 最小 input（探测端点存在性）
+    // imageGen/rerank 会真实消耗（真生成图/真重排），不做自动探测，保留配置声明。
+    // 探测失败（网络/超时/401）返回 null 表示未知，调用方保留配置声明不覆盖。
+
+    private static final String PREFS_CAP_PROBE = "cap_probe_cache";
+
+    /** 批量探测模型能力（embedding/vision/webSearch/agent），返回探测到结果的子集 */
+    public CompletableFuture<Map<String, Boolean>> probeCapabilities(
+            final OnlineModelManager.OnlineModelConfig config) {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Boolean> result = new HashMap<>();
+            if (config == null) return result;
+            String[] caps = {"embedding", "vision", "webSearch", "agent"};
+            for (String cap : caps) {
+                Boolean v = probeCapability(config, cap);
+                if (v != null) result.put(cap, v);
+            }
+            return result;
+        }, executor);
+    }
+
+    /** 探测单个能力（内存+持久化缓存；null=未知） */
+    public Boolean probeCapability(final OnlineModelManager.OnlineModelConfig config, final String capability) {
+        if (config == null || capability == null) return null;
+        String key = (config.apiUrl != null ? config.apiUrl : "") + "|"
+                + (config.modelName != null ? config.modelName : "") + "|" + capability;
+        Boolean cached = capabilityProbeCache.get(key);
+        if (cached != null) return cached;
+        Boolean persisted = loadCapabilityProbe(key);
+        if (persisted != null) {
+            capabilityProbeCache.put(key, persisted);
+            return persisted;
+        }
+        try {
+            Boolean v = CompletableFuture.supplyAsync(() -> {
+                try {
+                    switch (capability) {
+                        case "embedding": return doProbeEmbedding(config);
+                        case "vision": return doProbeVision(config);
+                        case "webSearch": return doProbeWebSearch(config);
+                        case "agent": return doProbeAgentEndpoint(config);
+                        default: return null;
+                    }
+                } catch (Exception e) {
+                    AILogger.w(TAG, capability + " probe failed: " + e.getMessage());
+                    return null;
+                }
+            }, executor).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            if (v != null) {
+                capabilityProbeCache.put(key, v);
+                saveCapabilityProbe(key, v);
+                AILogger.i(TAG, "Capability probe: " + config.modelName + " [" + capability + "] -> " + v);
+            }
+            return v;
+        } catch (Exception e) {
+            AILogger.w(TAG, capability + " probe timeout: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private Boolean loadCapabilityProbe(String key) {
+        try {
+            android.content.SharedPreferences prefs = context.getSharedPreferences(
+                    PREFS_CAP_PROBE, Context.MODE_PRIVATE);
+            String v = prefs.getString("cap_" + key, null);
+            if (v == null) return null;
+            return "1".equals(v);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private void saveCapabilityProbe(String key, boolean value) {
+        try {
+            android.content.SharedPreferences prefs = context.getSharedPreferences(
+                    PREFS_CAP_PROBE, Context.MODE_PRIVATE);
+            prefs.edit().putString("cap_" + key, value ? "1" : "0").apply();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "saveCapabilityProbe failed: " + t.getMessage());
+        }
+    }
+
+    /** 配置是否可用于探测（字段齐全且非 Anthropic——其格式不同，跳过探测走模型名/配置声明） */
+    private boolean isProbeUsable(OnlineModelManager.OnlineModelConfig config) {
+        return config != null && config.apiUrl != null && !config.apiUrl.isEmpty()
+                && config.modelName != null && !config.modelName.isEmpty()
+                && config.apiKey != null && !config.apiKey.isEmpty()
+                && !isAnthropicAPI(config.apiUrl);
+    }
+
+    /** 打开带统一鉴权的 POST 连接（query-key 已拼 URL） */
+    private HttpsURLConnection openProbePost(String fullUrl, String apiKey, int timeoutSec) throws Exception {
+        HttpsURLConnection connection = (HttpsURLConnection) new URL(fullUrl).openConnection();
+        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        connection.setRequestMethod("POST");
+        connection.setConnectTimeout(timeoutSec * 1000);
+        connection.setReadTimeout(timeoutSec * 1000);
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("Accept", "application/json");
+        com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+        connection.setDoOutput(true);
+        return connection;
+    }
+
+    /** 探测 embedding：POST /embeddings 最小 input，200 且返回 data[].embedding → 支持 */
+    private Boolean doProbeEmbedding(OnlineModelManager.OnlineModelConfig config) throws Exception {
+        if (!isProbeUsable(config)) return null;
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String model = pcm.getServiceModel(config.apiUrl, "embedding");
+        if (model == null || model.isEmpty()) return null; // 配置表未声明 embedding 模型 → 不探测
+        String fullUrl = buildOpenAIUrl(config.apiUrl, pcm.getServiceEndpoint(config.apiUrl, "embedding"));
+        fullUrl = pcm.withAuthQuery(fullUrl, config.apiKey);
+        HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
+        try {
+            JsonObject body = new JsonObject();
+            body.addProperty("model", model);
+            body.addProperty("input", "ping");
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+            int code = conn.getResponseCode();
+            if (code != 200) return false; // 404/400 → 端点或模型不支持
+            JsonObject resp = gson.fromJson(readFullBody(conn), JsonObject.class);
+            JsonArray data = resp != null && resp.has("data") ? resp.getAsJsonArray("data") : null;
+            return data != null && data.size() > 0
+                    && data.get(0).getAsJsonObject().has("embedding");
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    /** 探测 vision：带 1x1 透明图的最小 chat 请求，200 → 支持；400（图片相关错误）→ 不支持 */
+    private Boolean doProbeVision(OnlineModelManager.OnlineModelConfig config) throws Exception {
+        if (!isProbeUsable(config)) return null;
+        String fullUrl = buildOpenAIUrl(config.apiUrl, "/chat/completions");
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                .withAuthQuery(fullUrl, config.apiKey);
+        HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
+        try {
+            JsonObject body = new JsonObject();
+            body.addProperty("model", config.modelName);
+            JsonArray messages = new JsonArray();
+            JsonObject user = new JsonObject();
+            user.addProperty("role", "user");
+            JsonArray content = new JsonArray();
+            JsonObject text = new JsonObject();
+            text.addProperty("type", "text");
+            text.addProperty("text", "hi");
+            content.add(text);
+            JsonObject img = new JsonObject();
+            img.addProperty("type", "image_url");
+            JsonObject iu = new JsonObject();
+            iu.addProperty("url", "data:image/png;base64,"
+                    + "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+            img.add("image_url", iu);
+            content.add(img);
+            user.add("content", content);
+            messages.add(user);
+            body.add("messages", messages);
+            body.addProperty("max_tokens", 8);
+            body.addProperty("temperature", 0f);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+            int code = conn.getResponseCode();
+            if (code == 200) return true;
+            if (code == 400) {
+                String err = readErrorStream(conn);
+                String el = err == null ? "" : err.toLowerCase();
+                // 明确图片/多模态不支持 → false；其他 400（参数等）→ 未知
+                if (el.contains("image") || el.contains("vision") || el.contains("multimodal")
+                        || el.contains("not support") || el.contains("unsupported")) {
+                    return false;
+                }
+                return null;
+            }
+            return null; // 401/403/429 等 → 未知（鉴权/限流问题不代表能力缺失）
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    /** 探测 webSearch：带配置表搜索参数的最小 chat 请求（注入失败不探测） */
+    private Boolean doProbeWebSearch(OnlineModelManager.OnlineModelConfig config) throws Exception {
+        if (!isProbeUsable(config)) return null;
+        String fullUrl = buildOpenAIUrl(config.apiUrl, "/chat/completions");
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                .withAuthQuery(fullUrl, config.apiKey);
+        HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
+        try {
+            JsonObject body = new JsonObject();
+            body.addProperty("model", config.modelName);
+            JsonArray messages = new JsonArray();
+            JsonObject user = new JsonObject();
+            user.addProperty("role", "user");
+            user.addProperty("content", "hi");
+            messages.add(user);
+            body.add("messages", messages);
+            body.addProperty("max_tokens", 8);
+            body.addProperty("temperature", 0f);
+            applyWebSearch(body, config.apiUrl, true);
+            if (!body.has("web_search") && !body.has("tools")) {
+                return null; // 配置表未声明 webSearch 参数 → 不探测
+            }
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+            int code = conn.getResponseCode();
+            if (code == 200) return true;
+            if (code == 400) {
+                String err = readErrorStream(conn);
+                String el = err == null ? "" : err.toLowerCase();
+                if (el.contains("search") || el.contains("web_search") || el.contains("unsupported")) {
+                    return false;
+                }
+                return null;
+            }
+            return null;
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    /** 探测 agent/Responses 端点：POST /responses 最小请求，200/4xx（端点存在）→ true；404 → false */
+    private Boolean doProbeAgentEndpoint(OnlineModelManager.OnlineModelConfig config) throws Exception {
+        if (!isProbeUsable(config)) return null;
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        if (!pcm.hasService(config.apiUrl, "agent")) return null;
+        String ep = pcm.getServiceEndpoint(config.apiUrl, "agent");
+        if (ep == null || !ep.endsWith("/responses")) return null; // 非 Responses 格式不探测
+        String fullUrl = buildOpenAIUrl(config.apiUrl, ep);
+        fullUrl = pcm.withAuthQuery(fullUrl, config.apiKey);
+        HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
+        try {
+            JsonObject body = new JsonObject();
+            body.addProperty("model", config.modelName);
+            JsonArray input = new JsonArray();
+            JsonObject user = new JsonObject();
+            user.addProperty("role", "user");
+            JsonArray content = new JsonArray();
+            JsonObject t = new JsonObject();
+            t.addProperty("type", "input_text");
+            t.addProperty("text", "hi");
+            content.add(t);
+            user.add("content", content);
+            input.add(user);
+            body.add("input", input);
+            body.addProperty("max_output_tokens", 4);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+            int code = conn.getResponseCode();
+            if (code == 200) return true;
+            if (code == 404) return false; // 端点不存在
+            if (code == 400 || code == 401 || code == 403) return true; // 端点存在（参数/鉴权问题）
+            return null;
+        } finally {
+            conn.disconnect();
+        }
+    }
+
 
     /** 执行探针请求（同步，OpenAI 兼容格式） */
     private Boolean doProbeFunctionCalling(OnlineModelManager.OnlineModelConfig config) throws Exception {
@@ -518,7 +999,8 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(15000);
             connection.setReadTimeout(15000);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 
@@ -606,7 +1088,8 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(90000);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 
@@ -662,13 +1145,19 @@ public class OnlineInferenceService {
                     String content = message.has("content") && !message.get("content").isJsonNull()
                             ? message.get("content").getAsString() : "";
                     if (!content.isEmpty()) return content;
-                    // 回退：思考模型可能把全部内容放在 reasoning_content
+                    // 回退：思考模型可能把全部内容放在思考字段。
+                    // 字段归一化双读：reasoning_content || reasoning || thinking（Ollama 原生）
+                    String reasoning = null;
                     if (message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()) {
-                        String reasoning = message.get("reasoning_content").getAsString();
-                        if (!reasoning.isEmpty()) {
-                            AILogger.w(TAG, "content为空，回退使用reasoning_content(长度" + reasoning.length() + ")");
-                            return reasoning;
-                        }
+                        reasoning = message.get("reasoning_content").getAsString();
+                    } else if (message.has("reasoning") && !message.get("reasoning").isJsonNull()) {
+                        reasoning = message.get("reasoning").getAsString();
+                    } else if (message.has("thinking") && !message.get("thinking").isJsonNull()) {
+                        reasoning = message.get("thinking").getAsString();
+                    }
+                    if (reasoning != null && !reasoning.isEmpty()) {
+                        AILogger.w(TAG, "content为空，回退使用思考字段(长度" + reasoning.length() + ")");
+                        return reasoning;
                     }
                     return "";
                 }
@@ -681,9 +1170,12 @@ public class OnlineInferenceService {
 
     /**
      * 流式生成
+     *
+     * @param enableThinking 深度思考开关：true 且模型支持时传 thinking 参数（enable_thinking /
+     *                       reasoning_effort），reasoning_content 增量经 onThinkingToken 分流思考区
      */
     public void generateStream(String prompt, OnlineModelManager.OnlineModelConfig config,
-                               List<ChatMessage> history, int maxTokens,
+                               List<ChatMessage> history, int maxTokens, boolean enableThinking,
                                StreamCallback callback) {
         executor.execute(() -> {
             try {
@@ -707,9 +1199,16 @@ public class OnlineInferenceService {
                 mainHandler.post(callback::onStart);
 
                 if (isAnthropicAPI(apiUrl)) {
+                    // Anthropic 思考块（content[] 内 thinking）暂不扩展，保持现有正文流式
                     callAnthropicAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true, callback);
+                } else if (shouldUseResponsesAPI(config)) {
+                    // Agent/Responses 接口：服务商配置表声明 agent 且端点 /responses 兼容
+                    // （OpenAI Responses API 流式，reasoning 走思考区）
+                    callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
+                            config.supportsWebSearch, callback);
                 } else {
-                    callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true, callback);
+                    callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
+                            enableThinking, config.supportsWebSearch, callback);
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "Stream generate failed: " + e.getMessage(), e);
@@ -726,16 +1225,223 @@ public class OnlineInferenceService {
     }
 
     /**
+     * 是否启用 Agent/Responses 接口：
+     * - 用户勾选 supportsAgent（配置对话框"Agent 接口"）
+     * - 配置表声明该服务商提供 agent 服务
+     * - agent 端点为 Responses 兼容（/responses 结尾，OpenAI/MiniMax/Moonshot）
+     * 智谱 /agent/chat、百炼 multimodal-generation 等特殊格式暂不走此路由（保持 chat 兼容可用）。
+     */
+    private boolean shouldUseResponsesAPI(OnlineModelManager.OnlineModelConfig config) {
+        if (config == null || !config.supportsAgent) return false;
+        String apiUrl = config.apiUrl;
+        if (apiUrl == null || isAnthropicAPI(apiUrl)) return false;
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        if (!pcm.hasService(apiUrl, "agent")) return false;
+        String ep = pcm.getServiceEndpoint(apiUrl, "agent");
+        return ep != null && ep.endsWith("/responses");
+    }
+
+    /**
+     * 调用 OpenAI Responses API（agent 接口，配置表 services.agent 声明 /responses 端点时启用）。
+     * 流式事件：response.output_text.delta（正文）、response.reasoning_*（思考区）、response.completed/failed。
+     * 非流式：output[] 中 type=message → content[].output_text。
+     */
+    private String callResponsesAPI(String apiUrl, String apiKey, String modelName,
+                                    String prompt, List<ChatMessage> history, int maxTokens,
+                                    boolean stream, boolean webSearch, StreamCallback callback) throws Exception {
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String endpoint = pcm.getServiceEndpoint(apiUrl, "agent");
+        if (endpoint == null || endpoint.isEmpty()) endpoint = "/responses";
+        String fullUrl = buildOpenAIUrl(apiUrl, endpoint);
+        // query-key 型服务商：密钥走 URL ?key=
+        fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
+
+        URL url = new URL(fullUrl);
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        try {
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setRequestProperty("Content-Type", "application/json");
+            pcm.applyAuthHeaders(connection, fullUrl, apiKey, null, null);
+            connection.setRequestProperty("Accept", stream ? "text/event-stream" : "application/json");
+            connection.setDoOutput(true);
+
+            JsonObject body = new JsonObject();
+            body.addProperty("model", modelName);
+
+            // 历史 + 当前提示 → input 数组（Responses 格式：content[] 带类型）
+            JsonArray input = new JsonArray();
+            if (history != null) {
+                for (ChatMessage msg : history) {
+                    JsonObject m = new JsonObject();
+                    if (msg.isSystemMessage()) {
+                        m.addProperty("role", "system");
+                    } else if (msg.isUserMessage()) {
+                        m.addProperty("role", "user");
+                    } else {
+                        m.addProperty("role", "assistant");
+                    }
+                    JsonArray content = new JsonArray();
+                    JsonObject c = new JsonObject();
+                    c.addProperty("type", msg.isAIMessage() ? "output_text" : "input_text");
+                    c.addProperty("text", msg.content);
+                    content.add(c);
+                    m.add("content", content);
+                    input.add(m);
+                }
+            }
+            JsonObject user = new JsonObject();
+            user.addProperty("role", "user");
+            JsonArray uc = new JsonArray();
+            JsonObject uct = new JsonObject();
+            uct.addProperty("type", "input_text");
+            uct.addProperty("text", prompt);
+            uc.add(uct);
+            user.add("content", uc);
+            input.add(user);
+            body.add("input", input);
+
+            body.addProperty("max_output_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            body.addProperty("temperature", DEFAULT_TEMPERATURE);
+            // 网络搜索：Responses API 也支持 web_search 工具（OpenAI 托管工具 web_search_preview）
+            applyWebSearch(body, apiUrl, webSearch);
+            if (stream) body.addProperty("stream", true);
+
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                String errorBody = readErrorStream(connection);
+                throw new Exception("API 请求失败: HTTP " + responseCode + " - " + errorBody);
+            }
+            if (stream) {
+                return readResponsesStream(connection, callback);
+            }
+            return readResponsesFull(connection);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /** 解析 Responses API 流式事件（SSE data: 行） */
+    private String readResponsesStream(HttpURLConnection connection, StreamCallback callback) throws Exception {
+        StringBuilder fullText = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line == null || !line.startsWith("data:")) continue;
+                String data = line.substring(5).trim();
+                if (data.isEmpty() || "[DONE]".equals(data)) continue;
+                try {
+                    JsonObject json = gson.fromJson(data, JsonObject.class);
+                    if (json == null) continue;
+                    String type = json.has("type") && !json.get("type").isJsonNull()
+                            ? json.get("type").getAsString() : "";
+                    switch (type) {
+                        case "response.output_text.delta": {
+                            JsonObject delta = json.has("delta") && json.get("delta").isJsonObject()
+                                    ? json.getAsJsonObject("delta") : null;
+                            if (delta != null) {
+                                String t = delta.has("text") && !delta.get("text").isJsonNull()
+                                        ? delta.get("text").getAsString() : "";
+                                if (!t.isEmpty()) {
+                                    fullText.append(t);
+                                    if (callback != null) callback.onToken(t);
+                                }
+                            }
+                            break;
+                        }
+                        case "response.reasoning_summary_text.delta":
+                        case "response.reasoning_text.delta": {
+                            JsonObject delta = json.has("delta") && json.get("delta").isJsonObject()
+                                    ? json.getAsJsonObject("delta") : null;
+                            if (delta != null) {
+                                String t = delta.has("text") && !delta.get("text").isJsonNull()
+                                        ? delta.get("text").getAsString() : "";
+                                if (!t.isEmpty() && callback != null) callback.onThinkingToken(t);
+                            }
+                            break;
+                        }
+                        case "response.completed": {
+                            if (callback != null) callback.onThinkingEnd();
+                            return fullText.toString();
+                        }
+                        case "response.failed": {
+                            JsonObject r = json.has("response") && json.get("response").isJsonObject()
+                                    ? json.getAsJsonObject("response") : null;
+                            String err = r != null && r.has("status") && !r.get("status").isJsonNull()
+                                    ? r.get("status").getAsString() : "generation failed";
+                            if (callback != null) callback.onError(err);
+                            return fullText.toString();
+                        }
+                        case "error": {
+                            JsonObject err = json.has("error") && json.get("error").isJsonObject()
+                                    ? json.getAsJsonObject("error") : null;
+                            String msg = err != null && err.has("message") && !err.get("message").isJsonNull()
+                                    ? err.get("message").getAsString() : "unknown error";
+                            throw new Exception(msg);
+                        }
+                        default:
+                            break;
+                    }
+                } catch (com.google.gson.JsonSyntaxException ignored) {
+                    // 跳过非 JSON 行（注释/心跳）
+                }
+            }
+        }
+        return fullText.toString();
+    }
+
+    /** 解析 Responses API 非流式响应（output[] → message.content[].output_text） */
+    private String readResponsesFull(HttpURLConnection connection) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+        }
+        JsonObject json = gson.fromJson(sb.toString(), JsonObject.class);
+        JsonArray output = json != null && json.has("output") && json.get("output").isJsonArray()
+                ? json.getAsJsonArray("output") : null;
+        if (output == null) return "";
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < output.size(); i++) {
+            JsonObject o = output.get(i).getAsJsonObject();
+            JsonArray content = o != null && o.has("content") && o.get("content").isJsonArray()
+                    ? o.getAsJsonArray("content") : null;
+            if (content != null) {
+                for (int j = 0; j < content.size(); j++) {
+                    JsonObject c = content.get(j).getAsJsonObject();
+                    if ("output_text".equals(c.has("type") ? c.get("type").getAsString() : "")) {
+                        text.append(c.has("text") ? c.get("text").getAsString() : "");
+                    }
+                }
+            }
+        }
+        return text.toString();
+    }
+
+    /**
      * 在线多模态生成：带图片（base64 data URL）的 OpenAI 兼容请求。
      * 图片以 OpenAI 多模态 content 数组格式注入最后一条 user 消息：
      * [{type:text,text:prompt}, {type:image_url,image_url:{url:"data:image/jpeg;base64,..."}}]
      * 支持 Qwen-VL / GPT-4o 等兼容 OpenAI 图片消息的模型。
      *
+     * @param enableThinking 深度思考开关：模型支持时注入 thinking 参数（多模态思考模型如
+     *                       Qwen3-VL），reasoning 增量经 onThinkingToken 分流思考区
      * @param imageBase64List 图片 base64 数据（不含前缀），将自动加 data:image/jpeg;base64 前缀
      */
     public void generateStreamWithImages(String prompt, List<String> imageBase64List,
                                          OnlineModelManager.OnlineModelConfig config,
-                                         List<ChatMessage> history, int maxTokens,
+                                         List<ChatMessage> history, int maxTokens, boolean enableThinking,
                                          StreamCallback callback) {
         executor.execute(() -> {
             try {
@@ -756,7 +1462,7 @@ public class OnlineInferenceService {
                     return;
                 }
                 if (imageBase64List == null || imageBase64List.isEmpty()) {
-                    generateStream(prompt, config, history, maxTokens, callback);
+                    generateStream(prompt, config, history, maxTokens, enableThinking, callback);
                     return;
                 }
 
@@ -767,7 +1473,7 @@ public class OnlineInferenceService {
                     return;
                 }
                 callOpenAIAPIWithImages(apiUrl, apiKey, modelName, prompt, imageBase64List,
-                        history, maxTokens, true, callback);
+                        history, maxTokens, true, enableThinking, config.supportsWebSearch, callback);
             } catch (Exception e) {
                 AILogger.e(TAG, "Stream generate with images failed: " + e.getMessage(), e);
                 postError(callback, e.getMessage());
@@ -781,8 +1487,12 @@ public class OnlineInferenceService {
     private String callOpenAIAPIWithImages(String apiUrl, String apiKey, String modelName,
                                            String prompt, List<String> imageBase64List,
                                            List<ChatMessage> history,
-                                           int maxTokens, boolean stream, StreamCallback callback) throws Exception {
+                                           int maxTokens, boolean stream, boolean enableThinking,
+                                           boolean webSearch,
+                                           StreamCallback callback) throws Exception {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -793,7 +1503,8 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setDoOutput(true);
 
             JsonObject requestBody = new JsonObject();
@@ -837,6 +1548,10 @@ public class OnlineInferenceService {
             requestBody.add("messages", messages);
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
+            // 深度思考：与文本路径共用注入逻辑（多模态思考模型如 Qwen3-VL 生效）
+            applyThinkingParams(requestBody, modelName, enableThinking);
+            // 网络搜索：配置表驱动注入
+            applyWebSearch(requestBody, apiUrl, webSearch);
             if (stream) {
                 requestBody.addProperty("stream", true);
             }
@@ -866,29 +1581,85 @@ public class OnlineInferenceService {
     }
 
     /**
-     * 构建OpenAI格式的URL，避免重复添加v1路径
+     * 构建 OpenAI 兼容格式的 URL（统一走 ProviderConfigManager 配置驱动的拼装接口）。
+     * 兼容规则：endpoint 自带版本前缀直接拼；baseUrl 已以版本路径结尾（/v1、/v4 等，
+     * 如智谱 /api/paas/v4）→ 直接拼 endpoint；已以 endpoint 结尾 → 原样；
+     * 否则默认补 /v1 + endpoint。
      */
     private String buildOpenAIUrl(String apiUrl, String endpoint) {
-        String baseUrl = apiUrl;
-        if (baseUrl == null || baseUrl.isEmpty()) {
-            baseUrl = "https://api.openai.com";
-        }
-        baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        
-        if (baseUrl.endsWith("/v1")) {
-            return baseUrl + endpoint;
+        return com.oilquiz.app.ai.model.ProviderConfigManager.get().buildUrl(apiUrl, endpoint);
+    }
+
+    /**
+     * 向请求体注入深度思考参数（文本与多模态路径共用）。
+     * - 仅当 enableThinking 且模型名判定支持思考时注入，未知模型保守不传避免 400；
+     * - OpenAI o 系用 reasoning_effort；DeepSeek/Qwen/GLM/Kimi/豆包用 enable_thinking，
+     *   同时放 chat_template_kwargs 双位置下发（vLLM/llama.cpp 类服务端参数在嵌套位置）。
+     */
+    private void applyThinkingParams(JsonObject requestBody, String modelName, boolean enableThinking) {
+        if (!enableThinking) return;
+        if (!OnlineModelManager.isThinkingModelName(modelName)) return;
+        String thinkingParam = OnlineModelManager.getThinkingParamName(modelName);
+        if ("reasoning_effort".equals(thinkingParam)) {
+            requestBody.addProperty("reasoning_effort", "medium");
         } else {
-            return baseUrl + "/v1" + endpoint;
+            requestBody.addProperty("enable_thinking", true);
+            JsonObject chatTemplateKwargs = new JsonObject();
+            chatTemplateKwargs.addProperty("enable_thinking", true);
+            requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+        }
+    }
+
+    /**
+     * 向请求体注入网络搜索能力（配置表 services.webSearch 驱动，UI 勾选 supportsWebSearch 生效）：
+     * - param=web_search（智谱/千问/月之暗面/百炼等）→ 扁平布尔 web_search: true
+     * - param=google_search（Gemini）→ tools: [{google_search: {}}]
+     * 配置表未声明 webSearch 参数或未勾选时不注入。
+     */
+    private void applyWebSearch(JsonObject requestBody, String apiUrl, boolean webSearch) {
+        if (!webSearch) return;
+        if (requestBody == null || apiUrl == null) return;
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String param = pcm.getServiceParam(apiUrl, "webSearch");
+        if (param == null || param.isEmpty()) return; // 配置表未声明 → 不注入
+        if ("google_search".equals(param)) {
+            // Gemini 系：OpenAI 兼容 tools 里声明 google_search 工具
+            JsonArray tools = requestBody.has("tools") && requestBody.get("tools").isJsonArray()
+                    ? requestBody.getAsJsonArray("tools") : new JsonArray();
+            JsonObject gs = new JsonObject();
+            gs.add("google_search", new JsonObject());
+            tools.add(gs);
+            requestBody.add("tools", tools);
+        } else {
+            requestBody.addProperty(param, true);
         }
     }
 
     /**
      * 调用 OpenAI 兼容 API
+     *
+     * @param enableThinking 深度思考开关：true 且模型名判定支持时注入 thinking 参数
+     *                       （OpenAI o 系 reasoning_effort / DeepSeek·Qwen·GLM·Kimi·豆包 enable_thinking
+     *                       双位置下发），未知模型保守不传避免 400
      */
     private String callOpenAIAPI(String apiUrl, String apiKey, String modelName,
                                   String prompt, List<ChatMessage> history,
-                                  int maxTokens, boolean stream, StreamCallback callback) throws Exception {
+                                  int maxTokens, boolean stream, boolean enableThinking,
+                                  StreamCallback callback) throws Exception {
+        return callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, stream,
+                enableThinking, false, callback);
+    }
+
+    /** 带网络搜索开关的 OpenAI 兼容调用（webSearch=true 时按服务商配置注入搜索参数） */
+    private String callOpenAIAPI(String apiUrl, String apiKey, String modelName,
+                                  String prompt, List<ChatMessage> history,
+                                  int maxTokens, boolean stream, boolean enableThinking,
+                                  boolean webSearch,
+                                  StreamCallback callback) throws Exception {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
         
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -901,7 +1672,8 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", stream ? "text/event-stream" : "application/json");
             connection.setDoOutput(true);
 
@@ -950,6 +1722,11 @@ public class OnlineInferenceService {
             requestBody.add("messages", messages);
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
+
+            // 深度思考：模型支持时按参数名规范传 thinking 开关（与多模态路径共用同一注入逻辑）
+            applyThinkingParams(requestBody, modelName, enableThinking);
+            // 网络搜索：按服务商配置表注入 web_search/google_search
+            applyWebSearch(requestBody, apiUrl, webSearch);
             
             if (stream) {
                 requestBody.addProperty("stream", true);
@@ -985,6 +1762,8 @@ public class OnlineInferenceService {
                                         String prompt, List<ChatMessage> history,
                                         int maxTokens, String toolsJson) throws Exception {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -995,7 +1774,8 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 
@@ -1042,7 +1822,7 @@ public class OnlineInferenceService {
                 String errorBody = readErrorStream(connection);
                 AILogger.w(TAG, "OpenAI WithTools API failed: HTTP " + responseCode + ", falling back to no-tools mode");
                 // 工具调用失败时降级为普通调用（某些模型不支持 function calling）
-                return callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, null);
+                return callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, false, false, null);
             }
 
             return readFullResponseWithTools(connection);
@@ -1140,7 +1920,8 @@ public class OnlineInferenceService {
     private String callAnthropicAPI(String apiUrl, String apiKey, String modelName,
                                     String prompt, List<ChatMessage> history,
                                     int maxTokens, boolean stream, StreamCallback callback) throws Exception {
-        String fullUrl = apiUrl.endsWith("/") ? apiUrl + "v1/messages" : apiUrl + "/v1/messages";
+        // Anthropic messages 端点：兼容 /v1 结尾的地址，避免拼成 /v1/v1/messages
+        String fullUrl = buildOpenAIUrl(apiUrl, "/messages");
         
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -1153,8 +1934,9 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("x-api-key", apiKey);
-            connection.setRequestProperty("anthropic-version", "2023-06-01");
+            // Anthropic 鉴权：x-api-key + anthropic-version（按服务商配置表 auth 类型统一处理）
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", stream ? "text/event-stream" : "application/json");
             connection.setDoOutput(true);
 
@@ -1218,6 +2000,8 @@ public class OnlineInferenceService {
     private String readStreamResponse(HttpURLConnection connection, StreamCallback callback) throws Exception {
         StringBuilder fullText = new StringBuilder();
         StringBuilder reasoningText = new StringBuilder();
+        // 思考结束信号：content 首次出现即思考段结束；流结束仍未触发则补发（防 UI 思考行悬挂）
+        final boolean[] thinkingEnded = {false};
         InputStream inputStream = connection.getInputStream();
         BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
         
@@ -1236,10 +2020,17 @@ public class OnlineInferenceService {
                             JsonObject choice = choices.get(0).getAsJsonObject();
                             if (choice.has("delta")) {
                                 JsonObject delta = choice.getAsJsonObject("delta");
-                                // 深度思考：reasoning_content 思考链（累计，用于 content 空时兜底；
-                                // 同时实时转发 onThinkingToken 供思考区/顶部单行显示）
+                                // 深度思考：思考链（累计，用于 content 空时兜底；同时实时转发 onThinkingToken
+                                // 供思考区/顶部单行显示）。字段归一化双读：reasoning_content || reasoning || thinking
+                                String rc = null;
                                 if (delta.has("reasoning_content") && !delta.get("reasoning_content").isJsonNull()) {
-                                    String rc = delta.get("reasoning_content").getAsString();
+                                    rc = delta.get("reasoning_content").getAsString();
+                                } else if (delta.has("reasoning") && !delta.get("reasoning").isJsonNull()) {
+                                    rc = delta.get("reasoning").getAsString();
+                                } else if (delta.has("thinking") && !delta.get("thinking").isJsonNull()) {
+                                    rc = delta.get("thinking").getAsString();
+                                }
+                                if (rc != null) {
                                     reasoningText.append(rc);
                                     if (!rc.isEmpty()) {
                                         final String rct = rc;
@@ -1248,6 +2039,11 @@ public class OnlineInferenceService {
                                 }
                                 if (delta.has("content") && !delta.get("content").isJsonNull()) {
                                     String content = delta.get("content").getAsString();
+                                    // 思考结束：正文首次出现即思考段完成
+                                    if (!thinkingEnded[0] && reasoningText.length() > 0) {
+                                        thinkingEnded[0] = true;
+                                        mainHandler.post(callback::onThinkingEnd);
+                                    }
                                     fullText.append(content);
                                     final String token = content;
                                     mainHandler.post(() -> callback.onToken(token));
@@ -1261,6 +2057,12 @@ public class OnlineInferenceService {
             }
         } finally {
             reader.close();
+        }
+        
+        // 思考已开始但未收到正文（纯思考/思考即全部输出）：补发思考结束，避免思考行悬挂
+        if (!thinkingEnded[0] && reasoningText.length() > 0) {
+            thinkingEnded[0] = true;
+            mainHandler.post(callback::onThinkingEnd);
         }
         
         String result = fullText.toString();
@@ -1556,7 +2358,7 @@ public class OnlineInferenceService {
                     if (isAnthropic) {
                         raw = callAnthropicAPI(apiUrl, apiKey, modelName, currentPrompt, null, maxTokens, false, null);
                     } else {
-                        raw = callOpenAIAPI(apiUrl, apiKey, modelName, currentPrompt, null, maxTokens, false, null);
+                        raw = callOpenAIAPI(apiUrl, apiKey, modelName, currentPrompt, null, maxTokens, false, false, null);
                     }
                     String repaired = ImportValidator.repairJson(raw);
                     // 验证可解析
@@ -1585,6 +2387,8 @@ public class OnlineInferenceService {
     private String callOpenAIStructured(String apiUrl, String apiKey, String modelName,
                                         String prompt, JSONObject schema, int maxTokens) throws Exception {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -1597,7 +2401,8 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", "application/json");
             connection.setDoOutput(true);
 
@@ -1742,7 +2547,7 @@ public class OnlineInferenceService {
 
                 if (isAnthropicAPI(apiUrl)) {
                     AILogger.w(TAG, "Anthropic API does not support streaming tools, falling back to plain stream");
-                    generateStreamFallback(prompt, config, history, maxTokens, callback);
+                    generateStreamFallback(prompt, config, history, maxTokens, false, callback);
                 } else {
                     callOpenAIStreamWithTools(apiUrl, apiKey, modelName, prompt,
                         history, maxTokens, toolsJson, callback);
@@ -1795,7 +2600,7 @@ public class OnlineInferenceService {
                     // Anthropic 不支持流式工具调用，降级
                     AILogger.w(TAG, "Anthropic API does not support streaming tools, falling back");
                     String prompt = extractLastUserContent(messages);
-                    generateStreamFallback(prompt, config, null, maxTokens, callback);
+                    generateStreamFallback(prompt, config, null, maxTokens, enableThinking, callback);
                 } else {
                     callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName,
                         messages, maxTokens, toolsJson, enableThinking, callback);
@@ -1838,7 +2643,8 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", "text/event-stream");
             connection.setDoOutput(true);
 
@@ -1923,10 +2729,16 @@ public class OnlineInferenceService {
                 // 注意：重试时必须同时剥离 assistant 消息里的 reasoning_content 字段
                 //（DeepSeek 思考模式硬性要求：思考请求中所有 assistant 消息都要带该字段；
                 //  反过来非思考请求带该字段也可能 400）。
+                // 例外：服务商配置 requiresReasoningInContext=true（不回传 reasoning 会 400）时
+                // 不剥离——这类模型要求恒回传，剥离反而触发 400。
                 if (responseCode == 400 && enableThinking && isThinkingUnsupportedError(errorBody)) {
                     AILogger.i(TAG, "Model does not support thinking param (400), retrying without thinking");
+                    JsonArray retryMessages = com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                            .requiresReasoningInContext(apiUrl)
+                            ? messages
+                            : stripReasoningContent(messages);
                     callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName,
-                            stripReasoningContent(messages), maxTokens, toolsJson, false, callback);
+                            retryMessages, maxTokens, toolsJson, false, callback);
                     return;
                 }
                 String errorMsg = buildHttpErrorMessage(responseCode, errorBody);
@@ -2027,8 +2839,9 @@ public class OnlineInferenceService {
     private void generateStreamFallback(String prompt,
                                          OnlineModelManager.OnlineModelConfig config,
                                          List<ChatMessage> history, int maxTokens,
+                                         boolean enableThinking,
                                          NativeToolStreamCallback callback) {
-        generateStream(prompt, config, history, maxTokens, new StreamCallback() {
+        generateStream(prompt, config, history, maxTokens, enableThinking, new StreamCallback() {
             @Override
             public void onStart() {
                 mainHandler.post(callback::onStart);
@@ -2068,7 +2881,8 @@ public class OnlineInferenceService {
             connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
             connection.setReadTimeout(DEFAULT_TIMEOUT_MS);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
+            com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .applyAuthHeaders(connection, fullUrl, apiKey, null, null);
             connection.setRequestProperty("Accept", "text/event-stream");
             connection.setDoOutput(true);
 
@@ -2122,7 +2936,7 @@ public class OnlineInferenceService {
                 // 降级为普通流式
                 AILogger.i(TAG, "Falling back to plain stream without tools");
                 generateStreamFallback(prompt, OnlineModelManager.getInstance(context).getActiveModel(),
-                    history, maxTokens, callback);
+                    history, maxTokens, false, callback);
                 return;
             }
 
@@ -2219,11 +3033,20 @@ public class OnlineInferenceService {
                     if (!choice.has("delta")) continue;
                     JsonObject delta = choice.getAsJsonObject("delta");
 
-                    // 1. 解析 reasoning_content（思考链）
+                    // 1. 解析思考链：字段归一化双读（reasoning_content || reasoning || thinking）
+                    //    ——不同框架字段名不同（OpenAI 兼容=reasoning_content、Ollama /v1=reasoning、
+                    //    Ollama 原生=thinking），"非空即用"覆盖主流框架
+                    String reasoningToken = null;
                     if (delta.has("reasoning_content") && !delta.get("reasoning_content").isJsonNull()) {
-                        String token = delta.get("reasoning_content").getAsString();
-                        reasoningBuf.append(token);
-                        final String t = token;
+                        reasoningToken = delta.get("reasoning_content").getAsString();
+                    } else if (delta.has("reasoning") && !delta.get("reasoning").isJsonNull()) {
+                        reasoningToken = delta.get("reasoning").getAsString();
+                    } else if (delta.has("thinking") && !delta.get("thinking").isJsonNull()) {
+                        reasoningToken = delta.get("thinking").getAsString();
+                    }
+                    if (reasoningToken != null) {
+                        reasoningBuf.append(reasoningToken);
+                        final String t = reasoningToken;
                         mainHandler.post(() -> callback.onReasoningToken(t));
                     }
 

@@ -1621,4 +1621,6 @@
     <string name="h_970f00ea" formatted="false">%s\n高: %d° 低: %d°\n%s %s\n湿度: %d%%</string>
     <string name="h_75378edd">暂无逐小时数据</string>
     <string name="h_7075e4d2">暂无每日预报数据</string>
+    <string name="h_a2b3c4d5">正在加载本地语音识别模型…</string>
+    <string name="h_e6f7a8b9">本地语音识别模型已就绪</string>
 </resources>

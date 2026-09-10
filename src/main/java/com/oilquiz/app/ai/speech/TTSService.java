@@ -118,6 +118,8 @@ public class TTSService {
 
     /** 用户指定的 TTS 模型名与音色（为 null 时使用默认值） */
     private volatile String ttsModelOverride = null;
+    /** 强制系统语音合成（功能专用模型显式选择"系统语音合成"时生效） */
+    private volatile boolean forceSystemTts = false;
     private volatile String voice = DEFAULT_VOICE;
 
     /** 合成引擎（按端点类型路由） */
@@ -170,6 +172,11 @@ public class TTSService {
         this.ttsModelOverride = modelName;
     }
 
+    /** 强制仅使用系统语音合成（用户在功能专用模型里显式选择"系统语音合成"时置 true） */
+    public void setForceSystemTts(boolean force) {
+        this.forceSystemTts = force;
+    }
+
     /**
      * 设置音色（例如 alloy / echo / fable / onyx / nova / shimmer）
      */
@@ -213,8 +220,10 @@ public class TTSService {
                     SpeechModelSelector.select(context, SpeechModelSelector.Capability.TTS);
             String actualVoice = resolveVoice(voiceOverride);
             boolean systemVoiceSelected = actualVoice != null && actualVoice.startsWith(SYS_VOICE_PREFIX);
+            // 用户显式选择"系统语音合成"（forceSystemTts）或已选系统音色 → 直接走系统 TTS
+            boolean useOnline = config != null && !systemVoiceSelected && !forceSystemTts;
 
-            if (config != null && !systemVoiceSelected) {
+            if (useOnline) {
                 try {
                     String featureModelName = OnlineModelManager.getInstance(context)
                             .getFeatureModelName(OnlineModelManager.FEATURE_TTS);

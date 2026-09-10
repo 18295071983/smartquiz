@@ -921,14 +921,16 @@ public class OnlineAgentEngine {
         // 截断消息历史，避免长对话或多次工具调用后超出模型上下文窗口
         trimMessageHistory(cfg);
 
-        // 构建发送用消息数组（副本）：按本轮思考开关规范化 reasoning_content。
+        // 构建发送用消息数组（副本）：按本轮思考开关 + 服务商要求规范化 reasoning_content。
         // DeepSeek 思考模式硬性要求（社区多起 400 实证，如 opencode PR #24150 "inject reasoning_content
         // for ALL assistant msgs"）：请求中**所有** assistant 消息都必须带 reasoning_content 字段，
         // 否则 API 返回 HTTP 400 "The 'reasoning_content' in the thinking mode must be passed back to the API"。
         // 历史里旧轮次（用户此前普通模式 / 修复前持久化的历史）的 assistant 消息没有该字段，
         // 一旦本轮开启思考就会触发 400 —— 开启时对缺失字段补空串；关闭时移除残留字段
-        // （思考轮字段发给非思考请求同样可能 400）。只规范化副本，不修改 messageHistory 本体。
-        JsonArray messagesArray = buildOutgoingMessagesArray();
+        // （思考轮字段发给非思考请求同样可能 400）。
+        // 部分服务商配置 requiresReasoningInContext=true（如用户反馈"不回传 reasoning 会 400"的在线模型）：
+        // 无论是否思考模式，所有 assistant 消息都必须带 reasoning_content。只规范化副本，不修改本体。
+        JsonArray messagesArray = buildOutgoingMessagesArray(cfg);
 
         // 工具轮用小上限（只需简短 tool_call）；最终答案轮（toolsJson=null）保持传入的大值防截断
         int iterMaxTokens = toolsJson != null
@@ -1110,7 +1112,7 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 构建发送用消息数组（副本）：按本轮思考开关规范化 assistant 消息的 reasoning_content 字段。
+     * 构建发送用消息数组（副本）：按本轮思考开关 + 服务商要求规范化 assistant 消息的 reasoning_content 字段。
      * 不修改 messageHistory 本体（思考轮的真实 reasoning_content 保留在历史中，供持久化与回传）。
      *
      * DeepSeek 思考模式硬性要求（社区多起 400 实证，如 opencode PR #24150 "inject reasoning_content
@@ -1123,18 +1125,23 @@ public class OnlineAgentEngine {
      * 一旦本轮开启思考，把缺少字段的旧 assistant 消息发给 DeepSeek 就会 400。
      *
      * 处理：
+     * - 服务商 requiresReasoningInContext=true（不回传 reasoning 会 400）→ 所有 assistant 消息始终带字段；
      * - enableThinking=true  → 所有 assistant 消息补齐 reasoning_content（缺失补空字符串）；
-     * - enableThinking=false → 移除残留的 reasoning_content（思考轮字段发给非思考请求同样可能 400）。
+     * - 否则 → 移除残留的 reasoning_content（思考轮字段发给非思考请求同样可能 400）。
      */
-    private JsonArray buildOutgoingMessagesArray() {
+    private JsonArray buildOutgoingMessagesArray(OnlineModelManager.OnlineModelConfig cfg) {
         JsonArray out = new JsonArray();
+        // 服务商要求恒回传（配置表 requiresReasoningInContext）→ 所有 assistant 消息始终带该字段
+        boolean forceReasoning = cfg != null && cfg.apiUrl != null
+                && com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                        .requiresReasoningInContext(cfg.apiUrl);
         try {
             for (JsonObject msg : messageHistory) {
                 JsonObject copy = msg.deepCopy();
                 String role = copy.has("role") && !copy.get("role").isJsonNull()
                         ? copy.get("role").getAsString() : "";
                 if ("assistant".equals(role)) {
-                    if (enableThinking) {
+                    if (forceReasoning || enableThinking) {
                         if (!copy.has("reasoning_content") || copy.get("reasoning_content").isJsonNull()) {
                             copy.addProperty("reasoning_content", "");
                         }

@@ -161,26 +161,14 @@ public class AIChatActivity extends BaseActivity {
     private EditText inputMessage;
     private MaterialButton btnSend;
     private MaterialButton btnAttach;
-    private MaterialButton btnVoice; // 语音输入按钮（录音→ASR→填入输入框）
-    private android.widget.TextView holdToTalk; // 微信式getString(R.string.h_134f075e)按钮（语音模式下替换输入框）
-    private boolean voiceInputMode = false; // 是否处于语音输入模式（true=按住说话，false=键盘）
-    private boolean slideToCancel = false; // 按住说话时是否已上滑到取消区域
-    private float pressStartY = 0; // 按住说话按下时的 Y 坐标（上滑取消判定）
-    private static final int SLIDE_CANCEL_THRESHOLD_DP = 60; // 上滑取消阈值(dp)
+    private MaterialButton btnVoice; // 语音输入按钮（点击弹出语音识别组件，录音→ASR→填入输入框）
     private MaterialButton btnAutoTts; // 全局自动语音合成开关按钮
     private boolean autoTtsEnabled = false; // 自动语音合成是否开启（AI回复完成后自动朗读）
     private String lastAutoSpokenMessageId; // 已自动朗读的消息ID（防止重复朗读）
     private com.oilquiz.app.ai.speech.StreamingTtsSpeaker streamingTtsSpeaker; // 流式按句朗读器（边生成边朗读）
     private boolean streamTtsFed = false; // 本轮生成是否已进行过流式朗读
-    private String voiceInputBaseText = ""; // 系统识别开始前输入框已有文本（实时展示部分结果时作为前缀）
     /** 识别预览后待发送消息是否标记为语音消息（发送时消费并复位） */
     private volatile boolean pendingVoiceInputSource = false;
-    private View voiceRecordingBar; // 录音状态横幅
-    private android.widget.TextView tvVoiceRecordingTime; // 录音计时
-    private android.widget.TextView tvVoiceRecordingDot; // 录音红点
-    private final android.os.Handler speechTimerHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private Runnable speechTimerRunnable;
-    private int speechRecordingSeconds = 0;
     private String speakingMessageId; // 当前正在朗读的消息 ID（再次点击可停止）
     private MaterialButton btnCloseHistory;
     private MaterialButton btnNewConversation;
@@ -279,6 +267,13 @@ public class AIChatActivity extends BaseActivity {
     /** 本轮 Agent 用到的工具名集合（去重，用于汇总展示） */
     private final java.util.Set<String> agentToolNames = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Object streamingLock = new Object();
+
+    /**
+     * 历史持久化跨实例全局锁：旋转重建时旧 Activity 的异步保存线程与新 Activity 的
+     * 保存/加载线程并发写读同一会话文件，synchronized(this) 实例锁不互斥会导致
+     * 半写文件 → Gson 解析失败 → 会话被跳过/历史丢失。此锁跨 Activity 实例互斥。
+     */
+    private static final Object HISTORY_IO_LOCK = new Object();
     
     // isRecovering 和 pendingMessageForRecovery 已移至 NativeRecoveryHandler
     private volatile int recoveryProgressUpdateCount = 0;
@@ -367,10 +362,6 @@ public class AIChatActivity extends BaseActivity {
     private ActivityResultLauncher<String[]> attachFileLauncher;
     private ActivityResultLauncher<Uri> cameraCaptureLauncher; // 相机拍照
     private android.net.Uri currentPhotoUri; // 当前拍照的临时URI
-    private MediaRecorder speechMediaRecorder; // 语音输入录音器（ASR）
-    private String speechRecordingFilePath; // 语音输入临时录音文件路径
-    private boolean isSpeechRecording = false; // 是否正在语音输入录音
-    private boolean isOfflineAsrMode = false; // 语音输入是否处于离线/系统识别模式（在线ASR不可用时的兜底）
     private MediaRecorder mediaRecorder; // 音频录制器
     private String recordingFilePath; // 录音文件路径
     private boolean isRecording = false; // 是否正在录音
@@ -460,11 +451,7 @@ public class AIChatActivity extends BaseActivity {
             btnSend = findViewById(R.id.btn_send);
             btnAttach = findViewById(R.id.btn_attach);
             btnVoice = findViewById(R.id.btn_voice);
-            holdToTalk = findViewById(R.id.hold_to_talk);
             btnAutoTts = findViewById(R.id.btn_auto_tts);
-            voiceRecordingBar = findViewById(R.id.voice_recording_bar);
-            tvVoiceRecordingTime = findViewById(R.id.tv_voice_recording_time);
-            tvVoiceRecordingDot = findViewById(R.id.tv_voice_recording_dot);
             btnCloseHistory = findViewById(R.id.btn_close_history);
             btnNewConversation = findViewById(R.id.btn_new_conversation);
             btnClearAllHistory = findViewById(R.id.btn_clear_all_history);
@@ -655,14 +642,33 @@ public class AIChatActivity extends BaseActivity {
                 try {
                     if (chatHistoryManager != null) {
                         List<ChatMessage> loadedHistory = chatHistoryManager.loadAIChatHistory();
-                        if (loadedHistory != null && !loadedHistory.isEmpty()) {
+                        // 退出保存是异步线程（onStop/onDestroy），重建加载可能恰逢旧保存的
+                        // delete→rename 窗口（文件暂时不存在/半写）→ 读到空。延迟 300ms 重读一次
+                        // 避开保存窗口，避免把"正在保存中的历史"误判为"无历史"而 fallback 错会话。
+                        if (loadedHistory == null || loadedHistory.isEmpty()) {
+                            try {
+                                Thread.sleep(300);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                            }
+                            loadedHistory = chatHistoryManager.loadAIChatHistory();
+                        }
+                        final List<ChatMessage> historyToLoad = loadedHistory;
+                        if (historyToLoad != null && !historyToLoad.isEmpty()) {
+                            // 重建后没有生成任务在跑：把持久化残留的 GENERATING 消息归一为
+                            // COMPLETED，避免 UI 永久显示"生成中"转圈（退出时生成已中断）
+                            for (ChatMessage m : historyToLoad) {
+                                if (m != null && m.status == ChatMessage.MessageStatus.GENERATING) {
+                                    m.status = ChatMessage.MessageStatus.COMPLETED;
+                                }
+                            }
                             runOnUiThread(() -> {
                                 // 文件历史是权威持久化源（含最新组件）。VM observe 可能已用
                                 // 启动时快照填充（旋转重建时 VM 保留，快照缺本次会话新组件），
                                 // 这里必须用文件数据替换而非跳过，否则最新组件/消息会丢失。
-                                if (chatHistory != loadedHistory) {
+                                if (chatHistory != historyToLoad) {
                                     chatHistory.clear();
-                                    chatHistory.addAll(loadedHistory);
+                                    chatHistory.addAll(historyToLoad);
                                 }
                                 fileHistoryLoaded = true;
                                 if (chatAdapter != null) {
@@ -681,6 +687,12 @@ public class AIChatActivity extends BaseActivity {
                                 ConversationSession fullSession = chatHistoryManager.loadConversationSession(latest.id);
                                 if (fullSession != null && fullSession.messages != null && !fullSession.messages.isEmpty()) {
                                     final String sessionId = fullSession.id;
+                                    // 会话恢复同样清理 GENERATING 残留（退出时生成中断的消息）
+                                    for (ChatMessage m : fullSession.messages) {
+                                        if (m != null && m.status == ChatMessage.MessageStatus.GENERATING) {
+                                            m.status = ChatMessage.MessageStatus.COMPLETED;
+                                        }
+                                    }
                                     runOnUiThread(() -> {
                                         chatHistory.clear();
                                         chatHistory.addAll(fullSession.messages);
@@ -1311,12 +1323,8 @@ public class AIChatActivity extends BaseActivity {
             btnAttach.setOnClickListener(v -> showAttachmentOptionsDialog());
         }
         if (btnVoice != null) {
-            // 微信式交互：点击切换语音/键盘模式
-            btnVoice.setOnClickListener(v -> toggleVoiceInputMode());
-        }
-        // 微信式"按住 说话"：按住录音、上滑取消、松开结束识别
-        if (holdToTalk != null) {
-            holdToTalk.setOnTouchListener((v, event) -> handleHoldToTalkTouch(event));
+            // 语音输入工具模式：点击弹出语音识别组件（录音对话框），完成后识别为文字填入输入框
+            btnVoice.setOnClickListener(v -> startVoiceRecognitionTool());
         }
 
         // 自动语音合成开关：状态持久化，开启后 AI 回复流式按句自动朗读
@@ -4200,12 +4208,25 @@ public class AIChatActivity extends BaseActivity {
             }
 
             AppLogger.ai(TAG, "Follow-up online vision: reuse image " + imageFile.getName() + " for: " + message);
+            // 深度思考开关：跟随 UI 独立开关，多模态思考模型（如 Qwen3-VL）reasoning 走思考区
+            boolean visionThinking = false;
+            try {
+                visionThinking = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+            } catch (Exception ignored) {
+            }
             ois.generateStreamWithImages(message, java.util.Collections.singletonList(b64),
-                    active, history, maxTokens, new com.oilquiz.app.ai.callback.StreamCallback() {
+                    active, history, maxTokens, visionThinking, new com.oilquiz.app.ai.callback.StreamCallback() {
                         @Override public void onToken(String token) {
                             if (token == null) return;
                             runOnUiThread(() -> {
                                 aiMsg.content = (aiMsg.content == null ? "" : aiMsg.content) + token;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
+                            });
+                        }
+                        @Override public void onThinkingToken(String token) {
+                            if (token == null || token.isEmpty()) return;
+                            runOnUiThread(() -> {
+                                aiMsg.thinkingContent = (aiMsg.thinkingContent == null ? "" : aiMsg.thinkingContent) + token;
                                 if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
                             });
                         }
@@ -4346,13 +4367,26 @@ public class AIChatActivity extends BaseActivity {
                 onlineHistory.addAll(trimmed);
             }
 
+            // 深度思考开关：跟随 UI 独立开关，多模态思考模型（如 Qwen3-VL）reasoning 走思考区
+            boolean visionThinking = false;
+            try {
+                visionThinking = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+            } catch (Exception ignored) {
+            }
             ois.generateStreamWithImages(userText, java.util.Collections.singletonList(b64),
                     active, onlineHistory,
-                    maxTokens, new com.oilquiz.app.ai.callback.StreamCallback() {
+                    maxTokens, visionThinking, new com.oilquiz.app.ai.callback.StreamCallback() {
                         @Override public void onToken(String token) {
                             if (token == null) return;
                             runOnUiThread(() -> {
                                 aiMsg.content = (aiMsg.content == null ? "" : aiMsg.content) + token;
+                                if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
+                            });
+                        }
+                        @Override public void onThinkingToken(String token) {
+                            if (token == null || token.isEmpty()) return;
+                            runOnUiThread(() -> {
+                                aiMsg.thinkingContent = (aiMsg.thinkingContent == null ? "" : aiMsg.thinkingContent) + token;
                                 if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                             });
                         }
@@ -4620,7 +4654,7 @@ public class AIChatActivity extends BaseActivity {
      * 被 processChatMessage 和 processChatMessageWithAgent（降级时）调用
      */
     private void processChatMessageNormal(String message) {
-        // 轮次模式标记：普通对话（上下文隔离重建依据）
+        // 轮次模式标记（历史/会话记录用；上下文构建共享完整历史，不再隔离）
         markLastUserMessageMode(ChatMessage.TURN_MODE_NORMAL);
         if (aiService == null) {
             runOnUiThread(() -> {
@@ -4720,7 +4754,10 @@ public class AIChatActivity extends BaseActivity {
         // 与本地 Agent（buildAgentHistory）同一真相源，普通↔Agent 来回切换不失忆
         if (modelBridge != null) {
             try {
-                modelBridge.rebuildChatJsonHistoryFromExternal(buildNormalHistoryEntries());
+                java.util.List<String[]> entries = buildNormalHistoryEntries();
+                modelBridge.rebuildChatJsonHistoryFromExternal(entries);
+                // 记录本次提示词签名：下次发送时若设置变化，buildNormalHistoryEntries 会注入变更标记
+                lastPromptSignature = currentPromptSignature();
             } catch (Exception e) {
                 AppLogger.aiW(TAG, "rebuild chat json history failed: " + e.getMessage());
             }
@@ -4901,16 +4938,31 @@ public class AIChatActivity extends BaseActivity {
         scrollToBottom();
     }
 
-    /** 本地 Agent 多轮上下文：最多携带的历史消息条数（约 2 轮对话，减少 prompt 提升速度） */
-    private static final int AGENT_HISTORY_MAX_MESSAGES = 4;
+    /** 防御性硬上限：即使上下文预算很大，也最多携带这么多条历史（防极端场景拼装过慢） */
+    private static final int HISTORY_MAX_ENTRIES_HARD_CAP = 60;
 
-    /** 普通对话重建上下文的最近消息条数上限（与 chatJson 历史容量对齐） */
-    private static final int NORMAL_REBUILD_MAX_ENTRIES = 20;
+    /**
+     * 工具结果保留策略（数据优先，不做粗暴一刀切）：
+     * 工具结果是模型回答的事实依据——最近的结果保留完整（对齐引擎 MAX_TOOL_RESULT_LENGTH=6000），
+     * 更早的结果才按新旧渐进收缩（2500→1200），避免"结果被截断→追问时模型答不上来"。
+     */
+    private static final int TOOL_RESULT_KEEP_MAX = 6000;
+    private static final int TOOL_RESULT_MID_MAX = 2500;
+    private static final int TOOL_RESULT_OLD_MAX = 1200;
+
+    /** 历史要点里单条工具结果的最大字符数（要点是压缩态，但优先保留数据而非对话废话） */
+    private static final int KEY_POINT_RESULT_MAX = 300;
+
+    /** 上一条上下文构建时的提示词签名（检测设置变化以注入变更标记，防止旧提示词污染新对话） */
+    private volatile String lastPromptSignature;
+
+    /** 预算超限时被挤掉的最近对话要点（历史压缩用，最新优先；普通对话路径注入上下文） */
+    private java.util.List<String> evictedContextPoints = new java.util.ArrayList<>();
 
     /**
      * 给最后一条 user 消息标记轮次模式（普通/Agent）。
-     * 用于上下文隔离：普通对话重建只取 NORMAL 轮次，本地 Agent 重建只取 AGENT 轮次，
-     * 来回切换互不污染、各自独立。
+     * 仅作历史/会话记录的轮次标识（持久化保留）；上下文构建已不按此隔离，
+     * 普通↔Agent 共享同一份完整对话历史（buildNormalHistoryEntries/buildAgentHistory）。
      */
     private void markLastUserMessageMode(int mode) {
         for (int i = chatHistory.size() - 1; i >= 0; i--) {
@@ -4922,62 +4974,339 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    // ==================== 上下文组装（KV 预算 + 提示词变更标记 + 工具/思考痕迹） ====================
+
+    /** 粗略估算文本 token 数：中文约 2 字符/token 的保守估计 + 角色开销（宁多勿少，防溢出） */
+    private int estimateTokens(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        return 4 + (text.length() + 1) / 2;
+    }
+
+    /**
+     * 可给历史上下文使用的 token 预算：
+     *
+     * 在线模型：上下文由在线引擎自己的机制管理（会话历史 + 引擎内部按模型真实窗口
+     * 动态预算 + 服务端 KV 前缀缓存），本组装层不设 token 限制、不设条数上限——
+     * 完全放开，连续对话不截断。且在线路径本身忽略此处组装的历史，此值只是
+     * "不干预"的语义。
+     *
+     * 本地模型：与 native chatJson 守卫对齐——守卫只校验 prompt 本体不超过
+     * safeRef-512（生成余量固定 512，max_tokens 不算入 context 预算），
+     * 这里再预留当前待发送消息与标记的余量（-1024），让窗口尽量大且稳定，
+     * 跨轮保持前缀不变 → KV 缓存可命中。
+     */
+    private int getContextBudgetTokens() {
+        if (shouldUseOnlineModel()) {
+            return Integer.MAX_VALUE / 2; // 在线：不设预算限制
+        }
+        // 实际运行上下文优先（native chatContext 的真实 n_ctx，可能大于优化模式预设）
+        int ctx = 0;
+        try {
+            int actual = LlamaHelper.getContextSize();
+            if (actual > 0) ctx = actual;
+        } catch (Throwable ignored) {}
+        if (ctx <= 0 && aiConfig != null) ctx = aiConfig.getContextSize();
+        if (agentChatHandler != null) {
+            try {
+                int[] info = agentChatHandler.getContextWindowInfo();
+                if (info != null && info.length > 0 && info[0] > 0) {
+                    ctx = ctx > 0 ? Math.min(ctx, info[0]) : info[0];
+                }
+            } catch (Exception ignored) {}
+        }
+        if (ctx <= 0) ctx = 8192;
+        int safeRef = ctx;
+        try {
+            safeRef = LlamaHelper.getSafeContextReference(ctx);
+        } catch (Throwable ignored) {}
+        return Math.max(1024, safeRef - 1024);
+    }
+
+    /** 历史条数硬上限：本地 60（token 预算已优先约束，此值仅作防御护栏）；在线不设上限 */
+    private int getHistoryMaxEntries() {
+        return shouldUseOnlineModel() ? Integer.MAX_VALUE : HISTORY_MAX_ENTRIES_HARD_CAP;
+    }
+
+    /** 当前提示词签名：思考开关 / 本地Agent开关 / 系统提示词 / 日期（这些变化都会改变生成行为） */
+    private String currentPromptSignature() {
+        StringBuilder sb = new StringBuilder();
+        boolean thinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+        boolean agent = aiConfig != null && aiConfig.isLocalAgentEnabled();
+        String sysPrompt = aiConfig != null && aiConfig.getSystemPrompt() != null
+                ? aiConfig.getSystemPrompt() : "";
+        String date = new java.text.SimpleDateFormat("yyyy年M月d日", java.util.Locale.CHINA)
+                .format(new java.util.Date());
+        sb.append("thinking=").append(thinking ? 1 : 0);
+        sb.append(";agent=").append(agent ? 1 : 0);
+        sb.append(";prompt=").append(sysPrompt.hashCode());
+        sb.append(";date=").append(date);
+        return sb.toString();
+    }
+
+    /** 与上次相比，提示词设置是否有变化（返回变化说明；无变化返回 null） */
+    private String describePromptChange(String prev, String cur) {
+        if (prev == null || cur == null || prev.equals(cur)) return null;
+        java.util.Map<String, String> prevMap = new java.util.HashMap<>();
+        java.util.Map<String, String> curMap = new java.util.HashMap<>();
+        for (String pair : prev.split(";")) {
+            int idx = pair.indexOf('=');
+            if (idx > 0) prevMap.put(pair.substring(0, idx), pair.substring(idx + 1));
+        }
+        for (String pair : cur.split(";")) {
+            int idx = pair.indexOf('=');
+            if (idx > 0) curMap.put(pair.substring(0, idx), pair.substring(idx + 1));
+        }
+        java.util.List<String> changes = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, String> e : curMap.entrySet()) {
+            String old = prevMap.get(e.getKey());
+            if (old == null || !old.equals(e.getValue())) {
+                switch (e.getKey()) {
+                    case "thinking": changes.add(old != null ? "深度思考开关已变化" : "深度思考开关已开启"); break;
+                    case "agent": changes.add(old != null ? "本地Agent开关已变化" : "本地Agent开关已开启"); break;
+                    case "prompt": changes.add("系统提示词已更新"); break;
+                    case "date": changes.add("日期已变化"); break;
+                    default: break;
+                }
+            }
+        }
+        return changes.isEmpty() ? null : String.join("、", changes);
+    }
+
+    /** 若提示词设置相对上次发送有变化，生成系统标记消息（普通对话路径注入；Agent 引擎每轮重建 system 无需） */
+    private String getPromptChangeMarkerIfAny() {
+        String cur = currentPromptSignature();
+        String desc = describePromptChange(lastPromptSignature, cur);
+        if (desc == null) return null;
+        return "[系统指令 - 对话设置已更新]\n\n" + desc
+                + "。历史对话内容仍然有效，但请以当前设置理解对话、回答当前问题，不要沿用旧设置的规则。";
+    }
+
+    /**
+     * 从 AI 消息的工具卡片组件提取工具痕迹（工具名 + 结果）。
+     * maxResultChars：结果保留上限——最近结果传 6000 保持完整数据，旧结果传小值渐进压缩；
+     * 只留已完成的 success/failed 卡片。返回 null 表示无工具痕迹；不修改原消息。
+     */
+    private String buildToolTrace(ChatMessage m, int maxResultChars) {
+        if (m.components == null || m.components.isEmpty()) return null;
+        if (maxResultChars <= 0) maxResultChars = TOOL_RESULT_OLD_MAX;
+        StringBuilder sb = new StringBuilder();
+        for (com.oilquiz.app.ai.chat.component.ComponentData c : m.components) {
+            if (c == null || c.type == null || !"tool_call".equals(c.type)) continue;
+            if (c.props == null) continue;
+            String status = c.props.optString("status", "");
+            if (!"success".equals(status) && !"failed".equals(status)) continue; // 只留已完成的
+            String toolName = c.props.optString("toolName", "");
+            String result = c.props.optString("result", "");
+            if (toolName.isEmpty() && result.isEmpty()) continue;
+            sb.append("• ").append(toolName.isEmpty() ? "工具" : toolName);
+            if (!result.isEmpty()) {
+                String r = result.trim().replace('\n', ' ').replace('\r', ' ');
+                if (r.length() > maxResultChars) r = r.substring(0, maxResultChars) + "…";
+                sb.append("：").append(r);
+            }
+            sb.append('\n');
+        }
+        String s = sb.toString().trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    /** 消息是否携带工具调用组件（用于决定工具结果保留档位） */
+    private boolean hasToolComponents(ChatMessage m) {
+        if (m == null || m.components == null || m.components.isEmpty()) return false;
+        for (com.oilquiz.app.ai.chat.component.ComponentData c : m.components) {
+            if (c != null && "tool_call".equals(c.type)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 组装消息进入上下文的文本：AI 消息附工具调用痕迹（思考内容可选，截断防膨胀）。
+     * toolResultCap：本条消息工具结果的保留上限（见 TOOL_RESULT_* 档位）。
+     * 只用于上下文构建，不修改原消息。返回 null 表示该消息不应进上下文。
+     */
+    private String buildContextContent(ChatMessage m, boolean includeThinking, int toolResultCap) {
+        if (m == null) return null;
+        String base = m.getContent();
+        if (base == null) base = "";
+        StringBuilder sb = new StringBuilder(base);
+        if (m.type == ChatMessage.MessageType.AI) {
+            String trace = buildToolTrace(m, toolResultCap);
+            if (trace != null) {
+                sb.append("\n\n[工具调用]\n").append(trace);
+            }
+            if (includeThinking && m.thinkingContent != null && !m.thinkingContent.trim().isEmpty()) {
+                String th = m.thinkingContent.trim();
+                if (th.length() > 512) th = th.substring(0, 512) + "…";
+                sb.append("\n\n[思考过程]\n").append(th);
+            }
+        }
+        String s = sb.toString().trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    /** 在 token 预算内倒序收集历史条目（返回 {role, content} 倒序列表）。
+     *  数据优先：最近的工具结果保留完整（6000），旧结果按档位渐进压缩（2500→1200）；
+     *  预算耗尽时把被挤掉的最近对话做成"历史要点"存到 evictedContextPoints
+     *  （最新优先、最多 4 条；助手消息的要点优先保留工具结果数据而非对话废话），
+     *  由调用方注入上下文——与本地 Agent 引擎 trimHistoryToFit 同款轻量压缩策略。 */
+    private java.util.List<String[]> collectHistoryByBudget(List<ChatMessage> history,
+                                                            int currentUserIdx,
+                                                            boolean includeThinking) {
+        java.util.List<String[]> temp = new java.util.ArrayList<>();
+        evictedContextPoints = new java.util.ArrayList<>();
+        int budget = getContextBudgetTokens();
+        int used = 0;
+        int toolTier = 0; // 0=最近(完整6000) 1=较新(2500) 2+=更早(1200)
+        int maxEntries = getHistoryMaxEntries();
+        for (int i = currentUserIdx - 1; i >= 0 && temp.size() < maxEntries; i--) {
+            ChatMessage m = history.get(i);
+            if (m == null) continue;
+            if (m.type != ChatMessage.MessageType.USER && m.type != ChatMessage.MessageType.AI) continue;
+            if (m.status == ChatMessage.MessageStatus.GENERATING
+                    || m.status == ChatMessage.MessageStatus.FAILED
+                    || m.status == ChatMessage.MessageStatus.ERROR) continue;
+            int cap = TOOL_RESULT_KEEP_MAX;
+            if (m.type == ChatMessage.MessageType.AI && hasToolComponents(m)) {
+                cap = toolTier == 0 ? TOOL_RESULT_KEEP_MAX
+                        : (toolTier == 1 ? TOOL_RESULT_MID_MAX : TOOL_RESULT_OLD_MAX);
+                toolTier++;
+            }
+            String content = buildContextContent(m, includeThinking, cap);
+            if (content == null) continue;
+            int t = estimateTokens(content);
+            if (used + t > budget) {
+                // 预算耗尽：把被挤掉的最近对话做成要点（最新优先），避免直接丢弃丢信息
+                int kept = 0;
+                for (int k = i; k >= 0 && kept < 4; k--) {
+                    ChatMessage m2 = history.get(k);
+                    if (m2 == null) continue;
+                    if (m2.type != ChatMessage.MessageType.USER && m2.type != ChatMessage.MessageType.AI) continue;
+                    if (m2.status == ChatMessage.MessageStatus.GENERATING
+                            || m2.status == ChatMessage.MessageStatus.FAILED
+                            || m2.status == ChatMessage.MessageStatus.ERROR) continue;
+                    // 助手消息优先保留工具结果数据（结果才是事实），其次才是对话文本
+                    if (m2.type == ChatMessage.MessageType.AI) {
+                        String trace = buildToolTrace(m2, KEY_POINT_RESULT_MAX);
+                        if (trace != null) {
+                            evictedContextPoints.add("助手: " + trace);
+                            kept++;
+                            continue;
+                        }
+                    }
+                    String c2 = m2.getContent();
+                    if (c2 == null || c2.trim().isEmpty()) continue;
+                    String snip = c2.replace('\n', ' ').replace('\r', ' ').trim();
+                    if (snip.length() > 90) snip = snip.substring(0, 90) + "…";
+                    evictedContextPoints.add((m2.type == ChatMessage.MessageType.USER ? "用户" : "助手") + ": " + snip);
+                    kept++;
+                }
+                break;
+            }
+            temp.add(new String[]{m.getRole(), content});
+            used += t;
+        }
+        java.util.Collections.reverse(temp); // 恢复时间正序
+        return temp;
+    }
+
+    /** 合并相邻同角色（失败/中断导致缺回复时保持 user/assistant 严格交替） */
+    private java.util.List<String[]> mergeConsecutiveSameRole(java.util.List<String[]> entries) {
+        java.util.List<String[]> result = new java.util.ArrayList<>();
+        String lastRole = null;
+        for (String[] entry : entries) {
+            if (entry[0].equals(lastRole) && !result.isEmpty()) {
+                String[] last = result.get(result.size() - 1);
+                last[1] = last[1] + "\n\n" + entry[1];
+            } else {
+                result.add(new String[]{entry[0], entry[1]});
+                lastRole = entry[0];
+            }
+        }
+        return result;
+    }
+
+    /** 定位最后一条 user 消息索引（即当前待发送消息）；无则返回 -1 */
+    private int lastUserMessageIndex(List<ChatMessage> history) {
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage m = history.get(i);
+            if (m != null && m.type == ChatMessage.MessageType.USER) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     /**
      * 从 UI 会话历史构建普通对话的上下文轮次（{role, content} 对）。
      * 与本地 Agent（buildAgentHistory）同源：统一以 UI 历史为上下文真相源，
-     * 普通↔Agent 来回切换上下文天然连续。排除当前待发送的 user 消息
-     * （buildChatJsonRequest 会追加它），按最近 N 条裁剪。
+     * 普通↔Agent 来回切换上下文天然连续（两模式共享同一份完整对话，切换不失忆）。
+     *
+     * 健壮性（防上下文崩溃与提示词污染）：
+     * 1. 仅取 USER/AI 类型消息，排除工具/汇总/系统等特殊消息（其 getRole 可能返回 "user"，
+     *    混入会破坏 user/assistant 交替导致 native 模板畸形）；
+     * 2. 跳过失败/错误/生成中的占位消息（"生成失败"文本不进上下文）；
+     * 3. 合并连续同角色消息（某轮回复失败/中断时保持严格交替）；
+     * 4. 按 KV 上下文预算（contextSize - maxTokens - 预留）组装，而非固定条数；
+     * 5. 预算超限时把被挤掉的最近对话压缩成「历史要点」注入（历史压缩，不静默丢弃）；
+     * 6. 提示词设置（思考/Agent/系统提示词/日期）变化时注入系统标记，防旧指令污染；
+     * 7. AI 消息附紧凑工具调用痕迹（结果截断），保证跨模式追问时模型记得工具结论。
+     * 排除当前待发送的 user 消息（buildChatJsonRequest 会追加它）。
      */
     private java.util.List<String[]> buildNormalHistoryEntries() {
         java.util.List<String[]> result = new java.util.ArrayList<>();
-        int count = 0;
-        for (int i = chatHistory.size() - 1; i >= 0; i--) {
-            ChatMessage m = chatHistory.get(i);
-            if (m == null || m.getContent() == null || m.getContent().trim().isEmpty()) continue;
-            String role = m.getRole();
-            if (!"user".equals(role) && !"assistant".equals(role)) continue;
-            // 隔离：跳过 Agent 轮次（普通对话上下文只含普通轮次，不被工具痕迹/思考段污染）
-            if (m.turnMode == ChatMessage.TURN_MODE_AGENT) continue;
-            // 倒序遇到的第一条 user（普通）即当前待发送消息，跳过（发送时由请求构建方追加）
-            if ("user".equals(role) && result.isEmpty()) continue;
-            result.add(0, new String[]{role, m.getContent()});
-            count++;
-            if (count >= NORMAL_REBUILD_MAX_ENTRIES) break;
+        if (chatHistory == null || chatHistory.isEmpty()) return result;
+
+        int currentUserIdx = lastUserMessageIndex(chatHistory);
+        if (currentUserIdx < 0) return result;
+
+        // 倒序按 token 预算收集（不包含思考内容，普通对话保持干净正文）
+        java.util.List<String[]> temp = collectHistoryByBudget(chatHistory, currentUserIdx, false);
+        result = mergeConsecutiveSameRole(temp);
+
+        // 提示词变更标记（罕见，仅设置/日期变化时出现）：放最前作系统指令，
+        // 设置变化的那一轮缓存本就不该命中，代价可接受
+        String marker = getPromptChangeMarkerIfAny();
+        if (marker != null) {
+            result.add(0, new String[]{"system", marker});
+        }
+        // 历史压缩要点：追加到历史**末尾**（紧挨当前待发送消息之前）。
+        // 放末尾而不是最前：历史主体前缀跨轮保持不变 → 本地 KV 缓存可命中；
+        // 放最前会让整个 prompt 前缀随要点内容偏移，每轮全量重解码
+        if (!evictedContextPoints.isEmpty()) {
+            StringBuilder pts = new StringBuilder("【历史对话要点】(较早对话已压缩，上下文有限)\n");
+            for (String p : evictedContextPoints) {
+                pts.append("• ").append(p).append('\n');
+            }
+            result.add(new String[]{"system", pts.toString().trim()});
         }
         return result;
     }
 
     /**
      * 从 UI 对话历史构建本地 Agent 的多轮上下文：
+     * 与普通对话共享同一份完整 UI 历史（切换模式不失忆），只取 USER/AI 真实对话消息，
+     * 跳过失败占位并合并连续同角色（防畸形上下文）。Agent 上下文额外包含：
+     * - 工具调用痕迹（工具名+截断结果）：Agent 追问时记得"调过什么工具、结果如何"；
+     * - 思考过程（每条截断 512 字符）：连续推理不脱节。
+     * 历史长度按 KV 上下文预算组装，而非固定 4 条；预算内的再压缩由 AgentLoopEngine
+     * 内部 trimHistoryToFit 负责（工具结果截断 + 历史要点拼接），此处不重复做。
      * 从尾部定位当前用户消息（最后一次 user 消息），跳过它及之后的所有消息
-     * （AI 占位消息、系统横幅），只收集之前真实的 user/assistant 轮次，最多 8 条。
+     * （AI 占位、系统横幅）。
      */
     private java.util.List<AgentLoopEngine.HistoryEntry> buildAgentHistory(
             java.util.List<ChatMessage> history) {
         java.util.List<AgentLoopEngine.HistoryEntry> result = new java.util.ArrayList<>();
-        if (history == null) return result;
+        if (history == null || history.isEmpty()) return result;
 
-        // 从尾部向前找当前用户消息的位置（它就是本次正在处理的问题；隔离：只认 Agent 轮次）
-        int currentUserIdx = -1;
-        for (int i = history.size() - 1; i >= 0; i--) {
-            ChatMessage m = history.get(i);
-            if (m != null && "user".equals(m.getRole())
-                    && m.turnMode == ChatMessage.TURN_MODE_AGENT) {
-                currentUserIdx = i;
-                break;
-            }
-        }
+        int currentUserIdx = lastUserMessageIndex(history);
         if (currentUserIdx < 0) return result;
 
-        // 收集当前用户消息之前的真实对话轮次（隔离：只取 Agent 轮次，普通对话轮次不进入
-        // Agent 上下文，来回切换互不污染；跳过不匹配的轮次继续向前找更早的 Agent 轮次）
-        for (int j = currentUserIdx - 1; j >= 0 && result.size() < AGENT_HISTORY_MAX_MESSAGES; j--) {
-            ChatMessage m = history.get(j);
-            if (m == null || m.getContent() == null || m.getContent().trim().isEmpty()) continue;
-            if (m.turnMode != ChatMessage.TURN_MODE_AGENT) continue;
-            String role = m.getRole();
-            if (!"user".equals(role) && !"assistant".equals(role)) continue;
-            result.add(0, new AgentLoopEngine.HistoryEntry(role, m.getContent()));
+        // 倒序按 token 预算收集（包含工具痕迹与思考内容）
+        java.util.List<String[]> temp = collectHistoryByBudget(history, currentUserIdx, true);
+        java.util.List<String[]> merged = mergeConsecutiveSameRole(temp);
+
+        for (String[] entry : merged) {
+            result.add(new AgentLoopEngine.HistoryEntry(entry[0], entry[1]));
         }
         return result;
     }
@@ -5019,7 +5348,7 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
 
-            // 确认走 Agent 路径：标记轮次模式（上下文隔离重建依据；降级/视觉追问已提前 return）
+            // 确认走 Agent 路径：标记轮次模式（历史/会话记录用；降级/视觉追问已提前 return）
             markLastUserMessageMode(ChatMessage.TURN_MODE_AGENT);
 
             // 同步引擎会话：跟随当前 UI 会话（新对话/清空后 currentSessionId 可能已变化）
@@ -6010,7 +6339,7 @@ public class AIChatActivity extends BaseActivity {
             if (messageIndex >= 0 && messageIndex < chatHistory.size()) {
                 ChatMessage finalMsg = chatHistory.get(messageIndex);
                 finalMsg.content = finalContent;
-                // 轮次模式：继承本轮 user 消息的标记（普通/Agent），供上下文隔离重建
+                // 轮次模式：继承本轮 user 消息的标记（历史/会话记录用；上下文构建共享完整历史）
                 for (int i = chatHistory.size() - 1; i >= 0; i--) {
                     ChatMessage u = chatHistory.get(i);
                     if (u != null && "user".equals(u.getRole())) {
@@ -6660,9 +6989,9 @@ public class AIChatActivity extends BaseActivity {
                 chatHistoryManager.saveAIChatHistory(copy);
                 // 同步保存为会话（确保历史不丢失）
                 if (copy.size() >= 2) {
-                    // 加锁 + 线程内读最新 currentSessionId：
-                    // 与 processChatMessageWithAgent 的同步创建互斥，避免并发创建重复会话
-                    synchronized (this) {
+                    // 跨实例全局锁（非 synchronized(this)）：旋转重建时旧实例保存线程与
+                    // 新实例加载线程可能并发读写同一会话文件，实例锁不互斥会导致半写/损坏
+                    synchronized (HISTORY_IO_LOCK) {
                         ConversationSession session = chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId);
                         // 保存后更新 currentSessionId，下次更新同一文件而非重复创建
                         if (session != null && session.id != null) {
@@ -8540,148 +8869,18 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 微信式语音输入模式切换：点击麦克风按钮在「键盘输入」与「按住说话」之间切换。
-     * 语音模式：输入框隐藏、显示"按住 说话"按钮、麦克风图标变为键盘图标；
-     * 键盘模式：恢复输入框、隐藏按住说话按钮、图标恢复麦克风。
+     * 语音输入（语音识别工具模式）：点击麦克风按钮 → 弹出语音识别组件
+     * （录音对话框，与 agent 的 voice_input 工具同款组件）→ 用户说完点"完成" →
+     * 按 voice_input 的模型选择逻辑识别（用户显式选本地 SenseVoice 则本地优先）→
+     * 文字填入输入框待确认。替代旧的"按住说话/模式切换"那套 UI。
      */
-    private void toggleVoiceInputMode() {
-        voiceInputMode = !voiceInputMode;
-        // 退出录音状态（若正在按住说话则先取消）
-        if (isSpeechRecording || isOfflineAsrMode) {
-            cancelSpeechRecording();
-            isOfflineAsrMode = false;
-        }
-        updateVoiceInputModeUI();
-    }
-
-    /** 根据语音输入模式刷新输入区 UI */
-    private void updateVoiceInputModeUI() {
-        if (inputMessage != null) {
-            inputMessage.setVisibility(voiceInputMode ? View.GONE : View.VISIBLE);
-        }
-        if (holdToTalk != null) {
-            holdToTalk.setVisibility(voiceInputMode ? View.VISIBLE : View.GONE);
-            if (voiceInputMode) {
-                holdToTalk.setText(getString(R.string.h_134f075e));
-                holdToTalk.setBackgroundResource(R.drawable.rounded_edittext);
-                holdToTalk.setTextColor(ThemeColors.get(this, R.color.text_secondary));
-            }
-        }
-        if (btnVoice != null) {
-            // 语音模式显示键盘图标（点击切回键盘），键盘模式显示麦克风图标
-            btnVoice.setIconResource(voiceInputMode ? R.drawable.ic_keyboard : R.drawable.ic_mic);
-        }
-        if (voiceRecordingBar != null) {
-            voiceRecordingBar.setVisibility(View.GONE);
-        }
-    }
-
-    /**
-     * 微信式"按住 说话"触摸处理：
-     * - 按下：开始录音（先请求权限）
-     * - 上滑超过阈值：进入取消态（红色"松开 取消"）
-     * - 松开：取消区域→取消录音；否则→结束录音并识别
-     * - 取消事件：取消录音
-     */
-    private boolean handleHoldToTalkTouch(android.view.MotionEvent event) {
-        switch (event.getActionMasked()) {
-            case android.view.MotionEvent.ACTION_DOWN:
-                pressStartY = event.getRawY();
-                slideToCancel = false;
-                // 先请求麦克风权限，授权后启动语音输入流程
-                com.oilquiz.app.resource.PermissionResourceProvider provider =
-                        com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
-                provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
-                    @Override
-                    public void onGranted() {
-                        runOnUiThread(() -> startSpeechInputFlow());
-                    }
-
-                    @Override
-                    public void onDenied(java.util.List<String> deniedPermissions) {
-                        showToast(getString(R.string.h_b6cf53e9));
-                        setVoiceButtonEnabled(false);
-                    }
-                });
-                return true;
-            case android.view.MotionEvent.ACTION_MOVE:
-                if (isSpeechRecording || isOfflineAsrMode) {
-                    float dy = pressStartY - event.getRawY();
-                    boolean nowCancel = dy > dpToPx(SLIDE_CANCEL_THRESHOLD_DP);
-                    if (nowCancel != slideToCancel) {
-                        slideToCancel = nowCancel;
-                        updateHoldToTalkPressUI();
-                    }
-                }
-                return true;
-            case android.view.MotionEvent.ACTION_UP:
-                if (slideToCancel) {
-                    cancelSpeechRecording();
-                    isOfflineAsrMode = false;
-                } else if (isSpeechRecording) {
-                    stopSpeechRecording();
-                } else if (isOfflineAsrMode) {
-                    // 系统识别模式：松开结束识别
-                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).stopOfflineRecognition();
-                }
-                slideToCancel = false;
-                updateHoldToTalkPressUI();
-                return true;
-            case android.view.MotionEvent.ACTION_CANCEL:
-                cancelSpeechRecording();
-                isOfflineAsrMode = false;
-                slideToCancel = false;
-                updateHoldToTalkPressUI();
-                return true;
-            default:
-                return true;
-        }
-    }
-
-    /** 按住说话过程中的按钮视觉反馈：正常按住=变深色，上滑取消=红色"松开 取消" */
-    private void updateHoldToTalkPressUI() {
-        if (holdToTalk == null) return;
-        boolean pressed = isSpeechRecording || isOfflineAsrMode;
-        if (slideToCancel) {
-            holdToTalk.setText(getString(R.string.h_27d9da5c));
-            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext_error);
-            holdToTalk.setTextColor(ThemeColors.get(R.color.hc_ffe53935));
-        } else if (pressed) {
-            holdToTalk.setText(getString(R.string.h_34e08b7b));
-            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext_pressed);
-            holdToTalk.setTextColor(ThemeColors.get(this, R.color.on_primary_container));
-        } else {
-            holdToTalk.setText(getString(R.string.h_134f075e));
-            holdToTalk.setBackgroundResource(R.drawable.rounded_edittext);
-            holdToTalk.setTextColor(ThemeColors.get(this, R.color.text_secondary));
-        }
-    }
-
-    /** dp → px 换算（上滑取消阈值） */
-    private int dpToPx(int dp) {
-        return Math.round(dp * getResources().getDisplayMetrics().density);
-    }
-
-    /** 语音输入：录音 → ASR 识别 → 文字填入输入框；在线不可用时自动兜底到系统识别 */
-    private void handleSpeechInput() {
-        com.oilquiz.app.ai.speech.SpeechManager speech =
-                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
-        // 离线/系统识别模式：再次点击停止识别并出结果
-        if (isOfflineAsrMode) {
-            speech.stopOfflineRecognition();
-            return;
-        }
-        if (isSpeechRecording) {
-            stopSpeechRecording();
-            return;
-        }
-        // ✅ 使用统一的权限管理工具请求麦克风权限
+    private void startVoiceRecognitionTool() {
         com.oilquiz.app.resource.PermissionResourceProvider provider =
-            com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+                com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
         provider.requestMicrophonePermission(this, new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
             @Override
             public void onGranted() {
-                startSpeechInputFlow();
+                doVoiceRecognitionTool();
             }
 
             @Override
@@ -8692,23 +8891,66 @@ public class AIChatActivity extends BaseActivity {
         });
     }
 
-    /** 选择语音输入路径：在线ASR可用→录音上传识别；否则兜底系统语音识别 */
-    private void startSpeechInputFlow() {
-        com.oilquiz.app.ai.speech.SpeechManager speech =
+    /** 执行语音识别工具流程（后台线程：调用 agent 语音识别工具 voice_input 的 record 动作） */
+    private void doVoiceRecognitionTool() {
+        final com.oilquiz.app.ai.speech.SpeechManager speech =
                 com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
-        boolean asrAvail = speech.isAsrAvailable();
-        boolean offlineAvail = speech.isOfflineAsrAvailable();
-        AppLogger.aiD(TAG, "startSpeechInputFlow: asrAvailable=" + asrAvail + ", offlineAvailable=" + offlineAvail);
-        if (asrAvail) {
-            startSpeechRecording();
-        } else if (offlineAvail) {
-            showToast(getString(R.string.h_5a3fe655));
-            startOfflineSpeechRecognition(false);
-        } else {
+        // 在线/本地任一可用即可识别（与 VoiceInputTool 一致）
+        if (!speech.isAnyAsrAvailable()) {
             showToast(getString(R.string.h_b2f5500b));
             setVoiceButtonEnabled(false);
+            return;
+        }
+        // 预判识别路径（用于本地模型加载提示）：用户显式选本地 SenseVoice 或在线不可用 → 本地
+        final boolean useLocal = isLocalAsrSelected() || !speech.isAsrAvailable();
+        if (useLocal && !com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.isReady()) {
+            // 本地模型按需加载（首次加载约数秒）：加载前提示
+            showToast(getString(R.string.h_a2b3c4d5));
+        }
+        new Thread(() -> {
+            try {
+                // 直接调用 agent 语音识别工具（voice_input）的 record 动作：
+                // 工具内部完成 权限检查→录音组件(录音对话框)→用户点完成→模型选择(preferLocal)→识别→返回文本
+                java.util.Map<String, Object> params = new HashMap<>();
+                params.put("action", "record");
+                params.put("duration_seconds", 60);   // 最长录音 60 秒
+                params.put("timeout_seconds", 90);    // 等待用户操作上限 90 秒
+                com.oilquiz.app.ai.tool.VoiceInputTool tool =
+                        new com.oilquiz.app.ai.tool.VoiceInputTool(this);
+                com.oilquiz.app.ai.tool.AIToolResult r = tool.execute(params);
+                if (r != null && r.isSuccess()) {
+                    final String text = r.getAdditionalInfo() != null
+                            ? String.valueOf(r.getAdditionalInfo().get("text")) : "";
+                    runOnUiThread(() -> {
+                        // 本地模型初始化已完成 → 提示已就绪（下次识别无需再加载）
+                        if (useLocal) {
+                            showToast(getString(R.string.h_e6f7a8b9));
+                        }
+                        previewRecognizedText(text);
+                    });
+                } else {
+                    final String err = (r != null && r.getErrorMessage() != null)
+                            ? r.getErrorMessage() : "语音识别失败";
+                    runOnUiThread(() -> showToast(err));
+                }
+            } catch (Exception e) {
+                AppLogger.aiE(TAG, "语音识别工具失败: " + e.getMessage());
+                runOnUiThread(() -> showToast("语音识别失败: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** 用户是否在"功能专用模型"中显式选择了本地 SenseVoice（→ 识别本地优先），与 VoiceInputTool 一致 */
+    private boolean isLocalAsrSelected() {
+        try {
+            return com.oilquiz.app.ai.speech.SpeechManager.LOCAL_ASR_ID.equals(
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this)
+                            .getFeatureModelId(com.oilquiz.app.ai.model.OnlineModelManager.FEATURE_ASR));
+        } catch (Exception e) {
+            return false;
         }
     }
+
 
     // ===================== 自动语音合成开关 =====================
 
@@ -8799,10 +9041,10 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 刷新语音输入按钮可用性：
      * - 麦克风权限未授予：保持可点（用于触发授权，被拒后再禁用）
-     * - 权限已授予：在线ASR 或 系统离线识别可用才启用，否则禁用（不弹引导对话框）
+     * - 权限已授予：在线ASR 或 本地/系统离线识别可用才启用，否则禁用（不弹引导对话框）
      */
     private void updateVoiceButtonAvailability() {
-        if (btnVoice == null || isSpeechRecording || isOfflineAsrMode) return;
+        if (btnVoice == null) return;
         boolean micGranted = androidx.core.content.ContextCompat.checkSelfPermission(
                 this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED;
         boolean available;
@@ -8816,189 +9058,6 @@ public class AIChatActivity extends BaseActivity {
         setVoiceButtonEnabled(available);
     }
 
-    /** 启动离线/系统语音识别（在线ASR不可用或失败时的兜底，需用户重新说话） */
-    private void startOfflineSpeechRecognition(boolean isFallbackAfterOnlineFail) {
-        isOfflineAsrMode = true;
-        // 记录识别前输入框已有文本，部分结果实时拼接展示
-        voiceInputBaseText = (inputMessage != null && inputMessage.getText() != null)
-                ? inputMessage.getText().toString() : "";
-        updateVoiceRecordingUI(true);
-        com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).startOfflineRecognition(
-                new com.oilquiz.app.ai.speech.SystemSpeechRecognizer.RecognitionCallback() {
-            @Override
-            public void onResult(String text) {
-                // 自动预览：识别结果填入输入框并切回键盘模式，用户确认/修改后再发送（避免识别错误直接发出）
-                previewRecognizedText(text);
-            }
-
-            @Override
-            public void onPartialResult(String text) {
-                // 说话过程中实时把部分结果写入输入框（保留原有前缀）
-                if (inputMessage != null && text != null) {
-                    inputMessage.setText(voiceInputBaseText + text);
-                    inputMessage.setSelection(inputMessage.getText().length());
-                    inputMessage.requestFocus();
-                }
-            }
-
-            @Override
-            public void onError(String error) {
-                showToast(getString(R.string.h_b2f5500b));
-            }
-
-            @Override
-            public void onEnd() {
-                isOfflineAsrMode = false;
-                updateVoiceRecordingUI(false);
-            }
-        });
-        if (isFallbackAfterOnlineFail) {
-            showToast(getString(R.string.h_a8c65c1d));
-        }
-    }
-
-    /** 开始语音输入录音 */
-    private void startSpeechRecording() {
-        try {
-            // 麦克风互斥：Agent 语音输入组件正在录音时，应用层录音让位并提示
-            com.oilquiz.app.ai.speech.SpeechManager speechMgr =
-                    com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
-            if (!speechMgr.tryAcquireRecording("app")) {
-                showToast(getString(R.string.h_f455a0c0));
-                return;
-            }
-            File audioFile = createAudioFile();
-            if (audioFile == null) {
-                speechMgr.releaseRecording("app");
-                showToast(getString(R.string.h_d6d558b8));
-                return;
-            }
-            speechRecordingFilePath = audioFile.getAbsolutePath();
-
-            speechMediaRecorder = new MediaRecorder();
-            speechMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-            speechMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            speechMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            speechMediaRecorder.setAudioSamplingRate(44100);
-            speechMediaRecorder.setAudioEncodingBitRate(128000);
-            speechMediaRecorder.setOutputFile(speechRecordingFilePath);
-            speechMediaRecorder.prepare();
-            speechMediaRecorder.start();
-
-            isSpeechRecording = true;
-            updateVoiceRecordingUI(true);
-            showToast(getString(R.string.h_90a61206));
-        } catch (Exception e) {
-            AppLogger.aiE(TAG, "语音输入录音启动失败: " + e.getMessage());
-            showToast(getString(R.string.h_8339b334) + e.getMessage());
-            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
-            releaseSpeechRecorder();
-            updateVoiceRecordingUI(false);
-        }
-    }
-
-    /** 更新语音输入的录音状态 UI（按住说话按钮/横幅/计时） */
-    private void updateVoiceRecordingUI(boolean recording) {
-        // 录音状态由"按住 说话"按钮体现（btnVoice 是模式切换按钮，不随录音变化）
-        updateHoldToTalkPressUI();
-        if (voiceRecordingBar != null) {
-            voiceRecordingBar.setVisibility(recording ? View.VISIBLE : View.GONE);
-        }
-        if (recording) {
-            speechRecordingSeconds = 0;
-            if (tvVoiceRecordingTime != null) tvVoiceRecordingTime.setText("00:00");
-            if (speechTimerRunnable != null) speechTimerHandler.removeCallbacks(speechTimerRunnable);
-            speechTimerRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    if (!isSpeechRecording) return;
-                    speechRecordingSeconds++;
-                    if (tvVoiceRecordingTime != null) {
-                        tvVoiceRecordingTime.setText(String.format(java.util.Locale.US, "%02d:%02d",
-                                speechRecordingSeconds / 60, speechRecordingSeconds % 60));
-                    }
-                    // 红点闪烁
-                    if (tvVoiceRecordingDot != null) {
-                        tvVoiceRecordingDot.setAlpha(speechRecordingSeconds % 2 == 0 ? 1f : 0.3f);
-                    }
-                    speechTimerHandler.postDelayed(this, 1000);
-                }
-            };
-            speechTimerHandler.postDelayed(speechTimerRunnable, 1000);
-        } else {
-            if (speechTimerRunnable != null) {
-                speechTimerHandler.removeCallbacks(speechTimerRunnable);
-                speechTimerRunnable = null;
-            }
-            if (tvVoiceRecordingDot != null) tvVoiceRecordingDot.setAlpha(1f);
-        }
-    }
-
-    /** 停止语音输入录音并执行 ASR 识别 */
-    private void stopSpeechRecording() {
-        if (!isSpeechRecording || speechMediaRecorder == null) return;
-        try {
-            speechMediaRecorder.stop();
-            isSpeechRecording = false;
-            updateVoiceRecordingUI(false);
-            releaseSpeechRecorder();
-            // 释放麦克风占用（Agent 语音输入组件可继续录音）
-            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
-
-            File audioFile = new File(speechRecordingFilePath);
-            if (!audioFile.exists() || audioFile.length() == 0) {
-                showToast(getString(R.string.h_8f5d6646));
-                return;
-            }
-
-            showToast(getString(R.string.h_4ef018c9));
-            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this)
-                .recognizeSpeech(audioFile, null)
-                .whenComplete((result, error) -> runOnUiThread(() -> {
-                    audioFile.delete();
-                    if (error != null) {
-                        Throwable cause = error instanceof java.util.concurrent.CompletionException
-                                && error.getCause() != null ? error.getCause() : error;
-                        AppLogger.aiE(TAG, "在线语音识别失败: " + cause.getMessage());
-                        // 兜底：在线识别失败时自动切换系统/离线识别（需重新说话）
-                        if (com.oilquiz.app.ai.speech.SpeechManager.getInstance(AIChatActivity.this)
-                                .isOfflineAsrAvailable()) {
-                            startOfflineSpeechRecognition(true);
-                        } else {
-                            showToast(getString(R.string.h_b2f5500b));
-                        }
-                    } else if (result != null && result.text != null && !result.text.isEmpty()) {
-                        // 自动预览：在线识别完成也填入输入框待确认
-                        previewRecognizedText(result.text);
-                    } else {
-                        showToast(getString(R.string.h_4b5fe010));
-                    }
-                }));
-        } catch (Exception e) {
-            isSpeechRecording = false;
-            updateVoiceRecordingUI(false);
-            releaseSpeechRecorder();
-            com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
-            showToast(getString(R.string.h_d4c4ce64) + e.getMessage());
-        }
-    }
-
-    /**
-     * 将识别结果写入输入框：直接操作 EditText（不依赖 ChatInputManager 内部状态，
-     * 避免其未 init 时文本丢失），并让输入框获焦、光标定位到末尾
-     */
-    private void appendRecognizedText(String text) {
-        if (text == null || text.isEmpty()) return;
-        runOnUiThread(() -> {
-            if (inputMessage != null) {
-                inputMessage.append(text);
-                inputMessage.requestFocus();
-                inputMessage.setSelection(inputMessage.getText().length());
-            } else if (inputManager != null) {
-                inputManager.appendText(text);
-            }
-        });
-    }
 
     /**
      * 自动预览：识别结果填入输入框并自动切回键盘模式，让用户看到结果、可修改后再点发送。
@@ -9020,48 +9079,8 @@ public class AIChatActivity extends BaseActivity {
             } else if (inputManager != null) {
                 inputManager.appendText(clean);
             }
-            // 退出语音模式，展示输入框供用户预览/修改
-            if (voiceInputMode) {
-                voiceInputMode = false;
-                updateVoiceInputModeUI();
-            }
             showToast(getString(R.string.h_a3d12e2b));
         });
-    }
-
-    /** 取消语音输入录音：停止录音、删除临时文件、不识别（微信式上滑取消） */
-    private void cancelSpeechRecording() {
-        if (speechMediaRecorder != null) {
-            try {
-                speechMediaRecorder.stop();
-            } catch (Exception ignored) {
-            }
-        }
-        isSpeechRecording = false;
-        releaseSpeechRecorder();
-        // 释放麦克风占用（Agent 语音输入组件可继续录音）
-        com.oilquiz.app.ai.speech.SpeechManager.getInstance(this).releaseRecording("app");
-        // 删除临时录音文件
-        if (speechRecordingFilePath != null) {
-            try {
-                File f = new File(speechRecordingFilePath);
-                if (f.exists()) f.delete();
-            } catch (Exception ignored) {
-            }
-            speechRecordingFilePath = null;
-        }
-        updateVoiceRecordingUI(false);
-    }
-
-    /** 释放语音输入录音器 */
-    private void releaseSpeechRecorder() {
-        if (speechMediaRecorder != null) {
-            try {
-                speechMediaRecorder.release();
-            } catch (Exception ignored) {
-            }
-            speechMediaRecorder = null;
-        }
     }
 
     /** 语音模型设置：配置语音识别/语音合成专用模型 */
@@ -9819,12 +9838,7 @@ public class AIChatActivity extends BaseActivity {
         super.onDestroy();
         stopStatePolling();
         try {
-            // 释放语音输入录音器与 TTS 播放资源
-            releaseSpeechRecorder();
-            if (speechTimerRunnable != null) {
-                speechTimerHandler.removeCallbacks(speechTimerRunnable);
-                speechTimerRunnable = null;
-            }
+            // 释放 TTS 播放资源
             com.oilquiz.app.ai.speech.SpeechManager speechManagerRef =
                     com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
             speechManagerRef.cancelOfflineRecognition();
@@ -9887,7 +9901,7 @@ public class AIChatActivity extends BaseActivity {
         if (chatHistoryManager != null && chatHistory != null && !chatHistory.isEmpty()) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);
             new Thread(() -> {
-                synchronized (this) {
+                synchronized (HISTORY_IO_LOCK) {
                     chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId);
                 }
             }).start();

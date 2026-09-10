@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.Window;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -26,8 +27,10 @@ import com.oilquiz.app.ai.model.ApiModel;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.model.UsageInfo;
 import com.oilquiz.app.ai.service.ModelListFetcher;
+import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.ai.service.UsageTracker;
 import com.oilquiz.app.ui.adapter.ModelListAdapter;
+import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -69,7 +72,21 @@ public class OnlineModelConfigDialog {
     
     private View modelsSection;
     private TextView modelsTitle;
-    
+    private EditText selectedModelInput;   // 实际模型名手动输入（列表未收录模型也可用）
+
+    // 服务能力设置区（agent/多模态/网络搜索等差异化服务）
+    private View servicesSection;
+    private CheckBox svcAgent;
+    private CheckBox svcVision;
+    private CheckBox svcWebSearch;
+    private CheckBox svcEmbedding;
+    private CheckBox svcRerank;
+    private CheckBox svcImageGen;
+    private CheckBox svcFunctionCalling;
+    private CheckBox svcTts;
+    private CheckBox svcAsr;
+    private boolean capabilitiesUserTouched; // 用户是否手动调整过能力勾选
+
     private ModelListFetcher modelListFetcher;
     private UsageTracker usageTracker;
     private OnlineModelManager modelManager;
@@ -107,6 +124,9 @@ public class OnlineModelConfigDialog {
                 appIdInput.setText(config.appId);
             }
             selectedModelId = config.selectedModel;
+            if (selectedModelInput != null && selectedModelId != null) {
+                selectedModelInput.setText(selectedModelId);
+            }
         }
         return this;
     }
@@ -137,6 +157,24 @@ public class OnlineModelConfigDialog {
             urlInput.setText(existingConfig.apiUrl);
             keyInput.setText(existingConfig.apiKey);
             selectedModelId = existingConfig.selectedModel;
+            // 回填实际模型名到手动输入框（编辑时可查看/修改，列表未收录的免费模型也可见可改）
+            if (selectedModelInput != null && selectedModelId != null) {
+                selectedModelInput.setText(selectedModelId);
+            }
+
+            // 编辑模式：按已有配置回填服务能力勾选并显示设置区
+            if (servicesSection != null && svcAgent != null) {
+                servicesSection.setVisibility(View.VISIBLE);
+                svcAgent.setChecked(existingConfig.supportsAgent);
+                svcVision.setChecked(existingConfig.supportsVision);
+                svcWebSearch.setChecked(existingConfig.supportsWebSearch);
+                svcEmbedding.setChecked(existingConfig.supportsEmbedding);
+                svcRerank.setChecked(existingConfig.supportsRerank);
+                svcImageGen.setChecked(existingConfig.supportsImageGen);
+                svcFunctionCalling.setChecked(existingConfig.supportsFunctionCalling);
+                svcTts.setChecked(existingConfig.supportsTts);
+                svcAsr.setChecked(existingConfig.supportsAsr);
+            }
 
             // 填充 apiSecret 和 appId
             if (existingConfig.apiSecret != null && !existingConfig.apiSecret.isEmpty()) {
@@ -190,11 +228,64 @@ public class OnlineModelConfigDialog {
         
         modelsSection = dialog.findViewById(R.id.models_section);
         modelsTitle = dialog.findViewById(R.id.models_title);
-        
+        selectedModelInput = dialog.findViewById(R.id.input_selected_model);
+
+        // 服务能力设置区
+        servicesSection = dialog.findViewById(R.id.services_section);
+        svcAgent = dialog.findViewById(R.id.svc_agent);
+        svcVision = dialog.findViewById(R.id.svc_vision);
+        svcWebSearch = dialog.findViewById(R.id.svc_web_search);
+        svcEmbedding = dialog.findViewById(R.id.svc_embedding);
+        svcRerank = dialog.findViewById(R.id.svc_rerank);
+        svcImageGen = dialog.findViewById(R.id.svc_image_gen);
+        svcFunctionCalling = dialog.findViewById(R.id.svc_function_calling);
+        svcTts = dialog.findViewById(R.id.svc_tts);
+        svcAsr = dialog.findViewById(R.id.svc_asr);
+        // 能力勾选即视为用户手动设置（保存后配置表刷新不再覆盖）
+        android.widget.CompoundButton.OnCheckedChangeListener userSet = (b, c) -> capabilitiesUserTouched = true;
+        if (svcAgent != null) { svcAgent.setOnCheckedChangeListener(userSet); }
+        if (svcVision != null) { svcVision.setOnCheckedChangeListener(userSet); }
+        if (svcWebSearch != null) { svcWebSearch.setOnCheckedChangeListener(userSet); }
+        if (svcEmbedding != null) { svcEmbedding.setOnCheckedChangeListener(userSet); }
+        if (svcRerank != null) { svcRerank.setOnCheckedChangeListener(userSet); }
+        if (svcImageGen != null) { svcImageGen.setOnCheckedChangeListener(userSet); }
+        if (svcFunctionCalling != null) { svcFunctionCalling.setOnCheckedChangeListener(userSet); }
+        if (svcTts != null) { svcTts.setOnCheckedChangeListener(userSet); }
+        if (svcAsr != null) { svcAsr.setOnCheckedChangeListener(userSet); }
+
+        // 服务能力设置区
+        servicesSection = dialog.findViewById(R.id.services_section);
+        svcAgent = dialog.findViewById(R.id.svc_agent);
+        svcVision = dialog.findViewById(R.id.svc_vision);
+        svcWebSearch = dialog.findViewById(R.id.svc_web_search);
+        svcEmbedding = dialog.findViewById(R.id.svc_embedding);
+        svcRerank = dialog.findViewById(R.id.svc_rerank);
+        svcImageGen = dialog.findViewById(R.id.svc_image_gen);
+        svcFunctionCalling = dialog.findViewById(R.id.svc_function_calling);
+        svcTts = dialog.findViewById(R.id.svc_tts);
+        svcAsr = dialog.findViewById(R.id.svc_asr);
+
+        // 模型名手动输入框：内容变化时同步 selectedModelId（与列表点选/编辑回填保持一致）
+        if (selectedModelInput != null) {
+            selectedModelInput.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+                @Override public void afterTextChanged(android.text.Editable s) {
+                    if (s != null) {
+                        selectedModelId = s.toString().trim();
+                    }
+                }
+            });
+        }
+
         // 设置 RecyclerView
         modelsAdapter = new ModelListAdapter(context, new ArrayList<>(), selectedModelId, 
             model -> {
                 selectedModelId = model.id;
+                // 点选列表项时回填手动输入框（用户仍可修改为任意模型名）
+                if (selectedModelInput != null) {
+                    selectedModelInput.setText(model.id);
+                }
             });
         modelsRecycler.setLayoutManager(new LinearLayoutManager(context));
         modelsRecycler.setAdapter(modelsAdapter);
@@ -223,29 +314,31 @@ public class OnlineModelConfigDialog {
     }
 
     /**
-     * 初始化服务类型下拉框
+     * 初始化服务类型下拉框（服务列表与地址来自 ProviderConfigManager 配置表，
+     * 更新 assets/providers.json 或外部覆盖文件即可增删服务，无需改代码）
      */
     private void setupServiceTypeSpinner() {
-        String[] types = context.getResources().getStringArray(
-            com.oilquiz.app.R.array.service_types_default);
-        
-        // 默认值和端点 URL 映射（不自动设置模型名）
-        final String[][] mappings = {
-            {"OpenAI 兼容", "https://api.openai.com/v1"},
-            {"百炼 DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
-            {"百炼 DashScope 多模态", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
-            {"百炼专属空间(MaaS)", "https://ws-{workspace-id}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"},
-            {"智谱 GLM", "https://open.bigmodel.cn/api/paas/v4"},
-            {"腾讯混元", "https://api.hunyuan.cloud.tencent.com/v1"},
-            {"讯飞", "https://api.xfyun.cn"},
-            {"火山引擎", "https://openspeech.bytedance.com"},
-            {"百度", "https://aip.baidubce.com"},
-            {"小米 MiMo", "https://api.xiaomimimo.com/v1"},
-            {"月之暗面 Kimi", "https://api.moonshot.cn/v1"},
-            {"硅基流动 SiliconFlow", "https://api.siliconflow.cn/v1"},
-            {"百川智能", "https://api.baichuan-ai.com/v1"},
-            {"DeepSeek", "https://api.deepseek.com"}
-        };
+        java.util.List<com.oilquiz.app.ai.model.ProviderConfigManager.Provider> providers =
+            com.oilquiz.app.ai.model.ProviderConfigManager.get().getProviders();
+        if (providers.isEmpty()) {
+            // 配置表缺失时回退资源数组，避免空列表
+            String[] fallback = context.getResources().getStringArray(
+                com.oilquiz.app.R.array.service_types_default);
+            ArrayAdapter<String> fbAdapter = new ArrayAdapter<>(
+                context, android.R.layout.simple_dropdown_item_1line, fallback);
+            serviceTypeSpinner.setAdapter(fbAdapter);
+            return;
+        }
+
+        // 下拉显示名与地址映射（全部来自配置表）
+        final String[] types = new String[providers.size()];
+        final String[][] mappings = new String[providers.size()][2];
+        for (int i = 0; i < providers.size(); i++) {
+            com.oilquiz.app.ai.model.ProviderConfigManager.Provider p = providers.get(i);
+            types[i] = p.name;
+            mappings[i][0] = p.name;
+            mappings[i][1] = p.baseUrl != null ? p.baseUrl : "";
+        }
 
         ArrayAdapter<String> adapter = new ArrayAdapter<>(
             context, android.R.layout.simple_dropdown_item_1line, types);
@@ -288,6 +381,9 @@ public class OnlineModelConfigDialog {
             apiSecretLayout.setVisibility(View.GONE);
             appIdLayout.setVisibility(View.GONE);
             endpointHint.setVisibility(View.GONE);
+            if (servicesSection != null) {
+                servicesSection.setVisibility(View.GONE);
+            }
             return;
         }
         String lower = url.toLowerCase();
@@ -324,6 +420,45 @@ public class OnlineModelConfigDialog {
             appIdLayout.setVisibility(View.GONE);
             endpointHint.setVisibility(View.GONE);
         }
+
+        // 服务能力设置区：编辑模式用配置值，新建模式按服务商配置表预置（可手动调整）
+        applyServiceDefaults(url, editingConfig);
+    }
+
+    /**
+     * 服务能力勾选区：编辑已有配置 → 用配置里保存的能力值；
+     * 新建 → 按服务商配置表 providers.json 的 services 声明预置勾选。
+     * 用户勾选后保存即持久化（capabilitiesUserSet=true，配置表刷新不再覆盖）。
+     */
+    private void applyServiceDefaults(String url, com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config) {
+        if (servicesSection == null || url == null || url.isEmpty()) return;
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        boolean known = pcm.matchByUrl(url) != null;
+        if (config != null) {
+            // 编辑模式：用已保存的能力值
+            svcAgent.setChecked(config.supportsAgent);
+            svcVision.setChecked(config.supportsVision);
+            svcWebSearch.setChecked(config.supportsWebSearch);
+            svcEmbedding.setChecked(config.supportsEmbedding);
+            svcRerank.setChecked(config.supportsRerank);
+            svcImageGen.setChecked(config.supportsImageGen);
+            svcFunctionCalling.setChecked(config.supportsFunctionCalling);
+            svcTts.setChecked(config.supportsTts);
+            svcAsr.setChecked(config.supportsAsr);
+        } else {
+            // 新建模式：按配置表预置（未知服务商全不勾选，用户可手动开）
+            svcAgent.setChecked(known && pcm.hasService(url, "agent"));
+            svcVision.setChecked(known && pcm.hasService(url, "vision"));
+            svcWebSearch.setChecked(known && pcm.hasService(url, "webSearch"));
+            svcEmbedding.setChecked(known && pcm.hasService(url, "embedding"));
+            svcRerank.setChecked(known && pcm.hasService(url, "rerank"));
+            svcImageGen.setChecked(known && pcm.hasService(url, "imageGen"));
+            svcFunctionCalling.setChecked(known && pcm.hasService(url, "functionCalling"));
+            svcTts.setChecked(known && pcm.hasService(url, "tts"));
+            svcAsr.setChecked(known && pcm.hasService(url, "asr"));
+        }
+        servicesSection.setVisibility(View.VISIBLE);
     }
 
     private void testConnection() {
@@ -345,11 +480,49 @@ public class OnlineModelConfigDialog {
                 
                 if (success) {
                     Toast.makeText(context, "连接成功!", Toast.LENGTH_SHORT).show();
+                    // 连接成功后自动探测模型能力（embedding/vision/webSearch/agent），
+                    // 真实请求验证替代配置表硬编码，结果回填能力勾选框
+                    probeCapabilitiesAfterConnect(url, key);
                 } else {
                     Toast.makeText(context, "连接失败，请检查 API 地址和密钥", Toast.LENGTH_SHORT).show();
                 }
             });
         });
+    }
+
+    /** 连接成功后异步探测模型能力并回填能力勾选框（仅补勾探测确认的能力，不强制取消） */
+    private void probeCapabilitiesAfterConnect(String url, String key) {
+        String model = selectedModelId;
+        if (model == null || model.isEmpty()) return;
+        com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig cfg =
+                new com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig();
+        cfg.apiUrl = url;
+        cfg.apiKey = key;
+        cfg.modelName = model;
+        com.oilquiz.app.ai.service.OnlineInferenceService.getInstance(context)
+                .probeCapabilities(cfg).thenAccept(map -> mainHandler.post(() -> {
+            if (map == null || map.isEmpty()) return;
+            StringBuilder sb = new StringBuilder("能力探测: ");
+            applyProbeResult(svcEmbedding, map.get("embedding"), "embedding", sb);
+            applyProbeResult(svcVision, map.get("vision"), "vision", sb);
+            applyProbeResult(svcWebSearch, map.get("webSearch"), "webSearch", sb);
+            applyProbeResult(svcAgent, map.get("agent"), "agent", sb);
+            Toast.makeText(context, sb.toString().trim(), Toast.LENGTH_LONG).show();
+        })).exceptionally(e -> {
+            AILogger.w("OnlineModelConfigDialog", "能力探测失败: " + e.getMessage());
+            return null;
+        });
+    }
+
+    /** 探测到 true 的能力补勾选（用户已手动设置的保持不动） */
+    private void applyProbeResult(android.widget.CheckBox box, Boolean value, String name, StringBuilder sb) {
+        if (box == null || value == null) return;
+        if (value) {
+            sb.append(" ").append(name).append("✓");
+            if (!box.isChecked()) {
+                box.setChecked(true);
+            }
+        }
     }
 
     private void fetchModels() {
@@ -458,9 +631,12 @@ public class OnlineModelConfigDialog {
             return;
         }
 
-        // 设置选择的模型
+        // 设置选择的模型：优先手动输入框（列表未收录的免费模型等可直接填写），
+        // 其次列表点选值，最后默认
         String selectedModel;
-        if (selectedModelId != null && !selectedModelId.isEmpty()) {
+        if (selectedModelInput != null && !selectedModelInput.getText().toString().trim().isEmpty()) {
+            selectedModel = selectedModelInput.getText().toString().trim();
+        } else if (selectedModelId != null && !selectedModelId.isEmpty()) {
             selectedModel = selectedModelId;
         } else {
             selectedModel = "gpt-3.5-turbo"; // 默认模型
@@ -508,6 +684,20 @@ public class OnlineModelConfigDialog {
         config.autoFetchModels = true;
         config.apiSecret = apiSecret.isEmpty() ? null : apiSecret;
         config.appId = appId.isEmpty() ? null : appId;
+        // 服务能力（差异化服务设置：agent/多模态/网络搜索/embedding/rerank/文生图/工具调用/语音）
+        if (svcAgent != null) {
+            config.supportsAgent = svcAgent.isChecked();
+            config.supportsVision = svcVision.isChecked();
+            config.supportsWebSearch = svcWebSearch.isChecked();
+            config.supportsEmbedding = svcEmbedding.isChecked();
+            config.supportsRerank = svcRerank.isChecked();
+            config.supportsImageGen = svcImageGen.isChecked();
+            config.supportsFunctionCalling = svcFunctionCalling.isChecked();
+            config.supportsTts = svcTts.isChecked();
+            config.supportsAsr = svcAsr.isChecked();
+            // 保存即视为用户手动设置能力（配置表刷新不再覆盖；新建必置 true）
+            config.capabilitiesUserSet = !isEditing || editingConfig.capabilitiesUserSet || capabilitiesUserTouched;
+        }
         if (cachedModelsJson != null) {
             config.cachedModelsJson = cachedModelsJson;
             config.lastFetchTime = System.currentTimeMillis();

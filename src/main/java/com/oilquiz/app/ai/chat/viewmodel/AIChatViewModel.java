@@ -479,6 +479,14 @@ public class AIChatViewModel extends AndroidViewModel {
                 AIInferenceCore.InferenceConfig config = new AIInferenceCore.InferenceConfig();
                 config.maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 8192;
                 config.temperature = 0.7f;
+                // 深度思考开关：跟随 UI 独立开关（ChatModeManager 持久化），在线对话请求侧生效，
+                // reasoning_content 增量经 onThinkingToken 分流思考区、content 分流回复区
+                try {
+                    config.enableThinking = com.oilquiz.app.ai.chat.ChatModeManager
+                            .getInstance(getApplication()).isDeepThinkingEnabled();
+                } catch (Exception e) {
+                    config.enableThinking = false;
+                }
 
                 // 构建历史上下文
                 List<ChatMessage> history = new ArrayList<>();

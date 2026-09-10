@@ -190,6 +190,17 @@ public class SpeechModelSelectorDialog {
         items.clear();
         items.add(ModelItem.auto());
 
+        // ASR 模式：内置本地 SenseVoice 选项（完全离线，无需在线配置）
+        if (mode == Mode.ASR) {
+            items.add(new ModelItem(com.oilquiz.app.ai.speech.SpeechManager.LOCAL_ASR_ID,
+                    "本地识别", "SenseVoice(本地)", false));
+        }
+        // TTS 模式：内置系统语音合成选项（完全本地，无需在线配置）
+        if (mode == Mode.TTS) {
+            items.add(new ModelItem(com.oilquiz.app.ai.speech.SpeechManager.LOCAL_TTS_ID,
+                    "系统合成", "SystemTTS(内置)", false));
+        }
+
         for (OnlineModelConfig config : enabledModels) {
             List<String> modelNames = parseCachedModels(config.cachedModelsJson);
             if (modelNames != null && !modelNames.isEmpty()) {
@@ -450,6 +461,18 @@ public class SpeechModelSelectorDialog {
                 holder.tvModelDetail.setText("按音频能力自动选择最合适的模型");
                 holder.chipAudio.setVisibility(View.GONE);
                 isSelected = selectedEndpointId == null;
+            } else if (com.oilquiz.app.ai.speech.SpeechManager.LOCAL_ASR_ID.equals(item.endpointId)) {
+                // 内置本地 SenseVoice（离线识别）
+                holder.tvModelName.setText("本地 SenseVoice（内置离线）");
+                holder.tvModelDetail.setText("完全离线识别，无需在线模型配置");
+                holder.chipAudio.setVisibility(View.VISIBLE);
+                isSelected = com.oilquiz.app.ai.speech.SpeechManager.LOCAL_ASR_ID.equals(selectedEndpointId);
+            } else if (com.oilquiz.app.ai.speech.SpeechManager.LOCAL_TTS_ID.equals(item.endpointId)) {
+                // 内置系统语音合成
+                holder.tvModelName.setText("系统语音合成（内置）");
+                holder.tvModelDetail.setText("设备本地合成，无需在线模型配置");
+                holder.chipAudio.setVisibility(View.VISIBLE);
+                isSelected = com.oilquiz.app.ai.speech.SpeechManager.LOCAL_TTS_ID.equals(selectedEndpointId);
             } else if (item.modelName == null) {
                 // 加载占位项
                 holder.tvModelName.setText(item.endpointName);

@@ -155,7 +155,7 @@ public class AgentLoopEngine {
             {"python_chart", "柱状图,折线图,饼图,散点图,数据可视化,生成图表,图表,画个图,画图表"},
             {"memory", "记住,记一下,别忘了,我的名字,我的喜好,记住我,记忆,我叫,我是,我喜欢"},
             {"speech_synthesis", "朗读,读出来,念出来,播报,语音播报,语音朗读,帮我读"},
-            {"voice_input", "语音输入,听写,录音识别,语音转文字,语音打字"},
+            {"voice_input", "语音输入,听写,录音识别,语音转文字,语音打字,我要说话,我想说,语音说,说给你听,开口说话,用语音,语音听"},
             {"excel_tool", "excel,表格文件,xlsx,xls,电子表格"},
             {"file_reader", "读文件,读取文件,打开文件,文件内容,查看文件,读一下,看看文件"},
             {"workspace", "工作区,保存的文件,生成的文件,工作区文件,看看我生成的文件"},
@@ -424,9 +424,6 @@ public class AgentLoopEngine {
             // 每轮推理前裁剪历史，确保单次推理 prompt 不超预算（防截断/decode崩溃）
             history = trimHistoryToFit(history, toolsJson, promptBudget);
 
-            long genStart = System.currentTimeMillis();
-            GenerateResult genResult = null;
-
             // 构建请求 JSON（spec §7.2.1 step b）
             // tool_choice 恒为 auto：实测 tool_choice=required 会让 Qwen3-4B 退化
             // （输出模板标签/重复文本而非 tool_call，FcTest 实证 tool_calls=0 + 乱码），
@@ -435,6 +432,10 @@ public class AgentLoopEngine {
             // 不限制思考量：统一用 FINAL_RESPONSE_MAX_TOKENS（原第一轮 800 会让 enableThinking
             // 模型思考就被截断，触发"使用更强大的模型"兜底；具体安全值由 buildRequestJson 按上下文钳制）
             int iterMaxTokens = FINAL_RESPONSE_MAX_TOKENS;
+
+            long genStart = System.currentTimeMillis();
+            GenerateResult genResult = null;
+
             String requestJson = buildRequestJson(history, toolsJson, toolChoice, iterMaxTokens, enableThinking);
             if (requestJson == null) {
                 AILogger.e(TAG, "buildRequestJson returned null at iteration " + iteration + ", breaking");
@@ -762,7 +763,11 @@ public class AgentLoopEngine {
             // 追加总结指令（作为最后一轮 user 消息，引导模型整合结果给结论）
             List<ChatMessage> summaryHistory = new ArrayList<>(trimmed);
             summaryHistory.add(new ChatMessage("user",
-                    "请基于以上对话和工具返回的结果，用中文给出最终回答。"));
+                    "请基于以上对话和工具返回的结果，用中文给出最终回答。\n"
+                    + "要求：只提取与用户问题直接相关的关键信息，用自然语言简洁总结；"
+                    + "严禁照抄/复述工具返回的原始数据、JSON、字段列表或完整详情"
+                    + "（如\"湿度: 93% 降水量: 0.0mm\"这类罗列）；"
+                    + "工具返回的次要细节只在用户问到时才提及。"));
 
             String requestJson = buildRequestJson(summaryHistory, "", "none",
                     FINAL_RESPONSE_MAX_TOKENS, enableThinking);
@@ -1086,15 +1091,15 @@ public class AgentLoopEngine {
     }
 
     /**
-     * 流式过滤 <tool_call> 标签片段（Java 侧兜底）。
-     * C++ 层 common_chat_parse 对 Qwen 的 <tool_call>{...}</tool_call> 标签格式解析不出，
+     * 流式过滤 tool_call 标签片段（Java 侧兜底）。
+     * C++ 层 common_chat_parse 对 Qwen 的 tool_call 标签格式解析不出，
      * is_tool_call 标志失效，标签会当普通正文 token 推到 UI；这里用状态机：
-     * - 开标签跨 token 拆分时（如 <tool + _call>）前缀滞留探测，识别后进入吞状态；
+     * - 开标签跨 token 拆分时（如 tool 与 _call）前缀滞留探测，识别后进入吞状态；
      * - 吞状态下持续累积直到闭合标签；若模型漏输出闭合标签，则内容 {} 配平后进入
-     *   "观望"状态：继续吞可选的 </tool_call> 残留（含跨 token 拆分），一旦收到非
+     *   "观望"状态：继续吞可选的闭合标签残留（含跨 token 拆分），一旦收到非
      *   闭合标签内容即补壳退出，把正常正文还回，保证不泄露标签也不吞掉正常回复；
      * - 超长保护：累积超过上限仍无闭合时强制结束并交回当前 token。
-     * <tool_calls> 复数标签同样覆盖（其以 <tool_call 为前缀）。
+     * tool_calls 复数标签同样覆盖（其以 tool_call 为前缀）。
      * @return 需要推送给 UI 的正文片段（正在吞 tool_call 时返回 ""）
      */
     private String filterStreamToken(String token, StringBuilder buf, boolean[] swallowing,
@@ -1553,13 +1558,24 @@ public class AgentLoopEngine {
         AILogger.w(TAG, "Trimming history: " + total + " > " + budgetTokens + " tokens");
         List<ChatMessage> trimmed = new ArrayList<>(history);
 
-        // 1) 压缩工具结果（最占空间），从早到晚；阈值放宽到 2500：
-        //    最近一条工具结果在注入时已是完整 6000，这里只压更早的旧结果，
-        //    保证模型推理时手里拿着的是完整数据，而非被压到 400 的残片
-        for (int i = 0; i < trimmed.size() && total > budgetTokens; i++) {
+        // 1) 压缩工具结果（最占空间），保留最近完整，旧结果按新旧渐进收缩：
+        //    最近一条工具结果在注入时已是完整 6000，这里只压更早的旧结果；
+        //    较新的压到 4000、再旧 2500、最旧 1200——避免一刀切 2500 把较新结果
+        //    也砍残（工具结果被截断 → 模型追问数据细节时答不上来）
+        java.util.List<Integer> toolIdx = new java.util.ArrayList<>();
+        for (int i = 0; i < trimmed.size(); i++) {
             ChatMessage m = trimmed.get(i);
-            if ("tool".equals(m.role) && m.content != null && m.content.length() > 2500) {
-                trimmed.set(i, new ChatMessage(m.role, truncate(m.content, 2500)));
+            if ("tool".equals(m.role) && m.content != null && m.content.length() > 1200) {
+                toolIdx.add(i);
+            }
+        }
+        int toolTier = 0;
+        for (int idx = toolIdx.size() - 1; idx >= 0 && total > budgetTokens; idx--) {
+            int cap = toolTier == 0 ? 4000 : (toolTier == 1 ? 2500 : 1200);
+            toolTier++;
+            ChatMessage m = trimmed.get(toolIdx.get(idx));
+            if (m.content.length() > cap) {
+                trimmed.set(toolIdx.get(idx), new ChatMessage(m.role, truncate(m.content, cap)));
                 total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
             }
         }
@@ -1706,6 +1722,7 @@ public class AgentLoopEngine {
         sb.append("3. 查天气传位置参数：用户说了城市就传city(城市名或和风城市编码)；用户没说城市（如\"现在天气\"\"附近天气\"），先调location工具定位获取lat/lon，再用坐标参数调ai_weather查询。\n");
         sb.append("4. 需要当前时间/日期/星期时，直接调 time_date(action=now)。时间工具返回的日期时间就是真实的当前时间，直接采用，不做任何怀疑和修正。你的训练数据截止于过去（如2023年），工具时间比训练时间晚是完全正常的——工具返回的就是\"现在\"，不是未来日期。不要纠结、不要评论\"未来\"、不要用训练数据覆盖工具时间。天气 action=current 返回的是实时天气，action=forecast 才是未来预报，二者不要混淆。\n");
         sb.append("5. 工具返回的数据是绝对准确和实时的，直接采纳并总结提取关键信息。不要添加结果里没有的内容，不要用训练数据\"纠正\"或\"补充\"工具结果，不要夹带自己的推测。\n");
+        sb.append("5.1 总结工具结果时只提取与用户问题直接相关的关键信息，用自然语言简洁表达；严禁把工具返回的原始数据/JSON/字段列表/完整详情原样复述进回答（例如不要输出\"湿度: 93% 降水量: 0.0mm\"这类字段罗列），次要细节（风力风向、气压、云量等）只在用户明确问到时才提及。\n");
         sb.append("6. 工具结果不够时：分析缺什么信息，继续调工具补齐，可多轮调用，直到信息足够再回答。\n");
         sb.append("7. 不确定参数或数据时，直接调工具确认，以工具返回为准。\n");
         sb.append("8. 工具失败换一个工具继续，不要因一次失败就放弃。\n\n");
@@ -2074,6 +2091,56 @@ public class AgentLoopEngine {
         // （与 Qwen3 的 JSON 形态并存，按形态自适应；C++ 解析失败时 Java 兜底也能接住）
         if (calls.isEmpty()) {
             calls = parseQwen35XmlToolCalls(response);
+        }
+        // 兜底：无任何包裹的裸 JSON（模型把 {"name":..,"arguments":{..}} 或
+        // {"tool_calls":[...]} 直接当正文输出时），按括号配平提取候选并解析——
+        // 模型输出什么格式就解码什么格式，不硬限制
+        if (calls.isEmpty()) {
+            List<ToolCall> bare = parseBareJsonToolCalls(response);
+            if (!bare.isEmpty()) calls.addAll(bare);
+        }
+        return calls;
+    }
+
+    /**
+     * 无标签裸 JSON 工具调用解析（自适应兜底）：扫描文本中括号配平的 {...} 块，
+     * 逐个尝试按工具调用 JSON 解析（name+arguments / tool_calls 数组），
+     * 非工具调用块解析失败自然忽略。覆盖模型跳过 <tool_call> 包裹直接输出
+     * 原生 JSON 的形态（常见于切换模型/模板后输出形态漂移）。
+     */
+    private List<ToolCall> parseBareJsonToolCalls(String response) {
+        List<ToolCall> calls = new ArrayList<>();
+        if (response == null || response.isEmpty()) return calls;
+        int i = 0;
+        int n = response.length();
+        while (i < n) {
+            int start = response.indexOf('{', i);
+            if (start < 0) break;
+            // 括号配平：找到与 start 配对的 }
+            int depth = 0;
+            int end = -1;
+            boolean inStr = false;
+            boolean esc = false;
+            for (int j = start; j < n; j++) {
+                char c = response.charAt(j);
+                if (inStr) {
+                    if (esc) { esc = false; }
+                    else if (c == '\\') { esc = true; }
+                    else if (c == '"') { inStr = false; }
+                    continue;
+                }
+                if (c == '"') { inStr = true; }
+                else if (c == '{') { depth++; }
+                else if (c == '}') {
+                    depth--;
+                    if (depth == 0) { end = j; break; }
+                }
+            }
+            if (end < 0) break;
+            String candidate = response.substring(start, end + 1);
+            List<ToolCall> parsed = parseToolCallJson(candidate);
+            if (!parsed.isEmpty()) calls.addAll(parsed);
+            i = end + 1;
         }
         return calls;
     }
