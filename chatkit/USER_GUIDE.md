@@ -139,7 +139,8 @@ new ChatBottomSheet(context)
 > native 库（libllama-jni / liblo-native-code）**源码在宿主 `src/main/cpp/`**，
 > 由 Gradle externalNativeBuild（CMake+Ninja）自动编译，命令：
 > `gradlew.bat assembleDebug`（或 `externalNativeBuildDebug`），产物输出到
-> `src/main/jniLibs/<abi>/`；详见 DEPENDENCIES.md「三·五 本地 native 库源码编译方法」。
+> `src/main/jniLibs/<abi>/`；CMakeLists 结构解析、JNI 函数命名规则、新增 native
+> 方法流程与 JNI 类型映射见 DEPENDENCIES.md「三·六 CMakeLists 与 C++ 编写方法」。
 > 其余大件由宿主工程提供（`SpeechGateway`/`ModelGateway` 桥接其管理器），
 > 不随 ChatKit 打包；缺件时组件降级可用（ASR 不可用→提示、OCR 失败→回退）。
 

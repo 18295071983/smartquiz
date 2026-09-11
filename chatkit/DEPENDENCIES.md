@@ -106,6 +106,113 @@ cmake --build build/native
 > - 增删 ABI 需改 build.gradle `abiFilters` 后重编；OpenCL 后端仅对 Adreno GPU 生效，
 >   其他 GPU 可关 `-DGGML_OPENCL=OFF` 回退 CPU。
 
+## 三·六、CMakeLists 与 C++ 编写方法
+
+### 1. 顶层 `src/main/cpp/CMakeLists.txt` 逻辑（225 行，三段式）
+
+```
+┌─ 段① 全局与后端准备（1–194 行）
+│   · 语言：C++17（CMAKE_CXX_STANDARD 17）
+│   · ggml/llama 后端开关：GGML_OPENCL=ON（含
+│     GGML_OPENCL_EMBED_KERNELS / GGML_OPENCL_USE_ADRENO_KERNELS=ON /
+│     GGML_OPENCL_TARGET_VERSION=300）、GGML_VULKAN=OFF（NDK 交叉编译的
+│     find_package 变量预配置，含 glslc/spirv-headers）、GGML_CUDA=OFF、
+│     GGML_BACKEND_DL=OFF、BUILD_SHARED_LIBS=OFF
+│   · 路径：LLAMA_CPP_PATH=./llama.cpp、OPENCL_HEADERS_DIR=./opencl/headers、
+│     OPENCL_ICD_LIB=./opencl/build/lib/libOpenCL.so（NDK stub，运行期加载厂商驱动）
+│   · include_directories：llama.cpp 各子目录 + opencl/vulkan/spirv-headers +
+│     **../java/com/oilquiz/app/ai/jni**（JNI 头文件目录）
+│   · add_subdirectory(llama.cpp)：引入 llama / llama-common / mtmd /
+│     ggml-opencl 等目标库
+└─ 段② llama-jni 目标定义（196–234 行）
+    add_library(llama-jni SHARED
+        native-lib.cpp      ← 主 JNI 实现（约 8700 行）
+        llama-bridge.cpp    ← llama 调用桥接（391 行）
+        agent_kv_cache.cpp  ← KV 缓存管理（101 行）)
+    target_link_libraries(llama-jni
+        llama llama-common mtmd log android z m atomic dl
+        [ggml-opencl | ggml-vulkan]  ← 按后端开关条件链接)
+    set_target_properties(llama-jni PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}")
+        ← 产物直接进 src/main/jniLibs/<abi>，APK 打包无需额外配置
+```
+
+### 2. Java ↔ C++ 对接约定（本工程已按此组织）
+
+- **Java 侧**：native 方法集中在 `com.oilquiz.app.ai.jni` 包
+  （LlamaHelper / ChatRequest / TypeConverter）。加载与声明：
+
+```java
+public class LlamaHelper {
+    private static final String LIBRARY_NAME = "llama-jni";
+    static { System.loadLibrary(LIBRARY_NAME); }
+
+    private static native int  nativeInitModel(String modelPath, int nCtx, int nThreads);
+    private static native String nativeGenerate(String prompt, int maxTokens,
+                                                float temperature, float topP, int topK);
+    // 流式：native 层用 llama_chat_apply_template 适配模型格式，经 TokenCallback 回调
+    private static native void nativeGenerateStream(String prompt, int maxTokens,
+                                                    float temperature, float topP, int topK,
+                                                    boolean enableThinking, TokenCallback callback);
+}
+```
+
+- **C++ 侧**：函数名 = `Java_` + 包名（`.`→`_`）+ `_` + 类名 + `_` + 方法名，
+  全部实现在 `native-lib.cpp`：
+
+```cpp
+extern "C" JNIEXPORT jint JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInitModel(
+        JNIEnv* env, jclass clazz, jstring modelPath, jint nCtx, jint nThreads) {
+    const char* path = env->GetStringUTFChars(modelPath, nullptr);
+    int code = llama_init(path, nCtx, nThreads);   // 业务逻辑
+    env->ReleaseStringUTFChars(modelPath, path);
+    return code;
+}
+```
+
+### 3. 新增一个 native 方法的完整流程（复用 llama-jni，不改 CMakeLists）
+
+1. **Java 声明**：在 LlamaHelper 加 `private static native String nativeEcho(String s);`
+2. **实现**：在 `native-lib.cpp` 加同签名函数（方法名按上节规则生成；
+   需头文件可 `javac -h` 自动生成 `Java_com_..._LlamaHelper.h` 后 include）
+3. **重新编译**：`gradlew assembleDebug`（native 变更自动触发增量编译）
+
+JNI 类型映射速查：
+
+| Java | C/C++ 签名 | JNI 类型 |
+|---|---|---|
+| `String` | `Ljava/lang/String;` | `jstring`（GetStringUTFChars / NewStringUTF） |
+| `int` / `long` | `I` / `J` | `jint` / `jlong` |
+| `float` / `double` | `F` / `D` | `jfloat` / `jdouble` |
+| `boolean` | `Z` | `jboolean` |
+| `int[]` | `[I` | `jintArray`（GetIntArrayElements） |
+| 回调接口 | `Lcom/.../TokenCallback;` | `jobject`（NewGlobalRef + CallVoidMethod/GetMethodID） |
+| 对象字段 | — | GetFieldID / SetIntField 等 |
+
+### 4. 修改 CMakeLists 的三种情况
+
+| 场景 | 操作 |
+|---|---|
+| 往现有 cpp（native-lib.cpp）加方法 | **不改 CMakeLists**，只改 cpp + Java |
+| 新增 .cpp 并入 llama-jni | `add_library` 源列表加一行文件名 |
+| 新增独立 .so（如另一套推理引擎） | 新 `add_library(xxx SHARED ...)` + 同样的 `LIBRARY_OUTPUT_DIRECTORY` + Java 侧 `System.loadLibrary("xxx")` |
+
+### 5. 注意事项
+
+- **STL 必须 `c++_shared`**：APK 需带 `libc++_shared.so`（jniLibs/arm64-v8a 已有）；
+  换 `c++_static` 需同步清理共享件，避免多 .so 重复实例。
+- **禁 `-ffast-math`**：ggml 依赖 NaN/Inf 语义（CMakeLists 内已注释说明），编译选项勿加。
+- **OpenCL 后端**：编译期链接 NDK 提供的 stub `libOpenCL.so`，运行期由系统加载厂商
+  驱动（libGLES_mali.so 等）；Adreno 专属 kernel 提升 8 系 GPU prefill 吞吐。
+- **日志**：`__android_log_print(ANDROID_LOG_INFO, "llama-jni", ...)`，Android Studio
+  logcat 过滤 `llama-jni`。
+- **耗时推理**：native 同步调用会阻塞调用线程——Android 侧走工作线程；
+  流式输出经 `TokenCallback`（全局引用 + 方法 ID）回调 Java。
+- **ABI**：真机 arm64-v8a、模拟器 x86_64；新增 ABI 改 build.gradle `abiFilters`。
+- **编码**：Windows 下编辑 cpp/CMakeLists 用 UTF-8；PowerShell 默认 GBK 读写
+  会破坏中文注释（工程已踩坑，用 `[System.IO.File]::ReadAllText/WriteAllText`）。
+
 ## 四、可移植性说明
 
 - 组件**不 import Activity/Fragment**，仅依赖 `Context`（applicationContext）。
