@@ -67,6 +67,15 @@ public class ImportStartTool implements AITool {
                 return AIToolResult.fail("文件不存在: " + file.getAbsolutePath()
                         + "（需先通过应用内文件选择获取可访问路径，或在公共目录 OilQuiz 下）");
             }
+            // 临时文件防护：Agent 工作区 tmp/ 每轮执行后自动清理（clearTmp），对话后即失效；
+            // import_start 必须传目标源文件，否则导入会中途找不到文件
+            String abs = file.getAbsolutePath();
+            if (abs.contains("agent_workspace") && (abs.contains("/tmp/") || abs.endsWith("/tmp"))) {
+                return AIToolResult.fail("filePath 是 Agent 工作区临时文件(" + abs
+                        + ")，tmp 目录每轮执行后自动清理、对话后即失效。"
+                        + "请传目标源文件完整路径（导入页选择的原文件），"
+                        + "预处理结论请用 sheetMode/docHint/fillMissing/skipIncomplete/questionType 参数表达");
+            }
             int sheetIndex = -1;
             if (parameters.get("sheetIndex") != null) {
                 sheetIndex = (int) Double.parseDouble(String.valueOf(parameters.get("sheetIndex")));
