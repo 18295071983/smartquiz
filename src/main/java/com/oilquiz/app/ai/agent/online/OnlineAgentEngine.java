@@ -764,6 +764,28 @@ public class OnlineAgentEngine {
                 break;
             }
         }
+        // 用户消息保护（1214 根因修复）：GLM/OpenAI 兼容校验要求 messages 数组至少 1 条 user。
+        // 若裁剪后剩余段 user 数量为 0（历史全是 assistant/tool/system，user 被误删），
+        // 把 cutoff 前移到最后一条 user 消息处，保留该 user 及其后完整消息链
+        // （避免孤儿 tool_call 的另一种 1214）。
+        if (cutoff < messageHistory.size()) {
+            int userAfter = 0;
+            for (int i = cutoff; i < messageHistory.size(); i++) {
+                JsonObject m = messageHistory.get(i);
+                String r = m.has("role") ? m.get("role").getAsString() : "";
+                if ("user".equals(r)) userAfter++;
+            }
+            if (userAfter == 0) {
+                for (int i = cutoff - 1; i >= 1; i--) {
+                    JsonObject m = messageHistory.get(i);
+                    String r = m.has("role") ? m.get("role").getAsString() : "";
+                    if ("user".equals(r)) {
+                        cutoff = i;
+                        break;
+                    }
+                }
+            }
+        }
         int actualRemoved = cutoff - 1;
         if (actualRemoved > 0) {
             // 找插入位置：摘要插到所有 system 消息之后（index 0=提示词，1=长期记忆，2=环境上下文），
