@@ -93,6 +93,7 @@ public class AIImportActivity extends BaseActivity {
     private TextView tvMonitorTokens;
     private android.os.Handler monitorHandler;
     private Runnable monitorTick;
+    private Runnable agentMonitorTick;
     private long importStartTime = 0;
 
     // 结果统计区
@@ -439,13 +440,66 @@ public class AIImportActivity extends BaseActivity {
             guideStepFlow.setStepState(i, i == 0
                     ? GuideStepFlowView.StepState.RUNNING : GuideStepFlowView.StepState.PENDING);
         }
-        startMonitor();
+        startAgentMonitor();
         if (agentSession != null) {
             agentSession.shutdown();
         }
         agentSession = AgentSession.create(this);
         agentSession.setCallback(agentImportStateMachine);
         agentSession.start(prompt.toString(), 8192);
+    }
+
+    /**
+     * 智能体导入监控：每秒从状态机读取真实数据（耗时/阶段/速度/token/进度）刷新监控区。
+     * 与 v2 本地导入的 startMonitor()（读 LlamaHelper）不同：智能体在线推理没有 Llama 数据，
+     * 数据源 = AgentImportStateMachine（token 累计 + import_status 进度解析）。
+     */
+    private void startAgentMonitor() {
+        importStartTime = System.currentTimeMillis();
+        if (tvMonitorStage != null) tvMonitorStage.setText("等待");
+        agentMonitorTick = new Runnable() {
+            @Override public void run() {
+                if (agentImportStateMachine == null) return;
+                applyMonitor(agentImportStateMachine.getElapsedSec(),
+                        agentImportStateMachine.getStageMessage(),
+                        agentImportStateMachine.getSpeed(),
+                        agentImportStateMachine.getTotalTokens(),
+                        agentImportStateMachine.getProgressCurrent(),
+                        agentImportStateMachine.getProgressTotal());
+                if (monitorHandler != null) {
+                    monitorHandler.postDelayed(this, 1000);
+                }
+            }
+        };
+        monitorHandler.post(agentMonitorTick);
+    }
+
+    /** 智能体监控停止 */
+    private void stopAgentMonitor() {
+        importStartTime = 0;
+        if (monitorHandler != null && agentMonitorTick != null) {
+            monitorHandler.removeCallbacks(agentMonitorTick);
+            agentMonitorTick = null;
+        }
+    }
+
+    /** 监控区统一刷新（事件驱动 onMonitor 与每秒 tick 共用） */
+    private void applyMonitor(long elapsedSec, String stage, float speed, long tokens,
+                              long current, long total) {
+        if (tvMonitorElapsed != null) {
+            long s = Math.max(0, elapsedSec);
+            tvMonitorElapsed.setText(String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60));
+        }
+        if (tvMonitorStage != null && stage != null && !stage.isEmpty()) tvMonitorStage.setText(stage);
+        if (tvMonitorSpeed != null) {
+            tvMonitorSpeed.setText(speed > 0 ? String.format(java.util.Locale.US, "%.1f", speed) : "-");
+        }
+        if (tvMonitorTokens != null) {
+            tvMonitorTokens.setText(String.valueOf(Math.max(0, tokens)));
+        }
+        if (tvProgress != null && total > 0) {
+            tvProgress.setText(String.format(java.util.Locale.US, "已处理 %d/%d 行", current, total));
+        }
     }
 
     /** 状态机 UI 适配器：把导入阶段/步骤/监控/结果绑定到导入页自有控件 */
@@ -457,24 +511,15 @@ public class AIImportActivity extends BaseActivity {
             @Override public void onStep(int stepIndex, GuideStepFlowView.StepState state) {
                 if (guideStepFlow != null) guideStepFlow.setStepState(stepIndex, state);
             }
-            @Override public void onMonitor(long elapsedSec, String stage, float speed, int tokens,
+            @Override public void onMonitor(long elapsedSec, String stage, float speed, long tokens,
                                             long current, long total) {
-                if (tvMonitorElapsed != null) {
-                    long s = elapsedSec;
-                    tvMonitorElapsed.setText(String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60));
-                }
-                if (tvMonitorStage != null && stage != null) tvMonitorStage.setText(stage);
-                if (tvMonitorSpeed != null) {
-                    tvMonitorSpeed.setText(speed > 0 ? String.format(java.util.Locale.US, "%.1f", speed) : "-");
-                }
-                if (tvMonitorTokens != null) tvMonitorTokens.setText(String.valueOf(Math.max(0, tokens)));
-                if (tvProgress != null && total > 0 && current >= 0) {
-                    tvProgress.setText(String.format(java.util.Locale.US, "已处理 %d/%d 行", current, total));
-                }
+                applyMonitor(elapsedSec, stage, speed, tokens, current, total);
             }
             @Override public void onComplete(String fullText, int imported, int duplicated,
                                              int failed, int totalRows) {
-                stopMonitor();
+                stopAgentMonitor();
+                // 完成总结切换：步骤区保持全 DONE，监控区显示智能体汇总，结果卡亮出统计
+                if (tvMonitorStage != null && fullText != null) tvMonitorStage.setText(fullText);
                 if (statsCard != null) statsCard.setVisibility(View.VISIBLE);
                 if (tvSuccessCount != null && imported >= 0) tvSuccessCount.setText(String.valueOf(imported));
                 if (tvDupCount != null && duplicated >= 0) tvDupCount.setText(String.valueOf(duplicated));
@@ -483,7 +528,7 @@ public class AIImportActivity extends BaseActivity {
                 showToast(fullText != null ? fullText : "智能体导入完成");
             }
             @Override public void onError(String error) {
-                stopMonitor();
+                stopAgentMonitor();
                 showToast(error != null ? error : getString(R.string.h_9bc92f24));
             }
         };
@@ -1407,6 +1452,7 @@ public class AIImportActivity extends BaseActivity {
             agentSession = null;
         }
         stopMonitor();
+        stopAgentMonitor();
         // 预览页打开期间 Activity 被销毁（用户退出等）：唤醒等待锁并标记取消，
         // 避免导入线程永久阻塞在 previewWaitLock 上
         synchronized (previewWaitLock) {

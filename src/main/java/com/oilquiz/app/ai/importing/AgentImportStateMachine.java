@@ -74,7 +74,7 @@ public class AgentImportStateMachine implements AgentCallback {
         /** 步骤状态（0=检测 1=映射 2=解析 3=入库） */
         void onStep(int stepIndex, GuideStepFlowView.StepState state);
         /** 监控数字（耗时秒 / 阶段 / 速度 tokens/s / token 数 / 进度 current/total，<=0 表示未知） */
-        void onMonitor(long elapsedSec, String stage, float speed, int tokens, long current, long total);
+        void onMonitor(long elapsedSec, String stage, float speed, long tokens, long current, long total);
         /** 完成（fullText 为智能体最终汇报文本；statistics 为解析出的 新增/重复/失败/总数，-1=未知） */
         void onComplete(String fullText, int imported, int duplicated, int failed, int totalRows);
         /** 失败 */
@@ -90,6 +90,10 @@ public class AgentImportStateMachine implements AgentCallback {
     private final Set<String> touchedTools = new HashSet<>();
     // 统计解析结果（从智能体汇总文本中尽力提取，-1=未知）
     private int statImported = -1, statDuplicated = -1, statFailed = -1, statTotal = -1;
+    // 真实监控数据：token 累计 / 进度（来自 import_status 结果）/ 最近阶段消息
+    private volatile long bodyTokens = 0, thinkTokens = 0;
+    private volatile long progressCurrent = 0, progressTotal = 0;
+    private volatile String lastStageMessage = "等待";
 
     public AgentImportStateMachine(Ui ui) {
         if (ui == null) throw new IllegalArgumentException("Ui 不能为 null");
@@ -102,6 +106,21 @@ public class AgentImportStateMachine implements AgentCallback {
     public long getElapsedSec() { return (System.currentTimeMillis() - startAt) / 1000; }
     public long getIdleSec() { return (System.currentTimeMillis() - lastActivityAt) / 1000; }
 
+    // ==================== 监控数据查询（UI 每秒 tick 读取） ====================
+
+    /** 累计 Token（思考 + 正文） */
+    public long getTotalTokens() { return bodyTokens + thinkTokens; }
+    /** 推理速度 tokens/s（有耗时且有 token 时） */
+    public float getSpeed() {
+        long sec = getElapsedSec();
+        long tokens = getTotalTokens();
+        return sec > 0 && tokens > 0 ? (float) tokens / sec : 0f;
+    }
+    public long getProgressCurrent() { return progressCurrent; }
+    public long getProgressTotal() { return progressTotal; }
+    /** 最近阶段消息（工具名/阶段说明/导入进度） */
+    public String getStageMessage() { return lastStageMessage; }
+
     /** 重置到空闲（可复用实例重试） */
     public synchronized void reset() {
         transition(Phase.IDLE, "已重置");
@@ -109,6 +128,9 @@ public class AgentImportStateMachine implements AgentCallback {
         touchedTools.clear();
         thinkingActive = false;
         statImported = statDuplicated = statFailed = statTotal = -1;
+        bodyTokens = 0; thinkTokens = 0;
+        progressCurrent = 0; progressTotal = 0;
+        lastStageMessage = "等待";
     }
 
     // ==================== 状态机核心 ====================
@@ -140,8 +162,10 @@ public class AgentImportStateMachine implements AgentCallback {
             }
         }
         ui.onPhase(next, message);
+        if (message != null) lastStageMessage = message;
         if (next.isTerminal()) {
-            ui.onMonitor(getElapsedSec(), message, 0, 0, 0, 0);
+            ui.onMonitor(getElapsedSec(), message, getSpeed(), getTotalTokens(),
+                    progressCurrent, progressTotal);
         }
     }
 
@@ -170,9 +194,12 @@ public class AgentImportStateMachine implements AgentCallback {
 
     // ==================== AgentCallback 翻译层 ====================
 
-    @Override public void onToken(String token) { /* 正文不做流式展示（不使用智能体专用 UI） */ }
+    @Override public void onToken(String token) {
+        if (token != null && !token.isEmpty()) bodyTokens += token.length();
+    }
 
     @Override public void onThinkingToken(String token) {
+        if (token != null && !token.isEmpty()) thinkTokens += token.length();
         if (!thinkingActive) {
             thinkingActive = true;
             transition(Phase.PREPROCESSING, "AI 正在分析题库结构，确定导入参数…");
@@ -183,7 +210,9 @@ public class AgentImportStateMachine implements AgentCallback {
 
     @Override public void onThinkingStage(String stage) {
         if (stage != null && !stage.isEmpty()) {
-            ui.onMonitor(getElapsedSec(), stage, 0, 0, 0, 0);
+            lastStageMessage = stage;
+            ui.onMonitor(getElapsedSec(), stage, getSpeed(), getTotalTokens(),
+                    progressCurrent, progressTotal);
         }
     }
 
@@ -193,7 +222,9 @@ public class AgentImportStateMachine implements AgentCallback {
         if (p != null) {
             touchedTools.add(toolName);
             transition(p, toolName + " 执行中");
-            ui.onMonitor(getElapsedSec(), toolName, 0, 0, 0, 0);
+            lastStageMessage = toolName + " 执行中";
+            ui.onMonitor(getElapsedSec(), toolName + " 执行中", getSpeed(), getTotalTokens(),
+                    progressCurrent, progressTotal);
         }
     }
 
@@ -207,21 +238,48 @@ public class AgentImportStateMachine implements AgentCallback {
                 transition(Phase.FAILED, note);
                 return;
             }
+            // import_status 轮询结果：解析进度（current/total）与阶段消息，接入监控区
+            if (toolName != null && toolName.toLowerCase(Locale.ROOT).contains("import_status")
+                    && result.result != null) {
+                try {
+                    String json = result.result;
+                    // 兼容可能带 ```json 包裹
+                    int b = json.indexOf('{');
+                    int e = json.lastIndexOf('}');
+                    if (b >= 0 && e > b) {
+                        org.json.JSONObject o = new org.json.JSONObject(json.substring(b, e + 1));
+                        if (o.has("current")) progressCurrent = o.optLong("current");
+                        if (o.has("total")) progressTotal = o.optLong("total");
+                        String msg = o.optString("message", "");
+                        if (!msg.isEmpty()) note = msg;
+                        if (o.has("stage") && !o.optString("stage").isEmpty()) {
+                            note = o.optString("stage") + " · " + (msg.isEmpty() ? note : msg);
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // 结果非 JSON（工具异常文本）则保留原始 note
+                }
+            }
         }
-        ui.onMonitor(getElapsedSec(), note, 0, 0, 0, 0);
+        lastStageMessage = note;
+        ui.onMonitor(getElapsedSec(), note, getSpeed(), getTotalTokens(),
+                progressCurrent, progressTotal);
     }
 
     @Override public void onStepUpdate(String step, String detail) {
         if (step != null && !step.isEmpty()) {
-            ui.onMonitor(getElapsedSec(), step, 0, 0, 0, 0);
+            lastStageMessage = step;
+            ui.onMonitor(getElapsedSec(), step, getSpeed(), getTotalTokens(),
+                    progressCurrent, progressTotal);
         }
     }
 
     @Override public void onComplete(String fullText) {
         parseStatistics(fullText);
-        transition(Phase.COMPLETED, fullText != null ? fullText : "导入完成");
-        ui.onComplete(fullText != null ? fullText : "导入完成",
-                statImported, statDuplicated, statFailed, statTotal);
+        String summary = fullText != null ? fullText : "导入完成";
+        lastStageMessage = summary;
+        transition(Phase.COMPLETED, summary);
+        ui.onComplete(summary, statImported, statDuplicated, statFailed, statTotal);
     }
 
     @Override public void onError(String error) {
