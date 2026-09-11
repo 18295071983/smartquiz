@@ -548,12 +548,17 @@ public class FileReaderTool implements AITool {
             result.put("totalRows", sheet.getPhysicalNumberOfRows());
             result.put("mergedRegionCount", sheet.getNumMergedRegions());
 
+            // 智能定位表头行：前 50 行扫描，题库字段命中最多、非空列最多的行视为真实表头，
+            // 兼容标题行/说明行置顶（如首行是"××题库"、第 2~N 行才是列名）
+            int headerRowIndex = locateHeaderRow(sheet, evaluator);
+            org.apache.poi.ss.usermodel.Row headerRow = sheet.getRow(headerRowIndex);
+            result.put("headerRowIndex", headerRowIndex);
+
             // 合并单元格映射：区域内所有格子 → 左上角值
             Map<String, String> mergedMap = buildMergedRegionMap(sheet, evaluator);
 
             // 提取表头（空表头/重复表头自动兜底为 col_N / col_N_2）
             List<String> headers = new ArrayList<>();
-            org.apache.poi.ss.usermodel.Row headerRow = sheet.getRow(0);
             int colCount = 0;
             java.util.Set<String> headerSeen = new java.util.HashSet<>();
             if (headerRow != null) {
@@ -587,8 +592,8 @@ public class FileReaderTool implements AITool {
 
             // 提取数据行（合并单元格取左上角值，公式求值，缺列补空）
             List<Map<String, String>> rows = new ArrayList<>();
-            int startRow = 1; // 跳过表头
-            int endRow = Math.min(sheet.getPhysicalNumberOfRows(), maxRows + 1);
+            int startRow = headerRowIndex + 1; // 从真实表头下一行开始
+            int endRow = Math.min(sheet.getPhysicalNumberOfRows(), startRow + maxRows);
             for (int r = startRow; r < endRow; r++) {
                 org.apache.poi.ss.usermodel.Row row = sheet.getRow(r);
                 if (row == null) continue;
@@ -619,6 +624,57 @@ public class FileReaderTool implements AITool {
             return new AIToolResult("Excel解析失败: " + e.getMessage(), parameters);
         }
     }
+
+    /** 智能定位真实表头行：前 50 行扫描，题库字段命中最多、非空列数最多的行视为表头。
+     *  兼容标题行/说明行置顶（首行是"××题库""使用说明"等，第 2~N 行才是列名）。
+     *  得分 = 题库关键词命中×10 + 非空列数；无任何命中（score<=0）时回退第 0 行（保持兼容）。 */
+    private int locateHeaderRow(org.apache.poi.ss.usermodel.Sheet sheet,
+                                org.apache.poi.ss.usermodel.FormulaEvaluator evaluator) {
+        int scanRows = Math.min(sheet.getPhysicalNumberOfRows(), 50);
+        int best = 0;
+        int bestScore = -1;
+        for (int r = 0; r < scanRows; r++) {
+            org.apache.poi.ss.usermodel.Row row = sheet.getRow(r);
+            if (row == null) continue;
+            int hits = 0;
+            int nonEmpty = 0;
+            int lastCell = row.getLastCellNum();
+            for (int c = 0; c < lastCell; c++) {
+                org.apache.poi.ss.usermodel.Cell cell = row.getCell(c);
+                if (cell == null) continue;
+                String v = getCellValueAsString(cell, evaluator);
+                if (v == null || v.trim().isEmpty()) continue;
+                nonEmpty++;
+                String hv = v.trim().toLowerCase(java.util.Locale.ROOT);
+                if (containsAnyKw(hv, HEADER_LOCATE_KEYWORDS)) {
+                    hits++;
+                }
+            }
+            if (nonEmpty == 0) continue; // 全空行跳过
+            int score = hits * 10 + nonEmpty;
+            if (score > bestScore) {
+                bestScore = score;
+                best = r;
+            }
+        }
+        return bestScore > 0 ? best : 0;
+    }
+
+    private boolean containsAnyKw(String h, String[] kws) {
+        for (String kw : kws) {
+            if (h.contains(kw)) return true;
+        }
+        return false;
+    }
+
+    /** 表头定位关键词（覆盖题库常见列名变体；与导入管线 _HEADER_KEYWORDS 语义一致） */
+    private static final String[] HEADER_LOCATE_KEYWORDS = {
+            "题干", "题目", "问题", "question", "stem", "试题", "题目内容", "题目描述", "题干内容", "题干描述",
+            "答案", "answer", "正确答案", "参考答案", "标准答案", "正确选项", "答案内容", "key", "correct",
+            "选项", "option", "备选", "choice",
+            "解析", "explanation", "详解", "分析", "解答",
+            "题型", "type", "题目类型", "难度", "difficulty", "分类", "category", "章节", "知识点", "标签"
+    };
 
     /** 构建合并单元格映射：合并区域内所有坐标 → 左上角单元格值 */
     private Map<String, String> buildMergedRegionMap(org.apache.poi.ss.usermodel.Sheet sheet,
