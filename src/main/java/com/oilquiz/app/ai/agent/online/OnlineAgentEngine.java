@@ -1803,6 +1803,8 @@ public class OnlineAgentEngine {
     /** 保存当前对话历史到私有文件（按会话隔离） */
     private void persistHistory() {
         try {
+            // 持久化前清洗悬空 tool 消息，避免脏数据落盘后每次恢复都带进来
+            removeOrphanToolMessages();
             if (messageHistory.isEmpty()) {
                 deleteHistoryFile();
                 return;
@@ -1823,6 +1825,40 @@ public class OnlineAgentEngine {
     }
 
     /**
+     * 清洗 messageHistory 中的悬空 tool 消息（无配对 assistant.tool_calls 的 role=tool 消息）。
+     * 悬空 tool 消息会让 GLM/OpenAI 兼容接口返回 HTTP 400
+     * ("Messages with role 'tool' must be a response to a preceding message with 'tool_calls'")。
+     * 与 buildOutgoingMessagesArray 的发送层跳过互为兜底：这里修本体，发送层防漏网。
+     */
+    private void removeOrphanToolMessages() {
+        boolean toolCallsOpen = false;
+        java.util.Iterator<JsonObject> it = messageHistory.iterator();
+        int removed = 0;
+        while (it.hasNext()) {
+            JsonObject msg = it.next();
+            String role = msg.has("role") && !msg.get("role").isJsonNull()
+                    ? msg.get("role").getAsString() : "";
+            if ("assistant".equals(role)) {
+                boolean hasToolCalls = msg.has("tool_calls") && !msg.get("tool_calls").isJsonNull()
+                        && msg.get("tool_calls").isJsonArray()
+                        && msg.getAsJsonArray("tool_calls").size() > 0;
+                toolCallsOpen = hasToolCalls;
+            } else if ("tool".equals(role)) {
+                if (!toolCallsOpen) {
+                    it.remove();
+                    removed++;
+                }
+                // tool 消息不关闭配对段：多个 tool 消息可与同一 assistant.tool_calls 配对
+            } else {
+                toolCallsOpen = false;
+            }
+        }
+        if (removed > 0) {
+            AILogger.i(TAG, "Removed " + removed + " orphan tool messages from history");
+        }
+    }
+
+    /**
      * 从私有文件恢复对话历史（按会话隔离）。
      * 丢弃旧版本 system 消息（含过期提示词与环境上下文）：
      * 系统提示词会在下次 execute 时按当前版本重建，避免升级后旧提示词永久生效。
@@ -1838,6 +1874,8 @@ public class OnlineAgentEngine {
             messageHistory.clear();
             pendingSummaryMessage = null;
             int systemDiscarded = 0;
+            int orphanSkipped = 0;
+            boolean toolCallsOpen = false;
             for (int i = 0; i < arr.size(); i++) {
                 JsonObject msg = arr.get(i).getAsJsonObject();
                 String role = msg.has("role") ? msg.get("role").getAsString() : "";
@@ -1851,7 +1889,25 @@ public class OnlineAgentEngine {
                     systemDiscarded++;
                     continue; // 丢弃旧 system（提示词/环境上下文），下次 execute 重建
                 }
-                messageHistory.add(msg);
+                if ("assistant".equals(role)) {
+                    boolean hasToolCalls = msg.has("tool_calls") && !msg.get("tool_calls").isJsonNull()
+                            && msg.get("tool_calls").isJsonArray()
+                            && msg.getAsJsonArray("tool_calls").size() > 0;
+                    toolCallsOpen = hasToolCalls;
+                    messageHistory.add(msg);
+                } else if ("tool".equals(role)) {
+                    if (toolCallsOpen) {
+                        messageHistory.add(msg);
+                    } else {
+                        orphanSkipped++;
+                    }
+                } else {
+                    toolCallsOpen = false;
+                    messageHistory.add(msg);
+                }
+            }
+            if (orphanSkipped > 0) {
+                AILogger.i(TAG, "Restore: skipped " + orphanSkipped + " orphan tool messages");
             }
             if (!messageHistory.isEmpty()) {
                 AILogger.i(TAG, "Restored agent history: " + messageHistory.size()
