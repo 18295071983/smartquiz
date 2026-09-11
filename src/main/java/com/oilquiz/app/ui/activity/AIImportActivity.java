@@ -16,10 +16,10 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.AgentSession;
-import com.oilquiz.app.ai.agent.ui.AgentSessionView;
 import com.oilquiz.app.ai.chat.AgentExecutionView;
 import com.oilquiz.app.ai.chat.ui.ChatBottomSheet;
 import com.oilquiz.app.ai.chat.ui.GuideStepFlowView;
+import com.oilquiz.app.ai.importing.AgentImportStateMachine;
 import com.oilquiz.app.ai.importing.AIImportOrchestrator;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ui.base.BaseActivity;
@@ -74,10 +74,9 @@ public class AIImportActivity extends BaseActivity {
 
     // 智能体导入区
     private MaterialButton btnAgentImport;
-    private MaterialCardView agentSessionCard;
-    private FrameLayout agentSessionContainer;
     private AgentSession agentSession;
-    private AgentSessionView agentSessionView;
+    // 智能体导入状态机（独立于智能体专用 UI，驱动 GuideStepFlowView + 监控区）
+    private AgentImportStateMachine agentImportStateMachine;
 
     // Agent 执行区
     private AgentExecutionView agentView;
@@ -139,8 +138,7 @@ public class AIImportActivity extends BaseActivity {
 
         // 智能体导入区
         btnAgentImport = findViewById(R.id.btnAgentImport);
-        agentSessionCard = findViewById(R.id.agentSessionCard);
-        agentSessionContainer = findViewById(R.id.agentSessionContainer);
+        // agentSessionCard/agentSessionContainer 布局保留但不再渲染智能体专用视图（由状态机驱动）
 
         // Agent 执行区
         agentView = findViewById(R.id.agentView);
@@ -398,8 +396,9 @@ public class AIImportActivity extends BaseActivity {
     }
 
     /**
-     * 启动智能体导入：AgentSession 驱动（在线模型推理 + import_start/import_status 工具）。
-     * 用户指令 = 系统引导 + 文件清单 + 用户填写的题库说明；执行过程用 AgentSessionView 实时展示。
+     * 启动智能体导入：AgentSession 驱动（在线模型推理 + import_start/import_status 工具），
+     * 执行过程经 AgentImportStateMachine 状态机翻译为四步骤（检测/映射/解析/入库）+ 监控区展示，
+     * 不渲染智能体专用视图（思考/工具调用流水）。
      */
     private void startAgentImport() {
         // 构建智能体指令：明确文件与目标，让 Agent 走 import_start → 轮询 import_status → 汇报
@@ -428,23 +427,66 @@ public class AIImportActivity extends BaseActivity {
                 + "4) 完成后汇总新增/重复/失败数量并给出简短结论。"
                 + "四个决策点（字段映射/数据预览/填充/入库）已全自动放行，无需用户确认。");
 
-        // 创建/复用智能体会话视图
-        if (agentSessionContainer.getChildCount() == 0) {
-            agentSessionView = new AgentSessionView(this);
-            agentSessionContainer.addView(agentSessionView,
-                    new FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.WRAP_CONTENT));
+        // 状态机驱动导入页自有 UI（GuideStepFlowView 四步骤 + 监控区），不渲染智能体专用视图
+        if (agentImportStateMachine == null) {
+            agentImportStateMachine = new AgentImportStateMachine(buildAgentImportUi());
+        } else {
+            agentImportStateMachine.reset();
         }
+        if (statsCard != null) statsCard.setVisibility(View.GONE);
+        guideStepFlow.setSteps(java.util.Arrays.asList("检测", "映射", "解析", "入库"));
+        for (int i = 0; i < 4; i++) {
+            guideStepFlow.setStepState(i, i == 0
+                    ? GuideStepFlowView.StepState.RUNNING : GuideStepFlowView.StepState.PENDING);
+        }
+        startMonitor();
         if (agentSession != null) {
             agentSession.shutdown();
         }
         agentSession = AgentSession.create(this);
-        agentSessionView.setSession(agentSession);
-        agentSessionView.reset();
-        agentSessionCard.setVisibility(View.VISIBLE);
+        agentSession.setCallback(agentImportStateMachine);
+        agentSession.start(prompt.toString(), 8192);
+    }
 
-        agentSessionView.start(prompt.toString(), 8192);
+    /** 状态机 UI 适配器：把导入阶段/步骤/监控/结果绑定到导入页自有控件 */
+    private AgentImportStateMachine.Ui buildAgentImportUi() {
+        return new AgentImportStateMachine.Ui() {
+            @Override public void onPhase(AgentImportStateMachine.Phase phase, String message) {
+                if (tvMonitorStage != null && message != null) tvMonitorStage.setText(message);
+            }
+            @Override public void onStep(int stepIndex, GuideStepFlowView.StepState state) {
+                if (guideStepFlow != null) guideStepFlow.setStepState(stepIndex, state);
+            }
+            @Override public void onMonitor(long elapsedSec, String stage, float speed, int tokens,
+                                            long current, long total) {
+                if (tvMonitorElapsed != null) {
+                    long s = elapsedSec;
+                    tvMonitorElapsed.setText(String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60));
+                }
+                if (tvMonitorStage != null && stage != null) tvMonitorStage.setText(stage);
+                if (tvMonitorSpeed != null) {
+                    tvMonitorSpeed.setText(speed > 0 ? String.format(java.util.Locale.US, "%.1f", speed) : "-");
+                }
+                if (tvMonitorTokens != null) tvMonitorTokens.setText(String.valueOf(Math.max(0, tokens)));
+                if (tvProgress != null && total > 0 && current >= 0) {
+                    tvProgress.setText(String.format(java.util.Locale.US, "已处理 %d/%d 行", current, total));
+                }
+            }
+            @Override public void onComplete(String fullText, int imported, int duplicated,
+                                             int failed, int totalRows) {
+                stopMonitor();
+                if (statsCard != null) statsCard.setVisibility(View.VISIBLE);
+                if (tvSuccessCount != null && imported >= 0) tvSuccessCount.setText(String.valueOf(imported));
+                if (tvDupCount != null && duplicated >= 0) tvDupCount.setText(String.valueOf(duplicated));
+                if (tvFailedCount != null && failed >= 0) tvFailedCount.setText(String.valueOf(failed));
+                if (tvTotalCount != null && totalRows >= 0) tvTotalCount.setText(String.valueOf(totalRows));
+                showToast(fullText != null ? fullText : "智能体导入完成");
+            }
+            @Override public void onError(String error) {
+                stopMonitor();
+                showToast(error != null ? error : getString(R.string.h_9bc92f24));
+            }
+        };
     }
 
     private boolean isExcelFile(File file) {
