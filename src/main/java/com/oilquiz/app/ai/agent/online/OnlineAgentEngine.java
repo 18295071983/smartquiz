@@ -1161,12 +1161,23 @@ public class OnlineAgentEngine {
         boolean forceReasoning = cfg != null && cfg.apiUrl != null
                 && com.oilquiz.app.ai.model.ProviderConfigManager.get()
                         .requiresReasoningInContext(cfg.apiUrl);
+        // tool 消息配对保护：role=tool 必须紧跟带 tool_calls 的 assistant 消息之后，
+        // 否则 GLM/OpenAI 兼容接口 400 "Messages with role 'tool' must be a response to a
+        // preceding message with 'tool_calls'"。历史裁剪/持久化恢复可能留下悬空 tool 消息，
+        // 发送前逐个跳过，保证发出的数组恒合法（对 start/sendMessage/恢复历史所有入口统一兜底）。
+        boolean toolCallsOpen = false;
+        int skippedOrphanTools = 0;
         try {
             for (JsonObject msg : messageHistory) {
                 JsonObject copy = msg.deepCopy();
                 String role = copy.has("role") && !copy.get("role").isJsonNull()
                         ? copy.get("role").getAsString() : "";
                 if ("assistant".equals(role)) {
+                    boolean hasToolCalls = copy.has("tool_calls") && !copy.get("tool_calls").isJsonNull()
+                            && copy.get("tool_calls").isJsonArray()
+                            && copy.getAsJsonArray("tool_calls").size() > 0;
+                    // 带 tool_calls 的 assistant 打开配对段落；普通 assistant 关闭
+                    toolCallsOpen = hasToolCalls;
                     if (forceReasoning || enableThinking) {
                         if (!copy.has("reasoning_content") || copy.get("reasoning_content").isJsonNull()) {
                             copy.addProperty("reasoning_content", "");
@@ -1174,8 +1185,24 @@ public class OnlineAgentEngine {
                     } else {
                         copy.remove("reasoning_content");
                     }
+                    out.add(copy);
+                } else if ("tool".equals(role)) {
+                    if (toolCallsOpen) {
+                        out.add(copy);
+                        // 多个 tool 消息可与同一 assistant.tool_calls 配对，保持打开
+                    } else {
+                        skippedOrphanTools++;
+                        AILogger.w(TAG, "Skipped orphan tool message (no preceding tool_calls): "
+                                + copy);
+                    }
+                } else {
+                    // user/system 等消息关闭配对段落
+                    toolCallsOpen = false;
+                    out.add(copy);
                 }
-                out.add(copy);
+            }
+            if (skippedOrphanTools > 0) {
+                AILogger.i(TAG, "Orphan tool messages filtered: " + skippedOrphanTools);
             }
         } catch (Exception e) {
             AILogger.w(TAG, "buildOutgoingMessagesArray failed, sending raw history: " + e.getMessage());
