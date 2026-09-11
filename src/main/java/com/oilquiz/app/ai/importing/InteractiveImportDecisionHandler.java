@@ -24,7 +24,8 @@ import java.util.concurrent.TimeUnit;
  *   <li>最终入库：展示预计导入统计，用户确认入库或取消</li>
  * </ol>
  * 弹窗经主线程 Handler + {@link CountDownLatch} 阻塞等待用户操作；
- * 等待超时（3 分钟）或当前 Activity 不可用时按默认继续放行（不卡死导入线程）。
+ * 等待超时（3 分钟）或当前 Activity 不可用时按【取消】处理——interactive=true 的语义是"必须用户确认"，
+ * 未确认不导入（不自动放行），避免后台无人值守时未经确认就写入题库。
  */
 public class InteractiveImportDecisionHandler implements ImportMain.InteractionHandler {
 
@@ -121,15 +122,16 @@ public class InteractiveImportDecisionHandler implements ImportMain.InteractionH
         int choice; // 选中按钮索引
     }
 
-    /** 主线程弹 AlertDialog 并阻塞等待用户选择；异常/超时/无 Activity 时按"确认继续"兜底 */
+    /** 主线程弹 AlertDialog 并阻塞等待用户选择；异常/超时/无 Activity 时按"取消"处理（未确认不导入） */
     private DecisionResult ask(String title, String message, String[] buttons) {
         DecisionResult result = new DecisionResult();
         CountDownLatch latch = new CountDownLatch(1);
         try {
             final Activity activity = SmartQuizApplication.getCurrentActivity();
             if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
-                Log.w(TAG, "当前无可用 Activity，决策点自动放行: " + title);
-                return result; // 默认继续
+                Log.w(TAG, "当前无可用 Activity，决策点按取消处理: " + title);
+                result.cancelled = true; // 无界面可确认 → 取消，不静默继续
+                return result;
             }
             mainHandler.post(() -> {
                 try {
@@ -155,7 +157,9 @@ public class InteractiveImportDecisionHandler implements ImportMain.InteractionH
                 }
             });
             if (!latch.await(WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                Log.w(TAG, "决策等待超时，自动放行: " + title);
+                // 超时未确认 → 按取消处理：interactive=true 必须用户确认，未确认不导入
+                Log.w(TAG, "决策等待超时(" + WAIT_TIMEOUT_MS + "ms)，按取消处理: " + title);
+                result.cancelled = true;
             }
         } catch (Exception e) {
             Log.w(TAG, "决策交互异常，自动放行: " + e.getMessage());

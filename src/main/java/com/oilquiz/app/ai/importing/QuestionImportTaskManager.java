@@ -176,6 +176,15 @@ public class QuestionImportTaskManager {
                 status.stage = "error";
                 activeMains.remove(taskId);
             }
+
+            @Override
+            public void onCancelled(String reason) {
+                status.running = false;
+                status.done = true;
+                status.error = reason;
+                status.stage = "cancelled";
+                activeMains.remove(taskId);
+            }
         });
         return taskId;
     }
@@ -274,6 +283,15 @@ public class QuestionImportTaskManager {
                 status.done = true;
                 status.error = message;
                 status.stage = "error";
+                activeMains.remove(taskId);
+            }
+
+            @Override
+            public void onCancelled(String reason) {
+                status.running = false;
+                status.done = true;
+                status.error = reason;
+                status.stage = "cancelled";
                 activeMains.remove(taskId);
             }
         });

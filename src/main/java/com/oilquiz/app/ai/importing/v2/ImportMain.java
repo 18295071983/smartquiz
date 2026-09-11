@@ -99,6 +99,14 @@ public class ImportMain {
         void onError(String message);
 
         /**
+         * 导入被用户取消（决策弹窗取消 / 等待确认超时）。
+         * 实现方应把任务状态置为 CANCELLED，否则取消后状态会一直卡在 RUNNING，
+         * 智能体/UI 轮询会误判为仍在导入。
+         */
+        default void onCancelled(String reason) {
+        }
+
+        /**
          * 解析完成、入库前的质量预览回调（可选实现）。
          * 让 UI 在真正入库前展示"不完整题目"情况，并让用户选择处理方式。
          */
@@ -347,7 +355,7 @@ public class ImportMain {
      * 执行一次交互决策：调用注入的处理器（若无则返回默认 CONTINUE 决策）。
      * 处理"用户取消"（标记 cancelled，后续步骤自然停止）与"用户修改映射/开关"的落地。
      */
-    private InteractionHandler.Decision askDecision(
+    private InteractionHandler.Decision askDecision(ImportListener listener,
             java.util.function.Function<InteractionHandler, InteractionHandler.Decision> action) {
         InteractionHandler handler = interactionHandler;
         if (handler == null) {
@@ -367,6 +375,13 @@ public class ImportMain {
             // 清理断点：取消后残留断点会导致下次导入从断点续导跳过部分行
             ImportBreakpointStore.clear();
             Log.i(TAG, "用户取消导入，已清理断点");
+            // 通知取消状态：否则取消后任务状态卡 RUNNING，智能体/UI 轮询误判仍在导入
+            try {
+                emitStage(listener, "cancelled", "用户取消导入");
+                listener.onCancelled("用户取消导入");
+            } catch (Throwable t) {
+                Log.w(TAG, "取消通知异常: " + t.getMessage());
+            }
         }
         if (d.skipIncomplete) {
             this.skipIncomplete = true;
@@ -766,7 +781,8 @@ public class ImportMain {
             final Map<String, String> mappingForConfirm = mapping;
             final List<String> headersForConfirm = headers;
             final String sourceForConfirm = summary.mappingSource;
-            InteractionHandler.Decision d1 = askDecision(
+            emitStage(listener, "mapping-confirm", "等待用户确认字段映射…");
+            InteractionHandler.Decision d1 = askDecision(listener,
                     h -> h.onMappingReady(mappingForConfirm, headersForConfirm,
                             sourceFile.getName(), this.docHint, sourceForConfirm));
             if (d1.action == InteractionHandler.Decision.CANCEL) {
@@ -879,7 +895,8 @@ public class ImportMain {
 
                 final QualityPreview previewForConfirm = preview;
                 final List<File> chunksForConfirm = chunks;
-                InteractionHandler.Decision d2 = askDecision(
+                emitStage(listener, "preview-confirm", "等待用户确认数据预览…");
+                InteractionHandler.Decision d2 = askDecision(listener,
                         h -> h.onPreviewReady(previewForConfirm, chunksForConfirm));
                 if (d2.action == InteractionHandler.Decision.CANCEL) {
                     return; // 用户取消
@@ -901,7 +918,9 @@ public class ImportMain {
         int missingCount = remainingMissing != null ? remainingMissing.length() : 0;
         if (interactionHandler != null) {
             try {
-                InteractionHandler.Decision d3 = askDecision(h -> h.onFillReady(previewHolder[0], missingCount));
+                emitStage(listener, "fill-confirm", "等待用户确认智能填充…");
+                InteractionHandler.Decision d3 = askDecision(listener,
+                        h -> h.onFillReady(previewHolder[0], missingCount));
                 if (d3.action == InteractionHandler.Decision.CANCEL) {
                     return; // 用户取消
                 }
@@ -935,7 +954,8 @@ public class ImportMain {
         if (interactionHandler != null) {
             try {
                 summary.totalRows = processedRows;
-                InteractionHandler.Decision d4 = askDecision(
+                emitStage(listener, "ingest-confirm", "等待用户确认入库…");
+                InteractionHandler.Decision d4 = askDecision(listener,
                         h -> h.onFinalConfirm(previewHolder[0], summary));
                 if (d4.action == InteractionHandler.Decision.CANCEL) {
                     return; // 用户取消
