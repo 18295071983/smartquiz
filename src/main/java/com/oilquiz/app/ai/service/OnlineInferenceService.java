@@ -68,8 +68,19 @@ public class OnlineInferenceService {
     private final java.util.concurrent.ConcurrentHashMap<String, Boolean> structuredCapabilityCache = new java.util.concurrent.ConcurrentHashMap<>();
     // function calling 能力缓存:key=apiUrl+modelName, value=true支持/false不支持/null未知
     private final java.util.concurrent.ConcurrentHashMap<String, Boolean> functionCallingCapabilityCache = new java.util.concurrent.ConcurrentHashMap<>();
+    /** M3：探测未知（网络失败）短时缓存：key=apiUrl|modelName, value=探测时间 */
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> fcUnknownCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long FC_UNKNOWN_RETRY_MS = 10 * 60 * 1000; // 未知结果 10 分钟内不重复探测
+    private static final long FC_CACHE_TTL_MS = 7L * 24 * 3600 * 1000; // 持久化缓存 7 天 TTL
     /** 能力探测内存缓存：key = apiUrl|modelName|capability */
     private final java.util.concurrent.ConcurrentHashMap<String, Boolean> capabilityProbeCache = new java.util.concurrent.ConcurrentHashMap<>();
+    /** M9：DNS 预解析专用单线程池（避免与主请求线程争抢） */
+    private static final java.util.concurrent.ExecutorService dnsExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "DNS-Resolve");
+                t.setDaemon(true);
+                return t;
+            });
 
     private OnlineInferenceService(Context context) {
         this.context = context.getApplicationContext();
@@ -499,7 +510,7 @@ public class OnlineInferenceService {
      */
     public Integer queryContextWindowFromAPI(final OnlineModelManager.OnlineModelConfig config) {
         if (config == null) return null;
-        String key = (config.apiUrl != null ? config.apiUrl : "") + "|" + config.modelName;
+        String key = cacheKey(config.apiUrl, config.modelName); // M10：规范化缓存键
         try {
             Integer cached = contextWindowApiCache.get(key);
             if (cached != null) return cached;
@@ -534,11 +545,39 @@ public class OnlineInferenceService {
     private static final String PREFS_CTX = "ctx_window_cache";
     private static final String PREFS_CTX_PREFIX = "ctx_";
 
+    /**
+     * M10：规范化 API 地址用于缓存键——小写、去尾部斜杠、去除尾随空白。
+     * 修复同一地址因尾斜杠产生两份缓存记录（.../api/paas/v4 与 .../api/paas/v4/）的问题。
+     */
+    private static String normalizeApiUrl(String apiUrl) {
+        if (apiUrl == null) return "";
+        String u = apiUrl.trim().toLowerCase();
+        while (u.endsWith("/")) {
+            u = u.substring(0, u.length() - 1);
+        }
+        return u;
+    }
+
+    /** M10：构造统一的缓存键（apiUrl 规范化 + 模型名），所有能力缓存共用 */
+    private static String cacheKey(String apiUrl, String modelName) {
+        return normalizeApiUrl(apiUrl) + "|"
+                + (modelName != null ? modelName.trim().toLowerCase() : "");
+    }
+
     private Integer loadContextWindowCache(String key) {
         try {
             android.content.SharedPreferences prefs = context.getSharedPreferences(
                     PREFS_CTX, Context.MODE_PRIVATE);
             String v = prefs.getString(PREFS_CTX_PREFIX + key, null);
+            // M10 旧键迁移：规范化 key（无尾斜杠）未命中时，尝试带尾斜杠的旧格式键
+            // （.../api/paas/v4/ 旧缓存），命中后迁移删除，避免同一地址两份缓存并存
+            if (v == null && !key.endsWith("/")) {
+                String legacyKey = key + "/";
+                v = prefs.getString(PREFS_CTX_PREFIX + legacyKey, null);
+                if (v != null) {
+                    prefs.edit().remove(PREFS_CTX_PREFIX + legacyKey).apply();
+                }
+            }
             if (v == null) return null;
             return Integer.parseInt(v);
         } catch (Throwable t) {
@@ -697,11 +736,16 @@ public class OnlineInferenceService {
      */
     public boolean probeFunctionCalling(final OnlineModelManager.OnlineModelConfig config) {
         if (config == null) return true; // 无配置默认支持（避免降级）
-        String key = (config.apiUrl != null ? config.apiUrl : "") + "|" + config.modelName;
+        String key = cacheKey(config.apiUrl, config.modelName); // M10：规范化缓存键
         // 1. 内存缓存
         Boolean cached = functionCallingCapabilityCache.get(key);
         if (cached != null) return cached;
-        // 2. 持久化缓存（App 重启后仍记住，不重新探测）
+        // 1.5 探测未知（网络失败）短时内存缓存：避免网络抖动期每次请求都重探
+        Long lastUnknown = fcUnknownCache.get(key);
+        if (lastUnknown != null && System.currentTimeMillis() - lastUnknown < FC_UNKNOWN_RETRY_MS) {
+            return true;
+        }
+        // 2. 持久化缓存（App 重启后仍记住，不重复探测；带 7 天 TTL）
         Boolean persisted = loadFunctionCallingCapability(key);
         if (persisted != null) {
             functionCallingCapabilityCache.put(key, persisted);
@@ -722,38 +766,61 @@ public class OnlineInferenceService {
                 AILogger.i(TAG, "Function calling probe: " + config.modelName + " -> " + result);
                 return result;
             }
-            // 探测失败（超时/网络）：默认倾向支持（用户常用模型基本都支持 FC）
+            // M3：探测未知（超时/网络不可达）不得静默持久化为"支持"。
+            // 仅做短时内存记忆（10 分钟内不重复探测），不写持久化；
+            // 网络恢复后下次进程内重探即可得到真实能力。
+            fcUnknownCache.put(key, System.currentTimeMillis());
             AILogger.w(TAG, "Function calling probe unknown for " + config.modelName
-                    + ", defaulting to supported (avoid degrading)");
+                    + ", not persisted (assume supported this session only, will re-probe)");
             return true;
         } catch (Exception e) {
             AILogger.w(TAG, "Function calling probe timeout/error: " + e.getMessage());
-            return true; // 失败默认支持，不降级
+            return true; // 失败默认支持，不降级（下次会话重新探测）
         }
     }
 
     private static final String PREFS_FC_PROBE = "fc_probe_cache";
     private static final String PREFS_FC_PREFIX = "fc_";
 
-    /** 从 SharedPreferences 读持久化的 function calling 能力（null=未缓存） */
+    /** 从 SharedPreferences 读持久化的 function calling 能力（null=未缓存或已过期） */
     private Boolean loadFunctionCallingCapability(String key) {
         try {
             android.content.SharedPreferences prefs = context.getSharedPreferences(
                     PREFS_FC_PROBE, Context.MODE_PRIVATE);
             String v = prefs.getString(PREFS_FC_PREFIX + key, null);
+            // M10 旧键迁移：规范化 key 未命中时尝试带尾斜杠的旧格式键
+            if (v == null && !key.endsWith("/")) {
+                String legacyKey = key + "/";
+                v = prefs.getString(PREFS_FC_PREFIX + legacyKey, null);
+                if (v != null) {
+                    prefs.edit().remove(PREFS_FC_PREFIX + legacyKey).apply();
+                }
+            }
             if (v == null) return null;
+            int sep = v.indexOf('|');
+            if (sep > 0) {
+                long ts = Long.parseLong(v.substring(sep + 1));
+                if (System.currentTimeMillis() - ts > FC_CACHE_TTL_MS) {
+                    // 超过 7 天：过期，删除并重新探测（服务商能力可能变化）
+                    prefs.edit().remove(PREFS_FC_PREFIX + key).apply();
+                    return null;
+                }
+                return "1".equals(v.substring(0, sep));
+            }
+            // 旧格式（无时间戳）：兼容保留
             return "1".equals(v);
         } catch (Throwable t) {
             return null;
         }
     }
 
-    /** 持久化 function calling 能力到 SharedPreferences */
+    /** 持久化 function calling 能力到 SharedPreferences（带时间戳，支持 TTL 过期） */
     private void saveFunctionCallingCapability(String key, boolean value) {
         try {
             android.content.SharedPreferences prefs = context.getSharedPreferences(
                     PREFS_FC_PROBE, Context.MODE_PRIVATE);
-            prefs.edit().putString(PREFS_FC_PREFIX + key, value ? "1" : "0").apply();
+            prefs.edit().putString(PREFS_FC_PREFIX + key,
+                    (value ? "1" : "0") + "|" + System.currentTimeMillis()).apply();
         } catch (Throwable t) {
             AILogger.w(TAG, "saveFunctionCallingCapability failed: " + t.getMessage());
         }
@@ -789,8 +856,7 @@ public class OnlineInferenceService {
     /** 探测单个能力（内存+持久化缓存；null=未知） */
     public Boolean probeCapability(final OnlineModelManager.OnlineModelConfig config, final String capability) {
         if (config == null || capability == null) return null;
-        String key = (config.apiUrl != null ? config.apiUrl : "") + "|"
-                + (config.modelName != null ? config.modelName : "") + "|" + capability;
+        String key = cacheKey(config.apiUrl, config.modelName) + "|" + capability; // M10：规范化缓存键
         Boolean cached = capabilityProbeCache.get(key);
         if (cached != null) return cached;
         Boolean persisted = loadCapabilityProbe(key);
@@ -1057,6 +1123,42 @@ public class OnlineInferenceService {
     }
 
 
+    /**
+     * M9：连接前预解析主机名（带 5 秒超时）。
+     * HttpURLConnection 的 connectTimeout 不覆盖 DNS 解析耗时（Android 上 DNS 卡死可达分钟级，
+     * 表现为请求"卡死"远超超时上限），这里把 DNS 解析放进带超时的线程中执行，
+     * 超时即抛出可读错误，不再让调用方无限等待。
+     */
+    private static void preResolveHost(String fullUrl) throws java.io.IOException {
+        try {
+            java.net.URI uri = java.net.URI.create(fullUrl);
+            String host = uri.getHost();
+            if (host == null || host.isEmpty()) return;
+            java.util.concurrent.Future<java.net.InetAddress[]> future = dnsExecutor.submit(() -> {
+                try {
+                    return java.net.InetAddress.getAllByName(host);
+                } catch (Exception e) {
+                    return null;
+                }
+            });
+            java.net.InetAddress[] addrs = future.get(5000, java.util.concurrent.TimeUnit.MILLISECONDS);
+            if (addrs == null || addrs.length == 0) {
+                throw new java.net.UnknownHostException("无法解析主机: " + host);
+            }
+        } catch (java.util.concurrent.TimeoutException e) {
+            throw new java.io.IOException("DNS 解析超时（5秒），请检查网络或主机名: " + fullUrl);
+        } catch (java.util.concurrent.ExecutionException e) {
+            throw new java.io.IOException("DNS 解析失败: " + fullUrl + " - "
+                    + (e.getCause() != null ? e.getCause().getMessage() : "未知原因"));
+        } catch (java.lang.InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new java.io.IOException("DNS 解析被中断: " + fullUrl);
+        } catch (java.lang.IllegalArgumentException e) {
+            // 非法 URL：交由后续 new URL 抛标准异常
+        }
+    }
+
+
     /** 执行探针请求（同步，OpenAI 兼容格式） */
     private Boolean doProbeFunctionCalling(OnlineModelManager.OnlineModelConfig config) throws Exception {
         String apiUrl = config.apiUrl;
@@ -1070,6 +1172,7 @@ public class OnlineInferenceService {
             return null;
         }
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        preResolveHost(fullUrl); // M9：DNS 预解析带超时
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
@@ -1094,7 +1197,13 @@ public class OnlineInferenceService {
             JsonObject func = new JsonObject();
             func.addProperty("name", "ping_probe");
             func.addProperty("description", "探测工具，无参数");
-            func.add("parameters", new JsonObject());
+            // M2：显式 JSON Schema（type=object），空对象会被部分服务商拒绝
+            // （"schema must be a JSON Schema of 'type: object', got 'type: null'"）
+            JsonObject paramsSchema = new JsonObject();
+            paramsSchema.addProperty("type", "object");
+            paramsSchema.add("properties", new JsonObject());
+            paramsSchema.add("required", new JsonArray());
+            func.add("parameters", paramsSchema);
             tool.add("function", func);
             tools.add(tool);
             requestBody.add("tools", tools);
@@ -1160,6 +1269,7 @@ public class OnlineInferenceService {
     private String callOpenAIAPIOnce(String apiUrl, String apiKey, String modelName,
                                      String prompt, int maxTokens) throws Exception {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        preResolveHost(fullUrl); // M9：DNS 预解析带超时
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
@@ -1677,7 +1787,7 @@ public class OnlineInferenceService {
             }
 
             if (stream) {
-                return readStreamResponse(connection, callback);
+                return readStreamResponse(connection, enableThinking, callback);
             } else {
                 return readFullResponse(connection);
             }
@@ -1882,6 +1992,7 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
+        preResolveHost(fullUrl); // M9：DNS 预解析带超时
         
         URL url = new URL(fullUrl);
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
@@ -1932,6 +2043,14 @@ public class OnlineInferenceService {
                         message.addProperty("role", "assistant");
                     }
                     message.addProperty("content", msg.content);
+                    // M6：深度思考模式下，assistant 历史消息必须原样回传 reasoning_content，
+                    // 否则 DeepSeek/Qwen 等推理模型下一轮请求返回 HTTP 400
+                    // ("The reasoning_content in the thinking mode must be passed back")。
+                    // thinkingContent 即上一轮保存的思考链。
+                    if (enableThinking && msg.isAIMessage()
+                            && msg.thinkingContent != null && !msg.thinkingContent.isEmpty()) {
+                        message.addProperty("reasoning_content", msg.thinkingContent);
+                    }
                     messages.add(message);
                 }
             }
@@ -1970,7 +2089,7 @@ public class OnlineInferenceService {
             }
 
             if (stream) {
-                return readStreamResponse(connection, callback);
+                return readStreamResponse(connection, enableThinking, callback);
             } else {
                 return readFullResponse(connection);
             }
@@ -2224,7 +2343,8 @@ public class OnlineInferenceService {
     /**
      * 读取流式响应（OpenAI SSE 格式）
      */
-    private String readStreamResponse(HttpURLConnection connection, StreamCallback callback) throws Exception {
+    private String readStreamResponse(HttpURLConnection connection, boolean enableThinking,
+                                      StreamCallback callback) throws Exception {
         StringBuilder fullText = new StringBuilder();
         StringBuilder reasoningText = new StringBuilder();
         // 思考结束信号：content 首次出现即思考段结束；流结束仍未触发则补发（防 UI 思考行悬挂）
@@ -2293,11 +2413,17 @@ public class OnlineInferenceService {
         }
         
         String result = fullText.toString();
-        // 深度思考模型可能只返回 reasoning_content 无 content：空正文时用思考内容兜底
+        // M7：思维链与正文各就各位——思考模式（有思考区承载）下正文为空时
+        // 不得把 reasoning_content 填充为正文（思考链已实时展示在思考区）；
+        // 仅非思考模式（请求未开 thinking 却返回思维链）下保留兜底，避免空回复。
         if ((result == null || result.trim().isEmpty())
                 && reasoningText.length() > 0) {
-            AILogger.w(TAG, "content为空，回退使用reasoning_content作为回复(长度" + reasoningText.length() + ")");
-            result = reasoningText.toString();
+            if (enableThinking) {
+                AILogger.w(TAG, "思考模式：模型仅输出 reasoning_content 无正文，不回退填充正文（思考链已在思考区）");
+            } else {
+                AILogger.w(TAG, "content为空，回退使用reasoning_content作为回复(长度" + reasoningText.length() + ")");
+                result = reasoningText.toString();
+            }
         }
         // 清理模型输出中的乱码/非法字符
         String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
@@ -2543,7 +2669,7 @@ public class OnlineInferenceService {
             // 判断 API 类型
             boolean isAnthropic = isAnthropicAPI(apiUrl);
             // 能力缓存 key = apiUrl + "|" + modelName
-            String capabilityKey = apiUrl + "|" + modelName;
+            String capabilityKey = cacheKey(apiUrl, modelName); // M10：规范化缓存键
 
             // 尝试结构化输出(若缓存不为 false)
             Boolean capability = structuredCapabilityCache.get(capabilityKey);

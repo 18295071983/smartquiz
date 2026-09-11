@@ -229,7 +229,9 @@ public class OnlineModelManager {
                     OnlineModelConfig config = new OnlineModelConfig(
                         obj.getString("id"), obj.getString("name"),
                         obj.getString("apiUrl"), obj.getString("modelName"),
-                        obj.getString("apiKey"), obj.optBoolean("enabled", true),
+                        // M12：密钥解密读取（明文历史数据兼容返回原样）
+                        com.oilquiz.app.ai.util.ApiKeyCipher.decrypt(obj.getString("apiKey")),
+                        obj.optBoolean("enabled", true),
                         obj.optLong("createdAt", System.currentTimeMillis()));
                     
                     // 加载增强字段
@@ -490,7 +492,7 @@ public class OnlineModelManager {
                 obj.put("name", config.name);
                 obj.put("apiUrl", config.apiUrl);
                 obj.put("modelName", config.modelName);
-                obj.put("apiKey", config.apiKey);
+                obj.put("apiKey", com.oilquiz.app.ai.util.ApiKeyCipher.encrypt(config.apiKey)); // M12：密钥加密落盘
                 obj.put("apiSecret", config.apiSecret != null ? config.apiSecret : "");
                 obj.put("appId", config.appId != null ? config.appId : "");
                 obj.put("enabled", config.enabled);

@@ -7,8 +7,13 @@ import com.oilquiz.app.ai.tool.annotation.Tool;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 布局画布编辑器：让 Agent 动态编辑常驻的布局画布（layout_canvas 组件）。
@@ -20,6 +25,7 @@ import java.util.Map;
  * action=add   向指定容器追加子节点（component_id, container: 容器path或"root", node: 新节点JSON, index: 可选插入位置）
  * action=patch 修改/删除节点（component_id, key: 节点key 或 path: 节点path; props: 合并/替换的属性; remove: true=删除）
  * action=get   返回当前布局结构（含节点数/顶层结构快照，供查看）
+ * action=validate 提交前 dry-run 校验（layout: 完整布局 JSON，不渲染；返回合法性与节点级问题列表）
  * action=rebuild 强制重渲染画布
  *
  * 说明：
@@ -33,6 +39,38 @@ public class LayoutEditorTool implements AITool {
 
     private static final String TAG = "LayoutEditorTool";
     private final Context context;
+
+    /** 已知控件类型白名单（与 NativeLayoutRenderer 支持集一致，维度一 P0-1/2 dry-run 校验用） */
+    private static final Set<String> KNOWN_TYPES = new HashSet<>(Arrays.asList(
+            // 布局
+            "column", "row", "scroll", "card", "wrap", "grid", "space", "tabs", "stack", "accordion", "carousel",
+            // 展示
+            "text", "marquee", "image", "badge", "avatar", "avatar_group", "quote", "code", "icon",
+            // 媒体
+            "video", "audio", "html",
+            // 输入
+            "input", "number", "password", "multiline", "otp", "email", "tel", "url", "search", "search_bar", "tag_input",
+            // 选择
+            "select", "switch", "checkbox", "checkbox_group", "radio", "radio_group", "date", "time", "datetime",
+            "color", "rating", "toggle", "dropdown", "stepper", "slider_range",
+            // 交互
+            "button", "link", "slider", "progress", "spinner", "progress_ring",
+            // 数据
+            "table", "steps", "timeline", "alert", "stat", "empty", "notice",
+            // 图表
+            "line_chart", "bar_chart", "pie_chart", "sparkline",
+            // 工具
+            "qrcode", "barcode", "countdown", "calendar", "breadcrumb",
+            // 文件/装饰
+            "file", "divider", "divider_v", "separator"
+    ));
+
+    /** 输入类控件：必须带 key 才能收集值 */
+    private static final Set<String> INPUT_TYPES = new HashSet<>(Arrays.asList(
+            "input", "number", "password", "multiline", "otp", "email", "tel", "url", "search", "search_bar", "tag_input",
+            "select", "switch", "checkbox", "checkbox_group", "radio", "radio_group", "date", "time", "datetime",
+            "color", "rating", "toggle", "dropdown", "stepper", "slider_range"
+    ));
 
     public LayoutEditorTool() {
         this.context = null;
@@ -50,21 +88,22 @@ public class LayoutEditorTool implements AITool {
     @Override
     public String getDescription() {
         return "布局画布编辑器：动态编辑常驻布局画布（layout_canvas 组件）的控件树。"
-                + "动作:set(整体替换布局)/add(追加子节点)/patch(修改或删除节点)/get(查看当前布局)/rebuild(强制重渲染)。"
+                + "动作:set(整体替换布局)/add(追加子节点)/patch(修改或删除节点)/get(查看当前布局)/validate(dry-run校验布局不渲染)/rebuild(强制重渲染)。"
                 + "前置:先用 ui_component(action=create, component_type=layout_canvas, layout={完整含输入控件的布局}) 创建画布拿到 component_id。"
                 + "**注意:create 时就要带完整 layout（含带 key 的 input/select/switch、带 action 的 button），不要只创建空画布**。"
                 + "**重要**:①每个输入控件必须带 key（input/select/switch/checkbox_group/date/number 都要），否则值无法收集;"
                 + "②button 必须带 action;③全程用同一个 component_id，不要反复重建画布;"
-                + "④set 一次性放完整布局，add 放**单个控件节点**（勿传含 children 的容器）。"
+                + "④set 一次性放完整布局，add 放**单个控件节点**（勿传含 children 的容器）;"
+                + "⑤提交复杂布局前先 action=validate 预检（dry-run，报错精确到节点路径），通过后再 set/add。"
                 + "每次编辑后画布即时刷新，控件值自动回填。";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作: set/add/patch/get/rebuild");
-        params.put("component_id", "画布组件ID（layout_canvas 创建返回的 component_id），必填");
-        params.put("layout", "set 用：完整布局 JSON（如 {\"root\":{\"type\":\"column\",\"children\":[...]}} 或单节点 {\"type\":\"column\"}）");
+        params.put("action", "操作: set/add/patch/get/validate/rebuild");
+        params.put("component_id", "画布组件ID（layout_canvas 创建返回的 component_id），validate 可不传");
+        params.put("layout", "set/validate 用：完整布局 JSON（如 {\"root\":{\"type\":\"column\",\"children\":[...]}} 或单节点 {\"type\":\"column\"}）");
         params.put("container", "add 用：目标容器路径（如 'root' 或 'root/children/0'），默认 'root'");
         params.put("node", "add 用：追加的子节点 JSON（如 {\"type\":\"text\",\"text\":\"标题\"}）");
         params.put("index", "add 用：插入位置（0 为开头，省略则追加到末尾）");
@@ -79,6 +118,10 @@ public class LayoutEditorTool implements AITool {
     public AIToolResult execute(Map<String, Object> parameters) {
         try {
             String action = str(parameters.get("action"), "");
+            // 维度一 P0-1：validate 为 dry-run 预检，不依赖已存在画布，独立处理
+            if ("validate".equals(action)) {
+                return validateLayout(parameters);
+            }
             String componentId = str(parameters.get("component_id"), "");
             if (componentId.isEmpty()) {
                 return AIToolResult.fail("缺少参数: component_id（layout_canvas 创建时返回的画布ID）");
@@ -251,6 +294,91 @@ public class LayoutEditorTool implements AITool {
         if (layout == null) return null;
         JSONObject root = layout.optJSONObject("root");
         return root != null ? root : layout;
+    }
+
+    // ==================== 维度一 P0-1/2：dry-run 预检 ====================
+
+    /**
+     * 提交前 dry-run 校验：不渲染，返回布局合法性与问题列表（精确到节点路径）。
+     * 校验项：type 合法性、children 结构、输入控件 key、button action。
+     * 未知 type 且节点自带 layout（现场定义）或 use 引用（模板）时放行。
+     */
+    private AIToolResult validateLayout(Map<String, Object> parameters) {
+        JSONObject layout = parseLayout(parameters);
+        if (layout == null) {
+            return AIToolResult.fail("缺少参数: layout（需传完整布局 JSON 或根节点）");
+        }
+        List<String> problems = new ArrayList<>();
+        JSONObject rootNode = resolveRoot(layout);
+        if (rootNode == null) {
+            problems.add("root: 布局缺少根节点");
+        } else {
+            validateNode(rootNode, "root", problems);
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("valid", problems.isEmpty());
+        result.put("nodeCount", countNodes(layout));
+        result.put("problems", problems);
+        result.put("message", problems.isEmpty()
+                ? "布局校验通过（dry-run，未渲染），可安全 set/add 提交"
+                : "布局校验未通过（dry-run，未渲染）:\n" + String.join("\n", problems));
+        return AIToolResult.success(result);
+    }
+
+    /** 递归校验节点树（维度一 P0-2：报错精确到节点路径） */
+    private void validateNode(JSONObject node, String path, List<String> problems) {
+        if (node == null) {
+            problems.add(path + ": 节点为空");
+            return;
+        }
+        // 模板引用（use）或已注册组件类型嵌套：渲染期展开，此处放行
+        if (node.has("use")) return;
+        String type = node.optString("type", "");
+        if (type.isEmpty()) {
+            // 节点自带 layout（现场定义）：递归校验其 layout
+            if (node.has("layout")) {
+                JSONObject inner = node.optJSONObject("layout");
+                if (inner != null) {
+                    JSONObject innerRoot = resolveRoot(inner);
+                    validateNode(innerRoot != null ? innerRoot : inner, path + "/layout", problems);
+                }
+                return;
+            }
+            problems.add(path + ": 缺少 type 字段（控件类型）");
+            return;
+        }
+        if (!KNOWN_TYPES.contains(type)) {
+            // 未注册类型但自带 layout（现场定义）：放行并递归校验
+            if (node.has("layout")) {
+                JSONObject inner = node.optJSONObject("layout");
+                if (inner != null) {
+                    JSONObject innerRoot = resolveRoot(inner);
+                    validateNode(innerRoot != null ? innerRoot : inner, path + "/layout", problems);
+                }
+                return;
+            }
+            problems.add(path + ": 未知控件类型 '" + type + "'");
+            return;
+        }
+        // 输入控件必须有 key（否则值无法收集）
+        if (INPUT_TYPES.contains(type) && !node.has("key")) {
+            problems.add(path + ": 输入控件 " + type + " 缺少 key（值无法收集）");
+        }
+        // button 必须有 action（否则点击无行为）
+        if ("button".equals(type) && !node.has("action")) {
+            problems.add(path + ": button 缺少 action");
+        }
+        JSONArray children = node.optJSONArray("children");
+        if (children != null) {
+            for (int i = 0; i < children.length(); i++) {
+                JSONObject child = children.optJSONObject(i);
+                if (child == null) {
+                    problems.add(path + "/children/" + i + ": 子节点不是对象");
+                } else {
+                    validateNode(child, path + "/children/" + i, problems);
+                }
+            }
+        }
     }
 
     /** 容器 path（"root/children/0"）→ 其 children 数组；找不到返回 null */

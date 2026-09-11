@@ -478,10 +478,10 @@ public class TTSService {
     }
 
     /**
-     * 从在线端点拉取音色列表：不同服务商实现不一致，依次尝试：
-     * 1. /audio/speech/voices?model=xxx
-     * 2. /audio/speech/voices
-     * 3. /audio/voices
+     * 从在线端点拉取音色列表：不同服务商实现不一致，主路径 + 最多 1 次兜底：
+     * 1. /audio/speech/voices?model=xxx（主路径，带模型名）
+     * 2. /audio/speech/voices（兜底，仅 1 次）
+     * M5：取消 /audio/voices 第三路盲试（无服务商实现该路径，纯浪费请求）。
      */
     private List<Voice> fetchVoicesFromApi(OnlineModelManager.OnlineModelConfig config) throws Exception {
         Exception lastError = null;
@@ -497,8 +497,8 @@ public class TTSService {
         if (model != null && !model.isEmpty()) {
             endpoints.add(ENDPOINT_VOICES + "?model=" + model);
         }
+        // M5：盲试仅作兜底且最多 1 次
         endpoints.add(ENDPOINT_VOICES);
-        endpoints.add("/audio/voices");
         for (String endpoint : endpoints) {
             try {
                 String body = httpGetVoices(config, endpoint);

@@ -911,8 +911,10 @@ class PythonToolEngine:
             return {"success": False, "error": str(e)}
 
     def http_request(self, url: str, method: str = "GET", data: dict[str, object] | None = None) -> dict[str, bool | int | str]:
-        """HTTP请求"""
+        """HTTP请求（M8：设置 socket 级默认超时 + 连接/读取双层超时，防止明文 http 请求长期卡死）"""
         try:
+            import socket
+            socket.setdefaulttimeout(10)
             import urllib.request
             import urllib.parse
 
@@ -943,7 +945,7 @@ class PythonToolEngine:
                         "status": resp_status
                     }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": "HTTP 请求失败（网络不可达/超时/被拒绝）: " + str(e)}
 
     def extract_emails(self, text: str) -> list[str]:
         """提取邮箱地址"""

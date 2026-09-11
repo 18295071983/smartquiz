@@ -539,11 +539,12 @@ public class OnlineOCRService {
             baseUrl = "https://api.openai.com";
         }
         baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        if (baseUrl.endsWith("/v1")) {
+        // M1：已以 /v1、/v4 等版本路径结尾（如智谱 /api/paas/v4）→ 直接拼 endpoint，
+        // 避免拼出 /vN/v1/... 重复路径导致 404
+        if (baseUrl.matches(".*/v\\d+$")) {
             return baseUrl + endpoint;
-        } else {
-            return baseUrl + "/v1" + endpoint;
         }
+        return baseUrl + "/v1" + endpoint;
     }
 
     /**

@@ -15,6 +15,7 @@
     { "match": "deepseek-coder", "contextWindow": 128000, "provider": "DeepSeek", "source": "https://github.com/deepseek-ai/DeepSeek-Coder-V2", "date": "2026-08-21" },
     { "match": "deepseek", "contextWindow": 1000000, "provider": "DeepSeek", "source": "https://api-docs.deepseek.com/quick_start/pricing/", "date": "2026-08-21" },
 
+    { "match": "glm-5.3", "contextWindow": 1000000, "provider": "智谱Z.ai", "source": "https://recipes.vllm.ai/zai-org/GLM-5.3", "date": "2026-09-11" },
     { "match": "glm-5", "contextWindow": 200000, "provider": "智谱GLM", "source": "https://docs.bigmodel.cn/cn/guide/models/text/glm-5", "date": "2026-08-21" },
     { "match": "glm-4.6", "contextWindow": 200000, "provider": "智谱GLM", "source": "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.6", "date": "2026-08-21" },
     { "match": "glm-4.5", "contextWindow": 128000, "provider": "智谱GLM", "source": "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5", "date": "2026-08-21" },

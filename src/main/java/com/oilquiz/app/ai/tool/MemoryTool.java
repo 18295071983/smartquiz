@@ -45,7 +45,7 @@ public class MemoryTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "长期记忆：跨会话保存/读取/删除用户信息。用户主动告知姓名/称呼/偏好/常驻信息时主动 save（如\"我叫小明\"→save key=user_name value=小明）；用户说\"记住...\"时 save；不要擅自把普通聊天内容存为记忆。需要回忆历史信息时 recall；用户要求忘记某条记忆时 delete。action: save|recall|delete|list|clear";
+        return "长期记忆：跨会话保存/读取/删除用户信息，按分类管理。分类 category: fact(事实，如住址/单位)|preference(偏好，如称呼/口味)|context(情境，如当前项目)。用户主动告知姓名/称呼/偏好/常驻信息时主动 save（如\"我叫小明\"→save key=user_name value=小明 category=preference；\"我住在北京\"→save key=address value=北京 category=fact；\"我在做考研复习\"→save key=current_goal value=考研复习 category=context）；用户说\"记住...\"时 save。保存规则：只有稳定、跨会话有用的信息才存；一次性对话内容、临时情绪、可由上下文推导的信息不存。需要回忆历史信息时 recall；用户要求忘记某条记忆时 delete。action: save|recall|delete|list|clear";
     }
 
     @Override
@@ -54,6 +54,7 @@ public class MemoryTool implements AITool {
         params.put("action", "操作：save(保存记忆)|recall(读取)|delete(删除单条)|list(列出所有)|clear(清空)");
         params.put("key", "记忆键（如 user_name / preference_city），save/recall/delete 用");
         params.put("value", "记忆值（内容），save 用");
+        params.put("category", "分类：fact(事实)|preference(偏好)|context(情境)，save 用；list 可按分类过滤。默认 fact");
         return params;
     }
 
@@ -77,17 +78,21 @@ public class MemoryTool implements AITool {
                     if (value.trim().length() > 2048) {
                         return AIToolResult.fail("记忆内容过长（>" + 2048 + "字符），请精简后保存");
                     }
+                    String category = parameters.get("category") != null
+                            ? String.valueOf(parameters.get("category")) : null;
+                    String cat = AgentMemoryStore.normalizeCategory(category);
                     boolean replaced = store.get(key.trim()) != null;
-                    boolean ok = store.save(key.trim(), value.trim());
+                    boolean ok = store.save(key.trim(), value.trim(), cat);
                     if (!ok) {
                         return AIToolResult.fail("记忆保存失败（存储异常）", null);
                     }
                     Map<String, Object> result = new HashMap<>();
                     result.put("status", "saved");
                     result.put("key", key.trim());
+                    result.put("category", cat);
                     result.put("replaced", replaced);
                     result.put("total", store.size());
-                    result.put("message", replaced ? "已更新记忆: " + key.trim() : "已保存记忆: " + key.trim());
+                    result.put("message", (replaced ? "已更新" : "已保存") + "[" + cat + "]记忆: " + key.trim());
                     return AIToolResult.success(result);
                 }
                 case "recall": {
@@ -95,12 +100,14 @@ public class MemoryTool implements AITool {
                     if (key.trim().isEmpty()) {
                         return AIToolResult.fail("recall 需要 key 参数");
                     }
-                    String value = store.get(key.trim());
+                    AgentMemoryStore.MemoryEntry entry = store.getEntry(key.trim());
                     Map<String, Object> result = new HashMap<>();
                     result.put("key", key.trim());
-                    result.put("found", value != null);
-                    result.put("value", value != null ? value : "");
-                    result.put("message", value != null ? "记忆内容: " + value : "未找到该记忆");
+                    result.put("found", entry != null);
+                    result.put("category", entry != null ? entry.category : "");
+                    result.put("value", entry != null ? entry.value : "");
+                    result.put("message", entry != null
+                            ? "[" + entry.category + "]记忆内容: " + entry.value : "未找到该记忆");
                     return AIToolResult.success(result);
                 }
                 case "delete": {
@@ -135,18 +142,25 @@ public class MemoryTool implements AITool {
                 }
                 case "list":
                 default: {
-                    List<AgentMemoryStore.MemoryEntry> all = store.getAll();
+                    // 支持 category 过滤（维度三 P0-1：按分类查看）
+                    String category = parameters.get("category") != null
+                            ? String.valueOf(parameters.get("category")) : null;
+                    List<AgentMemoryStore.MemoryEntry> all = (category != null && !category.trim().isEmpty())
+                            ? store.getByCategory(category.trim()) : store.getAll();
                     Map<String, Object> result = new HashMap<>();
                     result.put("count", all.size());
+                    result.put("filterCategory", (category != null && !category.trim().isEmpty())
+                            ? AgentMemoryStore.normalizeCategory(category) : "");
                     List<Map<String, String>> items = new ArrayList<>();
                     StringBuilder summary = new StringBuilder();
                     for (AgentMemoryStore.MemoryEntry e : all) {
                         Map<String, String> item = new HashMap<>();
                         item.put("key", e.key);
                         item.put("value", e.value);
+                        item.put("category", e.category);
                         items.add(item);
                         if (summary.length() > 0) summary.append("\n");
-                        summary.append(e.key).append(": ").append(e.value);
+                        summary.append("[").append(e.category).append("] ").append(e.key).append(": ").append(e.value);
                     }
                     result.put("memories", items);
                     result.put("message", all.isEmpty() ? "暂无记忆" : "记忆列表:\n" + summary);

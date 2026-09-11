@@ -422,12 +422,18 @@ public class SmartQuizApplication extends Application {
             // 仅当"激活"的在线模型时才跳过本地 GGUF 预加载（激活=当前主用在线，加载本地只会白占内存）。
             // 已配置但未激活的在线模型不再跳过：用户可能随时切回本地模型
             // （本地 Agent / 离线场景），启动即预加载本地模型实现热启动。
+            // M15：补充条件——本地 Agent 关闭时同样跳过预加载（按需懒加载，杜绝"不用也加载"的内存空转）
             try {
                 com.oilquiz.app.ai.model.OnlineModelManager onlineManager =
                         com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this);
-                if (onlineManager.hasActiveOnlineModel()) {
+                boolean localAgentEnabled = false;
+                try {
+                    localAgentEnabled = new com.oilquiz.app.ai.refactor.AIConfig(this).isLocalAgentEnabled();
+                } catch (Throwable ignored) {
+                }
+                if (onlineManager.hasActiveOnlineModel() || !localAgentEnabled) {
                     com.oilquiz.app.util.AILogger.i(TAG,
-                            "检测到激活的在线模型，跳过本地模型预加载（本地模型按需加载）");
+                            "检测到激活的在线模型或本地 Agent 关闭，跳过本地模型预加载（本地模型按需加载）");
                     return;
                 }
             } catch (Throwable t) {

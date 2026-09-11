@@ -7113,7 +7113,12 @@ public class AIChatActivity extends BaseActivity {
         // 检查AI服务是否可用
         boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
         if (!useOnlineModel && (modelBridge == null || !modelBridge.isModelInitialized())) {
-            AppLogger.aiW(TAG, "Agent模式需要AI服务已初始化，当前AI服务未就绪");
+            // M13：补充原因日志——在线路径无需本地模型；本地路径未就绪时说明是"等待初始化"而非错误，
+            // 模型就绪后 modelChangeListener 会再次触发本方法完成初始化
+            AppLogger.aiW(TAG, "Agent模式需要AI服务已初始化，当前AI服务未就绪"
+                    + "（在线=" + useOnlineModel + ", modelBridge=" + (modelBridge != null)
+                    + ", initialized=" + (modelBridge != null && modelBridge.isModelInitialized())
+                    + "），等待模型就绪后自动初始化 Agent 引擎");
             return;
         }
 

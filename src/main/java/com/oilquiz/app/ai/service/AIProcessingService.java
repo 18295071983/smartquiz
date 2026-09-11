@@ -242,6 +242,18 @@ public class AIProcessingService extends Service {
             Log.i(TAG, msg);
             AILogger.i(TAG, msg);
             sendLogBroadcast(LOG_LEVEL_INFO, msg);
+        } else if (intent != null && intent.hasExtra(EXTRA_PROMPT)
+                && intent.getStringExtra(EXTRA_PROMPT) != null
+                && !intent.getStringExtra(EXTRA_PROMPT).trim().isEmpty()) {
+            // M14：意图识别失败兜底——请求携带有效 prompt 时按通用对话处理，不丢弃用户请求
+            msg = "Unknown intent, falling back to generic chat";
+            Log.w(TAG, msg);
+            AILogger.w(TAG, msg);
+            sendLogBroadcast(LOG_LEVEL_WARN, msg);
+            intent.putExtra(EXTRA_TASK_TYPE, TASK_TYPE_CHAT);
+            // 补上缺失的 task type 后重新进入主分支（递归深度恒为 1）
+            onStartCommand(intent, flags, startId);
+            return START_STICKY;
         } else {
             msg = "Unknown intent or no task type";
             Log.w(TAG, msg);

@@ -135,6 +135,7 @@ public final class OnlineModelProfile {
     private static ProfileTable fallbackTable() {
         ProfileTable t = new ProfileTable();
         t.version = "fallback";
+        t.models.add(new Entry("glm-5.3", 1000000, "智谱Z.ai"));
         t.models.add(new Entry("deepseek", 1000000, "DeepSeek"));
         t.models.add(new Entry("gpt-4", 8192, "OpenAI"));
         t.models.add(new Entry("qwen", 131072, "阿里云Qwen"));
@@ -270,6 +271,31 @@ public final class OnlineModelProfile {
         }
         // 未知模型：默认 128K（当前主流模型普遍 ≥128K；用户可让 Agent 用 update_models_profile 补录精确值）
         return new ModelProfile(DEFAULT_UNKNOWN_WINDOW, providerName(apiUrl));
+    }
+
+    /**
+     * M11：按厂商名索引内置表——返回 provider 或 match 中包含关键词的条目列表
+     * （支持搜 "openai"/"智谱"/"deepseek" 等厂商名，而不只是模型名）。
+     * 供 UI 模型搜索/筛选使用。
+     */
+    public static java.util.List<Entry> searchByProvider(Context context, String keyword) {
+        java.util.List<Entry> result = new java.util.ArrayList<>();
+        if (keyword == null || keyword.trim().isEmpty()) return result;
+        ProfileTable t = table;
+        if (t == null) {
+            t = loadTable(context);
+            table = t;
+        }
+        if (t == null) return result;
+        String kw = keyword.trim().toLowerCase();
+        for (Entry e : t.models) {
+            boolean hitProvider = e.provider != null && e.provider.toLowerCase().contains(kw);
+            boolean hitMatch = e.match != null && e.match.contains(kw);
+            if (hitProvider || hitMatch) {
+                result.add(e);
+            }
+        }
+        return result;
     }
 
     // ============ 更新入口（供 Agent 更新数据表） ============

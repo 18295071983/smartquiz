@@ -1745,6 +1745,17 @@ public class AgentLoopEngine {
             } catch (Throwable t) {
                 AILogger.w(TAG, "Memory summary injection failed: " + t.getMessage());
             }
+            // 维度四 P0-1：任务状态跟踪——注入活跃任务清单，跨轮保持多步任务连续性
+            try {
+                String taskSummary = com.oilquiz.app.ai.tool.TaskStateTracker
+                        .getInstance(appContext).buildTaskSummary();
+                if (taskSummary != null && !taskSummary.isEmpty()) {
+                    sb.append("【当前任务】\n").append(taskSummary)
+                            .append("\n任务清单为跨轮状态，多步任务持续用 task 工具维护（update 进度/complete 完成/fail 失败/delete 取消），已完成任务无需再提。\n");
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "Task summary injection failed: " + t.getMessage());
+            }
         }
         return sb.toString();
     }

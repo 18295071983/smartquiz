@@ -30,7 +30,7 @@ import org.json.JSONObject;
     description = "数据库操作：任意SQL(execute_sql)、表结构(list_tables/get_table_schema)、题目查询/增删改(bulk_import批量导入)、用户与分数管理",
     category = "data",
     actions = {
-        @Action(name = "execute_sql", description = "执行任意SQL(SELECT/INSERT/UPDATE/DELETE，支持多语句分号分隔)"),
+        @Action(name = "execute_sql", description = "执行任意SQL(SELECT/INSERT/UPDATE/DELETE，支持多语句分号分隔；DELETE/DROP/ALTER为破坏性操作需confirm=true)"),
         @Action(name = "list_tables", description = "列出数据库所有表"),
         @Action(name = "get_table_schema", description = "获取指定表的字段结构"),
         @Action(name = "execute_query", description = "执行SQL查询(兼容旧接口)"),
@@ -162,6 +162,19 @@ public class DatabaseTool implements AITool {
         boolean isWrite = sqlUpper.startsWith("INSERT") || sqlUpper.startsWith("UPDATE") 
             || sqlUpper.startsWith("DELETE") || sqlUpper.startsWith("CREATE") 
             || sqlUpper.startsWith("DROP") || sqlUpper.startsWith("ALTER");
+        // 维度五 P0-1 自主边界：破坏性 SQL（DELETE/DROP/ALTER）不可恢复，必须 confirm=true（防 prompt 注入误删数据）
+        boolean isDestructive = sqlUpper.startsWith("DELETE") || sqlUpper.startsWith("DROP")
+                || sqlUpper.startsWith("ALTER");
+        if (isDestructive) {
+            Object confirmObj = parameters.get("confirm");
+            boolean confirm = confirmObj instanceof Boolean ? (Boolean) confirmObj
+                    : Boolean.parseBoolean(String.valueOf(confirmObj));
+            if (!confirm) {
+                Map<String, Object> info = new HashMap<>();
+                info.put("requiresConfirm", true);
+                return AIToolResult.fail("破坏性SQL不可恢复，如需执行请传 confirm=true 再次调用", info);
+            }
+        }
         
         try {
             AppDatabase db = AppDatabase.getDatabase(context);
@@ -958,6 +971,15 @@ public class DatabaseTool implements AITool {
         if (idObj == null) {
             return new AIToolResult("缺少参数: id", parameters);
         }
+        // 维度五 P0-1：删除题目不可恢复，必须 confirm=true（防 prompt 注入误删）
+        Object confirmObj = parameters.get("confirm");
+        boolean confirm = confirmObj instanceof Boolean ? (Boolean) confirmObj
+                : Boolean.parseBoolean(String.valueOf(confirmObj));
+        if (!confirm) {
+            Map<String, Object> info = new HashMap<>();
+            info.put("requiresConfirm", true);
+            return AIToolResult.fail("删除题目不可恢复，如需删除请传 confirm=true 再次调用", info);
+        }
         
         try {
             long id;
@@ -982,6 +1004,15 @@ public class DatabaseTool implements AITool {
     }
     
     private AIToolResult clearAllQuestions(Map<String, Object> parameters) {
+        // 维度五 P0-1：清空所有题目不可恢复，必须 confirm=true（防 prompt 注入误清）
+        Object confirmObj = parameters.get("confirm");
+        boolean confirm = confirmObj instanceof Boolean ? (Boolean) confirmObj
+                : Boolean.parseBoolean(String.valueOf(confirmObj));
+        if (!confirm) {
+            Map<String, Object> info = new HashMap<>();
+            info.put("requiresConfirm", true);
+            return AIToolResult.fail("清空所有题目不可恢复，如需清空请传 confirm=true 再次调用", info);
+        }
         try {
             Future<Boolean> future = databaseManager.clearAllQuestions();
             boolean success = future.get(10, TimeUnit.SECONDS);
@@ -1270,6 +1301,7 @@ public class DatabaseTool implements AITool {
         descriptions.put("type", "题目类型（用于get_questions和search_questions操作）");
         descriptions.put("difficulty", "难度: 1-简单, 2-中等, 3-困难（用于get_questions和search_questions操作）");
         descriptions.put("id", "题目ID（用于get_question_by_id, update_question, delete_question操作）");
+        descriptions.put("confirm", "删除/清空确认（delete_question、clear_all_questions、以及execute_sql中DELETE/DROP/ALTER语句必须传true，防误删误清）");
         descriptions.put("questions", "题目列表（用于add_questions/bulk_import操作，格式：[{questionText, optionA, optionB, optionC, optionD, correctAnswer, explanation, category, questionType, difficulty}]）");
         descriptions.put("file_path", "JSON文件路径（用于bulk_import操作，文件内容为题目数组或{questions:[...]}）");
         descriptions.put("username", "用户名（用于get_user和add_user操作）");

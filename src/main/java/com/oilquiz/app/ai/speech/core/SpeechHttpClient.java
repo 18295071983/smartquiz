@@ -50,14 +50,14 @@ public final class SpeechHttpClient {
     }
 
     /**
-     * 构建完整 URL（与 APIKeyManager 逻辑一致，处理 /v1 后缀与自定义 audio 路径）
+     * 构建完整 URL（与 ProviderConfigManager.buildUrl 同规则，处理版本路径与自定义 audio 路径）
+     * M1：已以 /v1、/v4 等版本路径结尾（如智谱 /api/paas/v4）→ 直接拼 endpoint，
+     * 避免拼出 /vN/v1/... 重复路径导致 404。
      */
     public static String buildUrl(String apiUrl, String endpoint) {
         String baseUrl = apiUrl.endsWith("/") ? apiUrl.substring(0, apiUrl.length() - 1) : apiUrl;
-        if (baseUrl.endsWith("/v1")) {
+        if (baseUrl.matches(".*/v\\d+$")) {
             return baseUrl + endpoint;
-        } else if (baseUrl.endsWith("/v1/")) {
-            return baseUrl.substring(0, baseUrl.length() - 1) + endpoint;
         }
         // 已包含 audio 路径的自定义端点直接使用
         if (baseUrl.contains("/audio/")) {

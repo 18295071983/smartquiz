@@ -58,6 +58,8 @@ public class OnlinePromptBuilder {
 
         sb.append(buildMemoryGuideSection());
 
+        sb.append(buildTaskGuideSection());
+
         sb.append("【图片生成】\n");
         sb.append("用户要求生成/画/绘制图片时，优先调用 image_gen 工具（自动下载并内联显示在对话中，点击可全屏放大查看）；\n");
         sb.append("也可以直接输出 image_grid 组件标记展示图片。避免用 python_execute 或 system_resource(action=open_url) 这种绕路方式。\n\n");
@@ -154,6 +156,22 @@ public class OnlinePromptBuilder {
         sb.append("- 删除：用户要求忘记某条信息时，调用 memory delete（传 key）\n");
         sb.append("- 查看：memory list 列出全部记忆\n");
         sb.append("每次对话会自动注入已保存的记忆摘要，回答时自然运用；不要擅自把普通聊天内容存为记忆，仅在用户明确要求或主动告知时保存。\n\n");
+        return sb.toString();
+    }
+
+    /**
+     * 构建任务状态跟踪指引（维度四 P0-1）：让 Agent 知道任务清单能力与使用边界，
+     * 有活跃任务时引擎还会额外注入【当前任务】摘要。
+     */
+    private String buildTaskGuideSection() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【任务状态跟踪】\n");
+        sb.append("你拥有跨轮任务清单能力（task 工具），用于跟踪需要多步/多轮完成的任务：\n");
+        sb.append("- 新建：用户布置多步任务时 task add（description 描述整个任务），系统自动生成 id\n");
+        sb.append("- 推进：任务有进展时 task update（id + progress 进度百分比 + status 可选）\n");
+        sb.append("- 收尾：任务完成时 task complete；无法完成时 task fail；用户取消时 task delete\n");
+        sb.append("- 查看：task list 列出全部任务（可按 filter 按状态过滤）；有活跃任务时每轮自动注入【当前任务】摘要\n");
+        sb.append("使用边界：一次性问答、单步操作不建任务；一个多步任务合并为一条任务维护，不逐步骤建；已完成任务无需再提。\n\n");
         return sb.toString();
     }
 
