@@ -113,6 +113,19 @@
                             android:textColor="?attr/colorOnTertiary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false" />
+                        <!-- 语音指令按钮：点击录音识别，语音内容追加到题库说明，供智能体理解 -->
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnAgentMic"
+                            android:layout_width="@dimen/size_48"
+                            android:layout_height="@dimen/size_48"
+                            android:layout_marginStart="@dimen/space_8"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            app:icon="@drawable/ic_mic"
+                            app:iconSize="22dp"
+                            app:iconTint="?attr/colorPrimary"
+                            app:cornerRadius="@dimen/radius_12"
+                            app:backgroundTint="?attr/colorSurfaceVariant"
+                            android:contentDescription="语音指令智能体" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

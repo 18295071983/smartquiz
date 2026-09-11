@@ -74,6 +74,7 @@ public class AIImportActivity extends BaseActivity {
 
     // 智能体导入区
     private MaterialButton btnAgentImport;
+    private MaterialButton btnAgentMic;
     private AgentSession agentSession;
     // 智能体导入状态机（独立于智能体专用 UI，驱动 GuideStepFlowView + 监控区）
     private AgentImportStateMachine agentImportStateMachine;
@@ -139,6 +140,10 @@ public class AIImportActivity extends BaseActivity {
 
         // 智能体导入区
         btnAgentImport = findViewById(R.id.btnAgentImport);
+        btnAgentMic = findViewById(R.id.btnAgentMic);
+        if (btnAgentMic != null) {
+            btnAgentMic.setOnClickListener(v -> startVoiceForAgent());
+        }
         // agentSessionCard/agentSessionContainer 布局保留但不再渲染智能体专用视图（由状态机驱动）
 
         // Agent 执行区
@@ -447,6 +452,95 @@ public class AIImportActivity extends BaseActivity {
         agentSession = AgentSession.create(this);
         agentSession.setCallback(agentImportStateMachine);
         agentSession.start(prompt.toString(), 8192);
+    }
+
+    /**
+     * 语音指令智能体：点麦克风 → 权限申请 → ASR 检查 → 本地模型预热（如需）→
+     * 录音对话框识别 → 语音文本追加到"题库说明"输入框（etUserGuide），供智能体理解。
+     * 与对话页语音输入同管线（PermissionResourceProvider + SpeechManager + VoiceInputTool）。
+     */
+    private void startVoiceForAgent() {
+        final com.oilquiz.app.resource.PermissionResourceProvider provider =
+                com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+        provider.requestMicrophonePermission(this,
+                new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
+                    @Override
+                    public void onGranted() {
+                        doVoiceForAgent();
+                    }
+
+                    @Override
+                    public void onDenied(java.util.List<String> deniedPermissions) {
+                        showToast("麦克风权限未授予，无法语音输入");
+                    }
+                });
+    }
+
+    /** 权限已授予后：检查 ASR → 本地预热 → 录音识别 → 追加到题库说明 */
+    private void doVoiceForAgent() {
+        final com.oilquiz.app.ai.speech.SpeechManager speech =
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+        if (!speech.isAnyAsrAvailable()) {
+            showToast("语音识别服务不可用");
+            return;
+        }
+        final boolean useLocal = !speech.isAsrAvailable();
+        if (useLocal && !com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.isReady()) {
+            showToast("正在加载本地语音识别模型…");
+            new Thread(() -> {
+                try {
+                    com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.acquire(this);
+                    com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.release();
+                    runOnUiThread(this::recordVoiceForAgent);
+                } catch (Exception e) {
+                    runOnUiThread(() -> showToast("本地语音识别模型加载失败: " + e.getMessage()));
+                }
+            }).start();
+        } else {
+            recordVoiceForAgent();
+        }
+    }
+
+    /** 录音对话框识别（VoiceInputTool record，后台线程），识别文本追加到题库说明 */
+    private void recordVoiceForAgent() {
+        new Thread(() -> {
+            try {
+                java.util.Map<String, Object> params = new java.util.HashMap<>();
+                params.put("action", "record");
+                params.put("duration_seconds", 60);
+                params.put("timeout_seconds", 90);
+                com.oilquiz.app.ai.tool.VoiceInputTool tool =
+                        new com.oilquiz.app.ai.tool.VoiceInputTool(this);
+                com.oilquiz.app.ai.tool.AIToolResult r = tool.execute(params);
+                if (r != null && r.isSuccess()) {
+                    final String text = r.getAdditionalInfo() != null
+                            ? String.valueOf(r.getAdditionalInfo().get("text")) : "";
+                    runOnUiThread(() -> {
+                        if (text != null && !text.isEmpty()) {
+                            appendToUserGuide(text);
+                            showToast("已识别语音指令，已加入题库说明");
+                        } else {
+                            showToast("未识别到语音内容");
+                        }
+                    });
+                } else {
+                    final String err = (r != null && r.getErrorMessage() != null)
+                            ? r.getErrorMessage() : "语音识别失败";
+                    runOnUiThread(() -> showToast(err));
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> showToast("语音输入失败: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** 语音文本追加到题库说明输入框（保留已有内容） */
+    private void appendToUserGuide(String text) {
+        if (etUserGuide == null) return;
+        String cur = etUserGuide.getText().toString();
+        String merged = cur.trim().isEmpty() ? text : cur + "\n" + text;
+        etUserGuide.setText(merged);
+        etUserGuide.setSelection(etUserGuide.getText().length());
     }
 
     /**
