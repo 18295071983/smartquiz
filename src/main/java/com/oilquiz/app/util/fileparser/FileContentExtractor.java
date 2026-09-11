@@ -170,18 +170,42 @@ public class FileContentExtractor {
             return "Excel文件需要特殊处理";
         }
         try {
-            List<String[]> data = OfficeParserUtil.parseExcelFirstSheet(tempFile);
-            if (data != null && !data.isEmpty()) {
-                String markdown = formatExcelData(data);
+            // 多工作表文件：选"最像题库"的表（关键词命中优先，同则行数最多），
+            // 并把全表清单一并给出，避免把首张示例/模板表当成全部内容。
+            OfficeParserUtil.SheetPick pick = OfficeParserUtil.pickBestSheet(tempFile);
+            if (pick != null && pick.data != null && !pick.data.isEmpty()) {
+                String markdown = formatExcelData(pick.data);
+                String out = buildSheetManifest(pick) + markdown;
                 // ========== 诊断：Markdown输出节点 ==========
                 com.oilquiz.app.util.ImportDebugTracer.trace("【3】FileContentExtractor-Format后",
-                        markdown.substring(0, Math.min(500, markdown.length())));
-                return markdown;
+                        out.substring(0, Math.min(500, out.length())));
+                return out;
             }
             return "Excel解析失败，请检查文件是否损坏";
         } finally {
             tempFile.delete();
         }
+    }
+
+    /** 生成工作表清单说明（多表时写明"共几张、各表行数、当前展示哪张"） */
+    private String buildSheetManifest(OfficeParserUtil.SheetPick pick) {
+        if (pick == null || pick.sheetCount <= 1) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("[工作表清单] 该文件共 ").append(pick.sheetCount).append(" 张工作表：");
+        for (int i = 0; i < pick.sheetCount; i++) {
+            if (i > 0) {
+                sb.append("；");
+            }
+            String name = i < pick.sheetNames.size() ? pick.sheetNames.get(i) : "";
+            int rows = i < pick.sheetRowCounts.length ? pick.sheetRowCounts[i] : 0;
+            sb.append("索引").append(i).append("「").append(name).append("」").append(rows).append("行");
+        }
+        sb.append("\n[当前展示] 索引").append(pick.sheetIndex)
+                .append("「").append(pick.sheetName).append("」")
+                .append("（仅为该表内容，且可能因过长被截断）\n");
+        return sb.toString();
     }
 
     private String formatExcelData(List<String[]> data) {

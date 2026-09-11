@@ -285,7 +285,7 @@
     <string name="h_d7824330">⚠️ 以下文件已跳过: </string>
     <string name="h_9e0ee86a">=== 重要规则 ===\n</string>
     <string name="h_ee31e1e3">- 以上 </string>
-    <string name="h_fe85860b"> 个附件的内容已由系统解析完成并直接提供，请基于上述内容直接回答，无需再调用解析工具\n</string>
+    <string name="h_fe85860b"> 个附件的内容已由系统解析并摘录提供（可能不完整；多工作表表格仅展示系统判定的主表）。这是摘要而非全文，如需核对原始内容、工作表结构或字段，请重新调用解析工具读取\n</string>
     <string name="h_f6a98d86">- 附件确实已上传，严禁说“未检测到附件”或要求用户重新上传\n</string>
     <string name="h_447064b9">- 若某附件解析失败，向用户说明具体失败原因（见错误码），并给出建议\n</string>
     <string name="h_30890ceb">- 若内容被截断且需要完整内容，可用 file_read_lines 工具按行读取本地路径\n\n</string>

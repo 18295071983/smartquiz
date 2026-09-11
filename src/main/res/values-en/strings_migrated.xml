@@ -285,7 +285,7 @@
     <string name="h_d7824330">⚠️ The following files were skipped: </string>
     <string name="h_9e0ee86a">=== Important rules ===\n</string>
     <string name="h_ee31e1e3">- The above </string>
-    <string name="h_fe85860b"> attachments were parsed by the system and provided directly. Answer based on the content above; no need to call parse tools\n</string>
+    <string name="h_fe85860b"> attachments were parsed and excerpted by the system (may be incomplete; for multi-sheet workbooks only the system-picked primary sheet is shown). This is a summary, not the full content; to verify the raw content, worksheet structure or fields, re-read with a parse tool\n</string>
     <string name="h_f6a98d86">- The attachments ARE uploaded. Never say "no attachment detected" or ask the user to re-upload\n</string>
     <string name="h_447064b9">- If an attachment failed to parse, explain the specific reason (see error code) and give suggestions\n</string>
     <string name="h_30890ceb">- If content was truncated and the full content is needed, use file_read_lines to read the local path\n\n</string>

@@ -135,6 +135,131 @@ public class OfficeParserUtil {
     }
 
     /**
+     * 表头关键词（子串匹配，一个表头只计一次）。
+     * 供「导入侧选表」与「附件预处理侧选表」共用，避免两处关键词漂移。
+     */
+    public static final String[] HEADER_KEYWORDS = {
+            // 题干类
+            "题干", "题目", "问题", "question", "题目内容", "内容", "题干内容",
+            "试题", "试题内容", "题目描述", "题干描述", "quiz", "题目文本", "题干文本", "question_text",
+            // 选项类
+            "选项", "option", "答案选项", "备选", "choice", "options",
+            // 答案类
+            "答案", "answer", "正确答案", "正确", "参考答案", "标准答案", "答案内容",
+            "正确答案选项", "answer_text", "answer_key", "答案项",
+            // 解析类
+            "解析", "explanation", "详解", "分析", "解答",
+            // 题型/难度/分类类
+            "题型", "type", "题目类型",
+            "难度", "difficulty", "等级",
+            "分类", "category", "章节", "知识点", "标签"
+    };
+
+    /** 表头关键词命中计数（小写子串匹配，一个表头只记一次） */
+    public static int headerScore(String[] headers) {
+        if (headers == null || headers.length == 0) {
+            return 0;
+        }
+        int score = 0;
+        for (String h : headers) {
+            if (h == null) {
+                continue;
+            }
+            String hs = h.trim().toLowerCase(java.util.Locale.ROOT);
+            if (hs.isEmpty()) {
+                continue;
+            }
+            for (String kw : HEADER_KEYWORDS) {
+                if (hs.contains(kw.toLowerCase(java.util.Locale.ROOT))) {
+                    score++;
+                    break;
+                }
+            }
+        }
+        return score;
+    }
+
+    /** Excel 选表结果：选中表的数据 + 全表清单（供预处理预览携带，避免"只见首表"） */
+    public static final class SheetPick {
+        public List<String[]> data;
+        public int sheetIndex = -1;
+        public String sheetName;
+        public int sheetCount;
+        public List<String> sheetNames = new ArrayList<>();
+        public int[] sheetRowCounts = new int[0];
+    }
+
+    /**
+     * 选取「最像题库」的工作表。
+     * <p>
+     * 策略：表头关键词分 > 0 视为"像题库的表"；在其中取<b>行数最多</b>的一张
+     * （平手取靠前的）；若全部无命中，则回退行数最多的表。
+     * 这样多工作表文件不会再把首张示例/模板表当成主表。
+     *
+     * @return SheetPick（data 为选中表的数据，含表头行）；文件不可解析返回 null
+     */
+    public static SheetPick pickBestSheet(File file) {
+        SheetPick pick = new SheetPick();
+        try (FileInputStream fis = new FileInputStream(file);
+             Workbook workbook = WorkbookFactory.create(fis)) {
+
+            int n = workbook.getNumberOfSheets();
+            pick.sheetCount = n;
+            pick.sheetRowCounts = new int[n];
+
+            int bestIndex = -1;
+            boolean bestValid = false;
+            int bestRows = -1;
+            for (int i = 0; i < n; i++) {
+                Sheet sheet = workbook.getSheetAt(i);
+                pick.sheetNames.add(workbook.getSheetName(i));
+                int rows = (sheet == null) ? 0
+                        : Math.max(sheet.getPhysicalNumberOfRows(), sheet.getLastRowNum() + 1);
+                pick.sheetRowCounts[i] = rows;
+                int score = (sheet == null) ? 0 : headerScore(firstNonEmptyRow(sheet));
+                boolean valid = score > 0;
+
+                if (bestIndex < 0
+                        || (valid && !bestValid)
+                        || (valid == bestValid && rows > bestRows)) {
+                    bestIndex = i;
+                    bestValid = valid;
+                    bestRows = rows;
+                    pick.sheetName = workbook.getSheetName(i);
+                }
+            }
+            pick.sheetIndex = bestIndex;
+        } catch (Exception e) {
+            Log.e(TAG, "选取最佳工作表失败: " + e.getMessage(), e);
+            return null;
+        }
+        if (pick.sheetIndex >= 0) {
+            // 第二遍读取选中表的数据（复用既有解析，避免同一 Workbook 反复持有大表）
+            pick.data = parseExcel(file, pick.sheetIndex);
+        }
+        return pick;
+    }
+
+    /** 取工作表首个非空行的单元格文本（作为待判定的表头行） */
+    private static String[] firstNonEmptyRow(Sheet sheet) {
+        for (Row row : sheet) {
+            List<String> cells = new ArrayList<>();
+            boolean hasText = false;
+            for (Cell cell : row) {
+                String v = getCellValue(cell);
+                cells.add(v);
+                if (v != null && !v.trim().isEmpty()) {
+                    hasText = true;
+                }
+            }
+            if (hasText) {
+                return cells.toArray(new String[0]);
+            }
+        }
+        return new String[0];
+    }
+
+    /**
      * 获取单元格值
      */
     private static String getCellValue(Cell cell) {
