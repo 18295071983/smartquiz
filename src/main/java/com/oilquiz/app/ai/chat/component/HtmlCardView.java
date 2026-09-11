@@ -587,7 +587,9 @@ public class HtmlCardView implements ChatComponent {
             }
         }
 
-        /** HTML 内图片点击全屏预览（浏览器级体验） */
+        /** HTML 内图片点击全屏预览（浏览器级体验）——对齐项目标准链路：
+         * 本地文件 BitmapFactory 采样解码（不用 Glide，file:// 路径 Glide 易不回调/灰屏），
+         * 网络 URL 才走 Glide（15s 超时+失败 Toast），全屏用 PhotoView（双指缩放+点击关闭） */
         @android.webkit.JavascriptInterface
         public void previewImage(String url) {
             try {
@@ -617,82 +619,107 @@ public class HtmlCardView implements ChatComponent {
                                     android.widget.Toast.LENGTH_LONG).show();
                             return;
                         }
-                        // 本地文件：先用原生 setImageURI（最可靠，不依赖 Glide 路径猜测），
-                        // 失败再退 Glide；网络图走 Glide
                         final boolean isNetwork = finalUrl.startsWith("http://")
                                 || finalUrl.startsWith("https://");
                         final boolean isLocalFile = !isNetwork
                                 && !finalUrl.startsWith("content://")
                                 && new java.io.File(finalUrl).isFile();
+
                         android.app.Dialog dialog = new android.app.Dialog(context);
                         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
-                        android.widget.ImageView iv = new android.widget.ImageView(context);
-                        iv.setAdjustViewBounds(true);
-                        iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-                        iv.setOnClickListener(v -> dialog.dismiss());
-                        dialog.setContentView(iv, new android.view.ViewGroup.LayoutParams(
+                        android.widget.FrameLayout root = new android.widget.FrameLayout(context);
+                        root.setBackgroundColor(android.graphics.Color.BLACK);
+                        com.github.chrisbanes.photoview.PhotoView photoView =
+                                new com.github.chrisbanes.photoview.PhotoView(context);
+                        photoView.setBackgroundColor(android.graphics.Color.BLACK);
+                        root.addView(photoView, new android.widget.FrameLayout.LayoutParams(
+                                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                                android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+                        android.widget.ProgressBar loading = new android.widget.ProgressBar(context);
+                        root.addView(loading, new android.widget.FrameLayout.LayoutParams(
+                                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                                android.view.Gravity.CENTER));
+                        dialog.setContentView(root, new android.view.ViewGroup.LayoutParams(
                                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-                        dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
-                                android.graphics.Color.parseColor("#CC000000")));
+                        photoView.setOnClickListener(v -> dialog.dismiss());
+                        dialog.show();
+                        if (dialog.getWindow() != null) {
+                            dialog.getWindow().setBackgroundDrawable(
+                                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
+                        }
                         if (isLocalFile) {
-                            boolean loaded = false;
+                            // 本地文件：BitmapFactory 采样解码（防 OOM），失败 Toast 明确提示
                             try {
-                                iv.setImageURI(android.net.Uri.fromFile(new java.io.File(finalUrl)));
-                                loaded = true;
+                                android.graphics.BitmapFactory.Options opts =
+                                        new android.graphics.BitmapFactory.Options();
+                                opts.inJustDecodeBounds = true;
+                                android.graphics.BitmapFactory.decodeFile(finalUrl, opts);
+                                int sample = 1;
+                                while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                                    sample *= 2;
+                                }
+                                opts.inJustDecodeBounds = false;
+                                opts.inSampleSize = sample;
+                                android.graphics.Bitmap bmp =
+                                        android.graphics.BitmapFactory.decodeFile(finalUrl, opts);
+                                if (bmp != null) {
+                                    photoView.setImageBitmap(bmp);
+                                    loading.setVisibility(android.view.View.GONE);
+                                } else {
+                                    if (dialog.isShowing()) dialog.dismiss();
+                                    android.widget.Toast.makeText(context, "图片解码失败（文件损坏或非图片）",
+                                            android.widget.Toast.LENGTH_LONG).show();
+                                }
                             } catch (Throwable t) {
-                                // 原生失败退 Glide
-                                com.bumptech.glide.Glide.with(context).load(finalUrl).into(iv);
-                                loaded = true;
-                            }
-                            if (loaded) {
-                                dialog.show();
-                            } else {
-                                android.widget.Toast.makeText(context, "图片加载失败: " + finalUrl,
+                                if (dialog.isShowing()) dialog.dismiss();
+                                android.widget.Toast.makeText(context, "图片加载失败: " + t.getMessage(),
                                         android.widget.Toast.LENGTH_LONG).show();
                             }
                         } else {
-                            // 网络图（或无法识别的来源）：Glide 加载，失败 Toast 明确提示
-                            com.bumptech.glide.Glide.with(context)
-                                    .load(finalUrl)
-                                    .placeholder(new android.graphics.drawable.ColorDrawable(
-                                            android.graphics.Color.parseColor("#33000000")))
-                                    .error(new android.graphics.drawable.ColorDrawable(
-                                            android.graphics.Color.parseColor("#55000000")))
-                                    .into(iv);
-                            dialog.show();
-                            // 网络图加载结果兜底提示（Glide 失败时 Toast，不静默灰屏）
-                            com.bumptech.glide.Glide.with(context)
-                                    .asBitmap()
-                                    .load(finalUrl)
-                                    .listener(new com.bumptech.glide.request.RequestListener<android.graphics.Bitmap>() {
-                                        @Override
-                                        public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e,
-                                                                    Object model,
-                                                                    com.bumptech.glide.request.target.Target<android.graphics.Bitmap> target,
-                                                                    boolean isFirstResource) {
-                                            android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
-                                            h.post(() -> {
-                                                try {
-                                                    if (dialog.isShowing()) dialog.dismiss();
-                                                    android.widget.Toast.makeText(context,
-                                                            "图片加载失败（网络或地址不可用）", android.widget.Toast.LENGTH_LONG).show();
-                                                } catch (Throwable ignored) {
-                                                }
-                                            });
-                                            return false;
-                                        }
+                            // 网络图：Glide + 15s 超时 + 失败自动关窗 Toast
+                            try {
+                                com.bumptech.glide.Glide.with(context).load(finalUrl)
+                                        .timeout(15000)
+                                        .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                                            @Override
+                                            public boolean onLoadFailed(
+                                                    com.bumptech.glide.load.engine.GlideException e,
+                                                    Object model,
+                                                    com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                    boolean isFirstResource) {
+                                                android.os.Handler h = new android.os.Handler(
+                                                        android.os.Looper.getMainLooper());
+                                                h.post(() -> {
+                                                    try {
+                                                        if (dialog.isShowing()) dialog.dismiss();
+                                                        android.widget.Toast.makeText(context,
+                                                                "图片加载失败（网络或地址不可用）",
+                                                                android.widget.Toast.LENGTH_LONG).show();
+                                                    } catch (Throwable ignored) {
+                                                    }
+                                                });
+                                                return false;
+                                            }
 
-                                        @Override
-                                        public boolean onResourceReady(android.graphics.Bitmap resource,
-                                                                       Object model,
-                                                                       com.bumptech.glide.request.target.Target<android.graphics.Bitmap> target,
-                                                                       com.bumptech.glide.load.DataSource dataSource,
-                                                                       boolean isFirstResource) {
-                                            return false;
-                                        }
-                                    })
-                                    .submit();
+                                            @Override
+                                            public boolean onResourceReady(
+                                                    android.graphics.drawable.Drawable resource,
+                                                    Object model,
+                                                    com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                    com.bumptech.glide.load.DataSource dataSource,
+                                                    boolean isFirstResource) {
+                                                loading.setVisibility(android.view.View.GONE);
+                                                return false;
+                                            }
+                                        })
+                                        .into(photoView);
+                            } catch (Throwable t) {
+                                if (dialog.isShowing()) dialog.dismiss();
+                                android.widget.Toast.makeText(context, "图片加载失败: " + t.getMessage(),
+                                        android.widget.Toast.LENGTH_LONG).show();
+                            }
                         }
                     } catch (Throwable t) {
                         try {
