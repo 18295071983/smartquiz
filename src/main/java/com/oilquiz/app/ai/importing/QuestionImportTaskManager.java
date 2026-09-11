@@ -43,6 +43,101 @@ public class QuestionImportTaskManager {
         /** 用户在各决策点的实际操作（字段映射确认/修改、数据预览选择、填充选择、入库确认/取消） */
         public final java.util.List<String> decisions =
                 java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+        /**
+         * 当前待智能体回传的决策点（null=无）。
+         * 由 {@link AgentInteractiveDecisionHandler} 发布，import_status 暴露给智能体；
+         * 智能体创建 ui_component 与用户交互、get_result 取值后经 import_decide 回传。
+         */
+        public volatile PendingDecision pendingDecision;
+    }
+
+    /**
+     * 待智能体确认的决策点：承载给智能体渲染 ui_component 的载荷，
+     * 并阻塞导入线程等待 import_decide 回传用户选择。
+     * <p>
+     * 与 {@link InteractiveImportDecisionHandler} 的语义一致：未回传/超时/取消 → 不导入。
+     */
+    public static class PendingDecision {
+        /** 决策点唯一 ID（import_status 的 pendingDecision.decisionId，import_decide 原样回传） */
+        public final String decisionId;
+        /** 决策点类型：mapping/preview/fill/ingest（与 ImportMain 四决策点一一对应） */
+        public final String type;
+        public final String title;
+        public final String message;
+        /** 可选项（按顺序；下标即 import_decide 的 choice；最后一项为取消） */
+        public final org.json.JSONArray options = new org.json.JSONArray();
+        /** 结构化载荷（映射表/表头/质量统计等），供智能体渲染更丰富的交互组件 */
+        public final org.json.JSONObject payload = new org.json.JSONObject();
+
+        private final java.util.concurrent.CountDownLatch latch =
+                new java.util.concurrent.CountDownLatch(1);
+        private volatile int choice = -1;
+        private volatile org.json.JSONObject submittedMapping;
+        private volatile boolean submitted = false;
+
+        PendingDecision(String decisionId, String type, String title, String message) {
+            this.decisionId = decisionId;
+            this.type = type;
+            this.title = title;
+            this.message = message;
+        }
+
+        /** 由 import_decide 调用：回传智能体采集到的用户选择；重复提交返回 false */
+        boolean submit(int choice, org.json.JSONObject mapping) {
+            synchronized (this) {
+                if (submitted) return false;
+                this.choice = choice;
+                this.submittedMapping = mapping;
+                this.submitted = true;
+            }
+            latch.countDown();
+            return true;
+        }
+
+        /** 取消/超时释放等待线程（未提交，供 cancel/超时兜底） */
+        void release() {
+            latch.countDown();
+        }
+
+        boolean await(long timeoutMs) {
+            try {
+                return latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+
+        boolean isSubmitted() {
+            return submitted;
+        }
+
+        int choice() {
+            return choice;
+        }
+
+        org.json.JSONObject submittedMapping() {
+            return submittedMapping;
+        }
+
+        /** 序列化为 import_status 的 pendingDecision 字段，指导智能体如何交互与回传 */
+        public org.json.JSONObject toJson() {
+            org.json.JSONObject o = new org.json.JSONObject();
+            try {
+                o.put("decisionId", decisionId);
+                o.put("type", type);
+                o.put("title", title == null ? "" : title);
+                o.put("message", message == null ? "" : message);
+                o.put("options", options);
+                o.put("payload", payload);
+                o.put("hint", "请用 ui_component(action=create, component_type=choice, title, message, "
+                        + "options=options) 与用户交互并 get_result 取值，"
+                        + "再 import_decide(taskId, decisionId, selected=用户选择文本) 回传"
+                        + "（也可传 choice=选项下标，0 起；取消=最后一项）。");
+            } catch (Exception ignored) {
+            }
+            return o;
+        }
     }
 
     private final ConcurrentHashMap<String, TaskStatus> tasks = new ConcurrentHashMap<>();
@@ -69,8 +164,8 @@ public class QuestionImportTaskManager {
      * 启动异步导入，返回 taskId。
      *
      * @param sheetMode 工作表选择模式：null/"all"=全扫全部表（sheetIndex 无效）；
-     *                  "best"=AI 自动选字段匹配最多的最佳表（复刻人工"智能选择"流程）；
-     *                  "index"=按 sheetIndex 指定表。sheetMode 为 "best"/"index" 时 sheetIndex 生效。
+     *                  "index"=按 sheetIndex 指定表（智能体显式选择，不再自动选表）。
+     *                  多张表请用 startMulti(sheetMode=multi)。
      */
     public String start(android.content.Context context, File file, int sheetIndex, String docHint,
                         boolean fillMissing, boolean skipIncomplete, String questionType,
@@ -108,17 +203,8 @@ public class QuestionImportTaskManager {
         final android.content.Context appContext = context.getApplicationContext();
         AppServices.ensure(appContext);
 
-        // sheetMode=best：AI 自动选字段匹配最多的最佳表（枚举 → 各表采样 → 关键词打分）
+        // 不再自动选表：index/multi 由智能体显式指定；all 映射为 -1（后端自动扫表）。
         int finalSheetIndex = sheetIndex;
-        if (sheetMode != null && "best".equalsIgnoreCase(sheetMode)) {
-            int best = pickBestSheet(appContext, file);
-            if (best >= 0) {
-                finalSheetIndex = best;
-                status.message = "已自动选择工作表 #" + best + "（字段匹配最多）";
-            } else {
-                status.message = "未检测到标准题库表头，回退全表扫描";
-            }
-        }
         if ("all".equalsIgnoreCase(sheetMode)) {
             finalSheetIndex = -1;
         }
@@ -134,8 +220,9 @@ public class QuestionImportTaskManager {
         if (questionType != null && !questionType.isEmpty()) {
             v2Main.setDefaultQuestionType(questionType);
         }
+        // interactive：四决策点不再弹系统对话框，改由智能体创建 ui_component 交互后 import_decide 回传。
         v2Main.setInteractionHandler(interactive
-                ? new InteractiveImportDecisionHandler()
+                ? new AgentInteractiveDecisionHandler(status)
                 : new AutoImportDecisionHandler(fillMissing, skipIncomplete));
         activeMains.put(taskId, v2Main);
 
@@ -248,8 +335,9 @@ public class QuestionImportTaskManager {
         if (questionType != null && !questionType.isEmpty()) {
             v2Main.setDefaultQuestionType(questionType);
         }
+        // interactive：四决策点不再弹系统对话框，改由智能体创建 ui_component 交互后 import_decide 回传。
         v2Main.setInteractionHandler(interactive
-                ? new InteractiveImportDecisionHandler()
+                ? new AgentInteractiveDecisionHandler(status)
                 : new AutoImportDecisionHandler(fillMissing, skipIncomplete));
         activeMains.put(taskId, v2Main);
 
@@ -332,6 +420,12 @@ public class QuestionImportTaskManager {
             if (!s.decisions.isEmpty()) {
                 o.put("decisions", new org.json.JSONArray(new java.util.ArrayList<>(s.decisions)));
             }
+            // 待智能体回传的决策点：有则智能体需创建 ui_component 交互并 import_decide 回传
+            PendingDecision pdec = s.pendingDecision;
+            if (pdec != null) {
+                o.put("awaitingDecision", true);
+                o.put("pendingDecision", pdec.toJson());
+            }
             if (s.error != null) {
                 o.put("error", s.error);
             }
@@ -347,6 +441,11 @@ public class QuestionImportTaskManager {
         if (s == null) {
             return "{\"taskId\":\"" + taskId + "\",\"status\":\"NOT_FOUND\"}";
         }
+        // 若正阻塞在待确认决策点：释放等待线程（未提交→按取消处理），否则导入线程会一直挂起
+        PendingDecision pdec = s.pendingDecision;
+        if (pdec != null) {
+            pdec.release();
+        }
         ImportMain main = activeMains.get(taskId);
         if (main != null) {
             main.cancel();
@@ -359,119 +458,76 @@ public class QuestionImportTaskManager {
         return "{\"taskId\":\"" + taskId + "\",\"status\":\"CANCELLED\"}";
     }
 
-    // ==================== AI 自动选最佳工作表 ====================
-
-    /** 题库表特征关键词（按字段类别分组）：
-     * 判断"是否符合题库表特征"用硬校验——表头必须【同时】命中题干类与答案类字段，
-     * 仅命中单类（如只有"题目"无"答案"）或纯数据表不视为题库表。
-     * 覆盖常见列名变体；未覆盖的由智能体按语义判断（prompt 已引导）。 */
-    private static final String[] STEM_KEYWORDS = {
-            "题干", "题目", "问题", "question", "题目内容", "题干内容", "内容", "question_stem", "stem",
-            "试题", "试题内容", "题目描述", "题干描述", "quiz", "题目文本", "题干文本", "question_text"
-    };
-    private static final String[] ANSWER_KEYWORDS = {
-            "答案", "answer", "正确答案", "参考答案", "正确", "answer_key", "正确答案内容",
-            "标准答案", "答案内容", "正确答案选项", "answer_text", "key", "correct", "答案项"
-    };
-    private static final String[] OPTION_KEYWORDS = {
-            "选项", "option", "答案选项", "备选", "choice", "options"
-    };
-    private static final String[] EXPLAIN_KEYWORDS = {
-            "解析", "explanation", "详解", "分析", "解答", "analysis"
-    };
-    private static final String[] TYPE_KEYWORDS = {
-            "题型", "type", "题目类型", "question_type"
-    };
-    private static final String[] EXTRA_KEYWORDS = {
-            "难度", "difficulty", "等级", "分类", "category", "章节", "知识点", "标签"
-    };
-
     /**
-     * 枚举 Excel 工作表并对各表表头做关键词打分，返回字段匹配最多的表索引；
-     * 单表 / 非 Excel / 全部无命中时返回 -1（回退 v2 全表扫描）。
+     * 智能体回传某决策点的用户选择（配合 import_decide 工具）。
+     * 由 {@link AgentInteractiveDecisionHandler} 发布的 pendingDecision 消费。
+     *
+     * @param taskId     导入任务 ID
+     * @param decisionId import_status 中 pendingDecision.decisionId（须与当前待确认一致）
+     * @param choice     选项下标（0 起；=最后一项即取消）；<0 时用 selected 解析
+     * @param selected   用户选择的选项文本（ui_component get_result 的返回；"cancelled"/"取消"=取消）
+     * @param mapping    可选：字段映射修改（决策点=mapping 时生效，标准字段→源列名）
+     * @return 结果 JSON（{"ok":true,...} 或 {"ok":false,"message":...}）
      */
-    private int pickBestSheet(android.content.Context ctx, File file) {
+    public String submitDecision(String taskId, String decisionId, int choice, String selected,
+                                 JSONObject mapping) {
+        TaskStatus s = tasks.get(taskId);
+        if (s == null) {
+            return "{\"ok\":false,\"message\":\"任务不存在或已结束\"}";
+        }
+        PendingDecision pd = s.pendingDecision;
+        if (pd == null) {
+            return "{\"ok\":false,\"message\":\"当前没有待确认的决策点（可能已回传、已超时，"
+                    + "或任务不在交互阶段）。请重新 import_status 查看最新状态。\"}";
+        }
+        if (decisionId != null && !decisionId.isEmpty() && !decisionId.equals(pd.decisionId)) {
+            return "{\"ok\":false,\"message\":\"decisionId 不匹配（当前待确认: " + pd.decisionId
+                    + "），请以 import_status 最新的 pendingDecision.decisionId 为准\"}";
+        }
+        int idx = choice;
+        if (idx < 0 && selected != null && !selected.trim().isEmpty()) {
+            idx = resolveChoiceByLabel(pd.options, selected.trim());
+        }
+        if (idx < 0) {
+            return "{\"ok\":false,\"message\":\"未识别的选择：请传 choice=选项下标（0 起）"
+                    + "或 selected=options 中的文本（取消用最后一项）\"}";
+        }
+        if (idx >= pd.options.length()) {
+            return "{\"ok\":false,\"message\":\"choice 越界（有效范围 0.." + (pd.options.length() - 1) + "）\"}";
+        }
+        if (!pd.submit(idx, mapping)) {
+            return "{\"ok\":false,\"message\":\"该决策点已被处理\"}";
+        }
+        JSONObject out = new JSONObject();
         try {
-            ImportPythonBridge python = ImportPythonBridge.getInstance(ctx);
-            JSONObject list = python.listSheets(file.getAbsolutePath());
-            org.json.JSONArray sheets = list != null ? list.optJSONArray("sheets") : null;
-            if (sheets == null || sheets.length() <= 1) {
-                return -1; // 无表或单表：直接全扫
-            }
-            int bestIndex = -1;
-            int bestScore = 0;
-            for (int i = 0; i < sheets.length(); i++) {
-                org.json.JSONObject sh = sheets.getJSONObject(i);
-                int idx = sh.optInt("index", i);
-                org.json.JSONObject sample = python.sampleFile(file.getAbsolutePath(), 15, idx);
-                if (sample == null || sample.has("error")) continue;
-                org.json.JSONArray headers = sample.optJSONArray("headers");
-                // 硬校验：不符合题库表特征（题干+答案未同时出现）的表直接排除，
-                // 避免示例/说明/纯数据表被误判为题库表
-                if (!isQuestionBankSheet(headers)) {
-                    continue;
-                }
-                int score = scoreHeaders(headers);
-                // 行数权重：真正的题库表有大量数据行；示例/说明/目录表通常只有几行
-                org.json.JSONArray rows = sample.optJSONArray("rows");
-                int dataRows = rows != null ? rows.length() : 0;
-                if (dataRows <= 3) {
-                    score -= 2;
-                } else if (dataRows <= 8) {
-                    score += 1;
-                } else {
-                    score += 3;
-                }
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestIndex = idx;
-                }
-            }
-            return bestScore > 0 ? bestIndex : -1;
+            out.put("ok", true);
+            out.put("taskId", taskId);
+            out.put("decisionId", pd.decisionId);
+            out.put("choice", idx);
+            out.put("selected", pd.options.optString(idx, ""));
+            out.put("message", "已回传决策，导入将继续；请继续 import_status 轮询直到 DONE/ERROR/CANCELLED");
         } catch (Exception e) {
-            android.util.Log.w("ImportTaskManager", "自动选表失败，回退全表扫描: " + e.getMessage());
-            return -1;
+            return "{\"ok\":true,\"taskId\":\"" + taskId + "\"}";
         }
+        return out.toString();
     }
 
-    /** 是否符合题库表特征：表头必须【同时】命中题干类与答案类字段（硬校验）。 */
-    private boolean isQuestionBankSheet(org.json.JSONArray headers) {
-        if (headers == null) return false;
-        boolean hasStem = false;
-        boolean hasAnswer = false;
-        for (int i = 0; i < headers.length(); i++) {
-            String h = headers.optString(i, "").toLowerCase(java.util.Locale.ROOT);
-            if (h.isEmpty()) continue;
-            if (!hasStem && containsAny(h, STEM_KEYWORDS)) hasStem = true;
-            if (!hasAnswer && containsAny(h, ANSWER_KEYWORDS)) hasAnswer = true;
-            if (hasStem && hasAnswer) return true;
+    /** 按选项文本解析下标：先精确匹配，再去空格匹配，最后"取消"兜底为末项 */
+    private static int resolveChoiceByLabel(org.json.JSONArray options, String label) {
+        if (options == null) return -1;
+        for (int i = 0; i < options.length(); i++) {
+            if (label.equals(options.optString(i, ""))) return i;
         }
-        return hasStem && hasAnswer;
+        String norm = label.replaceAll("\\s+", "");
+        for (int i = 0; i < options.length(); i++) {
+            String o = options.optString(i, "").replaceAll("\\s+", "");
+            if (!o.isEmpty() && o.equals(norm)) return i;
+        }
+        if ("cancelled".equalsIgnoreCase(label) || "cancel".equalsIgnoreCase(label)
+                || "取消".equals(label) || "取消导入".equals(label)) {
+            return options.length() - 1;
+        }
+        return -1;
     }
 
-    private boolean containsAny(String h, String[] kws) {
-        for (String kw : kws) {
-            if (h.contains(kw.toLowerCase(java.util.Locale.ROOT))) return true;
-        }
-        return false;
-    }
-
-    /** 表头题库字段命中计数（小写匹配；前提已通过 isQuestionBankSheet 硬校验） */
-    private int scoreHeaders(org.json.JSONArray headers) {
-        if (headers == null) return 0;
-        int score = 0;
-        for (int i = 0; i < headers.length(); i++) {
-            String h = headers.optString(i, "").toLowerCase(java.util.Locale.ROOT);
-            if (h.isEmpty()) continue;
-            if (containsAny(h, STEM_KEYWORDS)
-                    || containsAny(h, ANSWER_KEYWORDS)
-                    || containsAny(h, OPTION_KEYWORDS)
-                    || containsAny(h, EXPLAIN_KEYWORDS)
-                    || containsAny(h, TYPE_KEYWORDS)
-                    || containsAny(h, EXTRA_KEYWORDS)) {
-                score++;
-            }
-        }
-        return score;
-    }
 }

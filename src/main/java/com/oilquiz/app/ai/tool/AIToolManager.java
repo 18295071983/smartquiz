@@ -240,7 +240,7 @@ public class AIToolManager {
         // 纯本地工具：文本处理（JSON/编码/正则）与单位换算（零网络依赖）
         registerToolFactory("text_tools", TextToolsTool.class, TextToolsTool::new);
         registerToolFactory("unit_converter", UnitConverterTool.class, UnitConverterTool::new);
-        // 知识库：独立 SQLite+FTS5，全文检索与管理（内容由用户维护）
+        // 知识库：独立 SQLite+FTS4，全文检索与管理（内容由用户维护）
         registerToolFactory("knowledge_base", KnowledgeBaseTool.class, KnowledgeBaseTool::new);
         
         try {
@@ -260,6 +260,7 @@ public class AIToolManager {
         registerToolFactory("import_start", ImportStartTool.class, ImportStartTool::new); // AI导入：启动异步导入
         registerToolFactory("import_status", ImportStatusTool.class, ImportStatusTool::new); // AI导入：查询进度
         registerToolFactory("import_cancel", ImportCancelTool.class, ImportCancelTool::new); // AI导入：取消
+        registerToolFactory("import_decide", ImportDecideTool.class, ImportDecideTool::new); // AI导入：决策回传（ui_component 交互后）
         registerToolFactory("reminder", ReminderTool.class, ReminderTool::new); // 维度十 PER-02：定时提醒
             registerToolFactory("workspace", WorkspaceTool.class, WorkspaceTool::new);
             Log.i(TAG, "Python tool factories registered");
@@ -1501,19 +1502,22 @@ public class AIToolManager {
                         .build();
             case "import_start":
                 return ToolDefinition.builder("import_start",
-                        "题库导入（启动）——智能体全自动：异步启动 v2 智能导入管线，把题库文件（Excel/CSV/JSON/Markdown/文本）解析为题目并入库。"
-                                + "字段映射/数据预览/缺失字段填充/最终入库四个决策点全自动执行，无需人工确认；"
+                        "题库导入（启动）：异步启动 v2 智能导入管线，把题库文件（Excel/CSV/JSON/Markdown/文本）解析为题目并入库。"
+                                + "工作表由调用方显式指定（sheetMode=index/multi/all，不再自动选表）；"
+                                + "四个决策点（字段映射/数据预览/智能填充/入库）由你创建多功能 ui_component 与用户交互、"
+                                + "get_result 取值后 import_decide 回传（interactive=true，默认）；传入 interactive=false 才全自动无人值守；"
                                 + "filePath 必填（先用 import_list_files 发现文件拿到 path），返回 taskId 后用 import_status 轮询（RUNNING→DONE/ERROR），"
                                 + "完成后返回新增/重复/失败统计；import_cancel 取消。导入耗时数十秒到数分钟，不要重复启动同一文件。"
                                 + "多文件可依次启动多个任务并行导入。")
                         .addParameter("filePath", "string", "题库文件完整路径（必填，先用 import_list_files 发现）", true)
-                        .addParameter("sheetMode", "string", "工作表选择模式：all(全扫全部表，默认)/best(AI自动选字段匹配最多的最佳表)/index(按sheetIndex指定)", false, "all",
-                                java.util.Arrays.asList("all", "best", "index"))
+                        .addParameter("sheetMode", "string", "工作表选择模式（必须显式指定）：index(按sheetIndex单表)/multi(按sheetIndexes多表)/all(全扫全部表)；best/auto 已移除，传了会被拒绝", false, "all",
+                                java.util.Arrays.asList("index", "multi", "all"))
                         .addParameter("sheetIndex", "integer", "Excel 工作表索引（sheetMode=index 时生效；-1=自动，默认 -1）", false, -1)
                         .addParameter("docHint", "string", "题库说明/字段约定（帮助 AI 识别列含义，可选）", false)
                         .addParameter("fillMissing", "boolean", "是否 AI 补全缺失字段（题型/难度/分类/解析，默认 true）", false, true)
                         .addParameter("skipIncomplete", "boolean", "是否跳过缺字段的行（默认 false=尽量保留）", false, false)
                         .addParameter("questionType", "string", "强制题型（可选，如\"单选题\"；默认按内容自动识别）", false)
+                        .addParameter("interactive", "boolean", "是否交互确认（默认 true=四决策点由你创建 ui_component 交互并 import_decide 回传；false=全自动无人值守）", false, true)
                         .category("data")
                         .whenToUse("用户要求把题库文件导入 App/入库题目时使用；先 import_list_files 拿到路径，再本工具启动，然后 import_status 轮询到完成")
                         .build();
@@ -1521,10 +1525,12 @@ public class AIToolManager {
                 return ToolDefinition.builder("import_status",
                         "题库导入（状态查询）：查询 import_start 启动的任务进度与结果，返回 JSON {taskId,status(RUNNING|DONE|ERROR|CANCELLED|NOT_FOUND),"
                                 + "stage(start|sheet|mapping|parse|fill|ingest|done|error),current,total,imported,duplicated,failed,totalRows}。"
+                                + "若返回含 pendingDecision（awaitingDecision=true），说明正在等你创建 ui_component 与用户交互并 import_decide 回传："
+                                + "pendingDecision 含 type/title/message/options/payload，按它渲染选择组件，拿到用户选择后 import_decide。"
                                 + "导入中建议每隔数秒查询一次，直到 status=DONE 后向用户汇报统计；status=ERROR 时读取 error 字段说明原因。")
                         .addParameter("taskId", "string", "import_start 返回的任务 ID（必填）", true)
                         .category("data")
-                        .whenToUse("import_start 启动后轮询导入进度/结果时使用")
+                        .whenToUse("import_start 启动后轮询导入进度/结果时使用；返回 pendingDecision 时先 ui_component 交互再 import_decide")
                         .build();
             case "import_cancel":
                 return ToolDefinition.builder("import_cancel",
@@ -1532,6 +1538,18 @@ public class AIToolManager {
                         .addParameter("taskId", "string", "import_start 返回的任务 ID（必填）", true)
                         .category("data")
                         .whenToUse("用户要求停止导入，或导入长时间卡住需要中止时使用")
+                        .build();
+            case "import_decide":
+                return ToolDefinition.builder("import_decide",
+                        "题库导入（决策回传）：当 import_status 返回 pendingDecision 时，把用户在 ui_component 上的选择回传给导入管线，导入才会继续。"
+                                + "返回 {ok:true,decisionId,choice,selected}；失败含 message（如未识别选择/decisionId 不匹配/无待确认决策点）。")
+                        .addParameter("taskId", "string", "import_start 返回的任务 ID（必填）", true)
+                        .addParameter("decisionId", "string", "import_status 的 pendingDecision.decisionId（必填）", true)
+                        .addParameter("selected", "string", "用户选择的选项文本（ui_component get_result 的返回；取消传\"取消导入\"或\"cancelled\"）", false)
+                        .addParameter("choice", "integer", "用户选择的选项下标（0 起；与 selected 二选一；取消=最后一项）", false)
+                        .addParameter("mapping", "object", "字段映射修改（标准字段→源列名；仅决策点=mapping 时可传）", false)
+                        .category("data")
+                        .whenToUse("import_status 返回 pendingDecision 后，用 ui_component 与用户交互拿到选择，再用本工具回传")
                         .build();
             default:
                 // 已注册工厂但未在 switch 中显式定义的工具（memory/workspace/image_gen/

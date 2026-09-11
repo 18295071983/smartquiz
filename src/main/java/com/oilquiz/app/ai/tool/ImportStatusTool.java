@@ -30,6 +30,8 @@ public class ImportStatusTool implements AITool {
         return "题库导入（状态查询）：查询 import_start 返回的 taskId 的导入进度与结果。"
                 + "返回 status=RUNNING 表示仍在导入（可隔数秒再查）；status=DONE 表示完成并含新增/重复/失败统计；"
                 + "status=ERROR 表示失败（含 error 原因）；status=CANCELLED 表示已取消。"
+                + "若返回含 pendingDecision（awaitingDecision=true），说明在等你创建 ui_component 与用户交互并 import_decide 回传："
+                + "按 pendingDecision.type/title/message/options 渲染选择组件，拿到用户选择后 import_decide，再继续轮询。"
                 + "参数：taskId 必填（import_start 返回的任务ID）。";
     }
 
