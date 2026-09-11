@@ -118,7 +118,8 @@ public class HtmlCardView implements ChatComponent {
         WebView webView = new WebView(context);
         webView.setBackgroundColor(Color.TRANSPARENT);
         webView.setVerticalScrollBarEnabled(true);
-        webView.setHorizontalScrollBarEnabled(false);
+        // 横向滚动开启：宽页面（表格/PC网页）overview 全览后可横滚查看，滚动条提示可滚
+        webView.setHorizontalScrollBarEnabled(true);
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
         // 宽度适配（浏览器式）：useWideViewPort+overview 让无 viewport 的网页（PC 页/老页）先
