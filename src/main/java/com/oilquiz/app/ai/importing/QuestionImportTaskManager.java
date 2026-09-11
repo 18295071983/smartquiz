@@ -327,15 +327,26 @@ public class QuestionImportTaskManager {
 
     // ==================== AI 自动选最佳工作表 ====================
 
-    /** 题库表头关键词（用于工作表打分；命中越多的表越像题库表） */
-    private static final String[] HEADER_KEYWORDS = {
-            "题干", "题目", "问题", "question", "题目内容", "内容", "题干内容",
-            "选项", "option", "答案选项", "备选",
-            "答案", "answer", "正确答案", "正确", "参考答案",
-            "解析", "explanation", "详解", "分析", "解答",
-            "题型", "type", "题目类型",
-            "难度", "difficulty", "等级",
-            "分类", "category", "章节", "知识点", "标签"
+    /** 题库表特征关键词（按字段类别分组）：
+     * 判断"是否符合题库表特征"用硬校验——表头必须【同时】命中题干类与答案类字段，
+     * 仅命中单类（如只有"题目"无"答案"）或纯数据表不视为题库表。 */
+    private static final String[] STEM_KEYWORDS = {
+            "题干", "题目", "问题", "question", "题目内容", "题干内容", "内容", "question_stem", "stem"
+    };
+    private static final String[] ANSWER_KEYWORDS = {
+            "答案", "answer", "正确答案", "参考答案", "正确", "answer_key", "正确答案内容"
+    };
+    private static final String[] OPTION_KEYWORDS = {
+            "选项", "option", "答案选项", "备选", "choice", "options"
+    };
+    private static final String[] EXPLAIN_KEYWORDS = {
+            "解析", "explanation", "详解", "分析", "解答", "analysis"
+    };
+    private static final String[] TYPE_KEYWORDS = {
+            "题型", "type", "题目类型", "question_type"
+    };
+    private static final String[] EXTRA_KEYWORDS = {
+            "难度", "difficulty", "等级", "分类", "category", "章节", "知识点", "标签"
     };
 
     /**
@@ -358,17 +369,21 @@ public class QuestionImportTaskManager {
                 org.json.JSONObject sample = python.sampleFile(file.getAbsolutePath(), 15, idx);
                 if (sample == null || sample.has("error")) continue;
                 org.json.JSONArray headers = sample.optJSONArray("headers");
+                // 硬校验：不符合题库表特征（题干+答案未同时出现）的表直接排除，
+                // 避免示例/说明/纯数据表被误判为题库表
+                if (!isQuestionBankSheet(headers)) {
+                    continue;
+                }
                 int score = scoreHeaders(headers);
-                // 行数权重：真正的题库表有大量数据行；示例/说明/目录表通常只有几行。
-                // 仅凭表头命中会误选"示例题目"表（表头与题库表完全一致）。
+                // 行数权重：真正的题库表有大量数据行；示例/说明/目录表通常只有几行
                 org.json.JSONArray rows = sample.optJSONArray("rows");
                 int dataRows = rows != null ? rows.length() : 0;
                 if (dataRows <= 3) {
-                    score -= 2;   // 示例/说明/空表：降权
+                    score -= 2;
                 } else if (dataRows <= 8) {
-                    score += 1;   // 少量数据
+                    score += 1;
                 } else {
-                    score += 3;   // 数据表：优先
+                    score += 3;
                 }
                 if (score > bestScore) {
                     bestScore = score;
@@ -382,18 +397,42 @@ public class QuestionImportTaskManager {
         }
     }
 
-    /** 表头关键词命中计数（小写匹配） */
+    /** 是否符合题库表特征：表头必须【同时】命中题干类与答案类字段（硬校验）。 */
+    private boolean isQuestionBankSheet(org.json.JSONArray headers) {
+        if (headers == null) return false;
+        boolean hasStem = false;
+        boolean hasAnswer = false;
+        for (int i = 0; i < headers.length(); i++) {
+            String h = headers.optString(i, "").toLowerCase(java.util.Locale.ROOT);
+            if (h.isEmpty()) continue;
+            if (!hasStem && containsAny(h, STEM_KEYWORDS)) hasStem = true;
+            if (!hasAnswer && containsAny(h, ANSWER_KEYWORDS)) hasAnswer = true;
+            if (hasStem && hasAnswer) return true;
+        }
+        return hasStem && hasAnswer;
+    }
+
+    private boolean containsAny(String h, String[] kws) {
+        for (String kw : kws) {
+            if (h.contains(kw.toLowerCase(java.util.Locale.ROOT))) return true;
+        }
+        return false;
+    }
+
+    /** 表头题库字段命中计数（小写匹配；前提已通过 isQuestionBankSheet 硬校验） */
     private int scoreHeaders(org.json.JSONArray headers) {
         if (headers == null) return 0;
         int score = 0;
         for (int i = 0; i < headers.length(); i++) {
             String h = headers.optString(i, "").toLowerCase(java.util.Locale.ROOT);
             if (h.isEmpty()) continue;
-            for (String kw : HEADER_KEYWORDS) {
-                if (h.contains(kw.toLowerCase(java.util.Locale.ROOT))) {
-                    score++;
-                    break; // 一个表头只记一次
-                }
+            if (containsAny(h, STEM_KEYWORDS)
+                    || containsAny(h, ANSWER_KEYWORDS)
+                    || containsAny(h, OPTION_KEYWORDS)
+                    || containsAny(h, EXPLAIN_KEYWORDS)
+                    || containsAny(h, TYPE_KEYWORDS)
+                    || containsAny(h, EXTRA_KEYWORDS)) {
+                score++;
             }
         }
         return score;

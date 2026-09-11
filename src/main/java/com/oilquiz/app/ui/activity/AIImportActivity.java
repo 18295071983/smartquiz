@@ -403,10 +403,11 @@ public class AIImportActivity extends BaseActivity {
                 + "0) 先调 import_list_files 确认目标文件存在并拿到完整路径（若上方已给路径可直接用）；"
                 + "1) 预处理评估（推荐，多表/表头异常/数据乱时必做）："
                 + "用 file_reader(parse_excel) 查看返回的 sheetSummaries（每张表 index/名称/数据行数），"
-                + "由你判断哪些表是真正的题库表：选【数据行多、表头字段全】的表，"
-                + "排除只有几行数据的示例/说明/目录表；单张有用→sheetMode=index + sheetIndex=<该表索引>；"
-                + "多张都有用→sheetMode=multi + sheetIndexes=<JSON数组，如 [1,2]> 全部导入；"
-                + "无法判断时才用 sheetMode=best/all；"
+                + "由你判断哪些表符合【题库表特征】：表头必须同时含题干类字段（题干/题目/问题/question）"
+                + "与答案类字段（答案/answer/正确答案），缺一不可，否则不是题库表、不得导入；"
+                + "排除示例/说明/目录/纯数据表；单张符合→sheetMode=index + sheetIndex=<该表索引>；"
+                + "多张都符合→sheetMode=multi + sheetIndexes=<JSON数组，如 [1,2]> 全部导入；"
+                + "无任何表符合题库表特征→直接向用户说明，不得硬导入；"
                 + "若多个候选表都像题库表、判断不准，必须用 ui_component(component_type=choice, options=[各候选表名]) "
                 + "询问用户选哪张/哪几张，get_result 拿到选择后再定 sheetMode，不得自作主张；"
                 + "【阅读题库说明】若存在疑似说明类 sheet（名称含说明/指南/guide/使用说明，或首行为说明文字），"
@@ -478,7 +479,19 @@ public class AIImportActivity extends BaseActivity {
         etChatInput.setText("");
         aiBubble = null;
         aiStream.setLength(0);
-        agentSession.sendMessage(text, 8192);
+        // 对话上下文补充当前目标文件路径：新会话历史已清空，若不带上路径，
+        // 智能体对话时不知道文件在哪，会误报"找不到文件"
+        String sendText = text;
+        if (text.contains("导入") || text.contains("文件") || text.contains("找不到")
+                || text.contains("import") || text.contains("path") || text.contains("路径")) {
+            File target = currentFile != null ? currentFile
+                    : (selectedFiles.size() == 1 ? selectedFiles.get(0) : null);
+            if (target != null) {
+                sendText = text + "\n（当前导入目标文件: " + target.getAbsolutePath()
+                        + "；如需导入请用 import_start 并传此 filePath）";
+            }
+        }
+        agentSession.sendMessage(sendText, 8192);
     }
 
     /** 追加一条用户/AI 对话气泡 */
