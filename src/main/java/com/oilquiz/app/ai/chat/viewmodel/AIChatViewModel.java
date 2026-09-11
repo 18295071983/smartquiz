@@ -90,11 +90,11 @@ public class AIChatViewModel extends AndroidViewModel {
      *         └────────── UNLOADED ◀────────── ERROR
      */
     public enum AIState {
-        /** 空闲：模型就绪，等待用户输入 */
+        /** 空闲：尚未初始化（初始态），等待 initialize() */
         IDLE,
         /** 加载中：模型文件准备/加载/GPU初始化 */
         LOADING,
-        /** 就绪：模型已加载，可以接受推理请求 */
+        /** 就绪：初始化完成，可以接受推理请求（空闲态之一，语义=IDLE 已就绪） */
         READY,
         /** 推理中：正在执行 generateStream */
         INFERRING,
@@ -102,6 +102,30 @@ public class AIChatViewModel extends AndroidViewModel {
         ERROR,
         /** 已卸载：因内存压力或手动卸载，需要重新加载 */
         UNLOADED
+    }
+
+    // ========== 状态机合法转移表（业内标准：非法迁移拒绝并告警） ==========
+    private static final java.util.Set<String> VALID_TRANSITIONS = new java.util.HashSet<>();
+
+    static {
+        VALID_TRANSITIONS.add("IDLE->LOADING");
+        VALID_TRANSITIONS.add("IDLE->INFERRING");
+        VALID_TRANSITIONS.add("IDLE->ERROR");
+        VALID_TRANSITIONS.add("IDLE->UNLOADED");
+        VALID_TRANSITIONS.add("LOADING->READY");
+        VALID_TRANSITIONS.add("LOADING->ERROR");
+        VALID_TRANSITIONS.add("LOADING->UNLOADED");
+        VALID_TRANSITIONS.add("READY->INFERRING");
+        VALID_TRANSITIONS.add("READY->ERROR");
+        VALID_TRANSITIONS.add("READY->UNLOADED");
+        VALID_TRANSITIONS.add("INFERRING->READY");
+        VALID_TRANSITIONS.add("INFERRING->ERROR");
+        VALID_TRANSITIONS.add("INFERRING->UNLOADED");
+        VALID_TRANSITIONS.add("ERROR->LOADING");   // 失败后重试初始化
+        VALID_TRANSITIONS.add("ERROR->READY");     // 错误后人工恢复
+        VALID_TRANSITIONS.add("ERROR->UNLOADED");
+        VALID_TRANSITIONS.add("UNLOADED->LOADING"); // 重新加载
+        VALID_TRANSITIONS.add("UNLOADED->READY");
     }
 
     /** 结构化错误信息 —— UI 可以根据类型渲染不同卡片 */
@@ -172,11 +196,17 @@ public class AIChatViewModel extends AndroidViewModel {
 
     /**
      * 统一状态迁移入口 —— 所有状态变更必须通过此方法
-     * 自动 post 到主线程 LiveData，并记录日志
+     * 自动 post 到主线程 LiveData，并记录日志；非法迁移按转移表拒绝并告警
      */
     public void setState(AIState newState) {
         AIState old = aiStateLiveData.getValue();
         if (old == newState) return;
+        // 合法转移校验：非法迁移拒绝并告警（业内标准转移表）
+        String transitionKey = old.name() + "->" + newState.name();
+        if (!VALID_TRANSITIONS.contains(transitionKey)) {
+            AILogger.w(TAG, "AIState 非法迁移被拒绝: " + transitionKey);
+            return;
+        }
         AILogger.i(TAG, "AIState: " + old + " → " + newState);
         aiStateLiveData.postValue(newState);
 

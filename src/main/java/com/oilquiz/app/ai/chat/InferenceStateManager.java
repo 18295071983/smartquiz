@@ -287,6 +287,20 @@ public class InferenceStateManager {
         
         InferenceState oldState = details.currentState;
         if (oldState == newState) return;
+
+        // 合法转移校验（业内标准转移表）：
+        // - 终态（COMPLETED/FAILED/TIMEOUT/CANCELLED）后禁止任何转移（cleanup 会移除）
+        // - 运行态之间的转移按事件路径校验，非法迁移拒绝并告警（防御性，不打断推理）
+        if (isTerminal(oldState)) {
+            Log.w(TAG, String.format("Illegal transition from terminal state: %s -> %s (message: %s)",
+                    oldState, newState, messageId));
+            return;
+        }
+        if (!isValidTransition(oldState, newState)) {
+            Log.w(TAG, String.format("Illegal transition: %s -> %s (message: %s)",
+                    oldState, newState, messageId));
+            return;
+        }
         
         details.previousState = oldState;
         details.currentState = newState;
@@ -302,6 +316,56 @@ public class InferenceStateManager {
                     stateChangeListener.onStateChanged(messageId, oldState, newState, details);
                 }
             });
+        }
+    }
+
+    /** 终态判定：终态后不允许任何转移 */
+    private static boolean isTerminal(InferenceState s) {
+        return s == InferenceState.COMPLETED
+                || s == InferenceState.FAILED
+                || s == InferenceState.TIMEOUT
+                || s == InferenceState.CANCELLED;
+    }
+
+    /**
+     * 合法转移表（宽松式）：覆盖全部事件驱动路径（Native/流式/超时/取消）。
+     * 终态为 sink，不在此表中；运行态间迁移按此校验。
+     */
+    private static boolean isValidTransition(InferenceState from, InferenceState to) {
+        if (to == InferenceState.COMPLETED || to == InferenceState.FAILED
+                || to == InferenceState.TIMEOUT || to == InferenceState.CANCELLED) {
+            return true; // 任何运行态都可进入终态（完成/失败/超时/取消）
+        }
+        switch (from) {
+            case IDLE:
+                return to == InferenceState.INITIALIZING;
+            case INITIALIZING:
+                return to == InferenceState.MODEL_LOADING
+                        || to == InferenceState.PROMPT_ENCODING
+                        || to == InferenceState.PREFILL
+                        || to == InferenceState.GENERATING
+                        || to == InferenceState.THINKING;
+            case MODEL_LOADING:
+                return to == InferenceState.PROMPT_ENCODING
+                        || to == InferenceState.GENERATING
+                        || to == InferenceState.THINKING;
+            case PROMPT_ENCODING:
+                return to == InferenceState.PREFILL
+                        || to == InferenceState.GENERATING
+                        || to == InferenceState.THINKING;
+            case PREFILL:
+                return to == InferenceState.GENERATING
+                        || to == InferenceState.THINKING;
+            case GENERATING:
+                return to == InferenceState.THINKING
+                        || to == InferenceState.DECODING;
+            case THINKING:
+                return to == InferenceState.GENERATING
+                        || to == InferenceState.DECODING;
+            case DECODING:
+                return to == InferenceState.GENERATING;
+            default:
+                return false;
         }
     }
     
