@@ -31,10 +31,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 知识库管理器：独立 SQLite 数据库 + FTS5 全文检索（bm25 召回）+ 在线语义重排。
+ * 知识库管理器：独立 SQLite 数据库 + FTS4 全文检索（匹配召回）+ 在线语义重排。
  *
  * 检索管线（有查询词时）：
- * 1. FTS5 全文索引（title/category/keywords/content）bm25 相关性召回候选；
+ * 1. FTS4 全文索引（title/category/keywords/search_text/content）匹配召回候选；
  * 2. 若在线配置可用且配置表声明 embedding 模型 → embedding 余弦相似度重排（语义优先）；
  * 3. 若配置表同时声明 rerank 模型 → 对重排前若干条做 rerank 精排；
  * 4. 任一环节未配置/失败/超时 → 自动降级到 bm25 原序，绝不因语义重排失败而返回空。
@@ -42,7 +42,7 @@ import java.util.regex.Pattern;
  * <p>设计要点：
  * <ul>
  *   <li>使用独立的 knowledge_base.db，不占用/不影响主数据库（smartquiz_database），零迁移风险；</li>
- *   <li>FTS5 虚拟表做全文索引（title/category/keywords/content），bm25() 相关性排序；</li>
+ *   <li>FTS4 虚拟表做全文索引（title/category/keywords/search_text/content），按更新时间稳定排序；</li>
  *   <li>中文检索：unicode61 tokenizer 对 CJK 逐字建 token，查询时自动把中文连续段拆字并用 AND 组合，实现
  *       "包含全部关键词" 的检索；英文/数字按词 + 前缀匹配；</li>
  *   <li>查询串完全由白名单 token 生成（剥离 FTS5 特殊字符），参数化绑定，无 SQL/FTS 注入面；</li>
@@ -52,7 +52,8 @@ import java.util.regex.Pattern;
 public class KnowledgeBaseManager {
     private static final String TAG = "KnowledgeBaseManager";
     private static final String DB_NAME = "knowledge_base.db";
-    private static final int DB_VERSION = 1;
+    /** v2：FTS5 在部分设备未编译，改用 FTS4 并重建索引（旧库升级时触发重建） */
+    private static final int DB_VERSION = 2;
 
     /** 查询时返回的默认结果条数上限 */
     private static final int DEFAULT_TOP_K = 5;
@@ -110,8 +111,18 @@ public class KnowledgeBaseManager {
 
         @Override
         public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-            // 预留升级位：未来可在此处加 ALTER TABLE / 重建 FTS
             Log.i(TAG, "onUpgrade knowledge_base.db " + oldVersion + " -> " + newVersion);
+            if (oldVersion < 2) {
+                // v1→v2：部分设备内置 SQLite 未编译 FTS5（"no such module: fts5"）导致建表失败，改用 FTS4。
+                // 旧 FTS5 表（若曾建成功）与 FTS4 查询语法不兼容 → 删除并按 FTS4 重建，再从 kb_chunks 回填，保证检索可用。
+                try {
+                    db.execSQL("DROP TABLE IF EXISTS kb_chunks_fts");
+                } catch (Exception e) {
+                    Log.w(TAG, "DROP kb_chunks_fts 失败: " + e.getMessage());
+                }
+                createFtsTable(db);
+                rebuildFtsIndex(db);
+            }
         }
 
         private void createTables(SQLiteDatabase db) {
@@ -125,17 +136,45 @@ public class KnowledgeBaseManager {
                     + "created_at INTEGER NOT NULL,"
                     + "updated_at INTEGER NOT NULL"
                     + ")");
-            // FTS5 全文索引：unicode61 tokenizer（Android 12+ 内置 SQLite >= 3.32，FTS5 稳定可用）。
-            // 中文处理：unicode61 会把连续中文串（含相邻 ASCII）合并成一个长 token，导致中文关键词无法命中，
+            // FTS4 全文索引：FTS5 在部分设备未编译（no such module: fts5），改用 FTS4 以兼容全部机型。
+            // 中文处理：unicode61 tokenizer 会把连续中文串（含相邻 ASCII）合并成一个长 token，导致中文关键词无法命中，
             // 因此专门提供 search_text 列：入库时对标题/分类/关键词/正文中的中文做逐字空格化，
             // 让每个汉字成为独立 token；检索时把中文连续段拆字 AND 组合，即实现"包含全部关键字"的中文检索。
-            db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts5("
-                    + "title, category, keywords, search_text, content,"
-                    + "tokenize = 'unicode61 remove_diacritics 2'"
-                    + ")");
+            createFtsTable(db);
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_category ON kb_chunks(category)");
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_title ON kb_chunks(title)");
         }
+    }
+
+    /** 创建 FTS4 全文索引表（title/category/keywords/search_text/content + unicode61 tokenizer）。
+     *  FTS5 在部分设备未编译（no such module: fts5），改用 FTS4 兼容全部机型。 */
+    private static void createFtsTable(SQLiteDatabase db) {
+        db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts4("
+                + "title, category, keywords, search_text, content,"
+                + "tokenize=unicode61"
+                + ")");
+    }
+
+    /** 从 kb_chunks 全量回填 FTS 索引（升级/重建后调用；失败不抛出，仅记录日志） */
+    private static void rebuildFtsIndex(SQLiteDatabase db) {
+        Cursor cursor = null;
+        int n = 0;
+        try {
+            cursor = db.rawQuery("SELECT id, title, category, keywords, content FROM kb_chunks", null);
+            while (cursor.moveToNext()) {
+                insertFts(db, cursor.getLong(0),
+                        new KnowledgeChunk(cursor.getString(1), cursor.getString(2),
+                                cursor.getString(3), cursor.getString(4), ""));
+                n++;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "重建 FTS 索引失败: " + e.getMessage());
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        Log.i(TAG, "FTS 索引重建完成，回填 " + n + " 条");
     }
 
     private KnowledgeBaseManager(Context context) {
@@ -215,19 +254,21 @@ public class KnowledgeBaseManager {
             String matchQuery = hasQuery ? buildMatchQuery(query) : null;
 
             if (hasQuery && matchQuery != null) {
+                // FTS4 无 bm25()（FTS5 专属）：snippet 用 FTS4 签名（列号必填，4=content），
+                // 排序退化为按更新时间稳定排序（相关性排序由可选的在线语义重排承担）。
                 if (hasCategory) {
                     sql = "SELECT c.id, c.title, c.category, c.keywords, c.source, c.updated_at, c.content, "
-                            + "snippet(kb_chunks_fts, 4, '[', ']', '…', 20) AS snip "
+                            + "snippet(kb_chunks_fts, '[', ']', '…', 4, 20) AS snip "
                             + "FROM kb_chunks_fts JOIN kb_chunks c ON c.id = kb_chunks_fts.rowid "
                             + "WHERE kb_chunks_fts MATCH ? AND c.category = ? "
-                            + "ORDER BY bm25(kb_chunks_fts) LIMIT ?";
+                            + "ORDER BY c.updated_at DESC LIMIT ?";
                     args = new String[]{matchQuery, category.trim(), String.valueOf(limit)};
                 } else {
                     sql = "SELECT c.id, c.title, c.category, c.keywords, c.source, c.updated_at, c.content, "
-                            + "snippet(kb_chunks_fts, 4, '[', ']', '…', 20) AS snip "
+                            + "snippet(kb_chunks_fts, '[', ']', '…', 4, 20) AS snip "
                             + "FROM kb_chunks_fts JOIN kb_chunks c ON c.id = kb_chunks_fts.rowid "
                             + "WHERE kb_chunks_fts MATCH ? "
-                            + "ORDER BY bm25(kb_chunks_fts) LIMIT ?";
+                            + "ORDER BY c.updated_at DESC LIMIT ?";
                     args = new String[]{matchQuery, String.valueOf(limit)};
                 }
             } else if (hasCategory) {

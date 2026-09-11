@@ -116,7 +116,7 @@ public class KnowledgeBaseTool implements AITool {
         params.put("query", "检索关键词（search 必填）");
         params.put("category", "分类过滤（search/add 可选）");
         params.put("top_k", "返回条数上限（search 可选，默认5）");
-        params.put("semantic", "语义重排开关（search 可选，默认false；true=启用在线embedding重排+rerank精排，会消费在线API；未配置embedding专用能力时自动回退bm25）");
+        params.put("semantic", "语义重排开关（search 可选，默认false；true=启用在线embedding重排+rerank精排，会消费在线API；未配置embedding专用能力时自动回退关键词检索）");
         params.put("title", "标题（add 必填 / import_document 可选）");
         params.put("content", "内容（add 必填）");
         params.put("keywords", "关键词（add 可选）");
