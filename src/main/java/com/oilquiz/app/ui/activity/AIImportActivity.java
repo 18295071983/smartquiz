@@ -113,10 +113,7 @@ public class AIImportActivity extends BaseActivity {
     /** 当前活动的 v2 导入管线（取消/销毁时一并终止） */
     private com.oilquiz.app.ai.importing.v2.ImportMain activeV2Main;
 
-    // 模型选择区
-    private TextView tvModelInfo;
-    private MaterialButton btnSwitchModel;
-    private MaterialButton btnConfigOnline;
+    // 模型选择区（UI 入口已移除，引擎默认 AUTO 模式继续工作）
     private OnlineModelManager onlineModelManager;
     // 用户题库说明输入区（可选，引导 AI 导入）
     private android.widget.EditText etUserGuide;
@@ -171,45 +168,12 @@ public class AIImportActivity extends BaseActivity {
         tvTotalCount = findViewById(R.id.tvTotalCount);
         tvDupCount = findViewById(R.id.tvDupCount);
 
-        // 模型选择区
-        tvModelInfo = findViewById(R.id.tvModelInfo);
-        btnSwitchModel = findViewById(R.id.btnSwitchModel);
-        btnConfigOnline = findViewById(R.id.btnConfigOnline);
+        // 模型选择 UI 入口已移除（引擎默认 AUTO 模式）
 
         // 用户题库说明输入区
         etUserGuide = findViewById(R.id.etUserGuide);
         // 缺失字段智能填充开关
         swFillMissing = findViewById(R.id.swFillMissing);
-        // CPU 推理开关（上下文 8192，更稳）：切换即应用内热切换后端，无需重启 App
-        androidx.appcompat.widget.SwitchCompat swCpu =
-                findViewById(R.id.swCpuInference);
-        if (swCpu != null) {
-            swCpu.setChecked(com.oilquiz.app.ai.importing.v2.ImportLlmEngine
-                    .isCpuInferenceEnabled(this));
-            final boolean[] switching = {false};
-            swCpu.setOnCheckedChangeListener((btn, checked) -> {
-                if (switching[0]) return; // 防抖（切换过程）
-                switching[0] = true;
-                btn.setEnabled(false);
-                new Thread(() -> {
-                    final int r = com.oilquiz.app.ai.importing.v2.ImportLlmEngine
-                            .switchInferenceBackend(AIImportActivity.this, checked);
-                    runOnUiThread(() -> {
-                        btn.setEnabled(true);
-                        switching[0] = false;
-                        if (r == 0) {
-                            showToast(checked
-                                    ? "已热切换为 CPU 推理（上下文 8192）"
-                                    : "已热切换为 GPU 推理（上下文 4096）");
-                        } else if (r == -1) {
-                            showToast(getString(R.string.h_f8b52f61));
-                            btn.setChecked(com.oilquiz.app.ai.importing.v2.ImportLlmEngine
-                                    .isCpuInferenceEnabled(AIImportActivity.this));
-                        }
-                    });
-                }, "backend-switch").start();
-            });
-        }
     }
 
     @Override
@@ -220,14 +184,8 @@ public class AIImportActivity extends BaseActivity {
 
         // 设置代理错误回调，通知 UI 本地模型故障
         orchestrator.setAgentErrorCallback(msg -> {
-            runOnUiThread(() -> {
-                showLongToast(msg);
-                refreshModelInfo();
-            });
+            runOnUiThread(() -> showLongToast(msg));
         });
-
-        // 刷新模型信息显示
-        refreshModelInfo();
     }
 
     @Override
@@ -283,12 +241,6 @@ public class AIImportActivity extends BaseActivity {
             }
             startAgentImport();
         });
-
-        // 模型切换
-        btnSwitchModel.setOnClickListener(v -> showModelSwitchDialog());
-
-        // 配置在线模型
-        btnConfigOnline.setOnClickListener(v -> showOnlineModelConfig());
     }
 
     @Override
@@ -1326,71 +1278,6 @@ public class AIImportActivity extends BaseActivity {
 
     /** 多文件批量导入 */
     private java.util.List<File> selectedFiles = new ArrayList<>();
-
-    /** 刷新模型信息显示 */
-    private void refreshModelInfo() {
-        if (orchestrator == null || tvModelInfo == null) return;
-        String info = orchestrator.getCurrentModelInfo();
-        tvModelInfo.setText(info);
-
-        // 根据模式显示/隐藏配置按钮
-        AIImportOrchestrator.ModelMode mode = orchestrator.getModelMode();
-        boolean isOnlineMode = (mode == AIImportOrchestrator.ModelMode.ONLINE_ONLY
-                || mode == AIImportOrchestrator.ModelMode.ONLINE_PREFERRED);
-        btnConfigOnline.setVisibility(isOnlineMode ? View.VISIBLE : View.GONE);
-    }
-
-    /** 弹出模型模式选择（ChatKit ChatBottomSheet 组件） */
-    private void showModelSwitchDialog() {
-        final AIImportOrchestrator.ModelMode currentMode = orchestrator.getModelMode();
-        final boolean hasOnline = onlineModelManager.getActiveModel() != null;
-
-        ChatBottomSheet sheet = new ChatBottomSheet(this)
-                .title(getString(R.string.h_8333bf17));
-        if (!hasOnline) {
-            sheet.message(getString(R.string.h_1bf9fc34));
-        }
-        sheet.action("自动选择（推荐）", v -> applyModelMode(
-                AIImportOrchestrator.ModelMode.AUTO, hasOnline));
-        sheet.action("优先在线模型", v -> applyModelMode(
-                AIImportOrchestrator.ModelMode.ONLINE_PREFERRED, hasOnline));
-        sheet.action("仅使用在线模型", v -> applyModelMode(
-                AIImportOrchestrator.ModelMode.ONLINE_ONLY, hasOnline));
-        sheet.action("仅使用本地模型", v -> applyModelMode(
-                AIImportOrchestrator.ModelMode.LOCAL_ONLY, hasOnline));
-        sheet.secondaryAction(getString(R.string.h_625fb26b), null);
-        sheet.show();
-    }
-
-    /** 应用模型模式选择（无在线模型时仅在线/优先在线给出提示） */
-    private void applyModelMode(AIImportOrchestrator.ModelMode mode, boolean hasOnline) {
-        if ((mode == AIImportOrchestrator.ModelMode.ONLINE_ONLY
-                || mode == AIImportOrchestrator.ModelMode.ONLINE_PREFERRED) && !hasOnline) {
-            showLongToast(getString(R.string.h_1bf9fc34));
-        }
-        orchestrator.setModelMode(mode);
-        refreshModelInfo();
-    }
-
-    /** 弹出在线模型配置对话框 */
-    private void showOnlineModelConfig() {
-        OnlineModelConfigDialog dialog = new OnlineModelConfigDialog(this);
-        dialog.setSaveListener(new OnlineModelConfigDialog.OnConfigSaveListener() {
-            @Override
-            public void onConfigSaved(OnlineModelManager.OnlineModelConfig config) {
-                // 激活新配置的模型
-                onlineModelManager.setActiveModel(config.id);
-                refreshModelInfo();
-                showToast(getString(R.string.h_07dfac43));
-            }
-
-            @Override
-            public void onConfigCancelled() {
-                // 取消
-            }
-        });
-        dialog.show();
-    }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
