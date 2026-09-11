@@ -976,6 +976,38 @@ def _pick_db_table(db_path):
 
 # ==================== 对外接口 ====================
 
+def list_sheets(path):
+    """枚举 Excel 工作表：返回 [{"index":i,"name":sheet名,"rows":行数,"max_col":前3行非空列数}]。
+    非 Excel / openpyxl 不可用时返回空列表（调用方回退全表扫描）。"""
+    try:
+        kind = _kind_of(path)
+        if kind != "xlsx":
+            return {"sheets": []}
+        import openpyxl
+    except Exception as e:
+        return {"sheets": [], "error": str(e)}
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception as e:
+        return {"sheets": [], "error": str(e)}
+    try:
+        out = []
+        for i, ws in enumerate(wb.worksheets):
+            rows = ws.max_row or 0
+            max_col = 0
+            try:
+                for r in ws.iter_rows(min_row=1, max_row=min(3, rows or 3), values_only=True):
+                    nonempty = [c for c in r if c is not None and str(c).strip() != ""]
+                    if len(nonempty) > max_col:
+                        max_col = len(nonempty)
+            except Exception:
+                pass
+            out.append({"index": i, "name": ws.title, "rows": rows, "max_col": max_col})
+        return {"sheets": out}
+    finally:
+        wb.close()
+
+
 def sample_file(path, max_rows=15, sheet_index=None):
     """采样：表头 + 前 max_rows 行（单元格截断由 Java 侧二次处理）。
     sheet_index：Excel 用户选定工作表索引（None=自动扫全部）。

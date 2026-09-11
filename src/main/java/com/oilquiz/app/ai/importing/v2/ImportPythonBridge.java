@@ -100,6 +100,15 @@ public class ImportPythonBridge {
     }
 
     /**
+     * 枚举 Excel 工作表：返回 {"sheets":[{"index":i,"name":..,"rows":n,"max_col":n}]}。
+     * 非 Excel 或失败时 sheets 为空数组（调用方回退全表扫描）。
+     */
+    public JSONObject listSheets(String filePath) {
+        return callWithRetry("list_sheets", "工作表枚举",
+                py -> py.callAttr("list_sheets", filePath));
+    }
+
+    /**
      * 采样：读取文件表头 + 前 N 行样例（短文本自动截断，500 Token 以内）。
      * <p>
      * 返回归一化约定：成功为 {"headers":[...],"rows":[...],"source_kind":...}；

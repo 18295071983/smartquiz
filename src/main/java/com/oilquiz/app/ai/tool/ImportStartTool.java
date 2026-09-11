@@ -35,7 +35,9 @@ public class ImportStartTool implements AITool {
                 + "支持字段自动映射、AI 智能填充缺失字段、去重、多题型。"
                 + "用法：先调本工具启动（返回 taskId），再用 import_status 查询 taskId 进度，完成后会返回新增/重复/失败统计；"
                 + "需要停止时调 import_cancel。导入耗时较长（数十秒到数分钟），不要重复启动同一文件。"
-                + "参数：filePath 必填（完整文件路径），sheetIndex 可选（Excel 工作表索引，-1=自动检测，默认 -1），"
+                + "参数：filePath 必填（完整文件路径），sheetMode 可选（工作表选择：all=全扫全部表/默认，"
+                + "best=AI自动选字段匹配最多的最佳表，index=按 sheetIndex 指定表），"
+                + "sheetIndex 可选（配合 sheetMode=index 使用，-1=自动，默认 -1），"
                 + "docHint 可选（题库说明/字段约定，帮助映射），fillMissing 可选（是否 AI 补缺失字段，默认 true），"
                 + "skipIncomplete 可选（是否跳过缺字段的行，默认 false），questionType 可选（强制题型，如\"单选题\"）。";
     }
@@ -44,7 +46,8 @@ public class ImportStartTool implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
         params.put("filePath", "题库文件完整路径（必填）");
-        params.put("sheetIndex", "Excel 工作表索引（int，-1=自动检测，默认 -1）");
+        params.put("sheetMode", "工作表选择模式（all=全扫全部表/默认，best=AI自动选最佳表，index=按sheetIndex指定）");
+        params.put("sheetIndex", "Excel 工作表索引（int，配合 sheetMode=index 用，-1=自动检测，默认 -1）");
         params.put("docHint", "题库说明/字段约定文本（可选）");
         params.put("fillMissing", "是否 AI 填充缺失字段（bool，默认 true）");
         params.put("skipIncomplete", "是否跳过缺字段行（bool，默认 false）");
@@ -68,6 +71,8 @@ public class ImportStartTool implements AITool {
             if (parameters.get("sheetIndex") != null) {
                 sheetIndex = (int) Double.parseDouble(String.valueOf(parameters.get("sheetIndex")));
             }
+            String sheetMode = parameters.get("sheetMode") != null
+                    ? String.valueOf(parameters.get("sheetMode")) : null;
             String docHint = parameters.get("docHint") != null
                     ? String.valueOf(parameters.get("docHint")) : null;
             boolean fillMissing = parameters.get("fillMissing") == null
@@ -78,7 +83,7 @@ public class ImportStartTool implements AITool {
                     ? String.valueOf(parameters.get("questionType")) : null;
 
             String taskId = QuestionImportTaskManager.getInstance()
-                    .start(context, file, sheetIndex, docHint, fillMissing, skipIncomplete, questionType);
+                    .start(context, file, sheetIndex, docHint, fillMissing, skipIncomplete, questionType, sheetMode);
             return AIToolResult.success(
                     "{\"taskId\":\"" + taskId + "\",\"status\":\"RUNNING\",\"message\":\"导入已启动，请用 import_status 查询进度\"}");
         } catch (Exception e) {

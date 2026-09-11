@@ -1507,7 +1507,9 @@ public class AIToolManager {
                                 + "完成后返回新增/重复/失败统计；import_cancel 取消。导入耗时数十秒到数分钟，不要重复启动同一文件。"
                                 + "多文件可依次启动多个任务并行导入。")
                         .addParameter("filePath", "string", "题库文件完整路径（必填，先用 import_list_files 发现）", true)
-                        .addParameter("sheetIndex", "integer", "Excel 工作表索引（-1=自动检测最佳工作表，默认 -1）", false, -1)
+                        .addParameter("sheetMode", "string", "工作表选择模式：all(全扫全部表，默认)/best(AI自动选字段匹配最多的最佳表)/index(按sheetIndex指定)", false, "all",
+                                java.util.Arrays.asList("all", "best", "index"))
+                        .addParameter("sheetIndex", "integer", "Excel 工作表索引（sheetMode=index 时生效；-1=自动，默认 -1）", false, -1)
                         .addParameter("docHint", "string", "题库说明/字段约定（帮助 AI 识别列含义，可选）", false)
                         .addParameter("fillMissing", "boolean", "是否 AI 补全缺失字段（题型/难度/分类/解析，默认 true）", false, true)
                         .addParameter("skipIncomplete", "boolean", "是否跳过缺字段的行（默认 false=尽量保留）", false, false)
