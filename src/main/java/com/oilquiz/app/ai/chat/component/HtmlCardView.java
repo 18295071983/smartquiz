@@ -165,9 +165,38 @@ public class HtmlCardView implements ChatComponent {
 
         // 初始高度：内容自适应前先用 160dp 占位，onPageFinished 后按内容高度调整
         final int maxHeightPx = dp(context, maxHeightDp);
-        final LinearLayout.LayoutParams wvLp = new LinearLayout.LayoutParams(
+        // WebView 外包 FrameLayout：承载"← 返回"浮标（canGoBack 时显示，卡片内可返回上一页）
+        final android.widget.FrameLayout webContainer = new android.widget.FrameLayout(context);
+        final LinearLayout.LayoutParams containerLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 160));
-        webView.setLayoutParams(wvLp);
+        webContainer.setLayoutParams(containerLp);
+        webView.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // 返回浮标：右上角小圆钮，canGoBack 时显示
+        final android.widget.TextView backBtn = new android.widget.TextView(context);
+        backBtn.setText("←");
+        backBtn.setTextSize(16);
+        backBtn.setTextColor(android.graphics.Color.WHITE);
+        backBtn.setGravity(android.view.Gravity.CENTER);
+        backBtn.setBackground(roundedRect(context, dp(context, 18),
+                android.graphics.Color.parseColor("#99000000")));
+        backBtn.setPadding(dp(context, 7), dp(context, 3), dp(context, 7), dp(context, 3));
+        backBtn.setVisibility(android.view.View.GONE);
+        backBtn.setOnClickListener(v -> {
+            try {
+                if (webView != null && webView.canGoBack()) webView.goBack();
+            } catch (Throwable ignored) {
+            }
+        });
+        final android.widget.FrameLayout.LayoutParams backLp =
+                new android.widget.FrameLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        backLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        backLp.topMargin = dp(context, 6);
+        backLp.rightMargin = dp(context, 6);
+        webContainer.addView(webView);
+        webContainer.addView(backBtn, backLp);
 
         final WebView wvRef = webView;
         // 本地文件模式：file:// 导航在 WebView 内部加载（不拦截系统打开），否则外部打开
@@ -231,6 +260,12 @@ public class HtmlCardView implements ChatComponent {
                 view.postDelayed(() -> {
                     if (wvRef == null) return;
                     try {
+                        // 返回浮标：可返回上一页时显示
+                        try {
+                            backBtn.setVisibility(wvRef.canGoBack() ? android.view.View.VISIBLE
+                                    : android.view.View.GONE);
+                        } catch (Throwable ignored) {
+                        }
                         wvRef.evaluateJavascript(
                                 "(function(){var b=document.body;var d=document.documentElement;" +
                                         "var h=Math.max(b.scrollHeight,d.scrollHeight,200);" +
@@ -243,10 +278,11 @@ public class HtmlCardView implements ChatComponent {
                                                 * context.getResources().getDisplayMetrics().density);
                                         int target = Math.min(h + dp(context, 16), maxHeightPx);
                                         wvRef.post(() -> {
-                                            ViewGroup.LayoutParams lp = wvRef.getLayoutParams();
+                                            // 高度作用于外层容器（WebView 填满容器）
+                                            ViewGroup.LayoutParams lp = webContainer.getLayoutParams();
                                             if (lp != null && lp.height != target) {
                                                 lp.height = target;
-                                                wvRef.setLayoutParams(lp);
+                                                webContainer.setLayoutParams(lp);
                                             }
                                         });
                                         Log.i("HtmlCardView", "html rendered, height=" + target
@@ -298,8 +334,7 @@ public class HtmlCardView implements ChatComponent {
             webView.loadDataWithBaseURL("file:///android_asset/", fullHtml, "text/html", "UTF-8", null);
         }
 
-        card.addView(webView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 160)));
+        card.addView(webContainer);
         Log.i("HtmlCardView", "html component created (WebView), htmlLen=" + html.length()
                 + ", title=" + (title == null ? "" : title));
         return card;
@@ -480,6 +515,15 @@ public class HtmlCardView implements ChatComponent {
         gd.setColor(ComponentColors.background(context));
         gd.setCornerRadius(dp(context, 10));
         gd.setStroke(dp(context, 1), ComponentColors.border(context));
+        return gd;
+    }
+
+    /** 圆角纯色背景（返回浮标用） */
+    private static android.graphics.drawable.Drawable roundedRect(Context context, int radiusPx, int color) {
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        gd.setCornerRadius(radiusPx);
+        gd.setColor(color);
         return gd;
     }
 
