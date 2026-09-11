@@ -416,9 +416,14 @@ public class AIImportActivity extends BaseActivity {
         if (!guide.isEmpty()) {
             prompt.append("\n题库说明: ").append(guide);
         }
-        prompt.append("\n请执行智能体全自动导入流程："
-                + "1) 先调 import_list_files 确认目标文件存在并拿到完整路径（若上方已给路径可直接用）；"
-                + "2) 调 import_start 启动导入（filePath 必填，可按需指定 sheetIndex/fillMissing/questionType）；"
+        prompt.append("\n请执行智能体全自动导入流程（含预处理）："
+                + "0) 先调 import_list_files 确认目标文件存在并拿到完整路径（若上方已给路径可直接用）；"
+                + "1) 预处理评估（推荐，多表/表头异常/数据乱时必做）："
+                + "用 file_reader(parse_excel) 看 sheet 列表与表头、前几行样例，判断用哪个表（sheetMode=all/best/index）；"
+                + "用 file_reader(preview/parse_csv) 看数据质量与缺字段分布，决定 fillMissing/skipIncomplete；"
+                + "表头脏乱、数据混排、编码异常时，用 excel_tool 或 python_file_ops/python_execute 清洗修正，"
+                + "新文件保存到 OilQuiz 公共目录后重新走 import_list_files；"
+                + "2) 调 import_start 启动导入（filePath 必填，按预处理结果带 sheetMode/docHint/fillMissing/skipIncomplete/questionType 参数）；"
                 + "3) 用 import_status 轮询直到 DONE 或 ERROR；"
                 + "4) 完成后汇总新增/重复/失败数量并给出简短结论。"
                 + "四个决策点（字段映射/数据预览/填充/入库）已全自动放行，无需用户确认。");
