@@ -12,18 +12,19 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.oilquiz.app.ai.agent.AgentCallback;
 import com.oilquiz.app.ai.agent.AgentSession;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
+import com.oilquiz.app.ai.chat.AgentExecutionView;
 
 /**
- * 全局 Agent 会话容器 —— 独立于 AI 对话页消息气泡的轻量执行流 UI。
+ * 全局 Agent 会话渲染容器 —— 复用 AI 对话页 ChatAdapter 同款执行流视图（{@link AgentExecutionView}）。
  *
- * 直接订阅 {@link AgentSession} 事件渲染 Agent 执行流（思考 / 正文 / 工具调用 / 完成 / 错误），
- * 不依赖 ChatMessage / ChatAdapter 气泡体系，可嵌入任意页面或作为弹层宿主。
+ * 独立于消息气泡体系：直接订阅 {@link AgentSession} 事件，把智能体执行流
+ * （思考 / 正文 / 步骤 / 工具调用 / 完成 / 错误）渲染到同一套成熟渲染组件上，
+ * 可嵌入任意页面或作为弹层宿主，渲染观感与对话页完全一致。
  *
  * 用法：
  * <pre>
@@ -48,10 +49,11 @@ public class AgentSessionView extends LinearLayout {
     private final TextView titleView;
     private final TextView statusView;
     private final Button stopButton;
+    /** ChatAdapter 同款 Agent 执行流视图（步骤/日志/工具调用/统计） */
+    private final AgentExecutionView agentExecution;
     private final LinearLayout thinkSection;
     private final TextView thinkView;
     private final TextView bodyView;
-    private final LinearLayout toolList;
     private final TextView footView;
 
     private final StringBuilder thinkBuf = new StringBuilder();
@@ -97,7 +99,7 @@ public class AgentSessionView extends LinearLayout {
         thinkSection.setBackground(rounded(0xFFF1F5F9, 0xFFCBD5E1, dp(8), 1));
         thinkSection.setVisibility(GONE);
         TextView thinkLabel = new TextView(context);
-        thinkLabel.setText("思考中…");
+        thinkLabel.setText("💭 思考过程");
         thinkLabel.setTextColor(COLOR_ACCENT);
         thinkLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         thinkView = new TextView(context);
@@ -110,25 +112,21 @@ public class AgentSessionView extends LinearLayout {
         thinkLp.topMargin = dp(8);
         addView(thinkSection, thinkLp);
 
+        // 执行流核心：ChatAdapter 同款 AgentExecutionView（步骤/日志/工具调用/统计）
+        agentExecution = new AgentExecutionView(context);
+        LayoutParams execLp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        execLp.topMargin = dp(8);
+        addView(agentExecution, execLp);
+
         // 正文区
         bodyView = new TextView(context);
         bodyView.setTextColor(COLOR_TEXT);
         bodyView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         bodyView.setLineSpacing(0, 1.25f);
+        bodyView.setVisibility(GONE);
         LayoutParams bodyLp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         bodyLp.topMargin = dp(8);
         addView(bodyView, bodyLp);
-
-        // 工具调用列表（垂直滚动，防长列表撑爆容器）
-        toolList = new LinearLayout(context);
-        toolList.setOrientation(VERTICAL);
-        ScrollView toolScroll = new ScrollView(context);
-        toolScroll.addView(toolList, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        toolScroll.setFillViewport(true);
-        toolScroll.setOverScrollMode(OVER_SCROLL_NEVER);
-        LayoutParams toolLp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1);
-        toolLp.topMargin = dp(8);
-        addView(toolScroll, toolLp);
 
         // 尾部状态
         footView = new TextView(context);
@@ -141,7 +139,7 @@ public class AgentSessionView extends LinearLayout {
 
     // ==================== 对外 API ====================
 
-    /** 绑定 Agent 会话（事件桥接 AgentCallback → 本容器渲染） */
+    /** 绑定 Agent 会话（事件桥接 AgentCallback → 与 ChatAdapter 同款渲染） */
     public void setSession(AgentSession session) {
         this.session = session;
         session.setCallback(new AgentCallback() {
@@ -155,7 +153,10 @@ public class AgentSessionView extends LinearLayout {
                 mainHandler.post(() -> setStatus("思考结束", COLOR_SUB));
             }
             @Override public void onToolCallStart(String toolCallId, String toolName, String args) {
-                mainHandler.post(() -> addToolCard(toolName, args, true, null));
+                mainHandler.post(() -> {
+                    setStatus("调用工具 " + toolName, COLOR_ACCENT);
+                    agentExecution.updateToolCall(toolName, args);
+                });
             }
             @Override public void onToolCallComplete(String toolCallId, String toolName, OnlineToolResult result) {
                 mainHandler.post(() -> {
@@ -163,16 +164,20 @@ public class AgentSessionView extends LinearLayout {
                     String summary = result != null
                             ? (result.success ? result.result : result.error)
                             : null;
-                    addToolCard(toolName, summary, false, ok);
+                    agentExecution.updateToolResult(toolName, ok, summary);
                 });
             }
             @Override public void onStepUpdate(String step, String detail) {
-                mainHandler.post(() -> setStatus(step + (detail != null && !detail.isEmpty() ? " · " + detail : ""), COLOR_SUB));
+                mainHandler.post(() -> {
+                    setStatus(step + (detail != null && !detail.isEmpty() ? " · " + detail : ""), COLOR_SUB);
+                    agentExecution.addLogEntry(step.toUpperCase(), detail != null ? detail : "");
+                });
             }
             @Override public void onComplete(String fullText) {
                 mainHandler.post(() -> {
                     setStatus("完成", COLOR_OK);
                     stopButton.setVisibility(GONE);
+                    agentExecution.completeExecution(fullText != null ? fullText : "");
                     if (fullText != null && !fullText.isEmpty() && bodyBuf.length() == 0) {
                         appendBody(fullText);
                     }
@@ -182,7 +187,8 @@ public class AgentSessionView extends LinearLayout {
                 mainHandler.post(() -> {
                     setStatus("失败", COLOR_ERR);
                     stopButton.setVisibility(GONE);
-                    footView.setText("错误：" + error);
+                    agentExecution.failExecution(error != null ? error : "未知错误");
+                    footView.setText("错误：" + (error != null ? error : "未知错误"));
                     footView.setTextColor(COLOR_ERR);
                 });
             }
@@ -224,9 +230,10 @@ public class AgentSessionView extends LinearLayout {
         thinkSection.setVisibility(GONE);
         thinkView.setText("");
         bodyView.setText("");
-        toolList.removeAllViews();
+        bodyView.setVisibility(GONE);
         footView.setText("");
         footView.setTextColor(COLOR_SUB);
+        agentExecution.startExecution();
         setStatus("执行中", COLOR_ACCENT);
     }
 
@@ -241,65 +248,13 @@ public class AgentSessionView extends LinearLayout {
     private void appendBody(String token) {
         bodyBuf.append(token);
         bodyView.setText(bodyBuf);
+        bodyView.setVisibility(VISIBLE);
         setStatus("生成中", COLOR_ACCENT);
     }
 
     private void setStatus(String text, int color) {
         statusView.setText(text);
         statusView.setTextColor(color);
-    }
-
-    private void addToolCard(String toolName, String detail, boolean running, Boolean ok) {
-        LinearLayout card = new LinearLayout(getContext());
-        card.setOrientation(HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(10), dp(8), dp(10), dp(8));
-        card.setBackground(rounded(0xFFFFFFFF, COLOR_BORDER, dp(8), 1));
-
-        TextView name = new TextView(getContext());
-        name.setText(toolName);
-        name.setTextColor(COLOR_TEXT);
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setLayoutParams(new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-
-        TextView detailView = new TextView(getContext());
-        detailView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        if (running) {
-            detailView.setText("执行中…");
-            detailView.setTextColor(COLOR_ACCENT);
-        } else if (Boolean.TRUE.equals(ok)) {
-            detailView.setText("完成");
-            detailView.setTextColor(COLOR_OK);
-        } else {
-            detailView.setText("失败");
-            detailView.setTextColor(COLOR_ERR);
-        }
-        detailView.setMaxWidth(dp(90));
-        detailView.setSingleLine(true);
-
-        card.addView(name);
-        card.addView(detailView);
-
-        // 参数/结果摘要附在第二行
-        if (detail != null && !detail.isEmpty()) {
-            LinearLayout wrapper = new LinearLayout(getContext());
-            wrapper.setOrientation(VERTICAL);
-            TextView sub = new TextView(getContext());
-            sub.setText(detail.length() > 120 ? detail.substring(0, 120) + "…" : detail);
-            sub.setTextColor(COLOR_SUB);
-            sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
-            sub.setMaxLines(2);
-            wrapper.addView(card);
-            wrapper.addView(sub, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dp(6);
-            toolList.addView(wrapper, lp);
-        } else {
-            LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dp(6);
-            toolList.addView(card, lp);
-        }
     }
 
     private GradientDrawable rounded(int fill, int stroke, int radius, int strokeWidth) {
