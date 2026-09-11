@@ -83,9 +83,9 @@ public class ToolParameterValidator {
         
         TOOL_SPECS.put("reminder", new ToolSpec(
             Arrays.asList("message", "time"),
-            Arrays.asList("repeat", "priority"),
+            Arrays.asList("repeat", "weekdays", "priority"),
             "请告诉我提醒的时间和内容？",
-            Arrays.asList("可以说：'半小时后提醒我喝水'、'每天早上8点提醒我锻炼'")
+            Arrays.asList("可以说：'半小时后提醒我喝水'、'每天早上8点提醒我锻炼'、'每周一三五晚上9点健身'")
         ));
         
         TOOL_SPECS.put("calendar", new ToolSpec(
