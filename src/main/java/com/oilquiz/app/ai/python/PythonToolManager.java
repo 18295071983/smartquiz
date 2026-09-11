@@ -3590,7 +3590,9 @@ public class PythonToolManager {
             com.oilquiz.app.ai.chat.component.LayoutCanvasManager.getInstance()
                     .register(componentId, session);
 
-            // 弹窗
+            // 弹窗：ScrollView 必须受限高度才可滚动（WRAP_CONTENT 时内容超高会被截断且无法滚动）。
+            // 高度取屏幕 72%（上限约 560dp），内容多时内部滚动，dialog 不被撑出屏幕。
+            int canvasMaxHeight = (int) (act.getResources().getDisplayMetrics().heightPixels * 0.72f);
             android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
                     .setTitle(title != null && !title.isEmpty() ? title : "布局画布")
                     .setView(canvasScroll)
@@ -3601,6 +3603,21 @@ public class PythonToolManager {
                     })
                     .create();
             rt.dialog = dialog;
+            // 显示后约束自定义内容面板高度（android.R.id.custom 为 setView 的内容区）：
+            // 受限高度让 ScrollView 内容超出时可滚动，不被 dialog 窗口截断。
+            dialog.setOnShowListener(d -> {
+                try {
+                    android.widget.FrameLayout panel = dialog.findViewById(android.R.id.custom);
+                    if (panel != null) {
+                        android.view.ViewGroup.LayoutParams lp = panel.getLayoutParams();
+                        if (lp != null) {
+                            lp.height = canvasMaxHeight;
+                            panel.setLayoutParams(lp);
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
             // 画布弹窗统一走 configureDialogInput 的 IME 配置（与 custom 表单一致，保证输入框可弹键盘）；
             // 不额外设置 FLAG_DIM_BEHIND/setCanceledOnTouchOutside，避免干扰 window 输入焦点链。
             dialog.setOnDismissListener(d -> {
