@@ -514,6 +514,9 @@ public class AIImportActivity extends BaseActivity {
                     else guideStepFlow.setStepState(stepIndex, state);
                 }
             }
+            @Override public void onStepProcess(int stepIndex, GuideStepFlowView.ProcessItem item) {
+                if (guideStepFlow != null) guideStepFlow.addStepProcess(stepIndex, item);
+            }
             @Override public void onMonitor(long elapsedSec, String stage, float speed, long tokens,
                                             long current, long total) {
                 applyMonitor(elapsedSec, stage, speed, tokens, current, total);

@@ -31,10 +31,21 @@ public class GuideStepFlowView extends ScrollView {
     /** 步骤状态 */
     public enum StepState { PENDING, RUNNING, DONE, ERROR }
 
+    /** 子步骤（agent 执行过程项）：text 为工具/动作说明，state 为该项状态 */
+    public static class ProcessItem {
+        public final String text;
+        public StepState state;
+        public ProcessItem(String text, StepState state) {
+            this.text = text;
+            this.state = state;
+        }
+    }
+
     public static class Step {
         public final String title;
         public StepState state;
         public String detail;
+        public final java.util.List<ProcessItem> processes = new ArrayList<>();
         public Step(String title) { this.title = title; this.state = StepState.PENDING; }
     }
 
@@ -89,6 +100,24 @@ public class GuideStepFlowView extends ScrollView {
 
     public int getStepCount() { return steps.size(); }
 
+    /**
+     * 添加/更新子步骤（agent 执行过程项）。同 text 已存在时只更新状态（去重），
+     * 新增则追加到步骤末尾。外部（状态机）按工具调用流式添加即可。
+     */
+    public void addStepProcess(int index, ProcessItem item) {
+        if (index < 0 || index >= steps.size() || item == null) return;
+        Step s = steps.get(index);
+        for (ProcessItem p : s.processes) {
+            if (p.text.equals(item.text)) {
+                p.state = item.state;
+                rebuild();
+                return;
+            }
+        }
+        s.processes.add(item);
+        rebuild();
+    }
+
     private void rebuild() {
         container.removeAllViews();
         for (int i = 0; i < steps.size(); i++) {
@@ -126,6 +155,21 @@ public class GuideStepFlowView extends ScrollView {
                         : s.state == StepState.RUNNING ? 0xFF2563EB : 0xFF16A34A;
                 detail.setTextColor(c);
                 textWrap.addView(detail);
+            }
+            // 子步骤（agent 执行过程）：缩进小字，随项状态着色
+            for (ProcessItem p : s.processes) {
+                TextView pv = new TextView(getContext());
+                String mark = p.state == StepState.RUNNING ? "▶ "
+                        : p.state == StepState.DONE ? "✓ " : "✕ ";
+                pv.setText(mark + p.text);
+                pv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                int pc = p.state == StepState.ERROR ? 0xFFEF4444
+                        : p.state == StepState.RUNNING ? 0xFF2563EB : 0xFF16A34A;
+                pv.setTextColor(pc);
+                LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                plp.setMargins(dp(14), dp(2), 0, 0);
+                textWrap.addView(pv, plp);
             }
             LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);

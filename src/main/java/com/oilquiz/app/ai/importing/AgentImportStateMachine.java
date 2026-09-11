@@ -73,6 +73,8 @@ public class AgentImportStateMachine implements AgentCallback {
         void onPhase(Phase phase, String message);
         /** 步骤状态（0=检测 1=映射 2=解析 3=入库；detail 为状态机阶段说明文字） */
         void onStep(int stepIndex, GuideStepFlowView.StepState state, String detail);
+        /** agent 执行过程：向指定步骤追加/更新一个工具执行项（text 去重，状态覆盖） */
+        void onStepProcess(int stepIndex, GuideStepFlowView.ProcessItem item);
         /** 监控数字（耗时秒 / 阶段 / 速度 tokens/s / token 数 / 进度 current/total，<=0 表示未知） */
         void onMonitor(long elapsedSec, String stage, float speed, long tokens, long current, long total);
         /** 完成（fullText 为智能体最终汇报文本；statistics 为解析出的 新增/重复/失败/总数，-1=未知） */
@@ -94,6 +96,14 @@ public class AgentImportStateMachine implements AgentCallback {
     private volatile long bodyTokens = 0, thinkTokens = 0;
     private volatile long progressCurrent = 0, progressTotal = 0;
     private volatile String lastStageMessage = "等待";
+    // agent 执行过程：每步的工具执行项（text → 状态），用于步骤区子步骤展示
+    private final java.util.Map<String, GuideStepFlowView.StepState>[] stepProcesses =
+            new java.util.HashMap[4];
+    {
+        for (int i = 0; i < stepProcesses.length; i++) stepProcesses[i] = new java.util.HashMap<>();
+    }
+    // import_status 轮询去重：同一轮询 key 更新进度文字
+    private static final String POLL_KEY = "import_status 轮询";
 
     public AgentImportStateMachine(Ui ui) {
         if (ui == null) throw new IllegalArgumentException("Ui 不能为 null");
@@ -131,6 +141,7 @@ public class AgentImportStateMachine implements AgentCallback {
         bodyTokens = 0; thinkTokens = 0;
         progressCurrent = 0; progressTotal = 0;
         lastStageMessage = "等待";
+        for (int i = 0; i < stepProcesses.length; i++) stepProcesses[i].clear();
     }
 
     // ==================== 状态机核心 ====================
@@ -194,6 +205,18 @@ public class AgentImportStateMachine implements AgentCallback {
         }
     }
 
+    /** 向步骤区追加/更新 agent 执行过程项（工具调用历史） */
+    private void addProcess(int stepIndex, String key, GuideStepFlowView.StepState state, String display) {
+        if (stepIndex < 0 || stepIndex >= stepProcesses.length) return;
+        String text = display != null ? display : key;
+        stepProcesses[stepIndex].put(key, state);
+        try {
+            ui.onStepProcess(stepIndex, new GuideStepFlowView.ProcessItem(text, state));
+        } catch (Throwable t) {
+            android.util.Log.w("AgentImportStateMachine", "UI 过程项更新失败: " + t.getMessage());
+        }
+    }
+
     /** 工具名 → 导入阶段映射（新工具接入时在此扩展） */
     private Phase stageForTool(String toolName) {
         if (toolName == null) return null;
@@ -206,6 +229,17 @@ public class AgentImportStateMachine implements AgentCallback {
                 || t.contains("excel_tool") || t.contains("file_generator")
                 || t.contains("python_")) return Phase.PREPROCESSING;
         return null;
+    }
+
+    /** 阶段 → 步骤索引（0=检测 1=映射 2=解析 3=入库） */
+    private int stepForPhase(Phase p) {
+        switch (p) {
+            case DISCOVERING: return 0;
+            case PREPROCESSING: return 1;
+            case STARTING: return 2;
+            case IMPORTING: return 3;
+            default: return Math.max(0, stepIndex);
+        }
     }
 
     // ==================== AgentCallback 翻译层 ====================
@@ -239,6 +273,9 @@ public class AgentImportStateMachine implements AgentCallback {
             touchedTools.add(toolName);
             transition(p, toolName + " 执行中");
             lastStageMessage = toolName + " 执行中";
+            // agent 执行过程：当前工具挂到当前步骤的子步骤（RUNNING）
+            int si = stepForPhase(p);
+            addProcess(si, toolName, GuideStepFlowView.StepState.RUNNING, toolName + " 执行中");
             ui.onMonitor(getElapsedSec(), toolName + " 执行中", getSpeed(), getTotalTokens(),
                     progressCurrent, progressTotal);
         }
@@ -247,10 +284,12 @@ public class AgentImportStateMachine implements AgentCallback {
     @Override public void onToolCallComplete(String toolCallId, String toolName, OnlineToolResult result) {
         if (phase.isTerminal()) return;
         String note = toolName + " 完成";
+        int si = stepForPhase(phase);
         if (result != null) {
             String err = result.error;
             if (err != null && !err.isEmpty()) {
                 note = toolName + " 失败: " + err;
+                addProcess(si, toolName, GuideStepFlowView.StepState.ERROR, note);
                 transition(Phase.FAILED, note);
                 return;
             }
@@ -272,10 +311,13 @@ public class AgentImportStateMachine implements AgentCallback {
                         if (o.has("duplicated")) statDuplicated = o.optInt("duplicated");
                         if (o.has("failed")) statFailed = o.optInt("failed");
                         if (o.has("totalRows")) statTotal = o.optInt("totalRows");
-                        // 进度文字挂到入库步骤 detail
+                        // 进度文字挂到入库步骤 detail + 轮询过程项（去重，更新进度）
                         if (phase == Phase.IMPORTING && stepIndex >= 0) {
-                            setStep(3, GuideStepFlowView.StepState.RUNNING,
-                                    progressTotal > 0 ? "入库中 " + progressCurrent + "/" + progressTotal : "入库中…");
+                            String pollText = progressTotal > 0
+                                    ? "import_status 轮询中 " + progressCurrent + "/" + progressTotal
+                                    : "import_status 轮询中…";
+                            setStep(3, GuideStepFlowView.StepState.RUNNING, pollText);
+                            addProcess(3, POLL_KEY, GuideStepFlowView.StepState.RUNNING, pollText);
                         }
                         String msg = o.optString("message", "");
                         if (!msg.isEmpty()) note = msg;
@@ -287,6 +329,10 @@ public class AgentImportStateMachine implements AgentCallback {
                     // 结果非 JSON（工具异常文本）则保留原始 note
                 }
             }
+        }
+        // 普通工具完成 → 过程项更新为 DONE（import_status 已单独处理轮询项）
+        if (!(toolName != null && toolName.toLowerCase(Locale.ROOT).contains("import_status"))) {
+            addProcess(si, toolName, GuideStepFlowView.StepState.DONE, toolName + " 完成");
         }
         lastStageMessage = note;
         ui.onMonitor(getElapsedSec(), note, getSpeed(), getTotalTokens(),
