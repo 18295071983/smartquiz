@@ -678,37 +678,10 @@ public class HtmlCardView implements ChatComponent {
                                         android.widget.Toast.LENGTH_LONG).show();
                             }
                         } else {
-                            // 网络图：先 Glide（15s 超时），失败自动切原生 HttpURLConnection 下载+BitmapFactory
-                            // 解码兜底（设备上 Glide 对部分 https/重定向 URL 不稳定，原生下载最可靠）
-                            try {
-                                com.bumptech.glide.Glide.with(context).load(finalUrl)
-                                        .timeout(15000)
-                                        .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
-                                            @Override
-                                            public boolean onLoadFailed(
-                                                    com.bumptech.glide.load.engine.GlideException e,
-                                                    Object model,
-                                                    com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
-                                                    boolean isFirstResource) {
-                                                downloadAndShow(dialog, photoView, loading, finalUrl);
-                                                return false;
-                                            }
-
-                                            @Override
-                                            public boolean onResourceReady(
-                                                    android.graphics.drawable.Drawable resource,
-                                                    Object model,
-                                                    com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
-                                                    com.bumptech.glide.load.DataSource dataSource,
-                                                    boolean isFirstResource) {
-                                                loading.setVisibility(android.view.View.GONE);
-                                                return false;
-                                            }
-                                        })
-                                        .into(photoView);
-                            } catch (Throwable t) {
-                                downloadAndShow(dialog, photoView, loading, finalUrl);
-                            }
+                            // 网络图：直接原生下载+BitmapFactory（系统解码），不走 Glide——
+                            // 设备上 Glide 对 https/重定向 URL 可能长时间不回调（转圈十几秒），
+                            // 原生下载 1~3s 出图（手机实测同 URL curl 1.6s）
+                            downloadAndShow(dialog, photoView, loading, finalUrl);
                         }
                     } catch (Throwable t) {
                         try {
@@ -736,8 +709,8 @@ public class HtmlCardView implements ChatComponent {
                     java.net.HttpURLConnection conn =
                             (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
                     conn.setInstanceFollowRedirects(true);
-                    conn.setConnectTimeout(15000);
-                    conn.setReadTimeout(20000);
+                    conn.setConnectTimeout(8000);
+                    conn.setReadTimeout(10000);
                     conn.connect();
                     int code = conn.getResponseCode();
                     if (code < 200 || code >= 300) {
@@ -754,8 +727,8 @@ public class HtmlCardView implements ChatComponent {
                     java.net.HttpURLConnection conn2 =
                             (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
                     conn2.setInstanceFollowRedirects(true);
-                    conn2.setConnectTimeout(15000);
-                    conn2.setReadTimeout(20000);
+                    conn2.setConnectTimeout(8000);
+                    conn2.setReadTimeout(10000);
                     conn2.connect();
                     android.graphics.Bitmap bmp = null;
                     try (java.io.InputStream is2 = conn2.getInputStream()) {
