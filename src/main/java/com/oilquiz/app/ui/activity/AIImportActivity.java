@@ -417,7 +417,8 @@ public class AIImportActivity extends BaseActivity {
                 + "说明正在等用户在手机上点确认弹窗，你要提醒用户\"请查看手机上的确认弹窗并点击\"，继续轮询；"
                 + "ERROR→读 error 如实转告，不自己重试瞎猜；"
                 + "CANCELLED→读 error 字段（用户取消/等待确认超时）如实汇报并停止；"
-                + "DONE→汇报 imported/duplicated/failed/totalRows。\n"
+                + "DONE→汇报 imported/duplicated/failed/totalRows；若返回含 decisions 数组（用户在各决策点的实际操作，"
+                + "如\"字段映射: 用户修改\"\"数据预览: 仅导入完整题目\"），一并说明。\n"
                 + "【交互铁律】字段映射/数据预览/填充/入库四决策点已由 import_start 内置弹窗（interactive=true），"
                 + "用户确认才继续，你无需额外弹窗也绝不跳过；弹窗用户取消→停止并如实汇报；"
                 + "任何一步失败→停止并把失败原因原样告知用户，不编造、不假装成功。");

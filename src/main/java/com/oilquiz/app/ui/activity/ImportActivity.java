@@ -182,6 +182,9 @@ public class ImportActivity extends BaseActivity {
                     resetImportLogState();
                     updateProgressDisplay("AI 解析启动...", 0, 0);
                     v2ImportMain = new ImportMain(this);
+                    // 注入交互决策：字段映射/数据预览/填充/入库四决策点弹窗确认（此前未注入→一次都不弹）
+                    v2ImportMain.setInteractionHandler(
+                            new com.oilquiz.app.ai.importing.InteractiveImportDecisionHandler());
                     v2ImportMain.run(currentFile, new ImportMain.ImportListener() {
                         @Override
                         public void onStage(String stage, String message) {
@@ -690,6 +693,9 @@ public class ImportActivity extends BaseActivity {
         updateProgressDisplay("专用离线导入管线启动...", 0, 0);
         appendLog("专用离线导入管线启动: " + file.getName());
         v2ImportMain = new ImportMain(this);
+        // 注入交互决策：四决策点弹窗确认（此前未注入→一次都不弹）
+        v2ImportMain.setInteractionHandler(
+                new com.oilquiz.app.ai.importing.InteractiveImportDecisionHandler());
         v2ImportMain.run(file, new ImportMain.ImportListener() {
             @Override
             public void onStage(String stage, String message) {

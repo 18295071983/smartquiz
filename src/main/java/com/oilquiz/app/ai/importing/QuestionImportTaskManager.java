@@ -40,6 +40,9 @@ public class QuestionImportTaskManager {
         public volatile long totalRows = 0;
         /** 最近日志（最新一条） */
         public volatile String lastLog = "";
+        /** 用户在各决策点的实际操作（字段映射确认/修改、数据预览选择、填充选择、入库确认/取消） */
+        public final java.util.List<String> decisions =
+                java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
     }
 
     private final ConcurrentHashMap<String, TaskStatus> tasks = new ConcurrentHashMap<>();
@@ -185,6 +188,11 @@ public class QuestionImportTaskManager {
                 status.stage = "cancelled";
                 activeMains.remove(taskId);
             }
+
+            @Override
+            public void onDecision(String description) {
+                status.decisions.add(description);
+            }
         });
         return taskId;
     }
@@ -294,6 +302,11 @@ public class QuestionImportTaskManager {
                 status.stage = "cancelled";
                 activeMains.remove(taskId);
             }
+
+            @Override
+            public void onDecision(String description) {
+                status.decisions.add(description);
+            }
         });
         return taskId;
     }
@@ -316,6 +329,9 @@ public class QuestionImportTaskManager {
             o.put("duplicated", s.duplicated);
             o.put("failed", s.failed);
             o.put("totalRows", s.totalRows);
+            if (!s.decisions.isEmpty()) {
+                o.put("decisions", new org.json.JSONArray(new java.util.ArrayList<>(s.decisions)));
+            }
             if (s.error != null) {
                 o.put("error", s.error);
             }

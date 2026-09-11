@@ -107,6 +107,13 @@ public class ImportMain {
         }
 
         /**
+         * 用户在某决策点做出的实际选择（如"字段映射: 用户修改"/"数据预览: 仅导入完整题目"）。
+         * 供智能体/UI 在汇报时说明用户操作结果。
+         */
+        default void onDecision(String description) {
+        }
+
+        /**
          * 解析完成、入库前的质量预览回调（可选实现）。
          * 让 UI 在真正入库前展示"不完整题目"情况，并让用户选择处理方式。
          */
@@ -355,7 +362,7 @@ public class ImportMain {
      * 执行一次交互决策：调用注入的处理器（若无则返回默认 CONTINUE 决策）。
      * 处理"用户取消"（标记 cancelled，后续步骤自然停止）与"用户修改映射/开关"的落地。
      */
-    private InteractionHandler.Decision askDecision(ImportListener listener,
+    private InteractionHandler.Decision askDecision(ImportListener listener, String decisionName,
             java.util.function.Function<InteractionHandler, InteractionHandler.Decision> action) {
         InteractionHandler handler = interactionHandler;
         if (handler == null) {
@@ -369,6 +376,28 @@ public class ImportMain {
             d = new InteractionHandler.Decision();
         }
         if (d == null) d = new InteractionHandler.Decision();
+        // 记录用户实际操作结果（供智能体/UI 汇报），不静默
+        try {
+            StringBuilder dl = new StringBuilder(decisionName == null ? "决策" : decisionName);
+            if (d.action == InteractionHandler.Decision.CANCEL) {
+                dl.append(": 用户取消");
+            } else {
+                if (d.newMapping != null && !d.newMapping.isEmpty()) {
+                    dl.append(": 用户修改字段映射");
+                } else {
+                    dl.append(": 用户确认");
+                }
+                if (d.skipIncomplete) {
+                    dl.append("；仅导入完整题目");
+                }
+                if (!d.fillEnabled) {
+                    dl.append("；跳过缺字段行（不 AI 填充）");
+                }
+            }
+            listener.onDecision(dl.toString());
+        } catch (Throwable t) {
+            Log.w(TAG, "决策记录异常: " + t.getMessage());
+        }
         // 落地决策：取消 → 设置 cancelled；跳过不完整 → 同步开关；填充开关 → 同步
         if (d.action == InteractionHandler.Decision.CANCEL) {
             cancelled = true;
@@ -782,7 +811,7 @@ public class ImportMain {
             final List<String> headersForConfirm = headers;
             final String sourceForConfirm = summary.mappingSource;
             emitStage(listener, "mapping-confirm", "等待用户确认字段映射…");
-            InteractionHandler.Decision d1 = askDecision(listener,
+            InteractionHandler.Decision d1 = askDecision(listener, "字段映射",
                     h -> h.onMappingReady(mappingForConfirm, headersForConfirm,
                             sourceFile.getName(), this.docHint, sourceForConfirm));
             if (d1.action == InteractionHandler.Decision.CANCEL) {
@@ -896,7 +925,7 @@ public class ImportMain {
                 final QualityPreview previewForConfirm = preview;
                 final List<File> chunksForConfirm = chunks;
                 emitStage(listener, "preview-confirm", "等待用户确认数据预览…");
-                InteractionHandler.Decision d2 = askDecision(listener,
+                InteractionHandler.Decision d2 = askDecision(listener, "数据预览",
                         h -> h.onPreviewReady(previewForConfirm, chunksForConfirm));
                 if (d2.action == InteractionHandler.Decision.CANCEL) {
                     return; // 用户取消
@@ -919,7 +948,7 @@ public class ImportMain {
         if (interactionHandler != null) {
             try {
                 emitStage(listener, "fill-confirm", "等待用户确认智能填充…");
-                InteractionHandler.Decision d3 = askDecision(listener,
+                InteractionHandler.Decision d3 = askDecision(listener, "智能填充",
                         h -> h.onFillReady(previewHolder[0], missingCount));
                 if (d3.action == InteractionHandler.Decision.CANCEL) {
                     return; // 用户取消
@@ -955,7 +984,7 @@ public class ImportMain {
             try {
                 summary.totalRows = processedRows;
                 emitStage(listener, "ingest-confirm", "等待用户确认入库…");
-                InteractionHandler.Decision d4 = askDecision(listener,
+                InteractionHandler.Decision d4 = askDecision(listener, "入库",
                         h -> h.onFinalConfirm(previewHolder[0], summary));
                 if (d4.action == InteractionHandler.Decision.CANCEL) {
                     return; // 用户取消
