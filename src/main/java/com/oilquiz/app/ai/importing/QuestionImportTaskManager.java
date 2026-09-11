@@ -329,12 +329,15 @@ public class QuestionImportTaskManager {
 
     /** 题库表特征关键词（按字段类别分组）：
      * 判断"是否符合题库表特征"用硬校验——表头必须【同时】命中题干类与答案类字段，
-     * 仅命中单类（如只有"题目"无"答案"）或纯数据表不视为题库表。 */
+     * 仅命中单类（如只有"题目"无"答案"）或纯数据表不视为题库表。
+     * 覆盖常见列名变体；未覆盖的由智能体按语义判断（prompt 已引导）。 */
     private static final String[] STEM_KEYWORDS = {
-            "题干", "题目", "问题", "question", "题目内容", "题干内容", "内容", "question_stem", "stem"
+            "题干", "题目", "问题", "question", "题目内容", "题干内容", "内容", "question_stem", "stem",
+            "试题", "试题内容", "题目描述", "题干描述", "quiz", "题目文本", "题干文本", "question_text"
     };
     private static final String[] ANSWER_KEYWORDS = {
-            "答案", "answer", "正确答案", "参考答案", "正确", "answer_key", "正确答案内容"
+            "答案", "answer", "正确答案", "参考答案", "正确", "answer_key", "正确答案内容",
+            "标准答案", "答案内容", "正确答案选项", "answer_text", "key", "correct", "答案项"
     };
     private static final String[] OPTION_KEYWORDS = {
             "选项", "option", "答案选项", "备选", "choice", "options"
