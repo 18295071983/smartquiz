@@ -243,6 +243,17 @@ public class QuestionImportTaskManager {
                 if (sample == null || sample.has("error")) continue;
                 org.json.JSONArray headers = sample.optJSONArray("headers");
                 int score = scoreHeaders(headers);
+                // 行数权重：真正的题库表有大量数据行；示例/说明/目录表通常只有几行。
+                // 仅凭表头命中会误选"示例题目"表（表头与题库表完全一致）。
+                org.json.JSONArray rows = sample.optJSONArray("rows");
+                int dataRows = rows != null ? rows.length() : 0;
+                if (dataRows <= 3) {
+                    score -= 2;   // 示例/说明/空表：降权
+                } else if (dataRows <= 8) {
+                    score += 1;   // 少量数据
+                } else {
+                    score += 3;   // 数据表：优先
+                }
                 if (score > bestScore) {
                     bestScore = score;
                     bestIndex = idx;

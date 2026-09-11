@@ -21,6 +21,7 @@ import com.oilquiz.app.ai.chat.ui.ChatBottomSheet;
 import com.oilquiz.app.ai.chat.ui.GuideStepFlowView;
 import com.oilquiz.app.ai.importing.AgentImportStateMachine;
 import com.oilquiz.app.ai.importing.AIImportOrchestrator;
+import com.oilquiz.app.ai.importing.v2.ImportDirs;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ui.base.BaseActivity;
 import com.oilquiz.app.ui.dialog.OnlineModelConfigDialog;
@@ -1630,7 +1631,8 @@ public class AIImportActivity extends BaseActivity {
         return null;
     }
 
-    /** 将 content Uri 内容拷贝到缓存临时文件,保留原始后缀名 */
+    /** 将 content Uri 内容拷贝到公共目录 source/（持久），保留原始文件名与后缀。
+     *  私有 cache 副本会被系统低存储清理、且智能体对话后副本可能失效，故导入源必须落在公共目录。 */
     private File createTempFileFromUri(Uri uri) throws IOException {
         ContentResolver resolver = getContentResolver();
         InputStream input = resolver.openInputStream(uri);
@@ -1639,12 +1641,24 @@ public class AIImportActivity extends BaseActivity {
         }
         // 取原始文件名以保留后缀
         String displayName = getFileNameFromUri(uri);
+        if (displayName == null || displayName.isEmpty()) {
+            displayName = "ai_import_" + System.currentTimeMillis() + ".xlsx";
+        }
         String extension = "";
-        if (displayName != null && displayName.lastIndexOf('.') > 0) {
+        if (displayName.lastIndexOf('.') > 0) {
             extension = displayName.substring(displayName.lastIndexOf('.'));
         }
-        File tempFile = File.createTempFile("ai_import", extension, getCacheDir());
-        tempFile.deleteOnExit();
+        File dir = ImportDirs.sourceDir();
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        File tempFile = new File(dir, displayName);
+        // 重名加时间戳后缀，避免覆盖用户已有文件
+        if (tempFile.exists()) {
+            String base = extension.isEmpty() ? displayName
+                    : displayName.substring(0, displayName.length() - extension.length());
+            tempFile = new File(dir, base + "_" + System.currentTimeMillis() + extension);
+        }
         try (FileOutputStream output = new FileOutputStream(tempFile)) {
             byte[] buffer = new byte[1024];
             int bytesRead;
