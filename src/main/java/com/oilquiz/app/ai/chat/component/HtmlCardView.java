@@ -173,14 +173,14 @@ public class HtmlCardView implements ChatComponent {
         // 本地文件模式：file:// 导航在 WebView 内部加载（不拦截系统打开），否则外部打开
         final boolean isFileMode = url.startsWith("file://");
         webView.setWebViewClient(new WebViewClient() {
-            // 页内链接点击：真实打开（http/https 应用内 WebView；本地文件模式 file:// 内部导航）
+            // 页内链接点击：http/https 在卡片内 WebView 自身加载（return false，不跳全屏
+            // WebViewActivity，用户可连续点链接在卡片内浏览）；file:// 非本地文件模式外部打开
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 if (url == null) return true;
                 if (url.startsWith("http://") || url.startsWith("https://")
                         || url.startsWith("/")) {
-                    com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
-                    return true;
+                    return false; // 卡片内加载
                 }
                 if (url.startsWith("file://")) {
                     // 本地文件模式：file:// 链接继续在 WebView 内加载；非本地文件模式外部打开
@@ -198,8 +198,7 @@ public class HtmlCardView implements ChatComponent {
                 if (url == null) return true;
                 if (url.startsWith("http://") || url.startsWith("https://")
                         || url.startsWith("/")) {
-                    com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
-                    return true;
+                    return false; // 卡片内加载
                 }
                 if (url.startsWith("file://")) {
                     if (isFileMode) return false;
