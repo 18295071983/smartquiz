@@ -5,6 +5,9 @@ import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -138,6 +141,15 @@ public class ComponentRegistry {
             Log.e(TAG, "component render failed: " + data.type, e);
         }
         if (view == null) return null;
+        // UI-06 统一 style 对象（容器级）：padding/radius/background/border 应用到组件根 View。
+        // 覆盖全部渲染路径（聊天流卡片/弹窗/插件卡片）——此前 style 只对 layout 树节点生效，
+        // 内置卡片(info_card/chart/table_card等)传 style 会被忽略（"样式都没生效"根因）。
+        if (data.props != null && data.props.has("style")) {
+            JSONObject styleObj = data.props.optJSONObject("style");
+            if (styleObj != null) {
+                applyViewStyle(context, view, styleObj);
+            }
+        }
         // 统一附加 actions 按钮行；以下情况跳过避免重复：
         // 1. 由 DynamicCardView 渲染（其内部已渲染 actions）
         // 2. 组件自带 actions 渲染（alert_card/contact_card 内部已渲染）
@@ -174,5 +186,119 @@ public class ComponentRegistry {
         tv.setText("⚠ 组件渲染失败: " + (data != null ? data.type : "null"));
         tv.setTextSize(12);
         return tv;
+    }
+
+    // ---------- UI-06 统一 style 对象（容器级） ----------
+    // 与 NativeLayoutRenderer.applyContainerStyle 同口径：
+    // padding=整数 或 "t r b l" 或 [4个数]；radius=圆角dp；background=颜色；border=宽度+颜色 或 border_width+border_color
+
+    private static void applyViewStyle(Context context, View v, JSONObject style) {
+        if (v == null || style == null) return;
+        float density = context.getResources().getDisplayMetrics().density;
+        // padding
+        try {
+            if (style.has("padding")) {
+                Object pad = style.opt("padding");
+                if (pad instanceof Number) {
+                    int p = dp(((Number) pad).intValue(), density);
+                    v.setPadding(p, p, p, p);
+                } else if (pad instanceof JSONArray) {
+                    JSONArray pa = (JSONArray) pad;
+                    if (pa.length() == 1) {
+                        int p = dp(pa.optInt(0), density);
+                        v.setPadding(p, p, p, p);
+                    } else if (pa.length() == 2) {
+                        int ph = dp(pa.optInt(0), density), pv2 = dp(pa.optInt(1), density);
+                        v.setPadding(ph, pv2, ph, pv2);
+                    } else if (pa.length() >= 4) {
+                        v.setPadding(dp(pa.optInt(0), density), dp(pa.optInt(1), density),
+                                dp(pa.optInt(2), density), dp(pa.optInt(3), density));
+                    }
+                } else {
+                    String ps = String.valueOf(pad).trim();
+                    String[] parts = ps.split("\\s+");
+                    if (parts.length == 1) {
+                        int p = dp(parseIntSafe(parts[0]), density);
+                        v.setPadding(p, p, p, p);
+                    } else if (parts.length == 4) {
+                        v.setPadding(dp(parseIntSafe(parts[0]), density), dp(parseIntSafe(parts[1]), density),
+                                dp(parseIntSafe(parts[2]), density), dp(parseIntSafe(parts[3]), density));
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // radius + background + border（有其一才设置，避免覆盖控件已有背景）
+        try {
+            boolean hasRadius = style.has("radius");
+            boolean hasBg = style.has("background");
+            boolean hasBorder = style.has("border") || style.has("border_width");
+            if (hasRadius || hasBg || hasBorder) {
+                int radiusDp = hasRadius ? dp(style.optInt("radius"), density) : 0;
+                int bgColor = 0;
+                boolean bgOk = false;
+                if (hasBg) {
+                    int c = parseColorSafe(style.optString("background", ""));
+                    if (c != Integer.MIN_VALUE) { bgColor = c; bgOk = true; }
+                }
+                int borderWidth = 0;
+                int borderColor = 0xFFFFFFFF;
+                boolean borderOk = false;
+                if (style.has("border")) {
+                    String bs = style.optString("border", "").trim();
+                    if (bs.matches("\\d+(\\s+#?[0-9A-Fa-f]{6,8})?")) {
+                        String[] bp = bs.split("\\s+");
+                        borderWidth = parseIntSafe(bp[0]);
+                        if (bp.length > 1) {
+                            int c = parseColorSafe(bp[1]);
+                            if (c != Integer.MIN_VALUE) { borderColor = c; borderOk = true; }
+                        }
+                    }
+                }
+                if (style.has("border_width")) {
+                    borderWidth = parseIntSafe(style.optString("border_width", "0"));
+                    int c = parseColorSafe(style.optString("border_color", ""));
+                    if (c != Integer.MIN_VALUE) { borderColor = c; borderOk = true; }
+                }
+                if (borderWidth > 0) borderOk = true;
+                // 仅 radius（无 background/border）且控件已有背景 → 跳过，保留原背景
+                if (hasRadius && !bgOk && !borderOk && v.getBackground() != null) return;
+                if (hasRadius || bgOk || borderOk) {
+                    android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                    if (bgOk) gd.setColor(bgColor);
+                    if (hasRadius) gd.setCornerRadius(radiusDp);
+                    if (borderOk && borderWidth > 0) gd.setStroke(dp(borderWidth, density), borderColor);
+                    v.setBackground(gd);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static int dp(int v, float density) {
+        return (int) (v * density + 0.5f);
+    }
+
+    private static int parseIntSafe(String s) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static int parseColorSafe(String s) {
+        try {
+            String cs = s.trim();
+            if (cs.isEmpty()) return Integer.MIN_VALUE;
+            if (cs.startsWith("#")) {
+                long l = Long.parseLong(cs.substring(1), 16);
+                if (cs.length() == 7) l |= 0xFF000000L;
+                return (int) l;
+            }
+            return android.graphics.Color.parseColor(cs);
+        } catch (Exception e) {
+            return Integer.MIN_VALUE;
+        }
     }
 }
