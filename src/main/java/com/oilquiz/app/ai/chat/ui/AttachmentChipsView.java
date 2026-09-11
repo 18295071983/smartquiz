@@ -43,7 +43,12 @@ public class AttachmentChipsView extends HorizontalScrollView {
     private ThumbnailProvider thumbnailProvider;
 
     public AttachmentChipsView(Context context) {
-        super(context);
+        this(context, null);
+    }
+
+    /** XML 布局 inflate 构造（委托单参构造） */
+    public AttachmentChipsView(Context context, @androidx.annotation.Nullable android.util.AttributeSet attrs) {
+        super(context, attrs);
         setHorizontalScrollBarEnabled(false);
         container = new LinearLayout(context);
         container.setOrientation(LinearLayout.HORIZONTAL);

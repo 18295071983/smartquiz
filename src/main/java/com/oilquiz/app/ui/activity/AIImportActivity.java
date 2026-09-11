@@ -18,6 +18,8 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.AgentSession;
 import com.oilquiz.app.ai.agent.ui.AgentSessionView;
 import com.oilquiz.app.ai.chat.AgentExecutionView;
+import com.oilquiz.app.ai.chat.ui.ChatBottomSheet;
+import com.oilquiz.app.ai.chat.ui.GuideStepFlowView;
 import com.oilquiz.app.ai.importing.AIImportOrchestrator;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ui.base.BaseActivity;
@@ -80,8 +82,8 @@ public class AIImportActivity extends BaseActivity {
     // Agent 执行区
     private AgentExecutionView agentView;
 
-    // 阶段图标行(PROFILE/FORMAT/INGEST/DONE 共 4 个)
-    private final TextView[] stageViews = new TextView[4];
+    // 阶段指示（ChatKit GuideStepFlowView：检测/映射/解析/入库）
+    private GuideStepFlowView guideStepFlow;
 
     // 流式指标区（tok/s、token、已入库数在 v2 流程无回调，已在布局隐藏；仅保留进度）
     private TextView tvProgress;
@@ -144,11 +146,9 @@ public class AIImportActivity extends BaseActivity {
         agentView = findViewById(R.id.agentView);
         agentView.hide();
 
-        // 阶段图标行
-        stageViews[0] = findViewById(R.id.stage1);
-        stageViews[1] = findViewById(R.id.stage2);
-        stageViews[2] = findViewById(R.id.stage3);
-        stageViews[3] = findViewById(R.id.stage4);
+        // 阶段指示行（ChatKit 组件）
+        guideStepFlow = findViewById(R.id.guideStepFlow);
+        guideStepFlow.setSteps(java.util.Arrays.asList("检测", "映射", "解析", "入库"));
 
         // 流式指标区（tok/s、token、已入库数已在布局隐藏，仅保留进度）
         tvProgress = findViewById(R.id.tvProgress);
@@ -304,12 +304,15 @@ public class AIImportActivity extends BaseActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    /** 更新阶段图标行激活状态:当前及之前 alpha=1,之后 alpha=0.3 */
+    /** 更新阶段指示（GuideStepFlowView）：当前阶段 RUNNING，其余已过 DONE / 未到 PENDING */
     private void updateStageIndicator(int stepNumber) {
-        // DONE 阶段 ordinal+1=4,刚好等于 stageViews.length,全部点亮
-        int activeCount = Math.min(stepNumber, stageViews.length);
-        for (int i = 0; i < stageViews.length; i++) {
-            stageViews[i].setAlpha(i < activeCount ? 1f : 0.3f);
+        if (guideStepFlow == null) return;
+        for (int i = 0; i < 4; i++) {
+            GuideStepFlowView.StepState st = i < stepNumber
+                    ? GuideStepFlowView.StepState.DONE
+                    : i == stepNumber ? GuideStepFlowView.StepState.RUNNING
+                    : GuideStepFlowView.StepState.PENDING;
+            guideStepFlow.setStepState(i, st);
         }
     }
 
@@ -1141,51 +1144,36 @@ public class AIImportActivity extends BaseActivity {
         btnConfigOnline.setVisibility(isOnlineMode ? View.VISIBLE : View.GONE);
     }
 
-    /** 弹出模型切换对话框 */
+    /** 弹出模型模式选择（ChatKit ChatBottomSheet 组件） */
     private void showModelSwitchDialog() {
         final AIImportOrchestrator.ModelMode currentMode = orchestrator.getModelMode();
         final boolean hasOnline = onlineModelManager.getActiveModel() != null;
 
-        String[] items = new String[]{
-                "自动选择 (推荐)",
-                "优先在线模型",
-                "仅使用在线模型",
-                "仅使用本地模型"
-        };
-
-        int checked = 0;
-        switch (currentMode) {
-            case AUTO: checked = 0; break;
-            case ONLINE_PREFERRED: checked = 1; break;
-            case ONLINE_ONLY: checked = 2; break;
-            case LOCAL_ONLY: checked = 3; break;
+        ChatBottomSheet sheet = new ChatBottomSheet(this)
+                .title(getString(R.string.h_8333bf17));
+        if (!hasOnline) {
+            sheet.message(getString(R.string.h_1bf9fc34));
         }
+        sheet.action("自动选择（推荐）", v -> applyModelMode(
+                AIImportOrchestrator.ModelMode.AUTO, hasOnline));
+        sheet.action("优先在线模型", v -> applyModelMode(
+                AIImportOrchestrator.ModelMode.ONLINE_PREFERRED, hasOnline));
+        sheet.action("仅使用在线模型", v -> applyModelMode(
+                AIImportOrchestrator.ModelMode.ONLINE_ONLY, hasOnline));
+        sheet.action("仅使用本地模型", v -> applyModelMode(
+                AIImportOrchestrator.ModelMode.LOCAL_ONLY, hasOnline));
+        sheet.secondaryAction(getString(R.string.h_625fb26b), null);
+        sheet.show();
+    }
 
-        new AlertDialog.Builder(this)
-                .setTitle(getString(R.string.h_8333bf17))
-                .setSingleChoiceItems(items, checked, (dialog, which) -> {
-                    AIImportOrchestrator.ModelMode newMode;
-                    switch (which) {
-                        case 0: newMode = AIImportOrchestrator.ModelMode.AUTO; break;
-                        case 1: newMode = AIImportOrchestrator.ModelMode.ONLINE_PREFERRED; break;
-                        case 2: newMode = AIImportOrchestrator.ModelMode.ONLINE_ONLY; break;
-                        case 3: newMode = AIImportOrchestrator.ModelMode.LOCAL_ONLY; break;
-                        default: newMode = AIImportOrchestrator.ModelMode.AUTO; break;
-                    }
-
-                    // 检查在线模型可用性
-                    if ((newMode == AIImportOrchestrator.ModelMode.ONLINE_ONLY
-                            || newMode == AIImportOrchestrator.ModelMode.ONLINE_PREFERRED)
-                            && !hasOnline) {
-                        showLongToast(getString(R.string.h_1bf9fc34));
-                    }
-
-                    orchestrator.setModelMode(newMode);
-                    refreshModelInfo();
-                    dialog.dismiss();
-                })
-                .setNegativeButton(getString(R.string.h_625fb26b), null)
-                .show();
+    /** 应用模型模式选择（无在线模型时仅在线/优先在线给出提示） */
+    private void applyModelMode(AIImportOrchestrator.ModelMode mode, boolean hasOnline) {
+        if ((mode == AIImportOrchestrator.ModelMode.ONLINE_ONLY
+                || mode == AIImportOrchestrator.ModelMode.ONLINE_PREFERRED) && !hasOnline) {
+            showLongToast(getString(R.string.h_1bf9fc34));
+        }
+        orchestrator.setModelMode(mode);
+        refreshModelInfo();
     }
 
     /** 弹出在线模型配置对话框 */

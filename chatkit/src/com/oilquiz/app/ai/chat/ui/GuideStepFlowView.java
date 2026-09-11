@@ -42,7 +42,12 @@ public class GuideStepFlowView extends ScrollView {
     private final List<Step> steps = new ArrayList<>();
 
     public GuideStepFlowView(Context context) {
-        super(context);
+        this(context, null);
+    }
+
+    /** XML 布局 inflate 构造（委托单参构造） */
+    public GuideStepFlowView(Context context, @androidx.annotation.Nullable android.util.AttributeSet attrs) {
+        super(context, attrs);
         setVerticalScrollBarEnabled(false);
         container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);

@@ -312,127 +312,13 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 阶段指示：4 步（检测→映射→解析→入库），emoji + 文字 -->
-            <LinearLayout
-                android:id="@+id/stageIndicatorContainer"
+            <!-- 阶段指示：4 步（检测→映射→解析→入库），ChatKit GuideStepFlowView 组件 -->
+            <com.oilquiz.app.ai.chat.ui.GuideStepFlowView
+                android:id="@+id/guideStepFlow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center"
-                android:layout_marginBottom="@dimen/space_12">
+                android:layout_marginBottom="@dimen/space_12" />
 
-                <LinearLayout
-                    android:layout_width="@dimen/size_0"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:id="@+id/stage1"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="📄"
-                        android:textSize="@dimen/text_20"
-                        android:alpha="0.75" />
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="检测"
-                        android:textSize="@dimen/text_12"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:alpha="0.9" />
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="→"
-                    android:textSize="@dimen/text_14"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:layout_marginBottom="@dimen/space_14" />
-
-                <LinearLayout
-                    android:layout_width="@dimen/size_0"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:id="@+id/stage2"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🔍"
-                        android:textSize="@dimen/text_20"
-                        android:alpha="0.75" />
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="映射"
-                        android:textSize="@dimen/text_12"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:alpha="0.9" />
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="→"
-                    android:textSize="@dimen/text_14"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:layout_marginBottom="@dimen/space_14" />
-
-                <LinearLayout
-                    android:layout_width="@dimen/size_0"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:id="@+id/stage3"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="⚙️"
-                        android:textSize="@dimen/text_20"
-                        android:alpha="0.75" />
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="解析"
-                        android:textSize="@dimen/text_12"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:alpha="0.9" />
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="→"
-                    android:textSize="@dimen/text_14"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:layout_marginBottom="@dimen/space_14" />
-
-                <LinearLayout
-                    android:layout_width="@dimen/size_0"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-                    <TextView
-                        android:id="@+id/stage4"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="✅"
-                        android:textSize="@dimen/text_20"
-                        android:alpha="0.75" />
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="入库"
-                        android:textSize="@dimen/text_12"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:alpha="0.9" />
-                </LinearLayout>
-            </LinearLayout>
 
             <!-- 实时监控：耗时 / 步骤 / 推理速度 / Token -->
             <LinearLayout

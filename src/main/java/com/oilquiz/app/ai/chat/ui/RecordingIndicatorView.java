@@ -50,7 +50,12 @@ public class RecordingIndicatorView extends LinearLayout {
     private OnCancel onCancel;
 
     public RecordingIndicatorView(Context context) {
-        super(context);
+        this(context, null);
+    }
+
+    /** XML 布局 inflate 构造（委托单参构造） */
+    public RecordingIndicatorView(Context context, @androidx.annotation.Nullable android.util.AttributeSet attrs) {
+        super(context, attrs);
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
         GradientDrawable bg = new GradientDrawable();
