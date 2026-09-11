@@ -243,18 +243,26 @@ public class HtmlCardView implements ChatComponent {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                // 图片点击预览（浏览器级体验）：注入 JS 拦截 img 点击 → Android.previewImage
+                // 图片点击预览（浏览器级体验）：document 捕获阶段事件委托拦截所有 img 点击
+                // （比逐个绑定 img.onclick 可靠——动态插入/懒加载/页面自带 onclick 的图片全覆盖，
+                // 捕获先于冒泡执行，页面自身的 onclick 无法吞掉）
                 try {
                     view.evaluateJavascript(
                             "(function(){"
-                                    + "function bind(){var imgs=document.getElementsByTagName('img');"
-                                    + "for(var i=0;i<imgs.length;i++){(function(img){"
-                                    + "img.style.cursor='zoom-in';"
-                                    + "img.onclick=function(e){e.preventDefault();e.stopPropagation();"
-                                    + "var s=img.getAttribute('src');"
-                                    + "if(s&&s.indexOf('data:')!==0){Android.previewImage(s);}};"
-                                    + "})(imgs[i]);}}"
-                                    + "if(document.readyState==='complete'){bind();}"
+                                    + "function bind(){"
+                                    + "document.addEventListener('click',function(e){"
+                                    + "var el=e.target;"
+                                    + "while(el&&el.tagName!=='IMG'&&el!==document){el=el.parentElement;}"
+                                    + "if(el&&el.tagName==='IMG'){"
+                                    + "var s=el.getAttribute('src');"
+                                    + "if(s&&s.indexOf('data:')!==0){"
+                                    + "e.preventDefault();e.stopPropagation();"
+                                    + "Android.previewImage(s);"
+                                    + "}}},true);"
+                                    + "var imgs=document.getElementsByTagName('img');"
+                                    + "for(var i=0;i<imgs.length;i++){imgs[i].style.cursor='zoom-in';}"
+                                    + "}"
+                                    + "if(document.readyState==='complete'||document.readyState==='interactive'){bind();}"
                                     + "else{document.addEventListener('DOMContentLoaded',bind);}"
                                     + "})()", null);
                 } catch (Throwable ignored) {
@@ -614,11 +622,14 @@ public class HtmlCardView implements ChatComponent {
                                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
                         dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
                                 android.graphics.Color.parseColor("#CC000000")));
-                        if (finalUrl.startsWith("http://") || finalUrl.startsWith("https://")) {
-                            com.bumptech.glide.Glide.with(context).load(finalUrl).into(iv);
-                        } else {
-                            iv.setImageURI(android.net.Uri.fromFile(new java.io.File(finalUrl)));
-                        }
+                        // 统一 Glide 加载（http(s)/本地绝对路径均支持），失败显示占位不静默
+                        com.bumptech.glide.Glide.with(context)
+                                .load(finalUrl)
+                                .placeholder(new android.graphics.drawable.ColorDrawable(
+                                        android.graphics.Color.parseColor("#33000000")))
+                                .error(new android.graphics.drawable.ColorDrawable(
+                                        android.graphics.Color.parseColor("#55000000")))
+                                .into(iv);
                         dialog.show();
                     } catch (Throwable ignored) {
                     }
