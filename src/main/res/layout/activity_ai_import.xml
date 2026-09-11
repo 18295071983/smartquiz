@@ -358,6 +358,93 @@
                     android:layout_height="wrap_content"
                     android:visibility="gone" />
             </com.google.android.material.card.MaterialCardView>
+            <!-- 与智能体直接对话：发送消息在既有会话上下文上续聊（引擎保留 messageHistory） -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="?attr/colorSurface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="@dimen/space_12">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_12">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="💬 与智能体对话"
+                        android:textSize="@dimen/text_14"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <ScrollView
+                        android:id="@+id/chatLogScroll"
+                        android:layout_width="match_parent"
+                        android:layout_height="160dp"
+                        android:layout_marginTop="@dimen/space_8"
+                        android:background="@drawable/ai_import_input_bg"
+                        android:scrollbars="vertical">
+
+                        <LinearLayout
+                            android:id="@+id/chatLog"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="@dimen/space_8">
+
+                            <TextView
+                                android:id="@+id/tvChatHint"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="发送消息后可继续追问智能体（如：这题的题型怎么定的？/ 缺的字段补了什么默认值？）"
+                                android:textSize="@dimen/text_11"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
+                        </LinearLayout>
+                    </ScrollView>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="@dimen/space_8">
+
+                        <EditText
+                            android:id="@+id/etChatInput"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:minLines="1"
+                            android:maxLines="3"
+                            android:gravity="top"
+                            android:inputType="textMultiLine"
+                            android:background="@drawable/ai_import_input_bg"
+                            android:padding="@dimen/space_8"
+                            android:textSize="@dimen/text_13"
+                            android:textColor="?attr/colorOnSurface"
+                            android:hint="追问智能体…"
+                            android:importantForAutofill="no" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnChatSend"
+                            android:layout_width="wrap_content"
+                            android:layout_height="@dimen/size_40"
+                            android:layout_marginStart="@dimen/space_8"
+                            android:text="发送"
+                            android:textSize="@dimen/text_13"
+                            app:backgroundTint="?attr/colorPrimary"
+                            android:textColor="?attr/colorOnPrimary"
+                            app:cornerRadius="@dimen/radius_8"
+                            android:textAllCaps="false"
+                            android:paddingStart="@dimen/space_12"
+                            android:paddingEnd="@dimen/space_12" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
             <!-- 智能体会话区：AgentSessionView 内嵌容器，初始隐藏 -->
             <com.google.android.material.card.MaterialCardView

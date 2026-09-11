@@ -64,6 +64,19 @@ public class AgentSession {
         engine.cancel();
     }
 
+    /**
+     * 与智能体直接对话（续聊）：在既有会话上下文上追加一条用户消息并执行一轮推理+工具循环。
+     * 引擎保留 messageHistory 实现连续对话（与导入任务同会话），回复经 AgentCallback 回调。
+     */
+    public void sendMessage(String message, int maxTokens) {
+        engine.execute(message, maxTokens, false);
+    }
+
+    /** 当前是否正在生成（对话/导入执行中返回 true，UI 应禁用发送） */
+    public boolean isBusy() {
+        return engine.isGenerating();
+    }
+
     /** 释放引擎资源（线程池等） */
     public void shutdown() {
         engine.shutdown();

@@ -119,6 +119,14 @@ public class AIImportActivity extends BaseActivity {
     private android.widget.EditText etUserGuide;
     // 缺失字段智能填充开关
     private androidx.appcompat.widget.SwitchCompat swFillMissing;
+    // 与智能体直接对话区
+    private android.widget.LinearLayout chatLog;
+    private android.widget.ScrollView chatLogScroll;
+    private android.widget.EditText etChatInput;
+    private com.google.android.material.button.MaterialButton btnChatSend;
+    private android.widget.TextView tvChatHint;
+    private final StringBuilder aiStream = new StringBuilder();
+    private android.widget.TextView aiBubble;
 
     @Override
     protected int getLayoutId() {
@@ -174,6 +182,12 @@ public class AIImportActivity extends BaseActivity {
         etUserGuide = findViewById(R.id.etUserGuide);
         // 缺失字段智能填充开关
         swFillMissing = findViewById(R.id.swFillMissing);
+        // 与智能体直接对话区
+        chatLog = findViewById(R.id.chatLog);
+        chatLogScroll = findViewById(R.id.chatLogScroll);
+        etChatInput = findViewById(R.id.etChatInput);
+        btnChatSend = findViewById(R.id.btnChatSend);
+        tvChatHint = findViewById(R.id.tvChatHint);
     }
 
     @Override
@@ -241,6 +255,11 @@ public class AIImportActivity extends BaseActivity {
             }
             startAgentImport();
         });
+
+        // 与智能体直接对话：在既有会话上下文上续聊
+        if (btnChatSend != null) {
+            btnChatSend.setOnClickListener(v -> sendChatToAgent());
+        }
     }
 
     @Override
@@ -402,8 +421,136 @@ public class AIImportActivity extends BaseActivity {
             agentSession.shutdown();
         }
         agentSession = AgentSession.create(this);
-        agentSession.setCallback(agentImportStateMachine);
+        // 回调双通道：转发状态机（步骤/监控）+ 同步到对话区（流式正文/完成/错误）
+        agentSession.setCallback(buildChatCallback(agentImportStateMachine));
+        aiBubble = null;
+        aiStream.setLength(0);
         agentSession.start(prompt.toString(), 8192);
+    }
+
+    /**
+     * 与智能体直接对话：发送消息在既有会话上下文上续聊（引擎保留 messageHistory）。
+     * 执行中（isBusy）禁止发送；发送后流式回复显示在对话区，工具动作继续更新步骤区。
+     */
+    private void sendChatToAgent() {
+        if (etChatInput == null || agentSession == null) return;
+        String text = etChatInput.getText().toString().trim();
+        if (text.isEmpty()) return;
+        if (agentSession.isBusy()) {
+            showToast("智能体正在处理中，请稍候");
+            return;
+        }
+        appendChat("你", text, true);
+        etChatInput.setText("");
+        aiBubble = null;
+        aiStream.setLength(0);
+        agentSession.sendMessage(text, 8192);
+    }
+
+    /** 追加一条用户/AI 对话气泡 */
+    private void appendChat(String who, String text, boolean user) {
+        if (chatLog == null) return;
+        if (tvChatHint != null) tvChatHint.setVisibility(android.view.View.GONE);
+        android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText((user ? "🙋 " : "🤖 ") + who + "：" + text);
+        tv.setTextSize(13);
+        tv.setPadding(dp(4), dp(2), dp(4), dp(2));
+        tv.setTextColor(colorAttr(user
+                ? android.R.attr.textColorPrimary : android.R.attr.textColorSecondary));
+        chatLog.addView(tv);
+        scrollChatToBottom();
+    }
+
+    /** 流式更新当前 AI 气泡（onToken 增量追加） */
+    private void updateAiBubble(String text) {
+        if (chatLog == null) return;
+        if (tvChatHint != null) tvChatHint.setVisibility(android.view.View.GONE);
+        if (aiBubble == null) {
+            aiBubble = new android.widget.TextView(this);
+            aiBubble.setTextSize(13);
+            aiBubble.setPadding(dp(4), dp(2), dp(4), dp(2));
+            aiBubble.setTextColor(colorAttr(android.R.attr.textColorSecondary));
+            chatLog.addView(aiBubble);
+        }
+        aiBubble.setText("🤖 智能体：" + text);
+        scrollChatToBottom();
+    }
+
+    private void scrollChatToBottom() {
+        if (chatLogScroll != null) {
+            chatLogScroll.post(() -> chatLogScroll.fullScroll(android.view.View.FOCUS_DOWN));
+        }
+    }
+
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density);
+    }
+
+    private int colorAttr(int attrRes) {
+        android.content.res.TypedArray a = getTheme().obtainStyledAttributes(new int[]{attrRes});
+        try {
+            return a.getColor(0, 0xFF000000);
+        } finally {
+            a.recycle();
+        }
+    }
+
+    /**
+     * 包装回调：全部转发给状态机（步骤/监控/结果），同时把正文/完成/错误同步到对话区。
+     */
+    private com.oilquiz.app.ai.agent.AgentCallback buildChatCallback(
+            final com.oilquiz.app.ai.agent.AgentCallback inner) {
+        return new com.oilquiz.app.ai.agent.AgentCallback() {
+            @Override
+            public void onToken(String token) {
+                inner.onToken(token);
+                aiStream.append(token);
+                runOnUiThread(() -> updateAiBubble(aiStream.toString()));
+            }
+
+            @Override
+            public void onThinkingToken(String token) {
+                inner.onThinkingToken(token);
+            }
+
+            @Override
+            public void onThinkingEnd() {
+                inner.onThinkingEnd();
+            }
+
+            @Override
+            public void onToolCallStart(String toolCallId, String toolName, String args) {
+                inner.onToolCallStart(toolCallId, toolName, args);
+            }
+
+            @Override
+            public void onToolCallComplete(String toolCallId, String toolName,
+                                           com.oilquiz.app.ai.agent.online.OnlineToolResult result) {
+                inner.onToolCallComplete(toolCallId, toolName, result);
+            }
+
+            @Override
+            public void onStepUpdate(String step, String detail) {
+                inner.onStepUpdate(step, detail);
+            }
+
+            @Override
+            public void onComplete(String fullText) {
+                inner.onComplete(fullText);
+                runOnUiThread(() -> {
+                    if (aiBubble == null) {
+                        updateAiBubble(fullText == null || fullText.isEmpty() ? "（完成）" : fullText);
+                    }
+                    aiStream.setLength(0);
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                inner.onError(error);
+                runOnUiThread(() -> updateAiBubble("⚠ " + error));
+            }
+        };
     }
 
     /**
