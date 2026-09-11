@@ -291,8 +291,7 @@ public class SpeechManager {
     /** 停止离线识别（触发最终结果回调） */
     public void stopOfflineRecognition() {
         if (LOCAL_ASR_ENABLED && localRecognizer != null && localRecognizer.isListening()) {
-            localRecognizer.stopListening();
-            return;
+            localRecognizer.stopListening();            return;
         }
         if (offlineRecognizer != null) {
             offlineRecognizer.stopListening();
@@ -307,6 +306,23 @@ public class SpeechManager {
         }
         if (offlineRecognizer != null) {
             offlineRecognizer.cancel();
+        }
+    }
+
+    /**
+     * VC-03 方言/口音适配：设置系统语音识别的语言（普通话 zh-CN / 粤语 yue-HK / 台湾 zh-TW 等）。
+     * 须在 startOfflineRecognition 之前调用；识别结束后语言保持，直到再次设置。
+     */
+    public void setOfflineAsrLanguage(String lang) {
+        try {
+            if (lang == null || lang.trim().isEmpty()) return;
+            if (offlineRecognizer == null) {
+                offlineRecognizer = new SystemSpeechRecognizer(context);
+            }
+            offlineRecognizer.setLanguage(lang.trim());
+            AILogger.i(TAG, "离线识别语言已切换: " + lang.trim());
+        } catch (Exception e) {
+            AILogger.w(TAG, "设置离线识别语言失败: " + e.getMessage());
         }
     }
 

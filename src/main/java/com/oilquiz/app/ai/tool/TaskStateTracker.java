@@ -161,6 +161,19 @@ public class TaskStateTracker {
         return true;
     }
 
+    /**
+     * 回滚终态（DLG-04 对话分支/回滚）：completed/failed 任务恢复到 in_progress，
+     * 支持"撤销完成/失败判定，继续推进"；已删除任务无法回滚（返回 false）。
+     */
+    public synchronized boolean revert(String id) {
+        TaskEntry entry = tasks.get(id);
+        if (entry == null) return false;
+        entry.status = STATUS_IN_PROGRESS;
+        entry.updatedAt = System.currentTimeMillis();
+        persist();
+        return true;
+    }
+
     /** 删除任务 */
     public synchronized boolean delete(String id) {
         boolean removed = tasks.remove(id) != null;

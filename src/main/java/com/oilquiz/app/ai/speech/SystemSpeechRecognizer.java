@@ -56,6 +56,8 @@ public class SystemSpeechRecognizer {
     /** 已重试次数：首次失败（如 ERROR_CLIENT）后用更宽松的参数自动重试一次 */
     private int retryCount = 0;
     private RecognitionCallback currentCallback;
+    /** VC-03 方言/口音适配：识别语言（默认普通话 zh-CN，可切换粤语 yue-HK、台湾 zh-TW 等） */
+    private volatile String language = "zh-CN";
 
     public SystemSpeechRecognizer(Context context) {
         this.context = context.getApplicationContext();
@@ -82,6 +84,17 @@ public class SystemSpeechRecognizer {
         currentCallback = callback;
         retryCount = 0;
         mainHandler.post(this::doStartListening);
+    }
+
+    /**
+     * VC-03 方言/口音适配：设置识别语言（在 startListening 前调用）。
+     * 支持 BCP-47 标签：zh-CN 普通话 / yue-HK 粤语 / zh-TW 台湾国语 / en-US 英语等；
+     * 传入引擎不支持的方言时，多数引擎自动回退到默认语言，不影响主流程。
+     */
+    public void setLanguage(String lang) {
+        if (lang != null && !lang.trim().isEmpty()) {
+            this.language = lang.trim();
+        }
     }
 
     /** 实际启动识别 */
@@ -182,7 +195,7 @@ public class SystemSpeechRecognizer {
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             // 显式指定自由文本模型与中文，兼容小米小爱等国内引擎（避免引擎按默认英文模型拒绝请求）
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN");
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
             intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
             AILogger.d(TAG, "启动系统语音识别，调用包: " + context.getPackageName());

@@ -62,6 +62,8 @@ public class OnlinePromptBuilder {
 
         sb.append(buildMultimodalGuideSection());
 
+        sb.append(buildExecutionGuideSection());
+
         sb.append("【图片生成】\n");
         sb.append("用户要求生成/画/绘制图片时，优先调用 image_gen 工具（自动下载并内联显示在对话中，点击可全屏放大查看）；\n");
         sb.append("也可以直接输出 image_grid 组件标记展示图片。避免用 python_execute 或 system_resource(action=open_url) 这种绕路方式。\n\n");
@@ -142,6 +144,8 @@ public class OnlinePromptBuilder {
 
         sb.append(buildMemoryGuideSection());
 
+        sb.append(buildExecutionGuideSection());
+
         return sb.toString();
     }
 
@@ -189,6 +193,24 @@ public class OnlinePromptBuilder {
         sb.append("- 语音：支持语音输入（系统自动转文字）与语音播报（speech_synthesis 工具），按文字处理语音消息即可。\n");
         sb.append("- 文件：支持文本类文件（txt/md/json/csv/xml/代码等）读取解析；二进制/加密/超大文件可能无法直接读取，如实告知用户。\n");
         sb.append("- 边界：超出上述能力（如视频理解、实时摄像头、音频内容识别）时明确说明不支持，不臆测结果。\n\n");
+        return sb.toString();
+    }
+
+    /**
+     * 构建执行规范段（P1/P2 批次）：
+     * DLG-03 指代消解、DEC-03 失败回退与重规划、PF-02 统一重试与降级、
+     * PF-03 并发编排约束、TL-07 耗时预估（快/慢工具标注）、PER-03 主动建议。
+     */
+    private String buildExecutionGuideSection() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【执行规范】\n");
+        sb.append("- 指代消解（DLG-03）：用户说“它/那个/这个/刚才的/上面的”时，结合最近几轮对话中提到的对象理解；多个候选时先确认再行动，不臆断。\n");
+        sb.append("- 失败回退与重规划（DEC-03）：多步任务中途某步失败时，不要静默跳过或放弃——先用 task(action=fail, task_id=当前任务) 标记失败原因，再给出替代方案重新规划，必要时询问用户调整目标。\n");
+        sb.append("- 统一重试与降级（PF-02）：网络/服务类失败（超时、连接失败、5xx）可重试 1 次；参数错误、数据不存在类失败不重试，直接修正参数或换工具；同一工具连续失败 2 次后换策略或向用户澄清。\n");
+        sb.append("- 并发编排（PF-03）：无依赖的工具调用可并行（一次函数调用同时发起多个）；有依赖的必须串行——后一个工具需要前一个工具的结果作为输入时，等前一个返回后再调用，绝不编造中间结果。\n");
+        sb.append("- 耗时预估（TL-07）：长耗时工具（smart_research、python_execute、文件生成/批量处理、模型下载等）一次任务中避免重复串行调用，能合并的合并；执行长任务时先用 progress 组件告知用户正在处理。\n");
+        sb.append("- 主动建议（PER-03）：任务完成后，结合已保存的用户偏好/记忆，在合适时机自然给出 1 条相关建议（不强行推销、不频繁打扰）；用户明确不需要时不再建议。\n");
+        sb.append("- 定时提醒（PER-02）：用户说“X 分钟后/明天早上/下午3点 提醒我…”时，用 reminder 工具创建系统通知提醒（到点必达，App 不在前台也能收到）；创建后向用户确认提醒时间。\n\n");
         return sb.toString();
     }
 

@@ -83,7 +83,7 @@ public class FileReaderTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "文件阅读工具：读取全文(read)/按行(read_lines)/区间提取(extract_text)/搜索(search_text)/实体提取(extract_entities)/预览(preview)/解析结构化文件(parse_excel/csv/json/xml/parse_structured)/列目录(list)。大文件用 read_lines/preview/search_text 分片读取";
+        return "文件阅读工具：读取全文(read)/按行(read_lines)/区间提取(extract_text)/搜索(search_text)/实体提取(extract_entities)/预览(preview)/解析结构化文件(parse_excel/csv/json/xml/parse_structured)/列目录(list)。大文件用 read_lines/preview/search_text 分片读取。示例：读文件全文→file_reader(action=read, path=report.md)；只看前50行→file_reader(action=read_lines, path=log.txt, start_line=1, end_line=50)；在文件里搜关键词→file_reader(action=search_text, path=data.csv, keyword=错误)；解析Excel→file_reader(action=parse_excel, path=成绩表.xlsx)；列工作区目录→file_reader(action=list, path=.)";
     }
     
     @Override

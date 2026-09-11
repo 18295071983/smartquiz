@@ -47,14 +47,14 @@ public class TaskTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "任务清单：跟踪跨多轮的多步任务状态（进行中/完成/待办/失败）。用户布置多步任务时 add（如\"帮我整理复习资料并生成 PDF\"→add description=整理复习资料并生成PDF）；任务推进时 update 进度；某步完成时 complete；任务无法完成时 fail；用户取消时 delete。任务清单每轮自动注入提示词，跨轮保持。使用边界：一次性问答、单步操作不建任务；同一任务的多个步骤合并为一条任务，不逐步骤建任务。action: add|update|complete|fail|delete|list";
+        return "任务清单：跟踪跨多轮的多步任务状态（进行中/完成/待办/失败）。用户布置多步任务时 add（如\"帮我整理复习资料并生成 PDF\"→add description=整理复习资料并生成PDF）；任务推进时 update 进度；某步完成时 complete；任务无法完成时 fail；用户取消时 delete；用户说\"撤销/回滚/重新继续某任务\"时 revert 恢复到进行中。任务清单每轮自动注入提示词，跨轮保持。使用边界：一次性问答、单步操作不建任务；同一任务的多个步骤合并为一条任务，不逐步骤建任务。action: add|update|complete|fail|revert|delete|list";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作：add(新建)|update(更新)|complete(完成)|fail(失败)|delete(删除)|list(查看)");
-        params.put("id", "任务ID（update/complete/fail/delete 用；add 时由系统生成）");
+        params.put("action", "操作：add(新建)|update(更新)|complete(完成)|fail(失败)|revert(回滚恢复进行中)|delete(删除)|list(查看)");
+        params.put("id", "任务ID（update/complete/fail/revert/delete 用；add 时由系统生成）");
         params.put("description", "任务描述（add 必填；update 可选）");
         params.put("status", "状态（update 用：in_progress|completed|todo|failed）");
         params.put("progress", "进度百分比 0-100（update 用，可选）");
@@ -144,6 +144,21 @@ public class TaskTool implements AITool {
                     result.put("status", "failed");
                     result.put("id", id.trim());
                     result.put("message", "任务已标记失败: " + id.trim());
+                    return AIToolResult.success(result);
+                }
+                case "revert": {
+                    String id = parameters.get("id") != null ? String.valueOf(parameters.get("id")) : "";
+                    if (id.trim().isEmpty()) {
+                        return AIToolResult.fail("revert 需要 id 参数");
+                    }
+                    boolean ok = tracker.revert(id.trim());
+                    if (!ok) {
+                        return AIToolResult.fail("未找到任务（已删除的任务无法回滚）: " + id.trim());
+                    }
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("status", "reverted");
+                    result.put("id", id.trim());
+                    result.put("message", "任务已回滚为进行中（可继续推进）: " + id.trim());
                     return AIToolResult.success(result);
                 }
                 case "delete": {

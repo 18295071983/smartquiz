@@ -88,7 +88,7 @@ public class VoiceInputTool implements AITool {
         params.put("action", "操作类型: recognize(默认,识别音频文件)/record(交互式录音组件,用户点完成结束)/record_and_recognize(固定时长录音)/check(检查可用性)");
         params.put("audio_path", "音频文件路径(mp3/m4a/wav/amr等，与audio_uri二选一)");
         params.put("audio_uri", "音频content:// URI(与audio_path二选一)");
-        params.put("language", "语言提示(zh/en)，默认自动检测");
+        params.put("language", "识别语言(可选)：zh-CN普通话(默认)/yue-HK粤语/zh-TW台湾国语/en-US英语等，方言场景可指定，引擎不支持时自动回退");
         params.put("duration_seconds", "录音时长/上限(秒)：record_and_recognize固定录音默认15，record交互式默认30上限60");
         params.put("title", "录音组件标题(record用，默认🎤请说话)");
         params.put("hint", "录音组件提示文字(record用)");
@@ -138,6 +138,10 @@ public class VoiceInputTool implements AITool {
                 MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS);
 
         SpeechManager speech = SpeechManager.getInstance(context);
+        // VC-03 方言/口音适配：语言参数同步给系统语音识别（兜底路径也按方言识别）
+        if (language != null) {
+            speech.setOfflineAsrLanguage(language);
+        }
         // 在线模型 OR 本地 SenseVoice OR 系统识别，任一可用即可识别（本地语音识别已启用时无需在线配置）
         if (!speech.isAnyAsrAvailable()) {
             return AIToolResult.fail("语音识别服务不可用：未配置在线语音识别模型，且本地语音识别不可用。"

@@ -256,6 +256,7 @@ public class AIToolManager {
             registerToolFactory("image_gen", ImageGenTool.class, ImageGenTool::new);
             registerToolFactory("memory", MemoryTool.class, MemoryTool::new);
         registerToolFactory("task", TaskTool.class, TaskTool::new); // 维度四 P0-1：任务状态跟踪
+        registerToolFactory("reminder", ReminderTool.class, ReminderTool::new); // 维度十 PER-02：定时提醒
             registerToolFactory("workspace", WorkspaceTool.class, WorkspaceTool::new);
             Log.i(TAG, "Python tool factories registered");
         } catch (Throwable e) {

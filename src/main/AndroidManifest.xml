@@ -385,6 +385,10 @@
                 <action android:name="com.oilquiz.app.STREAM_TEST" />
             </intent-filter>
         </receiver>
+        <!-- 维度十 PER-02：定时提醒广播接收器（AlarmManager 触发，到点发系统通知） -->
+        <receiver
+            android:name="com.oilquiz.app.ai.tool.ReminderScheduler$ReminderReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

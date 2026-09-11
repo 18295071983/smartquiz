@@ -2487,6 +2487,23 @@ public class OnlineInferenceService {
                 // 更新 TokenStatsManager
                 TokenStatsManager.getInstance().updateRequestStats(promptTokens, completionTokens);
                 
+                // P2-4 api_usage_log 用量日志接线：非流式与流式共用此解析点，
+                // 模型/服务商取当前活跃配置（请求均基于活跃模型发起，足够审计口径）
+                try {
+                    OnlineModelManager.OnlineModelConfig active = getActiveConfig();
+                    String modelId = active != null && active.modelName != null
+                            ? active.modelName : (active != null && active.name != null ? active.name : "unknown");
+                    String providerId = active != null && active.apiUrl != null
+                            ? active.apiUrl.replaceAll("^https?://", "").split("/")[0] : "";
+                    long now = System.currentTimeMillis();
+                    new com.oilquiz.app.ai.usage.interceptor.UsageInterceptingWrapper(context)
+                            .recordUsage("local_" + now, "", "local",
+                                    modelId, providerId, promptTokens, completionTokens,
+                                    now - 5000, now);
+                } catch (Throwable t) {
+                    AILogger.d(TAG, "Usage log skipped: " + t.getMessage());
+                }
+                
                 // 回调通知调用方
                 if (callback != null) {
                     mainHandler.post(() -> callback.onTokenStats(promptTokens, completionTokens));
