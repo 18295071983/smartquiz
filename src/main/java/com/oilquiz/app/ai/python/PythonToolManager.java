@@ -177,6 +177,20 @@ public class PythonToolManager {
         }
     }
 
+    /** UI-07 组件生命周期：列出全部存活组件（id/类型/状态） */
+    public Map<String, Object> listUiComponents() {
+        try {
+            Map<String, Object> action = new HashMap<>();
+            action.put("type", "list_components");
+            return getUiActionHandler().handleMap(action);
+        } catch (Throwable t) {
+            Map<String, Object> err = new HashMap<>();
+            err.put("success", false);
+            err.put("message", "列出UI组件失败: " + t.getMessage());
+            return err;
+        }
+    }
+
     /** 关闭全部动态组件 + 清理临时组件插件/临时类型（Agent 任务/会话结束兜底，防止组件残留卡界面）。线程安全，可任意线程调用。 */
     public void closeAllUiComponents() {
         try {
@@ -955,6 +969,15 @@ public class PythonToolManager {
                         break;
                     case "close_component":
                         reply.putAll(closeComponent(componentId));
+                        break;
+                    case "list_components":
+                        reply.putAll(listComponents());
+                        break;
+                    case "close_all_components":
+                        closeAllComponents();
+                        reply.put("success", true);
+                        reply.put("result", "closed_all");
+                        reply.put("message", "已关闭全部组件");
                         break;
                     case "get_component_result":
                         reply.putAll(getComponentResult(componentId, waitSeconds));
@@ -2697,6 +2720,8 @@ public class PythonToolManager {
                                 final String tag = lb.getTag() != null ? lb.getTag().toString() : "";
                                 lb.setOnClickListener(btnV -> {
                                     if (doneRef[0]) return;
+                                    // UI-10 交互反馈：点击立即提示，避免"点了没反应"的感知
+                                    showToast("✓ 已提交，正在处理…", false);
                                     java.util.Map<String, Object> values =
                                             com.oilquiz.app.ai.python.NativeLayoutRenderer
                                                     .collectValues(layoutViewRefs);
@@ -3434,6 +3459,8 @@ public class PythonToolManager {
                                 lb.setOnClickListener(btnV -> {
                                     if (rt.result != null && rt.result.get() != null
                                             && !"pending".equals(rt.result.get())) return;
+                                    // UI-10 交互反馈：点击立即提示（画布按钮）
+                                    showToast("✓ 已提交，正在处理…", false);
                                     Map<String, Object> values = com.oilquiz.app.ai.python.NativeLayoutRenderer
                                             .collectValues(curRefs.get());
                                     org.json.JSONObject res = new org.json.JSONObject();
@@ -4223,6 +4250,28 @@ public class PythonToolManager {
                 }
             }
             Log.i(TAG, "[Python component] closed all dynamic components, remaining=" + dynamicComponents.size());
+        }
+
+        /** UI-07 组件生命周期管理：列出全部存活组件（id/类型/结果状态），供模型查询与批量管理 */
+        public Map<String, Object> listComponents() {
+            Map<String, Object> reply = new HashMap<>();
+            java.util.List<Map<String, Object>> items = new java.util.ArrayList<>();
+            for (Map.Entry<String, ComponentRuntime> e : dynamicComponents.entrySet()) {
+                ComponentRuntime rt = e.getValue();
+                if (rt == null) continue;
+                Map<String, Object> item = new HashMap<>();
+                item.put("component_id", e.getKey());
+                item.put("type", rt.createType != null ? rt.createType : "");
+                item.put("result", rt.result != null ? rt.result.get() : "");
+                item.put("alive", !"closed".equals(rt.result != null ? rt.result.get() : ""));
+                items.add(item);
+            }
+            items.sort((a, b) -> String.valueOf(a.get("component_id")).compareTo(String.valueOf(b.get("component_id"))));
+            reply.put("success", true);
+            reply.put("count", items.size());
+            reply.put("components", items);
+            reply.put("message", items.isEmpty() ? "当前无存活组件" : "当前存活组件 " + items.size() + " 个，可用 close_component(component_id=...) 逐个关闭或 close_all_components 全部关闭");
+            return reply;
         }
 
         /** 注册无对话框的待处理组件（聊天流内置组件用），结果由外部回调写入 */

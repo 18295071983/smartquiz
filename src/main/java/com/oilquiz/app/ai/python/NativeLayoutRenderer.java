@@ -270,6 +270,21 @@ public class NativeLayoutRenderer {
     private static View buildNode(Context context, JSONObject node, JSONObject props,
                                   Map<String, Object> viewRefs, int depth,
                                   JSONObject defines) {
+        // UI-06 统一 style 对象：节点级 style={padding,radius,background,color,fontSize,...} 展开为顶层属性
+        // （顶层同名属性优先，style 仅作兜底；展开后其余渲染逻辑按顶层属性读取）
+        {
+            JSONObject style = node.optJSONObject("style");
+            if (style != null) {
+                java.util.Iterator<String> sk = style.keys();
+                while (sk.hasNext()) {
+                    String k = sk.next();
+                    if (!node.has(k)) {
+                        try { node.put(k, style.get(k)); } catch (org.json.JSONException ignored) {}
+                    }
+                }
+                node.remove("style");
+            }
+        }
         // 自定义控件模板引用：use=模板名，模板内 {key} 由本节点 props 替换
         if (node.has("use")) {
             if (defines == null || !defines.has(node.optString("use", ""))) {
@@ -328,6 +343,8 @@ public class NativeLayoutRenderer {
                 LinearLayout ll = new LinearLayout(context);
                 ll.setOrientation(LinearLayout.VERTICAL);
                 ll.setPadding(dp(8, density), dp(4, density), dp(8, density), dp(4, density));
+                // UI-06 style 对象：padding/radius/background 覆盖默认
+                applyContainerStyle(ll, node, density);
                 // alignItems: start/center/end 控制子项水平对齐（column）
                 applyContainerAlignment(ll, node, LinearLayout.VERTICAL);
                 addChildren(context, ll, node, props, viewRefs, depth, defines);
@@ -338,6 +355,8 @@ public class NativeLayoutRenderer {
                 ll.setOrientation(LinearLayout.HORIZONTAL);
                 ll.setGravity(Gravity.CENTER_VERTICAL);
                 ll.setPadding(dp(8, density), dp(4, density), dp(8, density), dp(4, density));
+                // UI-06 style 对象：padding/radius/background 覆盖默认
+                applyContainerStyle(ll, node, density);
                 // alignItems: start/center/end 控制子项垂直对齐（row）
                 applyContainerAlignment(ll, node, LinearLayout.HORIZONTAL);
                 addChildren(context, ll, node, props, viewRefs, depth, defines);
@@ -395,6 +414,8 @@ public class NativeLayoutRenderer {
                 gd.setStroke(dp(1, density), ComponentColors.border(context));
                 cardL.setBackground(gd);
                 cardL.setPadding(dp(10, density), dp(8, density), dp(10, density), dp(8, density));
+                // UI-06 style 对象：padding/radius/background 覆盖默认（radius/background 已有默认，style 提供时覆盖）
+                applyContainerStyle(cardL, node, density);
                 String cTitle = interpolate(node.optString("title", ""), props);
                 if (!cTitle.isEmpty()) {
                     TextView ctv = new TextView(context);
@@ -761,7 +782,12 @@ public class NativeLayoutRenderer {
             case "text": {
                 TextView tv = new TextView(context);
                 tv.setText(interpolate(node.optString("text", ""), props));
-                tv.setTextSize(node.has("size") ? (float) node.optDouble("size", 14) : 14);
+                // UI-06：fontSize（style 对象别名）与 size 等效
+                if (node.has("fontSize")) {
+                    tv.setTextSize((float) node.optDouble("fontSize", 14));
+                } else {
+                    tv.setTextSize(node.has("size") ? (float) node.optDouble("size", 14) : 14);
+                }
                 tv.setTypeface(node.optBoolean("bold", false)
                         ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
                 if (node.has("color")) tv.setTextColor(parseColor(context, node.optString("color", "")));
@@ -3275,6 +3301,76 @@ return attachLabel(context, node, props, srWrap, density);
                 return;
         }
         container.setGravity(g);
+    }
+
+    /**
+     * UI-06 统一 style 对象（容器级）：padding/radius/background 覆盖默认。
+     * 节点顶层字段（含 style 展开后）读取：padding=整数 或 "t r b l" 或 4元素数组；
+     * radius=圆角dp（整数）；background=颜色(#RRGGBB/#AARRGGBB/颜色名)。
+     */
+    private static void applyContainerStyle(View v, JSONObject node, int density) {
+        try {
+            // padding：统一替换容器默认内边距
+            if (node.has("padding")) {
+                Object pad = node.opt("padding");
+                int l, t, r, b;
+                if (pad instanceof org.json.JSONArray) {
+                    org.json.JSONArray pa = (org.json.JSONArray) pad;
+                    if (pa.length() >= 4) {
+                        l = dp((int) Math.round(pa.optDouble(0)), density);
+                        t = dp((int) Math.round(pa.optDouble(1)), density);
+                        r = dp((int) Math.round(pa.optDouble(2)), density);
+                        b = dp((int) Math.round(pa.optDouble(3)), density);
+                    } else if (pa.length() == 1) {
+                        int p = dp((int) Math.round(pa.optDouble(0)), density);
+                        l = t = r = b = p;
+                    } else { return; }
+                } else {
+                    String ps = String.valueOf(pad).trim();
+                    String[] parts = ps.split("\\s+");
+                    if (parts.length == 4) {
+                        l = dp(parseIntSafe(parts[0]), density); t = dp(parseIntSafe(parts[1]), density);
+                        r = dp(parseIntSafe(parts[2]), density); b = dp(parseIntSafe(parts[3]), density);
+                    } else if (parts.length == 1) {
+                        int p = dp(parseIntSafe(parts[0]), density); l = t = r = b = p;
+                    } else { return; }
+                }
+                v.setPadding(l, t, r, b);
+            }
+            // radius + background：圆角背景（有其一才设置，避免覆盖控件已有背景）
+            boolean hasRadius = node.has("radius");
+            boolean hasBg = node.has("background");
+            if (hasRadius || hasBg) {
+                int radiusDp = hasRadius ? dp(parseIntSafe(String.valueOf(node.opt("radius"))), density) : 0;
+                int bgColor = 0;
+                boolean bgOk = false;
+                if (hasBg) {
+                    int c = parseColorSafe(String.valueOf(node.opt("background")));
+                    if (c != Integer.MIN_VALUE) { bgColor = c; bgOk = true; }
+                }
+                // 仅 radius（无 background）且控件已有背景（如 card 默认白底圆角）→ 跳过，保留原背景
+                if (hasRadius && !bgOk && v.getBackground() != null) {
+                    return;
+                }
+                if (hasRadius || bgOk) {
+                    android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+                    if (bgOk) gd.setColor(bgColor);
+                    if (hasRadius) gd.setCornerRadius(radiusDp);
+                    v.setBackground(gd);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static int parseIntSafe(String s) {
+        if (s == null) return 0;
+        try { return (int) Math.round(Double.parseDouble(s.trim())); } catch (NumberFormatException e) { return 0; }
+    }
+
+    private static int parseColorSafe(String s) {
+        if (s == null || s.isEmpty()) return Integer.MIN_VALUE;
+        try { return android.graphics.Color.parseColor(s.trim()); } catch (IllegalArgumentException e) { return Integer.MIN_VALUE; }
     }
 
     /**
