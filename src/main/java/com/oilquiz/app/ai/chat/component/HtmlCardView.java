@@ -121,8 +121,10 @@ public class HtmlCardView implements ChatComponent {
         webView.setHorizontalScrollBarEnabled(false);
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
+        // 宽度适配（浏览器式）：useWideViewPort+overview 让无 viewport 的网页（PC 页/老页）先
+        // 全览缩放到屏幕宽，再双指放大——否则按 980px 渲染右侧溢出显示不全
+        webView.getSettings().setUseWideViewPort(true);
         webView.getSettings().setLoadWithOverviewMode(true);
-        webView.getSettings().setUseWideViewPort(false);
         // 浏览器级体验：双指缩放 + 缩放按钮（类似浏览器可缩放内容）
         webView.getSettings().setSupportZoom(true);
         webView.getSettings().setBuiltInZoomControls(true);
