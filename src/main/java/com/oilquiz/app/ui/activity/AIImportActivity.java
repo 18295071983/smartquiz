@@ -409,17 +409,24 @@ public class AIImportActivity extends BaseActivity {
                 + "无法判断时才用 sheetMode=best/all；"
                 + "若多个候选表都像题库表、判断不准，必须用 ui_component(component_type=choice, options=[各候选表名]) "
                 + "询问用户选哪张/哪几张，get_result 拿到选择后再定 sheetMode，不得自作主张；"
+                + "【阅读题库说明】若存在疑似说明类 sheet（名称含说明/指南/guide/使用说明，或首行为说明文字），"
+                + "用 file_reader(parse_excel, sheet_index=<该表索引>) 读取其内容，理解字段约定/填空格式/答案规则，"
+                + "import_start 传 docHint=说明内容，帮助字段映射；"
                 + "用 file_reader(preview/parse_csv) 看数据质量与缺字段分布，决定 fillMissing/skipIncomplete；"
-                + "表头脏乱、数据混排、编码异常时，可用 excel_tool 或 python_file_ops/python_execute 清洗修正，"
-                + "但清洗产生的文件仅供评估，不要传给 import_start；"
+                + "【清洗需用户确认】表头脏乱、数据混排、编码异常需要清洗时，"
+                + "先用 ui_component(component_type=choice, options=[执行清洗,跳过清洗直接导入]) 把清洗原因与方案展示给用户，"
+                + "get_result 拿到确认后才执行清洗（excel_tool 或 python_file_ops/python_execute）；"
+                + "清洗方案涉及删列/改值/合并等可能丢数据的操作时必须明确告知用户；"
+                + "清洗产生的文件仅供评估，不要传给 import_start；"
                 + "2) 调 import_start 启动导入：filePath 必填，必须传上方【目标文件】的源文件完整路径，"
                 + "禁止传预处理产生的临时/清洗文件（Agent 工作区 tmp 每轮执行后自动清理，对话后即失效）；"
                 + "预处理结论（用哪张表/是否填缺失/是否跳行/题型）通过 sheetMode/sheetIndex/docHint/fillMissing/skipIncomplete/questionType 参数表达；"
                 + "3) 用 import_status 轮询直到 DONE 或 ERROR；"
                 + "4) 完成后汇总新增/重复/失败数量并给出简短结论。"
-                + "关键步骤决策原则：字段映射/数据预览/填充/入库四决策点默认全自动放行；"
-                + "但判断不准、有歧义或风险时（选哪个表不确定、清洗方案可能丢数据、多表取舍边界不清），"
-                + "必须用 ui_component(component_type=choice/dialog) 询问用户，get_result 拿到选择后再继续，不得自作主张。");
+                + "关键步骤决策原则：字段映射/数据预览/智能填充/入库四个决策点都必须与用户交互确认后再继续，"
+                + "不得静默执行——import_start 传 interactive=true，流程会在每个决策点弹窗等用户确认（确认字段映射/"
+                + "选择如何处理不完整行/AI 填充开关/确认入库），用户确认后自动继续；"
+                + "若用户弹窗选择取消，立即停止并如实汇报。");
 
         // 状态机驱动导入页自有 UI（GuideStepFlowView 四步骤 + 监控区），不渲染智能体专用视图
         if (agentImportStateMachine == null) {

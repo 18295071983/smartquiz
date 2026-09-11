@@ -72,6 +72,19 @@ public class QuestionImportTaskManager {
     public String start(android.content.Context context, File file, int sheetIndex, String docHint,
                         boolean fillMissing, boolean skipIncomplete, String questionType,
                         String sheetMode) {
+        return start(context, file, sheetIndex, docHint, fillMissing, skipIncomplete, questionType,
+                sheetMode, false);
+    }
+
+    /**
+     * 启动异步导入，返回 taskId。
+     *
+     * @param interactive true=四个关键决策点（字段映射/数据预览/智能填充/入库）弹窗与用户确认后继续；
+     *                    false=自动放行（无人值守）
+     */
+    public String start(android.content.Context context, File file, int sheetIndex, String docHint,
+                        boolean fillMissing, boolean skipIncomplete, String questionType,
+                        String sheetMode, boolean interactive) {
         final String taskId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         final TaskStatus status = new TaskStatus();
         status.running = true;
@@ -118,7 +131,9 @@ public class QuestionImportTaskManager {
         if (questionType != null && !questionType.isEmpty()) {
             v2Main.setDefaultQuestionType(questionType);
         }
-        v2Main.setInteractionHandler(new AutoImportDecisionHandler(fillMissing, skipIncomplete));
+        v2Main.setInteractionHandler(interactive
+                ? new InteractiveImportDecisionHandler()
+                : new AutoImportDecisionHandler(fillMissing, skipIncomplete));
         activeMains.put(taskId, v2Main);
 
         v2Main.run(file, new ImportMain.ImportListener() {
@@ -172,6 +187,16 @@ public class QuestionImportTaskManager {
     public String startMulti(android.content.Context context, File file, List<Integer> sheetIndexes,
                              String docHint, boolean fillMissing, boolean skipIncomplete,
                              String questionType) {
+        return startMulti(context, file, sheetIndexes, docHint, fillMissing, skipIncomplete,
+                questionType, false);
+    }
+
+    /**
+     * 多工作表导入（交互版）：interactive=true 时四个关键决策点弹窗与用户确认后继续。
+     */
+    public String startMulti(android.content.Context context, File file, List<Integer> sheetIndexes,
+                             String docHint, boolean fillMissing, boolean skipIncomplete,
+                             String questionType, boolean interactive) {
         final String taskId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         final TaskStatus status = new TaskStatus();
         status.running = true;
@@ -206,7 +231,9 @@ public class QuestionImportTaskManager {
         if (questionType != null && !questionType.isEmpty()) {
             v2Main.setDefaultQuestionType(questionType);
         }
-        v2Main.setInteractionHandler(new AutoImportDecisionHandler(fillMissing, skipIncomplete));
+        v2Main.setInteractionHandler(interactive
+                ? new InteractiveImportDecisionHandler()
+                : new AutoImportDecisionHandler(fillMissing, skipIncomplete));
         activeMains.put(taskId, v2Main);
 
         v2Main.runSheets(file, sheetIndexes, null, new ImportMain.ImportListener() {

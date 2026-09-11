@@ -40,7 +40,8 @@ public class ImportStartTool implements AITool {
                 + "sheetIndex 可选（配合 sheetMode=index 使用，-1=自动，默认 -1），"
                 + "sheetIndexes 可选（配合 sheetMode=multi 使用，JSON 数组如 [1,2]，判断多个工作表都有用时传），"
                 + "docHint 可选（题库说明/字段约定，帮助映射），fillMissing 可选（是否 AI 补缺失字段，默认 true），"
-                + "skipIncomplete 可选（是否跳过缺字段的行，默认 false），questionType 可选（强制题型，如\"单选题\"）。";
+                + "skipIncomplete 可选（是否跳过缺字段的行，默认 false），questionType 可选（强制题型，如\"单选题\"），"
+                + "interactive 可选（bool，默认 true=字段映射/数据预览/智能填充/入库四决策点弹窗与用户确认后再继续；false=全自动无人值守）。";
     }
 
     @Override
@@ -54,6 +55,7 @@ public class ImportStartTool implements AITool {
         params.put("fillMissing", "是否 AI 填充缺失字段（bool，默认 true）");
         params.put("skipIncomplete", "是否跳过缺字段行（bool，默认 false）");
         params.put("questionType", "强制题型（可选，如\"单选题\"）");
+        params.put("interactive", "是否四个关键决策点弹窗与用户确认（bool，默认 true；false=全自动无人值守）");
         return params;
     }
 
@@ -92,6 +94,9 @@ public class ImportStartTool implements AITool {
                     && Boolean.parseBoolean(String.valueOf(parameters.get("skipIncomplete")));
             String questionType = parameters.get("questionType") != null
                     ? String.valueOf(parameters.get("questionType")) : null;
+            // 交互模式：默认 true=四决策点弹窗确认；false=全自动无人值守
+            boolean interactive = parameters.get("interactive") == null
+                    || Boolean.parseBoolean(String.valueOf(parameters.get("interactive")));
 
             // 多工作表模式：sheetMode=multi + sheetIndexes=[...]，多张表都有用时逐个导入
             if ("multi".equalsIgnoreCase(sheetMode)) {
@@ -100,14 +105,16 @@ public class ImportStartTool implements AITool {
                     return AIToolResult.fail("sheetMode=multi 需传 sheetIndexes（JSON 数组，如 [1,2]）");
                 }
                 String taskId = QuestionImportTaskManager.getInstance()
-                        .startMulti(context, file, indexes, docHint, fillMissing, skipIncomplete, questionType);
+                        .startMulti(context, file, indexes, docHint, fillMissing, skipIncomplete,
+                                questionType, interactive);
                 return AIToolResult.success(
                         "{\"taskId\":\"" + taskId + "\",\"status\":\"RUNNING\",\"message\":\"多工作表导入已启动（共 "
                                 + indexes.size() + " 张表），请用 import_status 查询进度\"}");
             }
 
             String taskId = QuestionImportTaskManager.getInstance()
-                    .start(context, file, sheetIndex, docHint, fillMissing, skipIncomplete, questionType, sheetMode);
+                    .start(context, file, sheetIndex, docHint, fillMissing, skipIncomplete,
+                            questionType, sheetMode, interactive);
             return AIToolResult.success(
                     "{\"taskId\":\"" + taskId + "\",\"status\":\"RUNNING\",\"message\":\"导入已启动，请用 import_status 查询进度\"}");
         } catch (Exception e) {
