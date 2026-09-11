@@ -28,24 +28,39 @@ public final class TokenStatsTextBuilder {
     /** 构建 Token 统计显示文本（含缓存命中率与上下文用量追加） */
     public static String build(Context context, TokenStatsManager.TokenStats stats,
                                AgentStats agent) {
-        String text = String.format(context.getString(R.string.h_986cd3e8),
+        return build(new ContextStringProvider(context), stats, agent);
+    }
+
+    /** 构建 Token 统计显示文本（SPI 版：文案经 StringProvider，不持有 Context） */
+    public static String build(com.oilquiz.app.ai.spi.StringProvider strings,
+                               TokenStatsManager.TokenStats stats,
+                               AgentStats agent) {
+        String text = String.format(strings.get(R.string.h_986cd3e8),
                 stats.requestPromptTokens, stats.requestCompletionTokens);
         if (agent != null) {
             if (agent.cacheHitTokens > 0 && agent.promptTokens > 0) {
                 int hitRate = (int) Math.round(agent.cacheHitTokens * 100.0 / agent.promptTokens);
-                text += String.format(context.getString(R.string.h_83afc322), hitRate);
+                text += String.format(strings.get(R.string.h_83afc322), hitRate);
             }
             if (agent.contextWindowInfo != null && agent.contextWindowInfo.length == 3
                     && agent.contextWindowInfo[0] > 0) {
                 int window = agent.contextWindowInfo[0];
-                text += String.format(context.getString(R.string.h_d7a0f347),
+                text += String.format(strings.get(R.string.h_d7a0f347),
                         ChatTextUtils.formatCtxWindow(window),
                         Math.min(100.0, agent.contextWindowInfo[1] * 100.0 / window));
             }
         }
         if (stats.sessionTotalTokens > 0) {
-            text += String.format(context.getString(R.string.h_b557980d), stats.sessionTotalTokens);
+            text += String.format(strings.get(R.string.h_b557980d), stats.sessionTotalTokens);
         }
         return text;
+    }
+
+    /** Context 桥接实现（兼容旧调用点） */
+    private static final class ContextStringProvider implements com.oilquiz.app.ai.spi.StringProvider {
+        private final Context context;
+        ContextStringProvider(Context context) { this.context = context.getApplicationContext(); }
+        @Override public String get(int resId) { return context.getString(resId); }
+        @Override public String get(int resId, Object... args) { return context.getString(resId, args); }
     }
 }

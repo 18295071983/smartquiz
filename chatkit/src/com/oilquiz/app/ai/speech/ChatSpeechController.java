@@ -4,14 +4,16 @@ import android.content.Context;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.spi.AppServices;
+import com.oilquiz.app.ai.spi.SpeechGateway;
 
 /**
  * 聊天语音朗读控制器（全局可复用）。
  *
  * 从 AIChatActivity 语音/TTS 编排抽取：AI 消息转可朗读文本、朗读启动/停止编排、
- * "同一条消息再次点击则停止"判定、自动朗读状态机。引擎（SpeechManager / TTS 引擎族 /
- * StreamingTtsSpeaker）独立存在，本类只做编排；宿主通过 {@link Host} 注入提示与
- * UI 线程调度。
+ * "同一条消息再次点击则停止"判定、自动朗读状态机。引擎能力经
+ * {@link SpeechGateway}（AppServices 注入）访问，不再直接持有 Context；
+ * 宿主通过 {@link Host} 注入提示与 UI 线程调度。
  *
  * 用法：
  * <pre>
@@ -30,14 +32,13 @@ public class ChatSpeechController {
         void runOnUi(Runnable r);
     }
 
-    private final Context context;
     private final Host host;
 
     /** 当前正在朗读的消息 id（null 表示未在朗读） */
     private volatile String speakingMessageId;
 
     public ChatSpeechController(Context context, Host host) {
-        this.context = context.getApplicationContext();
+        AppServices.ensure(context);
         this.host = host;
     }
 
@@ -45,7 +46,7 @@ public class ChatSpeechController {
 
     public boolean isSpeaking(String messageId) {
         return messageId != null && messageId.equals(speakingMessageId)
-                && SpeechManager.getInstance(context).isSpeaking();
+                && AppServices.speech().isSpeaking();
     }
 
     /**
@@ -87,8 +88,12 @@ public class ChatSpeechController {
         if (!silent) {
             host.onToast(R.string.h_f3df22c9);
         }
-        SpeechManager.getInstance(context).speakLocked(text,
-                new TTSService.PlaybackCallback() {
+        SpeechGateway speech = AppServices.speech();
+        if (!silent) {
+            host.onToast(R.string.h_f3df22c9);
+        }
+        speech.speakLocked(text,
+                new SpeechGateway.PlaybackListener() {
                     @Override
                     public void onStart() {
                         if (!silent) {
@@ -124,7 +129,7 @@ public class ChatSpeechController {
      * 返回 true 表示已处理（停止或开始）；target 为 null 时返回 false 由宿主兜底。
      */
     public boolean handleSpeakAction(ChatMessage.Action action, ChatMessage target) {
-        SpeechManager speech = SpeechManager.getInstance(context);
+        SpeechGateway speech = AppServices.speech();
         if (action != null && action.messageId != null && action.messageId.equals(speakingMessageId)
                 && speech.isSpeaking()) {
             speech.stopSpeaking();
@@ -142,7 +147,7 @@ public class ChatSpeechController {
 
     /** 停止当前朗读 */
     public void stopSpeaking() {
-        SpeechManager.getInstance(context).stopSpeaking();
+        AppServices.speech().stopSpeaking();
         speakingMessageId = null;
     }
 }

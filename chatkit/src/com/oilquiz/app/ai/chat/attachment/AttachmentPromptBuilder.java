@@ -7,6 +7,7 @@ import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.file.FileUriUtils;
 import com.oilquiz.app.ai.chat.input.AttachmentPreParser;
+import com.oilquiz.app.ai.spi.AppServices;
 
 import java.util.List;
 import java.util.Map;
@@ -31,14 +32,13 @@ public class AttachmentPromptBuilder {
         int getContextSize();
     }
 
-    private final Context context;
     private final Config config;
     private final FileUriUtils fileUriUtils;
 
     public AttachmentPromptBuilder(Context context, Config config) {
-        this.context = context.getApplicationContext();
+        AppServices.ensure(context);
         this.config = config;
-        this.fileUriUtils = new FileUriUtils(this.context);
+        this.fileUriUtils = new FileUriUtils(context);
     }
 
     /** 构建安全的附件分析提示词（带长度限制和异常保护） */
@@ -54,18 +54,18 @@ public class AttachmentPromptBuilder {
             }
 
             StringBuilder prompt = new StringBuilder();
-            prompt.append(context.getString(R.string.h_8997e243)).append(fileCount).append(context.getString(R.string.h_feae15b8));
+            prompt.append(AppServices.strings().get(R.string.h_8997e243)).append(fileCount).append(AppServices.strings().get(R.string.h_feae15b8));
 
             if (originalMessage != null && !originalMessage.isEmpty() && !originalMessage.equals(DEFAULT_ATTACHMENT_MESSAGE)) {
-                prompt.append(context.getString(R.string.h_14e8a21e)).append(originalMessage).append("\n\n");
+                prompt.append(AppServices.strings().get(R.string.h_14e8a21e)).append(originalMessage).append("\n\n");
             } else {
-                prompt.append(context.getString(R.string.h_e4b86c39));
+                prompt.append(AppServices.strings().get(R.string.h_e4b86c39));
             }
 
-            prompt.append(context.getString(R.string.h_4fe2794a));
+            prompt.append(AppServices.strings().get(R.string.h_4fe2794a));
             prompt.append(attachmentContent);
-            prompt.append(context.getString(R.string.h_4b4e3db7));
-            prompt.append(context.getString(R.string.h_48e86d79));
+            prompt.append(AppServices.strings().get(R.string.h_4b4e3db7));
+            prompt.append(AppServices.strings().get(R.string.h_48e86d79));
 
             String finalPrompt = prompt.toString();
 
@@ -111,19 +111,19 @@ public class AttachmentPromptBuilder {
         StringBuilder prompt = new StringBuilder();
 
         if (userMessage != null && !userMessage.trim().isEmpty()) {
-            prompt.append(context.getString(R.string.h_36623a6c)).append(userMessage).append("\n\n");
+            prompt.append(AppServices.strings().get(R.string.h_36623a6c)).append(userMessage).append("\n\n");
         } else {
-            prompt.append(context.getString(R.string.h_a485628e));
+            prompt.append(AppServices.strings().get(R.string.h_a485628e));
         }
 
-        prompt.append(context.getString(R.string.h_a4368a9d));
+        prompt.append(AppServices.strings().get(R.string.h_a4368a9d));
         prompt.append(parsedContent).append("\n\n");
-        prompt.append(context.getString(R.string.h_b575ddeb));
-        prompt.append(context.getString(R.string.h_bd78f6c8));
-        prompt.append(context.getString(R.string.h_5529af52));
-        prompt.append(context.getString(R.string.h_d6c806dd));
-        prompt.append(context.getString(R.string.h_29d6d222));
-        prompt.append(context.getString(R.string.h_dc9307dd));
+        prompt.append(AppServices.strings().get(R.string.h_b575ddeb));
+        prompt.append(AppServices.strings().get(R.string.h_bd78f6c8));
+        prompt.append(AppServices.strings().get(R.string.h_5529af52));
+        prompt.append(AppServices.strings().get(R.string.h_d6c806dd));
+        prompt.append(AppServices.strings().get(R.string.h_29d6d222));
+        prompt.append(AppServices.strings().get(R.string.h_dc9307dd));
 
         return prompt.toString();
     }
@@ -152,8 +152,8 @@ public class AttachmentPromptBuilder {
         int singleCharLimit = Math.min(totalCharLimit / Math.max(1, extractedMap.size()), MAX_SINGLE_ATTACHMENT_CHARS);
 
         StringBuilder sb = new StringBuilder();
-        sb.append(context.getString(R.string.h_793176ee)).append(originalMessage).append("\n\n");
-        sb.append(context.getString(R.string.h_4fe2794a));
+        sb.append(AppServices.strings().get(R.string.h_793176ee)).append(originalMessage).append("\n\n");
+        sb.append(AppServices.strings().get(R.string.h_4fe2794a));
 
         int totalUsed = 0;
         int idx = 1;
@@ -162,15 +162,15 @@ public class AttachmentPromptBuilder {
             String content = entry.getValue();
 
             if (content == null || isExtractFailed(content)) {
-                sb.append(context.getString(R.string.h_94e069c2)).append(idx++).append("】");
+                sb.append(AppServices.strings().get(R.string.h_94e069c2)).append(idx++).append("】");
                 if (fileName != null) sb.append(" ").append(fileName);
-                sb.append(context.getString(R.string.h_68e672a0));
+                sb.append(AppServices.strings().get(R.string.h_68e672a0));
                 continue;
             }
 
             int remaining = totalCharLimit - totalUsed;
             if (remaining <= 0) {
-                sb.append(context.getString(R.string.h_86b05ff3));
+                sb.append(AppServices.strings().get(R.string.h_86b05ff3));
                 break;
             }
 
@@ -179,15 +179,15 @@ public class AttachmentPromptBuilder {
                 content = content.substring(0, thisLimit) + "\n...[内容已截断]";
             }
 
-            sb.append(context.getString(R.string.h_94e069c2)).append(idx++).append("】");
+            sb.append(AppServices.strings().get(R.string.h_94e069c2)).append(idx++).append("】");
             if (fileName != null) sb.append(" ").append(fileName);
             sb.append("\n");
             sb.append(content).append("\n\n");
             totalUsed += content.length();
         }
 
-        sb.append(context.getString(R.string.h_c65217ea));
-        sb.append(context.getString(R.string.h_1575bdd9));
+        sb.append(AppServices.strings().get(R.string.h_c65217ea));
+        sb.append(AppServices.strings().get(R.string.h_1575bdd9));
 
         return sb.toString();
     }
@@ -197,8 +197,8 @@ public class AttachmentPromptBuilder {
                                              Map<Uri, String> localFileMap, List<String> skippedFiles,
                                              Map<String, AttachmentPreParser.ParseResult> parseResults) {
         StringBuilder sb = new StringBuilder();
-        sb.append(context.getString(R.string.h_793176ee)).append(originalMessage).append("\n\n");
-        sb.append(context.getString(R.string.h_11214c64));
+        sb.append(AppServices.strings().get(R.string.h_793176ee)).append(originalMessage).append("\n\n");
+        sb.append(AppServices.strings().get(R.string.h_11214c64));
 
         int successCount = 0;
         int idx = 1;
@@ -207,45 +207,45 @@ public class AttachmentPromptBuilder {
             String localPath = localFileMap != null ? localFileMap.get(uri) : null;
             AttachmentPreParser.ParseResult r = parseResults != null ? parseResults.get(att.id) : null;
 
-            sb.append(context.getString(R.string.h_94e069c2)).append(idx).append("】").append(att.name).append("\n");
-            sb.append(context.getString(R.string.h_1ee53933)).append(att.type).append(context.getString(R.string.h_176d6e45))
+            sb.append(AppServices.strings().get(R.string.h_94e069c2)).append(idx).append("】").append(att.name).append("\n");
+            sb.append(AppServices.strings().get(R.string.h_1ee53933)).append(att.type).append(AppServices.strings().get(R.string.h_176d6e45))
               .append(FileUriUtils.formatFileSize(att.size)).append("\n");
             if (localPath != null) {
-                sb.append(context.getString(R.string.h_28c797b8)).append(localPath).append("\n");
+                sb.append(AppServices.strings().get(R.string.h_28c797b8)).append(localPath).append("\n");
             }
 
             if (r != null && r.isUsable()) {
                 successCount++;
-                sb.append(context.getString(R.string.h_764fab2b))
+                sb.append(AppServices.strings().get(R.string.h_764fab2b))
                   .append(r.status == AttachmentPreParser.ParseStatus.PARTIAL_SUCCESS ? "PARTIAL_SUCCESS" : "SUCCESS")
                   .append("\n");
-                sb.append(context.getString(R.string.h_5f27c9db)).append(r.method)
-                  .append(r.fromCache ? context.getString(R.string.h_2d8ed504) : "").append("\n");
+                sb.append(AppServices.strings().get(R.string.h_5f27c9db)).append(r.method)
+                  .append(r.fromCache ? AppServices.strings().get(R.string.h_2d8ed504) : "").append("\n");
                 if (r.errorMessage != null) {
-                    sb.append(context.getString(R.string.h_46bc48a9)).append(r.errorMessage).append("\n");
+                    sb.append(AppServices.strings().get(R.string.h_46bc48a9)).append(r.errorMessage).append("\n");
                 }
-                sb.append(context.getString(R.string.h_1e7d25f8));
-                sb.append(context.getString(R.string.h_24984e0c));
+                sb.append(AppServices.strings().get(R.string.h_1e7d25f8));
+                sb.append(AppServices.strings().get(R.string.h_24984e0c));
                 String content = r.content;
                 int maxLen = 12000;
                 if (content.length() > maxLen) {
                     sb.append(content, 0, maxLen);
-                    sb.append(context.getString(R.string.h_55a2a38e)).append(content.length())
-                      .append(context.getString(R.string.h_6b35290e));
+                    sb.append(AppServices.strings().get(R.string.h_55a2a38e)).append(content.length())
+                      .append(AppServices.strings().get(R.string.h_6b35290e));
                 } else {
                     sb.append(content).append("\n");
                 }
-                sb.append(context.getString(R.string.h_dae5a2ac));
+                sb.append(AppServices.strings().get(R.string.h_dae5a2ac));
             } else {
-                sb.append(context.getString(R.string.h_bf63260f));
+                sb.append(AppServices.strings().get(R.string.h_bf63260f));
                 if (r != null) {
-                    sb.append(context.getString(R.string.h_5d89be82)).append(r.errorCode).append("\n");
-                    sb.append(context.getString(R.string.h_41d16b3d)).append(r.errorMessage).append("\n");
+                    sb.append(AppServices.strings().get(R.string.h_5d89be82)).append(r.errorCode).append("\n");
+                    sb.append(AppServices.strings().get(R.string.h_41d16b3d)).append(r.errorMessage).append("\n");
                     if (localPath != null) {
-                        sb.append(context.getString(R.string.h_cad33dfa));
+                        sb.append(AppServices.strings().get(R.string.h_cad33dfa));
                     }
                 } else {
-                    sb.append(context.getString(R.string.h_03670db5));
+                    sb.append(AppServices.strings().get(R.string.h_03670db5));
                 }
             }
             sb.append("\n");
@@ -253,26 +253,26 @@ public class AttachmentPromptBuilder {
         }
 
         if (skippedFiles != null && !skippedFiles.isEmpty()) {
-            sb.append(context.getString(R.string.h_d7824330)).append(String.join(", ", skippedFiles)).append("\n\n");
+            sb.append(AppServices.strings().get(R.string.h_d7824330)).append(String.join(", ", skippedFiles)).append("\n\n");
         }
 
-        sb.append(context.getString(R.string.h_9e0ee86a));
+        sb.append(AppServices.strings().get(R.string.h_9e0ee86a));
         if (successCount > 0) {
-            sb.append(context.getString(R.string.h_ee31e1e3)).append(successCount).append(context.getString(R.string.h_fe85860b));
+            sb.append(AppServices.strings().get(R.string.h_ee31e1e3)).append(successCount).append(AppServices.strings().get(R.string.h_fe85860b));
         }
-        sb.append(context.getString(R.string.h_f6a98d86));
-        sb.append(context.getString(R.string.h_447064b9));
-        sb.append(context.getString(R.string.h_30890ceb));
+        sb.append(AppServices.strings().get(R.string.h_f6a98d86));
+        sb.append(AppServices.strings().get(R.string.h_447064b9));
+        sb.append(AppServices.strings().get(R.string.h_30890ceb));
 
-        sb.append(context.getString(R.string.h_b07b6bc9));
-        sb.append(context.getString(R.string.h_db5abb31));
+        sb.append(AppServices.strings().get(R.string.h_b07b6bc9));
+        sb.append(AppServices.strings().get(R.string.h_db5abb31));
         sb.append("- file_parse_text: file_path | file_read_lines: file_path, start_line, line_count\n");
         sb.append("- ocr_recognize: image_path | ocr_recognize_pdf: pdf_path\n\n");
 
         if (!DEFAULT_ATTACHMENT_MESSAGE.equals(originalMessage)) {
-            sb.append(context.getString(R.string.h_cf88fe4b));
+            sb.append(AppServices.strings().get(R.string.h_cf88fe4b));
         } else {
-            sb.append(context.getString(R.string.h_926e80d4));
+            sb.append(AppServices.strings().get(R.string.h_926e80d4));
         }
         return sb.toString();
     }

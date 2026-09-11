@@ -3,8 +3,8 @@ package com.oilquiz.app.ai.chat.context;
 import android.content.Context;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
-import com.oilquiz.app.ai.chat.ChatModeManager;
 import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.spi.AppServices;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,7 +60,6 @@ public class ChatContextBuilder {
         int getAgentContextWindow();
     }
 
-    private final Context context;
     private final Config config;
 
     /** 上一条上下文构建时的提示词签名（检测设置变化以注入变更标记） */
@@ -69,7 +68,7 @@ public class ChatContextBuilder {
     private List<String> evictedContextPoints = new ArrayList<>();
 
     public ChatContextBuilder(Context context, Config config) {
-        this.context = context.getApplicationContext();
+        AppServices.ensure(context);
         this.config = config;
     }
 
@@ -251,7 +250,7 @@ public class ChatContextBuilder {
         StringBuilder sb = new StringBuilder();
         boolean thinking = false;
         try {
-            thinking = ChatModeManager.getInstance(context).isDeepThinkingEnabled();
+            thinking = AppServices.models().isDeepThinkingEnabled();
         } catch (Throwable ignored) {}
         boolean agent = config.isLocalAgentEnabled();
         String sysPrompt = config.getSystemPrompt() != null ? config.getSystemPrompt() : "";

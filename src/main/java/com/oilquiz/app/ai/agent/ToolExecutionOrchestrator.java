@@ -3,7 +3,7 @@ package com.oilquiz.app.ai.agent;
 import android.content.Context;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
-import com.oilquiz.app.ai.tool.AIToolManager;
+import com.oilquiz.app.ai.spi.AppServices;
 import com.oilquiz.app.ai.tool.AIToolResult;
 
 import java.util.List;
@@ -12,8 +12,9 @@ import java.util.Map;
 /**
  * 工具执行编排器（全局可复用，逻辑层）。
  *
- * 从 AIChatActivity 工具执行链路抽取：预检（ToolPreChecker）→ 执行（AIToolManager）
- * → 成功解读（ToolResultInterpreter）/ 失败智能恢复（ToolErrorRecovery）→ 重试。
+ * 从 AIChatActivity 工具执行链路抽取：预检（ToolPreChecker）→ 执行（经
+ * {@link AppServices#tools()} 注入的工具网关）→ 成功解读（ToolResultInterpreter）
+ * / 失败智能恢复（ToolErrorRecovery）→ 重试。
  * 渲染与提示通过 {@link Host} 回调，不依赖页面。
  */
 public class ToolExecutionOrchestrator {
@@ -34,11 +35,10 @@ public class ToolExecutionOrchestrator {
                                           int retryCount, Runnable onComplete);
     }
 
-    private final Context context;
     private final Host host;
 
     public ToolExecutionOrchestrator(Context context, Host host) {
-        this.context = context.getApplicationContext();
+        AppServices.ensure(context);
         this.host = host;
     }
 
@@ -63,7 +63,7 @@ public class ToolExecutionOrchestrator {
                                     final int msgPos,
                                     final int retryCount,
                                     final Runnable onComplete) {
-        ToolPreChecker.preCheck(context, toolName, params, new ToolPreChecker.PreCheckCallback() {
+        ToolPreChecker.preCheck(AppServices.appContext(), toolName, params, new ToolPreChecker.PreCheckCallback() {
             @Override
             public void onReady(Map<String, Object> p, String autoFilledInfo) {
                 host.runOnUi(() -> {
@@ -94,7 +94,7 @@ public class ToolExecutionOrchestrator {
             host.onScrollToBottom();
         }
         new Thread(() -> {
-            final AIToolResult result = AIToolManager.getInstance(context).executeTool(toolName, params);
+            final AIToolResult result = AppServices.tools().executeTool(toolName, params);
             host.runOnUi(() -> {
                 final boolean success = result != null && result.isSuccess();
                 if (success) {
@@ -111,7 +111,7 @@ public class ToolExecutionOrchestrator {
                     final int progressMsgPos = -1; // 宿主可在 onAddSystemMessage 回调里记录
                     final Runnable doContinue = onComplete;
                     final String fallback = resultStr;
-                    ToolResultInterpreter.interpret(context, toolName, rawResult,
+                    ToolResultInterpreter.interpret(AppServices.appContext(), toolName, rawResult,
                             new ToolResultInterpreter.InterpretCallback() {
                                 @Override
                                 public void onInterpreted(String summary) {
@@ -189,7 +189,7 @@ public class ToolExecutionOrchestrator {
                                       final Map<String, Object> params,
                                       final Runnable onComplete) {
         if (ToolErrorRecovery.needsLocation(missing)) {
-            ToolContextProvider.getCurrentLocation(context, new ToolContextProvider.LocationCallback() {
+            ToolContextProvider.getCurrentLocation(AppServices.appContext(), new ToolContextProvider.LocationCallback() {
                 @Override
                 public void onLocationReady(String city, double lat, double lon) {
                     if (!ToolParamResolver.hasParamValue(params, "city")) params.put("city", city);

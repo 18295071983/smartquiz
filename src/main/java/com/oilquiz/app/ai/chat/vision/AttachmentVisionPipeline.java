@@ -7,6 +7,7 @@ import android.util.Base64;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.attachment.AttachmentPromptBuilder;
 import com.oilquiz.app.ai.model.OnlineModelManager;
+import com.oilquiz.app.ai.spi.AppServices;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -30,8 +31,8 @@ public class AttachmentVisionPipeline {
     /** 在线视觉失败冷却时间 */
     public static final long VISION_FAIL_COOLDOWN_MS = 30_000L;
 
-    private final Context context;
     private final AttachmentPromptBuilder promptBuilder;
+    private final Env env;
 
     /** 环境事实提供者（宿主注入） */
     public interface Env {
@@ -43,12 +44,10 @@ public class AttachmentVisionPipeline {
     }
 
     public AttachmentVisionPipeline(Context context, Env env) {
-        this.context = context.getApplicationContext();
+        AppServices.ensure(context);
         this.env = env;
-        this.promptBuilder = new AttachmentPromptBuilder(this.context, env::getModelContextSize);
+        this.promptBuilder = new AttachmentPromptBuilder(context, env::getModelContextSize);
     }
-
-    private final Env env;
 
     public AttachmentPromptBuilder getPromptBuilder() { return promptBuilder; }
 

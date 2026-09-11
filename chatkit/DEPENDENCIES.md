@@ -1,5 +1,26 @@
 # ChatKit 依赖清单
 
+## 〇、SPI 层（v2 起：逻辑组件零 Context）
+
+逻辑组件不再直接持有 `android.content.Context`，经 `com.oilquiz.app.ai.spi`
+接口取系统能力。宿主需提供（推荐 Application 里 `AppServices.install(context)`
+装全部默认实现；组件构造传 Context 时自动兜底安装）：
+
+| 接口 | 职责 | 实现建议 |
+|---|---|---|
+| `StringProvider` | 取文案/格式化 | Android 用 R.string；云端/多语言可自定义 |
+| `PreferenceStore` | 键值持久化 | SharedPreferences / DataStore / 内存 |
+| `SpeechGateway` | ASR 可用性 / TTS 朗读 / 本地 ASR 预热 | 桥接 SpeechManager + SenseVoiceAsr |
+| `ModelGateway` | 功能模型查询 / 深度思考开关 | 桥接 OnlineModelManager + ChatModeManager |
+| `ToolGateway` | 具名工具执行 | 桥接 AIToolManager |
+| `FileDirProvider` | 缓存/音乐目录 | getCacheDir / getExternalFilesDir |
+
+- `AppServices`：静态注册表（install/ensure/reset/取用），含 `appContext()`（平台工具构造用）。
+- `AndroidAppServices`：默认实现（桥接既有单例与资源系统）。
+- 平台适配工具（保留 Context 方法参数/构造，非逻辑组件）：`FileUriUtils`（ContentResolver）、
+  `AttachmentFactory`（content:// 复制）、`VisionInferenceHelper`（saveAttachments 传参）、
+  `LinkOpener`（静态 open(Context, url)）。
+
 ## 一、内部类依赖（本包组件引用，需随包带入或已在宿主工程）
 
 | 类 | 包 | 被谁依赖 |

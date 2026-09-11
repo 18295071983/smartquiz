@@ -52,10 +52,29 @@ shell.onDestroy();                               // 停止轮询（onDestroy）
 
 1. **接口注入，零页面引用**：每个组件通过 `Host` / `Source` / `Callback`
    接口与宿主解耦；组件内部不 import Activity。
-2. **逐项等价**：从 AIChatActivity 抽取时保持行为等价；新建组件为通用设计。
-3. **扩展点注释**：接口 Javadoc 写明替换/扩展方式（如 `ModeChipGroup.setChipStyle`
+2. **SPI 解耦，零 Context**：逻辑层组件不直接持有 Context——
+   资源/持久化/语音/模型/工具/文件目录全部经 `com.oilquiz.app.ai.spi`
+   接口（`AppServices` 注册表）获取；宿主在 Application 调用
+   `AppServices.install(this)` 安装默认实现（组件构造传 Context 时自动兜底）。
+   View 层组件保留 Context（Android View 框架硬约束）。
+3. **逐项等价**：从 AIChatActivity 抽取时保持行为等价；新建组件为通用设计。
+4. **扩展点注释**：接口 Javadoc 写明替换/扩展方式（如 `ModeChipGroup.setChipStyle`
    即主题系统接入点；`ChatShellView.bindSources` 可换任何数据实现）。
-4. **可移植**：拷入新工程后，补齐 `DEPENDENCIES.md` 中的依赖即可编译。
+5. **可移植**：拷入新工程后，补齐 `DEPENDENCIES.md` 中的依赖即可编译。
+
+## SPI 服务接口（`com.oilquiz.app.ai.spi`）
+
+| 接口 | 替代的 Context 用法 | 默认实现 |
+|---|---|---|
+| `StringProvider` | getString / String.format | AndroidAppServices（R.string） |
+| `PreferenceStore` | SharedPreferences | AndroidAppServices（ai_chat_prefs） |
+| `SpeechGateway` | SpeechManager / SenseVoiceAsr 单例 | AndroidAppServices |
+| `ModelGateway` | OnlineModelManager / ChatModeManager 单例 | AndroidAppServices |
+| `ToolGateway` | AIToolManager 单例 | AndroidAppServices |
+| `FileDirProvider` | getCacheDir / getExternalFilesDir | AndroidAppServices |
+| `AppServices` | —（注册表/取用入口） | — |
+
+测试/替换：`AppServices.install(mockImpl)` 单接口覆盖；`AppServices.reset()` 隔离。
 
 ## 版本记录（git 提交链）
 

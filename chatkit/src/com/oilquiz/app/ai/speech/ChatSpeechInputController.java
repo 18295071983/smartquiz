@@ -1,10 +1,11 @@
 package com.oilquiz.app.ai.speech;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 
-import com.oilquiz.app.ai.model.OnlineModelManager;
-import com.oilquiz.app.ai.speech.asr.SenseVoiceAsr;
+import com.oilquiz.app.R;
+import com.oilquiz.app.ai.spi.AppServices;
+import com.oilquiz.app.ai.spi.PreferenceStore;
+import com.oilquiz.app.ai.spi.SpeechGateway;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.VoiceInputTool;
 
@@ -18,11 +19,15 @@ import java.util.Map;
  * startVoiceRecorderTool / isLocalAsrSelected / toggleAutoTts 抽取：
  * 权限申请 → ASR 可用性判定 → 本地模型预热 → voice_input 工具识别 →
  * 识别文本回调；以及自动 TTS 开关的持久化状态。
+ *
+ * <p>系统能力经 {@link AppServices} 注入（SpeechGateway / ModelGateway /
+ * PreferenceStore），不直接持有 Context；旧构造 {@code (Context, Host)}
+ * 保留兼容（内部走 AppServices.ensure）。</p>
  */
 public class ChatSpeechInputController {
 
-    private static final String PREFS = "ai_chat_prefs";
     private static final String KEY_AUTO_TTS = "auto_tts_enabled";
+    private static final String FEATURE_ASR = "asr";
 
     /** 宿主回调 */
     public interface Host {
@@ -39,15 +44,13 @@ public class ChatSpeechInputController {
         void requestMicrophonePermission(Runnable onGranted);
     }
 
-    private final Context context;
     private final Host host;
     private boolean autoTtsEnabled;
 
     public ChatSpeechInputController(Context context, Host host) {
-        this.context = context.getApplicationContext();
+        AppServices.ensure(context);
         this.host = host;
-        SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        this.autoTtsEnabled = sp.getBoolean(KEY_AUTO_TTS, false);
+        this.autoTtsEnabled = AppServices.prefs().getBoolean(KEY_AUTO_TTS, false);
     }
 
     public boolean isAutoTtsEnabled() { return autoTtsEnabled; }
@@ -59,27 +62,19 @@ public class ChatSpeechInputController {
 
     /** 执行识别：ASR 可用性判定 + 本地模型预热 + voice_input 工具 */
     public void doVoiceRecognition() {
-        SpeechManager speech = SpeechManager.getInstance(context);
+        SpeechGateway speech = AppServices.speech();
         if (!speech.isAnyAsrAvailable()) {
-            host.onToast(com.oilquiz.app.R.string.h_b2f5500b);
+            host.onToast(R.string.h_b2f5500b);
             host.onVoiceButtonEnabled(false);
             return;
         }
         final boolean useLocal = isLocalAsrSelected() || !speech.isAsrAvailable();
-        if (useLocal && !SenseVoiceAsr.isReady()) {
-            new Thread(() -> {
-                try {
-                    SenseVoiceAsr.acquire(context);
-                    SenseVoiceAsr.release(); // 模型保留（TTL 缓存）
-                    host.runOnUi(() -> {
-                        host.onToast(com.oilquiz.app.R.string.h_e6f7a8b9);
-                        startVoiceRecorderTool();
-                    });
-                } catch (Exception e) {
-                    android.util.Log.e("ChatSpeechInput", "本地语音识别模型预热失败: " + e.getMessage());
-                    host.runOnUi(() -> host.onToastString("本地语音识别模型加载失败: " + e.getMessage()));
-                }
-            }).start();
+        if (useLocal && !speech.isLocalAsrReady()) {
+            speech.acquireLocalAsr(() -> host.runOnUi(() -> {
+                host.onToast(R.string.h_e6f7a8b9);
+                startVoiceRecorderTool();
+            }), e -> host.runOnUi(() ->
+                    host.onToastString("本地语音识别模型加载失败: " + e.getMessage())));
         } else {
             startVoiceRecorderTool();
         }
@@ -93,7 +88,7 @@ public class ChatSpeechInputController {
                 params.put("action", "record");
                 params.put("duration_seconds", 60);
                 params.put("timeout_seconds", 90);
-                VoiceInputTool tool = new VoiceInputTool(context);
+                VoiceInputTool tool = new VoiceInputTool(AppServices.appContext());
                 AIToolResult r = tool.execute(params);
                 if (r != null && r.isSuccess()) {
                     final String text = r.getAdditionalInfo() != null
@@ -114,9 +109,8 @@ public class ChatSpeechInputController {
     /** 用户是否在"功能专用模型"中显式选择了本地 SenseVoice（→ 识别本地优先） */
     public boolean isLocalAsrSelected() {
         try {
-            return SpeechManager.LOCAL_ASR_ID.equals(
-                    OnlineModelManager.getInstance(context)
-                            .getFeatureModelId(OnlineModelManager.FEATURE_ASR));
+            String id = AppServices.models().getFeatureModelId(FEATURE_ASR);
+            return SpeechManager.LOCAL_ASR_ID.equals(id);
         } catch (Exception e) {
             return false;
         }
@@ -125,8 +119,7 @@ public class ChatSpeechInputController {
     /** 切换自动 TTS（持久化），返回新状态 */
     public boolean toggleAutoTts() {
         autoTtsEnabled = !autoTtsEnabled;
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putBoolean(KEY_AUTO_TTS, autoTtsEnabled).apply();
+        AppServices.prefs().putBoolean(KEY_AUTO_TTS, autoTtsEnabled);
         host.onAutoTtsChanged(autoTtsEnabled);
         return autoTtsEnabled;
     }

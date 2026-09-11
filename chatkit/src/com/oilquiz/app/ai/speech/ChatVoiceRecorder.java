@@ -4,10 +4,10 @@ import android.content.Context;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.spi.AppServices;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,7 +19,8 @@ import java.util.Locale;
  * 聊天录音器（全局可复用）。
  *
  * 从 AIChatActivity 录音链路抽取：MediaRecorder 生命周期（创建 → prepare → start →
- * stop → release）、临时音频文件创建、录音状态回调。宿主通过 {@link Host}
+ * stop → release）、临时音频文件创建、录音状态回调。存储目录经
+ * {@link AppServices#files()} 注入；宿主通过 {@link Host}
  * 接收录制状态与成品附件，不依赖具体页面。
  *
  * 用法：
@@ -41,7 +42,6 @@ public class ChatVoiceRecorder {
         void onAttachmentReady(ChatMessage.Attachment attachment);
     }
 
-    private final Context context;
     private final Host host;
 
     private MediaRecorder mediaRecorder;
@@ -49,7 +49,7 @@ public class ChatVoiceRecorder {
     private volatile boolean isRecording;
 
     public ChatVoiceRecorder(Context context, Host host) {
-        this.context = context.getApplicationContext();
+        AppServices.ensure(context);
         this.host = host;
     }
 
@@ -60,9 +60,9 @@ public class ChatVoiceRecorder {
         String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
                 .format(new Date());
         String audioFileName = "AUDIO_" + timeStamp + "_";
-        File storageDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC);
+        File storageDir = AppServices.files().getExternalMusicDir();
         if (storageDir == null) {
-            storageDir = context.getCacheDir();
+            storageDir = AppServices.files().getCacheDir();
         }
         return File.createTempFile(audioFileName, ".mp4", storageDir);
     }
