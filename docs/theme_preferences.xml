@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <int name="current_theme_color" value="2131100786" />
+    <int name="current_theme" value="1" />
+    <int name="current_theme_color_value" value="-11895719" />
+    <boolean name="use_system_dynamic_color" value="true" />
+    <boolean name="use_custom_color" value="false" />
+    <string name="current_skin">military</string>
+    <boolean name="use_wallpaper_color" value="false" />
+    <int name="custom_theme_color" value="-8245634" />
+</map>
