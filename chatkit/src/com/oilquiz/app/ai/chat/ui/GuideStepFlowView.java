@@ -110,7 +110,7 @@ public class GuideStepFlowView extends ScrollView {
             badge.setTextColor(0xFFFFFFFF);
             row.addView(badge, new LinearLayout.LayoutParams(dp(24), dp(24)));
 
-            // 标题 + 可选详情
+            // 标题 + 可选详情（RUNNING/DONE/ERROR 均显示状态机阶段说明，PENDING 无详情）
             LinearLayout textWrap = new LinearLayout(getContext());
             textWrap.setOrientation(LinearLayout.VERTICAL);
             TextView title = new TextView(getContext());
@@ -118,11 +118,13 @@ public class GuideStepFlowView extends ScrollView {
             title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
             title.setTextColor(0xFF374151);
             textWrap.addView(title);
-            if (s.detail != null && !s.detail.isEmpty() && s.state == StepState.ERROR) {
+            if (s.detail != null && !s.detail.isEmpty() && s.state != StepState.PENDING) {
                 TextView detail = new TextView(getContext());
                 detail.setText(s.detail);
                 detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                detail.setTextColor(0xFFEF4444);
+                int c = s.state == StepState.ERROR ? 0xFFEF4444
+                        : s.state == StepState.RUNNING ? 0xFF2563EB : 0xFF16A34A;
+                detail.setTextColor(c);
                 textWrap.addView(detail);
             }
             LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(
