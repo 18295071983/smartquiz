@@ -3445,10 +3445,11 @@ public class PythonToolManager {
                     org.json.JSONObject root = layout.optJSONObject("root");
                     if (root == null) root = layout;
                     // 跟随项目主题系统动态变化（深浅模式/主题资源变更自动适配）：
-                    // CanvasThemeResolver.DEFAULT 从 values/values-night 主题资源读取，
-                    // 不硬编码色值；未来换主题/皮肤仅需替换该实现。
+                    // CanvasThemeResolver.getResolver() 默认从 values/values-night 主题资源读取，
+                    // 不硬编码色值；未来接入独立画布皮肤/主题体系仅需 setResolver 注入，
+                    // 本调用点零改动。
                     com.oilquiz.app.ai.python.CanvasThemeResolver.CanvasPalette pal =
-                            com.oilquiz.app.ai.python.CanvasThemeResolver.DEFAULT.resolve(act);
+                            com.oilquiz.app.ai.python.CanvasThemeResolver.getResolver().resolve(act);
                     // 1) 样式兜底：style 存在时合并缺失键，不存在则新建
                     org.json.JSONObject style = root.optJSONObject("style");
                     if (style == null) {

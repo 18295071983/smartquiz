@@ -52,6 +52,27 @@ public interface CanvasThemeResolver {
     /** 解析当前主题下的画布默认色板 */
     CanvasPalette resolve(Context context);
 
+    // ==================== 全局 resolver 注册（预留接口接入点） ====================
+    // PythonToolManager 通过 getResolver() 取色，自身零改动。
+    // 未来接入独立画布皮肤/主题体系：在 Application 或主题初始化处调用
+    //   CanvasThemeResolver.setResolver(自定义皮肤实现);
+    // 之后所有动态画布的默认装饰自动走自定义皮肤；不设置则始终走 DEFAULT（主题资源）。
+
+    /** 当前生效的 resolver（null=走默认主题资源实现），volatile 保证跨线程可见 */
+    java.util.concurrent.atomic.AtomicReference<CanvasThemeResolver> sResolver =
+            new java.util.concurrent.atomic.AtomicReference<>(null);
+
+    /** 注册自定义画布皮肤/主题解析器（替换默认主题资源实现）。传 null 恢复默认。 */
+    static void setResolver(CanvasThemeResolver resolver) {
+        sResolver.set(resolver);
+    }
+
+    /** 获取当前生效的画布皮肤/主题解析器（默认：主题资源实现） */
+    static CanvasThemeResolver getResolver() {
+        CanvasThemeResolver r = sResolver.get();
+        return r != null ? r : DEFAULT;
+    }
+
     /**
      * 默认实现：从项目主题资源读取（component_bg / component_border /
      * component_text_primary|secondary|tertiary），
