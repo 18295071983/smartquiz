@@ -678,7 +678,8 @@ public class HtmlCardView implements ChatComponent {
                                         android.widget.Toast.LENGTH_LONG).show();
                             }
                         } else {
-                            // 网络图：Glide + 15s 超时 + 失败自动关窗 Toast
+                            // 网络图：先 Glide（15s 超时），失败自动切原生 HttpURLConnection 下载+BitmapFactory
+                            // 解码兜底（设备上 Glide 对部分 https/重定向 URL 不稳定，原生下载最可靠）
                             try {
                                 com.bumptech.glide.Glide.with(context).load(finalUrl)
                                         .timeout(15000)
@@ -689,17 +690,7 @@ public class HtmlCardView implements ChatComponent {
                                                     Object model,
                                                     com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
                                                     boolean isFirstResource) {
-                                                android.os.Handler h = new android.os.Handler(
-                                                        android.os.Looper.getMainLooper());
-                                                h.post(() -> {
-                                                    try {
-                                                        if (dialog.isShowing()) dialog.dismiss();
-                                                        android.widget.Toast.makeText(context,
-                                                                "图片加载失败（网络或地址不可用）",
-                                                                android.widget.Toast.LENGTH_LONG).show();
-                                                    } catch (Throwable ignored) {
-                                                    }
-                                                });
+                                                downloadAndShow(dialog, photoView, loading, finalUrl);
                                                 return false;
                                             }
 
@@ -716,9 +707,7 @@ public class HtmlCardView implements ChatComponent {
                                         })
                                         .into(photoView);
                             } catch (Throwable t) {
-                                if (dialog.isShowing()) dialog.dismiss();
-                                android.widget.Toast.makeText(context, "图片加载失败: " + t.getMessage(),
-                                        android.widget.Toast.LENGTH_LONG).show();
+                                downloadAndShow(dialog, photoView, loading, finalUrl);
                             }
                         }
                     } catch (Throwable t) {
@@ -731,6 +720,77 @@ public class HtmlCardView implements ChatComponent {
                 });
             } catch (Throwable ignored) {
             }
+        }
+
+        /** 网络图兜底：HttpURLConnection 下载 + BitmapFactory 采样解码（防 OOM），完全绕开 Glide */
+        private void downloadAndShow(final android.app.Dialog dialog,
+                                     final com.github.chrisbanes.photoview.PhotoView photoView,
+                                     final android.widget.ProgressBar loading,
+                                     final String url) {
+            new Thread(() -> {
+                try {
+                    // 第一遍：读尺寸（采样用）
+                    android.graphics.BitmapFactory.Options bounds =
+                            new android.graphics.BitmapFactory.Options();
+                    bounds.inJustDecodeBounds = true;
+                    java.net.HttpURLConnection conn =
+                            (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    conn.setInstanceFollowRedirects(true);
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(20000);
+                    conn.connect();
+                    int code = conn.getResponseCode();
+                    if (code < 200 || code >= 300) {
+                        throw new java.io.IOException("HTTP " + code);
+                    }
+                    try (java.io.InputStream is = conn.getInputStream()) {
+                        android.graphics.BitmapFactory.decodeStream(is, null, bounds);
+                    }
+                    int sample = 1;
+                    while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) {
+                        sample *= 2;
+                    }
+                    // 第二遍：正式解码
+                    java.net.HttpURLConnection conn2 =
+                            (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    conn2.setInstanceFollowRedirects(true);
+                    conn2.setConnectTimeout(15000);
+                    conn2.setReadTimeout(20000);
+                    conn2.connect();
+                    android.graphics.Bitmap bmp = null;
+                    try (java.io.InputStream is2 = conn2.getInputStream()) {
+                        android.graphics.BitmapFactory.Options opts =
+                                new android.graphics.BitmapFactory.Options();
+                        opts.inSampleSize = sample;
+                        bmp = android.graphics.BitmapFactory.decodeStream(is2, null, opts);
+                    }
+                    final android.graphics.Bitmap fbmp = bmp;
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        try {
+                            if (fbmp != null) {
+                                if (dialog.isShowing()) {
+                                    photoView.setImageBitmap(fbmp);
+                                    loading.setVisibility(android.view.View.GONE);
+                                }
+                            } else {
+                                if (dialog.isShowing()) dialog.dismiss();
+                                android.widget.Toast.makeText(context, "图片解码失败（格式不支持或数据损坏）",
+                                        android.widget.Toast.LENGTH_LONG).show();
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    });
+                } catch (Throwable t) {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        try {
+                            if (dialog.isShowing()) dialog.dismiss();
+                            android.widget.Toast.makeText(context, "图片加载失败: " + t.getMessage(),
+                                    android.widget.Toast.LENGTH_LONG).show();
+                        } catch (Throwable ignored) {
+                        }
+                    });
+                }
+            }).start();
         }
     }
 }
