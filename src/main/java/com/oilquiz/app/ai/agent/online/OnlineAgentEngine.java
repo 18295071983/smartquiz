@@ -373,11 +373,11 @@ public class OnlineAgentEngine {
         // - 按用户消息意图追加低频工具（同一次用户请求的所有 Agent 轮次 tools 相同，
         //   任务内缓存稳定；不同任务按意图变化属合理缓存 miss）
         // 核心集：ui_component(组件/交互) file_generator(文件) workspace(工作区)
-        // memory(记忆) tool_registry(工具发现) permission_manager(权限)
+        // memory(记忆) task(任务状态跟踪) tool_registry(工具发现) permission_manager(权限)
         // ai_weather(天气高频) network_search(搜索高频) calculator(计算)
         // control_lookup(低频控件参数查询，构建UI多用，token小)
         java.util.Set<String> coreTools = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
-                "ui_component", "file_generator", "workspace", "memory",
+                "ui_component", "file_generator", "workspace", "memory", "task",
                 "tool_registry", "permission_manager",
                 "ai_weather", "network_search", "calculator",
                 "control_lookup"
