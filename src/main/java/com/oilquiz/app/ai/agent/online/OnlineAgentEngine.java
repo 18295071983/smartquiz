@@ -380,11 +380,12 @@ public class OnlineAgentEngine {
         // memory(记忆) task(任务状态跟踪) tool_registry(工具发现) permission_manager(权限)
         // ai_weather(天气高频) network_search(搜索高频) calculator(计算)
         // control_lookup(低频控件参数查询，构建UI多用，token小)
+        // knowledge_base(用户知识库：检索/导入，应用专属资料问答的必用工具，schema 小 → 常驻核心集)
         java.util.Set<String> coreTools = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
                 "ui_component", "file_generator", "workspace", "memory", "task",
                 "tool_registry", "permission_manager",
                 "ai_weather", "network_search", "calculator",
-                "control_lookup"
+                "control_lookup", "knowledge_base"
         ));
         // 按用户消息意图追加低频工具（若用户明确要求某类任务）
         String toolsJson = toolManager.getToolDefinitionsForMessageAndCore(userMessage, coreTools);

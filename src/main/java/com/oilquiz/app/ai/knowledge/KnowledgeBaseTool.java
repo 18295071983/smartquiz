@@ -112,7 +112,7 @@ public class KnowledgeBaseTool implements AITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作类型：search/add/add_batch/import_json/delete/clear/stats");
+        params.put("action", "操作类型：search(检索)/add(加一条)/add_batch(批量加)/import_json(导入JSON字符串)/import_file(导入JSON文件)/import_document(直接导入文档·图片·音频)/delete(删)/clear(清空)/stats(统计)");
         params.put("query", "检索关键词（search 必填）");
         params.put("category", "分类过滤（search/add 可选）");
         params.put("top_k", "返回条数上限（search 可选，默认5）");
@@ -124,7 +124,7 @@ public class KnowledgeBaseTool implements AITool {
         params.put("id", "知识ID（delete 使用）");
         params.put("items", "批量知识数组（add_batch 必填）");
         params.put("json", "知识JSON字符串（import_json 必填）");
-        params.put("file_path", "文件绝对路径（import_file 为JSON文件 / import_document 为文档）");
+        params.put("file_path", "文件绝对路径（import_file 为JSON文件 / import_document 为文档、图片、音频）");
         params.put("category", "导入分类（import_document 可选）");
         return params;
     }
@@ -182,6 +182,7 @@ public class KnowledgeBaseTool implements AITool {
                 && (Boolean.TRUE.equals(semanticObj)
                     || "true".equalsIgnoreCase(String.valueOf(semanticObj).trim()));
         JSONArray results = manager.search(query, category, topK, semantic);
+        String lastError = manager.getLastError();
 
         Map<String, Object> info = new HashMap<>();
         info.put("action", "search");
@@ -190,10 +191,19 @@ public class KnowledgeBaseTool implements AITool {
         info.put("hits", results.length());
 
         if (results.length() == 0) {
-            return new AIToolResult("{\"hits\":0,\"message\":\"知识库中未找到与 \"" + query + "\" 相关的内容\"}", info);
+            if (lastError != null && !lastError.isEmpty()) {
+                // 检索失败与"确实没有内容"必须区分：否则模型会把数据库错误当成"知识库为空"
+                info.put("error", lastError);
+                return new AIToolResult("{\"hits\":0,\"error\":\"" + escape(lastError)
+                        + "\",\"message\":\"知识库检索失败：" + escape(lastError) + "\"}", info);
+            }
+            // 0 命中是正常结果（不是失败）：用 3 参构造显式标成功，
+            // 否则 AIToolResult(String, Map) 会被当成"工具执行失败"，在线 Agent 看到的就是"工具执行失败"而非 hits:0
+            return new AIToolResult("{\"hits\":0,\"message\":\"知识库中未找到与 \"" + query + "\" 相关的内容\"}",
+                    info, true);
         }
-        // 结果本身是核心交付：直接作为 result 返回 JSON 字符串
-        return new AIToolResult(results.toString(), info);
+        // 结果本身是核心交付：直接作为 result 返回 JSON 字符串（必须显式标成功，String 走的是失败重载）
+        return new AIToolResult(results.toString(), info, true);
     }
 
     private AIToolResult doAdd(Map<String, Object> parameters) {
@@ -215,9 +225,10 @@ public class KnowledgeBaseTool implements AITool {
         if (id > 0) {
             info.put("id", id);
             return new AIToolResult("{\"success\":true,\"id\":" + id + ",\"title\":\"" + escape(title) + "\"}",
-                    info);
+                    info, true);
         }
-        return new AIToolResult("知识添加失败", parameters);
+        return new AIToolResult("知识添加失败"
+                + (manager.getLastError() != null ? "：" + manager.getLastError() : ""), parameters);
     }
 
     private AIToolResult doAddBatch(Map<String, Object> parameters) {
@@ -238,10 +249,16 @@ public class KnowledgeBaseTool implements AITool {
             return new AIToolResult("items 解析失败: " + e.getMessage(), parameters);
         }
         int added = manager.addBatch(items);
+        String lastError = manager.getLastError();
         Map<String, Object> info = new HashMap<>();
         info.put("action", "add_batch");
         info.put("added", added);
-        return new AIToolResult("{\"success\":true,\"added\":" + added + "}", info);
+        if (lastError != null && !lastError.isEmpty()) {
+            info.put("error", lastError);
+            return new AIToolResult("{\"success\":false,\"added\":" + added
+                    + ",\"error\":\"" + escape(lastError) + "\"}", info);
+        }
+        return new AIToolResult("{\"success\":true,\"added\":" + added + "}", info, true);
     }
 
     private AIToolResult doImportJson(Map<String, Object> parameters) {
@@ -250,10 +267,15 @@ public class KnowledgeBaseTool implements AITool {
             return new AIToolResult("缺少参数: json（知识JSON字符串）", parameters);
         }
         int added = manager.importJson(json);
+        String lastError = manager.getLastError();
         Map<String, Object> info = new HashMap<>();
         info.put("action", "import_json");
         info.put("added", added);
-        return new AIToolResult("{\"success\":true,\"added\":" + added + "}", info);
+        if (lastError != null && !lastError.isEmpty()) {
+            info.put("error", lastError);
+            return new AIToolResult("导入失败: " + lastError, info);
+        }
+        return new AIToolResult("{\"success\":true,\"added\":" + added + "}", info, true);
     }
 
     private AIToolResult doImportFile(Map<String, Object> parameters) {
@@ -273,11 +295,16 @@ public class KnowledgeBaseTool implements AITool {
                     java.nio.file.Files.readAllBytes(file.toPath()),
                     java.nio.charset.StandardCharsets.UTF_8);
             int added = manager.importJson(json);
+            String lastError = manager.getLastError();
             Map<String, Object> info = new HashMap<>();
             info.put("action", "import_file");
             info.put("file_path", filePath);
             info.put("added", added);
-            return new AIToolResult("{\"success\":true,\"added\":" + added + "}", info);
+            if (lastError != null && !lastError.isEmpty()) {
+                info.put("error", lastError);
+                return new AIToolResult("导入文件失败: " + lastError, info);
+            }
+            return new AIToolResult("{\"success\":true,\"added\":" + added + "}", info, true);
         } catch (Exception e) {
             Log.e(TAG, "import_file 失败: " + e.getMessage(), e);
             return new AIToolResult("导入文件失败: " + e.getMessage(), parameters);
@@ -303,7 +330,7 @@ public class KnowledgeBaseTool implements AITool {
             String msg = "文档导入成功，共切分为 " + result.optInt("added", 0) + " 条知识"
                     + (result.has("message") ? "；" + result.optString("message") : "");
             return new AIToolResult("{\"success\":true,\"added\":" + result.optInt("added", 0)
-                    + ",\"message\":\"" + escape(msg) + "\"}", info);
+                    + ",\"message\":\"" + escape(msg) + "\"}", info, true);
         }
         return new AIToolResult("文档导入失败: " + result.optString("message", "未知错误"), info);
     }
@@ -315,20 +342,18 @@ public class KnowledgeBaseTool implements AITool {
         info.put("action", "delete");
 
         if (idObj != null) {
-            long id;
-            try {
-                id = Long.parseLong(idObj.toString().trim());
-            } catch (NumberFormatException e) {
+            long id = toLong(idObj, -1);
+            if (id <= 0) {
                 return new AIToolResult("id 格式错误: " + idObj, parameters);
             }
             boolean ok = manager.deleteById(id);
             info.put("deleted", ok ? 1 : 0);
-            return new AIToolResult("{\"success\":" + ok + ",\"deleted\":" + (ok ? 1 : 0) + "}", info);
+            return new AIToolResult("{\"success\":" + ok + ",\"deleted\":" + (ok ? 1 : 0) + "}", info, true);
         }
         if (title != null && !title.trim().isEmpty()) {
             int deleted = manager.deleteByTitle(title.trim());
             info.put("deleted", deleted);
-            return new AIToolResult("{\"success\":true,\"deleted\":" + deleted + "}", info);
+            return new AIToolResult("{\"success\":true,\"deleted\":" + deleted + "}", info, true);
         }
         return new AIToolResult("缺少参数: id 或 title", parameters);
     }
@@ -338,14 +363,14 @@ public class KnowledgeBaseTool implements AITool {
         Map<String, Object> info = new HashMap<>();
         info.put("action", "clear");
         info.put("cleared", cleared);
-        return new AIToolResult("{\"success\":true,\"cleared\":" + cleared + "}", info);
+        return new AIToolResult("{\"success\":true,\"cleared\":" + cleared + "}", info, true);
     }
 
     private AIToolResult doStats(Map<String, Object> parameters) {
         JSONObject stats = manager.stats();
         Map<String, Object> info = new HashMap<>();
         info.put("action", "stats");
-        return new AIToolResult(stats.toString(), info);
+        return new AIToolResult(stats.toString(), info, true);
     }
 
     // ==================== 参数取值工具 ====================
@@ -356,13 +381,24 @@ public class KnowledgeBaseTool implements AITool {
     }
 
     private static int intParam(Map<String, Object> parameters, String key, int def) {
-        Object value = parameters.get(key);
+        return (int) toLong(parameters.get(key), def);
+    }
+
+    /**
+     * 宽松解析整型参数：兼容模型/引导卡片传来的 Integer、Long、Double(5.0)、String("5"/"5.0")，
+     * 解析不了返回 def（不抛异常）。在线 function calling 传的 JSON 整数是 Integer，
+     * 但模型偶尔会写成小数或字符串，这里统一兜住。
+     */
+    private static long toLong(Object value, long def) {
         if (value == null) {
             return def;
         }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
         try {
-            return Integer.parseInt(value.toString().trim());
-        } catch (NumberFormatException e) {
+            return (long) Double.parseDouble(value.toString().trim());
+        } catch (Exception e) {
             return def;
         }
     }

@@ -1,5 +1,6 @@
 package com.oilquiz.app.ai.knowledge;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
@@ -22,6 +23,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -31,37 +33,56 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 知识库管理器：独立 SQLite 数据库 + FTS4 全文检索（匹配召回）+ 在线语义重排。
+ * 知识库管理器：独立 SQLite 数据库 + 归一化文本列包含式检索 + 相关度排序 +（可选）在线语义重排。
  *
- * 检索管线（有查询词时）：
- * 1. FTS4 全文索引（title/category/keywords/search_text/content）匹配召回候选；
- * 2. 若在线配置可用且配置表声明 embedding 模型 → embedding 余弦相似度重排（语义优先）；
- * 3. 若配置表同时声明 rerank 模型 → 对重排前若干条做 rerank 精排；
- * 4. 任一环节未配置/失败/超时 → 自动降级到 bm25 原序，绝不因语义重排失败而返回空。
+ * <h3>检索实现（v3 起不再依赖 FTS 虚拟表）</h3>
+ * 历史包袱：v1 用 FTS5、v2 改 FTS4，都在真机上出过问题——
+ * <ul>
+ *   <li>部分设备内置 SQLite 未编译 FTS5（{@code no such module: fts5}）；</li>
+ *   <li>FTS4 的中文逐字 token 方案依赖 unicode61 分词器（部分 ROM 未编译）；</li>
+ *   <li>FTS3/4 的布尔查询语法随编译开关变化：未启用 {@code SQLITE_ENABLE_FTS3_PARENTHESIS}
+ *       时 {@code MATCH '"原" AND "子"'} 里的 AND 会被当成普通词，检索<b>永远返回空</b>。</li>
+ * </ul>
+ * 因此 v3 改为**零扩展依赖**的方案：{@code kb_chunks} 普通表新增归一化列 {@code search_text}
+ * （标题+分类+关键词+正文，小写），检索时按查询词逐 token 拼 {@code LIKE '%token%'} 并 AND 组合，
+ * 语义与原来的"包含全部关键词"一致，且在任何 SQLite 编译配置下都可用。
+ * 相关度用 Java 侧打分（标题/关键词命中权重高），比原来仅按更新时间排序更准。
+ * 召回规模是个人知识库量级（数千条以内），全表 LIKE 扫描的开销可忽略。
  *
  * <p>设计要点：
  * <ul>
  *   <li>使用独立的 knowledge_base.db，不占用/不影响主数据库（smartquiz_database），零迁移风险；</li>
- *   <li>FTS4 虚拟表做全文索引（title/category/keywords/search_text/content），按更新时间稳定排序；</li>
- *   <li>中文检索：unicode61 tokenizer 对 CJK 逐字建 token，查询时自动把中文连续段拆字并用 AND 组合，实现
- *       "包含全部关键词" 的检索；英文/数字按词 + 前缀匹配；</li>
- *   <li>查询串完全由白名单 token 生成（剥离 FTS5 特殊字符），参数化绑定，无 SQL/FTS 注入面；</li>
- *   <li>为将来向量语义检索（RAG）预留了 keywords 字段与扩展位（如 embedding 列），无需重构表结构。</li>
+ *   <li>中文检索：查询里的连续中文段按字拆开，逐字 AND（"包含全部关键字"语义）；英文/数字按词做子串匹配；</li>
+ *   <li>查询串只做小写归一，不做 SQL 拼接，全部走参数化绑定（token 白名单来自正则，无注入面）；</li>
+ *   <li>为将来向量语义检索（RAG）预留 keywords 字段与扩展位（如 embedding 列），无需重构表结构。</li>
  * </ul>
  */
 public class KnowledgeBaseManager {
     private static final String TAG = "KnowledgeBaseManager";
     private static final String DB_NAME = "knowledge_base.db";
-    /** v2：FTS5 在部分设备未编译，改用 FTS4 并重建索引（旧库升级时触发重建） */
-    private static final int DB_VERSION = 2;
+    /**
+     * v2：FTS5 在部分设备未编译，改用 FTS4 并重建索引。
+     * v3：彻底移除 FTS 虚拟表依赖（FTS4 的中文 token 方案与布尔查询语法在真机上仍不可靠），
+     *     改普通表 + 归一化 search_text 列做包含式检索；升级时补列并回填。
+     */
+    private static final int DB_VERSION = 3;
 
     /** 查询时返回的默认结果条数上限 */
     private static final int DEFAULT_TOP_K = 5;
     /** 结果条数上限（防止一次拉取过多） */
     private static final int MAX_TOP_K = 20;
+    /** 单次检索参与打分的候选上限（SQL 先按更新时间取最近 N 条候选，再在 Java 侧打分排序） */
+    private static final int MAX_CANDIDATES = 300;
+    /** 查询 token 数量上限（防止超长句子拼出病态查询） */
+    private static final int MAX_QUERY_TOKENS = 12;
+    /** 无匹配位置时摘要截取长度 */
+    private static final int SNIPPET_FALLBACK_CHARS = 120;
+    /** 摘要命中点前后保留的字符数 */
+    private static final int SNIPPET_BEFORE = 40;
+    private static final int SNIPPET_AFTER = 120;
 
     // ===== 在线语义重排（embedding 余弦重排 + rerank 精排）=====
-    /** 语义重排候选上限（取 bm25 召回的前 N 条做向量重排，控制在线调用次数与延迟） */
+    /** 语义重排候选上限（取召回结果的前 N 条做向量重排，控制在线调用次数与延迟） */
     private static final int SEMANTIC_CANDIDATES = 8;
     /** rerank 精排条数（对 embedding 重排后的前 N 条精排） */
     private static final int RERANK_TOP = 5;
@@ -75,6 +96,8 @@ public class KnowledgeBaseManager {
     private static volatile KnowledgeBaseManager instance;
     private final Context context;
     private volatile KnowledgeDbHelper dbHelper;
+    /** 最近一次失败的原始原因（供工具层向用户/模型如实回报，避免"检索失败"被当成"没找到"） */
+    private volatile String lastError;
 
     /** 单个知识块（内部数据结构） */
     public static class KnowledgeChunk {
@@ -112,16 +135,21 @@ public class KnowledgeBaseManager {
         @Override
         public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
             Log.i(TAG, "onUpgrade knowledge_base.db " + oldVersion + " -> " + newVersion);
-            if (oldVersion < 2) {
-                // v1→v2：部分设备内置 SQLite 未编译 FTS5（"no such module: fts5"）导致建表失败，改用 FTS4。
-                // 旧 FTS5 表（若曾建成功）与 FTS4 查询语法不兼容 → 删除并按 FTS4 重建，再从 kb_chunks 回填，保证检索可用。
+            // 幂等建表：老库可能缺列，先保证表结构存在再补列
+            try {
+                createTables(db);
+            } catch (Exception e) {
+                Log.w(TAG, "onUpgrade 建表失败（继续尝试补列）: " + e.getMessage());
+            }
+            if (oldVersion < 3) {
+                // v2→v3：新增归一化检索列并回填；不再使用 FTS 虚拟表（历史表在 open 后按需清理）
                 try {
-                    db.execSQL("DROP TABLE IF EXISTS kb_chunks_fts");
+                    db.execSQL("ALTER TABLE kb_chunks ADD COLUMN search_text TEXT NOT NULL DEFAULT ''");
                 } catch (Exception e) {
-                    Log.w(TAG, "DROP kb_chunks_fts 失败: " + e.getMessage());
+                    // 列已存在（重复升级/半途失败）时忽略
+                    Log.i(TAG, "search_text 列已存在或添加失败: " + e.getMessage());
                 }
-                createFtsTable(db);
-                rebuildFtsIndex(db);
+                backfillSearchText(db);
             }
         }
 
@@ -133,48 +161,26 @@ public class KnowledgeBaseManager {
                     + "keywords TEXT NOT NULL DEFAULT '',"
                     + "content TEXT NOT NULL,"
                     + "source TEXT NOT NULL DEFAULT '',"
+                    + "search_text TEXT NOT NULL DEFAULT '',"
                     + "created_at INTEGER NOT NULL,"
                     + "updated_at INTEGER NOT NULL"
                     + ")");
-            // FTS4 全文索引：FTS5 在部分设备未编译（no such module: fts5），改用 FTS4 以兼容全部机型。
-            // 中文处理：unicode61 tokenizer 会把连续中文串（含相邻 ASCII）合并成一个长 token，导致中文关键词无法命中，
-            // 因此专门提供 search_text 列：入库时对标题/分类/关键词/正文中的中文做逐字空格化，
-            // 让每个汉字成为独立 token；检索时把中文连续段拆字 AND 组合，即实现"包含全部关键字"的中文检索。
-            createFtsTable(db);
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_category ON kb_chunks(category)");
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_kb_chunks_title ON kb_chunks(title)");
         }
     }
 
-    /** 创建 FTS4 全文索引表（title/category/keywords/search_text/content + unicode61 tokenizer）。
-     *  FTS5 在部分设备未编译（no such module: fts5），改用 FTS4 兼容全部机型。 */
-    private static void createFtsTable(SQLiteDatabase db) {
-        db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts4("
-                + "title, category, keywords, search_text, content,"
-                + "tokenize=unicode61"
-                + ")");
-    }
-
-    /** 从 kb_chunks 全量回填 FTS 索引（升级/重建后调用；失败不抛出，仅记录日志） */
-    private static void rebuildFtsIndex(SQLiteDatabase db) {
-        Cursor cursor = null;
-        int n = 0;
+    /** 从旧数据回填归一化检索列（升级后调用；单条 UPDATE，失败只记录日志不抛出） */
+    private static void backfillSearchText(SQLiteDatabase db) {
         try {
-            cursor = db.rawQuery("SELECT id, title, category, keywords, content FROM kb_chunks", null);
-            while (cursor.moveToNext()) {
-                insertFts(db, cursor.getLong(0),
-                        new KnowledgeChunk(cursor.getString(1), cursor.getString(2),
-                                cursor.getString(3), cursor.getString(4), ""));
-                n++;
-            }
+            db.execSQL("UPDATE kb_chunks SET search_text = lower("
+                    + "coalesce(title,'') || ' ' || coalesce(category,'') || ' ' || "
+                    + "coalesce(keywords,'') || ' ' || coalesce(content,'')) "
+                    + "WHERE search_text IS NULL OR search_text = ''");
+            Log.i(TAG, "search_text 回填完成");
         } catch (Exception e) {
-            Log.w(TAG, "重建 FTS 索引失败: " + e.getMessage());
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
+            Log.w(TAG, "search_text 回填失败: " + e.getMessage());
         }
-        Log.i(TAG, "FTS 索引重建完成，回填 " + n + " 条");
     }
 
     private KnowledgeBaseManager(Context context) {
@@ -203,7 +209,9 @@ public class KnowledgeBaseManager {
                 helper = dbHelper;
             }
         }
-        return helper.getReadableDatabase();
+        SQLiteDatabase db = helper.getReadableDatabase();
+        dropLegacyFtsIfPresent(db);
+        return db;
     }
 
     private SQLiteDatabase getWritableDb() {
@@ -216,7 +224,45 @@ public class KnowledgeBaseManager {
                 helper = dbHelper;
             }
         }
-        return helper.getWritableDatabase();
+        SQLiteDatabase db = helper.getWritableDatabase();
+        dropLegacyFtsIfPresent(db);
+        return db;
+    }
+
+    /**
+     * 清理历史版本的 FTS 虚拟表（v1=FTS5 / v2=FTS4）。v3 起检索不再依赖 FTS。
+     * 只做一次、失败不影响任何功能：模块缺失时 DROP 会报 "no such module"，属预期情况。
+     */
+    private volatile boolean legacyFtsChecked = false;
+
+    private void dropLegacyFtsIfPresent(SQLiteDatabase db) {
+        if (legacyFtsChecked || db == null) {
+            return;
+        }
+        legacyFtsChecked = true;
+        Cursor cursor = null;
+        try {
+            cursor = db.rawQuery(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='kb_chunks_fts'", null);
+            boolean exists = cursor.moveToFirst();
+            cursor.close();
+            cursor = null;
+            if (exists) {
+                db.execSQL("DROP TABLE IF EXISTS kb_chunks_fts");
+                Log.i(TAG, "已清理历史 FTS 虚拟表 kb_chunks_fts");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "清理历史 FTS 表失败（忽略）: " + e.getMessage());
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+    }
+
+    /** 最近一次操作的失败原因；null 表示无错误 */
+    public String getLastError() {
+        return lastError;
     }
 
     // ==================== 检索 ====================
@@ -224,101 +270,254 @@ public class KnowledgeBaseManager {
     /**
      * 全文检索知识库（默认不做语义重排，防止无关在线 embedding/rerank API 消费）。
      *
-     * @param query    检索关键词（中文/英文/数字混合均可，自动安全转义）
+     * @param query    检索关键词（中文/英文/数字混合均可）
      * @param category 分类过滤，null 或空表示不过滤
      * @param topK     返回条数上限，<=0 时使用默认值
-     * @return JSON 数组，元素含 id/title/category/keywords/content/source/snippet
+     * @return JSON 数组，元素含 id/title/category/keywords/content/source/snippet/score
      */
-    public synchronized JSONArray search(String query, String category, int topK) {
+    public JSONArray search(String query, String category, int topK) {
         return search(query, category, topK, false);
     }
 
     /**
      * 全文检索知识库（可显式开启语义重排）。
      *
-     * @param semanticRerank true=在线可用时对 bm25 召回做 embedding 余弦重排 +（可选）rerank 精排；
-     *                       默认 false=仅 bm25，不消费任何在线 API。
+     * @param semanticRerank true=在线可用时对召回结果做 embedding 余弦重排 +（可选）rerank 精排；
+     *                       默认 false=仅本地关键词检索，不消费任何在线 API。
      */
-    public synchronized JSONArray search(String query, String category, int topK, boolean semanticRerank) {
-        JSONArray results = new JSONArray();
-        Cursor cursor = null;
-        // try 块外声明：语义重排在 finally 之后仍需访问
+    public JSONArray search(String query, String category, int topK, boolean semanticRerank) {
         int limit = (topK <= 0) ? DEFAULT_TOP_K : Math.min(topK, MAX_TOP_K);
+        JSONArray results = searchInternal(query, category, limit);
         boolean hasQuery = query != null && !query.trim().isEmpty();
-        try {
-            SQLiteDatabase db = getReadableDb();
-            boolean hasCategory = category != null && !category.trim().isEmpty();
-
-            String sql;
-            String[] args;
-            String matchQuery = hasQuery ? buildMatchQuery(query) : null;
-
-            if (hasQuery && matchQuery != null) {
-                // FTS4 无 bm25()（FTS5 专属）：snippet 用 FTS4 签名（列号必填，4=content），
-                // 排序退化为按更新时间稳定排序（相关性排序由可选的在线语义重排承担）。
-                if (hasCategory) {
-                    sql = "SELECT c.id, c.title, c.category, c.keywords, c.source, c.updated_at, c.content, "
-                            + "snippet(kb_chunks_fts, '[', ']', '…', 4, 20) AS snip "
-                            + "FROM kb_chunks_fts JOIN kb_chunks c ON c.id = kb_chunks_fts.rowid "
-                            + "WHERE kb_chunks_fts MATCH ? AND c.category = ? "
-                            + "ORDER BY c.updated_at DESC LIMIT ?";
-                    args = new String[]{matchQuery, category.trim(), String.valueOf(limit)};
-                } else {
-                    sql = "SELECT c.id, c.title, c.category, c.keywords, c.source, c.updated_at, c.content, "
-                            + "snippet(kb_chunks_fts, '[', ']', '…', 4, 20) AS snip "
-                            + "FROM kb_chunks_fts JOIN kb_chunks c ON c.id = kb_chunks_fts.rowid "
-                            + "WHERE kb_chunks_fts MATCH ? "
-                            + "ORDER BY c.updated_at DESC LIMIT ?";
-                    args = new String[]{matchQuery, String.valueOf(limit)};
-                }
-            } else if (hasCategory) {
-                // 无关键词：按分类列出最近条目
-                sql = "SELECT id, title, category, keywords, source, updated_at, content, "
-                        + "substr(content, 1, 120) AS snip FROM kb_chunks "
-                        + "WHERE category = ? ORDER BY updated_at DESC LIMIT ?";
-                args = new String[]{category.trim(), String.valueOf(limit)};
-            } else {
-                // 无关键词无分类：列出最近条目
-                sql = "SELECT id, title, category, keywords, source, updated_at, content, "
-                        + "substr(content, 1, 120) AS snip FROM kb_chunks "
-                        + "ORDER BY updated_at DESC LIMIT ?";
-                args = new String[]{String.valueOf(limit)};
-            }
-
-            cursor = db.rawQuery(sql, args);
-            while (cursor.moveToNext()) {
-                JSONObject item = new JSONObject();
-                item.put("id", cursor.getLong(0));
-                item.put("title", cursor.getString(1));
-                item.put("category", cursor.getString(2));
-                item.put("keywords", cursor.getString(3));
-                item.put("source", cursor.getString(4));
-                item.put("updated_at", cursor.getLong(5));
-                item.put("content", cursor.getString(6));
-                item.put("snippet", cursor.getString(7) == null ? "" : cursor.getString(7));
-                results.put(item);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "search 失败: " + e.getMessage(), e);
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
-        }
-        // 语义重排：仅显式开启且有关键词检索时做（默认关闭，防止无关在线 API 消费）
+        // 语义重排含网络调用（最长 20s+10s），放在锁外执行，避免长时间阻塞其他知识库操作
         if (hasQuery && semanticRerank) {
             results = applySemanticRerank(results, query, limit);
         }
         return results;
     }
 
+    /** 关键词检索主体（同步、持锁）：LIKE 召回 → Java 侧打分为相关度排序 → 取前 limit 条 */
+    private synchronized JSONArray searchInternal(String query, String category, int limit) {
+        lastError = null;
+        JSONArray results = new JSONArray();
+        Cursor cursor = null;
+        boolean hasQuery = query != null && !query.trim().isEmpty();
+        boolean hasCategory = category != null && !category.trim().isEmpty();
+        List<String> tokens = hasQuery ? tokenizeQuery(query) : new ArrayList<String>();
+        if (hasQuery && tokens.isEmpty()) {
+            // 查询里没有任何可检索字符（纯标点/空白）：退化为按分类/时间列出
+            hasQuery = false;
+        }
+        try {
+            SQLiteDatabase db = getReadableDb();
+
+            StringBuilder where = new StringBuilder();
+            List<String> args = new ArrayList<>();
+            for (String token : tokens) {
+                if (where.length() > 0) {
+                    where.append(" AND ");
+                }
+                where.append("search_text LIKE ?");
+                args.add("%" + token + "%");
+            }
+            if (hasCategory) {
+                if (where.length() > 0) {
+                    where.append(" AND ");
+                }
+                where.append("category = ?");
+                args.add(category.trim());
+            }
+            // 有查询时多取候选用于打分排序；无查询时直接取 limit 条
+            int fetchLimit = hasQuery
+                    ? Math.min(MAX_CANDIDATES, Math.max(limit * 10, 50))
+                    : limit;
+            String sql = "SELECT id, title, category, keywords, source, updated_at, content FROM kb_chunks"
+                    + (where.length() > 0 ? " WHERE " + where : "")
+                    + " ORDER BY updated_at DESC LIMIT ?";
+            args.add(String.valueOf(fetchLimit));
+
+            List<JSONObject> items = new ArrayList<>();
+            List<Integer> scores = new ArrayList<>();
+            cursor = db.rawQuery(sql, args.toArray(new String[0]));
+            while (cursor.moveToNext()) {
+                JSONObject item = new JSONObject();
+                String title = cursor.getString(1) == null ? "" : cursor.getString(1);
+                String cat = cursor.getString(2) == null ? "" : cursor.getString(2);
+                String keywords = cursor.getString(3) == null ? "" : cursor.getString(3);
+                String content = cursor.getString(6) == null ? "" : cursor.getString(6);
+                item.put("id", cursor.getLong(0));
+                item.put("title", title);
+                item.put("category", cat);
+                item.put("keywords", keywords);
+                item.put("source", cursor.getString(4) == null ? "" : cursor.getString(4));
+                item.put("updated_at", cursor.getLong(5));
+                item.put("content", content);
+                item.put("snippet", buildSnippet(content, tokens));
+                int score = scoreOf(tokens, title, cat, keywords, content);
+                item.put("score", score);
+                items.add(item);
+                scores.add(score);
+            }
+
+            // 相关度降序 + 同分按更新时间降序（Java 侧稳定排序，替代原来仅按时间排序）
+            if (hasQuery && items.size() > 1) {
+                Integer[] order = new Integer[items.size()];
+                for (int i = 0; i < order.length; i++) {
+                    order[i] = i;
+                }
+                Arrays.sort(order, (a, b) -> {
+                    int cmp = Integer.compare(scores.get(b), scores.get(a));
+                    if (cmp != 0) {
+                        return cmp;
+                    }
+                    long ta = items.get(a).optLong("updated_at", 0);
+                    long tb = items.get(b).optLong("updated_at", 0);
+                    return Long.compare(tb, ta);
+                });
+                for (int i = 0; i < order.length && i < limit; i++) {
+                    results.put(items.get(order[i]));
+                }
+            } else {
+                for (int i = 0; i < items.size() && i < limit; i++) {
+                    results.put(items.get(i));
+                }
+            }
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "search 失败: " + e.getMessage(), e);
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return results;
+    }
+
+    /**
+     * 相关度打分：标题/分类/关键词命中权重 3，正文命中权重 1。
+     * 每个 token 只计一次（SQL 已保证每个 token 至少在某处命中，因此得分恒 > 0）。
+     */
+    private static int scoreOf(List<String> tokens, String title, String category,
+                               String keywords, String content) {
+        if (tokens == null || tokens.isEmpty()) {
+            return 0;
+        }
+        String head = ((title == null ? "" : title) + " " + (category == null ? "" : category)
+                + " " + (keywords == null ? "" : keywords)).toLowerCase(Locale.ROOT);
+        String body = content == null ? "" : content.toLowerCase(Locale.ROOT);
+        int score = 0;
+        for (String token : tokens) {
+            if (head.contains(token)) {
+                score += 3;
+            } else if (body.contains(token)) {
+                score += 1;
+            }
+        }
+        return score;
+    }
+
+    /** 查询分词：短横线/标点剥离，英文数字按词、中文按字，去重并限制数量 */
+    private static final Pattern TOKEN_PATTERN = Pattern.compile("[a-z0-9]+|[\\u4e00-\\u9fff]+");
+
+    static List<String> tokenizeQuery(String raw) {
+        List<String> tokens = new ArrayList<>();
+        if (raw == null) {
+            return tokens;
+        }
+        String s = raw.trim().toLowerCase(Locale.ROOT);
+        if (s.isEmpty()) {
+            return tokens;
+        }
+        Set<String> unique = new LinkedHashSet<>();
+        Matcher m = TOKEN_PATTERN.matcher(s);
+        while (m.find()) {
+            String t = m.group();
+            if (t.matches("[a-z0-9]+")) {
+                unique.add(t);
+            } else {
+                // 中文连续段逐字切分：与"包含全部关键字"语义一致，且不依赖分词器
+                for (int i = 0; i < t.length(); i++) {
+                    unique.add(String.valueOf(t.charAt(i)));
+                }
+            }
+            if (unique.size() >= MAX_QUERY_TOKENS) {
+                break;
+            }
+        }
+        tokens.addAll(unique);
+        if (tokens.size() > MAX_QUERY_TOKENS) {
+            return new ArrayList<>(tokens.subList(0, MAX_QUERY_TOKENS));
+        }
+        return tokens;
+    }
+
+    /** 生成命中片段：以第一个命中位置为中心截取窗口，并给窗口内的命中词加 [ ] 标记 */
+    private static String buildSnippet(String content, List<String> tokens) {
+        if (content == null) {
+            return "";
+        }
+        String text = content.trim();
+        if (text.isEmpty()) {
+            return "";
+        }
+        if (tokens == null || tokens.isEmpty()) {
+            return text.length() > SNIPPET_FALLBACK_CHARS
+                    ? text.substring(0, SNIPPET_FALLBACK_CHARS) + "…" : text;
+        }
+        // 归一化后长度必须与原串一致才能用下标对齐（个别语言大小写转换会改变长度，此时退回原串）
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (lower.length() != text.length()) {
+            lower = text;
+        }
+        int first = -1;
+        for (String token : tokens) {
+            int idx = lower.indexOf(token);
+            if (idx >= 0 && (first < 0 || idx < first)) {
+                first = idx;
+            }
+        }
+        if (first < 0) {
+            return text.length() > SNIPPET_FALLBACK_CHARS
+                    ? text.substring(0, SNIPPET_FALLBACK_CHARS) + "…" : text;
+        }
+        int start = Math.max(0, first - SNIPPET_BEFORE);
+        int end = Math.min(text.length(), first + SNIPPET_AFTER);
+        String window = text.substring(start, end);
+        return (start > 0 ? "…" : "") + highlight(window, tokens) + (end < text.length() ? "…" : "");
+    }
+
+    /** 给窗口内的命中词加中括号（长词优先，避免短词抢先匹配） */
+    private static String highlight(String window, List<String> tokens) {
+        List<String> sorted = new ArrayList<>(tokens);
+        sorted.sort((a, b) -> Integer.compare(b.length(), a.length()));
+        StringBuilder sb = new StringBuilder(window.length() + 16);
+        int i = 0;
+        while (i < window.length()) {
+            String matched = null;
+            for (String token : sorted) {
+                if (!token.isEmpty() && window.regionMatches(true, i, token, 0, token.length())) {
+                    matched = token;
+                    break;
+                }
+            }
+            if (matched != null) {
+                sb.append('[').append(window, i, i + matched.length()).append(']');
+                i += matched.length();
+            } else {
+                sb.append(window.charAt(i));
+                i++;
+            }
+        }
+        return sb.toString();
+    }
+
     // ==================== 在线语义重排 ====================
 
     /**
-     * bm25 召回后做语义重排：
+     * 关键词召回后做语义重排：
      * 1. 在线配置可用 + 配置表声明 embedding 模型 → query 与候选内容向量化，余弦相似度重排；
      * 2. 配置表声明 rerank 模型 → 对重排后前若干条 rerank 精排；
-     * 3. 任一环节未配置/失败/超时 → 返回 bm25 原序（不因重排失败返回空或报错）。
+     * 3. 任一环节未配置/失败/超时 → 返回原序（不因重排失败返回空或报错）。
      */
     private JSONArray applySemanticRerank(JSONArray bm25Results, String query, int limit) {
         if (bm25Results == null || bm25Results.length() < 2 || limit <= 1) return bm25Results;
@@ -357,7 +556,7 @@ public class KnowledgeBaseManager {
                 sims.add((float) cosineSimilarity(qVec, cVec));
             }
 
-            // 3) 按相似度降序稳定排序（同分保持 bm25 原序）
+            // 3) 按相似度降序稳定排序（同分保持原序）
             List<Integer> order = new ArrayList<>(n);
             for (int i = 0; i < n; i++) order.add(i);
             order.sort((a, b) -> Double.compare(sims.get(b), sims.get(a)));
@@ -404,7 +603,7 @@ public class KnowledgeBaseManager {
             }
             return reranked;
         } catch (Exception e) {
-            Log.w(TAG, "语义重排失败，降级 bm25 排序: " + e.getMessage());
+            Log.w(TAG, "语义重排失败，降级关键词排序: " + e.getMessage());
             return bm25Results;
         }
     }
@@ -466,12 +665,14 @@ public class KnowledgeBaseManager {
     /**
      * 添加单条知识块。
      *
-     * @return 新条目 id；失败返回 -1
+     * @return 新条目 id；失败返回 -1（失败原因见 {@link #getLastError()}）
      */
     public synchronized long addChunk(String title, String category, String keywords,
                                       String content, String source) {
+        lastError = null;
         KnowledgeChunk chunk = new KnowledgeChunk(title, category, keywords, content, source);
         if (chunk.title.isEmpty() && chunk.content.isEmpty()) {
+            lastError = "标题与内容均为空";
             Log.w(TAG, "addChunk 被拒绝：标题与内容均为空");
             return -1;
         }
@@ -479,14 +680,21 @@ public class KnowledgeBaseManager {
             chunk.content = chunk.title;
         }
         long now = System.currentTimeMillis();
-        SQLiteDatabase db = getWritableDb();
+        SQLiteDatabase db;
+        try {
+            db = getWritableDb();
+        } catch (Exception e) {
+            lastError = "知识库数据库不可用: " + e.getMessage();
+            Log.e(TAG, "addChunk 打开数据库失败: " + e.getMessage(), e);
+            return -1;
+        }
         db.beginTransaction();
         try {
             long id = db.insertOrThrow("kb_chunks", null, chunkValues(chunk, now));
-            insertFts(db, id, chunk);
             db.setTransactionSuccessful();
             return id;
         } catch (Exception e) {
+            lastError = e.getMessage();
             Log.e(TAG, "addChunk 失败: " + e.getMessage(), e);
             return -1;
         } finally {
@@ -501,12 +709,20 @@ public class KnowledgeBaseManager {
      * @return 成功添加的条数
      */
     public synchronized int addBatch(JSONArray items) {
+        lastError = null;
         if (items == null) {
             return 0;
         }
         int added = 0;
         long now = System.currentTimeMillis();
-        SQLiteDatabase db = getWritableDb();
+        SQLiteDatabase db;
+        try {
+            db = getWritableDb();
+        } catch (Exception e) {
+            lastError = "知识库数据库不可用: " + e.getMessage();
+            Log.e(TAG, "addBatch 打开数据库失败: " + e.getMessage(), e);
+            return 0;
+        }
         db.beginTransaction();
         try {
             for (int i = 0; i < items.length(); i++) {
@@ -521,12 +737,12 @@ public class KnowledgeBaseManager {
                 if (chunk.content.isEmpty()) {
                     chunk.content = chunk.title;
                 }
-                long id = db.insertOrThrow("kb_chunks", null, chunkValues(chunk, now));
-                insertFts(db, id, chunk);
+                db.insertOrThrow("kb_chunks", null, chunkValues(chunk, now));
                 added++;
             }
             db.setTransactionSuccessful();
         } catch (Exception e) {
+            lastError = e.getMessage();
             Log.e(TAG, "addBatch 失败: " + e.getMessage(), e);
         } finally {
             db.endTransaction();
@@ -543,7 +759,9 @@ public class KnowledgeBaseManager {
      * @return 成功添加的条数
      */
     public synchronized int importJson(String json) {
+        lastError = null;
         if (json == null || json.trim().isEmpty()) {
+            lastError = "JSON 内容为空";
             return 0;
         }
         try {
@@ -554,10 +772,12 @@ public class KnowledgeBaseManager {
             JSONObject root = new JSONObject(trimmed);
             JSONArray chunks = root.optJSONArray("chunks");
             if (chunks == null) {
+                lastError = "JSON 中缺少 chunks 数组（也不支持顶层对象格式）";
                 return 0;
             }
             return addBatch(chunks);
         } catch (JSONException e) {
+            lastError = "JSON 解析失败: " + e.getMessage();
             Log.e(TAG, "importJson 解析失败: " + e.getMessage());
             return 0;
         }
@@ -585,7 +805,7 @@ public class KnowledgeBaseManager {
      * @param title    指定标题（优先于文件名；图片/音频文件名通常无意义，建议传入）
      * @return {"success":true,"added":N,"title":..,"source":..} 或 {"success":false,"message":..}
      */
-    public synchronized JSONObject importDocument(String filePath, String category, String title) {
+    public JSONObject importDocument(String filePath, String category, String title) {
         File file = new File(filePath);
         if (!file.exists() || !file.isFile()) {
             return errorResult("文件不存在: " + filePath);
@@ -696,17 +916,22 @@ public class KnowledgeBaseManager {
         JSONObject result = new JSONObject();
         int added = 0;
         long now = System.currentTimeMillis();
-        SQLiteDatabase db = getWritableDb();
-        db.beginTransaction();
         try {
-            for (KnowledgeChunk chunk : chunks) {
-                long id = db.insertOrThrow("kb_chunks", null, chunkValues(chunk, now));
-                insertFts(db, id, chunk);
-                added++;
+            SQLiteDatabase db = getWritableDb();
+            db.beginTransaction();
+            try {
+                for (KnowledgeChunk chunk : chunks) {
+                    db.insertOrThrow("kb_chunks", null, chunkValues(chunk, now));
+                    added++;
+                }
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
             }
-            db.setTransactionSuccessful();
-        } finally {
-            db.endTransaction();
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "storeChunks 失败: " + e.getMessage(), e);
+            return errorResult("写入知识库失败: " + e.getMessage());
         }
         try {
             result.put("success", true);
@@ -852,18 +1077,21 @@ public class KnowledgeBaseManager {
         if (id <= 0) {
             return false;
         }
-        SQLiteDatabase db = getWritableDb();
-        db.beginTransaction();
+        lastError = null;
         try {
-            db.delete("kb_chunks_fts", "rowid = ?", new String[]{String.valueOf(id)});
-            int rows = db.delete("kb_chunks", "id = ?", new String[]{String.valueOf(id)});
-            db.setTransactionSuccessful();
-            return rows > 0;
+            SQLiteDatabase db = getWritableDb();
+            db.beginTransaction();
+            try {
+                int rows = db.delete("kb_chunks", "id = ?", new String[]{String.valueOf(id)});
+                db.setTransactionSuccessful();
+                return rows > 0;
+            } finally {
+                db.endTransaction();
+            }
         } catch (Exception e) {
+            lastError = e.getMessage();
             Log.e(TAG, "deleteById 失败: " + e.getMessage(), e);
             return false;
-        } finally {
-            db.endTransaction();
         }
     }
 
@@ -876,31 +1104,24 @@ public class KnowledgeBaseManager {
         if (title == null || title.trim().isEmpty()) {
             return 0;
         }
-        SQLiteDatabase db = getWritableDb();
+        lastError = null;
+        SQLiteDatabase db;
+        try {
+            db = getWritableDb();
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "deleteByTitle 打开数据库失败: " + e.getMessage(), e);
+            return 0;
+        }
         db.beginTransaction();
         int deleted = 0;
-        Cursor cursor = null;
         try {
-            cursor = db.query("kb_chunks", new String[]{"id"}, "title = ?",
-                    new String[]{title.trim()}, null, null, null);
-            List<Long> ids = new ArrayList<>();
-            while (cursor.moveToNext()) {
-                ids.add(cursor.getLong(0));
-            }
-            cursor.close();
-            cursor = null;
-            for (Long id : ids) {
-                db.delete("kb_chunks_fts", "rowid = ?", new String[]{String.valueOf(id)});
-                db.delete("kb_chunks", "id = ?", new String[]{String.valueOf(id)});
-                deleted++;
-            }
+            deleted = db.delete("kb_chunks", "title = ?", new String[]{title.trim()});
             db.setTransactionSuccessful();
         } catch (Exception e) {
+            lastError = e.getMessage();
             Log.e(TAG, "deleteByTitle 失败: " + e.getMessage(), e);
         } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
             db.endTransaction();
         }
         return deleted;
@@ -912,18 +1133,21 @@ public class KnowledgeBaseManager {
      * @return 清空的条数
      */
     public synchronized int clear() {
-        SQLiteDatabase db = getWritableDb();
-        db.beginTransaction();
+        lastError = null;
         try {
-            int rows = db.delete("kb_chunks", null, null);
-            db.delete("kb_chunks_fts", null, null);
-            db.setTransactionSuccessful();
-            return rows;
+            SQLiteDatabase db = getWritableDb();
+            db.beginTransaction();
+            try {
+                int rows = db.delete("kb_chunks", null, null);
+                db.setTransactionSuccessful();
+                return rows;
+            } finally {
+                db.endTransaction();
+            }
         } catch (Exception e) {
+            lastError = e.getMessage();
             Log.e(TAG, "clear 失败: " + e.getMessage(), e);
             return 0;
-        } finally {
-            db.endTransaction();
         }
     }
 
@@ -932,9 +1156,10 @@ public class KnowledgeBaseManager {
     /**
      * 知识库统计信息。
      *
-     * @return {"total":N,"categories":{category:count,...},"last_updated":ts}
+     * @return {"total":N,"categories":{category:count,...},"last_updated":ts,"db_version":N}
      */
     public synchronized JSONObject stats() {
+        lastError = null;
         JSONObject result = new JSONObject();
         Cursor cursor = null;
         try {
@@ -965,7 +1190,9 @@ public class KnowledgeBaseManager {
             result.put("total", total);
             result.put("categories", categories);
             result.put("last_updated", lastUpdated);
+            result.put("db_version", DB_VERSION);
         } catch (Exception e) {
+            lastError = e.getMessage();
             Log.e(TAG, "stats 失败: " + e.getMessage(), e);
         } finally {
             if (cursor != null) {
@@ -977,57 +1204,28 @@ public class KnowledgeBaseManager {
 
     // ==================== 内部工具方法 ====================
 
-    private static android.content.ContentValues chunkValues(KnowledgeChunk chunk, long now) {
-        android.content.ContentValues values = new android.content.ContentValues();
+    private static ContentValues chunkValues(KnowledgeChunk chunk, long now) {
+        ContentValues values = new ContentValues();
         values.put("title", chunk.title);
         values.put("category", chunk.category);
         values.put("keywords", chunk.keywords);
         values.put("content", chunk.content);
         values.put("source", chunk.source);
+        values.put("search_text", buildSearchText(chunk));
         values.put("created_at", now);
         values.put("updated_at", now);
         return values;
     }
 
-    private static void insertFts(SQLiteDatabase db, long id, KnowledgeChunk chunk) {
-        android.content.ContentValues ftsValues = new android.content.ContentValues();
-        // 注意：FTS5 表显式指定 rowid（不可用 docid 作为列名，实测多版本 SQLite 均不识别）
-        ftsValues.put("rowid", id);
-        ftsValues.put("title", cjkSpaceOut(chunk.title));
-        ftsValues.put("category", cjkSpaceOut(chunk.category));
-        ftsValues.put("keywords", cjkSpaceOut(chunk.keywords));
-        // search_text：中文逐字空格化后的正文，保证中文关键词可命中
-        ftsValues.put("search_text", cjkSpaceOut(chunk.content));
-        ftsValues.put("content", chunk.content);
-        db.insertOrThrow("kb_chunks_fts", null, ftsValues);
-    }
-
-    /**
-     * 把字符串中的中文字符逐字空格化（如 "原子结构" -> "原 子 结 构 "）。
-     * unicode61 以空白切分 token，空格化后每个汉字成为独立 token，中文检索才能命中。
-     * 非中文（ASCII 字母数字、标点、空白）保持原样。
-     */
-    private static String cjkSpaceOut(String s) {
-        if (s == null || s.isEmpty()) {
-            return s == null ? "" : s;
+    /** 归一化检索文本：标题 + 分类 + 关键词 + 正文，统一小写（中文不受影响） */
+    static String buildSearchText(KnowledgeChunk chunk) {
+        if (chunk == null) {
+            return "";
         }
-        StringBuilder sb = new StringBuilder(s.length() + 16);
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (isCjk(c)) {
-                sb.append(c).append(' ');
-            } else {
-                sb.append(c);
-            }
-        }
-        return sb.toString();
-    }
-
-    private static boolean isCjk(char c) {
-        // CJK 统一表意文字及其扩展区
-        return (c >= '\u3400' && c <= '\u4DBF')
-                || (c >= '\u4E00' && c <= '\u9FFF')
-                || (c >= '\uF900' && c <= '\uFAFF');
+        return ((chunk.title == null ? "" : chunk.title) + " "
+                + (chunk.category == null ? "" : chunk.category) + " "
+                + (chunk.keywords == null ? "" : chunk.keywords) + " "
+                + (chunk.content == null ? "" : chunk.content)).toLowerCase(Locale.ROOT);
     }
 
     private static KnowledgeChunk fromJson(JSONObject obj) {
@@ -1041,50 +1239,5 @@ public class KnowledgeBaseManager {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    private static final Pattern TOKEN_PATTERN = Pattern.compile("[a-z0-9]+|[\\u4e00-\\u9fff]+");
-
-    /**
-     * 把用户原始查询构造成安全的 FTS5 MATCH 表达式：
-     * <ul>
-     *   <li>只保留英文/数字词与中文连续段，其余字符（FTS5 特殊字符 : ( ) " * 等）一律剥离；</li>
-     *   <li>英文/数字词原样 + "*" 前缀匹配；</li>
-     *   <li>中文连续段按字拆开，用引号包裹并用 AND 组合（unicode61 对 CJK 逐字建 token，AND 组合即
-     *       "包含全部关键字" 语义）；</li>
-     *   <li>所有词之间用 AND 连接。</li>
-     * </ul>
-     */
-    private static String buildMatchQuery(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String s = raw.trim().toLowerCase(Locale.ROOT);
-        if (s.isEmpty()) {
-            return null;
-        }
-        List<String> tokens = new ArrayList<>();
-        Matcher m = TOKEN_PATTERN.matcher(s);
-        while (m.find()) {
-            String t = m.group();
-            if (t.matches("[a-z0-9]+")) {
-                tokens.add(t + "*");
-            } else {
-                for (int i = 0; i < t.length(); i++) {
-                    tokens.add("\"" + t.charAt(i) + "\"");
-                }
-            }
-        }
-        if (tokens.isEmpty()) {
-            return null;
-        }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < tokens.size(); i++) {
-            if (i > 0) {
-                sb.append(" AND ");
-            }
-            sb.append(tokens.get(i));
-        }
-        return sb.toString();
     }
 }

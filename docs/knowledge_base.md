@@ -7,7 +7,7 @@
 答题宝内置了**应用级知识库**，供本地 Agent 与在线 Agent 调用。知识库内容**完全由用户维护**（不内置任何种子内容），适合存放应用专属知识、学习资料、笔记、FAQ、操作说明等，让 AI 回答更准确。
 
 **核心能力：**
-- 全文检索（中英文混检，bm25 相关性排序）
+- 全文检索（中英文混检，标题/关键词命中加权 + 更新时间兜底的相关度排序）
 - 运行时增删（单条 / 批量 / JSON 导入）
 - 分类管理、统计查询
 - 完全离线，不依赖任何外部 API
@@ -28,13 +28,13 @@
 │        KnowledgeBaseManager（单例，线程安全）            │
 │   独立数据库 knowledge_base.db（不触碰主数据库）          │
 │   ├── kb_chunks      知识块主表（元数据 + 原文）          │
-│   └── kb_chunks_fts  FTS5 全文索引（bm25 排序）          │
+│   └── search_text    归一化检索列（包含式检索 + 打分）    │
 └──────────────────────────────────────────────────────┘
 ```
 
 - **独立数据库**：知识库存放在独立的 `knowledge_base.db`，不修改主数据库 `smartquiz_database`，零迁移风险。
 - **注册方式**：`AIToolManager.registerToolFactories()` 中注册为 `knowledge_base`（懒加载、自动卸载，与其余 50+ 工具一致）。
-- **在线 Agent 可见**：`@Tool` 注解由 `ToolSchemaExtractor` 自动提取，自动同步到 `OnlineToolRegistry`，在线 Agent 可直接以 function calling 调用。
+- **在线 Agent 可见**：`AIToolManager.getToolDefinition("knowledge_base")` 提供**显式** function calling schema（正确的 `action` 枚举、`top_k`=integer、`semantic`=boolean、`items`=array），`OnlineToolRegistry` 据此生成 tools JSON；同时 `knowledge_base` 已加入在线 Agent 的**核心工具集**（`OnlineAgentEngine` coreTools），并按用户消息关键词/意图追加，保证每轮请求都能看到并调用它。
 - **预留扩展**：`keywords` 字段与表结构已为将来向量语义检索（RAG）预留位置（新增 embedding 列即可，无需重构）。
 
 ## 三、Agent 调用方式
@@ -120,22 +120,37 @@ Agent 会调用 `import_file` 动作完成导入，返回成功条数。
 }
 ```
 
-## 五、中文检索说明
+## 五、检索实现与中文说明（v3：不依赖 FTS）
 
-SQLite FTS5 的 `unicode61` 分词器会把连续中文串（含相邻英文数字）合并成一个长 token，导致中文关键词无法命中。本实现通过**入库时对中文逐字空格化**（存于 FTS `search_text` 列）解决：每个汉字成为独立 token；检索时把中文连续段拆字并用 AND 组合，实现"包含全部关键字"的中文检索；英文/数字按词 + 前缀匹配。经本地 SQLite 3.53 实测：`原子`、`化学键`、`AI 工具`、`qweather` 等中英混合查询均可正确命中。
+**为什么不用 FTS**（历史踩坑，均有真机证据）：
 
-检索串由白名单 token 生成并参数化绑定，FTS5 特殊字符（`" : ( ) *` 等）一律剥离，无注入面。
+| 版本 | 方案 | 结果 |
+|------|------|------|
+| v1 | FTS5 + `unicode61 remove_diacritics 2` + `bm25()` | 部分设备内置 SQLite 未编译 FTS5 → `no such module: fts5`，建表失败，整个知识库不可用 |
+| v2 | 改 FTS4 + 中文逐字空格化 + `snippet()` | 建表能过，但 **FTS3/4 的布尔查询语法随编译开关变化**：未启用 `SQLITE_ENABLE_FTS3_PARENTHESIS` 时，`MATCH '"原" AND "子"'` 里的 `AND` 被当成普通词，检索**恒返回空**（本地 SQLite 实测复现）；FTS4 无 `bm25()`，也拿不到相关性排序 |
+| **v3** | **普通表 + 归一化 `search_text` 列做包含式检索** | 零 SQLite 扩展依赖，任何机型/编译配置都可用 |
+
+当前实现：
+- 入库时把「标题 + 分类 + 关键词 + 正文」小写归一后写入 `search_text`（`buildSearchText`），标题/关键词不额外拆词。
+- 查询分词（`tokenizeQuery`）：英文/数字按词、**中文连续段逐字拆分**，去重并限制 12 个 token，实现"包含全部关键字"的中文检索。
+- 查询 SQL 由 token 生成 `search_text LIKE ?` 的 AND 组合，**全部参数化绑定**（token 来自正则白名单，`%`/`_` 不可能出现），无注入面；分类过滤、条数上限同样绑定。
+- 相关度打分（`scoreOf`）：命中标题/分类/关键词 +3，仅命中正文 +1；同分按 `updated_at` 降序。
+- `snippet` 由 Java 生成（命中位置 ±窗口 + `[命中词]` 标记），不再依赖 FTS 的 `snippet()`。
+- 召回规模按个人知识库量级设计（单次最多扫描 `MAX_CANDIDATES=300` 条候选），全表 LIKE 的开销可忽略。
 
 ## 六、验证方式
 
-- **编译**：`gradlew compileDebugJavaWithJavac` 通过（项目既有 8 个警告与本次改动无关）。
-- **SQL 链路**：本地 SQLite 实测建表、插入、中文/英文检索、分类过滤、注入防护、删除、统计、FTS 与主表 JOIN 一致性，全部通过。
+- **编译**：`gradlew compileDebugJavaWithJavac` 通过。
+- **SQL 链路**：用与真机同款 SQL 语义在本地 SQLite 验证：建表（含 v3 迁移补列 + 回填）、插入、中文逐字检索、英文子串检索、分类过滤、参数化防注入、删除、统计、相关度排序。
 
 ## 七、文件清单
 
 | 文件 | 说明 |
 |------|------|
-| `src/main/java/com/oilquiz/app/ai/knowledge/KnowledgeBaseManager.java` | 知识库引擎：独立 SQLite+FTS5 存储与检索、增删查统计、文档直接导入（`importDocument`）、安全查询构造 |
-| `src/main/java/com/oilquiz/app/ai/knowledge/KnowledgeBaseTool.java` | Agent 工具入口：`@Tool` 注解 + 9 个动作分发（含直接导入文档 `import_document`） |
+| `src/main/java/com/oilquiz/app/ai/knowledge/KnowledgeBaseManager.java` | 知识库引擎：独立 SQLite 存储与检索（v3 无 FTS 依赖）、相关度打分、增删查统计、文档直接导入（`importDocument`）、`lastError` 错误上报 |
+| `src/main/java/com/oilquiz/app/ai/knowledge/KnowledgeBaseTool.java` | Agent 工具入口：`@Tool` 注解 + 9 个动作分发（含直接导入文档 `import_document`）；检索失败与"没找到"分别如实上报 |
+| `src/main/java/com/oilquiz/app/ai/tool/AIToolManager.java` | 注册 `knowledge_base` + **显式 ToolDefinition**（action 枚举/参数真实类型，供在线 function calling） |
+| `src/main/java/com/oilquiz/app/ai/agent/online/OnlineAgentEngine.java` | `knowledge_base` 加入在线 Agent 核心工具集 |
+| `src/main/java/com/oilquiz/app/ai/agent/online/OnlineToolManager.java` | 关键词/意图注入 `knowledge_base`；文件导入超时放宽到 180s |
+| `src/main/java/com/oilquiz/app/ai/agent/online/OnlinePromptBuilder.java` | 【知识库】使用指引（先检索、如何入库、空结果/报错的正确表达） |
 | `tools/knowledge_preprocess.py` | 预处理脚本：Markdown/TXT → 知识 JSON（仅标准库） |
-| `src/main/java/com/oilquiz/app/ai/tool/AIToolManager.java` | 已注册 `knowledge_base`（1 行 + 1 import） |

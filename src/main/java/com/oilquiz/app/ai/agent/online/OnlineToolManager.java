@@ -39,6 +39,8 @@ public class OnlineToolManager {
     private static final int TOOL_TIMEOUT_MS = 30_000;
     /** 权限请求类工具需要用户交互，超时时间设为 120 秒 */
     private static final int PERMISSION_TOOL_TIMEOUT_MS = 120_000;
+    /** 知识库文件导入（OCR/PDF/Office 解析/AI 语音识别转写）耗时长，超时放宽到 180 秒 */
+    private static final int KNOWLEDGE_IMPORT_TIMEOUT_MS = 180_000;
     private static final int MAX_RETRY = 2;
     /** 工具结果截断上限：防止超大结果撑爆上下文/请求体（截断后带标记，提示模型分片读取） */
     private static final int RESULT_MAX_LENGTH = 16 * 1024;
@@ -236,6 +238,7 @@ public class OnlineToolManager {
         map.put("system", java.util.Arrays.asList("system_resource"));
         map.put("phone", java.util.Arrays.asList("app_toolkit"));
         map.put("study_plan", java.util.Arrays.asList("file_generator"));
+        map.put("knowledge", java.util.Arrays.asList("knowledge_base"));
         map.put("import", java.util.Arrays.asList("import_list_files", "import_start", "import_status", "import_cancel",
                 "file_reader", "file_analyzer", "excel_tool", "file_generator", "python_file_ops", "python_execute")); // AI导入（含预处理）
         return map;
@@ -322,6 +325,10 @@ public class OnlineToolManager {
                 }
                 if (containsAny(msg, "学习计划", "备考", "复习计划", "学习安排", "考试计划")) {
                     include.add("file_generator");
+                }
+                if (containsAny(msg, "知识库", "知识库里", "我的笔记", "我的资料", "我的文档", "导入知识",
+                        "加入知识库", "存到知识库", "记到知识库", "knowledge_base", "kb")) {
+                    include.add("knowledge_base");
                 }
             }
             return registry.getToolDefinitionsForNames(include);
@@ -439,8 +446,14 @@ public class OnlineToolManager {
                 && arguments != null
                 && (arguments.contains("\"video\"") || arguments.contains("\"action\":\"video\"")
                         || arguments.contains("\"action\": \"video\""));
-        int effectiveTimeout = (isPermissionRequest || isUserInteractionWait || isMediaSubmit)
-                ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS;
+        // 知识库导入文件：文档解析/OCR/ASR 转写可能远超 30 秒（音频最长 120s），单独放宽
+        boolean isKnowledgeImport = "knowledge_base".equals(toolName) && arguments != null
+                && (arguments.contains("import_document") || arguments.contains("import_file")
+                    || arguments.contains("import_json"));
+        int effectiveTimeout = isKnowledgeImport
+                ? KNOWLEDGE_IMPORT_TIMEOUT_MS
+                : ((isPermissionRequest || isUserInteractionWait || isMediaSubmit)
+                        ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS);
 
         // 带重试的执行
         Exception lastException = null;

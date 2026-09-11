@@ -241,6 +241,7 @@ public class OnlineToolGuide {
             case "python": return "Python";
             case "code": return "代码";
             case "calculator": return "计算";
+            case "knowledge": return "知识库";
             case "speech": return "语音";
             case "tool": return "工具管理";
             case "meta": return "元工具";

@@ -1551,6 +1551,34 @@ public class AIToolManager {
                         .category("data")
                         .whenToUse("import_status 返回 pendingDecision 后，用 ui_component 与用户交互拿到选择，再用本工具回传")
                         .build();
+            case "knowledge_base":
+                // 显式定义（而非从实例反射）：保证在线 function calling 拿到正确类型与 action 枚举，
+                // 否则工具参数全被当成 string，模型容易漏填/填错导致调用失败。
+                return ToolDefinition.builder("knowledge_base",
+                        "知识库（用户维护的应用专属知识/笔记/资料，不是通用百科）："
+                                + "search 全文检索知识库、add/add_batch 添加知识、import_json/import_file 导入知识 JSON、"
+                                + "import_document 直接导入文件（Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写，自动切块）、"
+                                + "delete 删除、clear 清空、stats 统计。"
+                                + "用户问应用专属或用户自己资料里的内容时，先 search 知识库再回答，不要凭空作答。")
+                    .addParameter("action", "string", "操作类型", true, null, Arrays.asList(
+                            "search", "add", "add_batch", "import_json", "import_file",
+                            "import_document", "delete", "clear", "stats"))
+                    .addParameter("query", "string", "检索关键词（search 必填）：中文/英文/数字均可", false)
+                    .addParameter("category", "string", "分类（search 过滤 / add 写入，可选，默认 general）", false)
+                    .addParameter("top_k", "integer", "返回条数上限（search 可选，默认 5，最大 20）", false)
+                    .addParameter("semantic", "boolean", "语义重排（search 可选，默认 false）：true=在线 embedding 重排+rerank 精排（消费在线 API），未配置时自动回退关键词检索", false)
+                    .addParameter("title", "string", "标题（add 必填；import_document 可选，图片/音频建议传语义化标题；delete 可按标题删）", false)
+                    .addParameter("content", "string", "知识正文（add 必填）", false)
+                    .addParameter("keywords", "string", "关键词，逗号分隔（add 可选，增强检索命中）", false)
+                    .addParameter("source", "string", "来源标识，如文件名/链接（add 可选）", false)
+                    .addParameter("id", "integer", "知识 ID（delete 使用，与 title 二选一）", false)
+                    .addParameter("items", "array", "知识对象数组（add_batch 必填），每项 {title, content, category?, keywords?, source?}", false)
+                    .addParameter("json", "string", "知识 JSON 字符串（import_json 必填）：{\"chunks\":[{...}]} 或裸数组", false)
+                    .addParameter("file_path", "string", "文件绝对路径（import_file=知识 JSON 文件；import_document=Word/Excel/TXT/MD/CSV/PDF/HTML/图片/音频）", false)
+                    .category("knowledge")
+                    .whenToUse("用户问应用专属/个人笔记/课程资料类内容时先 knowledge_base(action=search, query=关键词)；"
+                            + "用户要把文件、资料、笔记、录音、截图加入知识库时用 knowledge_base(action=import_document, file_path=绝对路径)")
+                    .build();
             default:
                 // 已注册工厂但未在 switch 中显式定义的工具（memory/workspace/image_gen/
                 // time_date/calculator 等）：从工具实例动态派生描述，保证 Agent 工具清单完整。
