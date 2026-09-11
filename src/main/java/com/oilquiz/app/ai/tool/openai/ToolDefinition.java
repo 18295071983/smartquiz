@@ -13,12 +13,15 @@ public class ToolDefinition {
     private final String description;
     private final List<ParamDefinition> parameters;
     private final String category;
+    /** 工具调用体系 P0-1：一句话适用场景（when_to_use），辅助选型 */
+    private final String whenToUse;
     
     private ToolDefinition(Builder builder) {
         this.name = builder.name;
         this.description = builder.description;
         this.parameters = builder.parameters;
         this.category = builder.category;
+        this.whenToUse = builder.whenToUse;
     }
     
     public String getName() {
@@ -35,6 +38,10 @@ public class ToolDefinition {
     
     public String getCategory() {
         return category;
+    }
+    
+    public String getWhenToUse() {
+        return whenToUse;
     }
     
     public JSONObject toOpenAIFormat() throws JSONException {
@@ -83,6 +90,9 @@ public class ToolDefinition {
     public String toPromptFormat() {
         StringBuilder sb = new StringBuilder();
         sb.append(name).append(": ").append(description).append("\n");
+        if (whenToUse != null && !whenToUse.isEmpty()) {
+            sb.append("适用场景: ").append(whenToUse).append("\n");
+        }
         sb.append("参数:\n");
         for (ParamDefinition param : parameters) {
             sb.append("  - ").append(param.getName());
@@ -102,6 +112,7 @@ public class ToolDefinition {
         private final String description;
         private final List<ParamDefinition> parameters = new ArrayList<>();
         private String category = "general";
+        private String whenToUse = "";
         
         public Builder(String name, String description) {
             this.name = name;
@@ -125,6 +136,12 @@ public class ToolDefinition {
         
         public Builder category(String category) {
             this.category = category;
+            return this;
+        }
+        
+        /** 工具调用体系 P0-1：一句话适用场景（when_to_use） */
+        public Builder whenToUse(String whenToUse) {
+            this.whenToUse = whenToUse == null ? "" : whenToUse;
             return this;
         }
         

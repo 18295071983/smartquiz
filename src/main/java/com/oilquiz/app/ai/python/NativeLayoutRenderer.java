@@ -3340,7 +3340,8 @@ return attachLabel(context, node, props, srWrap, density);
             // radius + background：圆角背景（有其一才设置，避免覆盖控件已有背景）
             boolean hasRadius = node.has("radius");
             boolean hasBg = node.has("background");
-            if (hasRadius || hasBg) {
+            boolean hasBorder = node.has("border") || node.has("border_width");
+            if (hasRadius || hasBg || hasBorder) {
                 int radiusDp = hasRadius ? dp(parseIntSafe(String.valueOf(node.opt("radius"))), density) : 0;
                 int bgColor = 0;
                 boolean bgOk = false;
@@ -3348,14 +3349,39 @@ return attachLabel(context, node, props, srWrap, density);
                     int c = parseColorSafe(String.valueOf(node.opt("background")));
                     if (c != Integer.MIN_VALUE) { bgColor = c; bgOk = true; }
                 }
-                // 仅 radius（无 background）且控件已有背景（如 card 默认白底圆角）→ 跳过，保留原背景
-                if (hasRadius && !bgOk && v.getBackground() != null) {
+                // UI-06 style 边框：border=宽度+颜色（如 "1 #CCCCCC"）或 border_width + border_color
+                int borderWidth = 0;
+                int borderColor = 0xFFFFFFFF;
+                boolean borderOk = false;
+                if (hasBorder) {
+                    Object bObj = node.opt("border");
+                    if (bObj != null) {
+                        String bs = String.valueOf(bObj).trim();
+                        if (bs.matches("\\d+(\\s+#?[0-9A-Fa-f]{6,8})?")) {
+                            String[] bp = bs.split("\\s+");
+                            borderWidth = parseIntSafe(bp[0]);
+                            if (bp.length > 1) {
+                                int c = parseColorSafe(bp[1]);
+                                if (c != Integer.MIN_VALUE) { borderColor = c; borderOk = true; }
+                            }
+                        }
+                    }
+                    if (node.has("border_width")) {
+                        borderWidth = parseIntSafe(String.valueOf(node.opt("border_width")));
+                        int c = parseColorSafe(node.optString("border_color", ""));
+                        if (c != Integer.MIN_VALUE) { borderColor = c; borderOk = true; }
+                    }
+                    if (borderWidth > 0) borderOk = true;
+                }
+                // 仅 radius（无 background/border）且控件已有背景（如 card 默认白底圆角）→ 跳过，保留原背景
+                if (hasRadius && !bgOk && !borderOk && v.getBackground() != null) {
                     return;
                 }
-                if (hasRadius || bgOk) {
+                if (hasRadius || bgOk || borderOk) {
                     android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
                     if (bgOk) gd.setColor(bgColor);
                     if (hasRadius) gd.setCornerRadius(radiusDp);
+                    if (borderOk && borderWidth > 0) gd.setStroke(dp(borderWidth, density), borderColor);
                     v.setBackground(gd);
                 }
             }

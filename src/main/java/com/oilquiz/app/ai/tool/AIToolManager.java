@@ -492,6 +492,8 @@ public class AIToolManager {
             String toolName = entry.getKey();
             Map<String, Object> description = getToolDescriptionFromFactory(toolName);
             if (description != null) {
+                // 工具调用体系 P0-1：附适用场景
+                attachWhenToUse(description, getToolDefinition(toolName));
                 descriptions.add(description);
             }
         }
@@ -529,6 +531,17 @@ public class AIToolManager {
             }
         }
         return createToolDesc(definition.getName(), definition.getDescription(), params);
+    }
+
+    /** 工具调用体系 P0-1：给工具描述附加适用场景（when_to_use），辅助选型 */
+    private Map<String, Object> attachWhenToUse(Map<String, Object> desc, ToolDefinition definition) {
+        if (desc != null && definition != null) {
+            String wtu = definition.getWhenToUse();
+            if (wtu != null && !wtu.isEmpty()) {
+                desc.put("when_to_use", wtu);
+            }
+        }
+        return desc;
     }
 
     private Map<String, Object> createToolDesc(String name, String description, Map<String, String> parameters) {
@@ -1044,6 +1057,7 @@ public class AIToolManager {
                     .addParameter("lat", "number", "纬度（与city二选一，配合lon；别名latitude）", false)
                     .addParameter("lon", "number", "经度（与city二选一，配合lat；别名longitude）", false)
                     .category("weather")
+                    .whenToUse("用户问天气/温度/空气质量/天气预警/生活指数时使用；已知城市直接传city，不知道城市先调location定位")
                     .build();
             case "network_search":
                 return ToolDefinition.builder("network_search", "网络搜索工具（秘塔搜索引擎驱动）：联网搜索+智能问答+网页读取。"
@@ -1065,6 +1079,7 @@ public class AIToolManager {
                     .addParameter("autoRead", "boolean", "是否自动读取详情（smart_search用）", false, true)
                     .addParameter("results", "array", "搜索结果数组（smart_read用，传上一步search返回的results）", false)
                     .category("search")
+                    .whenToUse("需要实时/最新/外部信息（新闻、价格、政策、热点、网页内容、链接正文）时使用；常识与知识类问题直接用自身知识回答，不要搜索")
                     .build();
             case "python_calculate":
                 return ToolDefinition.builder("python_calculate", "使用Python进行数学计算，支持复杂/多步/科学计算表达式")
@@ -1074,6 +1089,7 @@ public class AIToolManager {
                     .build();
             case "file_reader":
                 return ToolDefinition.builder("file_reader", "文件阅读工具：读取全文/按行/区间提取/搜索/实体提取/预览/解析结构化文件(Excel/CSV/JSON/XML)/列目录(list)。自动检测编码(UTF-8/UTF-16/GB18030/GBK)，支持content:// URI(file_uri)。大文件用 read_lines/preview/search_text 分片读取。Excel整表解析用本工具parse_excel；需要按条件查询/修改Excel请用 excel_tool")
+                    .whenToUse("需要读取/查看/搜索本地或工作区文件内容、解析Excel/CSV/JSON/XML、列目录时使用；先确认文件路径再调用")
                     .addParameter("file_path", "string", "文件路径(支持content://开头URI，与file_uri二选一)", false)
                     .addParameter("file_uri", "string", "content:// URI(文件选择器/分享的Uri，与file_path二选一)", false)
                     .addParameter("action", "string", "操作类型: read/read_lines/extract_text/search_text/extract_entities/preview/parse_structured/parse_excel/parse_csv/parse_json/parse_xml/list", false, "read")

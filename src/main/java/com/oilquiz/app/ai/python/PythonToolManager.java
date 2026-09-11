@@ -2722,6 +2722,12 @@ public class PythonToolManager {
                                     if (doneRef[0]) return;
                                     // UI-10 交互反馈：点击立即提示，避免"点了没反应"的感知
                                     showToast("✓ 已提交，正在处理…", false);
+                                    // UI-10 loading 态：按钮禁用+文案变化，防重复点击
+                                    try {
+                                        lb.setEnabled(false);
+                                        lb.setText("处理中…");
+                                    } catch (Throwable ignored) {
+                                    }
                                     java.util.Map<String, Object> values =
                                             com.oilquiz.app.ai.python.NativeLayoutRenderer
                                                     .collectValues(layoutViewRefs);
@@ -3461,6 +3467,12 @@ public class PythonToolManager {
                                             && !"pending".equals(rt.result.get())) return;
                                     // UI-10 交互反馈：点击立即提示（画布按钮）
                                     showToast("✓ 已提交，正在处理…", false);
+                                    // UI-10 loading 态：按钮禁用+文案变化，防重复点击
+                                    try {
+                                        lb.setEnabled(false);
+                                        lb.setText("处理中…");
+                                    } catch (Throwable ignored) {
+                                    }
                                     Map<String, Object> values = com.oilquiz.app.ai.python.NativeLayoutRenderer
                                             .collectValues(curRefs.get());
                                     org.json.JSONObject res = new org.json.JSONObject();

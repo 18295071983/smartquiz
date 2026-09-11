@@ -156,6 +156,11 @@ public class ToolRegistryTool implements AITool {
             JSONObject schema = new JSONObject();
             schema.put("name", def.getName());
             schema.put("description", def.getDescription());
+            // 工具调用体系 P0-1：适用场景（when_to_use）辅助选型
+            String wtu = def.getWhenToUse();
+            if (wtu != null && !wtu.isEmpty()) {
+                schema.put("when_to_use", wtu);
+            }
             JSONObject parameters = new JSONObject();
             if (def.getParameters() != null) {
                 for (com.oilquiz.app.ai.tool.openai.ParamDefinition p : def.getParameters()) {
