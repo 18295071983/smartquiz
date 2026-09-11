@@ -155,6 +155,14 @@ public class NativeLayoutRenderer {
             }
             JSONObject node = root.optJSONObject("root");
             if (node == null) return "root 必须是对象";
+            // 与 render 入口同款兼容：layout 同时带 root+children 时，root 空壳无 children
+            // 则用 layout.children 兜底（校验对象与渲染对象保持一致）
+            if (!node.has("children")) {
+                JSONArray layoutChildren = root.optJSONArray("children");
+                if (layoutChildren != null && layoutChildren.length() > 0) {
+                    try { node.put("children", layoutChildren); } catch (org.json.JSONException ignored) {}
+                }
+            }
             return validateNode(node, 0, registeredNames);
         } catch (Exception e) {
             return "layout 解析失败: " + e.getMessage();
@@ -252,6 +260,16 @@ public class NativeLayoutRenderer {
             }
             JSONObject node = root.optJSONObject("root");
             if (node == null) node = root;
+            // 兼容助手生成的结构瑕疵：layout 同时带 root 与 children 时
+            // （如 {"root":{"spacing":14,"type":"column"},"children":[...] }），
+            // root 是空壳（无 children）而 layout.children 才是真内容 → 把 children 兜底进 root，
+            // 否则渲染器 root 优先会丢弃真内容渲染成空白画布。
+            if (!node.has("children")) {
+                JSONArray layoutChildren = root.optJSONArray("children");
+                if (layoutChildren != null && layoutChildren.length() > 0) {
+                    try { node.put("children", layoutChildren); } catch (org.json.JSONException ignored) {}
+                }
+            }
             // UI-06 顶层 style 参数（ui_component style=... 顶层传法）→ 合并进根节点：
             // 让"动态画布/临时layout"的最外层也吃得到 style（background/radius/border/padding 作用于画布根）
             // 节点已有同名属性优先，style 仅作兜底（与 buildNode 节点级 style 口径一致）
