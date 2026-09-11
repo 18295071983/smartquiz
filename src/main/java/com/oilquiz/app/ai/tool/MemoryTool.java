@@ -55,6 +55,7 @@ public class MemoryTool implements AITool {
         params.put("key", "记忆键（如 user_name / preference_city），save/recall/delete 用");
         params.put("value", "记忆值（内容），save 用");
         params.put("category", "分类：fact(事实)|preference(偏好)|context(情境)，save 用；list 可按分类过滤。默认 fact");
+        params.put("ttl", "可选，有效期秒数（save 用，>0 时记忆到期自动失效；不传则永不过期/沿用原TTL）。如临时情境 context 可设 3600");
         return params;
     }
 
@@ -81,8 +82,16 @@ public class MemoryTool implements AITool {
                     String category = parameters.get("category") != null
                             ? String.valueOf(parameters.get("category")) : null;
                     String cat = AgentMemoryStore.normalizeCategory(category);
+                    long ttlSeconds = 0L;
+                    if (parameters.get("ttl") != null) {
+                        try {
+                            ttlSeconds = Long.parseLong(String.valueOf(parameters.get("ttl")));
+                            if (ttlSeconds < 0) ttlSeconds = 0L;
+                        } catch (NumberFormatException ignored) {
+                        }
+                    }
                     boolean replaced = store.get(key.trim()) != null;
-                    boolean ok = store.save(key.trim(), value.trim(), cat);
+                    boolean ok = store.save(key.trim(), value.trim(), cat, ttlSeconds);
                     if (!ok) {
                         return AIToolResult.fail("记忆保存失败（存储异常）", null);
                     }
@@ -90,9 +99,11 @@ public class MemoryTool implements AITool {
                     result.put("status", "saved");
                     result.put("key", key.trim());
                     result.put("category", cat);
+                    result.put("ttlSeconds", ttlSeconds);
                     result.put("replaced", replaced);
                     result.put("total", store.size());
-                    result.put("message", (replaced ? "已更新" : "已保存") + "[" + cat + "]记忆: " + key.trim());
+                    result.put("message", (replaced ? "已更新" : "已保存") + "[" + cat + "]记忆: " + key.trim()
+                            + (ttlSeconds > 0 ? "（" + ttlSeconds + "秒后自动失效）" : ""));
                     return AIToolResult.success(result);
                 }
                 case "recall": {
@@ -158,9 +169,15 @@ public class MemoryTool implements AITool {
                         item.put("key", e.key);
                         item.put("value", e.value);
                         item.put("category", e.category);
+                        if (e.ttlSeconds > 0) {
+                            long remain = e.ttlSeconds - (System.currentTimeMillis() - e.updatedAt) / 1000L;
+                            item.put("ttl", Math.max(0, remain) + "s");
+                        }
                         items.add(item);
                         if (summary.length() > 0) summary.append("\n");
-                        summary.append("[").append(e.category).append("] ").append(e.key).append(": ").append(e.value);
+                        summary.append("[").append(e.category).append("] ").append(e.key).append(": ").append(e.value)
+                                .append(e.ttlSeconds > 0 ? "（剩余" + Math.max(0, e.ttlSeconds
+                                        - (System.currentTimeMillis() - e.updatedAt) / 1000L) + "s）" : "");
                     }
                     result.put("memories", items);
                     result.put("message", all.isEmpty() ? "暂无记忆" : "记忆列表:\n" + summary);

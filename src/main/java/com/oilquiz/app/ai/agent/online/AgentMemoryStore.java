@@ -97,12 +97,26 @@ public class AgentMemoryStore {
     }
 
     /** 保存一条记忆（指定分类：fact/preference/context，非法回退 fact） */
-    public synchronized boolean save(String key, String value, String category) {
+    public boolean save(String key, String value, String category) {
+        return save(key, value, category, 0L);
+    }
+
+    /**
+     * 保存一条记忆（维度三 P1-1 记忆时效：ttlSeconds > 0 时该条记忆到期自动失效）。
+     * 同 key 重复保存视为更新（刷新 updatedAt；ttl 未传时保留原 TTL，冲突策略=新值覆盖旧值）。
+     */
+    public synchronized boolean save(String key, String value, String category, long ttlSeconds) {
         if (key == null || key.trim().isEmpty() || value == null || value.isEmpty()) return false;
         key = key.trim();
         String cat = normalizeCategory(category);
         if (value.length() > MAX_VALUE_LENGTH) {
             value = value.substring(0, MAX_VALUE_LENGTH);
+        }
+        // 同 key 更新：保留原 TTL（除非本次显式传入新的）
+        long ttl = ttlSeconds;
+        if (ttl <= 0) {
+            MemoryEntry old = memories.get(key);
+            if (old != null && old.ttlSeconds > 0) ttl = old.ttlSeconds;
         }
         // 上限控制：新 key 且已满时淘汰最旧（updatedAt 最早）
         if (!memories.containsKey(key) && memories.size() >= MAX_MEMORIES) {
@@ -112,22 +126,61 @@ public class AgentMemoryStore {
                 AILogger.i(TAG, "记忆已满，淘汰最旧: " + oldest.key);
             }
         }
-        memories.put(key, new MemoryEntry(key, value, cat, System.currentTimeMillis()));
+        memories.put(key, new MemoryEntry(key, value, cat, ttl, System.currentTimeMillis()));
         persist();
         return true;
     }
 
-    /** 读取一条记忆 */
+    /** 读取一条记忆（维度三 P1-1：过期条目视为不存在并在读取时清除） */
     public String get(String key) {
         if (key == null) return null;
         MemoryEntry e = memories.get(key.trim());
-        return e != null ? e.value : null;
+        if (e == null) return null;
+        if (isExpired(e)) {
+            synchronized (this) {
+                memories.remove(e.key);
+                persist();
+            }
+            AILogger.i(TAG, "记忆已过期并清除: " + e.key + "（TTL " + e.ttlSeconds + "s）");
+            return null;
+        }
+        return e.value;
     }
 
-    /** 读取一条记忆完整条目（含分类） */
+    /** 读取一条记忆完整条目（含分类与 TTL；过期条目清除并返回 null） */
     public MemoryEntry getEntry(String key) {
         if (key == null) return null;
-        return memories.get(key.trim());
+        MemoryEntry e = memories.get(key.trim());
+        if (e == null) return null;
+        if (isExpired(e)) {
+            synchronized (this) {
+                memories.remove(e.key);
+                persist();
+            }
+            return null;
+        }
+        return e;
+    }
+
+    /** 清理所有已过期记忆，返回清理条数（维度三 P1-1：旧信息自动失效） */
+    public synchronized int purgeExpired() {
+        int removed = 0;
+        for (MemoryEntry e : memories.values()) {
+            if (isExpired(e)) {
+                memories.remove(e.key);
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            persist();
+            AILogger.i(TAG, "purgeExpired: 清理过期记忆 " + removed + " 条");
+        }
+        return removed;
+    }
+
+    /** 是否已过期 */
+    private static boolean isExpired(MemoryEntry e) {
+        return e.ttlSeconds > 0 && (System.currentTimeMillis() - e.updatedAt) >= e.ttlSeconds * 1000L;
     }
 
     /** 删除一条记忆 */
@@ -170,15 +223,41 @@ public class AgentMemoryStore {
     }
 
     /**
-     * 记忆摘要（注入系统提示词用）：按最近更新优先，最多 MAX_SUMMARY_ENTRIES 条、
-     * 总长 MAX_SUMMARY_CHARS 字符；每条带分类标签（[偏好]/[情境]/[事实]），
-     * 帮助模型按语境正确使用记忆。超出部分提示用 memory list 查看。无记忆返回 null。
+     * 记忆摘要（注入系统提示词用）：维度三 P1-2 相关性筛选——
+     * 按当前语境关键词（promptKeywords，可空）对记忆做相关性加权排序，
+     * 命中关键词的优先注入；无关键词时按最近更新优先。
+     * 最多 MAX_SUMMARY_ENTRIES 条、总长 MAX_SUMMARY_CHARS 字符；排除已过期；
+     * 超出部分提示用 memory list 查看。无记忆返回 null。
      */
-    public String buildMemorySummary() {
+    public String buildMemorySummary(String... promptKeywords) {
+        purgeExpired();
         if (memories.isEmpty()) return null;
         List<MemoryEntry> all = new ArrayList<>(memories.values());
-        // 最近更新优先
-        all.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
+        // 相关性加权：命中关键词数越多越靠前；同权时最近更新优先
+        java.util.Set<String> kws = new java.util.HashSet<>();
+        if (promptKeywords != null) {
+            for (String kw : promptKeywords) {
+                if (kw != null) {
+                    String w = kw.trim().toLowerCase();
+                    if (w.length() >= 2) kws.add(w);
+                }
+            }
+        }
+        boolean hasKw = !kws.isEmpty();
+        for (MemoryEntry e : all) {
+            int hits = 0;
+            if (hasKw) {
+                String hay = (e.key + " " + e.value).toLowerCase();
+                for (String w : kws) {
+                    if (hay.contains(w)) hits++;
+                }
+            }
+            e._relScore = hits;
+        }
+        all.sort((a, b) -> {
+            if (hasKw && b._relScore != a._relScore) return Integer.compare(b._relScore, a._relScore);
+            return Long.compare(b.updatedAt, a.updatedAt);
+        });
         StringBuilder sb = new StringBuilder();
         int count = 0;
         for (MemoryEntry e : all) {
@@ -224,6 +303,7 @@ public class AgentMemoryStore {
                 obj.put("key", e.key);
                 obj.put("value", e.value);
                 obj.put("category", e.category);
+                obj.put("ttlSeconds", e.ttlSeconds);
                 obj.put("updatedAt", e.updatedAt);
                 arr.put(obj);
             }
@@ -257,10 +337,11 @@ public class AgentMemoryStore {
                 String key = obj.optString("key", "");
                 String value = obj.optString("value", "");
                 if (!key.isEmpty() && !value.isEmpty()) {
-                    // 旧格式无 updatedAt → 记为 0（淘汰时优先）；无 category → 兼容为 fact
+                    // 旧格式无 updatedAt → 记为 0（淘汰时优先）；无 category → 兼容为 fact；无 ttl → 永不过期
                     long updatedAt = obj.optLong("updatedAt", 0L);
                     String category = normalizeCategory(obj.optString("category", CATEGORY_FACT));
-                    memories.put(key, new MemoryEntry(key, value, category, updatedAt));
+                    long ttlSeconds = obj.optLong("ttlSeconds", 0L);
+                    memories.put(key, new MemoryEntry(key, value, category, ttlSeconds, updatedAt));
                 }
             }
             AILogger.i(TAG, "Memory loaded: " + memories.size() + " entries");
@@ -291,21 +372,28 @@ public class AgentMemoryStore {
         }
     }
 
-    /** 记忆条目（key/value + 分类 + 最近更新时间） */
+    /** 记忆条目（key/value + 分类 + TTL + 最近更新时间；_relScore 为相关性排序临时分） */
     public static class MemoryEntry {
         public final String key;
         public final String value;
         public final String category;
+        public final long ttlSeconds;
         public final long updatedAt;
+        public int _relScore;
 
         public MemoryEntry(String key, String value) {
-            this(key, value, CATEGORY_FACT, System.currentTimeMillis());
+            this(key, value, CATEGORY_FACT, 0L, System.currentTimeMillis());
         }
 
         public MemoryEntry(String key, String value, String category, long updatedAt) {
+            this(key, value, category, 0L, updatedAt);
+        }
+
+        public MemoryEntry(String key, String value, String category, long ttlSeconds, long updatedAt) {
             this.key = key;
             this.value = value;
             this.category = normalizeCategory(category);
+            this.ttlSeconds = ttlSeconds;
             this.updatedAt = updatedAt;
         }
     }

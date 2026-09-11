@@ -140,6 +140,39 @@ public class FileGeneratorTool implements AITool {
         }
     }
 
+    /** 保留的历史版本上限（维度六 P2-1 文件版本管理） */
+    private static final int MAX_FILE_VERSIONS = 5;
+
+    /**
+     * 覆盖写前备份历史版本：当前文件 → 同名.ver1，旧版本依次轮转（.ver1→.ver2…），
+     * 超出 MAX_FILE_VERSIONS 的最旧版本删除。仅备份非空已存在文件，失败不阻断主流程。
+     */
+    private void backupVersion(File file) {
+        try {
+            if (file == null || !file.exists() || file.length() == 0) return;
+            File dir = file.getParentFile();
+            String base = file.getName();
+            // 1) 轮转旧版本（从旧到新，先腾出最末位）
+            for (int v = MAX_FILE_VERSIONS - 1; v >= 1; v--) {
+                File oldV = new File(dir, base + ".ver" + v);
+                File newV = new File(dir, base + ".ver" + (v + 1));
+                if (newV.exists() && !newV.delete()) {
+                    AILogger.w(TAG, "删除旧版本失败: " + newV.getName());
+                }
+                if (oldV.exists() && !oldV.renameTo(newV)) {
+                    AILogger.w(TAG, "轮转版本失败: " + oldV.getName());
+                }
+            }
+            // 2) 当前文件 → ver1
+            File ver1 = new File(dir, base + ".ver1");
+            java.nio.file.Files.copy(file.toPath(), ver1.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            AILogger.i(TAG, "已备份文件版本: " + base + " → " + base + ".ver1");
+        } catch (Exception e) {
+            AILogger.w(TAG, "备份文件版本失败: " + (file != null ? file.getName() : "?") + " - " + e.getMessage());
+        }
+    }
+
     private AIToolResult createFile(Map<String, Object> parameters) {
         String filePath = (String) parameters.get("file_path");
         String content = (String) parameters.get("content");
@@ -164,6 +197,9 @@ public class FileGeneratorTool implements AITool {
             if (parentDir != null && !parentDir.exists()) {
                 parentDir.mkdirs();
             }
+            
+            // 维度六 P2-1 文件版本管理：覆盖前备份历史版本（保留最近 5 版，避免覆盖丢失）
+            backupVersion(file);
             
             try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
                 writer.write(content);

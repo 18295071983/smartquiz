@@ -60,6 +60,8 @@ public class OnlinePromptBuilder {
 
         sb.append(buildTaskGuideSection());
 
+        sb.append(buildMultimodalGuideSection());
+
         sb.append("【图片生成】\n");
         sb.append("用户要求生成/画/绘制图片时，优先调用 image_gen 工具（自动下载并内联显示在对话中，点击可全屏放大查看）；\n");
         sb.append("也可以直接输出 image_grid 组件标记展示图片。避免用 python_execute 或 system_resource(action=open_url) 这种绕路方式。\n\n");
@@ -172,6 +174,21 @@ public class OnlinePromptBuilder {
         sb.append("- 收尾：任务完成时 task complete；无法完成时 task fail；用户取消时 task delete\n");
         sb.append("- 查看：task list 列出全部任务（可按 filter 按状态过滤）；有活跃任务时每轮自动注入【当前任务】摘要\n");
         sb.append("使用边界：一次性问答、单步操作不建任务；一个多步任务合并为一条任务维护，不逐步骤建；已完成任务无需再提。\n\n");
+        return sb.toString();
+    }
+
+    /**
+     * 构建多模态能力边界说明（维度九 P1-1）：明确可处理的输入类型与边界，
+     * 避免模型对不支持的输入做承诺。
+     */
+    private String buildMultimodalGuideSection() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【多模态能力边界】\n");
+        sb.append("- 图片理解：用户发送的图片由系统先做 OCR/视觉识别后以文字结果回传，你按文字内容理解；你本身不直接“看”图片，涉及图片内容细节时以 OCR 结果为准。\n");
+        sb.append("- 图片生成：需要生成/绘制图片时用 image_gen 工具；不要声称“已生成图片”却未实际调用工具。\n");
+        sb.append("- 语音：支持语音输入（系统自动转文字）与语音播报（speech_synthesis 工具），按文字处理语音消息即可。\n");
+        sb.append("- 文件：支持文本类文件（txt/md/json/csv/xml/代码等）读取解析；二进制/加密/超大文件可能无法直接读取，如实告知用户。\n");
+        sb.append("- 边界：超出上述能力（如视频理解、实时摄像头、音频内容识别）时明确说明不支持，不臆测结果。\n\n");
         return sb.toString();
     }
 

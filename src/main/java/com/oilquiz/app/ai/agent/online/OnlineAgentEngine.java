@@ -325,8 +325,8 @@ public class OnlineAgentEngine {
             // 插到最前（恢复的历史可能是 用户/助手 消息，system 必须在前）
             messageHistory.add(0, systemMsg);
 
-            // 注入长期记忆摘要（跨会话持久化的用户偏好/事实），帮助模型"记得你"
-            String memorySummary = AgentMemoryStore.getInstance(activity).buildMemorySummary();
+            // 注入长期记忆摘要（维度三 P1-2 相关性筛选：以当前用户消息为关键词加权排序，控制注入体积）
+            String memorySummary = AgentMemoryStore.getInstance(activity).buildMemorySummary(userMessage);
             if (memorySummary != null && !memorySummary.isEmpty()) {
                 JsonObject memoryMsg = new JsonObject();
                 memoryMsg.addProperty("role", "system");
