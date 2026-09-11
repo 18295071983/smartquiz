@@ -256,6 +256,7 @@ public class AIToolManager {
             registerToolFactory("image_gen", ImageGenTool.class, ImageGenTool::new);
             registerToolFactory("memory", MemoryTool.class, MemoryTool::new);
         registerToolFactory("task", TaskTool.class, TaskTool::new); // 维度四 P0-1：任务状态跟踪
+        registerToolFactory("import_list_files", ImportListFilesTool.class, ImportListFilesTool::new); // AI导入：发现题库文件
         registerToolFactory("import_start", ImportStartTool.class, ImportStartTool::new); // AI导入：启动异步导入
         registerToolFactory("import_status", ImportStatusTool.class, ImportStatusTool::new); // AI导入：查询进度
         registerToolFactory("import_cancel", ImportCancelTool.class, ImportCancelTool::new); // AI导入：取消
@@ -1488,6 +1489,48 @@ public class AIToolManager {
                     .addParameter("max_rows", "integer", "最大返回行数(query用，默认100)", false, 100)
                     .category("data")
                     .build();
+            case "import_list_files":
+                return ToolDefinition.builder("import_list_files",
+                        "题库文件发现（智能体全自动导入第一步）：列出设备上可导入的题库文件（Excel .xlsx/.xls、CSV、JSON、Markdown .md、文本 .txt），"
+                                + "返回 JSON [{path,name,size,type,modified}] 按修改时间倒序。扫描范围：应用公共目录 OilQuiz（含 source 子目录）与系统 Download 目录；"
+                                + "拿到 path 后传给 import_start 的 filePath 参数。导入前必须先调用本工具确认文件路径，避免 import_start 报文件不存在。")
+                        .addParameter("dir", "string", "要扫描的目录路径（可选，默认自动扫描公共目录 OilQuiz 与 Download）", false)
+                        .addParameter("keyword", "string", "文件名关键字过滤（可选，如\"数学\"\"期中\"）", false)
+                        .category("data")
+                        .whenToUse("用户要求导入题库/题目文件，或需要确认某个题库文件是否存在、路径是什么时，先调用本工具发现文件")
+                        .build();
+            case "import_start":
+                return ToolDefinition.builder("import_start",
+                        "题库导入（启动）——智能体全自动：异步启动 v2 智能导入管线，把题库文件（Excel/CSV/JSON/Markdown/文本）解析为题目并入库。"
+                                + "字段映射/数据预览/缺失字段填充/最终入库四个决策点全自动执行，无需人工确认；"
+                                + "filePath 必填（先用 import_list_files 发现文件拿到 path），返回 taskId 后用 import_status 轮询（RUNNING→DONE/ERROR），"
+                                + "完成后返回新增/重复/失败统计；import_cancel 取消。导入耗时数十秒到数分钟，不要重复启动同一文件。"
+                                + "多文件可依次启动多个任务并行导入。")
+                        .addParameter("filePath", "string", "题库文件完整路径（必填，先用 import_list_files 发现）", true)
+                        .addParameter("sheetIndex", "integer", "Excel 工作表索引（-1=自动检测最佳工作表，默认 -1）", false, -1)
+                        .addParameter("docHint", "string", "题库说明/字段约定（帮助 AI 识别列含义，可选）", false)
+                        .addParameter("fillMissing", "boolean", "是否 AI 补全缺失字段（题型/难度/分类/解析，默认 true）", false, true)
+                        .addParameter("skipIncomplete", "boolean", "是否跳过缺字段的行（默认 false=尽量保留）", false, false)
+                        .addParameter("questionType", "string", "强制题型（可选，如\"单选题\"；默认按内容自动识别）", false)
+                        .category("data")
+                        .whenToUse("用户要求把题库文件导入 App/入库题目时使用；先 import_list_files 拿到路径，再本工具启动，然后 import_status 轮询到完成")
+                        .build();
+            case "import_status":
+                return ToolDefinition.builder("import_status",
+                        "题库导入（状态查询）：查询 import_start 启动的任务进度与结果，返回 JSON {taskId,status(RUNNING|DONE|ERROR|CANCELLED|NOT_FOUND),"
+                                + "stage(start|sheet|mapping|parse|fill|ingest|done|error),current,total,imported,duplicated,failed,totalRows}。"
+                                + "导入中建议每隔数秒查询一次，直到 status=DONE 后向用户汇报统计；status=ERROR 时读取 error 字段说明原因。")
+                        .addParameter("taskId", "string", "import_start 返回的任务 ID（必填）", true)
+                        .category("data")
+                        .whenToUse("import_start 启动后轮询导入进度/结果时使用")
+                        .build();
+            case "import_cancel":
+                return ToolDefinition.builder("import_cancel",
+                        "题库导入（取消）：停止进行中的导入任务，返回 {taskId,status:CANCELLED}。")
+                        .addParameter("taskId", "string", "import_start 返回的任务 ID（必填）", true)
+                        .category("data")
+                        .whenToUse("用户要求停止导入，或导入长时间卡住需要中止时使用")
+                        .build();
             default:
                 // 已注册工厂但未在 switch 中显式定义的工具（memory/workspace/image_gen/
                 // time_date/calculator 等）：从工具实例动态派生描述，保证 Agent 工具清单完整。

@@ -236,7 +236,7 @@ public class OnlineToolManager {
         map.put("system", java.util.Arrays.asList("system_resource"));
         map.put("phone", java.util.Arrays.asList("app_toolkit"));
         map.put("study_plan", java.util.Arrays.asList("file_generator"));
-        map.put("import", java.util.Arrays.asList("import_start", "import_status", "import_cancel")); // AI导入
+        map.put("import", java.util.Arrays.asList("import_list_files", "import_start", "import_status", "import_cancel")); // AI导入
         return map;
     }
 
@@ -288,6 +288,10 @@ public class OnlineToolManager {
                 }
                 if (containsAny(msg, "数据库", "题库", "题目", "背诵", "测验", "刷题", "database", "records")) {
                     include.add("database");
+                }
+                if (containsAny(msg, "导入", "题库导入", "导入题目", "导入题库", "import", "导入文件")) {
+                    include.add("import_list_files"); include.add("import_start");
+                    include.add("import_status"); include.add("import_cancel");
                 }
                 if (containsAny(msg, "python", "代码", "脚本", "数据分析", "统计数据", "处理数据", "运行程序",
                         "写个程序", "爬虫", "自动化")) {

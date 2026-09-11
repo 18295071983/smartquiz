@@ -416,8 +416,12 @@ public class AIImportActivity extends BaseActivity {
         if (!guide.isEmpty()) {
             prompt.append("\n题库说明: ").append(guide);
         }
-        prompt.append("\n请用 import_start 工具启动导入（可指定 fillMissing 等参数），"
-                + "然后用 import_status 轮询直到完成，最后汇总新增/重复/失败数量并给出简短结论。");
+        prompt.append("\n请执行智能体全自动导入流程："
+                + "1) 先调 import_list_files 确认目标文件存在并拿到完整路径（若上方已给路径可直接用）；"
+                + "2) 调 import_start 启动导入（filePath 必填，可按需指定 sheetIndex/fillMissing/questionType）；"
+                + "3) 用 import_status 轮询直到 DONE 或 ERROR；"
+                + "4) 完成后汇总新增/重复/失败数量并给出简短结论。"
+                + "四个决策点（字段映射/数据预览/填充/入库）已全自动放行，无需用户确认。");
 
         // 创建/复用智能体会话视图
         if (agentSessionContainer.getChildCount() == 0) {
