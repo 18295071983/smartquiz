@@ -236,6 +236,7 @@ public class OnlineToolManager {
         map.put("system", java.util.Arrays.asList("system_resource"));
         map.put("phone", java.util.Arrays.asList("app_toolkit"));
         map.put("study_plan", java.util.Arrays.asList("file_generator"));
+        map.put("import", java.util.Arrays.asList("import_start", "import_status", "import_cancel")); // AI导入
         return map;
     }
 

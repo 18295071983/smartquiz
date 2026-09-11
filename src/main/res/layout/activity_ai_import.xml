@@ -101,6 +101,18 @@
                             android:textColor="?attr/colorOnPrimary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnAgentImport"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="@dimen/size_48"
+                            android:layout_weight="1"
+                            android:layout_marginStart="@dimen/space_8"
+                            android:text="🤖 智能体导入"
+                            app:backgroundTint="?attr/colorTertiary"
+                            android:textColor="?attr/colorOnTertiary"
+                            app:cornerRadius="@dimen/radius_12"
+                            android:textAllCaps="false" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -538,6 +550,23 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:visibility="gone" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 智能体会话区：AgentSessionView 内嵌容器，初始隐藏 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/agentSessionCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="?attr/colorSurface"
+                app:cardCornerRadius="12dp"
+                android:visibility="gone"
+                android:layout_marginBottom="@dimen/space_12">
+
+                <FrameLayout
+                    android:id="@+id/agentSessionContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
             </com.google.android.material.card.MaterialCardView>
 
             <!-- 结果统计区：初始隐藏，导入中显示进度、完成后显示数字 -->

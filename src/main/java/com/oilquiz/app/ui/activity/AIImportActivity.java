@@ -7,6 +7,7 @@ import android.content.ClipData;
 import android.net.Uri;
 import android.util.Log;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -14,6 +15,8 @@ import androidx.appcompat.app.AlertDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.oilquiz.app.R;
+import com.oilquiz.app.ai.agent.AgentSession;
+import com.oilquiz.app.ai.agent.ui.AgentSessionView;
 import com.oilquiz.app.ai.chat.AgentExecutionView;
 import com.oilquiz.app.ai.importing.AIImportOrchestrator;
 import com.oilquiz.app.ai.model.OnlineModelManager;
@@ -66,6 +69,13 @@ public class AIImportActivity extends BaseActivity {
     private TextView tvFileName;
     private MaterialButton btnStartImport;
     private MaterialButton btnCancel;
+
+    // 智能体导入区
+    private MaterialButton btnAgentImport;
+    private MaterialCardView agentSessionCard;
+    private FrameLayout agentSessionContainer;
+    private AgentSession agentSession;
+    private AgentSessionView agentSessionView;
 
     // Agent 执行区
     private AgentExecutionView agentView;
@@ -124,6 +134,11 @@ public class AIImportActivity extends BaseActivity {
         tvFileName = findViewById(R.id.tvFileName);
         btnStartImport = findViewById(R.id.btnStartImport);
         btnCancel = findViewById(R.id.btnCancel);
+
+        // 智能体导入区
+        btnAgentImport = findViewById(R.id.btnAgentImport);
+        agentSessionCard = findViewById(R.id.agentSessionCard);
+        agentSessionContainer = findViewById(R.id.agentSessionContainer);
 
         // Agent 执行区
         agentView = findViewById(R.id.agentView);
@@ -252,6 +267,19 @@ public class AIImportActivity extends BaseActivity {
             showToast(getString(R.string.h_2111ccbb));
         });
 
+        // 智能体导入：AgentSession 驱动 v2 管线（import_start/import_status 工具）
+        btnAgentImport.setOnClickListener(v -> {
+            if (currentFile == null && selectedFiles.isEmpty()) {
+                showToast(getString(R.string.h_e74c3ec4));
+                return;
+            }
+            if (!hasPublicStoragePermission()) {
+                requestPublicStoragePermission();
+                return;
+            }
+            startAgentImport();
+        });
+
         // 模型切换
         btnSwitchModel.setOnClickListener(v -> showModelSwitchDialog());
 
@@ -364,6 +392,47 @@ public class AIImportActivity extends BaseActivity {
             return;
         }
         runV2Import();
+    }
+
+    /**
+     * 启动智能体导入：AgentSession 驱动（在线模型推理 + import_start/import_status 工具）。
+     * 用户指令 = 系统引导 + 文件清单 + 用户填写的题库说明；执行过程用 AgentSessionView 实时展示。
+     */
+    private void startAgentImport() {
+        // 构建智能体指令：明确文件与目标，让 Agent 走 import_start → 轮询 import_status → 汇报
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("请帮我完成题库智能导入。");
+        if (currentFile != null) {
+            prompt.append("\n目标文件: ").append(currentFile.getAbsolutePath());
+        } else if (!selectedFiles.isEmpty()) {
+            for (File f : selectedFiles) {
+                prompt.append("\n目标文件: ").append(f.getAbsolutePath());
+            }
+        }
+        String guide = etUserGuide != null ? etUserGuide.getText().toString().trim() : "";
+        if (!guide.isEmpty()) {
+            prompt.append("\n题库说明: ").append(guide);
+        }
+        prompt.append("\n请用 import_start 工具启动导入（可指定 fillMissing 等参数），"
+                + "然后用 import_status 轮询直到完成，最后汇总新增/重复/失败数量并给出简短结论。");
+
+        // 创建/复用智能体会话视图
+        if (agentSessionContainer.getChildCount() == 0) {
+            agentSessionView = new AgentSessionView(this);
+            agentSessionContainer.addView(agentSessionView,
+                    new FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.WRAP_CONTENT));
+        }
+        if (agentSession != null) {
+            agentSession.shutdown();
+        }
+        agentSession = AgentSession.create(this);
+        agentSessionView.setSession(agentSession);
+        agentSessionView.reset();
+        agentSessionCard.setVisibility(View.VISIBLE);
+
+        agentSessionView.start(prompt.toString(), 8192);
     }
 
     private boolean isExcelFile(File file) {
@@ -1294,6 +1363,10 @@ public class AIImportActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (agentSession != null) {
+            agentSession.shutdown();
+            agentSession = null;
+        }
         stopMonitor();
         // 预览页打开期间 Activity 被销毁（用户退出等）：唤醒等待锁并标记取消，
         // 避免导入线程永久阻塞在 previewWaitLock 上

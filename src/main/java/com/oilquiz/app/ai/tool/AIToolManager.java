@@ -256,6 +256,9 @@ public class AIToolManager {
             registerToolFactory("image_gen", ImageGenTool.class, ImageGenTool::new);
             registerToolFactory("memory", MemoryTool.class, MemoryTool::new);
         registerToolFactory("task", TaskTool.class, TaskTool::new); // 维度四 P0-1：任务状态跟踪
+        registerToolFactory("import_start", ImportStartTool.class, ImportStartTool::new); // AI导入：启动异步导入
+        registerToolFactory("import_status", ImportStatusTool.class, ImportStatusTool::new); // AI导入：查询进度
+        registerToolFactory("import_cancel", ImportCancelTool.class, ImportCancelTool::new); // AI导入：取消
         registerToolFactory("reminder", ReminderTool.class, ReminderTool::new); // 维度十 PER-02：定时提醒
             registerToolFactory("workspace", WorkspaceTool.class, WorkspaceTool::new);
             Log.i(TAG, "Python tool factories registered");
