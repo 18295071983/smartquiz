@@ -836,6 +836,19 @@ public class PermissionManagerTool implements AITool {
                 explanation.put("usage", "蓝牙设备连接、数据传输等");
                 explanation.put("protectionLevel", "普通权限");
                 break;
+            case "震动":
+            case "vibrate":
+                explanation.put("description", "允许应用控制设备震动");
+                explanation.put("usage", "闹钟/定时提醒到点震动（与通知铃声配合），以及各类提示震动");
+                explanation.put("protectionLevel", "普通权限（安装时自动授予，无需请求）");
+                break;
+            case "通知":
+            case "notification":
+            case "post_notifications":
+                explanation.put("description", "允许应用发送通知");
+                explanation.put("usage", "闹钟/定时提醒、消息推送等系统通知（Android 13+ 需要用户授权）");
+                explanation.put("protectionLevel", "运行时权限");
+                break;
             default:
                 explanation.put("description", "未知权限");
                 explanation.put("usage", "未知用途");

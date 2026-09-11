@@ -58,6 +58,8 @@
 
     <!-- 系统通知权限 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 通知震动（闹钟/提醒到点震动） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- 媒体文件访问权限 (Android 13+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
