@@ -49,18 +49,11 @@ public class ImportLlmEngine {
     private static final int MAX_INFER_ROUNDS = 3;
     /** 推理上下文窗口 */
     private static final int INFER_CTX = 4096;
-    /** CPU 推理模式的上下文大小：KV 缓存走系统内存（手机 RAM 宽裕），
-     *  可放大到 8192 缓解"提示词超长/上下文超限"；GPU 模式受显存限制保持 4096。 */
-    private static final int CPU_INFER_CTX = 8192;
-    /** 导入推理后端设置 key（import_prefs） */
-    private static final String PREF_CPU_INFERENCE = "cpu_inference";
     private static final int INFER_THREADS = 6;
     /** 映射任务输出 Token 上限 */
     private static final int MAPPING_MAX_TOKENS = 512;
     /** 填充任务输出 Token 上限 */
     private static final int FILL_MAX_TOKENS = 256;
-    /** 闲置自动卸载时间（5 分钟） */
-    private static final long IDLE_UNLOAD_MS = 5 * 60 * 1000L;
     /** 熔断阈值：native 推理连续崩溃达到该次数后进程内永久停用本地 AI 推理，自动切换在线模型兜底 */
     private static final int MAX_CONSECUTIVE_CRASHES = 3;
     /** 在线兜底单次请求超时（秒） */
@@ -126,18 +119,8 @@ public class ImportLlmEngine {
     private final ImportToolManager toolManager;
 
     private volatile boolean modelLoaded = false;
-    /** 常驻模式标志：false=临时一次性会话，推理完立即释放 */
-    private volatile boolean residentMode = true;
-    /** 模型是否由本导入引擎自己加载（而非复用其他模块已加载的模型）。
-     *  为 true 时导入结束立即真正释放（LlamaHelper.release），不再占用算力资源；
-     *  复用的不释放，避免误伤对话等其他模块正在使用的模型。 */
-    private volatile boolean selfLoaded = false;
-    /** 正在进行的本地推理数（保护 idle 卸载：推理中不卸载模型，避免打断连续推理/多 sheet 导入） */
-    private final java.util.concurrent.atomic.AtomicInteger inferringCount =
-            new java.util.concurrent.atomic.AtomicInteger(0);
     private String loadedModelPath;
 
-    private Timer idleTimer;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private EngineListener listener;
     /** 本地 AI 编排引擎引用（历史参数：仅用于展示模型信息/日志提示。
@@ -182,22 +165,10 @@ public class ImportLlmEngine {
     // ==================== 模型生命周期 ====================
 
     /**
-     * 常驻模型模式（推荐）：APP 启动后加载一次常驻内存，
-     * 无需重复加载大权重，适配高频批量导入场景。
+     * 常驻模型模式：加载一次常驻内存，无需重复加载大权重，适配高频批量导入场景。
      */
     public synchronized boolean loadModelOnce() {
         if (modelLoaded) return true;
-        residentMode = true;
-        return doLoadModel();
-    }
-
-    /**
-     * 临时一次性会话模式：触发推理临时加载，单次推理完成后立即释放权重。
-     * 适合低频少量导入，降低长期内存占用。
-     */
-    public synchronized boolean tempLoadModel() {
-        if (modelLoaded) return true;
-        residentMode = false;
         return doLoadModel();
     }
 
@@ -209,16 +180,7 @@ public class ImportLlmEngine {
         try {
             if (LlamaHelper.isModelInitialized()) {
                 modelLoaded = true;
-                selfLoaded = false; // 复用其他模块的模型：导入结束不释放
-                // CPU 模式下若已加载模型是 GPU 后端加载的（n_gpu_layers>0），复用会沿用 GPU：
-                // 不强制重载（有二次初始化崩溃风险），提示用户重启 App 后导入才走 CPU
-                boolean wantCpu = isCpuInferenceEnabled();
-                int gpuLayers = LlamaHelper.getGPULayers();
-                log("复用已加载的本地模型，跳过重复初始化"
-                        + (wantCpu && gpuLayers > 0
-                            ? "（当前为 GPU 模式 n_gpu_layers=" + gpuLayers
-                                + "，重启 App 后导入将使用 CPU + 上下文 8192）"
-                            : ""));
+                log("复用已加载的本地模型，跳过重复初始化");
                 return true;
             }
         } catch (Throwable t) {
@@ -231,23 +193,12 @@ public class ImportLlmEngine {
         }
         long t0 = System.currentTimeMillis();
         try {
-            // CPU 推理模式：KV 缓存走系统内存，可放大上下文（缓解提示词超限），
-            // 且避开 Vulkan/Adreno GPU 后端的已知崩溃问题（signal 6/11）；
-            // GPU 层数需在 initModel 前设置（n_gpu_layers 仅加载时生效）。
-            boolean cpuMode = isCpuInferenceEnabled();
-            int ctx = INFER_CTX;
-            if (cpuMode) {
-                LlamaHelper.setGPULayers(0); // 纯 CPU：n_gpu_layers=0
-                ctx = CPU_INFER_CTX;
-            }
-            int ret = LlamaHelper.initModel(path, ctx, INFER_THREADS);
+            int ret = LlamaHelper.initModel(path, INFER_CTX, INFER_THREADS);
             if (ret == 0) {
                 modelLoaded = true;
-                selfLoaded = true; // 本导入引擎自己加载：导入结束立即释放
                 loadedModelPath = path;
                 log("导入引擎模型加载成功(" + (System.currentTimeMillis() - t0) + "ms): "
-                        + new java.io.File(path).getName()
-                        + (cpuMode ? "，CPU 推理模式，上下文 " + ctx : "，GPU 推理模式，上下文 " + ctx));
+                        + new java.io.File(path).getName());
                 return true;
             }
             log("模型加载失败, initModel 返回 " + ret);
@@ -256,118 +207,6 @@ public class ImportLlmEngine {
             log("模型加载异常: " + t.getMessage());
             return false;
         }
-    }
-
-    /** 是否启用导入 CPU 推理模式（KV 走系统内存，上下文放大到 8192，避开 GPU 后端崩溃坑）。
-     *  默认 true：导入功能以 CPU 推理为默认后端——更稳定、上下文更大，速度损失可接受；
-     *  可在导入页开关改回 GPU（仅当模型未加载时生效，已加载需重启 App）。 */
-    public static boolean isCpuInferenceEnabled(android.content.Context ctx) {
-        try {
-            android.content.SharedPreferences prefs =
-                    ctx.getSharedPreferences("import_prefs", android.content.Context.MODE_PRIVATE);
-            return prefs.getBoolean(PREF_CPU_INFERENCE, true);
-        } catch (Throwable t) {
-            return true;
-        }
-    }
-
-    /** 设置导入 CPU 推理模式开关（下次模型加载生效；模型已常驻时需重启 App 后生效） */
-    public static void setCpuInferenceEnabled(android.content.Context ctx, boolean enabled) {
-        try {
-            ctx.getSharedPreferences("import_prefs", android.content.Context.MODE_PRIVATE)
-                    .edit().putBoolean(PREF_CPU_INFERENCE, enabled).apply();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private boolean isCpuInferenceEnabled() {
-        return isCpuInferenceEnabled(context);
-    }
-
-    /**
-     * 应用内热切换推理后端（GPU/CPU），无需重启 App：
-     * 保存设置 → 释放当前模型 → 按新后端参数（n_gpu_layers/上下文）重新初始化。
-     * 曾因本地崩溃熔断时自动重置（新后端可能是健康的）。
-     * 返回：0=切换成功；1=无需切换（未加载或已同后端，设置已保存）；-1=切换失败（设置已回滚，可重启兜底）。
-     */
-    public static synchronized int switchInferenceBackend(android.content.Context ctx,
-                                                          boolean cpuMode) {
-        boolean prevCpu = isCpuInferenceEnabled(ctx);
-        setCpuInferenceEnabled(ctx, cpuMode);
-        try {
-            if (!LlamaHelper.isModelInitialized()) {
-                logStatic("模型未加载，后端设置已保存，下次加载生效: "
-                        + (cpuMode ? "CPU 8192" : "GPU 4096"));
-                return 1;
-            }
-            int curGpu = LlamaHelper.getGPULayers();
-            boolean curCpu = curGpu == 0;
-            if (curCpu == cpuMode) {
-                logStatic("推理后端已是目标模式: " + (cpuMode ? "CPU" : "GPU"));
-                return 1;
-            }
-            // 曾因本地崩溃熔断：切换后端后允许重试（新后端可能是健康的）
-            if (sGlobalBroken) {
-                sGlobalBroken = false;
-                sGlobalCrashes = 0;
-                logStatic("已重置本地推理熔断状态，新后端重新尝试");
-            }
-            logStatic("热切换推理后端: " + (curCpu ? "CPU" : "GPU") + " → "
-                    + (cpuMode ? "CPU（上下文 8192）" : "GPU（上下文 4096）"));
-            LlamaHelper.release();
-            ModelManager mm = new ModelManager(ctx.getApplicationContext());
-            String path = pickModelPathStatic(mm);
-            if (path == null) {
-                setCpuInferenceEnabled(ctx, prevCpu); // 回滚设置
-                logStatic("热切换失败：未找到 GGUF 模型，已恢复原设置");
-                return -1;
-            }
-            if (cpuMode) {
-                LlamaHelper.setGPULayers(0);          // 纯 CPU
-            } else {
-                LlamaHelper.setGPULayers(-1);         // llama.cpp 惯例：-1 = 自动分配 GPU 层
-            }
-            int nCtx = cpuMode ? CPU_INFER_CTX : INFER_CTX;
-            int ret = LlamaHelper.initModel(path, nCtx, INFER_THREADS);
-            if (ret != 0) {
-                setCpuInferenceEnabled(ctx, prevCpu); // 回滚设置
-                logStatic("热切换失败：模型重新加载失败(ret=" + ret + ")，已恢复原设置");
-                return -1;
-            }
-            logStatic("热切换完成: " + (cpuMode ? "CPU 推理模式，上下文 8192" : "GPU 推理模式，上下文 4096"));
-            return 0;
-        } catch (Throwable t) {
-            setCpuInferenceEnabled(ctx, prevCpu);
-            Log.w(TAG, "热切换异常: " + t.getMessage());
-            return -1;
-        }
-    }
-
-    private static String pickModelPathStatic(ModelManager mm) {
-        try {
-            List<ModelManager.ModelFileInfo> models = mm.listAvailableModelsWithInfo();
-            if (models == null || models.isEmpty()) return null;
-            ModelManager.ModelFileInfo best = null;
-            for (ModelManager.ModelFileInfo m : models) {
-                String lower = m.name.toLowerCase(Locale.ROOT);
-                if (!lower.endsWith(".gguf")) continue;
-                if (best == null) best = m;
-                if (lower.contains("qwen") && lower.contains("7b")) {
-                    best = m;
-                    break;
-                }
-                if (m.size > best.size && !(best.name.toLowerCase(Locale.ROOT).contains("qwen"))) {
-                    best = m;
-                }
-            }
-            return best != null ? best.path : null;
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static void logStatic(String msg) {
-        Log.i(TAG, msg);
     }
 
     /** 选型：优先 Qwen 7B GGUF，其次体积最大的 GGUF */
@@ -412,77 +251,8 @@ public class ImportLlmEngine {
         }
     }
 
-    /** 释放临时会话（临时模式推理完成后调用） */
-    public synchronized void releaseTempSession() {
-        if (!residentMode && modelLoaded) {
-            clearAllKvCache();
-            modelLoaded = false;
-            loadedModelPath = null;
-            log("临时会话已释放");
-        }
-    }
-
-    /** 闲置 5 分钟自动卸载模型释放内存（推理进行中会推迟，避免打断连续推理/多 sheet 导入）。
-     *  触发时真正释放权重（LlamaHelper.release），不再占用算力资源。 */
-    public void unloadModelIfIdle() {
-        cancelIdleTimer();
-        idleTimer = new Timer("import-llm-idle", true);
-        idleTimer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                synchronized (ImportLlmEngine.this) {
-                    if (inferringCount.get() > 0) {
-                        // 推理进行中：推迟卸载，5 分钟后再检查（多 sheet 导入/连续填充期间
-                        // 模型保持常驻，避免中途卸载导致后续推理重新加载、内存抖动）
-                        unloadModelIfIdle();
-                        return;
-                    }
-                    releaseModelWeights("闲置5分钟，模型已卸载释放内存");
-                }
-            }
-        }, IDLE_UNLOAD_MS);
-    }
-
-    /**
-     * 导入结束立即释放本地模型（不再占用算力资源，无需等 5 分钟闲置）。
-     * 仅释放本导入自己加载的模型（selfLoaded）；复用的（对话等其他模块加载的）不释放，
-     * 避免误伤其他模块正在使用的模型。真正释放权重走 LlamaHelper.release（带推理锁）。
-     */
-    public synchronized void releaseAfterImport() {
-        cancelIdleTimer();
-        if (!modelLoaded) return;
-        if (!selfLoaded) {
-            log("导入结束：模型为复用（其他模块加载），不释放，交还原主");
-            return;
-        }
-        log("导入结束：立即释放本地模型（不再占用算力资源）");
-        releaseModelWeights("导入完成，模型已释放");
-    }
-
-    /** 真正释放模型权重并重置引擎状态（推理锁保护，防止与推理竞态） */
-    private void releaseModelWeights(String logMsg) {
-        clearAllKvCache();
-        modelLoaded = false;
-        loadedModelPath = null;
-        selfLoaded = false;
-        try {
-            LlamaHelper.release(); // 真正释放权重（内部持推理写锁，推理中会等待）
-            log(logMsg);
-        } catch (Throwable t) {
-            Log.w(TAG, "释放模型异常(忽略): " + t.getMessage());
-        }
-    }
-
-    private void cancelIdleTimer() {
-        if (idleTimer != null) {
-            idleTimer.cancel();
-            idleTimer = null;
-        }
-    }
-
     /** 主动销毁引擎 */
     public synchronized void shutdown() {
-        cancelIdleTimer();
         clearAllKvCache();
         modelLoaded = false;
     }
@@ -570,14 +340,11 @@ public class ImportLlmEngine {
                 if (clean.removedIllegalFields > 0) {
                     log("硬过滤剔除非法字段 " + clean.removedIllegalFields + " 个");
                 }
-                postInferHousekeeping();
                 return result;
             }
             result.failReason = clean.failReason;
             log("第" + round + "轮映射输出无效: " + clean.failReason);
         }
-
-        postInferHousekeeping();
         return result;
     }
 
@@ -617,12 +384,10 @@ public class ImportLlmEngine {
                 result.difficulty = clean.json.optInt("difficulty", 1);
                 result.explanation = clean.json.optString("explanation", "").trim();
                 result.questionType = clean.json.optString("questionType", "").trim();
-                postInferHousekeeping();
                 return result;
             }
             result.failReason = clean.failReason;
         }
-        postInferHousekeeping();
         return result;
     }
 
@@ -713,13 +478,11 @@ public class ImportLlmEngine {
                             ? String.valueOf(fr.fields.get("questionType")) : "";
                     results.set(i, fr);
                 }
-                postInferHousekeeping();
                 return results;
             } catch (Exception e) {
                 Log.w(TAG, "批量填充解析失败(第" + round + "轮): " + e.getMessage());
             }
         }
-        postInferHousekeeping();
         return results;
     }
 
@@ -846,13 +609,11 @@ public class ImportLlmEngine {
                         result.mapping.put(k, mp.optInt(k, -1));
                     }
                 }
-                postInferHousekeeping();
                 return result;
             }
             result.failReason = clean.failReason;
             log("第" + round + "轮表头识别无效: " + clean.failReason);
         }
-        postInferHousekeeping();
         return result;
     }
 
@@ -919,7 +680,7 @@ public class ImportLlmEngine {
     private boolean ensureModel() {
         if (sGlobalBroken) return onlineConfigured();
         if (modelLoaded) return true;
-        boolean loaded = residentMode ? loadModelOnce() : tempLoadModel();
+        boolean loaded = loadModelOnce();
         // 本地模型不可用（未下载/加载失败）：若已配置在线模型则改走在线兜底
         return loaded || onlineConfigured();
     }
@@ -938,7 +699,7 @@ public class ImportLlmEngine {
         if (sGlobalBroken || !modelLoaded) {
             return inferOnline(prompt, maxTokens);
         }
-        inferringCount.incrementAndGet(); // 标记本地推理进行中（idle 卸载据此推迟）
+
         try {
             List<PromptBuilder.Message> messages = new ArrayList<>();
             messages.add(new PromptBuilder.Message("system", BASE_RULE));
@@ -962,7 +723,6 @@ public class ImportLlmEngine {
                             + (onlineConfigured() ? "，自动切换在线模型兜底" : "，未配置在线模型，改用固定兜底值"));
                     // 卸载模型释放内存：崩溃后 GPU/KV 状态已损坏，跳过 KV 清理避免二次崩溃杀进程
                     synchronized (this) {
-                        cancelIdleTimer();
                         modelLoaded = false;
                         loadedModelPath = null;
                     }
@@ -978,8 +738,6 @@ public class ImportLlmEngine {
         } catch (Throwable t) {
             log("推理异常: " + t.getMessage());
             return null;
-        } finally {
-            inferringCount.decrementAndGet();
         }
     }
 
@@ -1014,16 +772,6 @@ public class ImportLlmEngine {
             log("在线兜底推理失败(" + sOnlineFailures + "/" + MAX_ONLINE_FAILURES + "): " + t.getMessage()
                     + (sOnlineFailures >= MAX_ONLINE_FAILURES ? "，停用在线调用改用固定兜底值" : ""));
             return null;
-        }
-    }
-
-    /** 推理完成后的收尾：仅本地模型需要；临时模式立即释放，常驻模式启动闲置卸载计时 */
-    private void postInferHousekeeping() {
-        if (!modelLoaded) return; // 纯在线兜底路径无需本地模型收尾
-        if (!residentMode) {
-            releaseTempSession();
-        } else {
-            unloadModelIfIdle();
         }
     }
 

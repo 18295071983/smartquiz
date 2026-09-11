@@ -387,9 +387,7 @@ public class ImportMain {
                 Log.e(TAG, "导入流程异常: " + t.getMessage(), t);
                 emitError(listener, "导入流程异常: " + t.getMessage());
             } finally {
-                // 导入结束（成功/取消/异常）立即释放本导入加载的本地模型：
-                // 推理完成后不再占用算力资源（无需等 5 分钟闲置）
-                releaseEngineAfterImport();
+                // 导入结束（成功/取消/异常）：本地模型保持常驻（复用对话模块内核），不再主动释放
             }
         });
     }
@@ -1343,12 +1341,6 @@ public class ImportMain {
             if (!ok) Log.w(TAG, "清理标记文件失败");
         }
         ImportDirs.cleanSessionDir(sessionDir);
-        if (engine != null) {
-            // 导入完成立即释放本导入加载的模型（不再占用算力资源），
-            // 替代原来的"闲置 5 分钟才卸载"
-            engine.releaseAfterImport();
-        }
-
         summary.elapsedMs = System.currentTimeMillis() - startMs;
         // 单文件导入：同步生成缺字段报告供结果弹窗展示（批量模式由入口统一生成）
         if (!batchMode) {
@@ -1443,18 +1435,9 @@ public class ImportMain {
             } finally {
                 multiSheetMode = false;
                 batchMode = false;
-                // 多 sheet 全部结束后释放本导入加载的本地模型（不再占用算力资源）
-                releaseEngineAfterImport();
+                // 多 sheet 全部结束后：本地模型保持常驻（复用对话模块内核），不再主动释放
             }
         });
-    }
-
-    /** 导入结束：释放本导入加载的本地模型（推理完成后不再占用算力资源；
-     *  复用其他模块加载的模型不释放，避免误伤）。 */
-    private void releaseEngineAfterImport() {
-        if (engine != null) {
-            engine.releaseAfterImport();
-        }
     }
 
     /**
