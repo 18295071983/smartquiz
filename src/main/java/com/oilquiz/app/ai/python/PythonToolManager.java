@@ -3428,8 +3428,63 @@ public class PythonToolManager {
             final java.util.concurrent.atomic.AtomicReference<java.util.Map<String, Object>> curRefs =
                     new java.util.concurrent.atomic.AtomicReference<>(new java.util.HashMap<>());
             // 上一轮收集的值（回填）
-            final java.util.concurrent.atomic.AtomicReference<java.util.Map<String, Object>> prevValues =
-                    new java.util.concurrent.atomic.AtomicReference<>(new java.util.HashMap<>());
+            final java.util.concurrent.atomic.AtomicReference<java.util.Map<String, Object>> prevValues =                    new java.util.concurrent.atomic.AtomicReference<>(new java.util.HashMap<>());
+
+            /**
+             * 画布默认设计兜底（每次重渲染前调用）：
+             * 1. 根节点无 style/background/radius/padding 时注入默认装饰（浅底 #F6F8FC + 16dp 圆角
+             *    + 16 内边距 + 12 间距）——助手不传样式画布也有层次，不再是裸白方框；
+             *    助手显式传了 style 则完全不覆盖。
+             * 2. children 为空时给默认骨架（标题 + 副标题 + 分隔线 + 引导提示），避免空画布。
+             */
+            final Runnable[] canvasDecorator = new Runnable[1];
+            canvasDecorator[0] = () -> {
+                try {
+                    org.json.JSONObject layout = session.layout != null ? session.layout : fInitLayout;
+                    if (layout == null) return;
+                    org.json.JSONObject root = layout.optJSONObject("root");
+                    if (root == null) root = layout;
+                    // 1) 样式兜底：style 存在时合并缺失键，不存在则新建
+                    org.json.JSONObject style = root.optJSONObject("style");
+                    if (style == null) {
+                        style = new org.json.JSONObject();
+                        root.put("style", style);
+                    }
+                    if (!style.has("background")) style.put("background", "#F6F8FC");
+                    if (!style.has("radius")) style.put("radius", 16);
+                    if (!style.has("padding")) style.put("padding", 16);
+                    if (!style.has("spacing") && !root.has("spacing")) style.put("spacing", 12);
+                    // 2) 空画布骨架
+                    org.json.JSONArray children = root.optJSONArray("children");
+                    if (children == null || children.length() == 0) {
+                        org.json.JSONArray arr = new org.json.JSONArray();
+                        org.json.JSONObject t = new org.json.JSONObject();
+                        t.put("type", "text");
+                        t.put("text", "画布");
+                        t.put("bold", true);
+                        t.put("fontSize", 20);
+                        t.put("color", "#1F2937");
+                        arr.put(t);
+                        org.json.JSONObject sub = new org.json.JSONObject();
+                        sub.put("type", "text");
+                        sub.put("text", "这是一个空画布，告诉助手继续添加内容，或让我用 layout_editor 继续编辑。");
+                        sub.put("fontSize", 13);
+                        sub.put("color", "#6B7280");
+                        arr.put(sub);
+                        org.json.JSONObject div = new org.json.JSONObject();
+                        div.put("type", "divider");
+                        arr.put(div);
+                        org.json.JSONObject hint = new org.json.JSONObject();
+                        hint.put("type", "text");
+                        hint.put("text", "✦ 示例：输入框、按钮、卡片、图表——都可以放上来");
+                        hint.put("fontSize", 12);
+                        hint.put("color", "#9CA3AF");
+                        arr.put(hint);
+                        root.put("children", arr);
+                    }
+                } catch (Throwable ignored) {
+                }
+            };
 
             // 重渲染：用 session.layout 重新 render，回填旧值
             final Runnable renderCanvas = () -> {
@@ -3445,6 +3500,9 @@ public class PythonToolManager {
                     curRefs.set(refs);
                     org.json.JSONObject layout = session.layout;
                     if (layout == null) layout = fInitLayout;
+                    // 画布默认设计兜底：根节点无装饰时给浅底+圆角+内边距；空画布给默认骨架，
+                    // 避免"裸白方框画布"（卡片有 style 而画布没有的问题）
+                    canvasDecorator[0].run();
                     android.view.View v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
                             act, layout, propsObj, refs);
                     if (v == null) {
