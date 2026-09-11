@@ -77,6 +77,15 @@ public class AgentSession {
         return engine.isGenerating();
     }
 
+    /**
+     * 开启全新会话：清空 messageHistory 与持久化历史文件（含摘要），
+     * 下一次 start/sendMessage 从干净上下文开始。用于新任务（如每次题库导入）。
+     * 生成中调用会被忽略（引擎并发保护），调用方可先等 isBusy()==false。
+     */
+    public void newSession() {
+        engine.clearHistory();
+    }
+
     /** 释放引擎资源（线程池等） */
     public void shutdown() {
         engine.shutdown();

@@ -427,8 +427,18 @@ public class AIImportActivity extends BaseActivity {
             agentSession.shutdown();
         }
         agentSession = AgentSession.create(this);
+        // 每次导入开启全新会话：清空 messageHistory/持久化历史（新任务不带上一次上下文）
+        agentSession.newSession();
         // 回调双通道：转发状态机（步骤/监控）+ 同步到对话区（流式正文/完成/错误）
         agentSession.setCallback(buildChatCallback(agentImportStateMachine));
+        // 清空对话区（新任务从干净对话开始）
+        if (chatLog != null) {
+            chatLog.removeAllViews();
+            if (tvChatHint != null) {
+                chatLog.addView(tvChatHint);
+                tvChatHint.setVisibility(View.VISIBLE);
+            }
+        }
         aiBubble = null;
         aiStream.setLength(0);
         agentSession.start(prompt.toString(), 8192);
