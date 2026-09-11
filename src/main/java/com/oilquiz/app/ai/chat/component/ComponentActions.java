@@ -305,6 +305,22 @@ public final class ComponentActions {
                     Toast.makeText(context, "暂不支持打开文件夹: " + f.getName(), Toast.LENGTH_SHORT).show();
                     return;
                 }
+                // 文件名常被模型缩写/丢字（如漏下划线、截断中文）——模糊搜索工作区相似文件提示，
+                // 比"文件不存在"更有操作性
+                try {
+                    java.util.List<java.io.File> similar = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                            .getInstance(context).searchSimilarFiles(path);
+                    if (!similar.isEmpty()) {
+                        StringBuilder sb = new StringBuilder("未找到 ").append(path)
+                                .append("，工作区有相似文件:\n");
+                        for (java.io.File sf : similar) {
+                            sb.append("· ").append(sf.getName()).append("\n");
+                        }
+                        Toast.makeText(context, sb.toString().trim(), Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                } catch (Throwable ignored) {
+                }
                 Toast.makeText(context, "文件不存在: " + path, Toast.LENGTH_SHORT).show();
                 return;
             }

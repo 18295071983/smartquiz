@@ -21,7 +21,7 @@ import java.util.Map;
 
 @Tool(
     value = "file_generator",
-    description = "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）",
+    description = "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。",
     category = "file",
     actions = {
         @Action(name = "create", description = "创建文件"),
@@ -54,7 +54,7 @@ public class FileGeneratorTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）";
+        return "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。";
     }
     
     @Override

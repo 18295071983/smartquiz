@@ -211,8 +211,20 @@ public class AgentWorkspace {
             return searchByName(direct.getName());
         }
         // 相对路径：长期文件区 → 临时区 → 工作区根
+        // 模型常给带前缀的相对路径（"files/xxx"、"tmp/xxx"）——filesDir 本身就是 files/ 子目录，
+        // 直接拼接会变成 files/files/xxx 找不到；先剥前缀再尝试，避免"链接少了 files/ 前缀"类问题。
+        String rel = p;
+        if (rel.startsWith("files/")) {
+            rel = rel.substring("files/".length());
+        } else if (rel.startsWith("tmp/")) {
+            rel = rel.substring("tmp/".length());
+        }
         File inFiles = new File(filesDir, p);
         if (inFiles.isFile()) return inFiles;
+        if (!rel.equals(p)) {
+            File inFiles2 = new File(filesDir, rel);
+            if (inFiles2.isFile()) return inFiles2;
+        }
         File inTmp = new File(tmpDir, p);
         if (inTmp.isFile()) return inTmp;
         File inRoot = new File(workspaceDir, p);
@@ -239,6 +251,47 @@ public class AgentWorkspace {
             }
         }
         return null;
+    }
+
+    /**
+     * 模糊搜索工作区相似文件（供打开失败时给用户可操作提示）。
+     * 模型生成的链接常丢字/缩写/漏下划线（如 "银川天气汇报画板0911.html" vs
+     * 实际 "银川天气汇报画板_0911.html"）——按文件名包含关系匹配，返回最多 5 个候选。
+     */
+    public java.util.List<File> searchSimilarFiles(String nameOrPath) {
+        java.util.List<File> result = new java.util.ArrayList<>();
+        if (nameOrPath == null || nameOrPath.trim().isEmpty()) return result;
+        String name = nameOrPath.trim();
+        int lastSlash = name.lastIndexOf('/');
+        if (lastSlash >= 0 && lastSlash < name.length() - 1) {
+            name = name.substring(lastSlash + 1);
+        }
+        String lower = name.toLowerCase();
+        // 剥常见后缀差异：链接可能是目标名的子串（丢了 _/空格 等），双向包含匹配
+        ensureDirs();
+        for (File dir : new File[]{filesDir, tmpDir, workspaceDir}) {
+            File[] list = dir.listFiles();
+            if (list == null) continue;
+            for (File f : list) {
+                if (!f.isFile()) continue;
+                String fn = f.getName();
+                String fnLower = fn.toLowerCase();
+                boolean hit = fnLower.contains(lower) || lower.contains(fnLower)
+                        || similarChars(lower, fnLower);
+                if (hit && !result.contains(f)) result.add(f);
+            }
+        }
+        result.sort((a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        if (result.size() > 5) result = result.subList(0, 5);
+        return result;
+    }
+
+    /** 宽松相似：去非字母数字字符后互为子串（容忍 _、空格、- 等差异） */
+    private static boolean similarChars(String a, String b) {
+        String cleanA = a.replaceAll("[^a-z0-9\\u4e00-\\u9fa5]", "");
+        String cleanB = b.replaceAll("[^a-z0-9\\u4e00-\\u9fa5]", "");
+        if (cleanA.isEmpty() || cleanB.isEmpty()) return false;
+        return cleanA.contains(cleanB) || cleanB.contains(cleanA);
     }
 
     /** 列出工作区文件（按修改时间倒序；含 tmp/files 标记） */

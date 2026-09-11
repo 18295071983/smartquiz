@@ -1120,9 +1120,9 @@ public class AIToolManager {
                     .category("file")
                     .build();
             case "file_generator":
-                return ToolDefinition.builder("file_generator", "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）")
+                return ToolDefinition.builder("file_generator", "文件生成工具，生成文本/JSON/配置/Markdown等文件。未指定绝对路径时默认保存到 Agent 工作区（用 workspace 工具查看/读取，返回的 filePath 是完整路径）。**文件名规范：一律用英文/数字/下划线（如 daily_report_0911.md），不要用中文文件名**（中文名在跨进程/链接打开环节易被截断丢失）；给用户文件链接时用返回的完整绝对路径或 files/相对路径，不要缩写/丢字（用户实测点开失败多因此）。")
                     .addParameter("action", "string", "操作类型: create/append/json/config/markdown/template/report/copy/delete", false, "create")
-                    .addParameter("file_name", "string", "文件名/路径", true)
+                    .addParameter("file_name", "string", "文件名/路径（用英文名，勿中文）", true)
                     .addParameter("content", "string", "文件内容(create/append/markdown用)", false)
                     .addParameter("format", "string", "文件格式(可选)", false)
                     .addParameter("encoding", "string", "文件编码(默认UTF-8)", false, "UTF-8")
