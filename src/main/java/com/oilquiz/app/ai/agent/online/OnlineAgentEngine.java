@@ -1,6 +1,8 @@
 package com.oilquiz.app.ai.agent.online;
 
-import android.app.Activity;
+import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -72,12 +74,14 @@ public class OnlineAgentEngine {
         ASSISTED
     }
 
-    private final Activity activity;
+    private final Context context;
     private final OnlineToolManager toolManager;
     private final OnlineInferenceService onlineInferenceService;
     private final OnlinePromptBuilder promptBuilder;
     private final OnlineThinkingChain thinkingChain;
     private final ExecutorService executor;
+    /** 主线程回调通道（替代 Activity.runOnUiThread，引擎不持有 Activity，避免泄漏） */
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     /** 当前执行模式（每次 doExecute 开始时根据模型能力设定） */
     private volatile AgentMode agentMode = AgentMode.ASSISTED;
@@ -127,10 +131,10 @@ public class OnlineAgentEngine {
         return new int[]{window, used, Math.max(0, window - used)};
     }
 
-    public OnlineAgentEngine(Activity activity, OnlineToolManager toolManager) {
-        this.activity = activity;
+    public OnlineAgentEngine(Context context, OnlineToolManager toolManager) {
+        this.context = context;
         this.toolManager = toolManager;
-        this.onlineInferenceService = OnlineInferenceService.getInstance(activity);
+        this.onlineInferenceService = OnlineInferenceService.getInstance(context);
         this.promptBuilder = new OnlinePromptBuilder(toolManager.getToolGuideInstance());
         this.thinkingChain = new OnlineThinkingChain();
         this.executor = Executors.newFixedThreadPool(4, r -> {
@@ -212,7 +216,7 @@ public class OnlineAgentEngine {
                 // 工作区是临时执行空间，长期产物在 files/，临时缓存不跨任务保留
                 try {
                     int removed = com.oilquiz.app.ai.agent.online.AgentWorkspace
-                            .getInstance(activity).clearTmp();
+                            .getInstance(context).clearTmp();
                     if (removed > 0) {
                         AILogger.i(TAG, "任务结束清理临时工作区: 删除 " + removed + " 个临时文件");
                     }
@@ -290,7 +294,7 @@ public class OnlineAgentEngine {
             // 注入工作区路径：Agent 生成的文件默认在工作区，明确告知路径与访问方式
             try {
                 com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
-                        com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(activity);
+                        com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
                 String wsPath = ws.getWorkspacePath();
                 String wsLocation = ws.isPublicWorkspace()
                         ? "公共目录(Download/OilQuiz，用户可直接看到和管理)"
@@ -326,13 +330,13 @@ public class OnlineAgentEngine {
             messageHistory.add(0, systemMsg);
 
             // 注入长期记忆摘要（维度三 P1-2 相关性筛选：以当前用户消息为关键词加权排序，控制注入体积）
-            String memorySummary = AgentMemoryStore.getInstance(activity).buildMemorySummary(userMessage);
+            String memorySummary = AgentMemoryStore.getInstance(context).buildMemorySummary(userMessage);
             if (memorySummary != null && !memorySummary.isEmpty()) {
                 JsonObject memoryMsg = new JsonObject();
                 memoryMsg.addProperty("role", "system");
                 memoryMsg.addProperty("content", "【长期记忆】以下是你记住的关于用户的信息，回答时自然运用。仅当用户明确要求记住或主动告知新的个人信息/偏好时，才用 memory 工具 save 新增或更新（不要擅自把普通聊天内容存为记忆）：\n" + memorySummary);
                 messageHistory.add(1, memoryMsg);
-                AILogger.i(TAG, "Long-term memory injected: " + AgentMemoryStore.getInstance(activity).size() + " entries");
+                AILogger.i(TAG, "Long-term memory injected: " + AgentMemoryStore.getInstance(context).size() + " entries");
             }
 
             // 获取环境上下文（日期、位置——天气不注入，Agent 用 ai_weather 工具主动获取），
@@ -587,7 +591,7 @@ public class OnlineAgentEngine {
                     return;
                 }
                 // 通知 UI 工具调用开始（id 已统一）
-                activity.runOnUiThread(() -> {
+                mainHandler.post(() -> {
                     final String callId = tc.id;
                     if (callback != null) callback.onToolCallStart(callId, tc.name, tc.arguments);
                 });
@@ -621,7 +625,7 @@ public class OnlineAgentEngine {
                     OnlineToolResult toolResult = toolFutures.get(i).get(waitTimeoutSec, TimeUnit.SECONDS);
                     // 通知 UI 工具调用完成
                     final OnlineToolResult tr = toolResult;
-                    activity.runOnUiThread(() -> {
+                    mainHandler.post(() -> {
                         if (callback != null) callback.onToolCallComplete(tr.toolCallId, tr.toolName, tr);
                     });
 
@@ -978,7 +982,7 @@ public class OnlineAgentEngine {
                     streamLastActivity.set(System.currentTimeMillis());
                     totalTokenCount++;
                     thinkingChain.appendReasoningToken(token);
-                    activity.runOnUiThread(() -> {
+                    mainHandler.post(() -> {
                         if (callback != null) callback.onThinkingToken(token);
                     });
                 }
@@ -988,7 +992,7 @@ public class OnlineAgentEngine {
                     if (isCancelled.get()) return;
                     streamLastActivity.set(System.currentTimeMillis());
                     totalTokenCount++;
-                    activity.runOnUiThread(() -> {
+                    mainHandler.post(() -> {
                         if (callback != null) callback.onToken(token);
                     });
                     if (totalTokenCount % 10 == 0) {
@@ -1041,7 +1045,7 @@ public class OnlineAgentEngine {
                     result.finishReason = finishReason;
 
                     notifyProgress();
-                    activity.runOnUiThread(() -> {
+                    mainHandler.post(() -> {
                         if (callback != null) callback.onThinkingEnd();
                     });
                     latch.countDown();
@@ -1303,9 +1307,9 @@ public class OnlineAgentEngine {
     private String[] getToolIds() {
         java.util.Set<String> ids = new java.util.LinkedHashSet<>();
         try {
-            if (activity != null) {
+            if (context != null) {
                 ids.addAll(com.oilquiz.app.ai.tool.AIToolManager
-                        .getInstance(activity.getApplicationContext()).getRegisteredToolNames());
+                        .getInstance(context).getRegisteredToolNames());
             }
         } catch (Exception ignored) {
         }
@@ -1671,7 +1675,7 @@ public class OnlineAgentEngine {
         messageHistory.clear();
         thinkingChain.clear();
         try {
-            java.io.File dir = activity.getFilesDir();
+            java.io.File dir = context.getFilesDir();
             java.io.File[] files = dir.listFiles();
             if (files != null) {
                 for (java.io.File f : files) {
@@ -1737,9 +1741,9 @@ public class OnlineAgentEngine {
     private java.io.File getHistoryFile() {
         if (sessionId != null && !sessionId.isEmpty()) {
             String safeId = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
-            return new java.io.File(activity.getFilesDir(), "online_agent_history_" + safeId + ".json");
+            return new java.io.File(context.getFilesDir(), "online_agent_history_" + safeId + ".json");
         }
-        return new java.io.File(activity.getFilesDir(), "online_agent_history.json");
+        return new java.io.File(context.getFilesDir(), "online_agent_history.json");
     }
 
     /**
@@ -1873,26 +1877,26 @@ public class OnlineAgentEngine {
                 AILogger.i(TAG, pb.toString());
             }
         }
-        activity.runOnUiThread(() -> {
+        mainHandler.post(() -> {
             if (callback != null) callback.onComplete(finalOutput);
         });
     }
 
     private void notifyError(String error) {
         finishGeneration();
-        activity.runOnUiThread(() -> {
+        mainHandler.post(() -> {
             if (callback != null) callback.onError(error);
         });
     }
 
     private void notifyStep(String step, String detail) {
-        activity.runOnUiThread(() -> {
+        mainHandler.post(() -> {
             if (callback != null) callback.onStepUpdate(step, detail);
         });
     }
 
     private void notifyExecutionStep(OnlineExecutionStep step, String detail) {
-        activity.runOnUiThread(() -> {
+        mainHandler.post(() -> {
             if (callback != null) callback.onExecutionStep(step, detail);
         });
     }
@@ -1903,7 +1907,7 @@ public class OnlineAgentEngine {
         float tps = elapsed > 0 ? (totalTokenCount * 1000f / elapsed) : 0;
         final int tokens = totalTokenCount;
         final float tpsFinal = tps;
-        activity.runOnUiThread(() -> {
+        mainHandler.post(() -> {
             if (progressListener != null) {
                 progressListener.onProgressUpdate(tokens, tpsFinal);
             }

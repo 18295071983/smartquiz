@@ -173,7 +173,8 @@ public class AgentRouter {
         if (onlineEngine == null) {
             OnlineToolManager onlineToolManager = new OnlineToolManager(activity);
             OnlineToolManager.setInstance(onlineToolManager);
-            onlineEngine = new OnlineAgentEngine(activity, onlineToolManager);
+            // 引擎只持 ApplicationContext（不持有 Activity，避免页面重建/退出泄漏）
+            onlineEngine = new OnlineAgentEngine(activity.getApplicationContext(), onlineToolManager);
             if (callback != null) {
                 onlineEngine.setCallback(callback);
             }
