@@ -194,8 +194,11 @@ public class FileCardView implements ChatComponent {
         return false;
     }
 
-    /** 应用内图片预览（PhotoView 双指缩放）——本地文件优先 BitmapFactory 解码，Glide 兜底 */
+    /** 应用内图片预览（统一全屏流：ImagePreviewUtil——PhotoView 双指缩放，本地系统解码/网络原生下载） */
     private static void showImagePreview(Context context, String target) {
+        com.oilquiz.app.ai.chat.component.ImagePreviewUtil.show(context, target);
+        return;
+        /*
         try {
             if (!(context instanceof android.app.Activity)) return;
             android.app.Dialog dialog = new android.app.Dialog(context);
@@ -245,6 +248,7 @@ public class FileCardView implements ChatComponent {
         } catch (Exception e) {
             Toast.makeText(context, "无法预览图片", Toast.LENGTH_SHORT).show();
         }
+        */
     }
 
     /** 分享文件（通过系统分享面板）。

@@ -8557,6 +8557,19 @@ public class AIChatActivity extends BaseActivity {
      * Glide 加载 file:// 稳定；避免 content:// 权限过期导致一直转圈。
      */
     private void showImagePreview(String url, String thumbnailPath, String localFilePath) {
+        // 统一全屏预览（ImagePreviewUtil）：原图优先，缩略图兜底，全 App 同一套全屏流
+        String target = url;
+        if (localFilePath != null && !localFilePath.isEmpty()
+                && new java.io.File(localFilePath).isFile()) {
+            target = localFilePath;
+        } else if (thumbnailPath != null && !thumbnailPath.isEmpty()
+                && new java.io.File(thumbnailPath).isFile()) {
+            target = thumbnailPath;
+        }
+        com.oilquiz.app.ai.chat.component.ImagePreviewUtil.show(this, target);
+        return;
+        // ===================== 旧实现（已由 ImagePreviewUtil 取代，保留备查） =====================
+        /*
         try {
             // 解析可用的本地路径（优先级：localFilePath 原图 → thumbnailPath 缩略图 → url）
             // 注意：预览要看原图，缩略图只在原图缺失时兜底（否则小图显示出来像"不是全屏"）
@@ -8677,6 +8690,7 @@ public class AIChatActivity extends BaseActivity {
         } catch (Exception e) {
             android.util.Log.w("AIChatActivity", "Image preview failed: " + e.getMessage());
         }
+        */
     }
 
     // ===================== Agent 执行过程（插入式组件显示） =====================

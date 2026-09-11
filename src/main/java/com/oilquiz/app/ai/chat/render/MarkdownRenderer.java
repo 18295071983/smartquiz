@@ -359,8 +359,11 @@ public class MarkdownRenderer {
         return false;
     }
 
-    /** 应用内图片预览（PhotoView 双指缩放，点击关闭） */
+    /** 应用内图片预览（统一全屏流：ImagePreviewUtil——PhotoView 双指缩放，本地系统解码/网络原生下载） */
     private static void showImagePreview(Context context, String url) {
+        com.oilquiz.app.ai.chat.component.ImagePreviewUtil.show(context, url);
+        return;
+        /*
         try {
             if (!(context instanceof android.app.Activity)) return;
             android.app.Dialog dialog = new android.app.Dialog(context);
@@ -444,6 +447,7 @@ public class MarkdownRenderer {
         } catch (Exception e) {
             android.util.Log.w("MarkdownRenderer", "Image preview failed: " + e.getMessage());
         }
+        */
     }
 
     /**

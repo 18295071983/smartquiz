@@ -632,6 +632,7 @@ public class HtmlCardView implements ChatComponent {
                         com.github.chrisbanes.photoview.PhotoView photoView =
                                 new com.github.chrisbanes.photoview.PhotoView(context);
                         photoView.setBackgroundColor(android.graphics.Color.BLACK);
+                        photoView.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
                         root.addView(photoView, new android.widget.FrameLayout.LayoutParams(
                                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
@@ -646,6 +647,9 @@ public class HtmlCardView implements ChatComponent {
                         photoView.setOnClickListener(v -> dialog.dismiss());
                         dialog.show();
                         if (dialog.getWindow() != null) {
+                            dialog.getWindow().setLayout(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT);
                             dialog.getWindow().setBackgroundDrawable(
                                     new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
                         }

@@ -296,8 +296,11 @@ public class ImageGridCardView implements ChatComponent {
         return loading;
     }
 
-    /** 全屏查看大图（PhotoView 支持双指缩放） */
+    /** 全屏查看大图（统一全屏流：ImagePreviewUtil——PhotoView 双指缩放，本地系统解码/网络原生下载） */
     private void showFullImage(Context context, String url) {
+        com.oilquiz.app.ai.chat.component.ImagePreviewUtil.show(context, url);
+        return;
+        /*
         try {
             // Dialog 需要 Activity 上下文；Application context 下无法弹窗
             if (!(context instanceof android.app.Activity)) return;
@@ -363,9 +366,11 @@ public class ImageGridCardView implements ChatComponent {
         } catch (Exception e) {
             android.util.Log.w("ImageGridCardView", "showFullImage failed: " + e.getMessage());
         }
+        */
     }
 
-    /** 小图放大到屏幕宽度（PhotoView 默认 FIT_CENTER 小图保持原尺寸，看起来像"小图"） */
+    /** 小图放大到屏幕宽度（旧实现辅助，已由 ImagePreviewUtil FIT_CENTER 取代，保留备查） */
+    /*
     private static void zoomToFitWidth(PhotoView photoView, android.graphics.Bitmap bmp, Context context) {
         try {
             if (bmp == null || photoView == null) return;
@@ -381,6 +386,7 @@ public class ImageGridCardView implements ChatComponent {
             android.util.Log.w("ImageGridCardView", "zoomToFitWidth failed: " + t.getMessage());
         }
     }
+    */
 
     private static int dp(Context context, float value) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,

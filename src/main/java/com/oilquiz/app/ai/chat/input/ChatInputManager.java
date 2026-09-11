@@ -360,8 +360,11 @@ public class ChatInputManager {
                 || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp");
     }
 
-    /** 应用内图片预览（PhotoView 双指缩放，点击关闭）——优先 BitmapFactory 解码本地文件，避免 Glide 转圈 */
+    /** 应用内图片预览（统一全屏流：ImagePreviewUtil——PhotoView 双指缩放 + 本地系统解码/网络原生下载） */
     private void showImagePreview(String url) {
+        com.oilquiz.app.ai.chat.component.ImagePreviewUtil.show(activity, url);
+        return;
+        /*
         try {
             android.app.Dialog dialog = new android.app.Dialog(activity);
             dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
@@ -412,5 +415,6 @@ public class ChatInputManager {
         } catch (Exception e) {
             callback.onShowToast("无法预览图片");
         }
+        */
     }
 }
