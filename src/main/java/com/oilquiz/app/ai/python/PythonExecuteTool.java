@@ -241,7 +241,7 @@ public class PythonExecuteTool extends BaseAITool {
             "    modules.append(('stdlib', m))\n" +
             "# 检查第三方库\n" +
             "third_party = ['requests','numpy','PIL','bs4','lxml','jieba','regex',\n" +
-            "  'openpyxl','yaml','tabulate','dateutil','chardet','xlrd','pandas']\n" +
+            "  'openpyxl','yaml','tabulate','dateutil','chardet','xlrd','pandas','matplotlib']\n" +
             "for m in third_party:\n" +
             "  spec = importlib.util.find_spec(m)\n" +
             "  if spec:\n" +
@@ -268,7 +268,8 @@ public class PythonExecuteTool extends BaseAITool {
         });
         info.put("third_party", new String[]{
             "requests", "numpy", "PIL/Pillow", "bs4/BeautifulSoup", "lxml", "jieba", "regex",
-            "openpyxl", "pyyaml", "tabulate", "python-dateutil", "chardet", "xlrd", "pandas"
+            "openpyxl", "pyyaml", "tabulate", "python-dateutil", "chardet", "xlrd", "pandas",
+            "matplotlib"
         });
         return new AIToolResult(info, null);
     }
@@ -512,8 +513,8 @@ public class PythonExecuteTool extends BaseAITool {
             sb.append("    pass\n");
         }
         // 含 native C 扩展的库不自动加载，避免 SIGSEGV
-        // Agent 代码中可按需 import numpy/pandas/PIL/lxml/regex
-        sb.append("# numpy/PIL/lxml/regex/pandas 含 native 扩展，需 Agent 代码中显式 import\n\n");
+        // Agent 代码中可按需 import numpy/pandas/PIL/lxml/regex/matplotlib
+        sb.append("# numpy/PIL/lxml/regex/pandas/matplotlib 含 native 扩展，需 Agent 代码中显式 import\n\n");
         
         // ===== Android 辅助模块 =====
         sb.append("# Android 环境辅助模块（文件/CSV/SQLite/XML/数据统计）\n");

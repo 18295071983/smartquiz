@@ -163,6 +163,12 @@ class PythonToolEngine:
         for d in [scripts_dir, cache_dir, logs_dir]:
             if not os.path.exists(d):
                 os.makedirs(d, exist_ok=True)
+        
+        # matplotlib 在 Android 上默认配置目录不可写，必须指向可写路径，
+        # 否则首次 import 建字体缓存会失败。放在 cache 下随清理一起失效即可。
+        mpl_dir = os.path.join(cache_dir, "matplotlib")
+        os.makedirs(mpl_dir, exist_ok=True)
+        os.environ["MPLCONFIGDIR"] = mpl_dir
     
     def _load_installed_packages(self):
         """加载已安装的包列表"""
@@ -424,6 +430,7 @@ class PythonToolEngine:
             'chardet',
             'xlrd',
             'pandas', 'pd',
+            'matplotlib', 'plt',
         ]
         
         # 如果是预装的包，不返回替代方案

@@ -91,6 +91,9 @@ android {
                 install "chardet"           // 文件编码自动检测
                 install "xlrd"              // 旧版 .xls Excel 读取
                 install "reportlab"          // PDF 生成（支持中文）
+                // 图表绘制（依赖：contourpy, kiwisolver, fonttools, cycler, pyparsing, packaging）
+                // contourpy / kiwisolver 由 Chaquopy 源提供 Android 预编译轮子
+                install "matplotlib"
                 
                 // Android 预编译 native 包 - Chaquopy 自动从 PyPI 获取 Android wheel
                 install "pandas"            // 数据分析（依赖：numpy, python-dateutil, pytz, tzdata）
@@ -384,3 +387,101 @@ dependencies {
     androidTestImplementation "org.mockito:mockito-android:4.8.1"
     implementation project(':viewer')
 }
+
+// ============================================================================
+// DSH 修复: Chaquopy 16.1.0 pip_install.py 排除阶段的崩溃
+// ----------------------------------------------------------------------------
+// 现象: :generateDebugPythonRequirements 失败, 报
+//   FileNotFoundError: [WinError 3] 系统找不到指定的路径:
+//     ...\build\python\pip\debug\arm64-v8a\chaquopy\include\freetype\config\ftheader.h
+// 原因: pip_install.py 第 146 行对命中 EXCLUDE_PATTERNS 的文件调用
+//   remove(path_abs, remove_empty_dirs=True)
+// 而 remove() 里的 os.removedirs(dirname(path)) 会连带删除"已变空"的父目录。
+// 当同一轮扫描继续处理该目录下其它文件时, os.remove() 因父目录已消失而抛
+// WinError 3(路径不存在)。注意这不是杀软误删 —— WinError 3 说明是"目录"
+// 不在了, 是 Chaquopy 自己的清理逻辑删掉的, 且每次构建都在同一处复现。
+// 修复: 把 remove() 改成容错版本(文件已不存在即视为已达成排除目的)。
+// 挂载点很关键: 必须挂在 generate*PythonRequirements 的 doFirst 上。
+// 曾经挂在 extract*PythonBuildPackages 的 doLast 上, 但 configureEach 的回调
+// 早于插件自己注册解包动作, 补丁会在文件解出来之前跑, 结果静默失效。
+// generate 依赖 extract, 所以 doFirst 执行时环境一定已经就绪。
+def dshPatchChaquopyPipInstall = { File envDir ->
+    def f = new File(envDir, "lib/site-packages/chaquopy/pip_install.py")
+    if (!f.isFile()) {
+        logger.warn("[DSH] 未找到 ${f}, 跳过 Chaquopy 补丁 (build python 环境可能未解包成功)")
+        return
+    }
+    def text = f.getText("UTF-8")
+    if (text.contains("DSH-PATCH")) {
+        return  // 已打过补丁
+    }
+    def oldCall = "    (rmtree if isdir(path) else os.remove)(path)"
+    def idx = text.indexOf(oldCall)
+    if (idx < 0) {
+        logger.warn("[DSH] 未在 pip_install.py 中找到预期的 remove() 代码, 跳过 Chaquopy 补丁")
+        return
+    }
+    // 兼容 LF / CRLF 两种行尾
+    def end = idx + oldCall.length()
+    if (text.startsWith("\r\n", end)) {
+        end += 2
+    } else if (text.startsWith("\n", end)) {
+        end += 1
+    }
+    text = text.substring(0, idx) +
+            "    try:  # DSH-PATCH: 父目录已被 os.removedirs 删除时不应中断构建\n" +
+            "        (rmtree if isdir(path) else os.remove)(path)\n" +
+            "    except FileNotFoundError:\n" +
+            "        pass\n" +
+            text.substring(end)
+    f.setText(text, "UTF-8")
+    logger.lifecycle("[DSH] 已应用 Chaquopy pip_install.py remove() 容错补丁: ${f}")
+}
+
+tasks.matching { it.name.startsWith("generate") && it.name.endsWith("PythonRequirements") }
+        .configureEach { t ->
+            def m = (t.name =~ /^generate(.+)PythonRequirements$/)
+            if (m.matches()) {
+                def variant = m[0][1].toLowerCase()
+                t.doFirst {
+                    dshPatchChaquopyPipInstall(
+                            new File(t.project.buildDir, "python/env/${variant}"))
+                }
+            }
+        }
+
+// ============================================================================
+// DSH 修复: llama.cpp 的 OpenCL kernel 生成脚本在中文 Windows 上崩溃
+// ----------------------------------------------------------------------------
+// 现象: buildCMakeDebug[arm64-v8a] 失败, 报
+//   UnicodeDecodeError: 'gbk' codec can't decode byte 0x94 in position 8143
+// 原因: ggml-opencl/kernels/embed_kernel.py 用默认编码 open() 读 .cl 文件,
+//   而中文 Windows 的默认编码是 GBK; 9 个 .cl 里有 em-dash/乘号等 UTF-8 字符
+//   (已验证这 9 个文件都是合法 UTF-8), 于是解码失败, .cl.h 生成不出来。
+// 修复: 显式用 UTF-8 读写。
+// 为什么放在 build.gradle 而不是直接改那个文件:
+//   src/main/cpp/llama.cpp 是一个嵌套的 git 仓库(外层 .gitignore 排除了整个目录),
+//   对它的改动无法随外层仓库提交 —— git add 只会加一个 gitlink, 内容不会入库。
+//   放在这里做自愈式守卫, 重新 clone llama.cpp 之后依然会自动修好。
+// ============================================================================
+def dshFixEmbedKernel = { File f ->
+    if (!f.isFile()) {
+        logger.warn("[DSH] 未找到 embed_kernel.py, 跳过 UTF-8 守卫: ${f}")
+        return
+    }
+    def text = f.getText("UTF-8")
+    if (text.contains('encoding="utf-8"')) {
+        return  // 已修好
+    }
+    def fixed = text
+            .replace('open(sys.argv[1], "r")', 'open(sys.argv[1], "r", encoding="utf-8")')
+            .replace('open(sys.argv[2], "w")', 'open(sys.argv[2], "w", encoding="utf-8")')
+    if (fixed == text) {
+        logger.warn("[DSH] embed_kernel.py 中未找到预期 open() 调用, 跳过 UTF-8 守卫")
+        return
+    }
+    f.setText(fixed, "UTF-8")
+    logger.lifecycle("[DSH] 已修正 embed_kernel.py 的 UTF-8 编码: ${f}")
+}
+dshFixEmbedKernel(new File(rootDir,
+        "src/main/cpp/llama.cpp/ggml/src/ggml-opencl/kernels/embed_kernel.py"))
