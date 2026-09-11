@@ -7,6 +7,7 @@ import com.oilquiz.app.ai.spi.AppServices;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -121,6 +122,94 @@ public class QuestionImportTaskManager {
         activeMains.put(taskId, v2Main);
 
         v2Main.run(file, new ImportMain.ImportListener() {
+            @Override
+            public void onStage(String stage, String message) {
+                status.stage = stage;
+                status.message = message;
+            }
+
+            @Override
+            public void onLog(String message) {
+                status.lastLog = message;
+            }
+
+            @Override
+            public void onProgress(long current, long total, String detail) {
+                status.current = current;
+                status.total = total;
+            }
+
+            @Override
+            public void onComplete(ImportMain.ImportSummary result) {
+                status.running = false;
+                status.done = true;
+                status.stage = "done";
+                if (result != null) {
+                    status.imported = result.imported;
+                    status.duplicated = result.duplicated;
+                    status.failed = result.failed;
+                    status.totalRows = result.totalRows;
+                }
+                activeMains.remove(taskId);
+            }
+
+            @Override
+            public void onError(String message) {
+                status.running = false;
+                status.done = true;
+                status.error = message;
+                status.stage = "error";
+                activeMains.remove(taskId);
+            }
+        });
+        return taskId;
+    }
+
+    /**
+     * 多工作表导入：对选定工作表逐个执行完整导入流程（每表独立采样/映射/解析/入库），
+     * 全部完成后一次汇总。智能体判断多个工作表都有用时走此入口（sheetMode=multi）。
+     */
+    public String startMulti(android.content.Context context, File file, List<Integer> sheetIndexes,
+                             String docHint, boolean fillMissing, boolean skipIncomplete,
+                             String questionType) {
+        final String taskId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        final TaskStatus status = new TaskStatus();
+        status.running = true;
+        status.stage = "start";
+        tasks.put(taskId, status);
+
+        if (context == null) {
+            context = AppServices.appContext();
+        }
+        if (context == null) {
+            status.running = false;
+            status.done = true;
+            status.error = "无法获取应用上下文（工具未注入 Context 且 SPI 未安装）";
+            status.stage = "error";
+            return taskId;
+        }
+        if (sheetIndexes == null || sheetIndexes.isEmpty()) {
+            status.running = false;
+            status.done = true;
+            status.error = "未选择任何工作表（sheetMode=multi 需传 sheetIndexes）";
+            status.stage = "error";
+            return taskId;
+        }
+        final android.content.Context appContext = context.getApplicationContext();
+        AppServices.ensure(appContext);
+
+        ImportMain v2Main = new ImportMain(appContext, new AIImportOrchestrator(appContext));
+        if (docHint != null && !docHint.isEmpty()) {
+            v2Main.setDocHint(docHint);
+        }
+        v2Main.setFillEnabled(fillMissing);
+        if (questionType != null && !questionType.isEmpty()) {
+            v2Main.setDefaultQuestionType(questionType);
+        }
+        v2Main.setInteractionHandler(new AutoImportDecisionHandler(fillMissing, skipIncomplete));
+        activeMains.put(taskId, v2Main);
+
+        v2Main.runSheets(file, sheetIndexes, null, new ImportMain.ImportListener() {
             @Override
             public void onStage(String stage, String message) {
                 status.stage = stage;
