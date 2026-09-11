@@ -550,9 +550,9 @@ public class OnlineAgentEngine {
             // 将 assistant 消息（含 tool_calls）加入历史
             JsonObject assistantMsg = new JsonObject();
             assistantMsg.addProperty("role", "assistant");
-            if (result.content != null && !result.content.isEmpty()) {
-                assistantMsg.addProperty("content", result.content);
-            }
+            // content 恒有（空串兜底）：GLM-5 等严格校验的模型对缺失 content 字段的
+            // assistant 消息会返回 400 (1214 messages 参数非法)；空字符串兼容所有厂商
+            assistantMsg.addProperty("content", result.content != null ? result.content : "");
             // DeepSeek thinking 模式硬性要求：assistant 消息必须原样回传 reasoning_content，
             // 否则下一轮请求 HTTP 400（"The reasoning_content in the thinking mode must be passed back"）
             if (result.reasoningContent != null && !result.reasoningContent.isEmpty()) {

@@ -1296,11 +1296,14 @@ public class OnlineInferenceService {
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             // 关闭思考模式：防 reasoning 耗尽 token 预算导致 content 为空（DeepSeek/Qwen3 等）
-            requestBody.addProperty("enable_thinking", false);
-            // vLLM/llama.cpp 类服务端参数位置在 chat_template_kwargs 内，双位置下发兼容
-            JsonObject chatTemplateKwargs = new JsonObject();
-            chatTemplateKwargs.addProperty("enable_thinking", false);
-            requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+            // GLM-5 系列"始终思考"模型不支持关闭思考，跳过该参数（传 false 会 400: 1210）
+            if (!OnlineModelManager.isAlwaysThinkingModel(modelName)) {
+                requestBody.addProperty("enable_thinking", false);
+                // vLLM/llama.cpp 类服务端参数位置在 chat_template_kwargs 内，双位置下发兼容
+                JsonObject chatTemplateKwargs = new JsonObject();
+                chatTemplateKwargs.addProperty("enable_thinking", false);
+                requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+            }
 
             try (OutputStream os = connection.getOutputStream()) {
                 os.write(gson.toJson(requestBody).getBytes(StandardCharsets.UTF_8));

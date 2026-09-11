@@ -384,6 +384,14 @@ public class OnlineModelManager {
     }
 
     /**
+     * 是否"始终思考"模型（不支持关闭思考，如智谱 GLM-5 系列）：
+     * 传 enable_thinking=false 会 400（1210），应跳过关闭思考参数。
+     */
+    public static boolean isAlwaysThinkingModel(String modelName) {
+        return ProviderConfigManager.get().isAlwaysThinkingModel(modelName);
+    }
+
+    /**
      * 按「API 地址 + 模型名」匹配上下文窗口大小（tokens）。
      * 委托 {@link OnlineModelProfile} 配置表：端点+模型名优先，模型名兜底，未知保守 32K。
      * 用于计算历史压缩阈值与 UI 展示上下文用量。

@@ -256,6 +256,18 @@ public class ProviderConfigManager {
     }
 
     /**
+     * 该模型是否"始终思考"（不支持关闭思考，如智谱 GLM-5 系列）：
+     * 此类模型传 enable_thinking=false 会被服务端 400（code 1210: 该模型始终思考，不支持关闭思考），
+     * 应跳过关闭思考参数（不传任何 thinking 开关，服务端按默认思考）。
+     */
+    public boolean isAlwaysThinkingModel(String modelName) {
+        if (modelName == null) return false;
+        String m = modelName.trim().toLowerCase();
+        // glm-5 / glm-5-turbo / glm-5.1 / glm-5.2 / glm-5.3 / glm-5.3-flash ...
+        return m.startsWith("glm-5");
+    }
+
+    /**
      * 思考参数名：命中服务商的 thinking.param；未命中默认 enable_thinking。
      * 保持旧行为：OpenAI o 系 → reasoning_effort，其余 → enable_thinking。
      */
