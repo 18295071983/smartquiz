@@ -407,6 +407,8 @@ public class AIImportActivity extends BaseActivity {
                 + "排除只有几行数据的示例/说明/目录表；单张有用→sheetMode=index + sheetIndex=<该表索引>；"
                 + "多张都有用→sheetMode=multi + sheetIndexes=<JSON数组，如 [1,2]> 全部导入；"
                 + "无法判断时才用 sheetMode=best/all；"
+                + "若多个候选表都像题库表、判断不准，必须用 ui_component(component_type=choice, options=[各候选表名]) "
+                + "询问用户选哪张/哪几张，get_result 拿到选择后再定 sheetMode，不得自作主张；"
                 + "用 file_reader(preview/parse_csv) 看数据质量与缺字段分布，决定 fillMissing/skipIncomplete；"
                 + "表头脏乱、数据混排、编码异常时，可用 excel_tool 或 python_file_ops/python_execute 清洗修正，"
                 + "但清洗产生的文件仅供评估，不要传给 import_start；"
@@ -415,7 +417,9 @@ public class AIImportActivity extends BaseActivity {
                 + "预处理结论（用哪张表/是否填缺失/是否跳行/题型）通过 sheetMode/sheetIndex/docHint/fillMissing/skipIncomplete/questionType 参数表达；"
                 + "3) 用 import_status 轮询直到 DONE 或 ERROR；"
                 + "4) 完成后汇总新增/重复/失败数量并给出简短结论。"
-                + "四个决策点（字段映射/数据预览/填充/入库）已全自动放行，无需用户确认。");
+                + "关键步骤决策原则：字段映射/数据预览/填充/入库四决策点默认全自动放行；"
+                + "但判断不准、有歧义或风险时（选哪个表不确定、清洗方案可能丢数据、多表取舍边界不清），"
+                + "必须用 ui_component(component_type=choice/dialog) 询问用户，get_result 拿到选择后再继续，不得自作主张。");
 
         // 状态机驱动导入页自有 UI（GuideStepFlowView 四步骤 + 监控区），不渲染智能体专用视图
         if (agentImportStateMachine == null) {
