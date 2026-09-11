@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="56dp"
+    android:height="56dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 渐变圆角底 -->
+    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2" android:startY="2"
+                android:endX="22" android:endY="22"
+                android:startColor="#0E7490"
+                android:endColor="#22D3EE" />
+        </aapt:attr>
+    </path>
+
+    <!-- 底部微光 -->
+    <path
+        android:fillColor="#22FFFFFF"
+        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
+
+    <!-- 扫描框（白色圆角矩形渐变） -->
+    <path android:pathData="M4.5,4.5 C4.5,3.67 5.17,3 6,3 H9.5 V4.8 H6.2 C6.09,4.8 6,4.89 6,5 V8.3 H4.5 Z M19.5,4.5 C19.5,3.67 18.83,3 18,3 H14.5 V4.8 H17.8 C17.91,4.8 18,4.89 18,5 V8.3 H19.5 Z M4.5,19.5 C4.5,20.33 5.17,21 6,21 H9.5 V19.2 H6.2 C6.09,19.2 6,19.11 6,19 V15.7 H4.5 Z M19.5,19.5 C19.5,20.33 18.83,21 18,21 H14.5 V19.2 H17.8 C17.91,19.2 18,19.11 18,19 V15.7 H19.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="4.5" android:startY="3"
+                android:endX="19.5" android:endY="21"
+                android:startColor="#FFFFFF"
+                android:endColor="#CFFAFE" />
+        </aapt:attr>
+    </path>
+
+    <!-- 对角小亮点（扫描感，半透明白） -->
+    <path
+        android:fillColor="#80FFFFFF"
+        android:pathData="M5.2,5.2 H8 V7.5 H5.2 Z M19,5.2 H16.2 V7.5 H19 Z" />
+
+    <!-- 识别文字行（深青） -->
+    <path android:pathData="M8,11.5 H16 M8,14.5 H13.8 M8,17.5 H11.5">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="8" android:startY="11.5"
+                android:endX="16" android:endY="17.5"
+                android:startColor="#0E7490"
+                android:endColor="#0891B2" />
+        </aapt:attr>
+    </path>
+</vector>

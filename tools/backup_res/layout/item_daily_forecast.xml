@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingVertical="14dp"
+    android:paddingHorizontal="4dp">
+
+    <!-- 日期 -->
+    <TextView
+        android:id="@+id/tv_date"
+        android:layout_width="@dimen/size_64"
+        android:layout_height="wrap_content"
+        android:text="今天"
+        android:textSize="@dimen/text_14"
+        android:textColor="@color/weather_dark_text"
+        android:textStyle="bold" />
+
+    <!-- 天气图标 -->
+    <TextView
+        android:id="@+id/iv_icon"
+        android:layout_width="@dimen/size_32"
+        android:layout_height="@dimen/size_32"
+        android:layout_marginStart="@dimen/space_8"
+        android:gravity="center"
+        android:textSize="@dimen/text_22" />
+
+    <!-- 天气描述 -->
+    <TextView
+        android:id="@+id/tv_weather"
+        android:layout_width="@dimen/size_64"
+        android:layout_height="wrap_content"
+        android:text="晴"
+        android:textSize="@dimen/text_13"
+        android:textColor="@color/weather_dark_text_secondary"
+        android:layout_marginStart="@dimen/space_8" />
+
+    <!-- 低温 -->
+    <TextView
+        android:id="@+id/tv_low"
+        android:layout_width="@dimen/size_36"
+        android:layout_height="wrap_content"
+        android:text="18°"
+        android:textSize="@dimen/text_14"
+        android:textColor="@color/blue_400"
+        android:gravity="end" />
+
+    <!-- 温度条 -->
+    <FrameLayout
+        android:layout_width="@dimen/size_0"
+        android:layout_height="@dimen/size_6"
+        android:layout_weight="1"
+        android:layout_marginHorizontal="@dimen/space_10"
+        android:background="@drawable/temp_bar_bg">
+
+        <!-- 温度范围指示器 -->
+        <View
+            android:id="@+id/view_temp_bar"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_6"
+            android:layout_gravity="center_vertical"
+            android:background="@drawable/temp_bar_fill" />
+    </FrameLayout>
+
+    <!-- 高温 -->
+    <TextView
+        android:id="@+id/tv_high"
+        android:layout_width="@dimen/size_36"
+        android:layout_height="wrap_content"
+        android:text="32°"
+        android:textSize="@dimen/text_14"
+        android:textColor="@color/orange_400"
+        android:textStyle="bold" />
+</LinearLayout>

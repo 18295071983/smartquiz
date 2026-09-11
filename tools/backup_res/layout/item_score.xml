@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="@dimen/space_16"
+    android:background="?attr/colorSurface">
+
+    <TextView
+        android:id="@+id/tv_score_date"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="2024-01-01"
+        android:textSize="@dimen/text_14"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:layout_marginBottom="@dimen/space_4" />
+
+    <TextView
+        android:id="@+id/tv_score_value"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="得分: 85"
+        android:textSize="@dimen/text_18"
+        android:textStyle="bold"
+        android:layout_marginBottom="@dimen/space_4" />
+
+    <TextView
+        android:id="@+id/tv_score_details"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="10题，8题正确"
+        android:textSize="@dimen/text_14" />
+
+</LinearLayout>

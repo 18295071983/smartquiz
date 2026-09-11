@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginVertical="@dimen/space_4"
+    app:cardBackgroundColor="@color/surface"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="0dp"
+    app:strokeWidth="@dimen/stroke_1"
+    app:strokeColor="@color/outline">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/space_12"
+        android:gravity="center_vertical">
+
+        <!-- 选中指示器 -->
+        <RadioButton
+            android:id="@+id/rb_select"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:buttonTint="@color/primary"/>
+
+        <LinearLayout
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_8"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_api_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="OpenAI API"
+                android:textSize="@dimen/text_14"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"/>
+
+            <TextView
+                android:id="@+id/tv_api_url"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="api.openai.com"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_secondary"
+                android:layout_marginTop="@dimen/space_2"/>
+
+            <TextView
+                android:id="@+id/tv_model_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="模型: GPT-4o"
+                android:textSize="@dimen/text_11"
+                android:textColor="@color/primary"
+                android:layout_marginTop="@dimen/space_4"/>
+        </LinearLayout>
+
+        <!-- 操作按钮 -->
+        <ImageButton
+            android:id="@+id/btn_edit"
+            android:layout_width="@dimen/size_32"
+            android:layout_height="@dimen/size_32"
+            android:src="@drawable/ic_edit"
+            android:background="?attr/selectableItemBorderless"
+            android:contentDescription="编辑"
+            app:tint="@color/text_secondary"/>
+
+        <ImageButton
+            android:id="@+id/btn_delete"
+            android:layout_width="@dimen/size_32"
+            android:layout_height="@dimen/size_32"
+            android:src="@drawable/ic_delete"
+            android:background="?attr/selectableItemBorderless"
+            android:contentDescription="删除"
+            app:tint="@color/error"/>
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

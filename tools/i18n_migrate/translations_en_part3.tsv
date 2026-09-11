@@ -1,0 +1,92 @@
+h_db5eded9	File loaded successfully
+h_eba75b51	Please load a file first
+h_1faa6cc2	Running auto-mapping...
+h_87e6eef1	Header is empty, cannot auto-map
+h_10401e7a	Auto-mapping complete, mapped 
+h_a7ed8134	Auto-mapping failed: 
+h_d8ac4681	Clear mapping
+h_10a06fbf	Clear all field mappings?
+h_b356ac4a	All mappings cleared
+h_64b92b2d	Rendering split preview...
+h_fd4d7fd4	Split preview loaded; adjust virtual column mapping then tap "Next"
+h_25e3739d	Split preview render failed: 
+h_da09a19e	Header is empty
+h_9381dda8	Select the column to split
+h_948b228a	Failed to read header: 
+h_7d64ae3b	Detected column 
+h_dcfe3ceb	 options use the delimiter:\n
+h_e3ca7094	After confirming, the column will be split into options A/B/C/D...\n
+h_f5b5059b	You can also choose another delimiter or enter a custom one.
+h_e4696b15	Auto-detect: 
+h_c3f2bf07	Letter labels (e.g. A. B. C. D.)
+h_3062814c	No split (each row is one full option)
+h_60532691	Or enter a custom delimiter
+h_e53e248e	Option delimiter
+h_e83a256e	Confirm
+h_78207226	Back to edit
+h_ef3e299b	Please map the required fields:\n\n
+h_fcd1f176	❌ Question type (select the Excel column for the "question type" field)\n
+h_0576192c	✅ Question type (mapped to column 
+h_1bad54b9	❌ Question (select the Excel column for the "question" or "question content" field)\n
+h_f2e7294c	 (mapped to column 
+h_62267217	❌ Correct answer (select the Excel column for the "correct answer" or "answer" field)\n
+h_31690f83	\nCurrent mapping:\n
+h_11d919cf	(no mapping yet)\n
+h_cb7429be	 → column 
+h_d965ca37	\n💡 Tip: options, explanation, difficulty, and category are optional fields; import works fine without them.
+h_0751de62	Mapping config incomplete
+h_bdba11d8	📋 Mapping result:\n\n
+h_f7e2df38	 → split part 
+h_35a72186	Confirm mapping config
+h_eca060fa	Confirm &amp; continue
+h_25b1ba83	⚙️ Import settings
+h_afcc3e34	💾 Save
+h_77322d90	✅ Settings saved
+h_acc47889	✅ Added
+h_876d7920	❌ Maximum option count reached
+h_0298d26c	Failed to load wrong questions: 
+h_0604a9e0	No wrong questions to review
+h_3225c25f	Clear wrong questions
+h_3d7b8851	Clear all wrong questions? This cannot be undone.
+h_4d4dafc3	Delete wrong question
+h_ca0b9d55	Delete this wrong question?
+h_ad23f072	Delete failed: 
+h_b2fbad65	Voice message
+h_ba32db0a	🗑️ Delete attachment
+h_6d4b209b	Delete this attachment?\n
+h_98dd417c	🤖 AI summary:\n
+h_91a02ea3	📝 Extracted content:\n
+h_c28fbfe8	⏳ Parsing...
+h_42c75848	❌ Parse failed: 
+h_cd28422c	ℹ️ No extracted content
+h_8667899b	Attachment content preview
+h_290b624a	Copy full text
+h_0ec7d451	✅ Copied to clipboard
+h_5cbff303	Model path: 
+h_be4cd65b	In use
+h_316f7a56	Tap to switch
+h_a6da27c5	Fetch the model list first
+h_3388316f	Model details
+h_2afc3718	Question type mapping (
+h_4453dd7d	Difficulty mapping (
+h_503f44ed	Category mapping (
+h_d7840b2c	No mapping
+h_432928d3	Starting export...
+h_4062b25e	Exporting...
+h_064917ca	Exporting... 
+h_80d8cdc9	Export complete! File saved to:\n
+h_92f00bd2	Content template:
+h_c906734a	Template:
+h_395c7442	Select a content template
+h_c3f9cc1b	Type: content template
+h_dc5c8ec2	Content templates generate study materials in a specific format
+h_50e5250f	Select an export template
+h_294b3945	Export templates define the format and layout of the exported file
+h_9b7536df	File: 
+h_a5d1c511	Template name
+h_dfda394d	Format: none
+h_8c289710	Select a template
+h_4f51ac6e	Select a content template
+h_970f00ea	%s\nHigh: %d° Low: %d°\n%s %s\nHumidity: %d%%
+h_75378edd	No hourly data yet
+h_7075e4d2	No daily forecast yet

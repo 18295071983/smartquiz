@@ -1,0 +1,358 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_20">
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="2dp"
+            app:cardCornerRadius="12dp"
+            app:cardBackgroundColor="@color/card_background">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="📊 当前状态"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"
+                    android:layout_marginBottom="@dimen/space_12"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="服务状态"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_status_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="@color/divider"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="状态描述"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_desc_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="@color/divider"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="进度"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_progress_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="@color/divider"/>
+
+                <LinearLayout
+                    android:id="@+id/detail_error_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp"
+                    android:visibility="gone">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="错误信息"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_error_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/error"/>
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="2dp"
+            app:cardCornerRadius="12dp"
+            app:cardBackgroundColor="@color/card_background">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🔧 运行信息"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"
+                    android:layout_marginBottom="@dimen/space_12"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Native库"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_lib_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="@color/divider"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="模型名称"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_model_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="@color/divider"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="优化模式"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_opt_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="@color/divider"/>
+
+                <LinearLayout
+                    android:id="@+id/detail_mem_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp"
+                    android:visibility="gone">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="内存使用"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_mem_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+                <View
+                    android:id="@+id/detail_mem_divider"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="@color/divider"
+                    android:visibility="gone"/>
+
+                <LinearLayout
+                    android:id="@+id/detail_speed_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp"
+                    android:visibility="gone">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="推理速度"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_speed_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+                <View
+                    android:id="@+id/detail_speed_divider"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_0_5"
+                    android:background="@color/divider"
+                    android:visibility="gone"/>
+
+                <LinearLayout
+                    android:id="@+id/detail_token_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="8dp"
+                    android:visibility="gone">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Token计数"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_secondary"/>
+                    <TextView
+                        android:id="@+id/detail_token_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/text_primary"/>
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/detail_model_info_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="2dp"
+            app:cardCornerRadius="12dp"
+            app:cardBackgroundColor="@color/card_background"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="📋 模型信息"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"
+                    android:layout_marginBottom="@dimen/space_12"/>
+
+                <TextView
+                    android:id="@+id/detail_model_info_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="@dimen/text_13"
+                    android:textColor="@color/text_primary"
+                    android:lineSpacingExtra="3dp"
+                    android:fontFamily="monospace"/>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+
+</ScrollView>

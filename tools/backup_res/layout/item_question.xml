@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/card_bg"
+    android:padding="@dimen/space_16"
+    android:layout_marginBottom="@dimen/space_10">
+
+    <!-- 头部：题号 + 题型标签 + 操作按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="@dimen/space_10">
+
+        <!-- 题号 -->
+        <TextView
+            android:id="@+id/questionNumberTextView"
+            android:layout_width="@dimen/size_32"
+            android:layout_height="@dimen/size_32"
+            android:text="1"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/primary"
+            android:background="@drawable/question_number_bg"
+            android:gravity="center"
+            android:layout_marginEnd="@dimen/space_10"/>
+
+        <!-- 题型标签 -->
+        <TextView
+            android:id="@+id/questionTypeTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="单选题"
+            android:textSize="@dimen/text_11"
+            android:textColor="@color/primary"
+            android:background="@drawable/question_type_tag_bg"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="3dp"/>
+
+        <View
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_0"
+            android:layout_weight="1"/>
+
+        <!-- 操作按钮 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_favorite"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="@dimen/size_40"
+            android:layout_height="@dimen/size_40"
+            android:contentDescription="收藏"
+            app:icon="@android:drawable/btn_star_big_off"
+            app:iconTint="@color/tertiary"
+            app:iconGravity="textStart"
+            app:backgroundTint="@android:color/transparent"
+            android:layout_marginEnd="@dimen/space_4"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_delete"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="@dimen/size_40"
+            android:layout_height="@dimen/size_40"
+            android:contentDescription="删除"
+            app:icon="@android:drawable/ic_menu_delete"
+            app:iconTint="@color/error"
+            app:iconGravity="textStart"
+            app:backgroundTint="@android:color/transparent"/>
+    </LinearLayout>
+
+    <!-- 题目内容（完整显示，不限行数） -->
+    <TextView
+        android:id="@+id/questionTextTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="题目内容"
+        android:textSize="@dimen/text_15"
+        android:textColor="@color/text_primary"
+        android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="@dimen/space_12"/>
+
+    <!-- 题目配图（默认隐藏，由适配器根据imageUri动态显示） -->
+    <ImageView
+        android:id="@+id/questionImageView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scaleType="fitCenter"
+        android:adjustViewBounds="true"
+        android:layout_marginBottom="@dimen/space_12"
+        android:visibility="gone"/>
+
+    <!-- 选项动态容器（由适配器根据数据动态填充，支持A~L所有选项） -->
+    <LinearLayout
+        android:id="@+id/optionsLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="@dimen/space_10"/>
+
+    <!-- 元信息行：分类 + 难度 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/categoryTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="默认"
+            android:textSize="@dimen/text_11"
+            android:textColor="@color/text_secondary"
+            android:background="@color/surface_variant"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"
+            android:layout_marginEnd="@dimen/space_8"/>
+
+        <TextView
+            android:id="@+id/difficultyTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="中等"
+            android:textSize="@dimen/text_11"
+            android:textColor="@color/text_secondary"
+            android:background="@color/surface_variant"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="3dp"/>
+    </LinearLayout>
+
+    <!-- 答案（默认隐藏） -->
+    <TextView
+        android:id="@+id/answerTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="答案: A"
+        android:textSize="@dimen/text_14"
+        android:textColor="@color/success"
+        android:background="@color/success_container"
+        android:padding="@dimen/space_10"
+        android:layout_marginTop="@dimen/space_10"
+        android:visibility="gone"/>
+
+    <!-- 解析（默认隐藏，答案可见时同步显示） -->
+    <TextView
+        android:id="@+id/explanationTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/text_13"
+        android:textColor="@color/text_secondary"
+        android:background="@drawable/explanation_bg"
+        android:padding="@dimen/space_10"
+        android:layout_marginTop="@dimen/space_8"
+        android:lineSpacingExtra="3dp"
+        android:visibility="gone"/>
+
+</LinearLayout>

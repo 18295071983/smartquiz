@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <!-- 微信风格 "+" 号：细线条、圆角端点 -->
+  <path
+      android:fillColor="?attr/colorOnSurface"
+      android:pathData="M12,3.5c0.55,0 1,0.45 1,1v6.5h6.5c0.55,0 1,0.45 1,1s-0.45,1 -1,1H13v6.5c0,0.55 -0.45,1 -1,1s-1,-0.45 -1,-1V13H4.5c-0.55,0 -1,-0.45 -1,-1s0.45,-1 1,-1H11V4.5c0,-0.55 0.45,-1 1,-1z"/>
+</vector>

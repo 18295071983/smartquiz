@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="42dp"
+    android:height="42dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 渐变圆角底 -->
+    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2" android:startY="2"
+                android:endX="22" android:endY="22"
+                android:startColor="#E11D48"
+                android:endColor="#FB7185" />
+        </aapt:attr>
+    </path>
+
+    <!-- 底部微光 -->
+    <path
+        android:fillColor="#22FFFFFF"
+        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
+
+    <!-- 数据库圆柱（白色渐变） -->
+    <path android:pathData="M4,5 C4,3.34 7.58,2 12,2 C16.42,2 20,3.34 20,5 V19 C20,20.66 16.42,22 12,22 C7.58,22 4,20.66 4,19 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="4" android:startY="2"
+                android:endX="20" android:endY="22"
+                android:startColor="#FFFFFF"
+                android:endColor="#FFE4E6" />
+        </aapt:attr>
+    </path>
+
+    <!-- 顶部椭圆盖（深粉） -->
+    <path android:pathData="M4,5 C4,6.66 7.58,8 12,8 C16.42,8 20,6.66 20,5 C20,3.34 16.42,2 12,2 C7.58,2 4,3.34 4,5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="4" android:startY="2"
+                android:endX="20" android:endY="8"
+                android:startColor="#F43F5E"
+                android:endColor="#BE123C" />
+        </aapt:attr>
+    </path>
+
+    <!-- 分层横线（深粉） -->
+    <path android:pathData="M4,10 C4,11.66 7.58,13 12,13 C16.42,13 20,11.66 20,10 M4,15 C4,16.66 7.58,18 12,18 C16.42,18 20,16.66 20,15">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="4" android:startY="10"
+                android:endX="20" android:endY="18"
+                android:startColor="#FB7185"
+                android:endColor="#E11D48" />
+        </aapt:attr>
+    </path>
+</vector>

@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface"
+    >
+
+    <!-- 顶部状态栏 -->
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorPrimary"
+        app:title="学习进度"
+        app:titleTextColor="?attr/colorOnPrimary" />
+
+    <!-- 主要内容区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="@dimen/space_16">
+
+        <!-- 进度统计卡片 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/colorSurfaceVariant"
+            android:padding="@dimen/space_16"
+            android:elevation="@dimen/elev_2"
+            android:layout_marginBottom="@dimen/space_16">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="学习统计"
+                android:textSize="@dimen/text_18"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="@dimen/space_16" />
+
+            <!-- 进度网格 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- 第一行 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="@dimen/space_12">
+
+                    <LinearLayout
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:background="?attr/colorSurface"
+                        android:padding="@dimen/space_12"
+                        android:elevation="@dimen/elev_1"
+                        android:layout_marginEnd="@dimen/space_8">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="总体进度"
+                            android:textSize="@dimen/text_14"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginBottom="@dimen/space_4" />
+
+                        <TextView
+                            android:id="@+id/textViewOverallProgress"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0%"
+                            android:textSize="@dimen/text_24"
+                            android:fontFamily="sans-serif-medium"
+                            android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:background="?attr/colorSurface"
+                        android:padding="@dimen/space_12"
+                        android:elevation="@dimen/elev_1"
+                        android:layout_marginEnd="@dimen/space_8">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="今日进度"
+                            android:textSize="@dimen/text_14"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginBottom="@dimen/space_4" />
+
+                        <TextView
+                            android:id="@+id/textViewTodayProgress"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0%"
+                            android:textSize="@dimen/text_24"
+                            android:fontFamily="sans-serif-medium"
+                            android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- 第二行 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:background="?attr/colorSurface"
+                        android:padding="@dimen/space_12"
+                        android:elevation="@dimen/elev_1"
+                        android:layout_marginEnd="@dimen/space_8">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="本周进度"
+                            android:textSize="@dimen/text_14"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginBottom="@dimen/space_4" />
+
+                        <TextView
+                            android:id="@+id/textViewWeekProgress"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0%"
+                            android:textSize="@dimen/text_24"
+                            android:fontFamily="sans-serif-medium"
+                            android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:background="?attr/colorSurface"
+                        android:padding="@dimen/space_12"
+                        android:elevation="@dimen/elev_1">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="本月进度"
+                            android:textSize="@dimen/text_14"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:layout_marginBottom="@dimen/space_4" />
+
+                        <TextView
+                            android:id="@+id/textViewMonthProgress"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0%"
+                            android:textSize="@dimen/text_24"
+                            android:fontFamily="sans-serif-medium"
+                            android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 操作按钮 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="@dimen/space_16">
+
+            <Button
+                android:id="@+id/buttonAddPlan"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="添加计划"
+                android:textSize="@dimen/text_14"
+                android:textColor="?attr/colorOnPrimary"
+                android:background="?attr/colorPrimary"
+                android:layout_marginEnd="@dimen/space_8"
+                android:elevation="@dimen/elev_2"
+                android:translationZ="2dp" />
+
+            <Button
+                android:id="@+id/buttonRefresh"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="刷新数据"
+                android:textSize="@dimen/text_14"
+                android:textColor="?attr/colorOnPrimary"
+                android:background="?attr/colorPrimary"
+                android:elevation="@dimen/elev_2"
+                android:translationZ="2dp" />
+        </LinearLayout>
+
+        <!-- 学习计划列表 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerViewStudyPlans"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_0"
+            android:layout_weight="1"
+            android:background="?attr/colorSurfaceVariant"
+            android:padding="@dimen/space_16"
+            android:clipToPadding="false"
+            android:elevation="@dimen/elev_2" />
+        
+        <!-- 空状态 -->
+        <TextView
+            android:id="@+id/textViewEmptyState"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_0"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="暂无学习计划，点击添加计划开始学习吧！"
+            android:textSize="@dimen/text_18"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:visibility="gone" />
+    </LinearLayout>
+</LinearLayout>

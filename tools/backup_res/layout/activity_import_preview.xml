@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 导入数据预览页：解析结果全部行分页预览 + 错误标注 + 处理决策 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="@dimen/elev_0">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/surface"
+            app:title="导入数据预览"
+            app:titleTextColor="@color/text_primary"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- 质量统计摘要 -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="@dimen/space_12"
+        app:cardBackgroundColor="@color/surface"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="1dp">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/space_14">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <TextView
+                    android:id="@+id/tv_total"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="共 0 行"
+                    android:textSize="@dimen/text_13"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:id="@+id/tv_complete"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="完整 0"
+                    android:textSize="@dimen/text_13"
+                    android:textColor="@color/success"/>
+                <TextView
+                    android:id="@+id/tv_incomplete"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="缺字段 0"
+                    android:textSize="@dimen/text_13"
+                    android:textColor="@color/warning"/>
+                <TextView
+                    android:id="@+id/tv_skipped"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="跳过 0"
+                    android:textSize="@dimen/text_13"
+                    android:textColor="@color/error"/>
+            </LinearLayout>
+            <TextView
+                android:id="@+id/tv_missing_detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_6"
+                android:text=""
+                android:textSize="@dimen/text_11"
+                android:textColor="@color/text_secondary"/>
+            <TextView
+                android:id="@+id/tv_dup_detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_6"
+                android:text=""
+                android:textSize="@dimen/text_11"
+                android:textColor="@color/error"
+                android:visibility="gone"/>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- 数据行列表（分页） -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/preview_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:layout_marginHorizontal="@dimen/space_12"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/space_8"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
+
+    <!-- 底部操作区 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_12"
+        android:background="@color/surface"
+        android:elevation="@dimen/elev_8">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="处理方式："
+                android:textSize="@dimen/text_13"
+                android:textColor="@color/text_secondary"/>
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_all"
+                style="@style/Widget.App.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="全部导入"
+                android:textSize="@dimen/text_12"
+                android:checked="true"/>
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chip_skip"
+                style="@style/Widget.App.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="仅导入完整题"
+                android:textSize="@dimen/text_12"
+                android:layout_marginStart="@dimen/space_8"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="@dimen/space_10">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_cancel"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/space_6"
+                android:text="取消导入"
+                android:textSize="@dimen/text_14"
+                app:cornerRadius="@dimen/radius_12"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_continue"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/space_6"
+                android:text="继续导入"
+                android:textSize="@dimen/text_14"
+                app:cornerRadius="@dimen/radius_12"/>
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>

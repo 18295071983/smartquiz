@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <path
+        android:fillColor="@color/warning_container"
+        android:pathData="M1,21H23L12,2L1,21Z" />
+    
+    <path
+        android:fillColor="@color/warning"
+        android:pathData="M4,19H20L12,5L4,19Z" />
+    
+    <path
+        android:fillColor="@color/warning_light"
+        android:pathData="M7,18H17L12,10L7,18Z" />
+    
+    <path
+        android:fillColor="@color/on_warning"
+        android:pathData="M12,11C12.55,11 13,11.45 13,12V16C13,16.55 12.55,17 12,17S11,16.55 11,16V12C11,11.45 11.45,11 12,11Z" />
+    
+    <path
+        android:fillColor="@color/on_warning"
+        android:pathData="M12,18C12.55,18 13,18.45 13,19C13,19.55 12.55,20 12,20S11,19.55 11,19C11,18.45 11.45,18 12,18Z" />
+    
+    <path
+        android:fillColor="@color/error"
+        android:pathData="M3,3L4.5,4.5L3,6L1.5,4.5L3,3Z" />
+    
+    <path
+        android:fillColor="@color/error"
+        android:pathData="M21,3L22.5,4.5L21,6L19.5,4.5L21,3Z" />
+</vector>

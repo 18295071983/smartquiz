@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:layout_marginVertical="@dimen/space_8">
+
+    <!-- AI头像 -->
+    <ImageView
+        android:layout_width="@dimen/size_36"
+        android:layout_height="@dimen/size_36"
+        android:src="@android:drawable/ic_menu_help"
+        android:background="@drawable/rounded_avatar"
+        android:scaleType="centerCrop"
+        android:layout_marginLeft="@dimen/space_12"
+        android:elevation="@dimen/elev_2" />
+
+    <!-- 消息内容区域 -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginLeft="@dimen/space_12">
+
+        <!-- 发送者名称和时间戳 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="@dimen/space_4"
+            android:gravity="start">
+
+            <TextView
+                android:id="@+id/textViewSender"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/gray"
+                android:layout_marginRight="@dimen/space_8" />
+
+            <TextView
+                android:id="@+id/textViewTimestamp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/gray_light" />
+
+        </LinearLayout>
+
+        <!-- 消息内容 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/rounded_corners_gray"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:maxWidth="@dimen/max_280"
+            android:elevation="@dimen/elev_2"
+            android:translationZ="2dp">
+
+            <TextView
+                android:id="@+id/textViewMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="@dimen/text_16"
+                android:textColor="@color/black"
+                android:lineSpacingExtra="4sp"
+                android:textIsSelectable="true" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- 左侧空白占位 -->
+    <View
+        android:layout_width="@dimen/size_0"
+        android:layout_height="wrap_content"
+        android:layout_weight="1" />
+
+</LinearLayout>

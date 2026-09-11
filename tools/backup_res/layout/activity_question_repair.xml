@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    tools:context=".ui.activity.QuestionRepairActivity">
+
+    <!-- 顶部工具栏 -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="@dimen/elev_0">
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorSurface"
+            app:title="题库智能修复"
+            app:titleTextColor="?attr/colorOnSurface"
+            app:elevation="@dimen/elev_0" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- 统计区 -->
+    <TextView
+        android:id="@+id/tvRepairStats"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="@dimen/space_12"
+        android:textSize="@dimen/text_13"
+        android:textColor="@color/text_secondary"
+        android:text="点击「扫描题库」检测乱码、缺失字段、答案异常与重复题" />
+
+    <!-- 状态与进度 -->
+    <TextView
+        android:id="@+id/tvRepairStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
+        android:textSize="@dimen/text_13"
+        android:textColor="?attr/colorPrimary"
+        android:visibility="gone" />
+
+    <ProgressBar
+        android:id="@+id/pbRepair"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_12"
+        android:layout_marginEnd="@dimen/space_12"
+        android:max="100"
+        android:progress="0"
+        android:visibility="gone" />
+
+    <!-- 操作按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
+        android:paddingTop="@dimen/space_4"
+        android:paddingBottom="@dimen/space_4">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnScanRepair"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
+            android:layout_weight="1"
+            android:text="扫描题库"
+            android:textSize="@dimen/text_13"
+            app:cornerRadius="@dimen/radius_20"
+            android:textAllCaps="false"
+            android:layout_marginEnd="@dimen/space_6" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRuleFix"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
+            android:layout_weight="1"
+            android:text="规则修复"
+            android:textSize="@dimen/text_13"
+            android:enabled="false"
+            app:cornerRadius="@dimen/radius_20"
+            android:textAllCaps="false"
+            android:layout_marginEnd="@dimen/space_6" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAiFix"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
+            android:layout_weight="1"
+            android:text="AI修复"
+            android:textSize="@dimen/text_13"
+            android:enabled="false"
+            app:cornerRadius="@dimen/radius_20"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <!-- 问题列表 -->
+    <ListView
+        android:id="@+id/lvRepairIssues"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:divider="@android:color/transparent"
+        android:dividerHeight="4dp"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
+        android:clipToPadding="false" />
+</LinearLayout>

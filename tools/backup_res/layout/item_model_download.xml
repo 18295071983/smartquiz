@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="@dimen/space_12"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="2dp"
+    app:cardBackgroundColor="@color/card_background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_16">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:id="@+id/iv_icon"
+                android:layout_width="@dimen/size_40"
+                android:layout_height="@dimen/size_40"
+                android:src="@drawable/ic_ai_model"
+                android:tint="@color/primary"
+                android:contentDescription="模型图标"/>
+
+            <LinearLayout
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="@dimen/space_12">
+
+                <TextView
+                    android:id="@+id/tv_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="模型名称"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"/>
+
+                <TextView
+                    android:id="@+id/tv_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="未下载"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginTop="@dimen/space_2"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="模型描述"
+            android:textSize="@dimen/text_13"
+            android:textColor="@color/text_secondary"
+            android:layout_marginTop="@dimen/space_8"
+            android:maxLines="2"
+            android:ellipsize="end"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="@dimen/space_8">
+
+            <TextView
+                android:id="@+id/tv_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="大小: 330 MB"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_tertiary"/>
+
+            <TextView
+                android:id="@+id/tv_info"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="精度: Q4_K_M"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_tertiary"
+                android:layout_marginStart="@dimen/space_12"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/ll_progress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="@dimen/space_12"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:id="@+id/progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/size_8"
+                android:progress="0"
+                android:progressTint="@color/primary"
+                android:progressBackgroundTint="@color/divider"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="@dimen/space_4">
+
+                <TextView
+                    android:id="@+id/tv_progress_info"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="0 MB / 0 MB"
+                    android:textSize="@dimen/text_11"
+                    android:textColor="@color/text_tertiary"/>
+
+                <TextView
+                    android:id="@+id/tv_speed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0 MB/s"
+                    android:textSize="@dimen/text_11"
+                    android:textColor="@color/primary"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="@dimen/space_12">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_action"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_40"
+                android:layout_weight="1"
+                android:text="下载"
+                android:textSize="@dimen/text_14"
+                app:cornerRadius="@dimen/radius_20"
+                app:iconGravity="textStart"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_delete"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_40"
+                android:layout_marginStart="@dimen/space_8"
+                android:text="删除"
+                android:textSize="@dimen/text_14"
+                android:visibility="gone"
+                app:cornerRadius="@dimen/radius_20"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"/>
+        </LinearLayout>
+
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

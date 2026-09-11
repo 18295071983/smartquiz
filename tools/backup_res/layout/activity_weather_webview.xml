@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@android:color/white">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/blue_800"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:elevation="@dimen/elev_4">
+
+        <ImageView
+            android:id="@+id/btn_back"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
+            android:src="@drawable/ic_back"
+            android:tint="@android:color/white"
+            android:padding="@dimen/space_12"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackgroundBorderless" />
+
+        <TextView
+            android:id="@+id/tv_title"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="天气详情"
+            android:textSize="@dimen/text_18"
+            android:textColor="@android:color/white"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:ellipsize="end"
+            android:maxLines="1" />
+
+        <ImageView
+            android:id="@+id/btn_refresh"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
+            android:src="@drawable/ic_refresh"
+            android:tint="@android:color/white"
+            android:padding="@dimen/space_12"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackgroundBorderless" />
+
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <WebView
+            android:id="@+id/web_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <ProgressBar
+            android:id="@+id/progress_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            style="?android:attr/progressBarStyleLarge"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+</LinearLayout>

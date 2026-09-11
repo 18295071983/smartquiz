@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/size_0"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:orientation="vertical"
+    android:padding="@dimen/space_8">
+
+    <TextView
+        android:id="@+id/columnName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="列名"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/on_surface_variant"
+        android:layout_marginBottom="@dimen/space_4"/>
+
+    <Spinner
+        android:id="@+id/fieldSpinner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/teal_500"/>
+
+</LinearLayout>

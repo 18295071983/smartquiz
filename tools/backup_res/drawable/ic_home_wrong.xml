@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="56dp"
+    android:height="56dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 渐变圆角底（深粉→亮粉） -->
+    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2" android:startY="2"
+                android:endX="22" android:endY="22"
+                android:startColor="#E11D48"
+                android:endColor="#FB7185" />
+        </aapt:attr>
+    </path>
+
+    <!-- 底部微光 -->
+    <path
+        android:fillColor="#22FFFFFF"
+        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
+
+    <!-- 感叹号圆环（白色） -->
+    <path android:pathData="M12,3.8 C7.58,3.8 4,7.38 4,11.8 C4,16.22 7.58,19.8 12,19.8 C16.42,19.8 20,16.22 20,11.8 C20,7.38 16.42,3.8 12,3.8 Z M12,5.5 C15.48,5.5 18.3,8.32 18.3,11.8 C18.3,15.28 15.48,18.1 12,18.1 C8.52,18.1 5.7,15.28 5.7,11.8 C5.7,8.32 8.52,5.5 12,5.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="4" android:startY="3.8"
+                android:endX="20" android:endY="19.8"
+                android:startColor="#FFFFFF"
+                android:endColor="#FFE4E6" />
+        </aapt:attr>
+    </path>
+
+    <!-- 感叹号竖线（深粉） -->
+    <path android:pathData="M11,8 H13 V14.2 H11 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="11" android:startY="8"
+                android:endX="13" android:endY="14.2"
+                android:startColor="#F43F5E"
+                android:endColor="#BE123C" />
+        </aapt:attr>
+    </path>
+
+    <!-- 感叹号圆点（深粉） -->
+    <path
+        android:fillColor="#BE123C"
+        android:pathData="M11,15.2 H13 V17.2 H11 Z" />
+</vector>

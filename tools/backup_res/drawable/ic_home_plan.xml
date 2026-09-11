@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="56dp"
+    android:height="56dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 渐变圆角底（深蓝→亮蓝） -->
+    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2" android:startY="2"
+                android:endX="22" android:endY="22"
+                android:startColor="#2563EB"
+                android:endColor="#60A5FA" />
+        </aapt:attr>
+    </path>
+
+    <!-- 底部微光 -->
+    <path
+        android:fillColor="#22FFFFFF"
+        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
+
+    <!-- 日历主体（白色渐变） -->
+    <path android:pathData="M5,4.5 H19 C20.1,4.5 21,5.4 21,6.5 V19 C21,20.1 20.1,21 19,21 H5 C3.9,21 3,20.1 3,19 V6.5 C3,5.4 3.9,4.5 5,4.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="3" android:startY="4.5"
+                android:endX="21" android:endY="21"
+                android:startColor="#FFFFFF"
+                android:endColor="#DBEAFE" />
+        </aapt:attr>
+    </path>
+
+    <!-- 悬挂环（白色） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M7.8,2.8 V6.2 M16.2,2.8 V6.2" />
+
+    <!-- 表头条（深蓝） -->
+    <path
+        android:fillColor="#BFDBFE"
+        android:pathData="M3,9.2 H21 V10.8 H3 Z" />
+
+    <!-- 日期格子（浅蓝虚线感） -->
+    <path
+        android:fillColor="#93C5FD"
+        android:pathData="M5.2,12.6 H8.4 V15.4 H5.2 Z M9.8,12.6 H13 V15.4 H9.8 Z M14.4,12.6 H17.6 V15.4 H14.4 Z M5.2,16.8 H8.4 V19.2 H5.2 Z M9.8,16.8 H13 V19.2 H9.8 Z" />
+
+    <!-- 今日圆点（深蓝，实心强调） -->
+    <path android:pathData="M12,14 m-2.1,0 a2.1,2.1 0 1,0 4.2,0 a2.1,2.1 0 1,0 -4.2,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="9.9" android:startY="11.9"
+                android:endX="14.1" android:endY="16.1"
+                android:startColor="#3B82F6"
+                android:endColor="#1D4ED8" />
+        </aapt:attr>
+    </path>
+</vector>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/mode_card"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_margin="@dimen/space_4"
+    app:cardCornerRadius="18dp"
+    app:cardElevation="1dp"
+    app:strokeWidth="@dimen/stroke_1"
+    app:strokeColor="@color/mode_unselected_border"
+    app:cardBackgroundColor="@color/mode_unselected_background">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="8dp">
+
+        <TextView
+            android:id="@+id/mode_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="@dimen/text_14" />
+
+        <TextView
+            android:id="@+id/mode_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="@dimen/text_13"
+            android:textColor="@color/text_primary"
+            android:layout_marginStart="@dimen/space_4"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <View
+            android:id="@+id/selected_indicator"
+            android:layout_width="@dimen/size_6"
+            android:layout_height="@dimen/size_6"
+            android:layout_marginStart="@dimen/space_6"
+            android:background="@drawable/mode_selected_dot"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="@dimen/space_8"
+    app:cardBackgroundColor="@color/surface_variant"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="0dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/space_12"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_model_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="模型名称"
+                android:textSize="@dimen/text_14"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"/>
+
+            <TextView
+                android:id="@+id/tv_model_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="状态"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_secondary"
+                android:layout_marginTop="@dimen/space_2"/>
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_switch_model"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/size_36"
+            android:text="切换"
+            android:textSize="@dimen/text_12"
+            app:cornerRadius="@dimen/radius_8"
+            style="@style/Widget.Material3.Button.OutlinedButton"/>
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

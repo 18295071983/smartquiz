@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="@dimen/space_16"
+    android:background="@color/surface"
+    android:layout_marginBottom="@dimen/space_1">
+
+    <LinearLayout
+        android:id="@+id/headerContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="@dimen/space_8">
+        <!-- 标题容器 -->
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/rowContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <!-- 行内容容器 -->
+    </LinearLayout>
+
+</LinearLayout>

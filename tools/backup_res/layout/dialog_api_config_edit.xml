@@ -1,0 +1,335 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_20">
+
+        <!-- 配置名称 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="配置名称"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_16"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="例如：我的OpenAI API"
+                android:inputType="text"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- 服务类型 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="服务类型"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <Spinner
+            android:id="@+id/spinner_service_type"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_56"
+            android:background="@drawable/rounded_edittext"
+            android:padding="@dimen/space_12"
+            android:layout_marginBottom="@dimen/space_16"/>
+
+        <!-- API 地址 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="API 地址"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_16"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_api_host"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="例如：https://api.openai.com/v1"
+                android:inputType="textUri"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- API Key -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="API Key"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_16"
+            app:endIconMode="password_toggle"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_api_key"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="请输入API密钥"
+                android:inputType="textPassword"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- 操作按钮行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="@dimen/space_16">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_test_connection"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
+                android:layout_weight="1"
+                android:text="测试连通性"
+                android:textSize="@dimen/text_13"
+                android:textAllCaps="false"
+                app:backgroundTint="@color/secondary"
+                app:cornerRadius="@dimen/radius_10"
+                android:layout_marginEnd="@dimen/space_8"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_fetch_models"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_44"
+                android:layout_weight="1"
+                android:text="获取模型列表"
+                android:textSize="@dimen/text_13"
+                android:textAllCaps="false"
+                app:backgroundTint="@color/primary"
+                app:cornerRadius="@dimen/radius_10"/>
+        </LinearLayout>
+
+        <!-- 连接状态 -->
+        <LinearLayout
+            android:id="@+id/ll_connection_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="@dimen/space_12"
+            android:background="@drawable/rounded_card"
+            android:layout_marginBottom="@dimen/space_16"
+            android:visibility="gone">
+
+            <View
+                android:id="@+id/status_indicator"
+                android:layout_width="@dimen/size_10"
+                android:layout_height="@dimen/size_10"
+                android:background="@drawable/status_indicator_unknown"
+                android:layout_marginEnd="@dimen/space_8"/>
+
+            <TextView
+                android:id="@+id/tv_connection_status"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="等待测试..."
+                android:textSize="@dimen/text_13"
+                android:textColor="@color/text_secondary"/>
+
+            <ProgressBar
+                android:id="@+id/pb_testing"
+                android:layout_width="@dimen/size_20"
+                android:layout_height="@dimen/size_20"
+                android:visibility="gone"/>
+        </LinearLayout>
+
+        <!-- 模型选择区域 -->
+        <LinearLayout
+            android:id="@+id/ll_model_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="@dimen/space_16"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="选择模型"
+                android:textSize="@dimen/text_14"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:layout_marginBottom="@dimen/space_8"/>
+
+            <Spinner
+                android:id="@+id/spinner_model"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/size_56"
+                android:background="@drawable/rounded_edittext"
+                android:padding="@dimen/space_12"
+                android:layout_marginBottom="@dimen/space_8"/>
+
+            <TextView
+                android:id="@+id/tv_model_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="可用模型：加载中..."
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_tertiary"/>
+        </LinearLayout>
+
+        <!-- 隐藏的模型名称输入框，用于保存用户选择的模型 -->
+        <EditText
+            android:id="@+id/et_model_name"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_0"
+            android:visibility="gone"/>
+
+        <!-- 使用量显示区域 -->
+        <LinearLayout
+            android:id="@+id/ll_usage_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/space_12"
+            android:background="@drawable/rounded_card"
+            android:layout_marginBottom="@dimen/space_16"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="使用量"
+                    android:textSize="@dimen/text_14"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"/>
+
+                <View
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_0"
+                    android:layout_weight="1"/>
+
+                <TextView
+                    android:id="@+id/tv_usage_percent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0%"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="@color/primary"/>
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/pb_usage"
+                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/size_8"
+                android:layout_marginVertical="@dimen/space_8"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="@color/primary"/>
+
+            <TextView
+                android:id="@+id/tv_usage_detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="已用: 0 / 总量: 未知"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_secondary"/>
+        </LinearLayout>
+
+        <!-- 分类（可选） -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="分类（可选）"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <Spinner
+            android:id="@+id/spinner_category"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_56"
+            android:background="@drawable/rounded_edittext"
+            android:padding="@dimen/space_12"
+            android:layout_marginBottom="@dimen/space_16"/>
+
+        <!-- 超时时间 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="超时时间（秒）"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_16"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_timeout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="30"
+                android:inputType="number"
+                android:text="30"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- 描述 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="描述（可选）"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_8"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_description"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="添加一些描述信息..."
+                android:inputType="textMultiLine"
+                android:minLines="2"
+                android:maxLines="4"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
+    </LinearLayout>
+</ScrollView>

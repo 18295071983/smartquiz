@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AI 服务初始化 — 单屏引导（功能控件组合：步骤指示器 + 模型选择 + 下载进度 + 已下载列表） -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0A28">
+
+    <!-- 极光背景 -->
+    <com.oilquiz.app.ui.widget.AuroraBackgroundView
+        android:id="@+id/aurora_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 顶部装饰光带 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_gravity="top"
+        android:background="@drawable/bg_home_header"
+        android:alpha="0.6" />
+
+    <!-- 关闭按钮 -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_close"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="20dp"
+        android:layout_marginEnd="20dp"
+        android:background="@drawable/ai_init_close_bg"
+        android:text="✕"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        app:cornerRadius="22dp"
+        app:rippleColor="#33FFFFFF"
+        app:iconTint="@android:color/transparent"
+        app:strokeColor="@android:color/transparent"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        style="@style/Widget.Material3.Button.IconButton" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:paddingTop="44dp"
+            android:paddingBottom="32dp">
+
+            <!-- ═══════════ 品牌区 ═══════════ -->
+            <FrameLayout
+                android:id="@+id/logo_container"
+                android:layout_width="60dp"
+                android:layout_height="60dp">
+
+                <View
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:background="@drawable/ai_init_logo_glow" />
+
+                <View
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/ai_init_logo_circle" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="⚡"
+                    android:textSize="22sp" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/tv_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="AI 服务初始化"
+                android:textSize="20sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="下载模型 · 选择启用 · 初始化服务"
+                android:textSize="12sp"
+                android:textColor="#B0FFFFFF" />
+
+            <!-- ═══════════ 步骤指示器控件 ═══════════ -->
+            <com.oilquiz.app.ui.widget.InitStepIndicatorView
+                android:id="@+id/step_indicator"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp" />
+
+            <!-- ═══════════ 检测状态区（进入时短暂显示）═══════════ -->
+            <LinearLayout
+                android:id="@+id/check_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:visibility="gone">
+
+                <ProgressBar
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:indeterminateTint="#8E6CFF" />
+
+                <TextView
+                    android:id="@+id/tv_check_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="正在检测当前配置状态…"
+                    android:textSize="14sp"
+                    android:textColor="#D0FFFFFF" />
+            </LinearLayout>
+
+            <!-- ═══════════ 模型选择控件（选下载模型）═══════════ -->
+            <LinearLayout
+                android:id="@+id/model_picker_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🎯 选择要下载的模型"
+                    android:textSize="15sp"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:text="选择一个模型开始下载，下载完成后可进入下一步启用。"
+                    android:textSize="12sp"
+                    android:textColor="#90FFFFFF" />
+
+                <ScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:maxHeight="280dp"
+                    android:scrollbars="none">
+
+                    <com.oilquiz.app.ui.widget.ModelPickerView
+                        android:id="@+id/model_picker"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+                </ScrollView>
+
+                <TextView
+                    android:id="@+id/tv_pick_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text=""
+                    android:textSize="12sp"
+                    android:textColor="#8E6CFF" />
+            </LinearLayout>
+
+            <!-- ═══════════ 下载/初始化进度控件 ═══════════ -->
+            <com.oilquiz.app.ui.widget.DownloadProgressView
+                android:id="@+id/download_progress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:visibility="gone" />
+
+            <!-- ═══════════ 已下载模型列表区 ═══════════ -->
+            <LinearLayout
+                android:id="@+id/select_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="✅ 下载完成 · 选择要启用的模型"
+                    android:textSize="15sp"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:text="从已下载的模型列表中选择一个，点击后开始初始化服务。"
+                    android:textSize="12sp"
+                    android:textColor="#90FFFFFF" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/model_list_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:overScrollMode="never"
+                    android:scrollbars="none"
+                    android:clipToPadding="false"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp" />
+
+                <TextView
+                    android:id="@+id/tv_select_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text=""
+                    android:textSize="13sp"
+                    android:textColor="#8E6CFF" />
+            </LinearLayout>
+
+            <!-- ═══════════ 完成态 ═══════════ -->
+            <LinearLayout
+                android:id="@+id/done_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="✅"
+                    android:textSize="52sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="AI 服务已就绪"
+                    android:textSize="19sp"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_done_model"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text=""
+                    android:textSize="13sp"
+                    android:textColor="#8E6CFF"
+                    android:maxLines="2"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:text="本地模型已加载，现在可以离线对话、识图与智能问答了"
+                    android:textSize="13sp"
+                    android:textColor="#B0FFFFFF" />
+            </LinearLayout>
+
+            <!-- ═══════════ 底部导航 ═══════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_prev"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="52dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:text="上一步"
+                    android:textSize="14sp"
+                    android:textColor="#90FFFFFF"
+                    android:visibility="gone" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_action"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/ai_init_btn_bg"
+                    android:text="开始下载"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="26dp"
+                    app:rippleColor="#33FFFFFF"
+                    android:textAllCaps="false"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_hint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="需要网络下载模型，之后完全离线可用"
+                android:textSize="12sp"
+                android:textColor="#80FFFFFF" />
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

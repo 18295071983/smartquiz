@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background_color">
+
+    <!-- 顶部标题栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_60"
+        android:background="@color/purple_600"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp">
+
+        <Button
+            android:id="@+id/buttonBack"
+            android:layout_width="@dimen/size_40"
+            android:layout_height="@dimen/size_40"
+            android:background="@drawable/ic_chevron_right"
+            android:rotation="180"
+            android:layout_marginRight="@dimen/space_16" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="选择导出格式"
+            android:textSize="@dimen/text_20"
+            android:textColor="@color/white"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+    <!-- 内容区域 -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="@dimen/space_16">
+
+        <!-- 选中格式显示 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/white"
+            android:padding="@dimen/space_16">
+
+            <TextView
+                android:id="@+id/textSelectedFormat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="请选择导出格式"
+                android:textSize="@dimen/text_16"
+                android:textColor="@color/black" />
+
+        </LinearLayout>
+
+        <!-- 格式选择网格 -->
+        <GridLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:columnCount="2"
+            android:rowCount="4"
+            android:alignmentMode="alignMargins"
+            android:columnOrderPreserved="false">
+
+            <!-- Excel格式 -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardExcel"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
+                android:layout_columnWeight="1"
+                android:layout_rowWeight="1"
+                android:layout_margin="@dimen/space_8"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="@dimen/space_16">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_settings"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Excel"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=".xlsx"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/gray"
+                        android:layout_marginTop="@dimen/space_2" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- CSV格式 -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardCsv"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
+                android:layout_columnWeight="1"
+                android:layout_rowWeight="1"
+                android:layout_margin="@dimen/space_8"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="@dimen/space_16">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_settings"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="CSV"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=".csv"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/gray"
+                        android:layout_marginTop="@dimen/space_2" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- Markdown格式 -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardMarkdown"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
+                android:layout_columnWeight="1"
+                android:layout_rowWeight="1"
+                android:layout_margin="@dimen/space_8"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="@dimen/space_16">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_settings"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Markdown"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=".md"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/gray"
+                        android:layout_marginTop="@dimen/space_2" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- HTML格式 -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardHtml"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
+                android:layout_columnWeight="1"
+                android:layout_rowWeight="1"
+                android:layout_margin="@dimen/space_8"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="@dimen/space_16">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_settings"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="HTML"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=".html"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/gray"
+                        android:layout_marginTop="@dimen/space_2" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- PDF格式 -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardPdf"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
+                android:layout_columnWeight="1"
+                android:layout_rowWeight="1"
+                android:layout_margin="@dimen/space_8"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="@dimen/space_16">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_settings"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PDF"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=".pdf"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/gray"
+                        android:layout_marginTop="@dimen/space_2" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- Word格式 -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardWord"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
+                android:layout_columnWeight="1"
+                android:layout_rowWeight="1"
+                android:layout_margin="@dimen/space_8"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="@dimen/space_16">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_settings"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Word"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=".docx"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/gray"
+                        android:layout_marginTop="@dimen/space_2" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- JSON格式 -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardJson"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
+                android:layout_columnWeight="1"
+                android:layout_rowWeight="1"
+                android:layout_margin="@dimen/space_8"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="@dimen/space_16">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_settings"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="JSON"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=".json"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/gray"
+                        android:layout_marginTop="@dimen/space_2" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+            <!-- 长图片格式 -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardImage"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_120"
+                android:layout_columnWeight="1"
+                android:layout_rowWeight="1"
+                android:layout_margin="@dimen/space_8"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="@dimen/space_16">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_settings"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="长图片"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=".png"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/gray"
+                        android:layout_marginTop="@dimen/space_2" />
+
+                </LinearLayout>
+
+            </androidx.cardview.widget.CardView>
+
+        </GridLayout>
+
+        <!-- 底部按钮 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonNext"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_56"
+            android:text="下一步"
+            android:textSize="@dimen/text_16"
+            android:textColor="@color/white"
+            app:backgroundTint="@color/primary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:layout_marginTop="@dimen/space_24" />
+
+    </ScrollView>
+
+</LinearLayout>

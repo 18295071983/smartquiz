@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginVertical="@dimen/space_4"
+    app:cardBackgroundColor="@color/surface"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="0dp"
+    app:strokeWidth="@dimen/stroke_1"
+    app:strokeColor="@color/outline">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/space_12"
+        android:gravity="center_vertical">
+
+        <!-- 选中指示器 -->
+        <RadioButton
+            android:id="@+id/rb_select"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:buttonTint="@color/secondary"/>
+
+        <LinearLayout
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_8"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_model_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Llama-2-7B-Chat"
+                android:textSize="@dimen/text_14"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="@dimen/space_4">
+
+                <TextView
+                    android:id="@+id/tv_model_size"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="3.8 GB"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="@color/text_secondary"/>
+
+                <View
+                    android:layout_width="@dimen/size_1"
+                    android:layout_height="match_parent"
+                    android:layout_marginHorizontal="@dimen/space_8"
+                    android:background="@color/outline"/>
+
+                <TextView
+                    android:id="@+id/tv_model_format"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Q4_K_M"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="@color/text_secondary"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 状态标签 -->
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="已加载"
+            android:textSize="@dimen/text_11"
+            android:textColor="@color/success"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp"
+            android:background="@drawable/rounded_tag"/>
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

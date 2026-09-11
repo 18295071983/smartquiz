@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="@dimen/space_16"
+    android:background="@color/gray_ultra_light"
+    >
+
+    <!-- 标题栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="@dimen/space_20">
+
+        <Button
+            android:id="@+id/buttonBack"
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:drawableStart="@android:drawable/ic_menu_close_clear_cancel"
+            android:contentDescription="返回" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Ollama服务管理"
+            android:textSize="@dimen/text_24"
+            android:textStyle="bold"
+            android:layout_marginStart="@dimen/space_16"
+            android:textColor="@color/purple_700" />
+    </LinearLayout>
+
+    <!-- 状态显示区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/rounded_card"
+        android:padding="@dimen/space_20"
+        android:layout_marginBottom="@dimen/space_16"
+        android:elevation="@dimen/elev_4"
+        android:translationZ="4dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="@dimen/space_12">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="服务状态:"
+                android:textSize="@dimen/text_16"
+                android:textStyle="bold"
+                android:textColor="@color/black"
+                android:layout_marginRight="@dimen/space_12" />
+
+            <TextView
+                android:id="@+id/textViewStatus"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="未运行"
+                android:textSize="@dimen/text_16"
+                android:textStyle="bold"
+                android:textColor="@color/red_600" />
+
+            <View
+                android:id="@+id/statusIndicator"
+                android:layout_width="@dimen/size_12"
+                android:layout_height="@dimen/size_12"
+                android:background="@drawable/circle_indicator_red"
+                android:layout_marginLeft="@dimen/space_12" />
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/textViewStatusMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="状态详情: 服务未启动"
+            android:textSize="@dimen/text_14"
+            android:textColor="@color/gray"
+            android:layout_marginBottom="@dimen/space_16" />
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_8"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 操作按钮区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="@dimen/space_16">
+
+        <Button
+            android:id="@+id/buttonStartService"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="启动Ollama服务"
+            android:textSize="@dimen/text_16"
+            android:padding="@dimen/space_16"
+            android:background="@drawable/rounded_corners_blue"
+            android:textColor="@android:color/white"
+            android:layout_marginBottom="@dimen/space_12"
+            android:elevation="@dimen/elev_3"
+            android:translationZ="3dp" />
+
+        <Button
+            android:id="@+id/buttonStopService"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="停止Ollama服务"
+            android:textSize="@dimen/text_16"
+            android:padding="@dimen/space_16"
+            android:background="@drawable/rounded_corners_gray"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="@dimen/space_12"
+            android:elevation="@dimen/elev_3"
+            android:translationZ="3dp" />
+
+        <Button
+            android:id="@+id/buttonCheckStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="检查服务状态"
+            android:textSize="@dimen/text_16"
+            android:padding="@dimen/space_16"
+            android:background="@drawable/rounded_corners_gray"
+            android:textColor="@android:color/black"
+            android:layout_marginBottom="@dimen/space_12"
+            android:elevation="@dimen/elev_3"
+            android:translationZ="3dp" />
+        
+        <Button
+            android:id="@+id/buttonInitializeMLC"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="初始化MLC-LLM"
+            android:textSize="@dimen/text_16"
+            android:padding="@dimen/space_16"
+            android:background="@drawable/rounded_corners_teal"
+            android:textColor="@android:color/white"
+            android:layout_marginBottom="@dimen/space_12"
+            android:elevation="@dimen/elev_3"
+            android:translationZ="3dp" />
+    </LinearLayout>
+    
+    <!-- MLC-LLM状态显示区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/rounded_card"
+        android:padding="@dimen/space_20"
+        android:layout_marginBottom="@dimen/space_16"
+        android:elevation="@dimen/elev_4"
+        android:translationZ="4dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MLC-LLM状态:"
+                android:textSize="@dimen/text_16"
+                android:textStyle="bold"
+                android:textColor="@color/black"
+                android:layout_marginRight="@dimen/space_12" />
+
+            <TextView
+                android:id="@+id/textViewMLCStatus"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="未配置"
+                android:textSize="@dimen/text_16"
+                android:textColor="@color/orange_600" />
+
+            <View
+                android:id="@+id/mlcStatusIndicator"
+                android:layout_width="@dimen/size_12"
+                android:layout_height="@dimen/size_12"
+                android:background="@drawable/circle_indicator_orange"
+                android:layout_marginLeft="@dimen/space_12" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- 模型下载区域 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/rounded_card"
+        android:padding="@dimen/space_20"
+        android:layout_marginBottom="@dimen/space_16"
+        android:elevation="@dimen/elev_4"
+        android:translationZ="4dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="模型下载"
+            android:textSize="@dimen/text_18"
+            android:textStyle="bold"
+            android:layout_marginBottom="@dimen/space_20"
+            android:textColor="@color/purple_700" />
+
+        <Spinner
+            android:id="@+id/spinnerModelSelect"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_56"
+            android:layout_marginBottom="@dimen/space_20"
+            android:background="@drawable/rounded_edittext"
+            android:paddingHorizontal="16dp"
+            android:dropDownVerticalOffset="8dp" />
+
+        <Button
+            android:id="@+id/buttonDownloadModel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="下载模型"
+            android:textSize="@dimen/text_16"
+            android:padding="@dimen/space_16"
+            android:background="@drawable/rounded_corners_teal"
+            android:textColor="@android:color/white"
+            android:elevation="@dimen/elev_3"
+            android:translationZ="3dp" />
+    </LinearLayout>
+
+    <!-- 日志显示区域 -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:layout_marginBottom="@dimen/space_16">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rounded_card"
+            android:padding="@dimen/space_16"
+            android:elevation="@dimen/elev_4"
+            android:translationZ="4dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="日志信息"
+                android:textSize="@dimen/text_14"
+                android:textStyle="bold"
+                android:layout_marginBottom="@dimen/space_12"
+                android:textColor="@color/purple_700" />
+
+            <TextView
+                android:id="@+id/textViewLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="日志信息将显示在这里..."
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/gray"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="4sp" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+</LinearLayout>

@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/white"
+    tools:context=".ui.activity.QuizActivity">
+
+    <!-- 顶部信息栏 -->
+    <LinearLayout
+        android:id="@+id/topLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_16"
+        android:background="@color/purple_700"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <TextView
+            android:id="@+id/textViewMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="背诵模式"
+            android:textSize="@dimen/text_20"
+            android:textStyle="bold"
+            android:textColor="@color/white"
+            android:layout_marginBottom="@dimen/space_8"
+            android:gravity="center" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_horizontal">
+
+            <TextView
+                android:id="@+id/textViewProgress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1/10"
+                android:textSize="@dimen/text_16"
+                android:textColor="@color/white"
+                android:layout_marginRight="@dimen/space_16" />
+
+            <TextView
+                android:id="@+id/textViewTimer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="00:00"
+                android:textSize="@dimen/text_16"
+                android:textColor="@color/white" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- 题目内容 -->
+    <ScrollView
+        android:id="@+id/scrollViewContent"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:padding="@dimen/space_16"
+        app:layout_constraintTop_toBottomOf="@id/topLayout"
+        app:layout_constraintBottom_toTopOf="@id/bottomLayout"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- 题目文本 -->
+            <TextView
+                android:id="@+id/textViewQuestion"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="题目内容"
+                android:textSize="@dimen/text_18"
+                android:textColor="@color/black"
+                android:layout_marginBottom="@dimen/space_24"
+                android:lineSpacingExtra="4dp" />
+
+            <!-- 答案显示区域 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@color/teal_50"
+                android:padding="@dimen/space_16"
+                android:layout_marginBottom="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="正确答案"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="@color/teal_700"
+                    android:layout_marginBottom="@dimen/space_8" />
+
+                <TextView
+                    android:id="@+id/textViewAnswer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="答案内容"
+                    android:textSize="@dimen/text_16"
+                    android:textColor="@color/black"
+                    android:lineSpacingExtra="4dp" />
+
+            </LinearLayout>
+
+            <!-- 解析区域 -->
+            <LinearLayout
+                android:id="@+id/linearLayoutExplanation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@color/gray_50"
+                android:padding="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="解析"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="@color/purple_700"
+                    android:layout_marginBottom="@dimen/space_8" />
+
+                <TextView
+                    android:id="@+id/textViewExplanation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="解析内容"
+                    android:textSize="@dimen/text_14"
+                    android:textColor="@color/black"
+                    android:lineSpacingExtra="4dp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </ScrollView>
+
+    <!-- 底部按钮栏 -->
+    <LinearLayout
+        android:id="@+id/bottomLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/space_16"
+        android:background="@color/white"
+        android:elevation="@dimen/elev_8"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <Button
+            android:id="@+id/buttonPrevious"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_56"
+            android:layout_weight="1"
+            android:text="上一题"
+            android:textSize="@dimen/text_16"
+            android:backgroundTint="@color/purple_600"
+            android:textColor="@color/white"
+            android:layout_marginRight="@dimen/space_8" />
+
+        <Button
+            android:id="@+id/buttonNext"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_56"
+            android:layout_weight="1"
+            android:text="下一题"
+            android:textSize="@dimen/text_16"
+            android:backgroundTint="@color/purple_600"
+            android:textColor="@color/white"
+            android:layout_marginLeft="@dimen/space_8" />
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

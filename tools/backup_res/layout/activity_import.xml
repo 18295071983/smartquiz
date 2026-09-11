@@ -1,0 +1,372 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    tools:context=".ui.activity.ImportActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="@dimen/elev_0">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/surface"
+            app:title="导入功能"
+            app:titleTextColor="@color/on_surface"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:fillViewport="true">
+        
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/space_16">
+            
+            <!-- 进度条 -->
+            <ProgressBar
+                android:id="@+id/progressBarHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:indeterminate="false"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="@color/primary"
+                android:layout_marginBottom="@dimen/space_16" />
+            
+            <!-- 状态文本 -->
+            <TextView
+                android:id="@+id/importStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="准备导入..."
+                android:textSize="@dimen/text_16"
+                android:textColor="@color/on_surface"
+                android:layout_marginBottom="@dimen/space_8" />
+            
+            <TextView
+                android:id="@+id/importProgressText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="0%"
+                android:textSize="@dimen/text_14"
+                android:textColor="@color/on_surface_variant"
+                android:layout_marginBottom="@dimen/space_20" />
+            
+            <!-- 统计卡片 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/statsCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="@dimen/space_20">
+                
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_16">
+                    
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="导入统计"
+                        android:textSize="@dimen/text_18"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="@dimen/space_16" />
+                    
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="@dimen/space_16">
+                        
+                        <ImageView
+                            android:id="@+id/statusIcon"
+                            android:layout_width="@dimen/size_24"
+                            android:layout_height="@dimen/size_24"
+                            android:layout_marginEnd="@dimen/space_12" />
+                            
+                        <TextView
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="准备导入..."
+                            android:textSize="@dimen/text_14"
+                            android:textColor="@color/on_surface" />
+                            
+                    </LinearLayout>
+                    
+                    <!-- 统计信息 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="@dimen/space_16">
+                        
+                        <LinearLayout
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            
+                            <TextView
+                                android:id="@+id/successCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="@dimen/text_20"
+                                android:textStyle="bold"
+                                android:textColor="@color/success" />
+                                
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="成功"
+                                android:textSize="@dimen/text_12"
+                                android:textColor="@color/on_surface_variant" />
+                                
+                        </LinearLayout>
+                        
+                        <LinearLayout
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            
+                            <TextView
+                                android:id="@+id/failedCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="@dimen/text_20"
+                                android:textStyle="bold"
+                                android:textColor="@color/error" />
+                                
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="失败"
+                                android:textSize="@dimen/text_12"
+                                android:textColor="@color/on_surface_variant" />
+                                
+                        </LinearLayout>
+                        
+                        <LinearLayout
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center">
+                            
+                            <TextView
+                                android:id="@+id/totalCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="@dimen/text_20"
+                                android:textStyle="bold"
+                                android:textColor="@color/on_surface" />
+                                
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="总计"
+                                android:textSize="@dimen/text_12"
+                                android:textColor="@color/on_surface_variant" />
+                                
+                        </LinearLayout>
+                        
+                    </LinearLayout>
+                    
+                    <!-- AI解析按钮 -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/buttonAIParse"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_48"
+                        android:text="AI解析"
+                        app:backgroundTint="@color/primary"
+                        android:textColor="@color/on_primary"
+                        app:cornerRadius="@dimen/radius_12"
+                        android:textAllCaps="false"/> 
+                </LinearLayout>
+                
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 导入结果摘要卡片：导入结束后页内停留展示，用户手动关闭页面 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/summaryCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="@dimen/space_20">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_16">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="✅ 导入结果摘要"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/success"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <TextView
+                        android:id="@+id/summaryText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/on_surface"
+                        android:lineSpacingExtra="4dp" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 导入详细日志：流式实时展示导入进程各阶段详情 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/logCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="@dimen/space_20">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_16">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="导入详细日志"
+                        android:textSize="@dimen/text_14"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <ScrollView
+                        android:id="@+id/logScrollView"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_200"
+                        android:background="@color/surface_variant"
+                        android:padding="@dimen/space_8">
+
+                        <TextView
+                            android:id="@+id/importLogText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="等待导入开始..."
+                            android:textSize="@dimen/text_11"
+                            android:fontFamily="monospace"
+                            android:textColor="@color/on_surface_variant"
+                            android:lineSpacingExtra="2dp" />
+
+                    </ScrollView>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 提示信息 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface_variant"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="@dimen/space_20">
+                
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_16">
+                    
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="提示信息"
+                        android:textSize="@dimen/text_14"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="@dimen/space_8" />
+                        
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="• 导入前请确保文件格式正确\n• 大批量导入可能需要较长时间\n• 导入在后台执行，可随时点「取消」停止\n• 中断后可重新导入，自动从断点续导"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="@color/on_surface_variant"
+                        android:lineSpacingExtra="4dp" />
+                        
+                </LinearLayout>
+                
+            </com.google.android.material.card.MaterialCardView>
+            
+        </LinearLayout>
+        
+    </ScrollView>
+
+    <!-- 底部操作按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="@dimen/space_16"
+        android:background="@color/surface"
+        android:elevation="@dimen/elev_8">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCancel"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
+            android:layout_weight="1"
+            android:text="取消"
+            app:backgroundTint="@color/secondary"
+            android:textColor="@color/on_secondary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:layout_marginEnd="@dimen/space_8"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStartImport"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_48"
+            android:layout_weight="1"
+            android:text="开始导入"
+            app:backgroundTint="@color/primary"
+            android:textColor="@color/on_primary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"/>
+
+    </LinearLayout>
+
+</LinearLayout>

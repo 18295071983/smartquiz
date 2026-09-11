@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_dialog_mode_selector"
+    android:padding="@dimen/space_20">
+
+    <!-- 标题栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:layout_width="@dimen/size_24"
+            android:layout_height="@dimen/size_24"
+            android:src="@drawable/ic_ai_model"
+            app:tint="@color/primary" />
+
+        <TextView
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="@dimen/space_10"
+            android:text="选择 OCR 模型"
+            android:textSize="@dimen/text_18"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+
+        <ImageView
+            android:id="@+id/btn_close"
+            android:layout_width="@dimen/size_28"
+            android:layout_height="@dimen/size_28"
+            android:src="@drawable/ic_close"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="@dimen/space_4"
+            app:tint="@color/on_surface_variant" />
+
+    </LinearLayout>
+
+    <!-- 说明文字 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_8"
+        android:text="为 OCR 文字识别选择专用视觉模型，不选择则自动使用支持视觉的模型"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/on_surface_variant" />
+
+    <!-- 模型列表 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/models_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_16"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/space_8" />
+
+    <!-- 空状态提示 -->
+    <LinearLayout
+        android:id="@+id/empty_state"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="@dimen/space_32"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="@dimen/size_48"
+            android:layout_height="@dimen/size_48"
+            android:src="@drawable/ic_ai_model"
+            app:tint="@color/on_surface_variant"
+            android:alpha="0.5" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_12"
+            android:text="暂无可用的在线模型"
+            android:textSize="@dimen/text_14"
+            android:textColor="@color/on_surface_variant" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_4"
+            android:text="请先在模型管理中添加在线模型"
+            android:textSize="@dimen/text_12"
+            android:textColor="@color/on_surface_variant" />
+
+    </LinearLayout>
+
+</LinearLayout>

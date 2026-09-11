@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/size_0"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:padding="@dimen/space_8">
+
+    <TextView
+        android:id="@+id/cellText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="单元格内容"
+        android:textSize="@dimen/text_14"
+        android:textColor="@color/on_surface"/>
+
+</LinearLayout>

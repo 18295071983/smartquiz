@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/weather_banner"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/weather_banner_background"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="14dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?android:attr/selectableItemBackground">
+
+    <TextView
+        android:id="@+id/weather_icon"
+        android:layout_width="@dimen/size_48"
+        android:layout_height="@dimen/size_48"
+        android:gravity="center"
+        android:textSize="@dimen/text_40"
+        android:textColor="@color/weather_banner_text" />
+
+    <LinearLayout
+        android:layout_width="@dimen/size_0"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/space_12"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/weather_city"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:maxLines="2"
+                android:lineSpacingExtra="1dp"
+                android:ellipsize="end"
+                android:text="定位中..."
+                android:textColor="@color/weather_banner_text"
+                android:textSize="@dimen/text_14"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/weather_temp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_8"
+                android:text="--°"
+                android:textColor="@color/weather_banner_text"
+                android:textSize="@dimen/text_22"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- 天气描述（如"多云转晴"） -->
+        <TextView
+            android:id="@+id/weather_desc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_3"
+            android:text="加载中..."
+            android:textColor="@color/weather_banner_text_secondary"
+            android:textSize="@dimen/text_12"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <!-- 天气详情总介绍：与详情页同款总结，自动横向滚动（跑马灯）循环展示 -->
+        <TextView
+            android:id="@+id/weather_summary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_4"
+            android:text="加载中..."
+            android:textColor="@color/weather_banner_text_secondary"
+            android:textSize="@dimen/text_11"
+            android:singleLine="true"
+            android:ellipsize="marquee"
+            android:marqueeRepeatLimit="marquee_forever"
+            android:focusable="true"
+            android:focusableInTouchMode="true" />
+    </LinearLayout>
+
+    <!-- 获取定位按钮：未授予定位权限时显示，点击主动请求定位；有权限时隐藏 -->
+    <ImageView
+        android:id="@+id/weather_locate_btn"
+        android:layout_width="@dimen/size_24"
+        android:layout_height="@dimen/size_24"
+        android:src="@drawable/ic_location"
+        android:tint="@color/weather_banner_text_secondary"
+        android:contentDescription="获取定位"
+        android:padding="@dimen/space_3"
+        android:layout_marginStart="@dimen/space_8"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/weather_arrow"
+        android:layout_width="@dimen/size_20"
+        android:layout_height="@dimen/size_20"
+        android:src="@drawable/ic_chevron_right"
+        android:tint="@color/weather_banner_text_secondary"
+        android:layout_marginStart="@dimen/space_8" />
+</LinearLayout>

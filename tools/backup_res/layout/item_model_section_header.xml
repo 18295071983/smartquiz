@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="12dp">
+
+    <TextView
+        android:id="@+id/section_header_title"
+        android:layout_width="@dimen/size_0"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="分组标题"
+        android:textSize="@dimen/text_14"
+        android:textStyle="bold"
+        android:textColor="@color/text_secondary"/>
+
+</LinearLayout>

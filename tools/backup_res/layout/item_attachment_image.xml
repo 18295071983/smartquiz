@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/attachment_card"
+    android:layout_width="@dimen/size_80"
+    android:layout_height="@dimen/size_80"
+    android:layout_margin="@dimen/space_4"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="2dp">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/attachment_image"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:src="@android:drawable/ic_menu_gallery" />
+
+        <View
+            android:id="@+id/attachment_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/black_alpha_25"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/attachment_zoom_icon"
+            android:layout_width="@dimen/size_24"
+            android:layout_height="@dimen/size_24"
+            android:layout_gravity="center"
+            android:src="@android:drawable/ic_menu_zoom"
+            android:contentDescription="预览"
+            android:visibility="gone" />
+
+        <ProgressBar
+            android:id="@+id/attachment_progress"
+            android:layout_width="@dimen/size_24"
+            android:layout_height="@dimen/size_24"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/attachment_remove"
+            android:layout_width="@dimen/size_28"
+            android:layout_height="@dimen/size_28"
+            android:layout_gravity="top|end"
+            android:layout_margin="@dimen/space_4"
+            android:src="@android:drawable/ic_delete"
+            android:contentDescription="删除"
+            android:background="@color/black_alpha_50"
+            android:padding="@dimen/space_6" />
+
+    </FrameLayout>
+
+</com.google.android.material.card.MaterialCardView>

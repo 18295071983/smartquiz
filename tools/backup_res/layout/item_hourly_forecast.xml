@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="14dp"
+    android:minWidth="@dimen/min_72"
+    android:background="@drawable/item_hourly_bg">
+
+    <!-- 时间 -->
+    <TextView
+        android:id="@+id/tv_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="现在"
+        android:textSize="@dimen/text_13"
+        android:textColor="@color/weather_dark_text_secondary" />
+
+    <!-- 天气图标 -->
+    <TextView
+        android:id="@+id/iv_icon"
+        android:layout_width="@dimen/size_36"
+        android:layout_height="@dimen/size_36"
+        android:layout_marginTop="@dimen/space_8"
+        android:gravity="center"
+        android:textSize="@dimen/text_24" />
+
+    <!-- 温度 -->
+    <TextView
+        android:id="@+id/tv_temp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="23°"
+        android:textSize="@dimen/text_18"
+        android:textStyle="bold"
+        android:textColor="@color/weather_dark_text"
+        android:layout_marginTop="@dimen/space_6" />
+
+    <!-- 降水概率 -->
+    <TextView
+        android:id="@+id/tv_pop"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="@dimen/text_11"
+        android:textColor="@color/blue_400"
+        android:layout_marginTop="@dimen/space_4"
+        android:visibility="gone" />
+
+    <!-- 湿度 -->
+    <TextView
+        android:id="@+id/tv_humidity"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="@dimen/text_11"
+        android:textColor="@color/weather_dark_text_tertiary"
+        android:layout_marginTop="@dimen/space_2" />
+
+    <!-- 风速 -->
+    <TextView
+        android:id="@+id/tv_wind"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="@dimen/text_11"
+        android:textColor="@color/weather_dark_text_tertiary"
+        android:layout_marginTop="@dimen/space_2" />
+</LinearLayout>

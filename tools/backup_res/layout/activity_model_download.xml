@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".ui.activity.ModelDownloadActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="@dimen/elev_0">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/surface"
+            app:title="模型下载"
+            app:titleTextColor="@color/text_primary"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:background="@color/surface_variant">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:layout_width="@dimen/size_18"
+                android:layout_height="@dimen/size_18"
+                android:src="@drawable/ic_download"
+                android:tint="@color/text_secondary"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="下载源"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_secondary"
+                android:layout_marginStart="@dimen/space_8"/>
+
+            <TextView
+                android:id="@+id/tv_mirror_source"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="HF Mirror (国内)"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/primary"
+                android:textStyle="bold"
+                android:layout_marginStart="@dimen/space_4"/>
+
+            <View
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_0"
+                android:layout_weight="1"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_switch_mirror"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_32"
+                android:text="切换"
+                android:textSize="@dimen/text_11"
+                style="@style/Widget.Material3.Button.TextButton"
+                app:icon="@drawable/ic_refresh"
+                app:iconSize="14dp"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="@dimen/space_4">
+
+            <ImageView
+                android:layout_width="@dimen/size_18"
+                android:layout_height="@dimen/size_18"
+                android:src="@drawable/ic_download"
+                android:tint="@color/text_secondary"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="下载方式"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_secondary"
+                android:layout_marginStart="@dimen/space_8"/>
+
+            <TextView
+                android:id="@+id/tv_download_method"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="自定义下载器"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/primary"
+                android:textStyle="bold"
+                android:layout_marginStart="@dimen/space_4"/>
+
+            <View
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_0"
+                android:layout_weight="1"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_switch_download_method"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_32"
+                android:text="切换"
+                android:textSize="@dimen/text_11"
+                style="@style/Widget.Material3.Button.TextButton"
+                app:icon="@drawable/ic_refresh"
+                app:iconSize="14dp"/>
+        </LinearLayout>
+
+        <!-- 快捷入口：AI 中心 / AI 服务 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="@dimen/space_6"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ai_center"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_40"
+                android:layout_weight="1"
+                android:text="🤖 AI 中心"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/on_secondary_container"
+                app:backgroundTint="@color/secondary_container"
+                app:cornerRadius="@dimen/radius_12"
+                android:textAllCaps="false"
+                android:layout_marginEnd="@dimen/space_6"
+                android:minWidth="@dimen/min_0"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ai_service"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_40"
+                android:layout_weight="1"
+                android:text="⚙️ AI 服务"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/on_secondary_container"
+                app:backgroundTint="@color/secondary_container"
+                app:cornerRadius="@dimen/radius_12"
+                android:textAllCaps="false"
+                android:minWidth="@dimen/min_0"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_ai_init"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_40"
+                android:layout_weight="1"
+                android:text="⚡ 一键初始化"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/on_primary"
+                app:backgroundTint="@color/primary"
+                app:cornerRadius="@dimen/radius_12"
+                android:textAllCaps="false"
+                android:layout_marginStart="@dimen/space_6"
+                android:minWidth="@dimen/min_0"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_12"
+        android:background="@color/card_background">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="@dimen/space_12">
+            <androidx.appcompat.widget.SearchView
+                android:id="@+id/search_view"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_48"
+                android:layout_weight="1"
+                android:queryHint="搜索模型名称或输入URL"
+                android:background="@drawable/rounded_edittext"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_search"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_48"
+                android:layout_marginStart="@dimen/space_8"
+                android:text="搜索"
+                android:textSize="@dimen/text_14"
+                app:cornerRadius="@dimen/radius_12"/>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_add_url"
+                android:layout_width="@dimen/size_48"
+                android:layout_height="@dimen/size_48"
+                android:layout_marginStart="@dimen/space_8"
+                android:contentDescription="添加自定义URL"
+                app:icon="@drawable/ic_add"
+                app:cornerRadius="@dimen/radius_24"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tv_download_stats"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="@dimen/space_12"
+        android:paddingStart="@dimen/space_16"
+        android:text="已下载 0 个模型"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/text_secondary"
+        android:background="@color/background"/>
+
+    <TextView
+        android:id="@+id/tv_search_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="@dimen/space_12"
+        android:paddingStart="@dimen/space_16"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/text_secondary"
+        android:background="@color/background"
+        android:visibility="gone"/>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler_view"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:padding="@dimen/space_12"/>
+
+</LinearLayout>

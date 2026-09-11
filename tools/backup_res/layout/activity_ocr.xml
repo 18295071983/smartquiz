@@ -1,0 +1,492 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background"
+    tools:context=".ui.activity.OCRActivity">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="@dimen/elev_0">
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/surface"
+            app:title="文字识别"
+            app:titleTextColor="@color/on_surface"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:id="@+id/scroll_view"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/space_16">
+
+            <!-- 欢迎卡片 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="@color/primary_container"
+                app:cardCornerRadius="16dp"
+                android:layout_marginBottom="@dimen/space_20">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="@dimen/space_20">
+
+                    <ImageView
+                        android:layout_width="@dimen/size_48"
+                        android:layout_height="@dimen/size_48"
+                        android:src="@drawable/ic_ocr"
+                        android:contentDescription="OCR图标"
+                        android:tint="@color/on_primary_container"
+                        android:layout_marginEnd="@dimen/space_16" />
+
+                    <LinearLayout
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="AI文字识别"
+                            android:textSize="@dimen/text_18"
+                            android:textStyle="bold"
+                            android:textColor="@color/on_primary_container"
+                            android:layout_marginBottom="@dimen/space_4" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="识别图片中的文字"
+                            android:textSize="@dimen/text_14"
+                            android:textColor="@color/on_primary_container" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 图片选择 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="@dimen/space_20">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_16">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="选择图片"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="@dimen/space_16" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="@dimen/space_8">
+
+                        <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_capture_image"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_48"
+                        android:layout_weight="1"
+                        android:text="拍照"
+                        android:textSize="@dimen/text_14"
+                        android:textStyle="bold"
+                        app:backgroundTint="@color/primary"
+                        android:textColor="@color/on_primary"
+                        app:cornerRadius="@dimen/radius_12"
+                        android:textAllCaps="false"
+                        android:layout_marginEnd="@dimen/space_8"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_select_image"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_48"
+                        android:layout_weight="1"
+                        android:text="从相册选择"
+                        android:textSize="@dimen/text_14"
+                        android:textStyle="bold"
+                        app:backgroundTint="@color/secondary"
+                        android:textColor="@color/on_secondary"
+                        app:cornerRadius="@dimen/radius_12"
+                        android:textAllCaps="false"
+                        android:layout_marginEnd="@dimen/space_8"/>
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="@dimen/space_16">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_select_pdf"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_48"
+                        android:text="选择PDF文件"
+                        android:textSize="@dimen/text_14"
+                        android:textStyle="bold"
+                        app:backgroundTint="@color/tertiary"
+                        android:textColor="@color/on_tertiary"
+                        app:cornerRadius="@dimen/radius_12"
+                        android:textAllCaps="false"/>
+
+                    </LinearLayout>
+
+                    <!-- 预览区域 -->
+                    <LinearLayout
+                        android:id="@+id/preview_container"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_200"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:background="@color/surface_variant"
+                        android:padding="@dimen/space_16"
+                        android:layout_marginBottom="@dimen/space_16">
+
+                        <ImageView
+                            android:id="@+id/iv_preview"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:scaleType="centerCrop"
+                            android:contentDescription="图片预览"
+                            android:visibility="gone" />
+
+                        <TextView
+                            android:id="@+id/tv_preview_hint"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="预览图片"
+                            android:textSize="@dimen/text_14"
+                            android:textColor="@color/on_surface_variant" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 识别设置 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="@dimen/space_20">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_16">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="识别设置"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="@dimen/space_16" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="@dimen/space_12">
+
+                        <TextView
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="语言"
+                            android:textSize="@dimen/text_14"
+                            android:textColor="@color/on_surface" />
+
+                        <Spinner
+                            android:id="@+id/spinner_language"
+                            android:layout_width="@dimen/size_0"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:background="@drawable/rounded_spinner"
+                            android:padding="@dimen/space_12" />
+
+                    </LinearLayout>
+
+                    <!-- OCR 模型选择（可点击行） -->
+                    <LinearLayout
+                        android:id="@+id/btn_ocr_model"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="?attr/selectableItemBackground"
+                        android:padding="@dimen/space_12"
+                        android:layout_marginTop="@dimen/space_4">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <ImageView
+                                android:layout_width="@dimen/size_20"
+                                android:layout_height="@dimen/size_20"
+                                android:src="@drawable/ic_ai_model"
+                                android:contentDescription="OCR模型"
+                                android:layout_marginEnd="@dimen/space_8"
+                                app:tint="@color/primary" />
+
+                            <TextView
+                                android:layout_width="@dimen/size_0"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="OCR 模型"
+                                android:textSize="@dimen/text_14"
+                                android:textColor="@color/on_surface" />
+
+                            <ImageView
+                                android:layout_width="@dimen/size_16"
+                                android:layout_height="@dimen/size_16"
+                                android:src="@drawable/ic_chevron_right"
+                                android:contentDescription="更多"
+                                app:tint="@color/on_surface_variant" />
+
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tv_ocr_model_name"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="自动选择（推荐）"
+                            android:textSize="@dimen/text_12"
+                            android:textColor="@color/primary"
+                            android:layout_marginStart="@dimen/space_28"
+                            android:layout_marginTop="@dimen/space_2" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 进度显示 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/progress_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:layout_marginBottom="@dimen/space_20"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_16">
+
+                    <TextView
+                        android:id="@+id/progress_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="处理中..."
+                        android:textSize="@dimen/text_14"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="@dimen/space_8" />
+
+                    <ProgressBar
+                        android:id="@+id/progress_bar"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:max="100"
+                        android:progress="0" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 识别结果（置于滚动区内，避免与上方选择区互相挤压） -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/result_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@color/surface"
+                app:cardCornerRadius="12dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_16">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="识别结果"
+                        android:textSize="@dimen/text_18"
+                        android:textStyle="bold"
+                        android:textColor="@color/on_surface"
+                        android:layout_marginBottom="@dimen/space_12" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="识别文本"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxStrokeWidth="2dp"
+                        app:boxStrokeColor="@color/outline"
+                        app:hintTextColor="@color/primary">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_recognized_text"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="@dimen/min_180"
+                            android:textSize="@dimen/text_15"
+                            android:textColor="@color/on_surface"
+                            android:inputType="textMultiLine"
+                            android:gravity="top|start"
+                            android:scrollbars="vertical"
+                            android:padding="@dimen/space_12" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+    </ScrollView>
+
+    <!-- 底部操作栏：开始识别按钮 / 识别后操作按钮（二选一展示，由 Java 控制可见性） -->
+    <LinearLayout
+        android:id="@+id/actions_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_16"
+        android:background="@color/surface"
+        android:elevation="@dimen/elev_8"
+        android:visibility="gone">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_copy_text"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_48"
+            android:text="复制文本"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            app:backgroundTint="@color/primary"
+            android:textColor="@color/on_primary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:layout_marginBottom="@dimen/space_10"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_share_text"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_48"
+            android:text="分享文本"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            app:backgroundTint="@color/secondary"
+            android:textColor="@color/on_secondary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:layout_marginBottom="@dimen/space_10"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_add_to_note"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_48"
+            android:text="添加到笔记"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            app:backgroundTint="@color/tertiary"
+            android:textColor="@color/on_tertiary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:layout_marginBottom="@dimen/space_10"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_save_text"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_48"
+            android:text="保存文本"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            app:backgroundTint="@color/tertiary"
+            android:textColor="@color/on_tertiary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"/>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottom_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_16"
+        android:background="@color/surface"
+        android:elevation="@dimen/elev_8">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_start_recognition"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_56"
+            android:text="开始识别"
+            android:textSize="@dimen/text_16"
+            android:textStyle="bold"
+            app:backgroundTint="@color/primary"
+            android:textColor="@color/on_primary"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"/>
+
+    </LinearLayout>
+
+</LinearLayout>

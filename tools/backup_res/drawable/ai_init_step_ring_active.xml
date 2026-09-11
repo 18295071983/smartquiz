@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 初始化步骤圆环（进行中：渐变描边） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#2EFFFFFF" />
+    <gradient
+        android:type="sweep"
+        android:startColor="#8B5CF6"
+        android:endColor="#06B6D4" />
+    <stroke
+        android:width="3dp"
+        android:color="#33FFFFFF" />
+</shape>

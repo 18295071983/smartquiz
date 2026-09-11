@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/dialog_background"
+    android:padding="@dimen/space_24">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="配置在线模型"
+        android:textSize="@dimen/text_20"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:layout_marginBottom="@dimen/space_20"/>
+
+    <!-- 模型名称 -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="模型名称"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:layout_marginBottom="@dimen/space_12">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/input_model_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- API 地址 -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="API 地址 (如: https://api.openai.com/v1)"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:layout_marginBottom="@dimen/space_12">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/input_api_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textUri"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- API 密钥 -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="API 密钥"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        app:endIconMode="password_toggle"
+        android:layout_marginBottom="@dimen/space_12">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/input_api_key"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textPassword"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- 服务类型选择 -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="服务类型（可选，用于自动填充）"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+        android:layout_marginBottom="@dimen/space_12">
+        <AutoCompleteTextView
+            android:id="@+id/spinner_service_type"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text"
+            android:enabled="true"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- API Secret（讯飞 APISecret / 百度 SecretKey） -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/layout_api_secret"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="API Secret"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        app:endIconMode="password_toggle"
+        android:visibility="gone"
+        android:layout_marginBottom="@dimen/space_12">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/input_api_secret"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textPassword"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- App ID（讯飞 AppID / 火山引擎 AppID） -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/layout_app_id"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="App ID"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:visibility="gone"
+        android:layout_marginBottom="@dimen/space_12">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/input_app_id"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- 端点类型提示 -->
+    <TextView
+        android:id="@+id/endpoint_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/text_secondary"
+        android:visibility="gone"
+        android:layout_marginBottom="@dimen/space_12"
+        android:paddingStart="@dimen/space_4"
+        android:paddingEnd="@dimen/space_4"/>
+
+    <!-- 操作按钮行 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="@dimen/space_16">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_test_connection"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
+            android:layout_weight="1"
+            android:text="测试连通性"
+            android:textSize="@dimen/text_12"
+            app:backgroundTint="@color/secondary"
+            app:cornerRadius="@dimen/radius_8"
+            android:textAllCaps="false"
+            android:layout_marginEnd="@dimen/space_8"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_fetch_models"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="@dimen/size_40"
+            android:layout_weight="1"
+            android:text="获取模型列表"
+            android:textSize="@dimen/text_12"
+            app:backgroundTint="@color/primary"
+            app:cornerRadius="@dimen/radius_8"
+            android:textAllCaps="false"/>
+    </LinearLayout>
+
+    <!-- 使用量显示 -->
+    <LinearLayout
+        android:id="@+id/usage_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginBottom="@dimen/space_16"
+        android:padding="@dimen/space_12"
+        android:background="@color/card_background">
+
+        <TextView
+            android:id="@+id/usage_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="使用量: 加载中..."
+            android:textSize="@dimen/text_13"
+            android:textColor="@color/text_primary"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="@dimen/space_8">
+
+            <ProgressBar
+                android:id="@+id/usage_progress"
+                style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_8"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="@color/primary"/>
+
+            <TextView
+                android:id="@+id/usage_percent_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0%"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/text_secondary"
+                android:layout_marginStart="@dimen/space_8"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 模型列表区域 -->
+    <LinearLayout
+        android:id="@+id/models_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginBottom="@dimen/space_16">
+
+        <TextView
+            android:id="@+id/models_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="可用模型"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/space_8"/>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_150">
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/models_recycler"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@color/card_background"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"/>
+
+            <ProgressBar
+                android:id="@+id/loading_progress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/loading_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="@dimen/space_60"
+                android:text="加载中..."
+                android:textSize="@dimen/text_14"
+                android:textColor="@color/text_secondary"
+                android:visibility="gone"/>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- 底部按钮 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/size_40"
+            android:text="取消"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:textColor="@color/text_secondary"
+            android:textAllCaps="false"
+            android:layout_marginEnd="@dimen/space_8"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_save"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/size_40"
+            android:text="保存"
+            app:backgroundTint="@color/primary"
+            app:cornerRadius="@dimen/radius_8"
+            android:textAllCaps="false"/>
+    </LinearLayout>
+
+</LinearLayout>

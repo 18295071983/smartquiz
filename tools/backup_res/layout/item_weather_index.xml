@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:paddingVertical="12dp"
+    android:paddingHorizontal="8dp">
+
+    <TextView
+        android:id="@+id/tv_index_icon"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/text_28"
+        android:textColor="@color/weather_primary" />
+
+    <TextView
+        android:id="@+id/tv_index_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_4"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/weather_dark_text_secondary"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/tv_index_value"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_2"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/weather_dark_text"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end" />
+</LinearLayout>

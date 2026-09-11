@@ -1,0 +1,60 @@
+h_cb9bc278	Strong wind
+h_7cd28c6c	Blizzard
+h_4fafcc2c	Heavy snow
+h_ea25b6ea	High temperature
+h_1ea91433	Cold wave
+h_b04f6fd4	Temperature drop
+h_5e9bb27c	Road icing
+h_e527a26f	Freezing
+h_6ab232c9	Dense fog
+h_b2036718	Sand and dust
+h_014e238d	Blowing sand
+h_647d33af	Typhoon
+h_cb1de6e5	Sea wave
+h_ea27df54	Storm surge
+h_5f776911	Drought
+h_33788212	Hail
+h_5d5b12fb	Frost
+h_cb3d7529	Forest fire risk
+h_596297f1	Fire
+h_88f892c5	Issued: 
+h_84a3191b	Agency: 
+h_1bf343fc	Effective: 
+h_3a68b89c	Urgency: 
+h_bae21822	Certainty: 
+h_8aa8b23a	🛡️ Defense guide
+h_274efdb9	All day today
+h_7929767e	Today daytime
+h_c7ba693e	, at night
+h_d7befd55	Tonight
+h_de66c340	, temperature difference
+h_e9100b89	° dress accordingly
+h_f8ad32ea	 current
+h_1a902d11	, feels about
+h_1f38c85b	, feels about
+h_7e868f04	, feels
+h_95ce7d95	, very poor visibility (&lt;1km)
+h_8e057650	, poor visibility (
+h_ad4463d0	, moderate visibility (
+h_3ded4e65	, good visibility (
+h_2d1065ec	 Heavy rain, avoid going out.
+h_4bd97296	 Heavy rain, bring an umbrella.
+h_66649225	 Rain expected, carry rain gear.
+h_79978b01	 Blizzard, keep warm and watch your step.
+h_30483476	 Snow expected, beware of slippery roads.
+h_9b7ddd10	 Low visibility, stay safe when out.
+h_27d31044	 Sand and dust, wear a mask.
+h_b001cecf	 Severe cold, prevent frostbite.
+h_f87126c4	 Cold weather, keep warm.
+h_f9797d64	 Scorching heat, prevent heatstroke.
+h_f3300ec5	 Hot weather, drink more water.
+h_a1f59fc0	 Nice weather, good for outdoor activities.
+h_c63d2db4	Intermittent %s,
+h_a9f57b3a	precipitation for %d min
+h_e535deb9	, interval %d min
+h_3080e75d	continuous %s for %d min
+h_d494de13	, total %.1fmm (%s)
+h_a2f58ffa	, will not stop within 2 hours
+h_419b74b2	Weather details
+h_88f000a0	Rendering...
+h_56a83357	Processed %d/%d rows

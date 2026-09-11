@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginVertical="@dimen/space_8"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="0dp"
+    app:cardBackgroundColor="@color/surface_variant">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- 代码语言标签栏 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:background="@color/surface">
+
+            <TextView
+                android:id="@+id/tv_code_language"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="java"
+                android:textSize="@dimen/text_11"
+                android:textColor="@color/text_secondary"
+                android:textAllCaps="true"/>
+
+            <ImageButton
+                android:id="@+id/btn_copy_code"
+                android:layout_width="@dimen/size_32"
+                android:layout_height="@dimen/size_32"
+                android:src="@drawable/ic_copy"
+                android:background="?attr/selectableItemBorderless"
+                android:contentDescription="复制代码"
+                app:tint="@color/text_secondary"/>
+        </LinearLayout>
+
+        <!-- 代码内容区域 -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="horizontal">
+
+            <TextView
+                android:id="@+id/tv_code_content"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="@dimen/space_12"
+                android:textSize="@dimen/text_13"
+                android:textColor="@color/text_primary"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="2dp"/>
+        </HorizontalScrollView>
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

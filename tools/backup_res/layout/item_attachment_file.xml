@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/attachment_file_card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="@dimen/space_4"
+    app:cardCornerRadius="8dp"
+    app:cardElevation="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="@dimen/space_8">
+
+        <TextView
+            android:id="@+id/attachment_file_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="@dimen/text_24"
+            android:layout_marginEnd="@dimen/space_8" />
+
+        <LinearLayout
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/attachment_file_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="@dimen/text_13"
+                android:textColor="?attr/colorOnSurface"
+                android:maxLines="1"
+                android:ellipsize="middle" />
+
+            <TextView
+                android:id="@+id/attachment_file_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="@dimen/text_11"
+                android:textColor="@color/text_secondary" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/attachment_file_arrow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@android:drawable/ic_media_play"
+            android:contentDescription="打开"
+            android:layout_marginStart="@dimen/space_4" />
+
+        <ImageView
+            android:id="@+id/attachment_file_remove"
+            android:layout_width="@dimen/size_20"
+            android:layout_height="@dimen/size_20"
+            android:src="@android:drawable/ic_delete"
+            android:contentDescription="删除"
+            android:layout_marginStart="@dimen/space_4" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

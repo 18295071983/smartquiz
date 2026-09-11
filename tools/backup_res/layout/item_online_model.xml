@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="@dimen/space_8"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="1dp"
+    app:strokeWidth="@dimen/stroke_1"
+    app:strokeColor="@color/outline"
+    app:cardBackgroundColor="@color/card_background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_14">
+
+        <!-- 顶部信息行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <View
+                android:id="@+id/status_indicator"
+                android:layout_width="@dimen/size_8"
+                android:layout_height="@dimen/size_8"
+                android:background="@drawable/status_indicator_unknown"/>
+
+            <LinearLayout
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/space_10"
+                android:orientation="vertical">
+                <TextView
+                    android:id="@+id/online_model_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="模型名称"
+                    android:textSize="@dimen/text_15"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+                <TextView
+                    android:id="@+id/online_model_type"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="gpt-4"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginTop="@dimen/space_2"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/online_model_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="点击切换"
+                android:textSize="@dimen/text_12"
+                android:textColor="@color/primary"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="3dp"/>
+        </LinearLayout>
+
+        <!-- API 地址 -->
+        <TextView
+            android:id="@+id/online_model_url"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="api.openai.com"
+            android:textSize="@dimen/text_11"
+            android:textColor="@color/text_tertiary"
+            android:layout_marginTop="@dimen/space_6"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+        <!-- 模型选择行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="@dimen/space_10">
+
+            <Spinner
+                android:id="@+id/model_spinner"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="@dimen/size_36"
+                android:layout_weight="1"
+                android:spinnerMode="dropdown"
+                android:minHeight="@dimen/min_36"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/fetch_models_button"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_36"
+                android:text="刷新模型"
+                android:textSize="@dimen/text_11"
+                app:backgroundTint="@color/secondary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="@dimen/radius_8"
+                android:textAllCaps="false"
+                android:layout_marginStart="@dimen/space_8"
+                style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+        </LinearLayout>
+
+        <!-- 底部操作按钮行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end"
+            android:layout_marginTop="@dimen/space_10">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/enable_button"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_32"
+                android:text="@string/disable"
+                android:textSize="@dimen/text_11"
+                app:backgroundTint="@color/secondary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="@dimen/radius_8"
+                android:textAllCaps="false"
+                android:layout_marginEnd="@dimen/space_8"
+                android:minWidth="@dimen/min_0"
+                android:paddingHorizontal="12dp"
+                style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/edit_online_model_button"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_32"
+                android:text="编辑"
+                android:textSize="@dimen/text_11"
+                app:backgroundTint="@color/primary"
+                android:textColor="@android:color/white"
+                app:cornerRadius="@dimen/radius_8"
+                android:textAllCaps="false"
+                android:layout_marginEnd="@dimen/space_8"
+                android:minWidth="@dimen/min_0"
+                android:paddingHorizontal="12dp"
+                style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/delete_online_model_button"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/size_32"
+                android:text="删除"
+                android:textSize="@dimen/text_11"
+                app:backgroundTint="@color/error"
+                android:textColor="@android:color/white"
+                app:cornerRadius="@dimen/radius_8"
+                android:textAllCaps="false"
+                android:minWidth="@dimen/min_0"
+                android:paddingHorizontal="12dp"
+                style="@style/Widget.MaterialComponents.Button.UnelevatedButton"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

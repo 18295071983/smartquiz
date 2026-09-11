@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="56dp"
+    android:height="56dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 渐变圆角底（深紫→亮紫，对角） -->
+    <path android:pathData="M5,0.5 H19 C21.49,0.5 23.5,2.51 23.5,5 V19 C23.5,21.49 21.49,23.5 19,23.5 H5 C2.51,23.5 0.5,21.49 0.5,19 V5 C0.5,2.51 2.51,0.5 5,0.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2" android:startY="2"
+                android:endX="22" android:endY="22"
+                android:startColor="#7C3AED"
+                android:endColor="#A78BFA" />
+        </aapt:attr>
+    </path>
+
+    <!-- 底部微光（半透明白，增强质感） -->
+    <path
+        android:fillColor="#22FFFFFF"
+        android:pathData="M5,17.5 H19 C21.49,17.5 23.5,19.51 23.5,22 V23.5 H0.5 V22 C0.5,19.51 2.51,17.5 5,17.5 Z" />
+
+    <!-- 左书页（白色渐变，微立体） -->
+    <path android:pathData="M12,5.2 C10.7,4 9,3.3 7.2,3.3 C5.4,3.3 3.7,4 2.4,5.2 V18.8 C3.7,17.6 5.4,16.9 7.2,16.9 C9,16.9 10.7,17.6 12,18.8 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2.4" android:startY="3.3"
+                android:endX="12" android:endY="18.8"
+                android:startColor="#FFFFFF"
+                android:endColor="#EDE9FE" />
+        </aapt:attr>
+    </path>
+
+    <!-- 右书页（白色渐变） -->
+    <path android:pathData="M12,5.2 C13.3,4 15,3.3 16.8,3.3 C18.6,3.3 20.3,4 21.6,5.2 V18.8 C20.3,17.6 18.6,16.9 16.8,16.9 C15,16.9 13.3,17.6 12,18.8 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="21.6" android:startY="3.3"
+                android:endX="12" android:endY="18.8"
+                android:startColor="#FFFFFF"
+                android:endColor="#EDE9FE" />
+        </aapt:attr>
+    </path>
+
+    <!-- 书脊（中缝，浅紫） -->
+    <path
+        android:fillColor="#C4B5FD"
+        android:pathData="M11.4,5.2 H12.6 V18.8 H11.4 Z" />
+
+    <!-- 左页文字线（浅紫，细节） -->
+    <path
+        android:fillColor="#DDD6FE"
+        android:pathData="M4.6,7.4 H9.6 M4.6,10 H9.6 M4.6,12.6 H8" />
+
+    <!-- 右页文字线（浅紫，细节） -->
+    <path
+        android:fillColor="#DDD6FE"
+        android:pathData="M14.4,7.4 H19.4 M14.4,10 H19.4 M16,12.6 H19.4" />
+</vector>
