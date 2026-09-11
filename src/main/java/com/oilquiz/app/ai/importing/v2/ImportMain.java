@@ -49,7 +49,7 @@ public class ImportMain {
     /** CSV 分片行数（超大题库分片防内存溢出） */
     private static final int CHUNK_ROWS = 3000;
     /** 智能填充单批题数（LLM 批量推理） */
-    private static final int FILL_BATCH_SIZE = 15;
+    private static final int FILL_BATCH_CHARS = 1900;
 
     /** PRAGMA 读取失败时的内置默认字段列表（兜底，流程不中断） */
     private static final String[] DEFAULT_COLUMNS = {
@@ -1109,83 +1109,64 @@ public class ImportMain {
         List<String> fillableCols = buildFillableColumns();
         if (fillableCols.isEmpty()) return;
 
-        // 按 chunk 分组收集
+        // 按 chunk 分组收集（规则预筛的 fill 与 LLM fill 按 row 合并）
         Map<String, JSONObject> fillsByChunk = new LinkedHashMap<>();
+
+        // 第一遍：规则预筛（零模型）——题型可由规则判定的题直接回写，不进 LLM 批量；
+        // 剩余真正缺字段的题按估算长度动态分批（防输入逼近 4K 把输出挤出上下文）
         List<String> infos = new ArrayList<>();
         List<Integer> pendingIdx = new ArrayList<>();
+        int batchChars = 0;
 
         int total = missing.length();
-        for (int base = 0; base < total; base += FILL_BATCH_SIZE) {
+        for (int i = 0; i < total; i++) {
             if (cancelled) return;
-            infos.clear();
-            pendingIdx.clear();
-            int end = Math.min(total, base + FILL_BATCH_SIZE);
-            for (int i = base; i < end; i++) {
-                JSONObject m = missing.optJSONObject(i);
-                if (m == null) continue;
-                infos.add(buildFillInfoWithContext(m));
+            JSONObject m = missing.optJSONObject(i);
+            if (m == null) continue;
+            JSONObject has = m.optJSONObject("has");
+
+            // 规则优先：题型可判定则零模型直接填（不占 LLM 批量）
+            JSONObject ruleFill = new JSONObject();
+            if (fillableCols.contains("questionType")
+                    && (has == null || !has.optBoolean("questionType", false))) {
+                String ruleType = inferQuestionTypeByRule(m);
+                if (ruleType != null) {
+                    try {
+                        ruleFill.put("questionType", ruleType);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+
+            // 该题是否仍需 LLM：存在未被规则覆盖且缺失的字段
+            boolean needLlm = false;
+            for (String f : fillableCols) {
+                if (ruleFill.has(f)) continue;
+                boolean fieldMissing = has == null || !has.optBoolean(f, false);
+                if (fieldMissing) {
+                    needLlm = true;
+                    break;
+                }
+            }
+            if (needLlm) {
+                String info = buildFillInfoWithContext(m);
+                int est = info.length() + 80; // 含编号/分隔开销
+                if (!infos.isEmpty() && batchChars + est > FILL_BATCH_CHARS) {
+                    applyFillBatch(infos, pendingIdx, missing, fillsByChunk, fillableCols, listener);
+                    infos.clear();
+                    pendingIdx.clear();
+                    batchChars = 0;
+                }
+                infos.add(info);
                 pendingIdx.add(i);
+                batchChars += est;
             }
-            if (infos.isEmpty()) continue;
-
-            List<ImportLlmEngine.FillResult> fills = engine.runFieldFillBatchInfer(infos, fillableCols, docHint);
-            for (int k = 0; k < pendingIdx.size(); k++) {
-                JSONObject m = missing.optJSONObject(pendingIdx.get(k));
-                if (m == null) continue;
-                ImportLlmEngine.FillResult fr = k < fills.size() ? fills.get(k) : null;
-                JSONObject fill = new JSONObject();
-                try {
-                    // 只填确实缺失的字段（has=false）；其余字段保持原值（不回写）
-                    JSONObject has = m.optJSONObject("has");
-
-                    // 题型识别增强：规则优先（选项/题干特征），规则可判定则直接填，不依赖 LLM
-                    if (fillableCols.contains("questionType")
-                            && (has == null || !has.optBoolean("questionType", false))) {
-                        String ruleType = inferQuestionTypeByRule(m);
-                        if (ruleType != null) {
-                            fill.put("questionType", ruleType);
-                        }
-                    }
-
-                    // 动态遍历可填字段：从 LLM 结果 fields 中取对应值（缺失字段才回写）
-                    if (fr != null && fr.valid && fr.fields != null) {
-                        for (String f : fillableCols) {
-                            if (fill.has(f)) continue; // 规则已填（如题型）
-                            // 该字段是否缺失（has 里 false 或缺省）
-                            boolean fieldMissing = has == null || !has.optBoolean(f, false);
-                            if (!fieldMissing) continue;
-                            Object v = fr.fields.get(f);
-                            if (v == null) continue;
-                            String sv = String.valueOf(v).trim();
-                            if (sv.isEmpty()) continue;
-                            // difficulty 归一化 1-3
-                            if ("difficulty".equals(f)) {
-                                try {
-                                    int d = Integer.parseInt(sv);
-                                    if (d < 1 || d > 3) d = 1;
-                                    fill.put(f, d);
-                                } catch (Exception ignored) {
-                                }
-                                continue;
-                            }
-                            fill.put(f, sv);
-                        }
-                    }
-                } catch (Exception ignored) {
-                }
-                if (fill.length() == 0) continue; // 无实际填充，跳过回写
-                String chunk = m.optString("chunk");
-                JSONObject chunkFills = fillsByChunk.get(chunk);
-                if (chunkFills == null) {
-                    chunkFills = new JSONObject();
-                    fillsByChunk.put(chunk, chunkFills);
-                }
-                try {
-                    chunkFills.put(String.valueOf(m.optInt("row")), fill);
-                } catch (Exception ignored) {
-                }
+            if (ruleFill.length() > 0) {
+                putFillMerge(m, ruleFill, fillsByChunk);
             }
-            emitProgress(listener, end, total, "智能填充");
+        }
+        if (!infos.isEmpty()) {
+            applyFillBatch(infos, pendingIdx, missing, fillsByChunk, fillableCols, listener);
         }
 
         // 回写 CSV 分片
@@ -1198,6 +1179,80 @@ public class ImportMain {
             if (err != null) {
                 emitLog(listener, "回写填充失败(不影响入库): " + err);
             }
+        }
+    }
+
+    /** 对一批需 LLM 填充的题执行批量推理并回写（仅补规则未覆盖的缺失字段） */
+    private void applyFillBatch(List<String> infos, List<Integer> pendingIdx,
+                                JSONArray missing, Map<String, JSONObject> fillsByChunk,
+                                List<String> fillableCols, ImportListener listener) {
+        if (infos.isEmpty()) return;
+        List<ImportLlmEngine.FillResult> fills =
+                engine.runFieldFillBatchInfer(infos, fillableCols, docHint);
+        for (int k = 0; k < pendingIdx.size(); k++) {
+            JSONObject m = missing.optJSONObject(pendingIdx.get(k));
+            if (m == null) continue;
+            ImportLlmEngine.FillResult fr = k < fills.size() ? fills.get(k) : null;
+            JSONObject fill = new JSONObject();
+            try {
+                JSONObject has = m.optJSONObject("has");
+                // 动态遍历可填字段：从 LLM 结果 fields 中取对应值（缺失字段才回写）
+                if (fr != null && fr.valid && fr.fields != null) {
+                    for (String f : fillableCols) {
+                        // 该字段是否缺失（has 里 false 或缺省）
+                        boolean fieldMissing = has == null || !has.optBoolean(f, false);
+                        if (!fieldMissing) continue;
+                        Object v = fr.fields.get(f);
+                        if (v == null) continue;
+                        String sv = String.valueOf(v).trim();
+                        if (sv.isEmpty()) continue;
+                        // difficulty 归一化 1-3
+                        if ("difficulty".equals(f)) {
+                            try {
+                                int d = Integer.parseInt(sv);
+                                if (d < 1 || d > 3) d = 1;
+                                fill.put(f, d);
+                            } catch (Exception ignored) {
+                            }
+                            continue;
+                        }
+                        fill.put(f, sv);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            if (fill.length() == 0) continue; // 无实际填充，跳过回写
+            putFillMerge(m, fill, fillsByChunk);
+        }
+        emitProgress(listener, pendingIdx.isEmpty() ? 0
+                : pendingIdx.get(pendingIdx.size() - 1) + 1, missing.length(), "智能填充");
+    }
+
+    /** 按 row 合并写入 chunk fills（规则 fill 与 LLM fill 落在同一 row 时合并而非覆盖） */
+    private void putFillMerge(JSONObject m, JSONObject fill, Map<String, JSONObject> fillsByChunk) {
+        if (fill == null || fill.length() == 0) return;
+        String chunk = m.optString("chunk");
+        JSONObject chunkFills = fillsByChunk.get(chunk);
+        if (chunkFills == null) {
+            chunkFills = new JSONObject();
+            fillsByChunk.put(chunk, chunkFills);
+        }
+        String row = String.valueOf(m.optInt("row"));
+        JSONObject existing = chunkFills.optJSONObject(row);
+        if (existing == null) {
+            existing = new JSONObject();
+            try {
+                chunkFills.put(row, existing);
+            } catch (Exception ignored) {
+            }
+        }
+        try {
+            java.util.Iterator<String> it = fill.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                existing.put(k, fill.opt(k));
+            }
+        } catch (Exception ignored) {
         }
     }
 

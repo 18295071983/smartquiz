@@ -404,7 +404,7 @@ public class ImportLlmEngine {
                                                    String docHint) {
         List<FillResult> results = new ArrayList<>();
         if (questionInfos == null || questionInfos.isEmpty()) return results;
-        int n = Math.min(questionInfos.size(), 10);
+        int n = Math.min(questionInfos.size(), 15);
         for (int i = 0; i < n; i++) {
             results.add(null);
         }
@@ -446,7 +446,7 @@ public class ImportLlmEngine {
             if (round >= 3) p = prompt + "\n" + FIX_ROUND2 + "\n" + FIX_ROUND3;
 
             // 输出上限随批大小收紧（每项 fills 约 100 token 足够），避免模型生成冗余 JSON 拖慢
-            String raw = inferOnce(p, Math.min(4096, 120 + n * 160));
+            String raw = inferOnce(p, Math.min(4096, 120 + n * 120));
             if (raw == null) continue;
 
             String block = ImportOutputSanitizer.trimToJsonBlock(raw);
