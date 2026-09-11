@@ -15,10 +15,13 @@ import java.util.Map;
  */
 public class ImportStartTool implements AITool {
 
+    private android.content.Context context;
+
     public ImportStartTool() {
     }
 
     public ImportStartTool(android.content.Context context) {
+        this.context = context;
     }
 
     @Override
@@ -75,7 +78,7 @@ public class ImportStartTool implements AITool {
                     ? String.valueOf(parameters.get("questionType")) : null;
 
             String taskId = QuestionImportTaskManager.getInstance()
-                    .start(file, sheetIndex, docHint, fillMissing, skipIncomplete, questionType);
+                    .start(context, file, sheetIndex, docHint, fillMissing, skipIncomplete, questionType);
             return AIToolResult.success(
                     "{\"taskId\":\"" + taskId + "\",\"status\":\"RUNNING\",\"message\":\"导入已启动，请用 import_status 查询进度\"}");
         } catch (Exception e) {

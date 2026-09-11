@@ -55,7 +55,7 @@ public class QuestionImportTaskManager {
     }
 
     /** 启动异步导入，返回 taskId */
-    public String start(File file, int sheetIndex, String docHint,
+    public String start(android.content.Context context, File file, int sheetIndex, String docHint,
                         boolean fillMissing, boolean skipIncomplete, String questionType) {
         final String taskId = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         final TaskStatus status = new TaskStatus();
@@ -63,7 +63,21 @@ public class QuestionImportTaskManager {
         status.stage = "start";
         tasks.put(taskId, status);
 
-        ImportMain v2Main = new ImportMain(AppServices.appContext(), new AIImportOrchestrator(AppServices.appContext()));
+        if (context == null) {
+            // 兜底：SPI 注册表已安装时取 applicationContext
+            context = AppServices.appContext();
+        }
+        if (context == null) {
+            status.running = false;
+            status.done = true;
+            status.error = "无法获取应用上下文（工具未注入 Context 且 SPI 未安装）";
+            status.stage = "error";
+            return taskId;
+        }
+        final android.content.Context appContext = context.getApplicationContext();
+        AppServices.ensure(appContext);
+
+        ImportMain v2Main = new ImportMain(appContext, new AIImportOrchestrator(appContext));
         if (docHint != null && !docHint.isEmpty()) {
             v2Main.setDocHint(docHint);
         }
