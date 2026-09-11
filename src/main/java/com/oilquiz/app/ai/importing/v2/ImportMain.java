@@ -509,6 +509,8 @@ public class ImportMain {
             // 清理历史断点，避免与本次全新导入的解析/入库冲突
             ImportBreakpointStore.clear();
         }
+        // 全新导入前打扫 temp/ 历史残留（仅删空目录，并行活动目录安全跳过）
+        ImportDirs.cleanAllEmptySessionDirs();
 
         Map<String, String> mapping = null;
         JSONArray headersArr = null;
