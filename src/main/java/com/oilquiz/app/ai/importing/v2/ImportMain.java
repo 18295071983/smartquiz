@@ -49,7 +49,7 @@ public class ImportMain {
     /** CSV 分片行数（超大题库分片防内存溢出） */
     private static final int CHUNK_ROWS = 3000;
     /** 智能填充单批题数（LLM 批量推理） */
-    private static final int FILL_BATCH_SIZE = 10;
+    private static final int FILL_BATCH_SIZE = 15;
 
     /** PRAGMA 读取失败时的内置默认字段列表（兜底，流程不中断） */
     private static final String[] DEFAULT_COLUMNS = {
@@ -1247,14 +1247,19 @@ public class ImportMain {
     /** 构建填充提示信息：题干 + 选项 + 缺失字段 + 前后题上下文（供 LLM 参考推断） */
     private String buildFillInfoWithContext(JSONObject m) {
         StringBuilder sb = new StringBuilder();
-        sb.append("题干:").append(m.optString("questionText", ""));
+        // 题干截断：保留题意同时控制每批输入 token（提速关键）
+        String q = m.optString("questionText", "");
+        sb.append("题干:").append(q.length() > 100 ? q.substring(0, 100) : q);
         JSONObject options = m.optJSONObject("options");
         if (options != null) {
             java.util.Iterator<String> it = options.keys();
             while (it.hasNext()) {
                 String k = it.next();
                 String v = options.optString(k, "");
-                if (!v.isEmpty()) sb.append(' ').append(k).append(':').append(v);
+                if (!v.isEmpty()) {
+                    if (v.length() > 40) v = v.substring(0, 40);
+                    sb.append(' ').append(k).append(':').append(v);
+                }
             }
         }
         JSONObject has = m.optJSONObject("has");
@@ -1270,10 +1275,11 @@ public class ImportMain {
             }
             if (miss.length() > 5) sb.append(' ').append(miss);
         }
+        // 前后题上下文：仅取首 40 字（长题干重复 2 次是输入超限/变慢主因）
         String prev = m.optString("ctx_prev", "");
         String next = m.optString("ctx_next", "");
-        if (!prev.isEmpty()) sb.append(" 上一题[").append(prev).append("]");
-        if (!next.isEmpty()) sb.append(" 下一题[").append(next).append("]");
+        if (!prev.isEmpty()) sb.append(" 上一题[").append(prev.length() > 40 ? prev.substring(0, 40) : prev).append("]");
+        if (!next.isEmpty()) sb.append(" 下一题[").append(next.length() > 40 ? next.substring(0, 40) : next).append("]");
         return sb.toString();
     }
 

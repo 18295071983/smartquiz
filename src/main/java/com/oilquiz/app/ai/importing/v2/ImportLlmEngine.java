@@ -416,7 +416,7 @@ public class ImportLlmEngine {
         StringBuilder info = new StringBuilder();
         for (int i = 0; i < n; i++) {
             info.append("[").append(i + 1).append("]")
-                    .append(truncate(questionInfos.get(i), 120)).append('\n');
+                    .append(truncate(questionInfos.get(i), 100)).append('\n');
         }
         // 动态字段描述：本次要填充的字段（如 题型/难度/分类/解析/知识点/标签…）
         List<String> fieldDescs = new ArrayList<>();
@@ -437,7 +437,7 @@ public class ImportLlmEngine {
                 + "fills数组长度必须为" + n + "，每项只输出推断出的字段，无法推断的字段省略。\n题目列表：\n" + info;
         // 题库说明/模板说明：字段约定帮助推断（如"选项用分号分隔""答案在最后一列"等）
         if (docHint != null && !docHint.isEmpty()) {
-            prompt = prompt + "\n题库说明（参考字段约定）：" + truncate(docHint, 400);
+            prompt = prompt + "\n题库说明（参考字段约定）：" + truncate(docHint, 200);
         }
 
         for (int round = 1; round <= MAX_INFER_ROUNDS; round++) {
@@ -445,7 +445,8 @@ public class ImportLlmEngine {
             if (round == 2) p = prompt + "\n" + FIX_ROUND2;
             if (round >= 3) p = prompt + "\n" + FIX_ROUND2 + "\n" + FIX_ROUND3;
 
-            String raw = inferOnce(p, Math.min(2048, 160 + n * 200));
+            // 输出上限随批大小收紧（每项 fills 约 100 token 足够），避免模型生成冗余 JSON 拖慢
+            String raw = inferOnce(p, Math.min(4096, 120 + n * 160));
             if (raw == null) continue;
 
             String block = ImportOutputSanitizer.trimToJsonBlock(raw);
