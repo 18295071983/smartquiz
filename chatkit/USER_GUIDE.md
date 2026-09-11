@@ -128,15 +128,19 @@ new ChatBottomSheet(context)
 
 ### 5.2 运行期宿主需具备的引擎/大件（不随包分发，体积过大）
 
-| 大件 | 路径 | 体积 | 对应能力 |
-|---|---|---|---|
-| SenseVoice 模型 | `assets/asr/model.int8.onnx` | 228 MB | 本地语音识别（ChatSpeechInputController） |
-| 本地 LLM native 库 | `jniLibs/arm64-v8a/libllama-jni.so` 等 | 140–170 MB/abi | 本地推理（GenerationStatusBar 数据源） |
-| OCR 模型 | `assets/ocr/v6/{rec,det}.onnx` | 30 MB | 附件图片 OCR（AttachmentVisionPipeline 回退） |
-| 词表 | `cpp/llama.cpp/models/ggml-vocab-*.gguf` | 10–15 MB | llama.cpp 运行 |
-| TTS 引擎 | 系统 TTS / 在线合成 | — | 朗读（ChatSpeechController） |
+| 大件 | 路径 | 体积 | 对应能力 | 来源 |
+|---|---|---|---|---|
+| SenseVoice 模型 | `assets/asr/model.int8.onnx` | 228 MB | 本地语音识别（ChatSpeechInputController） | 宿主 assets |
+| 本地 LLM native 库 | `jniLibs/arm64-v8a/libllama-jni.so` 等 | 140–170 MB/abi | 本地推理（GenerationStatusBar 数据源） | **源码编译**（见 DEPENDENCIES.md §三·五） |
+| OCR 模型 | `assets/ocr/v6/{rec,det}.onnx` | 30 MB | 附件图片 OCR（AttachmentVisionPipeline 回退） | 宿主 assets |
+| 词表 | `cpp/llama.cpp/models/ggml-vocab-*.gguf` | 10–15 MB | llama.cpp 运行 | 源码树内 |
+| TTS 引擎 | 系统 TTS / 在线合成 | — | 朗读（ChatSpeechController） | 宿主集成 |
 
-> 这些大件由宿主工程提供（`SpeechGateway`/`ModelGateway` 桥接其管理器），
+> native 库（libllama-jni / liblo-native-code）**源码在宿主 `src/main/cpp/`**，
+> 由 Gradle externalNativeBuild（CMake+Ninja）自动编译，命令：
+> `gradlew.bat assembleDebug`（或 `externalNativeBuildDebug`），产物输出到
+> `src/main/jniLibs/<abi>/`；详见 DEPENDENCIES.md「三·五 本地 native 库源码编译方法」。
+> 其余大件由宿主工程提供（`SpeechGateway`/`ModelGateway` 桥接其管理器），
 > 不随 ChatKit 打包；缺件时组件降级可用（ASR 不可用→提示、OCR 失败→回退）。
 
 ### 5.3 内部类依赖（随包带入或宿主已有）

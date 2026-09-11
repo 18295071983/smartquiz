@@ -70,6 +70,42 @@ h_f9154462 h_fe85860b h_feae15b8
 - `com.google.code.gson:gson`（ToolExecutionOrchestrator 参数序列化）
 - Android SDK：`java.nio.file.Files`（API 26+，FileUriUtils/AttachmentVisionPipeline 读图）
 
+## 三·五、本地 native 库：源码编译方法（源码随宿主工程，不随包）
+
+本地 LLM / ASR / OCR 的 native 库**源码就在宿主工程内**（`src/main/cpp/`，
+CMake 项目 `llama-jni`），由 Gradle `externalNativeBuild`（CMake + Ninja）
+自动编译，**无需手动下载 .so**：
+
+| 项 | 值 |
+|---|---|
+| 源码根 | `src/main/cpp/`（llama.cpp + 顶层 CMakeLists + OpenCL 后端，`GGML_OPENCL_USE_ADRENO_KERNELS=ON` Adreno 优化 kernel） |
+| 构建参数 | build.gradle `externalNativeBuild.cmake.arguments`：`-DANDROID_STL=c++_shared` `-GNinja` `-DGGML_OPENCL=ON` `-DGGML_VULKAN=OFF`（`CMAKE_MAKE_PROGRAM` 指向 SDK 自带 Ninja） |
+| 产物目录 | `src/main/jniLibs/<abi>/`（CMakeLists `LIBRARY_OUTPUT_DIRECTORY`） |
+| ABI | `arm64-v8a` 真机（libllama-jni.so + liblo-native-code.so + libc++_shared.so 等）；`x86_64` 模拟器（libllama-jni.so） |
+| 环境 | Android SDK + NDK（compileSdk 34 / minSdk 31）+ CMake 3.22.1（SDK 组件，Ninja 随附） |
+
+编译命令（任选其一）：
+
+```bat
+:: ① 打包 APK（自动触发 native 编译，日常最常用）
+gradlew.bat assembleDebug
+
+:: ② 只编 native 库，不动 APK
+gradlew.bat externalNativeBuildDebug
+
+:: ③ 手动 CMake 交叉编译（改参数/出产物到指定目录时用；<NDK> 替换为实际路径）
+cmake -S src/main/cpp -B build/native ^
+  -DCMAKE_TOOLCHAIN_FILE=<NDK>/build/cmake/android.toolchain.cmake ^
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-31 ^
+  -DANDROID_STL=c++_shared -GNinja -DGGML_OPENCL=ON -DGGML_VULKAN=OFF
+cmake --build build/native
+```
+
+> - 产物体积大（arm64-v8a 合计约 340MB），换机克隆后先 `gradlew assembleDebug`
+>   重建或直接复用 jniLibs 现有 .so。
+> - 增删 ABI 需改 build.gradle `abiFilters` 后重编；OpenCL 后端仅对 Adreno GPU 生效，
+>   其他 GPU 可关 `-DGGML_OPENCL=OFF` 回退 CPU。
+
 ## 四、可移植性说明
 
 - 组件**不 import Activity/Fragment**，仅依赖 `Context`（applicationContext）。
