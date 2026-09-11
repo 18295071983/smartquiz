@@ -13,10 +13,12 @@
 ```
 chatkit/
 ├── README.md                  ← 本文件
-├── COMPONENT_INDEX.md         ← 32 组件清单（分层/职责/关键 API）
-├── DEPENDENCIES.md            ← 依赖清单（内部类 / R.string / 第三方库）
+├── COMPONENT_INDEX.md         ← 33 组件清单（分层/职责/关键 API）
+├── DEPENDENCIES.md            ← 依赖清单（SPI / 内部类 / R.string / 第三方库）
+├── USER_GUIDE.md              ← 使用文档（安装/初始化/示例/运行期大件/测试）
 └── src/
-    ├── com/oilquiz/app/ai/    ← 33 个 Java 组件源码（含 ChatInputBar/ChatMessagesView）
+    ├── com/oilquiz/app/ai/    ← 41 个 Java（33 组件 + 8 SPI 服务接口）
+    ├── res/values/strings.xml ← 80 个组件所需字符串（含实际文案）
     └── res/layout/            ← view_chat_input_bar.xml（ChatInputBar 布局）
 ```
 

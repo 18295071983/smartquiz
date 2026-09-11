@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ChatKit 资源：组件所需 R.string（从主工程 strings_migrated.xml 提取） -->
+<resources>
+    <string name="h_793176ee">用户消息: </string>
+    <string name="h_11214c64">=== 附件解析状态（系统已预处理，状态确定） ===\n\n</string>
+    <string name="h_94e069c2">【附件</string>
+    <string name="h_1ee53933">  类型: </string>
+    <string name="h_176d6e45">，大小: </string>
+    <string name="h_28c797b8">  本地路径: </string>
+    <string name="h_764fab2b">  解析状态: </string>
+    <string name="h_5f27c9db">  解析方式: </string>
+    <string name="h_2d8ed504">（缓存命中）</string>
+    <string name="h_46bc48a9">  备注: </string>
+    <string name="h_1e7d25f8">  内容如下:\n</string>
+    <string name="h_24984e0c">--- 附件内容开始 ---\n</string>
+    <string name="h_55a2a38e">\n...(内容过长已截断，完整内容共 </string>
+    <string name="h_6b35290e"> 字符，可用 file_read_lines 工具读取本地路径获取剩余部分)\n</string>
+    <string name="h_dae5a2ac">--- 附件内容结束 ---\n</string>
+    <string name="h_bf63260f">  解析状态: FAILED\n</string>
+    <string name="h_5d89be82">  错误码: </string>
+    <string name="h_41d16b3d">  失败原因: </string>
+    <string name="h_cad33dfa">  可选操作: 可尝试用工具重新解析（file_parse_text/ocr_recognize）\n</string>
+    <string name="h_03670db5">  失败原因: 未获取到解析结果\n</string>
+    <string name="h_d7824330">⚠️ 以下文件已跳过: </string>
+    <string name="h_9e0ee86a">=== 重要规则 ===\n</string>
+    <string name="h_ee31e1e3">- 以上 </string>
+    <string name="h_fe85860b"> 个附件的内容已由系统解析完成并直接提供，请基于上述内容直接回答，无需再调用解析工具\n</string>
+    <string name="h_f6a98d86">- 附件确实已上传，严禁说“未检测到附件”或要求用户重新上传\n</string>
+    <string name="h_447064b9">- 若某附件解析失败，向用户说明具体失败原因（见错误码），并给出建议\n</string>
+    <string name="h_30890ceb">- 若内容被截断且需要完整内容，可用 file_read_lines 工具按行读取本地路径\n\n</string>
+    <string name="h_b07b6bc9">=== 备用工具（仅在内容截断或需重试时使用） ===\n</string>
+    <string name="h_db5abb31">调用格式: &lt;|tool_call_begin|&gt;app_toolkit|{\&quot;action\&quot;: \&quot;名称\&quot;, ...}&lt;|tool_call_end|&gt;\n</string>
+    <string name="h_cf88fe4b">请基于附件内容回答用户问题。</string>
+    <string name="h_926e80d4">开始分析。</string>
+    <string name="h_8997e243">用户上传了 </string>
+    <string name="h_feae15b8"> 个附件。</string>
+    <string name="h_14e8a21e">用户问题：</string>
+    <string name="h_e4b86c39">请分析这些附件的主要内容，并提供摘要。\n\n</string>
+    <string name="h_4fe2794a">=== 附件内容 ===\n\n</string>
+    <string name="h_4b4e3db7">\n=== 附件内容结束 ===\n\n</string>
+    <string name="h_48e86d79">请根据附件内容回答。如果附件内容不足，请说明。</string>
+    <string name="h_36623a6c">用户需求: </string>
+    <string name="h_a485628e">用户需求: 请总结以下附件的主要内容\n\n</string>
+    <string name="h_a4368a9d">=== 附件解析内容 ===\n\n</string>
+    <string name="h_b575ddeb">=== 总结要求 ===\n</string>
+    <string name="h_bd78f6c8">1. 请用清晰的结构总结附件的主要内容\n</string>
+    <string name="h_5529af52">2. 提取关键点和重要信息\n</string>
+    <string name="h_d6c806dd">3. 如果是表格数据，请给出数据概览\n</string>
+    <string name="h_29d6d222">4. 如果用户有特定需求，请优先回答用户的问题\n\n</string>
+    <string name="h_dc9307dd">请开始总结：</string>
+    <string name="h_68e672a0">\n(解析失败，跳过该文件)\n\n</string>
+    <string name="h_86b05ff3">... 附件过多，其余已跳过\n</string>
+    <string name="h_c65217ea">=== 附件内容结束 ===\n\n</string>
+    <string name="h_1575bdd9">请根据以上附件内容回答用户消息。</string>
+    <string name="h_c59cad21">加载会话失败</string>
+    <string name="h_5cc23262">已删除</string>
+    <string name="h_986cd3e8" formatted="false">📥 输入 %d · 📤 输出 %d tokens</string>
+    <string name="h_83afc322" formatted="false"> · ⚡命中率 %d%%</string>
+    <string name="h_d7a0f347" formatted="false"> · 🧠上下文 %s 用 %.0f%%</string>
+    <string name="h_b557980d" formatted="false">（会话累计 %d）</string>
+    <string name="h_743faf7e" formatted="false">⏳ 生成中 · %.1f t/s</string>
+    <string name="h_ad0acdc5">⏳ 生成中</string>
+    <string name="h_2a8f9dc2" formatted="false">⏳ 预处理 · %d tok · %d%% · %.1f t/s</string>
+    <string name="h_f8a477f6" formatted="false">⏳ 预处理 · %d%% · %.1f t/s</string>
+    <string name="h_e3ad3e92" formatted="false">⏳ 预处理 · %d tok · %d%%</string>
+    <string name="h_2dcef5d6" formatted="false">⏳ 预处理 · %d%%</string>
+    <string name="h_803f889b">⏳ 预处理</string>
+    <string name="h_3e238a20" formatted="false">KV ⚡%.0f%% 占%.0f%%</string>
+    <string name="h_c5d9a5e1" formatted="false">✅ 📥 输入 %d · 📤 输出 %d tokens</string>
+    <string name="h_6d66ba3b">消息内容为空或不可朗读</string>
+    <string name="h_4bc876d2">内容较长，仅朗读前 2000 字</string>
+    <string name="h_f3df22c9">🔊 开始合成语音...</string>
+    <string name="h_c5d49541">🔊 正在朗读，再次点击朗读按钮可停止</string>
+    <string name="h_f9154462">朗读已结束</string>
+    <string name="h_715ae415">⏹️ 已停止朗读</string>
+    <string name="h_b2f5500b">语音识别暂不可用，可在模型管理中配置语音识别模型</string>
+    <string name="h_24f55c59">无法创建音频文件</string>
+    <string name="h_c3f0e02f">🎤 开始录音...</string>
+    <string name="h_e2a65c56">✅ 录音已添加</string>
+    <string name="h_ba8cd317">录音文件为空</string>
+    <string name="h_b1c1d48c">🔴 录音中...再次点击停止</string>
+    <string name="h_f4854afd">⏹️ 录音结束</string>
+    <string name="h_e6f7a8b9">本地语音识别模型已就绪</string>
+</resources>
