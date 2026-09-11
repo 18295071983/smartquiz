@@ -1276,6 +1276,17 @@ public class PythonToolManager {
                             rt.result.compareAndSet("pending", "closed");
                             synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
                         });
+                        // UI-06 弹窗外观：窗口背景圆角（消除默认方形白框；卡片圆角已生效时外层不再露方角）
+                        try {
+                            if (dialog.getWindow() != null) {
+                                android.graphics.drawable.GradientDrawable dlgBg =
+                                        new android.graphics.drawable.GradientDrawable();
+                                dlgBg.setColor(0xFFFFFFFF);
+                                dlgBg.setCornerRadius(16 * fAct.getResources().getDisplayMetrics().density);
+                                dialog.getWindow().setBackgroundDrawable(dlgBg);
+                            }
+                        } catch (Throwable ignored) {
+                        }
                         configureDialogInput(dialog);
 
                         dialog.show();
