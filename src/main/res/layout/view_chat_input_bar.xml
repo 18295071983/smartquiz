@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天输入栏（可复用组件布局）：附件 + 输入框 + 语音 + 发送/停止
+     由 ChatInputBar 加载；控件 id 与 activity_ai_chat 原输入区保持一致，
+     宿主通过 getter 或 findViewById 均可访问。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical">
+
+    <LinearLayout
+        android:layout_width="@dimen/size_0"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:background="@drawable/rounded_edittext"
+        android:gravity="center_vertical"
+        android:padding="@dimen/space_4">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_attach"
+            android:layout_width="@dimen/size_44"
+            android:layout_height="@dimen/size_44"
+            style="@style/Widget.Material3.Button.TextButton"
+            app:icon="@drawable/ic_attachment"
+            app:iconSize="22dp"
+            app:iconTint="?attr/colorControlTextSecondary"
+            android:contentDescription="附加"
+            android:layout_marginStart="@dimen/space_4"/>
+        <EditText
+            android:id="@+id/input_message"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="输入消息..."
+            android:padding="@dimen/space_12"
+            android:background="@android:color/transparent"
+            android:maxLines="5"
+            android:minHeight="@dimen/min_52"
+            android:inputType="textMultiLine"
+            android:textColor="?attr/colorControlText"
+            android:textColorHint="?attr/colorControlText"
+            android:layout_marginHorizontal="@dimen/space_8"/>
+
+        <!-- 语音输入按钮：点击弹出语音识别组件，录音完成后识别为文字填入输入框 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_voice"
+            android:layout_width="@dimen/size_44"
+            android:layout_height="@dimen/size_44"
+            style="@style/Widget.Material3.Button.TextButton"
+            app:icon="@drawable/ic_mic"
+            app:iconSize="22dp"
+            app:iconTint="?attr/colorControlTextSecondary"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            app:iconPadding="0dp"
+            android:contentDescription="语音输入"
+            android:layout_marginEnd="@dimen/space_4"/>
+
+    </LinearLayout>
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_send"
+        android:layout_width="@dimen/size_48"
+        android:layout_height="@dimen/size_48"
+        android:layout_marginStart="@dimen/space_12"
+        app:backgroundTint="@color/success"
+        app:cornerRadius="@dimen/radius_24"
+        style="@style/Widget.Material3.Button.IconButton"
+        app:icon="@drawable/ic_send_message"
+        app:iconSize="22dp"
+        app:iconTint="?attr/colorOnPrimary"
+        android:contentDescription="发送"/>
+
+    <!-- 停止按钮：生成时与发送按钮切换显示（同位置） -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_stop_generation"
+        android:layout_width="@dimen/size_48"
+        android:layout_height="@dimen/size_48"
+        android:layout_marginStart="@dimen/space_12"
+        android:text="@string/chat_stop"
+        android:textSize="@dimen/text_12"
+        android:textColor="@color/on_error"
+        app:backgroundTint="@color/error"
+        app:cornerRadius="@dimen/radius_24"
+        android:textAllCaps="false"
+        android:contentDescription="停止生成"
+        android:visibility="gone"/>
+</LinearLayout>

@@ -88,6 +88,7 @@ import com.oilquiz.app.ai.chat.ui.ChatDialogHelper;
 import com.oilquiz.app.ai.chat.history.ChatHistoryController;
 import com.oilquiz.app.ai.util.ConversationSession;
 import com.oilquiz.app.ai.chat.recovery.NativeRecoveryHandler;
+import com.oilquiz.app.ai.chat.input.ChatInputBar;
 import com.oilquiz.app.ai.chat.input.ChatInputManager;
 import com.oilquiz.app.ai.chat.input.AttachmentProcessor;
 import com.oilquiz.app.ai.chat.lifecycle.GenerationLifecycleManager;
@@ -1239,14 +1240,24 @@ public class AIChatActivity extends BaseActivity {
         recoveryHandler.setAIService(aiService);
         recoveryHandler.setupListener();
 
-        // 6. ChatInputManager - 输入管理
-        inputManager = new ChatInputManager(this, new ChatInputManager.Callback() {
-            @Override public void onSendMessage(String text) { sendMessage(); }
-            @Override public void onAttachFile() { handleAttachFile(); }
-            @Override public void onShowToast(String message) { showToast(message); }
-        });
-        if (inputMessage != null && btnSend != null && btnAttach != null && attachmentList != null) {
-            inputManager.init(inputMessage, btnSend, btnAttach, attachmentList);
+        // 6. ChatInputManager - 输入管理（经 ChatInputBar 组件接线）
+        ChatInputBar chatInputBar = findViewById(R.id.chat_input_bar);
+        if (chatInputBar != null) {
+            inputManager = chatInputBar.attachManager(this, new ChatInputManager.Callback() {
+                @Override public void onSendMessage(String text) { sendMessage(); }
+                @Override public void onAttachFile() { handleAttachFile(); }
+                @Override public void onShowToast(String message) { showToast(message); }
+            }, attachmentList);
+        } else {
+            // 兜底：布局未替换时走原路径
+            inputManager = new ChatInputManager(this, new ChatInputManager.Callback() {
+                @Override public void onSendMessage(String text) { sendMessage(); }
+                @Override public void onAttachFile() { handleAttachFile(); }
+                @Override public void onShowToast(String message) { showToast(message); }
+            });
+            if (inputMessage != null && btnSend != null && btnAttach != null && attachmentList != null) {
+                inputManager.init(inputMessage, btnSend, btnAttach, attachmentList);
+            }
         }
 
         // 7. AttachmentProcessor - 附件处理
