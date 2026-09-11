@@ -83,7 +83,7 @@ public class FileReaderTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "文件阅读工具：读取全文(read)/按行(read_lines)/区间提取(extract_text)/搜索(search_text)/实体提取(extract_entities)/预览(preview)/解析结构化文件(parse_excel/csv/json/xml/parse_structured)/列目录(list)。大文件用 read_lines/preview/search_text 分片读取。示例：读文件全文→file_reader(action=read, path=report.md)；只看前50行→file_reader(action=read_lines, path=log.txt, start_line=1, end_line=50)；在文件里搜关键词→file_reader(action=search_text, path=data.csv, keyword=错误)；解析Excel→file_reader(action=parse_excel, path=成绩表.xlsx)；列工作区目录→file_reader(action=list, path=.)";
+        return "文件阅读工具：读取全文(read)/按行(read_lines)/区间提取(extract_text)/搜索(search_text)/实体提取(extract_entities)/预览(preview)/解析结构化文件(parse_excel/csv/json/xml/parse_structured)/列目录(list)。大文件用 read_lines/preview/search_text 分片读取。parse_excel 返回 sheetSummaries（每张表的 index/名称/数据行数），多表文件先看它判断哪张是数据主表（数据行最多的），再带 sheet_index 精读。示例：读文件全文→file_reader(action=read, path=report.md)；只看前50行→file_reader(action=read_lines, path=log.txt, start_line=1, end_line=50)；在文件里搜关键词→file_reader(action=search_text, path=data.csv, keyword=错误)；解析Excel→file_reader(action=parse_excel, path=成绩表.xlsx)；列工作区目录→file_reader(action=list, path=.)";
     }
     
     @Override
@@ -517,10 +517,18 @@ public class FileReaderTool implements AITool {
             org.apache.poi.ss.usermodel.FormulaEvaluator evaluator =
                     workbook.getCreationHelper().createFormulaEvaluator();
 
-            // sheet 名称列表（供 Agent 选择 sheet_index）
+            // sheet 名称列表 + 行数清单（供 Agent 判断哪张表是真正的题库表：
+            // 示例/说明/目录表通常只有几行，题库表有大量数据行）
             List<String> sheetNames = new ArrayList<>();
+            List<Map<String, Object>> sheetSummaries = new ArrayList<>();
             for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
-                sheetNames.add(workbook.getSheetName(i));
+                String name = workbook.getSheetName(i);
+                sheetNames.add(name);
+                Map<String, Object> sm = new LinkedHashMap<>();
+                sm.put("index", i);
+                sm.put("name", name);
+                sm.put("totalRows", workbook.getSheetAt(i).getPhysicalNumberOfRows());
+                sheetSummaries.add(sm);
             }
             if (sheetIndex < 0 || sheetIndex >= workbook.getNumberOfSheets()) {
                 workbook.close();
@@ -536,6 +544,7 @@ public class FileReaderTool implements AITool {
             result.put("sheetIndex", sheetIndex);
             result.put("sheetCount", workbook.getNumberOfSheets());
             result.put("sheetNames", sheetNames);
+            result.put("sheetSummaries", sheetSummaries);
             result.put("totalRows", sheet.getPhysicalNumberOfRows());
             result.put("mergedRegionCount", sheet.getNumMergedRegions());
 
