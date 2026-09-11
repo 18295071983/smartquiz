@@ -79,7 +79,9 @@ public class HtmlCardView implements ChatComponent {
             card.addView(titleTv);
         }
 
-        if (html.trim().isEmpty()) {
+        boolean hasWebUrl = url.startsWith("http://") || url.startsWith("https://")
+                || url.startsWith("file://");
+        if (html.trim().isEmpty() && !hasWebUrl) {
             // 空态：展示可读提示 + 原始数据预览（帮助排查字段映射问题）
             LinearLayout emptyBox = new LinearLayout(context);
             emptyBox.setOrientation(LinearLayout.VERTICAL);
