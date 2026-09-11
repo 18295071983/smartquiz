@@ -1,8 +1,14 @@
 # SmartQuiz Git 操作指南（详细版）
 
 > **文档目的**：为 AI Agent 和开发者提供完整的 Git 操作规范，避免重复踩坑。
-> **最后更新**：2026-07-31
+> **最后更新**：2026-09-11
 > **维护者**：SmartQuiz Developer
+
+> **2026-09-11 修订说明**：§1/§2/§3 里描述的远程与分支配置**与实际不符**，已按
+> `git remote -v` / `git branch -vv` 的实测结果重写。原文档写的双远程
+> （`gitee` HTTPS+Token 为主、`origin` GitHub 为备）和四个开发分支
+> （`main` 等）**均已不存在**，照抄旧命令会失败。
+> 新增 §6.3 记录 `src/main/cpp/llama.cpp` 嵌套仓库的踩坑与正确做法。
 
 ---
 
@@ -25,30 +31,40 @@
 ## 1. 仓库架构总览
 
 ```
-                    ┌─────────────────────────────────┐
-                    │         本地仓库 (d:\qzq\smartquiz)          │
-                    │                                 │
-                    │  feat-push-to-remote-project-BZZBBM ★  主开发 │
-                    │  main                               主干     │
-                    │  feat-check-agent-function-SwdOZa   备份快照 │
-                    │  feature/agent-v3-iteration         设计分支 │
-                    └──────────┬──────────┬─────────────┘
-                               │          │
-                    fetch/push │          │ fetch/push
-                               ▼          ▼
-                    ┌──────────────┐   ┌──────────────────┐
-                    │    Gitee     │   │     GitHub       │
-                    │  (gitee)     │   │    (origin)      │
-                    │  HTTPS+Token │   │  SSH (git@)      │
-                    │  主远程仓库   │   │  备用远程仓库     │
-                    └──────────────┘   └──────────────────┘
+                    ┌──────────────────────────────────────────┐
+                    │        本地仓库 (d:\qzq\smartquiz)         │
+                    │                                          │
+                    │  main ★                  主干, 当前检出   │
+                    │  backup-ai-import-20260911-1641  导入备份 │
+                    │  feature/agent-local      本地 Agent 分支 │
+                    │  feature/agent-online     在线 Agent 分支 │
+                    │  _dsh_probe_branch        探测残留分支    │
+                    └────────────────────┬─────────────────────┘
+                                         │ fetch/push
+                                         ▼
+                              ┌────────────────────────┐
+                              │        Gitee           │
+                              │       (origin)         │
+                              │   SSH (git@gitee.com)  │
+                              │      唯一远程仓库        │
+                              └────────────────────────┘
+
+  另有嵌套独立仓库(不在外层版本控制内):
+    src/main/cpp/llama.cpp  ->  https://gitcode.com/gh_mirrors/ll/llama.cpp.git (master)
 ```
 
 ### 仓库关系说明
 
-- **Gitee（`gitee`）**：主远程仓库，日常推送/拉取的首选目标
-- **GitHub（`origin`）**：备用远程仓库，使用 SSH 协议，需配置 SSH key
-- 本地 4 个分支已全部推送到 Gitee；GitHub 同步状态待确认（SSH 连通性未验证）
+- **Gitee（`origin`）**：唯一远程仓库，走 SSH（`git@gitee.com:xiaocongcong495863994/smartquiz.git`）。
+  **注意**：本节此前写的"`gitee` 走 HTTPS+Token、`origin` 是 GitHub 备用"已不成立 ——
+  实际 `git remote -v` 只有一个 `origin`，且指向 Gitee。
+- **`main` 的上游处于 `gone` 状态**：`git status -sb` 显示 `## main...origin/main [gone]`，
+  且本地 `refs/remotes/` 下为空（`git branch -r` 无输出），所以 `origin/main` 这类名字
+  **暂时解析不了**。**注意这并不代表远程有问题** —— 实测 `git ls-remote --heads origin`
+  返回 0，远程是通的，只是本地缺 remote-tracking 引用（从未 fetch 或引用被清过）。
+  用 `origin/*` 之前先 `git fetch origin`，详见 [3.4](#34-远程分支)。
+- **`src/main/cpp/llama.cpp` 是嵌套的独立 git 仓库**，被外层 `.gitignore` 整目录排除，
+  见 [6.3](#63-嵌套仓库陷阱llamacpp)。对它的改动**不会**随外层仓库提交。
 
 ---
 
@@ -58,8 +74,18 @@
 
 | 远程名 | 平台 | 协议 | URL |
 |---|---|---|---|
-| `gitee` | Gitee | HTTPS + Token | `https://gitee.com/xiaocongcong495863994/smartquiz.git` |
-| `origin` | GitHub | SSH | `git@github.com:18295071983/smartquiz.git` |
+| `origin` | Gitee | SSH | `git@gitee.com:xiaocongcong495863994/smartquiz.git` |
+
+> **已变更**：本表此前写的是 `gitee`（HTTPS + Token）为主、`origin`（GitHub SSH）为备。
+> 实际 `git remote -v` 只有一个 `origin` 且指向 Gitee，GitHub 远程
+> （`git@github.com:18295071983/smartquiz.git`）已不存在。
+
+推送/拉取前先验证连通性：
+
+```powershell
+git remote -v
+git ls-remote origin 2>&1 | Select-Object -First 3
+```
 
 ### 2.2 Gitee 认证信息
 
@@ -69,13 +95,16 @@
 | Gitee 用户 ID | `8432792` |
 | 仓库名 | `smartquiz` |
 | 仓库可见性 | Public |
-| 认证方式 | HTTPS Basic Auth（用户名 + 个人访问令牌） |
-| 令牌存储方式 | 嵌入 remote URL（`https://<user>:<token>@gitee.com/...`） |
+| 认证方式 | **SSH 公钥**（当前实际使用，不涉及令牌） |
+| 令牌存储方式 | 不适用。仅当把远程切回 HTTPS 时才需要把令牌嵌入 URL |
 
 > **关键**：Gitee 的 login 是 `xiaocongcong495863994`，不是手机号 `18295071983`。
 > 手机号只用于登录 Gitee 网站，不是 git URL 中的用户名路径。
 
-### 2.3 令牌刷新流程
+> **注意**：当前远程走 SSH，所以下面的 2.3 令牌刷新流程**平时用不到** ——
+> 只有当你把远程改回 `https://gitee.com/...` 且 push 报 `404 not found` 时才需要。
+
+### 2.3 令牌刷新流程（仅在改用 HTTPS 远程时需要）
 
 当 Gitee push/fetch 返回 `404 not found` 时，按以下步骤刷新令牌：
 
@@ -86,10 +115,10 @@ $r = Invoke-RestMethod -Uri "https://gitee.com/api/v5/user?access_token=<新令�
 # 如果报错 → 令牌无效，需到 Gitee 设置 → 私人令牌 重新生成
 
 # 第 2 步：更新 remote URL（替换 <新令牌>）
-git remote set-url gitee "https://xiaocongcong495863994:<新令牌>@gitee.com/xiaocongcong495863994/smartquiz.git"
+git remote set-url origin "https://xiaocongcong495863994:<新令牌>@gitee.com/xiaocongcong495863994/smartquiz.git"
 
 # 第 3 步：验证连通性
-git fetch gitee --prune
+git fetch origin --prune
 # 输出 "From https://gitee.com/..." 表示成功
 ```
 
@@ -97,7 +126,7 @@ git fetch gitee --prune
 
 ```powershell
 git remote -v              # 查看所有远程
-git remote get-url gitee   # 查看指定远程 URL
+git remote get-url origin   # 查看指定远程 URL
 git branch -vv             # 查看分支跟踪关系
 ```
 
@@ -108,23 +137,37 @@ git branch -vv             # 查看分支跟踪关系
 ### 3.1 分支模型
 
 ```
-main ─────────────────────────────────────────── 稳定主干
+main ★ ────────────────────────────────────────── 稳定主干（当前检出）
   │
-  └─ feat-push-to-remote-project-BZZBBM ──────── 主开发分支（日常在此工作）
-       │
-       ├─ feat-check-agent-function-SwdOZa ───── 功能备份快照（只读）
-       │
-       └─ feature/agent-v3-iteration ──────────── 设计迭代分支
+  ├─ backup-ai-import-20260911-1641 ───────────── 导入功能备份（只读）
+  ├─ feature/agent-local ──────────────────────── 本地 Agent 分支
+  ├─ feature/agent-online ─────────────────────── 在线 Agent 分支
+  └─ _dsh_probe_branch ────────────────────────── 探测残留，可删
 ```
 
 ### 3.2 分支清单
 
+> 下表为 `git branch -vv` 的实测结果。此前文档里列的
+> `main`（主开发）、`feat-check-agent-function-SwdOZa`、
+> `feature/agent-v3-iteration` **均已不存在**。
+
 | 分支名 | 用途 | 跟踪的远程 | 当前 HEAD | 备注 |
 |---|---|---|---|---|
-| `feat-push-to-remote-project-BZZBBM` ★ | 日常开发 | `gitee/feat-push-to-remote-project-BZZBBM` | `20538fa` | **当前检出** |
-| `main` | 稳定主干 | `gitee/main` | `20538fa` | 与开发分支同步 |
-| `feat-check-agent-function-SwdOZa` | Agent 重构前备份 | 无（已推送） | `d53e2c6` | 只读快照，勿修改 |
-| `feature/agent-v3-iteration` | Agent v3 设计文档 | 无（已推送） | `41acc47` | 设计阶段分支 |
+| `main` ★ | 稳定主干 | `origin/main` **[gone]** | `e466b84` | **当前检出**；上游已消失，见下 |
+| `backup-ai-import-20260911-1641` | 导入功能备份 | 无 | `145826a` | 只读快照 |
+| `feature/agent-local` | 本地 Agent | 无 | `9901da6` | |
+| `feature/agent-online` | 在线 Agent | `origin/feature/agent-online` **[gone]** | `93db8bb` | 上游同样已消失 |
+| `_dsh_probe_branch` | 探测残留 | 无 | `4de2429` | 可删 |
+
+**上游 gone 的处理**（`git status` 会提示 `[gone]`）：
+
+```powershell
+# 方式 A：解除上游绑定，之后手动指定推送目标（推荐先做这个，避免误判同步状态）
+git branch --unset-upstream
+
+# 方式 B：重新绑定并推送（确认远程确实需要这个分支时）
+git push -u origin main
+```
 
 ### 3.3 分支命名规范
 
@@ -136,20 +179,36 @@ main ─────────────────────────
 | `hotfix-` | 紧急修复 | `hotfix-api-key-leak` |
 | `docs-` | 文档更新 | `docs-update-readme` |
 
-### 3.4 远程独有分支
+### 3.4 远程分支
 
-以下分支仅存在于 Gitee 远程，本地未跟踪：
+**当前 `git branch -r` 为空**：本地没有任何 remote-tracking 引用，因此 `origin/main`
+这类名字**暂时解析不了**（`git rev-parse origin/main` 会报 `Needed a single revision`）。
+所以 §4 及之后所有命令里出现 `origin/main` 的地方，都要先跑一次：
 
-| 远程分支 | 最新提交 | 内容 |
-|---|---|---|
-| `gitee/feature/ai-chat-fix` | `5f7f97c` | AILogger 修复 + AIToolRegistry 重命名 |
-| `gitee/feature/secure-api-keys` | `4f536f4` | 安全密钥管理（移除硬编码 API Key） |
-
-如需跟踪：
 ```powershell
-git checkout -b feature/ai-chat-fix gitee/feature/ai-chat-fix
-git checkout -b feature/secure-api-keys gitee/feature/secure-api-keys
+git fetch origin --prune    # --prune 清掉远程已删除分支的本地引用
+git branch -r               # 之后 origin/* 才会出现
 ```
+
+远程实际存在的分支（2026-09-11 由 `git ls-remote --heads origin` 实测）：
+
+| 远程分支 | 远程 HEAD | 本地对应 | 备注 |
+|---|---|---|---|
+| `origin/main` | `9502f07` | `main` = `e466b84` | 两边不一致，推送前必须先 fetch 确认 |
+| `origin/feature/agent-local` | `4355aef9` | `feature/agent-local` = `9901da6` | 不一致 |
+| `origin/feature/agent-online` | `93db8bbf` | `feature/agent-online` = `93db8bb` | 一致 |
+
+> **远程是通的**：`git ls-remote` 返回 0，所以 `[gone]` 既不是网络问题也不是认证问题，
+> 纯粹是本地缺少 remote-tracking 引用（`refs/remotes/` 下为空）。
+>
+> 此表此前列的 `gitee/feature/ai-chat-fix`、`gitee/feature/secure-api-keys`
+> 属于已不存在的 `gitee` 远程，**不要再照抄**。
+>
+> 跟踪某个远程分支：
+> ```powershell
+> git checkout -b feature/xxx origin/feature/xxx
+> ```
+
 
 ---
 
@@ -164,14 +223,14 @@ cd d:\qzq\smartquiz
 git branch
 
 # 拉取远程最新引用
-git fetch gitee --prune
+git fetch origin --prune
 
 # 如果远程有新提交，重置到远程最新
-git reset --hard gitee/feat-push-to-remote-project-BZZBBM
+git reset --hard origin/main
 
 # 验证工作区干净
 git status -sb
-# 预期输出：## feat-push-to-remote-project-BZZBBM...gitee/feat-push-to-remote-project-BZZBBM
+# 预期输出：## main...origin/main
 # 如果有 ?? 文件，确认是已知的未跟踪临时文件
 ```
 
@@ -199,17 +258,17 @@ git commit -m "类型: 简短描述" -m "详情行1" -m "详情行2"
 # ⚠️ commit message 中避免英文 ()，用中文括号或去掉
 
 # ── 第 5 步：推送 ──
-git push gitee feat-push-to-remote-project-BZZBBM
+git push origin main
 
 # ── 第 6 步：验证 ──
-git for-each-ref --format='%(refname:short) -> %(objectname:short)' refs/heads/feat-push-to-remote-project-BZZBBM refs/remotes/gitee/feat-push-to-remote-project-BZZBBM
+git for-each-ref --format='%(refname:short) -> %(objectname:short)' refs/heads/main refs/remotes/origin/main
 # 两个哈希应一致
 ```
 
 ### 4.3 SOP-3：全量推送所有分支
 
 ```powershell
-git push gitee --all
+git push origin --all
 # 输出中 [new branch] 表示新推送的分支
 # 无输出或 Everything up-to-date 表示已是最新
 ```
@@ -218,10 +277,10 @@ git push gitee --all
 
 ```powershell
 # 恢复到远程版本（覆盖本地修改）
-git checkout gitee/feat-push-to-remote-project-BZZBBM -- <file-path>
+git checkout origin/main -- <file-path>
 
 # 恢复被删除的文件
-git checkout gitee/feat-push-to-remote-project-BZZBBM -- <deleted-file-path>
+git checkout origin/main -- <deleted-file-path>
 ```
 
 ### 4.5 SOP-5：全量恢复到远程最新状态
@@ -231,13 +290,13 @@ git checkout gitee/feat-push-to-remote-project-BZZBBM -- <deleted-file-path>
 ```powershell
 # 第 1 步：确认当前分支（避免误动其他分支）
 git branch
-# 预期：* feat-push-to-remote-project-BZZBBM
+# 预期：* main
 
 # 第 2 步：拉取远程最新
-git fetch gitee --prune
+git fetch origin --prune
 
 # 第 3 步：硬重置
-git reset --hard gitee/feat-push-to-remote-project-BZZBBM
+git reset --hard origin/main
 
 # 第 4 步：验证所有分支 HEAD 未被误动
 git for-each-ref --sort=-committerdate --format='%(refname:short) -> %(objectname:short)  %(authordate:format:%Y-%m-%d %H:%M)' refs/heads refs/remotes
@@ -253,8 +312,8 @@ git for-each-ref --sort=-committerdate --format='%(refname:short) -> %(objectnam
 git branch -vv
 
 # 精确对比某个分支
-$ahead = git rev-list --count "gitee/feat-push-to-remote-project-BZZBBM..HEAD"
-$behind = git rev-list --count "HEAD..gitee/feat-push-to-remote-project-BZZBBM"
+$ahead = git rev-list --count "origin/main..HEAD"
+$behind = git rev-list --count "HEAD..origin/main"
 # ahead=0 behind=0 → 完全同步
 ```
 
@@ -294,7 +353,7 @@ git commit -m "标题" -m "详情行1" -m "详情行2"
 ```powershell
 # git 命令的 stderr 在 PowerShell 中可能被当作错误流
 # 用 2>&1 合并输出流
-git push gitee --all 2>&1
+git push origin --all 2>&1
 
 # PowerShell 的 CLIXML 格式可能干扰输出
 # 如需纯净输出，用 --porcelain 或 --format 参数
@@ -340,6 +399,62 @@ git for-each-ref --format='...'
 # 如果文件已被 git 跟踪，需先从索引中移除
 git rm --cached <file>
 # 然后添加 .gitignore 规则并提交
+```
+
+### 6.3 嵌套仓库陷阱（llama.cpp）
+
+`.gitignore:131` 整目录排除了 `src/main/cpp/llama.cpp/`。但**它本身是一个独立 clone 的
+git 仓库**（`https://gitcode.com/gh_mirrors/ll/llama.cpp.git`，branch `master`），
+所以对它的改动有两层坑：
+
+**坑 1：`git add` 只会加一个 gitlink，内容不会入库**
+
+```powershell
+git add src/main/cpp/llama.cpp
+# warning: adding embedded git repository: src/main/cpp/llama.cpp
+# hint: Clones of the outer repository will not contain the contents of
+#       the embedded repository
+```
+
+**坑 2：用 `!` 反包含"救"不回来**
+
+直觉上会想加一条例外：
+
+```gitignore
+!src/main/cpp/llama.cpp/ggml/.../embed_kernel.py   # ❌ 无效
+```
+
+两个原因，缺一不可地让它失败：
+
+1. git 规定 **不能在被排除的父目录内部反包含文件**，必须逐层放行父目录；
+2. 即便逐层放行，`git add` 也只会把整个目录当成 embedded repository 加 gitlink，
+   拿不到文件内容。
+
+验证方法（不修改任何东西，看"到底会加进去什么"）：
+
+```powershell
+git check-ignore -v <file>          # 看最后命中的是哪条规则
+git add --dry-run src/main/cpp/llama.cpp
+# 输出 `add 'src/main/cpp/llama.cpp/'` = gitlink，不是文件
+```
+
+**正确做法**
+
+| 场景 | 做法 |
+|---|---|
+| 只是本地要改 llama.cpp 源码 | 直接在嵌套仓库里改，并在**嵌套仓库内**提交 |
+| 改动必须随外层仓库走（换机器 clone 后仍生效） | 在外层 `build.gradle` 加自愈守卫，构建时自动修 |
+
+本项目用的是第二种。实例：`embed_kernel.py` 在中文 Windows 上会用 GBK 解码 `.cl`
+文件导致 `UnicodeDecodeError`，修复方式写在外层 `build.gradle` 的
+`dshFixEmbedKernel` 守卫里（幂等，重新 clone llama.cpp 后依然自动生效），
+而不是去改那个无法入库的文件。
+
+查看嵌套仓库状态：
+
+```powershell
+git -C src/main/cpp/llama.cpp status --porcelain
+git -C src/main/cpp/llama.cpp log --oneline -1
 ```
 
 ---
@@ -409,10 +524,10 @@ fatal: repository 'https://gitee.com/18295071983/smartquiz.git/' not found
 
 ```powershell
 # 更新 remote URL（替换令牌）
-git remote set-url gitee "https://xiaocongcong495863994:<新令牌>@gitee.com/xiaocongcong495863994/smartquiz.git"
+git remote set-url origin "https://xiaocongcong495863994:<新令牌>@gitee.com/xiaocongcong495863994/smartquiz.git"
 
 # 验证
-git fetch gitee --prune
+git fetch origin --prune
 ```
 
 ### 8.2 reset --hard 误动其他分支
@@ -431,26 +546,26 @@ git checkout <其他分支>
 git branch -f <误动分支> <原哈希>
 
 # 3. 切回工作分支
-git checkout feat-push-to-remote-project-BZZBBM
+git checkout main
 ```
 
 ### 8.3 push 被拒绝（non-fast-forward）
 
 ```
-! [rejected]  feat-push-to-remote-project-BZZBBM -> feat-push-to-remote-project-BZZBBM (fetch first)
+! [rejected]  main -> main (fetch first)
 ```
 
 **处理**：
 
 ```powershell
 # 方式 A：先拉取合并（推荐）
-git fetch gitee
-git merge gitee/feat-push-to-remote-project-BZZBBM
-git push gitee feat-push-to-remote-project-BZZBBM
+git fetch origin
+git merge origin/main
+git push origin main
 
 # 方式 B：确认本地是正确版本后，强制推送（需用户确认）
 # ⚠️ 这会覆盖远程历史，仅在没有他人协作时使用
-git push gitee feat-push-to-remote-project-BZZBBM --force-with-lease
+git push origin main --force-with-lease
 ```
 
 ### 8.4 工作区有大量未跟踪文件
@@ -476,7 +591,7 @@ git status --porcelain | Select-String "^\?\?"
 
 ```powershell
 # 可能是本地缓存问题，强制刷新
-git fetch gitee --prune --force
+git fetch origin --prune --force
 # --prune：清除远程已删除的分支引用
 # --force：强制更新本地引用
 ```
@@ -493,11 +608,11 @@ git log --oneline -20
 
 # 方式 A：创建回退提交（保留历史，推荐）
 git revert <commit-hash>
-git push gitee feat-push-to-remote-project-BZZBBM
+git push origin main
 
 # 方式 B：硬重置（丢弃历史，需用户确认）
 git reset --hard <commit-hash>
-git push gitee feat-push-to-remote-project-BZZBBM --force-with-lease
+git push origin main --force-with-lease
 ```
 
 ### 9.2 恢复误删的本地分支
@@ -516,9 +631,9 @@ git branch <分支名> <reflog中的哈希>
 # ⚠️ 最后手段：删除本地仓库重新克隆
 cd d:\
 Rename-Item d:\qzq\smartquiz d:\qzq\smartquiz.bak
-git clone https://xiaocongcong495863994:<token>@gitee.com/xiaocongcong495863994/smartquiz.git d:\qzq\smartquiz
+git clone git@gitee.com:xiaocongcong495863994/smartquiz.git d:\qzq\smartquiz
 cd d:\qzq\smartquiz
-git checkout feat-push-to-remote-project-BZZBBM
+git checkout main
 ```
 
 ### 9.4 备份当前工作区（不提交到远程）
@@ -565,13 +680,13 @@ git commit -m "chore: backup worktree before operation"
 
 ```powershell
 # 同步
-git fetch gitee --prune; git reset --hard gitee/feat-push-to-remote-project-BZZBBM
+git fetch origin --prune; git reset --hard origin/main
 
 # 提交推送
-git add -u; git add src/; git commit -m "类型: 描述"; git push gitee feat-push-to-remote-project-BZZBBM
+git add -u; git add src/; git commit -m "类型: 描述"; git push origin main
 
 # 全量推送
-git push gitee --all
+git push origin --all
 
 # 检查状态
 git status -sb
@@ -583,11 +698,11 @@ git for-each-ref --sort=-committerdate --format='%(refname:short) -> %(objectnam
 | 项目 | 值 |
 |---|---|
 | 工作目录 | `d:\qzq\smartquiz` |
-| 主开发分支 | `feat-push-to-remote-project-BZZBBM` |
-| 主远程 | `gitee` |
+| 主开发分支 | `main` |
+| 主远程 | `origin` |
 | Gitee 用户名 | `xiaocongcong495863994` |
 | Gitee 仓库名 | `smartquiz` |
-| Gitee 仓库 URL | `https://gitee.com/xiaocongcong495863994/smartquiz.git` |
+| Gitee 仓库 URL | `git@gitee.com:xiaocongcong495863994/smartquiz.git`（SSH） |
 | GitHub 远程 | `origin` (SSH) |
 | Shell 类型 | PowerShell 5 |
 | 命令分隔符 | `;`（分号） |
