@@ -381,6 +381,16 @@ public class AIToolManager {
             additionalInfo.put("toolName", toolName);
             return new AIToolResult("Tool not found: " + toolName, additionalInfo);
         }
+
+        // TL-06 权限与调用联动：工具执行前检查所需 Android 权限，未授权先返回引导
+        //（避免执行中才失败；模型可用 permission_manager 引导用户授权后重试）
+        String permissionError = checkToolPermission(resolved, parameters);
+        if (permissionError != null) {
+            Map<String, Object> additionalInfo = new HashMap<>();
+            additionalInfo.put("toolName", resolved);
+            additionalInfo.put("requiresPermission", true);
+            return AIToolResult.fail(permissionError, additionalInfo);
+        }
         
         try {
             // 参数类型归一：引导卡片等UI入口传的都是String，
@@ -398,6 +408,35 @@ public class AIToolManager {
             additionalInfo.put("toolName", toolName);
             additionalInfo.put("error", e.getMessage());
             return new AIToolResult("Error executing tool: " + e.getMessage(), additionalInfo);
+        }
+    }
+
+    /**
+     * TL-06 权限与调用联动：工具执行前权限门。
+     * 仅对几乎必然需要运行时权限的工具做前置检查（粗粒度工具级），
+     * 操作级差异（如 voice_input 的 recognize 不需要录音）在工具内自行处理。
+     * 未授权返回可读引导；上下文为空或检查失败时放行（不阻塞工具）。
+     */
+    private String checkToolPermission(String toolName, Map<String, Object> parameters) {
+        try {
+            if (context == null || toolName == null) return null;
+            String androidPermission = null;
+            if ("location".equals(toolName)) {
+                androidPermission = android.Manifest.permission.ACCESS_FINE_LOCATION;
+            } else if ("voice_input".equals(toolName)) {
+                Object actionObj = parameters != null ? parameters.get("action") : null;
+                String action = actionObj != null ? String.valueOf(actionObj) : "";
+                if (action.startsWith("record")) { // record / record_and_recognize 需录音权限
+                    androidPermission = android.Manifest.permission.RECORD_AUDIO;
+                }
+            }
+            if (androidPermission == null) return null;
+            int result = context.checkSelfPermission(androidPermission);
+            if (result == android.content.pm.PackageManager.PERMISSION_GRANTED) return null;
+            String friendly = "location".equals(toolName) ? "位置权限" : "录音权限";
+            return "工具 " + toolName + " 需要" + friendly + "（" + androidPermission + "），请先调用 permission_manager 检查并引导用户授权后重试";
+        } catch (Throwable t) {
+            return null; // 检查失败放行，不因权限门阻塞工具
         }
     }
 
