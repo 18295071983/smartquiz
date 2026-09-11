@@ -33,6 +33,17 @@
   `BUILD FAILED in 2~6s`。**这是环境问题不是代码问题**。排查：
   `Get-CimInstance Win32_Process -Filter "Name='java.exe'"` 看有没有 `GradleDaemon 8.13`。
 - Gradle 要写工作区外的 `D:\Gradle\Home`：**沙箱会拦**，构建需用沙箱旁路执行（`dangerouslyDisableSandbox`）。
+- ⚠️ **PowerShell 工具里不能调 `cmd.exe`**（`cmd /c "gradlew.bat ..."` 会被安全策略直接拦截，
+  报 `cmd.exe cannot be used from the PowerShell tool; use native PowerShell syntax instead`）。
+  **标准构建配方 = PowerShell 原生调用 + 输出写文件**（后台跑，`dangerouslyDisableSandbox`）：
+  ```powershell
+  $env:JAVA_HOME='D:\jdk-21'; $env:GRADLE_USER_HOME='D:\Gradle\Home'; Set-Location 'D:\qzq\smartquiz'
+  & '.\gradlew.bat' assembleDebug 2>&1 | Out-File -FilePath 'build_apk_run.log' -Encoding utf8
+  "EXITCODE=$LASTEXITCODE" | Out-File -FilePath 'build_apk_exit.txt' -Encoding ascii
+  ```
+  用 `2>&1 | Out-File -Encoding utf8`（**别用 `*>`** → UTF-16）；日志尾部 `BUILD SUCCESSFUL` + `EXITCODE=0` 双确认。
+- 仓库根那批 `build_apk*.bat` / `build_apk*.ps1` 都带 `pause` / `Read-Host`（会阻塞），
+  **不能直接复用**，只把它们当 `JAVA_HOME` / `GRADLE_USER_HOME` 取值的参考。
 
 ## 技术栈要点
 
