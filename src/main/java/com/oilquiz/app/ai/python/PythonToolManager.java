@@ -3453,7 +3453,8 @@ public class PythonToolManager {
                     if (!style.has("background")) style.put("background", "#F6F8FC");
                     if (!style.has("radius")) style.put("radius", 16);
                     if (!style.has("padding")) style.put("padding", 16);
-                    if (!style.has("spacing") && !root.has("spacing")) style.put("spacing", 12);
+                    // spacing 渲染器只读节点顶层字段（style 内不生效），放顶层
+                    if (!root.has("spacing")) root.put("spacing", 12);
                     // 2) 空画布骨架
                     org.json.JSONArray children = root.optJSONArray("children");
                     if (children == null || children.length() == 0) {
