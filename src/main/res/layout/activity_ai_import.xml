@@ -113,19 +113,7 @@
                             android:textColor="?attr/colorOnTertiary"
                             app:cornerRadius="@dimen/radius_12"
                             android:textAllCaps="false" />
-                        <!-- 语音指令按钮：点击录音识别，语音内容追加到题库说明，供智能体理解 -->
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnAgentMic"
-                            android:layout_width="@dimen/size_48"
-                            android:layout_height="@dimen/size_48"
-                            android:layout_marginStart="@dimen/space_8"
-                            style="@style/Widget.Material3.Button.TextButton"
-                            app:icon="@drawable/ic_mic"
-                            app:iconSize="22dp"
-                            app:iconTint="?attr/colorPrimary"
-                            app:cornerRadius="@dimen/radius_12"
-                            app:backgroundTint="?attr/colorSurfaceVariant"
-                            android:contentDescription="语音指令智能体" />
+
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -234,21 +222,42 @@
                         android:textSize="@dimen/text_11"
                         android:textColor="?attr/colorOnSurfaceVariant" />
 
-                    <EditText
-                        android:id="@+id/etUserGuide"
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/space_8"
-                        android:minLines="2"
-                        android:maxLines="5"
-                        android:gravity="top"
-                        android:inputType="textMultiLine"
-                        android:background="@drawable/ai_import_input_bg"
-                        android:padding="@dimen/space_10"
-                        android:textSize="@dimen/text_13"
-                        android:textColor="?attr/colorOnSurface"
-                        android:hint="例：题干列叫「题目内容」，选项用分号分隔，答案在最后一列，题型是单选题…"
-                        android:importantForAutofill="no" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="@dimen/space_8">
+
+                        <EditText
+                            android:id="@+id/etUserGuide"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:minLines="2"
+                            android:maxLines="5"
+                            android:gravity="top"
+                            android:inputType="textMultiLine"
+                            android:background="@drawable/ai_import_input_bg"
+                            android:padding="@dimen/space_10"
+                            android:textSize="@dimen/text_13"
+                            android:textColor="?attr/colorOnSurface"
+                            android:hint="例：题干列叫「题目内容」，选项用分号分隔，答案在最后一列，题型是单选题…"
+                            android:importantForAutofill="no" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnAgentMic"
+                            android:layout_width="@dimen/size_48"
+                            android:layout_height="@dimen/size_48"
+                            android:layout_marginStart="@dimen/space_8"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            app:icon="@drawable/ic_mic"
+                            app:iconSize="22dp"
+                            app:iconTint="?attr/colorPrimary"
+                            app:cornerRadius="@dimen/radius_12"
+                            app:backgroundTint="?attr/colorSurfaceVariant"
+                            android:contentDescription="语音指令智能体" />
+                    </LinearLayout>
 
                     <!-- 缺失字段智能填充开关：默认开启，关闭后缺失字段留空直接入库 -->
                     <LinearLayout
