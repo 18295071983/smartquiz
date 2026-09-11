@@ -28,7 +28,7 @@ import java.util.Map;
  */
 @Tool(
     value = "python_chart",
-    description = "Python绘图工具(Pillow)：数据可视化生成PNG图片。bar=柱状图/line=折线图/pie=饼图/scatter=散点图，传data(JSON)+title即可，输出图片文件。与image_gen(AI生图)不同，本工具画数据图表",
+    description = "Python绘图工具(Pillow/matplotlib)：数据可视化生成PNG图片。bar=柱状图/line=折线图/pie=饼图/scatter=散点图，传data(JSON)+title即可，输出图片文件。与image_gen(AI生图)不同，本工具画数据图表。环境已装matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用python_execute直接编写matplotlib代码",
     category = "python",
     aliases = {"绘图", "图表", "画图", "chart", "数据可视化", "py_chart"},
     actions = {
@@ -54,7 +54,7 @@ public class PythonChartTool extends BaseAITool {
     private final PythonToolManager toolManager;
 
     public PythonChartTool(Context context) {
-        super("python_chart", "Python绘图工具(Pillow)：数据可视化生成PNG图片");
+        super("python_chart", "Python绘图工具(Pillow/matplotlib)：数据可视化生成PNG图片。环境已装matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用python_execute直接编写matplotlib代码");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
     }

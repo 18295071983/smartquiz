@@ -544,7 +544,7 @@ public class AgentWorkspace {
                 + "   python_analyze_data 数据分析(统计/清洗/转换)\n"
                 + "   python_web_reader 抓网页/API(requests+bs4)\n"
                 + "   python_file_ops  Python文件读写/解析\n"
-                + "   python_chart     Python绘图(Pillow)生成PNG\n"
+                + "   python_chart     Python绘图(Pillow/matplotlib)生成PNG\n"
                 + "   location         定位/当前位置/城市\n"
                 + "   file_reader      读取/解析Excel-CSV-JSON-XML/列目录\n"
                 + "   file_analyzer    文件内容分析\n"

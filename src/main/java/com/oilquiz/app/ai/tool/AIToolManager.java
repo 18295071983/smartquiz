@@ -1224,7 +1224,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "python_execute":
-                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回")
+                return ToolDefinition.builder("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab；绘制图表用matplotlib(先设中文字体)或Pillow")
                     .addParameter("code", "string", "Python代码（可选，上限200KB）", false)
                     .addParameter("task", "string", "任务描述（可选）", false)
                     .addParameter("context", "string", "上下文数据（可选）", false)
@@ -1265,7 +1265,7 @@ public class AIToolManager {
                     .category("python")
                     .build();
             case "python_chart":
-                return ToolDefinition.builder("python_chart", "Python绘图工具(Pillow)：数据可视化生成PNG图片。bar=柱状图(支持多系列)/line=折线图(支持多系列)/pie=饼图/scatter=散点图。data传JSON：bar/line用{\"labels\":[\"A\",\"B\"],\"values\":[1,2]}或多系列{\"labels\":[...],\"series\":[{\"name\":\"系列1\",\"values\":[...]}]}；pie用{\"labels\":[...],\"values\":[...]}；scatter用{\"points\":[[x,y],...]}。图片默认保存到工作区files/(用workspace查看)，可指定output_path。与image_gen(AI生图)不同，本工具画数据图表")
+                return ToolDefinition.builder("python_chart", "Python绘图工具(Pillow/matplotlib)：数据可视化生成PNG图片。bar=柱状图(支持多系列)/line=折线图(支持多系列)/pie=饼图/scatter=散点图。data传JSON：bar/line用{\"labels\":[\"A\",\"B\"],\"values\":[1,2]}或多系列{\"labels\":[...],\"series\":[{\"name\":\"系列1\",\"values\":[...]}]}；pie用{\"labels\":[...],\"values\":[...]}；scatter用{\"points\":[[x,y],...]}。图片默认保存到工作区files/(用workspace查看)，可指定output_path。与image_gen(AI生图)不同，本工具画数据图表。环境已装matplotlib/Pillow/numpy/pandas；需要子图/对数轴/热力图等复杂图表时，改用python_execute直接编写matplotlib代码")
                     .addParameter("action", "string", "图表类型: bar/line/pie/scatter", true)
                     .addParameter("data", "object", "数据JSON(必填，格式见描述)", true)
                     .addParameter("title", "string", "图表标题(可选)", false)
