@@ -3444,18 +3444,32 @@ public class PythonToolManager {
                     if (layout == null) return;
                     org.json.JSONObject root = layout.optJSONObject("root");
                     if (root == null) root = layout;
+                    // 按项目主题色板（values/colors.xml 与 values-night/colors.xml）适配深浅色：
+                    // 浅色：背景 component_bg #F8FAFC / 边框 component_border #E2E8F0 /
+                    //       文本 component_text_primary #1F2937 · secondary #64748B · tertiary #94A3B8
+                    // 深色：背景 surface #1E1830 / 边框 outline #3A3157 /
+                    //       文本 on_surface #E6E8EB · secondary #ABA2C6 · tertiary #6E7683
+                    boolean night = (act.getResources().getConfiguration().uiMode
+                            & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                            == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+                    final String bgColor = night ? "#1E1830" : "#F8FAFC";
+                    final String borderColor = night ? "#3A3157" : "#E2E8F0";
+                    final String titleColor = night ? "#E6E8EB" : "#1F2937";
+                    final String subColor = night ? "#ABA2C6" : "#64748B";
+                    final String hintColor = night ? "#6E7683" : "#94A3B8";
                     // 1) 样式兜底：style 存在时合并缺失键，不存在则新建
                     org.json.JSONObject style = root.optJSONObject("style");
                     if (style == null) {
                         style = new org.json.JSONObject();
                         root.put("style", style);
                     }
-                    if (!style.has("background")) style.put("background", "#F6F8FC");
+                    if (!style.has("background")) style.put("background", bgColor);
+                    if (!style.has("border")) style.put("border", "1 " + borderColor);
                     if (!style.has("radius")) style.put("radius", 16);
                     if (!style.has("padding")) style.put("padding", 16);
                     // spacing 渲染器只读节点顶层字段（style 内不生效），放顶层
                     if (!root.has("spacing")) root.put("spacing", 12);
-                    // 2) 空画布骨架
+                    // 2) 空画布骨架（颜色随主题深浅切换）
                     org.json.JSONArray children = root.optJSONArray("children");
                     if (children == null || children.length() == 0) {
                         org.json.JSONArray arr = new org.json.JSONArray();
@@ -3464,13 +3478,13 @@ public class PythonToolManager {
                         t.put("text", "画布");
                         t.put("bold", true);
                         t.put("fontSize", 20);
-                        t.put("color", "#1F2937");
+                        t.put("color", titleColor);
                         arr.put(t);
                         org.json.JSONObject sub = new org.json.JSONObject();
                         sub.put("type", "text");
                         sub.put("text", "这是一个空画布，告诉助手继续添加内容，或让我用 layout_editor 继续编辑。");
                         sub.put("fontSize", 13);
-                        sub.put("color", "#6B7280");
+                        sub.put("color", subColor);
                         arr.put(sub);
                         org.json.JSONObject div = new org.json.JSONObject();
                         div.put("type", "divider");
@@ -3479,7 +3493,7 @@ public class PythonToolManager {
                         hint.put("type", "text");
                         hint.put("text", "✦ 示例：输入框、按钮、卡片、图表——都可以放上来");
                         hint.put("fontSize", 12);
-                        hint.put("color", "#9CA3AF");
+                        hint.put("color", hintColor);
                         arr.put(hint);
                         root.put("children", arr);
                     }
