@@ -451,7 +451,9 @@ public class TTSService {
                 AILogger.i(TAG, "音色列表: model=" + modelName
                         + " (" + (entry != null ? entry.displayName : "在线") + ") 共 " + registryVoices.size() + " 个");
                 voices.addAll(registryVoices);
-            } else if (config != null) {
+            } else if (config != null && !isLocalTtsConfigured()) {
+                // 用户配置为本地/系统 TTS 时不再绕到在线端点拉音色（智谱等厂商无 /audio/speech/voices
+                // 端点，盲试只会 404 → "语音朗读接口不对"的假象）。仅在线 TTS 配置下才请求在线音色列表。
                 try {
                     List<Voice> apiVoices = fetchVoicesFromApi(config);
                     if (apiVoices != null && !apiVoices.isEmpty()) {
@@ -478,12 +480,37 @@ public class TTSService {
     }
 
     /**
+     * 用户是否配置为本地/系统 TTS（feature_models.tts=local_tts/local 或功能模型名含"系统/本地"）。
+     * 本地配置下不应发起任何在线语音端点请求（音色列表/合成），避免"绕到在线接口"的假故障。
+     */
+    private boolean isLocalTtsConfigured() {
+        try {
+            OnlineModelManager mgr = OnlineModelManager.getInstance(context);
+            String fid = mgr.getFeatureModelId(OnlineModelManager.FEATURE_TTS);
+            if (fid != null && !fid.isEmpty()
+                    && ("local".equals(fid) || "local_tts".equals(fid) || "system".equals(fid))) {
+                return true;
+            }
+            String name = mgr.getFeatureModelName(OnlineModelManager.FEATURE_TTS);
+            if (name != null && (name.contains("系统") || name.contains("本地") || name.contains("SystemTTS"))) {
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    /**
      * 从在线端点拉取音色列表：不同服务商实现不一致，主路径 + 最多 1 次兜底：
      * 1. /audio/speech/voices?model=xxx（主路径，带模型名）
      * 2. /audio/speech/voices（兜底，仅 1 次）
      * M5：取消 /audio/voices 第三路盲试（无服务商实现该路径，纯浪费请求）。
      */
     private List<Voice> fetchVoicesFromApi(OnlineModelManager.OnlineModelConfig config) throws Exception {
+        // 本地/系统 TTS 配置下直接返回空（不发起在线请求）
+        if (config == null || isLocalTtsConfigured()) {
+            return new ArrayList<>();
+        }
         Exception lastError = null;
         String model = null;
         try {
