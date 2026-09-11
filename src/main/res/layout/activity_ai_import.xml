@@ -441,7 +441,18 @@
                             app:cornerRadius="@dimen/radius_8"
                             android:textAllCaps="false"
                             android:paddingStart="@dimen/space_12"
-                            android:paddingEnd="@dimen/space_12" />
+                            android:paddingEnd="@dimen/space_12" /><com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnChatMic"
+                            style="?attr/materialIconButtonStyle"
+                            android:layout_width="@dimen/size_40"
+                            android:layout_height="@dimen/size_40"
+                            android:layout_marginStart="@dimen/space_4"
+                            app:icon="@drawable/ic_mic"
+                            app:iconSize="@dimen/size_20"
+                            app:iconTint="?attr/colorPrimary"
+                            app:backgroundTint="@android:color/transparent"
+                            app:rippleColor="?attr/colorPrimary"
+                            android:contentDescription="语音对话" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

@@ -124,6 +124,7 @@ public class AIImportActivity extends BaseActivity {
     private android.widget.ScrollView chatLogScroll;
     private android.widget.EditText etChatInput;
     private com.google.android.material.button.MaterialButton btnChatSend;
+    private com.google.android.material.button.MaterialButton btnChatMic;
     private android.widget.TextView tvChatHint;
     private final StringBuilder aiStream = new StringBuilder();
     private android.widget.TextView aiBubble;
@@ -187,6 +188,7 @@ public class AIImportActivity extends BaseActivity {
         chatLogScroll = findViewById(R.id.chatLogScroll);
         etChatInput = findViewById(R.id.etChatInput);
         btnChatSend = findViewById(R.id.btnChatSend);
+        btnChatMic = findViewById(R.id.btnChatMic);
         tvChatHint = findViewById(R.id.tvChatHint);
     }
 
@@ -259,6 +261,10 @@ public class AIImportActivity extends BaseActivity {
         // 与智能体直接对话：在既有会话上下文上续聊
         if (btnChatSend != null) {
             btnChatSend.setOnClickListener(v -> sendChatToAgent());
+        }
+        // 与智能体直接对话：语音输入（识别后自动发送）
+        if (btnChatMic != null) {
+            btnChatMic.setOnClickListener(v -> startVoiceForChat());
         }
     }
 
@@ -640,6 +646,95 @@ public class AIImportActivity extends BaseActivity {
         String merged = cur.trim().isEmpty() ? text : cur + "\n" + text;
         etUserGuide.setText(merged);
         etUserGuide.setSelection(etUserGuide.getText().length());
+    }
+
+    /**
+     * 与智能体直接对话（语音）：点对话卡 🎤 → 权限申请 → ASR 检查 → 本地预热 →
+     * 录音识别 → 文本追加到对话输入框并自动发送（与题库说明语音同管线）。
+     */
+    private void startVoiceForChat() {
+        final com.oilquiz.app.resource.PermissionResourceProvider provider =
+                com.oilquiz.app.resource.PermissionResourceProvider.getInstance(this);
+        provider.requestMicrophonePermission(this,
+                new com.oilquiz.app.resource.PermissionResourceProvider.PermissionCallback() {
+                    @Override
+                    public void onGranted() {
+                        doVoiceForChat();
+                    }
+
+                    @Override
+                    public void onDenied(java.util.List<String> deniedPermissions) {
+                        showToast("麦克风权限未授予，无法语音对话");
+                    }
+                });
+    }
+
+    /** 权限已授予后：检查 ASR → 本地预热 → 录音识别 → 自动发送对话 */
+    private void doVoiceForChat() {
+        final com.oilquiz.app.ai.speech.SpeechManager speech =
+                com.oilquiz.app.ai.speech.SpeechManager.getInstance(this);
+        if (!speech.isAnyAsrAvailable()) {
+            showToast("语音识别服务不可用");
+            return;
+        }
+        final boolean useLocal = !speech.isAsrAvailable();
+        if (useLocal && !com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.isReady()) {
+            showToast("正在加载本地语音识别模型…");
+            new Thread(() -> {
+                try {
+                    com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.acquire(this);
+                    com.oilquiz.app.ai.speech.asr.SenseVoiceAsr.release();
+                    runOnUiThread(this::recordVoiceForChat);
+                } catch (Exception e) {
+                    runOnUiThread(() -> showToast("本地语音识别模型加载失败: " + e.getMessage()));
+                }
+            }).start();
+        } else {
+            recordVoiceForChat();
+        }
+    }
+
+    /** 录音识别（VoiceInputTool record，后台线程）：识别文本追加输入框并自动发送 */
+    private void recordVoiceForChat() {
+        new Thread(() -> {
+            try {
+                java.util.Map<String, Object> params = new java.util.HashMap<>();
+                params.put("action", "record");
+                params.put("duration_seconds", 60);
+                params.put("timeout_seconds", 90);
+                com.oilquiz.app.ai.tool.VoiceInputTool tool =
+                        new com.oilquiz.app.ai.tool.VoiceInputTool(this);
+                com.oilquiz.app.ai.tool.AIToolResult r = tool.execute(params);
+                if (r != null && r.isSuccess()) {
+                    final String text = r.getAdditionalInfo() != null
+                            ? String.valueOf(r.getAdditionalInfo().get("text")) : "";
+                    runOnUiThread(() -> {
+                        if (text != null && !text.isEmpty()) {
+                            appendChatInputAndSend(text);
+                            showToast("已识别，正在发送给智能体");
+                        } else {
+                            showToast("未识别到语音内容");
+                        }
+                    });
+                } else {
+                    final String err = (r != null && r.getErrorMessage() != null)
+                            ? r.getErrorMessage() : "语音识别失败";
+                    runOnUiThread(() -> showToast(err));
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> showToast("语音对话失败: " + e.getMessage()));
+            }
+        }).start();
+    }
+
+    /** 语音文本追加到对话输入框并自动发送 */
+    private void appendChatInputAndSend(String text) {
+        if (etChatInput == null) return;
+        String cur = etChatInput.getText().toString();
+        String merged = cur.trim().isEmpty() ? text : cur + "\n" + text;
+        etChatInput.setText(merged);
+        etChatInput.setSelection(etChatInput.getText().length());
+        sendChatToAgent();
     }
 
     /**
