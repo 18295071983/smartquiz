@@ -252,6 +252,19 @@ public class NativeLayoutRenderer {
             }
             JSONObject node = root.optJSONObject("root");
             if (node == null) node = root;
+            // UI-06 顶层 style 参数（ui_component style=... 顶层传法）→ 合并进根节点：
+            // 让"动态画布/临时layout"的最外层也吃得到 style（background/radius/border/padding 作用于画布根）
+            // 节点已有同名属性优先，style 仅作兜底（与 buildNode 节点级 style 口径一致）
+            JSONObject topStyle = props != null ? props.optJSONObject("style") : null;
+            if (topStyle != null) {
+                java.util.Iterator<String> sk = topStyle.keys();
+                while (sk.hasNext()) {
+                    String k = sk.next();
+                    if (!node.has(k)) {
+                        try { node.put(k, topStyle.get(k)); } catch (org.json.JSONException ignored) {}
+                    }
+                }
+            }
             return buildNode(context, node, props, viewRefs, 0, defines);
         } catch (Exception e) {
             android.util.Log.w(TAG, "layout 渲染失败: " + e.getMessage());
