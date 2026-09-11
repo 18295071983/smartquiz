@@ -121,6 +121,10 @@ public class HtmlCardView implements ChatComponent {
         webView.getSettings().setDomStorageEnabled(true);
         webView.getSettings().setLoadWithOverviewMode(true);
         webView.getSettings().setUseWideViewPort(false);
+        // 浏览器级体验：双指缩放 + 缩放按钮（类似浏览器可缩放内容）
+        webView.getSettings().setSupportZoom(true);
+        webView.getSettings().setBuiltInZoomControls(true);
+        webView.getSettings().setDisplayZoomControls(false);
         webView.setWebChromeClient(new WebChromeClient());
         // JS → Java 桥：HTML 组件内按钮可调用 Android.showToast/copy/openLink 回调应用
         webView.addJavascriptInterface(new HtmlJsBridge(context), "Android");
@@ -206,6 +210,22 @@ public class HtmlCardView implements ChatComponent {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                // 图片点击预览（浏览器级体验）：注入 JS 拦截 img 点击 → Android.previewImage
+                try {
+                    view.evaluateJavascript(
+                            "(function(){"
+                                    + "function bind(){var imgs=document.getElementsByTagName('img');"
+                                    + "for(var i=0;i<imgs.length;i++){(function(img){"
+                                    + "img.style.cursor='zoom-in';"
+                                    + "img.onclick=function(e){e.preventDefault();e.stopPropagation();"
+                                    + "var s=img.getAttribute('src');"
+                                    + "if(s&&s.indexOf('data:')!==0){Android.previewImage(s);}};"
+                                    + "})(imgs[i]);}}"
+                                    + "if(document.readyState==='complete'){bind();}"
+                                    + "else{document.addEventListener('DOMContentLoaded',bind);}"
+                                    + "})()", null);
+                } catch (Throwable ignored) {
+                }
                 // 延迟取高度：等 JS/CSS 渲染完成；失败保持初始高度（内容可滚动，不算失败）
                 view.postDelayed(() -> {
                     if (wvRef == null) return;
@@ -254,7 +274,25 @@ public class HtmlCardView implements ChatComponent {
             }
             webView.loadUrl(url);
         } else {
-            String fullHtml = wrapHtml(html, isNightMode(context));
+            // style→内容 CSS 桥接：组件 style（或顶层 fontSize/color/background 字段）注入
+            // WebView 内容 CSS——html 内容像浏览器那样应用样式（不再只有外层卡片有样式）
+            JSONObject contentStyle = new JSONObject();
+            JSONObject styleObj = p.optJSONObject("style");
+            if (styleObj != null) {
+                String[] sk = {"fontSize", "color", "background", "background_color", "bg"};
+                for (String s : sk) {
+                    if (styleObj.has(s)) {
+                        try { contentStyle.put(s, styleObj.get(s)); } catch (Exception ignored) {}
+                    }
+                }
+            }
+            String[] topk = {"fontSize", "color"};
+            for (String tk : topk) {
+                if (!contentStyle.has(tk) && p.has(tk)) {
+                    try { contentStyle.put(tk, p.get(tk)); } catch (Exception ignored) {}
+                }
+            }
+            String fullHtml = wrapHtml(html, isNightMode(context), contentStyle);
             // baseURL 指向 android_asset：HTML 内可引用本地 js/css（mermaid/katex 等）
             webView.loadDataWithBaseURL("file:///android_asset/", fullHtml, "text/html", "UTF-8", null);
         }
@@ -308,7 +346,7 @@ public class HtmlCardView implements ChatComponent {
      * 设计升级：统一排版（标题/段落/列表间距）、代码块配色高亮、引用块、表格美化、
      * 标签/徽章、按钮样式、链接配色、响应式图片。
      */
-    private static String wrapHtml(String html, boolean dark) {
+    private static String wrapHtml(String html, boolean dark, JSONObject style) {
         if (html == null) return "";
         String lower = html.toLowerCase();
         if (lower.contains("<!doctype") || lower.contains("<html")) {
@@ -330,12 +368,33 @@ public class HtmlCardView implements ChatComponent {
         String okColor = dark ? "#86EFAC" : "#16A34A";
         String warnColor = dark ? "#FDE68A" : "#B45309";
         String errColor = dark ? "#FCA5A5" : "#DC2626";
+        // style → 内容 CSS（像浏览器应用组件 style）：fontSize/color/background 覆盖默认
+        String bodyFontSize = "14px";
+        if (style != null && style.has("fontSize")) {
+            Object fs = style.opt("fontSize");
+            if (fs instanceof Number) {
+                bodyFontSize = fs + "px";
+            } else {
+                String fss = String.valueOf(fs).trim().replaceAll("[^0-9.]", "");
+                if (!fss.isEmpty()) bodyFontSize = fss + "px";
+            }
+        }
+        if (style != null && style.has("color")) {
+            bodyColor = String.valueOf(style.opt("color"));
+        }
+        if (style != null && style.has("background")) {
+            bg = String.valueOf(style.opt("background"));
+        } else if (style != null && style.has("background_color")) {
+            bg = String.valueOf(style.opt("background_color"));
+        } else if (style != null && style.has("bg")) {
+            bg = String.valueOf(style.opt("bg"));
+        }
         return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/>"
                 + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
                 + "<style>"
                 + "html,body{margin:0;padding:0;background:" + bg + ";}"
                 + "body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;"
-                + "font-size:14px;line-height:1.6;color:" + bodyColor + ";word-break:break-word;padding:4px;}"
+                + "font-size:" + bodyFontSize + ";line-height:1.6;color:" + bodyColor + ";word-break:break-word;padding:4px;}"
                 // 标题层级
                 + "h1,h2,h3,h4{color:" + headingColor + ";line-height:1.35;margin:14px 0 8px;font-weight:600;}"
                 + "h1{font-size:20px;border-bottom:2px solid " + borderColor + ";padding-bottom:6px;}"
@@ -468,6 +527,54 @@ public class HtmlCardView implements ChatComponent {
             try {
                 if (url == null || url.isEmpty()) return;
                 ComponentActions.openLink(context, url);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        /** HTML 内图片点击全屏预览（浏览器级体验） */
+        @android.webkit.JavascriptInterface
+        public void previewImage(String url) {
+            try {
+                if (url == null || url.isEmpty()) return;
+                android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+                main.post(() -> {
+                    try {
+                        // 本地相对路径（file:// 或 /storage）先解析为绝对路径
+                        String imageUrl = url;
+                        if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")
+                                && !imageUrl.startsWith("content://")) {
+                            String p = imageUrl.startsWith("file://")
+                                    ? android.net.Uri.parse(imageUrl).getPath() : imageUrl;
+                            java.io.File f = new java.io.File(p);
+                            if (f.isFile()) {
+                                imageUrl = f.getAbsolutePath();
+                            } else {
+                                java.io.File resolved = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                                        .getInstance(context).resolveExistingFile(p);
+                                if (resolved != null && resolved.isFile()) imageUrl = resolved.getAbsolutePath();
+                            }
+                        }
+                        final String finalUrl = imageUrl;
+                        android.app.Dialog dialog = new android.app.Dialog(context);
+                        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+                        android.widget.ImageView iv = new android.widget.ImageView(context);
+                        iv.setAdjustViewBounds(true);
+                        iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                        iv.setOnClickListener(v -> dialog.dismiss());
+                        dialog.setContentView(iv, new android.view.ViewGroup.LayoutParams(
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+                        dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(
+                                android.graphics.Color.parseColor("#CC000000")));
+                        if (finalUrl.startsWith("http://") || finalUrl.startsWith("https://")) {
+                            com.bumptech.glide.Glide.with(context).load(finalUrl).into(iv);
+                        } else {
+                            iv.setImageURI(android.net.Uri.fromFile(new java.io.File(finalUrl)));
+                        }
+                        dialog.show();
+                    } catch (Throwable ignored) {
+                    }
+                });
             } catch (Throwable ignored) {
             }
         }
