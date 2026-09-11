@@ -384,10 +384,13 @@
                     <ScrollView
                         android:id="@+id/chatLogScroll"
                         android:layout_width="match_parent"
-                        android:layout_height="160dp"
+                        android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/space_8"
                         android:background="@drawable/ai_import_input_bg"
-                        android:scrollbars="vertical">
+                        android:scrollbars="vertical"
+                        android:fadeScrollbars="false"
+                        android:scrollbarStyle="insideOverlay"
+                        android:maxHeight="240dp">
 
                         <LinearLayout
                             android:id="@+id/chatLog"
