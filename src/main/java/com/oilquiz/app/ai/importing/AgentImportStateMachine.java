@@ -71,8 +71,8 @@ public class AgentImportStateMachine implements AgentCallback {
     public interface Ui {
         /** 阶段切换 + 状态消息（"正在发现文件…" / LLM 汇总文本） */
         void onPhase(Phase phase, String message);
-        /** 步骤状态（0=检测 1=映射 2=解析 3=入库） */
-        void onStep(int stepIndex, GuideStepFlowView.StepState state);
+        /** 步骤状态（0=检测 1=映射 2=解析 3=入库；detail 为状态机阶段说明文字） */
+        void onStep(int stepIndex, GuideStepFlowView.StepState state, String detail);
         /** 监控数字（耗时秒 / 阶段 / 速度 tokens/s / token 数 / 进度 current/total，<=0 表示未知） */
         void onMonitor(long elapsedSec, String stage, float speed, long tokens, long current, long total);
         /** 完成（fullText 为智能体最终汇报文本；statistics 为解析出的 新增/重复/失败/总数，-1=未知） */
@@ -146,19 +146,35 @@ public class AgentImportStateMachine implements AgentCallback {
         Phase prev = phase;
         phase = next;
         lastActivityAt = System.currentTimeMillis();
-        // 步骤状态联动（GuideStepFlowView 四步骤：检测/映射/解析/入库）
-        if (next == Phase.DISCOVERING) setStep(0, GuideStepFlowView.StepState.RUNNING);
-        else if (next == Phase.PREPROCESSING) { setStep(0, GuideStepFlowView.StepState.DONE); setStep(1, GuideStepFlowView.StepState.RUNNING); }
-        else if (next == Phase.STARTING) { setStep(0, GuideStepFlowView.StepState.DONE); setStep(1, GuideStepFlowView.StepState.DONE); setStep(2, GuideStepFlowView.StepState.RUNNING); }
-        else if (next == Phase.IMPORTING) { setStep(0, GuideStepFlowView.StepState.DONE); setStep(1, GuideStepFlowView.StepState.DONE); setStep(2, GuideStepFlowView.StepState.DONE); setStep(3, GuideStepFlowView.StepState.RUNNING); }
-        else if (next == Phase.COMPLETED) { for (int i = 0; i < 4; i++) setStep(i, GuideStepFlowView.StepState.DONE); }
+        // 步骤状态联动（GuideStepFlowView 四步骤：检测/映射/解析/入库），detail 展示状态机阶段说明
+        if (next == Phase.DISCOVERING) setStep(0, GuideStepFlowView.StepState.RUNNING, "发现文件…");
+        else if (next == Phase.PREPROCESSING) {
+            setStep(0, GuideStepFlowView.StepState.DONE, "发现完成");
+            setStep(1, GuideStepFlowView.StepState.RUNNING, "分析结构/定参数…");
+        }
+        else if (next == Phase.STARTING) {
+            setStep(0, GuideStepFlowView.StepState.DONE, "发现完成");
+            setStep(1, GuideStepFlowView.StepState.DONE, "预处理完成");
+            setStep(2, GuideStepFlowView.StepState.RUNNING, "启动导入…");
+        }
+        else if (next == Phase.IMPORTING) {
+            setStep(0, GuideStepFlowView.StepState.DONE, "发现完成");
+            setStep(1, GuideStepFlowView.StepState.DONE, "预处理完成");
+            setStep(2, GuideStepFlowView.StepState.DONE, "已启动");
+            setStep(3, GuideStepFlowView.StepState.RUNNING, "入库中" + (progressTotal > 0 ? " " + progressCurrent + "/" + progressTotal : "…"));
+        }
+        else if (next == Phase.COMPLETED) {
+            for (int i = 0; i < 4; i++) {
+                setStep(i, GuideStepFlowView.StepState.DONE, i == 3 ? "入库完成" : "完成");
+            }
+        }
         else if (next == Phase.FAILED || next == Phase.CANCELLED) {
             for (int i = 0; i < 4; i++) {
                 GuideStepFlowView.StepState st = i < stepIndex
                         ? GuideStepFlowView.StepState.DONE
                         : i == stepIndex ? GuideStepFlowView.StepState.ERROR
                         : GuideStepFlowView.StepState.PENDING;
-                setStep(i, st);
+                setStep(i, st, i == stepIndex ? message : null);
             }
         }
         ui.onPhase(next, message);
@@ -169,10 +185,10 @@ public class AgentImportStateMachine implements AgentCallback {
         }
     }
 
-    private void setStep(int index, GuideStepFlowView.StepState state) {
+    private void setStep(int index, GuideStepFlowView.StepState state, String detail) {
         stepIndex = Math.max(stepIndex, index);
         try {
-            ui.onStep(index, state);
+            ui.onStep(index, state, detail);
         } catch (Throwable t) {
             android.util.Log.w("AgentImportStateMachine", "UI 步骤更新失败: " + t.getMessage());
         }
@@ -238,7 +254,7 @@ public class AgentImportStateMachine implements AgentCallback {
                 transition(Phase.FAILED, note);
                 return;
             }
-            // import_status 轮询结果：解析进度（current/total）与阶段消息，接入监控区
+            // import_status 轮询结果：解析进度（current/total）、阶段消息与最终统计（imported/duplicated/failed/totalRows），接入监控区与结果卡
             if (toolName != null && toolName.toLowerCase(Locale.ROOT).contains("import_status")
                     && result.result != null) {
                 try {
@@ -250,6 +266,17 @@ public class AgentImportStateMachine implements AgentCallback {
                         org.json.JSONObject o = new org.json.JSONObject(json.substring(b, e + 1));
                         if (o.has("current")) progressCurrent = o.optLong("current");
                         if (o.has("total")) progressTotal = o.optLong("total");
+                        // 真实统计（QuestionImportTaskManager.getStatus 返回字段）：
+                        // 优先于 LLM 汇总文本解析，结果卡显示可靠数字
+                        if (o.has("imported")) statImported = o.optInt("imported");
+                        if (o.has("duplicated")) statDuplicated = o.optInt("duplicated");
+                        if (o.has("failed")) statFailed = o.optInt("failed");
+                        if (o.has("totalRows")) statTotal = o.optInt("totalRows");
+                        // 进度文字挂到入库步骤 detail
+                        if (phase == Phase.IMPORTING && stepIndex >= 0) {
+                            setStep(3, GuideStepFlowView.StepState.RUNNING,
+                                    progressTotal > 0 ? "入库中 " + progressCurrent + "/" + progressTotal : "入库中…");
+                        }
                         String msg = o.optString("message", "");
                         if (!msg.isEmpty()) note = msg;
                         if (o.has("stage") && !o.optString("stage").isEmpty()) {

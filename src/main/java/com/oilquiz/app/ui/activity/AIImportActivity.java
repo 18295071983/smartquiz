@@ -508,8 +508,11 @@ public class AIImportActivity extends BaseActivity {
             @Override public void onPhase(AgentImportStateMachine.Phase phase, String message) {
                 if (tvMonitorStage != null && message != null) tvMonitorStage.setText(message);
             }
-            @Override public void onStep(int stepIndex, GuideStepFlowView.StepState state) {
-                if (guideStepFlow != null) guideStepFlow.setStepState(stepIndex, state);
+            @Override public void onStep(int stepIndex, GuideStepFlowView.StepState state, String detail) {
+                if (guideStepFlow != null) {
+                    if (detail != null) guideStepFlow.setStepState(stepIndex, state, detail);
+                    else guideStepFlow.setStepState(stepIndex, state);
+                }
             }
             @Override public void onMonitor(long elapsedSec, String stage, float speed, long tokens,
                                             long current, long total) {
