@@ -8558,14 +8558,15 @@ public class AIChatActivity extends BaseActivity {
      */
     private void showImagePreview(String url, String thumbnailPath, String localFilePath) {
         try {
-            // 解析可用的本地路径（优先级：thumbnailPath → localFilePath → url）
+            // 解析可用的本地路径（优先级：localFilePath 原图 → thumbnailPath 缩略图 → url）
+            // 注意：预览要看原图，缩略图只在原图缺失时兜底（否则小图显示出来像"不是全屏"）
             String loadTarget = null;
-            if (thumbnailPath != null && !thumbnailPath.isEmpty()) {
-                java.io.File f = new java.io.File(thumbnailPath);
+            if (localFilePath != null && !localFilePath.isEmpty()) {
+                java.io.File f = new java.io.File(localFilePath);
                 if (f.exists()) loadTarget = Uri.fromFile(f).toString();
             }
-            if (loadTarget == null && localFilePath != null && !localFilePath.isEmpty()) {
-                java.io.File f = new java.io.File(localFilePath);
+            if (loadTarget == null && thumbnailPath != null && !thumbnailPath.isEmpty()) {
+                java.io.File f = new java.io.File(thumbnailPath);
                 if (f.exists()) loadTarget = Uri.fromFile(f).toString();
             }
             if (loadTarget == null && url != null && !url.isEmpty()) {
@@ -8590,6 +8591,8 @@ public class AIChatActivity extends BaseActivity {
 
             com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(this);
             photoView.setBackgroundColor(android.graphics.Color.BLACK);
+            // 初始 fit 全屏（Attacher 接管前先声明），图片按比例撑满可视区
+            photoView.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
             root.addView(photoView, new android.widget.FrameLayout.LayoutParams(
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
@@ -8606,6 +8609,9 @@ public class AIChatActivity extends BaseActivity {
             photoView.setOnClickListener(v -> dialog.dismiss());
             dialog.show();
             if (dialog.getWindow() != null) {
+                // 强制全屏布局（Dialog window 默认 wrap，避免显示成小窗）
+                dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT);
                 dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
             }
 
@@ -8617,12 +8623,12 @@ public class AIChatActivity extends BaseActivity {
                 if (loadTarget != null && loadTarget.startsWith("file://")) {
                     localFile = new java.io.File(Uri.parse(loadTarget).getPath());
                 }
-                if (localFile == null && thumbnailPath != null && !thumbnailPath.isEmpty()) {
-                    java.io.File f = new java.io.File(thumbnailPath);
-                    if (f.exists()) localFile = f;
-                }
                 if (localFile == null && localFilePath != null && !localFilePath.isEmpty()) {
                     java.io.File f = new java.io.File(localFilePath);
+                    if (f.exists()) localFile = f;
+                }
+                if (localFile == null && thumbnailPath != null && !thumbnailPath.isEmpty()) {
+                    java.io.File f = new java.io.File(thumbnailPath);
                     if (f.exists()) localFile = f;
                 }
                 if (localFile != null && localFile.exists()) {
