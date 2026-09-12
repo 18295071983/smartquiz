@@ -75,24 +75,31 @@ public class RedirectWebViewClient extends WebViewClient {
      * 处理 URL 加载，拦截非标准协议并交给系统处理
      */
     private boolean handleUrlLoading(WebView view, String url) {
-        // 标准协议放行，让 WebView 正常加载
-        if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file://")) {
-            return false;
-        }
-        // WebView 原生支持的 scheme 直接放行（about:/data:/blob:/javascript:）
-        if (url.startsWith("about:") || url.startsWith("data:") || url.startsWith("blob:")
+        return handleExternalScheme(view, url);
+    }
+
+    /**
+     * 公共静态入口：判断 URL 是否需要拦截处理（非标准 scheme）。
+     * 供 WebViewActivity 等在 loadUrl 加载前调用，避免 error url scheme 错误页。
+     * @return true=已拦截处理（WebView 不应加载该 URL）
+     */
+    public static boolean handleExternalScheme(WebView view, String url) {
+        if (url == null) return false;
+        // 标准协议 + WebView 原生支持的 scheme 放行
+        if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file://")
+                || url.startsWith("about:") || url.startsWith("data:") || url.startsWith("blob:")
                 || url.startsWith("javascript:")) {
             return false;
         }
         Log.w(TAG, "拦截非标准协议 URL: " + url);
-        // 非标准 scheme（tel:/mailto:/sms:/intent:/自定义协议）用系统 Intent 打开，避免 ERR_UNSUPPORTED_SCHEME
+        // 非标准 scheme（tel:/mailto:/sms:/intent:/App 跳转协议/自定义协议）用系统 Intent 打开
         return openExternalScheme(view, url);
     }
 
     /**
      * 用系统 Intent 打开非标准 scheme（tel/mailto/sms/intent/App 跳转协议/自定义协议）
      */
-    private boolean openExternalScheme(WebView view, String url) {
+    private static boolean openExternalScheme(WebView view, String url) {
         android.content.Context ctx = view != null ? view.getContext() : null;
         if (ctx == null) return true; // 无上下文则拦截
         try {

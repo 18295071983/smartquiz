@@ -831,6 +831,10 @@ public class WebViewActivity extends BaseActivity {
      */
     private void loadUrl(String url) {
         try {
+            // 非标准 scheme 在加载前拦截（交给系统 Intent/App/回退网页），避免 error url scheme 错误页
+            if (com.oilquiz.app.webview.RedirectWebViewClient.handleExternalScheme(x5WebView, url)) {
+                return;
+            }
             if (isWeatherWebsite(url)) {
                 url = ensureWeatherHttps(url);
                 if (x5WebView != null) {
@@ -861,6 +865,10 @@ public class WebViewActivity extends BaseActivity {
      */
     private void loadUrlDelayed(String url, long delayMillis) {
         try {
+            // 非标准 scheme 在加载前拦截，避免 error url scheme 错误页
+            if (com.oilquiz.app.webview.RedirectWebViewClient.handleExternalScheme(x5WebView, url)) {
+                return;
+            }
             if (webViewLoadManager != null && x5WebView != null) {
                 webViewLoadManager.loadUrlDelayed(x5WebView, url, delayMillis);
             } else {
