@@ -5,6 +5,7 @@ app/build/
 local.properties
 build_config.properties
 keystore/*.keystore
+!keystore/html2apk-release.keystore
 out/
 *.apk
 .idea/

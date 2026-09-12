@@ -236,8 +236,9 @@ src/main/cpp/build-*/
 logcat*.txt
 viewer/src/main/jniLibs/**/liblo-native-code.so
 
-# APK 导出底座：签名密钥与旧模板备份（不入库）
-src/main/assets/apk_shell/export.keystore
+# APK 导出底座：模板与签名密钥入库（用户确认）；旧模板备份不入库
+!src/main/assets/apk_shell/export.keystore
 src/main/assets/apk_shell/base.apk.bak_*
 apk_shell/local.properties
 !src/main/assets/apk_shell/base.apk
+!html2apk/keystore/html2apk-release.keystore
