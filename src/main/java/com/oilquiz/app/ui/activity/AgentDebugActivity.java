@@ -370,6 +370,10 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
             addSystem(s, "→ " + line.substring(7));
         } else if (line.startsWith("▶ ")) {
             generating = true;
+            // 封口当前轮 AI 消息：工具调用前的模型输出独立成段（多轮回答树）
+            // 下一轮 TOKEN 到达时 ensureAi 自动新开 AI 消息——每轮回答分开显示
+            s.ai = null;
+            s.think.setLength(0);
             String body = line.substring(2);
             int sp = body.indexOf(' ');
             addToolCall(s, sp > 0 ? body.substring(0, sp) : body, sp > 0 ? body.substring(sp + 1) : "");
