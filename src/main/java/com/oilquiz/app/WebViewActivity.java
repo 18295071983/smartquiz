@@ -499,7 +499,7 @@ public class WebViewActivity extends BaseActivity {
      */
     private void checkFirstLaunch() {
         // 加载 Bing 搜索引擎作为主页
-        loadUrl("https://www.bing.com");
+        loadUrl("https://www.baidu.com");
     }
     
     /**
@@ -1305,7 +1305,7 @@ public class WebViewActivity extends BaseActivity {
         createNewTab();
         // createNewTab 最后已 switchTab 到新标签；customUrl 非空时新标签未加载内容，强制加载主页
         if (customUrl != null) {
-            loadUrl("https://www.bing.com");
+            loadUrl("https://www.baidu.com");
         }
     }
 
@@ -1409,7 +1409,7 @@ public class WebViewActivity extends BaseActivity {
             // 只有在没有传入自定义URL时才加载默认页面
             if (customUrl == null) {
                 // 使用WebViewLoadManager加载 Bing 搜索引擎作为主页（带延迟优化）
-                webViewLoadManager.loadUrlDelayed(x5WebView, "https://www.bing.com", 50);
+                webViewLoadManager.loadUrlDelayed(x5WebView, "https://www.baidu.com", 50);
             }
         }
     }

@@ -90,7 +90,7 @@ public class RedirectWebViewClient extends WebViewClient {
     }
 
     /**
-     * 用系统 Intent 打开非标准 scheme（tel/mailto/sms/intent/自定义协议）
+     * 用系统 Intent 打开非标准 scheme（tel/mailto/sms/intent/App 跳转协议/自定义协议）
      */
     private boolean openExternalScheme(WebView view, String url) {
         android.content.Context ctx = view != null ? view.getContext() : null;
@@ -128,7 +128,8 @@ public class RedirectWebViewClient extends WebViewClient {
                         } catch (Exception ignored) { }
                         break;
                     default:
-                        // 自定义 scheme：交给系统尝试（有应用能处理则打开，否则提示）
+                        // App 跳转协议（weixin://、taobao://、zhihu:// 等）和自定义 scheme：
+                        // 交给系统尝试（有应用则打开）
                         intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url));
                         break;
                 }
@@ -140,13 +141,85 @@ public class RedirectWebViewClient extends WebViewClient {
                     return true;
                 }
             }
-            // 系统无应用可处理：提示用户
-            android.widget.Toast.makeText(ctx, "无法打开链接: " + url, android.widget.Toast.LENGTH_SHORT).show();
+            // 系统无应用可处理：尝试从 URL 提取网页回退地址（网页版/下载页）
+            String fallback = extractFallbackUrl(url);
+            if (fallback != null && view != null) {
+                Log.d(TAG, "App 未安装，回退网页: " + fallback);
+                view.loadUrl(fallback);
+                return true;
+            }
+            // 无回退地址：提示对应应用未安装
+            String appName = appNameOfScheme(scheme);
+            String tip = appName != null
+                    ? "未安装" + appName + "，请在应用商店下载"
+                    : "无法打开链接（未安装对应应用）: " + url;
+            android.widget.Toast.makeText(ctx, tip, android.widget.Toast.LENGTH_LONG).show();
             return true;
         } catch (Exception e) {
             Log.e(TAG, "处理非标准协议失败: " + url, e);
             return true;
         }
+    }
+
+    /** 常见 App 跳转协议 → 应用名（未安装时提示用） */
+    private static String appNameOfScheme(String scheme) {
+        if (scheme == null) return null;
+        switch (scheme.toLowerCase(java.util.Locale.US)) {
+            case "weixin": case "wechat": return "微信";
+            case "taobao": case "tbopen": return "淘宝";
+            case "tmall": return "天猫";
+            case "jd": case "openapp.jdmobile": case "openapp.jd": return "京东";
+            case "zhihu": return "知乎";
+            case "bilibili": return "哔哩哔哩";
+            case "douyin": case "snssdk1128": return "抖音";
+            case "weibo": case "sinaweibo": return "微博";
+            case "alipays": case "alipay": return "支付宝";
+            case "mqq": case "qq": return "QQ";
+            case "xhsdiscover": case "xhsmessage": return "小红书";
+            case "baiduboxapp": return "百度";
+            case "pinduoduo": return "拼多多";
+            case "meituan": case "imeituan": return "美团";
+            case "dianping": return "大众点评";
+            case "vipshop": return "唯品会";
+            case "tenvideo": case "qqlive": return "腾讯视频";
+            case "iqiyi": return "爱奇艺";
+            case "youku": return "优酷";
+            case "didi": return "滴滴出行";
+            case "ctrip": return "携程";
+            case "eleme": return "饿了么";
+            default: return null;
+        }
+    }
+
+    /** 从 App 跳转 URL 中提取网页回退地址（url/u/link/browser_fallback_url 等参数或编码链接） */
+    private static String extractFallbackUrl(String url) {
+        try {
+            android.net.Uri u = Uri.parse(url);
+            String query = u.getQuery();
+            if (query != null) {
+                for (String pair : query.split("&")) {
+                    int idx = pair.indexOf('=');
+                    if (idx <= 0) continue;
+                    String key = pair.substring(0, idx);
+                    String val = android.net.Uri.decode(pair.substring(idx + 1));
+                    if (key.equals("url") || key.equals("u") || key.equals("link")
+                            || key.equals("target") || key.equals("browser_fallback_url")
+                            || key.equals("redirect") || key.equals("fallback")) {
+                        if (val.startsWith("http://") || val.startsWith("https://")) return val;
+                    }
+                }
+            }
+            // URL 内嵌编码链接（scheme://...?url=https%3A%2F%2Fxxx）
+            String s = url;
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("https?%3A%2F%2F[^&%]+")
+                    .matcher(s);
+            if (m.find()) {
+                String dec = android.net.Uri.decode(m.group());
+                if (dec.startsWith("http://") || dec.startsWith("https://")) return dec;
+            }
+        } catch (Exception ignored) { }
+        return null;
     }
 
     @Override
