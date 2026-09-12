@@ -343,8 +343,8 @@ public class WebViewActivity extends BaseActivity {
         btnReset.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                // 返回 Bing 搜索引擎主页
-                loadUrl("https://www.bing.com");
+                // 主页在新标签页中打开显示
+                openHomeInNewTab();
             }
         });
         navRow.addView(btnReset);
@@ -1300,6 +1300,15 @@ public class WebViewActivity extends BaseActivity {
         return exportDir;
     }
 
+    /** 创建新标签页并显示主页（bing）——customUrl 非空时新标签默认不加载，此处补加载 */
+    private void openHomeInNewTab() {
+        createNewTab();
+        // createNewTab 最后已 switchTab 到新标签；customUrl 非空时新标签未加载内容，强制加载主页
+        if (customUrl != null) {
+            loadUrl("https://www.bing.com");
+        }
+    }
+
     private void createNewTab() {
         if (newTabButton != null) {
             tabContainer.removeView(newTabButton);
@@ -1750,7 +1759,8 @@ public class WebViewActivity extends BaseActivity {
         newTabButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                createNewTab();
+                // 新标签页显示主页
+                openHomeInNewTab();
             }
         });
         
