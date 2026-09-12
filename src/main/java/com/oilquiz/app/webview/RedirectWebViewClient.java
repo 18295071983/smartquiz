@@ -3,6 +3,7 @@ package com.oilquiz.app.webview;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.util.Log;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
@@ -56,28 +57,81 @@ public class RedirectWebViewClient extends WebViewClient {
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         String url = request.getUrl().toString();
-        return handleUrlLoading(url);
+        return handleUrlLoading(view, url);
     }
 
     // 兼容旧版 API
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, String url) {
-        return handleUrlLoading(url);
+        return handleUrlLoading(view, url);
     }
 
     /**
-     * 处理 URL 加载，拦截非标准协议
+     * 处理 URL 加载，拦截非标准协议并交给系统处理
      */
-    private boolean handleUrlLoading(String url) {
-        // 拦截非 http/https 协议的 URL（如 baiduboxapp://, weixin:// 等）
-        if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("file://")) {
-            Log.w(TAG, "拦截非标准协议 URL: " + url);
-            // 返回 true 表示已处理，阻止 WebView 加载此 URL
+    private boolean handleUrlLoading(WebView view, String url) {
+        // 标准协议放行，让 WebView 正常加载
+        if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file://")) {
+            return false;
+        }
+        Log.w(TAG, "拦截非标准协议 URL: " + url);
+        // 非标准 scheme（tel:/mailto:/sms:/intent:/自定义协议）用系统 Intent 打开，避免 ERR_UNSUPPORTED_SCHEME
+        return openExternalScheme(view, url);
+    }
+
+    /**
+     * 用系统 Intent 打开非标准 scheme（tel/mailto/sms/intent/自定义协议）
+     */
+    private boolean openExternalScheme(WebView view, String url) {
+        android.content.Context ctx = view != null ? view.getContext() : null;
+        if (ctx == null) return true; // 无上下文则拦截
+        try {
+            android.content.Intent intent = null;
+            String scheme = Uri.parse(url).getScheme();
+            if (scheme != null) {
+                switch (scheme.toLowerCase(java.util.Locale.US)) {
+                    case "tel":
+                        intent = new android.content.Intent(android.content.Intent.ACTION_DIAL, Uri.parse(url));
+                        break;
+                    case "mailto":
+                        intent = new android.content.Intent(android.content.Intent.ACTION_SENDTO, Uri.parse(url));
+                        break;
+                    case "sms":
+                    case "smsto":
+                        intent = new android.content.Intent(android.content.Intent.ACTION_SENDTO, Uri.parse(url));
+                        break;
+                    case "intent":
+                        try {
+                            intent = android.content.Intent.parseUri(url, android.content.Intent.URI_INTENT_SCHEME);
+                            if (intent != null) {
+                                String fallback = intent.getStringExtra("browser_fallback_url");
+                                if (fallback != null && !fallback.isEmpty() && view != null) {
+                                    view.loadUrl(fallback); // intent 无对应应用时跳 fallback 网页
+                                    return true;
+                                }
+                            }
+                        } catch (Exception ignored) { }
+                        break;
+                    default:
+                        // 自定义 scheme：交给系统尝试（有应用能处理则打开，否则提示）
+                        intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url));
+                        break;
+                }
+            }
+            if (intent != null) {
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (ctx.getPackageManager().resolveActivity(intent, 0) != null) {
+                    ctx.startActivity(intent);
+                    return true;
+                }
+            }
+            // 系统无应用可处理：提示用户
+            android.widget.Toast.makeText(ctx, "无法打开链接: " + url, android.widget.Toast.LENGTH_SHORT).show();
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "处理非标准协议失败: " + url, e);
             return true;
         }
-
-        // 不拦截标准 URL 加载，让 WebView 正常处理
-        return false;
     }
 
     @Override
@@ -280,11 +334,31 @@ public class RedirectWebViewClient extends WebViewClient {
 
     @Override
     public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+        // 忽略不支持的 URL scheme 错误（已在 shouldOverrideUrlLoading 拦截处理，避免错误页干扰）
+        if (errorCode == ERROR_UNSUPPORTED_SCHEME) {
+            Log.d(TAG, "忽略不支持的 scheme 错误: " + failingUrl);
+            return;
+        }
         super.onReceivedError(view, errorCode, description, failingUrl);
         Log.e(TAG, "页面加载错误 [" + errorCode + "]: " + description + " - " + failingUrl);
         if (pageLoadCallback != null) {
             pageLoadCallback.onError(errorCode, description, failingUrl);
         }
+    }
+
+    @Override
+    public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+        // 新版 API（API 23+）同样过滤 ERR_UNSUPPORTED_SCHEME
+        if (request != null && !request.isForMainFrame()) {
+            // 子资源错误不阻塞主页面
+            super.onReceivedError(view, request, error);
+            return;
+        }
+        if (error != null && error.getErrorCode() == ERROR_UNSUPPORTED_SCHEME) {
+            Log.d(TAG, "忽略不支持的 scheme 错误(新API): " + (request != null ? request.getUrl() : ""));
+            return;
+        }
+        super.onReceivedError(view, request, error);
     }
 
     /**
