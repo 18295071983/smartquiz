@@ -260,10 +260,6 @@ public class AIChatActivity extends BaseActivity {
     private volatile long lastTokenStatsUiUpdateTime = 0;
     private volatile int currentStreamingMessageIndex = -1;
     private volatile String currentStreamingMessageId = null;
-    /** 多轮回答分段：工具调用后置位，下一轮 onToken 时新开 AI 消息（每轮回答独立显示） */
-    private volatile boolean roundSealed = false;
-    /** 新轮消息待注册标记（后台线程置位，UI 线程消费后注册空容器） */
-    private volatile boolean pendingNewRoundMessage = false;
     private volatile int agentToolLoopCount = 0;
     /** 当前Agent执行组ID（null=非agent执行或本地模型） */
     private volatile String currentAgentGroupId = null;
@@ -6567,10 +6563,8 @@ public class AIChatActivity extends BaseActivity {
         @Override
         public void onToolCallStart(String toolCallId, String toolName, String args) {
             // 工具调用开始：插入式组件显示到 AI 消息内（执行中卡片）+ 状态栏更新
+            // 多轮回答在同一气泡内：工具卡片作为轮次分隔，不新建 AI 消息
             runOnUiThread(() -> {
-                // 多轮回答分段：本轮正文输出已封口（roundSealed），下一轮 onToken 新开 AI 消息
-                // 工具卡片仍插入当前（轮1）消息，保留调用上下文
-                roundSealed = true;
                 appendAgentToolCall(toolCallId, toolName, "running", args, null);
                 setAgentStepStatus("🔧 调用 " + toolName + "...");
                 updateAgentStatusBar("🔧 调用 " + toolName + "...", true);
@@ -6605,15 +6599,6 @@ public class AIChatActivity extends BaseActivity {
             // 流式 token：追加到当前流式内容（始终累积，不丢失）
             // 必须加锁：onToken 来自后台线程，safeUpdateMessage 在 UI 线程读取
             synchronized (streamingLock) {
-                // 多轮分段：工具调用已封口 → 新开 AI 消息承接后续输出（有输出才建，无空消息）
-                if (roundSealed && currentStreamingMessageId != null) {
-                    roundSealed = false;
-                    pendingNewRoundMessage = true;
-                    currentStreamingContent = new StringBuilder();
-                    currentThinkingContent = new StringBuilder();
-                    currentStreamingMessageId = java.util.UUID.randomUUID().toString();
-                    currentStreamingMessageIndex = -1;
-                }
                 if (currentStreamingContent != null) {
                     currentStreamingContent.append(token);
                 }
@@ -6636,21 +6621,6 @@ public class AIChatActivity extends BaseActivity {
             if (now - lastTokenUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
                 lastTokenUiUpdateTime = now;
                 runOnUiThread(() -> {
-                    // 新轮容器注册（pendingNewRoundMessage 在后台线程置位，UI 线程消费）
-                    if (pendingNewRoundMessage) {
-                        pendingNewRoundMessage = false;
-                        // 插入新 AI 消息前：刷新旧最后 AI（其 meta 隐藏，只留最终轮）
-                        int oldLastAi = chatAdapter != null ? chatAdapter.findLastAiMessageIndex() : -1;
-                        ChatMessage newRoundMsg = ChatMessage.createAIMessage(
-                                currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
-                        chatHistory.add(newRoundMsg);
-                        if (chatAdapter != null) {
-                            chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-                            if (oldLastAi >= 0 && oldLastAi < chatHistory.size() - 1) {
-                                chatAdapter.notifyItemChanged(oldLastAi);
-                            }
-                        }
-                    }
                     safeUpdateMessage();
                     scrollToBottom();
                 });
@@ -6659,31 +6629,6 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onThinkingToken(String token) {
-            // 多轮分段：工具调用封口后，新一轮思考先新开 AI 消息（与正文分段一致，
-            // 避免轮2 思考写进轮1 消息导致"正文与思考混在同一消息"）
-            if (roundSealed && currentStreamingMessageId != null) {
-                synchronized (streamingLock) {
-                    if (roundSealed) {
-                        roundSealed = false;
-                        pendingNewRoundMessage = false;
-                        currentStreamingContent = new StringBuilder();
-                        currentThinkingContent = new StringBuilder();
-                        currentStreamingMessageId = java.util.UUID.randomUUID().toString();
-                        currentStreamingMessageIndex = -1;
-                        // 插入新 AI 消息前：刷新旧最后 AI（其 meta 隐藏，只留最终轮）
-                        int oldLastAi = chatAdapter != null ? chatAdapter.findLastAiMessageIndex() : -1;
-                        ChatMessage newRoundMsg = ChatMessage.createAIMessage(
-                                currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
-                        chatHistory.add(newRoundMsg);
-                        if (chatAdapter != null) {
-                            chatAdapter.notifyItemInserted(chatHistory.size() - 1);
-                            if (oldLastAi >= 0 && oldLastAi < chatHistory.size() - 1) {
-                                chatAdapter.notifyItemChanged(oldLastAi);
-                            }
-                        }
-                    }
-                }
-            }
             // 思考 token：直接写入 AI 消息内嵌思考区（与本地模型一致，不创建独立消息）
             // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用
             boolean onUi = Looper.myLooper() == Looper.getMainLooper();
@@ -7007,8 +6952,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void resetStreamingState() {
-        roundSealed = false;
-        pendingNewRoundMessage = false;
         tokenCountSinceLastUpdate = 0;
         lastUpdateTime = System.currentTimeMillis();
         isUpdateScheduled = false;

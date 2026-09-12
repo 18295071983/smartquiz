@@ -969,14 +969,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     holder.thinkingContent.setVisibility(View.VISIBLE);
                     holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
                 }
-                updateThinkingLabel(holder, true, isStreaming);
+                updateThinkingLabel(holder, true, isStreaming, message);
                 showDivider = true;
             } else {
                 if (wasExpanded) {
                     cancelThinkingAnimator(holder);
                     holder.thinkingContent.setVisibility(View.GONE);
                 }
-                updateThinkingLabel(holder, false, isStreaming);
+                updateThinkingLabel(holder, false, isStreaming, message);
             }
 
             // 点击展开/折叠，带动画效果
@@ -992,7 +992,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 流式中但思考内容还没到，显示思考中标签让用户有感知
             holder.thinkingLabel.setVisibility(View.VISIBLE);
             holder.thinkingContent.setVisibility(View.GONE);
-            updateThinkingLabel(holder, false, true);
+            updateThinkingLabel(holder, false, true, message);
             // 点击占位标签也允许后续内容到来时展开
             holder.thinkingLabel.setOnClickListener(v -> {
                 message.thinkingExpanded = !message.thinkingExpanded;
@@ -1018,14 +1018,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 更新思考标签文字
      * @param expanded 是否展开
      * @param isStreaming 是否处于流式生成中
+     * @param message 绑定消息（折叠+流式时用于实时思考预览）
      */
-    private void updateThinkingLabel(AIMessageViewHolder holder, boolean expanded, boolean isStreaming) {
+    private void updateThinkingLabel(AIMessageViewHolder holder, boolean expanded, boolean isStreaming, ChatMessage message) {
         if (isStreaming) {
             // 流式中：提示用户"思考中"，并告知可点击展开/折叠
             if (expanded) {
                 holder.thinkingLabel.setText(R.string.chat_thinking_streaming_collapse);
             } else {
-                holder.thinkingLabel.setText(R.string.chat_thinking_streaming_expand);
+                // 折叠 + 思考中：实时显示思考内容预览（不打扰正文阅读，但思考进度可见）
+                String c = (message != null && message.thinkingContent != null)
+                        ? message.thinkingContent.replace('\n', ' ').trim() : "";
+                if (!c.isEmpty()) {
+                    if (c.length() > 40) c = c.substring(c.length() - 40);
+                    holder.thinkingLabel.setText("🧠 思考中：" + c + "…");
+                } else {
+                    holder.thinkingLabel.setText(R.string.chat_thinking_streaming_expand);
+                }
             }
         } else {
             // 已完成：显示"思考过程"
@@ -1084,7 +1093,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
         }
         message.thinkingExpanded = true;
-        updateThinkingLabel(holder, true, isStreaming);
+        updateThinkingLabel(holder, true, isStreaming, message);
         if (holder.thinkingDivider != null) {
             holder.thinkingDivider.setVisibility(View.VISIBLE);
         }
@@ -1098,7 +1107,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             cancelThinkingAnimator(holder);
             holder.thinkingContent.setVisibility(View.GONE);
             message.thinkingExpanded = false;
-            updateThinkingLabel(holder, false, isStreaming);
+            updateThinkingLabel(holder, false, isStreaming, message);
             if (holder.thinkingDivider != null) {
                 holder.thinkingDivider.setVisibility(View.GONE);
             }
@@ -1124,7 +1133,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         animator.start();
 
         message.thinkingExpanded = false;
-        updateThinkingLabel(holder, false, isStreaming);
+        updateThinkingLabel(holder, false, isStreaming, message);
         if (holder.thinkingDivider != null) {
             holder.thinkingDivider.setVisibility(View.GONE);
         }
