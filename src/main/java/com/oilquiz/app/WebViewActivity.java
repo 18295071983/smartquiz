@@ -1267,8 +1267,8 @@ public class WebViewActivity extends BaseActivity {
             
             Button closeButton = new Button(this);
             closeButton.setText("×");
-            closeButton.setTextSize(18);
-            closeButton.setPadding(10, 6, 10, 6);
+            closeButton.setTextSize(20);
+            closeButton.setPadding(14, 10, 14, 10);
             closeButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             closeButton.setAllCaps(false);
             closeButton.setBackgroundResource(android.R.color.transparent);
@@ -1645,8 +1645,8 @@ public class WebViewActivity extends BaseActivity {
     private void addNewTabButton() {
         newTabButton = new Button(this);
         newTabButton.setText("+");
-        newTabButton.setTextSize(22);
-        newTabButton.setPadding(18, 14, 18, 14);
+        newTabButton.setTextSize(26);
+        newTabButton.setPadding(20, 16, 20, 16);
         newTabButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
         newTabButton.setAllCaps(false);
         newTabButton.setBackgroundResource(android.R.color.transparent);
