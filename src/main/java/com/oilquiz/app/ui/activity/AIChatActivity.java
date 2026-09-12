@@ -6649,6 +6649,24 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onThinkingToken(String token) {
+            // 多轮分段：工具调用封口后，新一轮思考先新开 AI 消息（与正文分段一致，
+            // 避免轮2 思考写进轮1 消息导致"正文与思考混在同一消息"）
+            if (roundSealed && currentStreamingMessageId != null) {
+                synchronized (streamingLock) {
+                    if (roundSealed) {
+                        roundSealed = false;
+                        pendingNewRoundMessage = false;
+                        currentStreamingContent = new StringBuilder();
+                        currentThinkingContent = new StringBuilder();
+                        currentStreamingMessageId = java.util.UUID.randomUUID().toString();
+                        currentStreamingMessageIndex = -1;
+                        ChatMessage newRoundMsg = ChatMessage.createAIMessage(
+                                currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
+                        chatHistory.add(newRoundMsg);
+                        if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+                    }
+                }
+            }
             // 思考 token：直接写入 AI 消息内嵌思考区（与本地模型一致，不创建独立消息）
             // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用
             boolean onUi = Looper.myLooper() == Looper.getMainLooper();
