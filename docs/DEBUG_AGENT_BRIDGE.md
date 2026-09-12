@@ -52,12 +52,26 @@ adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.i
 |---|---|
 | `[ENABLE] 外部注入通道 -> ON/OFF HH:mm:ss` | 通道开关回执 |
 | `[INJECT] action=AGENT_EXEC token=OK session=.. max_tokens=.. thinking=.. HH:mm:ss` | 注入请求元数据 |
-| `[SUMMARY] <摘要>` | 外部提供的摘要点（默认回显形式，不回显完整指令） |
-| `[PROMPT] <指令文本>` | 完整提示词本体（仅 `expose_prompt=true` 时，用户气泡渲染） |
-| `[PROMPT] 已接收（未提供摘要，不回显完整指令，长度 N）` | 无摘要且未允许回显时的占位 |
+| `[PROMPT] <指令文本>` | 完整正式文本（默认回显，用户气泡渲染；防蒸馏模式下外部传 prompt_summary 才切摘要） |
+| `[SUMMARY] <摘要>` | 外部主动声明的敏感摘要（prompt_type=summary） |
 | `[REJECT] <原因> HH:mm:ss` | 校验拒绝回执 |
 | `[RETRY] 网络错误，3 秒后自动重连（第 N 次） HH:mm:ss` | 零输出+网络类错误触发自动重连 |
 | `[RESULT] done/partial/error/timeout/init_error result=<文件> HH:mm:ss` | 任务终态回执 |
+| `[ANSWER] <模型最终回答单行摘要 ≤300 字符>` | 最终回答直达（AI 消息渲染，Markdown 生效） |
+
+### 事件缓冲回放（修复"注入开头内容丢失"）
+
+广播 `startActivity` 是异步的，调试台 `onResume` 注册 listener 前注入事件会丢。桥内三通道缓冲（event/raw/state，上限 200/200/50），`setListener` 时按 states→events→raw 顺序回放——注入即见全貌。
+
+### 对话流多轮回答分段（回答树）
+
+所有 TOKEN 原追加到同一个 AI 消息，多轮输出被合并。现**工具调用边界封口**：
+
+```
+用户消息 → AI 消息 1（第一轮输出）→ 工具卡片（▶/✔）→ AI 消息 2（第二轮输出）→ …
+```
+
+`▶ 工具调用` 事件触发 `s.ai = null`（+清思考），下一轮 TOKEN 到达 `ensureAi` 自动新开 AI 消息——每轮回答独立显示，思考随轮次归属。
 
 ### 通道定位：正式文本通道（默认完整可见）
 
