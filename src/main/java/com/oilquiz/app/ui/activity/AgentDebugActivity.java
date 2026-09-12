@@ -95,11 +95,15 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
                     MaterialButton btn = findViewById(R.id.btn_toggle_raw);
                     btn.setText("原始指令流 ▴");
                 }
-                if (line != null && line.startsWith("[PROMPT] ")) {
+                if (line == null) return;
+                if (line.startsWith("[ANSWER] ")) {
+                    // 模型最终回答：用 AI 消息渲染（走 MarkdownRenderer，加粗/列表/代码块生效）
+                    addAi(raw, line.substring(9));
+                } else if (line.startsWith("[PROMPT] ")) {
                     // 外部传入的提示词本体 → 用户气泡
                     addUser(raw, line.substring(9));
                 } else {
-                    // 注入元数据/校验/回执 → 系统消息
+                    // 注入元数据/校验/回执 → 系统消息（纯文本）
                     addSystem(raw, line);
                 }
             });
@@ -279,6 +283,12 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
 
     private void addSystem(StreamState s, String text) {
         s.msgs.add(ChatMessage.createSystemMessage(text));
+        s.adapter.notifyItemInserted(s.msgs.size() - 1);
+        scrollBottom(s);
+    }
+
+    private void addAi(StreamState s, String text) {
+        s.msgs.add(ChatMessage.createAIMessage(text));
         s.adapter.notifyItemInserted(s.msgs.size() - 1);
         scrollBottom(s);
     }
