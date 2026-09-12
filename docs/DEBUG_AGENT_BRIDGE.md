@@ -59,49 +59,42 @@ adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.i
 | `[RETRY] 网络错误，3 秒后自动重连（第 N 次） HH:mm:ss` | 零输出+网络类错误触发自动重连 |
 | `[RESULT] done/partial/error/timeout/init_error result=<文件> HH:mm:ss` | 任务终态回执 |
 
-### 通道定位：正式文本通道（提示词零接触）
+### 通道定位：正式文本通道（默认完整可见）
 
 本调试通道的协议定位是**正式文本通道**：
 
-- **输入**：`prompt` = 任务的**正式文本**（任务内容/用户问题），不是提示词
+- **输入**：`prompt` = 任务的**正式文本**（任务内容/用户问题），**默认在调试台/结果文件/status.json 完整可见**
 - **输出**：模型生成的**正式回答**（完整记录/展示）
-- **提示词/系统指令**：由外部系统自行管理，**不注入本通道**——我方对提示词**零接触**（不接收、不处理、不记录），防蒸馏天然成立
-- 正式文本本身不敏感 → 外部可传 `expose_prompt=true` 让调试台完整回显输入
+- **提示词/系统指令**：由外部系统自行管理，**不注入本通道**——我方对提示词**零接触**（不接收、不处理、不记录）
+- 正式文本本身不敏感 → 注入即显示，外部无需额外参数
 
-### 防蒸馏兜底（违规保护）
+### 防蒸馏模式（外部主动声明）
 
-若外部仍把提示词性质内容塞进 `prompt`（违反协议），通道默认**不回显、不落盘**：
+外部若仍注入**提示词性质内容**（违反"不注入提示词"的协议），**传 `prompt_summary` 即声明敏感**，我方切到防蒸馏模式：
 
-- **prompt_summary 是外部自愿提供的「可见说明」**：可写指令用途、注入原因、为何要这么做等，我方原样展示——外部看到显示内容即明白，不会误会我方隐瞒
-- 外部不传摘要 → 我方显示**协议说明占位**（"已接收 N 字符（正式文本通道：提示词由外部管理不注入；防蒸馏不回显，可传 prompt_summary 提供可见说明）"）
-- 仅当外部显式传 `expose_prompt=true` 时才完整回显（本地自用调试）
+- **prompt_summary = 外部自愿提供的「可见说明」**：可写指令用途、注入原因等，我方只显示该摘要，不回显完整内容
+- 传了 `prompt_summary` 但需要强制完整回显 → 叠加 `expose_prompt=true`
 - 完整 prompt 只在引擎内部执行，不写入任何外部可见面（调试台 UI / result 文件 / status.json / logcat）
 
-**同一口径同时服务内部**：内部人员/组件看到「未回显」占位或说明日志时，不会被误解为功能故障——
-显示层、结果文件、status.json、logcat 四处的文案统一声明这是**正式文本通道协议 + 防蒸馏兜底**，并给出两条解除路径：
-- 需要可见说明 → 传 `prompt_summary`
-- 正式文本/本地自用需要完整回显 → 传 `expose_prompt=true`
-
-**内部消费语义（防止回传错误）**：status.json 新增 `prompt_type` 字段，内部读取方**必须按类型判断**，不得把摘要/占位当完整输入回传：
+**内部消费语义（防止回传错误）**：status.json 的 `prompt_type` 字段让内部读取方**按类型判断**，不得把摘要当完整输入回传：
 
 ```json
-{"status":"done","result":"result_xxx.txt","prompt_type":"full|summary|placeholder","prompt":"...","time":"..."}
+{"status":"done","result":"result_xxx.txt","prompt_type":"full|summary","prompt":"...","time":"..."}
 ```
 
 | prompt_type | 含义 | 内部使用规则 |
 |---|---|---|
-| `full` | 完整输入正式文本（expose_prompt=true） | 可安全回传/复用 |
-| `summary` | 外部提供的可见说明（prompt_summary） | 仅展示，**不可**当完整输入回传 |
-| `placeholder` | 协议占位说明 | 仅提示，**不可**当完整输入回传 |
+| `full` | 完整正式文本（默认 / expose_prompt=true） | 可安全回传/复用 |
+| `summary` | 外部声明的敏感内容摘要（prompt_summary） | 仅展示，**不可**当完整输入回传 |
 
-结果文件头部前缀同样三分：`PROMPT:`（full）/ `PROMPT_SUMMARY:`（summary）/ `PROMPT_PLACEHOLDER:`（placeholder），供文件消费方识别。
+结果文件头部前缀同样区分：`PROMPT:`（full）/ `PROMPT_SUMMARY:`（summary），供文件消费方识别。
 
 ```bash
-# 正式文本注入示例（不敏感，可完整回显）
+# 正式文本注入（默认完整可见，无需额外参数）
 adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.infra.AgentDebugBridge \
-  --es token 7b2f328d67c2d416 --es prompt '<正式任务文本>' --ez expose_prompt true
+  --es token 7b2f328d67c2d416 --es prompt '<正式任务文本>'
 
-# 防蒸馏兜底示例：外部注入提示词性质内容时，摘要写明"为何要这么做"
+# 防蒸馏模式：外部注入提示词性质内容时传 prompt_summary 声明敏感
 adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.infra.AgentDebugBridge \
   --es token 7b2f328d67c2d416 --es prompt '<提示词性质内容>' \
   --es prompt_summary '系统级安全指令（含内部规则）。为避免提示词蒸馏，我方不暴露完整内容，仅提供此说明供调试台展示'

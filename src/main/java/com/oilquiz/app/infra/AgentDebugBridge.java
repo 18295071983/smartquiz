@@ -200,21 +200,17 @@ public class AgentDebugBridge extends BroadcastReceiver {
         final String session = intent.getStringExtra("session");
         final int maxTokens = intent.getIntExtra("max_tokens", DEFAULT_MAX_TOKENS);
         final boolean thinking = intent.getBooleanExtra("thinking", false);
-        // 防蒸馏：本通道定位为【正式文本通道】——输入应为任务正式文本，输出为模型正式回答；
-        // 提示词/系统指令由外部自行管理、不注入本通道，我方零接触。
-        // 若外部仍注入提示词性质内容：默认不回显，可传 prompt_summary 提供可见说明；expose_prompt=true 显式完整回显。
+        // 防蒸馏：本通道定位为【正式文本通道】——prompt 为任务正式文本，**默认完整可见**。
+        // 外部若注入提示词性质内容，可传 prompt_summary 声明敏感 → 我方只显示摘要（防蒸馏模式）。
+        // expose_prompt=true 强制完整回显（即使传了 summary）。
         final String summary = intent.getStringExtra("prompt_summary");
         final boolean exposePrompt = intent.getBooleanExtra("expose_prompt", false);
         final boolean hasSummary = summary != null && !summary.trim().isEmpty();
-        // prompt_type：内部消费方识别依据（防止把摘要/占位当完整输入回传）
-        final String promptType = exposePrompt ? "full" : (hasSummary ? "summary" : "placeholder");
-        final String summaryNote = hasSummary
-                ? summary.trim()
-                : "已接收 " + prompt.length() + " 字符（正式文本通道：提示词由外部管理不注入；"
-                        + "防蒸馏不回显，可传 prompt_summary 提供可见说明）";
-        final String displayPrompt = exposePrompt ? prompt : summaryNote;
-        Log.i(TAG, "prompt 已接收（" + prompt.length() + " 字符），正式文本通道：提示词不注入、零接触；"
-                + "可见说明用 prompt_summary，本地调试完整回显用 expose_prompt=true");
+        final boolean fullVisible = exposePrompt || !hasSummary;
+        final String displayPrompt = fullVisible ? prompt : summary.trim();
+        final String promptType = fullVisible ? "full" : "summary";
+        Log.i(TAG, "prompt 已接收（" + prompt.length() + " 字符），正式文本默认完整可见；"
+                + "如需防蒸馏请外部传 prompt_summary（当前模式: " + (hasSummary && !exposePrompt ? "摘要" : "完整可见") + "）");
         final String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
         final File outDir = new File(app.getExternalFilesDir(null), "agent_bridge");
         outDir.mkdirs();
@@ -226,8 +222,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
         emitState("connection", "注入已接收，正在启动引擎…");
         emit("── 外部注入接收 ──");
         // 对话流：默认只显示摘要/占位，不回显完整指令（防蒸馏）
-        emit(exposePrompt ? "PROMPT: " + prompt
-                : (hasSummary ? "PROMPT_SUMMARY: " : "PROMPT_PLACEHOLDER: ") + displayPrompt);
+        emit(fullVisible ? "PROMPT: " + prompt : "PROMPT_SUMMARY: " + summary.trim());
 
         // 【外部传入数据】原始指令流：注入元数据 + 摘要点/提示词（不含 agent 输出）
         String promptOneLine = prompt.replace('\n', ' ').trim();
@@ -236,13 +231,10 @@ public class AgentDebugBridge extends BroadcastReceiver {
                 + " max_tokens=" + maxTokens
                 + " thinking=" + thinking
                 + " " + tsStamp());
-        if (exposePrompt) {
-            emitRaw("[PROMPT] " + promptOneLine);                       // 显式允许：完整回显（正式文本不敏感时用）
-        } else if (summary != null && !summary.trim().isEmpty()) {
-            emitRaw("[SUMMARY] " + summary.trim());                     // 外部自愿提供的可见说明/摘要点
+        if (hasSummary) {
+            emitRaw("[SUMMARY] " + summary.trim());                     // 外部声明敏感：只显示摘要（防蒸馏模式）
         } else {
-            emitRaw("[PROMPT] 已接收 " + promptOneLine.length() + " 字符（正式文本通道：提示词由外部管理不注入；"
-                    + "防蒸馏不回显，可传 prompt_summary 提供可见说明）");
+            emitRaw("[PROMPT] " + promptOneLine);                       // 正式文本默认完整可见
         }
 
         try {
@@ -343,8 +335,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
 
                     engineHolder[0].setCallback(cb);
                     Log.i(TAG, "execute#" + attempt[0] + ": " + prompt + " (session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
-                    sb.append(exposePrompt ? "PROMPT: "
-                            : (hasSummary ? "PROMPT_SUMMARY: " : "PROMPT_PLACEHOLDER: "))
+                    sb.append(fullVisible ? "PROMPT: " : "PROMPT_SUMMARY: ")
                             .append(displayPrompt).append('\n');
                     writeStatus("running", out, displayPrompt, promptType);
                     engineHolder[0].execute(prompt, maxTokens, thinking);
