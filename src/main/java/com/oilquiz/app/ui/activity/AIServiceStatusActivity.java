@@ -391,6 +391,14 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                     }
                 });
             }
+            // 打开调试控制台（本地运行智能体 + 观测外部注入）
+            MaterialButton btnOpenDebug = findViewById(R.id.btn_open_debug);
+            if (btnOpenDebug != null) {
+                btnOpenDebug.setOnClickListener(v -> {
+                    Intent i = new Intent(AIServiceStatusActivity.this, AgentDebugActivity.class);
+                    startActivity(i);
+                });
+            }
         }
 
         if (btnTestAi != null) {
