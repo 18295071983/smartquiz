@@ -81,19 +81,26 @@ public class RedirectWebViewClient extends WebViewClient {
     /**
      * 公共静态入口：判断 URL 是否需要拦截处理（非标准 scheme）。
      * 供 WebViewActivity 等在 loadUrl 加载前调用，避免 error url scheme 错误页。
+     * 用 Uri.parse 归一化 scheme（大小写不敏感、容忍空白前缀），避免误判正常 URL。
      * @return true=已拦截处理（WebView 不应加载该 URL）
      */
     public static boolean handleExternalScheme(WebView view, String url) {
         if (url == null) return false;
-        // 标准协议 + WebView 原生支持的 scheme 放行
-        if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file://")
-                || url.startsWith("about:") || url.startsWith("data:") || url.startsWith("blob:")
-                || url.startsWith("javascript:")) {
+        String trimmed = url.trim();
+        if (trimmed.isEmpty()) return false;
+        android.net.Uri parsed = android.net.Uri.parse(trimmed);
+        String scheme = parsed.getScheme();
+        if (scheme == null) return false; // 无 scheme（域名/路径/相对地址）→ 不拦截，WebView 自行处理
+        String s = scheme.toLowerCase(java.util.Locale.US);
+        // WebView 原生支持的 scheme 放行（大小写无关）
+        if (s.equals("http") || s.equals("https") || s.equals("file")
+                || s.equals("about") || s.equals("data") || s.equals("blob")
+                || s.equals("javascript")) {
             return false;
         }
         Log.w(TAG, "拦截非标准协议 URL: " + url);
         // 非标准 scheme（tel:/mailto:/sms:/intent:/App 跳转协议/自定义协议）用系统 Intent 打开
-        return openExternalScheme(view, url);
+        return openExternalScheme(view, trimmed);
     }
 
     /**
