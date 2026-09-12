@@ -155,19 +155,15 @@ public class RedirectWebViewClient extends WebViewClient {
                     return true;
                 }
             }
-            // 系统无应用可处理：尝试从 URL 提取网页回退地址（网页版/下载页）
+            // 系统无应用可处理：优先提取 URL 中网页回退地址（网页版/下载页）
             String fallback = extractFallbackUrl(url);
             if (fallback != null && view != null) {
                 Log.d(TAG, "App 未安装，回退网页: " + fallback);
                 view.loadUrl(fallback);
                 return true;
             }
-            // 无回退地址：提示对应应用未安装
-            String appName = appNameOfScheme(scheme);
-            String tip = appName != null
-                    ? "未安装" + appName + "，请在应用商店下载"
-                    : "无法打开链接（未安装对应应用）: " + url;
-            android.widget.Toast.makeText(ctx, tip, android.widget.Toast.LENGTH_LONG).show();
+            // 无回退地址：交给系统浏览器/系统处理（有 handler 则打开，无则提示对应应用未安装）
+            launchInSystemBrowser(view, url);
             return true;
         } catch (Exception e) {
             Log.e(TAG, "处理非标准协议失败: " + url, e);
@@ -458,10 +454,11 @@ public class RedirectWebViewClient extends WebViewClient {
 
     @Override
     public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-        // 忽略不支持的 URL scheme 错误（已在 shouldOverrideUrlLoading 拦截处理，避免错误页干扰）
-        // ERROR_UNSUPPORTED_SCHEME=-10；ERR_UNKNOWN_URL_SCHEME=-14（Chromium 错误码，部分内核仍上报）
+        // ERROR_UNSUPPORTED_SCHEME=-10；ERR_UNKNOWN_URL_SCHEME=-14（Chromium 错误码）
+        // 不在应用内显示错误页：交给系统浏览器/系统处理该链接
         if (errorCode == ERROR_UNSUPPORTED_SCHEME || errorCode == -14) {
-            Log.d(TAG, "忽略不支持的 scheme 错误: " + failingUrl);
+            Log.d(TAG, "scheme 错误交系统处理: " + failingUrl);
+            launchInSystemBrowser(view, failingUrl);
             return;
         }
         super.onReceivedError(view, errorCode, description, failingUrl);
@@ -473,16 +470,49 @@ public class RedirectWebViewClient extends WebViewClient {
 
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-        // 新版 API（API 23+）：子资源/子框架错误不阻塞主页面；主框架 scheme 错误忽略
+        // 新版 API（API 23+）：子资源/子框架错误不阻塞主页面
         if (request != null && !request.isForMainFrame()) {
             super.onReceivedError(view, request, error);
             return;
         }
         if (error != null && (error.getErrorCode() == ERROR_UNSUPPORTED_SCHEME || error.getErrorCode() == -14)) {
-            Log.d(TAG, "忽略不支持的 scheme 错误(新API): " + (request != null ? request.getUrl() : ""));
+            Log.d(TAG, "scheme 错误交系统处理(新API): " + (request != null ? request.getUrl() : ""));
+            launchInSystemBrowser(view, request != null ? request.getUrl().toString() : null);
             return;
         }
         super.onReceivedError(view, request, error);
+    }
+
+    /** 上次交给系统处理 scheme 的时间（2 秒节流，防止重复触发） */
+    private static volatile long lastSchemeBrowserTs = 0L;
+
+    /**
+     * 把 scheme 链接交给系统浏览器/系统处理（不显示应用内错误页）。
+     * 有能处理的应用（含浏览器/商店）则打开；没有则友好提示。
+     */
+    private static void launchInSystemBrowser(WebView view, String url) {
+        if (view == null || url == null) return;
+        long now = System.currentTimeMillis();
+        if (now - lastSchemeBrowserTs < 2000) return; // 节流，防重复弹
+        lastSchemeBrowserTs = now;
+        android.content.Context ctx = view.getContext();
+        try {
+            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(url));
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (ctx.getPackageManager().resolveActivity(i, 0) != null) {
+                ctx.startActivity(i);
+            } else {
+                // 无任何应用可处理：按协议提示对应应用未安装
+                String appName = appNameOfScheme(android.net.Uri.parse(url).getScheme());
+                String tip = appName != null
+                        ? "未安装" + appName + "，请在应用商店下载"
+                        : "该链接需要安装对应应用才能打开";
+                android.widget.Toast.makeText(ctx, tip, android.widget.Toast.LENGTH_LONG).show();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "系统打开 scheme 失败: " + url, e);
+        }
     }
 
     /**
