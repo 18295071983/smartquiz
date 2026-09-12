@@ -137,9 +137,15 @@ public class RedirectWebViewClient extends WebViewClient {
     @Override
     @Nullable
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        // Google 广告网络过滤（googlesyndication/doubleclick/googleadservices/adservice）
+        Uri uri = request.getUrl();
+        if (isGoogleAdRequest(uri)) {
+            Log.d(TAG, "屏蔽 Google 广告请求: " + uri);
+            return new WebResourceResponse("text/plain", "UTF-8",
+                    new java.io.ByteArrayInputStream(new byte[0]));
+        }
         // hf-mirror.com / huggingface.co：运营商 DNS 污染（解析到 127.0.0.1），
         // 用带 SafeDns 的 OkHttp 代理请求，绕过 DNS 污染
-        Uri uri = request.getUrl();
         String host = uri.getHost();
         String urlStr = uri.toString();
         // .gguf 模型文件 / resolve 下载链接：不拦截，让 WebView 触发 onDownloadStart
@@ -217,6 +223,22 @@ public class RedirectWebViewClient extends WebViewClient {
             Log.e(TAG, "处理文件请求时发生错误: " + e.getMessage(), e);
             return createErrorResponse("处理文件请求时发生错误: " + e.getMessage());
         }
+    }
+
+    /**
+     * 判断是否为 Google 广告网络请求（googleads/doubleclick/adsense 等广告投放域名）
+     */
+    private boolean isGoogleAdRequest(Uri uri) {
+        String host = uri.getHost();
+        if (host == null) return false;
+        String h = host.toLowerCase(java.util.Locale.US);
+        return h.endsWith(".googlesyndication.com")
+                || h.endsWith(".doubleclick.net")
+                || h.endsWith(".googleadservices.com")
+                || h.equals("adservice.google.com")
+                || h.equals("pagead2.googleadservices.com")
+                || h.equals("pagead2.googlesyndication.com")
+                || h.startsWith("googleads.g.doubleclick.net");
     }
 
     /**
