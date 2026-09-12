@@ -905,6 +905,97 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * 多轮按轮次组装渲染：轮1(思考块+正文段) → 工具卡片 → 轮2(思考块+正文段) → …
+     * contentRoundBounds 为工具调用边界；thinkingRounds 为每轮思考；components 为工具卡片。
+     */
+    private void renderRoundAssembled(AIMessageViewHolder holder, ChatMessage message, int availableWidth, Context ctx) {
+        if (holder.contentHost == null) return;
+        String content = message.content != null ? message.content : "";
+        java.util.List<Integer> bounds = message.contentRoundBounds;
+        java.util.List<String> thinks = message.thinkingRounds;
+        java.util.List<ComponentData> comps = message.components;
+        holder.contentHost.removeAllViews();
+        // 多轮时思考块已内嵌到轮次中，隐藏原有气泡顶部思考区
+        if (holder.thinkingLabel != null) holder.thinkingLabel.setVisibility(View.GONE);
+        if (holder.thinkingContent != null) holder.thinkingContent.setVisibility(View.GONE);
+        if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
+
+        int start = 0;
+        int thinkIdx = 0;
+        int compIdx = 0;
+        for (int i = 0; i <= bounds.size(); i++) {
+            int end = (i < bounds.size()) ? bounds.get(i) : content.length();
+            if (end > content.length()) end = content.length();
+            // 该轮思考块（第 i+1 轮思考）
+            if (thinks != null && thinkIdx < thinks.size()) {
+                String t = thinks.get(thinkIdx);
+                if (t != null && !t.trim().isEmpty()) {
+                    addRoundThinkingBlock(holder, ctx, thinkIdx + 1, t.trim(), availableWidth);
+                }
+                thinkIdx++;
+            }
+            // 该轮正文段
+            String seg = start < content.length() ? content.substring(start, end) : "";
+            if (seg != null && !seg.trim().isEmpty()) {
+                TextView tv = createSegmentTextView(ctx, holder.messageText);
+                setRenderedText(tv, seg, availableWidth);
+                holder.contentHost.addView(tv);
+            }
+            start = end;
+            // 该轮后的工具卡片（第 i 个工具调用）
+            if (i < bounds.size() && comps != null && compIdx < comps.size()) {
+                ComponentData comp = comps.get(compIdx);
+                compIdx++;
+                if (comp != null) {
+                    View v = ComponentRegistry.getInstance().render(ctx, comp);
+                    if (v == null) {
+                        TextView tv = createSegmentTextView(ctx, holder.messageText);
+                        tv.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ce08c6dd)
+                                + comp.type + SmartQuizApplication.getAppContext().getString(R.string.h_56e45313));
+                        tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
+                        holder.contentHost.addView(tv);
+                    } else {
+                        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                        lp.topMargin = dpToPx(8, ctx);
+                        holder.contentHost.addView(v, lp);
+                    }
+                }
+            }
+        }
+
+        // 最终轮思考（流式中或未落库的当前轮思考，未进 thinkingRounds 时补一块）
+        String curThink = message.thinkingContent != null ? message.thinkingContent.trim() : "";
+        String lastThink = (thinks != null && !thinks.isEmpty()) ? thinks.get(thinks.size() - 1).trim() : "";
+        if (!curThink.isEmpty() && !curThink.equals(lastThink)) {
+            addRoundThinkingBlock(holder, ctx, thinkIdx + 1, curThink, availableWidth);
+        }
+    }
+
+    /** 添加一个轮次思考块（第N轮思考 加粗标题 + Markdown 内容） */
+    private void addRoundThinkingBlock(AIMessageViewHolder holder, Context ctx, int roundNo, String thinkText, int availableWidth) {
+        TextView title = new TextView(ctx);
+        title.setText(SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)
+                + roundNo + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e));
+        title.setTextSize(11f);
+        title.setTextColor(ThemeColors.attr(ctx, R.attr.colorPrimary));
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tl.topMargin = dpToPx(roundNo == 1 ? 0 : 10, ctx);
+        holder.contentHost.addView(title, tl);
+
+        TextView body = new TextView(ctx);
+        body.setTextSize(12f);
+        body.setTextColor(ThemeColors.attr(ctx, R.attr.colorOnSurfaceVariant));
+        body.setLineSpacing(0f, 1.2f);
+        body.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        setRenderedText(body, thinkText, availableWidth);
+        holder.contentHost.addView(body);
+    }
+
     private void updateThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
         // 判断是否为流式生成中
         boolean isStreaming = message.status == ChatMessage.MessageStatus.GENERATING
@@ -1564,6 +1655,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void bindMessageContent(AIMessageViewHolder holder, ChatMessage message, int availableWidth) {
         Context ctx = holder.itemView.getContext();
+        // 按轮次组装：存在工具轮次边界时，思考块+正文段+工具卡片按轮次交替渲染
+        // （轮1思考+正文 → 工具卡片 → 轮2思考+正文 → …）；单轮无边界走现有逻辑
+        if (message.contentRoundBounds != null && !message.contentRoundBounds.isEmpty()) {
+            renderRoundAssembled(holder, message, availableWidth, ctx);
+            return;
+        }
         boolean hasMarkers = ComponentContentSplitter.containsComponent(message.content);
 
         if (!hasMarkers) {

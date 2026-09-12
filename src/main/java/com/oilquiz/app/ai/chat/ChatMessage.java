@@ -205,6 +205,10 @@ public class ChatMessage {
         thinkingRounds.add(roundContent);
     }
 
+    /** 正文轮次边界：content 中每个工具调用处的位置（工具调用 = 轮次边界）。
+     *  第 i 个边界 = 第 i 轮正文结束位置；UI 按边界切分正文并与思考轮次/工具卡片组装显示。 */
+    public java.util.List<Integer> contentRoundBounds;
+
     /** 系统消息动作载荷（如本地Agent拦截时保存的原始问题，供"强行执行"按钮重发），仅运行时使用 */
     public String actionPayload;
 

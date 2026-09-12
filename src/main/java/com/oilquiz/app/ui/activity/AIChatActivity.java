@@ -6563,8 +6563,29 @@ public class AIChatActivity extends BaseActivity {
         @Override
         public void onToolCallStart(String toolCallId, String toolName, String args) {
             // 工具调用开始：插入式组件显示到 AI 消息内（执行中卡片）+ 状态栏更新
-            // 多轮回答在同一气泡内：工具卡片作为轮次分隔，不新建 AI 消息
+            // 多轮回答在同一气泡内按轮次组装：工具调用 = 轮次边界
             runOnUiThread(() -> {
+                // 记录正文轮次边界 + 落库本轮思考（思考/正文/工具卡片按轮次一一对应）
+                synchronized (streamingLock) {
+                    int idx = resolveStreamingIndex();
+                    if (idx >= 0 && idx < chatHistory.size()) {
+                        ChatMessage msg = chatHistory.get(idx);
+                        if (msg.contentRoundBounds == null) {
+                            msg.contentRoundBounds = new java.util.ArrayList<>();
+                        }
+                        int bound = currentStreamingContent != null ? currentStreamingContent.length() : 0;
+                        if (msg.contentRoundBounds.isEmpty()
+                                || msg.contentRoundBounds.get(msg.contentRoundBounds.size() - 1) != bound) {
+                            msg.contentRoundBounds.add(bound);
+                        }
+                        // 工具调用前思考落库（若本轮思考尚未结束）：思考轮次与正文轮次一一对应
+                        if (currentThinkingContent != null && currentThinkingContent.length() > 0 && !thinkingRoundEnded) {
+                            msg.addThinkingRound(currentThinkingContent.toString());
+                            thinkingRoundEnded = true; // 落库即视为结束，防 finalize 重复
+                        }
+                        if (currentThinkingContent != null) currentThinkingContent = new StringBuilder();
+                    }
+                }
                 appendAgentToolCall(toolCallId, toolName, "running", args, null);
                 setAgentStepStatus("🔧 调用 " + toolName + "...");
                 updateAgentStatusBar("🔧 调用 " + toolName + "...", true);
