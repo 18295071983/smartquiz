@@ -108,10 +108,12 @@ public class AgentDebugBridge extends BroadcastReceiver {
 
     // ---------------- 调试控制台事件总线（同进程，Activity 订阅） ----------------
 
-    /** 调试页监听器：onEvent 为日志行，onState 为状态字段（connection/status） */
+    /** 调试页监听器：onEvent 为日志行，onState 为状态字段（connection/status），
+     *  onRawEvent 为【外部传入数据】专用（注入指令/参数/校验/回执，不含 agent 输出） */
     public interface BridgeListener {
         void onEvent(String line);
         void onState(String key, String value);
+        default void onRawEvent(String line) {}
     }
 
     private static volatile BridgeListener listener;
@@ -125,6 +127,12 @@ public class AgentDebugBridge extends BroadcastReceiver {
     private static void emit(String line) {
         BridgeListener l = listener;
         if (l != null) l.onEvent(line);
+    }
+
+    /** 推送【外部传入数据】到调试页原始指令流（注入元数据/校验/回执，不含执行过程） */
+    private static void emitRaw(String line) {
+        BridgeListener l = listener;
+        if (l != null) l.onRawEvent(line);
     }
 
     /** 推送状态到调试页 */
@@ -157,6 +165,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
         String provided = intent.getStringExtra("token");
         if (expected == null || !expected.equals(provided)) {
             Log.w(TAG, "拒绝: token 不匹配 (action=" + action + ")");
+            emitRaw("[REJECT] token 不匹配 (action=" + action + ") " + tsStamp());
             return;
         }
 
@@ -164,22 +173,26 @@ public class AgentDebugBridge extends BroadcastReceiver {
             boolean on = intent.getBooleanExtra("enable", false);
             setEnabled(app, on);
             Log.i(TAG, "通道开关 -> " + (on ? "ON" : "OFF"));
+            emitRaw("[ENABLE] 外部注入通道 -> " + (on ? "ON" : "OFF") + " " + tsStamp());
             return;
         }
 
         if (!ACTION_EXEC.equals(action)) return;
         if (!isEnabled(app)) {
             Log.w(TAG, "拒绝: 通道未开启（先发 AGENT_ENABLE enable=true）");
+            emitRaw("[REJECT] 通道未开启（先发 AGENT_ENABLE enable=true） " + tsStamp());
             return;
         }
 
         String prompt = intent.getStringExtra("prompt");
         if (prompt == null || prompt.trim().isEmpty()) {
             Log.w(TAG, "拒绝: prompt 为空");
+            emitRaw("[REJECT] prompt 为空 " + tsStamp());
             return;
         }
         if (!running.compareAndSet(false, true)) {
             Log.w(TAG, "拒绝: 已有任务执行中");
+            emitRaw("[REJECT] 已有任务执行中 " + tsStamp());
             return;
         }
 
@@ -199,67 +212,126 @@ public class AgentDebugBridge extends BroadcastReceiver {
         emit("── 外部注入接收 ──");
         emit("PROMPT: " + prompt);
 
-        try {
-            OnlineToolManager tm = new OnlineToolManager(app);
-            OnlineToolManager.setInstance(tm);
-            OnlineAgentEngine engine = new OnlineAgentEngine(app, tm);
-            String sid = (session != null && !session.isEmpty()) ? session : "ext_" + ts;
-            engine.setSessionId(sid);
-            emitState("connection", "引擎就绪，会话隔离=" + sid);
+        // 【外部传入数据】原始指令流：注入请求元数据 + 提示词本体（不含 agent 输出）
+        String promptOneLine = prompt.replace('\n', ' ').trim();
+        emitRaw("[INJECT] action=AGENT_EXEC token=OK "
+                + "session=" + (session == null || session.isEmpty() ? "ext_" + ts : session)
+                + " max_tokens=" + maxTokens
+                + " thinking=" + thinking
+                + " " + tsStamp());
+        emitRaw("[PROMPT] " + promptOneLine);
 
-            AgentCallback cb = new AgentCallback() {
-                @Override public void onToken(String token) {
-                    sb.append("TOKEN: ").append(token).append('\n');
-                    emit("TOKEN: " + token);
+        try {
+            final int[] attempt = {0};
+            final boolean[] retrying = {false};
+            final int[] outTokens = {0};   // 本轮已输出的 token 数（思考+正文）
+            final String sid = (session != null && !session.isEmpty()) ? session : "ext_" + ts;
+            // 复用同一引擎实例重试：保留 messageHistory/thinkingChain，断点续传（近似）
+            final OnlineToolManager[] tmHolder = {null};
+            final OnlineAgentEngine[] engineHolder = {null};
+
+            final Runnable[] executeTask = new Runnable[1];
+            executeTask[0] = new Runnable() {
+                @Override public void run() {
+                    attempt[0]++;
+                    outTokens[0] = 0;   // 每轮重新计数（部分输出按轮判定）
+                    if (engineHolder[0] == null) {
+                        tmHolder[0] = new OnlineToolManager(app);
+                        OnlineToolManager.setInstance(tmHolder[0]);
+                        engineHolder[0] = new OnlineAgentEngine(app, tmHolder[0]);
+                        engineHolder[0].setSessionId(sid);
+                    }
+                    emitState("connection", "引擎就绪，会话隔离=" + sid
+                            + (attempt[0] > 1 ? "（第 " + attempt[0] + " 次尝试，断点续传）" : ""));
+
+                    AgentCallback cb = new AgentCallback() {
+                        @Override public void onToken(String token) {
+                            outTokens[0]++;
+                            sb.append("TOKEN: ").append(token).append('\n');
+                            emit("TOKEN: " + token);
+                        }
+                        @Override public void onThinkingToken(String token) {
+                            outTokens[0]++;
+                            sb.append("THINK: ").append(token).append('\n');
+                            emit("THINK: " + token);
+                        }
+                        @Override public void onThinkingEnd() {
+                            sb.append("-- think end --\n");
+                            emit("── 思考结束 ──");
+                        }
+                        @Override public void onToolCallStart(String id, String name, String args) {
+                            sb.append("[TOOL] ").append(name).append(' ').append(args).append('\n');
+                            emit("▶ 工具调用: " + name + " " + args);
+                        }
+                        @Override public void onToolCallComplete(String id, String name, OnlineToolResult r) {
+                            sb.append("[TOOL-OK] ").append(name).append(" -> ").append(r).append('\n');
+                            emit("✔ 工具完成: " + name + " -> " + r);
+                        }
+                        @Override public void onStepUpdate(String step, String detail) {
+                            sb.append("[STEP] ").append(step).append(' ').append(detail).append('\n');
+                            emit("[STEP] " + step + " " + detail);
+                        }
+                        @Override public void onComplete(String fullText) {
+                            sb.append("=== COMPLETE ===\n").append(fullText).append('\n');
+                            emitState("status", "✅ 完成");
+                            emit("── 执行完成 ──");
+                            emitRaw("[RESULT] done result=" + out.getName() + " " + tsStamp());
+                            save("done"); Log.i(TAG, "done -> " + out); release();
+                        }
+                        @Override public void onError(String error) {
+                            sb.append("=== ERROR ===\n").append(error).append('\n');
+                            emitState("status", "❌ 错误: " + error);
+                            emit("── 执行出错: " + error + " ──");
+                            if (outTokens[0] > 0) {
+                                // 已有输出（思考/正文任意 token）：连接是通的，中断属流式瞬时故障。
+                                // 不粗暴判为网络问题重试，保留已生成内容按「部分完成」收尾。
+                                sb.append("=== PARTIAL ===\n")
+                                    .append("连接中断，已保留部分输出（已输出 token=").append(outTokens[0]).append("）\n");
+                                emitState("status", "⚠️ 连接中断，已保留部分输出");
+                                emit("── 连接中断，已保留部分输出 ──");
+                                emitRaw("[RESULT] partial result=" + out.getName() + " " + tsStamp());
+                                Log.w(TAG, "partial (tokens=" + outTokens[0] + ", err=" + error + ") -> " + out);
+                                save("partial"); release();
+                            } else if (attempt[0] < MAX_RETRY && isNetworkError(error)) {
+                                // 零输出 + 网络类错误：连接尚未建立/首个 token 前失败，才走重连
+                                Log.w(TAG, "network error, auto retry " + attempt[0] + "/" + MAX_RETRY + ": " + error);
+                                emitState("status", "⏳ 网络中断，3 秒后自动重连（第 " + (attempt[0] + 1) + " 次）");
+                                emit("── 网络中断，3 秒后自动重连（第 " + (attempt[0] + 1) + " 次）──");
+                                emitRaw("[RETRY] 网络错误，3 秒后自动重连（第 " + (attempt[0] + 1) + " 次） " + tsStamp());
+                                retrying[0] = true;
+                                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                    retrying[0] = false;
+                                    executeTask[0].run();
+                                }, RETRY_DELAY_MS);
+                            } else {
+                                emitRaw("[RESULT] error result=" + out.getName() + " " + tsStamp());
+                                save("error"); Log.e(TAG, "error: " + error + " -> " + out); release();
+                            }
+                        }
+                        void save(String status) {
+                            try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out, true), StandardCharsets.UTF_8)) {
+                                w.write(sb.toString());
+                            } catch (Exception e) { Log.e(TAG, "save fail", e); }
+                            writeStatus(status, out, prompt);
+                        }
+                        void release() { running.set(false); pr.finish(); }
+                    };
+
+                    engineHolder[0].setCallback(cb);
+                    Log.i(TAG, "execute#" + attempt[0] + ": " + prompt + " (session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
+                    sb.append("PROMPT: ").append(prompt).append('\n');
+                    writeStatus("running", out, prompt);
+                    engineHolder[0].execute(prompt, maxTokens, thinking);
                 }
-                @Override public void onThinkingToken(String token) {
-                    sb.append("THINK: ").append(token).append('\n');
-                    emit("THINK: " + token);
-                }
-                @Override public void onThinkingEnd() {
-                    sb.append("-- think end --\n");
-                    emit("── 思考结束 ──");
-                }
-                @Override public void onToolCallStart(String id, String name, String args) {
-                    sb.append("[TOOL] ").append(name).append(' ').append(args).append('\n');
-                    emit("▶ 工具调用: " + name + " " + args);
-                }
-                @Override public void onToolCallComplete(String id, String name, OnlineToolResult r) {
-                    sb.append("[TOOL-OK] ").append(name).append(" -> ").append(r).append('\n');
-                    emit("✔ 工具完成: " + name + " -> " + r);
-                }
-                @Override public void onStepUpdate(String step, String detail) {
-                    sb.append("[STEP] ").append(step).append(' ').append(detail).append('\n');
-                    emit("[STEP] " + step + " " + detail);
-                }
-                @Override public void onComplete(String fullText) {
-                    sb.append("=== COMPLETE ===\n").append(fullText).append('\n');
-                    emitState("status", "✅ 完成");
-                    emit("── 执行完成 ──");
-                    save(); Log.i(TAG, "done -> " + out); release();
-                }
-                @Override public void onError(String error) {
-                    sb.append("=== ERROR ===\n").append(error).append('\n');
-                    emitState("status", "❌ 错误: " + error);
-                    emit("── 执行出错: " + error + " ──");
-                    save(); Log.e(TAG, "error: " + error + " -> " + out); release();
-                }
-                void save() {
-                    try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out, true), StandardCharsets.UTF_8)) {
-                        w.write(sb.toString());
-                    } catch (Exception e) { Log.e(TAG, "save fail", e); }
-                }
-                void release() { running.set(false); pr.finish(); }
             };
 
-            engine.setCallback(cb);
-            Log.i(TAG, "execute: " + prompt + " (session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
-            sb.append("PROMPT: ").append(prompt).append('\n');
-            engine.execute(prompt, maxTokens, thinking);
+            executeTask[0].run();
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                if (running.get()) {
+                if (running.get() && !retrying[0]) {
                     Log.w(TAG, "timeout " + TASK_TIMEOUT_MS + "ms, 释放并发锁");
                     emitState("status", "⏱ 超时释放并发锁");
+                    emitRaw("[RESULT] timeout result=" + out.getName() + " " + tsStamp());
+                    writeStatus("timeout", out, prompt);
                     running.set(false);
                     pr.finish();
                 }
@@ -269,11 +341,56 @@ public class AgentDebugBridge extends BroadcastReceiver {
             sb.append("INIT ERROR: ").append(t).append('\n');
             emitState("status", "❌ 初始化失败: " + t);
             emit("── 初始化失败: " + t + " ──");
+            emitRaw("[RESULT] init_error " + t + " " + tsStamp());
             try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out), StandardCharsets.UTF_8)) {
                 w.write(sb.toString());
             } catch (Exception ignored) {}
+            writeStatus("error", out, prompt);
             running.set(false);
             pr.finish();
+        }
+    }
+
+    /** 网络类瞬时故障自动重连：次数上限与间隔 */
+    private static final int MAX_RETRY = 2;
+    private static final long RETRY_DELAY_MS = 3000L;
+
+    /** 判断是否为可自动重连的网络类错误 */
+    private static boolean isNetworkError(String err) {
+        if (err == null) return false;
+        String e = err.toLowerCase();
+        return e.contains("connection") || e.contains("abort") || e.contains("socket")
+                || e.contains("timeout") || e.contains("网络") || e.contains("无法连接")
+                || e.contains("connect") || e.contains("reset") || e.contains("ioexception")
+                || e.contains("interrupted") || e.contains("dns") || e.contains("unreachable");
+    }
+
+    private static String tsStamp() {
+        return new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
+    }
+
+    /**
+     * 状态回执文件（外部轮询标准接口）：agent_bridge/status.json
+     * PC 端：adb shell cat /sdcard/Android/data/com.oilquiz.app/files/agent_bridge/status.json
+     * 或轮询该文件判断任务 running/done/error/timeout。
+     */
+    private static void writeStatus(String status, File resultFile, String prompt) {
+        try {
+            File dir = resultFile.getParentFile();
+            if (dir == null) return;
+            String promptSafe = (prompt == null ? "" : prompt)
+                    .replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+            String json = "{\"status\":\"" + status + "\",\"result\":\""
+                    + resultFile.getName() + "\",\"prompt\":\"" + promptSafe
+                    + "\",\"time\":\"" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()) + "\"}\n";
+            java.io.FileWriter w = new java.io.FileWriter(new File(dir, "status.json"));
+            try {
+                w.write(json);
+            } finally {
+                w.close();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "status write fail", e);
         }
     }
 }
