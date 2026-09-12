@@ -5,6 +5,7 @@ import android.graphics.Typeface;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -68,10 +69,17 @@ public class JsonViewerCard implements ChatComponent {
         jsonTv.setPadding(dp(context, 8), dp(context, 6), dp(context, 8), dp(context, 6));
 
         int maxHeight = p.optInt("maxHeight", 200);
+        // ScrollView 包裹：超长 JSON 内容可滚动查看（maxHeight 限制显示高度，内容不截断；
+        // 短内容自适应高度不强制撑满）
+        MaxHeightScrollView sv = new MaxHeightScrollView(context);
+        sv.setFillViewport(false);
+        sv.setVerticalScrollBarEnabled(true);
         if (maxHeight > 0) {
-            jsonTv.setMaxHeight(dp(context, maxHeight));
+            sv.setMaxHeightPx(dp(context, maxHeight));
         }
-        card.addView(jsonTv, new LinearLayout.LayoutParams(
+        sv.addView(jsonTv, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(sv, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return card;
     }
@@ -97,6 +105,27 @@ public class JsonViewerCard implements ChatComponent {
         gd.setCornerRadius(dp(context, 10));
         gd.setStroke(dp(context, 1), ComponentColors.border(context));
         return gd;
+    }
+
+    /** 支持最大高度的 ScrollView：内容超过 maxHeight 时截断滚动，短内容自适应高度 */
+    private static class MaxHeightScrollView extends android.widget.ScrollView {
+        private int maxHeightPx = Integer.MAX_VALUE;
+
+        MaxHeightScrollView(Context c) {
+            super(c);
+        }
+
+        void setMaxHeightPx(int px) {
+            maxHeightPx = px;
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            if (maxHeightPx > 0 && getMeasuredHeight() > maxHeightPx) {
+                setMeasuredDimension(getMeasuredWidth(), maxHeightPx);
+            }
+        }
     }
 
     private static int dp(Context context, float value) {
