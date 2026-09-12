@@ -200,6 +200,14 @@ public class AgentDebugBridge extends BroadcastReceiver {
         final String session = intent.getStringExtra("session");
         final int maxTokens = intent.getIntExtra("max_tokens", DEFAULT_MAX_TOKENS);
         final boolean thinking = intent.getBooleanExtra("thinking", false);
+        // 防蒸馏：外部可主动提供 prompt_summary 摘要点，我方只显示/记录摘要，不回显完整指令。
+        // expose_prompt=true 时显式允许完整回显（调试自用时）。
+        final String summary = intent.getStringExtra("prompt_summary");
+        final boolean exposePrompt = intent.getBooleanExtra("expose_prompt", false);
+        final String displayPrompt = exposePrompt ? prompt
+                : (summary != null && !summary.trim().isEmpty()
+                    ? summary.trim()
+                    : "<已接收 " + prompt.length() + " 字符，未回显>");
         final String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
         final File outDir = new File(app.getExternalFilesDir(null), "agent_bridge");
         outDir.mkdirs();
@@ -210,16 +218,23 @@ public class AgentDebugBridge extends BroadcastReceiver {
         openDebugActivity(app);
         emitState("connection", "注入已接收，正在启动引擎…");
         emit("── 外部注入接收 ──");
-        emit("PROMPT: " + prompt);
+        // 对话流：默认只显示摘要/占位，不回显完整指令（防蒸馏）
+        emit(exposePrompt ? "PROMPT: " + prompt : "PROMPT_SUMMARY: " + displayPrompt);
 
-        // 【外部传入数据】原始指令流：注入请求元数据 + 提示词本体（不含 agent 输出）
+        // 【外部传入数据】原始指令流：注入元数据 + 摘要点/提示词（不含 agent 输出）
         String promptOneLine = prompt.replace('\n', ' ').trim();
         emitRaw("[INJECT] action=AGENT_EXEC token=OK "
                 + "session=" + (session == null || session.isEmpty() ? "ext_" + ts : session)
                 + " max_tokens=" + maxTokens
                 + " thinking=" + thinking
                 + " " + tsStamp());
-        emitRaw("[PROMPT] " + promptOneLine);
+        if (exposePrompt) {
+            emitRaw("[PROMPT] " + promptOneLine);                       // 显式允许：完整回显
+        } else if (summary != null && !summary.trim().isEmpty()) {
+            emitRaw("[SUMMARY] " + summary.trim());                     // 外部主动提供的摘要点
+        } else {
+            emitRaw("[PROMPT] 已接收（未提供摘要，不回显完整指令，长度 " + promptOneLine.length() + "）");
+        }
 
         try {
             final int[] attempt = {0};
@@ -312,15 +327,15 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out, true), StandardCharsets.UTF_8)) {
                                 w.write(sb.toString());
                             } catch (Exception e) { Log.e(TAG, "save fail", e); }
-                            writeStatus(status, out, prompt);
+                            writeStatus(status, out, displayPrompt);
                         }
                         void release() { running.set(false); pr.finish(); }
                     };
 
                     engineHolder[0].setCallback(cb);
                     Log.i(TAG, "execute#" + attempt[0] + ": " + prompt + " (session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
-                    sb.append("PROMPT: ").append(prompt).append('\n');
-                    writeStatus("running", out, prompt);
+                    sb.append(exposePrompt ? "PROMPT: " : "PROMPT_SUMMARY: ").append(displayPrompt).append('\n');
+                    writeStatus("running", out, displayPrompt);
                     engineHolder[0].execute(prompt, maxTokens, thinking);
                 }
             };
@@ -331,7 +346,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     Log.w(TAG, "timeout " + TASK_TIMEOUT_MS + "ms, 释放并发锁");
                     emitState("status", "⏱ 超时释放并发锁");
                     emitRaw("[RESULT] timeout result=" + out.getName() + " " + tsStamp());
-                    writeStatus("timeout", out, prompt);
+                    writeStatus("timeout", out, displayPrompt);
                     running.set(false);
                     pr.finish();
                 }
@@ -345,7 +360,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
             try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out), StandardCharsets.UTF_8)) {
                 w.write(sb.toString());
             } catch (Exception ignored) {}
-            writeStatus("error", out, prompt);
+            writeStatus("error", out, displayPrompt);
             running.set(false);
             pr.finish();
         }

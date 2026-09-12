@@ -17,6 +17,8 @@
 |---|---|---|
 | `com.oilquiz.app.DEBUG.AGENT_ENABLE` | `token`, `enable`(bool) | 开关外部注入通道（**也必须带 token**） |
 | `com.oilquiz.app.DEBUG.AGENT_EXEC` | `token`, `prompt`, `session`(可选), `max_tokens`(可选), `thinking`(可选) | 执行一次 Agent 任务 |
+| | `prompt_summary`(可选) | **防蒸馏摘要点**：外部主动提供的指令摘要，我方只显示/记录摘要，不回显完整 prompt |
+| | `expose_prompt`(可选, bool) | 显式允许完整回显 prompt（调试自用；默认不回显） |
 
 - Android 8+ 必须显式指定组件：`-n com.oilquiz.app/.infra.AgentDebugBridge`
 - Token 在调试台页面显示/复制（默认 `7b2f328d67c2d416`，首次随机生成后持久化）
@@ -50,10 +52,27 @@ adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.i
 |---|---|
 | `[ENABLE] 外部注入通道 -> ON/OFF HH:mm:ss` | 通道开关回执 |
 | `[INJECT] action=AGENT_EXEC token=OK session=.. max_tokens=.. thinking=.. HH:mm:ss` | 注入请求元数据 |
-| `[PROMPT] <指令文本>` | 外部传入的提示词本体（用户气泡渲染） |
+| `[SUMMARY] <摘要>` | 外部提供的摘要点（默认回显形式，不回显完整指令） |
+| `[PROMPT] <指令文本>` | 完整提示词本体（仅 `expose_prompt=true` 时，用户气泡渲染） |
+| `[PROMPT] 已接收（未提供摘要，不回显完整指令，长度 N）` | 无摘要且未允许回显时的占位 |
 | `[REJECT] <原因> HH:mm:ss` | 校验拒绝回执 |
 | `[RETRY] 网络错误，3 秒后自动重连（第 N 次） HH:mm:ss` | 零输出+网络类错误触发自动重连 |
 | `[RESULT] done/partial/error/timeout/init_error result=<文件> HH:mm:ss` | 任务终态回执 |
+
+### 防蒸馏（不窃取外部指令）
+
+外部调用方可能注入**系统级机密提示词**。调试通道**默认不回显、不落盘完整 prompt**：
+
+- 外部主动传 `prompt_summary` → 我方 UI / 结果文件 / status.json **只显示该摘要**
+- 外部不传摘要 → 显示占位（`已接收 N 字符，未回显`），完整指令同样不回显
+- 仅当外部显式传 `expose_prompt=true` 时才完整回显（调试自用）
+- 完整 prompt 只在引擎内部执行，不写入任何外部可见面（调试台 UI / result 文件 / status.json / logcat）
+
+```bash
+# 防蒸馏注入示例
+adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.infra.AgentDebugBridge \
+  --es token 7b2f328d67c2d416 --es prompt '<完整机密指令>' --es prompt_summary '<外部可见摘要>'
+```
 
 对话流事件行（onEvent）：`PROMPT:` `TOKEN:` `THINK:` `[STEP]` `▶ 工具调用:` `✔ 工具完成:` 等。
 
@@ -120,5 +139,6 @@ session.stop(); session.shutdown();  // onDestroy 必须 shutdown
 | status.json running→done / error 回写 | ✅ 实测通过 |
 | 原始指令流隔离（无 TOKEN/STEP 混入） | ✅ UI dump 实证 |
 | `[INJECT]`/`[PROMPT]`/`[RESULT]` 渲染 | ✅ 实测通过 |
+| 防蒸馏：prompt_summary 只显示摘要、完整指令不入 status/result 文件 | ✅ 实测通过（status 显示摘要、结果文件仅 PROMPT_SUMMARY） |
 | 正常任务一次成功（execute#1 → done） | ✅ 实测通过 |
 | partial / retry 分支 | 代码级就位（网络状态不可控，未触发实测；分支逻辑经源码核验：引擎 abort 后 finishGeneration 复位 isGenerating） |
