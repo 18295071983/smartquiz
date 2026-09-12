@@ -913,7 +913,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 分隔线仅在思考区实际显示时可见（思考内容与正文之间）
         boolean showDivider = false;
 
-        // 多轮思考：合并展示（每轮带"第N轮"标题，完成时显示全部，流式时显示当前轮）
+        // 多轮思考：分块展示（每轮加粗标题 + 段落分隔，布局上明显分开）
         String displayContent = message.thinkingContent != null ? message.thinkingContent : "";
         if (message.thinkingRounds != null && !message.thinkingRounds.isEmpty()) {
             StringBuilder sb = new StringBuilder();
@@ -922,13 +922,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             for (int i = 0; i < rounds.size(); i++) {
                 String r = rounds.get(i);
                 if (r == null || r.trim().isEmpty()) continue;
-                sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)).append(i + 1).append(SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e)).append(r.trim());
+                if (sb.length() > 0) sb.append("\n\n");
+                String label = SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)
+                        + (i + 1) + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e);
+                sb.append("**").append(label).append("**\n").append(r.trim());
             }
             // 当前轮（最后一轮,thinkingContent 可能等于 thinkingRounds 末位，去重）
             String cur = displayContent.trim();
             String lastRound = rounds.isEmpty() ? "" : rounds.get(rounds.size() - 1).trim();
             if (!cur.isEmpty() && !cur.equals(lastRound)) {
-                sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)).append(rounds.size() + 1).append(SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e)).append(cur);
+                if (sb.length() > 0) sb.append("\n\n");
+                String label = SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)
+                        + (rounds.size() + 1) + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e);
+                sb.append("**").append(label).append("**\n").append(cur);
             }
             displayContent = sb.toString();
         }
