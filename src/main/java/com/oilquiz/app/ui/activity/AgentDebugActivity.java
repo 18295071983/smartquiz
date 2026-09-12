@@ -288,8 +288,11 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
     }
 
     private void addAi(StreamState s, String text) {
+        // 插入新 AI 消息前：刷新旧最后 AI（其 meta 隐藏，只留最终轮显示操作栏/统计/时间）
+        int oldLastAi = s.adapter.findLastAiMessageIndex();
         s.msgs.add(ChatMessage.createAIMessage(text));
         s.adapter.notifyItemInserted(s.msgs.size() - 1);
+        if (oldLastAi >= 0 && oldLastAi < s.msgs.size() - 1) s.adapter.notifyItemChanged(oldLastAi);
         scrollBottom(s);
     }
 

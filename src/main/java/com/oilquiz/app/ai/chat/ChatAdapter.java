@@ -641,7 +641,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 bindUserMessage((UserMessageViewHolder) holder, message, timeStr);
                 break;
             case VIEW_TYPE_AI:
-                bindAIMessage((AIMessageViewHolder) holder, message, timeStr);
+                bindAIMessage((AIMessageViewHolder) holder, message, timeStr, position);
                 break;
             case VIEW_TYPE_SYSTEM:
                 bindSystemMessage((SystemMessageViewHolder) holder, message);
@@ -799,7 +799,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         bindUserAttachments(holder, message);
     }
 
-    private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr) {
+    private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr, int position) {
         // 获取 messageText 的实际宽度用于表格自动换行：
         // 已布局（rebind 场景）立即按真实宽度渲染；未布局则等测量完成后渲染。
         // 修复：生成完成 rebind 时 holder 已布局、onGlobalLayoutListener 不再触发，
@@ -811,6 +811,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         holder.messageText.setMovementMethod(LinkMovementMethod.getInstance());
         holder.timestampText.setText(timeStr);
+        // 时间栏只对最终轮（最后一条 AI 消息）显示；中间轮次隐藏
+        holder.timestampText.setVisibility(isLastAiMessage(position) ? View.VISIBLE : View.GONE);
 
         // blockLabel 当前未使用，确保隐藏
         if (holder.blockLabel != null) {
@@ -826,8 +828,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         setupItemViewInteraction(holder.itemView, message);
 
+        boolean lastAi = isLastAiMessage(position);
+        // 统计栏（状态行 tokens/耗时/速度）只对最终轮显示；中间完成轮隐藏
+        if (!lastAi && message.isCompleted()) {
+            if (holder.statusText != null) holder.statusText.setVisibility(View.GONE);
+            if (holder.statusIcon != null) holder.statusIcon.setVisibility(View.GONE);
+        }
+
         if (message.isCompleted()) {
-            if (holder.actionButtons != null) holder.actionButtons.setVisibility(View.VISIBLE);
+            // 操作栏（复制/朗读/分享/重新生成）只对最终轮显示；中间轮次隐藏
+            if (holder.actionButtons != null) {
+                holder.actionButtons.setVisibility(lastAi ? View.VISIBLE : View.GONE);
+            }
 
             if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(v -> {
                 copyToClipboard(v.getContext(), message.content);
@@ -1116,6 +1128,22 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (holder.thinkingDivider != null) {
             holder.thinkingDivider.setVisibility(View.GONE);
         }
+    }
+
+    /** 判断 position 是否为列表中最后一条 AI 消息（最终轮 meta：操作栏/统计/时间 只显示在此） */
+    private boolean isLastAiMessage(int position) {
+        for (int i = position + 1; i < messages.size(); i++) {
+            if (messages.get(i).type == ChatMessage.MessageType.AI) return false;
+        }
+        return true;
+    }
+
+    /** 查找最后一条 AI 消息索引（外部插入新 AI 消息前调用，用于刷新旧消息隐藏其 meta） */
+    public int findLastAiMessageIndex() {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (messages.get(i).type == ChatMessage.MessageType.AI) return i;
+        }
+        return -1;
     }
 
     private void updateMessageStatus(AIMessageViewHolder holder, ChatMessage message) {

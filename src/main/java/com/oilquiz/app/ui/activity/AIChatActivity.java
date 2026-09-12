@@ -6636,10 +6636,17 @@ public class AIChatActivity extends BaseActivity {
                     // 新轮容器注册（pendingNewRoundMessage 在后台线程置位，UI 线程消费）
                     if (pendingNewRoundMessage) {
                         pendingNewRoundMessage = false;
+                        // 插入新 AI 消息前：刷新旧最后 AI（其 meta 隐藏，只留最终轮）
+                        int oldLastAi = chatAdapter != null ? chatAdapter.findLastAiMessageIndex() : -1;
                         ChatMessage newRoundMsg = ChatMessage.createAIMessage(
                                 currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
                         chatHistory.add(newRoundMsg);
-                        if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+                        if (chatAdapter != null) {
+                            chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+                            if (oldLastAi >= 0 && oldLastAi < chatHistory.size() - 1) {
+                                chatAdapter.notifyItemChanged(oldLastAi);
+                            }
+                        }
                     }
                     safeUpdateMessage();
                     scrollToBottom();
@@ -6660,10 +6667,17 @@ public class AIChatActivity extends BaseActivity {
                         currentThinkingContent = new StringBuilder();
                         currentStreamingMessageId = java.util.UUID.randomUUID().toString();
                         currentStreamingMessageIndex = -1;
+                        // 插入新 AI 消息前：刷新旧最后 AI（其 meta 隐藏，只留最终轮）
+                        int oldLastAi = chatAdapter != null ? chatAdapter.findLastAiMessageIndex() : -1;
                         ChatMessage newRoundMsg = ChatMessage.createAIMessage(
                                 currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
                         chatHistory.add(newRoundMsg);
-                        if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+                        if (chatAdapter != null) {
+                            chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+                            if (oldLastAi >= 0 && oldLastAi < chatHistory.size() - 1) {
+                                chatAdapter.notifyItemChanged(oldLastAi);
+                            }
+                        }
                     }
                 }
             }
