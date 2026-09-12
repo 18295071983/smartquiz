@@ -214,7 +214,7 @@ public class WebViewActivity extends BaseActivity {
         ));
         tabContainer.setBackgroundColor(uiAdapter.getSurfaceColor());
         tabContainer.setId(View.generateViewId());
-        tabContainer.setPadding(16, 8, 16, 8);
+        tabContainer.setPadding(16, 12, 16, 12);
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
             tabContainer.setElevation(3);
         }
@@ -322,8 +322,14 @@ public class WebViewActivity extends BaseActivity {
         btnRefresh.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                // 刷新当前内容
-                loadLocalHtml();
+                // 刷新当前页面（不再加载本地文件/最近文件，避免"链接错误"跳走）
+                try {
+                    if (x5WebView != null) {
+                        x5WebView.reload();
+                    }
+                } catch (Exception e) {
+                    AppLogger.e(TAG, "刷新当前页面失败: " + e.getMessage(), e);
+                }
             }
         });
         navRow.addView(btnRefresh);
@@ -338,31 +344,6 @@ public class WebViewActivity extends BaseActivity {
             }
         });
         navRow.addView(btnReset);
-
-        // 创建添加文件按钮
-        Button btnAddFile = new Button(this);
-        btnAddFile.setText(getString(R.string.h_9fb34d09));
-        btnAddFile.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ));
-        btnAddFile.setId(View.generateViewId());
-        btnAddFile.setTextColor(uiAdapter.getTextPrimaryColor());
-        btnAddFile.setPadding(24, 14, 24, 14);
-        btnAddFile.setTextSize(16);
-        btnAddFile.setAllCaps(false);
-        buttonContainer.addView(btnAddFile);
-
-        // 设置按钮背景
-        btnAddFile.setBackgroundColor(uiAdapter.getPrimaryColor());
-
-        // 设置按钮点击事件
-        btnAddFile.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openFileChooser();
-            }
-        });
     }
 
     @Override
@@ -1247,7 +1228,7 @@ public class WebViewActivity extends BaseActivity {
             
             final LinearLayout tab = new LinearLayout(this);
             tab.setOrientation(LinearLayout.HORIZONTAL);
-            tab.setPadding(16, 12, 16, 12);
+            tab.setPadding(16, 16, 16, 16);
             tab.setClickable(true);
             tab.setFocusable(true);
             tab.setFocusableInTouchMode(true);
@@ -1270,7 +1251,7 @@ public class WebViewActivity extends BaseActivity {
             } else {
                 tabTitle.setText(getString(R.string.h_20f0dc68));
             }
-            tabTitle.setTextSize(14);
+            tabTitle.setTextSize(15);
             tabTitle.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             tabTitle.setGravity(android.view.Gravity.CENTER);
             tabTitle.setSingleLine(true);
@@ -1286,8 +1267,8 @@ public class WebViewActivity extends BaseActivity {
             
             Button closeButton = new Button(this);
             closeButton.setText("×");
-            closeButton.setTextSize(16);
-            closeButton.setPadding(8, 4, 8, 4);
+            closeButton.setTextSize(18);
+            closeButton.setPadding(10, 6, 10, 6);
             closeButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
             closeButton.setAllCaps(false);
             closeButton.setBackgroundResource(android.R.color.transparent);
@@ -1664,8 +1645,8 @@ public class WebViewActivity extends BaseActivity {
     private void addNewTabButton() {
         newTabButton = new Button(this);
         newTabButton.setText("+");
-        newTabButton.setTextSize(18);
-        newTabButton.setPadding(16, 12, 16, 12);
+        newTabButton.setTextSize(22);
+        newTabButton.setPadding(18, 14, 18, 14);
         newTabButton.setTextColor(ThemeColors.attr(WebViewActivity.this, R.attr.colorControlTextSecondary));
         newTabButton.setAllCaps(false);
         newTabButton.setBackgroundResource(android.R.color.transparent);
