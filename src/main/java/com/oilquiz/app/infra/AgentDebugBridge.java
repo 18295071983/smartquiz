@@ -328,6 +328,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             emitState("status", "✅ 完成");
                             emit("── 执行完成 ──");
                             emitRaw("[RESULT] done result=" + out.getName() + " " + tsStamp());
+                            emitRaw("[ANSWER] " + oneLine(fullText, 300));
                             save("done", fullText); Log.i(TAG, "done -> " + out); release();
                         }
                         @Override public void onError(String error) {
@@ -345,6 +346,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                                 emitState("status", "⚠️ 连接中断，已保留部分输出");
                                 emit("── 连接中断，已保留部分输出 ──");
                                 emitRaw("[RESULT] partial result=" + out.getName() + " " + tsStamp());
+                                emitRaw("[ANSWER] 部分输出：" + oneLine(partialTail, 300));
                                 Log.w(TAG, "partial (tokens=" + outTokens[0] + ", err=" + error + ") -> " + out);
                                 save("partial", "连接中断，已保留部分输出（token=" + outTokens[0] + "）。\n"
                                         + "已生成尾部：" + partialTail.trim());
@@ -425,6 +427,14 @@ public class AgentDebugBridge extends BroadcastReceiver {
 
     private static String tsStamp() {
         return new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
+    }
+
+    /** 单行化 + 截断（调试台原始流 [ANSWER] 用） */
+    private static String oneLine(String s, int maxLen) {
+        if (s == null) return "";
+        String t = s.replace('\n', ' ').replace('\r', ' ').trim();
+        if (t.length() > maxLen) t = t.substring(0, maxLen) + "…";
+        return t;
     }
 
     /**
