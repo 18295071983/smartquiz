@@ -328,7 +328,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             emitState("status", "✅ 完成");
                             emit("── 执行完成 ──");
                             emitRaw("[RESULT] done result=" + out.getName() + " " + tsStamp());
-                            save("done"); Log.i(TAG, "done -> " + out); release();
+                            save("done", fullText); Log.i(TAG, "done -> " + out); release();
                         }
                         @Override public void onError(String error) {
                             sb.append("=== ERROR ===\n").append(error).append('\n');
@@ -337,13 +337,18 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             if (outTokens[0] > 0) {
                                 // 已有输出（思考/正文任意 token）：连接是通的，中断属流式瞬时故障。
                                 // 不粗暴判为网络问题重试，保留已生成内容按「部分完成」收尾。
+                                String partialTail = sb.length() > 0
+                                        ? sb.substring(Math.max(0, sb.length() - 600))
+                                        : "";
                                 sb.append("=== PARTIAL ===\n")
                                     .append("连接中断，已保留部分输出（已输出 token=").append(outTokens[0]).append("）\n");
                                 emitState("status", "⚠️ 连接中断，已保留部分输出");
                                 emit("── 连接中断，已保留部分输出 ──");
                                 emitRaw("[RESULT] partial result=" + out.getName() + " " + tsStamp());
                                 Log.w(TAG, "partial (tokens=" + outTokens[0] + ", err=" + error + ") -> " + out);
-                                save("partial"); release();
+                                save("partial", "连接中断，已保留部分输出（token=" + outTokens[0] + "）。\n"
+                                        + "已生成尾部：" + partialTail.trim());
+                                release();
                             } else if (attempt[0] < MAX_RETRY && isNetworkError(error)) {
                                 // 零输出 + 网络类错误：连接尚未建立/首个 token 前失败，才走重连
                                 Log.w(TAG, "network error, auto retry " + attempt[0] + "/" + MAX_RETRY + ": " + error);
@@ -357,14 +362,14 @@ public class AgentDebugBridge extends BroadcastReceiver {
                                 }, RETRY_DELAY_MS);
                             } else {
                                 emitRaw("[RESULT] error result=" + out.getName() + " " + tsStamp());
-                                save("error"); Log.e(TAG, "error: " + error + " -> " + out); release();
+                                save("error", "推理失败: " + error); Log.e(TAG, "error: " + error + " -> " + out); release();
                             }
                         }
-                        void save(String status) {
+                        void save(String status, String resultText) {
                             try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out, true), StandardCharsets.UTF_8)) {
                                 w.write(sb.toString());
                             } catch (Exception e) { Log.e(TAG, "save fail", e); }
-                            writeStatus(status, out, displayPrompt, promptType);
+                            writeStatus(status, out, displayPrompt, promptType, resultText);
                         }
                         void release() { running.set(false); pr.finish(); }
                     };
@@ -373,7 +378,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     Log.i(TAG, "execute#" + attempt[0] + ": " + prompt + " (session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
                     sb.append(fullVisible ? "PROMPT: " : "PROMPT_SUMMARY: ")
                             .append(displayPrompt).append('\n');
-                    writeStatus("running", out, displayPrompt, promptType);
+                    writeStatus("running", out, displayPrompt, promptType, "");
                     engineHolder[0].execute(prompt, maxTokens, thinking);
                 }
             };
@@ -384,7 +389,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     Log.w(TAG, "timeout " + TASK_TIMEOUT_MS + "ms, 释放并发锁");
                     emitState("status", "⏱ 超时释放并发锁");
                     emitRaw("[RESULT] timeout result=" + out.getName() + " " + tsStamp());
-                    writeStatus("timeout", out, displayPrompt, promptType);
+                    writeStatus("timeout", out, displayPrompt, promptType, "任务超时（120s），已释放并发锁，结果不完整");
                     running.set(false);
                     pr.finish();
                 }
@@ -398,7 +403,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
             try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out), StandardCharsets.UTF_8)) {
                 w.write(sb.toString());
             } catch (Exception ignored) {}
-            writeStatus("error", out, displayPrompt, promptType);
+            writeStatus("error", out, displayPrompt, promptType, "初始化失败: " + t);
             running.set(false);
             pr.finish();
         }
@@ -427,15 +432,19 @@ public class AgentDebugBridge extends BroadcastReceiver {
      * PC 端：adb shell cat /sdcard/Android/data/com.oilquiz.app/files/agent_bridge/status.json
      * 或轮询该文件判断任务 running/done/error/timeout。
      */
-    private static void writeStatus(String status, File resultFile, String displayPrompt, String promptType) {
+    private static void writeStatus(String status, File resultFile, String displayPrompt, String promptType, String resultText) {
         try {
             File dir = resultFile.getParentFile();
             if (dir == null) return;
             String promptSafe = (displayPrompt == null ? "" : displayPrompt)
                     .replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+            String rt = (resultText == null ? "" : resultText)
+                    .replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+            if (rt.length() > 2000) rt = rt.substring(0, 2000) + "…[截断]";
             String json = "{\"status\":\"" + status + "\",\"result\":\""
                     + resultFile.getName() + "\",\"prompt_type\":\"" + promptType
                     + "\",\"prompt\":\"" + promptSafe
+                    + "\",\"result_text\":\"" + rt
                     + "\",\"time\":\"" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()) + "\"}\n";
             java.io.FileWriter w = new java.io.FileWriter(new File(dir, "status.json"));
             try {

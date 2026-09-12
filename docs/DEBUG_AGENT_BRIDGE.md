@@ -76,16 +76,17 @@ adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.i
 - 传了 `prompt_summary` 但需要强制完整回显 → 叠加 `expose_prompt=true`
 - 完整 prompt 只在引擎内部执行，不写入任何外部可见面（调试台 UI / result 文件 / status.json / logcat）
 
-**内部消费语义（防止回传错误）**：status.json 的 `prompt_type` 字段让内部读取方**按类型判断**，不得把摘要当完整输入回传：
+**内部消费语义（防止回传错误）**：status.json 的 `prompt_type` 字段让内部读取方**按类型判断**，不得把摘要当完整输入回传；`result_text` 直接携带模型最终回答（≤2000 字符，超长截断），外部无需读文件即可看到结果：
 
 ```json
-{"status":"done","result":"result_xxx.txt","prompt_type":"full|summary","prompt":"...","time":"..."}
+{"status":"done","result":"result_xxx.txt","prompt_type":"full|summary","prompt":"...","result_text":"模型最终回答...","time":"..."}
 ```
 
-| prompt_type | 含义 | 内部使用规则 |
+| 字段 | 含义 | 内部使用规则 |
 |---|---|---|
-| `full` | 完整正式文本（默认 / expose_prompt=true） | 可安全回传/复用 |
-| `summary` | 外部声明的敏感内容摘要（prompt_summary） | 仅展示，**不可**当完整输入回传 |
+| `prompt_type` | `full`（完整正式文本）/ `summary`（外部声明敏感内容摘要） | `summary` 仅展示，**不可**当完整输入回传 |
+| `result_text` | 模型最终回答 / 部分输出尾部 / 错误信息（≤2000 字符截断） | 可直接展示/回传 |
+| `result` | 完整过程结果文件（result_<ts>.txt，含思考/步骤/工具/最终回答） | 审计用 |
 
 结果文件头部前缀同样区分：`PROMPT:`（full）/ `PROMPT_SUMMARY:`（summary），供文件消费方识别。
 
