@@ -916,10 +916,20 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         java.util.List<String> thinks = message.thinkingRounds;
         java.util.List<ComponentData> comps = message.components;
         holder.contentHost.removeAllViews();
-        // 多轮时思考块已内嵌到轮次中，隐藏原有气泡顶部思考区
-        if (holder.thinkingLabel != null) holder.thinkingLabel.setVisibility(View.GONE);
+        // 折叠机制：thinkingLabel 作为折叠开关（始终可见，流式中显示实时思考预览），
+        // 思考块仅在 thinkingExpanded 时内嵌到轮次中显示；折叠时只显示正文段+工具卡片
+        boolean expanded = message.thinkingExpanded;
+        if (holder.thinkingLabel != null) holder.thinkingLabel.setVisibility(View.VISIBLE);
         if (holder.thinkingContent != null) holder.thinkingContent.setVisibility(View.GONE);
         if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
+        // 多轮折叠开关：点击切换展开/折叠（重建轮次视图）
+        holder.thinkingLabel.setOnClickListener(v -> {
+            message.thinkingExpanded = !message.thinkingExpanded;
+            int pos = holder.getBindingAdapterPosition();
+            if (pos != RecyclerView.NO_POSITION) {
+                notifyItemChanged(pos);
+            }
+        });
 
         int start = 0;
         int thinkIdx = 0;
@@ -927,8 +937,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         for (int i = 0; i <= bounds.size(); i++) {
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
             if (end > content.length()) end = content.length();
-            // 该轮思考块（第 i+1 轮思考）
-            if (thinks != null && thinkIdx < thinks.size()) {
+            // 该轮思考块（第 i+1 轮思考，仅展开时显示）
+            if (expanded && thinks != null && thinkIdx < thinks.size()) {
                 String t = thinks.get(thinkIdx);
                 if (t != null && !t.trim().isEmpty()) {
                     addRoundThinkingBlock(holder, ctx, thinkIdx + 1, t.trim(), availableWidth);
@@ -965,10 +975,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         }
 
-        // 最终轮思考（流式中或未落库的当前轮思考，未进 thinkingRounds 时补一块）
+        // 最终轮思考（流式中或未落库的当前轮思考，未进 thinkingRounds 时补一块；仅展开时显示）
         String curThink = message.thinkingContent != null ? message.thinkingContent.trim() : "";
         String lastThink = (thinks != null && !thinks.isEmpty()) ? thinks.get(thinks.size() - 1).trim() : "";
-        if (!curThink.isEmpty() && !curThink.equals(lastThink)) {
+        if (expanded && !curThink.isEmpty() && !curThink.equals(lastThink)) {
             addRoundThinkingBlock(holder, ctx, thinkIdx + 1, curThink, availableWidth);
         }
     }
