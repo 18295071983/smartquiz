@@ -120,6 +120,18 @@ public class ListCardView implements ChatComponent {
                 card.addView(row, new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+                // 条目点击：带 url/link 时点击打开详情（http/https 应用内 WebView，文件走应用内渲染）
+                String url = item.optString("url", "");
+                String link = item.optString("link", "");
+                final String target = !TextUtils.isEmpty(url) ? url : link;
+                if (!TextUtils.isEmpty(target)) {
+                    row.setClickable(true);
+                    row.setFocusable(true);
+                    android.graphics.drawable.Drawable fg = selectableItemBackground(context);
+                    if (fg != null) row.setForeground(fg);
+                    row.setOnClickListener(v -> ComponentActions.openLink(context, target));
+                }
+
                 // 条目间分隔线
                 if (i < items.length() - 1) {
                     View divider = new View(context);
@@ -138,6 +150,14 @@ public class ListCardView implements ChatComponent {
         gd.setCornerRadius(dp(context, 10));
         gd.setStroke(dp(context, 1), ComponentColors.border(context));
         return gd;
+    }
+
+    private static android.graphics.drawable.Drawable selectableItemBackground(Context context) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true)) {
+            return context.getDrawable(tv.resourceId);
+        }
+        return null;
     }
 
     private static int dp(Context context, float value) {
