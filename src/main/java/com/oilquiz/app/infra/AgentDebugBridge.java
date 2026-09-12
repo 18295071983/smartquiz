@@ -200,16 +200,21 @@ public class AgentDebugBridge extends BroadcastReceiver {
         final String session = intent.getStringExtra("session");
         final int maxTokens = intent.getIntExtra("max_tokens", DEFAULT_MAX_TOKENS);
         final boolean thinking = intent.getBooleanExtra("thinking", false);
-        // 防蒸馏：外部可主动提供 prompt_summary 摘要点（外部自愿的可见说明，可写用途/原因），
-        // 我方只显示/记录摘要，不回显完整指令。expose_prompt=true 时显式允许完整回显（调试自用）。
+        // 防蒸馏：本通道定位为【正式文本通道】——输入应为任务正式文本，输出为模型正式回答；
+        // 提示词/系统指令由外部自行管理、不注入本通道，我方零接触。
+        // 若外部仍注入提示词性质内容：默认不回显，可传 prompt_summary 提供可见说明；expose_prompt=true 显式完整回显。
         final String summary = intent.getStringExtra("prompt_summary");
         final boolean exposePrompt = intent.getBooleanExtra("expose_prompt", false);
-        final String summaryNote = (summary != null && !summary.trim().isEmpty())
+        final boolean hasSummary = summary != null && !summary.trim().isEmpty();
+        // prompt_type：内部消费方识别依据（防止把摘要/占位当完整输入回传）
+        final String promptType = exposePrompt ? "full" : (hasSummary ? "summary" : "placeholder");
+        final String summaryNote = hasSummary
                 ? summary.trim()
-                : "已接收 " + prompt.length() + " 字符指令（防蒸馏协议：不回显完整指令，外部可传 prompt_summary 提供可见说明）";
+                : "已接收 " + prompt.length() + " 字符（正式文本通道：提示词由外部管理不注入；"
+                        + "防蒸馏不回显，可传 prompt_summary 提供可见说明）";
         final String displayPrompt = exposePrompt ? prompt : summaryNote;
-        Log.i(TAG, "prompt 已接收（" + prompt.length() + " 字符），防蒸馏协议：完整指令不回显（外部可见面仅显示摘要/占位）。"
-                + "可见说明用 prompt_summary；本地自用调试完整回显用 expose_prompt=true");
+        Log.i(TAG, "prompt 已接收（" + prompt.length() + " 字符），正式文本通道：提示词不注入、零接触；"
+                + "可见说明用 prompt_summary，本地调试完整回显用 expose_prompt=true");
         final String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
         final File outDir = new File(app.getExternalFilesDir(null), "agent_bridge");
         outDir.mkdirs();
@@ -221,7 +226,8 @@ public class AgentDebugBridge extends BroadcastReceiver {
         emitState("connection", "注入已接收，正在启动引擎…");
         emit("── 外部注入接收 ──");
         // 对话流：默认只显示摘要/占位，不回显完整指令（防蒸馏）
-        emit(exposePrompt ? "PROMPT: " + prompt : "PROMPT_SUMMARY: " + displayPrompt);
+        emit(exposePrompt ? "PROMPT: " + prompt
+                : (hasSummary ? "PROMPT_SUMMARY: " : "PROMPT_PLACEHOLDER: ") + displayPrompt);
 
         // 【外部传入数据】原始指令流：注入元数据 + 摘要点/提示词（不含 agent 输出）
         String promptOneLine = prompt.replace('\n', ' ').trim();
@@ -231,11 +237,12 @@ public class AgentDebugBridge extends BroadcastReceiver {
                 + " thinking=" + thinking
                 + " " + tsStamp());
         if (exposePrompt) {
-            emitRaw("[PROMPT] " + promptOneLine);                       // 显式允许：完整回显
+            emitRaw("[PROMPT] " + promptOneLine);                       // 显式允许：完整回显（正式文本不敏感时用）
         } else if (summary != null && !summary.trim().isEmpty()) {
             emitRaw("[SUMMARY] " + summary.trim());                     // 外部自愿提供的可见说明/摘要点
         } else {
-            emitRaw("[PROMPT] 已接收 " + promptOneLine.length() + " 字符指令（防蒸馏协议：不回显完整指令，外部可传 prompt_summary 提供可见说明）");
+            emitRaw("[PROMPT] 已接收 " + promptOneLine.length() + " 字符（正式文本通道：提示词由外部管理不注入；"
+                    + "防蒸馏不回显，可传 prompt_summary 提供可见说明）");
         }
 
         try {
@@ -329,15 +336,17 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out, true), StandardCharsets.UTF_8)) {
                                 w.write(sb.toString());
                             } catch (Exception e) { Log.e(TAG, "save fail", e); }
-                            writeStatus(status, out, displayPrompt);
+                            writeStatus(status, out, displayPrompt, promptType);
                         }
                         void release() { running.set(false); pr.finish(); }
                     };
 
                     engineHolder[0].setCallback(cb);
                     Log.i(TAG, "execute#" + attempt[0] + ": " + prompt + " (session=" + sid + ", maxTokens=" + maxTokens + ", thinking=" + thinking + ")");
-                    sb.append(exposePrompt ? "PROMPT: " : "PROMPT_SUMMARY: ").append(displayPrompt).append('\n');
-                    writeStatus("running", out, displayPrompt);
+                    sb.append(exposePrompt ? "PROMPT: "
+                            : (hasSummary ? "PROMPT_SUMMARY: " : "PROMPT_PLACEHOLDER: "))
+                            .append(displayPrompt).append('\n');
+                    writeStatus("running", out, displayPrompt, promptType);
                     engineHolder[0].execute(prompt, maxTokens, thinking);
                 }
             };
@@ -348,7 +357,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     Log.w(TAG, "timeout " + TASK_TIMEOUT_MS + "ms, 释放并发锁");
                     emitState("status", "⏱ 超时释放并发锁");
                     emitRaw("[RESULT] timeout result=" + out.getName() + " " + tsStamp());
-                    writeStatus("timeout", out, displayPrompt);
+                    writeStatus("timeout", out, displayPrompt, promptType);
                     running.set(false);
                     pr.finish();
                 }
@@ -362,7 +371,7 @@ public class AgentDebugBridge extends BroadcastReceiver {
             try (OutputStreamWriter w = new OutputStreamWriter(new FileOutputStream(out), StandardCharsets.UTF_8)) {
                 w.write(sb.toString());
             } catch (Exception ignored) {}
-            writeStatus("error", out, displayPrompt);
+            writeStatus("error", out, displayPrompt, promptType);
             running.set(false);
             pr.finish();
         }
@@ -391,14 +400,15 @@ public class AgentDebugBridge extends BroadcastReceiver {
      * PC 端：adb shell cat /sdcard/Android/data/com.oilquiz.app/files/agent_bridge/status.json
      * 或轮询该文件判断任务 running/done/error/timeout。
      */
-    private static void writeStatus(String status, File resultFile, String prompt) {
+    private static void writeStatus(String status, File resultFile, String displayPrompt, String promptType) {
         try {
             File dir = resultFile.getParentFile();
             if (dir == null) return;
-            String promptSafe = (prompt == null ? "" : prompt)
+            String promptSafe = (displayPrompt == null ? "" : displayPrompt)
                     .replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
             String json = "{\"status\":\"" + status + "\",\"result\":\""
-                    + resultFile.getName() + "\",\"prompt\":\"" + promptSafe
+                    + resultFile.getName() + "\",\"prompt_type\":\"" + promptType
+                    + "\",\"prompt\":\"" + promptSafe
                     + "\",\"time\":\"" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()) + "\"}\n";
             java.io.FileWriter w = new java.io.FileWriter(new File(dir, "status.json"));
             try {
