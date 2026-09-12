@@ -60,6 +60,10 @@ public class WebViewActivity extends BaseActivity {
     private java.util.ArrayList<TextView> tabList;
     private int currentTabIndex = 0;
     private Button newTabButton;
+
+    // 壳能力移植：Web 侧权限请求桥接状态（requestPermission 回调）
+    private String pendingBridgePermission = null;
+    private String pendingBridgeCallback = null;
     
     // 文件监控
     private android.os.FileObserver exportDirObserver;
@@ -538,9 +542,90 @@ public class WebViewActivity extends BaseActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // 壳桥权限请求结果转发（Web 侧 requestPermission 回调）
+        if (pendingBridgePermission != null) {
+            boolean granted = grantResults.length > 0;
+            for (int r : grantResults) {
+                if (r != android.content.pm.PackageManager.PERMISSION_GRANTED) granted = false;
+            }
+            dispatchPermissionResult(pendingBridgePermission, granted);
+            pendingBridgePermission = null;
+            pendingBridgeCallback = null;
+            return;
+        }
         // 处理权限请求结果
         if (permissionProvider != null) {
             permissionProvider.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        }
+    }
+
+    /** 壳桥：Web 权限名 → Android 权限（"camera"/"mic"/"storage"/"notification"/"location"） */
+    private String[] bridgePermissionMapping(String name) {
+        if (name == null) return null;
+        switch (name.trim().toLowerCase(java.util.Locale.US)) {
+            case "camera":
+                return new String[]{android.Manifest.permission.CAMERA};
+            case "mic":
+            case "microphone":
+                return new String[]{android.Manifest.permission.RECORD_AUDIO};
+            case "storage":
+            case "media":
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    return new String[]{
+                            android.Manifest.permission.READ_MEDIA_IMAGES,
+                            android.Manifest.permission.READ_MEDIA_VIDEO,
+                            android.Manifest.permission.READ_MEDIA_AUDIO};
+                }
+                return new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE};
+            case "notification":
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    return new String[]{android.Manifest.permission.POST_NOTIFICATIONS};
+                }
+                return new String[0];
+            case "location":
+                return new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION};
+            default:
+                return null;
+        }
+    }
+
+    /** 壳桥：权限请求结果回调到 Web（window['cb'](json)） */
+    private void dispatchPermissionResult(String permission, boolean granted) {
+        org.json.JSONObject out = new org.json.JSONObject();
+        try {
+            out.put("permission", permission);
+            out.put("granted", granted);
+        } catch (Exception ignored) { }
+        final String cb = pendingBridgeCallback == null ? "" : pendingBridgeCallback;
+        final String js = "window['" + cb + "'] && window['" + cb + "'](" + org.json.JSONObject.quote(out.toString()) + ");";
+        runOnUiThread(() -> {
+            try {
+                if (x5WebView != null) x5WebView.evaluateJavascript(js, null);
+            } catch (Exception ignored) { }
+        });
+    }
+
+    /** 根据文件扩展名返回 MIME 类型（分享文件用） */
+    private static String mimeOf(String fileName) {
+        String n = fileName == null ? "" : fileName.toLowerCase(java.util.Locale.US);
+        int dot = n.lastIndexOf('.');
+        String ext = dot >= 0 ? n.substring(dot) : "";
+        switch (ext) {
+            case ".png": return "image/png";
+            case ".jpg": case ".jpeg": return "image/jpeg";
+            case ".gif": return "image/gif";
+            case ".webp": return "image/webp";
+            case ".pdf": return "application/pdf";
+            case ".txt": return "text/plain";
+            case ".html": case ".htm": return "text/html";
+            case ".json": return "application/json";
+            case ".csv": return "text/csv";
+            case ".xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            case ".docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case ".mp3": return "audio/mpeg";
+            case ".mp4": return "video/mp4";
+            case ".zip": return "application/zip";
+            default: return "*/*";
         }
     }
 
@@ -2398,7 +2483,141 @@ public class WebViewActivity extends BaseActivity {
                 startActivity(intent);
             });
         }
-        
+
+        // ==================== 壳能力移植：系统交互接口 ====================
+
+        @JavascriptInterface
+        public String getVersion() {
+            org.json.JSONObject o = new org.json.JSONObject();
+            try {
+                o.put("versionName", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
+                o.put("versionCode", getPackageManager().getPackageInfo(getPackageName(), 0).versionCode);
+            } catch (Exception ignored) { }
+            return o.toString();
+        }
+
+        @JavascriptInterface
+        public String isCharging() {
+            try {
+                android.content.IntentFilter filter = new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+                android.content.Intent status = registerReceiver(null, filter);
+                int plugged = status == null ? 0 : status.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1);
+                return String.valueOf(plugged != 0);
+            } catch (Exception e) {
+                return "false";
+            }
+        }
+
+        @JavascriptInterface
+        public String getStorageInfo() {
+            org.json.JSONObject o = new org.json.JSONObject();
+            try {
+                java.io.File data = android.os.Environment.getDataDirectory();
+                android.os.StatFs sf = new android.os.StatFs(data.getPath());
+                long total = sf.getTotalBytes(), free = sf.getAvailableBytes();
+                o.put("internalTotalMB", total / 1048576L);
+                o.put("internalFreeMB", free / 1048576L);
+                java.io.File ext = android.os.Environment.getExternalStorageDirectory();
+                if (ext != null && ext.exists()) {
+                    android.os.StatFs ef = new android.os.StatFs(ext.getPath());
+                    o.put("externalTotalMB", ef.getTotalBytes() / 1048576L);
+                    o.put("externalFreeMB", ef.getAvailableBytes() / 1048576L);
+                } else {
+                    o.put("externalTotalMB", 0);
+                    o.put("externalFreeMB", 0);
+                }
+            } catch (Exception ignored) { }
+            return o.toString();
+        }
+
+        @JavascriptInterface
+        public void haptic() {
+            vibrate(20);
+        }
+
+        @JavascriptInterface
+        public void exit() {
+            runOnUiThread(WebViewActivity.this::finish);
+        }
+
+        @JavascriptInterface
+        public void requestPermission(String name, String callbackName) {
+            if (callbackName == null || !callbackName.matches("[A-Za-z0-9_]{1,64}")) return;
+            final String cb = callbackName;
+            final String[] perms = bridgePermissionMapping(name);
+            if (perms == null) {
+                pendingBridgePermission = name;
+                pendingBridgeCallback = cb;
+                dispatchPermissionResult(name, false);
+                pendingBridgePermission = null;
+                pendingBridgeCallback = null;
+                return;
+            }
+            if (perms.length == 0) {
+                pendingBridgePermission = name;
+                pendingBridgeCallback = cb;
+                dispatchPermissionResult(name, true);
+                pendingBridgePermission = null;
+                pendingBridgeCallback = null;
+                return;
+            }
+            boolean allGranted = true;
+            for (String p : perms) {
+                if (checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED) allGranted = false;
+            }
+            if (allGranted) {
+                pendingBridgePermission = name;
+                pendingBridgeCallback = cb;
+                dispatchPermissionResult(name, true);
+                pendingBridgePermission = null;
+                pendingBridgeCallback = null;
+                return;
+            }
+            pendingBridgePermission = name;
+            pendingBridgeCallback = cb;
+            runOnUiThread(() -> requestPermissions(perms, 0x5E11));
+        }
+
+        @JavascriptInterface
+        public void openAppSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent i = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                } catch (Exception e) {
+                    android.widget.Toast.makeText(WebViewActivity.this, "无法打开设置", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        /** 分享文件：支持绝对路径或相对 filesDir 的路径（如 "export/report.xlsx"） */
+        @JavascriptInterface
+        public void shareFile(String path) {
+            if (path == null || path.isEmpty()) return;
+            runOnUiThread(() -> {
+                try {
+                    java.io.File f = new java.io.File(path);
+                    if (!f.isAbsolute()) {
+                        f = new java.io.File(getFilesDir(), path);
+                    }
+                    if (!f.isFile()) {
+                        android.widget.Toast.makeText(WebViewActivity.this, "文件不存在: " + path, android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                            WebViewActivity.this, "com.oilquiz.app.fileprovider", f);
+                    Intent i = new Intent(Intent.ACTION_SEND);
+                    i.setType(mimeOf(f.getName()));
+                    i.putExtra(Intent.EXTRA_STREAM, uri);
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(i, "分享文件"));
+                } catch (Exception e) {
+                    android.widget.Toast.makeText(WebViewActivity.this, "分享失败: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
         // ==================== 题目相关功能接口 ====================
         
         @JavascriptInterface
