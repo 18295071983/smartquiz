@@ -63,15 +63,21 @@ adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.i
 
 外部调用方可能注入**系统级机密提示词**。调试通道**默认不回显、不落盘完整 prompt**：
 
-- 外部主动传 `prompt_summary` → 我方 UI / 结果文件 / status.json **只显示该摘要**
-- 外部不传摘要 → 显示占位（`已接收 N 字符，未回显`），完整指令同样不回显
+- **prompt_summary 是外部自愿提供的「可见说明」**：可写指令用途、注入原因、为何要这么做等，我方原样展示——外部看到显示内容即明白，不会误会我方隐瞒
+- 外部不传摘要 → 我方显示**协议说明占位**（"已接收 N 字符指令（防蒸馏协议：不回显完整指令，外部可传 prompt_summary 提供可见说明）"），外部看到即明白约定与原因
 - 仅当外部显式传 `expose_prompt=true` 时才完整回显（调试自用）
 - 完整 prompt 只在引擎内部执行，不写入任何外部可见面（调试台 UI / result 文件 / status.json / logcat）
 
+**同一口径同时服务内部**：内部人员/组件看到「未回显」占位或说明日志时，不会被误解为功能故障——
+显示层、结果文件、status.json、logcat 四处的文案统一声明这是**防蒸馏协议行为**，并给出两条解除路径：
+- 需要可见说明 → 传 `prompt_summary`
+- 本地自用需要完整回显 → 传 `expose_prompt=true`
+
 ```bash
-# 防蒸馏注入示例
+# 防蒸馏注入示例：摘要写明"为何要这么做"
 adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.infra.AgentDebugBridge \
-  --es token 7b2f328d67c2d416 --es prompt '<完整机密指令>' --es prompt_summary '<外部可见摘要>'
+  --es token 7b2f328d67c2d416 --es prompt '<完整机密指令>' \
+  --es prompt_summary '系统级安全指令（含内部规则）。为避免提示词蒸馏，我方不暴露完整内容，仅提供此说明供调试台展示'
 ```
 
 对话流事件行（onEvent）：`PROMPT:` `TOKEN:` `THINK:` `[STEP]` `▶ 工具调用:` `✔ 工具完成:` 等。

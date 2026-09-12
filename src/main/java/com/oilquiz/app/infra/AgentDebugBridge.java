@@ -200,14 +200,16 @@ public class AgentDebugBridge extends BroadcastReceiver {
         final String session = intent.getStringExtra("session");
         final int maxTokens = intent.getIntExtra("max_tokens", DEFAULT_MAX_TOKENS);
         final boolean thinking = intent.getBooleanExtra("thinking", false);
-        // 防蒸馏：外部可主动提供 prompt_summary 摘要点，我方只显示/记录摘要，不回显完整指令。
-        // expose_prompt=true 时显式允许完整回显（调试自用时）。
+        // 防蒸馏：外部可主动提供 prompt_summary 摘要点（外部自愿的可见说明，可写用途/原因），
+        // 我方只显示/记录摘要，不回显完整指令。expose_prompt=true 时显式允许完整回显（调试自用）。
         final String summary = intent.getStringExtra("prompt_summary");
         final boolean exposePrompt = intent.getBooleanExtra("expose_prompt", false);
-        final String displayPrompt = exposePrompt ? prompt
-                : (summary != null && !summary.trim().isEmpty()
-                    ? summary.trim()
-                    : "<已接收 " + prompt.length() + " 字符，未回显>");
+        final String summaryNote = (summary != null && !summary.trim().isEmpty())
+                ? summary.trim()
+                : "已接收 " + prompt.length() + " 字符指令（防蒸馏协议：不回显完整指令，外部可传 prompt_summary 提供可见说明）";
+        final String displayPrompt = exposePrompt ? prompt : summaryNote;
+        Log.i(TAG, "prompt 已接收（" + prompt.length() + " 字符），防蒸馏协议：完整指令不回显（外部可见面仅显示摘要/占位）。"
+                + "可见说明用 prompt_summary；本地自用调试完整回显用 expose_prompt=true");
         final String ts = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
         final File outDir = new File(app.getExternalFilesDir(null), "agent_bridge");
         outDir.mkdirs();
@@ -231,9 +233,9 @@ public class AgentDebugBridge extends BroadcastReceiver {
         if (exposePrompt) {
             emitRaw("[PROMPT] " + promptOneLine);                       // 显式允许：完整回显
         } else if (summary != null && !summary.trim().isEmpty()) {
-            emitRaw("[SUMMARY] " + summary.trim());                     // 外部主动提供的摘要点
+            emitRaw("[SUMMARY] " + summary.trim());                     // 外部自愿提供的可见说明/摘要点
         } else {
-            emitRaw("[PROMPT] 已接收（未提供摘要，不回显完整指令，长度 " + promptOneLine.length() + "）");
+            emitRaw("[PROMPT] 已接收 " + promptOneLine.length() + " 字符指令（防蒸馏协议：不回显完整指令，外部可传 prompt_summary 提供可见说明）");
         }
 
         try {
