@@ -1,0 +1,20 @@
+{
+  "version": 7,
+  "note": "壳 v7 内置前端库清单。本地模式自动注入到 htmlDir/libs/（不覆盖同名文件）。HTML 中直接以相对路径引用，如 <script src=\"libs/vue.global.prod.js\">、<link rel=\"stylesheet\" href=\"libs/katex/katex.min.css\">。v7 新增 highlight.js（代码高亮）与 DOMPurify（XSS 净化）。",
+  "libs": [
+    { "file": "jquery.min.js", "name": "jQuery", "version": "3.7.1", "type": "js", "desc": "经典 DOM/事件/Ajax 库" },
+    { "file": "vue.global.prod.js", "name": "Vue", "version": "3.4.38", "type": "js", "desc": "Vue 3 全量构建（含模板编译器），createApp 直接可用" },
+    { "file": "axios.min.js", "name": "Axios", "version": "1.7.7", "type": "js", "desc": "HTTP 客户端；跨域受限时优先用 AndroidApp.request()" },
+    { "file": "dayjs.min.js", "name": "Day.js", "version": "1.11.13", "type": "js", "desc": "轻量日期库" },
+    { "file": "echarts.min.js", "name": "ECharts", "version": "5.5.0", "type": "js", "desc": "专业数据可视化引擎（图表/统计/成绩曲线）" },
+    { "file": "katex/katex.min.js", "name": "KaTeX", "version": "0.16.11", "type": "js", "desc": "数学公式渲染引擎；需同时引入 katex/katex.min.css 与 katex/fonts/" },
+    { "file": "katex/katex.min.css", "name": "KaTeX CSS", "version": "0.16.11", "type": "css", "desc": "KaTeX 样式（含字体引用）" },
+    { "file": "katex/fonts/", "name": "KaTeX Fonts", "version": "0.16.11", "type": "font", "desc": "KaTeX 全部 19 个 woff2 字体" },
+    { "file": "marked.min.js", "name": "Marked", "version": "12.0.1", "type": "js", "desc": "Markdown 渲染引擎" },
+    { "file": "lodash.min.js", "name": "Lodash", "version": "4.17.21", "type": "js", "desc": "实用工具函数库" },
+    { "file": "highlight.min.js", "name": "Highlight.js", "version": "11.9.0", "type": "js", "desc": "代码高亮；配合 hljs.min.css 或自写样式" },
+    { "file": "dompurify.min.js", "name": "DOMPurify", "version": "3.1.6", "type": "js", "desc": "XSS 净化；DOMPurify.sanitize(html) 渲染不可信内容" },
+    { "file": "animate.min.css", "name": "Animate.css", "version": "4.1.1", "type": "css", "desc": "CSS 动画类" },
+    { "file": "normalize.min.css", "name": "Normalize.css", "version": "8.0.1", "type": "css", "desc": "样式重置" }
+  ]
+}

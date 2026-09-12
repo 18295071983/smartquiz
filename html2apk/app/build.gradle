@@ -1,0 +1,65 @@
+// ============================================================
+// html2apk app 模块：纯 WebView 壳（无 AndroidX / Kotlin 依赖）
+// 打包参数通过 export_apk.ps1 生成的 build_config.properties 注入
+// ============================================================
+plugins { id 'com.android.application' }
+
+// ---- 读取构建配置（UTF-8），键值来自 export_apk.ps1 ----
+def props = new Properties()
+def cfgPath = project.findProperty('configFile')
+if (cfgPath) {
+    def f = file(cfgPath)
+    if (f.exists()) {
+        f.withInputStream { ins ->
+            props.load(new InputStreamReader(ins, 'UTF-8'))
+        }
+    }
+}
+def str = { key, defVal -> (props.getProperty(key) ?: defVal).toString() }
+
+def appName      = str('appName', 'HTML App')
+def appPackage   = str('appPackage', 'com.html2apk.wrapper')
+def appVersionName = str('appVersionName', '1.0.0')
+def appVersionCode  = (str('appVersionCode', '1') as String).toInteger()
+def ksPath       = str('ksPath', 'keystore/html2apk-release.keystore')
+def ksPass       = str('ksPass', 'html2apk123')
+def ksAlias      = str('ksAlias', 'html2apk')
+def ksAliasPass  = str('ksAliasPass', 'html2apk123')
+
+android {
+    namespace 'com.html2apk.wrapper'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId appPackage
+        minSdk 21
+        targetSdk 34
+        versionCode appVersionCode
+        versionName appVersionName
+        // 应用显示名（支持中文），由 export_apk.ps1 注入
+        manifestPlaceholders = [appLabel: appName]
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(ksPath)
+            storePassword ksPass
+            keyAlias ksAlias
+            keyPassword ksAliasPass
+            enableV1Signing true
+            enableV2Signing true
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

@@ -1,0 +1,10 @@
+# 忽略构建产物
+.gradle/
+build/
+app/build/
+local.properties
+build_config.properties
+keystore/*.keystore
+out/
+*.apk
+.idea/

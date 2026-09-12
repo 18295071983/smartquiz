@@ -1,0 +1,43 @@
+// ============================================================
+// apk_shell：SmartQuiz 设备端 APK 导出壳（壳模板源码）
+// 构建产物 app-release-unsigned.apk → 重命名为 base.apk 放入
+// src/main/assets/apk_shell/base.apk（ApkPacker 会剥离签名并注入 dt.jet）
+// ============================================================
+plugins { id 'com.android.application' version '8.4.0' }
+
+android {
+    namespace 'com.cjhtmldemo.apk'
+    compileSdk 34
+
+    defaultConfig {
+        // 包名占位：com.cjhtmldemo.xxxxxxxxxxxxx（28 字符）。
+        // ApkPacker 导出时在 AndroidManifest.xml(AXML) 字符串池中做"等长子串替换"，
+        // 把 xxxxxxx 段替换为按 apk_name/app_name 派生的 slug（p+12位sha1hex=13字符），
+        // 使每个导出包拥有独立 applicationId，可同时安装共存（不再互相覆盖）。
+        // 注意：占位 [a-z] 段必须恰为 13 个 x（与 slug 等长），总长 28；勿改长度；
+        // 改后必须重跑 tools/gen_meta.py 并重新替换 src/main/assets/apk_shell/base.apk。
+        applicationId "com.cjhtmldemo.xxxxxxxxxxxxx"
+        // minSdk 26（Android 8.0+）：不向下兼容旧机，换取现代 API（VibrationEffect/通知渠道/新权限模型等）
+        minSdk 26
+        targetSdk 34
+        versionCode 7
+        versionName "7.0"
+    }
+
+    buildTypes {
+        release {
+            // 模板无需签名：ApkPacker 导出时用 export.keystore 重新签名
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // FileProvider（分享壳内文件）；1.13.0 已在本机 Gradle 缓存，离线可构建
+    implementation 'androidx.core:core:1.13.0'
+}

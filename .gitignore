@@ -235,3 +235,9 @@ src/main/assets/asr/*.onnx
 src/main/cpp/build-*/
 logcat*.txt
 viewer/src/main/jniLibs/**/liblo-native-code.so
+
+# APK 导出底座：签名密钥与旧模板备份（不入库）
+src/main/assets/apk_shell/export.keystore
+src/main/assets/apk_shell/base.apk.bak_*
+apk_shell/local.properties
+!src/main/assets/apk_shell/base.apk

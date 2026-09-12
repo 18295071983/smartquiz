@@ -1359,6 +1359,78 @@
                         android:layout_height="wrap_content"
                         android:background="@drawable/bg_spinner"/>
                 </LinearLayout>
+
+                <!-- ======== 开发者调试通道（AgentDebugBridge）======== -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:background="?attr/colorDivider"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:text="开发者调试通道"
+                    android:textSize="@dimen/text_14"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlTextSecondary"/>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="启用外部注入通道"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/bridge_enabled_switch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="通道 Token"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                    <TextView
+                        android:id="@+id/tv_bridge_token"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/space_12"
+                        android:layout_marginEnd="@dimen/space_12"
+                        android:gravity="end"
+                        android:fontFamily="monospace"
+                        android:textSize="@dimen/text_12"
+                        android:textColor="?attr/colorOnSurface"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_copy_bridge_token"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="@dimen/size_64"
+                        android:text="复制"
+                        android:textSize="@dimen/text_12"/>
+                </LinearLayout>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="外部注入：adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC -n com.oilquiz.app/.infra.AgentDebugBridge --es token &lt;Token&gt; --es prompt &quot;指令&quot;；详见 DEBUG_AGENT_BRIDGE.md"
+                    android:textSize="@dimen/text_11"
+                    android:textColor="?attr/colorControlTextSecondary"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

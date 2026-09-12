@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 本地模式 HTML 解压目录 filesDir/html -->
+    <files-path name="html" path="html/" />
+</paths>

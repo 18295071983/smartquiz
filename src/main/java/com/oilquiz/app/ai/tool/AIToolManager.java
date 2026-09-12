@@ -217,6 +217,7 @@ public class AIToolManager {
         registerToolFactory("file_reader", FileReaderTool.class, FileReaderTool::new);
         registerToolFactory("file_analyzer", FileAnalyzerTool.class, FileAnalyzerTool::new);
         registerToolFactory("file_generator", FileGeneratorTool.class, FileGeneratorTool::new);
+        registerToolFactory("export_apk", ExportApkTool.class, ExportApkTool::new); // Agent 导出 HTML→APK（设备端壳打包）
         registerToolFactory("permission_manager", PermissionManagerTool.class, PermissionManagerTool::new);
         registerToolFactory("app_operation", AppOperationTool.class, AppOperationTool::new);
         registerToolFactory("location", LocationTool.class, LocationTool::new);

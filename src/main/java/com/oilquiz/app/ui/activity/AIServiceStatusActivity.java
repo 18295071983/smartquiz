@@ -2,6 +2,7 @@ package com.oilquiz.app.ui.activity;
 
 import com.oilquiz.app.theme.ThemeColors;
 
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
@@ -19,6 +20,9 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 
 import com.oilquiz.app.R;
+import com.oilquiz.app.infra.AgentDebugBridge;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import com.oilquiz.app.ai.inference.InferenceRouter;
 import com.oilquiz.app.ai.model.ModelManager;
 import com.oilquiz.app.ai.model.OnlineModelManager;
@@ -363,6 +367,30 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         // FC 开关已合并到本地 Agent，隐藏独立开关
         if (localFcSwitch != null) {
             localFcSwitch.setVisibility(View.GONE);
+        }
+
+        // ===== 开发者调试通道（AgentDebugBridge）：可视化开关 + Token 显示/复制 =====
+        SwitchMaterial bridgeEnabledSwitch = findViewById(R.id.bridge_enabled_switch);
+        TextView tvBridgeToken = findViewById(R.id.tv_bridge_token);
+        MaterialButton btnCopyBridgeToken = findViewById(R.id.btn_copy_bridge_token);
+        if (bridgeEnabledSwitch != null && tvBridgeToken != null) {
+            bridgeEnabledSwitch.setChecked(AgentDebugBridge.isEnabled(this));
+            tvBridgeToken.setText(AgentDebugBridge.getToken(this));
+            bridgeEnabledSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                AgentDebugBridge.setEnabled(AIServiceStatusActivity.this, isChecked);
+                Toast.makeText(AIServiceStatusActivity.this,
+                        isChecked ? "外部注入通道已开启" : "外部注入通道已关闭",
+                        Toast.LENGTH_SHORT).show();
+            });
+            if (btnCopyBridgeToken != null) {
+                btnCopyBridgeToken.setOnClickListener(v -> {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("AgentBridgeToken", tvBridgeToken.getText()));
+                        Toast.makeText(AIServiceStatusActivity.this, "Token 已复制", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
         }
 
         if (btnTestAi != null) {

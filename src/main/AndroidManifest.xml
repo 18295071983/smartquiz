@@ -99,6 +99,21 @@
                 <action android:name="com.oilquiz.app.DEBUG_INJECT_HOST" />
             </intent-filter>
         </receiver>
+        <!-- 正式 debug 能力：外部 agent 注入通道（token 授权 + 默认关闭），用法见 DEBUG_AGENT_BRIDGE.md -->
+        <receiver
+            android:name=".infra.AgentDebugBridge"
+            android:exported="true"
+            android:label="AgentDebugBridge">
+            <intent-filter>
+                <action android:name="com.oilquiz.app.DEBUG.AGENT_EXEC" />
+                <action android:name="com.oilquiz.app.DEBUG.AGENT_ENABLE" />
+            </intent-filter>
+        </receiver>
+        <!-- Agent 调试控制台（注入触发时自动跳转，仅应用内启动） -->
+        <activity
+            android:name=".ui.activity.AgentDebugActivity"
+            android:exported="false"
+            android:label="Agent 调试控制台" />
         <activity
             android:name=".infra.DebugKeyInjectActivity"
             android:exported="false"

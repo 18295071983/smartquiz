@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>html2apk 演示应用</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(160deg, #4338ca 0%, #6d28d9 55%, #db2777 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px 20px; color: #fff;
+  }
+  .card {
+    background: rgba(255,255,255,.12);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,.25);
+    border-radius: 24px;
+    padding: 36px 32px;
+    width: 100%; max-width: 360px;
+    text-align: center;
+    box-shadow: 0 24px 60px rgba(0,0,0,.35);
+  }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .sub { font-size: 13px; opacity: .8; margin-bottom: 28px; }
+  .clock { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; margin-bottom: 28px; }
+  .btn-row { display: flex; gap: 12px; justify-content: center; margin-bottom: 20px; }
+  button {
+    flex: 1; padding: 14px 0; border: 0; border-radius: 14px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: transform .12s, opacity .12s;
+  }
+  button:active { transform: scale(.95); }
+  .btn-primary { background: #fff; color: #4338ca; }
+  .btn-ghost { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.35); }
+  .count { font-size: 15px; opacity: .9; }
+  .badge {
+    display: inline-block; margin-top: 22px; padding: 6px 14px; border-radius: 999px;
+    background: rgba(255,255,255,.16); font-size: 12px; opacity: .85;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>html2apk 演示应用</h1>
+    <p class="sub">这段 HTML 已被打包进 APK，由 WebView 渲染</p>
+    <div class="clock" id="clock">--:--:--</div>
+    <div class="btn-row">
+      <button class="btn-primary" id="inc">计数 +1</button>
+      <button class="btn-ghost" id="reset">重置</button>
+    </div>
+    <p class="count">当前计数：<b id="count">0</b>（localStorage 持久化）</p>
+    <span class="badge" id="status">正在检测环境…</span>
+  </div>
+
+<script>
+  var countEl = document.getElementById('count');
+  var statusEl = document.getElementById('status');
+
+  // localStorage 持久化验证
+  var count = parseInt(localStorage.getItem('demo_count') || '0', 10);
+  countEl.textContent = count;
+
+  document.getElementById('inc').addEventListener('click', function () {
+    count += 1;
+    localStorage.setItem('demo_count', String(count));
+    countEl.textContent = count;
+  });
+  document.getElementById('reset').addEventListener('click', function () {
+    count = 0;
+    localStorage.removeItem('demo_count');
+    countEl.textContent = 0;
+  });
+
+  // 时钟
+  function tick() {
+    var d = new Date();
+    var p = function (n) { return n < 10 ? '0' + n : '' + n; };
+    document.getElementById('clock').textContent =
+      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  tick(); setInterval(tick, 1000);
+
+  // 环境检测
+  var ua = navigator.userAgent;
+  var webview = /wv|WebView/i.test(ua) || /html2apk/i.test(ua);
+  statusEl.textContent = webview ? '运行环境：Android WebView ✓' : '运行环境：普通浏览器';
+</script>
+</body>
+</html>
