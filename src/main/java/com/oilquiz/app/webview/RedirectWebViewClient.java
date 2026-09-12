@@ -56,11 +56,16 @@ public class RedirectWebViewClient extends WebViewClient {
 
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+        // 只处理主框架导航；子框架/内嵌资源（iframe、JS 内嵌请求）的非标准 scheme
+        // 交由 WebView 自行处理，避免五花八门的 scheme 错误阻塞主页面
+        if (request != null && !request.isForMainFrame()) {
+            return super.shouldOverrideUrlLoading(view, request);
+        }
         String url = request.getUrl().toString();
         return handleUrlLoading(view, url);
     }
 
-    // 兼容旧版 API
+    // 兼容旧版 API（旧版只对主框架导航触发）
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, String url) {
         return handleUrlLoading(view, url);
@@ -72,6 +77,11 @@ public class RedirectWebViewClient extends WebViewClient {
     private boolean handleUrlLoading(WebView view, String url) {
         // 标准协议放行，让 WebView 正常加载
         if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file://")) {
+            return false;
+        }
+        // WebView 原生支持的 scheme 直接放行（about:/data:/blob:/javascript:）
+        if (url.startsWith("about:") || url.startsWith("data:") || url.startsWith("blob:")
+                || url.startsWith("javascript:")) {
             return false;
         }
         Log.w(TAG, "拦截非标准协议 URL: " + url);
@@ -99,6 +109,11 @@ public class RedirectWebViewClient extends WebViewClient {
                     case "sms":
                     case "smsto":
                         intent = new android.content.Intent(android.content.Intent.ACTION_SENDTO, Uri.parse(url));
+                        break;
+                    case "ftp":
+                    case "rtsp":
+                        // 交给系统浏览器/播放器处理
+                        intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url));
                         break;
                     case "intent":
                         try {
@@ -357,7 +372,8 @@ public class RedirectWebViewClient extends WebViewClient {
     @Override
     public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
         // 忽略不支持的 URL scheme 错误（已在 shouldOverrideUrlLoading 拦截处理，避免错误页干扰）
-        if (errorCode == ERROR_UNSUPPORTED_SCHEME) {
+        // ERROR_UNSUPPORTED_SCHEME=-10；ERR_UNKNOWN_URL_SCHEME=-14（Chromium 错误码，部分内核仍上报）
+        if (errorCode == ERROR_UNSUPPORTED_SCHEME || errorCode == -14) {
             Log.d(TAG, "忽略不支持的 scheme 错误: " + failingUrl);
             return;
         }
@@ -370,13 +386,12 @@ public class RedirectWebViewClient extends WebViewClient {
 
     @Override
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-        // 新版 API（API 23+）同样过滤 ERR_UNSUPPORTED_SCHEME
+        // 新版 API（API 23+）：子资源/子框架错误不阻塞主页面；主框架 scheme 错误忽略
         if (request != null && !request.isForMainFrame()) {
-            // 子资源错误不阻塞主页面
             super.onReceivedError(view, request, error);
             return;
         }
-        if (error != null && error.getErrorCode() == ERROR_UNSUPPORTED_SCHEME) {
+        if (error != null && (error.getErrorCode() == ERROR_UNSUPPORTED_SCHEME || error.getErrorCode() == -14)) {
             Log.d(TAG, "忽略不支持的 scheme 错误(新API): " + (request != null ? request.getUrl() : ""));
             return;
         }
