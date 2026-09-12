@@ -118,27 +118,63 @@ public class AgentDebugBridge extends BroadcastReceiver {
 
     private static volatile BridgeListener listener;
 
+    // 事件缓冲：调试台 Activity 打开（listener 注册）前的注入事件暂存于此，
+    // setListener 时按序回放——避免注入开头的 [INJECT]/[PROMPT] 等事件因 Activity 未就绪而丢失
+    private static final java.util.List<String> pendingEvents = new java.util.ArrayList<>();
+    private static final java.util.List<String> pendingRaw = new java.util.ArrayList<>();
+    private static final java.util.List<String[]> pendingStates = new java.util.ArrayList<>();
+
     /** 注册/注销调试页监听（Activity onResume/onPause 调用） */
     public static void setListener(BridgeListener l) {
         listener = l;
+        if (l != null) {
+            for (String[] s : pendingStates) l.onState(s[0], s[1]);
+            pendingStates.clear();
+            for (String e : pendingEvents) l.onEvent(e);
+            pendingEvents.clear();
+            for (String r : pendingRaw) l.onRawEvent(r);
+            pendingRaw.clear();
+        }
     }
 
     /** 推送日志行到调试页 */
     private static void emit(String line) {
         BridgeListener l = listener;
-        if (l != null) l.onEvent(line);
+        if (l != null) {
+            l.onEvent(line);
+        } else {
+            pendingEvents.add(line);
+            trimPending();
+        }
     }
 
     /** 推送【外部传入数据】到调试页原始指令流（注入元数据/校验/回执，不含执行过程） */
     private static void emitRaw(String line) {
         BridgeListener l = listener;
-        if (l != null) l.onRawEvent(line);
+        if (l != null) {
+            l.onRawEvent(line);
+        } else {
+            pendingRaw.add(line);
+            trimPending();
+        }
     }
 
     /** 推送状态到调试页 */
     private static void emitState(String key, String value) {
         BridgeListener l = listener;
-        if (l != null) l.onState(key, value);
+        if (l != null) {
+            l.onState(key, value);
+        } else {
+            pendingStates.add(new String[]{key, value});
+            trimPending();
+        }
+    }
+
+    /** 缓冲上限保护（防泄漏） */
+    private static void trimPending() {
+        while (pendingEvents.size() > 200) pendingEvents.remove(0);
+        while (pendingRaw.size() > 200) pendingRaw.remove(0);
+        while (pendingStates.size() > 50) pendingStates.remove(0);
     }
 
     /** 自动跳转到调试控制台 */
