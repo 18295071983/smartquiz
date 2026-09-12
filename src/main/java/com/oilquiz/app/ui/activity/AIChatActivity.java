@@ -5987,6 +5987,9 @@ public class AIChatActivity extends BaseActivity {
         if (chatAdapter != null) {
             chatAdapter.notifyItemChanged(idx);
         }
+        // 顶部状态机恢复（思考预览清除，后续工具/完成状态会继续覆盖）
+        if (serviceStatusText != null) serviceStatusText.setText("✅ 思考完成");
+        if (serviceStatusProgress != null) serviceStatusProgress.setVisibility(View.GONE);
     }
 
     private class StreamingTokenHandler implements LlamaHelper.TokenCallback {
@@ -6713,8 +6716,34 @@ public class AIChatActivity extends BaseActivity {
             }
             if (onUi) {
                 appendAgentThinkingToken(token);
+                updateThinkingStatusBarPreview();
             } else {
-                runOnUiThread(() -> appendAgentThinkingToken(token));
+                runOnUiThread(() -> {
+                    appendAgentThinkingToken(token);
+                    updateThinkingStatusBarPreview();
+                });
+            }
+        }
+
+        /**
+         * 顶部状态机实时显示思考内容预览（气泡思考区折叠时也能看到思考过程）。
+         * 节流 200ms，避免高频 token 刷新卡顿；思考结束时恢复状态文本。
+         */
+        private long lastThinkingPreviewUiTime = 0;
+        private void updateThinkingStatusBarPreview() {
+            long now = System.currentTimeMillis();
+            if (now - lastThinkingPreviewUiTime < 200) return;
+            lastThinkingPreviewUiTime = now;
+            String content;
+            synchronized (streamingLock) {
+                content = currentThinkingContent != null ? currentThinkingContent.toString() : "";
+            }
+            if (content.isEmpty()) return;
+            String preview = content.length() > 80 ? "…" + content.substring(content.length() - 80) : content;
+            if (serviceStatusText != null) serviceStatusText.setText("🧠 思考中：" + preview);
+            if (serviceStatusProgress != null) {
+                serviceStatusProgress.setVisibility(View.VISIBLE);
+                serviceStatusProgress.setIndeterminate(true);
             }
         }
 
