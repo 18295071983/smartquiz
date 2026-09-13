@@ -1447,10 +1447,8 @@ public class WebViewActivity extends BaseActivity {
 
             @Override
             public void onError(int errorCode, String description, String failingUrl) {
+                // 错误页已由 RedirectWebViewClient.showErrorPage 统一显示（友好重试页），此处仅记录日志
                 AppLogger.e(TAG, "页面加载错误 [" + errorCode + "]: " + description);
-                // 显示错误页面
-                String errorHtml = "<html><body style='background-color: #f5f5f5; text-align: center; padding: 40px;'><h1>加载失败</h1><p>无法加载页面，请检查网络连接或文件路径</p><p>错误: " + description + "</p></body></html>";
-                webView.loadData(errorHtml, "text/html", "UTF-8");
             }
         });
         webView.setWebViewClient(redirectWebViewClient);
@@ -1638,10 +1636,8 @@ public class WebViewActivity extends BaseActivity {
 
             @Override
             public void onError(int errorCode, String description, String failingUrl) {
+                // 错误页已由 RedirectWebViewClient.showErrorPage 统一显示（友好重试页），此处仅记录日志
                 AppLogger.e(TAG, "页面加载错误 [" + errorCode + "]: " + description);
-                // 显示错误页面
-                String errorHtml = "<html><body style='background-color: #f5f5f5; text-align: center; padding: 40px;'><h1>加载失败</h1><p>无法加载页面，请检查网络连接或文件路径</p><p>错误: " + description + "</p></body></html>";
-                webView.loadData(errorHtml, "text/html", "UTF-8");
             }
         });
         webView.setWebViewClient(redirectWebViewClient);
