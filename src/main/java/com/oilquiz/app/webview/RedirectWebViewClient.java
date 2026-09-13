@@ -313,6 +313,11 @@ public class RedirectWebViewClient extends WebViewClient {
             launchInSystemBrowser(view, failingUrl);
             return;
         }
+        // ERR_ABORTED=-3：重定向/新导航中断旧加载的正常信号，不显示错误页
+        if (errorCode == -3) {
+            Log.d(TAG, "加载被中断(ABORTED)，忽略: " + failingUrl);
+            return;
+        }
         super.onReceivedError(view, errorCode, description, failingUrl);
         Log.e(TAG, "页面加载错误 [" + errorCode + "]: " + description + " - " + failingUrl);
         if (pageLoadCallback != null) {
@@ -327,9 +332,15 @@ public class RedirectWebViewClient extends WebViewClient {
             super.onReceivedError(view, request, error);
             return;
         }
-        if (error != null && (error.getErrorCode() == ERROR_UNSUPPORTED_SCHEME || error.getErrorCode() == -14)) {
+        int code = error != null ? error.getErrorCode() : 0;
+        if (code == ERROR_UNSUPPORTED_SCHEME || code == -14) {
             Log.d(TAG, "scheme 错误交系统处理(新API): " + (request != null ? request.getUrl() : ""));
             launchInSystemBrowser(view, request != null ? request.getUrl().toString() : null);
+            return;
+        }
+        // ERR_ABORTED=-3：重定向/导航中断的正常信号，不显示错误页
+        if (code == -3) {
+            Log.d(TAG, "加载被中断(ABORTED)，忽略(新API): " + (request != null ? request.getUrl() : ""));
             return;
         }
         super.onReceivedError(view, request, error);
@@ -339,8 +350,9 @@ public class RedirectWebViewClient extends WebViewClient {
     private static volatile long lastSchemeBrowserTs = 0L;
 
     /**
-     * 把 scheme 链接交给系统浏览器/系统处理（不显示应用内错误页）。
-     * 有能处理的应用（含浏览器/商店）则打开；没有则友好提示。
+     * 把 scheme 链接交给系统处理（不显示应用内错误页）：
+     * 有能处理的应用（含浏览器/商店）→ 系统打开；
+     * 无应用 → 提取网页回退地址在应用内加载；再无 → 按协议友好提示。
      */
     private static void launchInSystemBrowser(WebView view, String url) {
         if (view == null || url == null) return;
@@ -354,17 +366,55 @@ public class RedirectWebViewClient extends WebViewClient {
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             if (ctx.getPackageManager().resolveActivity(i, 0) != null) {
                 ctx.startActivity(i);
-            } else {
-                // 无任何应用可处理：按协议提示对应应用未安装
-                String appName = appNameOfScheme(android.net.Uri.parse(url).getScheme());
-                String tip = appName != null
-                        ? "未安装" + appName + "，请在应用商店下载"
-                        : "该链接需要安装对应应用才能打开";
-                android.widget.Toast.makeText(ctx, tip, android.widget.Toast.LENGTH_LONG).show();
+                return;
             }
+            // 无任何应用可处理：优先提取 URL 中网页回退地址（网页版/下载页），在应用内加载
+            String fallback = extractFallbackUrl(url);
+            if (fallback != null) {
+                Log.d(TAG, "无应用处理，回退网页版: " + fallback);
+                view.loadUrl(fallback);
+                return;
+            }
+            // 无回退地址：按协议提示对应应用未安装（不交系统浏览器，避免 Chrome 也打不开显示错误页）
+            String appName = appNameOfScheme(android.net.Uri.parse(url).getScheme());
+            String tip = appName != null
+                    ? "未安装" + appName + "，请在应用商店下载"
+                    : "该链接需要安装对应应用才能打开";
+            android.widget.Toast.makeText(ctx, tip, android.widget.Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             Log.e(TAG, "系统打开 scheme 失败: " + url, e);
         }
+    }
+
+    /** 从 App 跳转 URL 中提取网页回退地址（url/u/link/browser_fallback_url 等参数或编码链接） */
+    private static String extractFallbackUrl(String url) {
+        try {
+            android.net.Uri u = Uri.parse(url);
+            String query = u.getQuery();
+            if (query != null) {
+                for (String pair : query.split("&")) {
+                    int idx = pair.indexOf('=');
+                    if (idx <= 0) continue;
+                    String key = pair.substring(0, idx);
+                    String val = android.net.Uri.decode(pair.substring(idx + 1));
+                    if (key.equals("url") || key.equals("u") || key.equals("link")
+                            || key.equals("target") || key.equals("browser_fallback_url")
+                            || key.equals("redirect") || key.equals("fallback")) {
+                        if (val.startsWith("http://") || val.startsWith("https://")) return val;
+                    }
+                }
+            }
+            // URL 内嵌编码链接（scheme://...?url=https%3A%2F%2Fxxx）
+            String s = url;
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("https?%3A%2F%2F[^&%]+")
+                    .matcher(s);
+            if (m.find()) {
+                String dec = android.net.Uri.decode(m.group());
+                if (dec.startsWith("http://") || dec.startsWith("https://")) return dec;
+            }
+        } catch (Exception ignored) { }
+        return null;
     }
 
     /**
