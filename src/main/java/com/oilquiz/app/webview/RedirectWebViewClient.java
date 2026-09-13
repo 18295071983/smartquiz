@@ -361,6 +361,38 @@ public class RedirectWebViewClient extends WebViewClient {
         lastSchemeBrowserTs = now;
         android.content.Context ctx = view.getContext();
         try {
+            String scheme = Uri.parse(url).getScheme();
+            // intent:// 协议特殊处理：解析 Intent，优先回退网页（应用内加载），避免交 Chrome 报 scheme 错误
+            if (scheme != null && scheme.equalsIgnoreCase("intent")) {
+                try {
+                    android.content.Intent intent = android.content.Intent.parseUri(url, android.content.Intent.URI_INTENT_SCHEME);
+                    if (intent != null) {
+                        String fb = intent.getStringExtra("browser_fallback_url");
+                        if (fb != null && !fb.isEmpty()) {
+                            Log.d(TAG, "intent 回退网页: " + fb);
+                            view.loadUrl(fb);
+                            return;
+                        }
+                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        if (ctx.getPackageManager().resolveActivity(intent, 0) != null) {
+                            ctx.startActivity(intent);
+                            return;
+                        }
+                    }
+                } catch (Exception ignored) { }
+                // intent 解析失败/无对应应用：提取 URL 中编码网页链接，应用内加载
+                String fb2 = extractFallbackUrl(url);
+                if (fb2 != null) {
+                    Log.d(TAG, "intent 无应用，回退编码网页: " + fb2);
+                    view.loadUrl(fb2);
+                    return;
+                }
+                String appName2 = appNameOfScheme(scheme);
+                android.widget.Toast.makeText(ctx,
+                        appName2 != null ? "未安装" + appName2 + "，请在应用商店下载" : "该链接需要安装对应应用才能打开",
+                        android.widget.Toast.LENGTH_LONG).show();
+                return;
+            }
             android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_VIEW,
                     android.net.Uri.parse(url));
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -413,6 +445,17 @@ public class RedirectWebViewClient extends WebViewClient {
                 String dec = android.net.Uri.decode(m.group());
                 if (dec.startsWith("http://") || dec.startsWith("https://")) return dec;
             }
+            // 双重编码兼容（%25253A%25252F...）：先解码一层再匹配
+            try {
+                String once = android.net.Uri.decode(s);
+                java.util.regex.Matcher m2 = java.util.regex.Pattern
+                        .compile("https?%3A%2F%2F[^&%]+")
+                        .matcher(once);
+                if (m2.find()) {
+                    String dec2 = android.net.Uri.decode(m2.group());
+                    if (dec2.startsWith("http://") || dec2.startsWith("https://")) return dec2;
+                }
+            } catch (Exception ignored) { }
         } catch (Exception ignored) { }
         return null;
     }
