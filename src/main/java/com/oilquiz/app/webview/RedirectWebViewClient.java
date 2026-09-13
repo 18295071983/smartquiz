@@ -398,9 +398,29 @@ public class RedirectWebViewClient extends WebViewClient {
     public void onPageStarted(WebView view, String url, Bitmap favicon) {
         super.onPageStarted(view, url, favicon);
         Log.d(TAG, "页面开始加载: " + url);
+        // JS 壳：Chrome 兼容（window.chrome + 桥 polyfill），让网页识别为 Chrome 环境
+        injectChromeCompat(view);
         if (pageLoadCallback != null) {
             pageLoadCallback.onPageStarted(url);
         }
+    }
+
+    /**
+     * JS 壳：注入 Chrome 特征与 API polyfill，解决"网页无法识别 WebView"问题。
+     * - window.chrome 对象（网站特征检测，WebView 默认缺失）
+     * - navigator.share → Android 桥分享（如有）
+     * - navigator.clipboard.writeText → AndroidClipboard 桥（如有）
+     */
+    private void injectChromeCompat(WebView view) {
+        if (view == null) return;
+        String js = "(function(){try{"
+                + "if(!window.chrome){window.chrome={csi:function(){return{}},loadTimes:function(){return{}},runtime:{},app:{isInstalled:false},webstore:{}};}"
+                + "if(!navigator.share&&window.Android&&window.Android.shareText){navigator.share=function(d){try{if(d&&(d.text||d.title))window.Android.shareText(d.title||'',d.text||d.title||'');}catch(e){}return Promise.resolve();};}"
+                + "if(navigator.clipboard&&!navigator.clipboard.writeText&&window.AndroidClipboard&&window.AndroidClipboard.setClipboardText){navigator.clipboard.writeText=function(t){try{window.AndroidClipboard.setClipboardText(t||'');}catch(e){}return Promise.resolve();};}"
+                + "}catch(e){}})();";
+        try {
+            view.evaluateJavascript(js, null);
+        } catch (Exception ignored) { }
     }
 
     @Override

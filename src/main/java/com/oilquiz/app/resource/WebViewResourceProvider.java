@@ -139,7 +139,7 @@ public class WebViewResourceProvider {
         settings.setMinimumFontSize(12);
         
         // User-Agent - 设置为安卓手机竖屏
-        String androidMobileUserAgent = "Mozilla/5.0 (Linux; Android 13; SM-G998U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36";
+        String androidMobileUserAgent = "Mozilla/5.0 (Linux; Android 13; SM-G998U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36";
         settings.setUserAgentString(androidMobileUserAgent);
     }
     
