@@ -1455,6 +1455,13 @@ public class WebViewActivity extends BaseActivity {
         shellSettings.setMediaPlaybackRequiresUserGesture(false);
         shellSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
 
+        // 身份认证支持：开启 Cookie（含第三方——SSO 联合登录必需），登录态应用内持久化
+        android.webkit.CookieManager shellCookieMgr = android.webkit.CookieManager.getInstance();
+        shellCookieMgr.setAcceptCookie(true);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            shellCookieMgr.setAcceptThirdPartyCookies(webView, true);
+        }
+
         // 设置WebView客户端 - 使用支持文件重定向的客户端
         RedirectWebViewClient redirectWebViewClient = new RedirectWebViewClient();
         redirectWebViewClient.setFileRedirectEnabled(true);
@@ -1673,6 +1680,13 @@ public class WebViewActivity extends BaseActivity {
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
         webSettings.setMediaPlaybackRequiresUserGesture(false);
         webSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+
+        // 身份认证支持：开启 Cookie（含第三方——SSO 联合登录必需），登录态应用内持久化
+        android.webkit.CookieManager cookieMgr = android.webkit.CookieManager.getInstance();
+        cookieMgr.setAcceptCookie(true);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            cookieMgr.setAcceptThirdPartyCookies(webView, true);
+        }
         
         // 实现自适应显示功能
         webSettings.setDefaultFontSize(16);
