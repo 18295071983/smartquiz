@@ -64,6 +64,10 @@ public class WebViewActivity extends BaseActivity {
     // 壳能力移植：Web 侧权限请求桥接状态（requestPermission 回调）
     private String pendingBridgePermission = null;
     private String pendingBridgeCallback = null;
+
+    // 壳能力：网页文件选择回调（onShowFileChooser）
+    private android.webkit.ValueCallback<android.net.Uri[]> filePathCallback = null;
+    private static final int REQ_FILE_CHOOSER = 0x5E12;
     
     // 文件监控
     private android.os.FileObserver exportDirObserver;
@@ -528,7 +532,29 @@ public class WebViewActivity extends BaseActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        
+
+        // 壳能力：网页文件选择（onShowFileChooser）结果回传
+        if (requestCode == REQ_FILE_CHOOSER) {
+            android.net.Uri[] results = null;
+            if (resultCode == RESULT_OK && data != null) {
+                String dataString = data.getDataString();
+                android.content.ClipData clipData = data.getClipData();
+                if (clipData != null) {
+                    results = new android.net.Uri[clipData.getItemCount()];
+                    for (int i = 0; i < clipData.getItemCount(); i++) {
+                        results[i] = clipData.getItemAt(i).getUri();
+                    }
+                } else if (dataString != null) {
+                    results = new android.net.Uri[]{android.net.Uri.parse(dataString)};
+                }
+            }
+            if (filePathCallback != null) {
+                filePathCallback.onReceiveValue(results);
+                filePathCallback = null;
+            }
+            return;
+        }
+
         if (requestCode == 100 && resultCode == RESULT_OK && data != null) {
             // 获取选择的文件URI
             android.net.Uri uri = data.getData();
@@ -1422,7 +1448,13 @@ public class WebViewActivity extends BaseActivity {
         
         // 从WebViewLoadManager池中获取WebView
         WebView webView = webViewLoadManager.acquireWebView();
-        
+
+        // 壳能力：JS 弹窗路由（配合 onCreateWindow）、媒体自动播放、混合内容兼容
+        WebSettings shellSettings = webView.getSettings();
+        shellSettings.setJavaScriptCanOpenWindowsAutomatically(true);
+        shellSettings.setMediaPlaybackRequiresUserGesture(false);
+        shellSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+
         // 设置WebView客户端 - 使用支持文件重定向的客户端
         RedirectWebViewClient redirectWebViewClient = new RedirectWebViewClient();
         redirectWebViewClient.setFileRedirectEnabled(true);
@@ -1455,6 +1487,39 @@ public class WebViewActivity extends BaseActivity {
         
         // 设置WebChromeClient来处理进度和标题
         webView.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, android.webkit.ValueCallback<android.net.Uri[]> callback, android.webkit.WebChromeClient.FileChooserParams params) {
+                // 壳能力：网页 <input type=file> 文件选择
+                if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+                filePathCallback = callback;
+                try {
+                    startActivityForResult(android.content.Intent.createChooser(params.createIntent(), "选择文件"), REQ_FILE_CHOOSER);
+                    return true;
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    return false;
+                }
+            }
+
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                // 壳能力：window.open / target=_blank 统一路由回当前标签，避免新窗口丢失
+                WebView child = new WebView(view.getContext());
+                child.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                        if (url != null) {
+                            loadUrl(url); // 路由回当前标签 WebView
+                        }
+                        return true;
+                    }
+                });
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(child);
+                resultMsg.sendToTarget();
+                return true;
+            }
+
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) {
                 if (permissionProvider != null && permissionProvider.hasLocationPermission()) {
@@ -1603,6 +1668,12 @@ public class WebViewActivity extends BaseActivity {
         
         WebViewSecurityConfig.configure(webSettings);
         
+        // 壳能力：JS 弹窗路由（配合 onCreateWindow）、媒体自动播放、混合内容兼容
+        // （覆盖安全配置中的严格项：弹窗由 onCreateWindow 统一路由回主 WebView，不真正开新窗口）
+        webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
+        webSettings.setMediaPlaybackRequiresUserGesture(false);
+        webSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        
         // 实现自适应显示功能
         webSettings.setDefaultFontSize(16);
         webSettings.setMinimumFontSize(12);
@@ -1644,6 +1715,39 @@ public class WebViewActivity extends BaseActivity {
         
         // 设置WebChromeClient来处理进度和标题
         webView.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, android.webkit.ValueCallback<android.net.Uri[]> callback, android.webkit.WebChromeClient.FileChooserParams params) {
+                // 壳能力：网页 <input type=file> 文件选择
+                if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+                filePathCallback = callback;
+                try {
+                    startActivityForResult(android.content.Intent.createChooser(params.createIntent(), "选择文件"), REQ_FILE_CHOOSER);
+                    return true;
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    return false;
+                }
+            }
+
+            @Override
+            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+                // 壳能力：window.open / target=_blank 统一路由回当前标签，避免新窗口丢失
+                WebView child = new WebView(view.getContext());
+                child.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                        if (url != null) {
+                            loadUrl(url); // 路由回当前标签 WebView
+                        }
+                        return true;
+                    }
+                });
+                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                transport.setWebView(child);
+                resultMsg.sendToTarget();
+                return true;
+            }
+
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) {
                 if (permissionProvider != null && permissionProvider.hasLocationPermission()) {
