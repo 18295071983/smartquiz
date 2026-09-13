@@ -265,7 +265,7 @@
             android:exported="false" />
         <activity
             android:name=".WebViewActivity"
-            android:exported="false"
+            android:exported="true"
             android:theme="@style/Theme.OilQuizApp"
             android:configChanges="orientation|keyboardHidden|navigation|screenSize" />
 
