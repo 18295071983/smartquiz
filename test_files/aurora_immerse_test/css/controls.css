@@ -1,0 +1,27 @@
+/* 表盘切换 & 通用控件 */
+/* ========== 表盘切换 & 通用控件 ========== */
+.face-tabs{display:flex;gap:7px;overflow-x:auto;padding:2px 12px 10px;flex:0 0 auto;scrollbar-width:none;
+ -webkit-mask:linear-gradient(90deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%);
+ mask:linear-gradient(90deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%)}
+.face-tabs::-webkit-scrollbar{display:none}
+.ftab{flex:0 0 auto;padding:6px 13px;border-radius:20px;font-size:12px;color:var(--dim);background:var(--panel);
+ border:1px solid var(--line);cursor:pointer;transition:.22s;white-space:nowrap;font-family:inherit}
+.ftab:first-child{margin-left:2px}
+.ftab:last-child{margin-right:2px}
+.ftab.on{color:#04121a;background:var(--acc);border-color:transparent;box-shadow:0 0 16px rgba(var(--glow),.45);font-weight:600}
+.face-host{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
+.face{width:100%;display:none;flex-direction:column;align-items:center;justify-content:center}
+.face.on{display:flex;animation:faceIn .45s cubic-bezier(.22,1,.36,1) both}
+@keyframes faceIn{from{opacity:0;transform:scale(.94) translateY(10px);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+/* 元信息：问候语置于时钟上方（大字发光），日期紧随其后小字 */
+.cmeta{flex:0 0 auto;text-align:center;padding:2px 0 0;transition:opacity .4s}
+.cm-greet{font-size:clamp(16px,calc(var(--cw)*.052),24px);font-weight:600;letter-spacing:3px;color:var(--txt);
+ text-shadow:0 0 24px rgba(var(--glow),.5);opacity:.96}
+.cm-date{font-size:12px;color:var(--dim);letter-spacing:1.6px;margin-top:5px}
+/* 名言：置于时钟下方、快捷按钮上方 */
+.cm-tip{flex:0 0 auto;text-align:center;font-size:11.5px;color:var(--dim);opacity:.72;padding:8px 14px 2px;min-height:15px}
+.quick{flex:0 0 auto;display:flex;gap:7px;justify-content:center;flex-wrap:wrap;padding:9px 0 4px}
+.qbtn{padding:7px 13px;border-radius:12px;font-size:11.5px;color:var(--dim);background:var(--panel);border:1px solid var(--line);
+ cursor:pointer;transition:.2s;font-family:inherit;backdrop-filter:blur(6px)}
+.qbtn.on{color:var(--acc);border-color:rgba(var(--glow),.55);box-shadow:0 0 14px rgba(var(--glow),.28)}
+.qbtn:active{transform:scale(.93)}

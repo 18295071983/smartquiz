@@ -1,0 +1,54 @@
+/* 表盘：翻页钟（外置） */
+/* ========== 表盘 1：翻页钟 ========== */
+.flip-wrap{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:min(calc(var(--cw)*.018),calc(var(--ch)*.012));
+  font-size:clamp(26px,min(calc(var(--cw)*.25),calc((var(--ch) - 250px)*.8)),320px);line-height:1;perspective:1400px}
+body.landscape .flip-wrap{font-size:clamp(26px,min(calc(var(--cw)*.18),calc((var(--ch) - 190px)*.8)),520px)}
+/* ===== 横屏专属结构：左栏纵向构图（大号 HH:MM + 底座：秒胶囊 + 分钟进度线） ===== */
+body.landscape .flip-wrap{flex-direction:column;align-items:center;justify-content:center;gap:6px}
+body.landscape .flip-row{display:flex;align-items:center;gap:min(calc(var(--ch)*.02),calc(var(--cw)*.012))}
+body.landscape .flip-strip{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
+body.landscape .flip-sec{align-self:center;margin:0}
+body.landscape .flip-bar{flex:1 1 auto;min-width:0;height:3px;border-radius:3px;background:var(--line);overflow:hidden}
+body.landscape .flip-bar i{display:block;height:100%;width:0;background:var(--acc);border-radius:3px;transition:width .3s linear}
+/* 单卡：上下双色面板 + 中缝 + 顶缘极光描边 */
+.fd{--fdT:color-mix(in srgb,var(--bg2) 78%,#000);--fdB:color-mix(in srgb,var(--bg2) 58%,#000);--flipT:.26s;
+  position:relative;width:.6em;height:1em;perspective:900px;border-radius:.095em;overflow:hidden;
+  background:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,0) 38%),
+    linear-gradient(180deg,var(--fdT) 0 50%,var(--fdB) 50% 100%);
+  box-shadow:0 .035em .07em rgba(0,0,0,.55),0 .1em .32em rgba(0,0,0,.42),
+    0 0 0 1px color-mix(in srgb,var(--line) 75%,transparent),0 0 .9em rgba(var(--glow),.13)}
+.fd::before{content:'';position:absolute;left:14%;right:14%;top:0;height:.018em;z-index:4;pointer-events:none;
+  border-radius:0 0 .02em .02em;opacity:.7;
+  background:linear-gradient(90deg,transparent,rgba(var(--glow),.85),transparent)}
+.fd::after{content:'';position:absolute;left:0;right:0;top:50%;height:1px;z-index:4;transform:translateY(-.5px);pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(0,0,0,.62) 5%,rgba(0,0,0,.62) 95%,transparent)}
+.fd .half{position:absolute;left:0;width:100%;height:50%;overflow:hidden;background:transparent}
+.fd .up{top:0}
+.fd .dn{bottom:0;box-shadow:inset 0 1px 0 rgba(0,0,0,.5)}
+.fd .dn span{transform:translateY(-50%)}
+.fd .half span,.fd .leaf span{display:block;height:1em;line-height:1em;text-align:center;color:var(--txt);font-weight:600;
+  font-variant-numeric:tabular-nums;text-shadow:0 .02em .06em rgba(0,0,0,.55),0 0 .5em rgba(var(--glow),.22)}
+.fd .leaf{position:absolute;left:0;width:100%;height:50%;overflow:hidden;backface-visibility:hidden;will-change:transform}
+.fd .leaf-u{top:0;transform-origin:50% 100%;display:none;border-radius:.095em .095em 0 0;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--fdT) 86%,#fff),var(--fdT));
+  box-shadow:0 .03em .09em rgba(0,0,0,.6)}
+.fd .leaf-l{top:50%;transform-origin:50% 0;transform:rotateX(90deg);display:none;border-radius:0 0 .095em .095em;
+  background:var(--fdB);box-shadow:inset 0 .02em .05em rgba(0,0,0,.5)}
+.fd .leaf-l span{transform:translateY(-50%)}
+.fd.go .leaf-u{display:block;animation:flipU var(--flipT) cubic-bezier(.4,.05,.6,1) forwards}
+.fd.go .leaf-l{display:block;animation:flipL var(--flipT) var(--flipT) cubic-bezier(.22,1,.36,1) forwards}
+@keyframes flipU{from{transform:rotateX(0)}to{transform:rotateX(-90deg)}}
+@keyframes flipL{from{transform:rotateX(90deg)}to{transform:rotateX(0)}}
+/* 冒号：两枚发光方点 */
+.flip-colon{position:relative;flex:0 0 auto;width:.16em;height:.62em;align-self:center;font-size:1em;line-height:0;
+  color:transparent;overflow:hidden;text-indent:-9em}
+.flip-colon::before,.flip-colon::after{content:'';position:absolute;left:50%;width:.14em;height:.14em;margin-left:-.07em;
+  border-radius:.05em;background:var(--acc);box-shadow:0 0 .16em var(--acc),0 0 .5em rgba(var(--glow),.6);
+  animation:pulse 2s infinite}
+.flip-colon::before{top:.08em}
+.flip-colon::after{bottom:.085em;animation-delay:-1s}
+/* 秒：胶囊徽标 */
+.flip-sec{font-size:.2em;color:var(--acc);align-self:center;margin:0 0 0 .6em;letter-spacing:.08em;
+  padding:.28em .5em;border-radius:999px;background:rgba(var(--glow),.1);border:1px solid rgba(var(--glow),.3);
+  text-shadow:0 0 .5em rgba(var(--glow),.7);font-variant-numeric:tabular-nums;min-width:1.95em;text-align:center}
+.flip-sec:empty{display:none;border:0;background:transparent}

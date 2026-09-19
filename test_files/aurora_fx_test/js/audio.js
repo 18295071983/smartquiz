@@ -1,0 +1,104 @@
+/* 极光时钟 v5 · audio.js：Web Audio 实时合成引擎（零外部文件） */
+/* ---------- ② 音频引擎（全实时合成，零外部文件） ---------- */
+var AU=(function(){
+  var ctx=null,master=null,vol=.7,beds={},ringTimer=null,ringNode=null,nb=null,chirpTimer=null,clickTone='soft';
+  function ac(){ if(!ctx){ var C=window.AudioContext||window.webkitAudioContext; if(!C) return null;
+      ctx=new C(); master=ctx.createGain(); master.gain.value=vol; master.connect(ctx.destination); }
+    if(ctx.state==='suspended')ctx.resume(); return ctx; }
+  function noise(){ var c=ac(); if(!c)return null; if(nb)return nb;
+    var len=c.sampleRate*3,b=c.createBuffer(1,len,c.sampleRate),d=b.getChannelData(0),last=0;
+    for(var i=0;i<len;i++){var w=Math.random()*2-1;last=(last+.02*w)/1.02;d[i]=last*3.2;} nb=b; return b; }
+  function env(g,t,a,peak,d){ g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(peak,t+a); g.gain.exponentialRampToValueAtTime(0.0001,t+a+d); }
+  function beep(f,dur,type,gain,delay){ var c=ac(); if(!c)return; var t=c.currentTime+(delay||0);
+    var o=c.createOscillator(),g=c.createGain(); o.type=type||'sine'; o.frequency.setValueAtTime(f,t);
+    env(g,t,.012,gain||.16,dur||.18); o.connect(g); g.connect(master); o.start(t); o.stop(t+(dur||.18)+.08); }
+  /* 走秒滴答 */
+  function tick(){ var c=ac(); if(!c)return; var t=c.currentTime; var o=c.createOscillator(),g=c.createGain();
+    o.type='square'; o.frequency.setValueAtTime(1800,t); o.frequency.exponentialRampToValueAtTime(700,t+.03);
+    g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.075,t+.003); g.gain.exponentialRampToValueAtTime(.0001,t+.055);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+.07); }
+  /* 按键音（多音色） */
+  function click(){
+    var tn = clickTone || 'soft';
+    if (tn === 'pop') { beep(660,.05,'sine',.1); beep(990,.045,'sine',.06,.04); }
+    else if (tn === 'wood') { beep(430,.05,'square',.065); beep(210,.07,'sine',.09,.02); }
+    else if (tn === 'digital') { beep(1420,.03,'square',.055); beep(900,.04,'square',.045,.025); }
+    else if (tn === 'drop') { beep(1900,.06,'sine',.08); beep(720,.09,'sine',.055,.05); }
+    else { beep(1180,.06,'triangle',.09,0); beep(1760,.05,'sine',.05,.03); }
+  }
+  /* 表盘切换 / 提示：嗖声滑音 */
+  function swipe(){
+    var c = ac(); if (!c) return;
+    var t = c.currentTime, o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(340, t); o.frequency.exponentialRampToValueAtTime(760, t + .1);
+    env(g, t, .012, .11, .11); o.connect(g); g.connect(master); o.start(t); o.stop(t + .15);
+    beep(920, .1, 'sine', .055, .05);
+  }
+  /* 成功 / 错误提示音 */
+  function ok(){ beep(784,.07,'sine',.11); beep(1175,.1,'sine',.09,.07); }
+  function err(){ beep(240,.13,'sawtooth',.08); beep(185,.17,'sawtooth',.065,.11); }
+  function setClickTone(t){ clickTone = t || 'soft'; }
+  /* 报时音色 */
+  function chime(tone,hours){ var c=ac(); if(!c)return; var seq;
+    if(tone==='bell'){ seq=[[196,.9],[294,.9],[392,1.2]]; }
+    else if(tone==='piano'){ seq=[[523,.5],[659,.5],[784,.7],[1046,.9]]; }
+    else if(tone==='beep'){ seq=[[880,.14],[880,.14],[880,.3]]; }
+    else if(tone==='glass'){ seq=[[1318,.5],[1760,.5],[2093,.8]]; }
+    else { seq=[[1046,.45],[1318,.45],[1568,.8]]; }
+    var d=0; seq.forEach(function(s){ if(tone==='bell'){ [1,2.02,3.01].forEach(function(m,i){ beep(s[0]*m,s[1],'sine',.13/(i+1),d); }); }
+      else beep(s[0],s[1],tone==='piano'?'triangle':'sine',.16,d); d+=s[1]*.62; });
+    if(hours&&tone==='bell'){ setTimeout(function(){beep(196,1.6,'sine',.12);},d*1000+120); } }
+  /* 闹钟铃声 */
+  function ringOnce(style){ var c=ac(); if(!c)return;
+    if(style==='bird'){ [1400,1750,2100,1850].forEach(function(f,i){ setTimeout(function(){ beep(f,.09,'sine',.14);},i*110); }); setTimeout(function(){beep(1200,.12,'sine',.1);},520); }
+    else if(style==='piano'){ [[784,.32],[988,.32],[1175,.5]].forEach(function(s,i){ setTimeout(function(){ beep(s[0],s[1],'triangle',.18); beep(s[0]*2,s[1]*.6,'sine',.06); },i*230); }); }
+    else if(style==='drum'){ [0,120,240,360,600].forEach(function(d){ setTimeout(function(){ beep(72,.2,'sine',.3); beep(180,.09,'square',.06); },d); }); }
+    else if(style==='siren'){ for(var i=0;i<5;i++){ (function(i){ setTimeout(function(){ beep(i%2?980:640,.26,'sawtooth',.2); },i*220); })(i); } }
+    else if(style==='gentle'){ [523,659,784,988].forEach(function(f,i){ setTimeout(function(){ beep(f,.5,'sine',.13); },i*190); }); }
+    else if(style==='bell'){ [1,2.02,2.98,4.1].forEach(function(m,i){ beep(174*m,1.5,'sine',.16/(i*0.6+1)); }); }
+    else if(style==='arcade'){ [523,523,784,784,1046,1046,1568].forEach(function(f,i){ setTimeout(function(){ beep(f,.1,'square',.13); },i*105); }); }
+    else { for(var j=0;j<4;j++){ (function(j){ setTimeout(function(){ beep(1568,.11,'square',.2); beep(1046,.11,'square',.12); },j*260); })(j); } } }
+  function startRing(style){ ac(); var n=0; stopRing(); ringOnce(style);
+    ringTimer=setInterval(function(){ n++; ringOnce(style); try{ var b=B(); if(b&&b.vibrate&&n%2===1) b.vibrate(340); }catch(e){} },1500); }
+  function stopRing(){ if(ringTimer){clearInterval(ringTimer);ringTimer=null;} }
+  /* 声景（可叠加） */
+  function makeBed(type){ var c=ac(); if(!c)return null; var src=c.createBufferSource(); src.buffer=noise(); src.loop=true;
+    var f=c.createBiquadFilter(), g=c.createGain(), lfo=c.createOscillator(), lg=c.createGain();
+    var peak=.3; f.type='lowpass'; f.frequency.value=900; g.gain.value=0;
+    if(type==='rain'){ f.type='highpass'; f.frequency.value=1100; peak=.24; }
+    else if(type==='sea'){ f.type='lowpass'; f.frequency.value=420; peak=.42; lfo.frequency.value=.09; lg.gain.value=.3; }
+    else if(type==='fire'){ f.type='bandpass'; f.frequency.value=520; f.Q.value=.7; peak=.3; lfo.frequency.value=6.5; lg.gain.value=.18; }
+    else if(type==='wind'){ f.type='lowpass'; f.frequency.value=620; peak=.34; lfo.frequency.value=.14; lg.gain.value=.34; }
+    else if(type==='forest'){ f.type='bandpass'; f.frequency.value=1500; f.Q.value=.5; peak=.2; }
+    else if(type==='night'){ f.type='highpass'; f.frequency.value=2600; peak=.13; }
+    else if(type==='fan'){ f.type='lowpass'; f.frequency.value=300; peak=.4; }
+    else if(type==='brown'){ f.type='lowpass'; f.frequency.value=200; peak=.5; }
+    src.connect(f); f.connect(g);
+    lfo.connect(lg); lg.connect(g.gain); lfo.start();
+    var extra=[];
+    if(type==='heart'){ f.type='lowpass'; f.frequency.value=160; peak=.0; }
+    if(type==='pad_star'||type==='pad_deep'||type==='pad_dawn'){
+      var chords={pad_star:[130.8,196,261.6,329.6],pad_deep:[87.3,130.8,174.6,261.6],pad_dawn:[146.8,220,293.7,440]};
+      peak=.055; src.disconnect(); f.disconnect();
+      chords[type].forEach(function(fr,i){ var o=c.createOscillator(),og=c.createGain(),ol=c.createOscillator(),olg=c.createGain();
+        o.type=i%2?'sine':'triangle'; o.frequency.value=fr*(type==='pad_deep'?.5:1); og.gain.value=0;
+        ol.frequency.value=.05+i*.017; olg.gain.value=.05; ol.connect(olg); olg.connect(og.gain); ol.start();
+        o.connect(og); og.connect(g); o.start(); extra.push(o,ol); });
+    }
+    g.connect(master); src.start();
+    if(type==='heart'){ var hi=setInterval(function(){ beep(58,.13,'sine',.34); setTimeout(function(){beep(50,.11,'sine',.22);},170); },1100); extra.push({stop:function(){clearInterval(hi);}}); }
+    if(type==='night'||type==='forest'){ chirpTimer=setInterval(function(){ if(Math.random()<.55) beep(2400+Math.random()*1400,.05,'sine',.045); },420); extra.push({stop:function(){clearInterval(chirpTimer);}}); }
+    var o2={g:g,src:src,lfo:lfo,extra:extra,on:true};
+    g.gain.setTargetAtTime(peak,c.currentTime,.9);
+    return o2; }
+  function toggleBed(type){ if(beds[type]){ stopBed(type); return false; } var b=makeBed(type); if(!b)return false; beds[type]=b; return true; }
+  function stopBed(type){ var b=beds[type]; if(!b)return; try{ b.g.gain.setTargetAtTime(0,ctx.currentTime,.4);
+   setTimeout(function(){ try{b.src.stop(); b.lfo.stop(); b.extra.forEach(function(x){try{x.stop();}catch(e){}});}catch(e){} },900); }catch(e){} delete beds[type]; }
+  function stopAllBeds(){ Object.keys(beds).forEach(stopBed); }
+  function setVol(v){ vol=v; if(master&&ctx) master.gain.setTargetAtTime(v,ctx.currentTime,.03); }
+  function resume(){ ac(); }
+  function isPlaying(type){ return !!beds[type]; }
+  function activeBeds(){ return Object.keys(beds); }
+  return {tick:tick,click:click,swipe:swipe,ok:ok,err:err,setClickTone:setClickTone,chime:chime,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
+   toggleBed:toggleBed,stopAllBeds:stopAllBeds,setVol:setVol,resume:resume,isPlaying:isPlaying,activeBeds:activeBeds,ctx:function(){return ctx;}};
+})();
