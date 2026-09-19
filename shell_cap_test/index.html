@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>壳能力自测台 v8.1</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --sa-t: env(safe-area-inset-top, 0px); --sa-b: env(safe-area-inset-bottom, 0px); }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(160deg, #0d1b2a 0%, #1b2838 55%, #16202e 100%);
+    color: #e8eef5; padding: calc(var(--sa-t) + 10px) 12px calc(var(--sa-b) + 14px);
+    min-height: 100vh;
+  }
+  header { text-align: center; padding: 8px 0 14px; }
+  header h1 { font-size: 19px; letter-spacing: 1px; }
+  header .ver { font-size: 12px; color: #7fd0ff; margin-top: 4px; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 10px 0 4px; }
+  .chip { background: rgba(127,208,255,.12); border: 1px solid rgba(127,208,255,.35); color: #9fe0ff;
+    padding: 3px 10px; border-radius: 20px; font-size: 12px; }
+  .group { margin: 12px 0; }
+  .group h2 { font-size: 13px; color: #7fd0ff; padding: 6px 2px 8px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 8px; }
+  button { -webkit-appearance: none; border: none; border-radius: 10px; padding: 11px 6px; font-size: 13px;
+    background: linear-gradient(145deg, #24405c, #1b3350); color: #dbeafe; box-shadow: 0 2px 6px rgba(0,0,0,.35);
+    transition: transform .08s; word-break: break-all; }
+  button:active { transform: scale(.96); }
+  button.wide { grid-column: 1 / -1; }
+  button.warn { background: linear-gradient(145deg, #5c3b24, #50331b); }
+  .log { margin-top: 14px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.1); border-radius: 10px;
+    padding: 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.7;
+    max-height: 40vh; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+  .log .t { color: #7fd0ff; }
+  .log .ok { color: #6ee7a0; }
+  .log .err { color: #ff9d9d; }
+  .log .dim { color: #7a8ca0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚙ 壳能力自测台</h1>
+  <div class="ver" id="verLine">桥版本加载中…</div>
+  <div class="chip-row">
+    <span class="chip" id="chipSb">状态栏 -</span>
+    <span class="chip" id="chipNb">导航栏 -</span>
+    <span class="chip" id="chipNet">网络 -</span>
+    <span class="chip" id="chipFs">全屏 否</span>
+  </div>
+</header>
+
+<div class="group"><h2>① 版本 / 设备 / 系统</h2><div class="grid">
+  <button onclick="t('getShellVersion()')">getShellVersion</button>
+  <button onclick="t('getBridgeApi()')">getBridgeApi</button>
+  <button onclick="t('getVersion()')">getVersion</button>
+  <button onclick="t('getDeviceInfo()')">getDeviceInfo</button>
+  <button onclick="t('getSystemInfo()')">getSystemInfo</button>
+  <button onclick="t('getNetworkType()')">getNetworkType</button>
+  <button onclick="t('getOrientation()')">getOrientation</button>
+  <button onclick="t('isAppInstalled(com.tencent.mm)')">isAppInstalled 微信</button>
+</div></div>
+
+<div class="group"><h2>② 状态栏 / 全屏 / 方向</h2><div class="grid">
+  <button onclick="t('getStatusBarHeight()')">getStatusBarHeight</button>
+  <button onclick="t('getNavBarHeight()')">getNavBarHeight</button>
+  <button onclick="t('setStatusBarStyle(light)')">图标浅色(light)</button>
+  <button onclick="t('setStatusBarStyle(dark)')">图标深色(dark)</button>
+  <button onclick="t('enterFullscreen(true)')">进入全屏</button>
+  <button onclick="t('enterFullscreen(false)')">退出全屏</button>
+  <button onclick="t('isFullscreen()')">isFullscreen</button>
+  <button onclick="t('setOrientation(landscape)')">横屏</button>
+  <button onclick="t('setOrientation(portrait)')">竖屏</button>
+  <button onclick="t('setOrientation(auto)')">自动旋转</button>
+</div></div>
+
+<div class="group"><h2>③ 反馈 / 亮度 / 常亮</h2><div class="grid">
+  <button onclick="t('showToast(你好，壳桥正常)')">showToast</button>
+  <button onclick="t('vibrate(300)')">vibrate 300ms</button>
+  <button onclick="t('haptic()')">haptic</button>
+  <button onclick="t('setBrightness(200)')">亮度 200</button>
+  <button onclick="t('setBrightness(-1)')">亮度 跟随</button>
+  <button onclick="t('getBrightness()')">getBrightness</button>
+  <button onclick="t('setKeepScreenOn(true)')">屏幕常亮 ON</button>
+  <button onclick="t('setKeepScreenOn(false)')">屏幕常亮 OFF</button>
+</div></div>
+
+<div class="group"><h2>④ 网络（无 CORS 代理）</h2><div class="grid">
+  <button class="wide" onclick="reqTest('https://www.baidu.com','GET',null)">request GET baidu</button>
+  <button class="wide" onclick="reqTest('https://httpbin.org/post','POST','{\"hello\":\"world\"}')">request POST httpbin</button>
+  <button class="wide" onclick="precache()">precacheUrl 预缓存 baidu</button>
+</div></div>
+
+<div class="group"><h2>⑤ 壳内文件（files/）</h2><div class="grid">
+  <button onclick="saveTest()">saveFile 测试.txt</button>
+  <button onclick="t('readFile(测试.txt)')">readFile 测试.txt</button>
+  <button onclick="t('listFiles()')">listFiles</button>
+  <button onclick="t('deleteFile(测试.txt)')">deleteFile 测试.txt</button>
+</div></div>
+
+<div class="group"><h2>⑥ 权限（含 human 人性化结果）</h2><div class="grid">
+  <button onclick="permTest('camera')">requestPermission camera</button>
+  <button onclick="permTest('storage')">requestPermission storage</button>
+  <button onclick="t('checkPermission(camera)')">checkPermission camera</button>
+  <button onclick="t('openPermissionPanel()')">权限设置页</button>
+  <button onclick="t('openAppSettings()')">应用设置</button>
+</div></div>
+
+<div class="group"><h2>⑦ 分享 / TTS / 剪贴板</h2><div class="grid">
+  <button onclick="t('shareText(极光时钟壳能力测试)')">shareText</button>
+  <button onclick="t('speakText(你好，我是答题宝壳，TTS测试成功)')">speakText 朗读</button>
+  <button onclick="t('stopSpeak()')">stopSpeak</button>
+  <button onclick="t('copyText(剪贴板测试内容)')">copyText</button>
+  <button onclick="t('readClipboard()')">readClipboard</button>
+  <button class="wide" onclick="clipWatch()">startClipboardWatch 监听</button>
+  <button class="wide" onclick="t('stopClipboardWatch()')">stopClipboardWatch</button>
+</div></div>
+
+<div class="group"><h2>⑧ 通知 / 前台服务 / 深链</h2><div class="grid">
+  <button onclick="t('showNotification(壳测试, 这是一条通知)')">showNotification</button>
+  <button onclick="t('cancelNotification(1)')">cancelNotification</button>
+  <button onclick="t('cancelAllNotifications()')">全部清除</button>
+  <button onclick="t('startForeground(壳前台, 测试中)')">startForeground</button>
+  <button onclick="t('stopForeground()')">stopForeground</button>
+  <button onclick="t('getDeepLink()')">getDeepLink</button>
+  <button onclick="t('openInApp(https://www.baidu.com)')">openInApp 壳内打开</button>
+  <button onclick="t('openBrowser(https://www.baidu.com)')">openBrowser 系统</button>
+</div></div>
+
+<div class="group"><h2>⑨ 对话框 / 选择器 / 截图</h2><div class="grid">
+  <button onclick="dlgTest()">showDialog 确认框</button>
+  <button onclick="dateTest()">pickDate</button>
+  <button onclick="timeTest()">pickTime</button>
+  <button onclick="pickFile()">openFilePicker</button>
+  <button onclick="shotTest()">screenshot</button>
+</div></div>
+
+<div class="group"><h2>⑩ 注入 / 缓存 / 电源</h2><div class="grid">
+  <button onclick="t('injectNow(document.title=\"注入成功\")')">injectNow 注入JS</button>
+  <button onclick="t('addScriptInjector(document.body.style.background=\"#0a1f14\")')">addScriptInjector</button>
+  <button onclick="t('clearScriptInjectors()')">clearScriptInjectors</button>
+  <button onclick="t('getCacheMode()')">getCacheMode</button>
+  <button onclick="t('setCacheMode(2)')">setCacheMode(2)</button>
+  <button onclick="t('clearCache()')">clearCache</button>
+  <button onclick="t('getBatteryLevel()')">getBatteryLevel</button>
+  <button onclick="t('isCharging()')">isCharging</button>
+  <button onclick="t('getStorageInfo()')">getStorageInfo</button>
+</div></div>
+
+<div class="group"><h2>⚡ 自动连测（非弹窗桥批量）</h2><div class="grid">
+  <button class="wide" onclick="autoRun()">▶ 自动连测 22 项</button>
+</div></div>
+
+<div class="group"><h2>⑪ 退出</h2><div class="grid">
+  <button class="wide warn" onclick="t('exit()')">exit 关闭应用</button>
+</div></div>
+
+<div class="log" id="log">// 点击按钮调用桥，结果实时打印\n</div>
+
+<script>
+var A = window.AndroidApp;
+function log(html, cls) {
+  var d = document.getElementById('log');
+  var s = document.createElement('div');
+  if (cls) s.className = cls;
+  s.innerHTML = html;
+  d.appendChild(s);
+  d.scrollTop = d.scrollHeight;
+}
+function esc(v) { return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function T(name, args) {
+  var tag = 't';
+  try {
+    var r = A[name].apply(A, args);
+    log('<span class="t">' + tag + '</span> ' + esc(name) + ' → <span class="ok">' + esc(r) + '</span>');
+  } catch (e) {
+    log('<span class="t">' + tag + '</span> ' + esc(name) + ' → <span class="err">ERR ' + esc(e.message) + '</span>');
+  }
+}
+function t(expr) {
+  // 解析 "name(参数,参数)" 形式
+  var i = expr.indexOf('(');
+  var name = expr.slice(0, i).trim();
+  var argsStr = expr.slice(i + 1, expr.lastIndexOf(')')).trim();
+  var args = [];
+  if (argsStr) {
+    // 简单解析：逗号分隔，去掉引号
+    args = argsStr.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(function (s) {
+      s = s.trim();
+      if ((s[0] === '"' && s[s.length-1] === '"') || (s[0] === "'" && s[s.length-1] === "'")) return s.slice(1, -1);
+      if (s === 'true') return true;
+      if (s === 'false') return false;
+      if (s === 'null') return null;
+      if (!isNaN(Number(s))) return Number(s);
+      return s;
+    });
+  }
+  T(name, args);
+}
+function reqTest(url, method, body) {
+  log('<span class="t">t</span> request ' + method + ' ' + url);
+  A.request(url, method, null, body || '', 'cbReq' + Date.now());
+}
+window['cbReq' + 'X'] = function(){};
+// 注册 request 回调（一次性）
+var pendingReq = {};
+window.cbReqOnce = function (key) {
+  return function (r) {
+    var tag = key;
+    try {
+      if (r.status === 0) log('<span class="t">' + tag + '</span> → <span class="err">网络错误: ' + esc(r.error) + '</span>');
+      else log('<span class="t">' + tag + '</span> → <span class="ok">status=' + r.status + '</span> body=' + esc(String(r.body).substring(0, 140)));
+    } catch (e) { log('<span class="err">回调解析失败 ' + esc(e.message) + '</span>'); }
+    delete pendingReq[key];
+  };
+};
+function precache() {
+  var key = 'cbPre' + Date.now();
+  window[key] = function (r) {
+    log('<span class="t">t</span> precacheUrl → ' + esc(JSON.stringify(r)));
+    delete window[key];
+  };
+  try { A.precacheUrl('https://www.baidu.com', key); } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+function saveTest() {
+  var content = '壳文件读写测试 ' + new Date().toISOString();
+  var b64 = btoa(unescape(encodeURIComponent(content)));
+  log('<span class="t">t</span> saveFile(测试.txt, base64)');
+  try {
+    var r = A.saveFile('测试.txt', b64);
+    log('<span class="ok">' + esc(r) + '</span>');
+  } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+function permTest(name) {
+  var key = 'cbPerm' + Date.now();
+  window[key] = function (r) {
+    log('<span class="t">t</span> requestPermission(' + name + ') → granted=' + r.granted +
+        ' reason=' + r.reason + (r.human ? '<br><span class="ok">human:</span> ' + esc(r.human) : ''));
+    delete window[key];
+  };
+  try { A.requestPermission(name, key); } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+function clipWatch() {
+  var key = 'cbClip' + Date.now();
+  window[key] = function (r) {
+    log('<span class="t">t</span> 剪贴板监听 → ' + esc(JSON.stringify(r)));
+  };
+  try { A.startClipboardWatch(key); log('<span class="ok">监听已启动，复制任意文字试试</span>'); } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+function dlgTest() {
+  var key = 'cbDlg' + Date.now();
+  window[key] = function (r) {
+    log('<span class="t">t</span> showDialog → ' + esc(JSON.stringify(r)));
+    delete window[key];
+  };
+  try { A.showDialog('测试确认框', '这是壳的原生确认框', key); } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+function dateTest() {
+  var key = 'cbDate' + Date.now();
+  window[key] = function (r) {
+    log('<span class="t">t</span> pickDate → ' + esc(JSON.stringify(r)));
+    delete window[key];
+  };
+  try { A.pickDate(key); } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+function timeTest() {
+  var key = 'cbTime' + Date.now();
+  window[key] = function (r) {
+    log('<span class="t">t</span> pickTime → ' + esc(JSON.stringify(r)));
+    delete window[key];
+  };
+  try { A.pickTime(key); } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+function pickFile() {
+  var key = 'cbFile' + Date.now();
+  window[key] = function (r) {
+    if (!r) { log('<span class="err">取消选择</span>'); return; }
+    log('<span class="t">t</span> openFilePicker → name=' + esc(r.name) + ' size=' + r.size + ' mime=' + esc(r.mimeType));
+    delete window[key];
+  };
+  try { A.openFilePicker(key); } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+function shotTest() {
+  var key = 'cbShot' + Date.now();
+  window[key] = function (r) {
+    if (!r || !r.dataBase64) { log('<span class="err">截图失败/无数据</span>'); return; }
+    log('<span class="t">t</span> screenshot → ' + r.width + 'x' + r.height + ' base64=' + String(r.dataBase64).length + '字符');
+    delete window[key];
+  };
+  try { A.screenshot(key); } catch (e) { log('<span class="err">ERR ' + esc(e.message) + '</span>'); }
+}
+
+// ===== 自动连测 =====
+function autoRun() {
+  log('<span class="t">▶</span> 自动连测开始……');
+  var syncTests = [
+    ['getShellVersion'], ['getBridgeApi'], ['getVersion'], ['getDeviceInfo'],
+    ['getSystemInfo'], ['getNetworkType'], ['getOrientation'], ['isFullscreen'],
+    ['getStatusBarHeight'], ['getNavBarHeight'], ['getBatteryLevel'], ['isCharging'],
+    ['getStorageInfo'], ['readClipboard'], ['getCacheMode'], ['getDeepLink'],
+    ['getBrightness']
+  ];
+  syncTests.forEach(function (x) { T(x[0], x.slice(1)); });
+  // 写文件
+  try {
+    var b64 = btoa(unescape(encodeURIComponent('自动连测 ' + new Date().toISOString())));
+    log('<span class="t">t</span> saveFile(auto.txt) → <span class="ok">' + esc(A.saveFile('auto.txt', b64)) + '</span>');
+    log('<span class="t">t</span> readFile(auto.txt) → <span class="ok">' + esc(A.readFile('auto.txt')) + '</span>');
+    log('<span class="t">t</span> listFiles → <span class="ok">' + esc(A.listFiles('')) + '</span>');
+  } catch (e) { log('<span class="err">文件 ERR ' + esc(e.message) + '</span>'); }
+  // precache 回调
+  var kp = 'cbAutoPre';
+  window[kp] = function (r) { log('<span class="t">t</span> precacheUrl → <span class="ok">' + esc(JSON.stringify(r)) + '</span>'); delete window[kp]; };
+  try { A.precacheUrl('https://www.baidu.com', kp); } catch (e) { log('<span class="err">precache ERR ' + esc(e.message) + '</span>'); }
+  // screenshot 回调
+  var ks = 'cbAutoShot';
+  window[ks] = function (r) {
+    if (r && r.dataBase64) log('<span class="t">t</span> screenshot → <span class="ok">' + r.width + 'x' + r.height + ' base64=' + String(r.dataBase64).length + '字符</span>');
+    else log('<span class="err">screenshot 无数据: ' + esc(JSON.stringify(r)) + '</span>');
+    delete window[ks];
+  };
+  try { A.screenshot(ks); } catch (e) { log('<span class="err">screenshot ERR ' + esc(e.message) + '</span>'); }
+  log('<span class="t">▶</span> 自动连测完毕（弹窗类桥请手动逐测）');
+}
+
+// ===== request 专用 =====
+var reqSeq = 0;
+function reqTest2() {}
+window.cbReq = function (r) {
+  var tag = 'req#' + (++reqSeq);
+  if (r.status === 0) log('<span class="t">' + tag + '</span> → <span class="err">网络错误: ' + esc(r.error) + '</span>');
+  else log('<span class="t">' + tag + '</span> → <span class="ok">status=' + r.status + '</span> body=' + esc(String(r.body).substring(0, 140)));
+};
+
+// 初始化信息
+(function init() {
+  try {
+    document.getElementById('verLine').textContent = 'shell=' + A.getShellVersion() + ' | bridge_api=' + A.getBridgeApi() + ' | app=' + A.getVersion();
+  } catch (e) {
+    document.getElementById('verLine').textContent = '⚠ window.AndroidApp 未注入（非壳环境）';
+    return;
+  }
+  try {
+    var dpr = window.devicePixelRatio || 1;
+    document.getElementById('chipSb').textContent = '状态栏 ' + Math.round(parseInt(A.getStatusBarHeight()) / dpr) + 'csspx(' + A.getStatusBarHeight() + 'px)';
+    document.getElementById('chipNb').textContent = '导航栏 ' + Math.round(parseInt(A.getNavBarHeight()) / dpr) + 'csspx(' + A.getNavBarHeight() + 'px)';
+  } catch (e) {}
+  try { document.getElementById('chipNet').textContent = '网络 ' + A.getNetworkType(); } catch (e) {}
+  log('<span class="dim">// 壳已就绪：62 桥自测台（v8.1）。点击按钮逐项测试，日志实时打印。</span>');
+})();
+</script>
+</body>
+</html>

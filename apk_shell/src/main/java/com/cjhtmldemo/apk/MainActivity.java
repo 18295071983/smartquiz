@@ -552,7 +552,7 @@ public class MainActivity extends Activity {
                 try { out.put("error", String.valueOf(e.getMessage())); } catch (Exception ignored) { }
             }
             final String js = "window['" + pendingBridgeCallback + "'] && window['" + pendingBridgeCallback + "']("
-                    + JSONObject.quote(out.toString()) + ");";
+                    + out.toString() + ");";
             runOnUiThread(() -> {
                 if (webView != null) webView.evaluateJavascript(js, null);
             });
@@ -715,7 +715,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) { }
             final boolean success = ok;
             final String js = "window['" + callbackName + "'] && window['" + callbackName + "']("
-                    + JSONObject.quote("{\"url\":" + JSONObject.quote(url) + ",\"ok\":" + success + "}") + ");";
+                    + "{\"url\":" + JSONObject.quote(url) + ",\"ok\":" + success + "}" + ");";
             runOnUiThread(() -> {
                 if (webView != null) webView.evaluateJavascript(js, null);
             });
@@ -1052,7 +1052,7 @@ public class MainActivity extends Activity {
                     try { out.put("error", String.valueOf(e.getMessage())); } catch (Exception ignored) { }
                 }
                 final String js = "window['" + callbackName + "'] && window['" + callbackName + "']("
-                        + JSONObject.quote(out.toString()) + ");";
+                        + out.toString() + ");";
                 if (webView != null) webView.evaluateJavascript(js, null);
             });
         }
@@ -1099,7 +1099,7 @@ public class MainActivity extends Activity {
                         if (webView != null) {
                             webView.evaluateJavascript(
                                     "window['" + cb + "'] && window['" + cb + "']("
-                                            + JSONObject.quote("{\"text\":" + JSONObject.quote(t) + "}") + ");", null);
+                                            + "{\"text\":" + JSONObject.quote(t) + "}" + ");", null);
                         }
                     });
                 };
@@ -1350,7 +1350,7 @@ public class MainActivity extends Activity {
                     result = out.toString();
                 }
                 final String js = "window['" + callbackName + "'] && window['" + callbackName + "']("
-                        + JSONObject.quote(result) + ");";
+                        + result + ");";
                 runOnUiThread(() -> {
                     if (webView != null) webView.evaluateJavascript(js, null);
                 });
@@ -1695,7 +1695,7 @@ public class MainActivity extends Activity {
             out.put("human", human);
         } catch (Exception ignored) { }
         final String cb = pendingBridgeCallback == null ? "" : pendingBridgeCallback;
-        final String js = "window['" + cb + "'] && window['" + cb + "'](" + JSONObject.quote(out.toString()) + ");";
+        final String js = "window['" + cb + "'] && window['" + cb + "'](" + out.toString() + ");";
         runOnUiThread(() -> {
             if (webView != null) webView.evaluateJavascript(js, null);
         });
@@ -1829,7 +1829,7 @@ public class MainActivity extends Activity {
     /** 通用 JS 回调：window[callbackName](json 字符串)（UI 线程执行） */
     private void callJsCallback(String callbackName, String json) {
         final String js = "window['" + callbackName + "'] && window['" + callbackName + "']("
-                + JSONObject.quote(json) + ");";
+                + json + ");";
         runOnUiThread(() -> {
             if (webView != null) webView.evaluateJavascript(js, null);
         });
