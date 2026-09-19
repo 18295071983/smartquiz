@@ -1,0 +1,17 @@
+feat(html2apk): 壳升级为63桥WebView壳（与apk_shell同源）
+
+问题根因：html2apk 原为极简壳（0桥），页面调 window.AndroidApp 全为 null，
+极光时钟等应用 TTS/方向/亮度等全部失效（此前"tts不对"的根因）。
+
+改动：
+1. 移植 apk_shell 63 桥壳：MainActivity（TTS speakText/ttsState/stopSpeak、
+   方向、亮度、权限、SAF文件、截图、剪贴板、状态栏、网络代理 request、
+   通知/前台服务、全屏、脚本注入、缓存控制） + HtmlHttpServer + ForegroundBridgeService
+2. 加载方式改为 dt.jet：HTML目录 → ZIP → AES-128-CBC → assets/dt.jet
+   + manifest.json（main 入口 + 可选 url 远程）；与主应用 ApkPacker 同格式
+3. manifest 补齐权限（相机/录音/震动/通知/媒体/定位/前台服务）+ FileProvider
+4. build.gradle：minSdk 26 / targetSdk 35 / androidx.core 1.13.0
+5. export_apk.ps1 第2节改为 dt.jet 打包流程（tools/gen_dt_jet.py）
+6. README/SKILL 口径同步更新
+
+已验证：export_apk.ps1 打出 bridgetest APK（1.52MB，包名 com.html2apk.bridgetest），63 桥接口齐全

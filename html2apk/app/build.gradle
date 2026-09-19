@@ -1,5 +1,6 @@
 // ============================================================
-// html2apk app 模块：纯 WebView 壳（无 AndroidX / Kotlin 依赖）
+// html2apk app 模块：63 桥 WebView 壳（与 apk_shell 同源：
+// window.AndroidApp：TTS/方向/亮度/权限/SAF/截图/剪贴板/网络代理等）
 // 打包参数通过 export_apk.ps1 生成的 build_config.properties 注入
 // ============================================================
 plugins { id 'com.android.application' }
@@ -28,12 +29,12 @@ def ksAliasPass  = str('ksAliasPass', 'html2apk123')
 
 android {
     namespace 'com.html2apk.wrapper'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId appPackage
-        minSdk 21
-        targetSdk 34
+        minSdk 26
+        targetSdk 35
         versionCode appVersionCode
         versionName appVersionName
         // 应用显示名（支持中文），由 export_apk.ps1 注入
@@ -62,4 +63,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // FileProvider（分享壳内文件）+ 前台服务；与 apk_shell 同源
+    implementation 'androidx.core:core:1.13.0'
 }

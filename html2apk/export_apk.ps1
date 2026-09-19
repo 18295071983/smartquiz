@@ -6,10 +6,10 @@
     Agent 生成任意 HTML/CSS/JS 后，把包含 index.html 的目录交给本脚本，
     脚本会：
       1. 校验输入（index.html 存在，或指定 -RemoteUrl）
-      2. 将 HTML 目录同步进 WebView 壳工程的 assets/
+      2. 将 HTML 目录打包为 dt.jet（ZIP→AES）与 manifest.json 进壳 assets
       3. 按参数写入打包配置（应用名/包名/版本/图标/签名）
       4. 自动生成签名 keystore（首次）
-      5. 用 gradlew 构建 release APK
+      5. 用 gradlew 构建 release APK（63 桥 WebView 壳）
       6. 用 aapt 校验 APK 元信息并复制到输出目录
 
 .EXAMPLE
@@ -120,22 +120,29 @@ if ($Package -notmatch '^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$') {
 }
 
 # ------------------------------------------------------------
-# 2. 同步 HTML 到 assets
+# 2. 打包 HTML 到 assets（dt.jet 加密 + manifest.json）
 # ------------------------------------------------------------
-Write-Step "同步 HTML 资源"
+Write-Step "打包 HTML 资源"
 $assetsDir = Join-Path $script:ToolRoot "app\src\main\assets"
-Get-ChildItem $assetsDir -Force | Remove-Item -Recurse -Force
+if (Test-Path $assetsDir) { Get-ChildItem $assetsDir -Force | Remove-Item -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
+
 if ($HtmlDir) {
-    Copy-Item -Path (Join-Path $HtmlDir "*") -Destination $assetsDir -Recurse -Force
+    # HTML 目录 → ZIP → AES-128-CBC(dt.jet)；与 apk_shell/ApkPacker 同一格式
+    $genScript = Join-Path $script:ToolRoot "tools\gen_dt_jet.py"
+    $dtJet = Join-Path $assetsDir "dt.jet"
+    & python $genScript $HtmlDir $dtJet
+    if ($LASTEXITCODE -ne 0) { Write-Err "dt.jet 生成失败（需 Python3 + cryptography）" }
+    Write-Ok "dt.jet 已生成: $((Get-Item $dtJet).Length) bytes"
 }
-# 远程 URL 模式：写入 start_url.txt；本地模式：删除该文件
-$startUrlFile = Join-Path $assetsDir "start_url.txt"
-if ($RemoteUrl) {
-    [System.IO.File]::WriteAllText($startUrlFile, $RemoteUrl, [System.Text.Encoding]::UTF8)
-    Write-Ok "已写入 start_url.txt -> $RemoteUrl"
-}
+# manifest.json：本地入口 index.html + 可选远程 url
+$manifest = @{ main = "index.html"; targver = 1 }
+if ($RemoteUrl) { $manifest["url"] = $RemoteUrl }
+$manifestJson = $manifest | ConvertTo-Json -Compress
+[System.IO.File]::WriteAllText((Join-Path $assetsDir "manifest.json"), $manifestJson, (New-Object System.Text.UTF8Encoding($false)))
+Write-Ok "manifest.json: $manifestJson"
 $fileCount = (Get-ChildItem $assetsDir -Recurse -File).Count
-Write-Ok "assets 已就绪，共 $fileCount 个文件"
+Write-Ok "assets 已就绪，共 $fileCount 个文件（63 桥壳：TTS/方向/亮度/权限/SAF/截图/剪贴板/网络代理等）"
 
 # ------------------------------------------------------------
 # 3. 图标
@@ -275,6 +282,6 @@ Write-Host ("  APK 大小 : {0:N2} MB" -f $sizeMb)
 Write-Host "  应用名   : $AppName"
 Write-Host "  包名     : $Package"
 Write-Host "  版本     : $VersionName ($VersionCode)"
-Write-Host "  加载方式 : $(if ($RemoteUrl) { $RemoteUrl } else { '本地 assets/index.html' })"
+Write-Host "  加载方式 : $(if ($RemoteUrl) { $RemoteUrl } else { '本地 dt.jet 解密 + HTTP 服务' })"
 Write-Host "  安装命令 : adb install -r `"$finalApk`""
 Write-Host "================================================================" -ForegroundColor Green

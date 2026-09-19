@@ -1,11 +1,12 @@
 # html2apk —— HTML 一键打包 APK 工具
 
-把任意 HTML/CSS/JS 目录打包成**可直接安装的签名 APK**。核心是一个纯 WebView 壳工程（无 AndroidX / Kotlin 依赖），Agent 生成 HTML 后，用一条命令即可导出 APK。
+把任意 HTML/CSS/JS 目录打包成**可直接安装的签名 APK**。壳为 **63 桥 WebView 壳**（与 `apk_shell` 同源）：除基础渲染外，页面内可直接调用 `window.AndroidApp.*` 原生能力（TTS 语音播报、方向锁定、屏幕亮度、权限管理、SAF 文件读写、截图、剪贴板、网络代理等）。Agent 生成 HTML 后，用一条命令即可导出 APK。
 
 ## 特性
 
-- **任意 HTML 入包**：本地 `index.html`（含全部子目录资源）打包进 assets，由 WebView 渲染
-- **远程 URL 模式**：也可直接加载一个 http/https 地址，不打包本地 HTML
+- **任意 HTML 入包**：本地 `index.html`（含全部子目录资源）打包为 `dt.jet`（ZIP→AES-128-CBC，与主应用 ApkPacker 同一格式），壳内解密后由本地 HTTP 服务加载
+- **63 桥原生能力**：`window.AndroidApp` 提供 TTS（speakText/ttsState/stopSpeak）、方向（setOrientation）、亮度（setBrightness）、权限管理（requestPermission/checkPermission/openAppSettings）、SAF 文件（openFilePicker/saveFile/readFile/listFiles）、截图（screenshot）、剪贴板（readClipboard）、状态栏（setStatusBarStyle/getStatusBarHeight）、设备信息、电池/存储、通知/前台服务、无 CORS 网络代理（request）、全屏、脚本注入、缓存控制等 63 个接口
+- **远程 URL 模式**：也可直接加载一个 http/https 地址（manifest.json 的 url 字段），不打包本地 HTML
 - **中文应用名**：应用显示名、包名、版本号全部可配（UTF-8 安全）
 - **自动签名**：首次运行自动生成 release keystore，后续复用；也支持传入已有 keystore
 - **增量构建快**：复用本机 Gradle 缓存，第二次构建秒级完成
@@ -61,8 +62,8 @@ Agent 生成 HTML 目录
         ▼
 export_apk.ps1
  ├─ 校验 index.html / RemoteUrl
- ├─ 同步 HTML → app/src/main/assets/
- ├─ (可选) 写入 start_url.txt → 远程加载模式
+ ├─ HTML 目录 → ZIP → AES-128-CBC → assets/dt.jet（与 ApkPacker 同格式）
+ ├─ 写入 assets/manifest.json（main 入口 + 可选 url 远程）
  ├─ (可选) 覆盖 app_icon.png
  ├─ 生成/复用 release keystore
  ├─ 写入 build_config.properties（UTF-8）
@@ -70,13 +71,14 @@ export_apk.ps1
  └─ aapt 校验 + 复制到 out/
         │
         ▼
-签名 APK（WebView 壳 + 你的 HTML）
+签名 APK（63 桥 WebView 壳 + 你的 HTML）
 ```
 
-壳运行时规则（`MainActivity.java`）：
-1. 若 `assets/start_url.txt` 存在且非空 → 加载其中 URL（需联网）
-2. 否则 → 加载 `file:///android_asset/index.html`
+壳运行时规则（`MainActivity.java`，与 apk_shell 同源）：
+1. 读取 `assets/manifest.json`：取 `main` 入口与可选 `url`（远程加载）
+2. 有 `url` → 直接加载远程地址（需联网）；否则解密 `assets/dt.jet` → 解出 HTML 目录 → 本地 HTTP 服务加载
 3. 已启用：JavaScript、DOM Storage、本地文件访问、媒体自动播放、返回键回退
+4. `window.AndroidApp` 注入 63 个原生桥接口（TTS/方向/亮度/权限/SAF/截图/剪贴板/网络代理等）
 
 ## 目录结构
 
@@ -89,10 +91,14 @@ html2apk/
 ├── app/
 │   ├── build.gradle          # 壳工程配置（参数经 build_config.properties 注入）
 │   └── src/main/
-│       ├── AndroidManifest.xml
-│       ├── java/com/html2apk/wrapper/MainActivity.java
+│       ├── AndroidManifest.xml          # 权限 + FileProvider + 前台服务
+│       ├── java/com/html2apk/wrapper/
+│       │   ├── MainActivity.java        # 63 桥壳（TTS/方向/亮度/权限/SAF/截图/剪贴板…）
+│       │   ├── HtmlHttpServer.java      # 本地 HTTP 服务（加载解密后的 HTML 目录）
+│       │   └── ForegroundBridgeService.java
 │       ├── res/drawable-nodpi/app_icon.png
-│       └── assets/           # HTML 资源（脚本自动同步，勿手工编辑）
+│       └── assets/           # dt.jet + manifest.json（脚本自动生成，勿手工编辑）
+├── tools/gen_dt_jet.py       # HTML 目录 → ZIP → AES(dt.jet)
 ├── samples/demo/             # 示例 HTML 应用
 └── out/                      # APK 输出目录
 ```
@@ -102,5 +108,5 @@ html2apk/
 - **首次构建需联网**：离线缓存缺 `transform-api`、`javapoet` 等小依赖，脚本会自动转联网下载一次，之后均走缓存
 - **APK 文件名为 ASCII**：应用显示名可中文，但输出文件名会 ASCII 化（aapt/adb 对非 ASCII 路径兼容性差）
 - **图标持久化**：传过 `-Icon` 后图标会保留，下次不传则沿用；想还原默认图标需手动恢复 `res/drawable-nodpi/app_icon.png`
-- **minSdk 21 / targetSdk 34**：覆盖 Android 5.0+ 全系设备
+- **minSdk 26 / targetSdk 35**：覆盖 Android 8.0+ 设备（与主应用 apk_shell 一致）
 - **签名密钥请妥善保管**：`keystore/html2apk-release.keystore`（默认口令 `html2apk123`），后续升级必须用同一密钥
