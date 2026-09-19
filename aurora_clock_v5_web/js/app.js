@@ -244,20 +244,35 @@ function renderMeta() {
   }
 }
 
-/* ---------- 双击操作：表盘区域双击 = 切换下一个表盘；沉浸模式双击空白 = 退出全屏 ---------- */
+/* ---------- 操作逻辑：滑动切换表盘；双击切换 设计界面 / 全屏沉浸 ---------- */
 function nextFace() {
   var list = FACES; if (!list || !list.length) return;
   var cur = FACE.cur(), idx = 0;
   list.forEach(function (f, i) { if (f.k === cur) idx = i; });
-  var nf = list[(idx + 1) % list.length];
-  applyFace(nf.k);
-  toast('表盘：' + nf.n + '（再双击切换）');
+  applyFace(list[(idx + 1) % list.length].k);
 }
-function onDbl(e) {
-  var fh = $('#faceHost');
-  if (fh && fh.contains(e.target)) { nextFace(); return; }
-  if (document.body.classList.contains('immerse')) toggleImmerse();
+function prevFace() {
+  var list = FACES; if (!list || !list.length) return;
+  var cur = FACE.cur(), idx = 0;
+  list.forEach(function (f, i) { if (f.k === cur) idx = i; });
+  applyFace(list[(idx - 1 + list.length) % list.length].k);
 }
+function onDbl() { toggleImmerse(); }
+/* 滑动切换表盘（弹层打开时不响应） */
+var _swipe = { x: null, y: null, t: 0 };
+document.addEventListener('touchstart', function (e) {
+  if (e.touches.length !== 1 || document.querySelector('.sheet.on')) return;
+  _swipe.x = e.touches[0].clientX; _swipe.y = e.touches[0].clientY; _swipe.t = Date.now();
+}, { passive: true });
+document.addEventListener('touchend', function (e) {
+  if (_swipe.x === null) return;
+  var dx = e.changedTouches[0].clientX - _swipe.x;
+  var dy = e.changedTouches[0].clientY - _swipe.y;
+  var dt = Date.now() - _swipe.t;
+  _swipe.x = null; _swipe.y = null;
+  if (dt > 800 || Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 1.15) return;
+  if (dx < 0) nextFace(); else prevFace();
+}, { passive: true });
 
 /* ---------- 初始化 ---------- */
 function init() {

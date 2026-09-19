@@ -47,8 +47,13 @@ body.landscape .flip-bar i{display:block;height:100%;width:0;background:var(--ac
   animation:pulse 2s infinite}
 .flip-colon::before{top:.08em}
 .flip-colon::after{bottom:.085em;animation-delay:-1s}
-/* 秒：胶囊徽标 */
-.flip-sec{font-size:.2em;color:var(--acc);align-self:center;margin:0 0 0 .6em;letter-spacing:.08em;
-  padding:.28em .5em;border-radius:999px;background:rgba(var(--glow),.1);border:1px solid rgba(var(--glow),.3);
-  text-shadow:0 0 .5em rgba(var(--glow),.7);font-variant-numeric:tabular-nums;min-width:1.95em;text-align:center}
-.flip-sec:empty{display:none;border:0;background:transparent}
+/* 秒：主翻页右侧的小号翻页卡（实时走秒动画） */
+.flip-secwrap{display:flex;align-items:center;justify-content:center;gap:.16em;
+  font-size:.3em;line-height:1;align-self:center;margin:0 0 0 .9em}
+.flip-scolon{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.22em;width:.1em;height:1em}
+.flip-scolon i{width:.14em;height:.14em;border-radius:50%;background:var(--acc);
+  box-shadow:0 0 .22em var(--acc),0 0 .6em rgba(var(--glow),.55);animation:pulse 2s infinite}
+.flip-scolon i+i{animation-delay:-1s}
+.flip-secwrap .fd{border-radius:.09em}
+body.landscape .flip-secwrap{align-self:center;margin:0}
+body.landscape .flip-sec{display:none}

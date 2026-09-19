@@ -29,7 +29,7 @@
   function flipRelayout() {
     var w = document.getElementById('f-flip');
     if (!w) return;
-    var sec = document.getElementById('f-sec');
+    var sec = document.getElementById('f-secwrap');
     var row = w.querySelector('.flip-row'), strip = w.querySelector('.flip-strip');
     if (document.body.classList.contains('landscape')) {
       if (!row) {
@@ -64,9 +64,19 @@
           '<div class="leaf leaf-u"><span>0</span></div><div class="leaf leaf-l"><span>0</span></div>';
         w.appendChild(d);
       });
-      var sc = el('div', 'flip-sec mono');
-      sc.id = 'f-sec';
-      w.appendChild(sc);
+      /* 秒：主翻页右侧的小号翻页卡（实时走秒动画） */
+      var scw = el('div', 'flip-secwrap');
+      var scol = el('div', 'flip-scolon');
+      scol.innerHTML = '<i></i><i></i>';
+      scw.appendChild(scol);
+      ['s1', 's2'].forEach(function (id) {
+        var d = el('div', 'fd');
+        d.id = 'fd-' + id;
+        d.innerHTML = '<div class="half up"><span>0</span></div><div class="half dn"><span>0</span></div>' +
+          '<div class="leaf leaf-u"><span>0</span></div><div class="leaf leaf-l"><span>0</span></div>';
+        scw.appendChild(d);
+      });
+      w.appendChild(scw);
       host.appendChild(w);
       flipRelayout();
     },
@@ -76,8 +86,7 @@
       var hs = pad2(H), ms = pad2(m), ss = pad2(s);
       flipSet('h1', hs[0]); flipSet('h2', hs[1]);
       flipSet('m1', ms[0]); flipSet('m2', ms[1]);
-      var sc = $('#f-sec');
-      if (sc) sc.textContent = S.showSec ? (ss + 's') : '';
+      flipSet('s1', ss[0]); flipSet('s2', ss[1]);
       flipBar(s);
     },
     relayout: function () { flipRelayout(); }
