@@ -206,7 +206,13 @@ function onSecond(now) {
   if (S.tick) AU.tick();
   if (S.chime && now.getMinutes() === 0 && now.getSeconds() === 0) {
     AU.chime(S.chimeTone, now.getHours());
-    if (S.tts) { try { var _b = B(); if (_b && _b.speakText) _b.speakText('现在是' + now.getHours() + '点整'); } catch (e) { } }
+    if (S.tts) {
+      try {
+        var _b = B();
+        if (_b && _b.speakText) { _b.speakText('现在是' + now.getHours() + '点整'); }
+        else { AU.chime(S.chimeTone, now.getHours()); toast('现在是' + now.getHours() + '点整'); }
+      } catch (e) { AU.chime(S.chimeTone, now.getHours()); toast('现在是' + now.getHours() + '点整'); }
+    }
   }
   checkAlarms();
   var pg = $('#pg-world'); if (pg && pg.classList.contains('on')) renderWorld();

@@ -2,6 +2,25 @@
 /* ---------- ② 音频引擎（全实时合成，零外部文件） ---------- */
 var AU=(function(){
   var ctx=null,master=null,vol=.7,beds={},ringTimer=null,ringNode=null,nb=null,chirpTimer=null,clickTone='soft';
+  /* 内置音效文件（HTML5 Audio 播放；文件缺失/加载失败时自动回落 Web Audio 合成） */
+  var AF = {
+    chime_west:'audio/chime_west.wav', chime_bell:'audio/chime_bell.wav', chime_piano:'audio/chime_piano.wav',
+    chime_glass:'audio/chime_glass.wav', chime_beep:'audio/chime_beep.wav',
+    click_soft:'audio/click_soft.wav', click_pop:'audio/click_pop.wav', click_wood:'audio/click_wood.wav',
+    click_digital:'audio/click_digital.wav', click_drop:'audio/click_drop.wav',
+    swipe:'audio/swipe.wav', ok:'audio/ok.wav', err:'audio/err.wav', tick:'audio/tick.wav'
+  }, _audio = {};
+  function playFile(name){
+    var url = AF[name]; if (!url) return false;
+    try {
+      var a = _audio[name];
+      if (!a) { a = new Audio(url); a.preload = 'auto'; _audio[name] = a; }
+      a.currentTime = 0;
+      var p = a.play(); if (p && p.catch) p.catch(function () { });
+      return true;
+    } catch (e) { return false; }
+  }
+  function fileFallback(name){ return !(AF[name] && _audio[name] && !_audio[name].error && _audio[name].readyState >= 1); }
   function ac(){ if(!ctx){ var C=window.AudioContext||window.webkitAudioContext; if(!C) return null;
       ctx=new C(); master=ctx.createGain(); master.gain.value=vol; master.connect(ctx.destination); }
     if(ctx.state==='suspended')ctx.resume(); return ctx; }
@@ -12,34 +31,35 @@ var AU=(function(){
   function beep(f,dur,type,gain,delay){ var c=ac(); if(!c)return; var t=c.currentTime+(delay||0);
     var o=c.createOscillator(),g=c.createGain(); o.type=type||'sine'; o.frequency.setValueAtTime(f,t);
     env(g,t,.012,gain||.16,dur||.18); o.connect(g); g.connect(master); o.start(t); o.stop(t+(dur||.18)+.08); }
-  /* 走秒滴答 */
-  function tick(){ var c=ac(); if(!c)return; var t=c.currentTime; var o=c.createOscillator(),g=c.createGain();
+  /* 走秒滴答（内置文件优先） */
+  function tick(){ if (playFile('tick')) return; var c=ac(); if(!c)return; var t=c.currentTime; var o=c.createOscillator(),g=c.createGain();
     o.type='square'; o.frequency.setValueAtTime(1800,t); o.frequency.exponentialRampToValueAtTime(700,t+.03);
     g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.075,t+.003); g.gain.exponentialRampToValueAtTime(.0001,t+.055);
     o.connect(g); g.connect(master); o.start(t); o.stop(t+.07); }
-  /* 按键音（多音色） */
+  /* 按键音（多音色；内置文件优先） */
   function click(){
     var tn = clickTone || 'soft';
+    if (playFile('click_' + tn)) return;
     if (tn === 'pop') { beep(660,.05,'sine',.1); beep(990,.045,'sine',.06,.04); }
     else if (tn === 'wood') { beep(430,.05,'square',.065); beep(210,.07,'sine',.09,.02); }
     else if (tn === 'digital') { beep(1420,.03,'square',.055); beep(900,.04,'square',.045,.025); }
     else if (tn === 'drop') { beep(1900,.06,'sine',.08); beep(720,.09,'sine',.055,.05); }
     else { beep(1180,.06,'triangle',.09,0); beep(1760,.05,'sine',.05,.03); }
   }
-  /* 表盘切换 / 提示：嗖声滑音 */
-  function swipe(){
+  /* 表盘切换 / 提示：嗖声（内置文件优先） */
+  function swipe(){ if (playFile('swipe')) return;
     var c = ac(); if (!c) return;
     var t = c.currentTime, o = c.createOscillator(), g = c.createGain();
     o.type = 'sine'; o.frequency.setValueAtTime(340, t); o.frequency.exponentialRampToValueAtTime(760, t + .1);
     env(g, t, .012, .11, .11); o.connect(g); g.connect(master); o.start(t); o.stop(t + .15);
     beep(920, .1, 'sine', .055, .05);
   }
-  /* 成功 / 错误提示音 */
-  function ok(){ beep(784,.07,'sine',.11); beep(1175,.1,'sine',.09,.07); }
-  function err(){ beep(240,.13,'sawtooth',.08); beep(185,.17,'sawtooth',.065,.11); }
+  /* 成功 / 错误提示音（内置文件优先） */
+  function ok(){ if (playFile('ok')) return; beep(784,.07,'sine',.11); beep(1175,.1,'sine',.09,.07); }
+  function err(){ if (playFile('err')) return; beep(240,.13,'sawtooth',.08); beep(185,.17,'sawtooth',.065,.11); }
   function setClickTone(t){ clickTone = t || 'soft'; }
   /* 报时音色 */
-  function chime(tone,hours){ var c=ac(); if(!c)return; var seq;
+  function chime(tone,hours){ if (playFile({ding:'chime_west',bell:'chime_bell',piano:'chime_piano',glass:'chime_glass',beep:'chime_beep'}[tone]||'chime_west')) return; var c=ac(); if(!c)return; var seq;
     if(tone==='bell'){ seq=[[196,.9],[294,.9],[392,1.2]]; }
     else if(tone==='piano'){ seq=[[523,.5],[659,.5],[784,.7],[1046,.9]]; }
     else if(tone==='beep'){ seq=[[880,.14],[880,.14],[880,.3]]; }
