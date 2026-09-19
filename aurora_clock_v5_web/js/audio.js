@@ -1,7 +1,7 @@
 /* 极光时钟 v5 · audio.js：Web Audio 实时合成引擎（零外部文件） */
 /* ---------- ② 音频引擎（全实时合成，零外部文件） ---------- */
 var AU=(function(){
-  var ctx=null,master=null,vol=.7,beds={},ringTimer=null,ringNode=null,nb=null,chirpTimer=null;
+  var ctx=null,master=null,vol=.7,beds={},ringTimer=null,ringNode=null,nb=null,chirpTimer=null,clickTone='soft';
   function ac(){ if(!ctx){ var C=window.AudioContext||window.webkitAudioContext; if(!C) return null;
       ctx=new C(); master=ctx.createGain(); master.gain.value=vol; master.connect(ctx.destination); }
     if(ctx.state==='suspended')ctx.resume(); return ctx; }
@@ -17,10 +17,27 @@ var AU=(function(){
     o.type='square'; o.frequency.setValueAtTime(1800,t); o.frequency.exponentialRampToValueAtTime(700,t+.03);
     g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.075,t+.003); g.gain.exponentialRampToValueAtTime(.0001,t+.055);
     o.connect(g); g.connect(master); o.start(t); o.stop(t+.07); }
-  /* 按键音 */
-  function click(){ beep(1180,.06,'triangle',.09,0); beep(1760,.05,'sine',.05,.03); }
-  /* 表盘切换 / 提示 */
-  function swipe(){ beep(520,.09,'sine',.12); beep(880,.12,'sine',.1,.06); }
+  /* 按键音（多音色） */
+  function click(){
+    var tn = clickTone || 'soft';
+    if (tn === 'pop') { beep(660,.05,'sine',.1); beep(990,.045,'sine',.06,.04); }
+    else if (tn === 'wood') { beep(430,.05,'square',.065); beep(210,.07,'sine',.09,.02); }
+    else if (tn === 'digital') { beep(1420,.03,'square',.055); beep(900,.04,'square',.045,.025); }
+    else if (tn === 'drop') { beep(1900,.06,'sine',.08); beep(720,.09,'sine',.055,.05); }
+    else { beep(1180,.06,'triangle',.09,0); beep(1760,.05,'sine',.05,.03); }
+  }
+  /* 表盘切换 / 提示：嗖声滑音 */
+  function swipe(){
+    var c = ac(); if (!c) return;
+    var t = c.currentTime, o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(340, t); o.frequency.exponentialRampToValueAtTime(760, t + .1);
+    env(g, t, .012, .11, .11); o.connect(g); g.connect(master); o.start(t); o.stop(t + .15);
+    beep(920, .1, 'sine', .055, .05);
+  }
+  /* 成功 / 错误提示音 */
+  function ok(){ beep(784,.07,'sine',.11); beep(1175,.1,'sine',.09,.07); }
+  function err(){ beep(240,.13,'sawtooth',.08); beep(185,.17,'sawtooth',.065,.11); }
+  function setClickTone(t){ clickTone = t || 'soft'; }
   /* 报时音色 */
   function chime(tone,hours){ var c=ac(); if(!c)return; var seq;
     if(tone==='bell'){ seq=[[196,.9],[294,.9],[392,1.2]]; }
@@ -82,6 +99,6 @@ var AU=(function(){
   function resume(){ ac(); }
   function isPlaying(type){ return !!beds[type]; }
   function activeBeds(){ return Object.keys(beds); }
-  return {tick:tick,click:click,swipe:swipe,chime:chime,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
+  return {tick:tick,click:click,swipe:swipe,ok:ok,err:err,setClickTone:setClickTone,chime:chime,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
    toggleBed:toggleBed,stopAllBeds:stopAllBeds,setVol:setVol,resume:resume,isPlaying:isPlaying,activeBeds:activeBeds,ctx:function(){return ctx;}};
 })();

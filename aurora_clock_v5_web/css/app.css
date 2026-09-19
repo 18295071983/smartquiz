@@ -150,11 +150,16 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;heigh
 .roLabel{position:relative;font-size:16px;color:var(--dim);letter-spacing:3px}
 .ringov .brow{position:relative;margin-top:12px}
 
+/* 表盘切换过渡 */
+.face.on{animation:faceIn .32s ease}
+@keyframes faceIn{from{opacity:0;transform:scale(.965)}to{opacity:1;transform:scale(1)}}
+
 /* ========== Toast ========== */
 #toast{position:fixed;left:50%;bottom:calc(var(--sa-b,0px) + 92px);transform:translate(-50%,20px);
  z-index:99;padding:11px 20px;border-radius:15px;background:rgba(12,18,30,.94);border:1px solid var(--line);
  color:var(--txt);font-size:13px;opacity:0;pointer-events:none;transition:.3s;backdrop-filter:blur(10px);max-width:min(calc(var(--cw)*.82),calc(var(--ch)*.9));text-align:center}
-#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.on{opacity:1;transform:translate(-50%,0);animation:toastPop .3s cubic-bezier(.2,1.4,.4,1)}
+@keyframes toastPop{from{transform:translate(-50%,14px) scale(.92);opacity:0}to{transform:translate(-50%,0) scale(1);opacity:1}}
 /* 点击涟漪 */
 .ripple{position:absolute;border-radius:50%;background:rgba(var(--glow),.4);transform:scale(0);animation:rip .55s ease-out;pointer-events:none}
 @keyframes rip{to{transform:scale(3.4);opacity:0}}

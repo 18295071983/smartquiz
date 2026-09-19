@@ -20,7 +20,7 @@ var THEMES=[
  {k:'nebula',n:'星云',c1:'#c9a6ff',c2:'#7a5cff',bg:'#1a0d44'}
 ];
 /* FACES 表盘清单由 faces/registry.js 动态生成（表盘外置：新增表盘文件即注册） */
-var FXS=[{k:'stars',n:'星空',i:'✨'},{k:'aurora',n:'极光',i:'🌈'},{k:'meteor',n:'流星',i:'☄️'},{k:'ripple',n:'涟漪',i:'🔵'},{k:'none',n:'纯净',i:'⬛'}];
+var FXS=[{k:'stars',n:'星空',i:'✨'},{k:'aurora',n:'极光',i:'🌈'},{k:'meteor',n:'流星',i:'☄️'},{k:'ripple',n:'涟漪',i:'🔵'},{k:'snow',n:'飘雪',i:'❄️'},{k:'firefly',n:'萤火',i:'🧚'},{k:'wave',n:'声波',i:'〰️'},{k:'pulse',n:'脉冲',i:'💫'},{k:'none',n:'纯净',i:'⬛'}];
 var SOUNDS=[
  {k:'rain',n:'雨声',i:'🌧️'},{k:'sea',n:'海浪',i:'🌊'},{k:'fire',n:'篝火',i:'🔥'},{k:'wind',n:'风声',i:'🍃'},
  {k:'forest',n:'森林',i:'🌲'},{k:'night',n:'夜虫',i:'🦗'},{k:'fan',n:'风扇',i:'🌀'},{k:'brown',n:'棕噪',i:'🎚️'},
@@ -31,6 +31,7 @@ var RINGERS=[
  {k:'siren',n:'警报强醒'},{k:'gentle',n:'柔和渐强'},{k:'bell',n:'寺庙钟声'},{k:'arcade',n:'8bit 街机'}
 ];
 var CHIME_TONES=[{k:'ding',n:'清脆铃'},{k:'bell',n:'铜钟'},{k:'piano',n:'钢琴'},{k:'beep',n:'电子哔'},{k:'glass',n:'玻璃杯'}];
+var CLICK_TONES=[{k:'soft',n:'柔和'},{k:'pop',n:'气泡'},{k:'wood',n:'木鱼'},{k:'digital',n:'电子'},{k:'drop',n:'水滴'}];
 var CITIES=[
  {n:'北京',tz:'Asia/Shanghai'},{n:'东京',tz:'Asia/Tokyo'},{n:'首尔',tz:'Asia/Seoul'},
  {n:'新加坡',tz:'Asia/Singapore'},{n:'迪拜',tz:'Asia/Dubai'},{n:'孟买',tz:'Asia/Kolkata'},

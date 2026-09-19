@@ -6,7 +6,7 @@
 var S = (function () {
   var def = {
     theme: 'aurora', face: 'flip', fx: 'stars', h24: true, showSec: true, meta: true, smooth: true, glow: true, bright: 100,
-    tick: false, chime: false, click: true, vib: true, chimeTone: 'ding', vol: 70, keep: true, fore: false, orient: 'auto',
+    tick: false, chime: false, click: true, vib: true, chimeTone: 'ding', clickTone: 'soft', vol: 70, keep: true, fore: false, orient: 'auto',
     alarms: [], cities: ['Asia/Shanghai', 'America/New_York', 'Europe/London', 'Asia/Tokyo'], beds: [], quote: 0,
     tts: false, sysBright: false
   };
@@ -283,7 +283,7 @@ function init() {
   document.documentElement.setAttribute('data-face', S.face);
   document.documentElement.setAttribute('data-fx', S.fx);
   FACE.build(S.face);
-  buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect();
+  buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect(); buildClickToneSelect();
   applyTheme(S.theme); applyFace(S.face, true); applyFx(S.fx, true);
   applyGlow(); applyBright(); applyKeep(); applyOrient(false);
   var cm = document.querySelector('.cmeta'); if (cm) cm.style.display = S.meta ? '' : 'none';
