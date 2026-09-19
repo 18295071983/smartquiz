@@ -1662,14 +1662,24 @@ function playVox(seq, voiceKey){
     var ctx=window._voxAC;
     if(ctx.state==='suspended') ctx.resume();
     var data=VOX_DATA&&VOX_DATA[voiceKey]; if(!data) return;
-    var t=ctx.currentTime+0.06;
-    seq.forEach(function(k){
-      var b64=data[k]; if(!b64) return;
-      var buf=_b64buf(b64); if(!buf) return;
-      ctx.decodeAudioData(buf,function(audio){
+    /* 全部预解码完成后按顺序播放（decodeAudioData 异步回调乱序→必须等全部解码完再排时间轴） */
+    if(!window._voxCache) window._voxCache={};
+    var jobs=seq.map(function(k){
+      return new Promise(function(res){
+        var b64=data[k]; if(!b64){ res(null); return; }
+        var ck=voiceKey+'_'+k;
+        if(window._voxCache[ck]){ res(window._voxCache[ck]); return; }
+        var buf=_b64buf(b64); if(!buf){ res(null); return; }
+        ctx.decodeAudioData(buf,function(audio){ window._voxCache[ck]=audio; res(audio); },function(){ res(null); });
+      });
+    });
+    Promise.all(jobs).then(function(list){
+      var t=ctx.currentTime+0.06;
+      list.forEach(function(audio){
+        if(!audio) return;
         var src=ctx.createBufferSource(); src.buffer=audio; src.connect(ctx.destination);
-        src.start(t); t+=audio.duration+0.04;
-      },function(){});
+        src.start(t); t+=audio.duration+0.05;
+      });
     });
   }catch(e){}
 }
