@@ -33,19 +33,41 @@ var AU=(function(){
   function beep(f,dur,type,gain,delay){ var c=ac(); if(!c)return; var t=c.currentTime+(delay||0);
     var o=c.createOscillator(),g=c.createGain(); o.type=type||'sine'; o.frequency.setValueAtTime(f,t);
     env(g,t,.012,gain||.16,dur||.18); o.connect(g); g.connect(master); o.start(t); o.stop(t+(dur||.18)+.08); }
-  /* 走秒滴答（多音色；elec=合成电子滴答，其他=内置文件优先、失败回落合成） */
+  /* 走秒滴答（多音色；纯合成 6 种 + 文件 4 种，文件失败回落合成） */
   var tickTone = 'elec';
+  var SYNTH_TONES = ['elec','ping','blip','tick2','knock','click'];
   function tick(){
     var tn = tickTone || 'elec';
-    if (tn !== 'elec' && playFile('tick_' + tn)) return;
-    var c=ac(); if(!c)return; var t=c.currentTime; var o=c.createOscillator(),g=c.createGain();
-    if (tn === 'key') { o.type='triangle'; o.frequency.setValueAtTime(1250,t); o.frequency.exponentialRampToValueAtTime(520,t+.028); }
-    else if (tn === 'soft') { o.type='sine'; o.frequency.setValueAtTime(980,t); o.frequency.exponentialRampToValueAtTime(420,t+.04); }
-    else if (tn === 'wood') { o.type='square'; o.frequency.setValueAtTime(430,t); o.frequency.exponentialRampToValueAtTime(210,t+.05); }
-    else if (tn === 'drop') { o.type='sine'; o.frequency.setValueAtTime(1900,t); o.frequency.exponentialRampToValueAtTime(720,t+.05); }
-    else { o.type='square'; o.frequency.setValueAtTime(1800,t); o.frequency.exponentialRampToValueAtTime(700,t+.03); }
-    g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.075,t+.003); g.gain.exponentialRampToValueAtTime(.0001,t+.055);
-    o.connect(g); g.connect(master); o.start(t); o.stop(t+.07); }
+    if (SYNTH_TONES.indexOf(tn) < 0 && playFile('tick_' + tn)) return;
+    var c = ac(); if (!c) return; var t = c.currentTime; synthTick(tn, c, t);
+  }
+  function synthTick(tn, c, t) {
+    if (tn === 'tick2') { /* 机械双响：嘀-嗒 */
+      var o1 = c.createOscillator(), g1 = c.createGain();
+      o1.type = 'square'; o1.frequency.setValueAtTime(1500, t); o1.frequency.exponentialRampToValueAtTime(900, t + .02);
+      g1.gain.setValueAtTime(.0001, t); g1.gain.exponentialRampToValueAtTime(.05, t + .003); g1.gain.exponentialRampToValueAtTime(.0001, t + .04);
+      o1.connect(g1); g1.connect(master); o1.start(t); o1.stop(t + .05);
+      var t2 = t + .1, o2 = c.createOscillator(), g2 = c.createGain();
+      o2.type = 'square'; o2.frequency.setValueAtTime(1600, t2); o2.frequency.exponentialRampToValueAtTime(950, t2 + .02);
+      g2.gain.setValueAtTime(.0001, t2); g2.gain.exponentialRampToValueAtTime(.045, t2 + .003); g2.gain.exponentialRampToValueAtTime(.0001, t2 + .04);
+      o2.connect(g2); g2.connect(master); o2.start(t2); o2.stop(t2 + .05);
+      return;
+    }
+    var o = c.createOscillator(), g = c.createGain();
+    var f0 = 1800, f1 = 700, type = 'square';
+    if (tn === 'ping') { type = 'sine'; f0 = 2300; f1 = 1500; }        /* 叮：高频清脆 */
+    else if (tn === 'blip') { type = 'sine'; f0 = 880; f1 = 880; }     /* 哔：单音短促 */
+    else if (tn === 'knock') { type = 'sine'; f0 = 340; f1 = 165; }    /* 敲击：低频衰减 */
+    else if (tn === 'click') { type = 'triangle'; f0 = 2600; f1 = 1200; } /* 咔哒：极短点击 */
+    else if (tn === 'key') { type = 'triangle'; f0 = 1250; f1 = 520; }
+    else if (tn === 'soft') { type = 'sine'; f0 = 980; f1 = 420; }
+    else if (tn === 'wood') { type = 'square'; f0 = 430; f1 = 210; }
+    else if (tn === 'drop') { type = 'sine'; f0 = 1900; f1 = 720; }
+    o.type = type; o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + .03);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.075, t + .003); g.gain.exponentialRampToValueAtTime(.0001, t + .055);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + .07);
+  }
   function setTickTone(t){ tickTone = t || 'elec'; }
   /* 按键音（多音色；内置文件优先） */
   function click(){
