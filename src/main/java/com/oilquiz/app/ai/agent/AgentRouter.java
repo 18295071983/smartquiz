@@ -113,6 +113,14 @@ public class AgentRouter {
         onlineEngine.setSessionId(sessionId);
     }
 
+    /** 设置当前在线模型 ID（模型切换时调用，引擎按「会话 × 模型」隔离历史文件）。
+     *  在线引擎未创建时跳过（本地路径无需记录），下次在线 handler 重建时会重新设置。 */
+    public void setModelId(String modelId) {
+        if (onlineEngine != null) {
+            onlineEngine.setModelId(modelId);
+        }
+    }
+
     public boolean isGenerating() {
         return onlineEngine != null && onlineEngine.isGenerating();
     }

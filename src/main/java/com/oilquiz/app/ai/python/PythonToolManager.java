@@ -34,6 +34,22 @@ public class PythonToolManager {
         cb.accept((resultCode == android.app.Activity.RESULT_OK && data != null) ? data : null);
     }
 
+    /**
+     * 注册一个系统 Activity Result 回调（供工具发起 startActivityForResult 后等待结果）。
+     * 返回 requestCode；回调 data=null 表示用户取消/非 RESULT_OK。
+     * 结果由宿主 Activity.onActivityResult → {@link #onAgentPickerResult} 转发。
+     */
+    public int registerAgentPicker(java.util.function.Consumer<android.content.Intent> callback) {
+        int requestCode = AGENT_PICKER_REQUEST_BASE + (int) (Math.random() * 10000);
+        AGENT_PICKERS.put(requestCode, callback);
+        return requestCode;
+    }
+
+    /** 注销一个未使用的回调（超时/异常时清理） */
+    public void removeAgentPicker(int requestCode) {
+        AGENT_PICKERS.remove(requestCode);
+    }
+
     /** 预留内部 requestCode 起点（避免与宿主 Activity 业务码冲突） */
     private static final int AGENT_PICKER_REQUEST_BASE = 30000;
 
@@ -115,6 +131,11 @@ public class PythonToolManager {
             synchronized (uiActionHandlerLock) {
                 if (uiActionHandler == null) {
                     uiActionHandler = new AndroidUiActionHandler();
+                    // 首次使用组件能力时恢复跨会话持久化组件（只注册占位，不弹 UI）
+                    try {
+                        uiActionHandler.restorePersistedComponents();
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         }
@@ -213,13 +234,15 @@ public class PythonToolManager {
         }
     }
 
-    /** 获取系统 UI 组件结果（阻塞等待用户操作） */
-    public Map<String, Object> getUiComponentResult(String componentId, int waitSeconds) {
+    /** 获取系统 UI 组件结果（阻塞等待用户操作）。
+     *  @param reactivate 跨会话恢复的持久化组件默认静默（返回 inactive）；true 时才重建弹窗让用户操作 */
+    public Map<String, Object> getUiComponentResult(String componentId, int waitSeconds, boolean reactivate) {
         try {
             Map<String, Object> action = new HashMap<>();
             action.put("type", "get_component_result");
             action.put("component_id", componentId);
             action.put("wait_seconds", waitSeconds);
+            action.put("reactivate", reactivate);
             return getUiActionHandler().handleMap(action);
         } catch (Throwable t) {
             Map<String, Object> err = new HashMap<>();
@@ -402,6 +425,10 @@ public class PythonToolManager {
             initialized = true;
             Log.i(TAG, "Python tool manager initialized successfully");
             
+            // 注入运行时 pip 安装目录（pip_install 工具解压纯 Python 包到 filesDir/runtime_packages/）
+            // 必须在任何工具执行 import 前把该目录加入 sys.path，否则已安装包不可见
+            ensureRuntimePackagesInPath();
+            
             // logPythonInfo() 可能导致 SIGSEGV（Chaquopy 在某些设备上 platform.platform() 崩溃）
             // 改为安全地仅记录版本信息
             try {
@@ -477,6 +504,35 @@ public class PythonToolManager {
     
     public boolean isInitialized() {
         return initialized;
+    }
+
+    /**
+     * 把运行时 pip 安装目录（filesDir/runtime_packages/）注入 sys.path（幂等）。
+     * pip_install 工具安装纯 Python 包后调用，使新包立即对 python_execute 可见；
+     * Python 未初始化时静默跳过（doInitialize 会再次注入）。
+     */
+    public void ensureRuntimePackagesInPath() {
+        try {
+            java.io.File runtimeDir = new java.io.File(context.getFilesDir(), "runtime_packages");
+            if (!runtimeDir.isDirectory()) return;
+            if (!Python.isStarted()) return;
+            PyObject sys = Python.getInstance().getModule("sys");
+            PyObject path = sys.get("path");
+            String abs = runtimeDir.getAbsolutePath();
+            boolean present = false;
+            for (PyObject p : path.asList()) {
+                if (abs.equals(p.toString())) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present) {
+                path.callAttr("insert", 0, abs);
+                Log.i(TAG, "runtime_packages 已注入 sys.path: " + abs);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "注入 runtime_packages 到 sys.path 失败: " + t.getMessage());
+        }
     }
     
     /**
@@ -883,6 +939,10 @@ public class PythonToolManager {
             volatile String createType;
             /** 创建参数快照（update 传 props 真重建时：按原参数 + 新 props 重新 createComponent，保留 component_id） */
             final java.util.Map<String, Object> createArgs = new java.util.concurrent.ConcurrentHashMap<>();
+            /** 是否持久化组件（create 传 persist=true）：跨重启/会话保留，list_components 可见，get_result 自动重建 UI */
+            volatile boolean persisted;
+            /** 是否从持久化文件恢复（无 UI 占位，get_result 时自动重建弹窗） */
+            volatile boolean restored;
         }
 
         /** Python 入口：把 PyObject 转为 Map 后统一走纯 Java 处理 */
@@ -911,6 +971,8 @@ public class PythonToolManager {
                 int current = 0, total = 0, max = 100, progress = -1, waitSeconds = 0;
                 String options = "", defaultValue = "", inputHint = "", props = "", actionLabel = "";
                 String items = "", url = "", clickAction = "", html = "";
+                String persistFlag = "";
+                String reactivateFlag = "";
                 int autoClose = 0;
                 if (action != null) {
                     for (Map.Entry<String, Object> e : action.entrySet()) {
@@ -941,6 +1003,8 @@ public class PythonToolManager {
                             case "html": html = v; break;
                             case "click_action": clickAction = v; break;
                             case "auto_close": autoClose = parseInt(v); break;
+                            case "persist": persistFlag = v; break;
+                            case "reactivate": reactivateFlag = v; break;
                             default: break;
                         }
                     }
@@ -963,9 +1027,26 @@ public class PythonToolManager {
                         reply.putAll(createComponent(componentType, componentId, title, message,
                                 dialogType, max, options, defaultValue, inputHint, props, actionLabel,
                                 items, url, clickAction, autoClose, html));
+                        // persist=true：组件实例跨重启/会话持久化（list_components 可见，get_result 自动重建 UI）
+                        if (Boolean.TRUE.equals(reply.get("success"))
+                                && "true".equalsIgnoreCase(persistFlag)) {
+                            Object cidObj = reply.get("component_id");
+                            if (cidObj != null && !String.valueOf(cidObj).isEmpty()) {
+                                persistComponent(String.valueOf(cidObj));
+                                reply.put("persisted", true);
+                            }
+                        }
                         break;
                     case "update_component":
-                        reply.putAll(updateComponent(componentId, title, message, progress, max, props));
+                        reply.putAll(updateComponent(componentId, title, message, progress, max, props,
+                                "true".equalsIgnoreCase(reactivateFlag)));
+                        // 持久化组件 update 后同步落盘（createArgs 快照可能变化）
+                        {
+                            ComponentRuntime urt = dynamicComponents.get(componentId);
+                            if (urt != null && urt.persisted) {
+                                writeComponentsFile();
+                            }
+                        }
                         break;
                     case "close_component":
                         reply.putAll(closeComponent(componentId));
@@ -980,7 +1061,8 @@ public class PythonToolManager {
                         reply.put("message", "已关闭全部组件");
                         break;
                     case "get_component_result":
-                        reply.putAll(getComponentResult(componentId, waitSeconds));
+                        reply.putAll(getComponentResult(componentId, waitSeconds,
+                                "true".equalsIgnoreCase(reactivateFlag)));
                         break;                    default:
                         Log.i(TAG, "[Python UI] unknown action: " + type);
                         break;
@@ -4166,12 +4248,38 @@ public class PythonToolManager {
 
         private Map<String, Object> updateComponent(String componentId, String title,
                                                     String message, int progress, int max,
-                                                    String propsJson) {
+                                                    String propsJson, boolean reactivate) {
             Map<String, Object> reply = new HashMap<>();
             ComponentRuntime rt = dynamicComponents.get(componentId);
             if (rt == null) {
                 reply.put("success", false);
                 reply.put("message", "组件不存在: " + componentId);
+                return reply;
+            }
+            // 恢复的持久化组件（无 UI）：默认只更新持久化定义，不弹窗（用户不在场，避免历史组件连续弹窗）；
+            // reactivate=true 时才把本次参数并入 createArgs 并按最新参数重建弹窗（保留同一 component_id）
+            if (rt.dialog == null && rt.restored) {
+                java.util.Map<String, Object> args = rt.createArgs;
+                if (title != null && !title.isEmpty()) args.put("title", title);
+                if (message != null && !message.isEmpty()) args.put("message", message);
+                if (propsJson != null && !propsJson.trim().isEmpty()) args.put("props", propsJson.trim());
+                if (max > 0) args.put("max", max);
+                if (!reactivate) {
+                    reply.put("success", true);
+                    reply.put("component_id", componentId);
+                    reply.put("result", "definition_updated");
+                    reply.put("message", "历史组件定义已更新（未弹窗，用户不在场）；如需用户操作请传 reactivate=true 重建弹窗");
+                    return reply;
+                }
+                if (rebuildComponent(componentId)) {
+                    reply.put("success", true);
+                    reply.put("component_id", componentId);
+                    reply.put("message", "持久化组件已按最新参数重建");
+                    return reply;
+                }
+                reply.put("success", false);
+                reply.put("result", "rebuild_failed");
+                reply.put("message", "持久化组件重建失败: " + componentId);
                 return reply;
             }
             // P2：聊天流卡片（无对话框实例、非通知组件）不支持 update——明确报错，不再误发系统通知
@@ -4321,6 +4429,7 @@ public class PythonToolManager {
                 return reply;
             }
             cancelAutoClose(rt);
+            boolean wasPersisted = rt.persisted;
             android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
             main.post(() -> {
                 try {
@@ -4341,16 +4450,25 @@ public class PythonToolManager {
                 }
             });
             dynamicComponents.remove(componentId);
+            // 持久化组件关闭后同步删除持久化记录（取消跨会话保留）
+            if (wasPersisted) {
+                writeComponentsFile();
+            }
             reply.put("success", true);
             reply.put("component_id", componentId);
             reply.put("message", "组件已关闭");
             return reply;
         }
 
-        /** 关闭全部动态组件（Agent 任务结束兜底：防止创建后未 close 的组件残留卡界面）。 */
+        /** 关闭全部动态组件（Agent 任务结束兜底：防止创建后未 close 的组件残留卡界面）。
+         *  持久化组件（persist=true）跳过：它们需要跨会话保留，close_all 不清除。 */
         public void closeAllComponents() {
             for (String id : new java.util.ArrayList<>(dynamicComponents.keySet())) {
                 try {
+                    ComponentRuntime rt = dynamicComponents.get(id);
+                    if (rt != null && rt.persisted) {
+                        continue;
+                    }
                     closeComponent(id);
                 } catch (Throwable ignored) {
                 }
@@ -4370,6 +4488,7 @@ public class PythonToolManager {
                 item.put("type", rt.createType != null ? rt.createType : "");
                 item.put("result", rt.result != null ? rt.result.get() : "");
                 item.put("alive", !"closed".equals(rt.result != null ? rt.result.get() : ""));
+                item.put("persisted", rt.persisted);
                 items.add(item);
             }
             items.sort((a, b) -> String.valueOf(a.get("component_id")).compareTo(String.valueOf(b.get("component_id"))));
@@ -4378,6 +4497,148 @@ public class PythonToolManager {
             reply.put("components", items);
             reply.put("message", items.isEmpty() ? "当前无存活组件" : "当前存活组件 " + items.size() + " 个，可用 close_component(component_id=...) 逐个关闭或 close_all_components 全部关闭");
             return reply;
+        }
+
+        // ==================== 组件实例持久化（跨重启/会话保留） ====================
+
+        private java.io.File getComponentsFile() {
+            return new java.io.File(context.getFilesDir(), "ui_components_instances.json");
+        }
+
+        /** 全量写持久化组件文件（persisted 标记的组件才写入） */
+        private synchronized void writeComponentsFile() {
+            try {
+                org.json.JSONArray arr = new org.json.JSONArray();
+                for (Map.Entry<String, ComponentRuntime> e : dynamicComponents.entrySet()) {
+                    ComponentRuntime rt = e.getValue();
+                    if (rt == null || !rt.persisted || rt.createArgs == null || rt.createArgs.isEmpty()) {
+                        continue;
+                    }
+                    org.json.JSONObject obj = new org.json.JSONObject();
+                    obj.put("id", e.getKey());
+                    obj.put("createType", rt.createType != null ? rt.createType : "");
+                    obj.put("createdAt", System.currentTimeMillis());
+                    org.json.JSONObject args = new org.json.JSONObject();
+                    for (Map.Entry<String, Object> a : rt.createArgs.entrySet()) {
+                        args.put(a.getKey(), a.getValue() == null ? "" : String.valueOf(a.getValue()));
+                    }
+                    obj.put("createArgs", args);
+                    arr.put(obj);
+                }
+                java.io.FileWriter w = new java.io.FileWriter(getComponentsFile());
+                try {
+                    w.write(arr.toString(2));
+                } finally {
+                    w.close();
+                }
+                Log.i(TAG, "[Python component] persisted components=" + arr.length());
+            } catch (Throwable t) {
+                Log.w(TAG, "[Python component] write components file failed: " + t.getMessage());
+            }
+        }
+
+        /** 标记组件持久化并写文件 */
+        public void persistComponent(String componentId) {
+            ComponentRuntime rt = dynamicComponents.get(componentId);
+            if (rt == null) return;
+            rt.persisted = true;
+            rt.restored = false;
+            writeComponentsFile();
+        }
+
+        /** 取消持久化并写文件 */
+        public void unpersistComponent(String componentId) {
+            ComponentRuntime rt = dynamicComponents.get(componentId);
+            if (rt == null) return;
+            rt.persisted = false;
+            writeComponentsFile();
+        }
+
+        /** 启动/首次使用时从文件恢复持久化组件（只注册占位，不弹 UI；get_result 时自动重建） */
+        public synchronized void restorePersistedComponents() {
+            try {
+                java.io.File file = getComponentsFile();
+                if (!file.exists()) return;
+                java.io.FileReader reader = new java.io.FileReader(file);
+                StringBuilder sb = new StringBuilder();
+                char[] buf = new char[4096];
+                int read;
+                while ((read = reader.read(buf)) != -1) {
+                    sb.append(buf, 0, read);
+                }
+                reader.close();
+                if (sb.length() == 0) return;
+                org.json.JSONArray arr = new org.json.JSONArray(sb.toString());
+                int restored = 0;
+                for (int i = 0; i < arr.length(); i++) {
+                    try {
+                        org.json.JSONObject obj = arr.getJSONObject(i);
+                        String id = obj.optString("id", "");
+                        if (id.isEmpty() || dynamicComponents.containsKey(id)) continue;
+                        ComponentRuntime rt = new ComponentRuntime();
+                        rt.createType = obj.optString("createType", "");
+                        org.json.JSONObject args = obj.optJSONObject("createArgs");
+                        if (args != null) {
+                            java.util.Iterator<String> keys = args.keys();
+                            while (keys.hasNext()) {
+                                String k = keys.next();
+                                rt.createArgs.put(k, args.optString(k, ""));
+                            }
+                        }
+                        rt.persisted = true;
+                        rt.restored = true;
+                        dynamicComponents.put(id, rt);
+                        restored++;
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (restored > 0) {
+                    Log.i(TAG, "[Python component] restored persisted components=" + restored);
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "[Python component] restore components failed: " + t.getMessage());
+            }
+        }
+
+        /** 恢复的组件没有 UI：按 createArgs 重建弹窗（保留同一 component_id）。
+         *  成功返回 true；非恢复组件/参数缺失/重建失败返回 false。 */
+        private boolean rebuildComponent(String componentId) {
+            ComponentRuntime rt = dynamicComponents.get(componentId);
+            if (rt == null || !rt.restored || rt.createArgs == null || rt.createArgs.isEmpty()) {
+                return false;
+            }
+            dynamicComponents.remove(componentId);
+            Map<String, Object> a = rt.createArgs;
+            Map<String, Object> reply = createComponent(
+                    rt.createType,
+                    componentId,
+                    strOf(a.get("title")), strOf(a.get("message")), strOf(a.get("dialog_type")),
+                    numOf(a.get("max")), strOf(a.get("options")), strOf(a.get("default_value")),
+                    strOf(a.get("input_hint")), strOf(a.get("props")), strOf(a.get("action_label")),
+                    strOf(a.get("items")), strOf(a.get("url")), strOf(a.get("click_action")),
+                    numOf(a.get("auto_close")), strOf(a.get("html")));
+            if (reply != null && Boolean.TRUE.equals(reply.get("success"))) {
+                ComponentRuntime nr = dynamicComponents.get(componentId);
+                if (nr != null) {
+                    nr.persisted = rt.persisted;
+                    nr.restored = false;
+                }
+                persistComponent(componentId);
+                return true;
+            }
+            return false;
+        }
+
+        private static String strOf(Object v) {
+            return v == null ? "" : String.valueOf(v);
+        }
+
+        private static int numOf(Object v) {
+            try {
+                return v == null ? 0 : Integer.parseInt(String.valueOf(v));
+            } catch (Exception e) {
+                return 0;
+            }
         }
 
         /** 注册无对话框的待处理组件（聊天流内置组件用），结果由外部回调写入 */
@@ -4410,7 +4671,8 @@ public class PythonToolManager {
 
         /** 获取组件结果：pending（未点击）/positive/negative/cancelled/completed；wait_seconds>0 时阻塞等待。
          *  等待期间 20 秒提醒一次"Agent 正在等你操作"，超时后 Toast 提醒交互超时。 */
-        private Map<String, Object> getComponentResult(String componentId, int waitSeconds) {
+        private Map<String, Object> getComponentResult(String componentId, int waitSeconds,
+                                                       boolean reactivate) {
             Map<String, Object> reply = new HashMap<>();
             ComponentRuntime rt = dynamicComponents.get(componentId);
             if (rt == null) {
@@ -4418,6 +4680,25 @@ public class PythonToolManager {
                 reply.put("message", "组件不存在: " + componentId);
                 reply.put("result", "not_found");
                 return reply;
+            }
+            // 跨会话恢复的持久化组件：默认保持静默（不自动弹窗，避免历史组件连续弹出）；
+            // 用户明确在场需要交互时才 reactivate=true 按 createArgs 重建弹窗（保留同一 component_id）
+            if (rt.restored && rt.dialog == null && "pending".equals(rt.result.get())) {
+                if (!reactivate) {
+                    reply.put("success", true);
+                    reply.put("component_id", componentId);
+                    reply.put("result", "inactive");
+                    reply.put("message", "历史组件未激活（用户不在场，未弹窗）；如需用户操作请传 reactivate=true 重建弹窗");
+                    return reply;
+                }
+                rebuildComponent(componentId);
+                rt = dynamicComponents.get(componentId);
+                if (rt == null) {
+                    reply.put("success", false);
+                    reply.put("message", "组件重建失败: " + componentId);
+                    reply.put("result", "rebuild_failed");
+                    return reply;
+                }
             }
             if (waitSeconds > 0) {
                 final long[] lastReminder = {0L};

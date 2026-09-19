@@ -242,3 +242,20 @@ src/main/assets/apk_shell/base.apk.bak_*
 apk_shell/local.properties
 !src/main/assets/apk_shell/base.apk
 !html2apk/keystore/html2apk-release.keystore
+
+# ============ 分析中间产物 ============
+tools/*.class
+owm_attach
+phone_analysis/
+sina_*.png
+webview_check*.png
+engine_check.png
+tools/i18n_migrate/aapt_out*
+tools/i18n_migrate/compile_err2.txt
+tools/mcu/
+tools/mcu-out/
+.workbuddy/
+apk_export/
+
+# APK 签名辅助文件
+*.idsig

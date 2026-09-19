@@ -20,6 +20,10 @@ import org.json.JSONObject;
  */
 public class ComponentData {
 
+    /** 组件 ID（2026-09-14）：由 ChatIdDispatcher 发放 COMPONENT 子 id（T1-C1、T1-C2…），
+     *  适配器按 id 定位/更新/移除单个组件；Gson 持久化（会话恢复后 id 保留） */
+    public String id;
+
     /** 组件类型标识，如 "chart"、"info_card"、"file_card"、"image_grid"、"weather_card"、"todo_card" */
     public String type;
 

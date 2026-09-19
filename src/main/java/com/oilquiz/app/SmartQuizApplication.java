@@ -130,6 +130,13 @@ public class SmartQuizApplication extends Application {
         } catch (Throwable ignored) {
         }
 
+        // 预热 Agent 工作区（构造单例并生成内置指南文件：使用速查表/工具创建指南/
+        // HTML_DESIGN_RULES.md/APK_SOURCE_GUIDE.md；被删除后应用启动自动重建；无服务/权限副作用）
+        try {
+            com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(this);
+        } catch (Throwable ignored) {
+        }
+
         // 后台线程预生成内置壁纸（仅首次或版本更新时）
         new Thread(() -> {
             try {
@@ -241,8 +248,12 @@ public class SmartQuizApplication extends Application {
                         runAgentDebugTestIfRequested();
                     }
 
-                    // 启动AI处理服务作为前台服务，确保应用运行时持续运行
-                    startAIProcessingService();
+                    // 不再无条件启动 AI 处理服务（2026-09-14）：
+                    // 当前 AI 对话/Agent 生成走 direct streaming 链路（AgentChatHandler → ModelExecutionBridge），
+                    // 不使用 AIProcessingService；无条件启动会在通知栏常驻"AI 处理服务 正在处理 AI 任务..."，
+                    // 用户退出 AI 对话界面后仍显示，造成"生成还在通知"的打扰。
+                    // 若未来旧链路（ACTION_PROCESS_AI_TASK 广播）需要，再按需 startForegroundService。
+                    // startAIProcessingService();
 
                     // 存活超过阈值后重置崩溃计数
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {

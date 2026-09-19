@@ -254,8 +254,14 @@ public class AIToolManager {
             registerToolFactory("ai_create_tool", AIToolCreatorTool.class, AIToolCreatorTool::new);
             registerToolFactory("time_date", TimeDateTool.class, TimeDateTool::new);
             registerToolFactory("calculator", CalculatorTool.class, CalculatorTool::new);
+            registerToolFactory("js_execute", JsExecuteTool.class, JsExecuteTool::new); // JS执行（WebView内核，弥补无Node缺口）
+            registerToolFactory("pip_install", PipInstallTool.class, PipInstallTool::new); // 运行时安装纯Python包
+            registerToolFactory("screen_capture", ScreenCaptureTool.class, ScreenCaptureTool::new); // 截屏（MediaProjection授权）
+            registerToolFactory("screen_watch", ScreenWatchTool.class, ScreenWatchTool::new); // 盯梢（监控屏幕直到目标出现/消失/画面变化）
+            registerToolFactory("web_render", WebRenderTool.class, WebRenderTool::new); // 网页渲染浏览（DOM文本+截图）
             registerToolFactory("image_gen", ImageGenTool.class, ImageGenTool::new);
             registerToolFactory("memory", MemoryTool.class, MemoryTool::new);
+            registerToolFactory("chat_history", ChatHistoryTool.class, ChatHistoryTool::new); // 对话历史（跨会话上下文，读本地持久化历史文件）
         registerToolFactory("task", TaskTool.class, TaskTool::new); // 维度四 P0-1：任务状态跟踪
         registerToolFactory("import_list_files", ImportListFilesTool.class, ImportListFilesTool::new); // AI导入：发现题库文件
         registerToolFactory("import_start", ImportStartTool.class, ImportStartTool::new); // AI导入：启动异步导入
@@ -1285,7 +1291,7 @@ public class AIToolManager {
                     .category("app")
                     .build();
             case "create_dynamic_tool":
-                return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(参数schema+执行逻辑全文)；test用test_params试运行不落库")
+                return ToolDefinition.builder("create_dynamic_tool", "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本/JavaScript脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(参数schema+执行逻辑全文)；test用test_params试运行不落库")
                     .addParameter("action", "string", "操作类型: create/update/delete/list/show/test", false, "list")
                     .addParameter("tool_name", "string", "工具名称", false)
                     .addParameter("description", "string", "工具描述", false)
@@ -1324,6 +1330,8 @@ public class AIToolManager {
                     .addParameter("url", "string", "网址或HTML内容(web用)", false)
                     .addParameter("props", "object", "内置组件参数(component_type为内置类型时用)。各类型字段：chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[url],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; note_card:{type:'note|quote|tip|summary',content,author}; file_list:{title,files:[{name,path,size,type}]}; grid_card:{title,columns,items:[{icon,label}]}; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; html:{html:'<h3>标题</h3>...' 或 url:'https://...'(网页直接加载),title,maxHeight(可选,内容区最大高度dp),style(内容级:{background,color,fontSize}整页应用)};html内容支持双指缩放/横向滚动/图片点击全屏预览,卡片内链接自身加载,右上角←浮标可返回; markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值；临时layout时也可用props={layout:{控件树}}", false)
                     .addParameter("wait_seconds", "integer", "等待秒数(get_result用,默认30)", false)
+                    .addParameter("persist", "string", "是否持久化组件实例(true/false,默认false)：跨重启/会话保留，list_components 可见；恢复后默认静默不弹窗(get_result 返回 inactive)，传 reactivate=true 才重建弹窗；close 取消持久化", false)
+                    .addParameter("reactivate", "string", "是否重建跨会话恢复的持久化组件弹窗(true/false,默认false)：仅对恢复的历史组件生效，true 时 get_result/update 重建弹窗让用户操作", false)
                     .addParameter("auto_close", "integer", "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)", false)
                     .addParameter("name", "string", "register_type/remove_type 用：自定义类型名（字母数字下划线）", false)
                     .addParameter("layout", "object", "现场自定义UI（create用，可选）：原生控件框架树JSON。component_type 可给任意未注册名(如 debug_layout_test)，无需 register_type，仅本次创建有效。layout 树内支持：已注册类型名作节点type嵌套({\"type\":\"online_music_player\"},自动展开其render.layout,节点props覆盖占位)；use 引用 layout 模板({\"use\":\"模板名\",\"props\":{参数}},模板内{key}由props替换)；未注册类型节点自带 layout 字段现场展开({\"type\":\"my_widget\",\"layout\":{...}})。控件type: 布局column/row/scroll/card/wrap(流式换行)/grid(网格,columns)/space(弹性空白)/tabs(标签页)/stack(层叠)/accordion(折叠面板)/carousel(图片轮播)；展示text/marquee(跑马灯,speed 0~3)/image/badge/avatar/avatar_group/quote/code/icon；数据table/steps/timeline/alert(alert_type或variant)/stat/empty/notice/progress_ring；图表line_chart/bar_chart/pie_chart/sparkline；工具qrcode/barcode/countdown/calendar/breadcrumb；媒体video/audio/html；输入input/number/password/multiline/otp/email/tel/url/search/search_bar/tag_input；选择select/switch/checkbox/checkbox_group/radio/radio_group/date/time/datetime/color/rating/toggle/dropdown/stepper/slider_range；交互button(提交时收集全部带key控件值)/link/slider/progress/spinner；文件file；装饰divider/divider_v/separator。通用属性: width/height(match/wrap/数字dp/百分比), margin(数字或{top,left,bottom,right}), weight或flex(弹性), align, style(统一style对象:padding/radius/background/border/fontSize/color,见style参数说明), 容器spacing/alignItems/justify", false)
@@ -1551,6 +1559,123 @@ public class AIToolManager {
                         .addParameter("mapping", "object", "字段映射修改（标准字段→源列名；仅决策点=mapping 时可传）", false)
                         .category("data")
                         .whenToUse("import_status 返回 pendingDecision 后，用 ui_component 与用户交互拿到选择，再用本工具回传")
+                        .build();
+            case "chat_history":
+                return ToolDefinition.builder("chat_history",
+                        "对话历史：读取本地保存的聊天历史（跨会话）。新会话里回忆之前说过的话、上次创建的工具/组件/文件时使用；"
+                                + "比如用户说\"之前让你创建过xx\"\"上次那个组件\"\"历史里找\"时调用。"
+                                + "action: recent(最近消息，source=ai|agent，limit条数默认30最大200)|search(关键词搜索，keyword必填)|count(条数)。"
+                                + "返回带序号与角色的消息内容，按时间倒序。历史只读，不能修改/删除。")
+                        .addParameter("action", "string", "操作：recent(最近消息，默认)|search(关键词搜索)|count(消息条数)", false)
+                        .addParameter("source", "string", "历史来源：ai(AI对话历史，默认)|agent(Agent对话历史)", false)
+                        .addParameter("limit", "integer", "最近消息条数（recent用，默认30，最大200）", false)
+                        .addParameter("keyword", "string", "搜索关键词（search用）", false)
+                        .category("memory")
+                        .whenToUse("用户提到之前的对话/历史/上次创建的东西，或 Agent 需要跨会话上下文时使用")
+                        .build();
+            case "js_execute":
+                // 显式定义：保证在线 function calling 拿到正确的 code/timeout 类型
+                return ToolDefinition.builder("js_execute",
+                        "JS代码执行工具：在后台执行 JavaScript 代码并返回运行结果（弥补手机端无 Node 的缺口）。"
+                                + "code=要执行的JS代码（语句或表达式均可），返回：是否成功、返回值、console.log 输出、错误信息。"
+                                + "支持标准 ES6 核心语法（箭头函数/模板字符串/解构/let-const/class/Promise/async-await），"
+                                + "支持 Promise 异步结果（受 timeout 限制）；支持受限网络 window.__http.get(url)/post(url,body)"
+                                + "（返回 Promise，解析后为{ok,status,body}对象；仅 http/https，6s 超时，响应≤512KB）；"
+                                + "支持受限文件 window.__fs.read/write/list/delete/exists"
+                                + "（返回 Promise，解析后为对象；仅限工作区 files/ 内，防穿越，文件≤512KB）；"
+                                + "执行引擎是系统 WebView 的 JS 引擎，**无 Java 互操作**（Java 包/类不可用，非 Rhino/Nashorn）；"
+                                + "**ES 能力以实测为准**：现代机型实测支持 ES2020+（可选链?. / ?? / BigInt / .at() 等），"
+                                + "老机型 WebView 可能缺失较新特性，跨机型稳妥写法仍建议 ES6 核心语法；"
+                                + "适合算法验证、数据转换/清洗、"
+                                + "JSON 处理、正则测试、前端逻辑调试、URL 编解码、调用 HTTP API、读写工作区文件。"
+                                + "限制：原生 fetch/XHR 跨域被 CORS 拦截（网络用 __http、文件用 __fs），不能访问 DOM/页面渲染。"
+                                + "代码顶层 return 已自动兼容（自动包 IIFE 并返回其结果），可直接 return 返回结果；"
+                                + "并发上限：单批同时执行≤4路（超出等待2s后明确报「JS执行并发已满」，不静默丢值）；"
+                                + "脚本内多次桥接调用请串行 await，勿 Promise.all 并发打桥；"
+                                + "死循环用 timeout 参数（秒，默认8，最大30）超时终止。")
+                        .addParameter("code", "string", "要执行的 JavaScript 代码（语句或表达式，可用 console.log 输出调试）", true)
+                        .addParameter("timeout", "integer", "执行超时秒数（1-30，默认 8）", false)
+                        .category("code")
+                        .whenToUse("用户要求运行/验证/调试 JavaScript 代码、处理 JSON 数据、测试正则或前端逻辑时使用；"
+                                + "代码可能死循环时给 timeout。")
+                        .build();
+            case "pip_install":
+                // 显式定义：保证在线 function calling 拿到 package/action/timeout 类型
+                return ToolDefinition.builder("pip_install",
+                        "pip安装工具（手机端Python运行时安装纯Python包）："
+                                + "① 在线安装：从PyPI镜像下载wheel并安装，立即生效且跨重启保留；"
+                                + "② 本地安装：package 传本地 .whl 路径（如 /sdcard/.../xxx-py3-none-any.whl）直接从文件安装；"
+                                + "③ 只下载：action=download 仅下载wheel到工作区 files/wheels/ 返回路径，之后可再用本地安装装它；"
+                                + "④ 换源：source 参数指定镜像源（tuna/aliyun/pypi/自定义URL）并持久化为默认，action=set_source 单独设置。"
+                                + "package=包名（支持 name、name==版本、name>=版本、name~=版本）或本地whl路径。"
+                                + "限制：只能装纯Python包（py3-none-any，如 pytz/tqdm/simplejson/python-docx 等）；"
+                                + "带C扩展的包（numpy/scipy/lxml 等）在Android上无法运行时编译（设备无编译工具链、公共PyPI无Android ABI wheel），会明确拒绝并提示预打包。"
+                                + "递归处理纯Python依赖，C依赖列入skipped返回。python_execute 可直接 import 已安装包。")
+                        .addParameter("package", "string", "要安装的包名或带版本约束（pytz / python-docx==1.1.2 / requests>=2.31），或本地wheel文件路径（/sdcard/.../xxx-py3-none-any.whl）", true)
+                        .addParameter("action", "string", "操作: install(默认，安装) / download(仅下载wheel到files/wheels/返回路径) / set_source(设置默认镜像源)", false)
+                        .addParameter("source", "string", "镜像源: tuna(默认，清华) / aliyun(阿里云) / pypi(官方) / 自定义URL；设置后持久化为默认", false)
+                        .addParameter("timeout", "integer", "下载超时秒数（默认 60，最大 300）", false)
+                        .category("code")
+                        .whenToUse("用户要求安装 Python 第三方库、下载 wheel 文件、从本地 wheel 安装或切换 pip 镜像源时使用")
+                        .build();
+            case "screen_capture":
+                return ToolDefinition.builder("screen_capture",
+                        "截屏工具：截取手机当前屏幕画面并保存到工作区 files/screenshots/，返回图片路径。"
+                                + "截图后必须用 ocr_recognize 工具看图：action=ocr_recognize 识别图中文字，"
+                                + "action=image_understand 看图理解/回答关于画面的问题（这是 Agent 的『眼睛』）。"
+                                + "四种用法：① 截一帧：默认，返回当前画面路径；② 盯屏/轮询观察：action=watch，"
+                                + "自动每隔几秒截一帧对比画面变化，检测到变化立即返回（含变化时刻与关键帧路径），"
+                                + "变化后用 ocr_recognize(image_understand) 读关键帧即可理解画面，"
+                                + "适合等页面加载/下载完成/用户操作结果等场景（观察结束记得 action=stop 停止屏幕共享）；"
+                                + "③ 停止共享：action=stop，释放授权（下次截屏重新弹窗）。"
+                                + "首次使用会弹系统授权框（共享屏幕授权）：工具会等待用户在弹窗中点击『立即开始』，"
+                                + "授权完成后自动继续截屏；授权后同进程内可重复截屏不再弹窗；"
+                                + "进程重启或用户在系统设置撤销授权后需重新授权。"
+                                + "filename=可选，自定义保存文件名（默认 screen_时间戳.png）。"
+                                + "适合：查看当前界面状态、核对用户操作结果、盯屏等页面变化、给后续步骤提供视觉上下文。"
+                                + "更强大的盯梢（指定目标文字出现/消失）用 screen_watch 工具。")
+                        .addParameter("filename", "string", "可选，保存文件名（默认 screen_时间戳.png，保存到 files/screenshots/）", false)
+                        .addParameter("action", "string", "可选: 默认截一帧 / watch=盯屏轮询观察(每隔interval秒截一帧对比变化，检测到变化即返回) / stop=停止屏幕共享释放授权", false)
+                        .addParameter("seconds", "integer", "watch 模式观察总时长（秒，默认 30，最大 300）", false)
+                        .addParameter("interval", "integer", "watch 模式轮询间隔（秒，默认 3，最小 1）", false)
+                        .category("system")
+                        .whenToUse("需要查看手机当前屏幕画面/界面状态/用户操作结果时使用，截屏后用 ocr_recognize 看图；盯屏等页面变化/下载完成/用户操作时用 action=watch；截屏授权卡住时可用 action=stop 重置")
+                        .build();
+            case "screen_watch":
+                return ToolDefinition.builder("screen_watch",
+                        "盯梢工具（哨兵）：持续监控手机屏幕，直到『指定内容出现/消失』或『画面发生变化』才返回。"
+                                + "① 指定目标文字：target=要等的文字，watch_for=appear(出现即报,默认)/disappear(消失即报)，"
+                                + "轮询截帧并本地OCR识别判断，命中立即返回关键帧路径与识别文本，"
+                                + "适合：等『下载完成/支付成功/加载完成』出现、等『加载中/处理中』消失；"
+                                + "② 不指定目标：检测画面变化，画面一变立即返回（适合等页面跳转/内容刷新）。"
+                                + "动作：action=start(默认)开始盯梢，agent会在目标命中或超时后返回；"
+                                + "action=stop 停止当前盯梢；action=status 查询盯梢状态。"
+                                + "参数：seconds=总时长(默认60,最大600)、interval=轮询间隔(默认3,最小2)。"
+                                + "首次使用会弹『共享屏幕』授权框：请用户点击『立即开始』完成授权（工具会等待用户操作，不会中途失败）；"
+                                + "授权后同进程内复用，盯梢结束可 action=stop 释放授权。"
+                                + "盯梢过程中 App 需保持前台（Android 14 切后台投影会中断）。"
+                                + "命中后用 ocr_recognize 读关键帧即可理解画面。")
+                        .addParameter("action", "string", "start(默认,开始盯梢)/stop(停止盯梢)/status(查询盯梢状态)", false, "start")
+                        .addParameter("target", "string", "要等待的目标文字（可选，不填则检测画面变化；如：下载完成、支付成功、加载中）", false)
+                        .addParameter("watch_for", "string", "appear(默认,目标出现即报)/disappear(目标消失即报)", false, "appear")
+                        .addParameter("seconds", "integer", "总盯梢时长（秒，默认60，最大600）", false)
+                        .addParameter("interval", "integer", "轮询间隔（秒，默认3，最小2）", false)
+                        .category("system")
+                        .whenToUse("用户要求盯着屏幕等某个内容出现/消失（如等下载完成、等支付成功、等加载中消失）、或监控屏幕变化时使用 screen_watch；与 screen_capture 配合使用，命中后用 ocr_recognize 读关键帧理解画面")
+                        .build();
+            case "web_render":
+                return ToolDefinition.builder("web_render",
+                        "网页渲染浏览工具：用真实 WebView 打开网页并提取内容（能看到 JS 渲染后的真实页面，"
+                                + "比 requests 抓 HTML 文本更完整）。"
+                                + "url=网页地址（必填）；action=text（默认，返回标题+正文文本+链接数）/screenshot（截图保存）/both（文本+截图）。"
+                                + "支持现代网页（含 SPA/JS 动态内容，加载完成后自动提取）；截图保存到工作区 files/screenshots/，返回路径。"
+                                + "限制：仅支持 http/https；不能操作页面（点击/填表/登录），只读浏览。"
+                                + "适合：查看网页实际内容、核对页面效果、调研资料。")
+                        .addParameter("url", "string", "要浏览的网页地址（必填，http/https）", true)
+                        .addParameter("action", "string", "操作: text(默认，提取标题+正文) / screenshot(仅截图) / both(文本+截图)", false)
+                        .addParameter("timeout", "integer", "页面加载超时秒数（默认 12，最大 30）", false)
+                        .category("search")
+                        .whenToUse("需要查看网页实际渲染内容/JS动态页面/核对页面效果时使用（比 python_web_reader 更完整）")
                         .build();
             case "knowledge_base":
                 // 显式定义（而非从实例反射）：保证在线 function calling 拿到正确类型与 action 枚举，

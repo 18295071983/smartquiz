@@ -35,12 +35,12 @@ import java.util.Map;
     description = "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/file_picker文件选择/image_picker选图/contact_picker联系人/rating评分/color取色/otp验证码/number数字/marquee跑马灯滚动文字/media_task文生图文生视频任务监控)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout原生控件树),创建时可直接传 props/render/layout(三种等效) 带 layout 树现场自定义UI(临时layout,不注册即用,仅本次有效)。参数可放顶层或 props 内(等效,自动合并,props内已有值优先)。握手:create→component_id→update/close→get_result取用户操作。**layout 控件树交互已完善**：输入控件(input/number/password/multiline/select/switch/checkbox_group/radio_group/date/slider/stepper/rating/color/toggle/dropdown 等)在卡片/弹窗内点击可唤起软键盘、可正常操作，布局内 button 点击提交后 get_result 返回 values 收集全部带 key 控件的值（layout 树与 custom 表单同等可靠）。**统一 style 对象**：layout 树任意节点可带 style={padding(整数或 t r b l 四空格值或[4个数]),radius(圆角dp),background(颜色#RRGGBB),border(边框,如 1 #CCCCCC 或 border_width+border_color),fontSize(文本字号),color(文本色)}，与顶层字段等效（顶层优先），column/row/card/text 等通用控件均支持；**内置卡片/框架控件卡片(info_card/chart/table_card等)传 style 时容器级样式生效**（padding/radius/background/border 作用于卡片外观，fontSize/color 请放组件 props 内由各卡片字段控制）。**layout 类型解析与嵌套（实测可用）**：①已注册组件类型名(register_type/插件/layout模板)可直接作 layout 节点 type 嵌套(如 {\"type\":\"online_music_player\"})，自动展开其 render.layout，节点 props 覆盖模板占位；②未注册类型但节点自带 layout(顶层 layout 字段或 render={layout:...}) → 现场展开渲染(等效临时注册)；③layout 模板用 {\"use\":\"模板名\",\"props\":{参数}} 引用，模板内 {key} 由 props 替换。**已注册的自定义类型/插件/控件模板可能不在本描述列出**：用 ui_component(action=list_types) 查看自定义类型、ui_component_plugin(action=list) 查看插件、ui_component_plugin(action=layout_list) 查看 layout 模板——注册过的类型直接用其 name 作为 component_type 创建即可；layout 框架控件(88种: 布局column/row/scroll/card/wrap/grid/tabs/stack/accordion/carousel等、数据table/steps/timeline/alert/stat/notice/图表line_chart/bar_chart/pie_chart、工具qrcode/barcode/calendar/countdown等)均可作为 component_type 直接生成卡片(如 component_type=line_chart, props={categories,series})。注意：layout 的 alert 提示条样式字段用 alert_type 或 variant(success|warning|error|info)，勿用 type(会被控件类型占用)；多控件布局自动可滚动。",
     category = "system",
     actions = {
-        @Action(name = "create", description = "创建系统UI组件（component_type=组件类型，返回component_id）。component_type 可用已注册类型名(register_type/插件)；也可用任意未注册名 + layout 参数(顶层layout或props.layout或render.layout三种等效)现场创建临时layout(仅本次有效,不注册)；**创建常驻布局画布用 component_type=layout_canvas + layout 参数**，返回的 component_id 可用 layout_editor 工具动态编辑(整体替换set/追加add/patch改节点/get查看)；layout 树内可嵌套已注册类型名({\"type\":\"online_music_player\"})、use 引用模板({\"use\":\"模板名\",\"props\":{参数}})、未注册类型自带 layout 现场展开"),
-        @Action(name = "update", description = "更新组件（所有类型通用）：progress 推进 progress/message；dialog 改标题/内容；**任何组件类型传 props 动态注入参数并刷新**——关闭旧组件按新参数重建（options/default_value/input_hint/props/items/url/html/dialog_type/max_value 等字段均生效）"),
+        @Action(name = "create", description = "创建系统UI组件（component_type=组件类型，返回component_id）。**persist=true 组件实例跨重启/会话持久化**：list_components 可见历史组件（persisted=true），默认静默不弹窗，get_result 返回 inactive；传 reactivate=true 才重建弹窗让用户操作（保留同一 component_id）；close 取消持久化。component_type 可用已注册类型名(register_type/插件)；也可用任意未注册名 + layout 参数(顶层layout或props.layout或render.layout三种等效)现场创建临时layout(仅本次有效,不注册)；**创建常驻布局画布用 component_type=layout_canvas + layout 参数**，返回的 component_id 可用 layout_editor 工具动态编辑(整体替换set/追加add/patch改节点/get查看)；layout 树内可嵌套已注册类型名({\"type\":\"online_music_player\"})、use 引用模板({\"use\":\"模板名\",\"props\":{参数}})、未注册类型自带 layout 现场展开"),
+        @Action(name = "update", description = "更新组件（所有类型通用）：progress 推进 progress/message；dialog 改标题/内容；**任何组件类型传 props 动态注入参数并刷新**——关闭旧组件按新参数重建（options/default_value/input_hint/props/items/url/html/dialog_type/max_value 等字段均生效）。**跨会话恢复的持久化组件默认只更新定义不弹窗**（返回 definition_updated）；reactivate=true 才重建弹窗"),
         @Action(name = "close", description = "关闭组件"),
-        @Action(name = "list_components", description = "列出当前全部存活组件（component_id/类型/结果状态），查询与管理用"),
-        @Action(name = "close_all_components", description = "批量关闭全部存活组件（任务收尾防残留）"),
-        @Action(name = "get_result", description = "获取组件结果（阻塞等待用户操作，wait_seconds=等待秒数；超时返回 pending=用户未操作，组件保留，可再次 get_result 续取）"),
+        @Action(name = "list_components", description = "列出当前全部存活组件（component_id/类型/结果状态/persisted是否跨会话持久化），查询与管理用；persisted=true 的组件为历史保留组件，可 update/get_result（get_result 自动重建弹窗）或 close（取消持久化）"),
+        @Action(name = "close_all_components", description = "批量关闭全部存活组件（任务收尾防残留）；persist=true 的持久化组件跳过（需跨会话保留）"),
+        @Action(name = "get_result", description = "获取组件结果（阻塞等待用户操作，wait_seconds=等待秒数；超时返回 pending=用户未操作，组件保留，可再次 get_result 续取）。**跨会话恢复的持久化组件默认返回 inactive（用户不在场，不弹窗）**；用户在场需交互时传 reactivate=true 重建弹窗再取结果"),
         @Action(name = "register_type", description = "外部注入自定义原生组件类型：name=类型名(字母数字下划线)+description+render={card:内置卡片 或 layout:原生控件框架树,props:固定字段}+monitor可选+persist(可选布尔,true长久落盘默认,false临时仅内存)；注册后可用 create 直接创建该类型，也可作为其他 layout 树的节点 type 嵌套引用(自动展开 render.layout，节点 props 覆盖模板占位)；无需写代码，纯JSON声明原生UI"),
         @Action(name = "list_types", description = "列出全部已注册的自定义组件类型（含 mode 长久/临时）"),
         @Action(name = "remove_type", description = "删除自定义组件类型（name=类型名）"),
@@ -50,6 +50,8 @@ import java.util.Map;
         @Param(name = "action", type = "string", description = "操作: create/update/close/list_components/close_all_components/get_result", required = true),
         @Param(name = "component_type", type = "string", description = "组件类型: dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom(动态自定义原生表单,fields参数定义字段)/layout_canvas(常驻布局画布,传layout=控件树,创建后可用layout_editor工具动态编辑set/add/patch/get)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,length设位数,默认6)/number(数字输入,min/max范围校验)/marquee(跑马灯滚动文字,text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控,task_id+type=image|video+api_url+api_key,自动轮询查询状态,完成后展示图片或视频并可播放/分享)/video(视频播放,url=视频地址)/audio(音乐音频播放,url=音频地址+title=标题+artist=艺术家)/内置组件(chart,info_card,table_card,image_grid,link_card,list_card,alert_card,metric_card,json_viewer,steps_card,note_card,file_list,grid_card,contact_card,todo_card,quiz_card,weather_card,file_card,code_card,progress_card,html,markdown_card)/数据卡片(table(headers,rows表格)/steps(steps步骤条)/timeline(items时间线)/alert(type,title,content提示条)/stat(label,value指标卡)/empty(icon,title空态)/notice(icon,text通知条)/progress_ring(环形进度))/图表(line_chart(categories,series折线)/bar_chart(柱状)/pie_chart(data饼图)/sparkline(data迷你趋势))/工具(qrcode(content二维码)/barcode(content条形码)/countdown(seconds倒计时)/calendar(value日历)/breadcrumb(items面包屑))/其他(avatar_group(urls头像组)/toggle(options胶囊开关)/stepper(min/max步进器)/tag_input(标签输入)/badge/quote/icon)；web=网页卡片, image=图片卡片。各组件参数可放顶层或 props 内(等效,自动合并)", required = false),
         @Param(name = "component_id", type = "string", description = "组件ID（update/close/get_result用）", required = false),
+        @Param(name = "persist", type = "string", description = "是否持久化组件实例（true/false，默认false）：true=跨重启/会话保留，list_components 可见；恢复后默认静默不弹窗，get_result/update 传 reactivate=true 才重建弹窗；close 取消持久化", required = false),
+        @Param(name = "reactivate", type = "string", description = "是否重建跨会话恢复的持久化组件弹窗（true/false，默认false）：仅对恢复的历史组件生效，true 时 get_result/update 按创建参数重建弹窗让用户操作", required = false),
         @Param(name = "title", type = "string", description = "标题", required = false),
         @Param(name = "message", type = "string", description = "内容/提示文本", required = false),
         @Param(name = "dialog_type", type = "string", description = "对话框类型: info/confirm/warning", required = false),
@@ -286,7 +288,8 @@ public class SystemUIComponentTool implements AITool {
                     }
                     // 夹取 1~120 秒：防止模型传超大值阻塞 Agent 线程数小时
                     waitSeconds = Math.max(1, Math.min(120, waitSeconds));
-                    Map<String, Object> result = pythonToolManager.getUiComponentResult(componentId, waitSeconds);
+                    boolean reactivate = "true".equalsIgnoreCase(str(parameters.get("reactivate")));
+                    Map<String, Object> result = pythonToolManager.getUiComponentResult(componentId, waitSeconds, reactivate);
                     return new AIToolResult(result, parameters);
                 }
                 case "register_type": {
@@ -663,6 +666,8 @@ public class SystemUIComponentTool implements AITool {
         putIfNotNull(params, "url", parameters.get("url"));
         putIfNotNull(params, "click_action", parameters.get("click_action"));
         putIfNotNull(params, "auto_close", parameters.get("auto_close"));
+        // persist=true：组件实例跨重启/会话持久化（list_components 可见，get_result 自动重建 UI）
+        putIfNotNull(params, "persist", parameters.get("persist"));
         // max 兼容两种传法：max_value（schema）或 max（直接）
         putIfNotNull(params, "max", parameters.get("max_value"));
         if (!params.containsKey("max") && parameters.get("max") != null) {

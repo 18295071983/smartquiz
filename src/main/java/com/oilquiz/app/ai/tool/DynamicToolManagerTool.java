@@ -14,7 +14,7 @@ import java.util.Map;
 
 @Tool(
     value = "create_dynamic_tool",
-    description = "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(含执行逻辑)；test用给定参数试运行不落库",
+    description = "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本/JavaScript脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(含执行逻辑)；test用给定参数试运行不落库",
     category = "tool_management",
     aliases = {"dynamic_tool", "create_tool", "动态工具"},
     actions = {
@@ -30,7 +30,7 @@ import java.util.Map;
         @Param(name = "tool_name", type = "string", description = "工具名称(仅英文、数字和下划线)", required = false),
         @Param(name = "description", type = "string", description = "工具描述", required = false),
         @Param(name = "parameters", type = "string", description = "工具参数定义：支持三种格式——1.简单{\"参数名\":\"参数描述\"}；2.属性级{\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true,\"default\":...,\"enum\":[...]}}；3.完整JSON Schema{\"type\":\"object\",\"properties\":{...},\"required\":[...]}。类型支持string/number/integer/boolean/array/object", required = false),
-        @Param(name = "logic", type = "string", description = "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，支持顶层return，print输出/返回值作为结果)或DSL命令(echo/set/if/call_tool等)", required = false),
+        @Param(name = "logic", type = "string", description = "执行逻辑脚本：支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，支持顶层return，print输出/返回值作为结果)、JavaScript脚本(自动识别，脚本内用script_args.参数名读取参数，console.log输出/返回值作为结果)或DSL命令(echo/set/if/call_tool等)", required = false),
         @Param(name = "test_params", type = "string", description = "试运行参数JSON(action=test时使用，格式{\"参数名\":值})", required = false)
     }
 )
@@ -53,7 +53,7 @@ public class DynamicToolManagerTool implements AITool {
     
     @Override
     public String getDescription() {
-        return "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(含执行逻辑)；test用给定参数试运行不落库";
+        return "动态创建和管理AI工具：把重复性任务封装成可复用工具。action=create时填tool_name+description+parameters+logic(Python脚本/JavaScript脚本或DSL)，创建后可被后续对话直接调用；update/delete修改或移除已有工具；list列出全部动态工具；show查看单个工具完整定义(含执行逻辑)；test用给定参数试运行不落库";
     }
     
     @Override
@@ -67,7 +67,7 @@ public class DynamicToolManagerTool implements AITool {
                 "  2. 属性级：{\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true,\"default\":...,\"enum\":[...]}}\n" +
                 "  3. 完整 JSON Schema：{\"type\":\"object\",\"properties\":{...},\"required\":[...]}\n" +
                 "  类型支持：string/number/integer/boolean/array/object");
-        params.put("logic", "执行逻辑脚本，支持Python脚本(自动识别，脚本内用script_args['参数名']读取工具参数，支持顶层return)或DSL命令。DSL支持的命令：\n" +
+        params.put("logic", "执行逻辑脚本，自动识别三类：①Python脚本(用script_args['参数名']读取工具参数，print输出/顶层return作为结果)；②JavaScript脚本(用script_args.参数名 或 script_args['参数名'] 读取参数——参数名含特殊字符/中文时用引号访问最稳；脚本内不要再声明 const script_args；结果取 console.log 输出/末尾表达式的值/顶层return，顶层return已自动包装兼容；引擎=系统WebView JS引擎，无Java互操作(非Rhino/Nashorn)，ES6核心语法+Promise/async-await可用(异步结果受超时限制)，支持受限网络 window.__http.get(url)/__http.post(url,body)(返回Promise,解析后为{ok,status,body}对象;仅http/https,6s超时,响应≤512KB)，支持受限文件 window.__fs.read/write/list/delete/exists(返回Promise,解析后为对象;仅限工作区files/内,防穿越,≤512KB)，ES能力以实测为准:现代机型实测支持ES2020+(可选链?. / ?? / BigInt / .at()等),老机型WebView可能缺失,跨机型稳妥写法仍建议ES6;并发上限:单批同时执行≤4路(超出等待2s后明确报「JS执行并发已满」,不静默丢值),脚本内多次桥接调用请串行await,勿Promise.all并发打桥)；③DSL命令。DSL支持的命令：\n" +
                 "  - echo 文本：输出文本\n" +
                 "  - print 文本：输出文本\n" +
                 "  - log 文本：记录日志\n" +

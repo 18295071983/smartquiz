@@ -1,5 +1,227 @@
 # 变更日志
 
+## [2026-09-14] 新增 js_execute 工具（手机端 JS 执行能力）
+背景：环境审计发现手机端 Agent 无 JS 引擎（无 Node/Rhino），面对 JS 只能查代码；系统 WebView 本身是完整 JS 引擎。
+改动：
+1. 新增 JsExecuteTool（复用 WebView evaluateJavascript，后台执行 JS，捕获 console.log/返回值/错误；内存沙箱禁文件/网络；并发上限2，超时可配）。
+2. AIToolManager 注册 + 显式 ToolDefinition schema；OnlineToolManager 意图匹配（javascript/js代码/运行js/执行js）；使用速查表新增条目。
+3. 本地引擎（AgentLoopEngine）走 AIToolManager 全量，自动可用。
+- 验证：装机 13:27:28；真机端到端实测（ES2020 语法/console 捕获/对象回传）75ms 成功；速查表重建含新条目。
+
+## [2026-09-14] 使用速查表移除动态工具条目
+需求：动态工具就不要包括了。
+改动：速查表核心工具速查移除 create_dynamic_tool/ai_create_tool/tool_registry（保留 ui_component/ui_component_plugin 与全部内置功能工具）；工具创建指南不动。
+- 验证：装机 13:11:09；重启重建 grep 确认动态工具条目零匹配。
+
+## [2026-09-14] 使用速查表/工具创建指南与最新源码核对更新
+需求：把工作区其他文件（使用速查表、工具创建指南）也更新。
+核对：全量提取 46 个注册工具（含 ai/python 目录）对比。
+改动：
+1. 使用速查表核心工具速查补齐 14 个缺失工具：calculator/time_date/unit_converter/text_tools/reminder/task/system_connect/knowledge_base/video_to_player/export_apk/control_lookup/layout_editor/get_models_profile/update_models_profile。
+2. 工具创建指南工作区目录补内置指南清单（含 HTML_DESIGN_RULES.md/APK_SOURCE_GUIDE.md，删除后启动重建）。
+3. create_dynamic_tool action 与源码一致无需改。
+- 验证：装机 13:09:04；重启自动重建，grep 确认新条目已出现。
+
+## [2026-09-14] 壳文档与最新源码一致性审计（修正 6 处）
+需求：html 指导文档、apk 打包工具、工具描述是否根据最新源码设计。
+审计：以 MainActivity AppBridge 40 桥 + ApkPacker 契约为权威核对 → 打包契约/工具描述全对；修正 6 处文档不符：
+1. APK_SOURCE_GUIDE.md：信息探测 7→8、文件截图剪贴板 4→5、v7 新增 11→13（分组漏计）；getVersion 返回补 {shellVersion,bridgeApi,versionName,versionCode}；precacheUrl 回调 {ok}→{url,ok}（源码实测）；request 补网络错误 status=0+error。
+2. HTML_DESIGN_RULES.md：getVersion 字段补全；⑧ 缓存补 getCacheMode()。
+- 验证：装机 13:02:00；更新版已推手机 files/ 并同步 assets 内置副本。
+
+## [2026-09-14] 工具描述引导改为工作区指导文件（手机端 Agent 可读）
+需求：工具描述中有引导查看指导文件的内容吗？
+问题：ExportApkTool 描述有引导，但指向电脑端源码路径 apk_shell/xxx.md——手机端 Agent 读不到。
+改动：
+1. ExportApkTool.java 3 处：改为"用 workspace 工具读取工作区 files/APK_SOURCE_GUIDE.md（40 桥清单/回调契约）与 files/HTML_DESIGN_RULES.md（HTML 规则）"；移除 apk_shell/ 源码路径。
+2. OnlinePromptBuilder 工作区速查段：追加《HTML_DESIGN_RULES.md》《APK_SOURCE_GUIDE.md》。
+- 验证：装机 12:54:59；实机步骤见 tool_desc_guide_ref_fix_0914.md。
+
+## [2026-09-14] 打包口径复查（无残留）+ Agent 管理页文件查看/分享
+需求：打包工具及工具描述 schema 是否还有残留；Agent 管理页工作区文件不能点击查看/分享。
+改动：
+1. 复查：util/export + ExportApkTool 无壳 v6 残留；工具描述 4 处 "v6" 均为 PP-OCRv6（OCR 引擎名，保留）。
+2. AgentWorkspaceView 文件行新增「查看」+「分享」按钮：
+   - 查看：ACTION_VIEW + FileProvider 内容 URI（file_paths.xml 覆盖公共/私有目录），按扩展名猜 MIME 分发系统查看器，无应用 Toast 不崩溃。
+   - 分享：ACTION_SEND + EXTRA_STREAM + FileProvider URI + FLAG_GRANT_READ_URI_PERMISSION → 系统分享面板。
+   - 按 zone（files/tmp/root）解析完整路径。
+- 验证：装机 12:52:05，启动正常无 SecurityException；实机步骤见 workspace_file_view_share_0914.md。
+
+## [2026-09-14] APK 指导文档固定工作区（删除后启动重建）+ 版本口径统一 v7
+需求：APK 两份指导文档固定到工作区，像速查表/工具创建指南一样可删除后启动重建；已升 v7，口径一致勿留旧版本号。
+改动：
+1. assets/apk_shell/guides/ 内置 HTML_DESIGN_RULES.md + APK_SOURCE_GUIDE.md（从 apk_shell/ 复制分发副本）。
+2. AgentWorkspace：新增 appContext 字段 + ensureBuiltinGuideAssets()（构造时从 assets 覆盖写回 files/，删除即恢复最新版）；BUILTIN_GUIDE_ASSETS 清单。
+3. SmartQuizApplication.onCreate 预热 AgentWorkspace（仅写指南文件，无服务/权限副作用）→ 应用启动后自动重建。
+4. AgentWorkspaceView 清空长期文件保留名单追加两份 APK 指导文档。
+5. 版本口径统一 v7：HTML_DESIGN_RULES.md（去 v6 标记、22→40 桥）、README.md（v6 专业版→v7 专业版当前、12 库、共存验证 v7）、APK_SOURCE_GUIDE.md（去 v6 表述，40 个 v7 全量为权威）。
+- 验证：装机 12:48:28；删除 4 份内置指南→重启→全部自动重建；v6 残留 rg 复查清零。
+
+## [2026-09-14] APK 打包器源码指导创建 + 工具描述修正
+需求：apk 打包器没有 apk 源码指导，是否可以创建指导，不能光靠猜。
+排查：壳源码在项目 apk_shell/（MainActivity AppBridge 桥对象等）；缺壳源码指导；工具描述"22 个桥方法"为 v6 旧口径。
+改动：
+1. 新建 apk_shell/APK_SOURCE_GUIDE.md（壳源码指导）：工程结构、导出链路（ExportApkTool→ApkPacker→dt.jet 加密→base.apk 原位补丁→签名→壳加载）、JS 桥完整清单 40 个（源码为准，含 v7 新增通知/前台服务/深链/JS注入/缓存/预缓存）、回调桥契约（6 个 callbackName）、扩展壳源码流程（改 AppBridge→assembleRelease→gen_meta→替换 base.apk）、常见坑。
+2. ExportApkTool.java 描述修正：22 个→40 个，指向 APK_SOURCE_GUIDE.md 与 HTML_DESIGN_RULES.md；回调桥清单补全（+startClipboardWatch/precacheUrl）。
+- 验证：assembleDebug 通过；已安装手机（12:41:14）；文档已推手机 files/；导出链路实机验证步骤见 apk_source_guide_fix_0914.md。
+
+## [2026-09-14] 思考组件补全 Markdown 渲染（独立思考消息 + 热更新两路径）
+需求：思考组件没有 markdown 渲染？
+改动：
+1. ThinkingMessageViewHolder.bind：思考内容从直接 setText 改为 RenderExecutor.execute + TextViewSpan 全量 Markdown 渲染（与 AI 消息正文同引擎）；宽度实测兜底屏幕，post 布局后渲染。
+2. ChatAdapter.updateThinkingRound（按 id 热更新单轮）：setText → setRenderedText（Markdown 渲染）。
+- 效果：独立思考消息与按 id 热更新的思考轮内容正确渲染 **加粗**/代码/列表/表格等。
+- 验证：assembleDebug 通过；已安装手机（12:35:41）；实机验证见 thinking_markdown_fix_0914.md。
+
+## [2026-09-14] 文件列表卡片支持应用内文件夹导航（file_list 内置 UI）
+需求：文件查看器内置 ui 不支持文件夹。
+改动：FileListCardView 重构——
+1. 目录项（type=dir）点击从 openLink（跳系统）改为 navigateTo：组件内 new File(path).listFiles() 读取并刷新列表（目录优先、文件在后，各按名称排序）。
+2. 顶部新增「⬆ 上一级」行（path 非根时显示），parentPath 截取父目录导航返回。
+3. 文件项保持点击打开；大小格式化（B/KB/MB）。
+- 效果：file_list 内置 UI 支持应用内多级目录浏览，不再只能打开文件。
+- 验证：assembleDebug 通过；已安装手机（12:30:42）；实机验证见 file_list_nav_fix_0914.md。
+
+## [2026-09-14] 思考轮次独立 UI 组件（id 锚点 + 独立折叠 + 按 id 热更新）
+需求：chatadapter 中思考轮次还是显示在同一个 ui 组件中。
+改动：
+1. ChatMessage：transient thinkingCollapsedRounds（Set）+ isThinkingRoundCollapsed / toggleThinkingRoundCollapsed（轮级独立折叠状态，不持久化）。
+2. ChatAdapter：AIMessageViewHolder 新增 holderMessage；renderRoundAssembled / addRoundThinkingBlock 升级——每轮思考 = 独立 LinearLayout roundBox（tag=thinkingRoundIds[i]），标题行可独立点击折叠/展开该轮（▸/▾ 指示），内容体 tag=round_body_<id>；新增 updateThinkingRound(roundId, newContent) 按 id 定位并热更新单轮（不重建整条消息）。
+- 效果：多轮思考每轮独立组件、独立折叠、id 锚点可定位/热更新；消息级 thinkingExpanded 保留（轮级折叠优先）。
+- 验证：assembleDebug 通过；已安装手机（12:25:20）；实机验证见 thinking_round_ui_fix_0914.md。
+
+## [2026-09-14] 多轮思考轮次 id 修复（序号归 1 + 补发不再顶号 + turnId 持久化生效）
+需求：多轮思考不单独按轮次分配 id？实测（会话文件）确认已按轮次分配，但暴露 3 问题：
+1. 子序号从 0 开始（T1-K0）→ 派发器计数器初值 1（T1-K1…）。
+2. 恢复补发消耗主 id（旧回合 T1-K*，新回合变 T3/T4/T5，T2 消失）：applySubId(type, masterId) masterId 为空不再 applyMasterId（返回 null 不分配）；ensureRecoveredIds 跳过 turnId 为空的旧消息；无参 applySubId(type)（消息创建路径）保留自动 applyMasterId。
+3. turnId/subId 持久化（deepCopyForSave 补拷）本轮装机生效，新消息保存不再丢 id。
+- 验证：assembleDebug 通过；已安装手机（12:21:47）；实机验证见 thinking_round_id_fix_0914.md。
+
+## [2026-09-14] 退出界面不再通知（僵尸前台服务）+ 消息对 id 持久化补漏
+需求：ai 对话界面退出时生成还会通知，查看对话日志。日志证据：会话最后一条 AI 消息停在 GENERATING；且所有消息 turnId/subId 为空（id 持久化实际丢失）。
+改动：
+1. 移除 SmartQuizApplication 无条件 startAIProcessingService()：当前生成走 direct streaming 链路（AgentChatHandler→ModelExecutionBridge），不使用该服务；无条件启动会在通知栏常驻"AI 处理服务 正在处理 AI 任务..."（setOngoing），退出界面后仍在 → 消除打扰（服务类保留，旧链路需要时按需启动）。
+2. ChatHistoryManager.deepCopyForSave 补拷 turnId/subId：clone() 的 Builder 无这两个字段，保存后消息对 id 全丢（上轮已补 thinkingRoundIds）；恢复路径 Gson 直读不受影响。
+- 效果：退出界面无 AI 处理服务常驻通知；turnId/subId 真正持久化，适配器按 id 管理恢复生效。
+- 验证：assembleDebug 通过；已安装手机；dumpsys 确认服务不再运行、无常驻通知；实机验证见 exit_no_notify_fix_0914.md。
+
+## [2026-09-14] 组件 ID 持久化 + 组件缓存同步清理（防 id 冲突）
+需求：组件 id 不支持持久化，改为持久化；有缓存可从缓存查找/加载；清空历史同步清对应缓存，防止缓存冲突导致异常。
+改动：
+1. ChatHistoryManager.ComponentDataAdapter：序列化写 id、反序列化读 id（旧数据无 id 保持 null，惰性补发）。
+2. deepCopyForSave 补拷 thinkingRoundIds（与 thinkingRounds 一一对应，保存不丢）。
+3. clearChat / startNewConversation 同步调用 ComponentCollector.clear()（清组件暂存缓存，防残留组件混入新回合）。
+4. 新增 ensureRecoveredIds：历史恢复后按消息 turnId 前缀补发缺失的组件 COMPONENT id / 思考轮 THINKING id（幂等）。
+5. ChatIdDispatcher 新增 applySubId(IdType, masterId) 重载（恢复补发指定主 id 前缀，组件 id 与消息对主 id 一致）。
+- 效果：组件 id 随组件持久化；恢复/清空全链路 id 锚定、缓存零残留。
+- 验证：assembleDebug 通过；已安装手机（12:10:31）；实机验证见 chat_component_persist_fix_0914.md。
+
+## [2026-09-14] 聊天 ID 分类：类型化子 id（U/A/K/F/C/S），适配器按主 id/类型/子序号全链路管理
+需求：id 分类（用户/AI/AI思考/工具/工具生成的UI组件）；适配器按分类使用；chatHistory 保存 id；单轮内/多轮内/连续对话内都可管理。
+改动：
+1. ChatIdDispatcher 新增 IdType（USER/AI/THINKING/TOOL/COMPONENT/SYSTEM）与 applySubId(IdType)：子 id = 主id-类型码序号（T1-U1、T1-A1、T1-K1、T1-F1、T1-C1），每类型独立递增；applyMasterId/reset 时清空子序号。
+2. ChatMessage 新增 thinkingRoundIds（与 thinkingRounds 一一对应），addThinkingRound 自动发放 THINKING id（旧数据恢复补占位）。
+3. ComponentData 新增 id（COMPONENT 子 id）；组件落地时补发（已有 id 保留）。
+4. ChatAdapter 新增管理 API：getMessagesByTurnId / getMessagesByType / getMessagesByTurnAndType / getBySubId。
+5. AIChatActivity 全部子 id 申请改带类型（USER/AI/TOOL）；思考轮/组件 id 自动发放。
+- 效果：适配器按「主 id 分轮、类型码分桶、子序号排序」管理；单轮/多轮/连续对话 id 全链路可定位；Gson 持久化。
+- 验证：assembleDebug 通过；已安装手机（12:06:08）；实机验证见 chat_id_typed_fix_0914.md。
+
+## [2026-09-14] 聊天 ID 派发器：主/子 id 申请发放机制，清空对话重置
+需求：增加 id 派发器；对话历史清空后重置；id 分主 id（消息对）及子 id（对内消息），实现申请发放。
+改动：
+1. 新增 ChatIdDispatcher（单例，线程安全）：applyMasterId（T1、T2…，重置子序号）/applySubId（T1-1…，无主 id 自动申请）/peekMasterId/reset。
+2. ChatMessage 新增 subId 字段（Gson 持久化）；turnId 改由派发器发放。
+3. AIChatActivity：addUserMessage 申请主/子 id；三处 AI 占位与工具/步骤消息绑定 turnId+subId；clearChat 时派发器 reset（清空历史归零）。
+4. 设计要点：仅 clearChat 重置；startNewConversation 不重置（旧会话保留在抽屉，归零会导致切回后 turnId 与旧消息重复）。消息级全局唯一仍由 ChatMessage.id（UUID）承担。
+- 验证：assembleDebug 通过；已安装手机（12:01:18）；实机验证见 chat_id_dispatcher_fix_0914.md。
+
+## [2026-09-14] AI 对话页面消息 id 绑定：消息对 turnId + 多轮组件全 id 定位，杜绝索引错乱
+需求：消息对跨任务 id 绑定；id 新增/多轮任务组件无 id 绑定导致 UI 显示位置错乱；模型服务分批 id 给 UI 显示。
+改动前：工具/步骤消息插入用缓存索引 currentStreamingMessageIndex + 手动 ++（穿插后漂移）；进度更新用创建时索引快照（插入后过时）；resolveStreamingIndex 回退缓存索引；消息对无配对字段。
+改动后：
+1. ChatMessage 新增 turnId（回合 id）：一次发送 = 一回合，user/AI/工具/步骤消息共享；Gson 持久化，恢复后配对不丢。
+2. ChatAdapter 补 getMessageById/getLastMessageByTurnId（实时 id 查找）；既有 id API（appendToken/completeMessage/updateThinkingStep 等）均实时定位。
+3. AIChatActivity：addUserMessage 生成 currentTurnId；三处 AI 占位+工具/步骤消息绑定 turnId；工具/步骤插入点改 resolveStreamingIndex()（按 messageId 实时定位）；resolveStreamingIndex 去缓存索引回退；updateInferencePhase/updateInferenceProgress 七处调用点从创建时快照改 lambda 内实时定位；工具卡片按 toolCallId 精确定位。
+- 效果：多轮 Agent 穿插下 AI 气泡位置由 id 决定；进度不错写；消息对按 turnId 稳定绑定；RecyclerView 错乱根因消除。
+- 验证：assembleDebug 通过；已安装手机（11:56:50）；实机验证见 chat_message_id_fix_0914.md。
+
+## [2026-09-14] AI 对话界面退出/重建不中断生成：界面只是显示器，生成继续落盘 + 重进热加载
+需求：ai 对话界面退出时不应中断生成；界面只是显示和操作界面，不应当影响模型工作；模型工作时写历史文件，重进加载，持续更新可热加载。
+改动前：onDestroy 会 agentChatHandler.cancel() + modelBridge.stopGeneration()——退出/旋转重建即中断生成，回复只留半截。
+改动后（AIChatActivity）：
+1. onDestroy 移除 cancel/stopGeneration；新增 uiDetached 标志（回调只落盘、不再更新界面）。
+2. 回调守卫：onToken/思考/进度等纯 UI 回调直接跳过；完成/出错/停止走"只落盘"分支（更新消息内容+状态 → saveHistoryAsync）；Agent onToken 的 currentStreamingContent 持续累积供落盘。
+3. 重进热加载：恢复历史时发现 GENERATING 残留（后台仍在生成）→ 轮询会话文件（1.5s/次），内容变长/终态即更新界面；连续 3 次无变化或 60 次上限停止；普通/Agent 路径均覆盖。
+4. 模型服务本就是应用级单例（AIService/LlamaHelper/桥），不依附界面。
+- 遗留：回调/旧 AgentChatHandler 持有旧 Activity 引用至生成结束（短窗口，生成结束释放）；后续可改弱引用。
+- 验证：assembleDebug 通过；已安装手机（11:46:02）；实机验证见 local_exit_no_interrupt_fix_0914.md。
+
+## [2026-09-14] 本地推理上下文生命周期修复：页面重建/退出不错位、不中断模型服务
+用户提问核查（chatHistory 依附页面？重建/退出影响？）：
+1. 桥（ModelExecutionBridge）为 appContext 单例，chatJsonHistory/文件不依附 Activity——页面重建/退出均安全；推理历史 append 即落盘。
+2. 修复：恢复最新会话处同步 setLocalSessionId(sessionId)（此前重建后推理历史错位到 default）。
+3. 修复：Agent 首次创建会话时 migrateCurrentHistoryToSession 迁移 default→新会话（Agent 首轮不失忆）。
+4. null 会话加 localSessionInitialized 幂等（避免每次发送前重载 default 文件）。
+5. onDestroy 只 stopGeneration/cancel（停当前生成），不释放模型/AIService 单例——退出/重建后服务继续可用；旋转重建会中断当前生成（现状行为，消息保留归一已完成）。
+- 验证：assembleDebug 通过；已安装手机（11:34:15）；详见 local_history_independent_fix_0914.md 四.5。
+
+## [2026-09-14] 本地模型上下文历史独立化：chatHistory 只管 UI，推理历史按会话持久化
+需求：本地模型的历史不由 chatHistory 管理；chatHistory 只服务 AI 对话界面显示。
+改动前：普通对话发送前从 UI chatHistory 全量重建 chatJsonHistory（内存态、不持久化、无会话隔离），切会话清空从头开始。
+改动后（ModelExecutionBridge + AIChatActivity）：
+1. chatJsonHistory 按会话持久化到 local_chat_history_{sid}_default.json；setLocalSessionId 切会话保存当前→加载目标（幂等）；clearLocalHistory/deleteLocalHistory 清空/删会话联动。
+2. 请求组装按 token 预算倒序收集（safeRef-1024 口径），被挤出对话生成【历史对话要点】临时注入本轮（不入持久化）。
+3. UI 只同步轮次性信息（提示词变更标记/要点，setPendingExtraSystemSections）；删除每次发送前 rebuild。
+4. 本地 Agent 历史来源改为桥内会话历史（getLocalHistoryEntries），完成后回写（appendExternalChatTurn）→ 普通↔Agent 同一真相源。
+5. 旧会话平滑迁移：切回无推理历史文件的旧会话时从 UI 消息一次性重建（干净 user/assistant）。
+6. Activity 重建恢复当前会话推理历史；onError 清理待回写标记防串轮。
+- 效果：本地上下文按会话独立、重启不丢、普通↔Agent 连续；UI 只做显示。
+- 验证：assembleDebug 通过；已安装手机（11:28:50）；实机验证见文档 local_history_independent_fix_0914.md。
+
+## [2026-09-14] 长期记忆变化破坏前缀缓存修复：记忆移出前缀区，请求末尾 D 块动态注入
+现象：长期记忆"有时候会变化"→ 在线缓存命中不稳定。
+根因：记忆摘要在 execute 首轮注入前缀区（messageHistory.add(1,...)，system 之后第 2 条），按当前用户消息加权生成——记忆库更新后摘要内容变 → 前缀从第 2 条断裂 → 全部历史缓存 miss；且旧实现记忆只在首轮注入，会话中记忆库更新后模型读到的永远是旧摘要。
+修复（OnlineAgentEngine）：
+1. 记忆从 messageHistory 移出 → buildOutgoingMessagesArray 组装末尾追加（D 块）：system+历史前缀完全稳定，记忆变化不影响缓存命中。
+2. 每次用户消息刷新 latestMemorySummary → 记忆库变化立即生效（修复"记忆永不更新"缺陷）。
+3. restoreHistory 识别【长期记忆】消息一律跳过（memory_skipped），不再落盘/恢复。
+4. 记忆用副本追加，不污染 messageHistory；PROMPT_VERSION → 20260914-v2（旧文件一次性重建后稳定）。
+- 效果：记忆变化不再破坏前缀缓存；记忆每轮最新；工具循环内每轮请求末尾均带最新记忆。
+- 验证：assembleDebug 通过；已安装手机（11:01:27）；实机验证见文档 memory_prefix_fix_0914.md。
+
+## [2026-09-14] 切回原模型缓存命中暴跌修复：system/env/memory 版本校验原样保留
+现象：在线 A → 切 B → 切回 A 后缓存命中暴跌（前几条全 miss）。
+根因：restoreHistory() 丢弃所有 system 消息（提示词/环境上下文/长期记忆均为 system role），切回 A 后 execute 重新生成 env/memory → 前缀从第 2 个消息断裂 → 恢复的历史全部 miss。
+修复（OnlineAgentEngine）：
+1. persistHistory：system 消息落盘用副本打版本标记 pv（仅文件层，不进请求体）。
+2. restoreHistory：pv 与 PROMPT_VERSION 一致 → 原样保留 system/env/memory（前缀与切换前逐字节一致，缓存直接命中）；不一致（提示词升级/旧数据）→ 才丢弃重建。
+3. 新增 PROMPT_VERSION="20260914-v1"，修改提示词模板时必须同步递增。
+4. 【对话历史摘要】无论版本一律保留（原逻辑不变）。
+- 效果：切回原模型命中率不再暴跌；Activity 重建/重启同版本历史前缀稳定；旧文件平滑迁移。
+- 验证：assembleDebug 通过；已安装手机（10:56:14）；实机验证见文档 cache_switchback_fix_0914.md。
+
+## [2026-09-14] 本地 Agent 缓存命中修复：天气直给指令移出 system 前缀
+本地推理（llama.cpp）KV 缓存复用依赖 prompt 前缀字节稳定，但 AgentLoopEngine.run() 在用户消息含天气词时把动态"【本次任务】查 XX 天气..."指令拼进 sysPrompt → system（前缀第一块）每轮变化 → KV 缓存整段失效，每轮全量重算前缀。
+修复：动态指令从 system 移到本轮 user 消息末尾（D 块动态尾巴），system + 历史前缀保持静态；行为不变（指令原样迁移，模型仍能读到）。
+- 顺带确认本地工具集 activeTools（LinkedHashSet 固定序）+ buildToolsJson 确定性输出，无其他前缀抖动源。
+- 验证：assembleDebug 通过；已安装手机（10:47:41）；实机验证：连续问"查北京天气"→"查上海天气"，第二条应更快（KV 前缀命中）。
+
+## [2026-09-14] 历史混杂修复：在线/本地历史按「会话×模型」隔离 + 切换收敛 + 本地上下文过滤
+AI 对话页切换模型时在线历史与本地历史混杂（三套历史两两脱节）：
+1. **历史文件按「会话 × 模型」双维度隔离**：OnlineAgentEngine 新增 activeModelId，文件改 online_agent_history_{sid}_{modelId}.json；新增 setModelId（保存当前→清空→恢复目标，与 setSessionId 同款模式）——模型 A→B 切换各模型独立上下文、可独立续聊。
+2. **切换处理收敛**：onActiveModelChanged 移除 clearHistory（清错对象），改为 setModelId + UI 提示；initAgentChatHandler 重建 handler 后 setModelId→setSessionId 并提示类型切换；发送前兜底同步 setModelId（生成中切换被忽略时补救，幂等）。
+3. **本地 Agent 上下文过滤**：buildAgentHistory 改 includeThinking=false + stripContextSections（剥离助手消息 [工具调用]/[思考过程] 段）；本地模型只吃纯对话正文，在线工具链痕迹不再污染，事实结论仍保留。
+- 验证：assembleDebug 通过；已安装手机（10:40:21）；待实机验证切换行为。
+
+## [2026-09-14] 成本优化修复：会话级工具集「只增不改」+ env 跨天刷新保前缀 + 缓存诊断探针
+手机工作区缓存诊断（cache_hitrate_diagnosis_0914.md / deepseek_v4flash_cost_analysis_0914.md）实测命中率 44%→39% 下滑、成本高度集中在输入侧未命中段（约 24K tokens 全价/轮）。代码层面确认并修复：
+1. **【核心】tools 每轮动态筛选 → 会话内「只增不改」**：OnlineAgentEngine 新增会话级工具名缓存（cachedToolNames/cachedToolsJson），首轮按核心集+意图生成，后续轮仅把新意图工具追加到集合末尾；classifyIntentByModel 兜底由"整体替换 toolsJson"改为"合并新工具名"。tools 前缀字节稳定 → tools 段从每轮全价转为吃缓存折扣（DeepSeek 命中价≈未命中价 1/50）。
+2. **env 跨天刷新不再破坏前缀**：refreshEnvIfStale 由原位替换（messageHistory.set）改为"旧 env 不动 + 新 env 追加到末尾"，已存在当日 env 时跳过；跨天首条消息不再整链 miss。
+3. **P0 缓存诊断探针**：streamOneIteration 发送前打印 CACHE-PROBE sha256/msg_len/tools_len/thinking，连续两轮哈希一致即前缀稳定，可直接定位抖动点。
+4. 工具缓存复位：shutdown/clearHistory/clearAllHistory/setSessionId 均重置（新会话不残留旧工具集）。
+- 验证：compileDebugJavaWithJavac 通过；待装机后按 CACHE-PROBE 日志确认前缀稳定、命中率回升至 ≥60%。
+
 ## [2026-08-16] 增强文生图工具（image_gen）
 用户要求"创建文生图工具，调研免费 API 并设计"——确认项目已有 image_gen（Pollinations.ai 免费无 key），本轮增强：
 1. **多模型**：flux（默认）/ flux-realism（写实）/ flux-anime（动漫）/ turbo（快速），白名单校验 + 别名归一化（real/photo→flux-realism 等）。

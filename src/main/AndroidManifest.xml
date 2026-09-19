@@ -45,6 +45,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- 系统级悬浮窗（system_connect floating_window） -->
@@ -74,7 +75,7 @@
         android:protectionLevel="signature" />
     <uses-permission android:name="com.oilquiz.app.permission.DEBUG_INJECT" />
 
-    <application
+    <application android:enableOnBackInvokedCallback="false"
         android:name=".SmartQuizApplication"
         android:allowBackup="true"
         android:localeConfig="@xml/locales_config"
@@ -398,6 +399,11 @@
             android:name=".ai.service.AIProcessingService"
             android:exported="false"
             android:foregroundServiceType="specialUse|dataSync" />
+        <!-- 屏幕共享前台服务（Android 14 MediaProjection 强制要求） -->
+        <service
+            android:name=".ai.tool.MediaProjectionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
         <receiver
             android:name=".receiver.StreamTestReceiver"
             android:exported="true">

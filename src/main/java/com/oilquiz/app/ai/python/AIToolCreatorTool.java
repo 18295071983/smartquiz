@@ -34,7 +34,7 @@ import java.util.Map;
         @Param(name = "tool_name", type = "string", description = "工具名称", required = false),
         @Param(name = "description", type = "string", description = "工具描述", required = false),
         @Param(name = "parameters", type = "string", description = "工具参数定义(JSON格式)", required = false),
-        @Param(name = "code", type = "string", description = "Python代码", required = false),
+        @Param(name = "code", type = "string", description = "Python或JavaScript代码(create时使用，可选，不提供则自动生成Python代码)", required = false),
         @Param(name = "tool_params", type = "string", description = "执行参数(JSON格式)", required = false)
     }
 )
@@ -70,7 +70,7 @@ public class AIToolCreatorTool implements AITool {
         params.put("tool_name", "工具名称（create、execute、delete 时使用）");
         params.put("description", "工具描述（create 时使用，可选）");
         params.put("parameters", "工具参数定义，JSON格式：{\"参数名\":\"参数描述\",...}（create 时使用，可选）");
-        params.put("code", "Python 代码（create 时使用，可选，不提供则自动生成）");
+        params.put("code", "Python/JavaScript 代码（create 时使用，可选，不提供则自动生成 Python 代码）");
         params.put("examples", "示例参数列表，JSON数组格式（create 时使用，可选）");
         params.put("tool_params", "执行工具时的参数，JSON格式（execute 时使用）");
         return params;

@@ -44,6 +44,7 @@ import com.oilquiz.app.ai.service.AIServiceInitializer;
 import com.oilquiz.app.ai.service.AIServiceState;
 import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
+import com.oilquiz.app.ai.chat.ChatIdDispatcher;
 import com.oilquiz.app.ai.chat.StreamingUpdateManager;
 import com.oilquiz.app.ai.service.AIProcessingService;
 import com.oilquiz.app.ai.tool.AITool;
@@ -230,6 +231,13 @@ public class AIChatActivity extends BaseActivity {
 
     private volatile boolean isGenerating = false;
     private volatile boolean isDirectStreaming = false;
+    /** UI 已分离标志（Activity 销毁/重建后置 true）：生成继续在桥/服务层运行，
+     *  回调不再更新界面，只做结果落盘；重进界面通过文件恢复 + 热加载轮询 */
+    private volatile boolean uiDetached = false;
+    /** 重进热加载：退出时生成仍在进行 → 轮询会话文件把完成后的完整内容刷进界面 */
+    private final android.os.Handler historyPollHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable historyPollRunnable = () -> pollHistoryForHotReload();
+    private int historyPollUnchangedCount = 0;
     /** 强制本地Agent执行标志：用户点击"🚀 强行使用本地Agent"后置位，processChatMessage 消费一次后清除 */
     private volatile boolean forceLocalAgentOnce = false;
     // 在线模型 API 返回的 Token 统计（由 onTokenStats 回调写入）
@@ -239,6 +247,10 @@ public class AIChatActivity extends BaseActivity {
     private volatile long onlineStatsReceiveTime = 0L;
     private volatile StringBuilder currentStreamingContent = null;
     private volatile StringBuilder currentThinkingContent = null;
+    /** 当前回合 ID（消息对绑定，2026-09-14）：一次发送 = 一回合，user 消息与
+     *  本回合 AI 回复（含思考/工具/汇总组件）共享同一 turnId，
+     *  跨任务/会话恢复后仍可按 turnId 配对，不依赖顺序索引 */
+    private volatile String currentTurnId = null;
     private volatile boolean isInThinking = false;
     /** 标记上一轮思考已结束，用于在下一轮思考开始时插入分隔符 */
     private volatile boolean thinkingRoundEnded = false;
@@ -624,6 +636,12 @@ public class AIChatActivity extends BaseActivity {
             // 创建模型执行桥接器 - UI与模型之间的唯一通道
             modelBridge = ModelExecutionBridge.getInstance(this, aiService, agentService, aiConfig);
 
+            // 本地推理上下文独立化（2026-09-14）：恢复当前会话的推理历史
+            //（Activity 重建/重启后本地模型上下文按会话恢复，不再清空从头开始）
+            if (modelBridge != null) {
+                modelBridge.setLocalSessionId(currentSessionId);
+            }
+
             if (aiService == null && !shouldUseOnlineModel()) {
                 showToast(getString(R.string.h_16b746be));
                 return;
@@ -680,9 +698,13 @@ public class AIChatActivity extends BaseActivity {
                         if (historyToLoad != null && !historyToLoad.isEmpty()) {
                             // 重建后没有生成任务在跑：把持久化残留的 GENERATING 消息归一为
                             // COMPLETED，避免 UI 永久显示"生成中"转圈（退出时生成已中断）
+                            // 注意：退出时生成不中断（2026-09-14）——若发现 GENERATING 残留说明
+                            // 后台仍在生成，恢复后启动热加载轮询，完成后把完整内容刷进界面
+                            final boolean[] hadGenerating = {false};
                             for (ChatMessage m : historyToLoad) {
                                 if (m != null && m.status == ChatMessage.MessageStatus.GENERATING) {
                                     m.status = ChatMessage.MessageStatus.COMPLETED;
+                                    hadGenerating[0] = true;
                                 }
                             }
                             runOnUiThread(() -> {
@@ -693,6 +715,8 @@ public class AIChatActivity extends BaseActivity {
                                     chatHistory.clear();
                                     chatHistory.addAll(historyToLoad);
                                 }
+                                // 恢复补发 id：旧数据组件/思考轮 id 缺失时按 turnId 前缀补发
+                                ensureRecoveredIds(chatHistory);
                                 fileHistoryLoaded = true;
                                 if (chatAdapter != null) {
                                     chatAdapter.notifyDataSetChanged();
@@ -700,6 +724,7 @@ public class AIChatActivity extends BaseActivity {
                                 updateEmptyState();
                                 // 滚动到最新消息
                                 scrollToBottom(true);
+                                if (hadGenerating[0]) startHistoryHotReload();
                             });
                         } else {
                             // 单文件历史为空，尝试从最新的会话文件中恢复
@@ -710,25 +735,36 @@ public class AIChatActivity extends BaseActivity {
                                 ConversationSession fullSession = chatHistoryManager.loadConversationSession(latest.id);
                                 if (fullSession != null && fullSession.messages != null && !fullSession.messages.isEmpty()) {
                                     final String sessionId = fullSession.id;
-                                    // 会话恢复同样清理 GENERATING 残留（退出时生成中断的消息）
+                                    // 会话恢复同样清理 GENERATING 残留（退出时生成中断的消息）；
+                                    // 退出不中断生成后：发现残留说明后台仍在生成 → 热加载轮询
+                                    final boolean[] hadGenerating = {false};
                                     for (ChatMessage m : fullSession.messages) {
                                         if (m != null && m.status == ChatMessage.MessageStatus.GENERATING) {
                                             m.status = ChatMessage.MessageStatus.COMPLETED;
+                                            hadGenerating[0] = true;
                                         }
                                     }
                                     runOnUiThread(() -> {
                                         chatHistory.clear();
                                         chatHistory.addAll(fullSession.messages);
+                                        // 恢复补发 id：旧会话组件/思考轮 id 缺失时按 turnId 前缀补发
+                                        ensureRecoveredIds(chatHistory);
                                         fileHistoryLoaded = true;
                                         currentSessionId = sessionId;
                                         // 同步引擎会话：恢复该会话的 Agent 上下文（如存在）
                                         if (agentChatHandler != null) {
                                             agentChatHandler.setSessionId(sessionId);
                                         }
+                                        // 本地推理上下文独立化：跟随最新会话恢复推理历史
+                                        //（Activity 重建后若不同步，推理历史会错位到 default）
+                                        if (modelBridge != null) {
+                                            modelBridge.setLocalSessionId(sessionId);
+                                        }
                                         if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
                                         updateEmptyState();
                                         scrollToBottom(true);
                                         showToast(getString(R.string.h_c753c564));
+                                        if (hadGenerating[0]) startHistoryHotReload();
                                     });
                                 } else {
                                     runOnUiThread(() -> {
@@ -4758,6 +4794,8 @@ public class AIChatActivity extends BaseActivity {
             ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
             initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
             initialMessage.status = ChatMessage.MessageStatus.GENERATING;
+            initialMessage.turnId = currentTurnId; // 消息对绑定：与本回合 user 消息共享 turnId
+            initialMessage.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI);
             chatHistory.add(initialMessage);
             currentStreamingMessageIndex = chatHistory.size() - 1;
             if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
@@ -4770,7 +4808,7 @@ public class AIChatActivity extends BaseActivity {
         final int streamingIndex = currentStreamingMessageIndex;
         final String streamingId = currentStreamingMessageId;
 
-        runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.INITIALIZING, null));
+        runOnUiThread(() -> updateInferencePhase(resolveStreamingIndex(), ChatMessage.InferencePhase.INITIALIZING, null));
 
         int actualMaxTokens = aiConfig.getMaxTokens();
         boolean enableThinking = ChatModeManager.getInstance(AIChatActivity.this).isDeepThinkingEnabled();
@@ -4783,16 +4821,17 @@ public class AIChatActivity extends BaseActivity {
         isInThinking = enableThinking;
 
         AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
-        // 上下文统一：每次普通对话发送前从 UI 会话历史重建 chatJson 历史，
-        // 与本地 Agent（buildAgentHistory）同一真相源，普通↔Agent 来回切换不失忆
+        // 本地推理上下文独立化（2026-09-14）：历史由 ModelExecutionBridge 按「会话×模型」
+        // 持久化管理，不再每次从 UI chatHistory 重建。此处仅同步本轮临时的 system 段
+        //（提示词变更标记/历史压缩要点），并记录本次提示词签名
         if (modelBridge != null) {
             try {
-                java.util.List<String[]> entries = buildNormalHistoryEntries();
-                modelBridge.rebuildChatJsonHistoryFromExternal(entries);
-                // 记录本次提示词签名：下次发送时若设置变化，buildNormalHistoryEntries 会注入变更标记
+                // 本地推理上下文独立化：发送前锚定当前会话（幂等），历史由桥按会话管理
+                modelBridge.setLocalSessionId(currentSessionId);
+                modelBridge.setPendingExtraSystemSections(buildNormalHistoryExtras());
                 lastPromptSignature = currentPromptSignature();
             } catch (Exception e) {
-                AppLogger.aiW(TAG, "rebuild chat json history failed: " + e.getMessage());
+                AppLogger.aiW(TAG, "set extra system sections failed: " + e.getMessage());
             }
         }
         modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
@@ -4988,6 +5027,9 @@ public class AIChatActivity extends BaseActivity {
 
     /** 上一条上下文构建时的提示词签名（检测设置变化以注入变更标记，防止旧提示词污染新对话） */
     private volatile String lastPromptSignature;
+
+    /** 本轮本地 Agent 的用户消息（完成回调回写本地推理历史用；本地推理上下文独立化 2026-09-14） */
+    private volatile String lastAgentUserMessage = null;
 
     /** 预算超限时被挤掉的最近对话要点（历史压缩用，最新优先；普通对话路径注入上下文） */
     private java.util.List<String> evictedContextPoints = new java.util.ArrayList<>();
@@ -5285,27 +5327,19 @@ public class AIChatActivity extends BaseActivity {
      * 7. AI 消息附紧凑工具调用痕迹（结果截断），保证跨模式追问时模型记得工具结论。
      * 排除当前待发送的 user 消息（buildChatJsonRequest 会追加它）。
      */
-    private java.util.List<String[]> buildNormalHistoryEntries() {
+    /**
+     * 本轮临时的 system 段（提示词变更标记 + 历史压缩要点）。
+     * 本地推理上下文独立化（2026-09-14）后，对话历史由 ModelExecutionBridge
+     * 按「会话×模型」持久化管理，UI chatHistory 只负责界面显示；这里只同步
+     * "轮次性"的额外信息（设置变化标记/历史要点），仅本轮请求有效，不入持久化。
+     */
+    private java.util.List<String[]> buildNormalHistoryExtras() {
         java.util.List<String[]> result = new java.util.ArrayList<>();
-        if (chatHistory == null || chatHistory.isEmpty()) return result;
-
-        int currentUserIdx = lastUserMessageIndex(chatHistory);
-        if (currentUserIdx < 0) return result;
-
-        // 倒序按 token 预算收集（不包含思考内容，普通对话保持干净正文）
-        java.util.List<String[]> temp = collectHistoryByBudget(chatHistory, currentUserIdx, false);
-        result = mergeConsecutiveSameRole(temp);
-
-        // 提示词变更标记（罕见，仅设置/日期变化时出现）：放最前作系统指令，
-        // 设置变化的那一轮缓存本就不该命中，代价可接受
         String marker = getPromptChangeMarkerIfAny();
         if (marker != null) {
-            result.add(0, new String[]{"system", marker});
+            result.add(new String[]{"system", marker});
         }
-        // 历史压缩要点：追加到历史**末尾**（紧挨当前待发送消息之前）。
-        // 放末尾而不是最前：历史主体前缀跨轮保持不变 → 本地 KV 缓存可命中；
-        // 放最前会让整个 prompt 前缀随要点内容偏移，每轮全量重解码
-        if (!evictedContextPoints.isEmpty()) {
+        if (evictedContextPoints != null && !evictedContextPoints.isEmpty()) {
             StringBuilder pts = new StringBuilder("【历史对话要点】(较早对话已压缩，上下文有限)\n");
             for (String p : evictedContextPoints) {
                 pts.append("• ").append(p).append('\n');
@@ -5316,32 +5350,50 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 从 UI 对话历史构建本地 Agent 的多轮上下文：
-     * 与普通对话共享同一份完整 UI 历史（切换模式不失忆），只取 USER/AI 真实对话消息，
-     * 跳过失败占位并合并连续同角色（防畸形上下文）。Agent 上下文额外包含：
-     * - 工具调用痕迹（工具名+截断结果）：Agent 追问时记得"调过什么工具、结果如何"；
-     * - 思考过程（每条截断 512 字符）：连续推理不脱节。
-     * 历史长度按 KV 上下文预算组装，而非固定 4 条；预算内的再压缩由 AgentLoopEngine
-     * 内部 trimHistoryToFit 负责（工具结果截断 + 历史要点拼接），此处不重复做。
-     * 从尾部定位当前用户消息（最后一次 user 消息），跳过它及之后的所有消息
-     * （AI 占位、系统横幅）。
+     * 平滑迁移（本地推理上下文独立化 2026-09-14）：从 UI 会话消息构建一次性迁移 entries。
+     * 仅用于"旧版本聊过的会话首次切回且无独立推理历史文件"时；只取 USER/AI 干净正文，
+     * 跳过失败/生成中占位，剥离 [工具调用]/[思考过程] 段；预算由桥侧裁剪。
      */
-    private java.util.List<AgentLoopEngine.HistoryEntry> buildAgentHistory(
-            java.util.List<ChatMessage> history) {
-        java.util.List<AgentLoopEngine.HistoryEntry> result = new java.util.ArrayList<>();
-        if (history == null || history.isEmpty()) return result;
-
-        int currentUserIdx = lastUserMessageIndex(history);
-        if (currentUserIdx < 0) return result;
-
-        // 倒序按 token 预算收集（包含工具痕迹与思考内容）
-        java.util.List<String[]> temp = collectHistoryByBudget(history, currentUserIdx, true);
-        java.util.List<String[]> merged = mergeConsecutiveSameRole(temp);
-
-        for (String[] entry : merged) {
-            result.add(new AgentLoopEngine.HistoryEntry(entry[0], entry[1]));
+    private java.util.List<String[]> buildMigrationEntries(java.util.List<ChatMessage> messages) {
+        java.util.List<String[]> result = new java.util.ArrayList<>();
+        if (messages == null) return result;
+        String lastRole = null;
+        for (ChatMessage m : messages) {
+            if (m == null) continue;
+            if (m.type != ChatMessage.MessageType.USER && m.type != ChatMessage.MessageType.AI) continue;
+            if (m.status == ChatMessage.MessageStatus.GENERATING
+                    || m.status == ChatMessage.MessageStatus.FAILED
+                    || m.status == ChatMessage.MessageStatus.ERROR) continue;
+            String content = m.getContent();
+            if (content == null || content.trim().isEmpty()) continue;
+            if (m.type == ChatMessage.MessageType.AI) {
+                content = stripContextSections(content);
+            }
+            if (content == null || content.trim().isEmpty()) continue;
+            String role = m.getRole();
+            // 合并连续同角色，保持 user/assistant 严格交替（防畸形上下文）
+            if (role != null && role.equals(lastRole) && !result.isEmpty()) {
+                String[] last = result.get(result.size() - 1);
+                last[1] = last[1] + "\n\n" + content;
+            } else {
+                result.add(new String[]{role, content});
+                lastRole = role;
+            }
         }
         return result;
+    }
+
+    /**
+     * 剥离上下文文本中的 [工具调用] / [思考过程] 段落（本地 Agent 上下文过滤用）。
+     * 在线 Agent 消息渲染时在正文后追加这两段，本地小模型不需要也不兼容这些格式。
+     */
+    private static String stripContextSections(String content) {        if (content == null || content.isEmpty()) return content;
+        int cut = -1;
+        int i = content.indexOf("\n\n[工具调用]");
+        int j = content.indexOf("\n\n[思考过程]");
+        if (i >= 0) cut = i;
+        if (j >= 0) cut = (cut < 0) ? j : Math.min(cut, j);
+        return cut >= 0 ? content.substring(0, cut).trim() : content;
     }
 
     private void processChatMessageWithAgent(String message) {
@@ -5399,6 +5451,12 @@ public class AIChatActivity extends BaseActivity {
                     }
                 }
                 agentChatHandler.setSessionId(currentSessionId);
+                // 本地推理上下文独立化：同步锚定会话。
+                // 首次创建会话（default→新会话）时先迁移推理历史，Agent 首轮不失忆
+                if (modelBridge != null) {
+                    modelBridge.migrateCurrentHistoryToSession(currentSessionId);
+                    modelBridge.setLocalSessionId(currentSessionId); // 幂等，同会话不重载
+                }
             }
 
             // 显示 Agent 模式激活提示
@@ -5409,6 +5467,14 @@ public class AIChatActivity extends BaseActivity {
 
             // AI 服务已初始化，继续处理
             initAgentChatHandlerIfNeeded();
+            // 模型切换兜底同步：若 onActiveModelChanged 时引擎正生成导致 setModelId 被忽略
+            //（生成中切换历史文件会污染执行中的 messageHistory），这里在发送前补一次。
+            // 幂等：模型未变化时 setModelId 内部直接 return，无额外开销
+            if (useOnlineModel && agentChatHandler != null) {
+                String curModelId = onlineModelManager != null && onlineModelManager.getActiveModel() != null
+                        ? onlineModelManager.getActiveModel().id : null;
+                agentChatHandler.setModelId(curModelId);
+            }
 
             synchronized (streamingLock) {
                 agentToolLoopCount = 0;
@@ -5426,6 +5492,7 @@ public class AIChatActivity extends BaseActivity {
                 ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
                 initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
                 initialMessage.status = ChatMessage.MessageStatus.GENERATING;
+                initialMessage.turnId = currentTurnId; // 消息对绑定
                 chatHistory.add(initialMessage);
                 currentStreamingMessageIndex = chatHistory.size() - 1;
                 if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
@@ -5465,8 +5532,16 @@ public class AIChatActivity extends BaseActivity {
             // 生成状态监控：Agent 生成可能较慢（本地模型），启动即显示处理中状态，
             // 避免用户"一直等待"无反馈（onThinkingToken/onToolCallStart/onComplete 会覆盖更新）
             updateAgentStatusBar("⏳ 模型处理中...", true);
-            // 多轮上下文：把最近几轮对话传给本地 Agent（在线引擎自带会话历史，忽略该参数）
-            java.util.List<AgentLoopEngine.HistoryEntry> agentHistory = buildAgentHistory(chatHistory);
+            // 多轮上下文：本地推理上下文独立化（2026-09-14）——从 ModelExecutionBridge 的
+            // 会话级历史取（与普通对话同一真相源，普通↔Agent 来回切换不失忆）；
+            // 在线引擎自带会话历史，忽略该参数
+            java.util.List<AgentLoopEngine.HistoryEntry> agentHistory = new java.util.ArrayList<>();
+            if (modelBridge != null) {
+                for (String[] e : modelBridge.getLocalHistoryEntries()) {
+                    agentHistory.add(new AgentLoopEngine.HistoryEntry(e[0], e[1]));
+                }
+            }
+            lastAgentUserMessage = message; // 完成回调回写本地推理历史用
             agentChatHandler.startAgentLoop(message, maxTokens, enableThinking, agentHistory);
 
         } catch (Exception e) {
@@ -5494,6 +5569,7 @@ public class AIChatActivity extends BaseActivity {
                 ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
                 initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
                 initialMessage.status = ChatMessage.MessageStatus.GENERATING;
+                initialMessage.turnId = currentTurnId; // 消息对绑定
                 chatHistory.add(initialMessage);
                 currentStreamingMessageIndex = chatHistory.size() - 1;
                 if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
@@ -5509,7 +5585,7 @@ public class AIChatActivity extends BaseActivity {
 
             new Thread(() -> {
                 try {
-                    runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.ENCODING, "正在连接云端模型..."));
+                    runOnUiThread(() -> updateInferencePhase(resolveStreamingIndex(), ChatMessage.InferencePhase.ENCODING, "正在连接云端模型..."));
 
                     AIInferenceCore.InferenceConfig config = new AIInferenceCore.InferenceConfig();
                     config.maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 8192;
@@ -5553,7 +5629,7 @@ public class AIChatActivity extends BaseActivity {
                             onlinePromptTokens = 0;
                             onlineCompletionTokens = 0;
                             onlineStatsReceiveTime = 0L;
-                            runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.ENCODING, "云端模型正在思考..."));
+                            runOnUiThread(() -> updateInferencePhase(resolveStreamingIndex(), ChatMessage.InferencePhase.ENCODING, "云端模型正在思考..."));
                         }
 
                         @Override
@@ -5751,11 +5827,13 @@ public class AIChatActivity extends BaseActivity {
         return new BridgeCallback() {
             @Override
             public void onGenerationStarted(String messageId) {
-                runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null));
+                if (uiDetached) return;
+                runOnUiThread(() -> updateInferencePhase(resolveStreamingIndex(), ChatMessage.InferencePhase.GENERATING, null));
             }
 
             @Override
             public void onToken(String messageId, String token) {
+                if (uiDetached) return;
                 tokenCount[0]++;
                 if (tokenCount[0] % 10 == 0) {
                     // 优先使用 native 层统计，更准确
@@ -5765,7 +5843,7 @@ public class AIChatActivity extends BaseActivity {
                     float tps = nativeTps > 0 ? nativeTps : 
                         (elapsed > 0 ? (tokenCount[0] * 1000.0f) / elapsed : 0);
                     int tokens = nativeTokens > 0 ? nativeTokens : tokenCount[0];
-                    runOnUiThread(() -> updateInferenceProgress(streamingIndex, tokens, tps));
+                    runOnUiThread(() -> updateInferenceProgress(resolveStreamingIndex(), tokens, tps));
                 }
                 runOnUiThread(() -> handleStreamToken(token));
             }
@@ -5779,6 +5857,23 @@ public class AIChatActivity extends BaseActivity {
             @Override
             public void onGenerationError(String messageId, String error) {
                 runOnUiThread(() -> {
+                    if (uiDetached) {
+                        // UI 已分离（退出/重建）：只把已生成的部分内容落盘，不更新界面
+                        final int idx = resolveStreamingIndex();
+                        if (currentStreamingContent != null && currentStreamingContent.length() > 0
+                                && idx >= 0 && idx < chatHistory.size()) {
+                            ChatMessage msg = chatHistory.get(idx);
+                            if (msg != null) {
+                                msg.content = currentStreamingContent.toString();
+                                msg.status = ChatMessage.MessageStatus.COMPLETED;
+                            }
+                        }
+                        saveHistoryAsync();
+                        currentStreamingContent = null;
+                        currentStreamingMessageIndex = -1;
+                        currentStreamingMessageId = null;
+                        return;
+                    }
                     endGeneration();
                     boolean nativeInvalid = !modelBridge.isNativeStateValid();
                     boolean shouldRecover = nativeInvalid &&
@@ -5823,6 +5918,23 @@ public class AIChatActivity extends BaseActivity {
             @Override
             public void onGenerationStopped(String messageId) {
                 runOnUiThread(() -> {
+                    if (uiDetached) {
+                        // UI 已分离：只落盘已生成的部分内容
+                        final int idx = resolveStreamingIndex();
+                        if (currentStreamingContent != null && currentStreamingContent.length() > 0
+                                && idx >= 0 && idx < chatHistory.size()) {
+                            ChatMessage msg = chatHistory.get(idx);
+                            if (msg != null) {
+                                msg.content = currentStreamingContent.toString();
+                                msg.status = ChatMessage.MessageStatus.COMPLETED;
+                            }
+                        }
+                        saveHistoryAsync();
+                        currentStreamingContent = null;
+                        currentStreamingMessageIndex = -1;
+                        currentStreamingMessageId = null;
+                        return;
+                    }
                     endGeneration();
                     final int idx = resolveStreamingIndex();
                     if (currentStreamingContent != null && currentStreamingContent.length() > 0
@@ -5841,11 +5953,13 @@ public class AIChatActivity extends BaseActivity {
 
             @Override
             public void onInferenceProgress(String messageId, int tokens, float tps) {
+                if (uiDetached) return;
                 runOnUiThread(() -> updateInferenceProgress(streamingIndex, tokens, tps));
             }
 
             @Override
             public void onContextCleared() {
+                if (uiDetached) return;
                 runOnUiThread(() -> addSystemMessage("上下文已清除"));
             }
 
@@ -5854,6 +5968,7 @@ public class AIChatActivity extends BaseActivity {
 
             @Override
             public void onModelInitialized(boolean success, String modelName) {
+                if (uiDetached) return;
                 if (success) {
                     runOnUiThread(() -> addSystemMessage("模型已加载: " + modelName));
                 }
@@ -6012,7 +6127,7 @@ public class AIChatActivity extends BaseActivity {
             }
             if (isFirstToken) {
                 isFirstToken = false;
-                runOnUiThread(() -> updateInferencePhase(streamingIndex, ChatMessage.InferencePhase.GENERATING, null));
+                runOnUiThread(() -> updateInferencePhase(resolveStreamingIndex(), ChatMessage.InferencePhase.GENERATING, null));
             }
             tokenCount++;
             
@@ -6256,6 +6371,27 @@ public class AIChatActivity extends BaseActivity {
         }
 
         runOnUiThread(() -> {
+            // UI 已分离（界面退出/重建）：生成结果只落盘不更新界面；
+            // 重进界面通过文件恢复 + 热加载轮询拿到完整内容
+            if (uiDetached) {
+                final int idx = resolveStreamingIndex();
+                final String finalContent;
+                synchronized (streamingLock) {
+                    finalContent = currentStreamingContent != null ? currentStreamingContent.toString() : fullText;
+                }
+                if (idx >= 0 && idx < chatHistory.size()) {
+                    ChatMessage msg = chatHistory.get(idx);
+                    if (msg != null) {
+                        msg.content = finalContent;
+                        msg.status = ChatMessage.MessageStatus.COMPLETED;
+                    }
+                }
+                saveHistoryAsync();
+                currentStreamingContent = null;
+                currentStreamingMessageIndex = -1;
+                currentStreamingMessageId = null;
+                return;
+            }
             // 幂等保护：重复/迟到的完成事件（onComplete 后又补发 onError 等）直接忽略，
             // 避免二次执行导致消息索引错乱（RecyclerView Inconsistency 崩溃根因之一）
             if (currentStreamingMessageId == null) return;
@@ -6419,6 +6555,14 @@ public class AIChatActivity extends BaseActivity {
                 if (drained != null && !drained.isEmpty()) {
                     if (finalMsg.components == null) {
                         finalMsg.components = new java.util.ArrayList<>();
+                    }
+                    // 组件 ID 派发（2026-09-14）：工具生成的 UI 组件补发 COMPONENT 子 id（T1-C1…），
+                    // 适配器按 id 定位/更新/移除单个组件；已有 id 的组件（恢复场景）保留
+                    for (com.oilquiz.app.ai.chat.component.ComponentData cd : drained) {
+                        if (cd != null && (cd.id == null || cd.id.isEmpty())) {
+                            cd.id = ChatIdDispatcher.getInstance()
+                                    .applySubId(ChatIdDispatcher.IdType.COMPONENT);
+                        }
                     }
                     finalMsg.components.addAll(drained);
                 }
@@ -6624,6 +6768,7 @@ public class AIChatActivity extends BaseActivity {
                     currentStreamingContent.append(token);
                 }
             }
+            if (uiDetached) return; // UI 已分离：内容持续累积供落盘，跳过所有界面更新
             feedStreamingTts(token);
             // 流式 token 统计：实时累计 + 节流刷新状态栏（解决 tokens 显示不及时）
             streamingTokenCount++;
@@ -6650,6 +6795,7 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onThinkingToken(String token) {
+            if (uiDetached) return; // UI 已分离：思考区仅界面展示，跳过
             // 思考 token：直接写入 AI 消息内嵌思考区（与本地模型一致，不创建独立消息）
             // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用
             boolean onUi = Looper.myLooper() == Looper.getMainLooper();
@@ -6715,6 +6861,7 @@ public class AIChatActivity extends BaseActivity {
 
         @Override
         public void onThinkingEnd() {
+            if (uiDetached) return; // UI 已分离：思考收尾仅界面展示，跳过
             isInThinking = false;
             // 思考结束：标记本轮结束，下一轮 onThinkingToken 时重置思考内容
             // （思考内容保留在 AI 消息内嵌思考区，随后自动折叠，用户可点击展开）
@@ -6731,11 +6878,19 @@ public class AIChatActivity extends BaseActivity {
         public void onComplete(String fullText) {
             // 幂等：只处理第一次完成事件（重复/迟到回调直接忽略）
             if (!completed.compareAndSet(false, true)) return;
-            // 上下文统一：普通对话发送前会从 UI 会话历史重建 chatJson 历史，
-            // Agent 轮次（UI 历史已含）届时自然进入普通对话上下文，无需桥接同步。
+            // 本地推理上下文独立化（2026-09-14）：Agent 轮次完成后回写该轮对话到本地推理历史，
+            // 与普通对话共享同一真相源（普通↔Agent 来回切换不失忆）
+            if (modelBridge != null) {
+                String userMsg = lastAgentUserMessage;
+                if (userMsg != null) {
+                    modelBridge.appendExternalChatTurn(userMsg, fullText);
+                    lastAgentUserMessage = null;
+                }
+            }
             completeGeneration(fullText);
             // 清理组ID（执行完成，不插入系统消息）
             runOnUiThread(() -> {
+                if (uiDetached) return; // UI 已分离：结果已落盘，跳过界面更新
                 // 状态栏恢复（执行完成）
                 updateAgentStatusBar("✅ 执行完成", false);
                 // 气泡内步骤状态（汇总文本已在 completeGeneration 中写入 agentSummary）
@@ -6753,7 +6908,10 @@ public class AIChatActivity extends BaseActivity {
             if ("[TOOL_CALL]".equals(error)) return;
             // 已完成后再报错：忽略（避免 completeGeneration 后又走 handleGenerationError 删错消息）
             if (completed.get()) return;
+            // 本轮失败：清除待回写标记，防止下一轮 onComplete 误回写旧用户消息
+            lastAgentUserMessage = null;
             runOnUiThread(() -> {
+                if (uiDetached) return; // UI 已分离：跳过界面错误处理（结果留待下次进入从文件恢复）
                 if (currentAgentGroupId != null && chatAdapter != null) {
                     chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
                 }
@@ -6992,10 +7150,9 @@ public class AIChatActivity extends BaseActivity {
         // 生成已结束(id 为空)时任何陈旧索引都不可用：返回 -1，避免错误路径
         // 用过期 currentStreamingMessageIndex 删除错误消息（RecyclerView Inconsistency 崩溃根因之一）
         if (currentStreamingMessageId == null) return -1;
-        int byId = findMessageIndexById(currentStreamingMessageId);
-        if (byId >= 0) return byId;
-        return (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size())
-                ? currentStreamingMessageIndex : -1;
+        // 纯 id 定位（2026-09-14）：实时按 messageId 查找，杜绝"id 新增/删除后
+        // 缓存索引漂移导致 UI 位置错乱"；找不到即 -1（调用点均已有守卫）
+        return findMessageIndexById(currentStreamingMessageId);
     }
 
     private void safeUpdateMessage() {
@@ -7087,6 +7244,138 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    // ===================== 恢复补发 id（2026-09-14） =====================
+
+    /** 历史恢复后补齐 id 体系：旧数据组件的 COMPONENT id / 思考轮的 THINKING id 可能缺失，
+     *  按消息自身 turnId 为前缀补发（组件/思考轮 id 与消息对的主 id 保持一致，适配器按前缀聚合不脱节）；
+     *  已存在 id 的组件/轮次不动（幂等）。 */
+    private void ensureRecoveredIds(java.util.List<ChatMessage> messages) {
+        if (messages == null) return;
+        for (ChatMessage m : messages) {
+            if (m == null) continue;
+            // 无回合锚点的旧消息（turnId 为空）不补发：补发会消耗派发器主 id（推进 T 序号），
+            // 且组件/思考轮 id 前缀与消息回合脱节。待消息自身持久化 turnId 后再补。
+            if (m.turnId == null || m.turnId.isEmpty()) continue;
+            // 组件 id 补发（挂到消息 turnId 下）
+            if (m.components != null) {
+                for (com.oilquiz.app.ai.chat.component.ComponentData cd : m.components) {
+                    if (cd != null && (cd.id == null || cd.id.isEmpty())) {
+                        cd.id = ChatIdDispatcher.getInstance()
+                                .applySubId(ChatIdDispatcher.IdType.COMPONENT, m.turnId);
+                    }
+                }
+            }
+            // 思考轮 id 补发（与 thinkingRounds 一一对应）
+            if (m.thinkingRounds != null && !m.thinkingRounds.isEmpty()) {
+                if (m.thinkingRoundIds == null) {
+                    m.thinkingRoundIds = new java.util.ArrayList<>();
+                }
+                while (m.thinkingRoundIds.size() < m.thinkingRounds.size()) {
+                    m.thinkingRoundIds.add(ChatIdDispatcher.getInstance()
+                            .applySubId(ChatIdDispatcher.IdType.THINKING, m.turnId));
+                }
+            }
+        }
+    }
+
+    // ===================== 热加载（退出不中断生成后重进恢复完整内容） =====================
+
+    /**
+     * 启动热加载轮询：恢复历史时发现 GENERATING 残留（说明退出时后台仍在生成），
+     * 轮询会话文件，把后台生成完成后的完整内容刷进当前界面。
+     * 轮询 1.5s 一次；文件消息完成/出错且内容稳定（连续 3 次无变化）或超过 60 次后停止。
+     */
+    private void startHistoryHotReload() {
+        if (uiDetached || chatHistoryManager == null) return;
+        AppLogger.ai(TAG, "热加载启动：后台生成仍在进行，轮询文件更新内容");
+        historyPollUnchangedCount = 0;
+        historyPollHandler.removeCallbacks(historyPollRunnable);
+        historyPollHandler.postDelayed(historyPollRunnable, 1500);
+    }
+
+    private void pollHistoryForHotReload() {
+        if (uiDetached || chatHistoryManager == null || chatHistory == null) return;
+        final String sid = currentSessionId;
+        new Thread(() -> {
+            List<ChatMessage> fresh = null;
+            try {
+                if (sid != null && !sid.isEmpty()) {
+                    ConversationSession s = chatHistoryManager.loadConversationSession(sid);
+                    if (s != null && s.messages != null) fresh = s.messages;
+                } else {
+                    fresh = chatHistoryManager.loadAIChatHistory();
+                }
+            } catch (Exception ignored) {
+            }
+            final List<ChatMessage> f = fresh;
+            runOnUiThread(() -> {
+                if (uiDetached || f == null || f.isEmpty()) {
+                    historyPollHandler.removeCallbacks(historyPollRunnable);
+                    return;
+                }
+                // 定位当前界面最后一条 AI 消息（退出时生成中的那条）
+                ChatMessage uiLast = null;
+                int uiIdx = -1;
+                for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                    ChatMessage m = chatHistory.get(i);
+                    if (m != null && m.type == ChatMessage.MessageType.AI) {
+                        uiLast = m;
+                        uiIdx = i;
+                        break;
+                    }
+                }
+                if (uiLast == null) {
+                    historyPollHandler.removeCallbacks(historyPollRunnable);
+                    return;
+                }
+                // 文件里最后一条 AI 消息（后台生成的结果）
+                ChatMessage fileLast = null;
+                for (int i = f.size() - 1; i >= 0; i--) {
+                    ChatMessage m = f.get(i);
+                    if (m != null && m.type == ChatMessage.MessageType.AI) {
+                        fileLast = m;
+                        break;
+                    }
+                }
+                boolean updated = false;
+                if (fileLast != null && fileLast.content != null) {
+                    String cur = uiLast.content != null ? uiLast.content : "";
+                    // 内容变长 → 更新显示（后台生成在推进）
+                    if (fileLast.content.length() > cur.length() + 4) {
+                        uiLast.content = fileLast.content;
+                        updated = true;
+                    }
+                    // 状态变为已完成/出错 → 同步状态
+                    if ((fileLast.status == ChatMessage.MessageStatus.COMPLETED
+                            || fileLast.status == ChatMessage.MessageStatus.ERROR
+                            || fileLast.status == ChatMessage.MessageStatus.FAILED)
+                            && uiLast.status != fileLast.status) {
+                        uiLast.status = fileLast.status;
+                        updated = true;
+                    }
+                }
+                if (updated && chatAdapter != null) {
+                    chatAdapter.notifyItemChanged(uiIdx);
+                }
+                // 停止条件：文件已终态（完成/出错）或内容连续 3 次无变化；上限 60 次防死循环
+                boolean fileDone = fileLast != null
+                        && (fileLast.status == ChatMessage.MessageStatus.COMPLETED
+                            || fileLast.status == ChatMessage.MessageStatus.ERROR
+                            || fileLast.status == ChatMessage.MessageStatus.FAILED);
+                if (fileDone || !updated) {
+                    historyPollUnchangedCount++;
+                } else {
+                    historyPollUnchangedCount = 0;
+                }
+                if (historyPollUnchangedCount >= 3 || historyPollUnchangedCount >= 60) {
+                    historyPollHandler.removeCallbacks(historyPollRunnable);
+                } else {
+                    historyPollHandler.postDelayed(historyPollRunnable, 1500);
+                }
+            });
+        }).start();
+    }
+
     // ===================== Mode / Tool Execution =====================
 
     private void executeTool(String toolName, String parameters) {
@@ -7134,14 +7423,15 @@ public class AIChatActivity extends BaseActivity {
             public void onActiveModelChanged(String activeModelId) {
                 // 激活模型变化时立即刷新模式按钮
                 runOnUiThread(() -> {
-                    // 检测在线模型切换（如 deepseek → qwen）：旧模型的 system 提示词与工具调用记录
-                    // 不适用于新模型，清空引擎历史避免上下文污染（UI 会话消息保留）
+                    // 检测在线模型切换（如 deepseek → qwen）：把引擎历史切换到新模型的专属文件，
+                    // 旧模型的 system 提示词/工具调用记录不再污染新模型（UI 会话消息保留，用户可见历史不动）
                     if (lastOnlineModelId != null && !lastOnlineModelId.equals(activeModelId)) {
                         AppLogger.ai(TAG, "Online model switched: " + lastOnlineModelId + " -> " + activeModelId
-                                + ", clearing agent engine history");
+                                + ", switching agent engine history by model");
                         if (agentChatHandler != null) {
-                            agentChatHandler.clearHistory();
+                            agentChatHandler.setModelId(activeModelId);
                         }
+                        addSystemMessage("已切换模型，对话上下文已按模型切换");
                     }
                     lastOnlineModelId = activeModelId;
                     updateModeButtonText();
@@ -7195,6 +7485,7 @@ public class AIChatActivity extends BaseActivity {
             }
             agentChatHandler = null;
         }
+        boolean typeChanged = lastUseOnlineModel != null && lastUseOnlineModel != useOnlineModel;
         if (useOnlineModel) {
             agentCallback = new AgentCallbackImpl();
             agentChatHandler = new AgentChatHandler(this, aiService, inferenceRouter, agentService, agentCallback, true);
@@ -7202,12 +7493,24 @@ public class AIChatActivity extends BaseActivity {
             agentCallback = new AgentCallbackImpl();
             agentChatHandler = new AgentChatHandler(this, aiService, agentService, agentCallback);
         }
-        // 同步引擎会话：跟随当前 UI 会话（启动恢复/切换会话后保持一致）
-        if (useOnlineModel && agentChatHandler != null && currentSessionId != null) {
-            agentChatHandler.setSessionId(currentSessionId);
+        // 同步引擎会话：跟随当前 UI 会话（启动恢复/切换会话后保持一致）。
+        // 在线路径先设置模型 ID（历史文件按「会话 × 模型」隔离），再设置会话 ID 触发目标文件恢复
+        if (useOnlineModel && agentChatHandler != null) {
+            String activeModelId = onlineModelManager != null && onlineModelManager.getActiveModel() != null
+                    ? onlineModelManager.getActiveModel().id : null;
+            agentChatHandler.setModelId(activeModelId);
+            if (currentSessionId != null) {
+                agentChatHandler.setSessionId(currentSessionId);
+            }
         }
         lastUseOnlineModel = useOnlineModel;
         AppLogger.ai(TAG, "AgentChatHandler 已初始化，使用模型类型: " + (useOnlineModel ? "在线" : "本地"));
+        // 在线/本地模式切换提示（首次初始化不提示，避免冷启动刷屏）
+        if (typeChanged) {
+            addSystemMessage(useOnlineModel
+                    ? "已切换到在线模型，对话上下文已切换"
+                    : "已切换到本地模型，对话上下文已切换");
+        }
     }
 
     /**
@@ -7279,12 +7582,19 @@ public class AIChatActivity extends BaseActivity {
                 }).start();
             }
             if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
+            // 本地推理上下文独立化：清空本地推理历史（内存 + 当前会话文件）
+            if (modelBridge != null) modelBridge.clearLocalHistory();
             // 清空在线 Agent 引擎的全部历史（所有会话，与 UI 全清一致）
             if (agentChatHandler != null) agentChatHandler.clearAllHistory();
             // 会话 ID 重置：下次发送时创建新会话
             currentSessionId = null;
             clearStreamingState();
             endGeneration();
+            // 组件暂存缓存同步清除（2026-09-14）：防止上一轮/上一会话残留组件
+            // 在下一轮 drain 时混入，导致组件 id 冲突/旧组件串新回合
+            com.oilquiz.app.ai.chat.component.ComponentCollector.clear();
+            // ID 派发器重置：对话历史清空，主/子 id 从 T1 重新发放
+            ChatIdDispatcher.getInstance().reset();
             updateEmptyState();
             // 重置 Token 统计
             TokenStatsManager.getInstance().resetSession();
@@ -7323,6 +7633,16 @@ public class AIChatActivity extends BaseActivity {
                 agentChatHandler.setSessionId(null);
                 agentChatHandler.clearHistory();
             }
+            // 本地推理上下文独立化：切到新会话（null=新建，历史从空开始）
+            if (modelBridge != null) {
+                modelBridge.setLocalSessionId(null);
+            }
+            // 组件暂存缓存同步清除（2026-09-14）：新对话隔离上一轮残留组件，防 id 冲突
+            com.oilquiz.app.ai.chat.component.ComponentCollector.clear();
+            // 注意：新建对话【不】重置 ID 派发器——旧会话仍保留在历史抽屉，
+            // 若归零重发会导致切回旧会话后 turnId 与旧消息重复；
+            // 派发器仅在 clearChat（清空全部历史）时 reset
+            currentTurnId = null;
             updateEmptyState();
             AILogger.i(TAG, "New conversation started: current session saved, context cleared");
         } catch (Exception e) {
@@ -7363,8 +7683,19 @@ public class AIChatActivity extends BaseActivity {
                         if (agentChatHandler != null) {
                             agentChatHandler.setSessionId(loaded.id);
                         }
-                        // 本地模型上下文：无会话级恢复，清空从头开始
-                        if (modelBridge != null) modelBridge.execute(ChatCommand.clearContext(), null);
+                        // 本地推理上下文独立化（2026-09-14）：按会话加载目标历史，不再清空从头开始
+                        if (modelBridge != null) {
+                            modelBridge.setLocalSessionId(loaded.id);
+                            // 平滑迁移：旧版本聊过的会话（无独立推理历史文件）首次切回时，
+                            // 从 UI 会话消息一次性重建推理历史；之后完全独立于 UI
+                            if (modelBridge.getLocalHistoryEntries().isEmpty()
+                                    && loaded.messages != null && !loaded.messages.isEmpty()) {
+                                modelBridge.rebuildChatJsonHistoryFromExternal(
+                                        buildMigrationEntries(loaded.messages));
+                                AILogger.i(TAG, "Local context migrated from UI session: "
+                                        + loaded.messages.size() + " msgs");
+                            }
+                        }
                         updateEmptyState();
                         scrollToBottom(true);
                         showToast(getString(R.string.h_ab98c004) + loaded.title);
@@ -7387,6 +7718,8 @@ public class AIChatActivity extends BaseActivity {
         boolean isCurrent = session.id.equals(currentSessionId);
         new Thread(() -> {
             chatHistoryManager.deleteConversationSession(session.id);
+            // 本地推理上下文独立化：同步删除该会话的本地推理历史文件（含全部模型隔离文件）
+            if (modelBridge != null) modelBridge.deleteLocalHistory(session.id);
             runOnUiThread(() -> {
                 if (isCurrent) {
                     // 当前会话被删除：清空页面 + 引擎历史（含其历史文件）
@@ -8216,7 +8549,12 @@ public class AIChatActivity extends BaseActivity {
 
         // 隐藏空状态
         updateEmptyState();
+        // 回合 id（消息对绑定）：由 ID 派发器发放主 id，本回合所有 UI 组件消息共享；
+        // 消息自身申请子 id（对内序号）。清空对话时派发器重置（见 clearChat/startNewConversation）
+        currentTurnId = ChatIdDispatcher.getInstance().applyMasterId();
         ChatMessage msg = ChatMessage.createUserMessage(java.util.UUID.randomUUID().toString(), message, System.currentTimeMillis());
+        msg.turnId = currentTurnId;
+        msg.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.USER);
         msg.voiceInput = voiceInput;
         chatHistory.add(msg);
         if (chatAdapter != null) {
@@ -8337,19 +8675,21 @@ public class AIChatActivity extends BaseActivity {
         if (currentAgentGroupId != null) return -1;
 
         ChatMessage msg = ChatMessage.createToolCallMessage(toolCallId, toolName, parameters);
+        // 消息对绑定：与本回合 user/AI 消息共享 turnId（跨任务/恢复后配对不丢）+ 子 id（工具类）
+        msg.turnId = currentTurnId;
+        msg.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.TOOL);
         // 标记所属agent组
         if (currentAgentGroupId != null) {
             msg.agentGroupId = currentAgentGroupId;
             agentGroupToolCount++;
             chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
         }
-        // 插入到流式AI消息前面，使AI气泡始终显示在agent执行UI的最后面
-        int insertPos = (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size())
-                ? currentStreamingMessageIndex : chatHistory.size();
+        // 插入到流式AI消息前面，使AI气泡始终显示在agent执行UI的最后面。
+        // 按 messageId 实时定位插入点（2026-09-14）：不再依赖缓存索引，
+        // 多轮工具/步骤消息穿插后 AI 消息位置由 id 确定，杜绝插入错位
+        int aiPos = resolveStreamingIndex();
+        int insertPos = (aiPos >= 0) ? aiPos : chatHistory.size();
         chatHistory.add(insertPos, msg);
-        if (currentStreamingMessageIndex >= 0) {
-            currentStreamingMessageIndex++;
-        }
         int pos = insertPos;
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(pos);
@@ -8362,19 +8702,19 @@ public class AIChatActivity extends BaseActivity {
         if (chatHistory == null) return -1;
 
         ChatMessage msg = ChatMessage.createAgentStepMessage(stepInfo);
+        // 消息对绑定：与本回合 user/AI 消息共享 turnId + 子 id（工具执行步骤类）
+        msg.turnId = currentTurnId;
+        msg.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.TOOL);
         // 标记所属agent组
         if (currentAgentGroupId != null) {
             msg.agentGroupId = currentAgentGroupId;
             agentGroupStepCount++;
             chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
         }
-        // 插入到流式AI消息前面，保持AI气泡在最后面
-        int insertPos = (currentStreamingMessageIndex >= 0 && currentStreamingMessageIndex < chatHistory.size())
-                ? currentStreamingMessageIndex : chatHistory.size();
+        // 按 messageId 实时定位插入点（2026-09-14）：不依赖缓存索引
+        int aiPos = resolveStreamingIndex();
+        int insertPos = (aiPos >= 0) ? aiPos : chatHistory.size();
         chatHistory.add(insertPos, msg);
-        if (currentStreamingMessageIndex >= 0) {
-            currentStreamingMessageIndex++;
-        }
         int pos = insertPos;
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(pos);
@@ -10073,8 +10413,9 @@ public class AIChatActivity extends BaseActivity {
                 currentAttachments.clear();
             }
 
-            // 取消所有生成任务
-            if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
+            // 取消所有生成任务 —— 不再取消！AI 对话界面只是显示/操作界面，
+            // 退出/重建不应中断模型生成；生成继续跑并落盘，回调仅跳过界面更新（uiDetached）
+            //（agentChatHandler.cancel() 与 modelBridge.stopGeneration() 已移除）
 
             // 清理附件管理器
             if (attachmentManager != null) {
@@ -10095,7 +10436,10 @@ public class AIChatActivity extends BaseActivity {
             TokenStatsManager.getInstance().unregisterCallback(tokenStatsCallback);
             if (localBroadcastManager != null && aiResultReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiResultReceiver); } catch (Exception e) {} }
             if (localBroadcastManager != null && aiTokenReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiTokenReceiver); } catch (Exception e) {} }
-            if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
+            // 不再执行 stopGeneration：生成在桥/服务层继续（界面退出不中断模型工作）
+            historyPollHandler.removeCallbacksAndMessages(null);
+            // 标记 UI 已分离：此后生成回调只落盘、不再更新界面
+            uiDetached = true;
             uiHandler.removeCallbacksAndMessages(null);
             isGenerating = false; isDirectStreaming = false;
         } catch (Exception e) { AppLogger.aiE(TAG, "Error onDestroy: " + e.getMessage()); }

@@ -1,0 +1,25 @@
+﻿<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-size:13px;background:#0B1220;color:#E2E8F0;padding:12px;word-break:break-all;font-family:monospace}.ok{color:#4ADE80}.err{color:#F87171}div{padding:2px 0;border-bottom:1px solid #1E293B}</style></head><body>
+<h3 style="color:#A5B4FC">桥探测（正确参数调用）</h3>
+<div id="out">探测中…</div>
+<script>
+var out = [];
+out.push('typeof AndroidApp = ' + typeof window.AndroidApp);
+out.push('keys = ' + Object.keys(window.AndroidApp||{}).join(', '));
+function t(name, fn) { try { fn(); out.push('<span class="ok">OK</span> ' + name); } catch(e){ out.push('<span class="err">ERR</span> ' + name + ': ' + e.message); } }
+t('getVersion', function(){ out.push('version=' + window.AndroidApp.getVersion()); });
+t('getDeviceInfo', function(){ out.push('device=' + window.AndroidApp.getDeviceInfo()); });
+t('getNetworkType', function(){ out.push('net=' + window.AndroidApp.getNetworkType()); });
+t('getBatteryLevel', function(){ out.push('battery=' + window.AndroidApp.getBatteryLevel()); });
+t('isCharging', function(){ out.push('charging=' + window.AndroidApp.isCharging()); });
+t('getStorageInfo', function(){ out.push('storage=' + window.AndroidApp.getStorageInfo()); });
+t('checkPermission(camera)', function(){ out.push('perm=' + window.AndroidApp.checkPermission('camera')); });
+t('vibrate(30)', function(){ window.AndroidApp.vibrate(30); });
+t('copyText', function(){ window.AndroidApp.copyText('probe'); });
+t('setKeepScreenOn(true)', function(){ window.AndroidApp.setKeepScreenOn(true); });
+t('readClipboard', function(){ out.push('clip=' + window.AndroidApp.readClipboard()); });
+t('openFilePicker(cb)', function(){ window.AndroidApp.openFilePicker('onFile'); window.onFile = function(d,n){ out.push('file picked: ' + (n||'') + ' len=' + ((d||'').length)); }; });
+t('screenshot(cb)', function(){ window.AndroidApp.screenshot('onShot'); window.onShot = function(d){ out.push('screenshot OK len=' + ((d||'').length)); }; });
+t('requestPermission(camera,cb)', function(){ window.AndroidApp.requestPermission('camera','onPerm'); window.onPerm = function(g){ out.push('requestPermission granted=' + g); }; });
+document.getElementById('out').innerHTML = out.map(function(x){ return '<div>'+x+'</div>'; }).join('');
+setTimeout(function(){ document.title = out.length; }, 1000);
+</script></body></html>

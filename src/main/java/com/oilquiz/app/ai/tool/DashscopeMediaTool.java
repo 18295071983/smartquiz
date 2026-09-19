@@ -763,7 +763,7 @@ public class DashscopeMediaTool implements AITool {
                 Log.w(TAG, "无法弹出费用确认框，按已确认处理");
                 return true;
             }
-            java.util.Map<String, Object> gr = ptm.getUiComponentResult(String.valueOf(cid), 20);
+            java.util.Map<String, Object> gr = ptm.getUiComponentResult(String.valueOf(cid), 20, false);
             Object res = gr != null ? gr.get("result") : null;
             String s = res != null ? String.valueOf(res) : "";
             return "positive".equalsIgnoreCase(s) || "yes".equalsIgnoreCase(s)

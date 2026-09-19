@@ -186,6 +186,228 @@ public class ModelExecutionBridge {
     private static final int CHATJSON_HISTORY_LIMIT = 300;
     private final java.util.List<org.json.JSONObject> chatJsonHistory = new java.util.ArrayList<>();
 
+    // ========== 本地推理上下文独立化（2026-09-14） ==========
+    // chatJsonHistory 按「会话 × 模型」隔离并持久化到文件，不再每次从 UI chatHistory 重建；
+    // UI chatHistory 只负责界面显示与会话列表，本地模型上下文真相源在本桥内部。
+    private volatile String localSessionId = null;
+    private volatile String localModelId = null;
+    /** 本地推理上下文是否已初始化（避免 null 会话每次发送前重复重载 default 文件） */
+    private volatile boolean localSessionInitialized = false;
+    /** UI 发送前临时设置的 system 段（提示词变更标记/历史压缩要点），仅本轮请求有效，不入持久化 */
+    private volatile java.util.List<String[]> pendingExtraSystemSections = null;
+    /** 预算裁剪后被挤出的历史要点（本轮请求临时注入，不入持久化；与 UI 原 collectHistoryByBudget 同逻辑） */
+    private volatile java.util.List<String> pendingEvictedPoints = null;
+
+    /** 会话标识中的非法文件名字符清洗（模型 id 可能含 / 冒号等） */
+    private static String sanitizeFilePart(String s) {
+        if (s == null) return "default";
+        String cleaned = s.replaceAll("[^A-Za-z0-9._-]", "_");
+        return cleaned.isEmpty() ? "default" : cleaned;
+    }
+
+    private java.io.File getLocalHistoryFile() {
+        String sid = sanitizeFilePart(localSessionId);
+        String mid = sanitizeFilePart(localModelId);
+        return new java.io.File(appContext.getFilesDir(),
+                "local_chat_history_" + sid + "_" + mid + ".json");
+    }
+
+    private synchronized void persistLocalHistory() {
+        try {
+            if (chatJsonHistory.isEmpty()) {
+                java.io.File f = getLocalHistoryFile();
+                if (f.exists()) f.delete();
+                return;
+            }
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (org.json.JSONObject m : chatJsonHistory) {
+                arr.put(m);
+            }
+            java.io.FileWriter w = new java.io.FileWriter(getLocalHistoryFile());
+            w.write(arr.toString());
+            w.close();
+        } catch (Exception e) {
+            AILogger.w(TAG, "persistLocalHistory failed: " + e.getMessage());
+        }
+    }
+
+    private synchronized void loadLocalHistoryFromFile() {
+        try {
+            java.io.File f = getLocalHistoryFile();
+            if (!f.exists()) return;
+            String content = new String(
+                    java.nio.file.Files.readAllBytes(f.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            org.json.JSONArray arr = new org.json.JSONArray(content);
+            chatJsonHistory.clear();
+            for (int i = 0; i < arr.length(); i++) {
+                chatJsonHistory.add(arr.getJSONObject(i));
+            }
+            trimChatJsonHistory();
+            AILogger.i(TAG, "Local context loaded from file: " + chatJsonHistory.size() + " msgs");
+        } catch (Exception e) {
+            AILogger.w(TAG, "loadLocalHistoryFromFile failed: " + e.getMessage());
+        }
+    }
+
+    /** 切换本地推理上下文会话（新建/切会话调用；null=新会话）：保存当前 → 加载目标会话历史。
+     *  幂等：同一非空会话 id 直接返回（避免发送前重复重载文件）；null 恒执行（加载 default 历史） */
+    public synchronized void setLocalSessionId(String sessionId) {
+        if (localSessionInitialized && sessionId == null && localSessionId == null) return;
+        if (sessionId != null && sessionId.equals(localSessionId)) return;
+        localSessionInitialized = true;
+        persistLocalHistory();
+        localSessionId = sessionId;
+        chatJsonHistory.clear();
+        loadLocalHistoryFromFile();
+        AILogger.i(TAG, "Local context session set: " + sessionId
+                + ", history=" + chatJsonHistory.size() + " msgs");
+    }
+
+    /** 迁移当前推理历史到目标会话（Agent 首次创建会话时用：default/旧会话 → 新会话，首轮不失忆）。
+     *  目标会话已有历史则不动（保留目标原有上下文）。 */
+    public synchronized void migrateCurrentHistoryToSession(String sessionId) {
+        if (sessionId == null || sessionId.equals(localSessionId)) return;
+        if (chatJsonHistory.isEmpty()) return;
+        String oldId = localSessionId;
+        java.util.List<org.json.JSONObject> backup = new java.util.ArrayList<>(chatJsonHistory);
+        persistLocalHistory(); // 保存旧会话文件
+        localSessionId = sessionId;
+        chatJsonHistory.clear();
+        loadLocalHistoryFromFile();
+        if (chatJsonHistory.isEmpty() && !backup.isEmpty()) {
+            chatJsonHistory.addAll(backup);
+            persistLocalHistory(); // 落新会话文件
+            AILogger.i(TAG, "Local context migrated: " + oldId + " -> " + sessionId
+                    + ", history=" + chatJsonHistory.size() + " msgs");
+        }
+    }
+
+    /** 切换本地推理模型：按「会话 × 模型」隔离历史文件（与在线引擎对齐） */
+    public synchronized void setLocalModelId(String modelId) {
+        persistLocalHistory();
+        localModelId = modelId;
+        chatJsonHistory.clear();
+        loadLocalHistoryFromFile();
+        AILogger.i(TAG, "Local context model set: " + modelId
+                + ", history=" + chatJsonHistory.size() + " msgs");
+    }
+
+    /** 清空当前本地推理上下文（清空按钮）：内存 + 当前会话文件 */
+    public synchronized void clearLocalHistory() {
+        chatJsonHistory.clear();
+        java.io.File f = getLocalHistoryFile();
+        if (f.exists()) f.delete();
+        AILogger.i(TAG, "Local context history cleared");
+    }
+
+    /** 删除指定会话的全部本地推理上下文文件（删除会话时联动） */
+    public void deleteLocalHistory(String sessionId) {
+        try {
+            String sid = sanitizeFilePart(sessionId);
+            java.io.File[] files = appContext.getFilesDir().listFiles();
+            if (files != null) {
+                for (java.io.File f : files) {
+                    String n = f.getName();
+                    if (n.startsWith("local_chat_history_" + sid + "_") && n.endsWith(".json")) {
+                        f.delete();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "deleteLocalHistory failed: " + e.getMessage());
+        }
+    }
+
+    /** 供本地 Agent 路径取用的多轮上下文（仅 user/assistant 干净正文，与普通对话同一真相源） */
+    public synchronized java.util.List<String[]> getLocalHistoryEntries() {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        for (org.json.JSONObject m : chatJsonHistory) {
+            String role = m.optString("role", "");
+            if (!"user".equals(role) && !"assistant".equals(role)) continue;
+            String content = m.optString("content", "");
+            if (content == null || content.isEmpty()) continue;
+            out.add(new String[]{role, content});
+        }
+        return out;
+    }
+
+    /** Agent 轮次完成后回写该轮对话到本地推理上下文（普通↔Agent 来回切换不失忆） */
+    public synchronized void appendExternalChatTurn(String userMessage, String assistantContent) {
+        if (userMessage != null && !userMessage.isEmpty()) {
+            appendChatJsonHistory("user", userMessage);
+        }
+        if (assistantContent != null && !assistantContent.isEmpty()) {
+            appendChatJsonHistory("assistant", assistantContent);
+        }
+    }
+
+    /** UI 发送前设置本轮临时的 system 段（提示词变更标记/历史压缩要点），buildChatJsonRequest 消费后清空 */
+    public void setPendingExtraSystemSections(java.util.List<String[]> sections) {
+        this.pendingExtraSystemSections = sections;
+    }
+
+    /** 本地上下文 token 预算：与 UI 侧 getContextBudgetTokens 同口径（safeRef - 1024，本地） */
+    private int getLocalContextBudgetTokens() {
+        int ctx = 0;
+        try {
+            int actual = LlamaHelper.getContextSize();
+            if (actual > 0) ctx = actual;
+        } catch (Throwable ignored) {}
+        if (ctx <= 0 && aiConfig != null) {
+            try { ctx = aiConfig.getContextSize(); } catch (Throwable ignored) {}
+        }
+        if (ctx <= 0) ctx = 8192;
+        int safeRef = ctx;
+        try {
+            safeRef = LlamaHelper.getSafeContextReference(ctx);
+        } catch (Throwable ignored) {}
+        return Math.max(1024, safeRef - 1024);
+    }
+
+    /** 从 chatJsonHistory 按 token 预算倒序收集普通对话消息（跳过 tool/tool_calls，防畸形配对）；
+     *  预算耗尽时把被挤掉的最早对话做成要点（最新优先最多 4 条），避免直接丢弃丢信息 */
+    private org.json.JSONArray buildBudgetedHistoryMessages() {
+        org.json.JSONArray out = new org.json.JSONArray();
+        int budget = getLocalContextBudgetTokens();
+        int used = 0;
+        java.util.List<org.json.JSONObject> picked = new java.util.ArrayList<>();
+        java.util.List<String> evictedPoints = new java.util.ArrayList<>();
+        synchronized (this) {
+            int i = chatJsonHistory.size() - 1;
+            for (; i >= 0; i--) {
+                org.json.JSONObject m = chatJsonHistory.get(i);
+                String role = m.optString("role", "");
+                if (!"user".equals(role) && !"assistant".equals(role)) continue;
+                String content = m.optString("content", "");
+                int t = 4 + (content == null ? 0 : (content.length() + 1) / 2);
+                if (used + t > budget) break;
+                picked.add(m);
+                used += t;
+            }
+            // 预算耗尽：把被挤掉的最早对话做成要点（最新优先，最多 4 条），避免直接丢弃丢信息
+            if (i >= 0) {
+                int kept = 0;
+                for (int k = i; k >= 0 && kept < 4; k--) {
+                    org.json.JSONObject m2 = chatJsonHistory.get(k);
+                    String role2 = m2.optString("role", "");
+                    if (!"user".equals(role2) && !"assistant".equals(role2)) continue;
+                    String c2 = m2.optString("content", "");
+                    if (c2 == null || c2.trim().isEmpty()) continue;
+                    String snip = c2.replace('\n', ' ').replace('\r', ' ').trim();
+                    if (snip.length() > 90) snip = snip.substring(0, 90) + "…";
+                    evictedPoints.add(("user".equals(role2) ? "用户" : "助手") + ": " + snip);
+                    kept++;
+                }
+            }
+        }
+        pendingEvictedPoints = evictedPoints.isEmpty() ? null : evictedPoints;
+        for (int i = picked.size() - 1; i >= 0; i--) {
+            out.put(picked.get(i));
+        }
+        return out;
+    }
+
     private synchronized void appendChatJsonHistory(String role, String content) {
         try {
             org.json.JSONObject m = new org.json.JSONObject();
@@ -195,6 +417,7 @@ public class ModelExecutionBridge {
             while (chatJsonHistory.size() > CHATJSON_HISTORY_LIMIT) {
                 chatJsonHistory.remove(0);
             }
+            persistLocalHistory();
         } catch (Exception e) {
             AILogger.w(TAG, "appendChatJsonHistory failed: " + e.getMessage());
         }
@@ -234,10 +457,36 @@ public class ModelExecutionBridge {
             org.json.JSONObject req = new org.json.JSONObject();
             req.put("action", "chat");
             org.json.JSONArray msgs = new org.json.JSONArray();
-            synchronized (this) {
-                for (org.json.JSONObject m : chatJsonHistory) {
-                    msgs.put(m);
+            // 本轮临时的 system 段（提示词变更标记/历史压缩要点）：由 UI 发送前设置，
+            // 仅本轮请求有效，不入持久化历史（避免跨轮残留语义冗余）
+            java.util.List<String[]> extraSystem = pendingExtraSystemSections;
+            pendingExtraSystemSections = null;
+            if (extraSystem != null) {
+                for (String[] sec : extraSystem) {
+                    if (sec == null || sec.length < 2 || sec[0] == null || sec[1] == null) continue;
+                    org.json.JSONObject sm = new org.json.JSONObject();
+                    sm.put("role", sec[0]);
+                    sm.put("content", sec[1]);
+                    msgs.put(sm);
                 }
+            }
+            // 独立真相源：本地推理历史按会话×模型持久化，不再从 UI chatHistory 重建；
+            // 按 token 预算倒序收集（跳过 tool 轮，普通对话保持干净 user/assistant）
+            org.json.JSONArray hist = buildBudgetedHistoryMessages();
+            for (int i = 0; i < hist.length(); i++) {
+                msgs.put(hist.get(i));
+            }
+            // 被挤出的历史要点（预算裁剪产物）：本轮临时注入，不入持久化
+            if (pendingEvictedPoints != null) {
+                StringBuilder pts = new StringBuilder("【历史对话要点】(较早对话已压缩，上下文有限)\n");
+                for (String p : pendingEvictedPoints) {
+                    pts.append("• ").append(p).append('\n');
+                }
+                org.json.JSONObject sm = new org.json.JSONObject();
+                sm.put("role", "system");
+                sm.put("content", pts.toString().trim());
+                msgs.put(sm);
+                pendingEvictedPoints = null;
             }
             org.json.JSONObject cur = new org.json.JSONObject();
             cur.put("role", "user");
@@ -330,6 +579,7 @@ public class ModelExecutionBridge {
             m.put("tool_calls", tcs);
             chatJsonHistory.add(m);
             trimChatJsonHistory();
+            persistLocalHistory();
         } catch (Exception e) {
             AILogger.w(TAG, "appendChatJsonHistoryToolCalls failed: " + e.getMessage());
         }
@@ -347,6 +597,7 @@ public class ModelExecutionBridge {
             m.put("content", content != null ? content : "");
             chatJsonHistory.add(m);
             trimChatJsonHistory();
+            persistLocalHistory();
         } catch (Exception e) {
             AILogger.w(TAG, "appendChatJsonHistoryToolResult failed: " + e.getMessage());
         }

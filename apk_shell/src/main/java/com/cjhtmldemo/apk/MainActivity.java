@@ -12,6 +12,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -26,6 +27,10 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.util.DisplayMetrics;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
@@ -72,7 +77,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * SmartQuiz 设备端 APK 导出壳 v7（专业版）。
+ * SmartQuiz 设备端 APK 导出壳 v8（专业版）。
  *
  * <p>加载规则（读取 assets/manifest.json）：</p>
  * <ol>
@@ -97,9 +102,9 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
     /** 壳版本（真正编译进 dex；getVersion()/getShellVersion() 返回，打包后无需改资源即可识别） */
-    private static final String SHELL_VERSION = "v7";
+    private static final String SHELL_VERSION = "v8.1";
     /** 桥 API 版本（新增/变更桥方法时递增，HTML 可据此做能力探测） */
-    private static final int BRIDGE_API = 3;
+    private static final int BRIDGE_API = 5;
     /** 与 ApkPacker 一致的 AES 密钥 */
     private static final String AES_KEY_STR = "MyHtmlEditorKey1";
     private static final String MANIFEST_ASSET = "manifest.json";
@@ -138,6 +143,10 @@ public class MainActivity extends Activity {
     private volatile int cacheMode = CACHE_DEFAULT;
     /** 深链：最近一次外部 VIEW 打开的数据 */
     private String deepLink = "";
+    /** v8：沉浸全屏状态（失焦后重新应用） */
+    private boolean fsImmersive = false;
+    /** v8：TTS 朗读器（speakText 使用，延迟初始化） */
+    private android.speech.tts.TextToSpeech tts;
 
     private String mainFile = "index.html";
     private String remoteUrl = "";
@@ -159,6 +168,9 @@ public class MainActivity extends Activity {
         setupWebView();
         // 原生能力桥：HTML 中通过 window.AndroidApp.xxx() 调用
         webView.addJavascriptInterface(new AppBridge(), "AndroidApp");
+
+        // 默认边缘到边：状态栏/导航栏透明，内容延伸到系统栏后（HTML 用 safe-area/--sa-* 撑开）
+        applyStatusBarDefault();
 
         new Thread(this::bootstrap, "ShellBootstrap").start();
     }
@@ -569,7 +581,15 @@ public class MainActivity extends Activity {
                 for (int r : grantResults) {
                     if (r != PackageManager.PERMISSION_GRANTED) granted = false;
                 }
-                dispatchPermissionResult(pendingBridgePermission, granted);
+                String reason = granted ? "granted" : "denied";
+                if (!granted && permissions != null) {
+                    boolean forever = true;
+                    for (String p : permissions) {
+                        if (shouldShowRequestPermissionRationale(p)) forever = false;
+                    }
+                    if (forever) reason = "denied_forever";
+                }
+                dispatchPermissionResult(pendingBridgePermission, granted, reason);
                 pendingBridgePermission = null;
                 pendingBridgeCallback = null;
                 return;
@@ -581,6 +601,13 @@ public class MainActivity extends Activity {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+    }
+
+    /** v8：窗口失焦/回来时，沉浸全屏状态被系统清除则重新应用（弹窗/通知栏/切后台后自动恢复） */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && fsImmersive) applyImmersive(true);
     }
 
     @Override
@@ -617,6 +644,11 @@ public class MainActivity extends Activity {
         if (httpServer != null) {
             try { httpServer.stop(); } catch (Exception ignored) { }
             httpServer = null;
+        }
+        // TTS 清理
+        if (tts != null) {
+            try { tts.stop(); tts.shutdown(); } catch (Exception ignored) { }
+            tts = null;
         }
         netExecutor.shutdownNow();
         if (webView != null) {
@@ -841,6 +873,25 @@ public class MainActivity extends Activity {
             });
         }
 
+        // ============ 状态栏适配（"light"=浅色图标/深色页面，默认；"dark"=深色图标/浅色页面） ============
+
+        @JavascriptInterface
+        public void setStatusBarStyle(String style) {
+            final String st = (style == null || style.trim().isEmpty()) ? "light" : style.trim().toLowerCase(Locale.US);
+            runOnUiThread(() -> applyStatusBarStyle(st));
+        }
+
+
+        @JavascriptInterface
+        public String getStatusBarHeight() {
+            return String.valueOf(statusBarHeightPx());
+        }
+
+        @JavascriptInterface
+        public String getNavBarHeight() {
+            return String.valueOf(navBarHeightPx());
+        }
+
         // ============ 权限管理（"camera"/"mic"/"storage"/"notification"/"location"） ============
 
         @JavascriptInterface
@@ -860,11 +911,16 @@ public class MainActivity extends Activity {
             final String cb = callbackName;
             final String[] perms = permissionMapping(name);
             if (perms == null) {
-                dispatchPermissionResult(name, false);
+                dispatchPermissionResult(name, false, "unknown");
                 return;
             }
             if (perms.length == 0) {
-                dispatchPermissionResult(name, true);
+                dispatchPermissionResult(name, true, "granted");
+                return;
+            }
+            // 防重复弹窗：已有待授权请求时直接返回 busy，不再叠加系统权限框
+            if (pendingBridgePermission != null) {
+                dispatchPermissionResult(name, false, "busy");
                 return;
             }
             boolean allGranted = true;
@@ -872,7 +928,16 @@ public class MainActivity extends Activity {
                 if (checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) allGranted = false;
             }
             if (allGranted) {
-                dispatchPermissionResult(name, true);
+                dispatchPermissionResult(name, true, "granted");
+                return;
+            }
+            // 已被永久拒绝（不再询问）：不弹窗，返回 denied_forever，JS 可引导打开权限设置页
+            boolean deniedForever = true;
+            for (String p : perms) {
+                if (shouldShowRequestPermissionRationale(p)) deniedForever = false;
+            }
+            if (deniedForever) {
+                dispatchPermissionResult(name, false, "denied_forever");
                 return;
             }
             pendingBridgePermission = name;
@@ -1291,6 +1356,281 @@ public class MainActivity extends Activity {
                 });
             });
         }
+
+        // ============ v8（bridge_api 4）：沉浸全屏 + 屏幕方向 + 亮度 + TTS + 壳内文件 + 原生选择器/对话框 + 系统信息 ============
+
+        /** 沉浸全屏：true=隐藏系统状态栏/导航栏进入沉浸；false=恢复。失焦后自动重新应用 */
+        @JavascriptInterface
+        public void enterFullscreen(final boolean on) {
+            runOnUiThread(() -> { fsImmersive = on; applyImmersive(on); });
+        }
+
+        /** 当前是否沉浸全屏（供页面初始化对齐） */
+        @JavascriptInterface
+        public boolean isFullscreen() {
+            return fsImmersive;
+        }
+
+        /** 屏幕方向：landscape / portrait / auto */
+        @JavascriptInterface
+        public void setOrientation(final String mode) {
+            runOnUiThread(() -> {
+                int req;
+                if ("landscape".equals(mode)) req = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+                else if ("portrait".equals(mode)) req = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+                else req = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED; // auto
+                try { setRequestedOrientation(req); } catch (Exception ignored) { }
+            });
+        }
+
+        /** 当前物理方向：landscape / portrait */
+        @JavascriptInterface
+        public String getOrientation() {
+            return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE
+                    ? "landscape" : "portrait";
+        }
+
+        /** 设置屏幕亮度（0-255；-1 恢复跟随系统） */
+        @JavascriptInterface
+        public void setBrightness(final int value) {
+            runOnUiThread(() -> {
+                try {
+                    WindowManager.LayoutParams lp = getWindow().getAttributes();
+                    if (value < 0) lp.screenBrightness = -1f;
+                    else lp.screenBrightness = Math.max(0.01f, Math.min(1f, value / 255f));
+                    getWindow().setAttributes(lp);
+                } catch (Exception ignored) { }
+            });
+        }
+
+        /** 当前屏幕亮度（0-255；-1 表示跟随系统） */
+        @JavascriptInterface
+        public float getBrightness() {
+            try {
+                float b = getWindow().getAttributes().screenBrightness;
+                return b < 0 ? -1 : Math.round(b * 255);
+            } catch (Exception e) {
+                return -1;
+            }
+        }
+
+        /** 语音朗读（TTS，中文；重复调用会打断上一次） */
+        @JavascriptInterface
+        public void speakText(final String text) {
+            if (text == null || text.isEmpty()) return;
+            runOnUiThread(() -> {
+                try {
+                    if (tts == null) {
+                        tts = new android.speech.tts.TextToSpeech(MainActivity.this, status -> {
+                            if (status == android.speech.tts.TextToSpeech.SUCCESS && tts != null) {
+                                tts.setLanguage(Locale.CHINA);
+                                tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "tts1");
+                            }
+                        });
+                    } else {
+                        tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "tts1");
+                    }
+                } catch (Exception ignored) { }
+            });
+        }
+
+        /** 停止语音朗读 */
+        @JavascriptInterface
+        public void stopSpeak() {
+            runOnUiThread(() -> {
+                try { if (tts != null) tts.stop(); } catch (Exception ignored) { }
+            });
+        }
+
+        /** 保存文件到壳内目录（相对 htmlDir，如 "data/a.txt"；base64 内容；≤8MB） */
+        @JavascriptInterface
+        public String saveFile(String relativePath, String dataBase64) {
+            if (relativePath == null || dataBase64 == null) return "{\"ok\":false,\"error\":\"参数为空\"}";
+            try {
+                File f = resolveShellFile(relativePath);
+                if (f == null) return "{\"ok\":false,\"error\":\"路径非法\"}";
+                byte[] data = android.util.Base64.decode(dataBase64, android.util.Base64.DEFAULT);
+                if (data.length > 8 * 1048576L) return "{\"ok\":false,\"error\":\"超过8MB限制\"}";
+                File parent = f.getParentFile();
+                if (parent != null && !parent.exists()) parent.mkdirs();
+                try (FileOutputStream fos = new FileOutputStream(f)) { fos.write(data); }
+                return "{\"ok\":true,\"size\":" + data.length + "}";
+            } catch (Exception e) {
+                return "{\"ok\":false,\"error\":" + JSONObject.quote(String.valueOf(e.getMessage())) + "}";
+            }
+        }
+
+        /** 读取壳内文件（相对 htmlDir；返回 base64；≤8MB） */
+        @JavascriptInterface
+        public String readFile(String relativePath) {
+            try {
+                File f = resolveShellFile(relativePath);
+                if (f == null || !f.isFile()) return "{\"ok\":false,\"error\":\"文件不存在\"}";
+                if (f.length() > 8 * 1048576L) return "{\"ok\":false,\"error\":\"超过8MB限制\"}";
+                byte[] data = java.nio.file.Files.readAllBytes(f.toPath());
+                JSONObject o = new JSONObject();
+                o.put("ok", true);
+                o.put("size", data.length);
+                o.put("dataBase64", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP));
+                return o.toString();
+            } catch (Exception e) {
+                return "{\"ok\":false,\"error\":" + JSONObject.quote(String.valueOf(e.getMessage())) + "}";
+            }
+        }
+
+        /** 列出壳内目录（相对 htmlDir；空/缺省=根） */
+        @JavascriptInterface
+        public String listFiles(String relativeDir) {
+            try {
+                File dir = (relativeDir == null || relativeDir.isEmpty()) ? htmlDir : resolveShellFile(relativeDir);
+                if (dir == null || !dir.isDirectory()) return "{\"ok\":false,\"error\":\"目录不存在\"}";
+                File[] fs = dir.listFiles();
+                org.json.JSONArray arr = new org.json.JSONArray();
+                if (fs != null) {
+                    for (File f : fs) {
+                        JSONObject o = new JSONObject();
+                        o.put("name", f.getName());
+                        o.put("isDir", f.isDirectory());
+                        o.put("size", f.isDirectory() ? 0 : f.length());
+                        arr.put(o);
+                    }
+                }
+                JSONObject out = new JSONObject();
+                out.put("ok", true);
+                out.put("files", arr);
+                return out.toString();
+            } catch (Exception e) {
+                return "{\"ok\":false,\"error\":" + JSONObject.quote(String.valueOf(e.getMessage())) + "}";
+            }
+        }
+
+        /** 删除壳内文件/空目录（相对 htmlDir） */
+        @JavascriptInterface
+        public String deleteFile(String relativePath) {
+            File f = resolveShellFile(relativePath);
+            if (f == null) return "{\"ok\":false,\"error\":\"路径非法\"}";
+            if (!f.exists()) return "{\"ok\":false,\"error\":\"不存在\"}";
+            if (f.isDirectory()) {
+                File[] children = f.listFiles();
+                if (children != null && children.length > 0) return "{\"ok\":false,\"error\":\"目录非空\"}";
+            }
+            return f.delete() ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"删除失败\"}";
+        }
+
+        /** 原生日期选择器：回调 window[callbackName]({"year","month","day"}) */
+        @JavascriptInterface
+        public void pickDate(final String callbackName) {
+            if (callbackName == null || !callbackName.matches("[A-Za-z0-9_]{1,64}")) return;
+            runOnUiThread(() -> {
+                try {
+                    java.util.Calendar c = java.util.Calendar.getInstance();
+                    new android.app.DatePickerDialog(MainActivity.this,
+                            (view, y, m, d) -> {
+                                JSONObject o = new JSONObject();
+                                try { o.put("year", y); o.put("month", m + 1); o.put("day", d); } catch (Exception ignored) { }
+                                callJsCallback(callbackName, o.toString());
+                            },
+                            c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH),
+                            c.get(java.util.Calendar.DAY_OF_MONTH)).show();
+                } catch (Exception e) {
+                    callJsCallback(callbackName, "{\"error\":" + JSONObject.quote(String.valueOf(e.getMessage())) + "}");
+                }
+            });
+        }
+
+        /** 原生时间选择器：回调 window[callbackName]({"hour","minute"}) */
+        @JavascriptInterface
+        public void pickTime(final String callbackName) {
+            if (callbackName == null || !callbackName.matches("[A-Za-z0-9_]{1,64}")) return;
+            runOnUiThread(() -> {
+                try {
+                    java.util.Calendar c = java.util.Calendar.getInstance();
+                    new android.app.TimePickerDialog(MainActivity.this,
+                            (view, h, m) -> {
+                                JSONObject o = new JSONObject();
+                                try { o.put("hour", h); o.put("minute", m); } catch (Exception ignored) { }
+                                callJsCallback(callbackName, o.toString());
+                            },
+                            c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE), true).show();
+                } catch (Exception e) {
+                    callJsCallback(callbackName, "{\"error\":" + JSONObject.quote(String.valueOf(e.getMessage())) + "}");
+                }
+            });
+        }
+
+        /** 原生确认对话框：确定→{"result":"ok"}，取消→{"result":"cancel"} */
+        @JavascriptInterface
+        public void showDialog(final String title, final String message, final String callbackName) {
+            if (callbackName == null || !callbackName.matches("[A-Za-z0-9_]{1,64}")) return;
+            runOnUiThread(() -> {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle(title == null ? "" : title)
+                        .setMessage(message == null ? "" : message)
+                        .setPositiveButton("确定", (d, w) -> callJsCallback(callbackName, "{\"result\":\"ok\"}"))
+                        .setNegativeButton("取消", (d, w) -> callJsCallback(callbackName, "{\"result\":\"cancel\"}"))
+                        .show();
+            });
+        }
+
+        /** 系统信息：语言/时区/Android版本/品牌/设备/状态栏导航栏高度 */
+        @JavascriptInterface
+        public String getSystemInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("language", Locale.getDefault().toLanguageTag());
+                o.put("timeZone", java.util.TimeZone.getDefault().getID());
+                o.put("androidVersion", Build.VERSION.RELEASE);
+                o.put("brand", Build.BRAND);
+                o.put("device", Build.DEVICE);
+                int statusBar = 0, navBar = 0;
+                try {
+                    int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+                    if (resId > 0) statusBar = getResources().getDimensionPixelSize(resId);
+                    resId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+                    if (resId > 0) navBar = getResources().getDimensionPixelSize(resId);
+                } catch (Exception ignored) { }
+                o.put("statusBarHeight", statusBar);
+                o.put("navigationBarHeight", navBar);
+            } catch (Exception ignored) { }
+            return o.toString();
+        }
+
+        /** 检查系统是否安装了指定应用 */
+        @JavascriptInterface
+        public boolean isAppInstalled(String packageName) {
+            if (packageName == null || packageName.isEmpty()) return false;
+            try {
+                getPackageManager().getPackageInfo(packageName, 0);
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /** 打开其他应用（按包名） */
+        @JavascriptInterface
+        public void openApp(final String packageName) {
+            if (packageName == null || packageName.isEmpty()) return;
+            runOnUiThread(() -> {
+                try {
+                    Intent i = getPackageManager().getLaunchIntentForPackage(packageName);
+                    if (i != null) {
+                        startActivity(i);
+                    } else {
+                        Toast.makeText(MainActivity.this, "未找到应用: " + packageName, Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "无法打开应用", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        /** 在壳内打开指定 URL（远程页面/本地路径，路由到主 WebView） */
+        @JavascriptInterface
+        public void openInApp(String url) {
+            if (url == null || url.isEmpty()) return;
+            runOnUiThread(() -> { try { loadUrl(url); } catch (Exception ignored) { } });
+        }
     }
 
     // ==================== 权限映射与桥回调 ====================
@@ -1326,14 +1666,170 @@ public class MainActivity extends Activity {
     }
 
     /** 把授权结果回调给 HTML */
-    private void dispatchPermissionResult(String permission, boolean granted) {
+    private static String permissionHumanName(String p) {
+        if (p == null) return "";
+        switch (p) {
+            case "camera": return "相机";
+            case "mic": return "麦克风";
+            case "storage": return "存储";
+            case "notification": return "通知";
+            case "location": return "位置";
+            default: return p;
+        }
+    }
+
+    private void dispatchPermissionResult(String permission, boolean granted, String reason) {
         JSONObject out = new JSONObject();
         try {
+            String r = reason == null ? "" : reason;
+            String hn = permissionHumanName(permission);
+            String human;
+            if (granted) human = "已获得" + hn + "权限，可以正常使用相关功能";
+            else if ("denied_forever".equals(r)) human = hn + "权限已被系统拒绝且不再询问，请到系统设置中手动开启（设置 → 应用 → 权限）";
+            else if ("busy".equals(r)) human = "已有" + hn + "权限请求正在处理中，请稍后再试";
+            else if ("unknown".equals(r)) human = "无法识别权限：" + hn;
+            else human = hn + "权限被拒绝，相关功能将不可用，可在需要时重新申请";
             out.put("permission", permission);
             out.put("granted", granted);
+            out.put("reason", r);
+            out.put("human", human);
         } catch (Exception ignored) { }
         final String cb = pendingBridgeCallback == null ? "" : pendingBridgeCallback;
         final String js = "window['" + cb + "'] && window['" + cb + "'](" + JSONObject.quote(out.toString()) + ");";
+        runOnUiThread(() -> {
+            if (webView != null) webView.evaluateJavascript(js, null);
+        });
+    }
+
+    // ==================== v8.1 状态栏适配：边缘到边 + 图标明暗 ====================
+
+    /** 默认边缘到边：状态栏/导航栏透明，内容延伸到系统栏后面（HTML 用 safe-area / --sa-* 撑开） */
+    private void applyStatusBarDefault() {
+        Window w = getWindow();
+        if (w == null) return;
+        if (Build.VERSION.SDK_INT >= 21) {
+            w.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            try { w.setNavigationBarColor(android.graphics.Color.TRANSPARENT); } catch (Exception ignored) { }
+        }
+        /* 关键：清除 FLAG_LAYOUT_INSET_DECOR（系统/主题默认加入，会让内容避开状态栏、状态栏区域由系统画黑条），
+           并确保 LAYOUT_IN_SCREEN|LAYOUT_FULLSCREEN，让页面真正延伸到状态栏/导航栏后 */
+        w.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR);
+        w.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
+        View dv = w.getDecorView();
+        int flags = dv.getSystemUiVisibility();
+        flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+        dv.setSystemUiVisibility(flags);
+        applyStatusBarStyle("light");
+    }
+
+    /** 状态栏/导航栏图标明暗：style="light"=浅色图标（深色页面，默认）；"dark"=深色图标（浅色页面） */
+    private void applyStatusBarStyle(String style) {
+        Window w = getWindow();
+        if (w == null) return;
+        boolean darkIcons = "dark".equalsIgnoreCase(style);
+        View dv = w.getDecorView();
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController c = w.getInsetsController();
+            if (c != null) {
+                int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                int appear = darkIcons ? mask : 0;
+                c.setSystemBarsAppearance(appear, mask);
+            }
+        } else if (Build.VERSION.SDK_INT >= 23) {
+            int flags = dv.getSystemUiVisibility();
+            if (darkIcons) {
+                flags |= 0x00002000; /* SYSTEM_UI_FLAG_LIGHT_STATUS_BARS (API 23+) */
+            } else {
+                flags &= ~0x00002000;
+            }
+            dv.setSystemUiVisibility(flags);
+        }
+    }
+
+    /** 状态栏高度（px；HTML 可据此做沉浸适配，优先于 env(safe-area-inset-top)） */
+    private int statusBarHeightPx() {
+        try {
+            int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            if (id > 0) return getResources().getDimensionPixelSize(id);
+        } catch (Exception ignored) { }
+        return 0;
+    }
+
+    /** 导航栏高度（px；手势导航为 0，三键导航返回实体高度） */
+    private int navBarHeightPx() {
+        try {
+            int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+            if (id > 0) return getResources().getDimensionPixelSize(id);
+        } catch (Exception ignored) { }
+        return 0;
+    }
+
+    // ==================== v8 辅助：沉浸全屏 / 壳内文件解析 / JS 回调 ====================
+
+    /** 沉浸实现：API 30+ 走 WindowInsetsController，26-29 走老 flag；并通知页面（window.__shellFullscreen + shellfullscreenchange 事件） */
+    private void applyImmersive(boolean on) {
+        Window w = getWindow();
+        if (w == null) return;
+        /* 全屏进入/退出都保持状态栏/导航栏背景透明（防小米等系统在隐藏不完全时显示黑色条：竖屏顶部/横屏左侧） */
+        if (Build.VERSION.SDK_INT >= 21) {
+            w.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            try { w.setNavigationBarColor(android.graphics.Color.TRANSPARENT); } catch (Exception ignored) { }
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController c = w.getInsetsController();
+            if (c != null) {
+                if (on) {
+                    c.hide(WindowInsets.Type.systemBars());
+                    c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                } else {
+                    c.show(WindowInsets.Type.systemBars());
+                }
+            }
+        } else {
+            View dv = w.getDecorView();
+            int flags = dv.getSystemUiVisibility();
+            if (on) {
+                flags |= View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+            } else {
+                flags &= ~(View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+            }
+            dv.setSystemUiVisibility(flags);
+        }
+        try {
+            webView.evaluateJavascript(
+                    "window.__shellFullscreen=" + on + ";"
+                            + "try{window.dispatchEvent(new Event('shellfullscreenchange'));}catch(e){}", null);
+        } catch (Exception ignored) { }
+    }
+
+    /** 安全解析壳内文件路径（相对 htmlDir，拒绝 .. 穿越）；返回 null 表示非法 */
+    private File resolveShellFile(String relativePath) {
+        try {
+            if (relativePath == null || htmlDir == null) return null;
+            File f = new File(htmlDir, relativePath);
+            String canonical = f.getCanonicalPath();
+            String root = htmlDir.getCanonicalPath();
+            if (!canonical.startsWith(root + File.separator) && !canonical.equals(root)) return null;
+            return f;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 通用 JS 回调：window[callbackName](json 字符串)（UI 线程执行） */
+    private void callJsCallback(String callbackName, String json) {
+        final String js = "window['" + callbackName + "'] && window['" + callbackName + "']("
+                + JSONObject.quote(json) + ");";
         runOnUiThread(() -> {
             if (webView != null) webView.evaluateJavascript(js, null);
         });

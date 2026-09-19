@@ -30,6 +30,11 @@ public class DynamicToolExecutor {
             return "未提供执行逻辑";
         }
 
+        // JavaScript 脚本支持：优先于 Python 判定（JS 的 return/赋值会命中 Python 特征，必须先识别）
+        if (looksLikeJavaScript(logic)) {
+            return executeAsJavaScript(logic, parameters);
+        }
+
         // Python 脚本支持：逻辑是 Python 脚本时交给 Python 执行引擎（脚本内用 script_args 取参数）
         if (looksLikePython(logic)) {
             return executeAsPython(logic, parameters);
@@ -54,6 +59,142 @@ public class DynamicToolExecutor {
         }
         
         return result.length() > 0 ? result.toString() : "执行完成";
+    }
+
+    // ==================== JavaScript 脚本支持 ====================
+
+    /**
+     * 判断执行逻辑是否为 JavaScript 脚本：
+     * 1. 显式标记：```javascript / ```js / js: / // js / // javascript / 单独一行 javascript
+     * 2. 强 JS 特征：箭头函数 =>、const/let/var/function/async 行首、console.、JSON.parse/stringify、
+     *    document./window.、数组方法 .map(/.filter(/.forEach(/.reduce(
+     * 必须在 Python 判定之前调用：JS 的 return / 变量赋值会命中 Python 特征，若后判会被误吞。
+     * Python 的 async def 是 async 特征排除项；DSL 命令（echo/set/if 等）不命中任何 JS 特征。
+     */
+    private static boolean looksLikeJavaScript(String logic) {
+        String[] lines = logic.split("\n");
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            String lower = line.toLowerCase();
+            if (lower.startsWith("```javascript") || lower.startsWith("```js")
+                    || lower.equals("javascript") || lower.equals("js")
+                    || lower.startsWith("// js") || lower.startsWith("// javascript")
+                    || lower.startsWith("js:")) {
+                return true;
+            }
+            if (line.startsWith("async ") && !line.startsWith("async def ")) return true;
+            if (line.startsWith("const ") || line.startsWith("let ")
+                    || line.startsWith("var ") || line.startsWith("function ")) return true;
+            if (line.contains("=>") || line.startsWith("console.")) return true;
+            if (line.contains("JSON.stringify(") || line.contains("JSON.parse(")
+                    || line.contains("document.") || line.contains("window.")) return true;
+            if (line.contains(".map(") || line.contains(".filter(")
+                    || line.contains(".forEach(") || line.contains(".reduce(")) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 用 JsExecuteTool（WebView/V8 内核）运行脚本。参数以 script_args 对象注入，
+     * 脚本内用 script_args.参数名 或 script_args['参数名'] 读取；console.log 输出与返回值合并返回。
+     */
+    private String executeAsJavaScript(String logic, Map<String, Object> parameters) {
+        try {
+            String script = buildJsScript(logic, parameters);
+            Map<String, Object> p = new HashMap<>();
+            p.put("code", script);
+            p.put("timeout", 10);
+            AIToolResult r = new JsExecuteTool(context).execute(p);
+            if (r != null) {
+                if (r.getResult() != null && !r.getResult().toString().trim().isEmpty()) {
+                    return r.getResult().toString().trim();
+                }
+                if (r.getErrorMessage() != null && !r.getErrorMessage().trim().isEmpty()) {
+                    return r.getErrorMessage().trim();
+                }
+            }
+            return "JS 执行无返回";
+        } catch (Throwable t) {
+            Log.e(TAG, "JS 动态工具执行异常: " + t.getMessage(), t);
+            return "JS 执行异常: " + t.getMessage();
+        }
+    }
+
+    /** 组装 JS：注入 script_args 参数对象 + 用户逻辑（JSON 字面量注入）。
+     *  若脚本含顶层 return（JS 顶层 return 是语法错误 Illegal return statement），
+     *  自动包进立即执行函数 IIFE，并**显式把 IIFE 返回值赋给 __js_ret 再作为最后表达式**——
+     *  不依赖 eval/WebView 对多语句代码"最后一个表达式"完成值的隐式语义（部分实现不可靠）。 */
+    private static String buildJsScript(String logic, Map<String, Object> parameters) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("// 动态工具参数\n");
+        Object argsJson = toJsonValue(parameters);
+        // 无参数时给 {}（不能是 null，否则 script_args.a 报错）
+        if (argsJson == null) {
+            argsJson = new org.json.JSONObject();
+        }
+        sb.append("const script_args = ").append(argsJson.toString()).append(";\n\n");
+        if (hasTopLevelReturn(logic)) {
+            sb.append("const __js_ret = (() => {\n").append(logic).append("\n})();\n");
+            sb.append("__js_ret;\n");
+        } else {
+            sb.append(logic);
+            // 无 return 时 eval 取最后一个表达式的值：末尾追加一个引用已声明变量的空操作不可行，
+            // 保持用户代码原样（用户可用末尾表达式或 console.log 输出结果）
+        }
+        return sb.toString();
+    }
+
+    /** 粗略检测脚本是否在顶层用了 return（行首 return 且不在函数体内）。
+     *  启发式足够覆盖常见写法：脚本末尾 `return xxx;` / `return xxx`。 */
+    private static boolean hasTopLevelReturn(String logic) {
+        String[] lines = logic.split("\n");
+        int braceDepth = 0;
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (line.isEmpty() || line.startsWith("//") || line.startsWith("/*")
+                    || line.startsWith("*")) {
+                continue;
+            }
+            braceDepth += countChar(line, '{');
+            braceDepth -= countChar(line, '}');
+            if (braceDepth == 0 && line.startsWith("return")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int countChar(String s, char c) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) == c) n++;
+        }
+        return n;
+    }
+
+    /** 任意值 → org.json 可序列化对象（支持嵌套 Map/List/JSONObject/JSONArray/原始类型） */
+    private static Object toJsonValue(Object v) {
+        if (v == null || v instanceof Number || v instanceof Boolean || v instanceof String) return v;
+        if (v instanceof org.json.JSONObject || v instanceof org.json.JSONArray) return v;
+        if (v instanceof java.util.Map) {
+            org.json.JSONObject jo = new org.json.JSONObject();
+            try {
+                for (java.util.Map.Entry<?, ?> e : ((java.util.Map<?, ?>) v).entrySet()) {
+                    jo.put(String.valueOf(e.getKey()), toJsonValue(e.getValue()));
+                }
+            } catch (org.json.JSONException ignored) {
+            }
+            return jo;
+        }
+        if (v instanceof java.util.List) {
+            org.json.JSONArray ja = new org.json.JSONArray();
+            for (Object item : (java.util.List<?>) v) {
+                ja.put(toJsonValue(item));
+            }
+            return ja;
+        }
+        return String.valueOf(v);
     }
 
     // ==================== Python 脚本支持 ====================

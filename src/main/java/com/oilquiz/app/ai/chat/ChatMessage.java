@@ -170,6 +170,18 @@ public class ChatMessage {
     /** 父消息ID（用于关联思考过程和回复） */
     public String parentId;
 
+    /** 回合ID（消息对绑定，2026-09-14）：
+     *  一次用户发送 = 一个回合；该回合的 user 消息、AI 回复（含多轮思考/工具/汇总组件）
+     *  共享同一 turnId。UI 按 turnId 快速配对/聚合（跨任务不依赖顺序索引），
+     *  Gson 自动持久化，会话恢复后消息对绑定不丢。
+     *  由 {@link ChatIdDispatcher#applyMasterId()} 派发（T1、T2…），清空对话后重置。 */
+    public String turnId;
+
+    /** 子ID（消息对内序号，2026-09-14）：
+     *  同一回合（turnId）内每条消息独立申请（T1-1、T1-2…），
+     *  由 {@link ChatIdDispatcher#applySubId()} 派发，用于对内存量/顺序定位。 */
+    public String subId;
+
     /** 时间戳 */
     public long timestamp;
 
@@ -198,11 +210,49 @@ public class ChatMessage {
      *  元素顺序 = 轮次顺序；最后一轮进行中时 thinkingContent 为当前轮。 */
     public List<String> thinkingRounds;
 
-    /** 追加一轮思考内容（自动创建列表） */
+    /** 各思考轮的 THINKING 子 id（2026-09-14）：与 thinkingRounds 一一对应，
+     *  由 ChatIdDispatcher.applySubId(IdType.THINKING) 发放（T1-K1、T1-K2…），
+     *  适配器按 id 定位/折叠/展开单个思考轮。 */
+    public List<String> thinkingRoundIds;
+
+    /** 已折叠的思考轮 id 集合（仅运行时 UI 状态，不持久化）：
+     *  每轮思考块独立折叠/展开；null 或空 = 全部跟随消息级 thinkingExpanded */
+    public transient java.util.Set<String> thinkingCollapsedRounds;
+
+    /** 该思考轮是否处于折叠状态（独立折叠优先于消息级展开） */
+    public boolean isThinkingRoundCollapsed(String roundId) {
+        return thinkingCollapsedRounds != null && roundId != null && thinkingCollapsedRounds.contains(roundId);
+    }
+
+    /** 切换单个思考轮的折叠状态（独立折叠） */
+    public void toggleThinkingRoundCollapsed(String roundId) {
+        if (roundId == null || roundId.isEmpty()) return;
+        if (thinkingCollapsedRounds == null) thinkingCollapsedRounds = new java.util.HashSet<>();
+        if (!thinkingCollapsedRounds.add(roundId)) {
+            thinkingCollapsedRounds.remove(roundId);
+        }
+    }
+
+    /** 追加一轮思考内容（自动创建列表；轮次 id 为空时由派发器自动发放） */
     public void addThinkingRound(String roundContent) {
+        addThinkingRound(roundContent, null);
+    }
+
+    /** 追加一轮思考内容 + 该轮的 THINKING 子 id（与 thinkingRounds 一一对应） */
+    public void addThinkingRound(String roundContent, String roundId) {
         if (roundContent == null || roundContent.trim().isEmpty()) return;
         if (thinkingRounds == null) thinkingRounds = new java.util.ArrayList<>();
         thinkingRounds.add(roundContent);
+        if (thinkingRoundIds == null) thinkingRoundIds = new java.util.ArrayList<>();
+        if (roundId == null || roundId.isEmpty()) {
+            roundId = com.oilquiz.app.ai.chat.ChatIdDispatcher.getInstance()
+                    .applySubId(com.oilquiz.app.ai.chat.ChatIdDispatcher.IdType.THINKING);
+        }
+        // 防御：若已有记录条数与轮数不一致（旧数据恢复），按需补齐占位
+        while (thinkingRoundIds.size() < thinkingRounds.size() - 1) {
+            thinkingRoundIds.add(null);
+        }
+        thinkingRoundIds.add(roundId);
     }
 
     /** 正文轮次边界：content 中每个工具调用处的位置（工具调用 = 轮次边界）。

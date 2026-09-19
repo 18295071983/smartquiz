@@ -1,0 +1,13 @@
+/* 表盘：环形进度（外置） */
+/* ========== 表盘 5：环形进度 ========== */
+.ringface{position:relative;width:min(calc(var(--cw)*.74),max(150px, calc(var(--ch) - 250px)),330px);height:min(calc(var(--cw)*.74),max(150px, calc(var(--ch) - 250px)),330px);aspect-ratio:1;display:grid;place-items:center}
+.ringface svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.ringface circle{fill:none;stroke-linecap:round}
+.ringface .rc-bg{stroke:rgba(255,255,255,.07)}
+.ringface .rc-s{stroke:var(--acc);filter:drop-shadow(0 0 8px rgba(var(--glow),.8))}
+.ringface .rc-m{stroke:var(--acc2)}
+.ringface .rc-h{stroke:var(--txt);opacity:.5}
+.ringface .rc-core{fill:color-mix(in srgb,var(--panel) 60%,transparent)}
+.rf-txt{position:relative;text-align:center;z-index:2}
+.rf-txt .t{font-size:clamp(24px,min(calc(var(--cw)*.09),calc(var(--ch)*.072)),52px);font-weight:300;letter-spacing:-.02em}
+.rf-txt .s{font-size:12px;color:var(--dim);letter-spacing:2px;margin-top:4px}

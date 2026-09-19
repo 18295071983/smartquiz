@@ -7,7 +7,7 @@ plugins { id 'com.android.application' version '8.4.0' }
 
 android {
     namespace 'com.cjhtmldemo.apk'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         // 包名占位：com.cjhtmldemo.xxxxxxxxxxxxx（28 字符）。
@@ -19,9 +19,9 @@ android {
         applicationId "com.cjhtmldemo.xxxxxxxxxxxxx"
         // minSdk 26（Android 8.0+）：不向下兼容旧机，换取现代 API（VibrationEffect/通知渠道/新权限模型等）
         minSdk 26
-        targetSdk 34
-        versionCode 7
-        versionName "7.0"
+        targetSdk 35
+        versionCode 9
+        versionName "8.1"
     }
 
     buildTypes {

@@ -312,23 +312,6 @@ public class AgentLoopEngine {
 
         List<ChatMessage> history = new ArrayList<>();
         String sysPrompt = modelFcMode ? buildFcSystemPrompt() : buildSystemPrompt();
-        // 天气场景直给：命中 ai_weather 且用户消息含城市名时，把"本次任务"写进 system 提示词，
-        // 2B 模型无需自己推断该查哪个城市，直接照做（根治"五台县"卡死：不调 location、直接 city=五台县）
-        if (modelFcMode && selectedTools.contains("ai_weather") && userMessage != null
-                && (userMessage.contains("天气") || userMessage.contains("气温") || userMessage.contains("温度")
-                    || userMessage.contains("下雨") || userMessage.contains("预报") || userMessage.contains("湿度"))) {
-            String city = extractCityFromMessage(userMessage);
-            if (city != null && !city.isEmpty()) {
-                String cityId = getCityLocationId(city); // 优先用和风城市编码查询，最精确
-                String locParam = cityId != null ? cityId : city;
-                sysPrompt += "\n【本次任务】用户要查 " + city + " 的天气，优先用 ai_weather 工具（参数 city=" + locParam
-                        + "，这是 " + city + " 的和风城市编码，直接按编码调用，工具会返回对应城市天气，无需先验证编码；action 按用户问法选：当前→current，预报→forecast，空气质量→air_quality，默认 current），也可用 network_search 搜索。"
-                        + "工具返回的城市与用户原意不符时，按用户原话重查。\n";
-            } else {
-                // 无具体城市（查"这里/附近/现在天气"）：经纬度查当前位置实时天气最准
-                sysPrompt += "\n【本次任务】用户要查当前位置/附近的天气，用 ai_weather 工具，参数用 location 工具定位获取的 lat/lon；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。\n";
-            }
-        }
         history.add(new ChatMessage("system", sysPrompt));
         // 多轮上下文：把最近几轮对话注入历史（system → 历史 → 当前问题），
         // 让模型能理解"那明天呢？"之类的指代；超预算由 trimHistoryToFit 裁剪
@@ -338,7 +321,28 @@ public class AgentLoopEngine {
                 history.add(new ChatMessage(h.role, h.content));
             }
         }
-        history.add(new ChatMessage("user", userMessage));
+        // 本轮动态任务指令（缓存命中优化）：天气直给指令从 system 移到本轮 user 消息末尾。
+        // system 前缀保持静态（同一天内字节不变，见 buildCurrentTimeLine 注释），
+        // 本地推理引擎的 KV 缓存才能命中 system+历史前缀；否则每条带"天气"的消息都改写
+        // system → 前缀抖动 → 每轮全量重算前缀。动态指令放 prompt 末尾（D 块），
+        // 模型仍能读到并执行，行为不变。
+        String effectiveUserMessage = userMessage;
+        if (modelFcMode && selectedTools.contains("ai_weather") && userMessage != null
+                && (userMessage.contains("天气") || userMessage.contains("气温") || userMessage.contains("温度")
+                    || userMessage.contains("下雨") || userMessage.contains("预报") || userMessage.contains("湿度"))) {
+            String city = extractCityFromMessage(userMessage);
+            if (city != null && !city.isEmpty()) {
+                String cityId = getCityLocationId(city); // 优先用和风城市编码查询，最精确
+                String locParam = cityId != null ? cityId : city;
+                effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查 " + city + " 的天气，优先用 ai_weather 工具（参数 city=" + locParam
+                        + "，这是 " + city + " 的和风城市编码，直接按编码调用，工具会返回对应城市天气，无需先验证编码；action 按用户问法选：当前→current，预报→forecast，空气质量→air_quality，默认 current），也可用 network_search 搜索。"
+                        + "工具返回的城市与用户原意不符时，按用户原话重查。";
+            } else {
+                // 无具体城市（查"这里/附近/现在天气"）：经纬度查当前位置实时天气最准
+                effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查当前位置/附近的天气，用 ai_weather 工具，参数用 location 工具定位获取的 lat/lon；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。";
+            }
+        }
+        history.add(new ChatMessage("user", effectiveUserMessage));
 
         // ===== 本地 Agent：模型自主处理（意图编排已移除）=====
         // 用户确认模型可自主：不再用 IntentEngine 确定性编排（简化设计），

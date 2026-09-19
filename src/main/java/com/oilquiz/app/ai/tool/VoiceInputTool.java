@@ -276,7 +276,7 @@ public class VoiceInputTool implements AITool {
             }
 
             // 2. 阻塞等待用户录音完成（返回音频路径或 cancelled）
-            Map<String, Object> result = ptm.getUiComponentResult(String.valueOf(cid), waitTimeout);
+            Map<String, Object> result = ptm.getUiComponentResult(String.valueOf(cid), waitTimeout, false);
             Object resObj = result != null ? result.get("result") : null;
             String audioPath = resObj != null ? String.valueOf(resObj) : "";
 

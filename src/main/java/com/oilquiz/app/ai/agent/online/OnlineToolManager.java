@@ -238,6 +238,7 @@ public class OnlineToolManager {
         map.put("system", java.util.Arrays.asList("system_resource"));
         map.put("phone", java.util.Arrays.asList("app_toolkit"));
         map.put("study_plan", java.util.Arrays.asList("file_generator"));
+        map.put("history", java.util.Arrays.asList("chat_history")); // 对话历史（跨会话上下文）
         map.put("knowledge", java.util.Arrays.asList("knowledge_base"));
         map.put("import", java.util.Arrays.asList("import_list_files", "import_start", "import_status", "import_cancel",
                 "file_reader", "file_analyzer", "excel_tool", "file_generator", "python_file_ops", "python_execute")); // AI导入（含预处理）
@@ -304,6 +305,38 @@ public class OnlineToolManager {
                 if (containsAny(msg, "python", "代码", "脚本", "数据分析", "统计数据", "处理数据", "运行程序",
                         "写个程序", "爬虫", "自动化")) {
                     include.add("python_execute"); include.add("python_analyze_data");
+                }
+                if (containsAny(msg, "javascript", "js代码", "运行js", "执行js", "js脚本", "调试js",
+                        "写个js", "js函数", "js执行")) {
+                    include.add("js_execute");
+                }
+                if (containsAny(msg, "安装python包", "pip", "装个库", "安装库", "安装包", "pip install")) {
+                    include.add("pip_install");
+                }
+                // 历史类：跨会话回忆之前说过的话/创建过的工具组件 → 对话历史
+                if (containsAny(msg, "对话历史", "聊天记录", "历史记录", "之前的对话", "上次说了",
+                        "上次让你", "之前让你", "上次创建", "之前创建", "上次那个", "历史里",
+                        "回顾一下", "回忆一下", "查一下历史", "chat_history", "看历史")) {
+                    include.add("chat_history");
+                }
+                if (containsAny(msg, "截屏", "截图", "看屏幕", "看下屏幕", "屏幕画面", "当前界面")) {
+                    include.add("screen_capture");
+                }
+                // 盯梢类：监控屏幕直到目标出现/消失/画面变化 → 专用盯梢工具（比截屏watch更强，支持目标文字检测）
+                if (containsAny(msg, "盯梢", "盯屏", "盯着屏幕", "监控屏幕", "观察屏幕", "盯着看",
+                        "屏幕变化", "看页面变化", "盯着等", "等到")) {
+                    include.add("screen_watch");
+                    include.add("ocr_recognize");
+                }
+                // 看屏分析类：截屏 + 看图理解成对给出，让 Agent 自主"截屏→读图→分析"
+                if (containsAny(msg, "屏幕上是什么", "屏幕上有什么", "看看手机", "分析屏幕", "分析界面",
+                        "看一下界面", "帮我看看", "看看现在", "屏幕内容", "手机界面", "界面是什么",
+                        "看下界面", "屏幕上的文字", "看看我手机")) {
+                    include.add("screen_capture");
+                    include.add("ocr_recognize");
+                }
+                if (containsAny(msg, "打开网页", "网页渲染", "看网页", "预览网页", "渲染网页", "网页效果", "网页内容")) {
+                    include.add("web_render");
                 }
                 if (containsAny(msg, "计算", "算一下", "数学", "calculator", "等于多少", "加减乘除")) {
                     include.add("python_calculate");

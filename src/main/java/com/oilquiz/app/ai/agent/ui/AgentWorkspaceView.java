@@ -14,6 +14,7 @@ import android.widget.Toast;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.online.AgentWorkspace;
 
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -130,13 +131,15 @@ public class AgentWorkspaceView {
         clearBtn.setOnClickListener(v -> {
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
                 .setTitle("清空长期文件")
-                .setMessage("将删除 files/ 下用户/Agent 产生的长期文件（内置指南文件《工具创建指南.md》《使用速查表.md》会保留）。确定继续吗？")
+                .setMessage("将删除 files/ 下用户/Agent 产生的长期文件（内置指南文件《工具创建指南.md》《使用速查表.md》《HTML_DESIGN_RULES.md》《APK_SOURCE_GUIDE.md》会保留）。确定继续吗？")
                 .setPositiveButton("清空", (dialog, which) -> {
                     int removed = 0;
                     for (AgentWorkspace.WorkspaceFile f : ws.listFiles()) {
                         if ("files".equals(f.zone)
                                 && !"工具创建指南.md".equals(f.name)
                                 && !"使用速查表.md".equals(f.name)
+                                && !"HTML_DESIGN_RULES.md".equals(f.name)
+                                && !"APK_SOURCE_GUIDE.md".equals(f.name)
                                 && ws.deleteFile(f.name)) removed++;
                     }
                     Toast.makeText(context, "已清空长期文件，删除 " + removed + " 个（内置指南已保留）",
@@ -295,6 +298,26 @@ public class AgentWorkspaceView {
 
         row.addView(textCol);
 
+        // 查看：用系统查看器打开（FileProvider 内容 URI，公共/私有目录均覆盖）
+        TextView viewBtn = new TextView(context);
+        viewBtn.setText("查看");
+        viewBtn.setTextSize(12);
+        viewBtn.setGravity(Gravity.CENTER);
+        viewBtn.setTextColor(color(R.color.primary));
+        viewBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
+        viewBtn.setOnClickListener(v -> openWithSystemViewer(f));
+        row.addView(viewBtn);
+
+        // 分享：系统分享面板发送文件
+        TextView shareBtn = new TextView(context);
+        shareBtn.setText("分享");
+        shareBtn.setTextSize(12);
+        shareBtn.setGravity(Gravity.CENTER);
+        shareBtn.setTextColor(color(R.color.primary));
+        shareBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
+        shareBtn.setOnClickListener(v -> shareWorkspaceFile(f));
+        row.addView(shareBtn);
+
         TextView delBtn = new TextView(context);
         delBtn.setText("删除");
         delBtn.setTextSize(12);
@@ -308,6 +331,64 @@ public class AgentWorkspaceView {
         });
         row.addView(delBtn);
         return row;
+    }
+
+    /** 按区域解析工作区文件完整路径 */
+    private File resolveWorkspaceFile(AgentWorkspace.WorkspaceFile f) {
+        AgentWorkspace ws = AgentWorkspace.getInstance(context);
+        if ("files".equals(f.zone)) return new File(ws.getFilesDir(), f.name);
+        if ("tmp".equals(f.zone)) return new File(ws.getTmpDir(), f.name);
+        return new File(ws.getWorkspaceDir(), f.name);
+    }
+
+    /** 文件 → FileProvider 内容 URI（文件在外部存储公共目录或私有目录均被 file_paths.xml 覆盖） */
+    private android.net.Uri workspaceContentUri(File file) {
+        return androidx.core.content.FileProvider.getUriForFile(
+                context, "com.oilquiz.app.fileprovider", file);
+    }
+
+    /** 按扩展名猜 MIME（查不到兜底 octet-stream） */
+    private String mimeOf(String name) {
+        int dot = name.lastIndexOf('.');
+        if (dot < 0 || dot == name.length() - 1) return "application/octet-stream";
+        String ext = name.substring(dot + 1).toLowerCase(Locale.US);
+        String mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+        return mime != null ? mime : "application/octet-stream";
+    }
+
+    /** 查看：系统查看器打开文件（图片/PDF/音视频/文本等按 MIME 分发） */
+    private void openWithSystemViewer(AgentWorkspace.WorkspaceFile f) {
+        try {
+            File file = resolveWorkspaceFile(f);
+            if (!file.isFile()) {
+                Toast.makeText(context, "文件不存在: " + f.name, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+            intent.setDataAndType(workspaceContentUri(file), mimeOf(f.name));
+            intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            context.startActivity(android.content.Intent.createChooser(intent, "打开 " + f.name));
+        } catch (Exception e) {
+            Toast.makeText(context, "无法打开（无可用应用）: " + f.name, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** 分享：系统分享面板发送文件 */
+    private void shareWorkspaceFile(AgentWorkspace.WorkspaceFile f) {
+        try {
+            File file = resolveWorkspaceFile(f);
+            if (!file.isFile()) {
+                Toast.makeText(context, "文件不存在: " + f.name, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            intent.setType(mimeOf(f.name));
+            intent.putExtra(android.content.Intent.EXTRA_STREAM, workspaceContentUri(file));
+            intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            context.startActivity(android.content.Intent.createChooser(intent, "分享 " + f.name));
+        } catch (Exception e) {
+            Toast.makeText(context, "分享失败: " + f.name, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private static String formatSize(long size) {

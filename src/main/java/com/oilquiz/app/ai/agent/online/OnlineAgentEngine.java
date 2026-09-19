@@ -15,7 +15,9 @@ import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -66,6 +68,16 @@ public class OnlineAgentEngine {
      *  避免长对话缓存命中失败 + 大量消耗输入 token。 */
     private static final int HISTORY_TOKEN_BUDGET = 24000;
 
+    /**
+     * 系统提示词版本标记（缓存命中优化）。
+     * persistHistory 时写入 system 消息的 "pv" 字段（仅落盘，不进入请求体）；
+     * restoreHistory 时若历史里的 pv 与当前版本一致 → 原样保留 system/环境/记忆
+     * （切换模型再切回后前缀与切换前逐字节一致 → 服务商前缀缓存命中最大化）；
+     * 版本不一致（提示词升级）→ 丢弃重建（缓存 miss 一次属合理）。
+     * 【注意】修改 OnlinePromptBuilder 的提示词模板时，必须同步递增此版本号。
+     */
+    private static final String PROMPT_VERSION = "20260914-v2";
+
     /** Agent 执行模式 */
     public enum AgentMode {
         /** 模型接管：模型具备完整 agent 能力，本地退化为纯执行器，信任模型自主决策 */
@@ -92,6 +104,11 @@ public class OnlineAgentEngine {
     /** 当前会话 ID（null/空 = 默认单文件历史；非空 = 按会话隔离的历史文件） */
     private volatile String sessionId;
 
+    /** 当前在线模型配置 ID（null = 未知/本地路径）。
+     *  历史文件按「会话 × 模型」双维度隔离，切换模型不共享上下文，
+     *  避免 A 模型的 system 提示词/工具链记录污染 B 模型。 */
+    private volatile String activeModelId;
+
     private AgentCallback callback;
     private InferenceProgressListener progressListener;
     private final AtomicBoolean isGenerating = new AtomicBoolean(false);
@@ -106,6 +123,20 @@ public class OnlineAgentEngine {
     private final List<JsonObject> messageHistory = new ArrayList<>();
     /** 恢复历史时暂存的【对话历史摘要】消息，execute 重建 system 后插回（防止压缩内容跨会话丢失） */
     private JsonObject pendingSummaryMessage;
+
+    /** 当前长期记忆摘要（缓存命中优化）：移出前缀区，每轮请求末尾动态注入。
+     *  记忆库变化（用户新增/更新记忆）时摘要立即刷新，但只影响请求尾部 D 块，
+     *  system+历史前缀保持稳定 → 服务商前缀缓存不受记忆变化影响。 */
+    private volatile String latestMemorySummary = null;
+
+    // ==== 缓存命中优化：会话内工具集「只增不改」====
+    // 工具定义按用户消息意图动态筛选会导致 tools 部分每轮字节变化，
+    // 服务商前缀缓存对 tools 段持续 miss（全价计费）。
+    // 改为：同一引擎会话内工具名集合只增不改（新意图工具追加到末尾），
+    // tools 前缀字节稳定 → 缓存命中最大化；能力只增不减。
+    private final Set<String> cachedToolNames = new LinkedHashSet<>();
+    private String cachedToolsJson = null;
+    private boolean toolsCacheInitialized = false;
 
     // 推理进度统计
     private long inferenceStartTime;
@@ -329,16 +360,6 @@ public class OnlineAgentEngine {
             // 插到最前（恢复的历史可能是 用户/助手 消息，system 必须在前）
             messageHistory.add(0, systemMsg);
 
-            // 注入长期记忆摘要（维度三 P1-2 相关性筛选：以当前用户消息为关键词加权排序，控制注入体积）
-            String memorySummary = AgentMemoryStore.getInstance(context).buildMemorySummary(userMessage);
-            if (memorySummary != null && !memorySummary.isEmpty()) {
-                JsonObject memoryMsg = new JsonObject();
-                memoryMsg.addProperty("role", "system");
-                memoryMsg.addProperty("content", "【长期记忆】以下是你记住的关于用户的信息，回答时自然运用。仅当用户明确要求记住或主动告知新的个人信息/偏好时，才用 memory 工具 save 新增或更新（不要擅自把普通聊天内容存为记忆）：\n" + memorySummary);
-                messageHistory.add(1, memoryMsg);
-                AILogger.i(TAG, "Long-term memory injected: " + AgentMemoryStore.getInstance(context).size() + " entries");
-            }
-
             // 获取环境上下文（日期、位置——天气不注入，Agent 用 ai_weather 工具主动获取），
             // 注入为系统消息辅助Agent思考
             notifyStep("环境感知", "正在获取位置信息...");
@@ -357,8 +378,18 @@ public class OnlineAgentEngine {
             AILogger.i(TAG, "Continuing conversation: messageHistory size=" + messageHistory.size());
         }
 
+        // 长期记忆（缓存命中优化）：移出前缀区，改为请求末尾 D 块动态注入。
+        // 每轮以当前用户消息刷新摘要——记忆库变化（用户新增/更新记忆）立即生效，
+        // 但只影响请求尾部，system+历史前缀保持稳定 → 服务商前缀缓存不受记忆变化影响
+        latestMemorySummary = AgentMemoryStore.getInstance(context).buildMemorySummary(userMessage);
+        if (latestMemorySummary != null && !latestMemorySummary.isEmpty()) {
+            AILogger.i(TAG, "Long-term memory refreshed: "
+                    + AgentMemoryStore.getInstance(context).size() + " entries");
+        }
+
         // 1.5 恢复历史时暂存的【对话历史摘要】插回（在所有 system 消息之后，保持前缀稳定：
-        // 提示词/长期记忆/环境上下文在摘要之前，跨会话不因摘要内容变化导致前缀 miss）
+        // 提示词/环境上下文在摘要之前，跨会话不因摘要内容变化导致前缀 miss；
+        // 长期记忆已移出历史，每轮在请求末尾 D 块动态注入）
         if (pendingSummaryMessage != null) {
             messageHistory.add(pendingSummaryMessage);
             pendingSummaryMessage = null;
@@ -387,27 +418,13 @@ public class OnlineAgentEngine {
                 "ai_weather", "network_search", "calculator",
                 "control_lookup", "knowledge_base"
         ));
-        // 按用户消息意图追加低频工具（若用户明确要求某类任务）
-        String toolsJson = toolManager.getToolDefinitionsForMessageAndCore(userMessage, coreTools);
+        // 按用户消息意图追加低频工具（若用户明确要求某类任务）。
+        // 缓存命中优化：同一会话内工具集「只增不改」——新意图工具追加到集合末尾，
+        // 保持 tools 前缀字节稳定，避免每轮工具集变化导致服务商前缀缓存持续 miss
+        String toolsJson = getStableToolsJson(userMessage, coreTools, cfg);
         int toolCount = countToolsInJson(toolsJson);
-        AILogger.i(TAG, "Tool definitions (core+intent): count=" + toolCount + ", json_len=" + (toolsJson != null ? toolsJson.length() : 0));
         if (toolCount == 0) {
             AILogger.w(TAG, "No tools available! Agent will run without tool calling capability.");
-        }
-        // 精准意图兜底：关键词未命中额外工具（toolsJson 与纯核心集大小相近）且消息像任务时，
-        // 询问模型识别意图（轻量一次调用），按意图注入工具——比纯关键词匹配更精准
-        if (toolsJson != null && countToolsInJson(toolsJson) <= coreTools.size()
-                && userMessage != null && !userMessage.trim().isEmpty()
-                && !isCasualChat(userMessage)) {
-            java.util.Set<String> intents = classifyIntentByModel(cfg, userMessage);
-            if (intents != null && !intents.isEmpty()) {
-                String intentTools = toolManager.getToolDefinitionsForIntents(intents, coreTools);
-                if (countToolsInJson(intentTools) > coreTools.size()) {
-                    toolsJson = intentTools;
-                    AILogger.i(TAG, "Model intent classification enriched tools: "
-                            + countToolsInJson(toolsJson) + " tools");
-                }
-            }
         }
 
         // 4. Agent 主循环
@@ -959,6 +976,17 @@ public class OnlineAgentEngine {
         // 无论是否思考模式，所有 assistant 消息都必须带 reasoning_content。只规范化副本，不修改本体。
         JsonArray messagesArray = buildOutgoingMessagesArray(cfg);
 
+        // P0 缓存诊断探针：打印本轮实际发送 messages 的 SHA256 指纹，
+        // 连续两轮哈希一致 = 前缀稳定；不一致 = 前缀抖动（缓存 miss 根因）。
+        // 配合工具名缓存日志（cachedToolNames 大小不变即 tools 前缀稳定）可直接定位。
+        try {
+            String probeJson = messagesArray.toString();
+            AILogger.i(TAG, "CACHE-PROBE sha256=" + sha256Hex(probeJson)
+                    + " msg_len=" + probeJson.length()
+                    + " tools_len=" + (toolsJson != null ? toolsJson.length() : 0)
+                    + " thinking=" + enableThinking);
+        } catch (Exception ignored) {}
+
         // 工具轮用小上限（只需简短 tool_call）；最终答案轮（toolsJson=null）保持传入的大值防截断
         int iterMaxTokens = toolsJson != null
                 ? Math.min(maxTokens, TOOL_ITERATION_MAX_TOKENS)
@@ -1212,6 +1240,15 @@ public class OnlineAgentEngine {
                 out.add(msg);
             }
         }
+        // 长期记忆动态追加到请求末尾（D 块，缓存命中优化）：
+        // 记忆内容随记忆库变化，放在尾部不影响 system+历史前缀缓存命中；
+        // 用副本追加，不污染 messageHistory 本体
+        if (latestMemorySummary != null && !latestMemorySummary.isEmpty()) {
+            JsonObject memoryMsg = new JsonObject();
+            memoryMsg.addProperty("role", "system");
+            memoryMsg.addProperty("content", "【长期记忆】以下是你记住的关于用户的信息，回答时自然运用。仅当用户明确要求记住或主动告知新的个人信息/偏好时，才用 memory 工具 save 新增或更新（不要擅自把普通聊天内容存为记忆）：\n" + latestMemorySummary);
+            out.add(memoryMsg);
+        }
         return out;
     }
 
@@ -1315,6 +1352,111 @@ public class OnlineAgentEngine {
         } catch (Exception e) {
             return 0;
         }
+    }
+
+    /**
+     * 获取「会话级稳定」的工具定义 JSON（缓存命中优化）。
+     *
+     * 原理：服务商前缀缓存按请求字节匹配，tools 段若每轮随用户消息动态变化，
+     * 该段持续缓存 miss（全价计费）。本方法把工具集收敛为会话级「只增不改」集合：
+     * - 首轮：核心集 + 当前消息意图工具（与旧行为一致）；
+     * - 后续轮：只把新消息发现的新工具【追加】到集合末尾，已有序前缀不变；
+     * - 模型意图兜底（classifyIntentByModel）同样只合并、不整体替换。
+     * 工具集最终收敛于「本会话用过的全部工具」，不超过全量，能力只增不减。
+     */
+    private String getStableToolsJson(String userMessage, Set<String> coreTools,
+                                      OnlineModelManager.OnlineModelConfig cfg) {
+        try {
+            // 1. 计算本轮消息应包含的工具（核心 + 关键词意图），与旧行为同一入口
+            String candidateJson = toolManager.getToolDefinitionsForMessageAndCore(userMessage, coreTools);
+            List<String> candidateNames = extractToolNames(candidateJson);
+
+            // 2. 精准意图兜底：关键词未命中额外工具且消息像任务时，询问模型识别意图。
+            //    只合并新工具名，不整体替换（保持前缀稳定）
+            if (candidateNames.size() <= coreTools.size()
+                    && userMessage != null && !userMessage.trim().isEmpty()
+                    && !isCasualChat(userMessage)) {
+                Set<String> intents = classifyIntentByModel(cfg, userMessage);
+                if (intents != null && !intents.isEmpty()) {
+                    String intentTools = toolManager.getToolDefinitionsForIntents(intents, coreTools);
+                    for (String n : extractToolNames(intentTools)) {
+                        if (!candidateNames.contains(n)) candidateNames.add(n);
+                    }
+                    if (candidateNames.size() > coreTools.size()) {
+                        AILogger.i(TAG, "Model intent classification enriched tools: "
+                                + candidateNames.size() + " tools");
+                    }
+                }
+            }
+
+            // 3. 合并进会话级缓存（只增不改）
+            if (!toolsCacheInitialized) {
+                cachedToolNames.clear();
+                cachedToolNames.addAll(candidateNames);
+                toolsCacheInitialized = true;
+            } else {
+                int added = 0;
+                for (String n : candidateNames) {
+                    if (cachedToolNames.add(n)) added++;
+                }
+                if (added > 0) {
+                    AILogger.i(TAG, "Stable tools expanded (+" + added + "), total=" + cachedToolNames.size());
+                }
+            }
+            cachedToolsJson = toolManager.getToolDefinitionsForNames(cachedToolNames);
+            AILogger.i(TAG, "Tool definitions (stable core+intent): count=" + countToolsInJson(cachedToolsJson)
+                    + ", json_len=" + (cachedToolsJson != null ? cachedToolsJson.length() : 0)
+                    + ", cache_size=" + cachedToolNames.size());
+            return cachedToolsJson;
+        } catch (Exception e) {
+            AILogger.w(TAG, "getStableToolsJson failed, fallback to per-message tools: " + e.getMessage());
+            return toolManager.getToolDefinitionsForMessageAndCore(userMessage, coreTools);
+        }
+    }
+
+    /**
+     * 从工具定义 JSON 中按出现顺序提取工具名（仅 function 类型）。
+     */
+    private static List<String> extractToolNames(String toolsJson) {
+        List<String> names = new ArrayList<>();
+        if (toolsJson == null || toolsJson.isEmpty() || toolsJson.equals("[]")) return names;
+        try {
+            JsonArray arr = JsonParser.parseString(toolsJson).getAsJsonArray();
+            for (int i = 0; i < arr.size(); i++) {
+                JsonObject tool = arr.get(i).getAsJsonObject();
+                if (tool.has("function") && tool.get("function").isJsonObject()) {
+                    JsonObject fn = tool.get("function").getAsJsonObject();
+                    if (fn.has("name") && !fn.get("name").isJsonNull()) {
+                        names.add(fn.get("name").getAsString());
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return names;
+    }
+
+    /**
+     * SHA-256 十六进制摘要（缓存诊断探针用）。
+     */
+    private static String sha256Hex(String s) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return "ERR";
+        }
+    }
+
+    /**
+     * 重置会话级工具缓存（新会话/清空历史时调用，避免跨会话复用旧工具集）。
+     */
+    private void resetToolsCache() {
+        cachedToolNames.clear();
+        cachedToolsJson = null;
+        toolsCacheInitialized = false;
     }
 
     /**
@@ -1546,6 +1688,7 @@ public class OnlineAgentEngine {
         cancel();
         messageHistory.clear();
         thinkingChain.clear();
+        resetToolsCache();
     }
 
     public boolean isGenerating() {
@@ -1594,6 +1737,7 @@ public class OnlineAgentEngine {
         messageHistory.clear();
         thinkingChain.clear();
         deleteHistoryFile();
+        resetToolsCache();
     }
 
     /**
@@ -1702,6 +1846,7 @@ public class OnlineAgentEngine {
         }
         messageHistory.clear();
         thinkingChain.clear();
+        resetToolsCache();
         try {
             java.io.File dir = context.getFilesDir();
             java.io.File[] files = dir.listFiles();
@@ -1730,30 +1875,35 @@ public class OnlineAgentEngine {
 
     /**
      * 环境上下文过期刷新：跨天继续对话时，模型拿到的"当前日期"是上次对话的。
-     * 检测 env 消息（以【环境上下文】开头）中的日期，非今天则用最新环境上下文原位替换。
+     * 缓存命中优化：旧 env 消息【原位不动】（保持 messages 前缀字节稳定），
+     * 仅把最新环境上下文追加到历史末尾，模型仍能读到新日期。
+     * 若历史末尾已有含今日日期的 env（上次刷新已追加），直接跳过避免累积。
      */
     private void refreshEnvIfStale() {
         try {
             String today = new SimpleDateFormat("yyyy年M月d日", Locale.CHINA).format(new Date());
-            for (int i = 0; i < messageHistory.size(); i++) {
-                JsonObject msg = messageHistory.get(i);
+            boolean staleEnvFound = false;
+            for (JsonObject msg : messageHistory) {
                 String role = msg.has("role") ? msg.get("role").getAsString() : "";
                 if ("system".equals(role)) {
                     String content = msg.has("content") ? msg.get("content").getAsString() : "";
                     if (content != null && content.startsWith("【环境上下文】")) {
-                        if (!content.contains(today)) {
-                            String envContext = buildEnvironmentContext();
-                            if (envContext != null && !envContext.isEmpty()) {
-                                JsonObject envMsg = new JsonObject();
-                                envMsg.addProperty("role", "system");
-                                envMsg.addProperty("content", envContext);
-                                messageHistory.set(i, envMsg);
-                                AILogger.i(TAG, "Environment context refreshed (date changed to " + today + ")");
-                            }
+                        if (content.contains(today)) {
+                            return; // 已存在今日日期的 env（本次会话已刷新过），无需再处理
                         }
-                        return; // 只处理第一个 env 消息
+                        staleEnvFound = true; // 找到过期 env，继续检查末尾是否已有新 env
                     }
                 }
+            }
+            if (!staleEnvFound) return;
+            String envContext = buildEnvironmentContext();
+            if (envContext != null && !envContext.isEmpty()) {
+                JsonObject envMsg = new JsonObject();
+                envMsg.addProperty("role", "system");
+                envMsg.addProperty("content", envContext);
+                messageHistory.add(envMsg);
+                AILogger.i(TAG, "Environment context appended (date changed to " + today
+                        + ", old env kept for prefix stability)");
             }
         } catch (Exception e) {
             AILogger.w(TAG, "refreshEnvIfStale failed: " + e.getMessage());
@@ -1763,15 +1913,48 @@ public class OnlineAgentEngine {
     // ==================== 对话历史持久化（按会话隔离，跨 Activity 重建/重启保持前缀稳定，利于缓存命中） ====================
 
     /**
-     * 历史文件路径：非空 sessionId 时按会话隔离（online_agent_history_{id}.json），
-     * 否则使用默认文件（兼容旧版本/无会话场景）。
+     * 历史文件路径：按「会话 × 模型」双维度隔离。
+     * 会话维度：非空 sessionId 时用 online_agent_history_{id}.json；
+     * 模型维度：activeModelId 非空时追加 _{model} 后缀，不同模型各自独立上下文，
+     * 避免 A 模型的历史（system 提示词/工具调用记录/日期前缀）污染 B 模型。
      */
     private java.io.File getHistoryFile() {
+        String modelTag = (activeModelId != null && !activeModelId.isEmpty())
+                ? "_" + activeModelId.replaceAll("[^a-zA-Z0-9_-]", "_")
+                : "";
         if (sessionId != null && !sessionId.isEmpty()) {
             String safeId = sessionId.replaceAll("[^a-zA-Z0-9_-]", "_");
-            return new java.io.File(context.getFilesDir(), "online_agent_history_" + safeId + ".json");
+            return new java.io.File(context.getFilesDir(), "online_agent_history_" + safeId + modelTag + ".json");
         }
-        return new java.io.File(context.getFilesDir(), "online_agent_history.json");
+        return new java.io.File(context.getFilesDir(), "online_agent_history" + modelTag + ".json");
+    }
+
+    /**
+     * 设置当前在线模型 ID（模型切换时调用）。
+     * 与 setSessionId 同款「保存当前 → 清空内存 → 恢复目标」模式：
+     * 模型 A → B 切换时，先把 A 的当前历史持久化到 A 专属文件，
+     * 再清空内存并按 B 的专属文件恢复 —— 各模型上下文互不污染、可独立续聊。
+     * 传 null 表示未知/本地路径（回退到无模型后缀的文件）。
+     */
+    public void setModelId(String newModelId) {
+        if (isGenerating.get()) {
+            AILogger.w(TAG, "setModelId ignored: generating in progress");
+            return;
+        }
+        String old = this.activeModelId;
+        boolean changed = (old == null) ? (newModelId != null && !newModelId.isEmpty())
+                : !old.equals(newModelId);
+        if (!changed) return;
+
+        // 先持久化当前模型的历史，避免切换丢失
+        persistHistory();
+        this.activeModelId = newModelId;
+        // 清空并恢复目标模型历史
+        messageHistory.clear();
+        thinkingChain.clear();
+        resetToolsCache();
+        restoreHistory();
+        AILogger.i(TAG, "Model history switched: " + old + " -> " + newModelId);
     }
 
     /**
@@ -1796,6 +1979,7 @@ public class OnlineAgentEngine {
         // 清空并恢复目标会话历史
         messageHistory.clear();
         thinkingChain.clear();
+        resetToolsCache();
         restoreHistory();
         AILogger.i(TAG, "Session switched: " + old + " -> " + newSessionId
             + ", restored=" + messageHistory.size() + " messages");
@@ -1813,7 +1997,18 @@ public class OnlineAgentEngine {
             com.google.gson.Gson gson = new com.google.gson.Gson();
             JsonArray arr = new JsonArray();
             for (JsonObject msg : messageHistory) {
-                arr.add(msg);
+                // 缓存命中优化：system 消息落盘时用【副本】打版本标记（pv 字段仅存于文件，
+                // 不修改内存对象，避免下一轮请求体带出该字段破坏前缀）；
+                // restore 时按版本决定保留（前缀稳定）或重建（提示词升级）
+                String role = msg.has("role") && !msg.get("role").isJsonNull()
+                        ? msg.get("role").getAsString() : "";
+                if ("system".equals(role) && !msg.has("pv")) {
+                    JsonObject copy = msg.deepCopy();
+                    copy.addProperty("pv", PROMPT_VERSION);
+                    arr.add(copy);
+                } else {
+                    arr.add(msg);
+                }
             }
             java.io.FileWriter writer = new java.io.FileWriter(getHistoryFile());
             gson.toJson(arr, writer);
@@ -1861,9 +2056,13 @@ public class OnlineAgentEngine {
 
     /**
      * 从私有文件恢复对话历史（按会话隔离）。
-     * 丢弃旧版本 system 消息（含过期提示词与环境上下文）：
-     * 系统提示词会在下次 execute 时按当前版本重建，避免升级后旧提示词永久生效。
-     * 但【对话历史摘要】必须保留：被压缩掉的旧消息只存在于摘要中，丢弃即永久失忆。
+     * 缓存命中优化：持久化时 system 消息带版本标记（pv）。
+     * - 版本匹配（同版本提示词）：原样保留 system 提示词/环境上下文/长期记忆摘要，
+     *   切换模型再切回（或 Activity 重建）后，请求前缀与切换前逐字节一致，
+     *   服务商前缀缓存命中最大化（不重建 env/memory，避免前缀从注入点断裂）；
+     * - 版本缺失/不匹配（提示词升级或旧数据）：丢弃 system（含过期提示词与环境上下文），
+     *   下次 execute 按当前版本重建 —— 缓存 miss 一次属合理（提示词确实变了）。
+     * 【对话历史摘要】无论版本一律保留：被压缩掉的旧消息只存在于摘要中，丢弃即永久失忆。
      */
     private void restoreHistory() {
         try {
@@ -1872,9 +2071,26 @@ public class OnlineAgentEngine {
             java.io.FileReader reader = new java.io.FileReader(file);
             JsonArray arr = com.google.gson.JsonParser.parseReader(reader).getAsJsonArray();
             reader.close();
+
+            // 检测第一个 system 消息的版本标记，决定是否原样保留 system 块
+            boolean keepSystem = false;
+            for (int i = 0; i < arr.size(); i++) {
+                JsonObject m = arr.get(i).getAsJsonObject();
+                String role = m.has("role") && !m.get("role").isJsonNull()
+                        ? m.get("role").getAsString() : "";
+                if ("system".equals(role)) {
+                    if (m.has("pv") && !m.get("pv").isJsonNull()
+                            && PROMPT_VERSION.equals(m.get("pv").getAsString())) {
+                        keepSystem = true;
+                    }
+                    break; // 只看第一个 system 消息（提示词）
+                }
+            }
+
             messageHistory.clear();
             pendingSummaryMessage = null;
             int systemDiscarded = 0;
+            int memorySkipped = 0;
             int orphanSkipped = 0;
             boolean toolCallsOpen = false;
             for (int i = 0; i < arr.size(); i++) {
@@ -1887,8 +2103,18 @@ public class OnlineAgentEngine {
                         pendingSummaryMessage = msg;
                         continue;
                     }
+                    if (content != null && content.contains("【长期记忆】")) {
+                        memorySkipped++;
+                        continue; // 长期记忆已移出历史（请求末尾 D 块动态注入），不占前缀
+                    }
+                    if (keepSystem) {
+                        // 版本匹配：原样保留 system/环境上下文（前缀与切换前一致，缓存命中最大化）
+                        msg.remove("pv"); // 版本标记仅落盘用，不进请求体
+                        messageHistory.add(msg);
+                        continue;
+                    }
                     systemDiscarded++;
-                    continue; // 丢弃旧 system（提示词/环境上下文），下次 execute 重建
+                    continue; // 版本不匹配：丢弃旧 system（提示词/环境上下文），下次 execute 重建
                 }
                 if ("assistant".equals(role)) {
                     boolean hasToolCalls = msg.has("tool_calls") && !msg.get("tool_calls").isJsonNull()
@@ -1912,7 +2138,8 @@ public class OnlineAgentEngine {
             }
             if (!messageHistory.isEmpty()) {
                 AILogger.i(TAG, "Restored agent history: " + messageHistory.size()
-                    + " messages (session=" + sessionId + ", discarded_system=" + systemDiscarded
+                    + " messages (session=" + sessionId + ", keep_system=" + keepSystem
+                    + ", discarded_system=" + systemDiscarded + ", memory_skipped=" + memorySkipped
                     + ", summary=" + (pendingSummaryMessage != null) + ")");
             }
         } catch (Exception e) {

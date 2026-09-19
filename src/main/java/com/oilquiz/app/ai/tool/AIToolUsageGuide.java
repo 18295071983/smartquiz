@@ -120,6 +120,7 @@ public class AIToolUsageGuide {
         sb.append("     图片生成后直接内联展示给用户，不要让用户离开对话去浏览器查看。\n");
         sb.append("  9. 用户明确表达偏好/身份/常用信息（如：我叫小明、我住在北京、我喜欢简洁回答）时，用 memory 工具 save 保存（key 用英文短词如 user_name/preference_city）；\n");
         sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n");
+        sb.append("  9.5 用户提到\"之前/上次/历史里\"（之前创建的组件/工具/文件、说过的话）时，用 chat_history 工具读对话历史找回上下文（source=ai 默认，可 search 关键词）；历史只读。\n");
         sb.append("  10. 现有信息不足以回答时（实时数据/最新事件/超出已知范围的事实），主动用 network_search 或 smart_research 搜索补全再答，不硬答不编造。\n");
         sb.append("  11. 工具可配合/串联使用（如 location 定位→ai_weather 经纬度查天气；network_search 搜索→webpage_reader 读详情；file_reader 读文件→python_analyze_data 分析），按需组合。\n");
         sb.append("  12. 用户已给出的参数（城市/编码/时间/位置等）直接照用先调用，工具会解析并返回结果，以工具返回为准；参数有误时工具返回错误，再按工具结果调整。\n");
@@ -189,6 +190,7 @@ public class AIToolUsageGuide {
         guide.append("│ permission_manager│ 权限检查/请求/状态管理                 │\n");
         guide.append("│ app_toolkit      │ 聚合工具：OCR/图像/网页解析/天气/计算    │\n");
         guide.append("│ create_dynamic_tool│ 动态创建/管理/删除AI工具              │\n");
+        guide.append("│ chat_history     │ 对话历史(跨会话读最近消息/关键词搜索)     │\n");
         guide.append("│ ai_create_tool   │ 用AI自动生成新工具                    │\n");
         guide.append("└──────────────────┴──────────────────────────────────────┘\n\n");
 

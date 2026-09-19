@@ -1,4 +1,4 @@
-# apk_shell —— SmartQuiz 设备端 APK 导出壳（v6 专业版）
+# apk_shell —— SmartQuiz 设备端 APK 导出壳（v7 专业版）
 
 把 PC 端 html2apk 的现代 WebView 壳适配为安卓项目内置壳模板的**源码工程**。
 构建产物替换 `src/main/assets/apk_shell/base.apk`，增强原有 ApkPacker 打包底座。
@@ -6,13 +6,13 @@
 > **HTML 设计规则见 `apk_shell/HTML_DESIGN_RULES.md`**（agent 生成 HTML 的规范，最大化壳能力）。
 
 ## 能力升级（相对旧壳）
-| 项 | 旧壳 | v2 | v3 | v4 | v5 | **v6 专业版** |
+| 项 | 旧壳 | v2 | v3 | v4 | v5 | **v7 专业版（当前）** |
 |---|---|---|---|---|---|---|
 | minSdk/targetSdk | 21/31 | 21/34 | 21/34 | 26/34 | 26/34 | **26/34**（不兼容 8.0 以下旧机） |
 | WebView 配置 | 基础 | +媒体/混合内容 | +上传/权限/下载/错误页 | 同左 | 同左 | 同左 |
 | 加载模式 | 仅本地 | 本地+远程 URL | 同左 | 同左 | 同左 | 同左 |
-| **JS 原生桥** | 无 | 无 | toast/分享/request() 等 | +权限桥+电池/存储/常亮/SAF | + screenshot/readClipboard | 同左 |
-| **内置前端库** | 无 | 无 | 无 | 6 库 | + ECharts/KaTeX/Marked/Lodash（31 文件） | 同左；**url 模式自动剔除 libs（省 ~2MB）** |
+| **JS 原生桥** | 无 | 无 | toast/分享/request() 等 | +权限桥+电池/存储/常亮/SAF | + screenshot/readClipboard | **v7 全量 40 个桥**（+通知栏/前台服务/深链/JS注入/离线缓存/剪贴板监听/权限面板） |
+| **内置前端库** | 无 | 无 | 无 | 6 库 | + ECharts/KaTeX/Marked/Lodash（31 文件） | **12 库**（jquery/vue3/axios/dayjs/echarts/katex/marked/lodash/highlight/dompurify/animate/normalize）；url 模式自动剔除 libs（省 ~2MB） |
 | **自定义应用名/图标** | 固定"背题" | 固定 | 固定 | agent 可指定 | + emoji 图标 + app.json | **应用名按 UTF-8 字节 ≤22（中文约 7 字）计，超限报错带字节数；图标 <192×192 拒绝、JPEG 自动转 PNG** |
 | **独立包名（可共存）** | 固定 | 固定 | 固定 | 固定 | 固定 | **每包派生 com.cjhtmldemo.p<slug>（AXML 等长替换，UTF-8/16 双编码），多包可同时安装互不覆盖** |
 | HTML 来源参数 | — | — | — | 四选一 | 四选一 | **互斥强校验（多传报错列出冲突参数）** |
@@ -42,7 +42,7 @@
 ## 依赖
 - `androidx.core:core:1.13.0`（FileProvider，分享壳内文件用）。首次构建需联网补齐传递依赖
   （已按 2026-09 拉入本机 `D:/Gradle/Home` 缓存，之后可 `--offline`）。
-- 产物体积 ~1.7MB（含 androidx.core、基线 profile、6 个内置前端库；相比旧壳 49KB 是"专业能力"的代价）。
+- 产物体积 ~1.7MB（含 androidx.core、基线 profile、12 个内置前端库；相比旧壳 49KB 是"专业能力"的代价）。
 
 ## 构建
 ```powershell
@@ -75,10 +75,10 @@ python tools\gen_dt_jet.py <html目录> <输出路径>
   （aapt 实测：`application-label:'我的背题助手'` 成功）
 - 签名用 `D:\Android\Sdk\build-tools\34.0.0\apksigner.bat`（密钥 `src\main\assets\apk_shell\export.keystore`，
   alias=smartquiz，口令 password）
-- **共存验证（v6）**：两个不同 app_name 导出 → aapt 各自 package 不同、label 正确 → `zipalign -c -p 4` 通过
+- **共存验证（v7）**：两个不同 app_name 导出 → aapt 各自 package 不同、label 正确 → `zipalign -c -p 4` 通过
   （arsc 置首位天然对齐）→ 真机先装 A 再装 B，`pm list packages` 两包共存、均可启动（PID 存活）
 - 演示产物
   - `demo_v4_libs_bridge.apk`（内置 Vue + 原生桥，label=背题）
   - `custom_label_icon_demo.apk`（自定义名+图标）
   - `demo_v5_engines.apk`（**引擎演示：ECharts 成绩图表 + KaTeX 公式 + Marked Markdown + 截图桥**，label=背题助手，📚 emoji 图标，2.46MB）
-  - `coexist_a.apk` / `coexist_b.apk`（v6 共存演示：独立包名同时安装）
+  - `coexist_a.apk` / `coexist_b.apk`（v7 共存演示：独立包名同时安装）

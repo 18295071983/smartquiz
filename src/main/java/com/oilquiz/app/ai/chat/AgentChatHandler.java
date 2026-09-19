@@ -389,6 +389,11 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         engine.setSessionId(sessionId);
     }
 
+    /** 设置当前在线模型 ID（模型切换时调用，引擎按「会话 × 模型」隔离历史文件） */
+    public void setModelId(String modelId) {
+        engine.setModelId(modelId);
+    }
+
     public boolean isGenerating() {
         return engine.isGenerating();
     }

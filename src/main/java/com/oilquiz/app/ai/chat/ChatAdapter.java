@@ -800,6 +800,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr, int position) {
+        // 消息引用绑定（2026-09-14）：思考轮独立折叠状态 / 轮次组件 id 锚点读写
+        holder.holderMessage = message;
         // 获取 messageText 的实际宽度用于表格自动换行：
         // 已布局（rebind 场景）立即按真实宽度渲染；未布局则等测量完成后渲染。
         // 修复：生成完成 rebind 时 holder 已布局、onGlobalLayoutListener 不再触发，
@@ -934,14 +936,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int start = 0;
         int thinkIdx = 0;
         int compIdx = 0;
+        java.util.List<String> thinkIds = message.thinkingRoundIds;
         for (int i = 0; i <= bounds.size(); i++) {
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
             if (end > content.length()) end = content.length();
-            // 该轮思考块（第 i+1 轮思考，仅展开时显示）
+            // 该轮思考块（第 i+1 轮思考，独立组件；消息级展开时显示，轮级独立折叠可收起）
             if (expanded && thinks != null && thinkIdx < thinks.size()) {
                 String t = thinks.get(thinkIdx);
+                String roundId = (thinkIds != null && thinkIdx < thinkIds.size()) ? thinkIds.get(thinkIdx) : null;
                 if (t != null && !t.trim().isEmpty()) {
-                    addRoundThinkingBlock(holder, ctx, thinkIdx + 1, t.trim(), availableWidth);
+                    addRoundThinkingBlock(holder, ctx, thinkIdx + 1, roundId, t.trim(), availableWidth);
                 }
                 thinkIdx++;
             }
@@ -979,22 +983,53 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         String curThink = message.thinkingContent != null ? message.thinkingContent.trim() : "";
         String lastThink = (thinks != null && !thinks.isEmpty()) ? thinks.get(thinks.size() - 1).trim() : "";
         if (expanded && !curThink.isEmpty() && !curThink.equals(lastThink)) {
-            addRoundThinkingBlock(holder, ctx, thinkIdx + 1, curThink, availableWidth);
+            // 最终轮 id：优先取 thinkingRoundIds 末位（进行中的轮次 id），无则 null（无锚点，仅展示）
+            String lastId = (thinkIds != null && !thinkIds.isEmpty()) ? thinkIds.get(thinkIds.size() - 1) : null;
+            addRoundThinkingBlock(holder, ctx, thinkIdx + 1, lastId, curThink, availableWidth);
         }
     }
 
-    /** 添加一个轮次思考块（第N轮思考 加粗标题 + Markdown 内容） */
-    private void addRoundThinkingBlock(AIMessageViewHolder holder, Context ctx, int roundNo, String thinkText, int availableWidth) {
+    /**
+     * 添加一个轮次思考块（第N轮思考）：【独立 UI 组件】
+     * 2026-09-14 升级：每个思考轮 = 独立容器（roundBox），tag 绑定该轮 THINKING 子 id（thinkingRoundIds），
+     * - 标题行可【独立点击折叠/展开】该轮（状态存 message.thinkingCollapsedRounds，重建后保留）；
+     * - 内容区按 id 可被 updateThinkingRound(roundId, content) 定位并热更新（不重建整条消息）。
+     */
+    private void addRoundThinkingBlock(AIMessageViewHolder holder, Context ctx, int roundNo,
+                                       String roundId, String thinkText, int availableWidth) {
+        // 独立容器：垂直布局 = 标题行 + 内容体
+        LinearLayout roundBox = new LinearLayout(ctx);
+        roundBox.setOrientation(LinearLayout.VERTICAL);
+        roundBox.setTag(roundId); // id 锚点：updateThinkingRound 按此定位
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = dpToPx(roundNo == 1 ? 0 : 10, ctx);
+        roundBox.setLayoutParams(rlp);
+
+        // 标题行（可点击折叠开关）：第N轮思考 + 折叠/展开状态指示
+        LinearLayout titleRow = new LinearLayout(ctx);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        titleRow.setClickable(true);
+        titleRow.setFocusable(true);
+        titleRow.setForeground(getSelectableItemBackground(ctx));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleRow.setLayoutParams(tlp);
+
+        boolean collapsed = holder.holderMessage != null
+                && holder.holderMessage.isThinkingRoundCollapsed(roundId);
         TextView title = new TextView(ctx);
         title.setText(SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)
-                + roundNo + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e));
+                + roundNo + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e)
+                + (collapsed ? "  ▸" : "  ▾"));
         title.setTextSize(11f);
         title.setTextColor(ThemeColors.attr(ctx, R.attr.colorPrimary));
         title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tl.topMargin = dpToPx(roundNo == 1 ? 0 : 10, ctx);
-        holder.contentHost.addView(title, tl);
+        title.setLayoutParams(tl);
+        titleRow.addView(title);
 
         TextView body = new TextView(ctx);
         body.setTextSize(12f);
@@ -1003,7 +1038,65 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         body.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setRenderedText(body, thinkText, availableWidth);
-        holder.contentHost.addView(body);
+        body.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        // 内容体 tag 前缀：updateThinkingRound 定位内容 TextView
+        body.setTag("round_body_" + roundId);
+
+        titleRow.setOnClickListener(v -> {
+            if (holder.holderMessage != null) {
+                holder.holderMessage.toggleThinkingRoundCollapsed(roundId);
+                int pos = holder.getBindingAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) {
+                    notifyItemChanged(pos);
+                }
+            }
+        });
+
+        roundBox.addView(titleRow);
+        roundBox.addView(body);
+        holder.contentHost.addView(roundBox);
+    }
+
+    /**
+     * 按思考轮 id 定位并更新单个思考轮内容（不重建整条消息）。
+     * @param roundId 该轮 THINKING 子 id（thinkingRoundIds 元素）
+     * @param newContent 该轮新内容
+     * @return 是否找到并更新成功
+     */
+    public boolean updateThinkingRound(String roundId, String newContent) {
+        if (roundId == null) return false;
+        boolean updated = false;
+        for (int i = 0; i < getItemCount(); i++) {
+            AIMessageViewHolder holder = null;
+            RecyclerView.ViewHolder vh = attachedRecyclerView != null
+                    ? attachedRecyclerView.findViewHolderForAdapterPosition(i) : null;
+            if (vh instanceof AIMessageViewHolder) {
+                holder = (AIMessageViewHolder) vh;
+            }
+            if (holder == null || holder.contentHost == null) continue;
+            for (int c = 0; c < holder.contentHost.getChildCount(); c++) {
+                View child = holder.contentHost.getChildAt(c);
+                if (child != null && roundId.equals(child.getTag())) {
+                    // 找到轮次容器：更新内容体（2026-09-14：走 setRenderedText 全量 Markdown 渲染，
+                    // 直接 setText 会把 **加粗**/代码块/列表显示成原文）
+                    for (int b = 0; b < ((LinearLayout) child).getChildCount(); b++) {
+                        View sub = ((LinearLayout) child).getChildAt(b);
+                        if (sub != null && ("round_body_" + roundId).equals(sub.getTag())) {
+                            int w = holder.itemView.getWidth()
+                                    - holder.itemView.getPaddingLeft()
+                                    - holder.itemView.getPaddingRight();
+                            if (w <= 0) w = getScreenWidth(holder.itemView.getContext());
+                            setRenderedText((TextView) sub,
+                                    newContent != null ? newContent : "", w);
+                            updated = true;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        return updated;
     }
 
     private void updateThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
@@ -2864,6 +2957,64 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return -1;
     }
 
+    /** 按消息 ID 实时查找消息（索引漂移免疫；未找到返回 null） */
+    public ChatMessage getMessageById(String messageId) {
+        if (messageId == null) return null;
+        for (ChatMessage m : messages) {
+            if (m != null && messageId.equals(m.id)) return m;
+        }
+        return null;
+    }
+
+    /** 按回合 ID 查找该回合内最后一条消息（消息对聚合用；未找到返回 null） */
+    public ChatMessage getLastMessageByTurnId(String turnId) {
+        if (turnId == null) return null;
+        ChatMessage last = null;
+        for (ChatMessage m : messages) {
+            if (m != null && turnId.equals(m.turnId)) last = m;
+        }
+        return last;
+    }
+
+    /** 按回合 ID 返回该回合（单轮内）全部消息，保持顺序；未找到返回空列表 */
+    public List<ChatMessage> getMessagesByTurnId(String turnId) {
+        List<ChatMessage> result = new java.util.ArrayList<>();
+        if (turnId == null) return result;
+        for (ChatMessage m : messages) {
+            if (m != null && turnId.equals(m.turnId)) result.add(m);
+        }
+        return result;
+    }
+
+    /** 按消息类型返回全部消息（分类管理：user/AI/工具/系统…）；未找到返回空列表 */
+    public List<ChatMessage> getMessagesByType(ChatMessage.MessageType type) {
+        List<ChatMessage> result = new java.util.ArrayList<>();
+        if (type == null) return result;
+        for (ChatMessage m : messages) {
+            if (m != null && m.type == type) result.add(m);
+        }
+        return result;
+    }
+
+    /** 按「回合 × 类型」返回消息（单轮内分类定位）；未找到返回空列表 */
+    public List<ChatMessage> getMessagesByTurnAndType(String turnId, ChatMessage.MessageType type) {
+        List<ChatMessage> result = new java.util.ArrayList<>();
+        if (turnId == null || type == null) return result;
+        for (ChatMessage m : messages) {
+            if (m != null && turnId.equals(m.turnId) && m.type == type) result.add(m);
+        }
+        return result;
+    }
+
+    /** 按子 id（subId，如 T1-F2）精确查找消息；未找到返回 null */
+    public ChatMessage getBySubId(String subId) {
+        if (subId == null) return null;
+        for (ChatMessage m : messages) {
+            if (m != null && subId.equals(m.subId)) return m;
+        }
+        return null;
+    }
+
     public ChatMessage getMessage(int position) {
         if (position < 0 || position >= messages.size()) return null;
         return messages.get(position);
@@ -2968,6 +3119,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView messageText;
         LinearLayout contentHost;
         LinearLayout componentContainer;
+        /** 当前绑定的消息（2026-09-14：思考轮独立折叠状态读写 / 轮次组件 id 锚点） */
+        ChatMessage holderMessage;
         /** 已绑定的组件列表引用：同一引用跳过重建（避免流式/重复刷新闪烁） */
         List<ComponentData> boundComponents;
         /** 宿主模式（插入式组件）组件段 View 缓存：流式更新时复用，避免 WebView/图表/图片反复重建闪烁 */
@@ -3081,7 +3234,26 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     displayContent = "思考中...";
                 }
 
-                messageText.setText(displayContent);
+                // 2026-09-14：思考组件全量 Markdown 渲染（**加粗**/`代码`/列表/表格），
+                // 与 AI 消息正文一致（RenderExecutor + TextViewSpan）；直接 setText 会显示原文
+                if (!displayContent.isEmpty()) {
+                    final String contentToRender = displayContent;
+                    android.widget.TextView tv = messageText;
+                    tv.post(() -> {
+                        int w = tv.getWidth() - tv.getPaddingLeft() - tv.getPaddingRight();
+                        if (w <= 0) {
+                            w = tv.getContext().getResources().getDisplayMetrics().widthPixels;
+                        }
+                        android.text.Spanned rendered =
+                                com.oilquiz.app.ai.chat.render.RenderExecutor.getInstance()
+                                        .execute(contentToRender, tv.getContext(), w);
+                        android.text.Spannable sp = new android.text.SpannableStringBuilder(rendered);
+                        io.noties.markwon.core.spans.TextViewSpan.applyTo(sp, tv);
+                        tv.setText(sp);
+                    });
+                } else {
+                    messageText.setText("");
+                }
 
                 // 展开/折叠控制：由 thinkingExpanded 决定（思考中/思考后均默认折叠，点击展开）
                 boolean processing = message.status == ChatMessage.MessageStatus.GENERATING

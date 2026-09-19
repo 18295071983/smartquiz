@@ -86,6 +86,11 @@ public class ChatHistoryManager {
                                      JsonSerializationContext context) {
             if (src == null) return JsonNull.INSTANCE;
             com.google.gson.JsonObject obj = new com.google.gson.JsonObject();
+            // 组件 id 持久化（2026-09-14）：COMPONENT 子 id（T1-C1…）随组件保存，
+            // 会话恢复后适配器仍可按组件 id 定位/更新/移除
+            if (src.id != null && !src.id.isEmpty()) {
+                obj.addProperty("id", src.id);
+            }
             obj.addProperty("type", src.type);
             if (src.props != null) {
                 obj.add("props", ChatHistoryManager.orgJsonPropsToGson(src.props));
@@ -120,7 +125,13 @@ public class ChatHistoryManager {
                 } else {
                     props = new org.json.JSONObject();
                 }
-                return new ComponentData(type, props);
+                ComponentData cd = new ComponentData(type, props);
+                // 恢复组件 id（2026-09-14；旧数据无 id 字段时保持 null，惰性补发）
+                JsonElement idEl = obj.get("id");
+                if (idEl != null && !idEl.isJsonNull()) {
+                    cd.id = idEl.getAsString();
+                }
+                return cd;
             }
             return null;
         }
@@ -215,8 +226,14 @@ public class ChatHistoryManager {
             // 基于 clone()（Builder 深拷贝 thinkingSteps/attachments），
             // 再补上 clone() 未覆盖的可变集合与运行时字段（防并发修改 CME）
             ChatMessage m = msg.clone();
+            // 消息对 id 持久化（2026-09-14）：clone() 的 Builder 不含 turnId/subId，
+            // 若不补拷，保存后所有消息的回合/子 id 丢失，适配器按 id 管理失效
+            m.turnId = msg.turnId;
+            m.subId = msg.subId;
             m.components = msg.components != null ? new ArrayList<>(msg.components) : null;
             m.thinkingRounds = msg.thinkingRounds != null ? new ArrayList<>(msg.thinkingRounds) : null;
+            // 思考轮 id 随轮次内容一起拷贝（2026-09-14）：恢复后 id 与轮次一一对应不丢
+            m.thinkingRoundIds = msg.thinkingRoundIds != null ? new ArrayList<>(msg.thinkingRoundIds) : null;
             // Agent 运行时字段（clone() 的 Builder 未覆盖，直接赋值）
             m.agentToolsExpanded = msg.agentToolsExpanded;
             m.agentMode = msg.agentMode;

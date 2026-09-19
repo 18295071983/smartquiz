@@ -37,7 +37,13 @@ public class AgentWorkspace {
     private static final String FILES_DIR = "files";
     /** 公共目录根：Download/OilQuiz（SDK 29+ 用户可见） */
     private static final String PUBLIC_ROOT = "OilQuiz";
+    /** 内置指导文档（assets/apk_shell/guides/，删除后工作区重建时自动恢复） */
+    private static final String[] BUILTIN_GUIDE_ASSETS = {
+            "apk_shell/guides/HTML_DESIGN_RULES.md",
+            "apk_shell/guides/APK_SOURCE_GUIDE.md"
+    };
 
+    private final Context appContext;
     private final File workspaceDir;
     private final File tmpDir;
     private final File filesDir;
@@ -65,6 +71,7 @@ public class AgentWorkspace {
     }
 
     private AgentWorkspace(Context context) {
+        this.appContext = context.getApplicationContext();
         // 公共目录：Download/OilQuiz/agent_workspace（需"所有文件访问"权限，Android 11+）
         File publicWs = null;
         boolean hasPermission = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R
@@ -100,6 +107,26 @@ public class AgentWorkspace {
         ensureDirs();
         // 工作区长期文件区生成"创建工具指南"与"使用速查表"（纯静态内容，无外部依赖，幂等）
         ensureGuideFiles();
+        // 内置 APK 壳指导文档（HTML 设计规则 + 壳源码指导）：删除后工作区重建时从 assets 恢复
+        ensureBuiltinGuideAssets();
+    }
+
+    /** 从 assets 恢复内置指导文档到 files/（每次覆盖写；删除后应用重启/工作区重建即恢复） */
+    private void ensureBuiltinGuideAssets() {
+        for (String asset : BUILTIN_GUIDE_ASSETS) {
+            try (java.io.InputStream in = appContext.getAssets().open(asset)) {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) bos.write(buf, 0, n);
+                String content = new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+                String name = asset.substring(asset.lastIndexOf('/') + 1);
+                writeGuideFile(name, content);
+                AILogger.i(TAG, "内置指导文档已就绪: files/" + name);
+            } catch (Throwable t) {
+                AILogger.w(TAG, "恢复内置指导文档失败: " + asset + " - " + t.getMessage());
+            }
+        }
     }
 
     private void ensureDirs() {
@@ -422,12 +449,15 @@ public class AgentWorkspace {
                 + "       ② 属性级: {\"参数名\":{\"type\":\"string\",\"description\":\"...\",\"required\":true}}\n"
                 + "       ③ 完整 JSON Schema: {\"type\":\"object\",\"properties\":{...},\"required\":[...]}\n"
                 + "       type 支持: string/number/integer/boolean/array/object\n"
-                + "     - logic: 执行逻辑（Python 脚本自动识别，脚本内用 script_args['参数名'] 读取参数，\n"
-                + "       支持顶层 return 返回结果；或 DSL 命令 echo/set/if/call_tool 等）\n"
+                + "     - logic: 执行逻辑（支持三类，自动识别）：\n"
+                + "       ① Python 脚本：用 script_args['参数名'] 读取参数，print 输出/顶层 return 作为结果\n"
+                + "       ② JavaScript 脚本：用 script_args.参数名 读取参数，console.log 输出/表达式值作为结果（WebView/V8 内核执行）\n"
+                + "       ③ DSL 命令：echo/set/if/call_tool 等\n"
                 + "     - test_params: 试运行参数 JSON（action=test 时使用）\n"
                 + "   list 查看全部动态工具；show 查看单个完整定义；delete 删除。持久化保存，重启可用。\n\n"
                 + "2) ai_create_tool（AI 自动生成工具）：\n"
-                + "   提供 tool_name + description + parameters + logic，由 AI 生成后注册为动态工具。\n\n"
+                + "   提供 tool_name + description + parameters + logic（logic 可指定 Python 或 JavaScript 执行体），\n"
+                + "   由 AI 生成后注册为动态工具。\n\n"
                 + "3) ui_component_plugin（原生 UI 组件插件）：\n"
                 + "   把自定义 UI 封装为可复用组件类型（type 安全 + 参数校验 + 生命周期）：\n"
                 + "   action: create / template / validate / get / list / remove / clear_temporary\n"
@@ -454,7 +484,12 @@ public class AgentWorkspace {
                 + "   **create 时就要带含 input/button 的完整 layout，不要只建空画布**；每个 input/select/switch/\n"
                 + "   date/number 必须带 key，button 必须带 action，否则值无法收集。后续编辑用 layout_editor\n"
                 + "   (action=set/add/patch/get, component_id=同一个id)：set 整树替换、add 加**单个控件节点**(勿传含children容器)、\n"
-                + "   patch 改删节点、get 查看结构。**全程用同一个 component_id，不要反复重建画布**。\n\n"
+                + "   patch 改删节点、get 查看结构。**全程用同一个 component_id，不要反复重建画布**。\n"
+                + "7) 组件实例持久化（跨重启/会话保留）：ui_component(action=create, persist=true, ...) → 组件\n"
+                + "   写入持久化文件，App 重启/新会话后 list_components 仍可见（persisted=true）。恢复后**默认静默**\n"
+                + "   （不弹窗，get_result 返回 inactive）；用户在场需要交互时传 reactivate=true 才重建弹窗\n"
+                + "   （保留同一 component_id）；close 取消持久化；close_all_components 跳过持久化组件。\n"
+                + "   适合跨会话保留的静态/展示组件；弹窗类组件恢复时不会连续弹出。\n\n"
                 + "二、layout 原生控件框架（JSON 声明真实原生 UI）\n"
                 + "----------------------------------------------------------------\n"
                  + "   布局: column(纵向)/row(横向)/scroll(滚动)/card(圆角卡片容器,title)/wrap(流式换行)/grid(网格,columns)/space(弹性空白)/tabs(标签页,tabs=[{label,content}])/stack(层叠,子项gravity定位)/accordion(折叠面板,items=[{title,content}])/carousel(图片轮播,images)\n"
@@ -485,6 +520,8 @@ public class AgentWorkspace {
                 + "   files/ 长期文件区（用户保留产物，不自动清理；指南文件在此）\n"
                 + "   tmp/   临时缓存（执行中间文件，任务结束自动清理）\n"
                 + "   生成文件默认保存到 files/，用 workspace 工具查看/读取。\n"
+                + "   内置指南（删除后应用启动自动重建）：《工具创建指南.md》《使用速查表.md》\n"
+                + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳40桥清单/回调契约)。\n"
                 + "================================================================\n";
     }
 
@@ -545,6 +582,10 @@ public class AgentWorkspace {
                 + "   python_web_reader 抓网页/API(requests+bs4)\n"
                 + "   python_file_ops  Python文件读写/解析\n"
                 + "   python_chart     Python绘图(Pillow/matplotlib)生成PNG\n"
+                + "   js_execute       JS代码执行(WebView内核:验证/调试/JSON处理/正则)\n"
+                + "   pip_install      运行时安装纯Python包(pytz/tqdm等,需重启python_execute生效)\n"
+                + "   screen_capture   截屏(MediaProjection授权→存files/screenshots/)\n"
+                + "   web_render       网页渲染浏览(DOM文本+可选截图,支持SPA/JS页面)\n"
                 + "   location         定位/当前位置/城市\n"
                 + "   file_reader      读取/解析Excel-CSV-JSON-XML/列目录\n"
                 + "   file_analyzer    文件内容分析\n"
@@ -557,16 +598,32 @@ public class AgentWorkspace {
                 + "   dashscope_media  百炼文生图/文生视频(通义万相)\n"
                 + "   speech_synthesis 语音合成(TTS,可带朗读组件)\n"
                 + "   voice_input      语音识别(录音→文字)\n"
-                + "   ocr_recognize    图片文字识别\n"
+                + "   ocr_recognize    图片文字识别/看图理解\n"
+                + "   screen_watch     盯梢(监控屏幕,等目标出现/消失或画面变化)\n"
                 + "   memory           长期记忆(保存/回忆/删除用户偏好)\n"
+                + "   chat_history     对话历史(跨会话读最近消息/关键词搜索,回忆之前创建的工具/组件)\n"
                 + "   workspace        工作区文件(列目录/读取/生成/删除)\n"
                 + "   ui_component     创建UI组件(原生交互/内置卡片/自定义layout)\n"
                 + "   ui_component_plugin 动态插件(注册可复用组件类型)\n"
-                + "   create_dynamic_tool 动态创建/管理AI工具\n"
-                + "   ai_create_tool   AI自动生成新工具\n"
+                + "   create_dynamic_tool 动态创建/管理AI工具(Python/JS/DSL执行体)\n"
+                + "   ai_create_tool   AI自动生成新工具(支持Python/JS执行体)\n"
                 + "   tool_registry    工具注册表(列出/搜索/取schema)\n"
                 + "   permission_manager 权限检查/请求\n"
-                + "   app_toolkit      聚合工具(OCR/图像/解析/天气/计算)\n\n"
+                + "   app_toolkit      聚合工具(OCR/图像/解析/天气/计算)\n"
+                + "   calculator       数学计算(四则/幂/括号)\n"
+                + "   time_date        时间日期(当前时间/时区/时间戳互转)\n"
+                + "   unit_converter   单位换算\n"
+                + "   text_tools       文本处理(转换/清洗/格式)\n"
+                + "   reminder         提醒(定时/到时通知)\n"
+                + "   task             任务管理(创建/更新/查询/进度)\n"
+                + "   system_connect   系统级连接与设备能力\n"
+                + "   knowledge_base   知识库(全文检索/添加/导入JSON)\n"
+                + "   video_to_player  视频下载转播放(解析视频源/下载到工作区)\n"
+                + "   export_apk       APK导出(把HTML打包成可安装安卓应用；规则见files/HTML_DESIGN_RULES.md)\n"
+                + "   control_lookup   控件查询(查找可用UI控件/组件)\n"
+                + "   layout_editor    动态画布编辑(set/add/patch/get 同一component_id)\n"
+                + "   get_models_profile   模型配置查询\n"
+                + "   update_models_profile 模型配置更新\n\n"
                 + "六、Python android_ui 模块（python_execute 脚本内）\n"
                 + "----------------------------------------------------------------\n"
                 + "   from android_ui import show_toast, show_dialog, create_component, update_component,\n"
