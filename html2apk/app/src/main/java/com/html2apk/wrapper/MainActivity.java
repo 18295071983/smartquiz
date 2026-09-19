@@ -174,9 +174,9 @@ public class MainActivity extends Activity {
             String eng = (pendingTtsEngine != null && !pendingTtsEngine.isEmpty()) ? pendingTtsEngine : null;
             android.util.Log.i(TAG, "TTS init 引擎=" + (eng == null ? "默认" : eng));
             if (eng == null) {
-                tts = new android.speech.tts.TextToSpeech(this, status -> onTtsInit(status));
+                tts = new android.speech.tts.TextToSpeech(getApplicationContext(), status -> onTtsInit(status));
             } else {
-                tts = new android.speech.tts.TextToSpeech(this, status -> onTtsInit(status), eng);
+                tts = new android.speech.tts.TextToSpeech(getApplicationContext(), status -> onTtsInit(status), eng);
             }
         } catch (Exception e) { ttsError = "init_ex:" + e.getMessage(); scheduleTtsRetry(); }
     }
@@ -198,6 +198,7 @@ public class MainActivity extends Activity {
             } catch (Exception e) { ttsError = "lang:" + e.getMessage(); }
         } else {
             ttsReady = false; ttsError = "init:status=" + status + ";" + engineSummary();
+            android.util.Log.e(TAG, "TTS 初始化失败 status=" + status + " " + ttsError);
             scheduleTtsRetry();
         }
     }
@@ -1606,7 +1607,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String ttsEngines() {
             try {
-                android.speech.tts.TextToSpeech tmp = tts != null ? tts : new android.speech.tts.TextToSpeech(MainActivity.this, s -> { });
+                android.speech.tts.TextToSpeech tmp = tts != null ? tts : new android.speech.tts.TextToSpeech(getApplicationContext(), s -> { });
                 java.util.List<android.speech.tts.TextToSpeech.EngineInfo> es = tmp.getEngines();
                 if (tts == null) { try { tmp.shutdown(); } catch (Exception ignored) { } }
                 org.json.JSONArray arr = new org.json.JSONArray();
