@@ -1509,7 +1509,8 @@ function bindSettings(){
   var ct=$('#oChimeTone'); if(ct) ct.addEventListener('change',function(){ S.chimeTone=ct.value; saveState(); AU.resume(); AU.chime(ct.value); });
   var ov=$('#oVoice'); if(ov) ov.addEventListener('change',function(){ S.ttsVoice=ov.value; saveState();
     if((S.ttsVoice||'').indexOf('vox:')!==0){ try{ var b=B(); if(b&&b.setTtsVoice) b.setTtsVoice(S.ttsVoice||null); }catch(e){} }
-    toast(S.ttsVoice?(S.ttsVoice.indexOf('vox:')===0?'已切换内置真人语音，点击表盘试听':'已切换语音音色，点击表盘试听'):'已恢复跟随系统默认音色'); });
+    toast(S.ttsVoice?(S.ttsVoice.indexOf('vox:')===0?'已切换内置真人语音，点击表盘试听':'已切换语音音色，点击表盘试听'):'已恢复跟随系统默认音色');
+    setTimeout(preloadVox,300); });
   var rv=$('#rowVoice'); if(rv&&!hasBridgeFn('ttsVoices')) rv.style.display='none';
   var re=$('#rowEng'); if(re&&!hasBridgeFn('ttsEngines')) re.style.display='none';
   var oe=$('#oEng'); if(oe) oe.addEventListener('change',function(){
@@ -1656,13 +1657,24 @@ function _b64buf(b64){
     return ab;
   }catch(e){ return null; }
 }
+/* 裁剪音频头尾静音（edge-tts 音素自带静音→剪掉后拼接紧凑不拖沓） */
+function _trimSilence(audio, thr){
+  try{
+    var ch=audio.numberOfChannels, len=audio.length, start=0, end=len, i, j, c;
+    outer: for(i=0;i<len;i++){ for(c=0;c<ch;c++){ if(Math.abs(audio.getChannelData(c)[i])>thr){ start=i; break outer; } } }
+    outer2: for(j=len-1;j>=0;j--){ for(c=0;c<ch;c++){ if(Math.abs(audio.getChannelData(c)[j])>thr){ end=j+1; break outer2; } } }
+    if(start>=end) return audio;
+    var nl=end-start, out=ctx.createBuffer(ch,nl,audio.sampleRate);
+    for(c=0;c<ch;c++){ out.getChannelData(c).set(audio.getChannelData(c).subarray(start,end)); }
+    return out;
+  }catch(e){ return audio; }
+}
 function playVox(seq, voiceKey){
   try{
     if(!window._voxAC) window._voxAC=new (window.AudioContext||window.webkitAudioContext)();
     var ctx=window._voxAC;
     if(ctx.state==='suspended') ctx.resume();
     var data=VOX_DATA&&VOX_DATA[voiceKey]; if(!data) return;
-    /* 全部预解码完成后按顺序播放（decodeAudioData 异步回调乱序→必须等全部解码完再排时间轴） */
     if(!window._voxCache) window._voxCache={};
     var jobs=seq.map(function(k){
       return new Promise(function(res){
@@ -1670,17 +1682,30 @@ function playVox(seq, voiceKey){
         var ck=voiceKey+'_'+k;
         if(window._voxCache[ck]){ res(window._voxCache[ck]); return; }
         var buf=_b64buf(b64); if(!buf){ res(null); return; }
-        ctx.decodeAudioData(buf,function(audio){ window._voxCache[ck]=audio; res(audio); },function(){ res(null); });
+        ctx.decodeAudioData(buf,function(audio){
+          var trimmed=_trimSilence(audio,0.008);
+          window._voxCache[ck]=trimmed; res(trimmed);
+        },function(){ res(null); });
       });
     });
     Promise.all(jobs).then(function(list){
-      var t=ctx.currentTime+0.06;
+      var t=ctx.currentTime+0.04;
       list.forEach(function(audio){
         if(!audio) return;
         var src=ctx.createBufferSource(); src.buffer=audio; src.connect(ctx.destination);
-        src.start(t); t+=audio.duration+0.05;
+        src.start(t); t+=audio.duration+0.025;
       });
     });
+  }catch(e){}
+}
+/* 启动预热：解码当前内置音色全部音素，报时即点即播 */
+function preloadVox(){
+  try{
+    if(!window.VOX_DATA) return;
+    var keys=Object.keys(VOX_DATA);
+    var vk=(S.ttsVoice||'').indexOf('vox:')===0?S.ttsVoice.slice(4):(keys[0]||'');
+    if(!vk||!VOX_DATA[vk]) return;
+    playVox(Object.keys(VOX_DATA[vk]), vk);
   }catch(e){}
 }
 function speakVox(h,m){ playVox(voxSeq(h,m),(S.ttsVoice||'').slice(4)); }
@@ -1773,6 +1798,7 @@ FX.start();
   FB: FACE.build(S.face);
   buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect(); buildVoiceSelect(); buildEngineSelect();
   setTimeout(refreshTtsState,600); setTimeout(refreshTtsState,2600);
+  setTimeout(preloadVox,1500);
   applyTheme(S.theme); applyFace(S.face,true); applyFx(S.fx,true);
   applyGlow(); applyBright(); applyKeep(); applyOrient(false);
   document.querySelector('.cmeta').style.display=S.meta?'':'none';
