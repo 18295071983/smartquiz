@@ -1602,11 +1602,8 @@ function speakNow(){
   AU.chime(S.chimeTone, m===0?h:0);
   toast('⏰ '+txt);
   haptic(16);
-  /* 点击报时：优先 TTS；失败/pending 之外 → Web Audio 电子语音兜底（任何设备都能听到） */
-  var _ok=false;
-  try{ var b=B(); if(b&&b.speakText){ var r=b.speakText(txt,S.ttsVoice||null);
-    _ok = (typeof r==='string' && (r.indexOf('"ok":true')>-1 || r==='pending')); } }catch(e){}
-  if(!_ok) AU.say(txt);
+  /* 点击报时：优先 TTS；失败静默（不打扰，只有音效） */
+  try{ var b=B(); if(b&&b.speakText) b.speakText(txt,S.ttsVoice||null); }catch(e){}
 }
 (function(){
   var host=document.getElementById('faceHost');
@@ -1658,9 +1655,7 @@ function onSecond(now){
     var _hm=now.getMinutes();
     if(_hm===0){ AU.chime(S.chimeTone,now.getHours()); }
     else { AU.chime(S.chimeTone,0); }
-    if(S.tts){ var _ok=false; try{ var _b=B(); if(_b&&_b.speakText){ var _r=_b.speakText(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分'),S.ttsVoice||null);
-      _ok=(typeof _r==='string' && (_r.indexOf('"ok":true')>-1 || _r==='pending')); } }catch(e){}
-      if(!_ok) AU.say(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分')); } }
+    if(S.tts){ try{ var _b=B(); if(_b&&_b.speakText) _b.speakText(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分'),S.ttsVoice||null); }catch(e){} } }
   checkAlarms();
   var pg=$('#pg-world'); if(pg&&pg.classList.contains('on')) renderWorld();
   if(Date.now()-lastChip>15000){ lastChip=Date.now(); updateChips(); }

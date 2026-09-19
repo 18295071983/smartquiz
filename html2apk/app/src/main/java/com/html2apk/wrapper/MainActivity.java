@@ -174,7 +174,7 @@ public class MainActivity extends Activity {
                             tts.setLanguage(Locale.getDefault());
                         }
                         tts.setAudioAttributes(new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
                                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
                         ttsReady = true; ttsError = null;
                         applyVoice(pendingVoiceId);
@@ -247,19 +247,45 @@ public class MainActivity extends Activity {
 
     private boolean speakNow(String text) {
         try {
-            int rc = tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH,
-                    null, "tts_" + System.currentTimeMillis());
-            if (rc != android.speech.tts.TextToSpeech.SUCCESS && ttsReady) {
-                // 引擎可能失活：复位并延迟重试一次
-                ttsReady = false; ttsError = "speak_rc=" + rc;
-                android.speech.tts.TextToSpeech old = tts; tts = null;
-                try { old.shutdown(); } catch (Exception ignored) { }
-                if (pendingTts == null) pendingTts = text;
-                scheduleTtsRetry();
+            stopTtsPlayer();
+            tts.setPitch(1.0f); tts.setSpeechRate(1.0f);
+            final File out = new File(getCacheDir(), "tts_" + System.currentTimeMillis() + ".wav");
+            final String uid = "tts_" + System.currentTimeMillis();
+            tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                @Override public void onStart(String utteranceId) { }
+                @Override public void onDone(String utteranceId) { playWav(out); }
+                @Override public void onError(String utteranceId) { try { out.delete(); } catch (Exception ignored) { } }
+                @Override public void onError(String utteranceId, int errorCode) { try { out.delete(); } catch (Exception ignored) { } }
+            });
+            int rc = tts.synthesizeToFile(text, new android.os.Bundle(), out, uid);
+            if (rc != android.speech.tts.TextToSpeech.SUCCESS) {
+                try { out.delete(); } catch (Exception ignored) { }
                 return false;
             }
-            return rc == android.speech.tts.TextToSpeech.SUCCESS;
+            return true;
         } catch (Exception e) { return false; }
+    }
+
+    /* 播放合成的 wav（媒体流，与音效一致；主应用同款：合成文件→播放） */
+    private android.media.MediaPlayer ttsPlayer = null;
+    private void playWav(final File f) {
+        runOnUiThread(() -> {
+            try {
+                stopTtsPlayer();
+                android.media.MediaPlayer mp = new android.media.MediaPlayer();
+                ttsPlayer = mp;
+                mp.setDataSource(f.getAbsolutePath());
+                mp.setOnCompletionListener(m -> { try { m.release(); } catch (Exception ignored) { } try { f.delete(); } catch (Exception ignored) { } if (ttsPlayer == m) ttsPlayer = null; });
+                mp.setOnErrorListener((m, what, extra) -> { try { m.release(); } catch (Exception ignored) { } try { f.delete(); } catch (Exception ignored) { } if (ttsPlayer == m) ttsPlayer = null; return true; });
+                mp.prepare();
+                mp.start();
+            } catch (Exception e) {
+                try { f.delete(); } catch (Exception ignored) { }
+            }
+        });
+    }
+    private void stopTtsPlayer() {
+        try { if (ttsPlayer != null) { ttsPlayer.stop(); ttsPlayer.release(); ttsPlayer = null; } } catch (Exception ignored) { }
     }
 
     @Override
@@ -1602,6 +1628,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void stopSpeak() {
             pendingTts = null;
+            stopTtsPlayer();
             runOnUiThread(() -> {
                 try { if (tts != null) tts.stop(); } catch (Exception ignored) { }
             });
