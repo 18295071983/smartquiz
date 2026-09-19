@@ -66,6 +66,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import android.media.AudioAttributes;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -151,9 +152,45 @@ public class MainActivity extends Activity {
     private volatile boolean ttsReady = false;
     /** 引擎初始化期间待播文本（初始化完成后自动补播） */
     private volatile String pendingTts = null;
+    /** TTS 错误描述（初始化失败/语言缺失等；null=正常） */
+    private volatile String ttsError = null;
 
     private String mainFile = "index.html";
     private String remoteUrl = "";
+
+    /* ==================== TTS 增强（v8.1）：预热 + 音频属性 + 失败可感知 ==================== */
+    private void warmupTts() { try { if (tts == null) initTts(); } catch (Exception ignored) { } }
+
+    private void initTts() {
+        try {
+            tts = new android.speech.tts.TextToSpeech(this, status -> {
+                if (status == android.speech.tts.TextToSpeech.SUCCESS && tts != null) {
+                    try {
+                        int r = tts.setLanguage(Locale.CHINA);
+                        if (r == android.speech.tts.TextToSpeech.LANG_MISSING_DATA
+                                || r == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
+                            tts.setLanguage(Locale.getDefault());
+                        }
+                        tts.setAudioAttributes(new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+                        ttsReady = true; ttsError = null;
+                        if (pendingTts != null) { speakNow(pendingTts); pendingTts = null; }
+                    } catch (Exception e) { ttsError = "lang:" + e.getMessage(); }
+                } else {
+                    ttsReady = false; ttsError = "init:status=" + status;
+                }
+            });
+        } catch (Exception e) { ttsError = "init_ex:" + e.getMessage(); }
+    }
+
+    private boolean speakNow(String text) {
+        try {
+            int rc = tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH,
+                    null, "tts_" + System.currentTimeMillis());
+            return rc == android.speech.tts.TextToSpeech.SUCCESS;
+        } catch (Exception e) { return false; }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -177,6 +214,8 @@ public class MainActivity extends Activity {
         applyStatusBarDefault();
 
         new Thread(this::bootstrap, "ShellBootstrap").start();
+        // TTS 预热：避免首次报时/朗读等待引擎初始化
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::warmupTts, 1200);
     }
 
     @Override
@@ -1418,37 +1457,23 @@ public class MainActivity extends Activity {
             }
         }
 
-        /** 语音朗读（TTS，中文；重复调用会打断上一次） */
+        /** 语音朗读（TTS，中文；重复调用会打断上一次）
+         *  返回 JSON 状态：{"ok":true} / {"ok":false,"error":...} / "pending"（初始化中，完成后自动补播）
+         *  老壳返回 undefined（void）——JS 侧需兼容 */
         @JavascriptInterface
-        public void speakText(final String text) {
-            if (text == null || text.isEmpty()) return;
-            runOnUiThread(() -> {
-                try {
-                    if (tts == null) {
-                        pendingTts = text;
-                        tts = new android.speech.tts.TextToSpeech(MainActivity.this, status -> {
-                            if (status == android.speech.tts.TextToSpeech.SUCCESS && tts != null) {
-                                try {
-                                    int langRc = tts.setLanguage(Locale.CHINA);
-                                    if (langRc == android.speech.tts.TextToSpeech.LANG_MISSING_DATA
-                                            || langRc == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
-                                        tts.setLanguage(Locale.getDefault());
-                                    }
-                                    ttsReady = true;
-                                    if (pendingTts != null) {
-                                        tts.speak(pendingTts, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "tts1");
-                                        pendingTts = null;
-                                    }
-                                } catch (Exception ignored) { }
-                            }
-                        });
-                    } else if (ttsReady) {
-                        tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "tts1");
-                    } else {
-                        pendingTts = text; // 引擎初始化中，完成后自动补播
-                    }
-                } catch (Exception ignored) { }
-            });
+        public String speakText(final String text) {
+            if (text == null || text.isEmpty()) return "{\"ok\":false,\"error\":\"empty\"}";
+            try {
+                if (tts == null) { pendingTts = text; initTts(); return "pending"; }
+                else if (ttsReady) { return speakNow(text) ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"speak_fail\"}"; }
+                else { pendingTts = text; return "pending"; }
+            } catch (Exception e) { return "{\"ok\":false,\"error\":\"exception\"}"; }
+        }
+
+        /** TTS 状态查询：{"ready":true/false,"error":null|"..."} */
+        @JavascriptInterface
+        public String ttsState() {
+            return "{\"ready\":" + ttsReady + ",\"error\":" + (ttsError == null ? "null" : org.json.JSONObject.quote(ttsError)) + "}";
         }
 
         /** 停止语音朗读 */

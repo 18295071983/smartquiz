@@ -209,7 +209,12 @@ function onSecond(now) {
     if (S.tts) {
       try {
         var _b = B();
-        if (_b && _b.speakText) { _b.speakText('现在是' + now.getHours() + '点整'); }
+        if (_b && _b.speakText) {
+          var _r = _b.speakText('现在是' + now.getHours() + '点整');
+          var _rs = (_r === undefined || _r === null) ? '' : String(_r);
+          /* 新壳返回 JSON 状态：非 ok 视为 TTS 失败 → 钟声 + 文本兜底；老壳返回 undefined → 视为成功保持原行为 */
+          if (_rs !== '' && _rs.indexOf('"ok"') < 0) { AU.chime(S.chimeTone, now.getHours()); toast('现在是' + now.getHours() + '点整'); }
+        }
         else { AU.chime(S.chimeTone, now.getHours()); toast('现在是' + now.getHours() + '点整'); }
       } catch (e) { AU.chime(S.chimeTone, now.getHours()); toast('现在是' + now.getHours() + '点整'); }
     }
