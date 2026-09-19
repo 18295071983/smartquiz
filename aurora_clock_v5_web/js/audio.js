@@ -3,12 +3,13 @@
 var AU=(function(){
   var ctx=null,master=null,vol=.7,beds={},ringTimer=null,ringNode=null,nb=null,chirpTimer=null,clickTone='soft';
   /* 内置音效文件（HTML5 Audio 播放；文件缺失/加载失败时自动回落 Web Audio 合成） */
+  /* 内置音效文件（AOSP 系统开源音效，Apache-2.0 许可；文件缺失/加载失败时自动回落 Web Audio 合成） */
   var AF = {
-    chime_west:'audio/chime_west.wav', chime_bell:'audio/chime_bell.wav', chime_piano:'audio/chime_piano.wav',
-    chime_glass:'audio/chime_glass.wav', chime_beep:'audio/chime_beep.wav',
-    click_soft:'audio/click_soft.wav', click_pop:'audio/click_pop.wav', click_wood:'audio/click_wood.wav',
-    click_digital:'audio/click_digital.wav', click_drop:'audio/click_drop.wav',
-    swipe:'audio/swipe.wav', ok:'audio/ok.wav', err:'audio/err.wav', tick:'audio/tick.wav'
+    chime_west:'audio/chime_west.ogg', chime_bell:'audio/chime_bell.ogg', chime_piano:'audio/chime_piano.ogg',
+    chime_glass:'audio/chime_glass.ogg', chime_beep:'audio/chime_beep.ogg',
+    click_soft:'audio/click_soft.ogg', click_pop:'audio/click_pop.ogg', click_wood:'audio/click_wood.ogg',
+    click_digital:'audio/click_digital.ogg', click_drop:'audio/click_drop.ogg',
+    swipe:'audio/swipe.ogg', ok:'audio/ok.ogg', err:'audio/err.ogg', tick:'audio/tick.ogg'
   }, _audio = {};
   function playFile(name){
     var url = AF[name]; if (!url) return false;
