@@ -244,6 +244,21 @@ function renderMeta() {
   }
 }
 
+/* ---------- 双击操作：表盘区域双击 = 切换下一个表盘；沉浸模式双击空白 = 退出全屏 ---------- */
+function nextFace() {
+  var list = FACES; if (!list || !list.length) return;
+  var cur = FACE.cur(), idx = 0;
+  list.forEach(function (f, i) { if (f.k === cur) idx = i; });
+  var nf = list[(idx + 1) % list.length];
+  applyFace(nf.k);
+  toast('表盘：' + nf.n + '（再双击切换）');
+}
+function onDbl(e) {
+  var fh = $('#faceHost');
+  if (fh && fh.contains(e.target)) { nextFace(); return; }
+  if (document.body.classList.contains('immerse')) toggleImmerse();
+}
+
 /* ---------- 初始化 ---------- */
 function init() {
   syncVV();
@@ -262,7 +277,7 @@ function init() {
   window.addEventListener('resize', function () { applyOrient(false); });
   window.addEventListener('orientationchange', function () { setTimeout(function () { applyOrient(false); }, 320); });
   document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
-  document.addEventListener('dblclick', function () { if (document.body.classList.contains('immerse')) toggleImmerse(); });
+  document.addEventListener('dblclick', onDbl);
   var q = $('#cmTip'); if (q) q.textContent = QUOTES[(new Date().getDate()) % QUOTES.length];
   renderMeta(); setInterval(renderMeta, 20000);
   bindTop(); bindSettings(); bindTimers(); bindAlarm(); bindSystem();

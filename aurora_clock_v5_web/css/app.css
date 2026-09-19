@@ -108,17 +108,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;heigh
 .opt b{display:block;font-size:15px;margin-bottom:3px;font-weight:400}
 .g-sound .opt b{font-size:17px}
 
-/* ========== 底部弹层 ========== */
-.sheet-mask{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:.3s;backdrop-filter:blur(3px)}
+/* ========== 全屏操作层（所有编辑/选择操作均全屏执行） ========== */
+.sheet-mask{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:.3s;backdrop-filter:blur(4px)}
 .sheet-mask.on{opacity:1;pointer-events:auto}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:81;max-height:calc(var(--ch)*.86);display:flex;flex-direction:column;
- background:linear-gradient(180deg,color-mix(in srgb,var(--bg2) 92%,#000),var(--bg1));
- border-top:1px solid var(--line);border-radius:26px 26px 0 0;transform:translateY(101%);transition:transform .34s cubic-bezier(.22,1,.36,1);
- box-shadow:0 -18px 50px rgba(0,0,0,.6)}
-.sheet.on{transform:translateY(0)}
-.shead{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px;flex:0 0 auto;border-bottom:1px solid rgba(255,255,255,.06)}
-.shead b{font-size:15.5px;font-weight:600}
-.sbody{padding:14px 18px calc(var(--sa-b,0px) + 22px);overflow-y:auto}
+.sheet{position:fixed;inset:0;z-index:81;display:flex;flex-direction:column;
+ background:linear-gradient(180deg,var(--bg2),var(--bg1));
+ opacity:0;transform:scale(.96);transition:opacity .26s,transform .26s cubic-bezier(.22,1,.36,1);
+ box-shadow:0 0 60px rgba(0,0,0,.6);pointer-events:none}
+.sheet.on{opacity:1;transform:none;pointer-events:auto}
+.shead{display:flex;align-items:center;justify-content:space-between;padding:calc(var(--sa-t,0px) + 12px) 18px 12px;flex:0 0 auto;border-bottom:1px solid rgba(255,255,255,.06)}
+.shead b{font-size:16px;font-weight:600}
+.sbody{padding:14px 18px calc(var(--sa-b,0px) + 26px);overflow-y:auto}
 .sbody::-webkit-scrollbar{width:0}
 .fld{margin-bottom:15px}
 .fld>label{display:block;font-size:11.5px;color:var(--dim);margin-bottom:8px;letter-spacing:.5px}
@@ -165,11 +165,14 @@ body.landscape .topbar,body.landscape .tabbar{padding-left:max(14px,var(--sa-l,0
 /* v3: 尺寸统一由 --cw/--ch(视觉宽高) 驱动，旧 vh override 已移除 */
 /* 横屏布局优化 */
 body.landscape .face-host{justify-content:flex-start}
-body.landscape #pg-clock{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);grid-template-rows:auto 1fr auto;gap:8px;align-items:center}
+body.landscape #pg-clock{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);grid-template-rows:auto 1fr auto auto;gap:6px 12px;align-items:center}
 body.landscape #pg-clock .face-tabs{grid-column:1/-1;grid-row:1}
-body.landscape #pg-clock .face-host{grid-column:1;grid-row:2/4}
-body.landscape #pg-clock .cmeta{grid-column:2;grid-row:2;text-align:left;padding-left:6px}
-body.landscape #pg-clock .quick{grid-column:2;grid-row:3;justify-content:flex-start;align-content:flex-start}
+body.landscape #pg-clock .face-host{grid-column:1;grid-row:2/5;min-height:0}
+body.landscape #pg-clock .cmeta{grid-column:2;grid-row:2;text-align:left;padding-left:6px;align-self:center}
+body.landscape #pg-clock .cm-greet{font-size:clamp(14px,calc(var(--cw)*.026),20px);letter-spacing:2px}
+body.landscape #pg-clock .cm-date{font-size:11.5px}
+body.landscape #pg-clock .cm-tip{grid-column:2;grid-row:3;text-align:left;padding-left:6px;align-self:center}
+body.landscape #pg-clock .quick{grid-column:2;grid-row:4;justify-content:flex-start;align-content:flex-start}
 body.landscape #pg-clock .face-host,body.landscape #pg-clock .flip-wrap{min-width:0;max-width:100%}
-body.landscape #pg-clock .cmeta{min-width:0;word-break:break-word;overflow-wrap:anywhere}
+body.landscape #pg-clock .cmeta,body.landscape #pg-clock .cm-tip{min-width:0;word-break:break-word;overflow-wrap:anywhere}
 body.landscape .tpanel{gap:10px}

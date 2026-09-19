@@ -1,6 +1,6 @@
 /* 表盘：翻页钟（外置） */
 /* ========== 表盘 1：翻页钟 ========== */
-.flip-wrap{display:flex;align-items:center;justify-content:center;gap:min(calc(var(--cw)*.018),calc(var(--ch)*.012));
+.flip-wrap{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:min(calc(var(--cw)*.018),calc(var(--ch)*.012));
   font-size:clamp(26px,min(calc(var(--cw)*.25),calc((var(--ch) - 250px)*.8)),320px);line-height:1;perspective:1400px}
 body.landscape .flip-wrap{font-size:clamp(26px,min(calc(var(--cw)*.18),calc((var(--ch) - 190px)*.8)),520px)}
 /* ===== 横屏专属结构：左栏纵向构图（大号 HH:MM + 底座：秒胶囊 + 分钟进度线） ===== */

@@ -1,6 +1,7 @@
 /* 表盘：环形进度（外置） */
 /* ========== 表盘 5：环形进度 ========== */
 .ringface{position:relative;width:min(calc(var(--cw)*.74),max(150px, calc(var(--ch) - 250px)),330px);height:min(calc(var(--cw)*.74),max(150px, calc(var(--ch) - 250px)),330px);aspect-ratio:1;display:grid;place-items:center}
+body.landscape .ringface{width:min(calc(var(--ch)*.58),340px);height:min(calc(var(--ch)*.58),340px);aspect-ratio:1}
 .ringface svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
 .ringface circle{fill:none;stroke-linecap:round}
 .ringface .rc-bg{stroke:rgba(255,255,255,.07)}

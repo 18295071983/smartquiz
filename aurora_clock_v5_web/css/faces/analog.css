@@ -1,6 +1,7 @@
 /* 表盘：指针（外置） */
 /* ========== 表盘 4：指针表盘 ========== */
 .analog{position:relative;width:min(calc(var(--cw)*.72),max(150px, calc(var(--ch) - 250px)),320px);height:min(calc(var(--cw)*.72),max(150px, calc(var(--ch) - 250px)),320px);aspect-ratio:1}
+body.landscape .analog{width:min(calc(var(--ch)*.58),340px);height:min(calc(var(--ch)*.58),340px);aspect-ratio:1}
 .analog svg{width:100%;height:100%;overflow:visible}
 .analog .dial{fill:color-mix(in srgb,var(--panel) 80%,transparent);stroke:var(--line);stroke-width:2}
 .analog .tick{stroke:var(--dim);stroke-width:2;stroke-linecap:round;opacity:.65}

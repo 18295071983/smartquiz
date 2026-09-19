@@ -7,3 +7,5 @@
 .dot.on{background:var(--acc);box-shadow:0 0 6px var(--acc),0 0 14px rgba(var(--glow),.7)}
 .dcolon{display:flex;flex-direction:column;justify-content:center;gap:min(calc(var(--cw)*.024),calc(var(--ch)*.017));padding:0 min(calc(var(--cw)*.004),calc(var(--ch)*.003))}
 .dcolon i{width:min(calc(var(--cw)*.015),calc(var(--ch)*.0105));height:min(calc(var(--cw)*.015),calc(var(--ch)*.0105));min-width:4px;min-height:4px;border-radius:50%;background:var(--acc);box-shadow:0 0 10px var(--acc);animation:pulse 2s infinite}
+.dcolon.blink i{animation:dotblink 1s steps(1) infinite}
+@keyframes dotblink{50%{opacity:.15}}
