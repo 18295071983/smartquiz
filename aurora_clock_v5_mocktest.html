@@ -1660,11 +1660,13 @@ function _b64buf(b64){
 /* 裁剪音频头尾静音（edge-tts 音素自带静音→剪掉后拼接紧凑不拖沓） */
 function _trimSilence(audio, thr){
   try{
+    if(!window._voxAC) window._voxAC=new (window.AudioContext||window.webkitAudioContext)();
+    var ac=window._voxAC;
     var ch=audio.numberOfChannels, len=audio.length, start=0, end=len, i, j, c;
     outer: for(i=0;i<len;i++){ for(c=0;c<ch;c++){ if(Math.abs(audio.getChannelData(c)[i])>thr){ start=i; break outer; } } }
     outer2: for(j=len-1;j>=0;j--){ for(c=0;c<ch;c++){ if(Math.abs(audio.getChannelData(c)[j])>thr){ end=j+1; break outer2; } } }
     if(start>=end) return audio;
-    var nl=end-start, out=ctx.createBuffer(ch,nl,audio.sampleRate);
+    var nl=end-start, out=ac.createBuffer(ch,nl,audio.sampleRate);
     for(c=0;c<ch;c++){ out.getChannelData(c).set(audio.getChannelData(c).subarray(start,end)); }
     return out;
   }catch(e){ return audio; }
@@ -1705,7 +1707,16 @@ function preloadVox(){
     var keys=Object.keys(VOX_DATA);
     var vk=(S.ttsVoice||'').indexOf('vox:')===0?S.ttsVoice.slice(4):(keys[0]||'');
     if(!vk||!VOX_DATA[vk]) return;
-    playVox(Object.keys(VOX_DATA[vk]), vk);
+    if(!window._voxAC) window._voxAC=new (window.AudioContext||window.webkitAudioContext)();
+    var ctx=window._voxAC;
+    if(!window._voxCache) window._voxCache={};
+    var data=VOX_DATA[vk];
+    Object.keys(data).forEach(function(k){
+      var ck=vk+'_'+k;
+      if(window._voxCache[ck]) return;
+      var buf=_b64buf(data[k]); if(!buf) return;
+      ctx.decodeAudioData(buf,function(audio){ window._voxCache[ck]=_trimSilence(audio,0.008); },function(){});
+    });
   }catch(e){}
 }
 function speakVox(h,m){ playVox(voxSeq(h,m),(S.ttsVoice||'').slice(4)); }
