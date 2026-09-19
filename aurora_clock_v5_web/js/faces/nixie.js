@@ -13,18 +13,20 @@
     var wrap = el('div', 'face on nix-wrap');
     var tubes = el('div', 'nix-tubes mono');
     tubes.id = 'f-nix';
-    // 6 个数字管 + 1 个冒号管（HH:MM）
+    // 6 个数字管 + 2 个冒号管（HH:MM:SS）
     var i;
     for (i = 0; i < 6; i++) {
+      if (i === 2 || i === 4) {
+        var c = el('div', 'nix-colon');
+        c.id = i === 2 ? 'nx-colon1' : 'nx-colon2';
+        c.innerHTML = '<i></i><i></i>';
+        tubes.appendChild(c);
+      }
       var t = el('div', 'nix-tube');
       t.id = 'nx-' + i;
       t.innerHTML = '<span class="nix-num">0</span><i class="nix-glass"></i>';
       tubes.appendChild(t);
     }
-    var colon = el('div', 'nix-colon');
-    colon.id = 'nx-colon';
-    colon.innerHTML = '<i></i><i></i>';
-    tubes.appendChild(colon);
     wrap.appendChild(tubes);
     wrap.appendChild(el('div', 'nix-sub', '<span id="f-nixs">AURORA CLOCK</span><span class="nix-sec mono" id="f-nixsec"></span>'));
     host.appendChild(wrap);
@@ -49,17 +51,20 @@
       var h = n.getHours(), m = n.getMinutes(), s = n.getSeconds();
       var H = S.h24 ? h : hour12(h);
       var hs = pad2(H), ms = pad2(m), ss = pad2(s);
-      var chars = (hs + ms).split('');
+      var chars = (hs + ms + ss).split('');
       chars.forEach(function (ch, i) { setTube('nx-' + i, ch, true); });
-      var colon = $('#nx-colon');
-      if (colon) colon.classList.toggle('off', !S.showSec);
+      /* 两个冒号随秒偶数秒熄灭（心跳感） */
+      var off = !S.showSec || s % 2 === 0;
+      var c1 = $('#nx-colon1'), c2 = $('#nx-colon2');
+      if (c1) c1.classList.toggle('off', off);
+      if (c2) c2.classList.toggle('off', off);
       var sub = $('#f-nixs');
       if (sub) {
         var dk = (h < 6) ? '凌晨' : (h < 12) ? '早上' : (h < 14) ? '中午' : (h < 18) ? '下午' : (h < 22) ? '晚上' : '深夜';
         sub.textContent = dk + ' · NIXIE TUBE';
       }
       var sec = $('#f-nixsec');
-      if (sec) sec.textContent = S.showSec ? (':' + ss) : '';
+      if (sec) sec.textContent = '';
     }
   });
 })();

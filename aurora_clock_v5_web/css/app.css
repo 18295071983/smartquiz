@@ -164,7 +164,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;heigh
 body.landscape .topbar,body.landscape .tabbar{padding-left:max(14px,var(--sa-l,0px));padding-right:max(14px,var(--sa-r,0px))}
 /* v3: 尺寸统一由 --cw/--ch(视觉宽高) 驱动，旧 vh override 已移除 */
 /* 横屏布局优化 */
-body.landscape .face-host{justify-content:flex-start}
+body.landscape .face-host{justify-content:center}
 body.landscape #pg-clock{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);grid-template-rows:auto 1fr auto auto;gap:6px 12px;align-items:center}
 body.landscape #pg-clock .face-tabs{grid-column:1/-1;grid-row:1}
 body.landscape #pg-clock .face-host{grid-column:1;grid-row:2/5;min-height:0}

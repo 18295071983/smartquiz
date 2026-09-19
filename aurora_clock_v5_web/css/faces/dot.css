@@ -1,6 +1,6 @@
 /* 表盘：点阵 LED（外置） */
 /* ========== 表盘 6：点阵 LED ========== */
-.dotface{display:flex;align-items:center;justify-content:center;gap:min(calc(var(--cw)*.016),calc(var(--ch)*.011))}
+.dotface{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:min(calc(var(--cw)*.016),calc(var(--ch)*.011))}
 .dgroup{display:flex;gap:min(calc(var(--cw)*.005),calc(var(--ch)*.0035))}
 .dchar{display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(7,1fr);gap:min(calc(var(--cw)*.0042),calc(var(--ch)*.003))}
 .dot{width:min(calc(var(--cw)*.0155),calc(var(--ch)*.011));height:min(calc(var(--cw)*.0155),calc(var(--ch)*.011));min-width:4.5px;min-height:4.5px;border-radius:50%;background:rgba(255,255,255,.055);transition:background .12s,box-shadow .12s}
