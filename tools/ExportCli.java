@@ -200,7 +200,9 @@ public class ExportCli {
         entries.put("assets/dt.jet", jet);
         entries.put("assets/manifest.json", manifestBytes);
 
-        // 模板元数据（apk_shell_meta.json）——最小 JSON 解析
+        // 模板元数据（apk_shell_meta.json）——最小 JSON 解析；
+        // 模板缺少 meta 时回退到壳工程内置占位符（SmartQuizExportAppName / xxxxxxxxxxxxx），
+        // 保证 --label / --seed 对任何壳模板（含新编译产物）都生效。
         String iconEntry = null, labelPlaceholder = null, packagePlaceholder = null;
         byte[] metaBytes = entries.get(SHELL_META_ASSET);
         if (metaBytes != null) {
@@ -208,6 +210,15 @@ public class ExportCli {
             iconEntry = jsonStr(m, "icon_entry");
             labelPlaceholder = jsonStr(m, "label_placeholder");
             packagePlaceholder = jsonStr(m, "package_placeholder");
+        }
+        if (labelPlaceholder == null) labelPlaceholder = "SmartQuizExportAppName";
+        if (packagePlaceholder == null) {
+            byte[] axml0 = entries.get("AndroidManifest.xml");
+            if (axml0 != null) {
+                packagePlaceholder = detectPackagePlaceholder(axml0);
+                if (packagePlaceholder != null) log("探测到包名占位符: " + packagePlaceholder);
+                else warn("无法探测包名占位符，包名保持模板默认");
+            }
         }
         if (meta != null && meta.label != null && !meta.label.trim().isEmpty()) {
             String label = meta.label.trim();
@@ -267,6 +278,32 @@ public class ExportCli {
         zos.putNextEntry(e);
         if (data != null) zos.write(data);
         zos.closeEntry();
+    }
+
+    /* ---------- 占位符探测：从 AXML 字节中找 "com.cjhtmldemo." + 连续 x（支持 UTF-8 / UTF-16LE） ---------- */
+    static String detectPackagePlaceholder(byte[] axml) throws Exception {
+        byte[] p8 = "com.cjhtmldemo.".getBytes(StandardCharsets.UTF_8);
+        byte[] p16 = "com.cjhtmldemo.".getBytes("UTF-16LE");
+        for (int mode = 0; mode < 2; mode++) {
+            byte[] ph = mode == 0 ? p8 : p16;
+            int step = mode == 0 ? 1 : 2;
+            for (int i = 0; i <= axml.length - ph.length; i++) {
+                boolean ok = true;
+                for (int j = 0; j < ph.length; j++) {
+                    if (axml[i + j] != ph[j]) { ok = false; break; }
+                }
+                if (!ok) continue;
+                int cnt = 0;
+                while (i + ph.length + cnt * step < axml.length
+                        && axml[i + ph.length + cnt * step] == (byte) 'x') cnt++;
+                if (cnt >= 8) {
+                    StringBuilder sb = new StringBuilder("com.cjhtmldemo.");
+                    for (int k = 0; k < cnt; k++) sb.append('x');
+                    return sb.toString();
+                }
+            }
+        }
+        return null;
     }
 
     /* ---------- AXML 包名等长替换 ---------- */
