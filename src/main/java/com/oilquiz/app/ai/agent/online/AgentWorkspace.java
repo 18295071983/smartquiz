@@ -521,7 +521,7 @@ public class AgentWorkspace {
                 + "   tmp/   临时缓存（执行中间文件，任务结束自动清理）\n"
                 + "   生成文件默认保存到 files/，用 workspace 工具查看/读取。\n"
                 + "   内置指南（删除后应用启动自动重建）：《工具创建指南.md》《使用速查表.md》\n"
-                + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳40桥清单/回调契约)。\n"
+                + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳v8.1·62桥清单/回调契约)。\n"
                 + "================================================================\n";
     }
 

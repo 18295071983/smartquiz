@@ -81,6 +81,7 @@ public class WebViewActivity extends BaseActivity {
 
     private String customUrl;
     private String customTitle;
+    private com.oilquiz.app.webview.js.JSAdvancedInterface advancedBridge;
     private QuestionRepository questionRepository;
     private PermissionResourceProvider permissionProvider;
     private String cachedQuestionsJson = "[]";
@@ -2053,6 +2054,8 @@ public class WebViewActivity extends BaseActivity {
         webView.addJavascriptInterface(jsManager.getClipboardInterface(), "AndroidClipboard");
         webView.addJavascriptInterface(jsManager.getFileInterface(), "AndroidFile");
         webView.addJavascriptInterface(jsManager.getDatabaseInterface(), "AndroidDatabase");
+        advancedBridge = new com.oilquiz.app.webview.js.JSAdvancedInterface(this, webView);
+        webView.addJavascriptInterface(advancedBridge, "AndroidAdvanced");
         
         // 保留旧接口（兼容模式，仅转发到新接口）
         webView.addJavascriptInterface(new WebAppInterface(), "Android");
@@ -3472,6 +3475,10 @@ public class WebViewActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (advancedBridge != null) {
+            advancedBridge.destroy();
+            advancedBridge = null;
+        }
         
         // 1. 停止文件监控
         if (exportDirObserver != null) {
