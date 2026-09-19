@@ -60,6 +60,17 @@
             android:text="AI正在思考..."
             android:textSize="@dimen/text_14"
             android:textColor="?attr/colorControlTextSecondary"/>
+
+        <TextView
+            android:id="@+id/tv_test_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_8"
+            android:text=""
+            android:fontFamily="monospace"
+            android:textSize="11sp"
+            android:textColor="?attr/colorPrimary"
+            android:visibility="gone"/>
     </LinearLayout>
 
     <ScrollView
@@ -74,6 +85,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text=""
+            android:textIsSelectable="true"
             android:textSize="@dimen/text_14"
             android:textColor="?attr/colorControlText"/>
     </ScrollView>

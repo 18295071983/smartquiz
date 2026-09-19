@@ -949,13 +949,32 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         android.widget.LinearLayout loadingContainer = dialogView.findViewById(R.id.loading_container);
         android.widget.ScrollView resultContainer = dialogView.findViewById(R.id.result_container);
         android.widget.TextView tvTestResult = dialogView.findViewById(R.id.tv_test_result);
+        android.widget.TextView tvTestStatus = dialogView.findViewById(R.id.tv_test_status);
         MaterialButton btnCancel = dialogView.findViewById(R.id.btn_cancel);
         MaterialButton btnSend = dialogView.findViewById(R.id.btn_send);
 
+        // 运行标记：对话框关闭时取消计时/打字机
+        final java.util.concurrent.atomic.AtomicBoolean alive = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final java.util.concurrent.atomic.AtomicLong startMs = new java.util.concurrent.atomic.AtomicLong(0);
+        final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable timer = new Runnable() {
+            @Override
+            public void run() {
+                if (!alive.get() || tvTestStatus == null) return;
+                long sec = (System.currentTimeMillis() - startMs.get()) / 1000;
+                tvTestStatus.setText("本地推理中 · " + sec + "s");
+                ui.postDelayed(this, 1000);
+            }
+        };
+
         // 设置取消按钮点击事件
         if (btnCancel != null) {
-            btnCancel.setOnClickListener(v -> dialog.dismiss());
+            btnCancel.setOnClickListener(v -> {
+                alive.set(false);
+                dialog.dismiss();
+            });
         }
+        dialog.setOnDismissListener(d -> alive.set(false));
 
         // 设置发送按钮点击事件
         if (btnSend != null) {
@@ -967,47 +986,86 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                         return;
                     }
 
-                    // 显示加载动画
+                    // 显示加载动画 + 状态行（模型名 / 阶段 / 耗时）
                     if (loadingContainer != null) {
                         loadingContainer.setVisibility(android.view.View.VISIBLE);
                     }
                     if (resultContainer != null) {
                         resultContainer.setVisibility(android.view.View.GONE);
                     }
+                    if (tvTestStatus != null) {
+                        tvTestStatus.setVisibility(android.view.View.VISIBLE);
+                        String model = aiService.getCurrentModelName();
+                        tvTestStatus.setText("本地推理中 · " + (model == null || model.isEmpty() ? "本地模型" : model));
+                    }
+                    startMs.set(System.currentTimeMillis());
+                    ui.removeCallbacks(timer);
+                    ui.post(timer);
 
-                    // 调用AI服务生成回答
-                    aiService.generate(inputText, new AIService.GenerateCallback() {
-                        @Override
-                        public void onSuccess(String response) {
-                            runOnUiThread(() -> {
-                                // 隐藏加载动画，显示结果
-                                if (loadingContainer != null) {
-                                    loadingContainer.setVisibility(android.view.View.GONE);
-                                }
-                                if (resultContainer != null) {
-                                    resultContainer.setVisibility(android.view.View.VISIBLE);
-                                }
-                                if (tvTestResult != null) {
-                                    tvTestResult.setText(response);
-                                }
-                            });
-                        }
+                    // 后台线程执行（本地 generate 为同步阻塞，避免主线程 ANR）
+                    java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+                        if (!alive.get()) return;
+                        aiService.generate(inputText, new AIService.GenerateCallback() {
+                            @Override
+                            public void onSuccess(String response) {
+                                ui.post(() -> {
+                                    alive.set(false);
+                                    ui.removeCallbacks(timer);
+                                    if (loadingContainer != null) {
+                                        loadingContainer.setVisibility(android.view.View.GONE);
+                                    }
+                                    if (resultContainer != null) {
+                                        resultContainer.setVisibility(android.view.View.VISIBLE);
+                                    }
+                                    if (tvTestStatus != null && tvTestResult != null) {
+                                        long sec = (System.currentTimeMillis() - startMs.get()) / 1000;
+                                        String model = aiService.getCurrentModelName();
+                                        tvTestStatus.setText("✓ 完成 · " + (model == null || model.isEmpty() ? "本地模型" : model)
+                                                + " · " + response.length() + " 字符 · " + sec + "s");
+                                    }
+                                    if (tvTestResult != null) {
+                                        // 打字机逐字渲染（每帧 3 字符），模拟流式输出感
+                                        final String text = response;
+                                        final int[] idx = {0};
+                                        tvTestResult.setText("");
+                                        final Runnable type = new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                idx[0] = Math.min(text.length(), idx[0] + 3);
+                                                tvTestResult.setText(text.substring(0, idx[0]));
+                                                if (idx[0] < text.length()) {
+                                                    ui.postDelayed(this, 12);
+                                                }
+                                            }
+                                        };
+                                        ui.post(type);
+                                    }
+                                });
+                            }
 
-                        @Override
-                        public void onError(Exception e) {
-                            runOnUiThread(() -> {
-                                // 隐藏加载动画，显示错误信息
-                                if (loadingContainer != null) {
-                                    loadingContainer.setVisibility(android.view.View.GONE);
-                                }
-                                if (resultContainer != null) {
-                                    resultContainer.setVisibility(android.view.View.VISIBLE);
-                                }
-                                if (tvTestResult != null) {
-                                    tvTestResult.setText(getString(R.string.h_fe295564) + e.getMessage());
-                                }
-                            });
-                        }
+                            @Override
+                            public void onError(Exception e) {
+                                ui.post(() -> {
+                                    alive.set(false);
+                                    ui.removeCallbacks(timer);
+                                    if (loadingContainer != null) {
+                                        loadingContainer.setVisibility(android.view.View.GONE);
+                                    }
+                                    if (resultContainer != null) {
+                                        resultContainer.setVisibility(android.view.View.VISIBLE);
+                                    }
+                                    if (tvTestStatus != null) {
+                                        long sec = (System.currentTimeMillis() - startMs.get()) / 1000;
+                                        tvTestStatus.setText("✖ 失败 · " + sec + "s");
+                                    }
+                                    if (tvTestResult != null) {
+                                        String detail = e == null || e.getMessage() == null ? "未知错误" : e.getMessage();
+                                        tvTestResult.setText("生成失败：" + detail
+                                                + "\n\n可尝试：检查模型是否已加载、切换模型后重试、或查看服务状态页日志。");
+                                    }
+                                });
+                            }
+                        });
                     });
                 }
             });
@@ -1017,7 +1075,6 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         dialog.show();
     }
 
-    @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_SELECT_MODEL) {

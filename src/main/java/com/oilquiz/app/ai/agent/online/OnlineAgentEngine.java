@@ -10,6 +10,7 @@ import com.google.gson.JsonParser;
 import com.oilquiz.app.ai.agent.AgentCallback;
 import com.oilquiz.app.ai.agent.InferenceProgressListener;
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
+import com.oilquiz.app.ai.agent.debug.DebugTracer;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.service.OnlineInferenceService;
 import com.oilquiz.app.util.AILogger;
@@ -18,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -152,6 +154,12 @@ public class OnlineAgentEngine {
     /** 当前模型上下文窗口（tokens，按模型名推断） */
     private volatile int contextWindowTokens = 0;
 
+    // ==== 调试追踪钩子（DebugTracer，可为空，空时零开销）====
+    private volatile DebugTracer debugTracer;
+    private volatile String debugRunId;
+    private volatile String debugLlmSpanId;
+    private volatile long debugLlmStartTs;
+
     /**
      * 获取上下文用量信息（供 UI 展示）。
      * @return {window, used, remaining} —— 上下文窗口、已用（最近请求输入）、剩余
@@ -184,6 +192,50 @@ public class OnlineAgentEngine {
 
     public void setInferenceProgressListener(InferenceProgressListener listener) {
         this.progressListener = listener;
+    }
+
+    /** 注册调试追踪监听（调试控制台用；可为空，空时零开销） */
+    public void setDebugTracer(DebugTracer tracer) {
+        this.debugTracer = tracer;
+    }
+
+    private void startDebugRun() {
+        if (debugTracer == null) return;
+        debugRunId = java.util.UUID.randomUUID().toString();
+        debugLlmSpanId = null;
+        debugLlmStartTs = 0;
+        String model = "unknown";
+        try {
+            OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
+            if (cfg != null && cfg.modelName != null) model = cfg.modelName;
+        } catch (Throwable ignored) { }
+        final String m = model;
+        debugTracer.onRunStart(debugRunId, m, System.currentTimeMillis());
+    }
+
+    private void debugLlmStart() {
+        if (debugTracer == null || debugRunId == null) return;
+        debugLlmSpanId = java.util.UUID.randomUUID().toString();
+        debugLlmStartTs = System.currentTimeMillis();
+        debugTracer.onLlmStart(debugRunId, debugLlmSpanId, debugLlmStartTs);
+    }
+
+    private void debugLlmUsage(int promptTokens, int completionTokens, int totalTokens, int cachedTokens) {
+        if (debugTracer == null || debugRunId == null) return;
+        String spanId = debugLlmSpanId != null ? debugLlmSpanId : java.util.UUID.randomUUID().toString();
+        long startTs = debugLlmStartTs > 0 ? debugLlmStartTs : System.currentTimeMillis();
+        long endTs = System.currentTimeMillis();
+        debugTracer.onLlmUsage(debugRunId, spanId, promptTokens, completionTokens, totalTokens, cachedTokens, startTs, endTs);
+        debugLlmSpanId = null;
+        debugLlmStartTs = 0;
+    }
+
+    private void endDebugRun(String status, String error) {
+        if (debugTracer == null || debugRunId == null) return;
+        debugTracer.onRunEnd(debugRunId, status, error, System.currentTimeMillis());
+        debugRunId = null;
+        debugLlmSpanId = null;
+        debugLlmStartTs = 0;
     }
 
     /**
@@ -226,6 +278,7 @@ public class OnlineAgentEngine {
         lastCompletionTokens = 0;
         lastCacheHitTokens = 0;
         inferenceStartTime = System.currentTimeMillis();
+        startDebugRun();
 
         // 在线模型每轮输出上限：用宽松值（16384），不被外部保守配置（4096 是给本地模型的）截断。
         // 在线 API 通常支持大 max_tokens（模型自己决定实际输出），App 不设紧限制。
@@ -443,6 +496,7 @@ public class OnlineAgentEngine {
             notifyExecutionStep(OnlineExecutionStep.THINKING, "推理轮次 " + iteration);
 
             // 流式生成一轮
+            debugLlmStart();
             IterationResult result = streamOneIteration(cfg, maxTokens, toolsJson);
             if (result == null) {
                 return; // 错误已处理
@@ -717,6 +771,7 @@ public class OnlineAgentEngine {
         AILogger.w(TAG, "Reached max iterations (" + maxIterations + ", mode=" + agentMode + ")");
         notifyStep("总结", "已达到最大推理轮次，生成最终回答...");
         notifyExecutionStep(OnlineExecutionStep.RESPONDING, "生成最终回答");
+        debugLlmStart();
         IterationResult finalResult = streamOneIteration(cfg, maxTokens, null);
         if (finalResult != null) {
             notifyExecutionStep(OnlineExecutionStep.COMPLETED, "完成");
@@ -1095,6 +1150,7 @@ public class OnlineAgentEngine {
                 public void onUsage(int promptTokens, int completionTokens, int totalTokens) {
                     // 用 API 返回的精确 token 数更新（prompt_tokens 含 system+工具定义+历史消息）
                     totalTokenCount = totalTokens;
+                    debugLlmUsage(promptTokens, completionTokens, totalTokens, 0);
                     AILogger.i(TAG, "Token usage: prompt=" + promptTokens
                         + " completion=" + completionTokens + " total=" + totalTokens);
                     notifyProgress();
@@ -1110,6 +1166,7 @@ public class OnlineAgentEngine {
                     // 多轮工具调用时每轮输入都在增长，必须逐轮累加才是真实总输入
                     execTotalPromptTokens += promptTokens;
                     execTotalCompletionTokens += completionTokens;
+                    debugLlmUsage(promptTokens, completionTokens, totalTokens, cachedTokens);
                     AILogger.i(TAG, "Token usage: prompt=" + promptTokens + " completion=" + completionTokens
                         + " total=" + totalTokens + " cache_hit=" + cachedTokens
                         + " | exec累计: in=" + execTotalPromptTokens + " out=" + execTotalCompletionTokens);
@@ -1682,6 +1739,7 @@ public class OnlineAgentEngine {
 
     public void cancel() {
         isCancelled.set(true);
+        endDebugRun("cancelled", null);
     }
 
     public void shutdown() {
@@ -2162,6 +2220,7 @@ public class OnlineAgentEngine {
     }
 
     private void notifyComplete(String text) {
+        endDebugRun("ok", null);
         // 清理模型输出中的乱码/非法字符
         String outputText = text;
         String cleaned = ToolResultInterpreter.cleanModelOutput(text);
@@ -2194,6 +2253,7 @@ public class OnlineAgentEngine {
     }
 
     private void notifyError(String error) {
+        endDebugRun("error", error);
         finishGeneration();
         mainHandler.post(() -> {
             if (callback != null) callback.onError(error);

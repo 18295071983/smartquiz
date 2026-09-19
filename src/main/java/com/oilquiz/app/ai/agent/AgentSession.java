@@ -2,6 +2,7 @@ package com.oilquiz.app.ai.agent;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.agent.debug.DebugTracer;
 import com.oilquiz.app.ai.agent.online.OnlineAgentEngine;
 import com.oilquiz.app.ai.agent.online.OnlineToolManager;
 
@@ -47,6 +48,11 @@ public class AgentSession {
     /** 注册推理进度监听（token 数 / 阶段 / 速率） */
     public void setInferenceProgressListener(InferenceProgressListener listener) {
         engine.setInferenceProgressListener(listener);
+    }
+
+    /** 注册调试追踪监听（调试控制台用；LLM 级 token/耗时/run 生命周期） */
+    public void setDebugTracer(DebugTracer tracer) {
+        engine.setDebugTracer(tracer);
     }
 
     /** 启动一轮智能体执行（推理 → 工具调用 → 结果注入 → 再推理，最多 8 轮） */
