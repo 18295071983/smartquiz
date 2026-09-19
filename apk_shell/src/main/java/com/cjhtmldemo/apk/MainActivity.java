@@ -147,6 +147,10 @@ public class MainActivity extends Activity {
     private boolean fsImmersive = false;
     /** v8：TTS 朗读器（speakText 使用，延迟初始化） */
     private android.speech.tts.TextToSpeech tts;
+    /** TTS 引擎是否就绪（异步初始化完成标志） */
+    private volatile boolean ttsReady = false;
+    /** 引擎初始化期间待播文本（初始化完成后自动补播） */
+    private volatile String pendingTts = null;
 
     private String mainFile = "index.html";
     private String remoteUrl = "";
@@ -1421,14 +1425,27 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 try {
                     if (tts == null) {
+                        pendingTts = text;
                         tts = new android.speech.tts.TextToSpeech(MainActivity.this, status -> {
                             if (status == android.speech.tts.TextToSpeech.SUCCESS && tts != null) {
-                                tts.setLanguage(Locale.CHINA);
-                                tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "tts1");
+                                try {
+                                    int langRc = tts.setLanguage(Locale.CHINA);
+                                    if (langRc == android.speech.tts.TextToSpeech.LANG_MISSING_DATA
+                                            || langRc == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
+                                        tts.setLanguage(Locale.getDefault());
+                                    }
+                                    ttsReady = true;
+                                    if (pendingTts != null) {
+                                        tts.speak(pendingTts, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "tts1");
+                                        pendingTts = null;
+                                    }
+                                } catch (Exception ignored) { }
                             }
                         });
-                    } else {
+                    } else if (ttsReady) {
                         tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "tts1");
+                    } else {
+                        pendingTts = text; // 引擎初始化中，完成后自动补播
                     }
                 } catch (Exception ignored) { }
             });
@@ -1437,6 +1454,7 @@ public class MainActivity extends Activity {
         /** 停止语音朗读 */
         @JavascriptInterface
         public void stopSpeak() {
+            pendingTts = null;
             runOnUiThread(() -> {
                 try { if (tts != null) tts.stop(); } catch (Exception ignored) { }
             });

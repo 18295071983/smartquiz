@@ -98,8 +98,8 @@ function bridge() { return window.AndroidApp || null; }
 | 方法 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `getVersion()` | — | string(JSON) | `{shellVersion, bridgeApi, versionName, versionCode}` |
-| `getShellVersion()` | — | string | 壳版本，如 `"v8"`（编译进 dex） |
-| `getBridgeApi()` | — | number | 桥 API 版本（当前 4） |
+| `getShellVersion()` | — | string | 壳版本，如 `"v8.1"`（编译进 dex） |
+| `getBridgeApi()` | — | number | 桥 API 版本（当前 5） |
 | `getDeviceInfo()` | — | string(JSON) | `{screenWidth, screenHeight, density, densityDpi, sdkInt, model, manufacturer, launchMode}` |
 | `getNetworkType()` | — | string | `wifi`/`mobile`/`none`/`other`/`unknown` |
 | `getBatteryLevel()` | — | string | 电量百分比 0-100 |
@@ -152,7 +152,7 @@ function bridge() { return window.AndroidApp || null; }
 | `clearCache()` | — | — | 清空缓存（含缓存文件） |
 | `precacheUrl(url, callbackName)` | string×2 | — | 预缓存远程 URL；回调 `window[cb]({url, ok})` |
 
-### v8（历史）新增：全屏 / 方向 / 亮度 / TTS / 壳内文件 / 选择器 / 对话框 / 系统 / 应用（19）
+### v8/v8.1 新增：全屏 / 方向 / 亮度 / TTS / 壳内文件 / 选择器 / 对话框 / 系统 / 应用（19）
 
 | 方法 | 参数 | 返回 | 说明 |
 |---|---|---|---|
@@ -162,7 +162,7 @@ function bridge() { return window.AndroidApp || null; }
 | `getOrientation()` | — | string | 当前物理方向：`landscape` / `portrait` |
 | `setBrightness(value)` | number | — | 系统亮度 0-255；`-1` 恢复跟随系统 |
 | `getBrightness()` | — | number | 当前亮度 0-255；`-1`=跟随系统 |
-| `speakText(text)` | string | — | TTS 中文朗读（重复调用打断上一次） |
+| `speakText(text)` | string | — | TTS 中文朗读（重复调用打断上一次；引擎异步初始化期间待播文本自动补播；中文引擎缺失自动回退系统语言） |
 | `stopSpeak()` | — | — | 停止朗读 |
 | `saveFile(relPath, dataBase64)` | string×2 | string(JSON) | 保存文件到壳内目录（相对 htmlDir，防穿越，≤8MB）；`{ok, size}` |
 | `readFile(relPath)` | string | string(JSON) | 读壳内文件（≤8MB）；`{ok, size, dataBase64}` |
@@ -176,7 +176,7 @@ function bridge() { return window.AndroidApp || null; }
 | `openApp(packageName)` | string | — | 打开其他应用（按包名） |
 | `openInApp(url)` | string | — | 壳内打开指定 URL（路由到主 WebView） |
 
-> 说明：上表为 v8（历史）能力；当前 v8.1 全量 **62 个方法**（以本清单为权威）；`HTML_DESIGN_RULES.md` 第四节为常用能力速查。
+> 说明：上表为 v8 及以下（历史）能力；当前 v8.1 全量 **62 个方法**（以本清单为权威）；`HTML_DESIGN_RULES.md` 第四节为常用能力速查。
 
 ### v8.1 新增：状态栏适配 / 沉浸高度（3）——targetSdk 35 强制边缘到边
 
@@ -198,11 +198,12 @@ function bridge() { return window.AndroidApp || null; }
 ## 四、回调桥契约（callbackName 必填）
 
 带回调的方法，**回调函数名参数必填**，缺参页面会报 `Method not found`：
+**回调参数一律为 JSON 对象字面量**（`window[cb]({...})` 直接传入对象；历史版本曾把整个 JSON 再包一层引号导致 JS 收到字符串而非对象——`r.dataBase64`/`r.ok` 等属性取不到——v8.1 已全部修复为传对象）：
 
 | 方法 | 回调签名 |
 |---|---|
 | `request` | `window[cb]({status, body})`；网络错误 status=0 且带 error |
-| `requestPermission` | `window[cb]({permission, granted})` |
+| `requestPermission` | `window[cb]({permission, granted, reason, human})`（reason ∈ granted/denied/denied_forever/busy/unknown；human 为中文提示） |
 | `openFilePicker` | `window[cb]({name,size,mimeType,dataBase64})` |
 | `screenshot` | `window[cb]({dataBase64,width,height})` |
 | `startClipboardWatch` | `window[cb]({text})` |
@@ -227,7 +228,7 @@ window.AndroidApp.requestPermission("camera", "cbPerm");
    （每次重建模板后必须重跑，否则 ApkPacker 无法定位图标/占位）。
 4. 替换主项目模板：`Copy-Item build\outputs\apk\release\apk_shell-release-unsigned.apk ..\src\main\assets\apk_shell\base.apk -Force`。
 5. 更新本清单（第三节）与 `HTML_DESIGN_RULES.md` 第四节、`ExportApkTool` 描述中的方法数。
-6. 重新编译主项目（assembleDebug）→ 装机验证（可用 `samples/engine_demo/index.html` 自测台全量跑一遍）。
+6. 重新编译主项目（assembleDebug）→ 装机验证（可用 `apk_shell/samples/engine_demo/index.html` 或独立自测工程 `shell_cap_test/index.html` 全量跑一遍；后者含顶部「一键测试全部 28 项」按钮，一次覆盖版本/设备/状态栏/文件/剪贴板/TTS/截图/预缓存，弹窗与破坏性桥手动逐测）。
 
 ## 六、常见坑
 

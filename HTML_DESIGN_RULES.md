@@ -227,7 +227,7 @@ function bridge() { return window.AndroidApp || null; }
 | `getNetworkType()` | — | string | `wifi` / `mobile` / `none` / `other` / `unknown` |
 | `request(url, method, headersJson, body, callbackName)` | string×5 | — | **无 CORS 网络代理**；回调 `window[callbackName]({status, body})` |
 | `checkPermission(name)` | string | string | 权限是否已授权（`"true"`/`"false"`） |
-| `requestPermission(name, callbackName)` | string×2 | — | 请求运行时权限；回调 `window[callbackName]({permission, granted})` |
+| `requestPermission(name, callbackName)` | string×2 | — | 请求运行时权限；回调 `window[callbackName]({permission, granted, reason, human})`（reason ∈ granted/denied/denied_forever/busy/unknown；human 为中文提示，JS 无需拼错误文案） |
 | `openAppSettings()` | — | — | 打开本应用系统设置页 |
 | `getBatteryLevel()` | — | string | 电量百分比（0-100） |
 | `isCharging()` | — | string | `"true"`/`"false"` |
@@ -339,7 +339,7 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 
 **⑨ 渲染进程崩溃保护**：页面渲染进程崩溃不会杀掉整个应用，壳自动回到错误重试页（API 26+ 的 `onRenderProcessGone`），无需 HTML 处理。
 
-> **⚠️ 回调参数铁律（真机实测教训）**：凡签名里带 `callbackName` 的桥方法（`request` / `requestPermission` / `openFilePicker` / `screenshot` / `startClipboardWatch` / `precacheUrl`），**回调名参数必填**，必须原样传一个字符串。WebView 桥对参数**数量**严格匹配，缺参或错数不会报"参数错误"，而是直接抛 **`Method not found`**。反面示例（自测页曾犯，运行日志报 Method not found）：
+> **⚠️ 回调参数铁律（真机实测教训）**：回调参数一律为 **JSON 对象字面量**（`window[cb]({...})`；v8.1 已修复历史版本把对象再包一层引号导致 JS 收到字符串的 bug，`r.dataBase64`/`r.ok` 等属性可直接取）。凡签名里带 `callbackName` 的桥方法（`request` / `requestPermission` / `openFilePicker` / `screenshot` / `startClipboardWatch` / `precacheUrl`），**回调名参数必填**，必须原样传一个字符串。WebView 桥对参数**数量**严格匹配，缺参或错数不会报"参数错误"，而是直接抛 **`Method not found`**。反面示例（自测页曾犯，运行日志报 Method not found）：
 >
 > ```js
 > // ❌ 错误：screenshot 少传回调名 → Error invoking screenshot: Method not found
@@ -393,7 +393,7 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 
 ## 九、可直接复用的入口模板
 
-> **能力自测台（推荐先跑一遍）**：`apk_shell/samples/engine_demo/index.html` 已升级为 **壳能力自测台**（chatkit 风格）——自动枚举全部桥方法、权限状态灯、v8.1 新能力一键实测（全屏/方向/亮度/TTS/壳内文件/选择器/对话框/系统信息/应用 + 通知/前台服务/剪贴板监听/深链/注入/缓存/截图）、实时调试日志流。生成完 HTML 应用后，把它作为"能力冒烟页"参考，或直接复制其 UI 风格（顶栏状态胶囊 / 版本信息条 / 能力列表 / 权限 chip / 分组实测按钮 / 日志控制台）到自己的应用首页。
+> **能力自测台（推荐先跑一遍）**：① `apk_shell/samples/engine_demo/index.html` 已升级为 **壳能力自测台**（chatkit 风格）——自动枚举全部桥方法、权限状态灯、v8.1 新能力一键实测（全屏/方向/亮度/TTS/壳内文件/选择器/对话框/系统信息/应用 + 通知/前台服务/剪贴板监听/深链/注入/缓存/截图）、实时调试日志流。生成完 HTML 应用后，把它作为"能力冒烟页"参考，或直接复制其 UI 风格（顶栏状态胶囊 / 版本信息条 / 能力列表 / 权限 chip / 分组实测按钮 / 日志控制台）到自己的应用首页。② 独立自测工程 `shell_cap_test/index.html`：顶部「一键测试全部 28 项」按钮，一次跑版本/设备/状态栏/文件/剪贴板/TTS/截图/预缓存等非弹窗桥并集中打印日志；弹窗/方向/全屏/退出等破坏性桥单独手动逐测。
 
 ```html
 <!DOCTYPE html>

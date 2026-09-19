@@ -1,10 +1,10 @@
-# HTML 设计规则 —— 面向 SmartQuiz 壳 APK（v7 专业版）
+# HTML 设计规则 —— 面向 SmartQuiz 壳 APK（v8.1 专业版）
 
 > 适用对象：应用内 agent（`export_apk` 工具）与开发者在生成"要导出为 APK 的 HTML"时应遵守的约定。
 > 目标：让内容用满壳的原生能力（**内置引擎库**/JS 桥/权限/分享/网络代理），避免踩 WebView 与安卓兼容坑。
 > 规则分级：**【必须】** 违反会导致打不开或功能异常；**【建议】** 体验优化；**【禁止】** 会造成安全/兼容问题。
-> 壳版本：targetSdk 34 / **minSdk 26（不兼容 Android 8.0 以下旧机）**。
-> **v7 变更**：壳版本号真正编译进 dex（`getShellVersion()`=`"v7"`、`getBridgeApi()`=`3`）；新增剪贴板监听、通知栏、前台服务、深链、权限状态面板、JS 注入通道、离线缓存、渲染进程崩溃保护；内置库新增 highlight.js / DOMPurify。
+> 壳版本：**v8.1** = targetSdk 35 / **minSdk 26（不兼容 Android 8.0 以下旧机）**（Android 15 强制边缘到边）。
+> **v8.1 变更**（v8 基础上 + targetSdk 35）：沉浸全屏（enterFullscreen/isFullscreen，失焦自动重应用）、屏幕方向（setOrientation/getOrientation）、系统亮度（setBrightness/getBrightness）、TTS 朗读（speakText/stopSpeak）、壳内文件（saveFile/readFile/listFiles/deleteFile，仅 htmlDir 内防穿越）、原生日期/时间选择器（pickDate/pickTime）、原生确认框（showDialog）、系统信息（getSystemInfo）、应用探测/打开（isAppInstalled/openApp/openInApp）；壳版本号编译进 dex（`getShellVersion()`=`"v8.1"`、`getBridgeApi()`=`5`）；剪贴板监听、通知栏、前台服务、深链、权限状态面板、JS 注入通道、离线缓存、渲染进程崩溃保护；内置库 highlight.js / DOMPurify。
 
 ---
 
@@ -52,8 +52,49 @@ app/
 └── assets/logo.png
 ```
 
----
 
+## 一·B、多文件工程与模块化表盘（外置协议）【建议】
+
+> 适用：体量较大的页面（如多表盘时钟/工具集）。把单文件拆成 `index.html + css/ + js/` 多文件工程，
+> 用 `export_apk` 的 `html_dir` 参数导出（目录原样打包进 APK，相对路径全部保留）。
+> 参考实现：极光时钟多文件工程（表盘全部外置，见手机工作区 `files/aurora_clock_v5_web/`）。
+
+### 目录规范
+```
+app/                              # 导出时传该目录给 html_dir
+├── index.html                    # 入口：<link> 引 css，<script> 按依赖顺序引 js
+├── css/
+│   ├── base.css                  # 主题变量 / 布局 / 顶栏 / 导航
+│   ├── controls.css              # 通用控件
+│   ├── app.css                   # 各功能页样式
+│   └── faces/                    # 表盘样式（外置：每表盘一个文件）
+│       ├── flip.css / nixie.css / digital.css / analog.css
+│       └── ring.css / dot.css / neon.css / word.css
+└── js/
+    ├── core.js                   # 数据 / 通用工具 / 全局状态
+    ├── audio.js / fx.js          # 音频引擎 / 背景动效
+    ├── faces/
+    │   ├── registry.js           # 表盘注册表 + FACE 调度器（外置协议核心）
+    │   └── flip.js / nixie.js / …（每表盘一个模块文件）
+    ├── alarm.js / timer.js / world.js / settings.js
+    └── app.js                    # 主逻辑 + 初始化（最后加载）
+```
+
+### 表盘外置协议（新增 / 删除表盘零改动主程序）
+- 注册：`ACFace(k, {n, i, build(host), paint(n, S), relayout?})`
+  - `build(host)` 构建表盘 DOM；`paint(n, S)` 每秒渲染；`relayout()` 横竖屏回调（可选）
+- 调度：`FACE.build(k) / FACE.paint(now) / FACE.relayout() / FACE.list()`
+- **新增表盘** = 新建 `js/faces/xx.js`（调 `ACFace`）+ `css/faces/xx.css` + `index.html` 加两个引用；
+  **删除表盘** = 删文件去引用即可
+- 表盘清单由 `registry.js` 的 `FACES`（init 时 `refreshFaces()` 刷新）驱动，设置网格/顶部切换自动跟随
+
+### 多文件注意事项【必须】
+- `index.html` 的 `<script>` **严格按依赖顺序**：core → audio → fx → faces/registry → faces/* → 功能模块 → app（init 在最后）
+- 全局变量跨文件共享（`var S`、`function B()` 等），模块间通过全局函数/注册表协作，避免在文件内重复 `var`
+- 资源引用全部相对路径；HTML 中不要出现 `file:///` 绝对路径
+- 打包验证：`html_dir` 模式下整个目录进 dt.jet，子目录（css/js/faces）原样保留
+
+---
 ## 二、视口与适配【必须】
 
 ```html
@@ -63,6 +104,10 @@ app/
 ```
 
 - **刘海/安全区**：`viewport-fit=cover` 时用 `env(safe-area-inset-top/right/bottom/left)` 撑开固定定位元素
+- **壳 v8.1（targetSdk 35）强制边缘到边【必须适配】**：Android 15 起系统强制，状态栏/导航栏透明，HTML 内容延伸到系统栏后面
+  - 顶栏/底栏必须用安全区撑开，推荐 CSS 变量：`padding-top:calc(var(--sa-t,0px) + 10px)`、`padding-bottom:calc(var(--sa-b,0px) + 5px)`；**--sa-t/--sa-b 由桥高度计算（物理 px ÷DPR，上限 64px 防御），桥不可用才回退 env(safe-area)**（参照极光时钟 syncSafe）
+  - 优先用壳桥高度（`AndroidApp.getStatusBarHeight()/getNavBarHeight()`，比 env() 更可靠），env() 兜底取大值
+  - 深色页面状态栏图标用 `AndroidApp.setStatusBarStyle("light")`（浅色图标）；浅色页面用 `"dark"`
 - 尺寸单位建议 `vw/vh/rem` + `flex/grid` 响应式；少用固定 px 做布局
 - 深色模式：可用 `prefers-color-scheme`，壳不强制
 
@@ -93,8 +138,8 @@ app/
 | **KaTeX** | **0.16.11** | **数学公式渲染引擎（背题场景必备）** |
 | **Marked** | **12.0.1** | **Markdown 渲染引擎** |
 | **Lodash** | **4.17.21** | **实用工具函数库** |
-| **Highlight.js** | **11.9.0** | **代码高亮（v7 新增）** |
-| **DOMPurify** | **3.1.6** | **XSS 净化：`DOMPurify.sanitize(html)` 渲染不可信内容（v7 新增）** |
+| **Highlight.js** | **11.9.0** | **代码高亮** |
+| **DOMPurify** | **3.1.6** | **XSS 净化：`DOMPurify.sanitize(html)` 渲染不可信内容** |
 | Animate.css | 4.1.1 | CSS 动画 |
 | Normalize.css | 8.0.1 | 样式重置 |
 
@@ -161,7 +206,7 @@ app/
 
 ## 四、原生能力桥 `window.AndroidApp`【能力清单】
 
-壳 v7 注入 `window.AndroidApp`（JS 桥，**40 个方法**；完整源码清单见同目录 `APK_SOURCE_GUIDE.md` 第三节）。调用前做可用性检查：
+壳 v8.1 注入 `window.AndroidApp`（JS 桥，**62 个方法**；完整源码清单见同目录 `APK_SOURCE_GUIDE.md` 第三节）。调用前做可用性检查：
 
 ```js
 function bridge() { return window.AndroidApp || null; }
@@ -182,7 +227,7 @@ function bridge() { return window.AndroidApp || null; }
 | `getNetworkType()` | — | string | `wifi` / `mobile` / `none` / `other` / `unknown` |
 | `request(url, method, headersJson, body, callbackName)` | string×5 | — | **无 CORS 网络代理**；回调 `window[callbackName]({status, body})` |
 | `checkPermission(name)` | string | string | 权限是否已授权（`"true"`/`"false"`） |
-| `requestPermission(name, callbackName)` | string×2 | — | 请求运行时权限；回调 `window[callbackName]({permission, granted})` |
+| `requestPermission(name, callbackName)` | string×2 | — | 请求运行时权限；回调 `window[callbackName]({permission, granted, reason, human})`（reason ∈ granted/denied/denied_forever/busy/unknown；human 为中文提示，JS 无需拼错误文案） |
 | `openAppSettings()` | — | — | 打开本应用系统设置页 |
 | `getBatteryLevel()` | — | string | 电量百分比（0-100） |
 | `isCharging()` | — | string | `"true"`/`"false"` |
@@ -234,13 +279,13 @@ window.cbShot = function (res) {
 const pasted = window.AndroidApp.readClipboard();
 ```
 
-### v7 新增能力（版本探测 + 系统交互 + 注入 + 缓存）
+### v8.1 新增能力（版本探测 + 系统交互 + 注入 + 缓存 + 全屏/方向/亮度/TTS/文件/选择器/对话框/系统信息/应用 + 状态栏适配）
 
 **① 版本探测（壳版本号已编译进 dex，无需依赖资源/manifest）**
 ```js
-window.AndroidApp.getShellVersion();   // "v7"
-window.AndroidApp.getBridgeApi();      // 3（桥 API 版本，能力探测用）
-JSON.parse(window.AndroidApp.getVersion());  // {shellVersion:"v7", bridgeApi:3, versionName:"7.0", versionCode:7}
+window.AndroidApp.getShellVersion();   // "v8"
+window.AndroidApp.getBridgeApi();      // 4（桥 API 版本，能力探测用）
+JSON.parse(window.AndroidApp.getVersion());  // {shellVersion:"v8", bridgeApi:4, versionName:"8.0", versionCode:8}
 ```
 
 **② 剪贴板监听（前台可见时有效）**
@@ -278,7 +323,7 @@ window.AndroidApp.openPermissionPanel();
 
 **⑦ JS 注入通道（页面加载完成后自动执行 / 即时注入）**
 ```js
-window.AndroidApp.addScriptInjector("document.body.dataset.shell='v7'"); // 每次 onPageFinished 自动注入
+window.AndroidApp.addScriptInjector("document.body.dataset.shell='v8'"); // 每次 onPageFinished 自动注入
 window.AndroidApp.injectNow("console.log('injected now')");             // 立即执行
 window.AndroidApp.clearScriptInjectors();
 ```
@@ -294,7 +339,7 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 
 **⑨ 渲染进程崩溃保护**：页面渲染进程崩溃不会杀掉整个应用，壳自动回到错误重试页（API 26+ 的 `onRenderProcessGone`），无需 HTML 处理。
 
-> **⚠️ 回调参数铁律（真机实测教训）**：凡签名里带 `callbackName` 的桥方法（`request` / `requestPermission` / `openFilePicker` / `screenshot` / `startClipboardWatch` / `precacheUrl`），**回调名参数必填**，必须原样传一个字符串。WebView 桥对参数**数量**严格匹配，缺参或错数不会报"参数错误"，而是直接抛 **`Method not found`**。反面示例（自测页曾犯，运行日志报 Method not found）：
+> **⚠️ 回调参数铁律（真机实测教训）**：回调参数一律为 **JSON 对象字面量**（`window[cb]({...})`；v8.1 已修复历史版本把对象再包一层引号导致 JS 收到字符串的 bug，`r.dataBase64`/`r.ok` 等属性可直接取）。凡签名里带 `callbackName` 的桥方法（`request` / `requestPermission` / `openFilePicker` / `screenshot` / `startClipboardWatch` / `precacheUrl`），**回调名参数必填**，必须原样传一个字符串。WebView 桥对参数**数量**严格匹配，缺参或错数不会报"参数错误"，而是直接抛 **`Method not found`**。反面示例（自测页曾犯，运行日志报 Method not found）：
 >
 > ```js
 > // ❌ 错误：screenshot 少传回调名 → Error invoking screenshot: Method not found
@@ -323,7 +368,7 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 
 - **返回键**：壳内优先历史回退；无历史时双击退出。页面自身**不要**在 body 上监听返回（无效），
   需要拦截时用 `history.pushState` 增加壳内历史栈
-- 全屏/沉浸：HTML 内自行处理（`document.documentElement.requestFullscreen()` 壳已允许）
+- 全屏/沉浸：**走壳桥** `AndroidApp.enterFullscreen(true/false)`（实测壳无 `onShowCustomView`，`requestFullscreen()` 无效）；失焦后壳自动重新应用沉浸状态。页面初始化可 `isFullscreen()` 对齐状态；壳在切换时会向页面派发 `window.__shellFullscreen` + `shellfullscreenchange` 事件
 - 顶部固定栏注意刘海安全区（见第二节）
 
 ---
@@ -348,7 +393,7 @@ window.AndroidApp.clearCache();      // 清空离线缓存
 
 ## 九、可直接复用的入口模板
 
-> **能力自测台（推荐先跑一遍）**：`apk_shell/samples/engine_demo/index.html` 已升级为 **壳能力自测台**（chatkit 风格）——自动枚举全部桥方法、权限状态灯、v7 新能力一键实测（通知/前台服务/剪贴板监听/深链/注入/缓存/截图）、实时调试日志流。生成完 HTML 应用后，把它作为"能力冒烟页"参考，或直接复制其 UI 风格（顶栏状态胶囊 / 版本信息条 / 能力列表 / 权限 chip / 分组实测按钮 / 日志控制台）到自己的应用首页。
+> **能力自测台（推荐先跑一遍）**：① `apk_shell/samples/engine_demo/index.html` 已升级为 **壳能力自测台**（chatkit 风格）——自动枚举全部桥方法、权限状态灯、v8.1 新能力一键实测（全屏/方向/亮度/TTS/壳内文件/选择器/对话框/系统信息/应用 + 通知/前台服务/剪贴板监听/深链/注入/缓存/截图）、实时调试日志流。生成完 HTML 应用后，把它作为"能力冒烟页"参考，或直接复制其 UI 风格（顶栏状态胶囊 / 版本信息条 / 能力列表 / 权限 chip / 分组实测按钮 / 日志控制台）到自己的应用首页。② 独立自测工程 `shell_cap_test/index.html`：顶部「一键测试全部 28 项」按钮，一次跑版本/设备/状态栏/文件/剪贴板/TTS/截图/预缓存等非弹窗桥并集中打印日志；弹窗/方向/全屏/退出等破坏性桥单独手动逐测。
 
 ```html
 <!DOCTYPE html>

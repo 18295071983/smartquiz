@@ -28,6 +28,10 @@
   button:active { transform: scale(.96); }
   button.wide { grid-column: 1 / -1; }
   button.warn { background: linear-gradient(145deg, #5c3b24, #50331b); }
+  .auto-btn { display: block; width: 100%; margin: 12px 0 0; padding: 14px 6px; font-size: 16px; font-weight: 600;
+    background: linear-gradient(145deg, #0e7490, #155e75); color: #ecfeff; border-radius: 12px;
+    box-shadow: 0 3px 10px rgba(14,116,144,.4); }
+  .auto-btn:active { transform: scale(.97); }
   .log { margin-top: 14px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.1); border-radius: 10px;
     padding: 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.7;
     max-height: 40vh; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
@@ -47,6 +51,7 @@
     <span class="chip" id="chipNet">网络 -</span>
     <span class="chip" id="chipFs">全屏 否</span>
   </div>
+  <button class="auto-btn" onclick="autoRun()">⚡ 一键测试全部（28 项，约 8 秒）</button>
 </header>
 
 <div class="group"><h2>① 版本 / 设备 / 系统</h2><div class="grid">
@@ -146,8 +151,8 @@
   <button onclick="t('getStorageInfo()')">getStorageInfo</button>
 </div></div>
 
-<div class="group"><h2>⚡ 自动连测（非弹窗桥批量）</h2><div class="grid">
-  <button class="wide" onclick="autoRun()">▶ 自动连测 22 项</button>
+<div class="group"><h2>⚡ 一键测试（顶部大按钮已可直达）</h2><div class="grid">
+  <button class="wide" onclick="autoRun()">▶ 一键测试全部（28 项）</button>
 </div></div>
 
 <div class="group"><h2>⑪ 退出</h2><div class="grid">
@@ -297,7 +302,8 @@ function autoRun() {
     ['getSystemInfo'], ['getNetworkType'], ['getOrientation'], ['isFullscreen'],
     ['getStatusBarHeight'], ['getNavBarHeight'], ['getBatteryLevel'], ['isCharging'],
     ['getStorageInfo'], ['readClipboard'], ['getCacheMode'], ['getDeepLink'],
-    ['getBrightness']
+    ['getBrightness'], ['checkPermission', 'camera'], ['isAppInstalled', 'com.tencent.mm'],
+    ['isAppInstalled', 'com.cjhtmldemo.pe2e2e4924b88']
   ];
   syncTests.forEach(function (x) { T(x[0], x.slice(1)); });
   // 写文件
@@ -307,6 +313,15 @@ function autoRun() {
     log('<span class="t">t</span> readFile(auto.txt) → <span class="ok">' + esc(A.readFile('auto.txt')) + '</span>');
     log('<span class="t">t</span> listFiles → <span class="ok">' + esc(A.listFiles('')) + '</span>');
   } catch (e) { log('<span class="err">文件 ERR ' + esc(e.message) + '</span>'); }
+  // 反馈类：TTS 朗读 + 触感（可感知验证）
+  try {
+    log('<span class="t">▶</span> speakText 朗读中……（请听声音）');
+    A.speakText('壳能力自测通过，语音朗读正常。');
+  } catch (e) { log('<span class="err">speakText ERR ' + esc(e.message) + '</span>'); }
+  try { T('vibrate', [400]); } catch (e) { log('<span class="err">vibrate ERR</span>'); }
+  try { T('haptic', []); } catch (e) { log('<span class="err">haptic ERR</span>'); }
+  // TTS 播完自动停
+  setTimeout(function () { try { A.stopSpeak(); } catch (e) { } }, 6000);
   // precache 回调
   var kp = 'cbAutoPre';
   window[kp] = function (r) { log('<span class="t">t</span> precacheUrl → <span class="ok">' + esc(JSON.stringify(r)) + '</span>'); delete window[kp]; };
@@ -319,7 +334,7 @@ function autoRun() {
     delete window[ks];
   };
   try { A.screenshot(ks); } catch (e) { log('<span class="err">screenshot ERR ' + esc(e.message) + '</span>'); }
-  log('<span class="t">▶</span> 自动连测完毕（弹窗类桥请手动逐测）');
+  log('<span class="t">▶</span> 一键测试完毕（弹窗/方向/全屏/退出等破坏性桥请手动逐测）');
 }
 
 // ===== request 专用 =====
