@@ -443,7 +443,7 @@ body.landscape .tpanel{gap:10px}
         <button class="qbtn" data-act="orient">横竖屏</button>
         <button class="qbtn" data-act="immerse">沉浸</button>
         <button class="qbtn" data-act="tick">滴答声</button>
-        <button class="qbtn" data-act="chime">整点报时</button>
+        <button class="qbtn" data-act="chime">整点/半点报时</button>
         <button class="qbtn" data-act="sound">助眠声景</button>
         <button class="qbtn" data-act="fx">换动效</button>
       </div>
@@ -552,7 +552,7 @@ body.landscape .tpanel{gap:10px}
       <div class="blk">
         <div class="bt">声音</div>
         <div class="row"><span>走秒滴答声</span><label class="swi"><input type="checkbox" id="oTick"><i></i></label></div>
-        <div class="row"><span>整点报时</span><label class="swi"><input type="checkbox" id="oChime"><i></i></label></div>
+        <div class="row"><span>整点/半点报时</span><label class="swi"><input type="checkbox" id="oChime"><i></i></label></div>
         <div class="row" id="rowSpeak"><span>语音报时（TTS）</span><label class="swi"><input type="checkbox" id="oSpeak"><i></i></label></div>
         <div class="row"><span>按键音效</span><label class="swi"><input type="checkbox" id="oClick" checked><i></i></label></div>
         <div class="row"><span>闹钟震动</span><label class="swi"><input type="checkbox" id="oVib" checked><i></i></label></div>
@@ -1416,7 +1416,7 @@ function bindSettings(){
     e.addEventListener('change',function(){ S[m[1]]=e.checked; saveState(); if(m[2]) m[2]();
       if(S.click) AU.click(); haptic();
       if(m[1]==='tick') toast(e.checked?'滴答声已开启（每次走秒）':'滴答声已关闭');
-      if(m[1]==='chime') toast(e.checked?'整点报时已开启':'整点报时已关闭');
+      if(m[1]==='chime') toast(e.checked?'整点/半点报时已开启':'整点/半点报时已关闭');
       if(m[1]==='fore') toast(e.checked?'已请求前台服务保活（后台更稳）':'已关闭保活'); }); });
   var br=$('#oBright'); if(br){ br.value=S.bright; br.addEventListener('input',function(){ S.bright=+br.value; applyBright(); saveState(); }); }
   var vl=$('#oVol'); if(vl){ vl.value=S.vol; vl.addEventListener('input',function(){ S.vol=+vl.value; AU.setVol(S.vol/100);
@@ -1442,7 +1442,7 @@ function bindTop(){
     if(a==='orient'){ cycleOrient(); }
     else if(a==='immerse'){ toggleImmerse(); }
     else if(a==='tick'){ S.tick=!S.tick; $('#oTick').checked=S.tick; saveState(); AU.resume(); if(S.tick)AU.tick(); b.classList.toggle('on',S.tick); toast(S.tick?'滴答声已开启':'滴答声已关闭'); }
-    else if(a==='chime'){ S.chime=!S.chime; $('#oChime').checked=S.chime; saveState(); AU.resume(); AU.chime(S.chimeTone); b.classList.toggle('on',S.chime); toast(S.chime?'整点报时已开启':'整点报时已关闭'); }
+    else if(a==='chime'){ S.chime=!S.chime; $('#oChime').checked=S.chime; saveState(); AU.resume(); AU.chime(S.chimeTone); b.classList.toggle('on',S.chime); toast(S.chime?'整点/半点报时已开启':'整点/半点报时已关闭'); }
     else if(a==='sound'){ soundPicker(); }
     else if(a==='fx'){ var idx=0; for(var i=0;i<FXS.length;i++) if(FXS[i].k===S.fx) idx=i; var nx=FXS[(idx+1)%FXS.length]; applyFx(nx.k); toast('动效：'+nx.n); }
   }); });
@@ -1539,12 +1539,43 @@ function bindSystem(){
     });
   });
 }
+/* ==== 极光时钟 v5 报时增强补丁 ==== */
+
+/* 点击报时：单击表盘播报当前时间（双击判定延迟，避免与沉浸切换冲突） */
+var _tapLast=0,_tapTimer=null,_tapDbl=false;
+function speakNow(){
+  var d=new Date(), h=d.getHours(), m=d.getMinutes();
+  var txt='现在是'+h+'点'+(m===0?'整':(m===30?'三十分':(m+'分')));
+  AU.chime(S.chimeTone, m===0?h:0);
+  toast('⏰ '+txt);
+  haptic(16);
+  if(S.tts){ try{ var b=B(); if(b&&b.speakText) b.speakText(txt); }catch(e){} }
+}
+(function(){
+  var host=document.getElementById('faceHost');
+  if(!host) return;
+  host.addEventListener('click',function(e){
+    var t=e.target;
+    if(t.closest&&t.closest('button,input,select,textarea,.tab,.qbtn,.chip,.swi')) return;
+    var now2=Date.now();
+    if(now2-_tapLast<300){ clearTimeout(_tapTimer); _tapLast=0; _tapDbl=true;
+      if(document.body.classList.contains('immerse')) toggleImmerse();
+      setTimeout(function(){ _tapDbl=false; },60); return; }
+    _tapLast=now2;
+    clearTimeout(_tapTimer);
+    _tapTimer=setTimeout(function(){ if(_tapDbl) return; speakNow(); },320);
+  });
+})();
+
 /* ---------- 主循环 ---------- */
 var lastSec=-1,lastMin=-1,lastChip=0;
 function onSecond(now){
   if(S.tick) AU.tick();
-  if(S.chime&&now.getMinutes()===0&&now.getSeconds()===0){ AU.chime(S.chimeTone,now.getHours());
-    if(S.tts){ try{ var _b=B(); if(_b&&_b.speakText) _b.speakText('现在是'+now.getHours()+'点整'); }catch(e){} } }
+  if(S.chime&&(now.getMinutes()===0||now.getMinutes()===30)&&now.getSeconds()===0){
+    var _hm=now.getMinutes();
+    if(_hm===0){ AU.chime(S.chimeTone,now.getHours()); }
+    else { AU.chime(S.chimeTone,0); }
+    if(S.tts){ try{ var _b=B(); if(_b&&_b.speakText) _b.speakText(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分')); }catch(e){} } }
   checkAlarms();
   var pg=$('#pg-world'); if(pg&&pg.classList.contains('on')) renderWorld();
   if(Date.now()-lastChip>15000){ lastChip=Date.now(); updateChips(); }
