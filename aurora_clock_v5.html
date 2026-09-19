@@ -557,6 +557,7 @@ body.landscape .tpanel{gap:10px}
         <div class="row"><span>按键音效</span><label class="swi"><input type="checkbox" id="oClick" checked><i></i></label></div>
         <div class="row"><span>闹钟震动</span><label class="swi"><input type="checkbox" id="oVib" checked><i></i></label></div>
         <div class="row"><span>报时音色</span><select id="oChimeTone"></select></div>
+        <div class="row" id="rowVoice"><span>语音音色</span><select id="oVoice"><option value="">跟随系统</option></select></div>
         <div class="row col"><span>总音量 <b id="vVol">70%</b></span><input type="range" id="oVol" min="0" max="100" value="70"></div>
         <div class="bt small">助眠 / 专注声景（可叠加）</div>
         <div class="grid g-sound" id="soundGrid"></div>
@@ -706,6 +707,23 @@ var AU=(function(){
     var d=0; seq.forEach(function(s){ if(tone==='bell'){ [1,2.02,3.01].forEach(function(m,i){ beep(s[0]*m,s[1],'sine',.13/(i+1),d); }); }
       else beep(s[0],s[1],tone==='piano'?'triangle':'sine',.16,d); d+=s[1]*.62; });
     if(hours&&tone==='bell'){ setTimeout(function(){beep(196,1.6,'sine',.12);},d*1000+120); } }
+  /* 电子语音报时兜底（TTS 不可用时 Web Audio 波形模拟人声：字符→音阶频率+四声滑音） */
+  var ZF={'现':261.63,'在':329.63,'是':392.00,'点':440.00,'分':349.23,'整':392.00,'半':523.25,'十':493.88,
+    '零':293.66,'一':523.25,'二':587.33,'三':659.25,'四':698.46,'五':783.99,'六':880.00,'七':987.77,'八':1046.50,'九':1174.66};
+  var ZT={'现':'dip','在':'up','是':'flat','点':'dip','分':'flat','整':'down','半':'flat','十':'flat',
+    '零':'flat','一':'flat','二':'flat','三':'flat','四':'down','五':'dip','六':'flat','七':'flat','八':'down','九':'up'};
+  function syl(ch,t,dur,gain){ var c=ac(); if(!c)return; var f0=ZF[ch]||440,tone=ZT[ch]||'flat';
+    var r1=1,r2=1; if(tone==='up'){r1=.92;r2=1.12;} else if(tone==='down'){r1=1.1;r2=.85;} else if(tone==='dip'){r1=.95;r2=1.1;}
+    var o=c.createOscillator(),g=c.createGain(),o2=c.createOscillator(),g2=c.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(f0*r1,t); o.frequency.exponentialRampToValueAtTime(f0*r2,t+dur);
+    o2.type='sine'; o2.frequency.setValueAtTime(f0*2*r1,t); o2.frequency.exponentialRampToValueAtTime(f0*2*r2,t+dur);
+    g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(gain||.13,t+.02); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    g2.gain.setValueAtTime(.0001,t); g2.gain.exponentialRampToValueAtTime((gain||.13)*.32,t+.02); g2.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g); g.connect(master); o2.connect(g2); g2.connect(master); o.start(t); o.stop(t+dur+.06); o2.start(t); o2.stop(t+dur+.06); }
+  function say(text){ var c=ac(); if(!c)return; var t=c.currentTime+.06,d=0;
+    for(var i=0;i<text.length;i++){ var ch=text.charAt(i); if(!ZF[ch]){ d+=.05; continue; }
+      var dur=(ch==='现'||ch==='在'||ch==='是')?.16:(ch==='分'||ch==='整')?.3:.23;
+      syl(ch,t+d,dur,.12); d+=dur*.82; } }
   /* 闹钟铃声 */
   function ringOnce(style){ var c=ac(); if(!c)return;
     if(style==='bird'){ [1400,1750,2100,1850].forEach(function(f,i){ setTimeout(function(){ beep(f,.09,'sine',.14);},i*110); }); setTimeout(function(){beep(1200,.12,'sine',.1);},520); }
@@ -757,7 +775,7 @@ var AU=(function(){
   function resume(){ ac(); }
   function isPlaying(type){ return !!beds[type]; }
   function activeBeds(){ return Object.keys(beds); }
-  return {tick:tick,click:click,swipe:swipe,chime:chime,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
+  return {tick:tick,click:click,swipe:swipe,chime:chime,say:say,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
    toggleBed:toggleBed,stopAllBeds:stopAllBeds,setVol:setVol,resume:resume,isPlaying:isPlaying,activeBeds:activeBeds,ctx:function(){return ctx;}};
 })();
 
@@ -976,7 +994,7 @@ var FACE=(function(){
 /* ---------- ⑤ 状态与全局应用 ---------- */
 var S=(function(){
   var def={theme:'aurora',face:'flip',fx:'stars',h24:true,showSec:true,meta:true,smooth:true,glow:true,bright:100,
-   tick:false,chime:false,click:true,vib:true,chimeTone:'ding',vol:70,keep:true,fore:false,orient:'auto',
+   tick:false,chime:false,click:true,vib:true,chimeTone:'ding',ttsVoice:'',vol:70,keep:true,fore:false,orient:'auto',
    alarms:[],cities:['Asia/Shanghai','America/New_York','Europe/London','Asia/Tokyo'],beds:[],quote:0,
    tts:false,sysBright:false};
   var o=store('state')||{}; Object.keys(def).forEach(function(k){ if(o[k]===undefined) o[k]=def[k]; });
@@ -1407,6 +1425,22 @@ function buildChimeSelect(){
   CHIME_TONES.forEach(function(t){ var o=el('option','',t.n); o.value=t.k; sel.appendChild(o); });
   sel.value=S.chimeTone;
 }
+function buildVoiceSelect(){
+  var sel=$('#oVoice'); if(!sel) return;
+  sel.innerHTML=''; var o=el('option','','跟随系统'); o.value=''; sel.appendChild(o);
+  try{
+    var b=B();
+    if(b&&b.ttsVoices){
+      var r=b.ttsVoices();
+      if(r&&r.indexOf('"ok":true')>-1){
+        var v=JSON.parse(r).voices||[];
+        v.forEach(function(x){ var op=el('option','',x.name); op.value=x.id; sel.appendChild(op); });
+        if(v.length===0){ sel.appendChild(el('option','','无可用语音')); }
+      }
+    }
+  }catch(e){}
+  sel.value=S.ttsVoice||'';
+}
 function bindSettings(){
   var map=[['o24','h24',function(){ FACE.build(S.face); }],['oSec','showSec',null],['oMeta','meta',function(){ var m=$('.cmeta'); if(m) m.style.display=S.meta?'':'none'; }],
    ['oSmooth','smooth',null],['oGlow','glow',function(){ applyGlow(); }],['oTick','tick',null],['oChime','chime',null],
@@ -1422,6 +1456,10 @@ function bindSettings(){
   var vl=$('#oVol'); if(vl){ vl.value=S.vol; vl.addEventListener('input',function(){ S.vol=+vl.value; AU.setVol(S.vol/100);
     var v=$('#vVol'); if(v) v.textContent=S.vol+'%'; saveState(); }); }
   var ct=$('#oChimeTone'); if(ct) ct.addEventListener('change',function(){ S.chimeTone=ct.value; saveState(); AU.resume(); AU.chime(ct.value); });
+  var ov=$('#oVoice'); if(ov) ov.addEventListener('change',function(){ S.ttsVoice=ov.value; saveState();
+    try{ var b=B(); if(b&&b.setTtsVoice) b.setTtsVoice(S.ttsVoice||null); }catch(e){}
+    toast(S.ttsVoice?'已切换语音音色，点击表盘试听':'已恢复跟随系统默认音色'); });
+  var rv=$('#rowVoice'); if(rv&&!hasBridgeFn('ttsVoices')) rv.style.display='none';
   var r1=$('#rowSpeak'); if(r1&&!hasBridgeFn('speakText')) r1.style.display='none';
   var r2=$('#rowSysBright'); if(r2&&!hasBridgeFn('setBrightness')) r2.style.display='none';
   var or=$('#oOrient'); if(or){ or.value=S.orient; or.addEventListener('change',function(){ S.orient=or.value; saveState(); applyOrient(true); }); }
@@ -1549,8 +1587,11 @@ function speakNow(){
   AU.chime(S.chimeTone, m===0?h:0);
   toast('⏰ '+txt);
   haptic(16);
-  /* 点击报时：始终尝试语音播报（不依赖 TTS 开关；失败静默，不影响体验） */
-  try{ var b=B(); if(b&&b.speakText) b.speakText(txt); }catch(e){}
+  /* 点击报时：优先 TTS；失败/pending 之外 → Web Audio 电子语音兜底（任何设备都能听到） */
+  var _ok=false;
+  try{ var b=B(); if(b&&b.speakText){ var r=b.speakText(txt,S.ttsVoice||null);
+    _ok = (typeof r==='string' && (r.indexOf('"ok":true')>-1 || r==='pending')); } }catch(e){}
+  if(!_ok) AU.say(txt);
 }
 (function(){
   var host=document.getElementById('faceHost');
@@ -1576,7 +1617,9 @@ function onSecond(now){
     var _hm=now.getMinutes();
     if(_hm===0){ AU.chime(S.chimeTone,now.getHours()); }
     else { AU.chime(S.chimeTone,0); }
-    if(S.tts){ try{ var _b=B(); if(_b&&_b.speakText) _b.speakText(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分')); }catch(e){} } }
+    if(S.tts){ var _ok=false; try{ var _b=B(); if(_b&&_b.speakText){ var _r=_b.speakText(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分'),S.ttsVoice||null);
+      _ok=(typeof _r==='string' && (_r.indexOf('"ok":true')>-1 || _r==='pending')); } }catch(e){}
+      if(!_ok) AU.say(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分')); } }
   checkAlarms();
   var pg=$('#pg-world'); if(pg&&pg.classList.contains('on')) renderWorld();
   if(Date.now()-lastChip>15000){ lastChip=Date.now(); updateChips(); }
@@ -1599,7 +1642,7 @@ FX.start();
   document.documentElement.setAttribute('data-face',S.face);
   document.documentElement.setAttribute('data-fx',S.fx);
   FB: FACE.build(S.face);
-  buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect();
+  buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect(); buildVoiceSelect();
   applyTheme(S.theme); applyFace(S.face,true); applyFx(S.fx,true);
   applyGlow(); applyBright(); applyKeep(); applyOrient(false);
   document.querySelector('.cmeta').style.display=S.meta?'':'none';

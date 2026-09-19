@@ -546,15 +546,18 @@ body.landscape .tpanel{gap:10px}
         <div class="row"><span>指针平滑扫秒</span><label class="swi"><input type="checkbox" id="oSmooth" checked><i></i></label></div>
         <div class="row"><span>氛围呼吸光晕</span><label class="swi"><input type="checkbox" id="oGlow" checked><i></i></label></div>
         <div class="row col"><span>亮度遮罩 <b id="vBright">100%</b></span><input type="range" id="oBright" min="15" max="100" value="100"></div>
+        <div class="row" id="rowSysBright"><span>同步系统亮度</span><label class="swi"><input type="checkbox" id="oSysBright"><i></i></label></div>
       </div>
 
       <div class="blk">
         <div class="bt">声音</div>
         <div class="row"><span>走秒滴答声</span><label class="swi"><input type="checkbox" id="oTick"><i></i></label></div>
         <div class="row"><span>整点/半点报时</span><label class="swi"><input type="checkbox" id="oChime"><i></i></label></div>
+        <div class="row" id="rowSpeak"><span>语音报时（TTS）</span><label class="swi"><input type="checkbox" id="oSpeak"><i></i></label></div>
         <div class="row"><span>按键音效</span><label class="swi"><input type="checkbox" id="oClick" checked><i></i></label></div>
         <div class="row"><span>闹钟震动</span><label class="swi"><input type="checkbox" id="oVib" checked><i></i></label></div>
         <div class="row"><span>报时音色</span><select id="oChimeTone"></select></div>
+        <div class="row" id="rowVoice"><span>语音音色</span><select id="oVoice"><option value="">跟随系统</option></select></div>
         <div class="row col"><span>总音量 <b id="vVol">70%</b></span><input type="range" id="oVol" min="0" max="100" value="70"></div>
         <div class="bt small">助眠 / 专注声景（可叠加）</div>
         <div class="grid g-sound" id="soundGrid"></div>
@@ -605,119 +608,10 @@ body.landscape .tpanel{gap:10px}
 
 <div id="toast"></div>
 
-
-
-<!-- ===== MOCK 壳桥注入（预演 v8 壳；仅本测试页，正式页不含） ===== -->
-<style>
-html.mk-fs::after{content:"[MOCK] 真全屏生效中 —— 系统状态栏/导航栏已隐藏";position:fixed;top:0;left:0;right:0;height:20px;line-height:20px;text-align:center;font:11px/20px sans-serif;background:#134e3a;color:#7ff0c0;z-index:2147482999;pointer-events:none}
-#mkpanel button{font:11px/1 inherit;padding:4px 8px;border-radius:7px;border:1px solid #37507a;background:#1a2740;color:#cfe3ff;cursor:pointer}
-#mkpanel button:active{background:#264066}
-</style>
-<script>
-(function(){
-  "use strict";
-  var LOGS = [], MODE = "v8", FS = false;
-  var V8NAMES = ["enterFullscreen","setOrientation","isFullscreen","getOrientation","setBrightness","getBrightness","speakText","stopSpeak","saveFile","readFile","listFiles","deleteFile","pickDate","pickTime","showDialog","getSystemInfo","isAppInstalled","openApp","openInApp"];
-  var BASE = ["showToast","vibrate","haptic","exit","copyText","shareText","shareFile","openBrowser","setKeepScreenOn","openAppSettings","getVersion","getShellVersion","getBridgeApi","getDeviceInfo","getNetworkType","getBatteryLevel","isCharging","getStorageInfo","checkPermission","requestPermission","openPermissionPanel","request","openFilePicker","screenshot","readClipboard","startClipboardWatch","stopClipboardWatch","showNotification","cancelNotification","cancelAllNotifications","startForeground","stopForeground","getDeepLink","injectNow","addScriptInjector","clearScriptInjectors","setCacheMode","getCacheMode","clearCache","precacheUrl"];
-
-  function pad(n){ return (n < 10 ? "0" : "") + n; }
-  function clock(){ var d = new Date(); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
-  function rec(m, k){ LOGS.push({ t: clock(), m: m, k: k || "" }); if (LOGS.length > 60) LOGS.shift(); paint(); }
-  function esc(s){ return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
-
-  var api = {};
-  api.getShellVersion = function(){ return MODE === "v8" ? "v8-mock" : "v7-mock"; };
-  api.getBridgeApi = function(){ return MODE === "v8" ? "4" : "3"; };
-  api.getVersion = function(){ return JSON.stringify({ shellVersion: api.getShellVersion(), bridgeApi: Number(api.getBridgeApi()), versionName: MODE === "v8" ? "8.0" : "7.0", versionCode: MODE === "v8" ? 8 : 7 }); };
-  api.isFullscreen = function(){ return FS ? "true" : "false"; };
-  api.enterFullscreen = function(on){
-    FS = !!on;
-    if (FS) { document.documentElement.classList.add("mk-fs"); } else { document.documentElement.classList.remove("mk-fs"); }
-    rec("enterFullscreen(" + FS + ")  → 模拟系统栏隐藏/恢复", "ok");
-    return "true";
-  };
-  api.setOrientation = function(o){ rec("setOrientation(\u0027" + o + "\u0027)  → 模拟真转屏", "ok"); return "true"; };
-  api.getOrientation = function(){ return (window.innerWidth >= window.innerHeight) ? "landscape" : "portrait"; };
-  api.setBrightness = function(v){ rec("setBrightness(" + v + ")  → 模拟系统亮度", "ok"); return ""; };
-  api.getBrightness = function(){ return "128"; };
-  api.speakText = function(t){ rec("TTS 朗读: " + (t ? String(t).slice(0, 40) : ""), "ok"); return ""; };
-  api.stopSpeak = function(){ rec("stopSpeak()  → 停止朗读", "ok"); return ""; };
-  api.saveFile = function(path, b64){ if (path && b64) { try { localStorage.setItem("mkfile:" + path, b64); rec("saveFile(\u0027" + path + "\u0027, " + Math.round(b64.length * 3 / 4) + "B)  → 已存", "ok"); } catch(e) { rec("saveFile 失败: " + e.message, "warn"); } } return "{\"ok\":true}"; };
-  api.readFile = function(path){ var v = localStorage.getItem("mkfile:" + path); rec("readFile(\u0027" + path + "\u0027)  → " + (v ? "读到 " + Math.round(v.length * 3 / 4) + "B" : "不存在"), v ? "ok" : "warn"); return v ? "{\"ok\":true,\"dataBase64\":\"" + v + "\"}" : "{\"ok\":false,\"error\":\"文件不存在\"}"; };
-  api.listFiles = function(dir){ var ks = Object.keys(localStorage).filter(function(k){ return k.indexOf("mkfile:") === 0; }).map(function(k){ return k.slice(7); }); rec("listFiles(\u0027" + (dir || "") + "\u0027)  → " + ks.length + " 个文件", "ok"); return "{\"ok\":true,\"files\":" + JSON.stringify(ks.map(function(n){ return { name: n, isDir: false, size: 0 }; })) + "}"; };
-  api.deleteFile = function(path){ var k = "mkfile:" + path; var had = localStorage.getItem(k); if (had) localStorage.removeItem(k); rec("deleteFile(\u0027" + path + "\u0027)  → " + (had ? "已删除" : "不存在"), had ? "ok" : "warn"); return "{\"ok\":" + !!had + "}"; };
-  api.pickDate = function(cb){ rec("pickDate(\u0027" + cb + "\u0027)  → 模拟日期选择（今天）", "ok"); if (window[cb]) { var d = new Date(); window[cb](JSON.stringify({ year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() })); } return ""; };
-  api.pickTime = function(cb){ rec("pickTime(\u0027" + cb + "\u0027)  → 模拟时间选择（当前）", "ok"); if (window[cb]) { var d = new Date(); window[cb](JSON.stringify({ hour: d.getHours(), minute: d.getMinutes() })); } return ""; };
-  api.showDialog = function(title, msg, cb){ rec("showDialog(\u0027" + title + "\u0027, \u0027" + (msg || "").slice(0, 30) + "\u0027, \u0027" + cb + "\u0027)", "ok"); if (window[cb] && window.confirm(title + " —— " + msg)) { window[cb]("{\"result\":\"ok\"}"); } else if (window[cb]) { window[cb]("{\"result\":\"cancel\"}"); } return ""; };
-  api.getSystemInfo = function(){ return JSON.stringify({ language: navigator.language || "zh-CN", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai", androidVersion: "mock", brand: "mock", device: "mock", statusBarHeight: 24, navigationBarHeight: 48 }); };
-  api.isAppInstalled = function(pkg){ rec("isAppInstalled(\u0027" + pkg + "\u0027)  → mock false", "warn"); return "false"; };
-  api.openApp = function(pkg){ rec("openApp(\u0027" + pkg + "\u0027)  → 模拟打开应用", "ok"); return ""; };
-  api.openInApp = function(url){ rec("openInApp(\u0027" + (url || "").slice(0, 50) + "\u0027)  → 模拟壳内跳转", "ok"); return ""; };
-  api.showToast = function(m){ rec("showToast(\u0027" + m + "\u0027)"); return ""; };
-  api.vibrate = function(ms){ rec("vibrate(" + ms + ")"); return ""; };
-  api.haptic = function(){ rec("haptic()"); return ""; };
-  api.setKeepScreenOn = function(b){ rec("setKeepScreenOn(" + b + ")"); return ""; };
-  api.setCacheMode = function(m){ rec("setCacheMode(" + m + ")"); return ""; };
-  api.getDeviceInfo = function(){ return JSON.stringify({ screenWidth: Math.round(window.screen.width), screenHeight: Math.round(window.screen.height), density: window.devicePixelRatio || 3, sdkInt: 34, model: "mock-device" }); };
-  api.checkPermission = function(){ return "true"; };
-  api.requestPermission = function(n, cb){ rec("requestPermission(\u0027" + n + "\u0027)"); if (window[cb]) { window[cb]({ permission: n, granted: true }); } return ""; };
-  BASE.forEach(function(n){ if (!api[n]) { api[n] = function(){ rec("AndroidApp." + n + "(...)  [mock]"); return ""; }; } });
-
-  function install(){
-    var names = BASE.slice().concat(MODE === "v8" ? V8NAMES : []);
-    var obj = {};
-    names.forEach(function(n){ if (api[n]) { obj[n] = api[n]; } });
-    window.AndroidApp = obj;
-    rec("已注入 mock 壳 " + MODE + " —— " + names.length + " 个桥" + (MODE === "v8" ? "（v8 全量 59：全屏/方向/亮度/TTS/文件/选择器/对话框/系统/应用）" : "（v7 无全屏桥）"), "hd");
-  }
-  function setMode(m){ MODE = m; FS = false; document.documentElement.classList.remove("mk-fs"); LOGS.length = 0; install(); paint(); }
-
-  function paint(){
-    var box = document.getElementById("mklog");
-    if (!box) { return; }
-    var h = "";
-    for (var i = LOGS.length - 1; i >= 0; i--) {
-      var e = LOGS[i];
-      var c = e.k === "ok" ? "#6f9" : (e.k === "hd" ? "#7cf" : "#cde");
-      h += "<div style=\u0027display:flex;gap:6px\u0027><span style=\u0027color:#667\u0027>" + e.t + "</span><span style=\u0027color:" + c + ";word-break:break-all\u0027>" + esc(e.m) + "</span></div>";
-    }
-    box.innerHTML = h || "<div style=\u0027color:#667\u0027>（暂无调用）</div>";
-    var st = document.getElementById("mkstate");
-    if (st) { st.textContent = MODE + " · " + (FS ? "全屏中" : "窗口") + " · 桥 " + (window.AndroidApp ? Object.keys(window.AndroidApp).length : 0); }
-  }
-
-  function build(){
-    var p = document.createElement("div");
-    p.id = "mkpanel";
-    p.style.cssText = "position:fixed;right:8px;bottom:8px;z-index:2147483000;width:min(330px,88vw);max-height:42vh;overflow:auto;font:12px/1.55 ui-monospace,Menlo,monospace;background:rgba(9,13,24,.93);color:#cfe3ff;border:1px solid #2b3d5e;border-radius:12px;padding:8px 10px;-webkit-backdrop-filter:blur(6px)";
-    p.innerHTML = "<div style=\u0027display:flex;align-items:center;gap:6px;margin-bottom:6px\u0027><b style=\u0027color:#7fd7ff\u0027>MOCK 壳</b><span id=\u0027mkstate\u0027 style=\u0027flex:1;font-size:11px;color:#8aa0bb\u0027></span><button id=\u0027mkbtn\u0027>切 v7</button><button id=\u0027mkclr\u0027>清</button></div><div id=\u0027mklog\u0027></div><div style=\u0027margin-top:7px;display:flex;gap:6px\u0027><button id=\u0027mkfs\u0027 style=\u0027flex:1\u0027>试标准 Fullscreen API</button><button id=\u0027mkapi\u0027>看桥清单</button></div>";
-    document.body.appendChild(p);
-    document.getElementById("mkbtn").onclick = function(){ setMode(MODE === "v8" ? "v7" : "v8"); this.textContent = MODE === "v8" ? "切 v7" : "切 v8"; };
-    document.getElementById("mkclr").onclick = function(){ LOGS.length = 0; paint(); };
-    document.getElementById("mkfs").onclick = function(){
-      try {
-        if (document.fullscreenElement) { document.exitFullscreen(); rec("exitFullscreen() 已调用", "ok"); return; }
-        if (!document.documentElement.requestFullscreen) { rec("本 WebView 无 requestFullscreen API", "warn"); return; }
-        var pr = document.documentElement.requestFullscreen();
-        if (pr && pr.then) { pr.then(function(){ rec("requestFullscreen() 成功 → 壳支持标准 Fullscreen API", "ok"); }, function(e){ rec("requestFullscreen() 被拒：" + (e && e.message ? e.message : e), "warn"); }); }
-        else { rec("requestFullscreen() 已调用（无 Promise）"); }
-      } catch (e) { rec("requestFullscreen 异常：" + e.message, "warn"); }
-    };
-    document.getElementById("mkapi").onclick = function(){
-      var ks = window.AndroidApp ? Object.keys(window.AndroidApp) : [];
-      rec("当前 " + ks.length + " 个桥：" + ks.join(","), "hd");
-    };
-    paint();
-  }
-
-  install();
-  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", build); } else { build(); }
-})();
-</script>
 <script>
 
 /* =====================================================================
-   极光时钟 Aurora Clock —— 单文件应用（v5 mocktest · v8 壳 59 桥预演）
+   极光时钟 Aurora Clock —— 单文件应用（v5 · 适配 v8 壳 59 桥：全屏/方向/亮度/TTS/原生选择器/对话框/系统信息/壳内文件）
    模块：① 数据/工具 ② 音频引擎 ③ 背景动效 ④ 表盘 ⑤ 功能页 ⑥ 初始化
    ===================================================================== */
 /* ---------- ① 数据 ---------- */
@@ -813,6 +707,23 @@ var AU=(function(){
     var d=0; seq.forEach(function(s){ if(tone==='bell'){ [1,2.02,3.01].forEach(function(m,i){ beep(s[0]*m,s[1],'sine',.13/(i+1),d); }); }
       else beep(s[0],s[1],tone==='piano'?'triangle':'sine',.16,d); d+=s[1]*.62; });
     if(hours&&tone==='bell'){ setTimeout(function(){beep(196,1.6,'sine',.12);},d*1000+120); } }
+  /* 电子语音报时兜底（TTS 不可用时 Web Audio 波形模拟人声：字符→音阶频率+四声滑音） */
+  var ZF={'现':261.63,'在':329.63,'是':392.00,'点':440.00,'分':349.23,'整':392.00,'半':523.25,'十':493.88,
+    '零':293.66,'一':523.25,'二':587.33,'三':659.25,'四':698.46,'五':783.99,'六':880.00,'七':987.77,'八':1046.50,'九':1174.66};
+  var ZT={'现':'dip','在':'up','是':'flat','点':'dip','分':'flat','整':'down','半':'flat','十':'flat',
+    '零':'flat','一':'flat','二':'flat','三':'flat','四':'down','五':'dip','六':'flat','七':'flat','八':'down','九':'up'};
+  function syl(ch,t,dur,gain){ var c=ac(); if(!c)return; var f0=ZF[ch]||440,tone=ZT[ch]||'flat';
+    var r1=1,r2=1; if(tone==='up'){r1=.92;r2=1.12;} else if(tone==='down'){r1=1.1;r2=.85;} else if(tone==='dip'){r1=.95;r2=1.1;}
+    var o=c.createOscillator(),g=c.createGain(),o2=c.createOscillator(),g2=c.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(f0*r1,t); o.frequency.exponentialRampToValueAtTime(f0*r2,t+dur);
+    o2.type='sine'; o2.frequency.setValueAtTime(f0*2*r1,t); o2.frequency.exponentialRampToValueAtTime(f0*2*r2,t+dur);
+    g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(gain||.13,t+.02); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    g2.gain.setValueAtTime(.0001,t); g2.gain.exponentialRampToValueAtTime((gain||.13)*.32,t+.02); g2.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    o.connect(g); g.connect(master); o2.connect(g2); g2.connect(master); o.start(t); o.stop(t+dur+.06); o2.start(t); o2.stop(t+dur+.06); }
+  function say(text){ var c=ac(); if(!c)return; var t=c.currentTime+.06,d=0;
+    for(var i=0;i<text.length;i++){ var ch=text.charAt(i); if(!ZF[ch]){ d+=.05; continue; }
+      var dur=(ch==='现'||ch==='在'||ch==='是')?.16:(ch==='分'||ch==='整')?.3:.23;
+      syl(ch,t+d,dur,.12); d+=dur*.82; } }
   /* 闹钟铃声 */
   function ringOnce(style){ var c=ac(); if(!c)return;
     if(style==='bird'){ [1400,1750,2100,1850].forEach(function(f,i){ setTimeout(function(){ beep(f,.09,'sine',.14);},i*110); }); setTimeout(function(){beep(1200,.12,'sine',.1);},520); }
@@ -864,7 +775,7 @@ var AU=(function(){
   function resume(){ ac(); }
   function isPlaying(type){ return !!beds[type]; }
   function activeBeds(){ return Object.keys(beds); }
-  return {tick:tick,click:click,swipe:swipe,chime:chime,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
+  return {tick:tick,click:click,swipe:swipe,chime:chime,say:say,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
    toggleBed:toggleBed,stopAllBeds:stopAllBeds,setVol:setVol,resume:resume,isPlaying:isPlaying,activeBeds:activeBeds,ctx:function(){return ctx;}};
 })();
 
@@ -1083,8 +994,9 @@ var FACE=(function(){
 /* ---------- ⑤ 状态与全局应用 ---------- */
 var S=(function(){
   var def={theme:'aurora',face:'flip',fx:'stars',h24:true,showSec:true,meta:true,smooth:true,glow:true,bright:100,
-   tick:false,chime:false,click:true,vib:true,chimeTone:'ding',vol:70,keep:true,fore:false,orient:'auto',
-   alarms:[],cities:['Asia/Shanghai','America/New_York','Europe/London','Asia/Tokyo'],beds:[],quote:0};
+   tick:false,chime:false,click:true,vib:true,chimeTone:'ding',ttsVoice:'',vol:70,keep:true,fore:false,orient:'auto',
+   alarms:[],cities:['Asia/Shanghai','America/New_York','Europe/London','Asia/Tokyo'],beds:[],quote:0,
+   tts:false,sysBright:false};
   var o=store('state')||{}; Object.keys(def).forEach(function(k){ if(o[k]===undefined) o[k]=def[k]; });
   return o;
 })();
@@ -1113,7 +1025,8 @@ function applyFx(k,silent){ S.fx=k; document.documentElement.setAttribute('data-
   if(!silent&&S.click) AU.swipe(); }
 function applyGlow(){ document.body.classList.toggle('noglow',!S.glow); }
 function applyBright(){ var m=$('#mask'); if(m) m.style.opacity=((100-S.bright)/100*0.82).toFixed(3);
-  var v=$('#vBright'); if(v) v.textContent=S.bright+'%'; }
+  var v=$('#vBright'); if(v) v.textContent=S.bright+'%';
+  if(S.sysBright){ try{ var b=B(); if(b&&b.setBrightness) b.setBrightness(Math.round(S.bright/100*255)); }catch(e){} } }
 function applyKeep(){ try{ var b=B(); if(b&&b.setKeepScreenOn) b.setKeepScreenOn(!!S.keep); }catch(e){} }
 function applyFore(){ try{ var b=B(); if(!b)return;
    if(S.fore&&b.startForeground) b.startForeground('极光时钟运行中','闹钟与声景保持后台运行');
@@ -1512,10 +1425,27 @@ function buildChimeSelect(){
   CHIME_TONES.forEach(function(t){ var o=el('option','',t.n); o.value=t.k; sel.appendChild(o); });
   sel.value=S.chimeTone;
 }
+function buildVoiceSelect(){
+  var sel=$('#oVoice'); if(!sel) return;
+  sel.innerHTML=''; var o=el('option','','跟随系统'); o.value=''; sel.appendChild(o);
+  try{
+    var b=B();
+    if(b&&b.ttsVoices){
+      var r=b.ttsVoices();
+      if(r&&r.indexOf('"ok":true')>-1){
+        var v=JSON.parse(r).voices||[];
+        v.forEach(function(x){ var op=el('option','',x.name); op.value=x.id; sel.appendChild(op); });
+        if(v.length===0){ sel.appendChild(el('option','','无可用语音')); }
+      }
+    }
+  }catch(e){}
+  sel.value=S.ttsVoice||'';
+}
 function bindSettings(){
   var map=[['o24','h24',function(){ FACE.build(S.face); }],['oSec','showSec',null],['oMeta','meta',function(){ var m=$('.cmeta'); if(m) m.style.display=S.meta?'':'none'; }],
    ['oSmooth','smooth',null],['oGlow','glow',function(){ applyGlow(); }],['oTick','tick',null],['oChime','chime',null],
-   ['oClick','click',null],['oVib','vib',null],['oKeep','keep',function(){ applyKeep(); }],['oFore','fore',function(){ applyFore(); }]];
+   ['oClick','click',null],['oVib','vib',null],['oKeep','keep',function(){ applyKeep(); }],['oFore','fore',function(){ applyFore(); }],
+   ['oSpeak','tts',null],['oSysBright','sysBright',function(){ applyBright(); }]];
   map.forEach(function(m){ var e=$('#'+m[0]); if(!e) return; e.checked=!!S[m[1]];
     e.addEventListener('change',function(){ S[m[1]]=e.checked; saveState(); if(m[2]) m[2]();
       if(S.click) AU.click(); haptic();
@@ -1526,6 +1456,12 @@ function bindSettings(){
   var vl=$('#oVol'); if(vl){ vl.value=S.vol; vl.addEventListener('input',function(){ S.vol=+vl.value; AU.setVol(S.vol/100);
     var v=$('#vVol'); if(v) v.textContent=S.vol+'%'; saveState(); }); }
   var ct=$('#oChimeTone'); if(ct) ct.addEventListener('change',function(){ S.chimeTone=ct.value; saveState(); AU.resume(); AU.chime(ct.value); });
+  var ov=$('#oVoice'); if(ov) ov.addEventListener('change',function(){ S.ttsVoice=ov.value; saveState();
+    try{ var b=B(); if(b&&b.setTtsVoice) b.setTtsVoice(S.ttsVoice||null); }catch(e){}
+    toast(S.ttsVoice?'已切换语音音色，点击表盘试听':'已恢复跟随系统默认音色'); });
+  var rv=$('#rowVoice'); if(rv&&!hasBridgeFn('ttsVoices')) rv.style.display='none';
+  var r1=$('#rowSpeak'); if(r1&&!hasBridgeFn('speakText')) r1.style.display='none';
+  var r2=$('#rowSysBright'); if(r2&&!hasBridgeFn('setBrightness')) r2.style.display='none';
   var or=$('#oOrient'); if(or){ or.value=S.orient; or.addEventListener('change',function(){ S.orient=or.value; saveState(); applyOrient(true); }); }
   $$('.tab').forEach(function(t){ t.addEventListener('click',function(){ go(t.getAttribute('data-pg')); }); });
   $$('.page').forEach(function(p){ p.addEventListener('click',function(e){ var t=e.target.closest? e.target.closest('button'):null; if(t&&t.parentNode&&t.parentNode.classList.contains('rbtn')){} }); });
@@ -1619,7 +1555,9 @@ function bindSystem(){
         rows.push(['机型',(j.manufacturer||'')+' '+(j.model||'')]);
         rows.push(['Android',j.sdkInt||'—']); rows.push(['屏幕',(j.screenWidth||'?')+'×'+(j.screenHeight||'?')+' @'+(j.densityDpi||'?')+'dpi']);
         rows.push(['启动模式',j.launchMode||'—']); }
-      if(b.getNetworkType) rows.push(['网络',b.getNetworkType()]); } }catch(e){ rows.push(['壳','不可用']); }
+      if(b.getNetworkType) rows.push(['网络',b.getNetworkType()]);
+      if(b.getSystemInfo){ try{ var si=JSON.parse(b.getSystemInfo()); if(si.language) rows.push(['语言',si.language]); if(si.timeZone) rows.push(['系统时区',si.timeZone]); if(si.androidVersion) rows.push(['Android版本',si.androidVersion]); if(si.statusBarHeight) rows.push(['状态栏',si.statusBarHeight+'px']); }catch(e){} }
+      var _bn=Object.keys(b).filter(function(k){return typeof b[k]==='function';}).length; rows.push(['原生桥',_bn+' 个']); } }catch(e){ rows.push(['壳','不可用']); }
     rows.push(['主题',themeOf(S.theme).n]); rows.push(['表盘',faceOf(S.face).n]); rows.push(['动效',S.fx]);
     rows.push(['闹钟数',S.alarms.length+' 个']); rows.push(['时区',Intl.DateTimeFormat().resolvedOptions().timeZone||'本地']);
     rows.push(['声音引擎','Web Audio 实时合成']); rows.push(['本地时间',new Date().toLocaleString('zh-CN')]);
@@ -1628,14 +1566,19 @@ function bindSystem(){
     openSheet('设备与版本信息',d,function(root){ $('#infOk',root).addEventListener('click',closeSheet); });
   });
   $('#btnReset').addEventListener('click',function(){
+    var doReset=function(){ try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('ac_')===0) localStorage.removeItem(k); }); }catch(e){} location.reload(); };
+    try{ var b=B(); if(b&&b.showDialog){ b.showDialog('恢复默认设置','将清空已保存的主题、表盘、闹钟与设置，恢复到初始状态。此操作不可撤销。','__resetCb');
+      window.__resetCb=function(r){ try{ if(r&&r.result==='ok') doReset(); }catch(e){} }; return; } }catch(e){}
     var d=el('div','','<div class="fld" style="text-align:center;font-size:13.5px;line-height:1.7">将清空已保存的主题、表盘、闹钟与设置，恢复到初始状态。<br>此操作不可撤销。</div>'+
       '<div class="brow"><button class="rbtn ghost" id="rsNo">取消</button><button class="rbtn danger" id="rsYes">确认重置</button></div>');
     openSheet('恢复默认设置',d,function(root){
       $('#rsNo',root).addEventListener('click',closeSheet);
-      $('#rsYes',root).addEventListener('click',function(){ try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('ac_')===0) localStorage.removeItem(k); }); }catch(e){} location.reload(); });
+      $('#rsYes',root).addEventListener('click',doReset);
     });
   });
 }
+/* ==== 极光时钟 v5 报时增强补丁 ==== */
+
 /* 点击报时：单击表盘播报当前时间（双击判定延迟，避免与沉浸切换冲突） */
 var _tapLast=0,_tapTimer=null,_tapDbl=false;
 function speakNow(){
@@ -1644,8 +1587,11 @@ function speakNow(){
   AU.chime(S.chimeTone, m===0?h:0);
   toast('⏰ '+txt);
   haptic(16);
-  /* 点击报时：始终尝试语音播报（不依赖 TTS 开关；失败静默，不影响体验） */
-  try{ var b=B(); if(b&&b.speakText) b.speakText(txt); }catch(e){}
+  /* 点击报时：优先 TTS；失败/pending 之外 → Web Audio 电子语音兜底（任何设备都能听到） */
+  var _ok=false;
+  try{ var b=B(); if(b&&b.speakText){ var r=b.speakText(txt,S.ttsVoice||null);
+    _ok = (typeof r==='string' && (r.indexOf('"ok":true')>-1 || r==='pending')); } }catch(e){}
+  if(!_ok) AU.say(txt);
 }
 (function(){
   var host=document.getElementById('faceHost');
@@ -1662,6 +1608,7 @@ function speakNow(){
     _tapTimer=setTimeout(function(){ if(_tapDbl) return; speakNow(); },320);
   });
 })();
+
 /* ---------- 主循环 ---------- */
 var lastSec=-1,lastMin=-1,lastChip=0;
 function onSecond(now){
@@ -1670,7 +1617,9 @@ function onSecond(now){
     var _hm=now.getMinutes();
     if(_hm===0){ AU.chime(S.chimeTone,now.getHours()); }
     else { AU.chime(S.chimeTone,0); }
-    if(S.tts){ try{ var _b=B(); if(_b&&_b.speakText) _b.speakText(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分')); }catch(e){} } }
+    if(S.tts){ var _ok=false; try{ var _b=B(); if(_b&&_b.speakText){ var _r=_b.speakText(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分'),S.ttsVoice||null);
+      _ok=(typeof _r==='string' && (_r.indexOf('"ok":true')>-1 || _r==='pending')); } }catch(e){}
+      if(!_ok) AU.say(_hm===0?('现在是'+now.getHours()+'点整'):('现在是'+now.getHours()+'点三十分')); } }
   checkAlarms();
   var pg=$('#pg-world'); if(pg&&pg.classList.contains('on')) renderWorld();
   if(Date.now()-lastChip>15000){ lastChip=Date.now(); updateChips(); }
@@ -1693,7 +1642,7 @@ FX.start();
   document.documentElement.setAttribute('data-face',S.face);
   document.documentElement.setAttribute('data-fx',S.fx);
   FB: FACE.build(S.face);
-  buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect();
+  buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect(); buildVoiceSelect();
   applyTheme(S.theme); applyFace(S.face,true); applyFx(S.fx,true);
   applyGlow(); applyBright(); applyKeep(); applyOrient(false);
   document.querySelector('.cmeta').style.display=S.meta?'':'none';

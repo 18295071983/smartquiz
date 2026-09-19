@@ -1555,6 +1555,49 @@ public class MainActivity extends Activity {
             return "{\"ready\":" + ttsReady + ",\"error\":" + (ttsError == null ? "null" : org.json.JSONObject.quote(ttsError)) + ",\"engines\":" + org.json.JSONObject.quote(engineSummary()) + "}";
         }
 
+        /** 系统 TTS 音色列表（JSON：{"ok":true,"voices":[{id:"sys:xxx",name:"xxx（系统·locale）"}]}，中文优先） */
+        @JavascriptInterface
+        public String ttsVoices() {
+            try {
+                if (tts == null || !ttsReady) {
+                    if (tts == null) initTts();
+                    return "{\"ok\":false,\"error\":\"tts_not_ready\",\"voices\":[]}";
+                }
+                java.util.Set<android.speech.tts.Voice> voices = tts.getVoices();
+                org.json.JSONArray arr = new org.json.JSONArray();
+                if (voices != null) {
+                    java.util.HashSet<String> seen = new java.util.HashSet<>();
+                    java.util.List<String[]> list = new java.util.ArrayList<>();
+                    for (android.speech.tts.Voice v : voices) {
+                        if (v == null || v.getName() == null || v.getName().isEmpty()) continue;
+                        if (!seen.add(v.getName())) continue;
+                        String loc = v.getLocale() != null ? v.getLocale().toString() : "";
+                        list.add(new String[]{ "sys:" + v.getName(), v.getName() + "（系统·" + loc + "）", loc.toLowerCase() });
+                    }
+                    list.sort((a, b) -> {
+                        boolean az = a[2].contains("zh") || a[2].contains("cmn");
+                        boolean bz = b[2].contains("zh") || b[2].contains("cmn");
+                        return Boolean.compare(bz, az);
+                    });
+                    for (String[] s : list) {
+                        org.json.JSONObject o = new org.json.JSONObject();
+                        o.put("id", s[0]); o.put("name", s[1]);
+                        arr.put(o);
+                    }
+                }
+                return "{\"ok\":true,\"voices\":" + arr.toString() + "}";
+            } catch (Exception e) {
+                return "{\"ok\":false,\"error\":\"exception\"}";
+            }
+        }
+
+        /** 设置 TTS 音色（sys: 前缀；立即应用，后续 speakText 默认使用；null=回到自动锁定中文音色） */
+        @JavascriptInterface
+        public void setTtsVoice(final String voiceId) {
+            pendingVoiceId = (voiceId != null && !voiceId.isEmpty()) ? voiceId : null;
+            runOnUiThread(() -> applyVoice(pendingVoiceId));
+        }
+
         /** 停止语音朗读 */
         @JavascriptInterface
         public void stopSpeak() {
