@@ -155,6 +155,8 @@ public class MainActivity extends Activity {
     private volatile String pendingVoiceId = null;
     private volatile String pendingTtsEngine = null;
     private String appliedVoiceName = null;
+    /** 稳定中文默认音色缓存（查一次固定，避免每次 setVoice 音色漂移） */
+    private String defaultZhVoiceName = null;
     /** TTS 错误描述（初始化失败/语言缺失等；null=正常） */
     private volatile String ttsError = null;
 
@@ -241,8 +243,9 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) { }
     }
 
-    /** 寻找稳定的中文默认音色（zh/cmn 优先，回退任意） */
+    /** 寻找稳定的中文默认音色（zh/cmn 优先，回退任意；结果缓存，整轮/跨轮音色一致） */
     private String findDefaultZhVoice() {
+        if (defaultZhVoiceName != null) return defaultZhVoiceName;
         try {
             java.util.Set<android.speech.tts.Voice> voices = tts.getVoices();
             if (voices == null) return null;
@@ -252,9 +255,13 @@ public class MainActivity extends Activity {
                 if (fallback == null) fallback = v.getName();
                 if (v.getLocale() != null) {
                     String l = v.getLocale().toString().toLowerCase();
-                    if (l.contains("zh") || l.contains("cmn")) return v.getName();
+                    if (l.contains("zh") || l.contains("cmn")) {
+                        defaultZhVoiceName = v.getName();
+                        return defaultZhVoiceName;
+                    }
                 }
             }
+            defaultZhVoiceName = fallback;
             return fallback;
         } catch (Exception e) { return null; }
     }
@@ -1630,7 +1637,7 @@ public class MainActivity extends Activity {
             pendingTtsEngine = (engineName != null && !engineName.isEmpty()) ? engineName : null;
             pendingVoiceId = null;
             try { if (tts != null) { tts.shutdown(); tts = null; } } catch (Exception ignored) { }
-            ttsReady = false; ttsError = null; pendingTts = null;
+            ttsReady = false; ttsError = null; pendingTts = null; appliedVoiceName = null; defaultZhVoiceName = null;
             initTts();
         }
 
