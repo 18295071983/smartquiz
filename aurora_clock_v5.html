@@ -1549,7 +1549,7 @@ function speakNow(){
   AU.chime(S.chimeTone, m===0?h:0);
   toast('⏰ '+txt);
   haptic(16);
-  /* 点击报时：始终尝试语音播报（不依赖 TTS 开关）；返回 pending 时壳初始化完自动补播 */
+  /* 点击报时：始终尝试语音播报（不依赖 TTS 开关；失败静默，不影响体验） */
   try{ var b=B(); if(b&&b.speakText) b.speakText(txt); }catch(e){}
 }
 (function(){
