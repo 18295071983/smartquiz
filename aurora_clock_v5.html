@@ -1549,7 +1549,8 @@ function speakNow(){
   AU.chime(S.chimeTone, m===0?h:0);
   toast('⏰ '+txt);
   haptic(16);
-  if(S.tts){ try{ var b=B(); if(b&&b.speakText) b.speakText(txt); }catch(e){} }
+  /* 点击报时：始终尝试语音播报（不依赖 TTS 开关）；返回 pending 时壳初始化完自动补播 */
+  try{ var b=B(); if(b&&b.speakText) b.speakText(txt); }catch(e){}
 }
 (function(){
   var host=document.getElementById('faceHost');
