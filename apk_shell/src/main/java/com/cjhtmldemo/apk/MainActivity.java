@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
     /** 壳版本（真正编译进 dex；getVersion()/getShellVersion() 返回，打包后无需改资源即可识别） */
-    private static final String SHELL_VERSION = "v8.1";
+    private static final String SHELL_VERSION = "v9.10";
     /** 桥 API 版本（新增/变更桥方法时递增，HTML 可据此做能力探测） */
     private static final int BRIDGE_API = 5;
     /** 与 ApkPacker 一致的 AES 密钥 */
@@ -146,50 +146,166 @@ public class MainActivity extends Activity {
     private String deepLink = "";
     /** v8：沉浸全屏状态（失焦后重新应用） */
     private boolean fsImmersive = false;
-    /** v8：TTS 朗读器（speakText 使用，延迟初始化） */
+    /** v9.x：TTS 朗读器（speakText 使用，延迟初始化） */
     private android.speech.tts.TextToSpeech tts;
     /** TTS 引擎是否就绪（异步初始化完成标志） */
     private volatile boolean ttsReady = false;
     /** 引擎初始化期间待播文本（初始化完成后自动补播） */
     private volatile String pendingTts = null;
+    private volatile String pendingVoiceId = null;
+    private volatile String pendingTtsEngine = null;
     /** TTS 错误描述（初始化失败/语言缺失等；null=正常） */
     private volatile String ttsError = null;
+    /** 已应用音色名（避免重复 setVoice 触发引擎状态抖动） */
+    private String appliedVoiceName = null;
+    /** 稳定中文默认音色缓存（查一次固定，避免每次 setVoice 音色漂移） */
+    private String defaultZhVoiceName = null;
+    /** TTS 合成 wav 播放器（媒体流，主应用同款：合成文件→播放） */
+    private android.media.MediaPlayer ttsPlayer = null;
 
     private String mainFile = "index.html";
     private String remoteUrl = "";
 
-    /* ==================== TTS 增强（v8.1）：预热 + 音频属性 + 失败可感知 ==================== */
+    /* ==================== TTS 增强（v9.x）：预热 + AppContext 绑定 + 合成wav播放 + 音色/引擎选择 ==================== */
     private void warmupTts() { try { if (tts == null) initTts(); } catch (Exception ignored) { } }
 
     private void initTts() {
         try {
-            tts = new android.speech.tts.TextToSpeech(this, status -> {
-                if (status == android.speech.tts.TextToSpeech.SUCCESS && tts != null) {
-                    try {
-                        int r = tts.setLanguage(Locale.CHINA);
-                        if (r == android.speech.tts.TextToSpeech.LANG_MISSING_DATA
-                                || r == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
-                            tts.setLanguage(Locale.getDefault());
-                        }
-                        tts.setAudioAttributes(new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
-                        ttsReady = true; ttsError = null;
-                        if (pendingTts != null) { speakNow(pendingTts); pendingTts = null; }
-                    } catch (Exception e) { ttsError = "lang:" + e.getMessage(); }
-                } else {
-                    ttsReady = false; ttsError = "init:status=" + status;
+            String eng = (pendingTtsEngine != null && !pendingTtsEngine.isEmpty()) ? pendingTtsEngine : null;
+            android.util.Log.i("HtmlShell", "TTS init 引擎=" + (eng == null ? "默认" : eng));
+            if (eng == null) {
+                tts = new android.speech.tts.TextToSpeech(getApplicationContext(), status -> onTtsInit(status));
+            } else {
+                tts = new android.speech.tts.TextToSpeech(getApplicationContext(), status -> onTtsInit(status), eng);
+            }
+        } catch (Exception e) { ttsError = "init_ex:" + e.getMessage(); scheduleTtsRetry(); }
+    }
+
+    private void onTtsInit(int status) {
+        if (status == android.speech.tts.TextToSpeech.SUCCESS && tts != null) {
+            try {
+                int r = tts.setLanguage(Locale.CHINA);
+                if (r == android.speech.tts.TextToSpeech.LANG_MISSING_DATA
+                        || r == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts.setLanguage(Locale.getDefault());
                 }
-            });
-        } catch (Exception e) { ttsError = "init_ex:" + e.getMessage(); }
+                tts.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+                ttsReady = true; ttsError = null;
+                applyVoice(pendingVoiceId);
+                if (pendingTts != null) { speakNow(pendingTts); pendingTts = null; }
+            } catch (Exception e) { ttsError = "lang:" + e.getMessage(); }
+        } else {
+            ttsReady = false; ttsError = "init:status=" + status + ";" + engineSummary();
+            android.util.Log.e("HtmlShell", "TTS 初始化失败 status=" + status + " " + ttsError);
+            scheduleTtsRetry();
+        }
+    }
+
+    /** 系统 TTS 引擎摘要（诊断用）：列出可用引擎 */
+    private String engineSummary() {
+        try {
+            if (tts == null) return "无TTS引擎实例";
+            java.util.List<android.speech.tts.TextToSpeech.EngineInfo> es = tts.getEngines();
+            if (es == null || es.isEmpty()) return "无TTS引擎";
+            StringBuilder sb = new StringBuilder();
+            for (android.speech.tts.TextToSpeech.EngineInfo e : es) {
+                if (sb.length() > 0) sb.append(",");
+                sb.append(e.name);
+            }
+            return "引擎[" + sb + "]";
+        } catch (Exception e) { return "engine_query_fail"; }
+    }
+
+    /** TTS 初始化失败后延迟重试（引擎可能未就绪/被杀） */
+    private void scheduleTtsRetry() {
+        if (tts != null) return;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (tts == null) { try { initTts(); } catch (Exception ignored) { } }
+        }, 2000);
+    }
+
+    /** 应用 TTS 音色：sys: 前缀指定；否则锁定稳定中文音色（避免音色漂移/无声） */
+    private void applyVoice(String voiceId) {
+        if (tts == null || !ttsReady) return;
+        String target = null;
+        if (voiceId != null && voiceId.startsWith("sys:")) target = voiceId.substring(4);
+        else target = findDefaultZhVoice();
+        if (target == null || target.equals(appliedVoiceName)) return;
+        try {
+            java.util.Set<android.speech.tts.Voice> voices = tts.getVoices();
+            if (voices == null) return;
+            for (android.speech.tts.Voice v : voices) {
+                if (v != null && target.equals(v.getName())) { tts.setVoice(v); appliedVoiceName = target; return; }
+            }
+        } catch (Exception ignored) { }
+    }
+
+    /** 寻找稳定的中文默认音色（zh/cmn 优先，回退任意；结果缓存，整轮/跨轮音色一致） */
+    private String findDefaultZhVoice() {
+        if (defaultZhVoiceName != null) return defaultZhVoiceName;
+        try {
+            java.util.Set<android.speech.tts.Voice> voices = tts.getVoices();
+            if (voices == null) return null;
+            String fallback = null;
+            for (android.speech.tts.Voice v : voices) {
+                if (v == null || v.getName() == null || v.getName().isEmpty()) continue;
+                if (fallback == null) fallback = v.getName();
+                if (v.getLocale() != null) {
+                    String l = v.getLocale().toString().toLowerCase();
+                    if (l.contains("zh") || l.contains("cmn")) {
+                        defaultZhVoiceName = v.getName();
+                        return defaultZhVoiceName;
+                    }
+                }
+            }
+            defaultZhVoiceName = fallback;
+            return fallback;
+        } catch (Exception e) { return null; }
     }
 
     private boolean speakNow(String text) {
         try {
-            int rc = tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH,
-                    null, "tts_" + System.currentTimeMillis());
-            return rc == android.speech.tts.TextToSpeech.SUCCESS;
+            stopTtsPlayer();
+            tts.setPitch(1.0f); tts.setSpeechRate(1.0f);
+            final File out = new File(getCacheDir(), "tts_" + System.currentTimeMillis() + ".wav");
+            final String uid = "tts_" + System.currentTimeMillis();
+            tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                @Override public void onStart(String utteranceId) { }
+                @Override public void onDone(String utteranceId) { playWav(out); }
+                @Override public void onError(String utteranceId) { try { out.delete(); } catch (Exception ignored) { } }
+                @Override public void onError(String utteranceId, int errorCode) { try { out.delete(); } catch (Exception ignored) { } }
+            });
+            int rc = tts.synthesizeToFile(text, new android.os.Bundle(), out, uid);
+            android.util.Log.i("HtmlShell", "TTS 合成启动 rc=" + rc);
+            if (rc != android.speech.tts.TextToSpeech.SUCCESS) {
+                try { out.delete(); } catch (Exception ignored) { }
+                return false;
+            }
+            return true;
         } catch (Exception e) { return false; }
+    }
+
+    /* 播放合成的 wav（媒体流，与音效一致；主应用同款：合成文件→播放） */
+    private void playWav(final File f) {
+        runOnUiThread(() -> {
+            try {
+                stopTtsPlayer();
+                android.media.MediaPlayer mp = new android.media.MediaPlayer();
+                ttsPlayer = mp;
+                mp.setDataSource(f.getAbsolutePath());
+                mp.setOnCompletionListener(m -> { try { m.release(); } catch (Exception ignored) { } try { f.delete(); } catch (Exception ignored) { } if (ttsPlayer == m) ttsPlayer = null; });
+                mp.setOnErrorListener((m, what, extra) -> { try { m.release(); } catch (Exception ignored) { } try { f.delete(); } catch (Exception ignored) { } if (ttsPlayer == m) ttsPlayer = null; return true; });
+                mp.prepare();
+                mp.start();
+            } catch (Exception e) {
+                try { f.delete(); } catch (Exception ignored) { }
+            }
+        });
+    }
+    private void stopTtsPlayer() {
+        try { if (ttsPlayer != null) { ttsPlayer.stop(); ttsPlayer.release(); ttsPlayer = null; } } catch (Exception ignored) { }
     }
 
     @Override
@@ -216,6 +332,8 @@ public class MainActivity extends Activity {
         new Thread(this::bootstrap, "ShellBootstrap").start();
         // TTS 预热：避免首次报时/朗读等待引擎初始化
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::warmupTts, 1200);
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::warmupTts, 3500);
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::warmupTts, 7000);
     }
 
     @Override
@@ -1457,29 +1575,114 @@ public class MainActivity extends Activity {
             }
         }
 
-        /** 语音朗读（TTS，中文；重复调用会打断上一次）
+        /** 语音朗读（TTS，中文；voiceId 可选：sys: 前缀指定系统音色，null=锁定默认中文音色）
          *  返回 JSON 状态：{"ok":true} / {"ok":false,"error":...} / "pending"（初始化中，完成后自动补播）
          *  老壳返回 undefined（void）——JS 侧需兼容 */
         @JavascriptInterface
-        public String speakText(final String text) {
+        public String speakText(final String text) { return speakText(text, null); }
+
+        @JavascriptInterface
+        public String speakText(final String text, final String voiceId) {
             if (text == null || text.isEmpty()) return "{\"ok\":false,\"error\":\"empty\"}";
             try {
+                if (voiceId != null && !voiceId.isEmpty()) pendingVoiceId = voiceId;
                 if (tts == null) { pendingTts = text; initTts(); return "pending"; }
-                else if (ttsReady) { return speakNow(text) ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"speak_fail\"}"; }
-                else { pendingTts = text; return "pending"; }
+                if (!ttsReady) {
+                    for (int i = 0; i < 50 && !ttsReady && tts != null; i++) {
+                        try { Thread.sleep(100); } catch (InterruptedException ignored) { break; }
+                    }
+                }
+                if (tts == null || !ttsReady) { pendingTts = text; return "pending"; }
+                applyVoice(pendingVoiceId);
+                return speakNow(text) ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"speak_fail\"}";
             } catch (Exception e) { return "{\"ok\":false,\"error\":\"exception\"}"; }
         }
 
         /** TTS 状态查询：{"ready":true/false,"error":null|"..."} */
         @JavascriptInterface
         public String ttsState() {
-            return "{\"ready\":" + ttsReady + ",\"error\":" + (ttsError == null ? "null" : org.json.JSONObject.quote(ttsError)) + "}";
+            return "{\"ready\":" + ttsReady + ",\"error\":" + (ttsError == null ? "null" : org.json.JSONObject.quote(ttsError)) + ",\"engines\":" + org.json.JSONObject.quote(engineSummary()) + "}";
+        }
+
+        /** 系统 TTS 引擎列表（JSON：{"ok":true,"engines":[{name,label}]}） */
+        @JavascriptInterface
+        public String ttsEngines() {
+            try {
+                android.speech.tts.TextToSpeech tmp = tts != null ? tts : new android.speech.tts.TextToSpeech(getApplicationContext(), s -> { });
+                java.util.List<android.speech.tts.TextToSpeech.EngineInfo> es = tmp.getEngines();
+                if (tts == null) { try { tmp.shutdown(); } catch (Exception ignored) { } }
+                org.json.JSONArray arr = new org.json.JSONArray();
+                if (es != null) {
+                    for (android.speech.tts.TextToSpeech.EngineInfo e : es) {
+                        org.json.JSONObject o = new org.json.JSONObject();
+                        o.put("name", e.name); o.put("label", e.label != null ? e.label : e.name);
+                        arr.put(o);
+                    }
+                }
+                return "{\"ok\":true,\"engines\":" + arr.toString() + "}";
+            } catch (Exception e) {
+                return "{\"ok\":false,\"error\":\"exception\"}";
+            }
+        }
+
+        /** 指定引擎重新初始化 TTS（name 为引擎包名；空=跟随系统默认） */
+        @JavascriptInterface
+        public void setTtsEngine(final String engineName) {
+            pendingTtsEngine = (engineName != null && !engineName.isEmpty()) ? engineName : null;
+            pendingVoiceId = null;
+            try { if (tts != null) { tts.shutdown(); tts = null; } } catch (Exception ignored) { }
+            ttsReady = false; ttsError = null; pendingTts = null; appliedVoiceName = null; defaultZhVoiceName = null;
+            initTts();
+        }
+
+        /** 系统 TTS 音色列表（JSON：{"ok":true,"voices":[{id:"sys:xxx",name:"xxx（系统·locale）"}]}，中文优先） */
+        @JavascriptInterface
+        public String ttsVoices() {
+            try {
+                if (tts == null || !ttsReady) {
+                    if (tts == null) initTts();
+                    return "{\"ok\":false,\"error\":\"tts_not_ready\",\"voices\":[]}";
+                }
+                java.util.Set<android.speech.tts.Voice> voices = tts.getVoices();
+                org.json.JSONArray arr = new org.json.JSONArray();
+                if (voices != null) {
+                    java.util.HashSet<String> seen = new java.util.HashSet<>();
+                    java.util.List<String[]> list = new java.util.ArrayList<>();
+                    for (android.speech.tts.Voice v : voices) {
+                        if (v == null || v.getName() == null || v.getName().isEmpty()) continue;
+                        if (!seen.add(v.getName())) continue;
+                        String loc = v.getLocale() != null ? v.getLocale().toString() : "";
+                        list.add(new String[]{ "sys:" + v.getName(), v.getName() + "（系统·" + loc + "）", loc.toLowerCase() });
+                    }
+                    list.sort((a, b) -> {
+                        boolean az = a[2].contains("zh") || a[2].contains("cmn");
+                        boolean bz = b[2].contains("zh") || b[2].contains("cmn");
+                        return Boolean.compare(bz, az);
+                    });
+                    for (String[] s : list) {
+                        org.json.JSONObject o = new org.json.JSONObject();
+                        o.put("id", s[0]); o.put("name", s[1]);
+                        arr.put(o);
+                    }
+                }
+                return "{\"ok\":true,\"voices\":" + arr.toString() + "}";
+            } catch (Exception e) {
+                return "{\"ok\":false,\"error\":\"exception\"}";
+            }
+        }
+
+        /** 设置 TTS 音色（sys: 前缀；立即应用，后续 speakText 默认使用；null=回到自动锁定中文音色） */
+        @JavascriptInterface
+        public void setTtsVoice(final String voiceId) {
+            pendingVoiceId = (voiceId != null && !voiceId.isEmpty()) ? voiceId : null;
+            runOnUiThread(() -> applyVoice(pendingVoiceId));
         }
 
         /** 停止语音朗读 */
         @JavascriptInterface
         public void stopSpeak() {
             pendingTts = null;
+            stopTtsPlayer();
             runOnUiThread(() -> {
                 try { if (tts != null) tts.stop(); } catch (Exception ignored) { }
             });

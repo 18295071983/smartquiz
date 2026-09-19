@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
     /** 壳版本（真正编译进 dex；getVersion()/getShellVersion() 返回，打包后无需改资源即可识别） */
-    private static final String SHELL_VERSION = "v9.0"; /* v9.0：63桥 + TTS音色选择/引擎诊断 + 失败静默 */
+    private static final String SHELL_VERSION = "v9.10"; /* v9.0：63桥 + TTS音色选择/引擎诊断 + 失败静默 */
     /** 桥 API 版本（新增/变更桥方法时递增，HTML 可据此做能力探测） */
     private static final int BRIDGE_API = 5;
     /** 与 ApkPacker 一致的 AES 密钥 */
