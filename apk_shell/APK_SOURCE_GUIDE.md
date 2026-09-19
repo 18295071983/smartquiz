@@ -15,7 +15,7 @@ apk_shell/                                  # 壳源码工程（独立 Gradle �
 ├── src/main/
 │   ├── AndroidManifest.xml                 # 壳清单（权限、FileProvider、MainActivity、ForegroundBridgeService）
 │   ├── java/com/cjhtmldemo/apk/
-│   │   ├── MainActivity.java               # ★ 核心：WebView 壳 + 全部 JS 桥（AppBridge，62 个 @JavascriptInterface）
+│   │   ├── MainActivity.java               # ★ 核心：WebView 壳 + 全部 JS 桥（AppBridge，63 个 @JavascriptInterface）
 │   │   ├── HtmlHttpServer.java             # 本地 HTTP 服务（localhost 候选端口加载 html，防跨目录）
 │   │   └── ForegroundBridgeService.java    # 前台服务（桥 startForeground/stopForeground 的实现载体）
 │   └── res/                                # 图标（res/RJ.png 等）、strings（应用名占位 SmartQuizExportAppName）
@@ -36,7 +36,7 @@ Agent 调用 export_apk（ExportApkTool.java）
   → ApkPacker.buildApkFromUrl / buildApkFromDir / buildApk（com.oilquiz.app.util.export.ApkPacker）
       ├─ HTML 内容 → ZIP → AES-128-CBC 加密（key=MyHtmlEditorKey1，IV=文件头 16 字节）→ dt.jet
       ├─ 替换进壳模板 base.apk（assets/dt.jet + assets/manifest.json）
-      ├─ resources.arsc 原位改应用名（SmartQuizExportAppName → app_name，UTF-8 字节 ≤22）
+      ├─ resources.arsc 原位改应用名（SmartQuizExportAppName → 指定应用名，UTF-8 字节 ≤22）
       ├─ res 图标替换（按 apk_shell_meta.json 的 icon_entry）
       ├─ AXML 字符串池等长替换包名（com.cjhtmldemo.xxxxxxxxxxxxx → com.cjhtmldemo.p<12位sha1hex>）
       └─ export.keystore 重签名
@@ -69,7 +69,7 @@ Agent 调用 export_apk（ExportApkTool.java）
 - 环境变量可省略：默认相对路径 `src/main/assets/apk_shell/base.apk` 与同目录 `export.keystore`
 - 输出关键日志：`label patched` / `package patched` / `arsc self-check` / `signed APK`
 
-```## 三、JS 桥完整清单（62 个，源码为准）
+```## 三、JS 桥完整清单（63 个，源码为准）
 
 暴露对象：`webView.addJavascriptInterface(new AppBridge(), "AndroidApp")` →
 页面内使用 `window.AndroidApp.<method>(...)`，调用前建议判空：
@@ -176,7 +176,7 @@ function bridge() { return window.AndroidApp || null; }
 | `openApp(packageName)` | string | — | 打开其他应用（按包名） |
 | `openInApp(url)` | string | — | 壳内打开指定 URL（路由到主 WebView） |
 
-> 说明：上表为 v8 及以下（历史）能力；当前 v8.1 全量 **62 个方法**（以本清单为权威）；`HTML_DESIGN_RULES.md` 第四节为常用能力速查。
+> 说明：上表为 v8 及以下（历史）能力；当前 v8.1 全量 **63 个方法**（以本清单为权威）；`HTML_DESIGN_RULES.md` 第四节为常用能力速查。
 
 ### v8.1 新增：状态栏适配 / 沉浸高度（3）——targetSdk 35 强制边缘到边
 
@@ -233,7 +233,7 @@ window.AndroidApp.requestPermission("camera", "cbPerm");
 ## 六、常见坑
 
 - **回调桥缺参** → 页面报 `Method not found`：确认 callbackName 非空且函数挂在 `window` 上。
-- **方法数口径**：桥方法数以本清单 **62 个**为准（v8.1 全量，源码提取）；勿按旧文档"40 个/59 个"猜测。
+- **方法数口径**：桥方法数以本清单 **63 个**为准（v8.1 全量，源码提取）；勿按旧文档"40 个/59 个"猜测。
 - **shareFile 仅本地模式**可用（远程 url 模式无壳内文件）。
 - **本地模式**禁止 `file://` 绝对路径、禁止目录外访问（壳有路径穿越防护；`saveFile/readFile/listFiles/deleteFile` 同理，仅限 htmlDir 内）。
 - **应用名超 22 UTF-8 字节**（中文约 7 字）会导出报错（arsc 占位等长补丁限制）。

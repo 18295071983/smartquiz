@@ -206,7 +206,7 @@ app/                              # 导出时传该目录给 html_dir
 
 ## 四、原生能力桥 `window.AndroidApp`【能力清单】
 
-壳 v8.1 注入 `window.AndroidApp`（JS 桥，**62 个方法**；完整源码清单见同目录 `APK_SOURCE_GUIDE.md` 第三节）。调用前做可用性检查：
+壳 v8.1 注入 `window.AndroidApp`（JS 桥，**63 个方法**；完整源码清单见同目录 `APK_SOURCE_GUIDE.md` 第三节）。调用前做可用性检查：
 
 ```js
 function bridge() { return window.AndroidApp || null; }
