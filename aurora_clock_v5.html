@@ -649,7 +649,7 @@ var RINGERS=[
  {k:'classic',n:'经典电子铃'},{k:'bird',n:'清晨鸟鸣'},{k:'piano',n:'钢琴轻奏'},{k:'drum',n:'鼓点渐强'},
  {k:'siren',n:'警报强醒'},{k:'gentle',n:'柔和渐强'},{k:'bell',n:'寺庙钟声'},{k:'arcade',n:'8bit 街机'}
 ];
-var CHIME_TONES=[{k:'ding',n:'清脆铃'},{k:'bell',n:'铜钟'},{k:'piano',n:'钢琴'},{k:'beep',n:'电子哔'},{k:'glass',n:'玻璃杯'}];
+var CHIME_TONES=[{k:'ding',n:'清脆铃'},{k:'bell',n:'铜钟'},{k:'piano',n:'钢琴'},{k:'beep',n:'电子哔'},{k:'glass',n:'玻璃杯'},{k:'chime',n:'风铃'},{k:'gong',n:'铜锣'},{k:'xyl',n:'木琴'},{k:'harp',n:'竖琴'},{k:'organ',n:'管风琴'},{k:'flute',n:'长笛'},{k:'bird',n:'鸟鸣'},{k:'melody',n:'钟楼旋律'},{k:'soft',n:'轻柔'},{k:'pulse',n:'脉搏滴'},{k:'arcade',n:'街机'}];
 var CITIES=[
  {n:'北京',tz:'Asia/Shanghai'},{n:'东京',tz:'Asia/Tokyo'},{n:'首尔',tz:'Asia/Seoul'},
  {n:'新加坡',tz:'Asia/Singapore'},{n:'迪拜',tz:'Asia/Dubai'},{n:'孟买',tz:'Asia/Kolkata'},
@@ -698,7 +698,22 @@ var AU=(function(){
   /* 表盘切换 / 提示 */
   function swipe(){ beep(520,.09,'sine',.12); beep(880,.12,'sine',.1,.06); }
   /* 报时音色 */
-  function chime(tone,hours){ var c=ac(); if(!c)return; var seq;
+  function chime(tone,hours){ var c=ac(); if(!c)return; var i;
+    if(tone==='gong'){ beep(98,.9,'sine',.22); beep(147,.7,'sine',.1,.02);
+      if(hours){ for(i=0;i<hours;i++){ (function(i){ setTimeout(function(){ beep(65,1.2,'sine',.15); },i*950); })(i); } } return; }
+    if(tone==='organ'){ var oseq=[[261.6,.7],[329.6,.7],[392,.9],[523.3,1.1]]; var od=0;
+      oseq.forEach(function(s){ beep(s[0],s[1],'sine',.09,od); beep(s[0]*1.5,s[1]*.7,'sine',.05,od); od+=s[1]*.6; }); return; }
+    if(tone==='flute'){ [523.3,587.3,659.3,784].forEach(function(f,i){ setTimeout(function(){ beep(f,.28,'sine',.13); beep(f*1.01,.24,'sine',.04,.012); },i*180); }); return; }
+    if(tone==='harp'){ [523.3,659.3,784,1046.5,1318.5].forEach(function(f,i){ setTimeout(function(){ beep(f,.5,'sine',.1); },i*140); }); return; }
+    if(tone==='xyl'){ [784,988,1174.7,1568].forEach(function(f,i){ setTimeout(function(){ beep(f,.13,'square',.08); beep(f*1.5,.07,'sine',.035,.02); },i*105); }); return; }
+    if(tone==='bird'){ [1500,1900,1400,2100,1700].forEach(function(f,i){ setTimeout(function(){ beep(f,.07,'sine',.11); },i*90); }); setTimeout(function(){ beep(2400,.1,'sine',.07); },520); return; }
+    if(tone==='melody'){ var mseq=[[659.3,.18],[493.9,.18],[587.3,.18],[784,.5]]; var md=0;
+      mseq.forEach(function(s){ beep(s[0],s[1],'triangle',.12,md); beep(s[0]*2,s[1]*.5,'sine',.035,md); md+=s[1]*.8; }); return; }
+    if(tone==='soft'){ [659.3,783.99,987.77].forEach(function(f,i){ setTimeout(function(){ beep(f,.34,'sine',.08); },i*200); }); return; }
+    if(tone==='pulse'){ for(i=0;i<3;i++){ (function(i){ setTimeout(function(){ beep(1320,.05,'square',.09); },i*130); })(i); } return; }
+    if(tone==='arcade'){ [523.3,523.3,784,784,1046.5,1046.5,1568].forEach(function(f,i){ setTimeout(function(){ beep(f,.09,'square',.09); },i*95); }); return; }
+    if(tone==='chime'){ [1046.5,1318.5,1568,2093].forEach(function(f,i){ setTimeout(function(){ beep(f,.6,'sine',.065); },i*160); }); return; }
+    var seq;
     if(tone==='bell'){ seq=[[196,.9],[294,.9],[392,1.2]]; }
     else if(tone==='piano'){ seq=[[523,.5],[659,.5],[784,.7],[1046,.9]]; }
     else if(tone==='beep'){ seq=[[880,.14],[880,.14],[880,.3]]; }
@@ -1597,6 +1612,7 @@ function speakNow(){
   var host=document.getElementById('faceHost');
   if(!host) return;
   host.addEventListener('click',function(e){
+    if(_swipeBlock){ _swipeBlock=false; return; }
     var t=e.target;
     if(t.closest&&t.closest('button,input,select,textarea,.tab,.qbtn,.chip,.swi')) return;
     var now2=Date.now();
@@ -1608,6 +1624,31 @@ function speakNow(){
     _tapTimer=setTimeout(function(){ if(_tapDbl) return; speakNow(); },320);
   });
 })();
+
+/* 滑动切换表盘（横向手势；弹层打开时不响应；滑完屏蔽随后的 click 报时） */
+function nextFace(){ var list=FACES; if(!list||!list.length)return;
+  var cur=(FACE.cur?FACE.cur():S.face), idx=0;
+  list.forEach(function(f,i){ if(f.k===cur) idx=i; });
+  applyFace(list[(idx+1)%list.length].k); }
+function prevFace(){ var list=FACES; if(!list||!list.length)return;
+  var cur=(FACE.cur?FACE.cur():S.face), idx=0;
+  list.forEach(function(f,i){ if(f.k===cur) idx=i; });
+  applyFace(list[(idx-1+list.length)%list.length].k); }
+var _swipe={x:null,y:null,t:0},_swipeBlock=false;
+document.addEventListener('touchstart',function(e){
+  if(e.touches.length!==1||document.querySelector('.sheet.on')) return;
+  _swipe.x=e.touches[0].clientX; _swipe.y=e.touches[0].clientY; _swipe.t=Date.now();
+},{passive:true});
+document.addEventListener('touchend',function(e){
+  if(_swipe.x===null) return;
+  var dx=e.changedTouches[0].clientX-_swipe.x;
+  var dy=e.changedTouches[0].clientY-_swipe.y;
+  var dt=Date.now()-_swipe.t;
+  _swipe.x=null; _swipe.y=null;
+  if(dt>800||Math.abs(dx)<60||Math.abs(dy)>Math.abs(dx)*1.15) return;
+  _swipeBlock=true; setTimeout(function(){ _swipeBlock=false; },400);
+  if(dx<0) nextFace(); else prevFace();
+},{passive:true});
 
 /* ---------- 主循环 ---------- */
 var lastSec=-1,lastMin=-1,lastChip=0;
