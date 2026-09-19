@@ -9,7 +9,8 @@ var AU=(function(){
     chime_glass:'audio/chime_glass.ogg', chime_beep:'audio/chime_beep.ogg',
     click_soft:'audio/click_soft.ogg', click_pop:'audio/click_pop.ogg', click_wood:'audio/click_wood.ogg',
     click_digital:'audio/click_digital.ogg', click_drop:'audio/click_drop.ogg',
-    swipe:'audio/swipe.ogg', ok:'audio/ok.ogg', err:'audio/err.ogg', tick:'audio/tick.ogg'
+    swipe:'audio/swipe.ogg', ok:'audio/ok.ogg', err:'audio/err.ogg', tick:'audio/tick.ogg',
+    tick_key:'audio/click_soft.ogg', tick_soft:'audio/tick_soft.ogg', tick_wood:'audio/tick.ogg', tick_drop:'audio/click_drop.ogg'
   }, _audio = {};
   function playFile(name){
     var url = AF[name]; if (!url) return false;
@@ -32,11 +33,20 @@ var AU=(function(){
   function beep(f,dur,type,gain,delay){ var c=ac(); if(!c)return; var t=c.currentTime+(delay||0);
     var o=c.createOscillator(),g=c.createGain(); o.type=type||'sine'; o.frequency.setValueAtTime(f,t);
     env(g,t,.012,gain||.16,dur||.18); o.connect(g); g.connect(master); o.start(t); o.stop(t+(dur||.18)+.08); }
-  /* 走秒滴答（内置文件优先） */
-  function tick(){ if (playFile('tick')) return; var c=ac(); if(!c)return; var t=c.currentTime; var o=c.createOscillator(),g=c.createGain();
-    o.type='square'; o.frequency.setValueAtTime(1800,t); o.frequency.exponentialRampToValueAtTime(700,t+.03);
+  /* 走秒滴答（多音色；elec=合成电子滴答，其他=内置文件优先、失败回落合成） */
+  var tickTone = 'elec';
+  function tick(){
+    var tn = tickTone || 'elec';
+    if (tn !== 'elec' && playFile('tick_' + tn)) return;
+    var c=ac(); if(!c)return; var t=c.currentTime; var o=c.createOscillator(),g=c.createGain();
+    if (tn === 'key') { o.type='triangle'; o.frequency.setValueAtTime(1250,t); o.frequency.exponentialRampToValueAtTime(520,t+.028); }
+    else if (tn === 'soft') { o.type='sine'; o.frequency.setValueAtTime(980,t); o.frequency.exponentialRampToValueAtTime(420,t+.04); }
+    else if (tn === 'wood') { o.type='square'; o.frequency.setValueAtTime(430,t); o.frequency.exponentialRampToValueAtTime(210,t+.05); }
+    else if (tn === 'drop') { o.type='sine'; o.frequency.setValueAtTime(1900,t); o.frequency.exponentialRampToValueAtTime(720,t+.05); }
+    else { o.type='square'; o.frequency.setValueAtTime(1800,t); o.frequency.exponentialRampToValueAtTime(700,t+.03); }
     g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.075,t+.003); g.gain.exponentialRampToValueAtTime(.0001,t+.055);
     o.connect(g); g.connect(master); o.start(t); o.stop(t+.07); }
+  function setTickTone(t){ tickTone = t || 'elec'; }
   /* 按键音（多音色；内置文件优先） */
   function click(){
     var tn = clickTone || 'soft';
@@ -120,6 +130,6 @@ var AU=(function(){
   function resume(){ ac(); }
   function isPlaying(type){ return !!beds[type]; }
   function activeBeds(){ return Object.keys(beds); }
-  return {tick:tick,click:click,swipe:swipe,ok:ok,err:err,setClickTone:setClickTone,chime:chime,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
+  return {tick:tick,click:click,swipe:swipe,ok:ok,err:err,setClickTone:setClickTone,setTickTone:setTickTone,chime:chime,startRing:startRing,stopRing:stopRing,ringOnce:ringOnce,
    toggleBed:toggleBed,stopAllBeds:stopAllBeds,setVol:setVol,resume:resume,isPlaying:isPlaying,activeBeds:activeBeds,ctx:function(){return ctx;}};
 })();

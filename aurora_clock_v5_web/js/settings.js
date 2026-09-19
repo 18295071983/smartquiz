@@ -53,6 +53,11 @@ function buildClickToneSelect() {
   CLICK_TONES.forEach(function (t) { var o = el('option', '', t.n); o.value = t.k; sel.appendChild(o); });
   sel.value = S.clickTone; AU.setClickTone(S.clickTone);
 }
+function buildTickToneSelect() {
+  var sel = $('#oTickTone'); if (!sel) return; sel.innerHTML = '';
+  TICK_TONES.forEach(function (t) { var o = el('option', '', t.n); o.value = t.k; sel.appendChild(o); });
+  sel.value = S.tickTone; AU.setTickTone(S.tickTone);
+}
 function bindSettings() {
   var map = [['o24', 'h24', function () { FACE.build(S.face); }], ['oSec', 'showSec', null], ['oMeta', 'meta', function () { var m = $('.cmeta'); if (m) m.style.display = S.meta ? '' : 'none'; }],
   ['oSmooth', 'smooth', null], ['oGlow', 'glow', function () { applyGlow(); }], ['oTick', 'tick', null], ['oChime', 'chime', null],
@@ -75,6 +80,7 @@ function bindSettings() {
   }
   var ct = $('#oChimeTone'); if (ct) ct.addEventListener('change', function () { S.chimeTone = ct.value; saveState(); AU.resume(); AU.chime(ct.value); });
   var kt = $('#oClickTone'); if (kt) kt.addEventListener('change', function () { S.clickTone = kt.value; saveState(); AU.setClickTone(kt.value); AU.resume(); if (S.click) AU.click(); });
+  var tt = $('#oTickTone'); if (tt) tt.addEventListener('change', function () { S.tickTone = tt.value; saveState(); AU.setTickTone(tt.value); AU.resume(); if (S.tick) AU.tick(); });
   var r1 = $('#rowSpeak'); if (r1 && !hasBridgeFn('speakText')) r1.style.display = 'none';
   var r2 = $('#rowSysBright'); if (r2 && !hasBridgeFn('setBrightness')) r2.style.display = 'none';
   var or = $('#oOrient'); if (or) { or.value = S.orient; or.addEventListener('change', function () { S.orient = or.value; saveState(); applyOrient(true); }); }

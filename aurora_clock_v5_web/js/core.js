@@ -32,6 +32,7 @@ var RINGERS=[
 ];
 var CHIME_TONES=[{k:'ding',n:'清脆铃'},{k:'bell',n:'铜钟'},{k:'piano',n:'钢琴'},{k:'beep',n:'电子哔'},{k:'glass',n:'玻璃杯'}];
 var CLICK_TONES=[{k:'soft',n:'柔和'},{k:'pop',n:'气泡'},{k:'wood',n:'木鱼'},{k:'digital',n:'电子'},{k:'drop',n:'水滴'}];
+var TICK_TONES=[{k:'elec',n:'电子'},{k:'key',n:'按键'},{k:'soft',n:'柔和'},{k:'wood',n:'木鱼'},{k:'drop',n:'水滴'}];
 var CITIES=[
  {n:'北京',tz:'Asia/Shanghai'},{n:'东京',tz:'Asia/Tokyo'},{n:'首尔',tz:'Asia/Seoul'},
  {n:'新加坡',tz:'Asia/Singapore'},{n:'迪拜',tz:'Asia/Dubai'},{n:'孟买',tz:'Asia/Kolkata'},
