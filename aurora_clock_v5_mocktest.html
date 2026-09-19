@@ -558,6 +558,8 @@ body.landscape .tpanel{gap:10px}
         <div class="row"><span>闹钟震动</span><label class="swi"><input type="checkbox" id="oVib" checked><i></i></label></div>
         <div class="row"><span>报时音色</span><select id="oChimeTone"></select></div>
         <div class="row" id="rowVoice"><span>语音音色</span><select id="oVoice"><option value="">跟随系统</option></select></div>
+        <div class="row" id="rowEng"><span>语音引擎</span><select id="oEng"><option value="">跟随系统</option></select></div>
+        <div class="row col" id="rowTtsState"><span>语音状态</span><b id="vTtsState" style="font-weight:400;font-size:11px;color:var(--acc)">检测中…</b></div>
         <div class="row col"><span>总音量 <b id="vVol">70%</b></span><input type="range" id="oVol" min="0" max="100" value="70"></div>
         <div class="bt small">助眠 / 专注声景（可叠加）</div>
         <div class="grid g-sound" id="soundGrid"></div>
@@ -1456,6 +1458,35 @@ function buildVoiceSelect(){
   }catch(e){}
   sel.value=S.ttsVoice||'';
 }
+function buildEngineSelect(){
+  var sel=$('#oEng'); if(!sel) return;
+  try{
+    var b=B();
+    if(b&&b.ttsEngines){
+      var r=b.ttsEngines();
+      if(r&&r.indexOf('"ok":true')>-1){
+        var es=JSON.parse(r).engines||[];
+        es.forEach(function(e){ var op=el('option','',e.label||e.name); op.value=e.name; sel.appendChild(op); });
+      }
+    }
+  }catch(e){}
+  sel.value='';
+}
+function refreshTtsState(){
+  var v=$('#vTtsState'); if(!v) return;
+  try{
+    var b=B();
+    if(b&&b.ttsState){
+      var r=b.ttsState();
+      if(r&&r.indexOf('"ready"')>-1){
+        var s=JSON.parse(r);
+        v.textContent='就绪:'+s.ready+(s.error?' ｜ '+s.error:'')+(s.engines?' ｜ '+s.engines:'');
+        return;
+      }
+    }
+  }catch(e){}
+  v.textContent='无语音引擎（该设备可能无 TTS）';
+}
 function bindSettings(){
   var map=[['o24','h24',function(){ FACE.build(S.face); }],['oSec','showSec',null],['oMeta','meta',function(){ var m=$('.cmeta'); if(m) m.style.display=S.meta?'':'none'; }],
    ['oSmooth','smooth',null],['oGlow','glow',function(){ applyGlow(); }],['oTick','tick',null],['oChime','chime',null],
@@ -1475,6 +1506,11 @@ function bindSettings(){
     try{ var b=B(); if(b&&b.setTtsVoice) b.setTtsVoice(S.ttsVoice||null); }catch(e){}
     toast(S.ttsVoice?'已切换语音音色，点击表盘试听':'已恢复跟随系统默认音色'); });
   var rv=$('#rowVoice'); if(rv&&!hasBridgeFn('ttsVoices')) rv.style.display='none';
+  var re=$('#rowEng'); if(re&&!hasBridgeFn('ttsEngines')) re.style.display='none';
+  var oe=$('#oEng'); if(oe) oe.addEventListener('change',function(){
+    try{ var b=B(); if(b&&b.setTtsEngine){ b.setTtsEngine(oe.value||null); toast('语音引擎已切换，正在重新初始化…');
+      setTimeout(function(){ buildVoiceSelect(); refreshTtsState(); },1500); } }catch(e){} });
+  var rt=$('#rowTtsState'); if(rt&&!hasBridgeFn('ttsState')) rt.style.display='none';
   var r1=$('#rowSpeak'); if(r1&&!hasBridgeFn('speakText')) r1.style.display='none';
   var r2=$('#rowSysBright'); if(r2&&!hasBridgeFn('setBrightness')) r2.style.display='none';
   var or=$('#oOrient'); if(or){ or.value=S.orient; or.addEventListener('change',function(){ S.orient=or.value; saveState(); applyOrient(true); }); }
@@ -1678,7 +1714,8 @@ FX.start();
   document.documentElement.setAttribute('data-face',S.face);
   document.documentElement.setAttribute('data-fx',S.fx);
   FB: FACE.build(S.face);
-  buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect(); buildVoiceSelect();
+  buildThemeGrid(); buildFaceGrid(); buildFxGrid(); buildSoundGrid(); buildChimeSelect(); buildVoiceSelect(); buildEngineSelect();
+  setTimeout(refreshTtsState,600); setTimeout(refreshTtsState,2600);
   applyTheme(S.theme); applyFace(S.face,true); applyFx(S.fx,true);
   applyGlow(); applyBright(); applyKeep(); applyOrient(false);
   document.querySelector('.cmeta').style.display=S.meta?'':'none';

@@ -153,6 +153,7 @@ public class MainActivity extends Activity {
     /** 引擎初始化期间待播文本（初始化完成后自动补播） */
     private volatile String pendingTts = null;
     private volatile String pendingVoiceId = null;
+    private volatile String pendingTtsEngine = null;
     private String appliedVoiceName = null;
     /** TTS 错误描述（初始化失败/语言缺失等；null=正常） */
     private volatile String ttsError = null;
@@ -162,32 +163,44 @@ public class MainActivity extends Activity {
 
     /* ==================== TTS 增强（v8.1）：预热 + 音频属性 + 失败可感知 ==================== */
     private void warmupTts() { try { if (tts == null) initTts(); } catch (Exception ignored) { } }
+    private void warmupTtsLater(long delayMs) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (tts == null || !ttsReady) { try { initTts(); } catch (Exception ignored) { } }
+        }, delayMs);
+    }
 
     private void initTts() {
         try {
-            tts = new android.speech.tts.TextToSpeech(this, status -> {
-                if (status == android.speech.tts.TextToSpeech.SUCCESS && tts != null) {
-                    try {
-                        int r = tts.setLanguage(Locale.CHINA);
-                        if (r == android.speech.tts.TextToSpeech.LANG_MISSING_DATA
-                                || r == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
-                            tts.setLanguage(Locale.getDefault());
-                        }
-                        tts.setAudioAttributes(new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
-                        ttsReady = true; ttsError = null;
-                        applyVoice(pendingVoiceId);
-                        if (pendingTts != null) { speakNow(pendingTts); pendingTts = null; }
-                    } catch (Exception e) { ttsError = "lang:" + e.getMessage(); }
-                } else {
-                    ttsReady = false; ttsError = "init:status=" + status + ";" + engineSummary();
-                    scheduleTtsRetry();
-                }
-            });
+            String eng = (pendingTtsEngine != null && !pendingTtsEngine.isEmpty()) ? pendingTtsEngine : null;
+            android.util.Log.i(TAG, "TTS init 引擎=" + (eng == null ? "默认" : eng));
+            if (eng == null) {
+                tts = new android.speech.tts.TextToSpeech(this, status -> onTtsInit(status));
+            } else {
+                tts = new android.speech.tts.TextToSpeech(this, status -> onTtsInit(status), eng);
+            }
         } catch (Exception e) { ttsError = "init_ex:" + e.getMessage(); scheduleTtsRetry(); }
     }
 
+    private void onTtsInit(int status) {
+        if (status == android.speech.tts.TextToSpeech.SUCCESS && tts != null) {
+            try {
+                int r = tts.setLanguage(Locale.CHINA);
+                if (r == android.speech.tts.TextToSpeech.LANG_MISSING_DATA
+                        || r == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts.setLanguage(Locale.getDefault());
+                }
+                tts.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+                ttsReady = true; ttsError = null;
+                applyVoice(pendingVoiceId);
+                if (pendingTts != null) { speakNow(pendingTts); pendingTts = null; }
+            } catch (Exception e) { ttsError = "lang:" + e.getMessage(); }
+        } else {
+            ttsReady = false; ttsError = "init:status=" + status + ";" + engineSummary();
+            scheduleTtsRetry();
+        }
+    }
     /** 系统 TTS 引擎摘要（诊断用）：列出可用引擎 */
     private String engineSummary() {
         try {
@@ -258,6 +271,7 @@ public class MainActivity extends Activity {
                 @Override public void onError(String utteranceId, int errorCode) { try { out.delete(); } catch (Exception ignored) { } }
             });
             int rc = tts.synthesizeToFile(text, new android.os.Bundle(), out, uid);
+            android.util.Log.i(TAG, "TTS 合成启动 rc=" + rc);
             if (rc != android.speech.tts.TextToSpeech.SUCCESS) {
                 try { out.delete(); } catch (Exception ignored) { }
                 return false;
@@ -312,6 +326,10 @@ public class MainActivity extends Activity {
         new Thread(this::bootstrap, "ShellBootstrap").start();
         // TTS 预热：避免首次报时/朗读等待引擎初始化
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::warmupTts, 1200);
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::warmupTts, 3500);
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::warmupTts, 7000);
+        warmupTtsLater(3500);
+        warmupTtsLater(7000);
     }
 
     @Override
@@ -1567,11 +1585,14 @@ public class MainActivity extends Activity {
             try {
                 if (voiceId != null && !voiceId.isEmpty()) pendingVoiceId = voiceId;
                 if (tts == null) { pendingTts = text; initTts(); return "pending"; }
-                else if (ttsReady) {
-                    applyVoice(pendingVoiceId);
-                    return speakNow(text) ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"speak_fail\"}";
+                if (!ttsReady) {
+                    for (int i = 0; i < 50 && !ttsReady && tts != null; i++) {
+                        try { Thread.sleep(100); } catch (InterruptedException ignored) { break; }
+                    }
                 }
-                else { pendingTts = text; return "pending"; }
+                if (tts == null || !ttsReady) { pendingTts = text; return "pending"; }
+                applyVoice(pendingVoiceId);
+                return speakNow(text) ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"speak_fail\"}";
             } catch (Exception e) { return "{\"ok\":false,\"error\":\"exception\"}"; }
         }
 
@@ -1579,6 +1600,37 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String ttsState() {
             return "{\"ready\":" + ttsReady + ",\"error\":" + (ttsError == null ? "null" : org.json.JSONObject.quote(ttsError)) + ",\"engines\":" + org.json.JSONObject.quote(engineSummary()) + "}";
+        }
+
+        /** 系统 TTS 引擎列表（JSON：{"ok":true,"engines":[{name,label}]}） */
+        @JavascriptInterface
+        public String ttsEngines() {
+            try {
+                android.speech.tts.TextToSpeech tmp = tts != null ? tts : new android.speech.tts.TextToSpeech(MainActivity.this, s -> { });
+                java.util.List<android.speech.tts.TextToSpeech.EngineInfo> es = tmp.getEngines();
+                if (tts == null) { try { tmp.shutdown(); } catch (Exception ignored) { } }
+                org.json.JSONArray arr = new org.json.JSONArray();
+                if (es != null) {
+                    for (android.speech.tts.TextToSpeech.EngineInfo e : es) {
+                        org.json.JSONObject o = new org.json.JSONObject();
+                        o.put("name", e.name); o.put("label", e.label != null ? e.label : e.name);
+                        arr.put(o);
+                    }
+                }
+                return "{\"ok\":true,\"engines\":" + arr.toString() + "}";
+            } catch (Exception e) {
+                return "{\"ok\":false,\"error\":\"exception\"}";
+            }
+        }
+
+        /** 指定引擎重新初始化 TTS（name 为引擎包名；空=跟随系统默认） */
+        @JavascriptInterface
+        public void setTtsEngine(final String engineName) {
+            pendingTtsEngine = (engineName != null && !engineName.isEmpty()) ? engineName : null;
+            pendingVoiceId = null;
+            try { if (tts != null) { tts.shutdown(); tts = null; } } catch (Exception ignored) { }
+            ttsReady = false; ttsError = null; pendingTts = null;
+            initTts();
         }
 
         /** 系统 TTS 音色列表（JSON：{"ok":true,"voices":[{id:"sys:xxx",name:"xxx（系统·locale）"}]}，中文优先） */
