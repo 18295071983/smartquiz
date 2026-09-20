@@ -4,7 +4,7 @@
 body.landscape .tr-svg{width:min(calc(var(--cw)*.5),calc(var(--ch)*.72));height:min(calc(var(--cw)*.5),calc(var(--ch)*.72))}
 .tr-ring{fill:none;stroke:rgba(var(--glow),.14);stroke-width:1.4}
 .tr-ring.hl{stroke:rgba(var(--glow),.4);stroke-width:2}
-.tr-sec{fill:var(--acc);font-size:11px;font-weight:600;letter-spacing:1px;filter:drop-shadow(0 0 6px rgba(var(--glow),.8));pointer-events:none}
+.tr-sec{position:absolute;z-index:3;transform:translate(-50%,-50%);font-style:normal;font-size:clamp(12px,4.2vw,20px);font-weight:600;color:var(--acc);letter-spacing:1px;text-shadow:0 0 8px rgba(var(--glow),.85);pointer-events:none}
 .tr-dot{fill:var(--txt);filter:drop-shadow(0 0 5px rgba(var(--glow),.85))}
 .tr-center{position:absolute;z-index:2;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .tr-t{text-align:center}
