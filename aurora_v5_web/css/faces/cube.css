@@ -13,13 +13,14 @@
 .cube-shade:nth-child(3){right:4%;bottom:4%;width:30vw;height:8vw;animation-delay:-4.5s}
 @keyframes shadeDrift{0%{transform:translateX(-4%) scaleX(1)}100%{transform:translateX(4%) scaleX(1.1)}}
 .cube-row{position:relative;display:flex;justify-content:center;align-items:center;
-  gap:clamp(10px,4.5vw,32px);transform-style:preserve-3d}
+  gap:clamp(10px,4.5vw,32px);transform-style:preserve-3d;animation:cubeJitter 2.6s ease-in-out infinite}
 .cube{width:clamp(44px,15vw,104px);height:clamp(44px,15vw,104px);position:relative;transform-style:preserve-3d;
   font-size:clamp(34px,12vw,82px);line-height:clamp(44px,15vw,104px);text-align:center;
   transition:transform .42s cubic-bezier(.4,.1,.2,1);
   animation:cubeBreathe 3.4s ease-in-out infinite}
 .cube-row .cube:nth-child(3){animation-delay:-1.15s}
 .cube-row .cube:nth-child(5){animation-delay:-2.3s}
+@keyframes cubeJitter{0%,100%{transform:translateY(0) rotate(0)}25%{transform:translateY(-1.4px) rotate(-.18deg)}50%{transform:translateY(.9px) rotate(.1deg)}75%{transform:translateY(-.7px) rotate(-.08deg)}}
 @keyframes cubeBreathe{
   0%,100%{box-shadow:0 0 14px rgba(var(--glow),.16),0 0 34px rgba(var(--glow),.05)}
   50%{box-shadow:0 0 30px rgba(var(--glow),.42),0 0 64px rgba(var(--glow),.14)}}
