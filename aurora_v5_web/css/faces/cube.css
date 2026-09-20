@@ -1,17 +1,28 @@
-/* 极光时钟 · faces/cube.css —— 3D 玻璃立方体翻页（重设计：亚克力玻璃 + 发光边缘 + 发光数字） */
+/* 极光时钟 · faces/cube.css —— 3D 玻璃立方体翻页（重设计：亚克力玻璃 + 呼吸发光 + 地面投影） */
 .cube-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;perspective:1200px}
 .cube-room{position:absolute;inset:0;perspective:1000px;pointer-events:none;overflow:hidden}
 .cube-back{position:absolute;inset:0;
   background:radial-gradient(58% 52% at 50% 34%,rgba(var(--glow),.22),transparent 65%),
     radial-gradient(44% 40% at 80% 72%,color-mix(in srgb,var(--acc2) 32%,transparent),transparent 66%)}
-.cube-shade{position:absolute;width:24vw;height:24vw;border-radius:18%;background:rgba(0,0,0,.42);filter:blur(40px)}
-.cube-shade:nth-child(2){left:6%;top:10%}
-.cube-shade:nth-child(3){right:6%;bottom:8%}
+/* 地面阴影：椭圆投影 + 极光边缘光，缓慢呼吸漂移 */
+.cube-shade{position:absolute;border-radius:50%;
+  background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,.52),rgba(0,0,0,.26) 55%,rgba(var(--glow),.05) 78%,transparent 88%);
+  filter:blur(clamp(8px,3vw,18px));
+  animation:shadeDrift 9s ease-in-out infinite alternate}
+.cube-shade:nth-child(2){left:2%;bottom:8%;width:36vw;height:9vw}
+.cube-shade:nth-child(3){right:4%;bottom:4%;width:30vw;height:8vw;animation-delay:-4.5s}
+@keyframes shadeDrift{0%{transform:translateX(-4%) scaleX(1)}100%{transform:translateX(4%) scaleX(1.1)}}
 .cube-row{position:relative;display:flex;justify-content:center;align-items:center;
   gap:clamp(10px,4.5vw,32px);transform-style:preserve-3d}
 .cube{width:clamp(44px,15vw,104px);height:clamp(44px,15vw,104px);position:relative;transform-style:preserve-3d;
   font-size:clamp(34px,12vw,82px);line-height:clamp(44px,15vw,104px);text-align:center;
-  transition:transform .42s cubic-bezier(.4,.1,.2,1)}
+  transition:transform .42s cubic-bezier(.4,.1,.2,1);
+  animation:cubeBreathe 3.4s ease-in-out infinite}
+.cube-row .cube:nth-child(3){animation-delay:-1.15s}
+.cube-row .cube:nth-child(5){animation-delay:-2.3s}
+@keyframes cubeBreathe{
+  0%,100%{box-shadow:0 0 14px rgba(var(--glow),.16),0 0 34px rgba(var(--glow),.05)}
+  50%{box-shadow:0 0 30px rgba(var(--glow),.42),0 0 64px rgba(var(--glow),.14)}}
 /* 正面/顶面：半透明玻璃 + 发光白边 + 内发光（数字发光） */
 .cube .front-surface,.cube .upper-surface{position:absolute;width:100%;height:100%;
   background:linear-gradient(160deg,rgba(255,255,255,.20),rgba(255,255,255,.04));
