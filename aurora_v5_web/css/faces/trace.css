@@ -1,13 +1,13 @@
-/* 极光时钟 · faces/trace.css —— 轨迹（Trace Line 线条艺术：内圈小时+外圈分钟单线相连） */
-.trace-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:20px;
-  background:radial-gradient(110% 110% at 50% 42%,#101530 0%,#070912 68%)}
+/* 极光时钟 · faces/trace.css —— 轨迹（主题色单线轨迹，透明背景） */
+.trace-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
 .tr-svg{position:relative;z-index:2;width:min(calc(var(--cw)*.82),calc(var(--ch)*.7));height:min(calc(var(--cw)*.82),calc(var(--ch)*.7))}
-.tr-ring{fill:none;stroke:rgba(255,255,255,.09);stroke-width:1.4}
-.tr-ring.hl{stroke:rgba(140,180,255,.35);stroke-width:2}
-.tr-line{stroke:url(#trGrad);stroke-width:2.6;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(120,160,255,.65))}
-.tr-dot{fill:#cfe8ff;filter:drop-shadow(0 0 5px rgba(160,200,255,.9))}
+body.landscape .tr-svg{width:min(calc(var(--cw)*.5),calc(var(--ch)*.72));height:min(calc(var(--cw)*.5),calc(var(--ch)*.72))}
+.tr-ring{fill:none;stroke:rgba(var(--glow),.14);stroke-width:1.4}
+.tr-ring.hl{stroke:rgba(var(--glow),.4);stroke-width:2}
+.tr-line{stroke:url(#trGrad);stroke-width:2.6;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(var(--glow),.6))}
+.tr-dot{fill:var(--txt);filter:drop-shadow(0 0 5px rgba(var(--glow),.85))}
 .tr-center{position:absolute;z-index:2;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .tr-t{text-align:center}
-.tr-t b{display:block;font-size:clamp(22px,min(calc(var(--cw)*.1),calc(var(--ch)*.058)),66px);font-weight:600;color:#fff;
-  text-shadow:0 0 14px rgba(140,180,255,.5)}
-.tr-t span{font-size:clamp(9px,3.2vw,15px);color:rgba(255,255,255,.5);letter-spacing:2px}
+.tr-t b{display:block;font-size:clamp(22px,min(calc(var(--cw)*.1),calc(var(--ch)*.058)),66px);font-weight:600;color:var(--txt);
+  text-shadow:0 0 14px rgba(var(--glow),.5)}
+.tr-t span{font-size:clamp(9px,3.2vw,15px);color:var(--dim);letter-spacing:2px}

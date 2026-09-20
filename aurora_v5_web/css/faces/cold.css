@@ -1,13 +1,13 @@
-/* 极光时钟 · faces/cold.css —— 冷光（斯堪的纳维亚极简 × 冰蓝发光悬浮字） */
-.cold-face{position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;border-radius:20px;
-  background:radial-gradient(100% 100% at 50% 45%,#0a1018 0%,#03050a 70%)}
-.cold-face::after{content:'';position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(42% 30% at 50% 42%,rgba(90,160,255,.10),transparent 70%)}
-.cold-time{position:relative;z-index:2;display:flex;align-items:center;gap:clamp(2px,.8vw,6px)}
-.cold-time b{font-size:clamp(62px,min(calc(var(--cw)*.265),calc(var(--ch)*.15)),185px);font-weight:100;color:#f4f8ff;letter-spacing:clamp(-2px,-.6vw,-1px);line-height:1;
-  text-shadow:0 0 12px rgba(120,200,255,.65),0 0 42px rgba(80,160,255,.35),0 0 90px rgba(60,120,255,.22)}
-.cold-time em{font-style:normal;font-size:clamp(30px,min(calc(var(--cw)*.115),calc(var(--ch)*.068)),82px);font-weight:100;color:rgba(170,215,255,.65);
-  text-shadow:0 0 10px rgba(120,200,255,.5);animation:coldBlink 1s step-end infinite}
+/* 极光时钟 · faces/cold.css —— 冷光（极简发光字，透明背景跟随主题） */
+.cold-face{position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.cold-time{display:flex;align-items:center;gap:clamp(2px,.8vw,6px);
+  font-size:clamp(62px,min(calc(var(--cw)*.265),calc(var(--ch)*.15)),185px)}
+body.landscape .cold-time{font-size:clamp(40px,min(calc(var(--cw)*.16),calc(var(--ch)*.16)),150px)}
+.cold-time b{font-weight:100;color:var(--txt);letter-spacing:clamp(-2px,-.6vw,-1px);line-height:1;
+  text-shadow:0 0 12px rgba(var(--glow),.55),0 0 42px rgba(var(--glow),.3),0 0 90px rgba(var(--glow),.18)}
+.cold-time em{font-style:normal;font-weight:100;color:var(--dim);text-shadow:0 0 10px rgba(var(--glow),.45);
+  animation:coldBlink 1s step-end infinite}
 @keyframes coldBlink{0%,100%{opacity:1}50%{opacity:.2}}
-.cold-sec{position:relative;z-index:2;margin-top:clamp(10px,4vw,22px);font-size:clamp(13px,min(calc(var(--cw)*.045),calc(var(--ch)*.024)),24px);color:rgba(170,215,255,.5);font-weight:300;letter-spacing:3px;text-shadow:0 0 8px rgba(120,200,255,.4)}
-.cold-sec b{color:#cfe8ff;font-weight:400}
+.cold-sec{margin-top:clamp(10px,4vw,22px);font-size:clamp(13px,min(calc(var(--cw)*.045),calc(var(--ch)*.024)),24px);
+  color:var(--dim);font-weight:300;letter-spacing:3px;text-shadow:0 0 8px rgba(var(--glow),.35)}
+.cold-sec b{color:var(--txt);font-weight:400}

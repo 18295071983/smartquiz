@@ -1,19 +1,17 @@
-/* 极光时钟 · faces/pulse.css —— 脉冲（Google Clock pulsing × 药丸胶囊形态） */
-.pulse-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:20px;
-  background:radial-gradient(120% 120% at 50% 0%,#141834 0%,#090b18 62%)}
-.pulse-face::after{content:'';position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(50% 36% at 50% 40%,rgba(130,100,255,.10),transparent 70%)}
-.pl-time{position:relative;z-index:2;display:flex;align-items:center;gap:clamp(6px,2.6vw,16px)}
+/* 极光时钟 · faces/pulse.css —— 脉冲（主题色药丸胶囊 + 呼吸发光，透明背景） */
+.pulse-face{position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.pl-time{display:flex;align-items:center;gap:clamp(6px,2.6vw,16px)}
 .pl-pill{width:clamp(66px,26vw,168px);height:clamp(92px,36vw,232px);border-radius:50%;display:flex;align-items:center;justify-content:center;
-  background:rgba(255,255,255,.055);backdrop-filter:blur(clamp(8px,3vw,18px));-webkit-backdrop-filter:blur(clamp(8px,3vw,18px));
-  border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 2px 10px rgba(255,255,255,.06),0 10px 34px rgba(0,0,0,.4);
+  background:var(--panel);backdrop-filter:blur(clamp(8px,3vw,18px));-webkit-backdrop-filter:blur(clamp(8px,3vw,18px));
+  border:1px solid var(--line);box-shadow:inset 0 2px 10px rgba(255,255,255,.05),0 10px 34px rgba(0,0,0,.35);
   animation:plGlow 2.4s ease-in-out infinite}
-.pl-pill b{font-size:clamp(34px,13.5vw,92px);font-weight:600;color:#fff;line-height:1;
-  text-shadow:0 0 16px rgba(150,170,255,.55)}
+body.landscape .pl-pill{width:clamp(44px,13vw,110px);height:clamp(60px,19vw,150px)}
+.pl-pill b{font-size:clamp(34px,13.5vw,92px);font-weight:600;color:var(--txt);line-height:1;text-shadow:0 0 16px rgba(var(--glow),.5)}
+body.landscape .pl-pill b{font-size:clamp(22px,8.5vw,64px)}
 .pl-dot{display:flex;flex-direction:column;gap:clamp(10px,4.4vw,26px)}
-.pl-dot i{width:clamp(5px,2vw,12px);height:clamp(5px,2vw,12px);border-radius:50%;background:#a9b8ff;
-  box-shadow:0 0 10px rgba(140,160,255,.9);animation:plBlink 1s step-end infinite}
-@keyframes plGlow{0%,100%{box-shadow:inset 0 2px 10px rgba(255,255,255,.06),0 0 14px rgba(140,160,255,.18),0 10px 34px rgba(0,0,0,.4)}
-  50%{box-shadow:inset 0 2px 10px rgba(255,255,255,.06),0 0 34px rgba(140,160,255,.5),0 10px 34px rgba(0,0,0,.4)}}
+.pl-dot i{width:clamp(5px,2vw,12px);height:clamp(5px,2vw,12px);border-radius:50%;background:var(--acc);
+  box-shadow:0 0 10px var(--acc);animation:plBlink 1s step-end infinite}
+@keyframes plGlow{0%,100%{box-shadow:inset 0 2px 10px rgba(255,255,255,.05),0 0 14px rgba(var(--glow),.15),0 10px 34px rgba(0,0,0,.35)}
+  50%{box-shadow:inset 0 2px 10px rgba(255,255,255,.05),0 0 34px rgba(var(--glow),.45),0 10px 34px rgba(0,0,0,.35)}}
 @keyframes plBlink{0%,100%{opacity:1}50%{opacity:.2}}
-.pl-foot{position:absolute;z-index:2;bottom:clamp(8px,3.5vw,18px);font-size:clamp(10px,3.4vw,16px);color:rgba(200,210,255,.5);letter-spacing:3px}
+.pl-foot{position:absolute;bottom:clamp(8px,3.5vw,18px);font-size:clamp(10px,3.4vw,16px);color:var(--dim);letter-spacing:3px}
