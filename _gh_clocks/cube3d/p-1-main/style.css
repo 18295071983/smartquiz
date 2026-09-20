@@ -1,0 +1,153 @@
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family: monospace;
+}
+
+/* PAGE */
+body{
+  width:100vw;
+  height:100vh;
+  overflow:hidden;
+  background:#000;
+}
+
+/* CONTAINER */
+#container{
+  position:relative;
+  width:100vw;
+  height:100vh;
+  perspective:1000px;
+}
+
+/* ROOM */
+#room{
+  position:absolute;
+  inset:0;
+  transform-style:preserve-3d;
+  z-index:-1;
+}
+
+#room div[id$="wall"]{
+  position:absolute;
+  width:100%;
+}
+
+.horizon-wall{ height:100vw; }
+.vertical-wall{ height:100%; }
+
+#back-wall{
+  transform:translateZ(-100vw);
+  background:radial-gradient(#1a1a1a 60%, #0d0d0d 80%, #000);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+#left-wall{
+  transform-origin:left;
+  transform:rotateY(90deg);
+  background:linear-gradient(90deg,#2b2b2b,#1a1a1a,#000);
+}
+
+#right-wall{
+  transform-origin:right;
+  transform:rotateY(-90deg);
+  background:linear-gradient(-90deg,#2b2b2b,#1a1a1a,#000);
+}
+
+#upper-wall{
+  transform-origin:top;
+  transform:rotateX(-90deg);
+  background:linear-gradient(#2b2b2b,#1a1a1a,#000);
+}
+
+#bottom-wall{
+  transform-origin:top;
+  transform:rotateX(-90deg) translateZ(100vh);
+  background:linear-gradient(#2b2b2b,#1a1a1a,#000);
+}
+
+.shadow{
+  width:24vw;
+  height:24vw;
+  border-radius:3vw;
+  background:#000;
+  box-shadow:0 0 40px 30px rgba(0,0,0,0.9);
+}
+
+/* CLOCK */
+#clock{
+  position:absolute;
+  inset:0;
+  display:flex;
+  justify-content:space-around;
+  align-items:center;
+  transform:translateZ(-50vw);
+  perspective:1500px;
+}
+
+#clock div[id$="cube"]{
+  width:22vw;
+  height:22vw;
+  position:relative;
+  transform-style:preserve-3d;
+  font-size:18vw;
+  line-height:22vw;
+  text-align:center;
+  color:#111;
+}
+
+#clock div[class$="surface"]{
+  position:absolute;
+  width:100%;
+  height:100%;
+}
+
+/* Cube faces */
+.front-surface{ transform:translateZ(11vw); }
+.upper-surface{ transform:rotateX(90deg) translateZ(11vw); }
+
+.left-surface{
+  transform:rotateY(90deg) translateZ(-11vw);
+  background:radial-gradient(#444 60%,#222);
+}
+
+.right-surface{
+  transform:rotateY(-90deg) translateZ(-11vw);
+  background:radial-gradient(#444 60%,#222);
+}
+
+/* Face colors */
+#hour-cube .front-surface,
+#hour-cube .upper-surface{
+  background:radial-gradient(farthest-corner at 75% 50%,#f0f0f0 60%,#bdbdbd);
+}
+
+#minute-cube .front-surface,
+#minute-cube .upper-surface{
+  background:radial-gradient(#f0f0f0 80%,#bdbdbd);
+}
+
+#second-cube .front-surface,
+#second-cube .upper-surface{
+  background:radial-gradient(farthest-corner at 25% 50%,#f0f0f0 60%,#bdbdbd);
+}
+
+.hidden-surface{
+  position:absolute;
+  inset:0;
+  background:radial-gradient(#111 60%,#000);
+}
+
+/* Animation */
+.rotate{
+  transform:rotateX(-90deg);
+  transition:0.4s;
+}
+
+.transparent{
+  opacity:0;
+  transition:0.4s;
+}

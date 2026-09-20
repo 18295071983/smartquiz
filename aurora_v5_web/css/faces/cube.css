@@ -1,0 +1,28 @@
+/* 极光时钟 · faces/cube.css —— 3D 立方体翻页（源自 GitHub kanizadev/p-1 Cube Clock） */
+.cube-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;perspective:1200px}
+.cube-room{position:absolute;inset:0;perspective:1000px;pointer-events:none;overflow:hidden}
+.cube-back{position:absolute;inset:0;background:radial-gradient(rgba(96,120,140,.38) 0%,transparent 72%)}
+.cube-shade{position:absolute;width:26vw;height:26vw;border-radius:18%;background:rgba(0,0,0,.55);filter:blur(34px)}
+.cube-shade:nth-child(2){left:6%;top:10%}
+.cube-shade:nth-child(3){right:6%;bottom:8%}
+.cube-row{position:relative;display:flex;justify-content:center;align-items:center;
+  gap:clamp(14px,6vw,42px);transform-style:preserve-3d}
+.cube{width:clamp(56px,19vw,132px);height:clamp(56px,19vw,132px);position:relative;transform-style:preserve-3d;
+  font-size:clamp(44px,15vw,106px);line-height:clamp(56px,19vw,132px);text-align:center;color:#111;
+  transition:transform .42s cubic-bezier(.4,.1,.2,1)}
+.cube .front-surface,.cube .upper-surface{position:absolute;width:100%;height:100%;
+  background:radial-gradient(farthest-corner at 72% 40%,#f2f2f2 55%,#a6abb3);border-radius:9%;
+  backface-visibility:hidden}
+#cub-m .front-surface,#cub-m .upper-surface{background:radial-gradient(farthest-corner at 50% 50%,#f2f2f2 78%,#a6abb3)}
+#cub-s .front-surface,#cub-s .upper-surface{background:radial-gradient(farthest-corner at 30% 55%,#f2f2f2 55%,#a6abb3)}
+.cube .front-surface{transform:translateZ(calc(clamp(56px,19vw,132px)/2))}
+.cube .upper-surface{transform:rotateX(90deg) translateZ(calc(clamp(56px,19vw,132px)/2))}
+.cube .left-surface,.cube .right-surface{position:absolute;width:100%;height:100%;
+  background:radial-gradient(#666d75 55%,#383d44)}
+.cube .left-surface{transform:rotateY(90deg) translateZ(calc(-1*clamp(56px,19vw,132px)/2))}
+.cube .right-surface{transform:rotateY(-90deg) translateZ(calc(-1*clamp(56px,19vw,132px)/2))}
+.hidden-surface{position:absolute;inset:0;background:radial-gradient(#23272d 55%,#0a0c0f);border-radius:9%;
+  opacity:1;transition:opacity .42s}
+.hidden-surface.transparent{opacity:0}
+.cube.rotate{transform:rotateX(-90deg)}
+.cube-row .colon{font-size:clamp(22px,7vw,48px);color:var(--acc);text-shadow:0 0 14px rgba(var(--glow),.6);font-weight:600}

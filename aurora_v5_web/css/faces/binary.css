@@ -1,0 +1,21 @@
+/* 极光时钟 · faces/binary.css —— 二进制 LED 矩阵钟（源自 GitHub AE0L/html5-binary-clock） */
+.bin-face{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
+.bin-grid{display:grid;
+  grid-template-areas:
+    ' .  h18  .  m18  .  s18'
+    ' .  h14 m04 m14 s04 s14'
+    'h02 h12 m02 m12 s02 s12'
+    'h01 h11 m01 m11 s01 s11';
+  grid-column-gap:clamp(16px,7vw,42px);
+  grid-row-gap:clamp(10px,3.6vw,24px)}
+.bin-grid .bulb{width:clamp(15px,7vw,42px);height:clamp(15px,7vw,42px);border-radius:50%;
+  background:var(--acc);
+  box-shadow:0 0 10px 4px rgba(var(--glow),.32),0 0 46px 16px rgba(var(--glow),.14);
+  transition:all .12s}
+.bin-grid .bulb.off{background:#161a1f;box-shadow:inset 0 0 6px rgba(0,0,0,.65)}
+#b-h02{grid-area:h02}#b-h01{grid-area:h01}#b-h11{grid-area:h11}#b-h12{grid-area:h12}#b-h14{grid-area:h14}#b-h18{grid-area:h18}
+#b-m01{grid-area:m01}#b-m02{grid-area:m02}#b-m04{grid-area:m04}#b-m11{grid-area:m11}#b-m12{grid-area:m12}#b-m14{grid-area:m14}#b-m18{grid-area:m18}
+#b-s01{grid-area:s01}#b-s02{grid-area:s02}#b-s04{grid-area:s04}#b-s11{grid-area:s11}#b-s12{grid-area:s12}#b-s14{grid-area:s14}#b-s18{grid-area:s18}
+.bin-hint{position:absolute;left:0;right:0;bottom:6%;text-align:center;font-size:11px;color:var(--dim);
+  opacity:.5;letter-spacing:3px;pointer-events:none}
+.bin-hint b{color:var(--acc);opacity:.85}
