@@ -1,5 +1,5 @@
 /* 极光时钟 · faces/cube.css —— 3D 玻璃立方体翻页（重设计：亚克力玻璃 + 呼吸发光 + 地面投影） */
-.cube-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;perspective:1200px}
+.cube-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;perspective:950px;perspective-origin:50% 42%}
 .cube-room{position:absolute;inset:0;perspective:1000px;pointer-events:none;overflow:hidden}
 .cube-back{position:absolute;inset:0;
   background:radial-gradient(58% 52% at 50% 34%,rgba(var(--glow),.22),transparent 65%),
@@ -27,7 +27,6 @@
 /* 正面/顶面：半透明玻璃 + 发光白边 + 内发光（数字发光） */
 .cube .front-surface,.cube .upper-surface{position:absolute;width:100%;height:100%;
   background:linear-gradient(160deg,rgba(255,255,255,.20),rgba(255,255,255,.04));
-  backdrop-filter:blur(clamp(4px,1.5vw,8px));-webkit-backdrop-filter:blur(clamp(4px,1.5vw,8px));
   border:1px solid rgba(255,255,255,.32);
   box-shadow:0 0 18px rgba(var(--glow),.24),inset 0 0 26px rgba(var(--glow),.10);
   border-radius:12%;backface-visibility:hidden;
