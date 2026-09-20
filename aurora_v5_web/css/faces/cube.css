@@ -1,28 +1,38 @@
-/* 极光时钟 · faces/cube.css —— 3D 立方体翻页（源自 GitHub kanizadev/p-1 Cube Clock） */
+/* 极光时钟 · faces/cube.css —— 3D 玻璃立方体翻页（重设计：亚克力玻璃 + 发光边缘 + 发光数字） */
 .cube-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;perspective:1200px}
 .cube-room{position:absolute;inset:0;perspective:1000px;pointer-events:none;overflow:hidden}
-.cube-back{position:absolute;inset:0;background:radial-gradient(rgba(96,120,140,.38) 0%,transparent 72%)}
-.cube-shade{position:absolute;width:26vw;height:26vw;border-radius:18%;background:rgba(0,0,0,.55);filter:blur(34px)}
+.cube-back{position:absolute;inset:0;
+  background:radial-gradient(58% 52% at 50% 34%,rgba(var(--glow),.22),transparent 65%),
+    radial-gradient(44% 40% at 80% 72%,color-mix(in srgb,var(--acc2) 32%,transparent),transparent 66%)}
+.cube-shade{position:absolute;width:24vw;height:24vw;border-radius:18%;background:rgba(0,0,0,.42);filter:blur(40px)}
 .cube-shade:nth-child(2){left:6%;top:10%}
 .cube-shade:nth-child(3){right:6%;bottom:8%}
 .cube-row{position:relative;display:flex;justify-content:center;align-items:center;
   gap:clamp(10px,4.5vw,32px);transform-style:preserve-3d}
 .cube{width:clamp(44px,15vw,104px);height:clamp(44px,15vw,104px);position:relative;transform-style:preserve-3d;
-  font-size:clamp(34px,12vw,82px);line-height:clamp(44px,15vw,104px);text-align:center;color:#111;
+  font-size:clamp(34px,12vw,82px);line-height:clamp(44px,15vw,104px);text-align:center;
   transition:transform .42s cubic-bezier(.4,.1,.2,1)}
+/* 正面/顶面：半透明玻璃 + 发光白边 + 内发光（数字发光） */
 .cube .front-surface,.cube .upper-surface{position:absolute;width:100%;height:100%;
-  background:radial-gradient(farthest-corner at 72% 40%,#f2f2f2 55%,#a6abb3);border-radius:9%;
-  backface-visibility:hidden}
-#cub-m .front-surface,#cub-m .upper-surface{background:radial-gradient(farthest-corner at 50% 50%,#f2f2f2 78%,#a6abb3)}
-#cub-s .front-surface,#cub-s .upper-surface{background:radial-gradient(farthest-corner at 30% 55%,#f2f2f2 55%,#a6abb3)}
+  background:linear-gradient(160deg,rgba(255,255,255,.20),rgba(255,255,255,.04));
+  backdrop-filter:blur(clamp(4px,1.5vw,8px));-webkit-backdrop-filter:blur(clamp(4px,1.5vw,8px));
+  border:1px solid rgba(255,255,255,.32);
+  box-shadow:0 0 18px rgba(var(--glow),.24),inset 0 0 26px rgba(var(--glow),.10);
+  border-radius:12%;backface-visibility:hidden;
+  color:var(--txt);text-shadow:0 0 10px rgba(var(--glow),.85),0 0 30px rgba(var(--glow),.4)}
+/* 顶面：极光渐变微光 */
+.cube .upper-surface{background:linear-gradient(160deg,rgba(var(--glow),.22),rgba(255,255,255,.05));
+  border-color:rgba(var(--glow),.5)}
+/* 侧面：深色半透明，增强立体 */
+.cube .left-surface,.cube .right-surface{position:absolute;width:100%;height:100%;
+  background:linear-gradient(160deg,rgba(10,22,44,.72),rgba(4,8,20,.92));
+  border:1px solid rgba(var(--glow),.16);box-shadow:inset 0 0 18px rgba(0,0,0,.5)}
 .cube .front-surface{transform:translateZ(calc(clamp(44px,15vw,104px)/2))}
 .cube .upper-surface{transform:rotateX(90deg) translateZ(calc(clamp(44px,15vw,104px)/2))}
-.cube .left-surface,.cube .right-surface{position:absolute;width:100%;height:100%;
-  background:radial-gradient(#666d75 55%,#383d44)}
 .cube .left-surface{transform:rotateY(90deg) translateZ(calc(-1*clamp(44px,15vw,104px)/2))}
 .cube .right-surface{transform:rotateY(-90deg) translateZ(calc(-1*clamp(44px,15vw,104px)/2))}
-.hidden-surface{position:absolute;inset:0;background:radial-gradient(#23272d 55%,#0a0c0f);border-radius:9%;
+.hidden-surface{position:absolute;inset:0;background:linear-gradient(160deg,rgba(8,16,34,.9),rgba(3,6,16,.96));border-radius:12%;
   opacity:1;transition:opacity .42s}
 .hidden-surface.transparent{opacity:0}
 .cube.rotate{transform:rotateX(-90deg)}
-.cube-row .colon{font-size:clamp(18px,5.5vw,40px);color:var(--acc);text-shadow:0 0 14px rgba(var(--glow),.6);font-weight:600}
+.cube-row .colon{font-size:clamp(18px,5.5vw,40px);color:var(--acc);text-shadow:0 0 14px rgba(var(--glow),.7);font-weight:600}
