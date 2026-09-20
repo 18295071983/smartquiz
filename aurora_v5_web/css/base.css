@@ -71,7 +71,9 @@ body.immerse .topbar,body.immerse .tabbar,body.immerse .quick,body.immerse .face
 body.immerse .page{padding:0}
 body.immerse #pg-clock{justify-content:center}
 body.immerse .face-host{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;min-height:0}
-body.immerse .cmeta{position:absolute;top:calc(var(--sa-t,0px) + 22px);left:0;right:0;text-align:center;
- opacity:.55;z-index:5;padding:0 16px;pointer-events:none}
+body.immerse .cmeta{position:absolute;top:calc(var(--sa-t,0px) + 20px);left:0;right:0;text-align:center;
+ opacity:.6;z-index:5;padding:0 16px;pointer-events:none}
+body.immerse .cm-greet{font-size:16px;letter-spacing:2px}
+body.immerse .cm-date{font-size:12px}
 body.immerse .cm-tip{position:absolute;bottom:calc(var(--sa-b,0px) + 26px);left:0;right:0;text-align:center;
  opacity:.5;z-index:5;padding:0 16px;pointer-events:none}

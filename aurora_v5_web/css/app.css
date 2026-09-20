@@ -151,8 +151,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;heigh
 .ringov .brow{position:relative;margin-top:12px}
 
 /* 表盘切换过渡 */
-.face.on{animation:faceIn .32s ease}
-@keyframes faceIn{from{opacity:0;transform:scale(.965)}to{opacity:1;transform:scale(1)}}
+.face{transform:scale(var(--face-s,1))}
+body{--face-s:1.1}
+body.landscape{--face-s:1.16}
+body.immerse{--face-s:1.2}
+body.landscape.immerse{--face-s:1.3}
+.face.on{display:flex;animation:faceIn .45s cubic-bezier(.22,1,.36,1)}
+@keyframes faceIn{from{opacity:0;transform:scale(calc(var(--face-s,1)*.94)) translateY(10px);filter:blur(6px)}to{opacity:1;transform:scale(var(--face-s,1));filter:none}}
+body.immerse .cmeta,body.immerse .cm-tip{transition:opacity .5s ease,transform .5s ease}
 
 /* ========== Toast ========== */
 #toast{position:fixed;left:50%;bottom:calc(var(--sa-b,0px) + 92px);transform:translate(-50%,20px);
@@ -178,6 +184,23 @@ body.landscape #pg-clock .cm-greet{font-size:clamp(14px,calc(var(--cw)*.026),20p
 body.landscape #pg-clock .cm-date{font-size:11.5px}
 body.landscape #pg-clock .cm-tip{grid-column:2;grid-row:3;text-align:left;padding-left:6px;align-self:center}
 body.landscape #pg-clock .quick{grid-column:2;grid-row:4;justify-content:flex-start;align-content:flex-start}
+body.landscape #pg-clock .face-host{padding:8px 0}
 body.landscape #pg-clock .face-host,body.landscape #pg-clock .flip-wrap{min-width:0;max-width:100%}
 body.landscape #pg-clock .cmeta,body.landscape #pg-clock .cm-tip{min-width:0;word-break:break-word;overflow-wrap:anywhere}
 body.landscape .tpanel{gap:10px}
+
+/* ========== 横屏沉浸模式（v5 优化） ========== */
+/* 纯净全屏：时钟最大化居中，问候/日期精致浮动 */
+body.landscape.immerse #pg-clock{display:block}
+body.landscape.immerse .face-host{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+body.landscape.immerse .cmeta{position:absolute;top:calc(var(--sa-t,0px) + 16px);left:calc(var(--sa-l,0px) + 22px);right:auto;
+  text-align:left;opacity:.62;padding:0;z-index:5;pointer-events:none}
+body.landscape.immerse .cm-greet{font-size:clamp(14px,calc(var(--cw)*.022),18px);letter-spacing:1.5px;margin:0}
+body.landscape.immerse .cm-date{font-size:11px;margin-top:4px}
+body.landscape.immerse .cm-tip{position:absolute;bottom:calc(var(--sa-b,0px) + 18px);right:calc(var(--sa-r,0px) + 22px);
+  left:auto;text-align:right;opacity:.5;padding:0;z-index:5;pointer-events:none;max-width:44%;font-size:11px;min-height:0}
+/* 沉浸切换过渡：文字淡入淡出 */
+body.landscape.immerse .cmeta,body.landscape.immerse .cm-tip{animation:immFade .6s ease both}
+@keyframes immFade{from{opacity:0;transform:translateY(6px)}to{opacity:.62}}
+body.landscape.immerse .cm-tip{animation-name:immFadeTip}
+@keyframes immFadeTip{from{opacity:0;transform:translateY(-4px)}to{opacity:.5}}
