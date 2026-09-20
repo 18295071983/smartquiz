@@ -1,10 +1,10 @@
-/* 极光时钟 · faces/cube.css —— 3D 玻璃立方体翻页（重设计：亚克力玻璃 + 呼吸发光 + 地面投影） */
+/* 极光时钟 · faces/cube.css —— 3D 彩色玻璃立方体翻页（亚克力三色玻璃 + 呼吸发光 + 彩色流光投影） */
 .cube-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;perspective:950px;perspective-origin:50% 42%}
 .cube-room{position:absolute;inset:0;perspective:1000px;pointer-events:none;overflow:hidden}
 .cube-back{position:absolute;inset:0;
   background:radial-gradient(58% 52% at 50% 34%,rgba(var(--glow),.22),transparent 65%),
     radial-gradient(44% 40% at 80% 72%,color-mix(in srgb,var(--acc2) 32%,transparent),transparent 66%)}
-/* 地面阴影：椭圆投影 + 极光边缘光，缓慢呼吸漂移 */
+/* 地面阴影：彩色流光旋转 */
 .cube-shade{position:absolute;border-radius:50%;
   background:conic-gradient(from 0deg,rgba(255,107,107,.55),rgba(254,202,87,.5),rgba(72,219,251,.5),rgba(162,155,254,.55),rgba(253,121,168,.5),rgba(255,107,107,.55));
   filter:blur(clamp(8px,3vw,18px));
@@ -24,20 +24,29 @@
 @keyframes cubeBreathe{
   0%,100%{box-shadow:0 0 14px rgba(var(--glow),.16),0 0 34px rgba(var(--glow),.05)}
   50%{box-shadow:0 0 30px rgba(var(--glow),.42),0 0 64px rgba(var(--glow),.14)}}
-/* 正面/顶面：半透明玻璃 + 发光白边 + 内发光（数字发光） */
+/* 正面/顶面：三色玻璃（时=青 分=紫 秒=粉）+ 同色发光描边 + 发光数字 */
 .cube .front-surface,.cube .upper-surface{position:absolute;width:100%;height:100%;
-  background:linear-gradient(160deg,rgba(255,255,255,.20),rgba(255,255,255,.04));
-  border:1px solid rgba(255,255,255,.32);
-  box-shadow:0 0 18px rgba(var(--glow),.24),inset 0 0 26px rgba(var(--glow),.10);
+  background:linear-gradient(160deg,rgba(72,219,251,.30),rgba(72,219,251,.05));
+  border:1px solid rgba(72,219,251,.55);
+  box-shadow:0 0 18px rgba(72,219,251,.30),inset 0 0 26px rgba(72,219,251,.12);
   border-radius:12%;backface-visibility:hidden;
-  color:var(--txt);text-shadow:0 0 10px rgba(var(--glow),.85),0 0 30px rgba(var(--glow),.4)}
-/* 顶面：极光渐变微光 */
-.cube .upper-surface{background:linear-gradient(160deg,rgba(var(--glow),.22),rgba(255,255,255,.05));
-  border-color:rgba(var(--glow),.5)}
-/* 侧面：深色半透明，增强立体 */
+  color:#eafcff;text-shadow:0 0 10px rgba(72,219,251,.95),0 0 30px rgba(72,219,251,.5)}
+#cub-m .front-surface,#cub-m .upper-surface{background:linear-gradient(160deg,rgba(162,155,254,.30),rgba(162,155,254,.05));
+  border-color:rgba(162,155,254,.55);box-shadow:0 0 18px rgba(162,155,254,.30),inset 0 0 26px rgba(162,155,254,.12);
+  color:#f3f0ff;text-shadow:0 0 10px rgba(162,155,254,.95),0 0 30px rgba(162,155,254,.5)}
+#cub-s .front-surface,#cub-s .upper-surface{background:linear-gradient(160deg,rgba(253,121,168,.30),rgba(253,121,168,.05));
+  border-color:rgba(253,121,168,.55);box-shadow:0 0 18px rgba(253,121,168,.30),inset 0 0 26px rgba(253,121,168,.12);
+  color:#fff0f6;text-shadow:0 0 10px rgba(253,121,168,.95),0 0 30px rgba(253,121,168,.5)}
+/* 顶面：同色更亮 */
+.cube .upper-surface{background:linear-gradient(160deg,rgba(72,219,251,.38),rgba(72,219,251,.08))}
+#cub-m .upper-surface{background:linear-gradient(160deg,rgba(162,155,254,.38),rgba(162,155,254,.08))}
+#cub-s .upper-surface{background:linear-gradient(160deg,rgba(253,121,168,.38),rgba(253,121,168,.08))}
+/* 侧面：同色相深色，增强立体 */
 .cube .left-surface,.cube .right-surface{position:absolute;width:100%;height:100%;
-  background:linear-gradient(160deg,rgba(10,22,44,.72),rgba(4,8,20,.92));
-  border:1px solid rgba(var(--glow),.16);box-shadow:inset 0 0 18px rgba(0,0,0,.5)}
+  background:linear-gradient(160deg,rgba(8,40,60,.85),rgba(2,12,24,.95));
+  border:1px solid rgba(72,219,251,.22);box-shadow:inset 0 0 18px rgba(0,0,0,.5)}
+#cub-m .left-surface,#cub-m .right-surface{background:linear-gradient(160deg,rgba(28,22,66,.85),rgba(10,4,28,.95));border-color:rgba(162,155,254,.22)}
+#cub-s .left-surface,#cub-s .right-surface{background:linear-gradient(160deg,rgba(66,18,40,.85),rgba(28,4,14,.95));border-color:rgba(253,121,168,.22)}
 .cube .front-surface{transform:translateZ(calc(clamp(44px,15vw,104px)/2))}
 .cube .upper-surface{transform:rotateX(90deg) translateZ(calc(clamp(44px,15vw,104px)/2))}
 .cube .left-surface{transform:rotateY(90deg) translateZ(calc(-1*clamp(44px,15vw,104px)/2))}
