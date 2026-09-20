@@ -6,8 +6,8 @@
 var S = (function () {
   var def = {
     theme: 'aurora', face: 'flip', fx: 'stars', h24: true, showSec: true, meta: true, smooth: true, glow: true, bright: 100,
-    tick: false, chime: false, click: true, vib: true, chimeTone: 'ding', clickTone: 'soft', tickTone: 'elec', vol: 70, keep: true, fore: false, orient: 'auto',
-    alarms: [], cities: ['Asia/Shanghai', 'America/New_York', 'Europe/London', 'Asia/Tokyo'], beds: [], quote: 0,
+    tick: false, chime: false, click: false, vib: true, chimeTone: 'ding', clickTone: 'soft', tickTone: 'elec', vol: 60, keep: false, fore: false, orient: 'auto',
+    alarms: [], cities: ['Asia/Shanghai', 'America/New_York', 'Europe/London', 'Asia/Tokyo'], beds: [],
     tts: false, ttsVoice: '', sysBright: false
   };
   var o = store('state') || {}; Object.keys(def).forEach(function (k) { if (o[k] === undefined) o[k] = def[k]; });
