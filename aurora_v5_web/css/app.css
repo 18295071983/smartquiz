@@ -176,7 +176,7 @@ body.landscape .topbar,body.landscape .tabbar{padding-left:max(14px,var(--sa-l,0
 /* v3: 尺寸统一由 --cw/--ch(视觉宽高) 驱动，旧 vh override 已移除 */
 /* 横屏布局优化 */
 body.landscape .face-host{justify-content:center}
-body.landscape #pg-clock{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);grid-template-rows:auto 1fr auto auto;gap:6px 12px;align-items:center}
+body.landscape #pg-clock.on{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);grid-template-rows:auto 1fr auto auto;gap:6px 12px;align-items:center}
 body.landscape #pg-clock .face-tabs{grid-column:1/-1;grid-row:1}
 body.landscape #pg-clock .face-host{grid-column:1;grid-row:2/5;min-height:0}
 body.landscape #pg-clock .cmeta{grid-column:2;grid-row:2;text-align:left;padding-left:6px;align-self:center}
@@ -191,7 +191,7 @@ body.landscape .tpanel{gap:10px}
 
 /* ========== 横屏沉浸模式（v5 优化） ========== */
 /* 纯净全屏：时钟最大化居中，问候/日期精致浮动 */
-body.landscape.immerse #pg-clock{display:block}
+body.landscape.immerse #pg-clock.on{display:block}
 body.landscape.immerse .face-host{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
 body.landscape.immerse .cmeta{position:absolute;top:calc(var(--sa-t,0px) + 16px);left:calc(var(--sa-l,0px) + 22px);right:auto;
   text-align:left;opacity:.62;padding:0;z-index:5;pointer-events:none}
@@ -206,7 +206,7 @@ body.landscape.immerse .cm-tip{animation-name:immFadeTip}
 @keyframes immFadeTip{from{opacity:0;transform:translateY(-4px)}to{opacity:.5}}
 
 /* ========== 设置页 横屏适配（v5） ========== */
-body.landscape #pg-set{padding:2px 16px 12px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:max-content;gap:10px 14px;align-content:start}
+body.landscape #pg-set.on{padding:2px 16px 12px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:max-content;gap:10px 14px;align-content:start}
 body.landscape #pg-set .phead{grid-column:1/-1;padding:6px 2px 2px}
 body.landscape #pg-set .blk{margin-bottom:0}
 body.landscape .g-theme{grid-template-columns:repeat(10,1fr)}
