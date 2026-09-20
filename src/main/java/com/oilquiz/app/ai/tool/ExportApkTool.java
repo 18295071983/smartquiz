@@ -44,7 +44,7 @@ import java.util.Map;
 @Tool(
     value = "export_apk",
     category = "export",
-    description = "APK 导出工具：把 Agent 生成的 HTML 打包成可安装的安卓 APK 应用（设备端完成，无需电脑）。壳内暴露 63 个原生桥方法（window.AndroidApp，壳 v8.1）。如需桥方法细节或 HTML 设计规则（按需查看，不必每次读取）：工作区内置 files/APK_SOURCE_GUIDE.md（63 桥清单/回调契约）与 files/HTML_DESIGN_RULES.md（HTML 生成规则），可用 workspace 工具读取。注意：带回调的桥（screenshot/requestPermission/openFilePicker/request/startClipboardWatch/precacheUrl）回调名参数必填，缺参会在页面报 Method not found。"
+    description = "APK 导出工具：把 Agent 生成的 HTML 打包成可安装的安卓 APK 应用（设备端完成，无需电脑）。壳内暴露 68 个原生桥方法（window.AndroidApp，壳 v8.1）。如需桥方法细节或 HTML 设计规则（按需查看，不必每次读取）：工作区内置 files/APK_SOURCE_GUIDE.md（68 桥清单/回调契约）与 files/HTML_DESIGN_RULES.md（HTML 生成规则），可用 workspace 工具读取。注意：带回调的桥（screenshot/requestPermission/openFilePicker/request/startClipboardWatch/precacheUrl）回调名参数必填，缺参会在页面报 Method not found。"
             + "生成网页/HTML 内容后，用 file_generator 写入 Agent 工作区得到文件路径，再调用本工具（推荐 html_dir 或 html_file），"
             + "即可导出可安装 APK。HTML 来源三选一：html(内容字符串)/html_file(单文件路径)/html_dir(含 index.html 的目录，"
             + "支持 css/js/图片等相对资源)。可自定义：app_name（应用名，UTF-8 ≤22 字节/中文约 7 字，默认“背题”）、icon_path/icon_emoji（图标）；APK 生成后返回完整路径，可提示用户安装或分享。",
@@ -93,7 +93,7 @@ public class ExportApkTool implements AITool {
                 + "HTML 设计规则（遵循可最大化壳能力；不确定时可按需查看工作区内置 files/HTML_DESIGN_RULES.md，workspace 读取）：入口必须 index.html；资源全部相对路径；"
                 + "viewport 加 viewport-fit=cover；内置库自动注入 html_dir/libs/（jquery/vue3/axios/dayjs/echarts/katex/marked/lodash/"
                 + "highlight/dompurify/animate/normalize，直接相对路径引用）；远程 API 跨域受限时用壳原生桥 window.AndroidApp.request()（无 CORS）；"
-                + "壳注入 window.AndroidApp 提供 63 个原生桥方法（toast/vibrate/shareText/shareFile/openBrowser/getDeviceInfo/getNetworkType/"
+                + "壳注入 window.AndroidApp 提供 68 个原生桥方法（toast/vibrate/shareText/shareFile/openBrowser/getDeviceInfo/getNetworkType/"
                 + "权限管理（返回中文人性化结果）/剪贴板监听/通知栏/前台服务/深链/JS注入/离线缓存/电池/存储/系统文件选择/截图/状态栏适配（setStatusBarStyle/getStatusBarHeight/getNavBarHeight，高度为物理 px 需 JS 除以 DPR）等，"
                 + "完整清单可按需查看工作区内置 files/APK_SOURCE_GUIDE.md（workspace 读取））。APK 生成后返回完整路径、包名与 SHA-256，可提示用户安装或分享。";
     }
