@@ -11,3 +11,4 @@ body.landscape .tr-svg{width:min(calc(var(--cw)*.5),calc(var(--ch)*.72));height:
 .tr-t b{display:block;font-size:clamp(22px,min(calc(var(--cw)*.1),calc(var(--ch)*.058)),66px);font-weight:600;color:var(--txt);
   text-shadow:0 0 14px rgba(var(--glow),.5)}
 .tr-t span{font-size:clamp(9px,3.2vw,15px);color:var(--dim);letter-spacing:2px}
+.tr-t em{display:block;font-style:normal;font-size:clamp(10px,3.6vw,16px);color:var(--acc);letter-spacing:2px;margin-top:2px;text-shadow:0 0 8px rgba(var(--glow),.4)}

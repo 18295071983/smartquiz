@@ -15,14 +15,15 @@
         '<line class="tr-line" id="tr-line" x1="100" y1="56" x2="100" y2="12"/>' +
         '<circle class="tr-dot" id="tr-d1" cx="100" cy="56" r="4"/>' +
         '<circle class="tr-dot" id="tr-d2" cx="100" cy="12" r="4"/>' +
-        '</svg><div class="tr-center"><div class="tr-t"><b id="tr-t">00:00</b><span id="tr-d">9月21日</span></div></div>'));
+        '</svg><div class="tr-center"><div class="tr-t"><b id="tr-t">00:00</b><span id="tr-d">9月21日</span><em id="tr-s">00</em></div></div>'));
     },
     paint: function (n, S) {
       var h = S.h24 ? n.getHours() : hour12(n.getHours());
-      var e = document.getElementById('tr-t'), d = document.getElementById('tr-d');
+      var e = document.getElementById('tr-t'), d = document.getElementById('tr-d'), s = document.getElementById('tr-s');
       var t = pad2(h) + ':' + pad2(n.getMinutes());
       if (e && e.textContent != t) e.textContent = t;
       if (d && !d.dataset.d) { d.dataset.d = 1; d.textContent = (n.getMonth() + 1) + '月' + n.getDate() + '日 · ' + WD[n.getDay()]; }
+      if (s && s.textContent != pad2(n.getSeconds())) s.textContent = pad2(n.getSeconds());
       var a1 = (h % 12) / 12 * Math.PI * 2 - Math.PI / 2;
       var a2 = n.getMinutes() / 60 * Math.PI * 2 - Math.PI / 2;
       var x1 = 100 + Math.cos(a1) * 44, y1 = 100 + Math.sin(a1) * 44;
