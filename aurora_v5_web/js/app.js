@@ -281,6 +281,8 @@ document.addEventListener('touchend', function (e) {
   var dt = Date.now() - _swipe.t;
   _swipe.x = null; _swipe.y = null;
   if (dt > 800 || Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 1.15) return;
+  var _pg = document.getElementById('pg-clock');
+  if (!_pg || !_pg.classList.contains('on')) return;
   _swipeBlock = true; setTimeout(function () { _swipeBlock = false; }, 350);
   if (dx < 0) nextFace(); else prevFace();
 }, { passive: true });
