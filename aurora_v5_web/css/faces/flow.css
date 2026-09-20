@@ -1,12 +1,12 @@
-/* 极光时钟 · faces/flow.css —— 流彩（主题色动态流动渐变 + 大字，透明背景） */
-.flow-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.flow-face .fw-bg{position:absolute;inset:-60%;pointer-events:none;
-  background:linear-gradient(115deg,var(--acc2),var(--acc),var(--acc2),var(--acc));background-size:300% 300%;
-  filter:blur(clamp(10px,4vw,26px));opacity:.4;animation:fwShift 11s ease-in-out infinite}
-@keyframes fwShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
-.fw-time{position:relative;z-index:2;font-size:clamp(56px,min(calc(var(--cw)*.25),calc(var(--ch)*.142)),172px)}
+/* 极光时钟 · faces/flow.css —— 流彩（文字流光渐变，透明背景无背景层） */
+.flow-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+.fw-time{font-size:clamp(56px,min(calc(var(--cw)*.25),calc(var(--ch)*.142)),172px)}
 body.landscape .fw-time{font-size:clamp(36px,min(calc(var(--cw)*.15),calc(var(--ch)*.15)),140px)}
-.fw-time b{font-weight:800;color:var(--txt);letter-spacing:clamp(-2px,-.6vw,-1px);line-height:1;
-  text-shadow:0 4px 24px rgba(0,0,0,.45),0 0 60px rgba(var(--glow),.35)}
+.fw-time b{font-weight:800;letter-spacing:clamp(-2px,-.6vw,-1px);line-height:1;
+  background:linear-gradient(115deg,var(--acc2),var(--acc),var(--acc2),var(--acc));background-size:300% 300%;
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 4px 14px rgba(0,0,0,.4)) drop-shadow(0 0 22px rgba(var(--glow),.4));
+  animation:fwShift 8s ease-in-out infinite}
+@keyframes fwShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
 .fw-sec{position:absolute;z-index:2;right:clamp(10px,5vw,28px);bottom:clamp(10px,4.5vw,24px);
-  font-size:clamp(12px,4vw,20px);color:var(--dim);font-weight:500;letter-spacing:2px;text-shadow:0 2px 8px rgba(0,0,0,.4)}
+  font-size:clamp(12px,4vw,20px);color:var(--dim);font-weight:500;letter-spacing:2px}

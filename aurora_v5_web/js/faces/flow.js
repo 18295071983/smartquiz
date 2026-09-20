@@ -6,7 +6,7 @@
     i: '🌈',
     build: function (host) {
       host.appendChild(el('div', 'face on flow-face',
-        '<div class="fw-bg"></div><div class="fw-time"><b id="fw-t">00:00</b></div>' +
+        '<div class="fw-time"><b id="fw-t">00:00</b></div>' +
         '<div class="fw-sec" id="fw-s">00 秒</div>'));
     },
     paint: function (n, S) {
