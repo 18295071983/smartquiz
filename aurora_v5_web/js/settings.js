@@ -220,6 +220,7 @@ function soundPicker() {
 
 /* ---------- 系统按钮 ---------- */
 function bindSystem() {
+  var sc = $('#btnSetClose'); if (sc) sc.addEventListener('click', function () { go('clock'); haptic(); });
   $('#btnAddCity').addEventListener('click', cityPicker);
   $('#btnShot').addEventListener('click', function () {
     try {
