@@ -6,12 +6,13 @@
     radial-gradient(44% 40% at 80% 72%,color-mix(in srgb,var(--acc2) 32%,transparent),transparent 66%)}
 /* 地面阴影：椭圆投影 + 极光边缘光，缓慢呼吸漂移 */
 .cube-shade{position:absolute;border-radius:50%;
-  background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,.52),rgba(0,0,0,.26) 55%,rgba(var(--glow),.05) 78%,transparent 88%);
+  background:linear-gradient(115deg,rgba(var(--glow),.42),color-mix(in srgb,var(--acc2) 50%,transparent) 35%,rgba(var(--glow),.16) 65%,rgba(var(--glow),.45));
+  background-size:280% 280%;
   filter:blur(clamp(8px,3vw,18px));
-  animation:shadeDrift 9s ease-in-out infinite alternate}
+  animation:shadeFlow 6.5s linear infinite}
 .cube-shade:nth-child(2){left:2%;bottom:8%;width:36vw;height:9vw}
-.cube-shade:nth-child(3){right:4%;bottom:4%;width:30vw;height:8vw;animation-delay:-4.5s}
-@keyframes shadeDrift{0%{transform:translateX(-4%) scaleX(1)}100%{transform:translateX(4%) scaleX(1.1)}}
+.cube-shade:nth-child(3){right:4%;bottom:4%;width:30vw;height:8vw;animation-delay:-3.25s}
+@keyframes shadeFlow{0%{background-position:0% 50%}100%{background-position:280% 50%}}
 .cube-row{position:relative;display:flex;justify-content:center;align-items:center;
   gap:clamp(10px,4.5vw,32px);transform-style:preserve-3d;animation:cubeJitter 2.6s ease-in-out infinite}
 .cube{width:clamp(44px,15vw,104px);height:clamp(44px,15vw,104px);position:relative;transform-style:preserve-3d;
