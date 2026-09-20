@@ -1,11 +1,11 @@
 # html2apk —— HTML 一键打包 APK 工具
 
-把任意 HTML/CSS/JS 目录打包成**可直接安装的签名 APK**。壳为 **63 桥 WebView 壳**（与 `apk_shell` 同源）：除基础渲染外，页面内可直接调用 `window.AndroidApp.*` 原生能力（TTS 语音播报、方向锁定、屏幕亮度、权限管理、SAF 文件读写、截图、剪贴板、网络代理等）。Agent 生成 HTML 后，用一条命令即可导出 APK。
+把任意 HTML/CSS/JS 目录打包成**可直接安装的签名 APK**。壳为 **68 桥 WebView 壳**（与 `apk_shell` 同源）：除基础渲染外，页面内可直接调用 `window.AndroidApp.*` 原生能力（TTS 语音播报、方向锁定、屏幕亮度、权限管理、SAF 文件读写、截图、剪贴板、网络代理等）。Agent 生成 HTML 后，用一条命令即可导出 APK。
 
 ## 特性
 
 - **任意 HTML 入包**：本地 `index.html`（含全部子目录资源）打包为 `dt.jet`（ZIP→AES-128-CBC，与主应用 ApkPacker 同一格式），壳内解密后由本地 HTTP 服务加载
-- **63 桥原生能力**：`window.AndroidApp` 提供 TTS（speakText/ttsState/stopSpeak）、方向（setOrientation）、亮度（setBrightness）、权限管理（requestPermission/checkPermission/openAppSettings）、SAF 文件（openFilePicker/saveFile/readFile/listFiles）、截图（screenshot）、剪贴板（readClipboard）、状态栏（setStatusBarStyle/getStatusBarHeight）、设备信息、电池/存储、通知/前台服务、无 CORS 网络代理（request）、全屏、脚本注入、缓存控制等 63 个接口
+- **68 桥原生能力**：`window.AndroidApp` 提供 TTS（speakText/ttsState/stopSpeak）、方向（setOrientation）、亮度（setBrightness）、权限管理（requestPermission/checkPermission/openAppSettings）、SAF 文件（openFilePicker/saveFile/readFile/listFiles）、截图（screenshot）、剪贴板（readClipboard）、状态栏（setStatusBarStyle/getStatusBarHeight）、设备信息、电池/存储、通知/前台服务、无 CORS 网络代理（request）、全屏、脚本注入、缓存控制等 63 个接口
 - **远程 URL 模式**：也可直接加载一个 http/https 地址（manifest.json 的 url 字段），不打包本地 HTML
 - **中文应用名**：应用显示名、包名、版本号全部可配（UTF-8 安全）
 - **自动签名**：首次运行自动生成 release keystore，后续复用；也支持传入已有 keystore
@@ -71,7 +71,7 @@ export_apk.ps1
  └─ aapt 校验 + 复制到 out/
         │
         ▼
-签名 APK（63 桥 WebView 壳 + 你的 HTML）
+签名 APK（68 桥 WebView 壳 + 你的 HTML）
 ```
 
 壳运行时规则（`MainActivity.java`，与 apk_shell 同源）：
@@ -93,7 +93,7 @@ html2apk/
 │   └── src/main/
 │       ├── AndroidManifest.xml          # 权限 + FileProvider + 前台服务
 │       ├── java/com/html2apk/wrapper/
-│       │   ├── MainActivity.java        # 63 桥壳（TTS/方向/亮度/权限/SAF/截图/剪贴板…）
+│       │   ├── MainActivity.java        # 68 桥壳（TTS/方向/亮度/权限/SAF/截图/剪贴板…）
 │       │   ├── HtmlHttpServer.java      # 本地 HTTP 服务（加载解密后的 HTML 目录）
 │       │   └── ForegroundBridgeService.java
 │       ├── res/drawable-nodpi/app_icon.png
