@@ -173,6 +173,22 @@ function applyOrient(notify) {
   } catch (e) { }
 })();
 
+/* ---------- 全屏兜底：任何方式进入全屏都切回时钟页+沉浸态 ---------- */
+setInterval(function () {
+  try {
+    var _b = B();
+    if (_b && _b.isFullscreen && _b.isFullscreen()) {
+      if (!document.body.classList.contains('immerse')) {
+        document.body.classList.add('immerse');
+        var _ib = $('#btnImmerse'); if (_ib) _ib.classList.add('on');
+        setTimeout(function () { FX.resize(); }, 260);
+      }
+      var _pc = document.getElementById('pg-clock');
+      if (_pc && !_pc.classList.contains('on')) go('clock');
+    }
+  } catch (e) { }
+}, 2000);
+
 /* ---------- 底部弹层 ---------- */
 var SHEET = { open: false, onClose: null };
 function openSheet(title, body, onMount) {
