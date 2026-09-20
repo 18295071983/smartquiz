@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>My Matrix</title>
+    <link rel="shortcut icon" href="images/logo.png">
+    <link rel="stylesheet" href="css/normalize.css">
+    <link rel="stylesheet" href="css/styles.css">
+    
+
+    <!-- GOOGLE FONTS -->
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300&display=swap" rel="stylesheet">
+
+</head>
+<body>
+
+    <div class="main">
+        <div id="general">
+
+            <div class="colores wow bounceInDown" data-wow-duration="2s">
+                <div class="red"></div>
+                <div class="blue"></div>
+                <div class="green"></div>
+                <div class="pink"></div>
+                <div class="yellow"></div>
+                <div class="orange"></div>
+                <div class="purple"></div>
+            </div>
+
+            <div class="mainReloj">
+
+                <div id="analogo" class="container wow bounceInLeft" data-wow-duration="2s" >
+                    <div class="box">
+                        <div class="clock">
+                            <div class="hour">
+                                <div class="hr" id="hr"></div>
+                            </div>
+                            <div class="min">
+                                <div class="mn" id="mn"></div>
+                            </div>
+                            <div class="sec">
+                                <div class="sc" id="sc"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <h2 class="saludo">Buenas Tardes, Jesús</h2>
+                </div>
+
+                <div id="digital" class="wow bounceInLeft" data-wow-duration="2s">
+                    <h1 class="reloj">00 : 00</h1>
+                    <h2 class="saludo">Buenas Tardes, Jesús</h2>
+                </div>
+
+            </div>
+            
+            <div class="center wow bounceInUp" data-wow-duration="2s">
+                <input class="toggle" type="checkbox">
+            </div>
+
+        </div>
+
+        <canvas id="canvas">Tu navegador no soporta esta caracteristica</canvas>
+    </div>
+
+    <script src="js/clock.js"></script>
+    <script src="js/matrix.js"></script>
+    
+    <script>  </script>
+
+</body>
+</html>

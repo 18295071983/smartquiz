@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .hour-on {
+    @apply bg-blue-500 shadow-[0_0_4px_#3b82f6,0_0_10px_#3b82f6];
+  }
+
+  .minute-on {
+    @apply bg-white shadow-[0_0_4px_white,0_0_10px_white];
+  }
+
+  .second-on {
+    @apply bg-red-500 shadow-[0_0_4px_#ef4444,0_0_10px_#ef4444];
+  }
+}

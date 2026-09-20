@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nixie Tube Clock</title>
+    <link rel="icon" href="favicon.ico" />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="text/javascript" src="app.js" defer></script>
+  </head>
+  <body>
+    <!-- <audio id="electric-hum" loop autoplay>
+      <source src="buzz.mp3" type="audio/mpeg" />
+      Your browser does not support the audio element.
+    </audio> -->
+    <audio src="buzz.mp3" type="audio" loop autoplay></audio>
+    <div class="clock">
+      <div class="outer-digit">
+        <div class="digit-container" id="hours-tens"></div>
+      </div>
+      <div class="outer-digit">
+        <div class="digit-container" id="hours-ones"></div>
+      </div>
+      <div class="separator-container">
+        <div class="separator">:</div>
+      </div>
+      <div class="outer-digit">
+        <div class="digit-container" id="minutes-tens"></div>
+      </div>
+      <div class="outer-digit">
+        <div class="digit-container" id="minutes-ones"></div>
+      </div>
+      <div class="separator-container">
+        <div class="separator">:</div>
+      </div>
+      <div class="outer-digit">
+        <div class="digit-container" id="seconds-tens"></div>
+      </div>
+      <div class="outer-digit">
+        <div class="digit-container" id="seconds-ones"></div>
+      </div>
+    </div>
+  </body>
+</html>

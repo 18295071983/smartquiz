@@ -1,0 +1,124 @@
+﻿
+==> 环境检查
+[OK] JDK: D:\jdk-21
+[OK] Android SDK: D:\\Android\\Sdk
+
+==> 输入校验
+[OK] HTML 目录: D:\qzq\smartquiz\aurora_v5_web
+
+==> 打包 HTML 资源
+zip entries: ['index.html', 'vox_data.js', 'audio/chime_beep.ogg', 'audio/chime_bell.ogg', 'audio/chime_glass.ogg', 'audio/chime_piano.ogg', 'audio/chime_west.ogg', 'audio/click_digital.ogg', 'audio/click_drop.ogg', 'audio/click_pop.ogg', 'audio/click_soft.ogg', 'audio/click_wood.ogg', 'audio/err.ogg', 'audio/ok.ogg', 'audio/swipe.ogg', 'audio/tick.ogg', 'audio/tick_soft.ogg', 'css/app.css', 'css/base.css', 'css/controls.css', 'css/faces/analog.css', 'css/faces/binary.css', 'css/faces/cube.css', 'css/faces/digital.css', 'css/faces/dot.css', 'css/faces/ext.css', 'css/faces/flip.css', 'css/faces/neon.css', 'css/faces/nixie.css', 'css/faces/ring.css', 'css/faces/word.css', 'ext/digits/index.html', 'ext/digits/LICENSE', 'ext/digits/main.css', 'ext/digits/main.js', 'ext/digits/README.md', 'ext/digits/images/clock.gif', 'ext/fliko/index.html', 'ext/fliko/LICENSE', 'ext/fliko/link.txt', 'ext/fliko/preview.PNG', 'ext/fliko/README.md', 'ext/ledbin/favicon.ico', 'ext/ledbin/index.html', 'ext/ledbin/LICENSE', 'ext/ledbin/package-lock.json', 'ext/ledbin/package.json', 'ext/ledbin/postcss.config.js', 'ext/ledbin/README.md', 'ext/ledbin/script.js', 'ext/ledbin/tailwind.config.js', 'ext/ledbin/.github/FUNDING.yml', 'ext/ledbin/.github/workflows/auto-assign.yml', 'ext/ledbin/.github/workflows/proof-html.yml', 'ext/ledbin/dist/output.css', 'ext/ledbin/src/styles.css', 'ext/matrix/.gitignore', 'ext/matrix/index.html', 'ext/matrix/LICENSE', 'ext/matrix/README.md', 'ext/matrix/css/normalize.css', 'ext/matrix/css/styles.css', 'ext/matrix/images/clock.png', 'ext/matrix/images/logo.png', 'ext/matrix/js/clock.js', 'ext/matrix/js/matrix.js', 'ext/nixie/app.js', 'ext/nixie/favicon.ico', 'ext/nixie/index.html', 'ext/nixie/README.md', 'ext/nixie/styles.css', 'ext/nixie/audio/buzz.mp3', 'ext/nixie/audio/buzz.wav', 'ext/nixie/images/hexmap.png', 'ext/nixie/images/hexmap2.png', 'ext/nixie/images/hexmap3.png', 'ext/nixie/images/hexmap4.png', 'ext/nixie/images/nixieImgExample.png', 'ext/nixie/images/ProjectImage.png', 'ext/word/index.html', 'ext/word/README.md', 'ext/word/css/clock.css', 'ext/word/images/black.png', 'ext/word/images/brown.png', 'ext/word/images/denim.png', 'ext/word/images/olive.png', 'ext/word/images/raspberry.png', 'ext/word/images/red.png', 'ext/word/images/steel.png', 'ext/word/js/clock.js', 'js/alarm.js', 'js/app.js', 'js/audio.js', 'js/core.js', 'js/fx.js', 'js/settings.js', 'js/timer.js', 'js/world.js', 'js/faces/analog.js', 'js/faces/binary.js', 'js/faces/cube.js', 'js/faces/digital.js', 'js/faces/dot.js', 'js/faces/ext.js', 'js/faces/flip.js', 'js/faces/neon.js', 'js/faces/nixie.js', 'js/faces/registry.js', 'js/faces/ring.js', 'js/faces/word.js']
+dt.jet written: D:\qzq\smartquiz\html2apk\app\src\main\assets\dt.jet size: 2396960
+[OK] dt.jet 已生成: 2396960 bytes
+[OK] manifest.json: {"main":"index.html","targver":1}
+[OK] assets 已就绪，共 2 个文件（63 桥壳：TTS/方向/亮度/权限/SAF/截图/剪贴板/网络代理等）
+
+==> 图标处理
+[OK] 已使用自定义图标: D:\qzq\smartquiz\apk_export\aurora_icon_512.png
+
+==> 签名配置
+[OK] 复用 keystore: D:\qzq\smartquiz\smartquiz.keystore
+
+==> 写入构建配置
+[OK] 配置已写入: D:\qzq\smartquiz\html2apk\build_config.properties
+[OK] 应用名: 极光时钟 | 包名: com.cjhtmldemo.p4c0c03e6e19f | 版本: 9.18 (35)
+
+==> Gradle 构建 (release)
+Starting a Gradle Daemon, 1 busy and 1 incompatible and 7 stopped Daemons could not be reused, use --status for details
+WARNING: We recommend using a newer Android Gradle plugin to use compileSdk = 35
+
+This Android Gradle plugin (8.4.0) was tested up to compileSdk = 34.
+
+You are strongly encouraged to update your project to use a newer
+Android Gradle plugin that has been tested with compileSdk = 35.
+
+If you are already using the latest version of the Android Gradle plugin,
+you may need to wait until a newer version with support for compileSdk = 35 is available.
+
+To suppress this warning, add/update
+    android.suppressUnsupportedCompileSdk=35
+to this project's gradle.properties.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preReleaseBuild UP-TO-DATE
+> Task :app:javaPreCompileRelease UP-TO-DATE
+> Task :app:checkReleaseAarMetadata UP-TO-DATE
+> Task :app:generateReleaseResValues UP-TO-DATE
+> Task :app:mapReleaseSourceSetPaths UP-TO-DATE
+> Task :app:generateReleaseResources UP-TO-DATE
+> Task :app:mergeReleaseResources UP-TO-DATE
+> Task :app:packageReleaseResources UP-TO-DATE
+> Task :app:parseReleaseLocalResources UP-TO-DATE
+> Task :app:createReleaseCompatibleScreenManifests
+> Task :app:extractDeepLinksRelease UP-TO-DATE
+> Task :app:processReleaseMainManifest
+> Task :app:processReleaseManifest
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :app:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :app:mergeReleaseNativeLibs NO-SOURCE
+> Task :app:stripReleaseDebugSymbols NO-SOURCE
+> Task :app:extractReleaseNativeSymbolTables NO-SOURCE
+> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:checkReleaseDuplicateClasses UP-TO-DATE
+> Task :app:desugarReleaseFileDependencies UP-TO-DATE
+> Task :app:mergeReleaseStartupProfile UP-TO-DATE
+> Task :app:mergeExtDexRelease UP-TO-DATE
+> Task :app:mergeReleaseArtProfile UP-TO-DATE
+> Task :app:mergeReleaseShaders UP-TO-DATE
+> Task :app:compileReleaseShaders NO-SOURCE
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :app:mergeReleaseAssets
+> Task :app:extractReleaseVersionControlInfo UP-TO-DATE
+> Task :app:processReleaseJavaRes NO-SOURCE
+> Task :app:mergeReleaseJavaResource UP-TO-DATE
+> Task :app:collectReleaseDependencies UP-TO-DATE
+> Task :app:sdkReleaseDependencyData UP-TO-DATE
+> Task :app:validateSigningRelease UP-TO-DATE
+> Task :app:writeReleaseAppMetadata UP-TO-DATE
+> Task :app:writeReleaseSigningConfigVersions UP-TO-DATE
+> Task :app:processReleaseManifestForPackage
+> Task :app:compressReleaseAssets
+> Task :app:processReleaseResources
+> Task :app:compileReleaseJavaWithJavac UP-TO-DATE
+> Task :app:generateReleaseLintVitalReportModel
+> Task :app:dexBuilderRelease UP-TO-DATE
+> Task :app:mergeDexRelease UP-TO-DATE
+> Task :app:mergeReleaseGlobalSynthetics UP-TO-DATE
+> Task :app:compileReleaseArtProfile UP-TO-DATE
+> Task :app:optimizeReleaseResources
+> Task :app:packageRelease
+> Task :app:createReleaseApkListingFileRedirect
+> Task :app:lintVitalAnalyzeRelease
+> Task :app:lintVitalReportRelease UP-TO-DATE
+> Task :app:lintVitalRelease
+> Task :app:assembleRelease
+
+[Incubating] Problems report is available at: file:///D:/qzq/smartquiz/html2apk/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 31s
+43 actionable tasks: 13 executed, 30 up-to-date
+[OK] 构建成功
+
+==> 输出 APK
+
+==> APK 校验 (aapt dump badging)
+[OK] 包名/版本: package: name='com.cjhtmldemo.p4c0c03e6e19f' versionCode='35' versionName='9.18' platformBuildVersionName='15' platformBuildVersionCode='35' compileSdkVersion='35' compileSdkVersionCodename='15'
+[OK] 应用标签: application-label:'极光时钟'
+[OK] SDK 版本: sdkVersion:'26'
+
+================================================================
+  APK 导出完成！
+================================================================
+  APK 路径 : D:\qzq\smartquiz\html2apk\out\p4c0c03e6e19f-9.18.apk
+  APK 大小 : 3.80 MB
+  应用名   : 极光时钟
+  包名     : com.cjhtmldemo.p4c0c03e6e19f
+  版本     : 9.18 (35)
+  加载方式 : 本地 dt.jet 解密 + HTTP 服务
+  安装命令 : adb install -r "D:\qzq\smartquiz\html2apk\out\p4c0c03e6e19f-9.18.apk"
+================================================================
