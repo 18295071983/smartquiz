@@ -1,18 +1,16 @@
-/* 极光时钟 · faces/led.css —— 极光LED霓虹点阵（重设计：霓虹发光 + 玻璃面板） */
-.led-face{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,3vw,18px);height:100%}
-.led-cols{display:flex;gap:clamp(12px,7vw,42px);align-items:flex-end;padding:clamp(12px,4.5vw,24px);
-  background:linear-gradient(160deg,rgba(32,36,68,.78),rgba(14,16,32,.88));border-radius:clamp(12px,4.5vw,20px);
-  border:1px solid rgba(140,160,255,.28);box-shadow:0 12px 34px rgba(0,0,0,.45),0 0 30px rgba(123,108,255,.14),inset 0 0 22px rgba(0,0,0,.5)}
-.led-dot{width:clamp(11px,4.5vw,28px);height:clamp(11px,4.5vw,28px);border-radius:clamp(4px,1.6vw,8px);background:#232746;
-  box-shadow:inset 0 0 6px rgba(0,0,0,.8),0 2px 4px rgba(0,0,0,.4);transition:all .18s}
-.led-dot.h{background:radial-gradient(circle at 35% 30%,#a5e8ff,#1f8fff 60%,#0a5fd0);
-  box-shadow:0 0 12px 2px rgba(80,170,255,.65),0 0 26px 4px rgba(80,170,255,.30)}
-.led-dot.m{background:radial-gradient(circle at 35% 30%,#ffffff,#cfd8ff 60%,#8a96ff);
-  box-shadow:0 0 12px 2px rgba(200,210,255,.6),0 0 26px 4px rgba(160,170,255,.28)}
-.led-dot.s{background:radial-gradient(circle at 35% 30%,#ffc9c9,#ff4d6d 60%,#c9184a);
-  box-shadow:0 0 12px 2px rgba(255,90,120,.65),0 0 26px 4px rgba(255,60,100,.30)}
-.led-tag{display:flex;gap:clamp(10px,6vw,36px);font-size:clamp(8px,2.8vw,13px);letter-spacing:3px;color:#9aa3d8}
-.led-tag b{width:clamp(11px,4.5vw,28px);text-align:center;text-shadow:0 0 8px currentColor}
-.led-digi{font-family:Consolas,Menlo,monospace;font-size:clamp(16px,min(calc(var(--cw)*.088),calc(var(--ch)*.042)),44px);
-  font-weight:700;letter-spacing:2px;
-  background:linear-gradient(90deg,#a5e8ff,#cfd8ff 50%,#ffc9c9);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+/* 极光时钟 · faces/led.css —— 霓虹像素（5×7 渐变像素块数字，现代像素风） */
+.led-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:20px;
+  background:radial-gradient(120% 120% at 50% 0%,#12122c 0%,#080812 60%)}
+.led-face::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,transparent 0 4px,rgba(255,255,255,.018) 4px 5px)}
+.px-time{position:relative;z-index:2;display:flex;align-items:center;gap:clamp(3px,1.4vw,8px)}
+.px-col{display:flex;flex-direction:column;gap:clamp(1px,.45vw,2.5px)}
+.px-dot{width:clamp(5px,2.3vw,13px);height:clamp(5px,2.3vw,13px);border-radius:clamp(1px,.6vw,3px);background:rgba(255,255,255,.045);transition:all .2s}
+.px-col.on .px-dot{background:radial-gradient(circle at 35% 30%,#b8f2ff,#38a8ff 55%,#1850d0);box-shadow:0 0 8px rgba(80,180,255,.75),0 0 20px rgba(80,180,255,.3)}
+.px-col.hot .px-dot{background:radial-gradient(circle at 35% 30%,#ffd9ef,#ff5fa8 55%,#c03090);box-shadow:0 0 8px rgba(255,100,170,.75),0 0 20px rgba(255,100,170,.3)}
+.px-dot.iso{background:radial-gradient(circle at 35% 30%,#e8e2ff,#9a7bff 55%,#6040c0);box-shadow:0 0 8px rgba(160,130,255,.7),0 0 20px rgba(160,130,255,.28)}
+.px-col.on .px-dot,.px-col.hot .px-dot,.px-dot.iso{transform:scale(1)}
+.px-sep{display:flex;flex-direction:column;gap:clamp(1px,.45vw,2.5px)}
+.px-sep i{width:clamp(5px,2.3vw,13px);height:clamp(5px,2.3vw,13px);border-radius:50%;background:rgba(255,255,255,.75);
+  box-shadow:0 0 10px rgba(180,200,255,.9);animation:pxBlink 1s step-end infinite}
+@keyframes pxBlink{0%,100%{opacity:1}50%{opacity:.2}}

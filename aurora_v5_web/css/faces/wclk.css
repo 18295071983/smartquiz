@@ -1,13 +1,18 @@
-/* 极光时钟 · faces/wclk.css —— 极光文字钟（重设计：深空渐变 + 发光渐变词） */
-.wclk-face{width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:18px;position:relative;overflow:hidden;
-  background:radial-gradient(130% 130% at 50% 0%,#181c38 0%,#0c0e1f 55%,#130b28 100%)}
-.wclk-face::before{content:'';position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(60% 46% at 18% 12%,rgba(0,240,255,.13),transparent 60%),
-  radial-gradient(55% 50% at 85% 22%,rgba(123,108,255,.16),transparent 62%),
-  radial-gradient(65% 55% at 50% 98%,rgba(255,110,199,.10),transparent 60%)}
-.wclk-grid{position:relative;display:grid;grid-template-columns:repeat(12,1fr);gap:clamp(1px,.6vw,4px);
-  padding:clamp(8px,3vw,18px);width:100%;max-width:min(calc(var(--cw)*.94),calc(var(--ch)*.72))}
-.wclk-grid span{text-align:center;font-size:clamp(9px,min(calc(var(--cw)*.036),calc(var(--ch)*.022)),19px);
-  line-height:1.7;color:#565a80;transition:color .5s,text-shadow .5s,transform .5s;user-select:none;font-weight:600;letter-spacing:.5px}
-.wclk-grid span.on{color:#9ff3ff;text-shadow:0 0 7px rgba(125,240,255,.95),0 0 16px rgba(80,180,255,.55),0 0 30px rgba(123,108,255,.35);
-  transform:scale(1.04)}
+/* 极光时钟 · faces/wclk.css —— 极光大字（iOS AOD 风格：超大数字 + 流动极光光斑） */
+.wclk-face{position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;border-radius:20px;
+  background:radial-gradient(120% 120% at 50% 0%,#10142b 0%,#080a16 60%)}
+.wclk-face .aur-bg{position:absolute;inset:-30%;pointer-events:none;filter:blur(clamp(18px,7vw,46px))}
+.wclk-face .aur-bg i{position:absolute;border-radius:50%;opacity:.55;mix-blend-mode:screen}
+.wclk-face .aur-bg i:nth-child(1){width:55%;height:55%;left:8%;top:12%;background:radial-gradient(circle,rgba(0,200,255,.5),transparent 65%);animation:aurDrift 14s ease-in-out infinite alternate}
+.wclk-face .aur-bg i:nth-child(2){width:48%;height:48%;right:6%;top:30%;background:radial-gradient(circle,rgba(140,90,255,.5),transparent 65%);animation:aurDrift 17s ease-in-out infinite alternate-reverse}
+.wclk-face .aur-bg i:nth-child(3){width:60%;height:60%;left:22%;bottom:-14%;background:radial-gradient(circle,rgba(255,80,180,.38),transparent 65%);animation:aurDrift 20s ease-in-out infinite alternate}
+@keyframes aurDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(6%,4%) scale(1.12)}100%{transform:translate(-5%,7%) scale(.95)}}
+.aur-meta{position:relative;z-index:2;font-size:clamp(12px,min(calc(var(--cw)*.038),calc(var(--ch)*.02)),20px);color:rgba(230,235,255,.75);letter-spacing:2px;margin-bottom:clamp(6px,2.4vw,14px);font-weight:500}
+.aur-time{position:relative;z-index:2;display:flex;align-items:center;gap:clamp(2px,.8vw,6px);line-height:1}
+.aur-time b{font-size:clamp(58px,min(calc(var(--cw)*.245),calc(var(--ch)*.14)),168px);font-weight:700;color:#f2f5ff;
+  text-shadow:0 0 22px rgba(120,180,255,.35),0 2px 12px rgba(0,0,0,.5);letter-spacing:clamp(-2px,-.6vw,-1px)}
+.aur-time em{font-style:normal;font-size:clamp(30px,min(calc(var(--cw)*.11),calc(var(--ch)*.065)),78px);font-weight:300;color:rgba(255,255,255,.6);
+  animation:aurBlink 1s step-end infinite}
+@keyframes aurBlink{0%,100%{opacity:1}50%{opacity:.25}}
+.aur-sec{position:relative;z-index:2;margin-top:clamp(8px,3vw,16px);font-size:clamp(13px,min(calc(var(--cw)*.042),calc(var(--ch)*.022)),22px);color:rgba(255,255,255,.5);font-weight:300;letter-spacing:1px}
+.aur-sec b{color:rgba(160,220,255,.9);font-weight:500}

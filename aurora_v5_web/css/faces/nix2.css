@@ -1,22 +1,21 @@
-/* 极光时钟 · faces/nix2.css —— 极光辉光管（重设计：通透玻璃 + 暖橙辉光 + 顶部高光） */
-.nix2-face{display:flex;align-items:center;justify-content:center;gap:clamp(5px,1.8vw,11px);height:100%;padding:0 clamp(4px,2vw,12px)}
-.nix2-tube{position:relative;width:clamp(34px,13vw,92px);height:clamp(54px,21.5vw,154px);border-radius:clamp(16px,5.5vw,34px);
-  background:linear-gradient(180deg,rgba(96,64,42,.34),rgba(30,14,8,.92) 32%,rgba(48,22,10,.85) 68%,rgba(86,54,32,.38));
-  border:1px solid rgba(255,170,80,.22);
-  box-shadow:inset 0 0 24px rgba(255,140,0,.32),inset 0 -16px 28px rgba(255,110,20,.16),0 0 16px rgba(255,140,0,.20);
-  overflow:hidden}
-.nix2-tube::before{content:'';position:absolute;left:10%;right:10%;top:5%;height:42%;border-radius:50%;z-index:2;pointer-events:none;
-  background:radial-gradient(ellipse at 50% 0%,rgba(255,255,255,.18),transparent 68%)}
-.nix2-tube::after{content:'';position:absolute;width:44%;height:100%;top:0;left:9%;z-index:3;pointer-events:none;
-  background:linear-gradient(90deg,rgba(255,255,255,.11),transparent);transform:skewX(-14deg)}
-.nix2-digit{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:1;
-  font-size:clamp(24px,9.2vw,80px);font-weight:100;color:#8a5a2a;opacity:.20;filter:blur(.6px);user-select:none}
-.nix2-digit.on{opacity:1;color:#ff9a30;text-shadow:0 0 8px #ff8c00,0 0 18px #ff5a00,0 0 30px #ff8c00,0 0 60px rgba(255,120,0,.75);
-  animation:nixFlicker 1.4s infinite alternate ease-in-out}
-@keyframes nixFlicker{0%{opacity:.97}22%{opacity:.86}45%{opacity:1}70%{opacity:.93}100%{opacity:.9}}
-.nix2-sep{width:clamp(7px,2.6vw,18px);height:clamp(20px,8.5vw,56px);border-radius:20px;overflow:hidden;
-  background:linear-gradient(180deg,rgba(255,150,60,.22),rgba(30,12,6,.86) 40%,rgba(52,20,10,.8) 62%,rgba(255,150,60,.18));
-  border:1px solid rgba(255,150,60,.20);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16%;
-  box-shadow:inset 0 0 12px rgba(255,140,0,.28),0 0 8px rgba(255,140,0,.18)}
-.nix2-sep i{width:26%;height:26%;border-radius:50%;background:radial-gradient(circle at 40% 35%,#ffb860,#ff7a00);
-  box-shadow:0 0 10px #ff8c00,0 0 20px rgba(255,120,0,.5);animation:nixFlicker 1.05s infinite alternate ease-in-out}
+/* 极光时钟 · faces/nix2.css —— 毛玻璃数字（glassmorphism：模糊玻璃卡 + 发光边框） */
+.nix2-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:20px;
+  background:radial-gradient(120% 120% at 50% 0%,#151a36 0%,#0a0c1c 60%)}
+.nix2-face .gl-bg{position:absolute;inset:-25%;pointer-events:none;filter:blur(clamp(16px,6vw,40px))}
+.nix2-face .gl-bg i{position:absolute;border-radius:50%;opacity:.5}
+.nix2-face .gl-bg i:nth-child(1){width:50%;height:50%;left:5%;top:15%;background:radial-gradient(circle,rgba(0,210,255,.55),transparent 65%);animation:glDrift 15s ease-in-out infinite alternate}
+.nix2-face .gl-bg i:nth-child(2){width:44%;height:44%;right:4%;top:38%;background:radial-gradient(circle,rgba(170,90,255,.5),transparent 65%);animation:glDrift 19s ease-in-out infinite alternate-reverse}
+.nix2-face .gl-bg i:nth-child(3){width:56%;height:56%;left:24%;bottom:-16%;background:radial-gradient(circle,rgba(255,90,190,.42),transparent 65%);animation:glDrift 22s ease-in-out infinite alternate}
+@keyframes glDrift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(7%,-5%) scale(1.1)}100%{transform:translate(-6%,6%) scale(.94)}}
+.gl-cards{position:relative;z-index:2;display:flex;align-items:center;gap:clamp(5px,2vw,12px)}
+.gl-card{width:clamp(52px,20vw,128px);height:clamp(70px,27vw,172px);border-radius:clamp(14px,5vw,26px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(2px,.8vw,6px);
+  background:rgba(255,255,255,.07);backdrop-filter:blur(clamp(10px,4vw,22px));-webkit-backdrop-filter:blur(clamp(10px,4vw,22px));
+  border:1px solid rgba(255,255,255,.16);box-shadow:0 8px 30px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.2),0 0 20px rgba(120,150,255,.10)}
+.gl-card b{font-size:clamp(30px,12.5vw,86px);font-weight:700;color:#fff;line-height:1;text-shadow:0 0 16px rgba(150,200,255,.45)}
+.gl-card span{font-size:clamp(9px,3.2vw,15px);color:rgba(255,255,255,.55);letter-spacing:2px;font-weight:400}
+.gl-card.small{width:clamp(40px,15vw,92px);height:clamp(56px,21vw,132px)}
+.gl-card.small b{font-size:clamp(22px,9vw,62px)}
+.gl-dot{display:flex;flex-direction:column;gap:clamp(8px,3.4vw,20px)}
+.gl-dot i{width:clamp(5px,2vw,12px);height:clamp(5px,2vw,12px);border-radius:50%;background:rgba(255,255,255,.75);
+  box-shadow:0 0 8px rgba(150,200,255,.8);animation:glBlink 1s step-end infinite}
+@keyframes glBlink{0%,100%{opacity:1}50%{opacity:.25}}
