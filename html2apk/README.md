@@ -5,7 +5,7 @@
 ## 特性
 
 - **任意 HTML 入包**：本地 `index.html`（含全部子目录资源）打包为 `dt.jet`（ZIP→AES-128-CBC，与主应用 ApkPacker 同一格式），壳内解密后由本地 HTTP 服务加载
-- **68 桥原生能力**：`window.AndroidApp` 提供 TTS（speakText/ttsState/stopSpeak）、方向（setOrientation）、亮度（setBrightness）、权限管理（requestPermission/checkPermission/openAppSettings）、SAF 文件（openFilePicker/saveFile/readFile/listFiles）、截图（screenshot）、剪贴板（readClipboard）、状态栏（setStatusBarStyle/getStatusBarHeight）、设备信息、电池/存储、通知/前台服务、无 CORS 网络代理（request）、全屏、脚本注入、缓存控制等 63 个接口
+- **68 桥原生能力**：`window.AndroidApp` 提供 TTS（speakText/ttsState/stopSpeak）、方向（setOrientation）、亮度（setBrightness）、权限管理（requestPermission/checkPermission/openAppSettings）、SAF 文件（openFilePicker/saveFile/readFile/listFiles）、截图（screenshot）、剪贴板（readClipboard）、状态栏（setStatusBarStyle/getStatusBarHeight）、设备信息、电池/存储、通知/前台服务、无 CORS 网络代理（request）、全屏、脚本注入、缓存控制等 68 个接口
 - **远程 URL 模式**：也可直接加载一个 http/https 地址（manifest.json 的 url 字段），不打包本地 HTML
 - **中文应用名**：应用显示名、包名、版本号全部可配（UTF-8 安全）
 - **自动签名**：首次运行自动生成 release keystore，后续复用；也支持传入已有 keystore
@@ -78,7 +78,7 @@ export_apk.ps1
 1. 读取 `assets/manifest.json`：取 `main` 入口与可选 `url`（远程加载）
 2. 有 `url` → 直接加载远程地址（需联网）；否则解密 `assets/dt.jet` → 解出 HTML 目录 → 本地 HTTP 服务加载
 3. 已启用：JavaScript、DOM Storage、本地文件访问、媒体自动播放、返回键回退
-4. `window.AndroidApp` 注入 63 个原生桥接口（TTS/方向/亮度/权限/SAF/截图/剪贴板/网络代理等）
+4. `window.AndroidApp` 注入 68 个原生桥接口（TTS/方向/亮度/权限/SAF/截图/剪贴板/网络代理等）
 
 ## 目录结构
 
