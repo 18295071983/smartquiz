@@ -1,4 +1,0 @@
-/* 极光时钟 · faces/ext.css —— 外部源码表盘（iframe 渲染） */
-.ext-face{position:relative;width:100%;height:100%;overflow:hidden;border-radius:14px;
-  box-shadow:0 0 30px rgba(0,0,0,.45) inset}
-.ext-face iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent}

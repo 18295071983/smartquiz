@@ -1,0 +1,6 @@
+/* 极光时钟 · faces/mtx.css —— 矩阵数字钟（源自 GitHub jsvaldezv/matrix-clock） */
+.mtx-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:14px}
+.mtx-bg{position:absolute;inset:0;width:100%;height:100%;opacity:.55;pointer-events:none}
+.mtx-txt{position:relative;font-family:Consolas,Menlo,monospace;font-size:clamp(34px,min(calc(var(--cw)*.17),calc(var(--ch)*.11)),112px);
+  font-weight:700;color:#00ff60;text-shadow:0 0 12px rgba(0,255,96,.8),0 0 44px rgba(0,255,96,.35);
+  letter-spacing:clamp(2px,1vw,8px);z-index:2}

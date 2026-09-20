@@ -1,0 +1,15 @@
+/* 极光时钟 · faces/led.css —— LED二进制数字钟（源自 GitHub DON-KD2QQV/binary-clock） */
+.led-face{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,3vw,18px);height:100%}
+.led-cols{display:flex;gap:clamp(12px,7vw,42px);align-items:flex-end;padding:clamp(10px,4vw,22px);
+  background:rgba(31,41,55,.55);border-radius:clamp(10px,4vw,18px);border:1px solid rgba(107,114,128,.4);
+  box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.led-col{display:flex;flex-direction:column-reverse;gap:clamp(4px,1.7vw,10px)}
+.led-dot{width:clamp(10px,4.2vw,26px);height:clamp(10px,4.2vw,26px);border-radius:50%;background:#374151;
+  box-shadow:inset 0 0 6px rgba(0,0,0,.7);transition:all .18s}
+.led-dot.h{background:#3b82f6;box-shadow:0 0 12px 3px rgba(59,130,246,.55)}
+.led-dot.m{background:#e5e7eb;box-shadow:0 0 12px 3px rgba(229,231,235,.5)}
+.led-dot.s{background:#ef4444;box-shadow:0 0 12px 3px rgba(239,68,68,.55)}
+.led-tag{display:flex;gap:clamp(10px,6vw,36px);font-size:clamp(8px,2.8vw,13px);letter-spacing:2px;color:#9ca3af}
+.led-tag b{width:clamp(10px,4.2vw,26px);text-align:center}
+.led-digi{font-family:Consolas,Menlo,monospace;font-size:clamp(16px,min(calc(var(--cw)*.088),calc(var(--ch)*.042)),44px);
+  font-weight:700;letter-spacing:2px;color:#e5e7eb;text-shadow:0 0 10px rgba(229,231,235,.4)}

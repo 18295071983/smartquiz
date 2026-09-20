@@ -1,0 +1,3 @@
+/* 极光时钟 · faces/digh.css —— 数字指针表盘（源自 GitHub Moderrek/clock-digital-hands） */
+.digh-face{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+.digh-face canvas{width:100%;height:100%}
