@@ -1,0 +1,12 @@
+/* 极光时钟 · faces/flow.css —— 流彩（M3 Expressive × 三星多彩动态背景 + 大字） */
+.flow-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:20px;background:#0a0c1a}
+.flow-face .fw-bg{position:absolute;inset:-60%;pointer-events:none;
+  background:linear-gradient(115deg,#00d8ff,#7a5cff,#ff4fa0,#ff9a3d,#00d8ff);background-size:320% 320%;
+  filter:blur(clamp(10px,4vw,26px)) saturate(1.15);opacity:.72;
+  animation:fwShift 11s ease-in-out infinite}
+@keyframes fwShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+.flow-face::before{content:'';position:absolute;inset:0;pointer-events:none;background:radial-gradient(70% 60% at 50% 40%,transparent 30%,rgba(4,6,14,.55) 100%)}
+.fw-time{position:relative;z-index:2}
+.fw-time b{font-size:clamp(56px,min(calc(var(--cw)*.25),calc(var(--ch)*.142)),172px);font-weight:800;color:#fff;letter-spacing:clamp(-2px,-.6vw,-1px);line-height:1;
+  text-shadow:0 4px 24px rgba(0,0,0,.45),0 0 60px rgba(255,255,255,.22)}
+.fw-sec{position:absolute;z-index:2;right:clamp(10px,5vw,28px);bottom:clamp(10px,4.5vw,24px);font-size:clamp(12px,4vw,20px);color:rgba(255,255,255,.65);font-weight:500;letter-spacing:2px;text-shadow:0 2px 8px rgba(0,0,0,.4)}
