@@ -1,3 +1,6 @@
-/* 极光时钟 · faces/digh.css —— 数字指针表盘（源自 GitHub Moderrek/clock-digital-hands） */
-.digh-face{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+/* 极光时钟 · faces/digh.css —— 极光数字针（重设计：表盘外圈光晕） */
+.digh-face{width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative}
+.digh-face::before{content:'';position:absolute;width:min(calc(var(--cw)*.66),calc(var(--ch)*.66));height:min(calc(var(--cw)*.66),calc(var(--ch)*.66));
+  border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle at 50% 42%,rgba(0,240,255,.12),rgba(123,108,255,.07) 48%,transparent 72%)}
 .digh-face canvas{width:100%;height:100%}

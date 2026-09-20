@@ -1,15 +1,18 @@
-/* 极光时钟 · faces/led.css —— LED二进制数字钟（源自 GitHub DON-KD2QQV/binary-clock） */
+/* 极光时钟 · faces/led.css —— 极光LED霓虹点阵（重设计：霓虹发光 + 玻璃面板） */
 .led-face{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,3vw,18px);height:100%}
-.led-cols{display:flex;gap:clamp(12px,7vw,42px);align-items:flex-end;padding:clamp(10px,4vw,22px);
-  background:rgba(31,41,55,.55);border-radius:clamp(10px,4vw,18px);border:1px solid rgba(107,114,128,.4);
-  box-shadow:0 10px 30px rgba(0,0,0,.4)}
-.led-col{display:flex;flex-direction:column-reverse;gap:clamp(4px,1.7vw,10px)}
-.led-dot{width:clamp(10px,4.2vw,26px);height:clamp(10px,4.2vw,26px);border-radius:50%;background:#374151;
-  box-shadow:inset 0 0 6px rgba(0,0,0,.7);transition:all .18s}
-.led-dot.h{background:#3b82f6;box-shadow:0 0 12px 3px rgba(59,130,246,.55)}
-.led-dot.m{background:#e5e7eb;box-shadow:0 0 12px 3px rgba(229,231,235,.5)}
-.led-dot.s{background:#ef4444;box-shadow:0 0 12px 3px rgba(239,68,68,.55)}
-.led-tag{display:flex;gap:clamp(10px,6vw,36px);font-size:clamp(8px,2.8vw,13px);letter-spacing:2px;color:#9ca3af}
-.led-tag b{width:clamp(10px,4.2vw,26px);text-align:center}
+.led-cols{display:flex;gap:clamp(12px,7vw,42px);align-items:flex-end;padding:clamp(12px,4.5vw,24px);
+  background:linear-gradient(160deg,rgba(32,36,68,.78),rgba(14,16,32,.88));border-radius:clamp(12px,4.5vw,20px);
+  border:1px solid rgba(140,160,255,.28);box-shadow:0 12px 34px rgba(0,0,0,.45),0 0 30px rgba(123,108,255,.14),inset 0 0 22px rgba(0,0,0,.5)}
+.led-dot{width:clamp(11px,4.5vw,28px);height:clamp(11px,4.5vw,28px);border-radius:clamp(4px,1.6vw,8px);background:#232746;
+  box-shadow:inset 0 0 6px rgba(0,0,0,.8),0 2px 4px rgba(0,0,0,.4);transition:all .18s}
+.led-dot.h{background:radial-gradient(circle at 35% 30%,#a5e8ff,#1f8fff 60%,#0a5fd0);
+  box-shadow:0 0 12px 2px rgba(80,170,255,.65),0 0 26px 4px rgba(80,170,255,.30)}
+.led-dot.m{background:radial-gradient(circle at 35% 30%,#ffffff,#cfd8ff 60%,#8a96ff);
+  box-shadow:0 0 12px 2px rgba(200,210,255,.6),0 0 26px 4px rgba(160,170,255,.28)}
+.led-dot.s{background:radial-gradient(circle at 35% 30%,#ffc9c9,#ff4d6d 60%,#c9184a);
+  box-shadow:0 0 12px 2px rgba(255,90,120,.65),0 0 26px 4px rgba(255,60,100,.30)}
+.led-tag{display:flex;gap:clamp(10px,6vw,36px);font-size:clamp(8px,2.8vw,13px);letter-spacing:3px;color:#9aa3d8}
+.led-tag b{width:clamp(11px,4.5vw,28px);text-align:center;text-shadow:0 0 8px currentColor}
 .led-digi{font-family:Consolas,Menlo,monospace;font-size:clamp(16px,min(calc(var(--cw)*.088),calc(var(--ch)*.042)),44px);
-  font-weight:700;letter-spacing:2px;color:#e5e7eb;text-shadow:0 0 10px rgba(229,231,235,.4)}
+  font-weight:700;letter-spacing:2px;
+  background:linear-gradient(90deg,#a5e8ff,#cfd8ff 50%,#ffc9c9);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}

@@ -1,6 +1,10 @@
-/* 极光时钟 · faces/mtx.css —— 矩阵数字钟（源自 GitHub jsvaldezv/matrix-clock） */
-.mtx-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:14px}
+/* 极光时钟 · faces/mtx.css —— 极光矩阵（重设计：数字渐变绿 + 扫描线 + 更稀的雨） */
+.mtx-face{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:18px;
+  background:radial-gradient(130% 130% at 50% 0%,#06170d 0%,#020a05 60%,#00060a 100%)}
 .mtx-bg{position:absolute;inset:0;width:100%;height:100%;opacity:.55;pointer-events:none}
-.mtx-txt{position:relative;font-family:Consolas,Menlo,monospace;font-size:clamp(34px,min(calc(var(--cw)*.17),calc(var(--ch)*.11)),112px);
-  font-weight:700;color:#00ff60;text-shadow:0 0 12px rgba(0,255,96,.8),0 0 44px rgba(0,255,96,.35);
-  letter-spacing:clamp(2px,1vw,8px);z-index:2}
+.mtx-face::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(0,255,96,.035) 3px 4px)}
+.mtx-txt{position:relative;z-index:2;font-family:Consolas,Menlo,monospace;
+  font-size:clamp(36px,min(calc(var(--cw)*.18),calc(var(--ch)*.115)),118px);font-weight:700;letter-spacing:clamp(2px,1vw,8px);
+  background:linear-gradient(180deg,#c9ffe2,#00ff60 55%,#00cc55);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 0 10px rgba(0,255,96,.65)) drop-shadow(0 0 34px rgba(0,255,96,.30))}
