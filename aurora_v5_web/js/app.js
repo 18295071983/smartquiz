@@ -117,6 +117,7 @@ function toggleImmerse() {
   var on = !document.body.classList.contains('immerse');
   var native = hasBridgeFn('enterFullscreen');
   if (native) { try { B().enterFullscreen(!!on); } catch (e) { } }
+  if (on) { go('clock'); } /* 进入沉浸自动回到时钟页 */
   document.body.classList.toggle('immerse', !!on);
   var b = $('#btnImmerse'); if (b) b.classList.toggle('on', !!on);
   setTimeout(function () { FX.resize(); }, 260);
