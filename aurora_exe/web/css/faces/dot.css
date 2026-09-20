@@ -1,0 +1,11 @@
+/* 表盘：点阵 LED（外置） */
+/* ========== 表盘 6：点阵 LED ========== */
+.dotface{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:min(calc(var(--cw)*.0232),calc(var(--ch)*.016))}
+.dgroup{display:flex;gap:min(calc(var(--cw)*.0072),calc(var(--ch)*.0051))}
+.dchar{display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(7,1fr);gap:min(calc(var(--cw)*.0061),calc(var(--ch)*.0043))}
+.dot{width:min(calc(var(--cw)*.0225),calc(var(--ch)*.016));height:min(calc(var(--cw)*.0225),calc(var(--ch)*.016));min-width:6.5px;min-height:6.5px;border-radius:50%;background:rgba(255,255,255,.055);transition:background .12s,box-shadow .12s}
+.dot.on{background:var(--acc);box-shadow:0 0 6px var(--acc),0 0 14px rgba(var(--glow),.7)}
+.dcolon{display:flex;flex-direction:column;justify-content:center;gap:min(calc(var(--cw)*.0348),calc(var(--ch)*.0247));padding:0 min(calc(var(--cw)*.0058),calc(var(--ch)*.0043))}
+.dcolon i{width:min(calc(var(--cw)*.0218),calc(var(--ch)*.0152));height:min(calc(var(--cw)*.0218),calc(var(--ch)*.0152));min-width:4px;min-height:4px;border-radius:50%;background:var(--acc);box-shadow:0 0 10px var(--acc);animation:pulse 2s infinite}
+.dcolon.blink i{animation:dotblink 1s steps(1) infinite}
+@keyframes dotblink{50%{opacity:.15}}
