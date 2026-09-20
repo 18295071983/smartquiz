@@ -77,6 +77,8 @@ body.noglow .glows{opacity:0}
 body.immerse .topbar,body.immerse .tabbar,body.immerse .quick,body.immerse .face-tabs{display:none}
 body.immerse .page{padding:0}
 body.immerse .cmeta{opacity:.5}
+body.immerse .face-host{justify-content:center;align-items:center}
+body.immerse #pg-clock{display:flex;flex-direction:column;justify-content:center}
 </style>
 
 <style>
@@ -148,19 +150,49 @@ body.landscape .flip-bar i{display:block;height:100%;width:0;background:var(--ac
   animation:pulse 2s infinite}
 .flip-colon::before{top:.08em}
 .flip-colon::after{bottom:.085em;animation-delay:-1s}
-/* 秒：胶囊徽标 */
-.flip-sec{font-size:.2em;color:var(--acc);align-self:flex-end;margin-bottom:.3em;letter-spacing:.08em;
-  padding:.28em .5em;border-radius:999px;background:rgba(var(--glow),.1);border:1px solid rgba(var(--glow),.3);
-  text-shadow:0 0 .5em rgba(var(--glow),.7);font-variant-numeric:tabular-nums;min-width:1.95em;text-align:center}
-.flip-sec:empty{display:none;border:0;background:transparent}
+/* 秒：主翻页右侧的小号翻页卡（实时走秒动画，取消数字文本） */
+.flip-secwrap{display:flex;align-items:center;justify-content:center;gap:.16em;
+  font-size:.3em;line-height:1;align-self:center;margin:0 0 0 .9em}
+.flip-scolon{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.22em;width:.1em;height:1em}
+.flip-scolon i{width:.14em;height:.14em;border-radius:50%;background:var(--acc);
+  box-shadow:0 0 .22em var(--acc),0 0 .6em rgba(var(--glow),.55);animation:pulse 2s infinite}
+.flip-scolon i+i{animation-delay:-1s}
+.flip-secwrap .fd{border-radius:.09em}
+body.landscape .flip-secwrap{align-self:center;margin:0}
 
-/* ========== 表盘 2：辉光管 ========== */
-.nix{font-size:clamp(28px,min(calc(var(--cw)*.18),calc((var(--ch) - 300px)*.7)),240px);line-height:1;color:#ffb066;font-weight:400;letter-spacing:.02em;
- text-shadow:0 0 6px #ff8a2b,0 0 18px rgba(255,110,20,.75),0 0 42px rgba(255,90,10,.45),0 0 80px rgba(255,70,0,.25);
- animation:nixflicker 4.2s infinite}
-body.landscape .nix{font-size:clamp(28px,min(calc(var(--cw)*.13),calc((var(--ch) - 230px)*.7)),240px)}
-@keyframes nixflicker{0%,96%,100%{opacity:1}97%{opacity:.82}98%{opacity:.95}}
-.nix-sub{margin-top:14px;font-size:12.5px;letter-spacing:4px;color:rgba(255,150,80,.6)}
+/* ========== 表盘 2：辉光管（玻璃管升级版：管体 + 暖橙辉光 + 微闪烁 + 数字切换灯丝强闪） ========== */
+.nix-wrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+.nix-tubes{display:flex;align-items:center;gap:clamp(6px,1.6vw,14px);padding:clamp(10px,2.4vw,22px) clamp(8px,2vw,18px);
+  background:radial-gradient(ellipse at 50% 38%,rgba(255,122,26,.10),rgba(0,0,0,0) 62%),linear-gradient(180deg,#12090b,#1d0d0b 45%,#0d0606);
+  border:1px solid rgba(255,122,26,.14);border-radius:clamp(10px,2.2vw,20px);
+  box-shadow:inset 0 0 30px rgba(0,0,0,.85),0 0 26px rgba(255,122,26,.10)}
+.nix-tube{position:relative;width:clamp(34px,10.5vw,92px);height:clamp(48px,15vw,130px);display:flex;align-items:center;justify-content:center;
+  border-radius:clamp(6px,1.4vw,12px);
+  background:radial-gradient(ellipse at 32% 22%,rgba(255,255,255,.16),rgba(255,255,255,.02) 44%,transparent 60%),
+    radial-gradient(ellipse at 68% 82%,rgba(255,120,30,.10),transparent 55%),linear-gradient(180deg,#1a0c0e,#2a1310 50%,#160909);
+  border:1px solid rgba(255,140,60,.22);
+  box-shadow:inset 0 2px 6px rgba(255,255,255,.10),inset 0 -6px 14px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.5);
+  animation:nixflicker 5.2s linear infinite}
+.nix-tube:nth-child(even){animation-delay:.7s}
+.nix-num{position:relative;z-index:2;font-weight:700;font-size:clamp(28px,9vw,78px);line-height:1;color:#ff9a3d;
+  text-shadow:0 0 4px rgba(255,122,26,.95),0 0 10px rgba(255,110,20,.85),0 0 22px rgba(255,90,10,.6),0 0 46px rgba(255,70,0,.38);
+  font-variant-numeric:tabular-nums}
+.nix-glass{position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(160deg,rgba(255,255,255,.09),rgba(255,255,255,0) 40%);
+  box-shadow:inset 0 0 18px rgba(255,130,40,.05)}
+.nix-tube.flick .nix-num{animation:nixglow .5s ease-out}
+.nix-colon{display:flex;flex-direction:column;gap:clamp(8px,2vw,16px);padding:0 clamp(2px,.5vw,5px)}
+.nix-colon i{width:clamp(5px,1.4vw,12px);height:clamp(5px,1.4vw,12px);border-radius:50%;background:#ff8a30;
+  box-shadow:0 0 6px rgba(255,122,26,.9),0 0 14px rgba(255,90,10,.55);animation:nixflicker 5.2s linear infinite}
+.nix-colon.off i{opacity:.22;box-shadow:none}
+.nix-sub{display:flex;align-items:baseline;gap:10px;font-size:clamp(10px,2.6vw,15px);letter-spacing:.34em;color:rgba(255,160,80,.62);
+  text-shadow:0 0 8px rgba(255,110,30,.4)}
+.nix-sec{letter-spacing:.1em;color:rgba(255,160,80,.82)}
+body.landscape .nix-tube{height:clamp(30px,calc(var(--ch)*.42),92px);width:clamp(22px,calc(var(--ch)*.30),66px)}
+body.landscape .nix-num{font-size:clamp(20px,calc(var(--ch)*.30),58px)}
+body.landscape .nix-tubes{gap:clamp(4px,1vw,8px);padding:clamp(6px,1.2vw,12px)}
+@keyframes nixflicker{0%,100%{opacity:1}91%{opacity:1}92%{opacity:.86}93%{opacity:1}96%{opacity:.93}97%{opacity:1}}
+@keyframes nixglow{0%{filter:brightness(2.6)}100%{filter:brightness(1)}}
 
 /* ========== 表盘 3：极简大数字 ========== */
 .dgt{font-size:clamp(30px,min(calc(var(--cw)*.26),calc((var(--ch) - 300px)*.7)),300px);font-weight:200;line-height:.95;letter-spacing:-.045em;color:var(--txt);
@@ -208,6 +240,8 @@ body.landscape .dgt{font-size:clamp(30px,min(calc(var(--cw)*.20),calc((var(--ch)
 .dot.on{background:var(--acc);box-shadow:0 0 6px var(--acc),0 0 14px rgba(var(--glow),.7)}
 .dcolon{display:flex;flex-direction:column;justify-content:center;gap:min(calc(var(--cw)*.024),calc(var(--ch)*.017));padding:0 min(calc(var(--cw)*.004),calc(var(--ch)*.003))}
 .dcolon i{width:min(calc(var(--cw)*.015),calc(var(--ch)*.0105));height:min(calc(var(--cw)*.015),calc(var(--ch)*.0105));min-width:4px;min-height:4px;border-radius:50%;background:var(--acc);box-shadow:0 0 10px var(--acc);animation:pulse 2s infinite}
+.dcolon.blink i{animation:dotblink 1s steps(1) infinite}
+@keyframes dotblink{50%{opacity:.15}}
 
 /* ========== 表盘 7：霓虹描边 ========== */
 .neon{font-size:clamp(44px,min(calc(var(--cw)*.23),calc(var(--ch)*.17)),175px);font-weight:700;line-height:1;color:transparent;
@@ -404,6 +438,7 @@ body.landscape #pg-clock .cmeta{grid-column:2;grid-row:2;text-align:left;padding
 body.landscape #pg-clock .quick{grid-column:2;grid-row:3;justify-content:flex-start;align-content:flex-start}
 body.landscape #pg-clock .face-host,body.landscape #pg-clock .flip-wrap{min-width:0;max-width:100%}
 body.landscape #pg-clock .cmeta{min-width:0;word-break:break-word;overflow-wrap:anywhere}
+body.landscape .dotface{flex-direction:row;flex-wrap:nowrap;justify-content:center;align-items:center}
 body.landscape .tpanel{gap:10px}
 </style>
 
@@ -907,10 +942,24 @@ var FACE=(function(){
         d.innerHTML='<div class="half up"><span>0</span></div><div class="half dn"><span>0</span></div>'+
                     '<div class="leaf leaf-u"><span>0</span></div><div class="leaf leaf-l"><span>0</span></div>';
         w.appendChild(d); });
-      var sc=el('div','flip-sec mono'); sc.id='f-sec'; w.appendChild(sc);
+      var scw=el('div','flip-secwrap'); scw.id='f-sec';
+      var scol=el('div','flip-scolon'); scol.innerHTML='<i></i><i></i>'; scw.appendChild(scol);
+      ['s1','s2'].forEach(function(id){ var d=el('div','fd'); d.id='fd-'+id;
+        d.innerHTML='<div class="half up"><span>0</span></div><div class="half dn"><span>0</span></div>'+
+                    '<div class="leaf leaf-u"><span>0</span></div><div class="leaf leaf-l"><span>0</span></div>';
+        scw.appendChild(d); });
+      w.appendChild(scw);
       host.appendChild(w);flipRelayout();
     } else if(k==='nix'){
-      host.appendChild(el('div','face on','<div class="nix mono" id="f-nix">00:00</div><div class="nix-sub" id="f-nixs">AURORA CLOCK</div>'));
+      var wrap=el('div','face on nix-wrap');
+      var tubes=el('div','nix-tubes mono'); tubes.id='f-nix';
+      for(var i=0;i<6;i++){
+        if(i===2||i===4){ var cc=el('div','nix-colon'); cc.id=(i===2)?'nx-colon1':'nx-colon2'; cc.innerHTML='<i></i><i></i>'; tubes.appendChild(cc); }
+        var tt=el('div','nix-tube'); tt.id='nx-'+i; tt.innerHTML='<span class="nix-num">0</span><i class="nix-glass"></i>'; tubes.appendChild(tt);
+      }
+      wrap.appendChild(tubes);
+      wrap.appendChild(el('div','nix-sub','<span id="f-nixs">AURORA CLOCK</span><span class="nix-sec mono" id="f-nixsec"></span>'));
+      host.appendChild(wrap);
     } else if(k==='dig'){
       host.appendChild(el('div','face on','<div class="dgt mono" id="f-dig">00:00<span class="sm" id="f-digs">00</span></div>'+
         '<div class="dgt-line"></div><div class="dgt-date" id="f-digd"></div>'));
@@ -961,16 +1010,28 @@ var FACE=(function(){
     $('.leaf-u span',d).textContent=old; $('.leaf-l span',d).textContent=val;
     $('.half.up span',d).textContent=val; $('.half.dn span',d).textContent=val;
     d.classList.remove('go'); void d.offsetWidth; d.classList.add('go'); }
+  function setTube(id,ch,flick){ var t=document.getElementById(id); if(!t) return;
+    var sp=t.querySelector('.nix-num'); if(!sp) return;
+    if(sp.textContent!==ch){ sp.textContent=ch;
+      if(flick){ t.classList.remove('flick'); void t.offsetWidth; t.classList.add('flick'); } } }
   function paint(n,force){
     var h=n.getHours(),m=n.getMinutes(),s=n.getSeconds(),mi=n.getMilliseconds();
     var H=S.h24?h:hour12(h), hs=pad2(H), ms=pad2(m), ss=pad2(s);
     var dk=(h<6)?'凌晨':(h<12)?'早上':(h<14)?'中午':(h<18)?'下午':(h<22)?'晚上':'深夜';
     if(cur==='flip'){
       flipSet('h1',hs[0]); flipSet('h2',hs[1]); flipSet('m1',ms[0]); flipSet('m2',ms[1]);
-      var sc=$('#f-sec'); if(sc) sc.textContent=S.showSec?(ss+'s'):''; flipBar(s);
+      flipSet('s1',ss[0]); flipSet('s2',ss[1]);
+      var sw=$('#f-sec'); if(sw) sw.style.display=S.showSec?'':'none';
+      flipBar(s);
     } else if(cur==='nix'){
-      $('#f-nix').textContent=hs+':'+ms+(S.showSec?':'+ss:'');
-      var nx=$('#f-nixs'); if(nx) nx.textContent=(S.h24?'':'')+dk+' · NIXIE TUBE';
+      var chars=(hs+ms+ss).split('');
+      chars.forEach(function(ch,i){ setTube('nx-'+i,ch,true); });
+      var off=!S.showSec||s%2===0;
+      var c1=$('#nx-colon1'),c2=$('#nx-colon2');
+      if(c1) c1.classList.toggle('off',off);
+      if(c2) c2.classList.toggle('off',off);
+      var nx=$('#f-nixs'); if(nx) nx.textContent=dk+' · NIXIE TUBE';
+      var ns=$('#f-nixsec'); if(ns) ns.textContent='';
     } else if(cur==='dig'){
       $('#f-dig').firstChild.nodeValue=hs+':'+ms;
       var ds=$('#f-digs'); if(ds){ ds.textContent=S.showSec?ss:''; ds.style.display=S.showSec?'':'none'; }
@@ -995,6 +1056,7 @@ var FACE=(function(){
       var ids={h1:hs[0],h2:hs[1],m1:ms[0],m2:ms[1]};
       Object.keys(ids).forEach(function(id){ var g=$('#dd-'+id); if(!g)return; var pat=DOTF[ids[id]]||DOTF['0']; var dots=$$('.dot',g);
         for(var r=0;r<7;r++) for(var c2=0;c2<5;c2++){ var on=pat[r].charAt(c2)==='1'; var d3=dots[r*5+c2]; if(d3) d3.classList.toggle('on',on); } });
+      var dc=$('#f-dot .dcolon'); if(dc) dc.classList.toggle('blink',S.showSec&&s%2===0);
     } else if(cur==='neon'){
       var ne=$('#f-neon'); if(ne) ne.textContent=hs+':'+ms+(S.showSec?':'+ss:'');
       var ns=$('#f-neons'); if(ns) ns.textContent=dk+' · AURORA NEON';
