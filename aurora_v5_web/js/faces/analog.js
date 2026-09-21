@@ -38,7 +38,7 @@
         sh.style.transform = 'rotate(' + sAng + 'deg)';
       }
       var dt = $('#dgText');
-      if (dt) dt.textContent = '日一二三四五六'[n.getDay()] + ' ' + n.getDate();
+      if (dt) dt.textContent = (n.getMonth() + 1) + '/' + n.getDate();
     }
   });
 })();

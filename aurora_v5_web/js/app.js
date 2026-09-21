@@ -443,6 +443,26 @@ function init() {
   renderAlarms(); renderWorld(); updateChips();
   cdPaint(); pmPaint(); swPaint();
   requestAnimationFrame(loop);
+
+  /* 沉浸舞台缩放：普通模式 stage 变小，stage-inner 按比例缩小 fit */
+  function scaleStage() {
+    var stage = document.querySelector('.immerse-stage');
+    var inner = document.querySelector('.stage-inner');
+    if (!stage || !inner) return;
+    var sw = stage.clientWidth, sh = stage.clientHeight;
+    var iw = inner.offsetWidth, ih = inner.offsetHeight;
+    if (!sw || !sh || !iw || !ih) return;
+    var s = Math.min(sw / iw, sh / ih);
+    inner.style.transform = 'scale(' + s + ')';
+  }
+  scaleStage();
+  if (window.ResizeObserver) {
+    var ro = new ResizeObserver(function () { scaleStage(); });
+    var st = document.querySelector('.immerse-stage');
+    if (st) ro.observe(st);
+  }
+  window.addEventListener('resize', scaleStage);
+
   try { var b = B(); if (b && b.toast) b.toast('极光时钟已就绪'); } catch (e) { }
 }
 init();

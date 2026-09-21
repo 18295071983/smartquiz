@@ -31,7 +31,7 @@
         $$('span', seq).forEach(function (sp) { sp.classList.toggle('hot', sp.textContent === dk); });
       }
       var db = $('#dayBar');
-      if (db) db.style.width = (((h * 3600 + m * 60 + s) / 86400) * 100).toFixed(2) + '%';
+      if (db) db.style.width = (s / 60 * 100).toFixed(2) + '%';
     }
   });
 })();

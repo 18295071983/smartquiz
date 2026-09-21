@@ -1,4 +1,23 @@
 /* 极光时钟 v5 · 页面：列表/分段/计时/世界/设置/弹层/响铃/Toast/横屏 */
+/* ========== 天气胶囊 ========== */
+.cm-weather{display:flex;align-items:center;gap:7px;margin:2px auto 8px;padding:5px 14px;border-radius:20px;
+ background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(10px);color:var(--txt);
+ font-size:12px;letter-spacing:.4px;width:max-content;max-width:min(calc(var(--cw)*.8),calc(var(--ch)*.9));
+ white-space:nowrap;overflow:hidden;cursor:pointer;transition:.2s;z-index:6;position:relative}
+.cm-weather:active{transform:scale(.96)}
+.cm-weather .w-ico{font-size:15px;line-height:1;filter:drop-shadow(0 0 6px rgba(var(--glow),.5))}
+.cm-weather .w-temp{font-size:15px;font-weight:600;font-family:"SF Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.cm-weather .w-city{color:var(--dim);font-size:11px;max-width:min(calc(var(--cw)*.22),110px);overflow:hidden;text-overflow:ellipsis}
+.cm-weather .w-hl{color:var(--dim);font-size:11px}
+.cm-weather.ready .w-hl{color:var(--acc)}
+
+/* 沉浸：竖屏 —— 顶部 cmeta 下方居中浮动 */
+body.immerse .cm-weather{position:absolute;top:calc(var(--sa-t,0px) + 74px);left:50%;transform:translateX(-50%);
+ margin:0;pointer-events:auto;animation:immFade .6s ease both}
+/* 沉浸：横屏 —— 右上角，与左上角 cmeta 对称 */
+body.landscape.immerse .cm-weather{top:calc(var(--sa-t,0px) + 14px);left:auto;right:calc(var(--sa-r,0px) + 22px);
+ transform:none;animation:immFade .6s ease both}
+
 /* ========== 列表页通用 ========== */
 .phead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 12px;flex:0 0 auto}
 .phead h2{margin:0;font-size:19px;font-weight:600;letter-spacing:.6px}
@@ -116,6 +135,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;heigh
  opacity:0;transform:scale(.96);transition:opacity .26s,transform .26s cubic-bezier(.22,1,.36,1);
  box-shadow:0 0 60px rgba(0,0,0,.6);pointer-events:none}
 .sheet.on{opacity:1;transform:none;pointer-events:auto}
+.sheet.bottom{inset:auto;left:0;right:0;bottom:0;top:auto;max-height:82vh;border-radius:22px 22px 0 0;transform:translateY(100%)}
+.sheet.bottom.on{transform:translateY(0)}
 .shead{display:flex;align-items:center;justify-content:space-between;padding:calc(var(--sa-t,0px) + 12px) 18px 12px;flex:0 0 auto;border-bottom:1px solid rgba(255,255,255,.06)}
 .shead b{font-size:16px;font-weight:600}
 .sbody{padding:14px 18px calc(var(--sa-b,0px) + 26px);overflow-y:auto}
@@ -151,7 +172,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;heigh
 .ringov .brow{position:relative;margin-top:12px}
 
 /* 表盘切换过渡 */
-.face{transform:scale(var(--face-s,1))}
+.face{transform:scale(var(--face-s,1));transition:transform .6s cubic-bezier(.22,1,.36,1)}
 body{--face-s:1.1}
 body.landscape{--face-s:1.16}
 body.immerse{--face-s:1.2}
@@ -176,23 +197,21 @@ body.landscape .topbar,body.landscape .tabbar{padding-left:max(14px,var(--sa-l,0
 /* v3: 尺寸统一由 --cw/--ch(视觉宽高) 驱动，旧 vh override 已移除 */
 /* 横屏布局优化 */
 body.landscape .face-host{justify-content:center}
-body.landscape #pg-clock.on{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);grid-template-rows:auto 1fr auto auto;gap:6px 12px;align-items:center}
+body.landscape #pg-clock.on{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);grid-template-rows:auto 1fr;gap:6px 12px;align-items:stretch}
 body.landscape #pg-clock .face-tabs{grid-column:1/-1;grid-row:1}
-body.landscape #pg-clock .face-host{grid-column:1;grid-row:2/5;min-height:0}
-body.landscape #pg-clock .cmeta{grid-column:2;grid-row:2;text-align:left;padding-left:6px;align-self:center}
-body.landscape #pg-clock .cm-greet{font-size:clamp(14px,calc(var(--cw)*.026),20px);letter-spacing:2px}
-body.landscape #pg-clock .cm-date{font-size:11.5px}
-body.landscape #pg-clock .cm-tip{grid-column:2;grid-row:3;text-align:left;padding-left:6px;align-self:center}
-body.landscape #pg-clock .quick{grid-column:2;grid-row:4;justify-content:flex-start;align-content:flex-start}
-body.landscape #pg-clock .face-host{padding:8px 0}
-body.landscape #pg-clock .face-host,body.landscape #pg-clock .flip-wrap{min-width:0;max-width:100%}
-body.landscape #pg-clock .cmeta,body.landscape #pg-clock .cm-tip{min-width:0;word-break:break-word;overflow-wrap:anywhere}
+body.landscape #pg-clock .immerse-stage{grid-column:1;grid-row:2;min-height:0}
+body.landscape #pg-clock .quick{grid-column:2;grid-row:2;justify-content:flex-start;align-content:flex-start;align-self:center}
+body.landscape #pg-clock .immerse-stage .face-host{padding:8px 0}
+body.landscape #pg-clock .immerse-stage{min-width:0;max-width:100%}
+body.landscape #pg-clock .immerse-stage .cmeta,body.landscape #pg-clock .immerse-stage .cm-tip{min-width:0;word-break:break-word;overflow-wrap:anywhere;text-align:center}
+body.landscape #pg-clock .immerse-stage .cm-greet{font-size:clamp(14px,calc(var(--cw)*.026),20px);letter-spacing:2px}
+body.landscape #pg-clock .immerse-stage .cm-date{font-size:11.5px}
 body.landscape .tpanel{gap:10px}
 
 /* ========== 横屏沉浸模式（v5 优化） ========== */
-/* 纯净全屏：时钟最大化居中，问候/日期精致浮动 */
+/* 纯净全屏：舞台全屏，时钟最大化居中，问候/日期精致浮动 */
 body.landscape.immerse #pg-clock.on{display:block}
-body.landscape.immerse .face-host{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+body.landscape.immerse .immerse-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
 body.landscape.immerse .cmeta{position:absolute;top:calc(var(--sa-t,0px) + 16px);left:calc(var(--sa-l,0px) + 22px);right:auto;
   text-align:left;opacity:.62;padding:0;z-index:5;pointer-events:none}
 body.landscape.immerse .cm-greet{font-size:clamp(14px,calc(var(--cw)*.022),18px);letter-spacing:1.5px;margin:0}

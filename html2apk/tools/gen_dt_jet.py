@@ -49,10 +49,16 @@ def aes_encrypt(plain: bytes) -> bytes:
 
 
 def zip_dir(html_dir: str) -> bytes:
+    # 排除开发/测试文件：备份、截图、缓存、版本库、编辑器临时文件（不进客户 APK）
+    EXCLUDE_DIRS = {"_backup", "_shots", "__pycache__", ".git", ".svn", "node_modules"}
+    EXCLUDE_EXTS = {".tmp", ".bak", ".log"}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, _, files in os.walk(html_dir):
+        for root, dirs, files in os.walk(html_dir):
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
             for fn in files:
+                if os.path.splitext(fn)[1].lower() in EXCLUDE_EXTS:
+                    continue
                 full = os.path.join(root, fn)
                 rel = os.path.relpath(full, html_dir).replace(os.sep, "/")
                 zf.write(full, rel)

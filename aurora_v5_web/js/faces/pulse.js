@@ -16,7 +16,10 @@
       if (e1 && e1.textContent != pad2(h)) e1.textContent = pad2(h);
       if (e2 && e2.textContent != pad2(n.getMinutes())) e2.textContent = pad2(n.getMinutes());
       var d = document.getElementById('pl-d');
-      if (d && !d.dataset.d) { d.dataset.d = 1; d.textContent = (n.getMonth() + 1) + '月' + n.getDate() + '日'; }
+      if (d) {
+        var W = ['日', '一', '二', '三', '四', '五', '六'];
+        d.textContent = (n.getMonth() + 1) + '月' + n.getDate() + '日 周' + W[n.getDay()];
+      }
     }
   });
 })();

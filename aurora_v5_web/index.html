@@ -44,13 +44,24 @@
   <main id="pages">
     <!-- ========== 时钟 ========== -->
     <section class="page on" id="pg-clock">
-      <div class="cmeta">
-        <div class="cm-greet" id="cmGreet"></div>
-        <div class="cm-date" id="cmDate"></div>
-      </div>
       <div class="face-tabs" id="faceTabs"></div>
-      <div class="face-host" id="faceHost"></div>
-      <div class="cm-tip" id="cmTip"></div>
+      <div class="immerse-stage" id="immerseStage">
+        <div class="stage-inner">
+          <div class="cmeta">
+            <div class="cm-greet" id="cmGreet"></div>
+            <div class="cm-date" id="cmDate"></div>
+          </div>
+          <div class="cm-weather" id="cmWeather" title="点击切换城市">
+            <span class="w-ico" id="wIco">🌡️</span>
+            <span class="w-temp" id="wTemp">--°</span>
+            <span class="w-city" id="wCity">银川</span>
+            <span class="w-hl" id="wHL"></span>
+          </div>
+          <div class="wx-extra" id="wxExtra"></div>
+          <div class="face-host" id="faceHost"></div>
+          <div class="cm-tip" id="cmTip"></div>
+        </div>
+      </div>
       <div class="quick" id="quick">
         <button class="qbtn" data-act="orient">横竖屏</button>
         <button class="qbtn" data-act="immerse">沉浸</button>
@@ -155,6 +166,7 @@
         <div class="row"><span>24 小时制</span><label class="swi"><input type="checkbox" id="o24" checked><i></i></label></div>
         <div class="row"><span>显示秒</span><label class="swi"><input type="checkbox" id="oSec" checked><i></i></label></div>
         <div class="row"><span>显示日期与问候</span><label class="swi"><input type="checkbox" id="oMeta" checked><i></i></label></div>
+        <div class="row"><span>显示天气</span><label class="swi"><input type="checkbox" id="oWx" checked><i></i></label></div>
         <div class="row"><span>指针平滑扫秒</span><label class="swi"><input type="checkbox" id="oSmooth" checked><i></i></label></div>
         <div class="row"><span>氛围呼吸光晕</span><label class="swi"><input type="checkbox" id="oGlow" checked><i></i></label></div>
         <div class="row col"><span>亮度遮罩 <b id="vBright">100%</b></span><input type="range" id="oBright" min="15" max="100" value="100"></div>
@@ -244,7 +256,9 @@
 <script src="js/timer.js"></script>
 <script src="js/world.js"></script>
 <script src="vox_data.js"></script>
+<script src="js/citycodes.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/app.js"></script>
+<script src="js/weather.js"></script>
 </body>
 </html>

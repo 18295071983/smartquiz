@@ -66,14 +66,27 @@ body.noglow .glows{opacity:0}
 .tab.on{color:var(--acc)}
 .tab.on i{filter:none;transform:translateY(-2px) scale(1.14);text-shadow:0 0 16px var(--acc)}
 
-/* 沉浸模式：表盘绝对居中，问候/日期/名言浮动覆盖（不占布局空间） */
+/* ========== 沉浸舞台（独立容器：占工具栏之间的区域，内部布局与沉浸模式一致） ========== */
+.immerse-stage{position:relative;flex:1 1 auto;min-height:0;z-index:10;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.stage-inner{position:relative;width:var(--cw);height:var(--ch);transform-origin:center center;transition:transform .5s cubic-bezier(.22,1,.36,1)}
+.stage-inner .face-host{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;min-height:0}
+.stage-inner .cmeta{position:absolute;top:10px;left:0;right:0;text-align:center;opacity:.75;z-index:5;pointer-events:none;transition:top .5s ease}
+.stage-inner .cm-greet{font-size:clamp(14px,calc(var(--cw)*.028),18px);letter-spacing:2px}
+.stage-inner .cm-date{font-size:11.5px;margin-top:2px}
+.stage-inner .cm-tip{position:absolute;bottom:10px;left:0;right:0;text-align:center;opacity:.6;z-index:5;pointer-events:none;font-size:11.5px;transition:bottom .5s ease}
+.stage-inner .cm-weather{position:absolute;top:52px;left:50%;transform:translateX(-50%);margin:0;pointer-events:auto;z-index:6;transition:top .5s ease}
+.stage-inner .wx-extra{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:6;pointer-events:none;font-size:11px;opacity:.65;white-space:nowrap;transition:bottom .5s ease}
+.stage-inner .wx-extra .wx-item{display:flex;align-items:center;gap:3px}
+.stage-inner .wx-extra .wx-item b{font-weight:500;opacity:.9}
+
+/* 沉浸模式：工具栏隐藏，舞台变全屏，浮层移到屏幕边缘 */
 body.immerse .topbar,body.immerse .tabbar,body.immerse .quick,body.immerse .face-tabs{display:none}
 body.immerse .page{padding:0}
 body.immerse #pg-clock{justify-content:center}
-body.immerse .face-host{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;min-height:0}
-body.immerse .cmeta{position:absolute;top:calc(var(--sa-t,0px) + 20px);left:0;right:0;text-align:center;
- opacity:.6;z-index:5;padding:0 16px;pointer-events:none}
+body.immerse .immerse-stage{position:absolute;inset:0}
+body.immerse .cmeta{top:calc(var(--sa-t,0px) + 20px);opacity:.6;animation:immFade .6s ease both}
 body.immerse .cm-greet{font-size:16px;letter-spacing:2px}
 body.immerse .cm-date{font-size:12px}
-body.immerse .cm-tip{position:absolute;bottom:calc(var(--sa-b,0px) + 26px);left:0;right:0;text-align:center;
- opacity:.5;z-index:5;padding:0 16px;pointer-events:none}
+body.immerse .cm-tip{bottom:calc(var(--sa-b,0px) + 26px);opacity:.5;animation:immFade .6s ease both}
+body.immerse .cm-weather{top:calc(var(--sa-t,0px) + 74px)}
+body.immerse .wx-extra{bottom:calc(var(--sa-b,0px) + 26px);opacity:.5}
