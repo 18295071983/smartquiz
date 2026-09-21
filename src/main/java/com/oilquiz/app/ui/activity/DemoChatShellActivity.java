@@ -126,7 +126,8 @@ public class DemoChatShellActivity extends Activity {
         @Override public int getNativeTokenCount() { return fakeTokens; }
         @Override public String getGenPhase() { return fakePhaseJson; }
         @Override public long getStreamingTokenCount() { return fakeTokens; }
-        @Override public int getLastCacheHitTokens() { return 0; }
+        @Override public int getLastReasoningTokens() { return 0; }
+    @Override public int getLastCacheHitTokens() { return 0; }
         @Override public int getLastPromptTokens() { return 0; }
         @Override public int[] getContextWindowInfo() { return null; }
     }

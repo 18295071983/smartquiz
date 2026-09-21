@@ -49,6 +49,7 @@ public class TokenStatsBar {
         // ---- Agent 在线缓存统计（可返回 0 / null 表示不可用） ----
         int getLastCacheHitTokens();
         int getLastPromptTokens();
+        int getLastReasoningTokens();
         int[] getContextWindowInfo();
     }
 
@@ -137,6 +138,10 @@ public class TokenStatsBar {
                 int in = source.getLastPromptTokens();
                 int hitRate = (int) Math.round(hit * 100.0 / in);
                 text += String.format(context.getString(R.string.h_83afc322), hitRate);
+            }
+            // 思考 token 数（reasoning_tokens）
+            if (source.getLastReasoningTokens() > 0) {
+                text += " · 思考" + source.getLastReasoningTokens() + "t";
             }
             try {
                 int[] ctx = source.getContextWindowInfo();

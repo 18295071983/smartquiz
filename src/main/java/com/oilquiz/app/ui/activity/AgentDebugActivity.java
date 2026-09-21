@@ -997,6 +997,7 @@ public class AgentDebugActivity extends AppCompatActivity implements TokenStatsB
     @Override public int getNativeTokenCount() { return 0; }
     @Override public String getGenPhase() { return null; }
     @Override public long getStreamingTokenCount() { return onlineCompletionTokens; }
+    @Override public int getLastReasoningTokens() { return 0; }
     @Override public int getLastCacheHitTokens() { return sumCached; }
     @Override public int getLastPromptTokens() { return sumPrompt; }
     @Override public int[] getContextWindowInfo() { return null; }

@@ -8061,6 +8061,11 @@ public class AIChatActivity extends BaseActivity {
                         int hitRate = (int) Math.round(hit * 100.0 / in);
                         text += String.format(getString(R.string.h_83afc322), hitRate);
                     }
+                    // 思考 token 数（reasoning_tokens）
+                    int reasoningTokens = agentChatHandler.getLastReasoningTokens();
+                    if (reasoningTokens > 0) {
+                        text += " · 思考" + reasoningTokens + "t";
+                    }
                     // 追加上下文用量（窗口/已用/剩余）——来自模型 API 上下文大小推断 + 最近请求输入
                     try {
                         int[] ctx = agentChatHandler.getContextWindowInfo();

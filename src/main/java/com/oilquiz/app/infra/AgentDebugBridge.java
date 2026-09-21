@@ -273,6 +273,31 @@ public class AgentDebugBridge extends BroadcastReceiver {
             emitRaw("[PROMPT] " + promptOneLine);                       // 正式文本默认完整可见
         }
 
+        // ===== 启动 logcat 监听：捕获引擎详细日志，追加到结果文件 =====
+        final Process[] logcatProc = {null};
+        try {
+            logcatProc[0] = Runtime.getRuntime().exec(
+                new String[]{"logcat", "-v", "time", "-s",
+                    "OnlineAgentEngine:V", "OnlinePromptBuilder:V",
+                    "OnlineToolManager:V", "AIService:V",
+                    "OnlineInferenceService:V",
+                    "AgentDebugBridge:V"});
+            final java.io.BufferedReader logReader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(logcatProc[0].getInputStream(), StandardCharsets.UTF_8));
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        String line;
+                        while ((line = logReader.readLine()) != null) {
+                            sb.append("[LOG] ").append(line).append('\n');
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }, "logcat-capture").start();
+        } catch (Exception e) {
+            Log.w(TAG, "logcat capture start failed: " + e.getMessage());
+        }
+
         try {
             final int[] attempt = {0};
             final boolean[] retrying = {false};
@@ -373,7 +398,10 @@ public class AgentDebugBridge extends BroadcastReceiver {
                             } catch (Exception e) { Log.e(TAG, "save fail", e); }
                             writeStatus(status, out, displayPrompt, promptType, resultText);
                         }
-                        void release() { running.set(false); pr.finish(); }
+                        void release() {
+                            if (logcatProc[0] != null) logcatProc[0].destroy();
+                            running.set(false); pr.finish();
+                        }
                     };
 
                     engineHolder[0].setCallback(cb);
@@ -381,7 +409,13 @@ public class AgentDebugBridge extends BroadcastReceiver {
                     sb.append(fullVisible ? "PROMPT: " : "PROMPT_SUMMARY: ")
                             .append(displayPrompt).append('\n');
                     writeStatus("running", out, displayPrompt, promptType, "");
-                    engineHolder[0].execute(prompt, maxTokens, thinking);
+                    // 外部注入模式：加系统提示前缀，优化行为
+            String effectivePrompt = "[调试模式] 你现在处于外部调试通道。请：\n"
+                    + "1. 直接输出完整答案，不要反问用户（如\"你要出门吗？\"）\n"
+                    + "2. 不要使用 ui_component 工具，直接输出文本答案\n"
+                    + "3. 减少不必要的工具调用，简单问题直接回答\n\n"
+                    + "用户指令：" + prompt;
+            engineHolder[0].execute(effectivePrompt, maxTokens, thinking);
                 }
             };
 
@@ -412,8 +446,8 @@ public class AgentDebugBridge extends BroadcastReceiver {
     }
 
     /** 网络类瞬时故障自动重连：次数上限与间隔 */
-    private static final int MAX_RETRY = 2;
-    private static final long RETRY_DELAY_MS = 3000L;
+    private static final int MAX_RETRY = 3;
+    private static final long RETRY_DELAY_MS = 5000L;
 
     /** 判断是否为可自动重连的网络类错误 */
     private static boolean isNetworkError(String err) {

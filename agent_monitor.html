@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 实时监控面板</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #0a0e1a;
+  color: #e2e8f0;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 13px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ===== 顶栏 ===== */
+.topbar {
+  background: #111827;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #1e293b;
+  flex-shrink: 0;
+}
+.topbar h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.topbar h1::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.status-pill {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.status-idle { background: #1e293b; color: #94a3b8; }
+.status-running { background: #1e3a5f; color: #60a5fa; }
+.status-done { background: #14532d; color: #4ade80; }
+.status-error { background: #7f1d1d; color: #f87171; }
+
+/* ===== 统计卡片 ===== */
+.stats-row {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+}
+.stat-card {
+  background: #1e293b;
+  padding: 8px 14px;
+  border-radius: 8px;
+  text-align: center;
+  min-width: 80px;
+}
+.stat-card .label {
+  font-size: 10px;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+.stat-card .value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+.stat-card .value.green { color: #4ade80; }
+.stat-card .value.blue { color: #60a5fa; }
+.stat-card .value.yellow { color: #fbbf24; }
+
+/* ===== 过滤器 ===== */
+.filters {
+  display: flex;
+  gap: 4px;
+  margin-left: 16px;
+}
+.filter-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  font-size: 11px;
+  border: 1px solid #334155;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.filter-btn:hover { background: #1e293b; color: #94a3b8; }
+.filter-btn.active {
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+}
+
+/* ===== 主内容区 ===== */
+.main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ===== 日志区（左 70%）===== */
+.log-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #1e293b;
+}
+.log-header {
+  padding: 8px 16px;
+  background: #111827;
+  font-size: 11px;
+  color: #64748b;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  justify-content: space-between;
+}
+.log-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* 日志行类型 */
+.log-line {
+  padding: 1px 0;
+  word-break: break-all;
+  border-left: 2px solid transparent;
+  padding-left: 8px;
+  margin-left: -8px;
+}
+.log-think { color: #64748b; font-style: italic; }
+.log-token { color: #4ade80; }
+.log-step {
+  color: #60a5fa;
+  font-weight: 600;
+  background: rgba(96, 165, 250, 0.08);
+  border-radius: 3px;
+  padding: 2px 6px;
+  margin: 4px 0;
+  display: inline-block;
+}
+.log-tool {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border-left-color: #fbbf24;
+}
+.log-tool-ok {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.08);
+  border-left-color: #34d399;
+}
+.log-log { color: #94a3b8; font-size: 11px; opacity: 0.7; }
+.log-answer { color: #e2e8f0; padding: 2px 0; }
+.log-think-end { color: #475569; font-size: 11px; text-align: center; padding: 4px 0; }
+.log-system { color: #fbbf24; background: rgba(251, 191, 36, 0.1); font-weight: 600; }
+.log-error { color: #f87171; background: rgba(248, 113, 113, 0.1); }
+.log-prompt {
+  color: #fff;
+  font-weight: 700;
+  background: #1e3a5f;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin: 8px 0;
+  display: block;
+}
+.log-completed {
+  color: #4ade80;
+  font-weight: 700;
+  background: rgba(34, 197, 94, 0.15);
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-top: 8px;
+  display: block;
+}
+
+/* 时间戳 */
+.log-time {
+  color: #475569;
+  font-size: 10px;
+  margin-right: 6px;
+}
+
+/* ===== 侧边栏（右 30%）===== */
+.sidebar {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: #111827;
+}
+.sidebar-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid #1e293b;
+}
+.sidebar-section h3 {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+/* Token 统计 */
+.token-bar {
+  height: 6px;
+  background: #1e293b;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+.token-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.token-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 4px 0;
+}
+.token-row b { color: #e2e8f0; }
+
+/* 工具调用列表 */
+.tool-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.tool-item {
+  padding: 6px 8px;
+  background: #1e293b;
+  border-radius: 4px;
+  margin: 4px 0;
+  font-size: 11px;
+}
+.tool-item .name {
+  color: #fbbf24;
+  font-weight: 600;
+}
+.tool-item .time {
+  color: #64748b;
+  float: right;
+}
+
+/* ===== 底部状态栏 ===== */
+.bottombar {
+  background: #111827;
+  padding: 6px 16px;
+  font-size: 10px;
+  color: #475569;
+  border-top: 1px solid #1e293b;
+  display: flex;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #475569;
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+/* 滚动条 */
+.log-area::-webkit-scrollbar, .tool-list::-webkit-scrollbar { width: 5px; }
+.log-area::-webkit-scrollbar-track, .tool-list::-webkit-scrollbar-track { background: transparent; }
+.log-area::-webkit-scrollbar-thumb, .tool-list::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+</style>
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div class="topbar">
+  <h1>Agent 实时监控</h1>
+  <span class="status-pill status-idle" id="statusPill">● 待机</span>
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="label">Tokens</div>
+      <div class="value green" id="statTokens">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">思考</div>
+      <div class="value blue" id="statThink">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">工具</div>
+      <div class="value yellow" id="statTools">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">轮次</div>
+      <div class="value" id="statRounds">0</div>
+    </div>
+  </div>
+  <div class="filters">
+    <button class="filter-btn active" data-filter="all">全部</button>
+    <button class="filter-btn" data-filter="think">思考</button>
+    <button class="filter-btn" data-filter="answer">回答</button>
+    <button class="filter-btn" data-filter="tool">工具</button>
+    <button class="filter-btn" data-filter="log">引擎日志</button>
+  </div>
+</div>
+
+<!-- 主内容区 -->
+<div class="main">
+  <!-- 日志区 -->
+  <div class="log-section">
+    <div class="log-header">
+      <span>执行日志</span>
+      <span id="logCount">0 行</span>
+    </div>
+    <div class="log-area" id="logArea">
+      <div class="empty-state">
+        <div class="icon">⌛</div>
+        <div>等待外部注入指令...</div>
+        <div style="margin-top:8px; font-size:10px;">adb shell am broadcast -a com.oilquiz.app.DEBUG.AGENT_EXEC ...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 侧边栏 -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <h3>Token 统计（最后一轮）</h3>
+      <div class="token-row"><span>输入 prompt</span><b id="tokenIn">0</b></div>
+      <div class="token-row"><span>输出 completion</span><b id="tokenOut">0</b></div>
+      <div class="token-row"><span>思考 reasoning</span><b id="tokenReason" style="color:#fbbf24">0</b></div>
+      <div class="token-row"><span>缓存命中 cached</span><b id="tokenCache">0</b></div>
+      <div class="token-row"><span>缓存未命中 miss</span><b id="tokenMiss" style="color:#f87171">0</b></div>
+      <div class="token-bar"><div class="token-bar-fill" id="tokenBar" style="width:0%"></div></div>
+      <div class="token-row" style="margin-top:4px"><span>缓存命中率</span><b id="tokenCachePct">0%</b></div>
+    </div>
+    <div class="sidebar-section">
+      <h3>工具调用</h3>
+      <div class="tool-list" id="toolList">
+        <div style="color:#475569; font-size:11px;">暂无</div>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <h3>会话信息</h3>
+      <div class="token-row"><span>会话 ID</span><b id="sessionId">-</b></div>
+      <div class="token-row"><span>最大 Tokens</span><b id="maxTokens">-</b></div>
+      <div class="token-row"><span>思考模式</span><b id="thinking">-</b></div>
+    </div>
+  </div>
+</div>
+
+<!-- 底部状态栏 -->
+<div class="bottombar">
+  <span>设备: 279b6c51 · 轮询: 2s</span>
+  <span id="lastUpdate">-</span>
+</div>
+
+<script>
+const logArea = document.getElementById('logArea');
+const statusPill = document.getElementById('statusPill');
+const statTokens = document.getElementById('statTokens');
+const statThink = document.getElementById('statThink');
+const statTools = document.getElementById('statTools');
+const statRounds = document.getElementById('statRounds');
+const logCount = document.getElementById('logCount');
+const toolList = document.getElementById('toolList');
+const lastUpdate = document.getElementById('lastUpdate');
+
+let lineCount = 0;
+let tokenCount = 0;
+let thinkCount = 0;
+let toolCount = 0;
+let roundCount = 0;
+let toolCalls = [];
+let filter = 'all';
+
+function setStatus(s) {
+  statusPill.className = 'status-pill status-' + s;
+  const labels = { idle: '● 待机', running: '● 运行中', done: '● 完成', error: '● 错误' };
+  statusPill.textContent = labels[s] || labels.idle;
+}
+
+function addLine(text, type) {
+  const div = document.createElement('div');
+  div.className = 'log-line log-' + type;
+  div.textContent = text;
+
+  const empty = logArea.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  logArea.appendChild(div);
+  logArea.scrollTop = logArea.scrollHeight;
+  lineCount++;
+  logCount.textContent = lineCount + ' 行';
+
+  // 统计
+  if (type === 'token') tokenCount++;
+  if (type === 'think') thinkCount++;
+  if (type === 'tool') { toolCount++; addToolCall(text); }
+  if (type === 'step' && text.includes('推理轮次')) roundCount++;
+
+  statTokens.textContent = tokenCount;
+  statThink.textContent = thinkCount;
+  statTools.textContent = toolCount;
+  statRounds.textContent = roundCount;
+}
+
+function addToolCall(text) {
+  const div = document.createElement('div');
+  div.className = 'tool-item';
+  // 提取工具名
+  const match = text.match(/\[TOOL\]\s+(\S+)/);
+  const name = match ? match[1] : 'unknown';
+  div.innerHTML = `<span class="name">${name}</span><span class="time">${new Date().toLocaleTimeString()}</span>`;
+  toolList.insertBefore(div, toolList.firstChild);
+}
+
+// 过滤器
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    filter = btn.dataset.filter;
+    applyFilter();
+  };
+});
+
+function applyFilter() {
+  const lines = logArea.querySelectorAll('.log-line');
+  lines.forEach(l => {
+    if (filter === 'all') { l.style.display = ''; return; }
+    l.style.display = l.classList.contains('log-' + filter) ? '' : 'none';
+  });
+}
+
+// 解析 Token usage 日志
+function parseTokenUsage(text) {
+  // 1. 解析原始 JSON 格式：API usage raw: {"prompt_tokens":16486,...}
+  const rawMatch = text.match(/API usage raw:\s*(\{.*\})/);
+  if (rawMatch) {
+    try {
+      const usage = JSON.parse(rawMatch[1]);
+      const pt = usage.prompt_tokens || 0;
+      const ct = usage.completion_tokens || 0;
+      const cached = usage.prompt_tokens_details?.cached_tokens 
+        || usage.prompt_cache_hit_tokens 
+        || 0;
+      const reasoning = usage.completion_tokens_details?.reasoning_tokens || 0;
+      const miss = usage.prompt_cache_miss_tokens || (pt - cached);
+
+      document.getElementById('tokenIn').textContent = pt;
+      document.getElementById('tokenOut').textContent = ct;
+      document.getElementById('tokenCache').textContent = cached;
+      document.getElementById('tokenReason').textContent = reasoning;
+      document.getElementById('tokenMiss').textContent = miss;
+
+      const pct = pt > 0 ? Math.round((cached / pt) * 100) : 0;
+      document.getElementById('tokenBar').style.width = pct + '%';
+      document.getElementById('tokenCachePct').textContent = Math.round(pct * 10) / 10 + '%';
+      return;
+    } catch (e) { console.warn('parse usage json failed:', e); }
+  }
+
+  // 2. 兜底：解析旧格式 prompt=...completion=...
+  const m = text.match(/prompt=(\d+).*completion=(\d+).*total=(\d+).*cache_hit=(\d+)/);
+  if (m) {
+    document.getElementById('tokenIn').textContent = m[1];
+    document.getElementById('tokenOut').textContent = m[2];
+    document.getElementById('tokenCache').textContent = m[4];
+    const pct = Math.min(100, (parseInt(m[4]) / parseInt(m[3])) * 100);
+    document.getElementById('tokenBar').style.width = pct + '%';
+    document.getElementById('tokenCachePct').textContent = Math.round(pct * 10) / 10 + '%';
+  }
+}
+
+// 轮询日志
+let lastContent = '';
+
+function pollLog() {
+  fetch('agent_log.txt?t=' + Date.now())
+    .then(r => r.arrayBuffer())
+    .then(buf => new TextDecoder('utf-8').decode(buf))
+    .then(text => {
+      if (text === lastContent) return;
+      lastContent = text;
+
+      const lines = text.split('\n');
+
+      // 清空重建（简单可靠）
+      logArea.innerHTML = '';
+      lineCount = 0;
+      tokenCount = 0;
+      thinkCount = 0;
+      toolCount = 0;
+      roundCount = 0;
+      toolCalls = [];
+      toolList.innerHTML = '';
+
+      let tokenBuffer = '';
+      let thinkBuffer = '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        // TOKEN 行先缓存，遇到非 TOKEN 再一次性输出
+        if (line.startsWith('TOKEN:')) {
+          tokenBuffer += line.substring(6); // 去掉 'TOKEN:' 前缀
+          continue;
+        }
+        // 遇到非 TOKEN，先把缓存的 TOKEN 输出
+        if (tokenBuffer) {
+          addLine(tokenBuffer, 'token-block');
+          tokenBuffer = '';
+        }
+
+        // THINK 行先缓存，遇到非 THINK 再一次性输出
+        if (line.startsWith('THINK:')) {
+          thinkBuffer += line.substring(6);
+          continue;
+        }
+        if (thinkBuffer) {
+          addLine(thinkBuffer, 'think-block');
+          thinkBuffer = '';
+        }
+
+        let type = 'answer';
+        if (line.startsWith('[STEP]')) type = 'step';
+        else if (line.startsWith('[TOOL] ')) type = 'tool';
+        else if (line.startsWith('[TOOL-OK]')) type = 'tool-ok';
+        else if (line.startsWith('=== COMPLETE ===')) { type = 'completed'; setStatus('done'); }
+        else if (line.startsWith('=== ERROR ===')) { type = 'error'; setStatus('error'); }
+        else if (line.startsWith('PROMPT:')) type = 'prompt';
+        else if (line.startsWith('[LOG]')) {
+          type = 'log';
+          parseTokenUsage(line);
+        }
+        else if (line.startsWith('-- think end')) type = 'think-end';
+        else if (line.startsWith('[REJECT]') || line.startsWith('[ENABLE]') || line.startsWith('[INJECT]')) type = 'system';
+
+        addLine(line, type);
+      }
+      // 输出剩余的 buffer
+      if (tokenBuffer) addLine(tokenBuffer, 'token-block');
+      if (thinkBuffer) addLine(thinkBuffer, 'think-block');
+
+      lastUpdate.textContent = '更新: ' + new Date().toLocaleTimeString();
+    })
+    .catch(() => {});
+}
+
+setInterval(pollLog, 2000);
+</script>
+
+</body>
+</html>

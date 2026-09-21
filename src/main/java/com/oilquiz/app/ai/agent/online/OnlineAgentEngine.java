@@ -151,6 +151,10 @@ public class OnlineAgentEngine {
     /** 本次执行（一次用户消息，含多轮工具调用）累计的输入/输出 token —— 真正的总消耗 */
     private volatile int execTotalPromptTokens = 0;
     private volatile int execTotalCompletionTokens = 0;
+    /** LLM 调用轮次计数（每次 execute 开始重置） */
+    private volatile int llmCallCount = 0;
+    /** 最近一次推理的思考 token 数 */
+    private volatile int lastReasoningTokens = 0;
     /** 当前模型上下文窗口（tokens，按模型名推断） */
     private volatile int contextWindowTokens = 0;
 
@@ -164,6 +168,8 @@ public class OnlineAgentEngine {
      * 获取上下文用量信息（供 UI 展示）。
      * @return {window, used, remaining} —— 上下文窗口、已用（最近请求输入）、剩余
      */
+    public int getLastReasoningTokens() { return lastReasoningTokens; }
+
     public int[] getContextWindowInfo() {
         int window = contextWindowTokens > 0 ? contextWindowTokens : 32768;
         int used = lastPromptTokens > 0 ? lastPromptTokens : execTotalPromptTokens;
@@ -274,6 +280,7 @@ public class OnlineAgentEngine {
         // 重置本次执行的累计 token（一次用户消息 = 多轮工具调用 + 最终回答）
         execTotalPromptTokens = 0;
         execTotalCompletionTokens = 0;
+        llmCallCount = 0;
         lastPromptTokens = 0;
         lastCompletionTokens = 0;
         lastCacheHitTokens = 0;
@@ -1157,6 +1164,13 @@ public class OnlineAgentEngine {
                 }
 
                 @Override
+                public void onUsageWithReasoning(int promptTokens, int completionTokens, int totalTokens, int cachedTokens, int reasoningTokens) {
+                    lastReasoningTokens = reasoningTokens;
+                    AILogger.i(TAG, "Reasoning tokens: " + reasoningTokens + " / " + completionTokens
+                        + " = " + (completionTokens > 0 ? reasoningTokens * 100 / completionTokens : 0) + "%");
+                }
+
+                @Override
                 public void onUsageWithCache(int promptTokens, int completionTokens, int totalTokens, int cachedTokens) {
                     totalTokenCount = totalTokens;
                     lastCacheHitTokens = cachedTokens;
@@ -1167,9 +1181,20 @@ public class OnlineAgentEngine {
                     execTotalPromptTokens += promptTokens;
                     execTotalCompletionTokens += completionTokens;
                     debugLlmUsage(promptTokens, completionTokens, totalTokens, cachedTokens);
-                    AILogger.i(TAG, "Token usage: prompt=" + promptTokens + " completion=" + completionTokens
-                        + " total=" + totalTokens + " cache_hit=" + cachedTokens
-                        + " | exec累计: in=" + execTotalPromptTokens + " out=" + execTotalCompletionTokens);
+
+                    // ===== 详细 token 日志 =====
+                    int roundNum = ++llmCallCount;
+                    int cachePct = promptTokens > 0 ? (cachedTokens * 100 / promptTokens) : 0;
+                    AILogger.i(TAG, String.format(
+                        "Token usage: prompt=%d completion=%d total=%d cache_hit=%d (%d%%)" +
+                        " | 第%d轮 | exec累计: in=%d out=%d" +
+                        " | 本轮增量: in+%d out+%d",
+                        promptTokens, completionTokens, totalTokens, cachedTokens, cachePct,
+                        roundNum,
+                        execTotalPromptTokens, execTotalCompletionTokens,
+                        promptTokens, completionTokens
+                    ));
+
                     notifyProgress();
                 }
             });
@@ -1313,8 +1338,15 @@ public class OnlineAgentEngine {
      * 执行单个工具调用（通过 OnlineToolManager）
      */
     private OnlineToolResult executeToolCall(String toolCallId, String toolName, String arguments) {
-        AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments);
-        return toolManager.executeTool(toolCallId, toolName, arguments);
+        int tokensBefore = execTotalPromptTokens + execTotalCompletionTokens;
+        AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments
+            + " | 调用前 token 累计: " + tokensBefore);
+        OnlineToolResult result = toolManager.executeTool(toolCallId, toolName, arguments);
+        int tokensAfter = execTotalPromptTokens + execTotalCompletionTokens;
+        int resultLen = (result != null && result.result != null) ? result.result.length() : 0;
+        AILogger.i(TAG, "Tool done: " + toolName + " | 调用后 token 累计: " + tokensAfter
+            + " | 工具结果长度: " + resultLen);
+        return result;
     }
 
     /**

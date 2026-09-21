@@ -414,6 +414,10 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         return engine.getLastCompletionTokens();
     }
 
+    public int getLastReasoningTokens() {
+        return engine.getLastReasoningTokens();
+    }
+
     public int getExecTotalPromptTokens() {
         return engine.getExecTotalPromptTokens();
     }
