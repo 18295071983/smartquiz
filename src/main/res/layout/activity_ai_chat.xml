@@ -193,6 +193,21 @@
                     android:padding="@dimen/space_16"
                     android:clipToPadding="false"/>
 
+                <!-- 回到底部按钮：用户回读离开底部时显示，点击回到最新消息 -->
+                <TextView
+                    android:id="@+id/btn_scroll_bottom"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="bottom|end"
+                    android:layout_marginEnd="14dp"
+                    android:layout_marginBottom="14dp"
+                    android:background="@drawable/system_message_background"
+                    android:gravity="center"
+                    android:text="↓"
+                    android:textSize="20sp"
+                    android:textColor="?attr/colorOnPrimaryContainer"
+                    android:visibility="gone"/>
+
                 <!-- 空状态视图 -->
                 <LinearLayout
                     android:id="@+id/empty_state_view"
@@ -357,6 +372,14 @@
                 android:paddingVertical="4dp"
                 android:visibility="gone"/>
 
+            <!-- 会话统计胶囊条（dsh StatsPills 风格）：输入框上方常驻，点击弹出明细 -->
+            <com.oilquiz.app.ai.chat.ui.ChatStatsBar
+                android:id="@+id/session_stats_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="8dp"
+                android:visibility="visible"/>
+
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/size_1"
@@ -420,6 +443,40 @@
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_1"
                         android:layout_weight="1"/>
+                    <!-- 上下文占用仪表已并入 session_stats_bar（ContextMeter pill）——
+                         原最右位置会被右侧工具抽屉覆盖，2026-09-23 移除 -->
+                </LinearLayout>
+
+                <!-- 发送队列条：忙时排队模式显示待发送消息，可一键清空 -->
+                <LinearLayout
+                    android:id="@+id/queue_bar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginBottom="4dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/system_message_background"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="6dp"
+                    android:visibility="gone">
+                    <TextView
+                        android:id="@+id/tv_queue_info"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="⏳ 排队中…"
+                        android:textSize="12sp"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                    <TextView
+                        android:id="@+id/btn_queue_cancel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="2dp"
+                        android:text="✕ 取消排队"
+                        android:textSize="12sp"
+                        android:textColor="?attr/colorPrimary"/>
                 </LinearLayout>
 
                 <com.oilquiz.app.ai.chat.input.ChatInputBar

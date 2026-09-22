@@ -8,6 +8,7 @@ import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
 
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -49,6 +50,8 @@ public class AgentSoftwareLayer {
         void onComplete(AgentResponse response);
         void onError(String error);
         void onInferenceProgress(int tokenCount, float tokensPerSecond);
+        /** 工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。card 为 null 表示无声明。 */
+        default void onToolPresent(String toolName, Map<String, Object> card) {}
     }
     
     private AgentCallback callback;
@@ -103,6 +106,13 @@ public class AgentSoftwareLayer {
             public void onToolResult(String toolName, boolean success, String result) {
                 if (callback != null) {
                     callback.onToolCallComplete(toolName, success, result);
+                }
+            }
+
+            @Override
+            public void onToolPresent(String toolName, Map<String, Object> card) {
+                if (callback != null) {
+                    callback.onToolPresent(toolName, card);
                 }
             }
 

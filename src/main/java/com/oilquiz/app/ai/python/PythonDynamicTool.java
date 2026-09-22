@@ -7,26 +7,38 @@ import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolResult;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-public class PythonDynamicTool implements AITool {
+public class PythonDynamicTool implements AITool, com.oilquiz.app.ai.tool.openai.StructuredParamTool {
     private static final String TAG = "PythonDynamicTool";
     
     private final Context context;
     private final String name;
     private final String description;
     private final Map<String, String> parameterDescriptions;
+    /** 结构化参数（2026-09-23：Python 动态工具与内置工具体系统一 schema 出口；可为空） */
+    private final com.oilquiz.app.ai.tool.DynamicToolParams dynamicParams;
     private final String code;
     private final PythonToolManager toolManager;
     
     public PythonDynamicTool(Context context, String name, String description,
                              Map<String, String> parameterDescriptions,
                              String code) {
+        this(context, name, description, parameterDescriptions, null, code);
+    }
+    
+    /** 结构化参数构造（2026-09-23：支持 paramSchema 属性级/完整 JSON Schema 注册） */
+    public PythonDynamicTool(Context context, String name, String description,
+                             Map<String, String> parameterDescriptions,
+                             com.oilquiz.app.ai.tool.DynamicToolParams dynamicParams,
+                             String code) {
         this.context = context.getApplicationContext();
         this.name = name;
         this.description = description;
         this.parameterDescriptions = parameterDescriptions != null ? 
             parameterDescriptions : new HashMap<>();
+        this.dynamicParams = dynamicParams;
         this.code = code;
         this.toolManager = PythonToolManager.getInstance(context);
         
@@ -48,6 +60,26 @@ public class PythonDynamicTool implements AITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         return new HashMap<>(parameterDescriptions);
+    }
+    
+    /** 结构化参数出口（StructuredParamTool）：dynamicParams 优先，否则从 Map 派生
+     *  （name→string，与 DynamicAITool 退化路径一致——保证 tool_registry(get) 永远能解析） */
+    @Override
+    public List<com.oilquiz.app.ai.tool.openai.ParamDefinition> getParameterDefinitions() {
+        if (dynamicParams != null && !dynamicParams.isEmpty()) {
+            return dynamicParams.getDefinitions();
+        }
+        List<com.oilquiz.app.ai.tool.openai.ParamDefinition> defs = new java.util.ArrayList<>();
+        for (Map.Entry<String, String> entry : parameterDescriptions.entrySet()) {
+            defs.add(new com.oilquiz.app.ai.tool.openai.ParamDefinition(
+                    entry.getKey(), "string", entry.getValue(), false));
+        }
+        return defs;
+    }
+    
+    /** 结构化参数（持久化/调试用） */
+    public com.oilquiz.app.ai.tool.DynamicToolParams getDynamicParams() {
+        return dynamicParams;
     }
     
     public String getCode() {

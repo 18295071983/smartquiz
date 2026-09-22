@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.agent.online;
 
 import android.content.Context;
+import com.oilquiz.app.ai.tool.TaskStateTracker;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -78,7 +79,7 @@ public class OnlineAgentEngine {
      * 版本不一致（提示词升级）→ 丢弃重建（缓存 miss 一次属合理）。
      * 【注意】修改 OnlinePromptBuilder 的提示词模板时，必须同步递增此版本号。
      */
-    private static final String PROMPT_VERSION = "20260914-v2";
+    private static final String PROMPT_VERSION = "20260923-v8";
 
     /** Agent 执行模式 */
     public enum AgentMode {
@@ -123,6 +124,25 @@ public class OnlineAgentEngine {
 
     // OpenAI 格式消息历史（直接使用 JsonObject，支持 tool 角色消息）
     private final List<JsonObject> messageHistory = new ArrayList<>();
+    /** 回合审计 meta（dsh turn/end 对齐）：结束原因/轮次/工具调用数/token；persistHistory 时按会话落盘 */
+    private volatile java.util.LinkedHashMap<String, Object> lastTurnMeta;
+    /**
+     * 引擎引导消息队列（dsh 对齐，2026-09-23）：格式提示/截断修正/工具回退建议等"控制信号"
+     * 只在本轮请求末尾生效，不入 messageHistory、不落盘、不参与 trim —— 防止任务多轮后
+     * 上下文被引导消息污染（dsh 的 turn/step 边界与错误同样只作 trace 数据，不派生进模型历史）。
+     */
+    private final java.util.List<JsonObject> pendingControlMessages = new java.util.ArrayList<>();
+    /**
+     * Agent 事件总线（dsh 事件体系对齐，2026-09-23）：插件化扩展点——
+     * 压缩/重试/权限/审计等策略通过注册监听器实现，不动引擎主循环。
+     */
+    public final AgentEventBus eventBus = new AgentEventBus();
+    /** 目标自动续行（dsh goal-round-driver 对齐）：execute 完成后若仍有活跃任务且上轮推进过工具，
+     *  自动注入「继续任务」提示词再跑一轮，直到任务完成/达上限/用户打断。 */
+    private static final int MAX_AUTO_CONTINUE = 3;            // 单次用户触发最多自动续行轮数
+    private static final long MIN_AUTO_CONTINUE_INTERVAL_MS = 30_000L; // 续行间隔，防瞬时重复
+    private int autoContinueCount = 0;
+    private long lastAutoContinueTs = 0;
     /** 恢复历史时暂存的【对话历史摘要】消息，execute 重建 system 后插回（防止压缩内容跨会话丢失） */
     private JsonObject pendingSummaryMessage;
 
@@ -130,6 +150,8 @@ public class OnlineAgentEngine {
      *  记忆库变化（用户新增/更新记忆）时摘要立即刷新，但只影响请求尾部 D 块，
      *  system+历史前缀保持稳定 → 服务商前缀缓存不受记忆变化影响。 */
     private volatile String latestMemorySummary = null;
+    /** 本轮知识库自动检索结果（2026-09-23）：请求末尾【相关资料】块动态注入，让模型直接用上知识库 */
+    private volatile String latestKnowledgeContext = null;
 
     // ==== 缓存命中优化：会话内工具集「只增不改」====
     // 工具定义按用户消息意图动态筛选会导致 tools 部分每轮字节变化，
@@ -139,12 +161,27 @@ public class OnlineAgentEngine {
     private final Set<String> cachedToolNames = new LinkedHashSet<>();
     private String cachedToolsJson = null;
     private boolean toolsCacheInitialized = false;
+    /** 常驻核心工具集（2026-09-23 v6：ui/workspace/搜索/时间日期/发现/知识库）——LRU 永不淘汰。
+     *  calculator 移出核心（模型内置数学能力足够，要精确计算可 tool_registry 发现拿回）；
+     *  time_date 加入核心（今天几号/现在几点/日期推算，问答与提醒场景高实用）。 */
+    private static final java.util.Set<String> CORE_TOOLS = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
+            "ui_component", "workspace", "network_search", "time_date", "tool_registry", "knowledge_base"
+    ));
+    /** 会话工具集上限（2026-09-23 v2）：核心 6 + 最多 3 个扩展工具——默认少带，模型不知道再发现 */
+    private static final int MAX_SESSION_TOOLS = 9;
+    /** 活工具集（2026-09-23 v5）：模型 tool_registry(get) 成功后立即更新，
+     *  当前 execute 的下一迭代就用新工具（MCP 语义：get 后本轮可调，不等下条用户消息）。
+     *  每 execute 开头重置为 null；registerToolIntoSession 时刷新为最新 cachedToolsJson。 */
+    private volatile String liveToolsJson = null;
+    /** 工具最后使用时间（LRU 淘汰依据，调用/注册时刷新） */
+    private final java.util.Map<String, Long> toolLastUsed = new java.util.concurrent.ConcurrentHashMap<>();
 
     // 推理进度统计
     private long inferenceStartTime;
     private int totalTokenCount;
     /** 最近一次推理的缓存命中 token 数（DeepSeek prompt_cache_hit_tokens / OpenAI cached_tokens） */
     private volatile int lastCacheHitTokens = 0;
+    private volatile int lastCacheMissTokens = 0;   // 2026-09-23：API 直读 prompt_cache_miss_tokens
     /** 最近一次推理的输入/输出 token（API usage，用于统计展示） */
     private volatile int lastPromptTokens = 0;
     private volatile int lastCompletionTokens = 0;
@@ -161,6 +198,9 @@ public class OnlineAgentEngine {
     // ==== 调试追踪钩子（DebugTracer，可为空，空时零开销）====
     private volatile DebugTracer debugTracer;
     private volatile String debugRunId;
+    /** 历史兜底恢复已尝试标记（2026-09-23 v7.1）：冷启动模型 ID 晚到时序下，
+     *  execute 首次执行前按 会话×模型 补恢复一次；已尝试/无文件/已有历史则跳过。 */
+    private boolean historyLoadAttempted = false;
     private volatile String debugLlmSpanId;
     private volatile long debugLlmStartTs;
 
@@ -169,6 +209,8 @@ public class OnlineAgentEngine {
      * @return {window, used, remaining} —— 上下文窗口、已用（最近请求输入）、剩余
      */
     public int getLastReasoningTokens() { return lastReasoningTokens; }
+
+    public int getLastCacheMissTokens() { return lastCacheMissTokens; }
 
     public int[] getContextWindowInfo() {
         int window = contextWindowTokens > 0 ? contextWindowTokens : 32768;
@@ -208,6 +250,9 @@ public class OnlineAgentEngine {
     private void startDebugRun() {
         if (debugTracer == null) return;
         debugRunId = java.util.UUID.randomUUID().toString();
+        // 历史兜底恢复标记（2026-09-23 v7.1）：App 冷启动若模型 ID 晚于会话设置导致
+        // setSessionId 恢复 0 条，execute 首次执行前补恢复一次；文件不存在/已尝试过则跳过。
+        this.historyLoadAttempted = false;
         debugLlmSpanId = null;
         debugLlmStartTs = 0;
         String model = "unknown";
@@ -256,6 +301,16 @@ public class OnlineAgentEngine {
     }
 
     public void execute(String userMessage, int maxTokens, boolean enableThinking) {
+        execute(userMessage, maxTokens, enableThinking, false);
+    }
+
+    /**
+     * 执行 Agent 任务。
+     *
+     * @param autoContinue 是否为引擎内部「目标自动续行」（true 时不重置续行计数/间隔，
+     *                     且该轮消息为系统注入的【继续任务】提示词，非用户输入）
+     */
+    public void execute(String userMessage, int maxTokens, boolean enableThinking, boolean autoContinue) {
         if (userMessage == null || userMessage.trim().isEmpty()) {
             notifyError("消息不能为空");
             return;
@@ -270,6 +325,23 @@ public class OnlineAgentEngine {
         }
 
         isCancelled.set(false);
+        // 历史兜底恢复（2026-09-23 v7.1）：覆盖"模型 ID 晚于会话设置"的冷启动时序，
+        // 避免装机/重启后首条消息模型失忆（restored=0）。幂等：已尝试/无文件/已有历史则跳过。
+        ensureHistoryLoadedOnce();
+        if (!autoContinue) {
+            // 用户消息触发：重置自动续行预算（dsh：人类消息让行自动工作）
+            autoContinueCount = 0;
+            lastAutoContinueTs = 0;
+        }
+        // 上轮取消/中断可能残留未发送的引擎引导消息，本轮重新开始前清空
+        pendingControlMessages.clear();
+        // 回合审计 meta（dsh turn/end 对齐，2026-09-23）：本轮结束原因/轮次/工具调用数，随 persistHistory 落盘
+        lastTurnMeta = new java.util.LinkedHashMap<>();
+        lastTurnMeta.put("reason", "running");
+        lastTurnMeta.put("turns", 0);
+        lastTurnMeta.put("toolCalls", 0);
+        lastTurnMeta.put("promptTokens", 0);
+        lastTurnMeta.put("completionTokens", 0);
         // 记录本轮是否深度思考：贯穿到 API 请求（thinking 参数 → reasoning_content）
         this.enableThinking = enableThinking;
         // 不清除 messageHistory，保留对话上下文实现连续对话
@@ -300,6 +372,7 @@ public class OnlineAgentEngine {
                 persistHistory();
             } catch (Throwable t) {
                 AILogger.e(TAG, "Execute failed: " + t.getMessage(), t);
+                if (lastTurnMeta != null) lastTurnMeta.put("reason", "error");
                 finishGeneration();
                 notifyError("执行中断: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()));
             } finally {
@@ -313,6 +386,9 @@ public class OnlineAgentEngine {
                     }
                 } catch (Throwable ignored) {
                 }
+                // 目标自动续行（dsh goal-round-driver 对齐）：仍有活跃任务且上轮推进过工具 →
+                // 自动注入【继续任务】再跑一轮（受 MAX_AUTO_CONTINUE / 间隔 / 取消 三重约束）
+                maybeAutoContinue();
             }
         });
     }
@@ -321,6 +397,8 @@ public class OnlineAgentEngine {
      * 核心 Agent 执行循环
      */
     private void doExecute(String userMessage, int maxTokens) {
+        eventBus.post(AgentEventBus.EventType.TURN_START, userMessage.length() > 40
+                ? userMessage.substring(0, 40) : userMessage);
         OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
         
         // 记录模型上下文窗口（供历史压缩阈值 + UI 展示上下文用量）。
@@ -367,22 +445,22 @@ public class OnlineAgentEngine {
 
         // 0.5 刷新工具注册系统（必须在构建系统提示词之前，确保工具列表和指南不为空）
         toolManager.refreshRegistry();
+        // 0.5.1 工具定义入库知识库（2026-09-23：工具即知识，幂等+版本控制，首次/升级时全量重建）
+        toolManager.ensureToolDefsInKnowledgeBase();
 
         // 1. 无 system 消息时注入系统提示词和环境上下文（恢复历史时会丢弃旧 system，
         //    保证始终使用当前版本的提示词；连续对话时已有 system，跳过）
         if (!hasSystemMessage()) {
-            String systemPrompt = agentMode == AgentMode.TAKEOVER
-                ? promptBuilder.buildSystemPromptTakeover()
-                : promptBuilder.buildSystemPrompt();
-            // 深度思考：开启时按模型名注入对应思考指令（DeepSeek/Qwen3/o系列等指令不同，
+            boolean takeover = agentMode == AgentMode.TAKEOVER;
+            // 深度思考指令：开启时按模型名注入对应思考指令（DeepSeek/Qwen3/o系列等指令不同，
             // API thinking 参数触发 reasoning_content，此指令强化思考质量）
+            String thinkingInstruction = null;
             if (enableThinking) {
-                systemPrompt += "\n【深度思考】"
-                        + com.oilquiz.app.ai.model.OnlineModelManager.getThinkingInstruction(
-                                cfg != null ? cfg.modelName : null)
-                        + "\n";
+                thinkingInstruction = com.oilquiz.app.ai.model.OnlineModelManager.getThinkingInstruction(
+                        cfg != null ? cfg.modelName : null);
             }
             // 注入工作区路径：Agent 生成的文件默认在工作区，明确告知路径与访问方式
+            String workspaceBlock = null;
             try {
                 com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
                         com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
@@ -390,7 +468,7 @@ public class OnlineAgentEngine {
                 String wsLocation = ws.isPublicWorkspace()
                         ? "公共目录(Download/OilQuiz，用户可直接看到和管理)"
                         : "应用私有目录(用户需通过App管理页查看)";
-                systemPrompt += "\n【文件与工作区】你有专属文件工作目录（工作区）: " + wsPath
+                workspaceBlock = "\n【文件与工作区】你有专属文件工作目录（工作区）: " + wsPath
                         + "（" + wsLocation + "）"
                         + "\n【何时生成文件】用户要求「写/生成/创建/导出」文档、报告、配置、代码、Markdown、表格等时，用 file_generator 工具生成；"
                         + "要求画图时用 image_gen。"
@@ -410,10 +488,14 @@ public class OnlineAgentEngine {
                         + "引用工作区里的文件用相对路径（如 <a href=\"report.md\">），"
                         + "用户点击会在 App 内自动预览（md/文本/表格/pdf 等按类型打开）；"
                         + "引用网页用 https:// 链接（App 内打开）。"
-                        + "生成文件后如需在页面中引用，用与页面同目录的文件名即可。\n";
+                        + "生成文件后如需在页面中引用，用与页面同目录的文件名即可。";
             } catch (Throwable t) {
                 AILogger.w(TAG, "注入工作区信息失败: " + t.getMessage());
             }
+            // 分段组装：基础段（assist/takeover）+【深度思考】段 +【文件与工作区】段，
+            // 由 PromptAssembler（dsh 分段语义）按 order 排序拼接；段文本与原手动 += 语义一致
+            String systemPrompt = promptBuilder.buildSystemPromptWithRuntime(
+                    takeover, enableThinking, thinkingInstruction, workspaceBlock);
             JsonObject systemMsg = new JsonObject();
             systemMsg.addProperty("role", "system");
             systemMsg.addProperty("content", systemPrompt);
@@ -440,11 +522,26 @@ public class OnlineAgentEngine {
 
         // 长期记忆（缓存命中优化）：移出前缀区，改为请求末尾 D 块动态注入。
         // 每轮以当前用户消息刷新摘要——记忆库变化（用户新增/更新记忆）立即生效，
-        // 但只影响请求尾部，system+历史前缀保持稳定 → 服务商前缀缓存不受记忆变化影响
-        latestMemorySummary = AgentMemoryStore.getInstance(context).buildMemorySummary(userMessage);
-        if (latestMemorySummary != null && !latestMemorySummary.isEmpty()) {
-            AILogger.i(TAG, "Long-term memory refreshed: "
-                    + AgentMemoryStore.getInstance(context).size() + " entries");
+        // 但只影响请求尾部，system+历史前缀保持稳定 → 服务商前缀缓存不受记忆变化影响。
+        // 闲聊轮不注入（2026-09-23，极致精简）：闲聊就是随便聊，不携带任务相关记忆块；
+        // 任务轮/知识轮才带记忆摘要（模型据此运用用户信息）。闲聊轮用户信息缺失时模型可如实说明。
+        if (!isCasualChat(userMessage)) {
+            latestMemorySummary = AgentMemoryStore.getInstance(context).buildMemorySummary(userMessage);
+            if (latestMemorySummary != null && !latestMemorySummary.isEmpty()) {
+                AILogger.i(TAG, "Long-term memory refreshed: "
+                        + AgentMemoryStore.getInstance(context).size() + " entries");
+            }
+        } else {
+            latestMemorySummary = null;
+        }
+
+        // 1.5.5 知识库自动检索（2026-09-23 好好利用）：非闲聊轮对用户消息全文检索知识库，
+        // 命中 top-3 注入请求末尾【相关资料】块——用户问应用专属/个人资料问题时，
+        // 模型直接看到相关材料作答，无需先想起"知识库"这个工具（knowledge_base 也在核心集可主动用）
+        if (!isCasualChat(userMessage)) {
+            latestKnowledgeContext = buildKnowledgeContext(userMessage);
+        } else {
+            latestKnowledgeContext = null;
         }
 
         // 1.5 恢复历史时暂存的【对话历史摘要】插回（在所有 system 消息之后，保持前缀稳定：
@@ -456,10 +553,14 @@ public class OnlineAgentEngine {
             AILogger.i(TAG, "Summary message re-inserted after system messages");
         }
 
+        // 1.7 「继续」类消息接续（2026-09-23）：用户发"继续/接着"时，若有活跃任务，
+        // 转成【继续任务】引导（复用 goal 续行语义，带上工具、不空转、不靠 DSML 硬调）
+        String effectiveUserMessage = maybeResolveContinueMessage(userMessage);
+
         // 2. 添加用户消息
         JsonObject userMsg = new JsonObject();
         userMsg.addProperty("role", "user");
-        userMsg.addProperty("content", userMessage);
+        userMsg.addProperty("content", effectiveUserMessage);
         messageHistory.add(userMsg);
 
         // 3. 通过 OnlineToolManager 获取工具定义。
@@ -472,18 +573,29 @@ public class OnlineAgentEngine {
         // ai_weather(天气高频) network_search(搜索高频) calculator(计算)
         // control_lookup(低频控件参数查询，构建UI多用，token小)
         // knowledge_base(用户知识库：检索/导入，应用专属资料问答的必用工具，schema 小 → 常驻核心集)
-        java.util.Set<String> coreTools = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
-                "ui_component", "file_generator", "workspace", "memory", "task",
-                "tool_registry", "permission_manager",
-                "ai_weather", "network_search", "calculator",
-                "control_lookup", "knowledge_base"
-        ));
-        // 按用户消息意图追加低频工具（若用户明确要求某类任务）。
-        // 缓存命中优化：同一会话内工具集「只增不改」——新意图工具追加到集合末尾，
-        // 保持 tools 前缀字节稳定，避免每轮工具集变化导致服务商前缀缓存持续 miss
-        String toolsJson = getStableToolsJson(userMessage, coreTools, cfg);
+        // 常驻核心工具集（硬编码高频，2026-09-23 精简 12→8）：
+        // 低频工具（tool_registry/permission_manager/control_lookup/knowledge_base）移出常驻，
+        // 由 getToolDefinitionsForMessageAndCore 的关键词意图按需临时加回（能力不降，每轮省 ~4 个 schema）
+        // 常驻核心 5 个（2026-09-23 v3）：模型自行发现制——只保留入口/UI/文件/搜索/计算，
+        // 其余（weather/file_generator/task/memory/knowledge_base/permission/control…）一律走
+        // tool_registry 发现 + getToolDefinitionsForMessageAndCore 关键词意图按需注入（能力不降，每轮省 ~12K）
+        java.util.Set<String> coreTools = new java.util.LinkedHashSet<>(CORE_TOOLS);
+        // 模型驱动工具注入（2026-09-23 v4，dsh-agent-loop 对齐）：
+        // 每轮 tools = 核心 6（稳定前缀，缓存命中）+ 高频预载（≤2）+ 本轮调用即注册。
+        // 零预判——不按关键词/KB/意图注入工具；模型要新工具 → tool_registry(get) 发现，
+        // 调用成功即注册进本轮缓存。工具结果进历史，模型基于结果作答。
+        // 闲聊模式已废弃：每一轮恒带工具，短消息恒有工具能力，根除 DSML 硬调。
+        String toolsJson;
+        boolean casualChatTurn = isCasualChat(effectiveUserMessage);
+        if (casualChatTurn) {
+            toolsJson = null;
+            AILogger.i(TAG, "Casual chat detected, tools=null (token saving)");
+        } else {
+            toolsJson = getStableToolsJson(effectiveUserMessage, coreTools, cfg);
+        }
+        liveToolsJson = null; // 每 execute 重置：模型 get 新工具前，工具集=核心+预载
         int toolCount = countToolsInJson(toolsJson);
-        if (toolCount == 0) {
+        if (toolCount == 0 && !casualChatTurn) {
             AILogger.w(TAG, "No tools available! Agent will run without tool calling capability.");
         }
 
@@ -495,6 +607,7 @@ public class OnlineAgentEngine {
 
         while (iteration < maxIterations && !isCancelled.get()) {
             iteration++;
+            if (lastTurnMeta != null) lastTurnMeta.put("turns", iteration);
             AILogger.i(TAG, "Agent iteration " + iteration + "/" + maxIterations + " [" + agentMode + "]");
 
             // 开始新一轮思考块
@@ -502,7 +615,10 @@ public class OnlineAgentEngine {
             notifyStep("推理轮次 " + iteration, "正在思考...");
             notifyExecutionStep(OnlineExecutionStep.THINKING, "推理轮次 " + iteration);
 
-            // 流式生成一轮
+            // 流式生成一轮（模型 get 新工具后，liveToolsJson 已更新 → 本轮下一迭代即带新工具）
+            if (liveToolsJson != null) {
+                toolsJson = liveToolsJson;
+            }
             debugLlmStart();
             IterationResult result = streamOneIteration(cfg, maxTokens, toolsJson);
             if (result == null) {
@@ -574,7 +690,7 @@ public class OnlineAgentEngine {
                       + "正确做法：将工具调用放在 tool_calls 数组中（name=工具名, arguments=参数），而不是写在文本里。\n"
                       + "请立即使用正确的 JSON 格式输出工具调用，不要重复描述。\n"
                       + "（连续 2 次格式错误将终止推理）");
-                    messageHistory.add(formatHint);
+                    pendingControlMessages.add(formatHint);
 
                     notifyStep("格式修正", "提示模型使用标准工具调用格式（重试 "
                         + consecutiveHintForToolCount + "/" + MAX_CONSECUTIVE_TOOL_HINT + "）");
@@ -604,6 +720,10 @@ public class OnlineAgentEngine {
                     + "/" + maxIterations + ", mode=" + agentMode
                     + ", hinted_tool=" + hintToCallTool + ")");
                 notifyExecutionStep(OnlineExecutionStep.COMPLETED, "完成");
+                if (lastTurnMeta != null) {
+                    lastTurnMeta.put("reason", "final_complete");
+                    lastTurnMeta.put("turns", iteration);
+                }
                 notifyComplete(finalAnswer);
                 return;
             }
@@ -620,7 +740,7 @@ public class OnlineAgentEngine {
                 sysMsg.addProperty("role", "system");
                 sysMsg.addProperty("content", "注意：上一轮输出因长度限制被截断，工具调用参数不完整，已全部丢弃。"
                         + "请重新完整输出工具调用（arguments 必须是完整闭合的 JSON），或直接给出最终回答。");
-                messageHistory.add(sysMsg);
+                pendingControlMessages.add(sysMsg);
                 notifyStep("截断修正", "工具参数可能被截断，已丢弃并要求模型重新完整输出");
                 continue;
             }
@@ -766,7 +886,7 @@ public class OnlineAgentEngine {
                     JsonObject hintMsg = new JsonObject();
                     hintMsg.addProperty("role", "system");
                     hintMsg.addProperty("content", fallbackHint.toString());
-                    messageHistory.add(hintMsg);
+                    pendingControlMessages.add(hintMsg);
                     AILogger.i(TAG, "Injected fallback hint for failed tools: " + failedTools);
                 }
             }
@@ -775,6 +895,10 @@ public class OnlineAgentEngine {
         }
 
         // 达到最大迭代次数
+        if (lastTurnMeta != null) {
+            lastTurnMeta.put("reason", "max_iterations");
+            lastTurnMeta.put("turns", maxIterations);
+        }
         AILogger.w(TAG, "Reached max iterations (" + maxIterations + ", mode=" + agentMode + ")");
         notifyStep("总结", "已达到最大推理轮次，生成最终回答...");
         notifyExecutionStep(OnlineExecutionStep.RESPONDING, "生成最终回答");
@@ -925,6 +1049,7 @@ public class OnlineAgentEngine {
             AILogger.i(TAG, "Trimmed message history: removed " + actualRemoved
                 + " old messages (summarized), " + messageHistory.size() + " remaining"
                 + ", tokens " + tokenCount + " -> budget " + budget);
+            eventBus.post(AgentEventBus.EventType.COMPACTION, String.valueOf(actualRemoved));
         }
     }
 
@@ -1020,6 +1145,7 @@ public class OnlineAgentEngine {
      */
     private IterationResult streamOneIteration(OnlineModelManager.OnlineModelConfig cfg,
                                                 int maxTokens, String toolsJson) {
+        eventBus.post(AgentEventBus.EventType.PRE_STEP, "iteration");
         final IterationResult result = new IterationResult();
         final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
         final String[] errorHolder = {null};
@@ -1101,6 +1227,8 @@ public class OnlineAgentEngine {
                 public void onComplete(String fullContent, String reasoningContent,
                                         List<OnlineInferenceService.ToolCallInfo> toolCalls,
                                         String finishReason) {
+                    // 本轮回合结束：引擎引导消息已随本次请求发送，清空避免下轮重复
+                    pendingControlMessages.clear();
                     // 清理模型输出中的乱码/非法字符
                     if (fullContent != null) {
                         String cleaned = ToolResultInterpreter.cleanModelOutput(fullContent);
@@ -1144,6 +1272,7 @@ public class OnlineAgentEngine {
 
                 @Override
                 public void onError(String error) {
+                    pendingControlMessages.clear();
                     errorHolder[0] = error;
                     latch.countDown();
                 }
@@ -1161,6 +1290,12 @@ public class OnlineAgentEngine {
                     AILogger.i(TAG, "Token usage: prompt=" + promptTokens
                         + " completion=" + completionTokens + " total=" + totalTokens);
                     notifyProgress();
+                }
+
+                @Override
+                public void onUsageWithCacheFull(int promptTokens, int completionTokens, int totalTokens, int cachedTokens, int missTokens) {
+                    // 2026-09-23：直读 API 缓存未命中量（prompt_cache_miss_tokens）
+                    lastCacheMissTokens = missTokens;
                 }
 
                 @Override
@@ -1278,6 +1413,7 @@ public class OnlineAgentEngine {
         // 发送前逐个跳过，保证发出的数组恒合法（对 start/sendMessage/恢复历史所有入口统一兜底）。
         boolean toolCallsOpen = false;
         int skippedOrphanTools = 0;
+        int skippedEmptyAssistant = 0;
         try {
             for (JsonObject msg : messageHistory) {
                 JsonObject copy = msg.deepCopy();
@@ -1287,6 +1423,25 @@ public class OnlineAgentEngine {
                     boolean hasToolCalls = copy.has("tool_calls") && !copy.get("tool_calls").isJsonNull()
                             && copy.get("tool_calls").isJsonArray()
                             && copy.getAsJsonArray("tool_calls").size() > 0;
+                    // deriveEventMessage 对齐（dsh，2026-09-23）：content 为空且无 tool_calls 的
+                    // assistant 消息不派生进模型上下文（纯思考/无输出轮次对后续推理无信息量，
+                    // 发送只会白占 token 并可能让模型困惑）
+                    String asContent = copy.has("content") && !copy.get("content").isJsonNull()
+                            ? copy.get("content").getAsString() : "";
+                    boolean emptyAssistant = (asContent == null || asContent.trim().isEmpty()) && !hasToolCalls;
+                    if (emptyAssistant) {
+                        skippedEmptyAssistant++;
+                        continue; // 不影响 toolCallsOpen 配对状态（无 tool_calls）
+                    }
+                    // DSML 残留过滤（2026-09-23，模型自测发现）：历史里可能残留模型在
+                    // tools=null 时输出的 DSML 伪调用文本（特征 `<｜｜`）——无信息量且会
+                    // 误导后续推理（模型自己也称其 malformed）。发送时跳过，不再重演；
+                    // 历史文件保留（审计），仅请求层过滤。
+                    if (asContent != null && asContent.contains("<｜｜")) {
+                        AILogger.i(TAG, "DSML residue assistant message filtered (len="
+                                + asContent.length() + ")");
+                        continue;
+                    }
                     // 带 tool_calls 的 assistant 打开配对段落；普通 assistant 关闭
                     toolCallsOpen = hasToolCalls;
                     if (forceReasoning || enableThinking) {
@@ -1315,6 +1470,9 @@ public class OnlineAgentEngine {
             if (skippedOrphanTools > 0) {
                 AILogger.i(TAG, "Orphan tool messages filtered: " + skippedOrphanTools);
             }
+            if (skippedEmptyAssistant > 0) {
+                AILogger.i(TAG, "Empty assistant messages skipped (deriveEventMessage align): " + skippedEmptyAssistant);
+            }
         } catch (Exception e) {
             AILogger.w(TAG, "buildOutgoingMessagesArray failed, sending raw history: " + e.getMessage());
             out = new JsonArray();
@@ -1331,6 +1489,18 @@ public class OnlineAgentEngine {
             memoryMsg.addProperty("content", "【长期记忆】以下是你记住的关于用户的信息，回答时自然运用。仅当用户明确要求记住或主动告知新的个人信息/偏好时，才用 memory 工具 save 新增或更新（不要擅自把普通聊天内容存为记忆）：\n" + latestMemorySummary);
             out.add(memoryMsg);
         }
+        // 知识库相关资料（D2 块，2026-09-23）：KB 自动检索命中时注入，优先级高于记忆、低于控制信号
+        if (latestKnowledgeContext != null && !latestKnowledgeContext.isEmpty()) {
+            JsonObject kbMsg = new JsonObject();
+            kbMsg.addProperty("role", "system");
+            kbMsg.addProperty("content", latestKnowledgeContext);
+            out.add(kbMsg);
+        }
+        // 引擎引导消息（格式提示/截断修正/回退建议）→ 仅本轮请求末尾生效（dsh 对齐：
+        // 控制信号与语义消息分离，不入历史不落盘）。发送后由 streamOneIteration 轮末清空。
+        for (JsonObject ctl : pendingControlMessages) {
+            out.add(ctl.deepCopy());
+        }
         return out;
     }
 
@@ -1338,10 +1508,40 @@ public class OnlineAgentEngine {
      * 执行单个工具调用（通过 OnlineToolManager）
      */
     private OnlineToolResult executeToolCall(String toolCallId, String toolName, String arguments) {
+        // 回合审计：本轮工具调用数（dsh turn/end toolCalls 对齐）
+        if (lastTurnMeta != null) {
+            int tc = 0;
+            Object v = lastTurnMeta.get("toolCalls");
+            if (v instanceof Number) tc = ((Number) v).intValue();
+            lastTurnMeta.put("toolCalls", tc + 1);
+        }
+        // 工具执行前可 veto（dsh tools/pre-execute）：策略监听器可拒绝该工具调用
+        if (!eventBus.postVetoable(AgentEventBus.EventType.TOOL_PRE_EXECUTE, toolName, arguments)) {
+            AILogger.i(TAG, "Tool call vetoed by policy: " + toolName);
+            return OnlineToolResult.failure(toolCallId, toolName,
+                    "工具调用被策略拒绝（TOOL_PRE_EXECUTE vetoed）", 0);
+        }
         int tokensBefore = execTotalPromptTokens + execTotalCompletionTokens;
         AILogger.i(TAG, "Executing tool: " + toolName + " args: " + arguments
             + " | 调用前 token 累计: " + tokensBefore);
         OnlineToolResult result = toolManager.executeTool(toolCallId, toolName, arguments);
+        // ——发现制闭环（2026-09-23 v5）：模型实际调用（含 tool_registry get 的目标工具）成功后，
+        // 自动并入会话工具缓存，并立即刷新 liveToolsJson——当前 execute 的下一迭代就能直接调用
+        // 该工具（MCP 语义：get 后本轮可调，不等下条用户消息）——
+        if (result != null && result.success) {
+            if ("tool_registry".equals(toolName) && arguments != null) {
+                String target = extractToolRegistryTarget(arguments);
+                if (target != null && !target.isEmpty()) registerToolIntoSession(target);
+            }
+            registerToolIntoSession(toolName);
+            if (cachedToolsJson != null) {
+                liveToolsJson = cachedToolsJson;
+                AILogger.i(TAG, "Live tools refreshed: next iteration carries updated toolset ("
+                        + cachedToolNames.size() + " tools)");
+            }
+        }
+        eventBus.post(AgentEventBus.EventType.TOOL_RESULT, toolName,
+                result != null ? result.result : null);
         int tokensAfter = execTotalPromptTokens + execTotalCompletionTokens;
         int resultLen = (result != null && result.result != null) ? result.result.length() : 0;
         AILogger.i(TAG, "Tool done: " + toolName + " | 调用后 token 累计: " + tokensAfter
@@ -1350,11 +1550,99 @@ public class OnlineAgentEngine {
     }
 
     /**
+     * 发现制闭环：工具调用成功后并入会话级工具缓存（只增不改，下一轮请求直接带上 schema）。
+     */
+    private void registerToolIntoSession(String toolName) {
+        try {
+            if (toolName == null || toolName.isEmpty()) return;
+            if (cachedToolNames != null) {
+                toolLastUsed.put(toolName, System.currentTimeMillis());
+                // 用完即走策略下，调用即注册仅作用于「当前 execute 内」多轮迭代；
+                // 跨 execute 由 getStableToolsJson 重建（核心+本轮命中），不再累积
+                boolean added = cachedToolNames.add(toolName);
+                // 2026-09-23 v9：定义总是刷新——即使工具名已在缓存（只增不改的旧逻辑下，
+                // 动态工具 update/重新注册后 schema 变化，缓存仍是旧快照 → 误导模型）。
+                // 调用成功即重拉缓存集最新定义：新增=注册，已存在=刷新。
+                cachedToolsJson = toolManager.getToolDefinitionsForNames(cachedToolNames);
+                AILogger.i(TAG, (added ? "Tool auto-registered after call: " : "Tool definition refreshed after call: ")
+                        + toolName + ", total=" + cachedToolNames.size());
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "registerToolIntoSession failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 从 tool_registry(action=get) 的 arguments 中解析目标工具名。
+     * 支持 {"action":"get","tool":"ai_weather"} 及带空格/单引号变体。
+     */
+    private String extractToolRegistryTarget(String arguments) {
+        try {
+            if (arguments == null) return null;
+            com.google.gson.JsonObject obj = com.google.gson.JsonParser.parseString(arguments).getAsJsonObject();
+            String action = obj.has("action") ? obj.get("action").getAsString() : "";
+            if ("get".equals(action) && obj.has("tool")) {
+                return obj.get("tool").getAsString();
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    /**
      * 构建环境上下文：当前日期时间 + 位置（可选）。
      * 天气不注入——Agent 有 ai_weather 工具，用户问天气时主动调用获取完整信息；
      * 注入天气既浪费 token 又拖慢启动（每次执行前等待位置+天气），且摘要易截断。
      * 位置获取有5秒超时，失败则仅使用日期时间。
      */
+    /**
+     * 知识库自动检索（2026-09-23）：对用户消息全文检索知识库，返回 top-3 命中片段的
+     * 【相关资料】提示块；知识库为空/无命中/失败返回 null（不注入，模型正常作答）。
+     * 检索是引擎级硬编码（不消耗模型工具调用轮次、不污染历史，仅本轮请求尾部生效）。
+     */
+    private String buildKnowledgeContext(String userMessage) {
+        try {
+            if (userMessage == null || userMessage.trim().isEmpty()) return null;
+            com.oilquiz.app.ai.knowledge.KnowledgeBaseManager kb =
+                    com.oilquiz.app.ai.knowledge.KnowledgeBaseManager.getInstance(context);
+            org.json.JSONArray hits = kb.search(userMessage.trim(), null, 8, false);
+            if (hits == null || hits.length() == 0) return null;
+            StringBuilder sb = new StringBuilder();
+            sb.append("【相关资料】以下内容来自你的知识库（自动检索，与当前问题相关），回答时优先参考，不要凭空作答：\n");
+            int injected = 0;
+            for (int i = 0; i < hits.length(); i++) {
+                org.json.JSONObject item = hits.optJSONObject(i);
+                if (item == null) continue;
+                String title = item.optString("title", "");
+                String content = item.optString("content", "");
+                String category = item.optString("category", "");
+                // 过滤工具定义条目（2026-09-23）：tool_defs 是引擎工具库，工具 schema 已在 tools 数组注入，
+                // 再以文本进 D2 块会与 tools 重复；source=system_tool_defs 同样排除
+                if ("tool_defs".equals(category) || "system_tool_defs".equals(item.optString("source", ""))) {
+                    continue;
+                }
+                if (injected >= 3) break;
+                if (title.isEmpty() && content.isEmpty()) continue;
+                sb.append("[").append(i + 1).append("] ");
+                if (!title.isEmpty()) sb.append(title).append(" ");
+                if (!category.isEmpty() && !"general".equals(category)) sb.append("(").append(category).append(")");
+                sb.append("\n");
+                if (!content.isEmpty()) {
+                    String c = content.length() > 500 ? content.substring(0, 500) + "…" : content;
+                    sb.append(c).append("\n");
+                }
+                injected++;
+            }
+            if (injected == 0) return null;
+            String result = sb.toString();
+            AILogger.i(TAG, "Knowledge auto-retrieval: " + injected + "/" + hits.length() + " hits injected for query='"
+                    + (userMessage.length() > 40 ? userMessage.substring(0, 40) + "…" : userMessage) + "'");
+            return result;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Knowledge auto-retrieval skipped: " + t.getMessage());
+            return null;
+        }
+    }
+
     private String buildEnvironmentContext() {
         StringBuilder sb = new StringBuilder();
         sb.append("【环境上下文】\n");
@@ -1444,62 +1732,75 @@ public class OnlineAgentEngine {
     }
 
     /**
-     * 获取「会话级稳定」的工具定义 JSON（缓存命中优化）。
+     * 获取「模型驱动」的工具定义 JSON（2026-09-23 v4，dsh-agent-loop 对齐）。
      *
-     * 原理：服务商前缀缓存按请求字节匹配，tools 段若每轮随用户消息动态变化，
-     * 该段持续缓存 miss（全价计费）。本方法把工具集收敛为会话级「只增不改」集合：
-     * - 首轮：核心集 + 当前消息意图工具（与旧行为一致）；
-     * - 后续轮：只把新消息发现的新工具【追加】到集合末尾，已有序前缀不变；
-     * - 模型意图兜底（classifyIntentByModel）同样只合并、不整体替换。
-     * 工具集最终收敛于「本会话用过的全部工具」，不超过全量，能力只增不减。
+     * dsh 设计：工具集 per-agent 稳定呈现、模型自主选择，引擎不做关键词/意图预判。
+     * 本方法让 tools 段 = 核心 6（前缀稳定，缓存命中）+ 高频预载（历史行为自适应，≤2）：
+     * - 零预判：不关键词、不 KB 工具检索、不问模型意图——模型要什么工具，
+     *   tool_registry(get) 发现（50 token 轻量），调用即注册进本轮缓存；
+     * - 用完即走：非核心工具不跨 execute 累积，工具执行结果已进历史；
+     * - 核心 6 顺序固定 → 服务商前缀缓存持续命中。
      */
     private String getStableToolsJson(String userMessage, Set<String> coreTools,
                                       OnlineModelManager.OnlineModelConfig cfg) {
         try {
-            // 1. 计算本轮消息应包含的工具（核心 + 关键词意图），与旧行为同一入口
-            String candidateJson = toolManager.getToolDefinitionsForMessageAndCore(userMessage, coreTools);
-            List<String> candidateNames = extractToolNames(candidateJson);
+            // 1. 模型驱动：核心 6 稳定呈现（dsh：per-agent 稳定工具集，模型自主选择）
+            cachedToolNames.clear();
+            cachedToolNames.addAll(coreTools);
 
-            // 2. 精准意图兜底：关键词未命中额外工具且消息像任务时，询问模型识别意图。
-            //    只合并新工具名，不整体替换（保持前缀稳定）
-            if (candidateNames.size() <= coreTools.size()
-                    && userMessage != null && !userMessage.trim().isEmpty()
-                    && !isCasualChat(userMessage)) {
-                Set<String> intents = classifyIntentByModel(cfg, userMessage);
-                if (intents != null && !intents.isEmpty()) {
-                    String intentTools = toolManager.getToolDefinitionsForIntents(intents, coreTools);
-                    for (String n : extractToolNames(intentTools)) {
-                        if (!candidateNames.contains(n)) candidateNames.add(n);
-                    }
-                    if (candidateNames.size() > coreTools.size()) {
-                        AILogger.i(TAG, "Model intent classification enriched tools: "
-                                + candidateNames.size() + " tools");
-                    }
-                }
+            // 2. 高频工具预载（自进化，非预判）：历史共现统计里的常客工具首轮就在场，
+            //    省发现轮；上限 2 个防膨胀。这是观察模型历史行为的自适应，dsh 无此机制但无害。
+            java.util.Set<String> frequent = toolManager.getFrequentToolsFromPatterns(coreTools, 3, 2);
+            for (String f : frequent) {
+                if (!coreTools.contains(f)) cachedToolNames.add(f);
+            }
+            if (!frequent.isEmpty()) {
+                AILogger.i(TAG, "Frequent tools preloaded: +" + frequent.size()
+                        + " → " + cachedToolNames.size() + " tools total");
             }
 
-            // 3. 合并进会话级缓存（只增不改）
-            if (!toolsCacheInitialized) {
-                cachedToolNames.clear();
-                cachedToolNames.addAll(candidateNames);
-                toolsCacheInitialized = true;
-            } else {
-                int added = 0;
-                for (String n : candidateNames) {
-                    if (cachedToolNames.add(n)) added++;
-                }
-                if (added > 0) {
-                    AILogger.i(TAG, "Stable tools expanded (+" + added + "), total=" + cachedToolNames.size());
-                }
-            }
+            // 3. LRU 上限（兜底）：注入过多时淘汰最旧非核心工具
+            trimSessionTools(coreTools);
             cachedToolsJson = toolManager.getToolDefinitionsForNames(cachedToolNames);
-            AILogger.i(TAG, "Tool definitions (stable core+intent): count=" + countToolsInJson(cachedToolsJson)
+            AILogger.i(TAG, "Tool definitions (model-driven): count=" + countToolsInJson(cachedToolsJson)
                     + ", json_len=" + (cachedToolsJson != null ? cachedToolsJson.length() : 0)
                     + ", cache_size=" + cachedToolNames.size());
             return cachedToolsJson;
         } catch (Exception e) {
-            AILogger.w(TAG, "getStableToolsJson failed, fallback to per-message tools: " + e.getMessage());
-            return toolManager.getToolDefinitionsForMessageAndCore(userMessage, coreTools);
+            AILogger.w(TAG, "getStableToolsJson failed, fallback to core tools: " + e.getMessage());
+            return toolManager.getToolDefinitionsForNames(coreTools);
+        }
+    }
+
+    /**
+     * 会话工具集 LRU 上限（2026-09-23）：超过 MAX_SESSION_TOOLS 时，
+     * 按最后使用时间淘汰最旧的非核心工具（核心工具永不淘汰）。
+     * 兼顾前缀缓存稳定（核心段不变）与长会话体积控制（扩展工具最多 6 个）。
+     */
+    private void trimSessionTools(java.util.Set<String> coreTools) {
+        try {
+            if (cachedToolNames.size() <= MAX_SESSION_TOOLS) return;
+            java.util.List<String> removable = new java.util.ArrayList<>();
+            for (String n : cachedToolNames) {
+                if (coreTools.contains(n)) continue;
+                removable.add(n);
+            }
+            removable.sort((a, b) -> Long.compare(
+                    toolLastUsed.getOrDefault(a, 0L), toolLastUsed.getOrDefault(b, 0L)));
+            int evicted = 0;
+            for (String n : removable) {
+                if (cachedToolNames.size() <= MAX_SESSION_TOOLS) break;
+                if (cachedToolNames.remove(n)) {
+                    toolLastUsed.remove(n);
+                    evicted++;
+                }
+            }
+            if (evicted > 0) {
+                AILogger.i(TAG, "Session tool LRU trim: evicted " + evicted
+                        + ", total=" + cachedToolNames.size() + " (cap=" + MAX_SESSION_TOOLS + ")");
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "trimSessionTools failed: " + e.getMessage());
         }
     }
 
@@ -1696,14 +1997,59 @@ public class OnlineAgentEngine {
      * 判断是否为闲聊消息（无需工具意图识别）。
      * 简短问候/情绪/无任务诉求的消息跳过模型意图识别，避免浪费一次 API 调用。
      */
+    /**
+     * 「继续」类消息接续（2026-09-23）：用户发"继续/接着/再来/往下"时，
+     * 若会话仍有活跃任务，转成【继续任务】引导消息——带任务上下文、触发工具轮，
+     * 避免模型在 tools=null 下用 DSML 文本硬调工具、或空转找上文。
+     */
+    private String maybeResolveContinueMessage(String userMessage) {
+        if (userMessage == null) return null;
+        String m = userMessage.trim();
+        if (!isContinueIntent(m)) return userMessage;
+        try {
+            TaskStateTracker tracker = TaskStateTracker.getInstance(context);
+            boolean hasActive = false;
+            for (TaskStateTracker.TaskEntry e : tracker.getAll()) {
+                if (TaskStateTracker.STATUS_IN_PROGRESS.equals(e.status)
+                        || TaskStateTracker.STATUS_TODO.equals(e.status)) {
+                    hasActive = true;
+                    break;
+                }
+            }
+            if (hasActive) {
+                AILogger.i(TAG, "User '" + m + "' resolved to goal-continue prompt (active tasks remain)");
+                return "【继续任务】用户说\"" + m + "\"。请检查任务进展：已完成的部分不要重复；"
+                        + "还有剩余步骤就继续调用工具推进（一次推进即可）；"
+                        + "需要用户提供信息/做选择则停下来询问。";
+            }
+            AILogger.i(TAG, "User '" + m + "' has no active tasks, pass through as-is");
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Resolve continue failed: " + t.getMessage());
+        }
+        return userMessage;
+    }
+
+    /** 判断消息是否为"继续"类意图（短、无其他诉求） */
+    private static boolean isContinueIntent(String m) {
+        if (m == null || m.isEmpty()) return false;
+        String s = m.toLowerCase();
+        if (s.contains("继续") || s.contains("接着") || s.contains("再来")
+                || s.contains("往下") || s.contains("继续生成") || s.contains("继续做")) {
+            // 排除"继续帮我看一下XX"这类明确新诉求（含具体动词+对象的继续，按普通消息处理）
+            return s.length() <= 12 || !s.contains("帮");
+        }
+        return false;
+    }
+
+    /**
+     * 闲聊模式已废弃（2026-09-23，用户决定）：不再区分闲聊/任务轮，
+     * 每一轮都按正常任务处理——恒带工具、恒带记忆、恒做知识库检索。
+     * 收益：模型能力全开，"继续/接着"等短消息不再被误判闲聊导致 tools=null
+     * （根除 DSML 文本硬调工具问题）；代价是闲聊轮多带 ~3K token（tools），
+     * 但缓存命中后实际增量很小。恒返回 false = 永远非闲聊。
+     */
     private boolean isCasualChat(String message) {
-        if (message == null) return true;
-        String m = message.trim();
-        if (m.length() > 30) return false; // 长消息大概率是任务
-        // 简短且无动词诉求 → 闲聊
-        if (m.length() <= 8) return true;
-        return containsAnyCasual(m, "你好", "hello", "hi", "在吗", "谢谢", "再见", "拜拜",
-                "你是谁", "你会什么", "早上好", "晚上好", "哈哈", "嗯", "好", "ok", "好的");
+        return false;
     }
 
     private static boolean containsAnyCasual(String msg, String... keywords) {
@@ -1772,6 +2118,9 @@ public class OnlineAgentEngine {
     public void cancel() {
         isCancelled.set(true);
         endDebugRun("cancelled", null);
+        if (lastTurnMeta != null) {
+            lastTurnMeta.put("reason", "user_cancel");
+        }
     }
 
     public void shutdown() {
@@ -1779,6 +2128,23 @@ public class OnlineAgentEngine {
         messageHistory.clear();
         thinkingChain.clear();
         resetToolsCache();
+    }
+
+    /** 获取上一回合审计 meta（reason/turns/toolCalls/tokens/model），无则返回 null。dsh turn/end 对齐 */
+    public String getLastTurnMetaJson() {
+        if (lastTurnMeta == null) return null;
+        try {
+            return new com.google.gson.Gson().toJson(lastTurnMeta);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 获取上一回合结束原因（final_complete / max_iterations / user_cancel / error / running） */
+    public String getLastTurnReason() {
+        if (lastTurnMeta == null) return null;
+        Object r = lastTurnMeta.get("reason");
+        return r != null ? String.valueOf(r) : null;
     }
 
     public boolean isGenerating() {
@@ -1839,17 +2205,23 @@ public class OnlineAgentEngine {
      */
     public void compressHistory(final int keepRecent, final java.util.function.Consumer<String> callback) {
         if (isGenerating.get()) {
+            AILogger.i(TAG, "compressHistory skipped: generating in progress");
             if (callback != null) callback.accept(null);
             return;
         }
         final OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
         if (cfg == null) {
+            AILogger.w(TAG, "compressHistory skipped: no active online model config");
             if (callback != null) callback.accept(null);
             return;
         }
 
         executor.submit(() -> {
             try {
+                // 2026-09-23 修复：压缩前先兜底恢复历史——新开页面未发消息时 messageHistory
+                // 内存为空（历史在磁盘），直接按内存计数会误判"对话太短"→ 压缩永远失败。
+                // ensureHistoryLoadedOnce 只在 execute 调用，此处补一次（幂等）。
+                ensureHistoryLoadedOnce();
                 // 1. 收集早期对话（跳过 system/记忆/env，只取 用户/助手 正文）
                 StringBuilder dialogue = new StringBuilder();
                 int userMsgCount = 0;
@@ -1868,6 +2240,7 @@ public class OnlineAgentEngine {
                 }
                 if (userMsgCount < 4) {
                     // 对话太短，压缩意义不大
+                    AILogger.i(TAG, "compressHistory skipped: dialogue too short (userMsgs=" + userMsgCount + ")");
                     if (callback != null) callback.accept(null);
                     return;
                 }
@@ -2078,6 +2451,20 @@ public class OnlineAgentEngine {
     /** 保存当前对话历史到私有文件（按会话隔离） */
     private void persistHistory() {
         try {
+            // 回合审计 meta 落盘（dsh turn/end 对齐）：按 会话×模型 隔离，Activity 可查询
+            if (lastTurnMeta != null) {
+                try {
+                    lastTurnMeta.put("promptTokens", execTotalPromptTokens);
+                    lastTurnMeta.put("completionTokens", execTotalCompletionTokens);
+                    lastTurnMeta.put("model", onlineInferenceService.getActiveConfig() != null
+                            ? onlineInferenceService.getActiveConfig().modelName : "");
+                    android.content.SharedPreferences sp = context.getSharedPreferences("ai_prefs", android.content.Context.MODE_PRIVATE);
+                    sp.edit().putString("agent_turn_meta_" + sessionId + "_" + activeModelId,
+                            new com.google.gson.Gson().toJson(lastTurnMeta)).apply();
+                } catch (Throwable metaErr) {
+                    AILogger.w(TAG, "persist turn meta failed: " + metaErr.getMessage());
+                }
+            }
             // 持久化前清洗悬空 tool 消息，避免脏数据落盘后每次恢复都带进来
             removeOrphanToolMessages();
             if (messageHistory.isEmpty()) {
@@ -2233,8 +2620,37 @@ public class OnlineAgentEngine {
                     + ", summary=" + (pendingSummaryMessage != null) + ")");
             }
         } catch (Exception e) {
-            AILogger.w(TAG, "Failed to restore agent history: " + e.getMessage());
-            deleteHistoryFile();
+            // 2026-09-23 v7.1：解析异常只告警【不删文件】——删了历史就永久丢失；
+            // 保留文件供下次 execute 兜底重试（restoreHistory 幂等）。
+            AILogger.w(TAG, "Failed to restore agent history: " + e.getMessage()
+                    + " (file kept for retry)");
+        }
+    }
+
+    /** execute 前的一次性历史兜底恢复（见 execute 调用点） */
+    private void ensureHistoryLoadedOnce() {
+        if (historyLoadAttempted) return;
+        historyLoadAttempted = true;
+        try {
+            if (sessionId == null || sessionId.isEmpty()) return;
+            if (!messageHistory.isEmpty()) return;
+            // 优先用引擎 activeModelId；若冷启动时序未设置（getActiveModel 晚到），
+            // 回退用运行时配置的模型 id（cfg.id）——只读尝试，不写引擎字段。
+            String tag = activeModelId;
+            if (tag == null || tag.isEmpty()) {
+                OnlineModelManager.OnlineModelConfig cfg = onlineInferenceService.getActiveConfig();
+                if (cfg != null && cfg.id != null && !cfg.id.isEmpty()) tag = cfg.id;
+            }
+            if (tag == null || tag.isEmpty()) return;
+            java.io.File f = new java.io.File(context.getFilesDir(),
+                    "online_agent_history_"
+                            + sessionId.replaceAll("[^a-zA-Z0-9_-]", "_")
+                            + "_" + tag.replaceAll("[^a-zA-Z0-9_-]", "_") + ".json");
+            if (!f.exists()) return;
+            AILogger.i(TAG, "History fallback restore (cold-start modelId was late): " + f.getName());
+            restoreHistory();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "ensureHistoryLoadedOnce failed: " + t.getMessage());
         }
     }
 
@@ -2264,6 +2680,9 @@ public class OnlineAgentEngine {
         }
         final String finalOutput = outputText;
         finishGeneration();
+        eventBus.post(AgentEventBus.EventType.TURN_END,
+                lastTurnMeta != null && lastTurnMeta.get("reason") != null
+                        ? String.valueOf(lastTurnMeta.get("reason")) : "final_complete");
         notifyProgress();
         thinkingChain.completeAll();
         // 输出工具使用统计日志
@@ -2287,6 +2706,8 @@ public class OnlineAgentEngine {
     private void notifyError(String error) {
         endDebugRun("error", error);
         finishGeneration();
+        eventBus.post(AgentEventBus.EventType.TURN_END, "error: " + (error != null ? error : ""));
+        eventBus.post(AgentEventBus.EventType.REQUEST_ERROR, error != null ? error : "");
         mainHandler.post(() -> {
             if (callback != null) callback.onError(error);
         });
@@ -2315,6 +2736,49 @@ public class OnlineAgentEngine {
                 progressListener.onProgressUpdate(tokens, tpsFinal);
             }
         });
+    }
+
+    /**
+     * 目标自动续行（dsh goal-round-driver 对齐，2026-09-23）：
+     * 本轮 execute 正常结束后，若任务清单仍有活跃任务（in_progress/todo）且本轮实际推进过
+     * 工具调用，自动注入【继续任务】提示词再跑一轮，直到任务完成 / 达续行上限 / 用户打断。
+     * 约束（防失控）：MAX_AUTO_CONTINUE 轮数上限、MIN_AUTO_CONTINUE_INTERVAL_MS 间隔、
+     * isCancelled / isGenerating 门禁、活跃任务存在性检查——任何一条不满足即停止。
+     */
+    private void maybeAutoContinue() {
+        try {
+            if (isCancelled.get() || isGenerating.get()) return;
+            if (autoContinueCount >= MAX_AUTO_CONTINUE) return;
+            long now = System.currentTimeMillis();
+            if (now - lastAutoContinueTs < MIN_AUTO_CONTINUE_INTERVAL_MS) return;
+            // 上轮必须实际推进过工具（纯问答/闲聊不触发自动续行）
+            Object tc = lastTurnMeta != null ? lastTurnMeta.get("toolCalls") : null;
+            if (!(tc instanceof Number) || ((Number) tc).intValue() <= 0) return;
+            // 必须仍有活跃任务（dsh：goal phase=active 才驱动 round；全部完成/失败则停）
+            TaskStateTracker tracker = TaskStateTracker.getInstance(context);
+            boolean hasActive = false;
+            for (TaskStateTracker.TaskEntry e : tracker.getAll()) {
+                if (TaskStateTracker.STATUS_IN_PROGRESS.equals(e.status)
+                        || TaskStateTracker.STATUS_TODO.equals(e.status)) {
+                    hasActive = true;
+                    break;
+                }
+            }
+            if (!hasActive) return;
+
+            autoContinueCount++;
+            lastAutoContinueTs = now;
+            String goalMsg = "【继续任务】你的任务清单中仍有进行中的任务。请检查进展："
+                    + "若任务已完成请用 task complete 标记完成；"
+                    + "若还有剩余步骤请继续调用工具推进（一次推进即可，不要重复已完成的部分）；"
+                    + "若需要用户提供信息/做选择，则停下来向用户询问。"
+                    + "（本轮为自动续行第 " + autoContinueCount + " 次，最多 " + MAX_AUTO_CONTINUE + " 次）";
+            AILogger.i(TAG, "Goal auto-continue round " + autoContinueCount + "/" + MAX_AUTO_CONTINUE
+                    + " (active tasks remain)");
+            execute(goalMsg, 0, false, true);
+        } catch (Throwable t) {
+            AILogger.w(TAG, "Auto-continue failed: " + t.getMessage());
+        }
     }
 
     private int estimateTokens(String text) {

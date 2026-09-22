@@ -15,6 +15,7 @@ import com.oilquiz.app.ai.agent.software.model.AgentStats;
 import com.oilquiz.app.util.AILogger;
 
 import java.util.List;
+import java.util.Map;
 
 public class AgentChatHandler {
     private static final String TAG = "AgentChatHandler";
@@ -39,6 +40,8 @@ public class AgentChatHandler {
         void onToolCallResultUI(int position, boolean success, String result);
         void onAgentStepUpdateUI(int position, String thought, String action, String observation, boolean isCompleted);
         void onInferenceProgress(int tokenCount, float tokensPerSecond);
+        /** 工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。card 为 null 表示无声明。 */
+        default void onToolPresent(String toolName, Map<String, Object> card) {}
     }
 
     private final Activity activity;
@@ -122,6 +125,13 @@ public class AgentChatHandler {
                 if (isValid()) {
                     callback.onToolCallStart("software_" + System.nanoTime(), toolName, args);
                     callback.onToolCallUI(toolName, args, -1);
+                }
+            }
+
+            @Override
+            public void onToolPresent(String toolName, Map<String, Object> card) {
+                if (isValid()) {
+                    callback.onToolPresent(toolName, card);
                 }
             }
 
@@ -404,6 +414,10 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
 
     public int getLastCacheHitTokens() {
         return engine.getLastCacheHitTokens();
+    }
+
+    public int getLastCacheMissTokens() {
+        return engine.getLastCacheMissTokens();
     }
 
     public int getLastPromptTokens() {

@@ -92,8 +92,10 @@ public class OnlineToolManager {
     /** 缓存最大条目数（超出淘汰最旧） */
     private static final int CACHE_MAX_ENTRIES = 200;
     private final java.io.File cacheFile;
+    private final Context appContext;
 
     public OnlineToolManager(Context context) {
+        this.appContext = context.getApplicationContext();
         this.aiToolManager = AIToolManager.getInstance(context);
         this.registry = new OnlineToolRegistry(context);
         this.chain = new OnlineToolChain(registry);
@@ -103,6 +105,16 @@ public class OnlineToolManager {
         this.guide = new OnlineToolGuide(registry, chain, usageTracker);
         this.cacheFile = new java.io.File(context.getFilesDir(), "agent_tool_cache.json");
         loadCache();
+        // 2026-09-23：动态工具变更监听——create_dynamic_tool/删除后即时同步 registry 索引，
+        // 新注册工具立即可被 tool_registry(get/list) 与引擎工具集引用（不再等下次启动）
+        com.oilquiz.app.ai.tool.AIToolManager.setDynamicToolChangeListener(() -> {
+            try {
+                registry.syncFromAIToolManager();
+                guide.markCacheDirty();
+            } catch (Exception e) {
+                AILogger.e(TAG, "dynamic tool change sync failed: " + e.getMessage(), e);
+            }
+        });
     }
 
     // ==================== 工具结果缓存（TTL + 持久化） ====================
@@ -363,6 +375,20 @@ public class OnlineToolManager {
                         "加入知识库", "存到知识库", "记到知识库", "knowledge_base", "kb")) {
                     include.add("knowledge_base");
                 }
+                // 权限类（2026-09-23 从常驻核心移出，改为意图按需）：授权/相机/录音/存储/定位/通知 权限请求
+                if (containsAny(msg, "权限", "授权", "同意", "允许", "相机权限", "录音权限", "存储权限",
+                        "定位权限", "通知权限", "permission", "请求权限")) {
+                    include.add("permission_manager");
+                }
+                // 控件参数查询（低频，ui_component 定义已含主要参数，此为补充）
+                if (containsAny(msg, "控件参数", "组件参数", "控件类型", "control_lookup")) {
+                    include.add("control_lookup");
+                }
+                // 任务/待办/提醒（2026-09-23 从常驻核心移出，改意图按需）
+                if (containsAny(msg, "任务", "待办", "提醒", "记一下", "记住这个", "记住任务",
+                        "安排一下", "计划任务", "task", "todo", "reminder")) {
+                    include.add("task");
+                }
             }
             return registry.getToolDefinitionsForNames(include);
         } catch (Exception e) {
@@ -585,6 +611,148 @@ public class OnlineToolManager {
     /** 返回 {@link OnlineToolUsageTracker} */
     public OnlineToolUsageTracker getUsageTracker() {
         return usageTracker;
+    }
+
+    /**
+     * 高频常用工具预载（2026-09-23）：从跨重启持久化的共现统计中提取高频工具，
+     * 会话首次构建工具缓存时并入，让"常客"工具首轮就在场（自进化：用得越多，预载越准）。
+     * @param minCount 共现次数下限（低于该次的工具对不计入）
+     * @param maxExtra 最多额外预载的非核心工具数（防工具定义膨胀回 20K）
+     */
+    public java.util.Set<String> getFrequentToolsFromPatterns(java.util.Set<String> coreTools,
+                                                              int minCount, int maxExtra) {
+        java.util.Set<String> result = new java.util.LinkedHashSet<>();
+        try {
+            for (OnlineToolUsageTracker.ToolPattern p : usageTracker.discoverPatterns()) {
+                if (result.size() >= maxExtra) break;
+                if (p.count < minCount) continue;
+                if (coreTools == null || !coreTools.contains(p.toolA)) result.add(p.toolA);
+                if (result.size() >= maxExtra) break;
+                if (coreTools == null || !coreTools.contains(p.toolB)) result.add(p.toolB);
+            }
+            if (!result.isEmpty()) {
+                AILogger.i(TAG, "Frequent tools from patterns: " + result + " (minCount=" + minCount + ")");
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "getFrequentToolsFromPatterns failed: " + e.getMessage(), e);
+        }
+        return result;
+    }
+
+    // ==================== 工具定义入库（2026-09-23：工具即知识，交给知识库按需检索） ====================
+
+    private static final String TOOL_DEFS_CATEGORY = "tool_defs";
+    private static final String TOOL_DEFS_VERSION = "20260923-v4";
+
+    /**
+     * 工具定义入库（幂等 + 版本控制）：把全部启用工具的定义（描述/适用场景/参数）写入知识库
+     * category=tool_defs。引擎据此对用户消息做全文检索，按语义命中注入工具——比手工关键词规则覆盖更广，
+     * 也让"模型不知道工具"时有据可查。版本变化时全量重建（先删旧条再写）。
+     */
+    public synchronized void ensureToolDefsInKnowledgeBase() {
+        try {
+            android.content.SharedPreferences prefs = appContext.getSharedPreferences(
+                    "ai_agent_tooldefs", android.content.Context.MODE_PRIVATE);
+            String ingested = prefs.getString("tool_defs_version", "");
+            if (TOOL_DEFS_VERSION.equals(ingested)) return;
+
+            com.oilquiz.app.ai.knowledge.KnowledgeBaseManager kb =
+                    com.oilquiz.app.ai.knowledge.KnowledgeBaseManager.getInstance(appContext);
+            // 1. 清理旧条目（2026-09-23 v4：按 category 一次删光——按 title 遍历曾因
+            //    返回格式字段名不匹配漏删，导致 export_apk 等工具残留重复条目 id 159/225/291）
+            try {
+                int removed = kb.deleteByCategory(TOOL_DEFS_CATEGORY);
+                AILogger.i(TAG, "Tool defs cleanup: removed " + removed + " old chunks");
+            } catch (Exception e) {
+                AILogger.w(TAG, "Tool defs cleanup failed: " + e.getMessage());
+            }
+            // 2. 全量写入
+            int added = 0;
+            for (OnlineToolRegistry.ToolMeta meta : registry.getAllToolMetas()) {
+                if (!registry.isToolEnabled(meta.name)) continue;
+                String content = buildToolDefContent(meta);
+                String keywords = meta.name + " " + (meta.category != null ? meta.category : "")
+                        + " " + toolDefActionKeywords(meta);
+                long id = kb.addChunk(meta.name, TOOL_DEFS_CATEGORY, keywords.trim(), content,
+                        "system_tool_defs");
+                if (id > 0) added++;
+            }
+            prefs.edit().putString("tool_defs_version", TOOL_DEFS_VERSION).apply();
+            AILogger.i(TAG, "Tool defs ingested into KB: " + added + " tools (v" + TOOL_DEFS_VERSION + ")");
+        } catch (Exception e) {
+            AILogger.e(TAG, "ensureToolDefsInKnowledgeBase failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** 工具定义入库文本：可读格式（工具名/用途/适用场景/参数），关键词丰富利于全文检索命中 */
+    private String buildToolDefContent(OnlineToolRegistry.ToolMeta meta) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("工具名: ").append(meta.name).append("\n");
+        if (meta.description != null && !meta.description.isEmpty()) {
+            sb.append("用途: ").append(meta.description).append("\n");
+        }
+        if (meta.category != null && !meta.category.isEmpty()) {
+            sb.append("类别: ").append(meta.category).append("\n");
+        }
+        if (meta.definition != null) {
+            String wtu = meta.definition.getWhenToUse();
+            if (wtu != null && !wtu.isEmpty()) sb.append("适用场景: ").append(wtu).append("\n");
+            if (meta.definition.getParameters() != null && !meta.definition.getParameters().isEmpty()) {
+                sb.append("参数: ");
+                java.util.List<String> parts = new java.util.ArrayList<>();
+                for (com.oilquiz.app.ai.tool.openai.ParamDefinition p : meta.definition.getParameters()) {
+                    String d = p.getDescription() != null ? p.getDescription() : "";
+                    parts.add(p.getName() + "(" + d + (p.isRequired() ? "必填" : "可选") + ")");
+                }
+                sb.append(String.join("; ", parts)).append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 工具入库增强关键词：参数名+action 枚举（提升"房贷月供→计算类工具"这类语义召回） */
+    private String toolDefActionKeywords(OnlineToolRegistry.ToolMeta meta) {
+        StringBuilder sb = new StringBuilder();
+        if (meta.definition != null && meta.definition.getParameters() != null) {
+            for (com.oilquiz.app.ai.tool.openai.ParamDefinition p : meta.definition.getParameters()) {
+                sb.append(p.getName()).append(" ");
+                if (p.getEnumValues() != null) {
+                    for (String e : p.getEnumValues()) sb.append(e).append(" ");
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * KB 工具定义检索（2026-09-23）：对用户消息全文检索工具知识库，返回命中的启用工具名集合。
+     * score>0 才算命中（空 query / 纯噪音不召回），最多 topN 个。
+     */
+    public java.util.Set<String> getToolNamesByKnowledgeSearch(String userMessage, int topN) {
+        java.util.Set<String> result = new java.util.LinkedHashSet<>();
+        try {
+            if (userMessage == null || userMessage.trim().isEmpty()) return result;
+            com.oilquiz.app.ai.knowledge.KnowledgeBaseManager kb =
+                    com.oilquiz.app.ai.knowledge.KnowledgeBaseManager.getInstance(appContext);
+            org.json.JSONArray hits = kb.search(userMessage.trim(), TOOL_DEFS_CATEGORY, topN, false);
+            if (hits == null) return result;
+            for (int i = 0; i < hits.length(); i++) {
+                org.json.JSONObject item = hits.optJSONObject(i);
+                if (item == null) continue;
+                int score = item.optInt("score", 0);
+                String title = item.optString("title", "");
+                if (score > 0 && !title.isEmpty() && registry.hasTool(title) && registry.isToolEnabled(title)) {
+                    result.add(title);
+                }
+            }
+            if (!result.isEmpty()) {
+                AILogger.i(TAG, "KB tool retrieval: " + result + " for query='"
+                        + (userMessage.length() > 40 ? userMessage.substring(0, 40) + "…" : userMessage) + "'");
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "getToolNamesByKnowledgeSearch failed: " + e.getMessage(), e);
+        }
+        return result;
     }
 
     /** 返回 {@link OnlineToolGuide} */

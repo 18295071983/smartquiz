@@ -796,7 +796,7 @@ public class ModelExecutionBridge {
         executor.execute(() -> {
             try {
                 String systemPrompt = command.systemPrompt != null ? command.systemPrompt :
-                    "你是一个AI助手，请用中文回答。";
+                    buildNativeSystemPrompt();
                 boolean success = false;
                 if (aiService != null) {
                     success = aiService.initChatContext(systemPrompt, systemPrompt, "");
@@ -952,11 +952,34 @@ public class ModelExecutionBridge {
         return true;
     }
 
+    /**
+     * native 会话 system 提示组装（dsh PromptAssembler 分段语义）。
+     * persona 段（用户设置的人设，缺省用默认身份）+【环境上下文】动态日期段。
+     * 普通对话路径的系统提示统一由此生成，替代原先散落的硬编码兜底；
+     * 默认输出与 AIService.buildDefaultChatSystemPrompt 同款文本，行为不降级。
+     */
+    private String buildNativeSystemPrompt() {
+        com.oilquiz.app.ai.prompt.PromptAssembler assembler = new com.oilquiz.app.ai.prompt.PromptAssembler();
+        String persona = aiConfig != null && aiConfig.getSystemPrompt() != null
+                && !aiConfig.getSystemPrompt().trim().isEmpty()
+                ? aiConfig.getSystemPrompt().trim()
+                : "你是答题宝智能助手，一个集成在答题宝App中的AI助手。请用中文简洁、准确地回答用户问题。";
+        assembler.registerSection(com.oilquiz.app.ai.prompt.PromptSection.of(
+                "persona", com.oilquiz.app.ai.prompt.PromptSectionOrders.PERSONA_PREFIX, persona));
+        assembler.registerSection(com.oilquiz.app.ai.prompt.PromptSection.of(
+                "env", com.oilquiz.app.ai.prompt.PromptSectionOrders.CONTEXT_RUNTIME, ctx -> {
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                            "yyyy年M月d日 EEEE", java.util.Locale.CHINA);
+                    return "【环境上下文】\n当前日期：" + sdf.format(new java.util.Date());
+                }));
+        return assembler.assemble(com.oilquiz.app.ai.prompt.AssembleContext.global()).render();
+    }
+
     private void ensureChatContext() {
         try {
             if (!LlamaHelper.isChatContextActive()) {
                 AILogger.i(TAG, "Chat context not active, creating...");
-                String systemPrompt = "你是一个AI助手，请用中文回答。";
+                String systemPrompt = buildNativeSystemPrompt();
                 aiService.initChatContext(systemPrompt, systemPrompt, "");
             }
         } catch (Throwable t) {

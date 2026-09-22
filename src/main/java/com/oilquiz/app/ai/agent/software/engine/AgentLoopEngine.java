@@ -9,6 +9,7 @@ import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.ai.service.OnlineInferenceService;
+import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.ai.tool.openai.ParamDefinition;
@@ -208,6 +209,11 @@ public class AgentLoopEngine {
         void onThinkingUpdate(String thought);
         void onToolCall(String toolName, String args);
         void onToolResult(String toolName, boolean success, String result);
+        /**
+         * 可选：工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。
+         * 引擎在 onToolCall/onToolResult 前调用；card 为 null 表示工具无声明，UI 走通用呈现。
+         */
+        default void onToolPresent(String toolName, Map<String, Object> card) {}
         void onToken(String token);
         void onComplete(String finalText);
         void onError(String error);
@@ -340,6 +346,33 @@ public class AgentLoopEngine {
             } else {
                 // 无具体城市（查"这里/附近/现在天气"）：经纬度查当前位置实时天气最准
                 effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查当前位置/附近的天气，用 ai_weather 工具，参数用 location 工具定位获取的 lat/lon；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。";
+            }
+        }
+        // 动态状态（长期记忆摘要 + 活跃任务清单）从 system 移出，改为本轮 user 消息末尾 D 块注入：
+        // system 前缀保持静态 → 本地 KV 缓存命中（与上方天气指令同款策略，见 buildCurrentTimeLine 注释）；
+        // 动态内容放 prompt 末尾，模型每轮仍能读到并执行，行为不变。
+        if (modelFcMode && appContext != null) {
+            try {
+                String memorySummary = com.oilquiz.app.ai.agent.online.AgentMemoryStore
+                        .getInstance(appContext).buildMemorySummary();
+                if (memorySummary != null && !memorySummary.isEmpty()) {
+                    if (memorySummary.length() > 800) {
+                        memorySummary = memorySummary.substring(0, 800) + "…";
+                    }
+                    effectiveUserMessage = effectiveUserMessage + "\n\n【已存记忆】" + memorySummary;
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "Memory summary injection failed: " + t.getMessage());
+            }
+            try {
+                String taskSummary = com.oilquiz.app.ai.tool.TaskStateTracker
+                        .getInstance(appContext).buildTaskSummary();
+                if (taskSummary != null && !taskSummary.isEmpty()) {
+                    effectiveUserMessage = effectiveUserMessage + "\n\n【当前任务】\n" + taskSummary
+                            + "\n任务清单为跨轮状态，多步任务持续用 task 工具维护（update 进度/complete 完成/fail 失败/delete 取消），已完成任务无需再提。";
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "Task summary injection failed: " + t.getMessage());
             }
         }
         history.add(new ChatMessage("user", effectiveUserMessage));
@@ -663,7 +696,15 @@ public class AgentLoopEngine {
                 toolCallCount++;
                 String tLabel = toolLabel(tc.toolName);
                 showToast("🔧 调用: " + tLabel);
+                // dsh 对齐：工具声明化 pending 卡片（presentCall，纯函数可重放，2026-09-23）
+                Map<String, Object> callCard = null;
+                AITool presentTool = null;
+                try { presentTool = toolManager.getTool(tc.toolName); } catch (Throwable ignored) {}
+                if (presentTool != null) {
+                    try { callCard = presentTool.presentCall(jsonToMap(tc.args)); } catch (Throwable ignored) {}
+                }
                 if (callback != null) callback.onToolCall(tc.toolName, tc.args.toString());
+                if (callback != null) callback.onToolPresent(tc.toolName, callCard);
                 AIToolResult result;
                 if (parResults[i] instanceof AIToolResult) {
                     result = (AIToolResult) parResults[i];
@@ -689,7 +730,13 @@ public class AgentLoopEngine {
                     }
                 }
                 showToast(success ? "✅ " + tLabel + " 完成" : "❌ " + tLabel + " 失败: " + truncate(resultStr, 40));
+                // dsh 对齐：工具声明化完成卡片（presentResult，纯函数可重放，2026-09-23）
+                Map<String, Object> resultCard = null;
+                if (presentTool != null) {
+                    try { resultCard = presentTool.presentResult(jsonToMap(tc.args), result); } catch (Throwable ignored) {}
+                }
                 if (callback != null) callback.onToolResult(tc.toolName, success, resultStr);
+                if (callback != null) callback.onToolPresent(tc.toolName, resultCard);
                 history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH), tc.id, true));
                 AILogger.i(TAG, "Tool " + tc.toolName + (success ? " OK" : " FAIL")
                         + ": " + truncate(resultStr, 800));
@@ -705,6 +752,11 @@ public class AgentLoopEngine {
         // ===== 统一退出路径 =====
         // 所有退出原因（超时/最大迭代/循环保护/上下文溢出/空回复/泄漏）统一走这里
         AILogger.w(TAG, "Loop ended, using unified exit path");
+
+        // dsh 对齐：中止合成错误（2026-09-23）——统一退出前扫描 history，
+        // 对无配对 tool 结果的 assistant.tool_calls 补"工具调用已中止"合成结果，
+        // 保证 tool_call/tool 配对完整，模型下次知道该工具被取消了。
+        synthesizeAbortedToolResults(history);
 
         // 最终回答生成：执行过工具调用但循环被强制收尾、尚未产出完整回答时，
         // 基于全部工具结果生成一次总结回复。单次调用、不注入工具（tool_choice=none），
@@ -1711,7 +1763,7 @@ public class AgentLoopEngine {
         sb.append("5. 长期记忆(memory)：\n");
         sb.append("• 用户主动告知姓名/称呼/偏好/常驻信息（如\"我叫小明\"\"我喜欢吃辣\"\"我在银川工作\"）时，必须调用 memory(action=save, key=英文短词, value=内容) 保存，不要只口头答应；用户明确说\"记住...\"时同样保存\n");
         sb.append("• action=save(key,value)：保存；action=recall(key)：读取；action=delete(key)：删除单条；action=list：列出所有\n");
-        sb.append("• 已存记忆会自动注入到你的系统提示词【已存记忆】段（跨对话保留），后续直接使用即可，无需每次 recall\n");
+        sb.append("• 已存记忆会自动注入到每轮对话末尾的【已存记忆】段（跨对话保留），后续直接使用即可，无需每次 recall\n");
         sb.append("• 用户要求忘记/删除某条信息时调用 memory(action=delete, key=...)\n\n");
 
         sb.append("网络搜索仅在需要实时/外部信息（新闻、政策、价格、最新事件、链接内容、搜索指定资料）时使用；常识与知识类问题直接回答，不要搜索。\n");
@@ -1738,32 +1790,6 @@ public class AgentLoopEngine {
         sb.append("中文简洁，先结论后细节；没把握时直说不知道。\n");
         sb.append("有结构的信息（列表/表格）用文本或简单表格展示。\n\n");
 
-        if (appContext != null) {
-            try {
-                String memorySummary = com.oilquiz.app.ai.agent.online.AgentMemoryStore
-                        .getInstance(appContext).buildMemorySummary();
-                if (memorySummary != null && !memorySummary.isEmpty()) {
-                    // 摘要超 800 字符截断，控制 prompt 体积
-                    if (memorySummary.length() > 800) {
-                        memorySummary = memorySummary.substring(0, 800) + "…";
-                    }
-                    sb.append("【已存记忆】").append(memorySummary).append("\n");
-                }
-            } catch (Throwable t) {
-                AILogger.w(TAG, "Memory summary injection failed: " + t.getMessage());
-            }
-            // 维度四 P0-1：任务状态跟踪——注入活跃任务清单，跨轮保持多步任务连续性
-            try {
-                String taskSummary = com.oilquiz.app.ai.tool.TaskStateTracker
-                        .getInstance(appContext).buildTaskSummary();
-                if (taskSummary != null && !taskSummary.isEmpty()) {
-                    sb.append("【当前任务】\n").append(taskSummary)
-                            .append("\n任务清单为跨轮状态，多步任务持续用 task 工具维护（update 进度/complete 完成/fail 失败/delete 取消），已完成任务无需再提。\n");
-                }
-            } catch (Throwable t) {
-                AILogger.w(TAG, "Task summary injection failed: " + t.getMessage());
-            }
-        }
         return sb.toString();
     }
 
@@ -2355,6 +2381,34 @@ public class AgentLoopEngine {
             case "tool_registry": return "直接查看【可用工具】表";
             default: return null;
         }
+    }
+
+    /** dsh 对齐：中止合成错误（2026-09-23）。
+     *  扫描 history：assistant 消息带 tool_calls 但后续无配对 tool 结果（含取消/break 未执行）
+     *  → 在 assistant 消息后补一条"工具调用已中止"合成错误 tool 消息，保持配对完整。
+     *  与 dsh 的 TOOL_ABORTED_BEFORE_DISPATCH 合成错误同语义（replay 后模型可见）。 */
+    private void synthesizeAbortedToolResults(List<ChatMessage> history) {
+        java.util.Set<String> paired = new java.util.HashSet<>();
+        for (ChatMessage m : history) {
+            if ("tool".equals(m.role) && m.toolCallId != null && !m.toolCallId.isEmpty()) {
+                paired.add(m.toolCallId);
+            }
+        }
+        boolean changed = false;
+        for (int i = 0; i < history.size(); i++) {
+            ChatMessage m = history.get(i);
+            if (m == null || !"assistant".equals(m.role) || m.toolCalls == null) continue;
+            for (ToolCall tc : m.toolCalls) {
+                if (tc == null || tc.id == null || tc.id.isEmpty() || paired.contains(tc.id)) continue;
+                history.add(i + 1, new ChatMessage("tool",
+                        "工具调用已中止（未完成执行）：" + tc.toolName + "，参数：" + tc.args,
+                        tc.id, true));
+                paired.add(tc.id);
+                changed = true;
+                i++; // 跳过刚插入的 tool 消息
+            }
+        }
+        if (changed) AILogger.w(TAG, "Synthesized aborted tool results for unpaired tool_calls");
     }
 
     private AIToolResult executeToolSafely(String toolName, JSONObject args) {

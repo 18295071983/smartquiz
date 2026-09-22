@@ -2872,6 +2872,9 @@ public class OnlineInferenceService {
         default void onUsage(int promptTokens, int completionTokens, int totalTokens) {}
         default void onUsageWithCache(int promptTokens, int completionTokens, int totalTokens, int cachedTokens) {}
         default void onUsageWithReasoning(int promptTokens, int completionTokens, int totalTokens, int cachedTokens, int reasoningTokens) {}
+        /** 完整用量（2026-09-23）：直读 DeepSeek prompt_cache_miss_tokens（未命中），
+         *  服务商未返回时用 prompt-cached 推算。0 表示不支持。 */
+        default void onUsageWithCacheFull(int promptTokens, int completionTokens, int totalTokens, int cachedTokens, int missTokens) {}
     }
 
     /**
@@ -3385,6 +3388,14 @@ public class OnlineInferenceService {
                             if (cachedTokens == 0 && usage.has("cached_tokens")) {
                                 cachedTokens = usage.get("cached_tokens").getAsInt();
                             }
+                            // 缓存未命中（DeepSeek prompt_cache_miss_tokens 顶层直读；
+                            // 未返回时用 prompt-cached 推算兜底）
+                            int missTokens = 0;
+                            if (usage.has("prompt_cache_miss_tokens")) {
+                                missTokens = usage.get("prompt_cache_miss_tokens").getAsInt();
+                            } else if (cachedTokens > 0 && promptTokens >= cachedTokens) {
+                                missTokens = promptTokens - cachedTokens;
+                            }
                             // 提取 reasoning_tokens（OpenAI completion_tokens_details.reasoning_tokens）
                             int reasoningTokens = 0;
                             if (usage.has("completion_tokens_details")
@@ -3394,13 +3405,15 @@ public class OnlineInferenceService {
                                     reasoningTokens = details.get("reasoning_tokens").getAsInt();
                                 }
                             }
-                            final int pt = promptTokens, ct = completionTokens, tt = totalTokens, cache = cachedTokens, reasoning = reasoningTokens;
+                            final int pt = promptTokens, ct = completionTokens, tt = totalTokens, cache = cachedTokens, reasoning = reasoningTokens, miss = missTokens;
                             AILogger.i(TAG, "API usage: prompt=" + pt + " completion=" + ct
-                                + " total=" + tt + " cache_hit=" + cache + " reasoning=" + reasoning);
+                                + " total=" + tt + " cache_hit=" + cache + " cache_miss=" + miss
+                                + " reasoning=" + reasoning);
                             mainHandler.post(() -> {
                                 callback.onUsage(pt, ct, tt);
                                 callback.onUsageWithCache(pt, ct, tt, cache);
                                 callback.onUsageWithReasoning(pt, ct, tt, cache, reasoning);
+                                callback.onUsageWithCacheFull(pt, ct, tt, cache, miss);
                             });
                         } catch (Exception ex) {
                             AILogger.w(TAG, "Failed to parse usage: " + ex.getMessage());

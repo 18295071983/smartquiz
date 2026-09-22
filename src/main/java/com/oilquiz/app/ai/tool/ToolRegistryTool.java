@@ -10,6 +10,7 @@ import com.oilquiz.app.ai.tool.annotation.Tool;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +21,7 @@ import java.util.Map;
  * 用法（类比 MCP tools/list + tools/call）：
  *  - tool_registry(action="list")            → 全部工具名+简短描述（轻量）
  *  - tool_registry(action="search", keyword="ui") → 按关键词找工具
- *  - tool_registry(action="get", tool="ui_component") → 单个工具完整参数 schema
+ *  - tool_registry(action="get", tool="ai_weather") → 引擎自动加载该工具定义，返回参数键名概览（轻量，不返回完整 schema）
  *
  * 与系统提示词配合：模型先 list 知道有哪些工具，需要细节时再 get 单个 schema，
  * 主流程工具定义按消息意图裁剪注入，进一步省 token。
@@ -36,7 +37,7 @@ import java.util.Map;
     },
     params = {
         @Param(name = "action", type = "string", description = "list/search/get", required = true),
-        @Param(name = "keyword", type = "string", description = "搜索关键词(仅search用)", required = false),
+        @Param(name = "keyword", type = "string", description = "关键词：search 搜索；list 按名/描述过滤（可选）", required = false),
         @Param(name = "tool", type = "string", description = "工具名(仅get用)", required = false)
     }
 )
@@ -66,7 +67,7 @@ public class ToolRegistryTool implements AITool {
 
             switch (action) {
                 case "list":
-                    return listTools();
+                    return listTools(parameters);
                 case "search": {
                     Object kw = parameters.get("keyword");
                     String keyword = kw != null ? kw.toString().toLowerCase() : "";
@@ -88,21 +89,54 @@ public class ToolRegistryTool implements AITool {
         }
     }
 
-    private AIToolResult listTools() {
+    private AIToolResult listTools(Map<String, Object> parameters) {
         try {
             List<Map<String, Object>> descriptions = com.oilquiz.app.ai.tool.AIToolManager
                     .getInstance(context).getToolDescriptions();
-            JSONArray tools = new JSONArray();
-            for (Map<String, Object> d : descriptions) {
-                JSONObject t = new JSONObject();
+            // keyword 过滤（可选，2026-09-23 v3.1：list 与 search 共用 keyword，
+            // 防"schema 只有 search 用 keyword、list 传了被忽略"的误用）
+            String filter = null;
+            Object kwObj = parameters.get("keyword");
+            if (kwObj != null && !kwObj.toString().trim().isEmpty()) {
+                filter = kwObj.toString().trim().toLowerCase();
+            }
+            // 分页（可选）：limit=每页条数(-1 全量)、offset=跳过条数
+            int limit = -1, offset = 0;
+            Object limObj = parameters.get("limit");
+            if (limObj != null) {
+                try { limit = Integer.parseInt(limObj.toString()); } catch (Exception ignored) {}
+            }
+            Object offObj = parameters.get("offset");
+            if (offObj != null) {
+                try { offset = Math.max(0, Integer.parseInt(offObj.toString())); } catch (Exception ignored) {}
+            }
+            List<Map<String, Object>> tools = new ArrayList<>();
+            int total = descriptions.size();
+            for (int i = 0; i < total; i++) {
+                Map<String, Object> d = descriptions.get(i);
+                if (filter != null) {
+                    String dn = String.valueOf(d.get("name")).toLowerCase();
+                    String dd = d.get("description") != null
+                            ? String.valueOf(d.get("description")).toLowerCase() : "";
+                    if (!dn.contains(filter) && !dd.contains(filter)) continue;
+                }
+                if (offset > 0) { offset--; continue; }
+                if (limit >= 0 && tools.size() >= limit) break;
+                Map<String, Object> t = new HashMap<>();
                 t.put("name", d.get("name"));
                 Object desc = d.get("description");
-                t.put("description", desc != null ? String.valueOf(desc) : "");
-                tools.put(t);
+                // 目录用途：描述截断到 40 字，防工具结果 16KB 截断变非法 JSON
+                String s = desc != null ? String.valueOf(desc) : "";
+                if (s.length() > 40) s = s.substring(0, 40) + "…";
+                t.put("description", s);
+                tools.add(t);
             }
             Map<String, Object> result = new HashMap<>();
-            result.put("count", tools.length());
-            result.put("tools", tools.toString());
+            result.put("count", tools.size());
+            result.put("total", total);
+            // 2026-09-23 v3：原生 List/Map（Gson 序列化成干净 JSON 数组）——
+            // org.json.JSONArray 会被 Gson 当普通对象序列化成 {"values":[{"nameValuePairs":..}]} 嵌套结构
+            result.put("tools", tools);
             return new AIToolResult(result, null);
         } catch (Exception e) {
             return new AIToolResult("列出工具失败: " + e.getMessage(), null);
@@ -113,21 +147,35 @@ public class ToolRegistryTool implements AITool {
         try {
             List<Map<String, Object>> descriptions = com.oilquiz.app.ai.tool.AIToolManager
                     .getInstance(context).getToolDescriptions();
-            JSONArray tools = new JSONArray();
+            String kw = keyword.toLowerCase().trim();
+            List<Map<String, Object>> nameHits = new ArrayList<>();
+            List<Map<String, Object>> descHits = new ArrayList<>();
             for (Map<String, Object> d : descriptions) {
                 String name = String.valueOf(d.get("name"));
                 String desc = d.get("description") != null ? String.valueOf(d.get("description")) : "";
-                if (keyword.isEmpty() || name.toLowerCase().contains(keyword)
-                        || desc.toLowerCase().contains(keyword)) {
-                    JSONObject t = new JSONObject();
+                String lowerName = name.toLowerCase();
+                String lowerDesc = desc.toLowerCase();
+                // 命中原因透明化（2026-09-23 v3，模型第二轮测试反馈）：返回 matched 字段
+                // 说明命中在 name 还是 description——截断后描述看不出"为什么命中"
+                boolean hitName = kw.isEmpty() || lowerName.contains(kw);
+                boolean hitDesc = !hitName && lowerDesc.contains(kw);
+                if (hitName || hitDesc) {
+                    Map<String, Object> t = new HashMap<>();
                     t.put("name", name);
+                    if (desc.length() > 60) desc = desc.substring(0, 60) + "…";
                     t.put("description", desc);
-                    tools.put(t);
+                    if (!kw.isEmpty()) t.put("matched", hitName ? "name" : "description");
+                    (hitName ? nameHits : descHits).add(t);
                 }
             }
+            // 2026-09-23 v3.1（模型第三轮反馈）：相关度排序——精确名命中优先于描述命中，
+            // 避免搜 uicomponent 时精确名排第 5
+            List<Map<String, Object>> tools = new ArrayList<>();
+            tools.addAll(nameHits);
+            tools.addAll(descHits);
             Map<String, Object> result = new HashMap<>();
-            result.put("count", tools.length());
-            result.put("tools", tools.toString());
+            result.put("count", tools.size());
+            result.put("tools", tools);
             return new AIToolResult(result, null);
         } catch (Exception e) {
             return new AIToolResult("搜索工具失败: " + e.getMessage(), null);
@@ -153,34 +201,29 @@ public class ToolRegistryTool implements AITool {
                 }
                 return new AIToolResult("工具不存在: " + toolName + hint + "（用 tool_registry(list) 查看全部）", null);
             }
-            JSONObject schema = new JSONObject();
-            schema.put("name", def.getName());
-            schema.put("description", def.getDescription());
-            // 工具调用体系 P0-1：适用场景（when_to_use）辅助选型
-            String wtu = def.getWhenToUse();
-            if (wtu != null && !wtu.isEmpty()) {
-                schema.put("when_to_use", wtu);
-            }
-            JSONObject parameters = new JSONObject();
+            // 2026-09-23 v2（模型自测反馈修复）：get 返回完整参数说明（name/type/required/description），
+            // 模型当轮即可看到类型/枚举/约束（如互斥、字节限制），不再"只能靠猜"；
+            // description 截断 80 字防超长。同时引擎层仍会把该工具定义注入会话工具缓存
+            // （发现制闭环），下一轮 tools 数组即携带完整 schema 可直接调用。
+            // v3：全部用原生集合（Gson 输出干净 JSON），不再 org.json + toString 转义
+            List<Map<String, Object>> keys = new ArrayList<>();
             if (def.getParameters() != null) {
                 for (com.oilquiz.app.ai.tool.openai.ParamDefinition p : def.getParameters()) {
-                    JSONObject prop = new JSONObject();
-                    prop.put("type", p.getType() != null ? p.getType() : "string");
-                    prop.put("description", p.getDescription() != null ? p.getDescription() : "");
-                    prop.put("required", p.isRequired());
-                    if (p.getDefaultValue() != null) prop.put("default", p.getDefaultValue());
-                    // 枚举值一并返回：模型探测工具时能看清 action/type 的全部可选值，不被限制为默认值
-                    if (p.getEnumValues() != null && !p.getEnumValues().isEmpty()) {
-                        prop.put("enum", new JSONArray(p.getEnumValues()));
-                    }
-                    parameters.put(p.getName(), prop);
+                    Map<String, Object> k = new HashMap<>();
+                    k.put("name", p.getName());
+                    k.put("type", p.getType() != null ? p.getType() : "");
+                    k.put("required", p.isRequired());
+                    String d = p.getDescription() != null ? p.getDescription() : "";
+                    if (d.length() > 80) d = d.substring(0, 80) + "…";
+                    k.put("description", d);
+                    keys.add(k);
                 }
             }
-            schema.put("parameters", parameters);
             Map<String, Object> result = new HashMap<>();
             result.put("tool", def.getName());
             result.put("requested_tool", toolName);
-            result.put("schema", schema.toString());
+            result.put("hint", "已加载完整定义（下一轮可直接调用）；以下是参数说明，按说明填参。");
+            result.put("param_keys", keys);
             return new AIToolResult(result, null);
         } catch (Exception e) {
             return new AIToolResult("获取工具schema失败: " + e.getMessage(), null);

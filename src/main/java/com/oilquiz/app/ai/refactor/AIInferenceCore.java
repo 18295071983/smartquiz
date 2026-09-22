@@ -248,13 +248,22 @@ public class AIInferenceCore {
 
     private String buildPromptFromMessages(List<ChatMessage> messages) {
         com.oilquiz.app.ai.util.PromptBuilder.PromptRequest request = new com.oilquiz.app.ai.util.PromptBuilder.PromptRequest();
+        java.util.List<com.oilquiz.app.ai.util.PromptBuilder.Message> history = new java.util.ArrayList<>();
         for (ChatMessage msg : messages) {
             if (msg.isSystemMessage()) {
                 request.system(msg.content);
             } else if (msg.isUserMessage()) {
                 request.query(msg.content);
             } else if (msg.isAIMessage()) {
+                // 修复：AI 消息加入多轮历史（此前分支为空，assistant 回复丢失导致模型看不到自己的回答）
+                String content = msg.content;
+                if (content != null && !content.trim().isEmpty()) {
+                    history.add(new com.oilquiz.app.ai.util.PromptBuilder.Message("assistant", content));
+                }
             }
+        }
+        if (!history.isEmpty()) {
+            request.history(history);
         }
         return request.build();
     }

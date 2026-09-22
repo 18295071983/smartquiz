@@ -40,7 +40,7 @@ import java.util.Map;
         actions = {
                 @Action(name = "search", description = "全文检索知识库，返回匹配的知识片段列表", params = {
                         @Param(name = "query", type = "string", description = "检索关键词，中文/英文/数字均可", required = true),
-                        @Param(name = "category", type = "string", description = "分类过滤，如 general/guide/faq，不传则检索全部", required = false),
+                        @Param(name = "category", type = "string", description = "分类过滤，如 general/guide/faq；tool_defs=系统工具定义库（查工具用法/参数用）；不传则检索全部", required = false),
                         @Param(name = "top_k", type = "int", description = "返回条数上限，默认5，最大20", required = false)
                 }),
                 @Action(name = "add", description = "添加单条知识", params = {
@@ -183,6 +183,20 @@ public class KnowledgeBaseTool implements AITool {
                     || "true".equalsIgnoreCase(String.valueOf(semanticObj).trim()));
         JSONArray results = manager.search(query, category, topK, semantic);
         String lastError = manager.getLastError();
+
+        // 分类隔离（2026-09-23）：不传 category 的"用户知识检索"默认排除系统工具定义库 tool_defs，
+        // 避免用户查资料时把工具定义搜进来；显式 category=tool_defs 时才返回工具定义
+        if ((category == null || category.trim().isEmpty()) && results.length() > 0) {
+            JSONArray filtered = new JSONArray();
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject item = results.optJSONObject(i);
+                if (item == null) continue;
+                if ("tool_defs".equals(item.optString("category", ""))) continue;
+                if ("system_tool_defs".equals(item.optString("source", ""))) continue;
+                filtered.put(item);
+            }
+            results = filtered;
+        }
 
         Map<String, Object> info = new HashMap<>();
         info.put("action", "search");

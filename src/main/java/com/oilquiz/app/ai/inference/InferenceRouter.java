@@ -264,7 +264,7 @@ public class InferenceRouter {
             } else {
                 // 回退到直接使用 LlamaHelper，使用消息列表让 native 层自动适配模型格式
                 List<PromptBuilder.Message> messages = new ArrayList<>();
-                messages.add(new PromptBuilder.Message("system", "你是一个乐于助人的AI助手。请用中文回答用户的问题。"));
+                messages.add(new PromptBuilder.Message("system", "你是答题宝智能助手，请用中文简洁、准确地回答用户问题。"));
                 if (config.history != null) {
                     for (ChatMessage msg : config.history) {
                         String role = msg.isAIMessage() ? "assistant" : "user";
@@ -332,7 +332,7 @@ public class InferenceRouter {
             } else {
                 // 回退到直接使用 LlamaHelper，使用消息列表让 native 层自动适配模型格式
                 List<PromptBuilder.Message> messages = new ArrayList<>();
-                messages.add(new PromptBuilder.Message("system", "你是一个乐于助人的AI助手。请用中文回答用户的问题。"));
+                messages.add(new PromptBuilder.Message("system", "你是答题宝智能助手，请用中文简洁、准确地回答用户问题。"));
                 if (config.history != null) {
                     for (ChatMessage msg : config.history) {
                         String role = msg.isAIMessage() ? "assistant" : "user";

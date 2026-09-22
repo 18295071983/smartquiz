@@ -307,7 +307,9 @@ public class OnlineToolRegistry {
         try {
             JSONArray tools = new JSONArray();
             for (ToolMeta meta : getAllToolMetas()) {
-                JSONObject tool = buildToolJsonObject(meta);
+                com.oilquiz.app.ai.tool.openai.ToolDefinition latest =
+                        aiToolManager.getToolDefinition(meta.name);
+                JSONObject tool = buildToolJsonObject(meta, latest != null ? latest : meta.definition);
                 if (tool != null) tools.put(tool);
             }
             cachedDefinitions = tools.toString();
@@ -357,7 +359,9 @@ public class OnlineToolRegistry {
             JSONArray tools = new JSONArray();
             for (ToolMeta meta : getAllToolMetas()) {
                 if (include.contains(meta.category)) {
-                    JSONObject tool = buildToolJsonObject(meta);
+                    com.oilquiz.app.ai.tool.openai.ToolDefinition latest =
+                            aiToolManager.getToolDefinition(meta.name);
+                    JSONObject tool = buildToolJsonObject(meta, latest != null ? latest : meta.definition);
                     if (tool != null) tools.put(tool);
                 }
             }
@@ -380,7 +384,11 @@ public class OnlineToolRegistry {
             for (String name : names) {
                 ToolMeta meta = toolMetaIndex.get(name);
                 if (meta == null || !isToolEnabled(name)) continue;
-                JSONObject tool = buildToolJsonObject(meta);
+                // 2026-09-23 v9：定义实时拉取——meta.definition 是 sync 时快照，
+                // 动态工具 update/重新注册后必须取 AIToolManager 最新定义（get 的按名缓存不再陈旧）
+                com.oilquiz.app.ai.tool.openai.ToolDefinition latest =
+                        aiToolManager.getToolDefinition(name);
+                JSONObject tool = buildToolJsonObject(meta, latest != null ? latest : meta.definition);
                 if (tool != null) tools.put(tool);
             }
             AILogger.i(TAG, "Built tool definitions for names: " + tools.length() + "/" + names.size());
@@ -391,20 +399,21 @@ public class OnlineToolRegistry {
         }
     }
 
-    private JSONObject buildToolJsonObject(ToolMeta meta) throws JSONException {
+    private JSONObject buildToolJsonObject(ToolMeta meta,
+                                          com.oilquiz.app.ai.tool.openai.ToolDefinition definition) throws JSONException {
         JSONObject tool = new JSONObject();
         tool.put("type", "function");
         JSONObject function = new JSONObject();
         function.put("name", meta.name);
-        function.put("description", meta.description != null ? meta.description : "");
+        function.put("description", definition != null ? definition.getDescription() : meta.description);
 
         JSONObject parameters = new JSONObject();
         parameters.put("type", "object");
         JSONObject properties = new JSONObject();
         JSONArray required = new JSONArray();
 
-        if (meta.definition != null && meta.definition.getParameters() != null) {
-            for (ParamDefinition param : meta.definition.getParameters()) {
+        if (definition != null && definition.getParameters() != null) {
+            for (ParamDefinition param : definition.getParameters()) {
                 JSONObject prop = new JSONObject();
                 String pType = param.getType();
                 if (pType == null || pType.isEmpty()) pType = "string";

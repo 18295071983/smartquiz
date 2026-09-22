@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.tool;
 
 import com.oilquiz.app.ai.chat.component.ComponentData;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -118,5 +120,45 @@ public class AIToolResult {
      */
     public ComponentData getComponent() {
         return component;
+    }
+
+    // ==================== dsh 对齐：结果契约扩展（2026-09-23） ====================
+
+    /** 私有展示载荷：仅供 UI 呈现使用，绝不进入模型可见文本。缺省 null。 */
+    private Map<String, Object> meta;
+
+    /** 结果附带额外上下文：注入后续请求（不进本结果文本）。缺省 null。 */
+    private List<String> additionalContexts;
+
+    /**
+     * 设置私有展示载荷（UI 专用，不进模型上下文）。
+     */
+    public AIToolResult withMeta(Map<String, Object> meta) {
+        this.meta = meta;
+        return this;
+    }
+
+    /**
+     * 获取私有展示载荷，无则返回 null。
+     */
+    public Map<String, Object> getMeta() {
+        return meta;
+    }
+
+    /**
+     * 追加一条额外上下文（注入后续请求，不进本结果文本）。
+     */
+    public AIToolResult withAdditionalContext(String context) {
+        if (context == null || context.isEmpty()) return this;
+        if (additionalContexts == null) additionalContexts = new ArrayList<>();
+        additionalContexts.add(context);
+        return this;
+    }
+
+    /**
+     * 获取额外上下文列表，无则返回 null。
+     */
+    public List<String> getAdditionalContexts() {
+        return additionalContexts;
     }
 }

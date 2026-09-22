@@ -734,6 +734,25 @@ public class AIToolManager {
         return result;
     }
     
+    /** 2026-09-23：动态工具变更监听（OnlineToolRegistry 同步用，保证新注册工具即时进入索引） */
+    private static volatile Runnable dynamicToolChangeListener;
+
+    /** 注册动态工具变更监听（幂等，单监听） */
+    public static void setDynamicToolChangeListener(Runnable listener) {
+        dynamicToolChangeListener = listener;
+    }
+
+    private void notifyDynamicToolChange() {
+        Runnable r = dynamicToolChangeListener;
+        if (r != null) {
+            try {
+                r.run();
+            } catch (Exception e) {
+                Log.w(TAG, "Dynamic tool change listener failed: " + e.getMessage());
+            }
+        }
+    }
+
     /**
      * 注册动态工具
      * @param tool 动态工具
@@ -743,6 +762,7 @@ public class AIToolManager {
             dynamicTools.put(tool.getName(), tool);
             persistDynamicTools();
             Log.i(TAG, "Dynamic tool registered: " + tool.getName());
+            notifyDynamicToolChange();
         }
     }
     
@@ -781,6 +801,8 @@ public class AIToolManager {
      * @param name 工具名称
      */
     public void unregisterDynamicTool(String name) {
+        Runnable r = dynamicToolChangeListener;
+        if (r != null) { try { r.run(); } catch (Exception ignored) {} }
         if (dynamicTools.remove(name) != null) {
             persistDynamicTools();
             Log.i(TAG, "Dynamic tool unregistered: " + name);
@@ -825,13 +847,17 @@ public class AIToolManager {
                 }
                 obj.put("parameters", params);
                 // 结构化参数 schema（修复后主路径）：保存完整定义，重启后恢复真实类型
+                // 2026-09-23：python 动态工具同样持久化 paramSchema（PythonDynamicTool 也支持结构化）
+                DynamicToolParams dynParams = null;
                 if (tool instanceof DynamicAITool) {
-                    DynamicToolParams dynParams = ((DynamicAITool) tool).getDynamicParams();
-                    if (dynParams != null && !dynParams.isEmpty()) {
-                        String schemaJson = dynParams.toJson();
-                        if (schemaJson != null) {
-                            obj.put("paramSchema", schemaJson);
-                        }
+                    dynParams = ((DynamicAITool) tool).getDynamicParams();
+                } else if (tool instanceof com.oilquiz.app.ai.python.PythonDynamicTool) {
+                    dynParams = ((com.oilquiz.app.ai.python.PythonDynamicTool) tool).getDynamicParams();
+                }
+                if (dynParams != null && !dynParams.isEmpty()) {
+                    String schemaJson = dynParams.toJson();
+                    if (schemaJson != null) {
+                        obj.put("paramSchema", schemaJson);
                     }
                 }
                 arr.put(obj);
@@ -878,10 +904,26 @@ public class AIToolManager {
                             params.put(k, paramObj.optString(k, ""));
                         }
                     }
+                    // 2026-09-23 存量数据自愈：旧版退化 schema 把类型信息拼进描述
+                    // （"；类型:string,可选,默认:宁夏"），并把 paramSchema 数组当假参数 "definitions" 持久化——
+                    // 恢复时清理后重新注册，参数描述恢复干净（真实类型在 paramSchema）
+                    params = sanitizeLegacyParams(params);
                     if ("python".equals(type)) {
                         String code = obj.optString("code", "");
+                        // 2026-09-23：python 动态工具恢复也支持 paramSchema（结构化参数），
+                        // 与 Java 动态工具对称——保证 tool_registry(get) 解析出真实类型/必填/枚举
+                        com.oilquiz.app.ai.tool.DynamicToolParams pyDynParams = null;
+                        if (obj.has("paramSchema")) {
+                            try {
+                                pyDynParams = com.oilquiz.app.ai.tool.DynamicToolParams
+                                        .fromJson(obj.optString("paramSchema", ""));
+                            } catch (Exception ignored) {}
+                        }
                         com.oilquiz.app.ai.python.PythonDynamicTool pyTool =
-                                new com.oilquiz.app.ai.python.PythonDynamicTool(
+                                pyDynParams != null && !pyDynParams.isEmpty()
+                                ? new com.oilquiz.app.ai.python.PythonDynamicTool(
+                                        context, name, description, params, pyDynParams, code)
+                                : new com.oilquiz.app.ai.python.PythonDynamicTool(
                                         context, name, description, params, code);
                         dynamicTools.put(name, pyTool);
                         restored++;
@@ -903,10 +945,40 @@ public class AIToolManager {
             }
             if (restored > 0) {
                 Log.i(TAG, "Dynamic tools restored: " + restored);
+                // 2026-09-23：恢复即重持久化——把自愈后的干净参数（无类型噪音/无假 definitions）
+                // 写回磁盘，存量 dynamic_tools.json 一次性完成"重新修改后再注册"的落盘闭环
+                try {
+                    persistDynamicTools();
+                } catch (Exception ignore) {
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "Load dynamic tools failed: " + e.getMessage());
         }
+    }
+    
+    /**
+     * 2026-09-23 存量动态工具参数自愈（重新修改后再注册）：
+     * 1) 剥掉描述尾部 "；类型:xxx,可选/必填[,默认:xxx][,枚举:xxx]" 噪音后缀（旧版退化 schema 拼入）；
+     * 2) 删除名为 "definitions" 的假参数（旧版把 paramSchema.toJson() 数组当参数持久化，
+     *    真实参数定义在 paramSchema 中）。
+     * 清理后与 paramSchema（结构化）一起重建注册，参数描述恢复干净、schema 完整。
+     */
+    private Map<String, String> sanitizeLegacyParams(Map<String, String> params) {
+        if (params == null || params.isEmpty()) return params;
+        Map<String, String> clean = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, String> e : params.entrySet()) {
+            if ("definitions".equals(e.getKey())) continue;
+            String v = e.getValue();
+            if (v != null) {
+                int idx = v.lastIndexOf("；类型:");
+                if (idx >= 0) {
+                    v = v.substring(0, idx).trim();
+                }
+            }
+            clean.put(e.getKey(), v != null ? v : "");
+        }
+        return clean;
     }
     
     /**
@@ -1054,6 +1126,21 @@ public class AIToolManager {
     /**
      * 获取工具的 ToolDefinition 对象
      */
+    /**
+     * 获取工具的输出规范声明（dsh output schema 对齐，2026-09-23）。
+     * 工具未声明（getOutputSchema 返回 null）时返回 null；供发现/文档/校验使用。
+     */
+    public Map<String, Object> getOutputSchema(String toolName) {
+        AITool tool = getTool(toolName);
+        if (tool == null) return null;
+        try {
+            return tool.getOutputSchema();
+        } catch (Throwable th) {
+            Log.w("AIToolManager", "getOutputSchema failed for " + toolName + ": " + th.getMessage());
+            return null;
+        }
+    }
+
     public ToolDefinition getToolDefinition(String toolName) {
         switch (toolName) {
             case "ai_weather":
@@ -1312,9 +1399,9 @@ public class AIToolManager {
                     .category("media")
                     .build();
             case "ui_component":
-                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/marquee跑马灯/media_task任务监控等)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout 原生控件框架树)；临时layout：create时component_type给任意未注册名+layout参数(顶层layout/props.layout/render.layout三选一等效)不注册即用,仅本次有效。组件参数可放顶层或 props 内(等效,自动合并)。握手:create→component_id→update/close→get_result。**layout 交互已完善**：输入/选择/交互控件在卡片或弹窗内可正常操作（键盘可唤起），带 key 的控件值在布局内 button 提交时统一收集，get_result 返回 values={key:值}；多控件内容自动可滚动；divider 正常显示。**layout 类型解析与嵌套（实测可用）**：①已注册组件类型名(register_type/插件/layout模板)可直接作layout节点type嵌套(如{\"type\":\"online_music_player\"})，自动展开其render.layout，节点props覆盖模板占位；②未注册类型但节点自带layout(顶层layout字段或render={layout:...})现场展开渲染(等效临时注册)；③layout模板用{\"use\":\"模板名\",\"props\":{参数}}引用，模板内{key}由props替换。**已注册的自定义类型/插件/layout模板可能不在本描述列出**：ui_component(list_types)查看自定义类型、ui_component_plugin(list)查看插件、ui_component_plugin(layout_list)查看layout模板——注册过的直接用name作component_type创建。layout框架控件(88种)也可作component_type直接生成聊天流卡片(如line_chart/bar_chart/pie_chart/qrcode/calendar/table/steps/timeline/alert/stat/notice/progress_ring/countdown/breadcrumb/avatar_group/toggle/stepper/tag_input等)。注意：layout 的 alert 提示条样式字段用 alert_type 或 variant(success|warning|error|info)，勿用 type。")
+                return ToolDefinition.builder("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/marquee跑马灯/media_task任务监控等)或内置卡片(chart/info_card/table_card等,见component_type参数)。有结构信息一律用组件卡片展示,不用Markdown表格。自定义原生类型：register_type 外部注入新类型名(render.layout 原生控件框架树)；临时layout：create时component_type给任意未注册名+layout参数(顶层layout/props.layout/render.layout三选一等效)不注册即用,仅本次有效。组件参数可放顶层或 props 内(等效,自动合并)。握手:create→component_id→update/close→get_result。layout 控件树与字段详见 layout/render 参数说明；已注册类型/插件/模板可用 ui_component(list_types) 与 ui_component_plugin(list) 查看后直接用 name 创建。注意：layout 的 alert 提示条样式字段用 alert_type 或 variant，勿用 type。")
                     .addParameter("action", "string", "操作: create(创建)/update(更新)/close(关闭)/get_result(获取结果)/register_type(外部注入自定义类型,persist可选)/list_types(列出注册类型)/remove_type(删除类型)/clear_temporary_types(清除临时类型)", true)
-                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/notification/custom(动态自定义原生表单,用fields参数定义任意字段,确定返回全部值JSON)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,length设位数,默认6)/number(数字输入,min/max范围校验)/marquee(跑马灯滚动文字:text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:task_id,type=image|video,api_url,api_key)/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)/数据卡片(table(headers,rows)/steps(steps)/timeline(items)/alert(alert_type或variant:success|warning|error|info,title,content)/stat(label,value)/empty(icon,title)/notice(icon,text)/progress_ring(progress))/图表(line_chart(categories,series)/bar_chart/pie_chart(data)/sparkline(data))/工具(qrcode(content)/barcode(content)/countdown(seconds)/calendar(value)/breadcrumb(items))/其他(avatar_group(urls)/toggle(options)/stepper(min,max)/tag_input(tags)/badge/quote/icon)。web=网页卡片(传url或html), image=图片卡片(传default_value或images)。**html组件增强**：style 内容级生效(style.fontSize/color/background 直接作用于页面内容,如 style={background:\"#0F172A\",color:\"#E2E8F0\",fontSize:15})；内容可双指缩放；图片点击全屏预览。也可用已注册类型名(register_type/插件)或任意未注册名+layout参数现场创建临时layout。各组件参数可放顶层或 props 内(等效,自动合并)", false)
+                    .addParameter("component_type", "string", "组件类型: dialog/progress/input/choice/multi_choice/date/time/image/snackbar/list/notification/custom(动态自定义原生表单,用fields参数定义任意字段,确定返回全部值JSON)/file_picker(系统文件选择器,返回content:// URI)/image_picker(相册选图,返回URI)/contact_picker(通讯录选联系人,返回{name,phone,uri})/rating(星级评分1-5)/color(取色器,返回#RRGGBB)/otp(验证码输入,length设位数,默认6)/number(数字输入,min/max范围校验)/marquee(跑马灯滚动文字:text=内容,speed=0~3,bold,size,color,repeat)/media_task(文生图/文生视频任务监控:task_id,type=image|video,api_url,api_key)/内置组件类型(chart/info_card/table_card/image_grid/link_card/list_card/alert_card/metric_card/json_viewer/steps_card/note_card/file_list/grid_card/contact_card/todo_card/quiz_card/weather_card/file_card/code_card/progress_card/html/markdown_card)/数据卡片(table(headers,rows)/steps(steps)/timeline(items)/alert(alert_type或variant:success|warning|error|info,title,content)/stat(label,value)/empty(icon,title)/notice(icon,text)/progress_ring(progress))/图表(line_chart(categories,series)/bar_chart/pie_chart(data)/sparkline(data))/工具(qrcode(content)/barcode(content)/countdown(seconds)/calendar(value)/breadcrumb(items))/其他(avatar_group(urls)/toggle(options)/stepper(min,max)/tag_input(tags)/badge/quote/icon)。web=网页卡片(传url或html), image=图片卡片(传default_value或images)。**html组件增强**：style 内容级生效(style.fontSize/color/background 直接作用于页面内容,如 style={background:\"#0F172A\",color:\"#E2E8F0\",fontSize:15})；内容可双指缩放；图片点击全屏预览。各组件参数可放顶层或 props 内(等效,自动合并)", false)
                     .addParameter("component_id", "string", "组件ID(update/close/get_result用)", false)
                     .addParameter("title", "string", "标题", false)
                     .addParameter("message", "string", "内容/提示文本", false)
@@ -1681,16 +1768,18 @@ public class AIToolManager {
                 // 显式定义（而非从实例反射）：保证在线 function calling 拿到正确类型与 action 枚举，
                 // 否则工具参数全被当成 string，模型容易漏填/填错导致调用失败。
                 return ToolDefinition.builder("knowledge_base",
-                        "知识库（用户维护的应用专属知识/笔记/资料，不是通用百科）："
+                        "知识库（用户维护的应用专属知识/笔记/资料 + 系统工具定义库 tool_defs 分类）："
                                 + "search 全文检索知识库、add/add_batch 添加知识、import_json/import_file 导入知识 JSON、"
                                 + "import_document 直接导入文件（Word/Excel/TXT/MD/CSV/PDF/HTML/图片OCR/音频ASR转写，自动切块）、"
                                 + "delete 删除、clear 清空、stats 统计。"
-                                + "用户问应用专属或用户自己资料里的内容时，先 search 知识库再回答，不要凭空作答。")
+                                + "用户问应用专属或用户自己资料里的内容时，先 search 知识库再回答，不要凭空作答。"
+                                + "分类说明：category=tool_defs 是系统工具定义库（查询工具用法/参数/适用场景用）；"
+                                + "不传 category 检索全部（用户知识各分类都会命中）；查用户资料时如需精准可传具体分类如 guide/faq。")
                     .addParameter("action", "string", "操作类型", true, null, Arrays.asList(
                             "search", "add", "add_batch", "import_json", "import_file",
                             "import_document", "delete", "clear", "stats"))
                     .addParameter("query", "string", "检索关键词（search 必填）：中文/英文/数字均可", false)
-                    .addParameter("category", "string", "分类（search 过滤 / add 写入，可选，默认 general）", false)
+                    .addParameter("category", "string", "分类（search 过滤 / add 写入，可选，默认 general；tool_defs=系统工具定义库，查工具用法/参数时用）", false)
                     .addParameter("top_k", "integer", "返回条数上限（search 可选，默认 5，最大 20）", false)
                     .addParameter("semantic", "boolean", "语义重排（search 可选，默认 false）：true=在线 embedding 重排+rerank 精排（消费在线 API），未配置时自动回退关键词检索", false)
                     .addParameter("title", "string", "标题（add 必填；import_document 可选，图片/音频建议传语义化标题；delete 可按标题删）", false)
@@ -1710,6 +1799,13 @@ public class AIToolManager {
                 // time_date/calculator 等）：从工具实例动态派生描述，保证 Agent 工具清单完整。
                 // 描述以工具类 getDescription/getParameterDescriptions 为准（单一来源）。
                 AITool tool = createToolInstance(toolName);
+                if (tool == null) {
+                    // 2026-09-23 P0（模型第三轮自测反馈）：list 与 get 索引不一致——
+                    // registerDynamicTool 注册的动态工具不在 toolFactories 中，createToolInstance
+                    // 查不到 → get 返回 null → "看得见、用不了"。兜底查 dynamicTools，
+                    // 使 getToolDefinition 与 getToolDescriptions 覆盖完全同源。
+                    tool = dynamicTools.get(toolName);
+                }
                 return tool != null ? createToolDefinitionFromAITool(tool) : null;
         }
     }
@@ -1739,8 +1835,11 @@ public class AIToolManager {
             );
             
             List<com.oilquiz.app.ai.tool.openai.ParamDefinition> defs = null;
-            if (tool instanceof DynamicAITool) {
-                defs = ((DynamicAITool) tool).getParameterDefinitions();
+            // 2026-09-23：统一走 StructuredParamTool 接口（DynamicAITool / PythonDynamicTool），
+            // 保证动态工具（含 Python 执行体）在 tool_registry(get) 中解析出结构化参数，
+            // 不再退回"只有 Map 描述 → 全 string schema → 模型按错误 schema 调用"
+            if (tool instanceof com.oilquiz.app.ai.tool.openai.StructuredParamTool) {
+                defs = ((com.oilquiz.app.ai.tool.openai.StructuredParamTool) tool).getParameterDefinitions();
             }
             if (defs == null || defs.isEmpty()) {
                 Map<String, String> paramDescriptions = tool.getParameterDescriptions();

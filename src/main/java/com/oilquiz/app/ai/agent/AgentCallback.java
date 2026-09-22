@@ -4,6 +4,7 @@ import com.oilquiz.app.ai.agent.online.OnlineExecutionStep;
 import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Agent 统一回调接口（独立于具体引擎实现）。
@@ -50,4 +51,10 @@ public interface AgentCallback {
 
     /** 思考阶段变化 */
     default void onThinkingStage(String stage) {}
+
+    /**
+     * 工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。
+     * 引擎在 onToolCallStart/onToolCallComplete 前调用；card 为 null 表示无声明，UI 走通用呈现。
+     */
+    default void onToolPresent(String toolName, Map<String, Object> card) {}
 }

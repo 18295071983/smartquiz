@@ -1128,6 +1128,39 @@ public class KnowledgeBaseManager {
     }
 
     /**
+     * 按分类删除全部条目（2026-09-23：tool_defs 重建用，一次删光避免按 title 遍历
+     * 因字段名/返回格式不匹配而漏删导致的重复条目残留）。
+     *
+     * @return 删除的条数
+     */
+    public synchronized int deleteByCategory(String category) {
+        if (category == null || category.trim().isEmpty()) {
+            return 0;
+        }
+        lastError = null;
+        SQLiteDatabase db;
+        try {
+            db = getWritableDb();
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "deleteByCategory 打开数据库失败: " + e.getMessage(), e);
+            return 0;
+        }
+        db.beginTransaction();
+        int deleted = 0;
+        try {
+            deleted = db.delete("kb_chunks", "category = ?", new String[]{category.trim()});
+            db.setTransactionSuccessful();
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            Log.e(TAG, "deleteByCategory 失败: " + e.getMessage(), e);
+        } finally {
+            db.endTransaction();
+        }
+        return deleted;
+    }
+
+    /**
      * 清空知识库。
      *
      * @return 清空的条数

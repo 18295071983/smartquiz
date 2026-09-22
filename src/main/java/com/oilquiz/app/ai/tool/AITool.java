@@ -28,4 +28,32 @@ public interface AITool {
      * @return 参数描述
      */
     Map<String, String> getParameterDescriptions();
+
+    // ==================== dsh 对齐：工具声明化（2026-09-23） ====================
+
+    /**
+     * 可选：输出规范声明（JSON Schema 形态，供发现/文档/校验使用）。
+     * 返回 null 表示未声明（缺省走通用文本输出）。
+     */
+    default Map<String, Object> getOutputSchema() {
+        return null;
+    }
+
+    /**
+     * 可选：调用前的 pending 卡片意图（纯函数、可重放，只依赖 args）。
+     * 返回 null 表示走通用呈现（工具名 + 参数）。
+     * 引擎在 onToolCall 前调用，结果经 onToolPresent 传给 UI 侧。
+     */
+    default Map<String, Object> presentCall(Map<String, Object> args) {
+        return null;
+    }
+
+    /**
+     * 可选：完成后的结果卡片意图（纯函数、可重放，只依赖 args 与 result）。
+     * 返回 null 表示走通用呈现（结果文本）。
+     * 引擎在 onToolResult 前调用，结果经 onToolPresent 传给 UI 侧。
+     */
+    default Map<String, Object> presentResult(Map<String, Object> args, AIToolResult result) {
+        return null;
+    }
 }

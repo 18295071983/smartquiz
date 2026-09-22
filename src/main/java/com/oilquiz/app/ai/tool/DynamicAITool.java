@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class DynamicAITool implements AITool {
+public class DynamicAITool implements AITool, com.oilquiz.app.ai.tool.openai.StructuredParamTool {
     private static final String TAG = "DynamicAITool";
     
     private final String name;

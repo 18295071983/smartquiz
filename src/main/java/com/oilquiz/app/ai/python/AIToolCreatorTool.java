@@ -223,11 +223,15 @@ public class AIToolCreatorTool implements AITool {
         Log.d(TAG, "Parameters: " + toolParams);
         Log.d(TAG, "Code: " + (code != null ? code.substring(0, Math.min(100, code.length())) : "auto-generated"));
         
+        // 2026-09-23：并行解析结构化参数（属性级/完整 JSON Schema），
+        // 注册时保留 type/required/enum——不再全部降级成 Map 字符串描述
+        com.oilquiz.app.ai.tool.DynamicToolParams structuredParams = parseStructuredParams(parameters);
+        
         AIToolCreatorManager.ToolCreationResult creationResult = 
             creatorManager.createTool(toolName, description, toolParams, examples, code);
         
         if (creationResult.success) {
-            registerDynamicTool(creationResult);
+            registerDynamicTool(creationResult, structuredParams);
             
             StringBuilder result = new StringBuilder();
             result.append("✅ 工具创建成功！\n\n");
@@ -270,21 +274,23 @@ public class AIToolCreatorTool implements AITool {
         }
     }
     
-    private void registerDynamicTool(AIToolCreatorManager.ToolCreationResult result) {
+    private void registerDynamicTool(AIToolCreatorManager.ToolCreationResult result,
+                                     com.oilquiz.app.ai.tool.DynamicToolParams dynamicParams) {
         if (result.spec == null) {
             return;
         }
         
-        PythonDynamicTool dynamicTool = new PythonDynamicTool(
-            context,
-            result.toolName,
-            result.spec.description,
-            result.spec.parameters,
-            result.spec.code
-        );
+        // 2026-09-23：创建路径保留结构化参数（属性级/完整 JSON Schema 格式）——
+        // python 动态工具与内置工具体系统一 schema 出口，tool_registry(get) 解析出真实类型/必填/枚举
+        PythonDynamicTool dynamicTool = dynamicParams != null && !dynamicParams.isEmpty()
+            ? new PythonDynamicTool(context, result.toolName, result.spec.description,
+                    result.spec.parameters, dynamicParams, result.spec.code)
+            : new PythonDynamicTool(context, result.toolName, result.spec.description,
+                    result.spec.parameters, result.spec.code);
         
         toolManager.registerDynamicTool(dynamicTool);
-        Log.i(TAG, "Dynamic tool registered: " + result.toolName);
+        Log.i(TAG, "Dynamic tool registered: " + result.toolName
+                + (dynamicParams != null && !dynamicParams.isEmpty() ? " (structured)" : ""));
     }
     
     private AIToolResult handleExecute(Map<String, Object> parameters) {
@@ -438,6 +444,86 @@ public class AIToolCreatorTool implements AITool {
         Object value = parameters.get(key);
         if (value == null) return defaultValue;
         return String.valueOf(value);
+    }
+    
+    /**
+     * 解析结构化参数定义（create_dynamic_tool 三种格式之二）：
+     * 1) 属性级：{"param":{"type":"string","description":"...","required":true,"enum":[...]}}
+     * 2) 完整 JSON Schema：{"type":"object","properties":{...},"required":[...]}
+     * 简单格式 {"name":"desc"}（值不是对象）返回 null——无结构化信息，走 Map 退化路径。
+     */
+    private com.oilquiz.app.ai.tool.DynamicToolParams parseStructuredParams(Map<String, Object> parameters) {
+        try {
+            if (parameters == null) return null;
+            Object paramsObj = parameters.get("parameters");
+            String jsonStr = null;
+            if (paramsObj instanceof String) {
+                jsonStr = ((String) paramsObj).trim();
+            } else if (paramsObj instanceof Map) {
+                jsonStr = new org.json.JSONObject((Map<?, ?>) paramsObj).toString();
+            }
+            if (jsonStr == null || jsonStr.isEmpty()) return null;
+            
+            org.json.JSONObject root = new org.json.JSONObject(jsonStr);
+            // 完整 JSON Schema：properties 承载参数；属性级：根本身就是参数映射
+            org.json.JSONObject props = root.optJSONObject("properties");
+            if (props == null) {
+                boolean allObjects = true;
+                java.util.Iterator<String> keys = root.keys();
+                while (keys.hasNext()) {
+                    if (!(root.opt(keys.next()) instanceof org.json.JSONObject)) {
+                        allObjects = false;
+                        break;
+                    }
+                }
+                if (allObjects) props = root;
+            }
+            if (props == null) return null;
+            
+            List<com.oilquiz.app.ai.tool.openai.ParamDefinition> defs = new java.util.ArrayList<>();
+            java.util.Iterator<String> pKeys = props.keys();
+            while (pKeys.hasNext()) {
+                String pName = pKeys.next();
+                org.json.JSONObject p = props.optJSONObject(pName);
+                if (p == null) continue;
+                String type = p.optString("type", "string");
+                String desc = p.optString("description", p.optString("desc", ""));
+                boolean required = p.optBoolean("required", false);
+                List<String> enumValues = null;
+                org.json.JSONArray enumArr = p.optJSONArray("enum");
+                if (enumArr != null && enumArr.length() > 0) {
+                    enumValues = new java.util.ArrayList<>();
+                    for (int i = 0; i < enumArr.length(); i++) {
+                        Object v = enumArr.opt(i);
+                        enumValues.add(v != null ? String.valueOf(v) : "");
+                    }
+                }
+                Object defaultValue = p.has("default") ? p.opt("default") : null;
+                defs.add(new com.oilquiz.app.ai.tool.openai.ParamDefinition(
+                        pName, type, desc, required, defaultValue, enumValues));
+            }
+            // 根级 required 数组补必填标记（完整 JSON Schema 格式）
+            org.json.JSONArray reqArr = root.optJSONArray("required");
+            if (reqArr != null && !defs.isEmpty()) {
+                for (int i = 0; i < reqArr.length(); i++) {
+                    String reqName = reqArr.optString(i, "");
+                    if (reqName.isEmpty()) continue;
+                    for (int j = 0; j < defs.size(); j++) {
+                        com.oilquiz.app.ai.tool.openai.ParamDefinition d = defs.get(j);
+                        if (d.getName().equals(reqName) && !d.isRequired()) {
+                            defs.set(j, new com.oilquiz.app.ai.tool.openai.ParamDefinition(
+                                    d.getName(), d.getType(), d.getDescription(), true,
+                                    d.getDefaultValue(), d.getEnumValues()));
+                            break;
+                        }
+                    }
+                }
+            }
+            return defs.isEmpty() ? null : new com.oilquiz.app.ai.tool.DynamicToolParams(defs);
+        } catch (Exception e) {
+            Log.w(TAG, "parseStructuredParams failed: " + e.getMessage());
+            return null;
+        }
     }
     
     @SuppressWarnings("unchecked")

@@ -5,6 +5,7 @@ import com.oilquiz.app.ai.chat.component.ComponentData;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -440,6 +441,11 @@ public class ChatMessage {
          * 原来作为独立 AI 主气泡（addAIMessage）显示，现直接挂在工具调用消息上作为结果区顶部文本。
          */
         public String interpretedMessage = null;
+        /**
+         * 工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。
+         * 引擎经 onToolPresent 回调传入；ChatAdapter 渲染工具卡时优先读此字段，null 走通用呈现。
+         */
+        public transient Map<String, Object> presentCard;
 
         public enum ToolCallStatus {
             PENDING,
@@ -1172,7 +1178,11 @@ public class ChatMessage {
         TIP("💡"),
         THINKING("🤔"),
         TASK("📋"),
-        PROGRESS("⏳");
+        PROGRESS("⏳"),
+        /** 上下文注入行（记忆/任务/工具目录等系统注入内容的展示条，点击看全文；不进发送历史） */
+        CONTEXT_INJECTION("🧠"),
+        /** 系统提示词行（system prompt 变更记录/全文展示，点击看全文；不进发送历史） */
+        SYSTEM_PROMPT("📄");
 
         private final String emoji;
 

@@ -133,6 +133,10 @@ public class AgentRouter {
         return onlineEngine != null ? onlineEngine.getLastCacheHitTokens() : 0;
     }
 
+    public int getLastCacheMissTokens() {
+        return onlineEngine != null ? onlineEngine.getLastCacheMissTokens() : 0;
+    }
+
     public int getLastPromptTokens() {
         return onlineEngine != null ? onlineEngine.getLastPromptTokens() : 0;
     }

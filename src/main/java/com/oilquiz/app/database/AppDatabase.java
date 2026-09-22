@@ -16,6 +16,8 @@ import com.oilquiz.app.model.FavoriteQuestion;
 import com.oilquiz.app.model.Note;
 import com.oilquiz.app.model.ChatHistory;
 import com.oilquiz.app.model.LogEntry;
+import com.oilquiz.app.ai.sessionlog.SessionEvent;
+import com.oilquiz.app.ai.sessionlog.SessionEventDao;
 
 import android.content.Context;
 
@@ -30,16 +32,17 @@ import android.content.Context;
         FavoriteQuestion.class,
         Note.class,
         ChatHistory.class,
-        LogEntry.class
+        LogEntry.class,
+        SessionEvent.class
     },
-    version = 24,
+    version = 25,
     exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
     private static AppDatabase INSTANCE;
     
     /** 数据库版本号（需与 @Database 注解的 version 保持一致） */
-    public static final int DATABASE_VERSION = 24;
+    public static final int DATABASE_VERSION = 25;
 
     public abstract UserDao userDao();
     public abstract QuestionDao questionDao();
@@ -51,6 +54,7 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract NoteDao noteDao();
     public abstract ChatHistoryDao chatHistoryDao();
     public abstract LogEntryDao logEntryDao();
+    public abstract SessionEventDao sessionEventDao();
 
     private static volatile boolean isInitializing = false;
     
@@ -494,6 +498,24 @@ public abstract class AppDatabase extends RoomDatabase {
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_score_history_userId ON score_history(userId)");
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_wrong_question_userId ON wrong_question(userId)");
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_favorite_question_userId ON favorite_question(userId)");
+            }
+        },
+
+        // v24 -> v25: 路径 B —— append-only 会话事件日志表（SessionEvent 实体）
+        // 仅新增表与索引，不改动既有表，迁移零风险
+        new Migration(24, 25) {
+            @Override
+            public void migrate(SupportSQLiteDatabase database) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `session_events` (" +
+                    "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`seq` INTEGER NOT NULL, " +
+                    "`sessionId` TEXT NOT NULL, " +
+                    "`type` TEXT NOT NULL, " +
+                    "`payload` TEXT, " +
+                    "`createdAt` INTEGER NOT NULL, " +
+                    "`durationMs` INTEGER NOT NULL)");
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_session_events_sessionId` " +
+                    "ON `session_events` (`sessionId`)");
             }
         }
     };

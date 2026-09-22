@@ -86,6 +86,7 @@ import com.oilquiz.app.resource.AppResourceManager;
 import com.oilquiz.app.resource.PermissionResourceProvider;
 import com.oilquiz.app.ai.chat.status.ServiceStatusManager;
 import com.oilquiz.app.ai.chat.ui.ChatDialogHelper;
+import com.oilquiz.app.ai.chat.ui.ChatStatsBar;
 import com.oilquiz.app.ai.chat.history.ChatHistoryController;
 import com.oilquiz.app.ai.util.ConversationSession;
 import com.oilquiz.app.ai.chat.recovery.NativeRecoveryHandler;
@@ -156,6 +157,19 @@ public class AIChatActivity extends BaseActivity {
             statePollHandler.postDelayed(this, STATE_POLL_INTERVAL_MS);
         }
     };
+    // ===== dsh 对齐：上下文仪表 / 发送队列 / 回底按钮 / 展示行（2026-09-23） =====
+    // 上下文仪表已并入 session_stats_bar（ContextMeter pill），2026-09-23
+    private android.widget.TextView btnScrollBottom;
+    private android.widget.LinearLayout queueBar;
+    private android.widget.TextView tvQueueInfo;
+    private android.widget.TextView btnQueueCancel;
+    /** 忙时发送模式：block=拒绝（默认）/ queue=排队 / steer=打断重发 */
+    private static final String PREFS_BUSY_MODE = "ai_busy_send_mode";
+    private String busySendMode = "block";
+    /** 排队中的待发送消息（忙时 queue 模式入队，生成结束后自动发送） */
+    private final java.util.List<String> pendingQueue = new java.util.ArrayList<>();
+    /** 展示行用的上一 prompt 签名（SystemPromptRow 变更检测） */
+    private String lastPromptSigForRow = null;
     private androidx.recyclerview.widget.RecyclerView messageList;
     private androidx.recyclerview.widget.RecyclerView attachmentList;
     private androidx.recyclerview.widget.RecyclerView historyList;
@@ -203,6 +217,7 @@ public class AIChatActivity extends BaseActivity {
     private InferenceRouter inferenceRouter;
     private List<ChatMessage> chatHistory;
     private ChatAdapter chatAdapter;
+    private ChatStatsBar sessionStatsBar;
     private ChatHistoryManager chatHistoryManager;
     /** 当前会话的持久化 ID（用于更新而非重复创建；跨线程读写，需 volatile 保证可见性） */
     private volatile String currentSessionId;
@@ -445,6 +460,7 @@ public class AIChatActivity extends BaseActivity {
             btnStopGeneration = findViewById(R.id.btn_stop_generation);
             btnLogViewer = findViewById(R.id.btn_log_viewer);
             messageList = findViewById(R.id.message_list);
+            sessionStatsBar = findViewById(R.id.session_stats_bar);
             attachmentList = findViewById(R.id.attachment_list);
             historyList = findViewById(R.id.history_list);
             drawerLayout = findViewById(R.id.drawer_layout);
@@ -503,6 +519,19 @@ public class AIChatActivity extends BaseActivity {
                 serviceStatusBar.setOnClickListener(v -> showServiceStatusDetails());
             }
 
+            // dsh 对齐：上下文仪表 / 队列条 / 回底按钮绑定
+            btnScrollBottom = findViewById(R.id.btn_scroll_bottom);
+            queueBar = findViewById(R.id.queue_bar);
+            tvQueueInfo = findViewById(R.id.tv_queue_info);
+            btnQueueCancel = findViewById(R.id.btn_queue_cancel);
+            busySendMode = getSharedPreferences("ai_prefs", MODE_PRIVATE).getString(PREFS_BUSY_MODE, "block");
+            restorePendingQueue();
+            // 上下文仪表 pill 点击 → 上下文明细（2026-09-23：并入统计条）
+            if (sessionStatsBar != null) sessionStatsBar.setOnContextPillClick(this::showContextMeterDialog);
+            if (btnScrollBottom != null) btnScrollBottom.setOnClickListener(v -> { scrollToBottom(true); updateScrollBottomButton(); });
+            if (queueBar != null) queueBar.setOnClickListener(v -> cycleBusyMode());
+            if (btnQueueCancel != null) btnQueueCancel.setOnClickListener(v -> { pendingQueue.clear(); updateQueueBar(); persistPendingQueue(); });
+
             messageList.setLayoutManager(new LinearLayoutManager(this));
             // 完全禁用 RecyclerView 动画：结构变化(insert/remove)不再被 postpone，
             // 从根上消除 pre-layout 失配窗口（RecyclerView Inconsistency "offset:-1" 崩溃的必要条件）。
@@ -510,6 +539,14 @@ public class AIChatActivity extends BaseActivity {
             messageList.setItemAnimator(null);
             chatHistory = new ArrayList<>();
             chatAdapter = new ChatAdapter(chatHistory, this::handleAction);
+            // dsh 对齐：滚动监听驱动回底按钮显隐
+            messageList.addOnScrollListener(new androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
+                @Override public void onScrolled(androidx.recyclerview.widget.RecyclerView rv, int dx, int dy) {
+                    updateScrollBottomButton();
+                }
+            });
+            // 初始刷新上下文仪表（历史加载完成后会再次刷新）
+            messageList.post(() -> refreshContextMeter());
             chatAdapter.setRetryClickListener(messageId -> regenerateLastMessage());
             // 消息点击/长按：长按 AI 消息弹出朗读等操作
             chatAdapter.setMessageClickListener(new ChatAdapter.OnMessageClickListener() {
@@ -557,7 +594,14 @@ public class AIChatActivity extends BaseActivity {
                     int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top;
                     int left = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).left;
                     int right = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).right;
-                    v.setPadding(left, top, right, 0);
+                    // 2026-09-23：targetSdk 35+ 强制 edge-to-edge，windowSoftInputMode=adjustResize 被忽略
+                    // （Android 15+ 弃用）。必须手动消费 ime insets 把输入栏撑到键盘上方：
+                    // 键盘弹出时 bottom=键盘高度；收起时回退到导航栏高度（手势条区域）
+                    int bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
+                    if (bottom == 0) {
+                        bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+                    }
+                    v.setPadding(left, top, right, bottom);
                     return insets;
                 });
             }
@@ -811,6 +855,7 @@ public class AIChatActivity extends BaseActivity {
             // 旋转重建后缺本次会话新组件；以文件为准），且文件加载期间不抢位，避免最新组件被旧快照覆盖
             if (messages != null && !messages.isEmpty() && chatHistory.isEmpty() && !fileHistoryLoaded && chatAdapter != null) {
                 chatHistory.addAll(messages);
+                refreshSessionStats();
                 chatAdapter.notifyDataSetChanged();
                 scrollToBottom();
             }
@@ -824,6 +869,9 @@ public class AIChatActivity extends BaseActivity {
                     showLoading("正在思考...", null);
                 } else {
                     hideLoading();
+                    // dsh 对齐：生成结束后自动发送排队消息 + 刷新上下文仪表
+                    drainQueueIfAny();
+                    refreshContextMeter();
                 }
             }
         });
@@ -1019,6 +1067,16 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 更新发送按钮状态（可点击/文本）
      */
+    /** 刷新会话统计胶囊（dsh StatsPills 风格）：数据直接来自当前消息列表 */
+    private void refreshSessionStats() {
+        if (sessionStatsBar == null) return;
+        sessionStatsBar.update(chatHistory);
+        // 2026-09-23 修复：上下文百分比 pill 与统计条同步刷新——
+        // 在线引擎走自己的消息回调（不走 chatViewModel.isGenerating），
+        // 原 refreshContextMeter 只在旧版路径触发 → 在线对话下 pill 一直 0。
+        // 并入统计刷新后，任何消息变化（发送/回复/恢复历史）都实时更新。
+        refreshContextMeter();
+    }
     private void updateSendButtonState(boolean enabled, String text) {
         try {
             if (btnSend != null) {
@@ -1196,6 +1254,7 @@ public class AIChatActivity extends BaseActivity {
                     if (idx >= 0) {
                         ChatMessage msg = chatHistory.get(idx);
                         msg.content = "错误: " + error;
+                        refreshSessionStats();
                         msg.status = ChatMessage.MessageStatus.FAILED;
                         if (chatAdapter != null) {
                             chatAdapter.notifyItemChanged(idx);
@@ -1211,6 +1270,7 @@ public class AIChatActivity extends BaseActivity {
                     if (idx >= 0) {
                         ChatMessage msg = chatHistory.get(idx);
                         msg.content = fullContent;
+                        refreshSessionStats();
                         msg.status = ChatMessage.MessageStatus.COMPLETED;
                         if (chatAdapter != null) {
                             chatAdapter.notifyItemChanged(idx);
@@ -1345,7 +1405,7 @@ public class AIChatActivity extends BaseActivity {
             @Override public void onHideStopButton() { toggleStopButton(false); }
             @Override public void onUpdateMessageContent(int index, String content) { if (chatAdapter != null && index >= 0 && index < chatHistory.size()) { chatHistory.get(index).content = content; chatAdapter.notifyItemChanged(index, ChatAdapter.PAYLOAD_CONTENT_UPDATE); } }
             @Override public void onUpdateMessageThinking(int index, String thinkingContent) { if (chatAdapter != null && index >= 0 && index < chatHistory.size()) { chatAdapter.updateMessageThinkingContent(index, thinkingContent); } }
-            @Override public void onAddAIMessage(ChatMessage message) { chatHistory.add(message); if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1); scrollToBottom(true); }
+            @Override public void onAddAIMessage(ChatMessage message) { chatHistory.add(message); if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1); scrollToBottom(true); refreshSessionStats(); }
             @Override public void onAddSystemMessage(String message) { addSystemMessage(message); }
             @Override public void onScrollToBottom() { scrollToBottom(); }
             @Override public void onSaveHistoryAsync() { saveHistoryAsync(); }
@@ -3374,9 +3434,25 @@ public class AIChatActivity extends BaseActivity {
         AppLogger.ai(TAG, "[sendMessage] 入口: isGenerating=" + isGenerating
                 + ", inputLen=" + (inputMessage != null ? inputMessage.getText().length() : 0));
         if (isGenerating) {
-            AppLogger.aiW(TAG, "[sendMessage] 拦截: isGenerating=true，仍在生成中");
-            showToast(getString(R.string.h_05582e8e));
-            return;
+            // dsh 对齐：忙时按用户偏好处理（block 拒绝 / queue 排队 / steer 打断重发）
+            AppLogger.aiW(TAG, "[sendMessage] 忙时处理: mode=" + busySendMode);
+            String msg = inputMessage.getText().toString().trim();
+            if (msg.isEmpty()) { showToast(getString(R.string.h_b922f77a)); return; }
+            if ("queue".equals(busySendMode)) {
+                pendingQueue.add(msg);
+                inputMessage.setText("");
+                updateQueueBar();
+                persistPendingQueue();
+                showToast("已加入发送队列，当前回复完成后自动发送");
+                return;
+            }
+            if ("steer".equals(busySendMode)) {
+                cancelGeneration();
+                // 取消后继续走下方正常发送流程（stopGeneration 已复位 isGenerating）
+            } else {
+                showToast(getString(R.string.h_05582e8e));
+                return;
+            }
         }
         // 新一轮对话开始：清空上一轮残留的工具组件收集，避免串轮
         com.oilquiz.app.ai.chat.component.ComponentCollector.clear();
@@ -3436,6 +3512,9 @@ public class AIChatActivity extends BaseActivity {
                 processChatMessage(agentMessage);
             }
         } else {
+            // dsh 对齐：发送前插入 SystemPromptRow（prompt 变更时）/ ContextInjectionRow（本地 Agent 记忆任务注入）
+            maybeInsertSystemPromptRow();
+            maybeInsertContextInjectionRow();
             processChatMessage(message);
         }
 
@@ -4829,7 +4908,7 @@ public class AIChatActivity extends BaseActivity {
                 // 本地推理上下文独立化：发送前锚定当前会话（幂等），历史由桥按会话管理
                 modelBridge.setLocalSessionId(currentSessionId);
                 modelBridge.setPendingExtraSystemSections(buildNormalHistoryExtras());
-                lastPromptSignature = currentPromptSignature();
+                getChatContextBuilder().snapshotPromptSignature();
             } catch (Exception e) {
                 AppLogger.aiW(TAG, "set extra system sections failed: " + e.getMessage());
             }
@@ -5025,14 +5104,12 @@ public class AIChatActivity extends BaseActivity {
     /** 历史要点里单条工具结果的最大字符数（要点是压缩态，但优先保留数据而非对话废话） */
     private static final int KEY_POINT_RESULT_MAX = 300;
 
-    /** 上一条上下文构建时的提示词签名（检测设置变化以注入变更标记，防止旧提示词污染新对话） */
-    private volatile String lastPromptSignature;
+
 
     /** 本轮本地 Agent 的用户消息（完成回调回写本地推理历史用；本地推理上下文独立化 2026-09-14） */
     private volatile String lastAgentUserMessage = null;
 
-    /** 预算超限时被挤掉的最近对话要点（历史压缩用，最新优先；普通对话路径注入上下文） */
-    private java.util.List<String> evictedContextPoints = new java.util.ArrayList<>();
+
 
     /**
      * 给最后一条 user 消息标记轮次模式（普通/Agent）。
@@ -5050,6 +5127,45 @@ public class AIChatActivity extends BaseActivity {
     }
 
     // ==================== 上下文组装（KV 预算 + 提示词变更标记 + 工具/思考痕迹） ====================
+
+    /** 上下文组装器（ChatContextBuilder 抽取版，全局可复用）：KV 预算/历史压缩/变更标记统一由此计算 */
+    private com.oilquiz.app.ai.chat.context.ChatContextBuilder chatContextBuilder;
+
+    private com.oilquiz.app.ai.chat.context.ChatContextBuilder getChatContextBuilder() {
+        if (chatContextBuilder == null) {
+            chatContextBuilder = new com.oilquiz.app.ai.chat.context.ChatContextBuilder(this,
+                    new com.oilquiz.app.ai.chat.context.ChatContextBuilder.Config() {
+                        @Override public boolean isOnlineModel() { return shouldUseOnlineModel(); }
+                        @Override public int getNativeContextSize() {
+                            try { int a = LlamaHelper.getContextSize(); return a > 0 ? a : 0; }
+                            catch (Throwable t) { return 0; }
+                        }
+                        @Override public int getSafeContextReference(int ctx) {
+                            try { return LlamaHelper.getSafeContextReference(ctx); }
+                            catch (Throwable t) { return 0; }
+                        }
+                        @Override public int getModelContextSize() {
+                            return aiConfig != null ? aiConfig.getContextSize() : 0;
+                        }
+                        @Override public boolean isLocalAgentEnabled() {
+                            return aiConfig != null && aiConfig.isLocalAgentEnabled();
+                        }
+                        @Override public String getSystemPrompt() {
+                            return aiConfig != null ? aiConfig.getSystemPrompt() : null;
+                        }
+                        @Override public int getAgentContextWindow() {
+                            if (agentChatHandler != null) {
+                                try {
+                                    int[] info = agentChatHandler.getContextWindowInfo();
+                                    if (info != null && info.length > 0 && info[0] > 0) return info[0];
+                                } catch (Exception ignored) {}
+                            }
+                            return 0;
+                        }
+                    });
+        }
+        return chatContextBuilder;
+    }
 
     /** 粗略估算文本 token 数：中文约 2 字符/token 的保守估计 + 角色开销（宁多勿少，防溢出） */
     private int estimateTokens(String text) {
@@ -5071,89 +5187,27 @@ public class AIChatActivity extends BaseActivity {
      * 跨轮保持前缀不变 → KV 缓存可命中。
      */
     private int getContextBudgetTokens() {
-        if (shouldUseOnlineModel()) {
-            return Integer.MAX_VALUE / 2; // 在线：不设预算限制
-        }
-        // 实际运行上下文优先（native chatContext 的真实 n_ctx，可能大于优化模式预设）
-        int ctx = 0;
-        try {
-            int actual = LlamaHelper.getContextSize();
-            if (actual > 0) ctx = actual;
-        } catch (Throwable ignored) {}
-        if (ctx <= 0 && aiConfig != null) ctx = aiConfig.getContextSize();
-        if (agentChatHandler != null) {
-            try {
-                int[] info = agentChatHandler.getContextWindowInfo();
-                if (info != null && info.length > 0 && info[0] > 0) {
-                    ctx = ctx > 0 ? Math.min(ctx, info[0]) : info[0];
-                }
-            } catch (Exception ignored) {}
-        }
-        if (ctx <= 0) ctx = 8192;
-        int safeRef = ctx;
-        try {
-            safeRef = LlamaHelper.getSafeContextReference(ctx);
-        } catch (Throwable ignored) {}
-        return Math.max(1024, safeRef - 1024);
+        return getChatContextBuilder().getContextBudgetTokens();
     }
 
     /** 历史条数硬上限：本地 60（token 预算已优先约束，此值仅作防御护栏）；在线不设上限 */
     private int getHistoryMaxEntries() {
-        return shouldUseOnlineModel() ? Integer.MAX_VALUE : HISTORY_MAX_ENTRIES_HARD_CAP;
+        return getChatContextBuilder().getHistoryMaxEntries();
     }
 
     /** 当前提示词签名：思考开关 / 本地Agent开关 / 系统提示词 / 日期（这些变化都会改变生成行为） */
     private String currentPromptSignature() {
-        StringBuilder sb = new StringBuilder();
-        boolean thinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
-        boolean agent = aiConfig != null && aiConfig.isLocalAgentEnabled();
-        String sysPrompt = aiConfig != null && aiConfig.getSystemPrompt() != null
-                ? aiConfig.getSystemPrompt() : "";
-        String date = new java.text.SimpleDateFormat("yyyy年M月d日", java.util.Locale.CHINA)
-                .format(new java.util.Date());
-        sb.append("thinking=").append(thinking ? 1 : 0);
-        sb.append(";agent=").append(agent ? 1 : 0);
-        sb.append(";prompt=").append(sysPrompt.hashCode());
-        sb.append(";date=").append(date);
-        return sb.toString();
+        return getChatContextBuilder().currentPromptSignature();
     }
 
     /** 与上次相比，提示词设置是否有变化（返回变化说明；无变化返回 null） */
     private String describePromptChange(String prev, String cur) {
-        if (prev == null || cur == null || prev.equals(cur)) return null;
-        java.util.Map<String, String> prevMap = new java.util.HashMap<>();
-        java.util.Map<String, String> curMap = new java.util.HashMap<>();
-        for (String pair : prev.split(";")) {
-            int idx = pair.indexOf('=');
-            if (idx > 0) prevMap.put(pair.substring(0, idx), pair.substring(idx + 1));
-        }
-        for (String pair : cur.split(";")) {
-            int idx = pair.indexOf('=');
-            if (idx > 0) curMap.put(pair.substring(0, idx), pair.substring(idx + 1));
-        }
-        java.util.List<String> changes = new java.util.ArrayList<>();
-        for (java.util.Map.Entry<String, String> e : curMap.entrySet()) {
-            String old = prevMap.get(e.getKey());
-            if (old == null || !old.equals(e.getValue())) {
-                switch (e.getKey()) {
-                    case "thinking": changes.add(old != null ? "深度思考开关已变化" : "深度思考开关已开启"); break;
-                    case "agent": changes.add(old != null ? "本地Agent开关已变化" : "本地Agent开关已开启"); break;
-                    case "prompt": changes.add("系统提示词已更新"); break;
-                    case "date": changes.add("日期已变化"); break;
-                    default: break;
-                }
-            }
-        }
-        return changes.isEmpty() ? null : String.join("、", changes);
+        return getChatContextBuilder().describePromptChange(prev, cur);
     }
 
     /** 若提示词设置相对上次发送有变化，生成系统标记消息（普通对话路径注入；Agent 引擎每轮重建 system 无需） */
     private String getPromptChangeMarkerIfAny() {
-        String cur = currentPromptSignature();
-        String desc = describePromptChange(lastPromptSignature, cur);
-        if (desc == null) return null;
-        return "[系统指令 - 对话设置已更新]\n\n" + desc
-                + "。历史对话内容仍然有效，但请以当前设置理解对话、回答当前问题，不要沿用旧设置的规则。";
+        return getChatContextBuilder().getPromptChangeMarkerIfAny();
     }
 
     /**
@@ -5162,27 +5216,7 @@ public class AIChatActivity extends BaseActivity {
      * 只留已完成的 success/failed 卡片。返回 null 表示无工具痕迹；不修改原消息。
      */
     private String buildToolTrace(ChatMessage m, int maxResultChars) {
-        if (m.components == null || m.components.isEmpty()) return null;
-        if (maxResultChars <= 0) maxResultChars = TOOL_RESULT_OLD_MAX;
-        StringBuilder sb = new StringBuilder();
-        for (com.oilquiz.app.ai.chat.component.ComponentData c : m.components) {
-            if (c == null || c.type == null || !"tool_call".equals(c.type)) continue;
-            if (c.props == null) continue;
-            String status = c.props.optString("status", "");
-            if (!"success".equals(status) && !"failed".equals(status)) continue; // 只留已完成的
-            String toolName = c.props.optString("toolName", "");
-            String result = c.props.optString("result", "");
-            if (toolName.isEmpty() && result.isEmpty()) continue;
-            sb.append("• ").append(toolName.isEmpty() ? "工具" : toolName);
-            if (!result.isEmpty()) {
-                String r = result.trim().replace('\n', ' ').replace('\r', ' ');
-                if (r.length() > maxResultChars) r = r.substring(0, maxResultChars) + "…";
-                sb.append("：").append(r);
-            }
-            sb.append('\n');
-        }
-        String s = sb.toString().trim();
-        return s.isEmpty() ? null : s;
+        return getChatContextBuilder().buildToolTrace(m, maxResultChars);
     }
 
     /** 消息是否携带工具调用组件（用于决定工具结果保留档位） */
@@ -5227,61 +5261,7 @@ public class AIChatActivity extends BaseActivity {
     private java.util.List<String[]> collectHistoryByBudget(List<ChatMessage> history,
                                                             int currentUserIdx,
                                                             boolean includeThinking) {
-        java.util.List<String[]> temp = new java.util.ArrayList<>();
-        evictedContextPoints = new java.util.ArrayList<>();
-        int budget = getContextBudgetTokens();
-        int used = 0;
-        int toolTier = 0; // 0=最近(完整6000) 1=较新(2500) 2+=更早(1200)
-        int maxEntries = getHistoryMaxEntries();
-        for (int i = currentUserIdx - 1; i >= 0 && temp.size() < maxEntries; i--) {
-            ChatMessage m = history.get(i);
-            if (m == null) continue;
-            if (m.type != ChatMessage.MessageType.USER && m.type != ChatMessage.MessageType.AI) continue;
-            if (m.status == ChatMessage.MessageStatus.GENERATING
-                    || m.status == ChatMessage.MessageStatus.FAILED
-                    || m.status == ChatMessage.MessageStatus.ERROR) continue;
-            int cap = TOOL_RESULT_KEEP_MAX;
-            if (m.type == ChatMessage.MessageType.AI && hasToolComponents(m)) {
-                cap = toolTier == 0 ? TOOL_RESULT_KEEP_MAX
-                        : (toolTier == 1 ? TOOL_RESULT_MID_MAX : TOOL_RESULT_OLD_MAX);
-                toolTier++;
-            }
-            String content = buildContextContent(m, includeThinking, cap);
-            if (content == null) continue;
-            int t = estimateTokens(content);
-            if (used + t > budget) {
-                // 预算耗尽：把被挤掉的最近对话做成要点（最新优先），避免直接丢弃丢信息
-                int kept = 0;
-                for (int k = i; k >= 0 && kept < 4; k--) {
-                    ChatMessage m2 = history.get(k);
-                    if (m2 == null) continue;
-                    if (m2.type != ChatMessage.MessageType.USER && m2.type != ChatMessage.MessageType.AI) continue;
-                    if (m2.status == ChatMessage.MessageStatus.GENERATING
-                            || m2.status == ChatMessage.MessageStatus.FAILED
-                            || m2.status == ChatMessage.MessageStatus.ERROR) continue;
-                    // 助手消息优先保留工具结果数据（结果才是事实），其次才是对话文本
-                    if (m2.type == ChatMessage.MessageType.AI) {
-                        String trace = buildToolTrace(m2, KEY_POINT_RESULT_MAX);
-                        if (trace != null) {
-                            evictedContextPoints.add("助手: " + trace);
-                            kept++;
-                            continue;
-                        }
-                    }
-                    String c2 = m2.getContent();
-                    if (c2 == null || c2.trim().isEmpty()) continue;
-                    String snip = c2.replace('\n', ' ').replace('\r', ' ').trim();
-                    if (snip.length() > 90) snip = snip.substring(0, 90) + "…";
-                    evictedContextPoints.add((m2.type == ChatMessage.MessageType.USER ? "用户" : "助手") + ": " + snip);
-                    kept++;
-                }
-                break;
-            }
-            temp.add(new String[]{m.getRole(), content});
-            used += t;
-        }
-        java.util.Collections.reverse(temp); // 恢复时间正序
-        return temp;
+        return getChatContextBuilder().collectHistoryByBudget(history, currentUserIdx, includeThinking);
     }
 
     /** 合并相邻同角色（失败/中断导致缺回复时保持 user/assistant 严格交替） */
@@ -5335,16 +5315,27 @@ public class AIChatActivity extends BaseActivity {
      */
     private java.util.List<String[]> buildNormalHistoryExtras() {
         java.util.List<String[]> result = new java.util.ArrayList<>();
+        // dsh 分段语义：动态附加段由组装器统一注册/排序（命名段、可插拔、同名覆盖），
+        // 输出仍为独立 system 消息列表，与旧行为完全一致
+        com.oilquiz.app.ai.prompt.PromptAssembler assembler = new com.oilquiz.app.ai.prompt.PromptAssembler();
         String marker = getPromptChangeMarkerIfAny();
         if (marker != null) {
-            result.add(new String[]{"system", marker});
+            assembler.registerSection(com.oilquiz.app.ai.prompt.PromptSection.of(
+                    "prompt_change", 0, marker));
         }
-        if (evictedContextPoints != null && !evictedContextPoints.isEmpty()) {
+        java.util.List<String> evicted = getChatContextBuilder().getEvictedContextPoints();
+        if (evicted != null && !evicted.isEmpty()) {
             StringBuilder pts = new StringBuilder("【历史对话要点】(较早对话已压缩，上下文有限)\n");
-            for (String p : evictedContextPoints) {
+            for (String p : evicted) {
                 pts.append("• ").append(p).append('\n');
             }
-            result.add(new String[]{"system", pts.toString().trim()});
+            assembler.registerSection(com.oilquiz.app.ai.prompt.PromptSection.of(
+                    "history_points", 100, pts.toString().trim()));
+        }
+        com.oilquiz.app.ai.prompt.PromptAssembly assembly =
+                assembler.assemble(com.oilquiz.app.ai.prompt.AssembleContext.global());
+        for (com.oilquiz.app.ai.prompt.PromptAssembly.Section s : assembly.sections) {
+            result.add(new String[]{"system", s.text});
         }
         return result;
     }
@@ -6669,6 +6660,9 @@ public class AIChatActivity extends BaseActivity {
             if (tagBuffer != null) tagBuffer.setLength(0);
             currentStreamingMessageIndex = -1;
             currentStreamingMessageId = null;
+            // 2026-09-23：AI 回复落定后刷统计+上下文 pill——在线引擎不走旧版 isGenerating
+            // 路径，此前 pill 卡在发送时数值不更新
+            refreshSessionStats();
             scrollToBottom();
         });
     }
@@ -6756,6 +6750,26 @@ public class AIChatActivity extends BaseActivity {
                     updateToolCallResult(pos >= 0 ? pos : -1, success, resultStr);
                 }
                 scrollToBottom();
+            });
+        }
+
+        @Override
+        public void onToolPresent(String toolName, Map<String, Object> card) {
+            // 工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）：
+            // 挂到最新匹配的 TOOL_CALL 消息上，ChatAdapter 渲染优先读 presentCard
+            if (card == null) return;
+            runOnUiThread(() -> {
+                synchronized (streamingLock) {
+                    for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                        ChatMessage m = chatHistory.get(i);
+                        if (m != null && m.type == ChatMessage.MessageType.TOOL_CALL
+                                && m.toolCallInfo != null && toolName.equals(m.toolCallInfo.toolName)) {
+                            m.toolCallInfo.presentCard = card;
+                            if (chatAdapter != null) chatAdapter.notifyItemChanged(i);
+                            return;
+                        }
+                    }
+                }
             });
         }
 
@@ -7542,6 +7556,11 @@ public class AIChatActivity extends BaseActivity {
             .setTitle(getString(R.string.h_246bc2af))
             .setMessage(getString(R.string.h_c0728fc0))
             .setPositiveButton(getString(R.string.h_6612548a), (dialog, which) -> {
+                // 2026-09-23：生成中直接提示，避免等 60s 超时后才"压缩失败"
+                if (agentChatHandler != null && agentChatHandler.isGenerating()) {
+                    showToast("正在生成中，请等本轮回复完成后再压缩");
+                    return;
+                }
                 showToast(getString(R.string.h_f29a225b));
                 if (agentChatHandler != null) {
                     agentChatHandler.compressHistory(8, summary -> {
@@ -7552,7 +7571,8 @@ public class AIChatActivity extends BaseActivity {
                                 scrollToBottom();
                                 showToast(getString(R.string.h_36430ddc));
                             } else {
-                                showToast(getString(R.string.h_9b616a15));
+                                // 对话太短（<4条用户消息）或模型不可用
+                                showToast("无法压缩：对话太短（至少 4 条用户消息）或在线模型不可用");
                             }
                         });
                     });
@@ -7570,6 +7590,7 @@ public class AIChatActivity extends BaseActivity {
             }
             // 同步清理所有数据源
             chatHistory.clear();
+            refreshSessionStats();
             if (chatViewModel != null) {
                 chatViewModel.clearChatHistory();
             }
@@ -8246,7 +8267,9 @@ public class AIChatActivity extends BaseActivity {
                 if (!show) tvGenPhase.setVisibility(View.GONE);
             }
             // KV 缓存栏：思考/生成（推理中）隐藏——位置留给思考内容/生成状态显示；
-            // 空闲时显示缓存状态（监控用，性能面板亦有完整卡片）
+            // 空闲时显示缓存状态（监控用，性能面板亦有完整卡片）。
+            // 2026-09-23：在线模型下隐藏——KV cache 是本地 Llama 引擎的上下文统计，
+            // 与统计条「📊 上下文占用」（在线 token 估算）口径不同，并存会造成数据不一致
             if (tvKvStats != null) {
                 boolean runningNow = false;
                 String gp = LlamaHelper.getGenPhase();
@@ -8255,7 +8278,7 @@ public class AIChatActivity extends BaseActivity {
                         runningNow = new org.json.JSONObject(gp).optBoolean("running", false);
                     } catch (Exception ignored) {}
                 }
-                if (runningNow) {
+                if (runningNow || shouldUseOnlineModel()) {
                     tvKvStats.setVisibility(View.GONE);
                 } else {
                     String j = LlamaHelper.getKvCacheStats();
@@ -8566,6 +8589,8 @@ public class AIChatActivity extends BaseActivity {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
         scrollToBottom(true);
+        // 2026-09-23：用户消息上屏即刷统计+上下文 pill（发送后立即反映上下文占用）
+        refreshSessionStats();
         saveHistoryAsync();
     }
 
@@ -8774,6 +8799,335 @@ public class AIChatActivity extends BaseActivity {
     private void updateAgentStepResult(int position, String thought, String action, String observation, boolean isCompleted) {
         if (chatAdapter != null && position >= 0 && position < chatHistory.size()) {
             chatAdapter.updateAgentStep(position, thought, action, observation, isCompleted);
+        }
+    }
+
+    // ==================== dsh 对齐：上下文仪表 / 队列 / 回底 / 展示行（2026-09-23） ====================
+
+    /** 回读离开底部时显示回底按钮，回到底部时隐藏 */
+    private void updateScrollBottomButton() {
+        if (btnScrollBottom == null || messageList == null) return;
+        boolean atBottom = isUserAtBottom();
+        btnScrollBottom.setVisibility(atBottom ? View.GONE : View.VISIBLE);
+    }
+
+    /** 估算当前对话历史 token 用量（与 ChatContextBuilder.estimateTokens 同口径，用于仪表展示） */
+    private long estimateHistoryTokens() {
+        long total = 0;
+        if (chatHistory != null) {
+            synchronized (chatHistory) {
+                for (ChatMessage m : chatHistory) {
+                    if (m == null) continue;
+                    if (m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI) {
+                        String c = m.getContent();
+                        if (c != null && !c.isEmpty()) total += 4 + (c.length() + 1) / 2;
+                    }
+                }
+            }
+        }
+        return total;
+    }
+
+    /** 在线模型上下文窗口：优先取模型真实 contextWindow/contextLength
+     *  （deepseek 1M 等），无则回退本地配置，兜底 32K。
+     *  2026-09-23：此前误取本地 aiConfig（本地 KV 尺寸）→ 与在线模型窗口不一致。 */
+    private int resolveOnlineContextWindow() {
+        int ctx = 0;
+        if (onlineModelManager != null) {
+            try {
+                com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig active =
+                        onlineModelManager.getActiveModel();
+                if (active != null && active.contextWindow > 0) {
+                    ctx = active.contextWindow;
+                }
+            } catch (Throwable ignored) {}
+        }
+        if (ctx <= 0 && aiConfig != null) ctx = aiConfig.getContextSize();
+        if (ctx <= 0) ctx = 32768;
+        return ctx;
+    }
+
+    /** 刷新上下文仪表百分比（发送后 / 生成结束后调用）；2026-09-23 并入 session_stats_bar。
+     *  2026-09-23 改：在线模型不再用字符估算（estimateHistoryTokens），
+     *  直接用引擎 API 真实 usage（getContextWindowInfo → lastPromptTokens，引擎最近一次
+     *  请求实际发送的 prompt tokens）——字符估算会与模型真实 token 不一致。 */
+    private void refreshContextMeter() {
+        if (sessionStatsBar == null) return;
+        try {
+            long window;
+            long used;
+            if (shouldUseOnlineModel() && agentChatHandler != null) {
+                int[] ctx = agentChatHandler.getContextWindowInfo();
+                if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
+                    window = ctx[0];
+                    used = Math.max(0, ctx[1]);   // API 真实输入 token（上次请求）
+                } else {
+                    window = resolveOnlineContextWindow();
+                    used = estimateHistoryTokens();
+                }
+            } else {
+                // 本地模型：优先本地引擎 KV 上下文真实 token（推理缓存实际占用），
+                // 未加载/不可用时回退预算+字符估算
+                long nativeUsed = 0;
+                long nativeSize = 0;
+                try {
+                    nativeUsed = LlamaHelper.getContextUsedTokens();
+                    nativeSize = LlamaHelper.getContextSize();
+                } catch (Throwable ignored) {}
+                if (nativeUsed > 0) {
+                    used = nativeUsed;
+                    window = nativeSize > 0 ? nativeSize : 0;
+                    if (window <= 0) {
+                        long budget = getChatContextBuilder().getContextBudgetTokens();
+                        window = budget > 0 ? budget : 0;
+                    }
+                } else {
+                    long budget = getChatContextBuilder().getContextBudgetTokens();
+                    window = budget > 0 ? budget : resolveOnlineContextWindow();
+                    used = estimateHistoryTokens();
+                }
+            }
+            AppLogger.i(TAG, "ContextMeter refresh: used=" + used + " window=" + window
+                    + " chatHistory=" + (chatHistory != null ? chatHistory.size() : -1)
+                    + " online=" + shouldUseOnlineModel());
+            if (window <= 0) { sessionStatsBar.setContextPercent(-1, 0); return; }
+            int percent = (int) Math.min(100, used * 100 / window);
+            sessionStatsBar.setContextPercent(percent, used);
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "refreshContextMeter failed: " + t.getMessage());
+            sessionStatsBar.setContextPercent(-1, 0);
+        }
+    }
+
+    /** 上下文仪表点击：弹出用量明细（used/window + system/messages 分段条） */
+    private void showContextMeterDialog() {
+        try {
+            long window;
+            boolean online = shouldUseOnlineModel();
+            int apiCacheHit = -1;   // API 返回的缓存命中量（在线模型）
+            long apiUsed = -1;      // API 返回的真实输入 token
+            if (online && agentChatHandler != null) {
+                // 2026-09-23：与 pill 统一口径——用 API 真实 usage（引擎最近一次请求
+                // prompt_tokens），不再字符估算；缓存命中量取 API 返回的 cache hit tokens
+                int[] ctx = agentChatHandler.getContextWindowInfo();
+                if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
+                    window = ctx[0];
+                    apiUsed = Math.max(0, ctx[1]);
+                    apiCacheHit = agentChatHandler.getLastCacheHitTokens();
+                } else {
+                    window = resolveOnlineContextWindow();
+                }
+            } else if (online) {
+                window = resolveOnlineContextWindow();
+            } else {
+                long b = getChatContextBuilder().getContextBudgetTokens(); window = b > 0 ? b : 0;
+            }
+            long used = apiUsed >= 0 ? apiUsed : estimateHistoryTokens();
+            if (window <= 0) { showToast("上下文窗口未知"); return; }
+            int percent = (int) Math.min(100, used * 100 / window);
+            android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
+            panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+            int pad = (int) (18 * getResources().getDisplayMetrics().density);
+            panel.setPadding(pad, pad, pad, pad);
+            android.widget.TextView header = new android.widget.TextView(this);
+            header.setText("上下文用量：" + percent + "%（" + (online ? "在线模型" : "本地模型") + "）");
+            header.setTextSize(14f);
+            header.setTextColor(ThemeColors.attr(this, R.attr.colorOnSurface));
+            panel.addView(header);
+            android.widget.TextView figures = new android.widget.TextView(this);
+            figures.setText((apiUsed >= 0 ? "" : "~") + used + " / " + window + " tokens"
+                    + (apiUsed >= 0 ? "（API 真实输入）" : "（估算）"));
+            figures.setTextSize(12f);
+            figures.setPadding(0, (int)(4 * getResources().getDisplayMetrics().density), 0, (int)(8 * getResources().getDisplayMetrics().density));
+            figures.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));
+            panel.addView(figures);
+            // API 缓存命中行：deepseek prompt_cache_hit_tokens / prompt_cache_miss_tokens
+            // （2026-09-23 全部 API 直读，无返回时推算）
+            if (online && apiCacheHit > 0) {
+                android.widget.TextView cacheLine = new android.widget.TextView(this);
+                int miss = agentChatHandler != null ? agentChatHandler.getLastCacheMissTokens() : 0;
+                if (miss <= 0) miss = (int) Math.max(0, used - apiCacheHit);
+                int hitRate = used > 0 ? (int) Math.round(apiCacheHit * 100.0 / used) : 0;
+                cacheLine.setText("API 缓存命中 " + apiCacheHit + " · 新增 " + miss
+                        + " tokens（命中率 " + hitRate + "%）");
+                cacheLine.setTextSize(12f);
+                cacheLine.setPadding(0, (int)(4 * getResources().getDisplayMetrics().density), 0, (int)(4 * getResources().getDisplayMetrics().density));
+                cacheLine.setTextColor(0xFF059669);
+                panel.addView(cacheLine);
+            }
+            // 分段条：system（本次组装注入）/ messages（历史）（估算口径，仅作构成示意）
+            android.widget.LinearLayout bar = new android.widget.LinearLayout(this);
+            bar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            int h = (int) (6 * getResources().getDisplayMetrics().density);
+            long sysTokens = estimateSystemInjectTokens();
+            long msgTokens = used - sysTokens;
+            if (msgTokens < 0) msgTokens = 0;
+            int sysW = percent > 0 && used > 0 ? (int) (percent * sysTokens / used) : 0;
+            android.view.View sysSeg = new android.view.View(this);
+            sysSeg.setBackgroundColor(0xFF4F46E5);
+            bar.addView(sysSeg, new android.widget.LinearLayout.LayoutParams(sysW > 0 ? sysW : 0, h, 0));
+            android.view.View msgSeg = new android.view.View(this);
+            msgSeg.setBackgroundColor(0xFF10B981);
+            int msgW = percent - sysW;
+            bar.addView(msgSeg, new android.widget.LinearLayout.LayoutParams(msgW > 0 ? msgW : 0, h, 0));
+            android.widget.LinearLayout.LayoutParams barLp = new android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, h);
+            bar.setLayoutParams(barLp);
+            panel.addView(bar);
+            android.widget.LinearLayout legend = new android.widget.LinearLayout(this);
+            legend.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            legend.setPadding(0, (int)(8 * getResources().getDisplayMetrics().density), 0, 0);
+            android.widget.TextView l1 = new android.widget.TextView(this);
+            l1.setText("■ 系统注入 " + sysTokens);
+            l1.setTextSize(11f);
+            l1.setTextColor(0xFF4F46E5);
+            legend.addView(l1);
+            android.widget.TextView l2 = new android.widget.TextView(this);
+            l2.setText("  ■ 对话历史 " + msgTokens);
+            l2.setTextSize(11f);
+            l2.setTextColor(0xFF10B981);
+            l2.setPadding((int)(8 * getResources().getDisplayMetrics().density), 0, 0, 0);
+            legend.addView(l2);
+            panel.addView(legend);
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("上下文占用")
+                    .setView(panel)
+                    .setPositiveButton("关闭", null)
+                    .show();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "showContextMeterDialog failed: " + t.getMessage());
+        }
+    }
+
+    /** 估算本轮系统注入文本 token（persona + 环境段；用于仪表分段展示） */
+    private long estimateSystemInjectTokens() {
+        long total = 0;
+        String persona = aiConfig != null && aiConfig.getSystemPrompt() != null ? aiConfig.getSystemPrompt() : "";
+        if (!persona.isEmpty()) total += 4 + (persona.length() + 1) / 2;
+        total += 4 + 40; // 环境段（当前日期行）估算
+        return total;
+    }
+
+    /** 发送队列持久化（Activity 重建/进程恢复后不丢排队消息；对齐 dsh Inbox 的跨生命周期语义） */
+    private void persistPendingQueue() {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (String s : pendingQueue) {
+                if (s != null) arr.put(s);
+            }
+            getSharedPreferences("ai_prefs", MODE_PRIVATE)
+                    .edit().putString("pending_queue", arr.toString()).apply();
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "persistPendingQueue failed: " + t.getMessage());
+        }
+    }
+
+    /** 恢复发送队列（onCreate 调用；队列条随后按 updateQueueBar 刷新） */
+    private void restorePendingQueue() {
+        try {
+            String raw = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+                    .getString("pending_queue", null);
+            if (raw == null || raw.isEmpty()) return;
+            org.json.JSONArray arr = new org.json.JSONArray(raw);
+            pendingQueue.clear();
+            for (int i = 0; i < arr.length(); i++) {
+                pendingQueue.add(arr.getString(i));
+            }
+            if (!pendingQueue.isEmpty()) {
+                AppLogger.ai(TAG, "[restorePendingQueue] 恢复 " + pendingQueue.size() + " 条排队消息");
+                updateQueueBar();
+            }
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "restorePendingQueue failed: " + t.getMessage());
+        }
+    }
+
+    /** 队列条刷新 */
+    private void updateQueueBar() {
+        if (queueBar == null || tvQueueInfo == null) return;
+        if (pendingQueue.isEmpty()) {
+            queueBar.setVisibility(View.GONE);
+            return;
+        }
+        queueBar.setVisibility(View.VISIBLE);
+        String modeHint;
+        if ("queue".equals(busySendMode)) modeHint = "排队模式";
+        else if ("steer".equals(busySendMode)) modeHint = "打断模式";
+        else modeHint = "点击切换模式";
+        tvQueueInfo.setText("⏳ " + pendingQueue.size() + " 条待发送 · " + modeHint);
+    }
+
+    /** 生成结束自动发送下一条排队消息 */
+    private void drainQueueIfAny() {
+        if (pendingQueue.isEmpty() || isGenerating) return;
+        String next = pendingQueue.remove(0);
+        updateQueueBar();
+        persistPendingQueue();
+        inputMessage.setText(next);
+        sendMessage();
+    }
+
+    /** 循环切换忙时模式：拒绝 → 排队 → 打断 → 拒绝 */
+    private void cycleBusyMode() {
+        if ("block".equals(busySendMode)) busySendMode = "queue";
+        else if ("queue".equals(busySendMode)) busySendMode = "steer";
+        else busySendMode = "block";
+        getSharedPreferences("ai_prefs", MODE_PRIVATE).edit().putString(PREFS_BUSY_MODE, busySendMode).apply();
+        String label = "block".equals(busySendMode) ? "拒绝" : ("queue".equals(busySendMode) ? "排队" : "打断");
+        showToast("忙时发送模式：" + label);
+        updateQueueBar();
+    }
+
+    /** 发送前插入 SystemPromptRow：prompt 签名变化时展示变更说明 + 完整 system 文本 */
+    private void maybeInsertSystemPromptRow() {
+        try {
+            String cur = getChatContextBuilder().currentPromptSignature();
+            if (lastPromptSigForRow == null) {
+                lastPromptSigForRow = cur;
+                return;
+            }
+            String desc = getChatContextBuilder().describePromptChange(lastPromptSigForRow, cur);
+            lastPromptSigForRow = cur;
+            if (desc == null) return;
+            StringBuilder sys = new StringBuilder();
+            String persona = aiConfig != null && aiConfig.getSystemPrompt() != null ? aiConfig.getSystemPrompt() : "";
+            if (!persona.isEmpty()) sys.append(persona).append("\n");
+            sys.append("【环境上下文】当前日期：").append(new java.text.SimpleDateFormat("yyyy年M月d日 EEEE", java.util.Locale.CHINA).format(new java.util.Date()));
+            String content = "系统提示词已更新：" + desc + "\n\n" + sys.toString().trim();
+            ChatMessage row = ChatMessage.createSystemMessage(
+                    java.util.UUID.randomUUID().toString(), content,
+                    ChatMessage.SystemMessageType.SYSTEM_PROMPT, System.currentTimeMillis());
+            chatHistory.add(row);
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+            scrollToBottom(true);
+        } catch (Throwable t) {
+            AILogger.w(TAG, "maybeInsertSystemPromptRow failed: " + t.getMessage());
+        }
+    }
+
+    /** 本地 Agent 消息发送前插入 ContextInjectionRow：本轮注入的记忆/任务摘要 */
+    private void maybeInsertContextInjectionRow() {
+        if (aiConfig == null || !aiConfig.isLocalAgentEnabled()) return;
+        try {
+            StringBuilder sb = new StringBuilder();
+            String memory = com.oilquiz.app.ai.agent.online.AgentMemoryStore.getInstance(this).buildMemorySummary();
+            if (memory != null && !memory.trim().isEmpty()) {
+                sb.append("已注入长期记忆：").append(memory.trim()).append("\n");
+            }
+            String task = com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).buildTaskSummary();
+            if (task != null && !task.trim().isEmpty()) {
+                sb.append("已注入活跃任务：").append(task.trim()).append("\n");
+            }
+            if (sb.length() == 0) return;
+            String content = "本轮已注入上下文（记忆/任务自动携带，模型可直接使用）\n\n" + sb.toString().trim();
+            ChatMessage row = ChatMessage.createSystemMessage(
+                    java.util.UUID.randomUUID().toString(), content,
+                    ChatMessage.SystemMessageType.CONTEXT_INJECTION, System.currentTimeMillis());
+            chatHistory.add(row);
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+            scrollToBottom(true);
+        } catch (Throwable t) {
+            AILogger.w(TAG, "maybeInsertContextInjectionRow failed: " + t.getMessage());
         }
     }
 

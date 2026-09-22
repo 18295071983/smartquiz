@@ -63,6 +63,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static final int VIEW_TYPE_AGENT_REFLECTION = 10;
     private static final int VIEW_TYPE_SUMMARY = 11;
     private static final int VIEW_TYPE_INFERENCE_PROGRESS = 12;
+    /** 上下文注入行（记忆/任务/工具目录等系统注入内容的展示条，点击看全文） */
+    private static final int VIEW_TYPE_CONTEXT_INJECTION = 13;
+    /** 系统提示词行（system prompt 变更记录/全文展示，点击看全文） */
+    private static final int VIEW_TYPE_SYSTEM_PROMPT = 14;
 
     public static final String PAYLOAD_CONTENT_UPDATE = "content_update";
     public static final String PAYLOAD_STATUS_UPDATE = "status_update";
@@ -232,6 +236,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case AI:
                 return VIEW_TYPE_AI;
             case SYSTEM:
+                if (message.systemType == ChatMessage.SystemMessageType.CONTEXT_INJECTION) {
+                    return VIEW_TYPE_CONTEXT_INJECTION;
+                }
+                if (message.systemType == ChatMessage.SystemMessageType.SYSTEM_PROMPT) {
+                    return VIEW_TYPE_SYSTEM_PROMPT;
+                }
                 return VIEW_TYPE_SYSTEM;
             case THINKING:
                 return VIEW_TYPE_THINKING;
@@ -270,6 +280,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 // AI 消息完全动态构建（不依赖布局文件/id），杜绝 id 错乱
                 return createAiMessageItem(parent.getContext());
             case VIEW_TYPE_SYSTEM:
+            case VIEW_TYPE_CONTEXT_INJECTION:
+            case VIEW_TYPE_SYSTEM_PROMPT:
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
             case VIEW_TYPE_THINKING:
                 return new ThinkingMessageViewHolder(inflater.inflate(R.layout.item_thinking_message, parent, false));
@@ -644,6 +656,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 bindAIMessage((AIMessageViewHolder) holder, message, timeStr, position);
                 break;
             case VIEW_TYPE_SYSTEM:
+            case VIEW_TYPE_CONTEXT_INJECTION:
+            case VIEW_TYPE_SYSTEM_PROMPT:
                 bindSystemMessage((SystemMessageViewHolder) holder, message);
                 break;
             case VIEW_TYPE_THINKING:
@@ -1037,8 +1051,20 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         body.setLineSpacing(0f, 1.2f);
         body.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        setRenderedText(body, thinkText, availableWidth);
-        body.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        // 折叠态：展示"段落首行摘要"预览（dsh ReasoningRow 同款），展开态展示全文
+        if (collapsed) {
+            String preview = thinkingPreview(thinkText, false);
+            body.setText(preview.isEmpty() ? "…" : preview + "…");
+            body.setMaxLines(1);
+            body.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            body.setAlpha(0.55f);
+            body.setVisibility(View.VISIBLE);
+        } else {
+            setRenderedText(body, thinkText, availableWidth);
+            body.setMaxLines(Integer.MAX_VALUE);
+            body.setAlpha(1f);
+            body.setVisibility(View.VISIBLE);
+        }
         // 内容体 tag 前缀：updateThinkingRound 定位内容 TextView
         body.setTag("round_body_" + roundId);
 
@@ -1086,8 +1112,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                                     - holder.itemView.getPaddingLeft()
                                     - holder.itemView.getPaddingRight();
                             if (w <= 0) w = getScreenWidth(holder.itemView.getContext());
-                            setRenderedText((TextView) sub,
-                                    newContent != null ? newContent : "", w);
+                            String nc = newContent != null ? newContent : "";
+                            boolean roundCollapsed = holder.holderMessage != null
+                                    && holder.holderMessage.isThinkingRoundCollapsed(roundId);
+                            if (roundCollapsed) {
+                                // 折叠轮：仅刷新摘要预览（不打断折叠态）
+                                String preview = thinkingPreview(nc, true);
+                                ((TextView) sub).setText(preview.isEmpty() ? "…" : preview + "…");
+                            } else {
+                                setRenderedText((TextView) sub, nc, w);
+                            }
                             updated = true;
                             break;
                         }
@@ -1221,30 +1255,70 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * @param message 绑定消息（折叠+流式时用于实时思考预览）
      */
     private void updateThinkingLabel(AIMessageViewHolder holder, boolean expanded, boolean isStreaming, ChatMessage message) {
+        // 折叠态摘要预览上限 2 行，超长省略（dsh ReasoningRow 同款：折叠只展示摘要，不占正文空间）
+        holder.thinkingLabel.setMaxLines(2);
+        holder.thinkingLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
         if (isStreaming) {
             // 流式中：提示用户"思考中"，并告知可点击展开/折叠
             if (expanded) {
                 holder.thinkingLabel.setText(R.string.chat_thinking_streaming_collapse);
             } else {
-                // 折叠 + 思考中：实时显示思考内容预览（不打扰正文阅读，但思考进度可见）
+                // 折叠 + 思考中：展示"最新已完成段落首行"摘要预览（dsh ReasoningRow 算法移植），
+                // 段落完成时逐段推进，不再是旧版"最后40字符"粗暴截断
                 String c = (message != null && message.thinkingContent != null)
-                        ? message.thinkingContent.replace('\n', ' ').trim() : "";
-                if (!c.isEmpty()) {
-                    if (c.length() > 40) c = c.substring(c.length() - 40);
-                    holder.thinkingLabel.setText("🧠 思考中：" + c + "…");
+                        ? message.thinkingContent : "";
+                String preview = thinkingPreview(c, true);
+                if (!preview.isEmpty()) {
+                    holder.thinkingLabel.setText("🧠 思考中：" + preview + "…");
                 } else {
                     holder.thinkingLabel.setText(R.string.chat_thinking_streaming_expand);
                 }
             }
         } else {
-            // 已完成：显示"思考过程"
+            // 已完成：显示"思考过程"+ 段落首行摘要（让用户知道思考了什么）
             if (expanded) {
                 holder.thinkingLabel.setText(R.string.chat_thinking_expanded);
             } else {
-                // 折叠时附上内容长度，让用户知道不是空的
-                holder.thinkingLabel.setText(R.string.chat_thinking_collapsed);
+                String c = (message != null && message.thinkingContent != null)
+                        ? message.thinkingContent : "";
+                String preview = thinkingPreview(c, false);
+                if (!preview.isEmpty()) {
+                    holder.thinkingLabel.setText("💭 思考过程：" + preview + "…");
+                } else {
+                    // 折叠时附上内容长度，让用户知道不是空的
+                    holder.thinkingLabel.setText(R.string.chat_thinking_collapsed);
+                }
             }
         }
+    }
+
+    /**
+     * dsh ReasoningRow.latestCompletedParagraphFirstLine 移植：取"最新已完成段落"的首行作折叠摘要。
+     * - 段落按双换行（\n\n 及以上）分隔；
+     * - 流式时：末段后无空行结尾视为"进行中"段落，摘要取上一个已完成段落；无已完成段落时退回进行中段；
+     * - 非流式：取首个段落（思考的开篇即结论性内容）；
+     * - 去掉 ** 强调与 ` 行内代码标记、压缩空白，超长截断（由调用方追加省略号）。
+     */
+    private static String thinkingPreview(String content, boolean streaming) {
+        if (content == null || content.trim().isEmpty()) return "";
+        String t = content.trim();
+        String[] paras = t.split("\n\\s*\n");
+        // 用未 trim 的原文判断末段是否进行中（trim 会吃掉尾部空行分隔，导致已完成误判为进行中）
+        int idx;
+        if (streaming) {
+            boolean lastInProgress = !content.matches("(?s).*\\n\\s*\\n\\s*$");
+            idx = (lastInProgress && paras.length >= 2) ? paras.length - 2 : paras.length - 1;
+        } else {
+            idx = 0; // 非流式：取首段（思考开篇）
+        }
+        if (idx < 0 || idx >= paras.length) idx = paras.length - 1;
+        String target = paras[idx].trim();
+        int nl = target.indexOf('\n');
+        if (nl >= 0) target = target.substring(0, nl).trim();
+        target = target.replace("**", "").replace("`", "");
+        target = target.replaceAll("\\s+", " ").trim();
+        if (target.length() > 48) target = target.substring(0, 48);
+        return target;
     }
 
     /** 取消思考区进行中的展开/折叠动画（点击切换/流式更新前调用，防止动画竞争 height） */
@@ -1947,6 +2021,32 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void bindSystemMessage(SystemMessageViewHolder holder, ChatMessage message) {
+        // ===== 上下文注入行 / 系统提示词行：标题 + 摘要，点击弹全文 =====
+        if (message.systemType == ChatMessage.SystemMessageType.CONTEXT_INJECTION
+                || message.systemType == ChatMessage.SystemMessageType.SYSTEM_PROMPT) {
+            boolean isInjection = message.systemType == ChatMessage.SystemMessageType.CONTEXT_INJECTION;
+            holder.systemIcon.setText(isInjection ? "🧠" : "📄");
+            // 内容首行为标题/摘要，剩余为全文（Activity 组装时用换行分隔）
+            String full = message.content == null ? "" : message.content;
+            int nl = full.indexOf('\n');
+            String headline = nl > 0 ? full.substring(0, nl).trim() : full.trim();
+            if (headline.length() > 60) headline = headline.substring(0, 60) + "…";
+            holder.messageText.setText(headline);
+            holder.messageText.setMovementMethod(null);
+            final String body = full;
+            holder.itemView.setOnClickListener(v -> {
+                try {
+                    new android.app.AlertDialog.Builder(v.getContext())
+                            .setTitle(isInjection ? "已注入上下文" : "系统提示词")
+                            .setMessage(body)
+                            .setPositiveButton("关闭", null)
+                            .show();
+                } catch (Throwable ignored) {
+                }
+            });
+            return;
+        }
+
         // ===== Agent执行组header：特殊渲染，点击折叠/展开整组 =====
         if (message.isAgentGroupHeader) {
             StringBuilder sb = new StringBuilder();
@@ -2126,6 +2226,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.toolIcon.setText(info.toolIcon);
         holder.toolName.setText(info.toolDisplayName);
         holder.toolStatus.setText(info.getStatusText());
+
+        // dsh 对齐：工具声明化卡片意图（presentCall/presentResult → presentCard.title，2026-09-23）
+        Object cardTitle = info.presentCard != null ? info.presentCard.get("title") : null;
+        if (cardTitle != null && !String.valueOf(cardTitle).isEmpty()) {
+            holder.toolStatus.setText(info.getStatusText() + " · " + String.valueOf(cardTitle));
+        }
 
         // 整体折叠控制：点击头部行切换 callExpanded
         applyCallExpansion(holder, message, info);
@@ -3220,51 +3326,45 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 label = "💭 思考过程";
             }
 
-            // 处理思考内容
+            // 处理思考内容（displayContent/processing 提升到方法级，供折叠点击监听器复用）
+            String displayContent = "";
+            if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
+                // 清理思考标签（标签来自 chat template，不硬编码）
+                displayContent = stripThinkingTagMarkers(message.thinkingContent);
+            }
+            if (displayContent.isEmpty() && message.content != null) {
+                displayContent = message.content;
+            }
+            if (displayContent.isEmpty() && message.status == ChatMessage.MessageStatus.IN_PROGRESS) {
+                displayContent = "思考中...";
+            }
+            boolean processing = message.status == ChatMessage.MessageStatus.GENERATING
+                    || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
             if (messageText != null) {
-                String displayContent = "";
-                if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
-                    // 清理思考标签（标签来自 chat template，不硬编码）
-                    displayContent = stripThinkingTagMarkers(message.thinkingContent);
-                }
-                if (displayContent.isEmpty() && message.content != null) {
-                    displayContent = message.content;
-                }
-                if (displayContent.isEmpty() && message.status == ChatMessage.MessageStatus.IN_PROGRESS) {
-                    displayContent = "思考中...";
-                }
-
-                // 2026-09-14：思考组件全量 Markdown 渲染（**加粗**/`代码`/列表/表格），
-                // 与 AI 消息正文一致（RenderExecutor + TextViewSpan）；直接 setText 会显示原文
-                if (!displayContent.isEmpty()) {
-                    final String contentToRender = displayContent;
-                    android.widget.TextView tv = messageText;
-                    tv.post(() -> {
-                        int w = tv.getWidth() - tv.getPaddingLeft() - tv.getPaddingRight();
-                        if (w <= 0) {
-                            w = tv.getContext().getResources().getDisplayMetrics().widthPixels;
-                        }
-                        android.text.Spanned rendered =
-                                com.oilquiz.app.ai.chat.render.RenderExecutor.getInstance()
-                                        .execute(contentToRender, tv.getContext(), w);
-                        android.text.Spannable sp = new android.text.SpannableStringBuilder(rendered);
-                        io.noties.markwon.core.spans.TextViewSpan.applyTo(sp, tv);
-                        tv.setText(sp);
-                    });
-                } else {
-                    messageText.setText("");
-                }
 
                 // 展开/折叠控制：由 thinkingExpanded 决定（思考中/思考后均默认折叠，点击展开）
-                boolean processing = message.status == ChatMessage.MessageStatus.GENERATING
-                        || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+                // 折叠态展示"段落首行摘要"预览（dsh ReasoningRow 同款），不再整块隐藏
                 if (message.thinkingExpanded) {
                     messageText.setVisibility(View.VISIBLE);
+                    messageText.setMaxLines(Integer.MAX_VALUE);
+                    messageText.setAlpha(1f);
+                    if (!displayContent.isEmpty()) {
+                        renderThinkingFull(messageText, displayContent);
+                    } else {
+                        messageText.setText("");
+                    }
                     if (thinkingLabel != null) {
                         thinkingLabel.setText(label);
                     }
                 } else {
-                    messageText.setVisibility(View.GONE);
+                    String preview = displayContent.isEmpty()
+                            ? ""
+                            : thinkingPreview(displayContent, processing);
+                    messageText.setVisibility(View.VISIBLE);
+                    messageText.setMaxLines(2);
+                    messageText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    messageText.setAlpha(0.6f);
+                    messageText.setText(preview.isEmpty() ? "…" : preview + "…");
                     if (thinkingLabel != null) {
                         thinkingLabel.setText(label + (processing ? SmartQuizApplication.getAppContext().getString(R.string.h_1e913a58) : SmartQuizApplication.getAppContext().getString(R.string.h_7492ce53)));
                     }
@@ -3277,8 +3377,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
             // 处理进度条：仅思考进行中时显示（折叠时隐藏，精简视觉）
             if (thinkingProgress != null) {
-                boolean processing = message.status == ChatMessage.MessageStatus.GENERATING
-                        || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
                 if (processing) {
                     thinkingProgress.setVisibility(View.VISIBLE);
                     thinkingProgress.setIndeterminate(true);
@@ -3287,19 +3385,51 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             }
 
-            // 点击标签折叠/展开
+            // 点击标签折叠/展开：展开时全量 Markdown 渲染，折叠时切回摘要预览
+            // （lambda 需 effectively-final 快照；displayContent 因多分支赋值不可直接用）
+            final String contentSnapshot = displayContent;
+            final boolean processingSnapshot = processing;
             if (thinkingLabel != null) {
                 thinkingLabel.setOnClickListener(v -> {
                     message.thinkingExpanded = !message.thinkingExpanded;
                     if (message.thinkingExpanded) {
                         messageText.setVisibility(View.VISIBLE);
+                        messageText.setMaxLines(Integer.MAX_VALUE);
+                        messageText.setAlpha(1f);
+                        if (!contentSnapshot.isEmpty()) {
+                            renderThinkingFull(messageText, contentSnapshot);
+                        }
                         thinkingLabel.setText(label);
                     } else {
-                        messageText.setVisibility(View.GONE);
+                        String preview = contentSnapshot.isEmpty()
+                                ? ""
+                                : thinkingPreview(contentSnapshot, processingSnapshot);
+                        messageText.setVisibility(View.VISIBLE);
+                        messageText.setMaxLines(2);
+                        messageText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                        messageText.setAlpha(0.6f);
+                        messageText.setText(preview.isEmpty() ? "…" : preview + "…");
                         thinkingLabel.setText(label + SmartQuizApplication.getAppContext().getString(R.string.h_7492ce53));
                     }
                 });
             }
+        }
+
+        /** 全量 Markdown 渲染（RenderExecutor + TextViewSpan），供展开态/点击展开时调用 */
+        private void renderThinkingFull(android.widget.TextView tv, String content) {
+            if (tv == null) return;
+            tv.post(() -> {
+                int w = tv.getWidth() - tv.getPaddingLeft() - tv.getPaddingRight();
+                if (w <= 0) {
+                    w = tv.getContext().getResources().getDisplayMetrics().widthPixels;
+                }
+                android.text.Spanned rendered =
+                        com.oilquiz.app.ai.chat.render.RenderExecutor.getInstance()
+                                .execute(content, tv.getContext(), w);
+                android.text.Spannable sp = new android.text.SpannableStringBuilder(rendered);
+                io.noties.markwon.core.spans.TextViewSpan.applyTo(sp, tv);
+                tv.setText(sp);
+            });
         }
     }
 
