@@ -87,10 +87,6 @@ public class AgentLoopEngine {
     private static final int MAX_RETRIES = 1;
     /** 同步调用超时（毫秒）：必须大于 C++ 生成超时(400s)，否则 Java 先放弃导致回答被掐断 */
     private static final long SYNC_TIMEOUT_MS = 420000;
-    /** 单次执行最多注入的工具数（常驻 5 + 关键词命中，保证组合工具能力；
-     *  从 5 提到 7：扩大的常驻池（天气/搜索/计算/时间/位置）加关键词命中后
-     *  仍能全部注入，减少"查了才能调"的依赖） */
-    private static final int MAX_TOOLS_PER_RUN = 7;
     /** 用户问题长度上限（字符） */
     private static final int MAX_USER_MESSAGE_CHARS = 2000;
     /** UI 交互等待时长（毫秒）：弹窗问用户，超时未操作则回退文本追问 */
@@ -142,47 +138,14 @@ public class AgentLoopEngine {
         }
     }
 
-    /** 关键词路由表：零 decode 的意图识别——消息命中关键词即把对应工具注入首轮集，
-     *  常见请求单跳直达（省 tool_registry 两跳 decode），并给模型"用户要什么"的提示 */
-    private static final String[][] TOOL_ROUTES = {
-            {"ai_weather", "天气,气温,温度,下雨,下雪,刮风,湿度,空气质量,紫外线,预报,雾霾,台风"},
-            {"location", "位置,定位,我在哪,附近,周边,坐标,经纬度,地址,城市"},
-            {"time_date", "时间,日期,几点,今天几号,星期几,现在几点,当前时间,几月几号"},
-            {"network_search", "搜索,搜一下,查一下,新闻,资讯,热点,最新,油价,百度,谷歌"},
-            {"text_tools", "json格式化,json校验,base64,url编码,url解码,正则提取,转大写,转小写,去空白,字数统计,文本处理,编码解码"},
-            {"unit_converter", "换算,单位转换,单位换算,厘米,公斤,磅,华氏,摄氏,千米,英里,英寸,英尺,加仑,公顷"},
-            {"calculator", "计算,算一下,算算,数学,求和,平均,等于多少,多少钱"},
-            {"image_gen", "画图,画一张,生成图片,生成图像,画个,画一只,画一幅,ai绘图"},
-            {"python_chart", "柱状图,折线图,饼图,散点图,数据可视化,生成图表,图表,画个图,画图表"},
-            {"memory", "记住,记一下,别忘了,我的名字,我的喜好,记住我,记忆,我叫,我是,我喜欢"},
-            {"speech_synthesis", "朗读,读出来,念出来,播报,语音播报,语音朗读,帮我读"},
-            {"voice_input", "语音输入,听写,录音识别,语音转文字,语音打字,我要说话,我想说,语音说,说给你听,开口说话,用语音,语音听"},
-            {"excel_tool", "excel,表格文件,xlsx,xls,电子表格"},
-            {"file_reader", "读文件,读取文件,打开文件,文件内容,查看文件,读一下,看看文件"},
-            {"workspace", "工作区,保存的文件,生成的文件,工作区文件,看看我生成的文件"},
-            {"database", "题库,查题,题目,知识点,刷题,考题"},
-            {"system_resource", "内存,cpu,电量,存储空间,系统信息,手机信息,运行内存"},
-            {"app_operation", "打开应用,打开app,启动应用,打开微信,打开浏览器,打开设置"},
-            {"tool_registry", "工具列表,有哪些工具,工具介绍,会什么,可用工具,工具箱,你能做什么"},
-            {"get_models_profile", "模型列表,有哪些模型,模型信息,支持什么模型,模型上下文"},
-            {"permission_manager", "权限,授权,权限设置,开启权限,权限管理,权限检查"},
-            {"webpage_reader", "网页,链接,网址,url,http,打开网页,看网页,读网页"},
-            {"file_generator", "生成文件,写文件,创建文件,保存为,导出文档,生成md,写markdown"},
-            {"dashscope_media", "文生视频,生成视频,视频生成,ai视频,ai生成视频,生成一个视频,生成一段视频"},
-    };
-    /** 常驻基础工具：天气/时间/定位/搜索 + 长期记忆，其他按需注入 */
+    /** 常驻基础工具：时间(time_date)、定位(location) + 工具注册表(tool_registry)。
+     *  tool_registry 是动态注入的详细发现通道：模型可查工具列表/说明后再按名调用；
+     *  其余全部工具（搜索/天气/记忆/计算/画图/文件/表格/网页/朗读/语音/图表/题库等）
+     *  由 agent 动态注入：模型按名直接调用 → 工具执行成功即加入注入集、下轮起注入 schema
+     *  （注入当轮 FULL 一次，之后稳定）。
+     *  大 schema 的 UI 工程工具（ui_component 等）与系统内部工具不注入。 */
     private static final String[] DEFAULT_CORE_TOOLS = {
-            "ai_weather", "time_date", "location", "network_search", "memory"
-    };
-
-    /** 动态工具关键词路由表：程序硬编码，消息命中关键词即注入对应动态工具
-     *  （不依赖模型猜工具名；工具需已注册，未注册自动跳过） */
-    private static final String[][] DYNAMIC_TOOL_ROUTES = {
-            {"deepseek_usage_calc", "余额,用量,费用,deepseek,花费,计费,花了"},
-            {"deepseek_balance", "余额,deepseek"},
-            {"dynamic_clock", "时间,日期,现在几点,时钟,星期几"},
-            {"clean_import_files", "清理模型,删除模型,模型清理,清理文件"},
-            {"show_progress", "进度,进度条,汇报进度"},
+            "time_date", "location", "tool_registry"
     };
 
     private final AIService aiService;
@@ -202,6 +165,22 @@ public class AgentLoopEngine {
 
     /** 最近一次用户消息原文：供 ai_weather 缺城市参数时提取城市名兜底（如"五台县的天气"→city=五台县） */
     private volatile String lastUserMessage = "";
+
+    // ==================== KV 前缀稳定性（2026-09-23）====================
+    // 本地 Agent 每轮 prompt = system + 会话序列 + 本轮用户消息。
+    // 会话序列保存"上一轮实际发送给 native 的请求消息（去 system）+ 模型最终输出"，
+    // 跨轮逐字节回放，使本轮 prompt 成为上一轮 KV 缓存的严格超集 → KV INCREMENTAL，
+    // 避免工具轮之后每轮 PARTIAL→FULL 全量 prefill（真机实测 ~4K tokens / ~20s 首字）。
+    // 旧实现每轮从 bridge 干净历史重建 prompt，与 KV 里模型原始生成序列字节对不上，
+    // matchedLen_==cachedNPast_ 永不成立 → AgentKvCache PARTIAL → 混合记忆 seq_rm
+    // 深截断失败（recurrent 只支持尾部窗口回滚）→ 全量 prefill。
+    private final java.util.List<ChatMessage> sessionMessages = new java.util.ArrayList<>();
+    /** 最近一次实际发送的请求消息列表（含 system 头），供轮末持久化会话序列 */
+    private volatile java.util.List<ChatMessage> lastRequestHistory = null;
+    /** 会话级工具集：首轮=核心5工具，动态注入结果跨轮保留。
+     *  Qwen3 模板把 tools 渲染在 system 前缀，跨轮集合必须逐字节一致，
+     *  否则 system 漂移 → KV 前缀失配 → 全量 prefill。 */
+    private final java.util.Set<String> sessionTools = new java.util.LinkedHashSet<>();
 
     public interface LoopCallback {
         void onIterationStart(int iteration, String promptSummary);
@@ -283,28 +262,35 @@ public class AgentLoopEngine {
         // 记录最近用户消息：ai_weather 缺城市参数时程序从原文提取城市名兜底
         this.lastUserMessage = userMessage != null ? userMessage : "";
 
-        // 只注入五个核心工具：天气/时间/定位/搜索/记忆，其他工具不注入
+        // 常用工具全量注入首轮（天气/时间/定位/搜索/记忆/工具注册表 + 高频工具），
+        // 避免模型动态注入时 system（tools 前缀）变化触发 FULL
         List<String> selectedTools = new ArrayList<>();
         for (String name : DEFAULT_CORE_TOOLS) {
             if (!selectedTools.contains(name)) {
                 selectedTools.add(name);
             }
         }
-        // 不注入大 schema 的 UI 工具
+        // 不注入大 schema 的 UI 工具（模型经 tool_registry 发现后按需自行注入）
         selectedTools.removeIf(n -> "ui_component".equals(n) || "ui_component_plugin".equals(n));
-        // 动态注入集合：初始 = 五个核心工具；FC 循环按模型实际使用增长
-        final java.util.Set<String> activeTools = new java.util.LinkedHashSet<>(selectedTools);
+        // 会话级工具集：首轮=常用全量；动态注入结果跨轮保留。
+        // tools 渲染在 system 前缀，跨轮集合一致 → system 字节稳定 → KV 前缀可增量。
+        if (sessionTools.isEmpty()) {
+            sessionTools.addAll(selectedTools);
+        }
+        // 动态注入集合：初始 = 会话级工具集；FC 循环按模型实际使用增长
+        final java.util.Set<String> activeTools = new java.util.LinkedHashSet<>(sessionTools);
         String toolsJson = buildToolsJson(new ArrayList<>(activeTools));
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
         AILogger.i(TAG, "Initial tools: " + activeTools.size() + " tools, schema len: " + toolsJson.length());
         if (aiConfig != null && aiConfig.isFcEnabled()) {
-            // 就绪弹窗：列出常驻核心工具的能力名（TOOL_LABELS 友好名，缺省用原名）
+            // 就绪弹窗：只列核心能力名（全量 20+ 工具太长，能力明细模型可从 schema 读取）
             StringBuilder readySb = new StringBuilder("🤖 本地Agent就绪：");
             boolean first = true;
             for (String t : activeTools) {
                 if (!first) readySb.append("、");
                 readySb.append(toolLabel(t));
                 first = false;
+                if (readySb.length() > 60) break; // 截断，避免 toast 超长
             }
             showToast(readySb.toString());
         }
@@ -321,11 +307,22 @@ public class AgentLoopEngine {
         history.add(new ChatMessage("system", sysPrompt));
         // 多轮上下文：把最近几轮对话注入历史（system → 历史 → 当前问题），
         // 让模型能理解"那明天呢？"之类的指代；超预算由 trimHistoryToFit 裁剪
-        if (priorHistory != null) {
+        // ---- KV 前缀稳定性：会话级原始消息序列（2026-09-23）----
+        // 旧实现每轮从 bridge 干净历史重建 prompt（干净 user/assistant 文本 vs KV 缓存里
+        // 模型原始生成序列，含 <tool_call>/tool_calls/思考标签），字节对不上，
+        // matchedLen_==cachedNPast_ 永不成立 → PARTIAL → 混合记忆 seq_rm 深截断失败
+        // （recurrent 只支持尾部窗口回滚）→ 每轮全量 prefill（真机实测 ~4K tok / ~20s 首字）。
+        // 新实现：会话序列保存"上一轮实际发送的请求 + 模型输出"，逐字节回放 →
+        // 本轮 prompt = system + 会话序列 + 当前问题 = 上一轮 KV 严格超集 → KV INCREMENTAL。
+        resetSessionIfHistoryChanged(priorHistory);
+        if (sessionMessages.isEmpty() && priorHistory != null) {
             for (HistoryEntry h : priorHistory) {
                 if (h == null || h.content == null || h.content.trim().isEmpty()) continue;
-                history.add(new ChatMessage(h.role, h.content));
+                sessionMessages.add(new ChatMessage(h.role, h.content));
             }
+        }
+        for (ChatMessage m : sessionMessages) {
+            history.add(m);
         }
         // 本轮动态任务指令（缓存命中优化）：天气直给指令从 system 移到本轮 user 消息末尾。
         // system 前缀保持静态（同一天内字节不变，见 buildCurrentTimeLine 注释），
@@ -382,6 +379,7 @@ public class AgentLoopEngine {
         // FC 开启 → 模型自主调工具（Qwen 原生 <tool_call>）；FC 关闭 → 普通对话。
         boolean handled = false;
         String finalAnswer = null;
+        String persistRaw = null;  // KV 前缀稳定：本轮的模型原始输出（persist 用，clean 会剥尾部字节）
 
         if (aiConfig != null && aiConfig.isFcEnabled()) {
             // 交给下方模型自主 FC 循环（handled 保持 false）
@@ -397,6 +395,7 @@ public class AgentLoopEngine {
                 if (!clean.isEmpty() && !isPromptLeakage(clean)) {
                     AILogger.i(TAG, "Plain chat answer: " + truncate(clean, 80));
                     finalAnswer = clean;
+                    persistRaw = plain.content; // KV 前缀稳定：用原始输出，勿用 clean
                     handled = true;
                 }
             }
@@ -410,6 +409,7 @@ public class AgentLoopEngine {
         if (handled) {
             AILogger.i(TAG, "Answer ready, len=" + finalAnswer.length());
             streamDirectAnswer(finalAnswer);
+            persistSessionMessages(persistRaw != null ? persistRaw : finalAnswer, activeTools);
             if (callback != null) callback.onComplete(finalAnswer);
             return buildResponse(finalAnswer, totalTokens,
                     System.currentTimeMillis() - startTime, toolCallCount, 1);
@@ -473,6 +473,7 @@ public class AgentLoopEngine {
             long genStart = System.currentTimeMillis();
             GenerateResult genResult = null;
 
+            lastRequestHistory = new ArrayList<>(history); // 记录实际发送的请求（轮末持久化会话序列）
             String requestJson = buildRequestJson(history, toolsJson, toolChoice, iterMaxTokens, enableThinking);
             if (requestJson == null) {
                 AILogger.e(TAG, "buildRequestJson returned null at iteration " + iteration + ", breaking");
@@ -601,6 +602,7 @@ public class AgentLoopEngine {
                     AILogger.i(TAG, "Answer already streamed via tokens, skipping re-stream");
                 }
                 if (callback != null) callback.onComplete(cleanResponse);
+                persistSessionMessages(response, activeTools); // KV 前缀稳定：原始输出，勿用 cleanResponse
                 return buildResponse(cleanResponse, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, iteration);
             }
 
@@ -762,10 +764,12 @@ public class AgentLoopEngine {
         // 基于全部工具结果生成一次总结回复。单次调用、不注入工具（tool_choice=none），
         // 模型无法再发起工具调用 → 不会重新进入循环，也不会反复总结。
         String clean = null;
+        String finalGenRaw = null;  // KV 前缀稳定：最终总结的原始输出
         if (toolCallCount > 0) {
-            GenerateResult finalGen = generateFinalAnswer(history, enableThinking);
+            GenerateResult finalGen = generateFinalAnswer(history, enableThinking, toolsJson);
             if (finalGen != null && finalGen.content != null && !finalGen.content.trim().isEmpty()) {
                 clean = cleanResponse(finalGen.content);
+                finalGenRaw = finalGen.content;
                 totalTokens += finalGen.content.length();
                 AILogger.i(TAG, "Final summary generated: " + truncate(clean, 120));
             } else {
@@ -785,17 +789,95 @@ public class AgentLoopEngine {
                 AILogger.i(TAG, "Final answer already streamed via tokens, skipping re-stream");
             }
             if (callback != null) callback.onComplete(clean);
+            persistSessionMessages(finalGenRaw != null ? finalGenRaw : clean, activeTools);
             return buildResponse(clean, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
         }
         // 完全没有有效回答，用简单兜底
         String fb = buildSimpleFallback(userMessage);
         streamDirectAnswer(fb);
         if (callback != null) callback.onComplete(fb);
+        persistSessionMessages(null, activeTools);
         return buildResponse(fb, totalTokens, System.currentTimeMillis() - startTime, toolCallCount, getAgentMaxIterations());
 
         } // end modelAutonomyEnabled (Qwen-native model FC loop)
         // 理论不可达（前方已全部 return），仅满足编译器
         return buildResponse("", totalTokens, System.currentTimeMillis() - startTime, toolCallCount, 1);
+    }
+
+    // ==================== KV 前缀稳定性：会话序列维护（2026-09-23）====================
+
+    /**
+     * 会话身份变更检测：首条历史消息变了（切换会话/清空/换模型）→ 重建会话序列。
+     * 同会话内 bridge 历史只增不减（首条不变），序列保留 → 前缀字节稳定。
+     */
+    private void resetSessionIfHistoryChanged(List<HistoryEntry> priorHistory) {
+        if (sessionMessages.isEmpty()) return; // 尚无会话状态，稍后首次种子化
+        String firstContent = null;
+        if (priorHistory != null) {
+            for (HistoryEntry h : priorHistory) {
+                if (h != null && h.content != null && !h.content.trim().isEmpty()) {
+                    firstContent = h.content;
+                    break;
+                }
+            }
+        }
+        if (firstContent == null) {
+            // 对话已清空（bridge 历史空）
+            if (!sessionMessages.isEmpty()) {
+                AILogger.i(TAG, "Session history cleared, resetting KV-stable sequence");
+                sessionMessages.clear();
+            }
+            sessionTools.clear(); // 工具集随会话重置（下次 run 重新填充核心5工具）
+            return;
+        }
+        ChatMessage first = sessionMessages.get(0);
+        String stored = first != null ? first.content : null;
+        // startsWith 而非 equals：会话首条消息若走 Agent 路径，序列里存的是带 D 块
+        // （【本次任务】/【已存记忆】）的有效消息，bridge 里是原文——首条须按"原文前缀"判定，
+        // 否则 fresh 会话第 2 轮起每轮被误判"会话变更"→ 重置 → 全量 prefill。
+        if (stored == null || !stored.startsWith(firstContent)) {
+            AILogger.i(TAG, "Session changed (first history message differs), resetting KV-stable sequence");
+            sessionMessages.clear();
+            sessionTools.clear();
+        }
+    }
+
+    /**
+     * 轮末持久化会话序列：上一轮实际发送的请求（去 system）+ 助手最终输出。
+     * 下一轮 prompt = system + 该序列 + 新用户消息 = 上一轮 KV 缓存的严格超集
+     * → AgentKvCache INCREMENTAL（增量 prefill），跳过每轮全量 prefill。
+     * 异常/失败兜底时 assistantContent 传 null（不伪造模型输出，仅保存请求）。
+     */
+    private void persistSessionMessages(String assistantContent, java.util.Set<String> finalTools) {
+        try {
+            List<ChatMessage> next = new ArrayList<>();
+            List<ChatMessage> req = lastRequestHistory;
+            if (req != null) {
+                for (int i = 1; i < req.size(); i++) { // 去掉 system 头
+                    next.add(req.get(i));
+                }
+            }
+            if (assistantContent != null && !assistantContent.trim().isEmpty()) {
+                next.add(new ChatMessage("assistant", assistantContent));
+            }
+            synchronized (sessionMessages) {
+                sessionMessages.clear();
+                sessionMessages.addAll(next);
+            }
+            // 工具集持久化：FC 循环内动态注入的结果跨轮保留，
+            // 下一轮初始 tools == 本轮最终 tools → system 前缀字节稳定
+            if (finalTools != null) {
+                synchronized (sessionTools) {
+                    sessionTools.clear();
+                    sessionTools.addAll(finalTools);
+                }
+            }
+            AILogger.i(TAG, "Session sequence persisted: " + next.size()
+                    + " msgs (request=" + (req != null ? req.size() : 0)
+                    + ", tools=" + (finalTools != null ? finalTools.size() : 0) + ")");
+        } catch (Throwable t) {
+            AILogger.w(TAG, "persistSessionMessages failed: " + t.getMessage());
+        }
     }
 
     /**
@@ -808,7 +890,7 @@ public class AgentLoopEngine {
      * 3. 失败/超时/空输出直接返回 null 回退，绝不重试；
      * 4. 末尾追加"请基于以上结果给出最终回答"指令，引导小模型做总结而非续写工具调用。
      */
-    private GenerateResult generateFinalAnswer(List<ChatMessage> history, boolean enableThinking) {
+    private GenerateResult generateFinalAnswer(List<ChatMessage> history, boolean enableThinking, String toolsJson) {
         AILogger.i(TAG, "Generating final summary answer based on all results...");
         try {
             // 留出输出空间：把历史裁剪到 budget - 1000，避免总结输出时上下文溢出
@@ -825,7 +907,8 @@ public class AgentLoopEngine {
                     + "（如\"湿度: 93% 降水量: 0.0mm\"这类罗列）；"
                     + "工具返回的次要细节只在用户问到时才提及。"));
 
-            String requestJson = buildRequestJson(summaryHistory, "", "none",
+            lastRequestHistory = new ArrayList<>(summaryHistory); // 记录实际发送的请求（轮末持久化会话序列）
+            String requestJson = buildRequestJson(summaryHistory, toolsJson, "none",
                     FINAL_RESPONSE_MAX_TOKENS, enableThinking);
             if (requestJson == null) return null;
 
@@ -833,8 +916,11 @@ public class AgentLoopEngine {
                 // 传 null：不重置本轮标志；onToken 内部仍会更新 lastStreamed 记录流式状态
                 return generateWithChatJsonSync(requestJson, null);
             }
-            // 旧路径：不带工具生成（native 层 tools 为空 → tool_choice=NONE）
-            return generateWithToolsSync(summaryHistory, new byte[0],
+            // 旧路径：tools 与迭代同字节（tool_choice=none 阻止模型发起调用），
+            // 保证总结轮 prompt 前缀与迭代一致 → KV 增量，而非 tools=空 触发全量
+            byte[] fbTools = toolsJson != null && !toolsJson.isEmpty()
+                    ? toolsJson.getBytes(StandardCharsets.UTF_8) : new byte[0];
+            return generateWithToolsSync(summaryHistory, fbTools,
                     FINAL_RESPONSE_MAX_TOKENS, 0.7f, enableThinking);
         } catch (UnsatisfiedLinkError e) {
             AILogger.w(TAG, "Final answer generation: native unavailable: " + e.getMessage());
@@ -854,6 +940,7 @@ public class AgentLoopEngine {
             int budget = computePromptBudget();
             List<ChatMessage> trimmed = trimHistoryToFit(history, "",
                     Math.max(1000, budget - FINAL_RESPONSE_MAX_TOKENS));
+            lastRequestHistory = new ArrayList<>(trimmed); // 记录实际发送的请求（轮末持久化会话序列）
             String requestJson = buildRequestJson(trimmed, "", "none",
                     PLAIN_CHAT_MAX_TOKENS, enableThinking);
             if (requestJson == null) return null;
@@ -1433,100 +1520,11 @@ public class AgentLoopEngine {
         }
     }
 
-    // ==================== 智能工具选择与预算守卫 ====================
-
-    /**
-     * 用户消息是否命中工具关键词路由（不含常驻默认工具）。
-     * 决定首轮 tool_choice：命中 → required（强制调工具）；闲聊 → auto（直接回答）。
-     */
-    private boolean hasKeywordToolMatch(String userMessage) {
-        if (userMessage == null) return false;
-        String msg = userMessage.toLowerCase();
-        for (String[] route : TOOL_ROUTES) {
-            for (String keyword : route[1].split(",")) {
-                if (!keyword.isEmpty() && msg.contains(keyword.toLowerCase())) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 根据用户消息关键词智能选择相关工具（不再全量注入，避免塞满上下文）。
-     * 规则：关键词路由命中 → 取命中工具；无命中 → 不注入工具（闲聊提速）；
-     * 最后按 schema token 预算与数量上限继续裁剪。
-     */
-    private List<String> selectRelevantTools(String userMessage) {
-        // 轻量查询已注册工具名，不触发全部工具实例初始化
-        List<String> registered = toolManager.getRegisteredToolNames();
-        List<String> selected = new ArrayList<>();
-        String msg = userMessage != null ? userMessage.toLowerCase() : "";
-
-        for (String[] route : TOOL_ROUTES) {
-            if (selected.size() >= MAX_TOOLS_PER_RUN) break;
-            String toolName = route[0];
-            if (!registered.contains(toolName) || selected.contains(toolName)) continue;
-            for (String keyword : route[1].split(",")) {
-                if (!keyword.isEmpty() && msg.contains(keyword.toLowerCase())) {
-                    selected.add(toolName);
-                    break;
-                }
-            }
-        }
-
-        // 关键词命中后补入常驻基础工具（天气/搜索/时间，保证组合能力）；
-        // 无任何关键词命中（纯闲聊如"你好"）→ 不注入工具。CPU 设备上工具 schema
-        // 占 ~1700 token（ui_component 最大），去掉后闲聊 prompt 从 2172 降到 ~400，
-        // 首轮全量解码快 5 倍，避免"处理中"久等
-        if (!selected.isEmpty()) {
-            for (String name : DEFAULT_CORE_TOOLS) {
-                if (selected.size() >= MAX_TOOLS_PER_RUN) break;
-                if (registered.contains(name) && !selected.contains(name)) {
-                    selected.add(name);
-                }
-            }
-        }
-
-        // 工具注册表异常（为空）时退化为限量全集，保证可用性
-        if (selected.isEmpty() && registered.isEmpty()) {
-            for (String name : registered) {
-                if (selected.size() >= 4) break;
-                selected.add(name);
-            }
-        }
-
-        // 动态工具：①按硬编码关键词路由注入（输入特定关键词→对应动态工具）；
-        // ②消息里直接提到工具名也选中（兜底）
-        try {
-            List<String> dynamicNames = toolManager.getDynamicToolNames();
-            java.util.Set<String> dynSet = new java.util.HashSet<>(dynamicNames);
-            // ① 关键词路由
-            for (String[] route : DYNAMIC_TOOL_ROUTES) {
-                if (selected.size() >= MAX_TOOLS_PER_RUN) break;
-                String toolName = route[0];
-                if (!dynSet.contains(toolName) || selected.contains(toolName)) continue;
-                for (String keyword : route[1].split(",")) {
-                    if (!keyword.isEmpty() && msg.contains(keyword.toLowerCase())) {
-                        selected.add(toolName);
-                        break;
-                    }
-                }
-            }
-            // ② 提工具名兜底
-            for (String dynName : dynamicNames) {
-                if (selected.size() >= MAX_TOOLS_PER_RUN) break;
-                if (!selected.contains(dynName)
-                        && dynName != null && !dynName.isEmpty()
-                        && msg.contains(dynName.toLowerCase())) {
-                    selected.add(dynName);
-                }
-            }
-        } catch (Throwable t) {
-            AILogger.w(TAG, "Dynamic tool selection failed: " + t.getMessage());
-        }
-        return selected;
-    }
+    // ==================== 工具注入与预算守卫 ====================
+    // 工具注入策略（2026-09-23 起）：不做意图识别预判注入，完全由 agent 自行注入——
+    // 首轮注入常驻基础工具（含 tool_registry 发现通道）；模型在 FC 循环内输出
+    // tool_call 后，被调工具自动加入注入集、下轮起注入其 schema（见 run() 按需动态注入）。
+    // 该策略同时保证 tools 前缀字节跨轮稳定（会话级工具集 sessionTools 跨轮保留）。
 
     /**
      * 计算单次推理的 prompt token 预算：
@@ -1701,95 +1699,23 @@ public class AgentLoopEngine {
     }
 
     /**
-     * FC 模式的 system 提示词（本地小模型精简版 v3，2026-09-05 参考厂商设计重构）。
-     *
-     * 参考依据：
-     * - Hermes 2 Pro 官方 function calling system prompt："You are a function calling AI
-     *   model... You may call one or more functions... Don't make assumptions about what
-     *   values to plug into functions... If no function call is needed, answer normally"
-     *   ——本地模型最熟悉的训练格式，直接用其精神：可调多个、不假设参数值、不需要就不调。
-     * - Qwen 官方：system = 角色/任务 + 工具说明 + 调用格式 + 输出要求（四要素）。
-     * - DeepSeek：小模型参数结构越简单越准确，短肯定句。
-     * - 用户硬性偏好：零引导（不绑场景→工具、不限制单一工具、不放默认值、无示例），
-     *   确定肯定句，实时信息一律工具获取，不确定时用工具测试。
+     * FC 模式的 system 提示词（最小版 2026-09-24）。
+     * 设计目标：prompt 尽可能小（首轮 FULL 更小、KV 更省），
+     * 工具使用信息以 schema 为准（buildToolsJson 注入完整 description + enum），
+     * system 只保留角色与 5 条最短规则；工具发现交给 tool_registry 动态注入。
      */
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
-        // ---- 本地 FC/Agent 模式：聊天答疑 + 工具调用角色 ----
         sb.append(buildCurrentTimeLine(true));
         sb.append("【角色】\n");
-        sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（Agent模式）。\n");
-        sb.append("你的工作：与用户对话答疑，并在需要实时信息（天气/时间/位置/最新资讯）时主动调用工具获取，而不是靠训练知识猜测。\n");
-        sb.append("你的工具：网络搜索、天气查询、时间日期、位置定位、长期记忆，按需调用、可多轮、可组合。\n");
-        sb.append("你的方式：常识与知识类问题直接回答；实时信息以工具返回为准，直接采纳不怀疑。\n");
-        sb.append("你的风格：用中文，简洁自然，先结论后细节。\n\n");
-
-        // 工具说明：只注入五个核心工具，详细说明每个工具的action用法
-        sb.append("【工具用法】\n");
-        sb.append("当前可用5个工具，按需求选择action调用：\n\n");
-
-        sb.append("1. 网络搜索(network_search) - 10个action：\n");
-        sb.append("• search(query,limit=5)：关键词搜索，返回标题/链接/摘要列表\n");
-        sb.append("• ask(question,model=concise)：智能问答，直接返回答案+引用来源\n");
-        sb.append("• read_url(url)：读取指定网页正文内容\n");
-        sb.append("• get_webpage(url)：获取网页原始HTML内容\n");
-        sb.append("• extract_info(url)：从网页提取关键信息\n");
-        sb.append("• summarize(url)：生成网页摘要\n");
-        sb.append("• search_and_read(query)：搜索后自动读取第一条结果正文\n");
-        sb.append("• get_dynamic_content(url)：获取JS渲染的动态网页内容\n");
-        sb.append("• smart_search(query,maxResults=5)：智能搜索，自动读取详情生成摘要\n");
-        sb.append("• smart_read(results)：对已有搜索结果逐条读正文生成摘要\n");
-        sb.append("→ 简单查询用 search/ask；需要详情用 read_url/smart_search；动态网页用 get_dynamic_content\n\n");
-
-        sb.append("2. 天气查询(ai_weather)：\n");
-        sb.append("• action=current：实时天气\n");
-        sb.append("• action=forecast：未来几天预报\n");
-        sb.append("• action=hourly：逐小时预报\n");
-        sb.append("• action=air_quality：空气质量（需经纬度，传city时工具内部自动转坐标）\n");
-        sb.append("• action=alerts：天气预警（需经纬度，传city时工具内部自动转坐标）\n");
-        sb.append("• action=indices：生活指数（需经纬度，传city时工具内部自动转坐标）\n");
-        sb.append("• 参数：用户说了城市就传city（城市名或和风城市编码）；用户没说城市就先调location工具获取lat/lon再传。\n\n");
-
-        sb.append("3. 时间日期(time_date)：\n");
-        sb.append("• action=now：当前日期时间\n");
-        sb.append("• action=date：仅日期\n");
-        sb.append("• action=time：仅时间\n");
-        sb.append("• action=weekday：星期几\n\n");
-
-        sb.append("4. 位置定位(location)：\n");
-        sb.append("• action=get_current：当前位置（经纬度/城市/详细地址）\n");
-        sb.append("• 返回 lat/lon 可直接传给天气工具\n\n");
-
-        sb.append("5. 长期记忆(memory)：\n");
-        sb.append("• 用户主动告知姓名/称呼/偏好/常驻信息（如\"我叫小明\"\"我喜欢吃辣\"\"我在银川工作\"）时，必须调用 memory(action=save, key=英文短词, value=内容) 保存，不要只口头答应；用户明确说\"记住...\"时同样保存\n");
-        sb.append("• action=save(key,value)：保存；action=recall(key)：读取；action=delete(key)：删除单条；action=list：列出所有\n");
-        sb.append("• 已存记忆会自动注入到每轮对话末尾的【已存记忆】段（跨对话保留），后续直接使用即可，无需每次 recall\n");
-        sb.append("• 用户要求忘记/删除某条信息时调用 memory(action=delete, key=...)\n\n");
-
-        sb.append("网络搜索仅在需要实时/外部信息（新闻、政策、价格、最新事件、链接内容、搜索指定资料）时使用；常识与知识类问题直接回答，不要搜索。\n");
-        sb.append("不需要工具时直接回答。\n");
-        sb.append("注意：action根据需求自由选择，不要被默认值限制。天气需要预报就用forecast，需要空气质量就用air_quality；搜索需要智能问答就用ask，需要读网页就用read_url，需要动态网页就用get_dynamic_content，按需选择最合适的action。\n\n");
-
-        sb.append("【做法】\n");
-        sb.append("1. 先判断问题类型，再决定是否用工具：\n");
-        sb.append("   • 常识/知识类（概念、定义、原理、历史、人物、教材知识等训练已覆盖的）——直接回答，不要搜索，不要调工具。\n");
-        sb.append("   • 实时/时效类（时间、日期、天气、位置、价格、新闻、政策、链接内容等）——必须调用对应工具获取，不要用训练数据猜测。\n");
-        sb.append("2. 直接调用工具。用户给的参数（城市/编码/时间/位置等）直接照用，先调用，不要怀疑参数。\n");
-        sb.append("3. 查天气传位置参数：用户说了城市就传city(城市名或和风城市编码)；用户没说城市（如\"现在天气\"\"附近天气\"），先调location工具定位获取lat/lon，再用坐标参数调ai_weather查询。\n");
-        sb.append("4. 需要当前时间/日期/星期时，直接调 time_date(action=now)。时间工具返回的日期时间就是真实的当前时间，直接采用，不做任何怀疑和修正。你的训练数据截止于过去（如2023年），工具时间比训练时间晚是完全正常的——工具返回的就是\"现在\"，不是未来日期。不要纠结、不要评论\"未来\"、不要用训练数据覆盖工具时间。天气 action=current 返回的是实时天气，action=forecast 才是未来预报，二者不要混淆。\n");
-        sb.append("5. 工具返回的数据是绝对准确和实时的，直接采纳并总结提取关键信息。不要添加结果里没有的内容，不要用训练数据\"纠正\"或\"补充\"工具结果，不要夹带自己的推测。\n");
-        sb.append("5.1 总结工具结果时只提取与用户问题直接相关的关键信息，用自然语言简洁表达；严禁把工具返回的原始数据/JSON/字段列表/完整详情原样复述进回答（例如不要输出\"湿度: 93% 降水量: 0.0mm\"这类字段罗列），次要细节（风力风向、气压、云量等）只在用户明确问到时才提及。\n");
-        sb.append("6. 工具结果不够时：分析缺什么信息，继续调工具补齐，可多轮调用，直到信息足够再回答。\n");
-        sb.append("7. 不确定参数或数据时，直接调工具确认，以工具返回为准。\n");
-        sb.append("8. 工具失败换一个工具继续，不要因一次失败就放弃。\n");
-        sb.append("9. 多步任务中途失败：标记失败原因，给替代方案重新规划，不要静默跳过或假装完成；网络类失败可重试1次，参数错误直接修正。\n");
-        sb.append("10. 多个互不依赖的工具可一次并行调用；后一个需要前一个结果的必须等前一个返回后再调用。\n");
-        sb.append("11. 用户说“它/那个/这个/刚才的”时，指代最近几轮提到的事物；不确定就追问，不臆断。\n\n");
-
-        sb.append("【回答】\n");
-        sb.append("中文简洁，先结论后细节；没把握时直说不知道。\n");
-        sb.append("有结构的信息（列表/表格）用文本或简单表格展示。\n\n");
-
+        sb.append("你是答题宝App的AI聊天助手（Agent模式），与用户自然对话，需要实时/外部信息时主动调用工具获取。\n\n");
+        sb.append("【规则】\n");
+        sb.append("1. 常识/知识类问题直接回答；实时/时效类（天气、时间、位置、新闻、价格等）必须调用工具，用工具返回的数据回答，不要用训练数据猜测。\n");
+        sb.append("2. 工具返回即事实，直接采纳；总结时只提取与问题相关的关键信息，不要罗列原始数据字段。\n");
+        sb.append("3. 用户没给城市时先调 location 定位，再用坐标查天气；查具体时刻调 time_date(action=now)。\n");
+        sb.append("4. 需要其他能力（搜索、天气、记忆、计算、画图、文件、表格、网页、朗读、语音、图表、视频、题库等）时，先用 workspace/file_reader 读工作区《核心工具速查.md》查看工具速查，再按返回的工具名和参数调用；不确定参数格式时用 tool_registry(action=get, tool=工具名) 查看该工具完整参数。不要猜测工具名或参数。\n");
+        sb.append("5. 用中文简洁回答，先结论后细节。\n");
+        sb.append("6. 工具失败时按提示修正参数重试一次，仍失败则换工具或直接告知用户，不要重复相同调用。\n\n");
         return sb.toString();
     }
 

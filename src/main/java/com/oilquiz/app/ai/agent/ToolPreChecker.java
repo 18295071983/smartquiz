@@ -315,66 +315,6 @@ public class ToolPreChecker {
                 // location工具本身不需要额外参数
                 break;
 
-            case "app_toolkit":
-                // 聚合工具包：根据 action 预判所需参数
-                if (action == null) break;
-                switch (action) {
-                    case "weather_current":
-                    case "weather_forecast":
-                    case "weather_hourly":
-                    case "weather_air":
-                        required.add("city");
-                        required.add("lat");
-                        required.add("lon");
-                        break;
-                    case "ocr_recognize":
-                    case "image_save":
-                    case "image_scale":
-                    case "image_crop":
-                    case "image_rotate":
-                    case "image_label_recognize":
-                    case "object_detect":
-                        required.add("image_path");
-                        break;
-                    case "file_parse_text":
-                    case "file_parse_csv":
-                    case "file_parse_json":
-                    case "file_read_lines":
-                    case "file_get_type":
-                        required.add("file_path");
-                        break;
-                    case "web_parse_html":
-                    case "web_get_title":
-                    case "web_get_links":
-                    case "web_get_images":
-                    case "web_get_text":
-                        required.add("url");
-                        break;
-                    case "calculate":
-                        required.add("expression");
-                        break;
-                    case "get_current_location":
-                    case "locate":
-                        // 自动获取，不强制用户填
-                        break;
-                    case "import_questions":
-                        required.add("file_path");
-                        break;
-                    case "export_questions":
-                        // 默认路径，非必须
-                        break;
-                    case "search_questions":
-                        required.add("keyword");
-                        break;
-                    case "generate_questions":
-                        required.add("topic");
-                        break;
-                    case "get_study_plan":
-                        // 基于用户情况，可选
-                        break;
-                }
-                break;
-
             case "file_reader":
                 required.add("file_path");
                 if ("read_lines".equals(action)) {

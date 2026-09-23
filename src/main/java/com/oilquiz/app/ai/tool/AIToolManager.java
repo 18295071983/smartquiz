@@ -30,7 +30,6 @@ import com.oilquiz.app.ai.tool.FileReaderTool;
 import com.oilquiz.app.ai.tool.FileAnalyzerTool;
 import com.oilquiz.app.ai.tool.FileGeneratorTool;
 import com.oilquiz.app.ai.tool.PermissionManagerTool;
-import com.oilquiz.app.ai.tool.AppToolkitAITool;
 import com.oilquiz.app.ai.python.PythonExecuteTool;
 import com.oilquiz.app.ai.python.PythonCalculateTool;
 import com.oilquiz.app.ai.python.PythonDataAnalysisTool;
@@ -222,7 +221,6 @@ public class AIToolManager {
         registerToolFactory("app_operation", AppOperationTool.class, AppOperationTool::new);
         registerToolFactory("location", LocationTool.class, LocationTool::new);
         registerToolFactory("ai_weather", AIWeatherManager.class, AIWeatherManager::new);
-        registerToolFactory("app_toolkit", AppToolkitAITool.class, AppToolkitAITool::new);
         registerToolFactory("create_dynamic_tool", DynamicToolManagerTool.class, DynamicToolManagerTool::new);
         registerToolFactory("dashscope_media", DashscopeMediaTool.class, DashscopeMediaTool::new);
         registerToolFactory("ui_component", SystemUIComponentTool.class, SystemUIComponentTool::new);
@@ -1476,26 +1474,6 @@ public class AIToolManager {
                     .addParameter("permission", "string", "权限名称（如camera/位置/录音/存储/拨打电话/发送短信等）", false)
                     .addParameter("permissions", "array", "权限列表（用于check_all操作）", false)
                     .category("system")
-                    .build();
-            case "app_toolkit":
-                return ToolDefinition.builder("app_toolkit", "应用工具集，聚合天气/计算/OCR/图像/网页等能力，通过action指定具体操作。文件读取/解析请用 file_reader 工具")
-                    .addParameter("action", "string",
-                        "操作类型(必填)。可选值:\n" +
-                        "  天气: weather_current, weather_forecast, weather_hourly, weather_air, weather_alerts, weather_indices, weather_all\n" +
-                        "  计算: calculate\n" +
-                        "  OCR: ocr_recognize(在线视觉模型,高精度), ocr_recognize_pdf, ocr_set_language, ocr_get_language\n" +
-                        "  图像识别: image_label_recognize, object_detect\n" +
-                        "  图像处理: image_save, image_scale, image_crop, image_rotate, image_generate_color, image_generate_text\n" +
-                        "  网页解析: web_parse_html, web_get_title, web_get_links, web_get_images, web_get_text\n" +
-                        "  其他: get_info, get_guide", true)
-                    .addParameter("image_path", "string", "图片路径(OCR/图像操作使用)", false)
-                    .addParameter("expression", "string", "数学表达式(calculate操作使用)", false)
-                    .addParameter("url", "string", "网页URL(网页解析操作使用)", false)
-                    .addParameter("language", "string", "OCR语言(可选)", false)
-                    .addParameter("width", "integer", "宽度(图像处理使用)", false)
-                    .addParameter("height", "integer", "高度(图像处理使用)", false)
-                    .addParameter("city", "string", "城市名(天气操作使用)", false)
-                    .category("app")
                     .build();
             case "ocr_recognize":
                 return ToolDefinition.builder("ocr_recognize", "图片理解工具：OCR文字识别 + 视觉问答（看图理解）。识别图片/PDF文字，或看图回答用户问题")

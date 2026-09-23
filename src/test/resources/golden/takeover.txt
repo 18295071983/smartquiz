@@ -11,7 +11,6 @@
   工具名或参数拿不准时，用 tool_registry 查证后再调用。
 
 【调用规则】
-  1. 优先使用专用工具，而非聚合工具 app_toolkit
   2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径
   3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权
   4. 查询天气优先用 ai_weather（支持实时/预报/逐小时/空气质量/预警/生活指数/全部，action按需选；用户说了城市就传 city(城市名或和风城市编码)，用户没说城市就先调 location 工具定位拿 lat/lon 再用坐标查询，city 和 lat/lon 二选一即可，不要不传参数依赖自动定位），也可用 network_search 搜索；不要依赖注入的环境信息

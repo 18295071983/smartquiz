@@ -465,7 +465,6 @@ public class SmartIntentRecognizer {
         toolNameToIntent.put("web_page_reader", Intent.WEB);
         toolNameToIntent.put("read_webpage", Intent.WEB);
         toolNameToIntent.put("read_url", Intent.WEB);
-        toolNameToIntent.put("app_toolkit", Intent.OCR);
         toolNameToIntent.put("smart_research", Intent.SEARCH);
         toolNameToIntent.put("system_resource", Intent.SEARCH);
         toolNameToIntent.put("file_reader", Intent.FILE);
@@ -1178,8 +1177,7 @@ public class SmartIntentRecognizer {
             case QUIZ: return "search_questions";
             case CALCULATOR: return "calculator";
             case DATABASE: return "database";
-            case OCR: return "app_toolkit";
-            case FILE: return "app_toolkit";
+            case FILE: return "file_reader";
             case WEB: return "read_webpage";
             case TIME: return "system_resource";
             case LOCATION: return "system_resource";

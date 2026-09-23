@@ -248,7 +248,6 @@ public class OnlineToolManager {
         map.put("time", java.util.Arrays.asList("time_date"));
         map.put("app", java.util.Arrays.asList("app_operation"));
         map.put("system", java.util.Arrays.asList("system_resource"));
-        map.put("phone", java.util.Arrays.asList("app_toolkit"));
         map.put("study_plan", java.util.Arrays.asList("file_generator"));
         map.put("history", java.util.Arrays.asList("chat_history")); // 对话历史（跨会话上下文）
         map.put("knowledge", java.util.Arrays.asList("knowledge_base"));
@@ -366,7 +365,7 @@ public class OnlineToolManager {
                     include.add("system_resource");
                 }
                 if (containsAny(msg, "打电话", "拨号", "联系人", "发短信", "通讯录", "call", "sms", "contact")) {
-                    include.add("app_toolkit");
+                    include.add("system_resource");
                 }
                 if (containsAny(msg, "学习计划", "备考", "复习计划", "学习安排", "考试计划")) {
                     include.add("file_generator");

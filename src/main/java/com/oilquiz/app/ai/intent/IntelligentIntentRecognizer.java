@@ -242,14 +242,12 @@ public class IntelligentIntentRecognizer {
      */
     public static String getRecommendedTool(PrimaryIntent intent) {
         switch (intent) {
-            case OCR:
-                return "app_toolkit";
             case IMAGE:
-                return "app_toolkit";
+                return null;
             case FILE:
                 return "file_reader";
             case WEB:
-                return "app_toolkit";
+                return "read_webpage";
             case WEATHER:
                 return "ai_weather";
             case SEARCH:

@@ -2149,40 +2149,7 @@ public class AIChatActivity extends BaseActivity {
                 // 注入已自动获取的上下文（不覆盖用户已填值）
                 injectAutoContext(execParams);
 
-                // app_toolkit 路由：
-                // - 更多工具分类（more_tools）：tool 即独立工具名，切换到该工具执行，移除分类/工具参数；
-                //   其中 unit_converter 的预设换算对 conv_pair 拆分为 from/to；
-                // - 计算/获取信息等无 action 子步骤的分类：直接用分类名作为 action。
-                final String finalToolName;
-                if ("app_toolkit".equals(toolName)) {
-                    String cat = execParams.containsKey("category")
-                            ? String.valueOf(execParams.get("category")) : "";
-                    if ("more_tools".equals(cat) && execParams.containsKey("tool")) {
-                        finalToolName = String.valueOf(execParams.get("tool"));
-                        execParams.remove("category");
-                        execParams.remove("tool");
-                        // 单位换算：预设换算对 "m|km" → from=m, to=km
-                        if ("unit_converter".equals(finalToolName) && execParams.containsKey("conv_pair")) {
-                            String pair = String.valueOf(execParams.get("conv_pair"));
-                            execParams.remove("conv_pair");
-                            String[] parts = pair.split("\\|");
-                            if (parts.length == 2 && !parts[0].isEmpty() && !parts[1].isEmpty()) {
-                                execParams.put("from", parts[0]);
-                                execParams.put("to", parts[1]);
-                            }
-                        }
-                    } else {
-                        if (execParams.containsKey("category") && !execParams.containsKey("action")) {
-                            if ("calculate".equals(cat) || "get_info".equals(cat)) {
-                                execParams.put("action", cat);
-                            }
-                        }
-                        finalToolName = toolName;
-                    }
-                } else {
-                    finalToolName = toolName;
-                }
-
+                final String finalToolName = toolName;
                 // 执行前检查缺失的环境上下文
                 List<String> missing = ToolContextProvider.getMissingContext(flow, execParams);
                 if (missing.contains("location") && "ai_weather".equals(toolName)) {

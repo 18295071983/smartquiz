@@ -120,7 +120,6 @@ public class OnlineToolGuide {
         // 4. 应用定制规则（精简版，2026-09-23：与 reasoning/knowledge_strategy 去重；
         //    工具 action 枚举见 API tools 参数/工具定义，不在此重复）
         sb.append("【调用规则】\n");
-        sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit\n");
         sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
         sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
         sb.append("  4. 按需选参数：多数工具支持多种操作类型（action）——先按用户需求选最匹配的 action 再填对应参数，完整 action/参数见 API tools 定义，不确定用 tool_registry(action=get) 查看；用户已给的参数直接照用先调用，以工具返回为准\n");

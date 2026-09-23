@@ -58,12 +58,10 @@ public class OnlineToolChain {
         // 回退链（从 UnifiedAgentEngine.TOOL_FALLBACK_MAP 迁移）
         addFallbackChainInternal("ai_weather", "location", "network_search");
         addFallbackChainInternal("network_search", "smart_research", "webpage_reader");
-        addFallbackChainInternal("file_reader", "app_toolkit");
         addFallbackChainInternal("python_calculate", "python_execute");
         addFallbackChainInternal("location", "network_search");
         addFallbackChainInternal("smart_research", "network_search", "webpage_reader");
         addFallbackChainInternal("database", "network_search");
-        addFallbackChainInternal("app_toolkit", "file_reader", "network_search");
 
         // 依赖链：缺少必填参数时可先调用的前置工具
         addChainInternal(ChainType.DEPENDENCY, "ai_weather", "location"); // ai_weather 缺 city 时可先定位

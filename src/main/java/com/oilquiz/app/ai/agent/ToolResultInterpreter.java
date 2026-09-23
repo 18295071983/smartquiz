@@ -363,7 +363,6 @@ public class ToolResultInterpreter {
             }
             switch (toolName) {
                 case "ai_weather":
-                case "app_toolkit":
                     return weatherTemplate(result, toolName);
                 case "network_search":
                     return networkSearchTemplate(result);
@@ -421,7 +420,7 @@ public class ToolResultInterpreter {
             formattedResult = strDeep(outer, "formatted_result");
         }
 
-        // 真正的天气数据可能在 data 子对象里（app_toolkit 场景）
+        // 真正的天气数据可能在 data 子对象里
         JsonObject w = outer;
         if (outer.has("data") && outer.get("data").isJsonObject()) {
             JsonObject d = outer.getAsJsonObject("data");

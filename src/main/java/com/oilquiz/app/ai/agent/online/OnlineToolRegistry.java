@@ -114,7 +114,6 @@ public class OnlineToolRegistry {
         if (name.contains("database")) return "database";
         if (name.contains("permission")) return "system";
         if (name.contains("system_resource") || name.contains("app_operation")) return "system";
-        if (name.contains("app_toolkit")) return "toolkit";
         if (name.contains("create_tool") || name.contains("dynamic_tool")) return "meta";
         return "general";
     }

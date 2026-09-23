@@ -76,7 +76,11 @@ bool AgentKvCache::truncate(llama_memory_t mem) {
         AGENT_KV_LOGI("PARTIAL truncated at %d", matchedLen_);
         return true;
     }
-    AGENT_KV_LOGE("PARTIAL seq_rm failed");
+    // 混合记忆（attention+recurrent hybrid）的 seq_rm 只支持尾部 n_rs_seq 窗口内回滚：
+    // 深截断（截断距离 = cachedNPast - matchedLen）超出回滚窗口必然失败 → 回退全量 prefill。
+    // 保留失败详情便于诊断（2026-09-23 真机实测：每次工具轮后 PARTIAL 均在此失败，20s/轮）。
+    AGENT_KV_LOGE("PARTIAL seq_rm failed (rollback=%d from cachedNPast=%d); falling back to full eval",
+                  cachedNPast_ - matchedLen_, cachedNPast_);
     return false;
 }
 

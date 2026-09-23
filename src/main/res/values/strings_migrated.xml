@@ -290,7 +290,7 @@
     <string name="h_447064b9">- 若某附件解析失败，向用户说明具体失败原因（见错误码），并给出建议\n</string>
     <string name="h_30890ceb">- 若内容被截断且需要完整内容，可用 file_read_lines 工具按行读取本地路径\n\n</string>
     <string name="h_b07b6bc9">=== 备用工具（仅在内容截断或需重试时使用） ===\n</string>
-    <string name="h_db5abb31">调用格式: &lt;|tool_call_begin|&gt;app_toolkit|{\&quot;action\&quot;: \&quot;名称\&quot;, ...}&lt;|tool_call_end|&gt;\n</string>
+    <string name="h_db5abb31">调用格式: &lt;|tool_call_begin|&gt;ai_weather|{\&quot;city\&quot;: \&quot;银川\&quot;}&lt;|tool_call_end|&gt;\n</string>
     <string name="h_cf88fe4b">请基于附件内容回答用户问题。</string>
     <string name="h_926e80d4">开始分析。</string>
     <string name="h_a234ecf9">=== 文件: </string>

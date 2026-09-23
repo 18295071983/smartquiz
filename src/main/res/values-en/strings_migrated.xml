@@ -290,7 +290,7 @@
     <string name="h_447064b9">- If an attachment failed to parse, explain the specific reason (see error code) and give suggestions\n</string>
     <string name="h_30890ceb">- If content was truncated and the full content is needed, use file_read_lines to read the local path\n\n</string>
     <string name="h_b07b6bc9">=== Fallback tools (only when content is truncated or retry needed) ===\n</string>
-    <string name="h_db5abb31">Call format: &lt;|tool_call_begin|&gt;app_toolkit|{\&quot;action\&quot;: \&quot;name\&quot;, ...}&lt;|tool_call_end|&gt;\n</string>
+    <string name="h_db5abb31">Call format: &lt;|tool_call_begin|&gt;ai_weather|{\&quot;city\&quot;: \&quot;Yinchuan\&quot;}&lt;|tool_call_end|&gt;\n</string>
     <string name="h_cf88fe4b">Answer the user based on the attachment content.</string>
     <string name="h_926e80d4">Start analysis.</string>
     <string name="h_a234ecf9">=== File: </string>

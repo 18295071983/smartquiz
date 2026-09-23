@@ -108,8 +108,7 @@ public class AIToolUsageGuide {
 
         // 3. 调用规则
         sb.append("【三、调用规则】\n");
-        sb.append("  1. 优先使用专用工具，而非聚合工具 app_toolkit。天气优先 ai_weather（结构化完整；查当前位置实时天气用经纬度最准——直接用 location 定位或环境上下文的 lat/lon；查具体城市用 city，可填城市名或和风城市编码），也可用 network_search 搜索；由你按情况判断。\n");
-        sb.append("  2. app_toolkit 仅在需要 OCR/图像处理/文件解析/网页解析等聚合能力时使用，通过 action 指定子操作。\n");
+        sb.append("  1. 天气优先 ai_weather（结构化完整；查当前位置实时天气用经纬度最准——直接用 location 定位或环境上下文的 lat/lon；查具体城市用 city，可填城市名或和风城市编码），也可用 network_search 搜索；由你按情况判断。\n");
         sb.append("  3. 数学计算可用 calculator 或 python_calculate，复杂数据分析用 python_analyze_data，任意 Python 代码用 python_execute，由你按场景选择。\n");
         sb.append("  4. 文件路径必须为绝对路径（如 /storage/emulated/0/...），否则工具会返回文件不存在。\n");
         sb.append("  5. 涉及权限的操作（定位/权限管理）会自动触发权限请求，无需预先调用 permission_manager。\n");
@@ -188,7 +187,6 @@ public class AIToolUsageGuide {
         guide.append("│ system_resource  │ 打开应用/URL、发短信、拨打电话等系统操作 │\n");
         guide.append("│ app_operation    │ 应用内页面跳转（用户/题库/答题/计划等）  │\n");
         guide.append("│ permission_manager│ 权限检查/请求/状态管理                 │\n");
-        guide.append("│ app_toolkit      │ 聚合工具：OCR/图像/网页解析/天气/计算    │\n");
         guide.append("│ create_dynamic_tool│ 动态创建/管理/删除AI工具              │\n");
         guide.append("│ chat_history     │ 对话历史(跨会话读最近消息/关键词搜索)     │\n");
         guide.append("│ ai_create_tool   │ 用AI自动生成新工具                    │\n");

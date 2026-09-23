@@ -1,0 +1,108 @@
+<html style="margin:0;padding:0;">
+<title>本地推理速度诊断（示意）</title>
+<div style="width:100%;box-sizing:border-box;background:#f8fafc;font-family:-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;padding:16px;color:#0f172a;">
+  <div style="font-size:18px;font-weight:700;color:#0f172a;">本地推理速度诊断 · 答题宝 llama.cpp（示意）</div>
+  <div style="font-size:13px;color:#64748b;margin-top:2px;">代码审查 2026-09-23 · 五阶段链路 × 每阶段慢的信号 × 判定表</div>
+  <div style="margin-top:10px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:14px;line-height:1.55;">
+    <b style="color:#92400e;">总判断：</b>代码已内置 GPU 全量层、FA C8、KV 增量、batch 512 等优化。真机上"慢"不是整体没优化，而是<b>某个环节没吃到优化</b>——最可疑的三个降级点：<b style="color:#dc2626;">① 可用内存不足 → CPU-only/层数被砍</b>（代码注释实测 8~11 t/s 或更慢）；<b style="color:#dc2626;">② KV 每轮 FULL 全量重算</b>（首字随历史线性变久）；<b style="color:#dc2626;">③ FA C8 未触发</b>（长序列 decode ≈1s/tok 级）。
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;align-items:stretch;">
+
+    <div style="flex:1 1 170px;min-width:170px;background:#ffffff;border:1px solid #e2e8f0;border-top:4px solid #64748b;border-radius:8px;padding:10px;">
+      <div style="font-size:14px;font-weight:700;">1 · 提示词组装</div>
+      <div style="font-size:12px;color:#64748b;margin:2px 0 6px;">Java AgentLoopEngine / chatJson</div>
+      <div style="font-size:13px;line-height:1.5;">
+        因子：历史长度、工具 JSON 字节稳定性、预算 safeRef−1024。<br>
+        <span style="color:#dc2626;">慢信号：历史越长首字越久；工具 JSON/环境块每轮变化 → KV 前缀失配。</span>
+      </div>
+    </div>
+
+    <div style="align-self:center;font-size:18px;color:#94a3b8;">→</div>
+
+    <div style="flex:1 1 170px;min-width:170px;background:#ffffff;border:1px solid #e2e8f0;border-top:4px solid #d97706;border-radius:8px;padding:10px;">
+      <div style="font-size:14px;font-weight:700;">2 · KV 增量判定</div>
+      <div style="font-size:12px;color:#64748b;margin:2px 0 6px;">C++ AgentKvCache.plan</div>
+      <div style="font-size:13px;line-height:1.6;">
+        <span style="color:#16a34a;">INCREMENTAL</span> 只 eval 增量（快）<br>
+        <span style="color:#d97706;">PARTIAL</span> 截断+增量（中）<br>
+        <span style="color:#dc2626;">FULL</span> 全量重算（慢）<br>
+        <span style="color:#dc2626;">慢信号：KV-STATS 日志 full 占比高（first_call / no_prefix_match / seq_pos_mismatch）。</span>
+      </div>
+    </div>
+
+    <div style="align-self:center;font-size:18px;color:#94a3b8;">→</div>
+
+    <div style="flex:1 1 170px;min-width:170px;background:#ffffff;border:1px solid #e2e8f0;border-top:4px solid #3b82f6;border-radius:8px;padding:10px;">
+      <div style="font-size:14px;font-weight:700;">3 · Prefill（首字）</div>
+      <div style="font-size:12px;color:#64748b;margin:2px 0 6px;">GPU batch≤512 / 分块 decode</div>
+      <div style="font-size:13px;line-height:1.5;">
+        因子：batch、GPU 层数、FA、prompt 长度。<br>
+        <span style="color:#dc2626;">慢信号：[PERF] First token 日志达数秒（多为 KV 全量 prefill）。</span>
+      </div>
+    </div>
+
+    <div style="align-self:center;font-size:18px;color:#94a3b8;">→</div>
+
+    <div style="flex:1 1 170px;min-width:170px;background:#ffffff;border:1px solid #e2e8f0;border-top:4px solid #8b5cf6;border-radius:8px;padding:10px;">
+      <div style="font-size:14px;font-weight:700;">4 · Decode（生成）</div>
+      <div style="font-size:12px;color:#64748b;margin:2px 0 6px;">逐 token 自回归</div>
+      <div style="font-size:13px;line-height:1.5;">
+        因子：GPU 层数（auto≈36）、CPU 线程 3~4、FA C8（需 n_kv≥2048）。<br>
+        <span style="color:#dc2626;">慢信号：FA 未触发 ≈1s/tok；层数不足 → CPU-GPU 交替实测 8~11 t/s。</span>
+      </div>
+    </div>
+
+    <div style="align-self:center;font-size:18px;color:#94a3b8;">→</div>
+
+    <div style="flex:1 1 170px;min-width:170px;background:#ffffff;border:1px solid #e2e8f0;border-top:4px solid #16a34a;border-radius:8px;padding:10px;">
+      <div style="font-size:14px;font-weight:700;">5 · 流式回 UI</div>
+      <div style="font-size:12px;color:#64748b;margin:2px 0 6px;">JNI token → Java → 渲染</div>
+      <div style="font-size:13px;line-height:1.5;">
+        因子：逐 token JNI 回调、UI 渲染。<br>
+        <span style="color:#16a34a;">通常不是瓶颈；仅当 token 已到但界面卡才查此段。</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:10px;padding:8px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:13px;line-height:1.6;color:#991b1b;">
+    <b>已知自动降级分支（4B 级模型 >1800MB，AIService 初始化时按可用内存执行）：</b>
+    可用内存 &lt;3200MB → <b>强制 CPU-only + 上下文≤6144</b>（注释明示"慢但正常"）；&lt;2500MB → GPU 层数限 30；&lt;1500MB → 限 22；&lt;800MB → 限 14。
+    层数不足时每 token 在 CPU/GPU 间交替，代码实测仅 8~11 t/s。
+  </div>
+
+  <div style="margin-top:14px;font-size:15px;font-weight:700;">判定表：现象 → 看什么 → 修什么</div>
+  <div style="margin-top:6px;overflow-x:auto;">
+  <table style="width:100%;border-collapse:collapse;font-size:14px;background:#ffffff;">
+    <tr style="background:#f1f5f9;">
+      <th style="border:1px solid #e2e8f0;padding:8px;text-align:left;width:26%;">现象</th>
+      <th style="border:1px solid #e2e8f0;padding:8px;text-align:left;width:30%;">看什么（日志/面板）</th>
+      <th style="border:1px solid #e2e8f0;padding:8px;text-align:left;">对策</th>
+    </tr>
+    <tr>
+      <td style="border:1px solid #e2e8f0;padding:8px;">多轮对话越聊越慢（每轮首字越来越久）</td>
+      <td style="border:1px solid #e2e8f0;padding:8px;">AGENT_KV "KV-STATS"：plans / inc / part / full 计数，full 占比高即中招</td>
+      <td style="border:1px solid #e2e8f0;padding:8px;">修前缀抖动源：工具 JSON 字节稳定、历史组装确定性、去掉动态 system 块</td>
+    </tr>
+    <tr style="background:#fafafa;">
+      <td style="border:1px solid #e2e8f0;padding:8px;">每轮开头干等很久才出第一个字</td>
+      <td style="border:1px solid #e2e8f0;padding:8px;">"[PERF] First token in Xs"（gen loop 内 + entry→first 两段计时）</td>
+      <td style="border:1px solid #e2e8f0;padding:8px;">prefill 提速：GPU 层数全量、batch 512、确认 FA C8 生效（n_kv≥2048）</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #e2e8f0;padding:8px;">出字后一个字一个字往外挤（t/s 很低）</td>
+      <td style="border:1px solid #e2e8f0;padding:8px;">性能监控面板 TPS / getDecodeSpeed；初始化日志 GPU 层数与 backend</td>
+      <td style="border:1px solid #e2e8f0;padding:8px;">查 FA C8 是否触发；CPU 线程 3~4；层数被内存降级时释放内存或换小模型</td>
+    </tr>
+    <tr style="background:#fafafa;">
+      <td style="border:1px solid #e2e8f0;padding:8px;">深度思考模式特别久</td>
+      <td style="border:1px solid #e2e8f0;padding:8px;">思考 token 量（reasoning_tokens / 思考区累积）</td>
+      <td style="border:1px solid #e2e8f0;padding:8px;">属输出量问题：关思考 / 换 0.8B~1.5B 档 / 上限收敛</td>
+    </tr>
+  </table>
+  </div>
+
+  <div style="margin-top:10px;font-size:13px;color:#64748b;">图例：<span style="color:#16a34a;">● 快/正常</span> <span style="color:#d97706;">● 中间态</span> <span style="color:#dc2626;">● 慢/问题</span> · 本图为代码审查示意，非实测数据</div>
+</div>
+</html>

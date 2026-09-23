@@ -22,7 +22,7 @@ public class QuickToolChipModule {
 
     /** 宿主回调：chip 点击后的动作路由 */
     public interface Callback {
-        /** 弹出工具引导（toolId 为工具注册名，如 ai_weather / app_toolkit） */
+        /** 弹出工具引导（toolId 为工具注册名，如 ai_weather） */
         void onToolGuide(String toolId);
 
         /** 弹出聚合方案引导（flowId 如 go_out / study / research） */
@@ -49,7 +49,6 @@ public class QuickToolChipModule {
      * @param chipFile     文件   → file_reader
      * @param chipLocation 定位   → location
      * @param chipApp      应用   → app_operation
-     * @param chipCalc     聚合工具包 → app_toolkit
      * @param chipClear    清空对话
      */
     public void bindStaticToolChips(Chip chipWeather, Chip chipSearch, Chip chipDatabase,
@@ -61,7 +60,6 @@ public class QuickToolChipModule {
         bindToolChip(chipFile, "file_reader");
         bindToolChip(chipLocation, "location");
         bindToolChip(chipApp, "app_operation");
-        bindToolChip(chipCalc, "app_toolkit");   // 聚合工具包
         if (chipClear != null) {
             chipClear.setOnClickListener(v -> callback.onClearChat());
         }

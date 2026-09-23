@@ -405,7 +405,8 @@ public class AgentWorkspace {
         try {
             writeGuideFile("工具创建指南.md", buildToolCreationGuide());
             writeGuideFile("使用速查表.md", buildUsageCheatsheet());
-            AILogger.i(TAG, "工作区指南文件已生成: files/工具创建指南.md, files/使用速查表.md");
+            writeGuideFile("核心工具速查.md", buildCoreToolsCheatsheet());
+            AILogger.i(TAG, "工作区指南文件已生成: files/工具创建指南.md, files/使用速查表.md, files/核心工具速查.md");
         } catch (Throwable t) {
             AILogger.w(TAG, "生成工作区指南文件失败: " + t.getMessage());
         }
@@ -609,7 +610,6 @@ public class AgentWorkspace {
                 + "   ai_create_tool   AI自动生成新工具(支持Python/JS执行体)\n"
                 + "   tool_registry    工具注册表(列出/搜索/取schema)\n"
                 + "   permission_manager 权限检查/请求\n"
-                + "   app_toolkit      聚合工具(OCR/图像/解析/天气/计算)\n"
                 + "   calculator       数学计算(四则/幂/括号)\n"
                 + "   time_date        时间日期(当前时间/时区/时间戳互转)\n"
                 + "   unit_converter   单位换算\n"
@@ -630,6 +630,63 @@ public class AgentWorkspace {
                 + "       get_component_result, close_component\n"
                 + "   便捷函数: ask_input / ask_choice / show_progress\n"
                 + "================================================================\n";
+    }
+
+    /** 核心工具速查（独立文件，供 Agent 按需读取；约 700 token，避免读全表占满上下文） */
+    private String buildCoreToolsCheatsheet() {
+        return "核心工具速查（答题宝 AI Agent 工作区）\n"
+                + "================================================================\n"
+                + "   ai_weather       天气(当前/预报/空气质量/预警/生活指数)\n"
+                + "   network_search   网络搜索/读网页/信息提取/智能摘要\n"
+                + "   smart_research   智能研究(搜索→阅读→摘要全流程)\n"
+                + "   webpage_reader   网页阅读/提取/多页抓取\n"
+                + "   python_calculate 数学表达式计算\n"
+                + "   python_execute   执行Python代码(内置android_ui组件能力)\n"
+                + "   python_analyze_data 数据分析(统计/清洗/转换)\n"
+                + "   python_web_reader 抓网页/API(requests+bs4)\n"
+                + "   python_file_ops  Python文件读写/解析\n"
+                + "   python_chart     Python绘图(Pillow/matplotlib)生成PNG\n"
+                + "   js_execute       JS代码执行(WebView内核:验证/调试/JSON处理/正则)\n"
+                + "   pip_install      运行时安装纯Python包(pytz/tqdm等,需重启python_execute生效)\n"
+                + "   screen_capture   截屏(MediaProjection授权→存files/screenshots/)\n"
+                + "   web_render       网页渲染浏览(DOM文本+可选截图,支持SPA/JS页面)\n"
+                + "   location         定位/当前位置/城市\n"
+                + "   file_reader      读取/解析Excel-CSV-JSON-XML/列目录\n"
+                + "   file_analyzer    文件内容分析\n"
+                + "   file_generator   生成文本/JSON/配置/Markdown文件(默认存工作区files/)\n"
+                + "   database         题库/用户/分数数据库操作\n"
+                + "   excel_tool       Excel查询/修改\n"
+                + "   system_resource  打开URL/应用/短信/电话/系统操作\n"
+                + "   app_operation    应用内页面跳转\n"
+                + "   image_gen        AI生成图片\n"
+                + "   dashscope_media  百炼文生图/文生视频(通义万相)\n"
+                + "   speech_synthesis 语音合成(TTS,可带朗读组件)\n"
+                + "   voice_input      语音识别(录音→文字)\n"
+                + "   ocr_recognize    图片文字识别/看图理解\n"
+                + "   screen_watch     盯梢(监控屏幕,等目标出现/消失或画面变化)\n"
+                + "   memory           长期记忆(保存/回忆/删除用户偏好)\n"
+                + "   chat_history     对话历史(跨会话读最近消息/关键词搜索,回忆之前创建的工具/组件)\n"
+                + "   workspace        工作区文件(列目录/读取/生成/删除)\n"
+                + "   ui_component     创建UI组件(原生交互/内置卡片/自定义layout)\n"
+                + "   ui_component_plugin 动态插件(注册可复用组件类型)\n"
+                + "   create_dynamic_tool 动态创建/管理AI工具(Python/JS/DSL执行体)\n"
+                + "   ai_create_tool   AI自动生成新工具(支持Python/JS执行体)\n"
+                + "   tool_registry    工具注册表(列出/搜索/取schema)\n"
+                + "   permission_manager 权限检查/请求\n"
+                + "   calculator       数学计算(四则/幂/括号)\n"
+                + "   time_date        时间日期(当前时间/时区/时间戳互转)\n"
+                + "   unit_converter   单位换算\n"
+                + "   text_tools       文本处理(转换/清洗/格式)\n"
+                + "   reminder         提醒(定时/到时通知)\n"
+                + "   task             任务管理(创建/更新/查询/进度)\n"
+                + "   system_connect   系统级连接与设备能力\n"
+                + "   knowledge_base   知识库(全文检索/添加/导入JSON)\n"
+                + "   video_to_player  视频下载转播放(解析视频源/下载到工作区)\n"
+                + "   export_apk       APK导出(把HTML打包成可安装安卓应用；规则见files/HTML_DESIGN_RULES.md)\n"
+                + "   control_lookup   控件查询(查找可用UI控件/组件)\n"
+                + "   layout_editor    动态画布编辑(set/add/patch/get 同一component_id)\n"
+                + "   get_models_profile   模型配置查询\n"
+                + "   update_models_profile 模型配置更新\n\n";
     }
 
     /**

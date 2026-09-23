@@ -305,7 +305,6 @@ public class AgentService {
         registerToolSchema("dashscope_media", "百炼DashScope文生图/文生视频（通义万相）", "action(image文生图/video文生视频/query按task_id查询,默认image), prompt(画面/视频描述,必填), model(模型:image=wan2.2-t2i-flash默认/plus,video=wan2.2-t2v-plus默认), size(尺寸:image默认1024*1024;video白名单1080*1920/1920*1080/1440*1440/1632*1248/1248*1632/480*832/832*480/624*624,默认832*480), duration(视频秒数,默认5), task_id(任务ID,query用), api_key(百炼Key,可选默认取当前在线模型配置)");
         registerToolSchema("ui_component", "创建UI组件：系统原生(dialog/progress/input/choice/multi_choice/date/time/snackbar/list/notification/custom动态表单/file_picker文件选择/image_picker选图/contact_picker联系人/rating评分/color取色/otp验证码/number数字/marquee跑马灯/media_task任务监控)或内置卡片(chart/info_card/table_card等)。参数可放顶层或props内(等效,自动合并)。自定义UI可传layout树(顶层/render/props等效)。握手:create→component_id→update/close→get_result取用户操作", "action(create/update/close/get_result,必填), component_type(组件类型,create用), component_id(组件ID), title(标题), message(内容), dialog_type(info/confirm/warning), options(选项列表), default_value(默认值), input_hint(输入提示), items(列表项), url(网址), progress(进度值,update用), max或max_value(进度最大值), layout(自定义控件树), props(内置组件参数;custom的fields;otp的length;number的min/max;marquee的text/speed;media_task的task_id/type), fields(custom动态表单字段定义数组,如[{\"key\":\"name\",\"label\":\"姓名\",\"type\":\"text\",\"required\":true}],字段类型:text/number/password/multiline/select/radio/checkbox/switch/slider/date), wait_seconds(等待秒数)");
         registerToolSchema("tool_registry", "工具注册表(MCP式工具发现)：列出可用工具(list)、按关键词搜索工具(search)、获取单个工具完整参数schema(get)。模型不确定有哪些工具或需要某工具详细参数时调用", "action(list/search/get,必填), keyword(搜索关键词,search用), tool(工具名,get用)");
-        registerToolSchema("app_toolkit", "应用工具集，提供多种实用功能", "action(操作类型: weather_current/weather_forecast/calculate/ocr_recognize等,必填)");
         registerToolSchema("ocr_recognize", "图片理解工具：OCR文字识别 + 视觉问答（看图理解）。识别图片/PDF文字，或看图回答用户问题", "action(操作类型: ocr_recognize识别图片文字/ocr_recognize_pdf识别PDF文字/image_understand图片理解视觉问答/ocr_set_language设置语言/ocr_get_language获取语言,默认ocr_recognize), image_path(图片路径:绝对路径或content://或file://URI,ocr_recognize/image_understand用), pdf_path(PDF路径:绝对路径或content://或file://URI,ocr_recognize_pdf用), question(关于图片的问题,image_understand用), language(识别语言:auto/chinese/english/japanese/korean,可选)");
         registerToolSchema("screen_watch", "盯梢工具（哨兵）：持续监控手机屏幕，直到指定内容出现/消失或画面发生变化才返回。target=要等待的目标文字(可选,如:下载完成/支付成功/加载中)，watch_for=appear(默认,出现即报)/disappear(消失即报)；不填target则检测画面变化。action=start(默认)开始盯梢/stop停止/status状态；seconds=总时长(默认60,最大600)、interval=轮询间隔(默认3,最小2)。首次使用弹『共享屏幕』授权框需用户点『立即开始』(工具会等待用户操作)。命中或画面变化时自动OCR关键帧并直接返回画面文字内容，无需再调OCR", "action(操作类型: start/stop/status,默认start), target(目标文字,可选,如:下载完成), watch_for(appear出现即报默认/disappear消失即报), seconds(总时长秒,默认60,最大600), interval(轮询间隔秒,默认3,最小2)");
         registerToolSchema("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：show_toast提示条；系统UI组件API：create_component('dialog'/'progress',...)创建系统对话框/进度条→component_id，update_component更新进度，get_component_result阻塞获取用户点击，close_component关闭。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab；绘制图表用matplotlib(先设中文字体)或Pillow", "code(Python代码,可选), task(任务描述,可选), context(上下文数据,可选)");
@@ -1237,55 +1236,6 @@ public class AgentService {
     private Map<String, Object> transformToolParams(String originalName, String realName, Map<String, Object> params) {
         Map<String, Object> transformed = new HashMap<>(params);
         
-        if ("app_toolkit".equals(realName)) {
-            boolean isWeatherTool = "get_weather".equals(originalName) || 
-                                   "weather".equals(originalName) || 
-                                   "weather_query".equals(originalName);
-            boolean isCalculateTool = "calculate".equals(originalName) || 
-                                     "calculator".equals(originalName);
-            
-            if (isWeatherTool) {
-                if (!transformed.containsKey("action") || transformed.get("action") == null) {
-                    transformed.put("action", "weather_all");
-                }
-            } else if (isCalculateTool) {
-                if (!transformed.containsKey("action") || transformed.get("action") == null) {
-                    transformed.put("action", "calculate");
-                }
-            }
-
-            Object action = transformed.get("action");
-            String actionStr = action != null ? action.toString() : "";
-            
-            if ("ocr_recognize".equals(actionStr)) {
-                if (!transformed.containsKey("image_path")) {
-                    if (transformed.containsKey("file_path")) {
-                        transformed.put("image_path", transformed.get("file_path"));
-                    } else if (transformed.containsKey("path")) {
-                        transformed.put("image_path", transformed.get("path"));
-                    }
-                }
-            } else if ("ocr_recognize_pdf".equals(actionStr)) {
-                if (!transformed.containsKey("pdf_path")) {
-                    if (transformed.containsKey("file_path")) {
-                        transformed.put("pdf_path", transformed.get("file_path"));
-                    } else if (transformed.containsKey("path")) {
-                        transformed.put("pdf_path", transformed.get("path"));
-                    }
-                }
-            } else if (actionStr.startsWith("file_")) {
-                if (!transformed.containsKey("file_path")) {
-                    if (transformed.containsKey("path")) {
-                        transformed.put("file_path", transformed.get("path"));
-                    } else if (transformed.containsKey("image_path")) {
-                        transformed.put("file_path", transformed.get("image_path"));
-                    } else if (transformed.containsKey("pdf_path")) {
-                        transformed.put("file_path", transformed.get("pdf_path"));
-                    }
-                }
-            }
-        }
-        
         return transformed;
     }
 
@@ -1527,7 +1477,7 @@ public class AgentService {
                             "database".equals(tool.name) || "web_page_reader".equals(tool.name) ||
                             "smart_research".equals(tool.name) || "system_resource".equals(tool.name) ||
                             "file_reader".equals(tool.name) || "file_analyzer".equals(tool.name) ||
-                            "file_generator".equals(tool.name) || "app_toolkit".equals(tool.name)) {
+                            "file_generator".equals(tool.name)) {
                             selectedTools.add(tool);
                         }
                     }
