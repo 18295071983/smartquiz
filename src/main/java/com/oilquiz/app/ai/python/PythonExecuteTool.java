@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 
 @Tool(
     value = "python_execute",
-    description = "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab；绘制图表用matplotlib(先设中文字体)或Pillow",
+    description = "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab；绘制图表用matplotlib(先设中文字体)或Pillow。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）",
     category = "python",
     aliases = {"python", "run_python", "python_code"},
     actions = {
@@ -53,7 +53,7 @@ public class PythonExecuteTool extends BaseAITool {
             "[\"']?([/\\\\]?[\\w./\\\\-]+\\.(xlsx|xls|csv|json|xml|tsv))[\"']?");
     
     public PythonExecuteTool(Context context) {
-        super("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab；绘制图表用matplotlib(先设中文字体)或Pillow");
+        super("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab；绘制图表用matplotlib(先设中文字体)或Pillow。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
         this.fileReaderTool = new FileReaderTool(context);
@@ -181,7 +181,11 @@ public class PythonExecuteTool extends BaseAITool {
             "    except SystemExit as e:\n" +
             "        return e.code == 0 or e.code is None, f'SystemExit: {e.code}'\n" +
             "    except Exception as e:\n" +
-            "        return False, str(e)\n" +
+            "        msg = str(e)\n" +
+            "        if 'No module' in msg and 'pip' in msg:\n" +
+            "            msg = ('运行时 pip 模块不可用(' + msg + ')\n" +
+            "                   '建议改用 pip_install 工具(自研下载器不依赖pip，装纯Python包) 或检查 pip 是否随包内置')\n" +
+            "        return False, msg\n" +
             "\n" +
             "pkg = '" + packageName.replace("'", "\\'") + "'\n" +
             "\n" +

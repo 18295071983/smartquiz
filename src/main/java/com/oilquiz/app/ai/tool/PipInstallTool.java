@@ -87,7 +87,7 @@ public class PipInstallTool implements AITool {
                 + "限制：只能安装纯Python包（wheel为py3-none-any，如 pytz/tqdm/simplejson/python-docx 等）；"
                 + "带C扩展的包（numpy/scipy/lxml 等，wheel含cp310/abi3等平台tag）在Android上无法运行时编译"
                 + "（设备无编译工具链、公共PyPI无Android ABI的wheel），会明确拒绝并提示编译期预打包。"
-                + "递归处理纯Python依赖，C依赖列入skipped返回。python_execute 可直接 import 已安装包。";
+                + "递归处理纯Python依赖，C依赖列入skipped返回。python_execute 可直接 import 已安装包。本工具不依赖运行时 pip 模块(自研wheel下载器)，运行时pip不可用时仍可用；与 python_execute 的 action=pip_install(pip.main编程式，装到filesDir/python_user_packages)安装目录不同互不覆盖。禁止用 subprocess 或 python -m pip(Chaquopy无独立python可执行文件)。";
     }
 
     @Override
