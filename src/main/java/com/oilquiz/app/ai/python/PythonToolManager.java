@@ -424,6 +424,29 @@ public class PythonToolManager {
             
             initialized = true;
             Log.i(TAG, "Python tool manager initialized successfully");
+
+            // ===== 自检：pip 模块可导入性（诊断，不影响运行） =====
+            try {
+                PyObject importlibMod = python.getModule("importlib");
+                PyObject util = importlibMod.callAttr("util");
+                PyObject spec = util.callAttr("find_spec", "pip");
+                Log.i(TAG, "PIP_SELFTEST find_spec(pip)=" + (spec == null ? "null" : "found"));
+                if (spec == null) {
+                    PyObject sysMod = python.getModule("sys");
+                    PyObject sp = sysMod.get("path");
+                    String spStr = sp.toString();
+                    Log.w(TAG, "PIP_SELFTEST sys.path=" + (spStr.length() > 400 ? spStr.substring(0, 400) : spStr));
+                } else {
+                    try {
+                        PyObject pipMod = python.getModule("pip");
+                        Log.i(TAG, "PIP_SELFTEST import pip OK version=" + pipMod.get("__version__"));
+                    } catch (Throwable t2) {
+                        Log.e(TAG, "PIP_SELFTEST find_spec ok but import FAILED: " + t2);
+                    }
+                }
+            } catch (Throwable t3) {
+                Log.e(TAG, "PIP_SELFTEST error: " + t3);
+            }
             
             // 注入运行时 pip 安装目录（pip_install 工具解压纯 Python 包到 filesDir/runtime_packages/）
             // 必须在任何工具执行 import 前把该目录加入 sys.path，否则已安装包不可见
