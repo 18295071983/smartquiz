@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-09-25] 运行时内置 pip 模块 + 工具描述/文档同步（解决 App 内 Python 环境无 pip）
+背景：Chaquopy 内嵌 CPython 3.10 无独立 python 可执行文件（sys.executable 指向不存在的二进制），`python -m pip` / subprocess 场景必然失败；且随包内嵌的 site-packages 不含 pip。
+改动：
+1. src/main/python 随包内置 pip 23.0.1 + setuptools 65.5.0 + _distutils_hack（app.imy 852 条目含 pip 616 条，设备 AssetFinder 自动落袋）。
+2. PythonExecuteTool / PipInstallTool 工具描述写清 pip 正确用法：禁止 subprocess / python -m pip；装包用 action=pip_install（pip.main 编程式→filesDir/python_user_packages）或 pip_install 工具（自研下载器，不依赖 pip，装纯 Python 包最稳）或 import pip; pip.main(['install','--target',...])。
+3. handlePipInstall import pip 失败时明确提示改用 pip_install 工具。
+4. PythonToolManager 初始化后加 PIP_SELFTEST 诊断（find_spec(pip)/sys.path/import 版本）。
+5. 工作区文档（AgentWorkspace 模板：使用速查表/核心工具速查）、项目根 使用速查表.md、docs/AI工具功能清单.md（新增 pip_install 条目）全部同步。
+- 验证：编译 assembleDebug 通过；装机 PID 14956 无崩溃；git 提交 01c8466 + a94f4a7 + 文档同步提交已推 origin/main。
+
 ## [2026-09-14] 新增 js_execute 工具（手机端 JS 执行能力）
 背景：环境审计发现手机端 Agent 无 JS 引擎（无 Node/Rhino），面对 JS 只能查代码；系统 WebView 本身是完整 JS 引擎。
 改动：

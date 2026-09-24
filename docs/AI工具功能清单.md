@@ -212,7 +212,18 @@
 ### python_execute — 执行 Python 代码
 - **分类**：python
 - **功能**：执行任意 Python 代码。内置 `android_ui` 模块（真实显示在手机界面）：系统原生组件 dialog/progress/input/choice（create_component → component_id → update/close/get_result 阻塞取结果）；内置 UI 组件库（create_component 渲染成聊天流卡片，props 带 actions 可交互）；便捷函数 ask_input/ask_choice/show_progress。脚本最后 print 输出作为结果返回。
+  - 运行时已内置 pip 模块（`import pip` 可用）。安装新 Python 包：① `action=pip_install(package=包名)`（pip.main 编程式装到 filesDir/python_user_packages）；② 纯 Python 包（py3-none-any wheel）最稳用 `pip_install` 工具（自研下载器，不依赖 pip）；③ 编程式 `import pip; pip.main(['install','--target','<可写目录>','包名'])`。**禁止** subprocess 或 `python -m pip`（Chaquopy 无独立 python 可执行文件，必然失败）。
 - **参数**：`code`（上限 200KB）、`task`、`context`、`timeout`（5~120 秒）
+
+### pip_install — 运行时安装纯 Python 包
+- **分类**：code
+- **功能**：自研 wheel 下载器（不依赖运行时 pip），从 PyPI 镜像下载纯 Python 包（py3-none-any wheel）解压到 filesDir/runtime_packages/ 并注入 sys.path（装后 python_execute 即可 import，跨重启保留）。
+  - 在线安装：`package=包名`（支持 name / name==版本 / name>=版本 / name~=版本），递归解析纯 Python 依赖，C 依赖列入 skipped 返回；
+  - 本地安装：package 传本地 .whl 文件路径直接从文件安装；
+  - 仅下载：action=download 下载 wheel 到工作区 files/wheels/；换源：source 参数（tuna/aliyun/pypi/自定义）并持久化默认。
+  - 与 python_execute 的 action=pip_install（装到 filesDir/python_user_packages）目录不同互不覆盖。
+- **限制**：只装 py3-none-any；带 C 扩展的包（numpy/scipy/lxml 等）Android 上无法运行时编译，拒绝并提示编译期预打包。
+- **参数**：`package`、`action`（install/download/set_source）、`source`、`timeout`
 
 ### python_analyze_data — Python 数据分析
 - **分类**：python
