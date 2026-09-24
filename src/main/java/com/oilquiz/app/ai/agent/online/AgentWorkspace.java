@@ -40,7 +40,9 @@ public class AgentWorkspace {
     /** 内置指导文档（assets/apk_shell/guides/，删除后工作区重建时自动恢复） */
     private static final String[] BUILTIN_GUIDE_ASSETS = {
             "apk_shell/guides/HTML_DESIGN_RULES.md",
-            "apk_shell/guides/APK_SOURCE_GUIDE.md"
+            "apk_shell/guides/APK_SOURCE_GUIDE.md",
+            // 2026-09-25：抖音下载内置工具 v3.2 文档（官方内核+UIFID自愈+双通道），工作区重建自动恢复
+            "apk_shell/guides/douyin_downloader_GUIDE.md"
     };
 
     private final Context appContext;
@@ -353,9 +355,29 @@ public class AgentWorkspace {
      *  工作区根（此前 deleteFile 用 resolveFile 拼到 workspaceDir，实际文件在
      *  files/ 子目录时删除失败——Agent 管理界面"删除文件无效"根因）。
      *  这里依次在 files/ → tmp/ → 工作区根 搜索并删除。 */
+    /** 是否为内置工作区文档（系统生成/随包发布，自动恢复，删除受保护） */
+    public static boolean isBuiltinGuideFile(String fileName) {
+        if (fileName == null) return false;
+        String n = fileName.trim();
+        if (n.contains("/")) n = n.substring(n.lastIndexOf('/') + 1);
+        // 三个工作区自动生成指南
+        if (n.equals("工具创建指南.md") || n.equals("使用速查表.md") || n.equals("核心工具速查.md")) return true;
+        // 随包内置指导文档（assets/apk_shell/guides/）
+        for (String asset : BUILTIN_GUIDE_ASSETS) {
+            String base = asset.substring(asset.lastIndexOf('/') + 1);
+            if (n.equals(base)) return true;
+        }
+        return false;
+    }
+
     public boolean deleteFile(String fileName) {
         if (fileName == null || fileName.trim().isEmpty()) return false;
         String name = fileName.trim();
+        // 内置文档保护：工作区自动恢复的系统文件不允许删除（管理页/工具/AI 统一拦截）
+        if (isBuiltinGuideFile(name)) {
+            AILogger.i(TAG, "Delete blocked: builtin guide protected: " + name);
+            return false;
+        }
         File f = null;
         // 绝对路径：直接校验是否在工作区内
         File direct = new File(name);
@@ -522,7 +544,8 @@ public class AgentWorkspace {
                 + "   tmp/   临时缓存（执行中间文件，任务结束自动清理）\n"
                 + "   生成文件默认保存到 files/，用 workspace 工具查看/读取。\n"
                 + "   内置指南（删除后应用启动自动重建）：《工具创建指南.md》《使用速查表.md》\n"
-                + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳v8.1·62桥清单/回调契约)。\n"
+                + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳v8.1·62桥清单/回调契约)\n"
+                + "   《douyin_downloader_GUIDE.md》(抖音下载内置工具v3.2:官方内核/UIFID自愈/双通道,删除自动恢复)。\n"
                 + "================================================================\n";
     }
 
@@ -618,6 +641,8 @@ public class AgentWorkspace {
                 + "   task             任务管理(创建/更新/查询/进度)\n"
                 + "   system_connect   系统级连接与设备能力\n"
                 + "   knowledge_base   知识库(全文检索/添加/导入JSON)\n"
+                + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
+                + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
                 + "   video_to_player  视频下载转播放(解析视频源/下载到工作区)\n"
                 + "   export_apk       APK导出(把HTML打包成可安装安卓应用；规则见files/HTML_DESIGN_RULES.md)\n"
                 + "   control_lookup   控件查询(查找可用UI控件/组件)\n"
@@ -681,6 +706,8 @@ public class AgentWorkspace {
                 + "   task             任务管理(创建/更新/查询/进度)\n"
                 + "   system_connect   系统级连接与设备能力\n"
                 + "   knowledge_base   知识库(全文检索/添加/导入JSON)\n"
+                + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
+                + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
                 + "   video_to_player  视频下载转播放(解析视频源/下载到工作区)\n"
                 + "   export_apk       APK导出(把HTML打包成可安装安卓应用；规则见files/HTML_DESIGN_RULES.md)\n"
                 + "   control_lookup   控件查询(查找可用UI控件/组件)\n"

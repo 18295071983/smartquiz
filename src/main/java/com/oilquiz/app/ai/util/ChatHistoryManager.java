@@ -63,6 +63,11 @@ public class ChatHistoryManager {
     private static final String AGENT_CHAT_HISTORY_FILE = "agent_chat_history.json";
     private static final String AGENT_TASK_LIST_FILE = "agent_task_list.json";
     private static final String CONVERSATIONS_DIR = "conversations";
+    // 大历史防护（2026-09-25）：分段加载 + 保存保留未加载头部，历史完整保留；
+    // 字节上限仅作极端超大文件兜底（正常不触发）
+    private static final int MIN_SESSION_MESSAGES = 30;       // 裁剪时至少保留的消息数
+    private static final long MAX_SESSION_FILE_BYTES = 64L * 1024 * 1024; // 单文件 JSON 兜底上限(64MB)
+    public static final int HISTORY_PAGE_SIZE = 100;          // 历史分段加载每页条数
 
     private final Context context;
     private final Gson gson;
@@ -252,13 +257,27 @@ public class ChatHistoryManager {
         return copy;
     }
 public void saveAIChatHistory(List<ChatMessage> chatHistory) {
+        saveAIHistoryWithHead(chatHistory, 0);
+    }
+
+    /**
+     * 保存单文件历史，并保留文件前端未加载的旧消息（分段加载时防止截断丢数据）。
+     *
+     * @param chatHistory 当前内存中的消息窗口（含新消息）
+     * @param unloadedFrontCount 该文件前端尚未加载的旧消息条数（0=全部已加载）
+     */
+    public void saveAIHistoryWithHead(List<ChatMessage> chatHistory, int unloadedFrontCount) {
         try {
             // 深拷贝防并发修改崩溃（主线程可能仍在改 components 等集合）
             List<ChatMessage> snapshot = deepCopyForSave(chatHistory);
+            List<ChatMessage> toSave = trimBySize(snapshot, AI_CHAT_HISTORY_FILE);
             File file = new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE);
+            int headCount = Math.max(0, Math.min(unloadedFrontCount, countMessagesInFile(file)));
             File tempFile = new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE + ".tmp");
             FileWriter writer = new FileWriter(tempFile);
-            gson.toJson(snapshot, writer);
+            writer.write("[");
+            writeMessagesPreservingHead(writer, file, false, headCount, toSave);
+            writer.write("]");
             writer.close();
             // 原子替换：先写临时文件，再重命名
             if (file.exists()) file.delete();
@@ -274,12 +293,17 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             if (!file.exists()) {
                 return new ArrayList<>();
             }
+            warnIfLarge(file, AI_CHAT_HISTORY_FILE);
 
             FileReader reader = new FileReader(file);
             Type type = new TypeToken<List<ChatMessage>>() {}.getType();
             List<ChatMessage> chatHistory = gson.fromJson(reader, type);
             reader.close();
             return chatHistory != null ? chatHistory : new ArrayList<>();
+        } catch (OutOfMemoryError e) {
+            // 兜底：大文件解析内存不足时保命，不删用户文件（后续保存已按上限裁剪）
+            Log.e(TAG, "OutOfMemory loading AI chat history (file too large), keep file intact", e);
+            return new ArrayList<>();
         } catch (IOException e) {
             Log.e(TAG, "Error loading AI chat history", e);
             return new ArrayList<>();
@@ -323,12 +347,16 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             if (!file.exists()) {
                 return new ArrayList<>();
             }
+            warnIfLarge(file, AGENT_CHAT_HISTORY_FILE);
 
             FileReader reader = new FileReader(file);
             Type type = new TypeToken<List<ChatMessage>>() {}.getType();
             List<ChatMessage> chatHistory = gson.fromJson(reader, type);
             reader.close();
             return chatHistory != null ? chatHistory : new ArrayList<>();
+        } catch (OutOfMemoryError e) {
+            Log.e(TAG, "OutOfMemory loading Agent chat history, keep file intact", e);
+            return new ArrayList<>();
         } catch (IOException e) {
             Log.e(TAG, "Error loading Agent chat history", e);
             return new ArrayList<>();
@@ -433,11 +461,23 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
 
             File dir = getConversationsDir();
             File file = new File(dir, session.id + ".json");
+            // 大会话防护：序列化后按字节上限裁剪最早消息，防止单会话文件无限增长
+            String json = gson.toJson(session);
+            int guard = 0;
+            while (json.length() > MAX_SESSION_FILE_BYTES
+                    && session.messages != null && session.messages.size() > MIN_SESSION_MESSAGES
+                    && guard++ < 4) {
+                int drop = Math.max(1, session.messages.size() / 4);
+                session.messages = new ArrayList<>(session.messages.subList(drop, session.messages.size()));
+                session.messageCount = session.messages.size();
+                Log.i(TAG, "会话[" + session.id + "]过大(" + json.length() + "B)，裁剪最早 " + drop + " 条消息");
+                json = gson.toJson(session);
+            }
             // 原子写：先写临时文件再 rename，避免退出保存线程与新 Activity 加载线程
             // 并发读写时读到半写文件（Gson 解析失败 → 会话被跳过 → 历史丢失）
             File tempFile = new File(dir, session.id + ".json.tmp");
             FileWriter writer = new FileWriter(tempFile);
-            gson.toJson(session, writer);
+            writer.write(json);
             writer.close();
             if (file.exists()) file.delete();
             tempFile.renameTo(file);
@@ -455,10 +495,15 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         try {
             File file = new File(getConversationsDir(), sessionId + ".json");
             if (!file.exists()) return null;
+            warnIfLarge(file, sessionId + ".json");
             FileReader reader = new FileReader(file);
             ConversationSession session = gson.fromJson(reader, ConversationSession.class);
             reader.close();
             return session;
+        } catch (OutOfMemoryError e) {
+            // 兜底：超大会话解析内存不足时保命（不删文件，后续保存已按上限裁剪）
+            Log.e(TAG, "OutOfMemory loading conversation session: " + sessionId + ", keep file intact", e);
+            return null;
         } catch (IOException | JsonSyntaxException e) {
             Log.e(TAG, "Error loading conversation session: " + sessionId, e);
             return null;
@@ -489,16 +534,10 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
 
         for (File file : files) {
             try {
-                FileReader reader = new FileReader(file);
-                ConversationSession session = gson.fromJson(reader, ConversationSession.class);
-                reader.close();
+                // 流式只读元数据：跳过 messages 数组（只数条数、不构建消息对象），
+                // 避免多会话/大文件时全量 Gson 解析造成卡顿与 OOM 崩溃
+                ConversationSession session = readSessionMetadataOnly(file);
                 if (session != null && session.id != null) {
-                    // 兼容旧文件：无 messageCount 字段时从 messages 计算一次
-                    if (session.messageCount <= 0 && session.messages != null) {
-                        session.messageCount = session.messages.size();
-                    }
-                    // 只保留摘要信息，不保留完整消息列表以节省内存
-                    session.messages = null;
                     sessions.add(session);
                 }
             } catch (Exception e) {
@@ -509,6 +548,83 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         // 按更新时间降序排列
         Collections.sort(sessions, (a, b) -> Long.compare(b.updatedAt, a.updatedAt));
         return sessions;
+    }
+
+    /**
+     * 流式读取会话文件元数据（id/title/createdAt/updatedAt/消息条数）。
+     * 不解析 messages 数组内容，仅数顶层数组元素个数，内存占用与文件大小无关。
+     */
+    private ConversationSession readSessionMetadataOnly(File file) throws IOException {
+        ConversationSession session = new ConversationSession();
+        try (com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(
+                new java.io.InputStreamReader(new java.io.FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8))) {
+            reader.beginObject();
+            while (reader.hasNext()) {
+                String name = reader.nextName();
+                switch (name) {
+                    case "id":
+                        session.id = reader.nextString();
+                        break;
+                    case "title":
+                        session.title = reader.nextString();
+                        break;
+                    case "createdAt":
+                        session.createdAt = reader.nextLong();
+                        break;
+                    case "updatedAt":
+                        session.updatedAt = reader.nextLong();
+                        break;
+                    case "messageCount":
+                        try {
+                            session.messageCount = reader.nextInt();
+                        } catch (Exception ex) {
+                            reader.skipValue();
+                        }
+                        break;
+                    case "messages":
+                        // 只数元素个数，不构建消息对象
+                        reader.beginArray();
+                        int count = 0;
+                        while (reader.hasNext()) {
+                            reader.skipValue();
+                            count++;
+                        }
+                        reader.endArray();
+                        session.messageCount = count;
+                        break;
+                    default:
+                        reader.skipValue();
+                        break;
+                }
+            }
+            reader.endObject();
+        }
+        if (session.id == null || session.id.isEmpty()) return null;
+        // 与旧行为一致：列表只保留摘要信息，不保留消息列表
+        session.messages = null;
+        return session;
+    }
+
+    /** 大文件告警（加载前调用，日志可见便于排查） */
+    private void warnIfLarge(File file, String name) {
+        if (file.length() > MAX_SESSION_FILE_BYTES) {
+            Log.w(TAG, "文件偏大(" + file.length() + "B)，加载可能变慢: " + name);
+        }
+    }
+
+    /** 按文件字节上限裁剪最早消息（保留最新窗口）；返回裁剪后的列表 */
+    private List<ChatMessage> trimBySize(List<ChatMessage> list, String fileTag) {
+        if (list == null || list.isEmpty()) return list;
+        List<ChatMessage> trimmed = list;
+        int guard = 0;
+        String json = gson.toJson(trimmed);
+        while (json.length() > MAX_SESSION_FILE_BYTES && trimmed.size() > MIN_SESSION_MESSAGES && guard++ < 4) {
+            int drop = Math.max(1, trimmed.size() / 4);
+            trimmed = new ArrayList<>(trimmed.subList(drop, trimmed.size()));
+            Log.i(TAG, "历史文件[" + fileTag + "]过大(" + json.length() + "B)，裁剪最早 " + drop + " 条消息");
+            json = gson.toJson(trimmed);
+        }
+        return trimmed;
     }
 
     /**
@@ -547,24 +663,237 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         if (filtered.isEmpty()) return null;
     
         String title = ConversationSession.generateTitle(filtered);
-        ConversationSession session;
-        if (existingSessionId != null && !existingSessionId.isEmpty()) {
-            // 更新已有会话
-            session = loadConversationSession(existingSessionId);
-            if (session != null) {
-                session.messages = filtered;
-                session.title = title;
-                session.updatedAt = System.currentTimeMillis();
-            } else {
-                // 已有会话不存在，创建新的
-                session = new ConversationSession(null, title, filtered);
-            }
-        } else {
-            session = new ConversationSession(null, title, filtered);
+        return saveCurrentChatAsSession(chatHistory, existingSessionId, 0, false);
+    }
+
+    /**
+     * 将当前聊天历史保存为会话；分段加载场景下保留文件前端未加载的旧消息，不丢数据。
+     *
+     * @param chatHistory 当前内存中的消息窗口（含新消息）
+     * @param existingSessionId 已有会话 ID（为空则创建新会话）
+     * @param unloadedFrontCount 该会话前端尚未加载的旧消息条数（0=全部已加载）
+     * @param mergeSingleFileHead 创建新会话时，若历史源自单文件（ai_chat_history.json）且前端未加载，
+     *                            从单文件合并头部，避免新会话被截断
+     */
+    public ConversationSession saveCurrentChatAsSession(List<ChatMessage> chatHistory, String existingSessionId,
+                                                        int unloadedFrontCount, boolean mergeSingleFileHead) {
+        if (chatHistory == null || chatHistory.isEmpty()) return null;
+        // 深拷贝防并发修改崩溃（主线程可能仍在改 components 等集合）
+        List<ChatMessage> safeHistory = deepCopyForSave(chatHistory);
+        List<ChatMessage> filtered = new ArrayList<>();
+        for (ChatMessage msg : safeHistory) {
+            if (msg.isUserMessage() || msg.isAIMessage()) filtered.add(msg);
         }
-        return saveConversationSession(session);
+        if (filtered.isEmpty()) return null;
+        String title = ConversationSession.generateTitle(filtered);
+        try {
+            File sessionFile = null;
+            File headSource = null;
+            boolean headSessionObject = true;
+            int headCount = 0;
+            long createdAt = System.currentTimeMillis();
+            if (existingSessionId != null && !existingSessionId.isEmpty()) {
+                sessionFile = new File(getConversationsDir(), existingSessionId + ".json");
+                if (sessionFile.exists()) {
+                    ConversationSession meta = readSessionMetadataOnly(sessionFile);
+                    if (meta != null && meta.createdAt > 0) createdAt = meta.createdAt;
+                    headCount = Math.max(0, Math.min(unloadedFrontCount, countMessagesInFile(sessionFile)));
+                    headSource = sessionFile;
+                }
+            } else if (mergeSingleFileHead) {
+                File aiFile = new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE);
+                if (aiFile.exists()) {
+                    headCount = Math.max(0, Math.min(unloadedFrontCount, countMessagesInFile(aiFile)));
+                    headSource = aiFile;
+                    headSessionObject = false;
+                }
+            }
+            ConversationSession session = new ConversationSession(existingSessionId, title, filtered);
+            session.createdAt = createdAt;
+            session.updatedAt = System.currentTimeMillis();
+            if (sessionFile != null || headSource != null) {
+                // 保留未加载头部 + 新尾部（流式合并，内存有界）
+                File target = sessionFile != null
+                        ? sessionFile : new File(getConversationsDir(), session.id + ".json");
+                writeSessionWithHead(target, session, headCount, headSource, headSessionObject);
+            } else {
+                // 全新会话，无头部可保留
+                return saveConversationSession(session);
+            }
+            return session;
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving conversation session", e);
+            return null;
+        }
     }
     
+    /** 流式统计文件中的消息总数（数组或会话对象两种形态都支持；不构建对象） */
+    private int countMessagesInFile(File file) {
+        if (file == null || !file.exists()) return 0;
+        int count = 0;
+        try (com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(
+                new java.io.InputStreamReader(new java.io.FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8))) {
+            if (reader.peek() == com.google.gson.stream.JsonToken.BEGIN_ARRAY) {
+                reader.beginArray();
+                while (reader.hasNext()) { reader.skipValue(); count++; }
+                reader.endArray();
+            } else {
+                reader.beginObject();
+                while (reader.hasNext()) {
+                    if ("messages".equals(reader.nextName())) {
+                        reader.beginArray();
+                        while (reader.hasNext()) { reader.skipValue(); count++; }
+                        reader.endArray();
+                    } else {
+                        reader.skipValue();
+                    }
+                }
+                reader.endObject();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error counting messages", e);
+            return 0;
+        }
+        return count;
+    }
+
+    /** 统计单文件历史消息总数（流式，内存与文件大小无关） */
+    public int countAIHistoryMessages() {
+        return countMessagesInFile(new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE));
+    }
+
+    /** 统计指定会话消息总数（流式） */
+    public int countConversationMessages(String sessionId) {
+        return countMessagesInFile(new File(getConversationsDir(), sessionId + ".json"));
+    }
+
+    /** 分段加载单文件历史：跳过前 skipCount 条，最多取 limit 条（流式解析，内存只含返回条数） */
+    public List<ChatMessage> loadAIHistoryMessages(int skipCount, int limit) {
+        return loadMessagesFromFile(new File(context.getFilesDir(), AI_CHAT_HISTORY_FILE), false, skipCount, limit);
+    }
+
+    /** 分段加载会话消息：跳过前 skipCount 条，最多取 limit 条 */
+    public List<ChatMessage> loadConversationSessionMessages(String sessionId, int skipCount, int limit) {
+        return loadMessagesFromFile(new File(getConversationsDir(), sessionId + ".json"), true, skipCount, limit);
+    }
+
+    /** 流式分段读取消息数组：跳过的元素用 skipValue（不构建对象），取到的逐条解析 */
+    private List<ChatMessage> loadMessagesFromFile(File file, boolean sessionObject, int skipCount, int limit) {
+        List<ChatMessage> out = new ArrayList<>();
+        if (limit <= 0 || file == null || !file.exists()) return out;
+        try (com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(
+                new java.io.InputStreamReader(new java.io.FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8))) {
+            if (sessionObject) {
+                reader.beginObject();
+                while (reader.hasNext()) {
+                    if ("messages".equals(reader.nextName())) {
+                        readArrayInto(reader, out, skipCount, limit);
+                        break;
+                    }
+                    reader.skipValue();
+                }
+                reader.endObject();
+            } else {
+                readArrayInto(reader, out, skipCount, limit);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading history page", e);
+        }
+        return out;
+    }
+
+    private void readArrayInto(com.google.gson.stream.JsonReader reader, List<ChatMessage> out,
+                               int skipCount, int limit) throws java.io.IOException {
+        reader.beginArray();
+        int idx = 0;
+        while (reader.hasNext()) {
+            if (idx < skipCount) {
+                reader.skipValue();
+            } else if (out.size() < limit) {
+                ChatMessage m = gson.fromJson(reader, ChatMessage.class);
+                if (m != null) out.add(m);
+            } else {
+                reader.skipValue();
+            }
+            idx++;
+        }
+        reader.endArray();
+    }
+
+    /**
+     * 流式写会话文件：头部从旧文件逐条复制（内存有界），尾部写当前内存窗口；
+     * 用于分段加载场景下保存时不丢未加载的旧消息。
+     */
+    private void writeSessionWithHead(File file, ConversationSession session, int headCount,
+                                      File headSource, boolean headSessionObject) throws IOException {
+        File dir = getConversationsDir();
+        File tempFile = new File(dir, session.id + ".json.tmp");
+        // 尾部同样受字节上限兜底（仅极端大文件触发，正常不裁剪）
+        List<ChatMessage> tail = trimBySize(session.messages, session.id + ".json");
+        try (FileWriter writer = new FileWriter(tempFile)) {
+            writer.write("{\"id\":");
+            writer.write(gson.toJson(session.id));
+            writer.write(",\"title\":");
+            writer.write(gson.toJson(session.title != null ? session.title : ""));
+            writer.write(",\"messages\":[");
+            writeMessagesPreservingHead(writer, headSource, headSessionObject, headCount, tail);
+            writer.write("],\"createdAt\":");
+            writer.write(Long.toString(session.createdAt > 0 ? session.createdAt : System.currentTimeMillis()));
+            writer.write(",\"updatedAt\":");
+            writer.write(Long.toString(System.currentTimeMillis()));
+            writer.write(",\"messageCount\":");
+            writer.write(Integer.toString(headCount + tail.size()));
+            writer.write("}");
+        }
+        if (file.exists()) file.delete();
+        tempFile.renameTo(file);
+    }
+
+    /**
+     * 流式写消息数组内容：先复制 sourceFile 头部 headCount 条（逐条解析再序列化，内存有界），
+     * 再写 tail（当前内存窗口）。调用方负责写方括号。
+     */
+    private void writeMessagesPreservingHead(FileWriter writer, File sourceFile, boolean sourceSessionObject,
+                                             int headCount, List<ChatMessage> tail) throws IOException {
+        boolean first = true;
+        if (headCount > 0 && sourceFile != null && sourceFile.exists()) {
+            try (com.google.gson.stream.JsonReader reader = new com.google.gson.stream.JsonReader(
+                    new java.io.InputStreamReader(new java.io.FileInputStream(sourceFile), java.nio.charset.StandardCharsets.UTF_8))) {
+                boolean arrayFound = false;
+                if (sourceSessionObject) {
+                    reader.beginObject();
+                    while (reader.hasNext()) {
+                        if ("messages".equals(reader.nextName())) { arrayFound = true; break; }
+                        reader.skipValue();
+                    }
+                } else {
+                    arrayFound = true;
+                }
+                if (arrayFound) {
+                    reader.beginArray();
+                    int idx = 0;
+                    while (reader.hasNext() && idx < headCount) {
+                        ChatMessage m = gson.fromJson(reader, ChatMessage.class);
+                        if (m != null) {
+                            if (!first) writer.write(",");
+                            writer.write(gson.toJson(m));
+                            first = false;
+                        }
+                        idx++;
+                    }
+                    while (reader.hasNext()) reader.skipValue();
+                    reader.endArray();
+                }
+            }
+        }
+        for (ChatMessage m : tail) {
+            if (m == null) continue;
+            if (!first) writer.write(",");
+            writer.write(gson.toJson(m));
+            first = false;
+        }
+    }
+
     /**
      * 将当前聊天历史保存为一个新会话。
      */

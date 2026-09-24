@@ -8,7 +8,26 @@ import java.io.IOException;
 
 public class Network {
 
-    private static final OkHttpClient client = new OkHttpClient();
+    private static final OkHttpClient client = new OkHttpClient.Builder()
+            .addInterceptor(chain -> {
+                okhttp3.Request request = chain.request();
+                // 自动附加应用内已保存的 WebView 登录态 Cookie（未显式传 Cookie 时）
+                // 安全：明文 HTTP 不自动携带登录态 Cookie（防中间人窃听请求头中的登录凭证）
+                if (request.header("Cookie") == null) {
+                    String reqUrl = request.url().toString();
+                    boolean plainHttp = reqUrl.startsWith("http://");
+                    boolean hasLogin = com.oilquiz.app.webview.AppCookieStore.getInstance().hasLogin(reqUrl);
+                    if (!plainHttp || !hasLogin) {
+                        String cookie = com.oilquiz.app.webview.AppCookieStore.getInstance()
+                                .getCookieHeader(reqUrl);
+                        if (cookie != null && !cookie.isEmpty()) {
+                            request = request.newBuilder().header("Cookie", cookie).build();
+                        }
+                    }
+                }
+                return chain.proceed(request);
+            })
+            .build();
 
     public static Response execute(Request request) throws IOException {
         return client.newCall(request).execute();

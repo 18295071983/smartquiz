@@ -134,7 +134,7 @@ public class RedirectWebViewClient extends WebViewClient {
                 }
             }
         } catch (Exception ignored) { }
-        // 其他 App 跳转协议/自定义 scheme：有应用则系统打开，无则应用内（错误重试页兜底）
+        // 其他 App 跳转协议/自定义 scheme：有应用则系统打开
         try {
             android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url));
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -143,7 +143,36 @@ public class RedirectWebViewClient extends WebViewClient {
                 return true;
             }
         } catch (Exception ignored) { }
-        return false;
+        // 无对应应用：弹确认框尝试用系统其他应用打开（跳系统浏览器/系统处理）；
+        // 用户取消则留当前页，不让 WebView 显示 scheme 错误页
+        try {
+            android.content.Context ctx = view.getContext();
+            final String rawUrl = url;
+            if (ctx instanceof android.app.Activity) {
+                android.app.Activity act = (android.app.Activity) ctx;
+                String schemeHint = "";
+                try {
+                    String sc = Uri.parse(url).getScheme();
+                    if (sc != null) schemeHint = sc + "://";
+                } catch (Exception ignored) { }
+                new android.app.AlertDialog.Builder(act)
+                        .setTitle("无法在当前页面打开")
+                        .setMessage("当前链接协议（" + schemeHint + "）无法在本浏览器内解析，是否尝试用系统其他应用打开？\n\n" + rawUrl)
+                        .setPositiveButton("用其他应用打开", (d, w) -> {
+                            try {
+                                android.content.Intent i2 = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(rawUrl));
+                                act.startActivity(i2);
+                            } catch (Exception e) {
+                                android.widget.Toast.makeText(act, "系统没有能打开此链接的应用", android.widget.Toast.LENGTH_LONG).show();
+                            }
+                        })
+                        .setNegativeButton("取消", null)
+                        .show();
+            } else {
+                android.widget.Toast.makeText(ctx, "当前链接无法解析：" + url, android.widget.Toast.LENGTH_LONG).show();
+            }
+        } catch (Throwable ignored) { }
+        return true;
     }
 
     /** 从 App 跳转 URL 中提取网页回退地址（url/u/link/browser_fallback_url 等参数或编码链接） */

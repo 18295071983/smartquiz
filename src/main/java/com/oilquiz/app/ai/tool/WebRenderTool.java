@@ -17,6 +17,7 @@ import com.oilquiz.app.ai.agent.online.AgentWorkspace;
 import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
@@ -81,8 +82,10 @@ public class WebRenderTool implements AITool {
                 + "比 requests 抓 HTML 文本更完整）。"
                 + "url=网页地址（必填）；action=text（默认，返回标题+正文文本+链接数）/screenshot（截图保存）/both（文本+截图）。"
                 + "支持现代网页（含 SPA/JS 动态内容，加载完成后自动提取）；截图保存到工作区 files/screenshots/，返回路径。"
-                + "限制：仅支持 http/https；不能操作页面（点击/填表/登录），只读浏览。"
-                + "适合：查看网页实际内容、核对页面效果、调研资料。";
+                + "js=可选，页面加载完成后在真实页面上下文执行 JS（可读 document.cookie / localStorage，"
+                + "返回执行结果与 console 输出；仅支持同步表达式，异步请用 js_execute 的 url 参数）；"
+                + "限制：仅支持 http/https；不能点击/填表，只读浏览。"
+                + "适合：查看网页实际内容、核对页面效果、调研资料、在真实页面读取登录态 Cookie/localStorage。";
     }
 
     @Override
@@ -90,6 +93,7 @@ public class WebRenderTool implements AITool {
         Map<String, String> params = new HashMap<>();
         params.put("url", "要浏览的网页地址（必填，http/https）");
         params.put("action", "操作: text(默认，提取标题+正文) / screenshot(仅截图) / both(文本+截图)");
+        params.put("js", "可选，页面加载完成后在真实页面上下文执行的 JS 代码（可读 document.cookie / localStorage，同步表达式；结果+console 输出随返回给出）");
         params.put("timeout", "页面加载超时秒数（默认 12，最大 30）");
         return params;
     }
@@ -120,17 +124,23 @@ public class WebRenderTool implements AITool {
         } catch (Exception ignored) {
         }
 
+        String js = null;
+        Object jsObj = parameters.get("js");
+        if (jsObj != null && !String.valueOf(jsObj).trim().isEmpty()) {
+            js = String.valueOf(jsObj);
+        }
+
         if (!CONCURRENCY.tryAcquire()) {
             return AIToolResult.fail("网页浏览并发已满（同时最多 " + MAX_CONCURRENCY + " 个），请稍后重试");
         }
         try {
-            return render(url, action, timeout);
+            return render(url, action, timeout, js);
         } finally {
             CONCURRENCY.release();
         }
     }
 
-    private AIToolResult render(String url, String action, int timeoutSeconds) {
+    private AIToolResult render(String url, String action, int timeoutSeconds, String js) {
         final CountDownLatch pageLoaded = new CountDownLatch(1);
         final CountDownLatch textDone = new CountDownLatch(1);
         final AtomicReference<String> pageError = new AtomicReference<>();
@@ -153,9 +163,34 @@ public class WebRenderTool implements AITool {
                 s.setLoadWithOverviewMode(true);
                 s.setUseWideViewPort(true);
                 s.setSupportZoom(false);
+                // 伪装成正常 Chrome（WebView 默认 UA 带 wv 标记，部分站点会因此不下发 Cookie/拒绝访问）
+                s.setUserAgentString(com.oilquiz.app.webview.WebViewDefaults.CHROME_USER_AGENT);
+                // 携带应用内已保存的登录态 Cookie（WebViewActivity 登录后自动捕获）
+                // 安全：明文 HTTP 页面不注入登录态 Cookie（防明文页面 JS 读取/上传登录凭证）
+                boolean _plainHttp = url != null && url.startsWith("http://");
+                boolean _hasLogin = com.oilquiz.app.webview.AppCookieStore.getInstance().hasLogin(url);
+                if (_plainHttp && _hasLogin) {
+                    AILogger.w(TAG, "明文 HTTP 访问，跳过登录态 Cookie 注入（防泄露）: " + url);
+                } else {
+                    try {
+                        android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();
+                        cm.setAcceptCookie(true);
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                            cm.setAcceptThirdPartyCookies(webView, true);
+                        }
+                        com.oilquiz.app.webview.AppCookieStore.getInstance().injectToWebView(url);
+                    } catch (Throwable t) {
+                        AILogger.w(TAG, "注入Cookie失败(不影响浏览): " + t.getMessage());
+                    }
+                }
                 webView.setWebViewClient(new WebViewClient() {
                     @Override
                     public void onPageFinished(WebView view, String url) {
+                        // 浏览后回捕 Cookie（登录/跳转产生的会话可被后续请求复用）
+                        try {
+                            com.oilquiz.app.webview.AppCookieStore.getInstance().captureFromWebView(url);
+                        } catch (Throwable ignored) {
+                        }
                         pageLoaded.countDown();
                     }
 
@@ -226,6 +261,17 @@ public class WebRenderTool implements AITool {
                 screenshotPath = captureScreenshot(webView, url);
             }
 
+            // 可选：在真实页面上下文执行 JS（读 document.cookie / localStorage 等）
+            JSONObject jsOut = null;
+            if (js != null) {
+                jsOut = executePageJs(webView, js);
+                if (jsOut != null) {
+                    info.put("jsOk", jsOut.optBoolean("ok", false));
+                    info.put("jsValue", jsOut.opt("value"));
+                    info.put("jsError", jsOut.optString("error", ""));
+                }
+            }
+
             String title = "";
             String text = "";
             long links = 0;
@@ -246,9 +292,35 @@ public class WebRenderTool implements AITool {
             info.put("truncated", text.length() > TEXT_MAX_LENGTH);
             info.put("links", links);
             if (screenshotPath != null) info.put("screenshot", screenshotPath);
+            // 登录态提示：本次请求是否携带了应用内已保存的 Cookie
+            String loginCookie = null;
+            try {
+                loginCookie = com.oilquiz.app.webview.AppCookieStore.getInstance().getCookieHeader(url);
+            } catch (Throwable ignored) {
+            }
+            info.put("loginCookies", loginCookie != null);
 
             sb.append("页面: ").append(title.isEmpty() ? url : title);
             if (pageError.get() != null) sb.append("\n⚠ ").append(pageError.get());
+            sb.append("\n登录态Cookie: ").append(loginCookie != null ? "已携带" : "无（若页面需登录，请先在 WebView 中登录一次）");
+            if (jsOut != null) {
+                if (jsOut.optBoolean("ok", false)) {
+                    sb.append("\nJS执行成功");
+                    Object jv = jsOut.opt("value");
+                    if (jv != null && !JSONObject.NULL.equals(jv)) {
+                        sb.append("\nJS返回值: ").append(jv);
+                    }
+                } else {
+                    sb.append("\nJS执行出错: ").append(jsOut.optString("error", "未知错误"));
+                }
+                JSONArray jlogs = jsOut.optJSONArray("logs");
+                if (jlogs != null && jlogs.length() > 0) {
+                    sb.append("\nJS console:");
+                    for (int i = 0; i < jlogs.length(); i++) {
+                        sb.append("\n  ").append(jlogs.optString(i));
+                    }
+                }
+            }
             if (screenshotPath != null) {
                 sb.append("\n截图已保存: ").append(screenshotPath);
             }
@@ -279,6 +351,77 @@ public class WebRenderTool implements AITool {
                 });
             }
         }
+    }
+
+    /** 在已加载完成的真实页面上下文执行 JS：可读 document.cookie / localStorage。
+     *  同步表达式；返回 {ok,value,logs}（evaluateJavascript 结果需双层 JSON 解码）。 */
+    private JSONObject executePageJs(WebView webView, String code) {
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicReference<String> out = new AtomicReference<>();
+        final Throwable[] err = new Throwable[1];
+        MAIN.post(() -> {
+            try {
+                webView.evaluateJavascript(buildPageJsInjection(code), value -> {
+                    out.set(value != null ? value : "null");
+                    done.countDown();
+                });
+            } catch (Throwable t) {
+                err[0] = t;
+                done.countDown();
+            }
+        });
+        try {
+            if (!done.await(8, TimeUnit.SECONDS)) {
+                return buildJsResult(false, "JS执行超时(8s)", null, null);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return buildJsResult(false, "JS执行被中断", null, null);
+        }
+        if (err[0] != null) {
+            return buildJsResult(false, "JS执行失败: " + err[0].getMessage(), null, null);
+        }
+        try {
+            Object inner = new JSONTokener(out.get()).nextValue();
+            return new JSONObject(String.valueOf(inner));
+        } catch (Exception e) {
+            return buildJsResult(false, "JS结果解析失败: " + e.getMessage(), null, null);
+        }
+    }
+
+    private static JSONObject buildJsResult(boolean ok, String msg, Object value, JSONArray logs) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("ok", ok);
+            o.put("error", ok ? "" : msg);
+            o.put("value", value == null ? "" : value);
+            o.put("logs", logs == null ? new JSONArray() : logs);
+        } catch (Exception ignored) {
+        }
+        return o;
+    }
+
+    /** 页面内 JS 注入：捕获 console + 执行用户代码（同步表达式；Promise 给出提示） */
+    private static String buildPageJsInjection(String code) {
+        String quoted = JSONObject.quote(code);
+        return "(function(){"
+                + "var __logs=[];"
+                + "var __push=function(a){var p=[];for(var i=0;i<a.length;i++){var x=a[i];"
+                + "p.push(typeof x==='object'?(x===null?'null':JSON.stringify(x)):String(x));}"
+                + "__logs.push(p.join(' '));};"
+                + "var __oc=console.log,__oe=console.error,__ow=console.warn,__oi=console.info;"
+                + "console.log=function(){__push(arguments);try{__oc.apply(console,arguments);}catch(e){}};"
+                + "console.error=function(){__push(arguments);try{__oe.apply(console,arguments);}catch(e){}};"
+                + "console.warn=function(){__push(arguments);try{__ow.apply(console,arguments);}catch(e){}};"
+                + "console.info=function(){__push(arguments);try{__oi.apply(console,arguments);}catch(e){}};"
+                + "var __enc=function(v){return v===undefined?null:(typeof v==='object'?JSON.stringify(v):String(v));};"
+                + "var __err=function(e){return (e&&e.message)?String(e.message):String(e);};"
+                + "try{var __r=eval(" + quoted + ");"
+                + "if(__r&&typeof __r.then==='function'){"
+                + "return JSON.stringify({ok:true,value:'[Promise] 异步结果不支持(同步表达式可用;异步场景请用 js_execute 的 url 参数)',logs:__logs});}"
+                + "return JSON.stringify({ok:true,value:__enc(__r),logs:__logs});}"
+                + "catch(e){return JSON.stringify({ok:false,error:__err(e),logs:__logs});}"
+                + "})()";
     }
 
     /** 首屏截图：离屏 WebView draw 到 Bitmap，存工作区 files/screenshots/ */

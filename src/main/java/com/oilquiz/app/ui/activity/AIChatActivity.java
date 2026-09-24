@@ -216,6 +216,14 @@ public class AIChatActivity extends BaseActivity {
     private AIService aiService;
     private InferenceRouter inferenceRouter;
     private List<ChatMessage> chatHistory;
+    // 历史分段加载状态（2026-09-25）：大文件只加载最新一页；长对话内存窗口化归档
+    private static final int HISTORY_ARCHIVE_KEEP = 150;   // 内存窗口保留条数（超出归档到文件）
+    private static final int HISTORY_ARCHIVE_CHUNK = 50;   // 每次归档条数
+    private int sessionFrontSkipped = 0;      // 当前会话文件前端未加载条数
+    private int aiHistoryFrontSkipped = 0;    // 单文件历史前端未加载条数
+    private String historySourceSessionId = null; // 当前历史来源会话（null=单文件历史）
+    private boolean historyLoadingMore = false;
+    private TextView btnLoadMoreHistory;
     private ChatAdapter chatAdapter;
     private ChatStatsBar sessionStatsBar;
     private ChatHistoryManager chatHistoryManager;
@@ -521,6 +529,10 @@ public class AIChatActivity extends BaseActivity {
 
             // dsh 对齐：上下文仪表 / 队列条 / 回底按钮绑定
             btnScrollBottom = findViewById(R.id.btn_scroll_bottom);
+            btnLoadMoreHistory = findViewById(R.id.btn_load_more_history);
+            if (btnLoadMoreHistory != null) {
+                btnLoadMoreHistory.setOnClickListener(v -> loadMoreHistory());
+            }
             queueBar = findViewById(R.id.queue_bar);
             tvQueueInfo = findViewById(R.id.tv_queue_info);
             btnQueueCancel = findViewById(R.id.btn_queue_cancel);
@@ -543,6 +555,7 @@ public class AIChatActivity extends BaseActivity {
             messageList.addOnScrollListener(new androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
                 @Override public void onScrolled(androidx.recyclerview.widget.RecyclerView rv, int dx, int dy) {
                     updateScrollBottomButton();
+                    updateLoadMoreButton();
                 }
             });
             // 初始刷新上下文仪表（历史加载完成后会再次刷新）
@@ -726,7 +739,12 @@ public class AIChatActivity extends BaseActivity {
             new Thread(() -> {
                 try {
                     if (chatHistoryManager != null) {
-                        List<ChatMessage> loadedHistory = chatHistoryManager.loadAIChatHistory();
+                        // 分段加载：只取单文件历史的最新一页（大文件不再全量解析，避免卡顿/OOM）
+                        final int[] aiSkipped = {0};
+                        int aiTotal = chatHistoryManager.countAIHistoryMessages();
+                        aiSkipped[0] = Math.max(0, aiTotal - ChatHistoryManager.HISTORY_PAGE_SIZE);
+                        List<ChatMessage> loadedHistory =
+                                chatHistoryManager.loadAIHistoryMessages(aiSkipped[0], ChatHistoryManager.HISTORY_PAGE_SIZE);
                         // 退出保存是异步线程（onStop/onDestroy），重建加载可能恰逢旧保存的
                         // delete→rename 窗口（文件暂时不存在/半写）→ 读到空。延迟 300ms 重读一次
                         // 避开保存窗口，避免把"正在保存中的历史"误判为"无历史"而 fallback 错会话。
@@ -736,7 +754,10 @@ public class AIChatActivity extends BaseActivity {
                             } catch (InterruptedException ie) {
                                 Thread.currentThread().interrupt();
                             }
-                            loadedHistory = chatHistoryManager.loadAIChatHistory();
+                            int aiTotal2 = chatHistoryManager.countAIHistoryMessages();
+                            aiSkipped[0] = Math.max(0, aiTotal2 - ChatHistoryManager.HISTORY_PAGE_SIZE);
+                            loadedHistory =
+                                    chatHistoryManager.loadAIHistoryMessages(aiSkipped[0], ChatHistoryManager.HISTORY_PAGE_SIZE);
                         }
                         final List<ChatMessage> historyToLoad = loadedHistory;
                         if (historyToLoad != null && !historyToLoad.isEmpty()) {
@@ -762,6 +783,11 @@ public class AIChatActivity extends BaseActivity {
                                 // 恢复补发 id：旧数据组件/思考轮 id 缺失时按 turnId 前缀补发
                                 ensureRecoveredIds(chatHistory);
                                 fileHistoryLoaded = true;
+                                // 分段加载状态：单文件历史，前端未加载条数
+                                historySourceSessionId = null;
+                                aiHistoryFrontSkipped = aiSkipped[0];
+                                sessionFrontSkipped = 0;
+                                updateLoadMoreButton();
                                 if (chatAdapter != null) {
                                     chatAdapter.notifyDataSetChanged();
                                 }
@@ -776,13 +802,17 @@ public class AIChatActivity extends BaseActivity {
                             if (sessions != null && !sessions.isEmpty()) {
                                 // 列表已按更新时间降序排列，取第一个即为最新会话
                                 ConversationSession latest = sessions.get(0);
-                                ConversationSession fullSession = chatHistoryManager.loadConversationSession(latest.id);
-                                if (fullSession != null && fullSession.messages != null && !fullSession.messages.isEmpty()) {
-                                    final String sessionId = fullSession.id;
+                                final String sessionId = latest.id;
+                                // 分段加载：只取最新会话的最新一页（大文件不再全量解析）
+                                int sessTotal = chatHistoryManager.countConversationMessages(sessionId);
+                                final int[] sessSkipped = {Math.max(0, sessTotal - ChatHistoryManager.HISTORY_PAGE_SIZE)};
+                                List<ChatMessage> pageMsgs = chatHistoryManager.loadConversationSessionMessages(
+                                        sessionId, sessSkipped[0], ChatHistoryManager.HISTORY_PAGE_SIZE);
+                                if (pageMsgs != null && !pageMsgs.isEmpty()) {
                                     // 会话恢复同样清理 GENERATING 残留（退出时生成中断的消息）；
                                     // 退出不中断生成后：发现残留说明后台仍在生成 → 热加载轮询
                                     final boolean[] hadGenerating = {false};
-                                    for (ChatMessage m : fullSession.messages) {
+                                    for (ChatMessage m : pageMsgs) {
                                         if (m != null && m.status == ChatMessage.MessageStatus.GENERATING) {
                                             m.status = ChatMessage.MessageStatus.COMPLETED;
                                             hadGenerating[0] = true;
@@ -790,11 +820,16 @@ public class AIChatActivity extends BaseActivity {
                                     }
                                     runOnUiThread(() -> {
                                         chatHistory.clear();
-                                        chatHistory.addAll(fullSession.messages);
+                                        chatHistory.addAll(pageMsgs);
                                         // 恢复补发 id：旧会话组件/思考轮 id 缺失时按 turnId 前缀补发
                                         ensureRecoveredIds(chatHistory);
                                         fileHistoryLoaded = true;
                                         currentSessionId = sessionId;
+                                        // 分段加载状态：历史来源为会话，前端未加载条数
+                                        historySourceSessionId = sessionId;
+                                        sessionFrontSkipped = sessSkipped[0];
+                                        aiHistoryFrontSkipped = 0;
+                                        updateLoadMoreButton();
                                         // 同步引擎会话：恢复该会话的 Agent 上下文（如存在）
                                         if (agentChatHandler != null) {
                                             agentChatHandler.setSessionId(sessionId);
@@ -7204,23 +7239,137 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    // ===================== 历史分段加载 / 内存窗口化（2026-09-25） =====================
+
+    /** 当前历史来源前端未加载条数（会话或单文件） */
+    private int historyFrontSkippedCount() {
+        return historySourceSessionId != null ? sessionFrontSkipped : aiHistoryFrontSkipped;
+    }
+
+    /** 保存当前历史窗口（保留文件未加载头部；新会话时按需合并单文件头部） */
+    private void saveCurrentHistory(boolean mergeSingleFileHead) {
+        if (chatHistoryManager == null || chatHistory == null || chatHistory.isEmpty()) return;
+        final List<ChatMessage> copy = new ArrayList<>(chatHistory);
+        if (currentSessionId != null && !currentSessionId.isEmpty()) {
+            chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId, sessionFrontSkipped, false);
+        } else {
+            chatHistoryManager.saveCurrentChatAsSession(copy, null, aiHistoryFrontSkipped, mergeSingleFileHead);
+        }
+    }
+
+    /** 点击"加载更早消息"：分段加载上一页并前插，保持视口 */
+    private void loadMoreHistory() {
+        if (historyLoadingMore || historyFrontSkippedCount() <= 0) return;
+        if (isGenerating) {
+            showToast(getString(R.string.h_9447f530));
+            return;
+        }
+        historyLoadingMore = true;
+        updateLoadMoreButton();
+        final int skipped = historyFrontSkippedCount();
+        final int skip = Math.max(0, skipped - ChatHistoryManager.HISTORY_PAGE_SIZE);
+        final int limit = skipped - skip;
+        final String srcSession = historySourceSessionId;
+        new Thread(() -> {
+            List<ChatMessage> older;
+            try {
+                older = srcSession != null
+                        ? chatHistoryManager.loadConversationSessionMessages(srcSession, skip, limit)
+                        : chatHistoryManager.loadAIHistoryMessages(skip, limit);
+            } catch (Exception e) {
+                older = null;
+            }
+            final List<ChatMessage> olderFinal = older;
+            runOnUiThread(() -> {
+                historyLoadingMore = false;
+                if (olderFinal != null && !olderFinal.isEmpty()) {
+                    final int added = olderFinal.size();
+                    chatHistory.addAll(0, olderFinal);
+                    ensureRecoveredIds(chatHistory);
+                    if (chatAdapter != null) chatAdapter.notifyItemRangeInserted(0, added);
+                    if (srcSession != null) sessionFrontSkipped = skip;
+                    else aiHistoryFrontSkipped = skip;
+                    // 保持视口：滚动到原首条（现位于 added 处）
+                    if (messageList != null && messageList.getLayoutManager() instanceof LinearLayoutManager) {
+                        ((LinearLayoutManager) messageList.getLayoutManager()).scrollToPositionWithOffset(added, 0);
+                    }
+                } else {
+                    if (srcSession != null) sessionFrontSkipped = 0;
+                    else aiHistoryFrontSkipped = 0;
+                }
+                updateLoadMoreButton();
+            });
+        }).start();
+    }
+
+    /** 顶部"加载更早消息"按钮显隐：有未加载历史且滚到顶部时显示 */
+    private void updateLoadMoreButton() {
+        if (btnLoadMoreHistory == null) return;
+        if (historyLoadingMore) {
+            btnLoadMoreHistory.setText("加载中…");
+            btnLoadMoreHistory.setVisibility(View.VISIBLE);
+            return;
+        }
+        boolean atTop = false;
+        if (messageList != null && messageList.getLayoutManager() instanceof LinearLayoutManager) {
+            atTop = ((LinearLayoutManager) messageList.getLayoutManager()).findFirstVisibleItemPosition() <= 0;
+        }
+        int skipped = historyFrontSkippedCount();
+        if (skipped > 0 && atTop) {
+            btnLoadMoreHistory.setText("↑ 加载更早的 " + skipped + " 条");
+            btnLoadMoreHistory.setVisibility(View.VISIBLE);
+        } else {
+            btnLoadMoreHistory.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 正在对话时把较早消息归档到文件（内存窗口化），保证长对话内存健康；
+     * 归档后划到顶部点"加载更早消息"可分段恢复。仅在空闲、用户在底部时执行。
+     */
+    private void maybeArchiveAfterSave() {
+        if (uiDetached || chatHistory == null || chatAdapter == null) return;
+        if (isGenerating || historyLoadingMore) return;
+        if (chatHistory.size() <= HISTORY_ARCHIVE_KEEP) return;
+        // 只在用户停留在底部时归档，避免回读旧消息时列表被抽走
+        if (!isUserAtBottom()) return;
+        int drop = Math.min(HISTORY_ARCHIVE_CHUNK, chatHistory.size() - HISTORY_ARCHIVE_KEEP);
+        if (drop <= 0) return;
+        chatHistory.subList(0, drop).clear();
+        if (historySourceSessionId != null) sessionFrontSkipped += drop;
+        else aiHistoryFrontSkipped += drop;
+        chatAdapter.notifyItemRangeRemoved(0, drop);
+        updateLoadMoreButton();
+        AppLogger.ai(TAG, "历史已归档: 移出内存 " + drop + " 条，内存窗口=" + chatHistory.size()
+                + "，滚动顶部可加载更早");
+    }
+
     private void saveHistoryAsync() {
         if (chatHistoryManager != null && chatHistory != null) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);
+            final int aiSkipped = aiHistoryFrontSkipped;
+            final int sessSkipped = sessionFrontSkipped;
             new Thread(() -> {
-                chatHistoryManager.saveAIChatHistory(copy);
-                // 同步保存为会话（确保历史不丢失）
+                chatHistoryManager.saveAIHistoryWithHead(copy, aiSkipped);
+                // 同步保存为会话（确保历史不丢失；保留未加载头部）
                 if (copy.size() >= 2) {
-                    // 跨实例全局锁（非 synchronized(this)）：旋转重建时旧实例保存线程与
-                    // 新实例加载线程可能并发读写同一会话文件，实例锁不互斥会导致半写/损坏
                     synchronized (HISTORY_IO_LOCK) {
-                        ConversationSession session = chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId);
+                        ConversationSession session;
+                        if (currentSessionId != null && !currentSessionId.isEmpty()) {
+                            session = chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId, sessSkipped, false);
+                        } else {
+                            session = chatHistoryManager.saveCurrentChatAsSession(copy, null, aiSkipped, true);
+                        }
                         // 保存后更新 currentSessionId，下次更新同一文件而非重复创建
                         if (session != null && session.id != null) {
                             currentSessionId = session.id;
+                            historySourceSessionId = session.id;
+                            sessionFrontSkipped = 0;
                         }
                     }
                 }
+                // 归档检查：消息已在此落盘，安全把较早消息移出内存（窗口化）
+                runOnUiThread(AIChatActivity.this::maybeArchiveAfterSave);
             }).start();
         }
     }
@@ -7644,14 +7793,17 @@ public class AIChatActivity extends BaseActivity {
     private void switchToSession(ConversationSession session) {
         if (session == null || session.id == null) return;
         try {
-            // 先保存当前会话（更新当前会话而非重复创建）
+            // 先保存当前会话（更新当前会话而非重复创建；保留未加载头部）
             if (chatHistoryManager != null && !chatHistory.isEmpty()) {
-                chatHistoryManager.saveCurrentChatAsSession(new ArrayList<>(chatHistory), currentSessionId);
+                saveCurrentHistory(true);
             }
-            // 异步加载目标会话
+            // 异步分段加载目标会话：只取最新一页（大文件不再全量解析）
             new Thread(() -> {
-                ConversationSession loaded = chatHistoryManager.loadConversationSession(session.id);
-                if (loaded != null && loaded.messages != null && !loaded.messages.isEmpty()) {
+                int tTotal = chatHistoryManager.countConversationMessages(session.id);
+                final int[] tSkipped = {Math.max(0, tTotal - ChatHistoryManager.HISTORY_PAGE_SIZE)};
+                List<ChatMessage> pageMsgs = chatHistoryManager.loadConversationSessionMessages(
+                        session.id, tSkipped[0], ChatHistoryManager.HISTORY_PAGE_SIZE);
+                if (pageMsgs != null && !pageMsgs.isEmpty()) {
                     runOnUiThread(() -> {
                         // 停止当前生成
                         if (isGenerating) {
@@ -7661,32 +7813,37 @@ public class AIChatActivity extends BaseActivity {
                             endGeneration();
                         }
                         // 替换当前聊天历史
-                        currentSessionId = loaded.id; // 跟踪当前加载的会话 ID
+                        currentSessionId = session.id; // 跟踪当前加载的会话 ID
+                        historySourceSessionId = session.id;
+                        sessionFrontSkipped = tSkipped[0];
+                        aiHistoryFrontSkipped = 0;
                         chatHistory.clear();
-                        chatHistory.addAll(loaded.messages);
+                        chatHistory.addAll(pageMsgs);
+                        ensureRecoveredIds(chatHistory);
                         if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+                        updateLoadMoreButton();
                         // 保存到单文件历史（兼容现有逻辑）
-                        chatHistoryManager.saveAIChatHistory(new ArrayList<>(chatHistory));
+                        chatHistoryManager.saveAIHistoryWithHead(new ArrayList<>(chatHistory), 0);
                         // 引擎按会话隔离历史：保存当前 → 恢复目标会话的上下文（不再清空失忆）
                         if (agentChatHandler != null) {
-                            agentChatHandler.setSessionId(loaded.id);
+                            agentChatHandler.setSessionId(session.id);
                         }
                         // 本地推理上下文独立化（2026-09-14）：按会话加载目标历史，不再清空从头开始
                         if (modelBridge != null) {
-                            modelBridge.setLocalSessionId(loaded.id);
+                            modelBridge.setLocalSessionId(session.id);
                             // 平滑迁移：旧版本聊过的会话（无独立推理历史文件）首次切回时，
                             // 从 UI 会话消息一次性重建推理历史；之后完全独立于 UI
                             if (modelBridge.getLocalHistoryEntries().isEmpty()
-                                    && loaded.messages != null && !loaded.messages.isEmpty()) {
+                                    && pageMsgs != null && !pageMsgs.isEmpty()) {
                                 modelBridge.rebuildChatJsonHistoryFromExternal(
-                                        buildMigrationEntries(loaded.messages));
+                                        buildMigrationEntries(pageMsgs));
                                 AILogger.i(TAG, "Local context migrated from UI session: "
-                                        + loaded.messages.size() + " msgs");
+                                        + pageMsgs.size() + " msgs");
                             }
                         }
                         updateEmptyState();
                         scrollToBottom(true);
-                        showToast(getString(R.string.h_ab98c004) + loaded.title);
+                        showToast(getString(R.string.h_ab98c004) + session.title);
                     });
                 } else {
                     runOnUiThread(() -> showToast(getString(R.string.h_c59cad21)));

@@ -208,6 +208,24 @@
                     android:textColor="?attr/colorOnPrimaryContainer"
                     android:visibility="gone"/>
 
+                <!-- 加载更早消息按钮：滚到顶部且有未加载历史时显示，点击分段加载上一页 -->
+                <TextView
+                    android:id="@+id/btn_load_more_history"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|center_horizontal"
+                    android:layout_marginTop="8dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="6dp"
+                    android:background="@drawable/system_message_background"
+                    android:gravity="center"
+                    android:text="加载更早消息"
+                    android:textSize="13sp"
+                    android:textColor="?attr/colorOnPrimaryContainer"
+                    android:visibility="gone"/>
+
                 <!-- 空状态视图 -->
                 <LinearLayout
                     android:id="@+id/empty_state_view"

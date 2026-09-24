@@ -10,7 +10,7 @@ import java.util.Map;
 
 public class ImageRenderEngine implements FileRenderEngine {
     private static final String TAG = "ImageRenderEngine";
-    private static final String[] SUPPORTED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "bmp", "webp"};
+    private static final String[] SUPPORTED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "ico"};
     
     @Override
     public boolean canRender(File file) {
@@ -87,6 +87,8 @@ public class ImageRenderEngine implements FileRenderEngine {
         if (n.endsWith(".gif")) return "image/gif";
         if (n.endsWith(".webp")) return "image/webp";
         if (n.endsWith(".bmp")) return "image/bmp";
+        if (n.endsWith(".tiff") || n.endsWith(".tif")) return "image/tiff";
+        if (n.endsWith(".ico")) return "image/x-icon";
         return "image/jpeg";
     }
 }

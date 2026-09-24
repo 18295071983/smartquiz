@@ -57,6 +57,9 @@ public class FileRenderActivity extends BaseActivity {
     private File currentFile;
     private PreviewRenderBridge previewRenderBridge;
     private android.widget.VideoView videoView;
+    private android.media.MediaPlayer audioPlayer;
+    private android.widget.ProgressBar audioProgress;
+    private Runnable audioProgressRunnable;
 
     @Override
     protected int getLayoutId() {
@@ -236,6 +239,7 @@ public class FileRenderActivity extends BaseActivity {
         tvText.setVisibility(View.GONE);
         wvHtml.setVisibility(View.GONE);
         hideVideoView();
+        hideAudioPlayer();
 
         if (content instanceof Bitmap) {
             showImageBitmap(ivImage, (Bitmap) content);
@@ -253,6 +257,10 @@ public class FileRenderActivity extends BaseActivity {
             Map<?, ?> contentMap = (Map<?, ?>) content;
             if (contentMap.containsKey("videoPath")) {
                 showVideo(String.valueOf(contentMap.get("videoPath")));
+            } else if (contentMap.containsKey("audioPath")) {
+                showAudio(String.valueOf(contentMap.get("audioPath")),
+                        String.valueOf(contentMap.get("fileName")),
+                        String.valueOf(contentMap.get("fileType")));
             } else if (contentMap.containsKey("bitmap")) {
                 showImageBitmap(ivImage, (Bitmap) contentMap.get("bitmap"));
             } else if (contentMap.containsKey("htmlContent")) {
@@ -283,9 +291,20 @@ public class FileRenderActivity extends BaseActivity {
                 fs = pv.getScale();
             }
             if (fs > 0f) {
-                pv.setMinimumScale(fs);
-                pv.setMaximumScale(fs * 6f);
-                pv.setScale(fs, false);
+                try {
+                    // PhotoView 约束：min < medium < max。小图适配到满屏时 fs 可能 >= medium(1.75)，
+                    // 直接 setMinimumScale 会抛 IllegalArgumentException（线上崩溃 2026-09-25 00:14:58）
+                    float med = pv.getMediumScale();
+                    if (med <= 0f) med = 1.75f;
+                    if (fs >= med) {
+                        pv.setMediumScale(fs * 1.01f);
+                    }
+                    pv.setMinimumScale(fs);
+                    pv.setMaximumScale(Math.max(pv.getMaximumScale(), fs * 6f));
+                    pv.setScale(fs, false);
+                } catch (IllegalArgumentException e) {
+                    Log.w(TAG, "PhotoView scale adjust skipped: " + e.getMessage());
+                }
             }
         });
         pv.setVisibility(View.VISIBLE);
@@ -347,9 +366,191 @@ public class FileRenderActivity extends BaseActivity {
         }
     }
 
+    /** 应用内音频播放（MediaPlayer，不依赖系统播放器）：文件名 + 进度条 + 播放/暂停 + 停止 */
+    private void showAudio(String audioPath, String fileName, String fileType) {
+        final java.io.File af = new java.io.File(audioPath);
+        if (!af.exists()) {
+            showError("音频不存在", "找不到音频文件: " + audioPath);
+            return;
+        }
+        hideAudioPlayer();
+        final android.media.MediaPlayer mp = new android.media.MediaPlayer();
+        audioPlayer = mp;
+        try {
+            mp.setDataSource(audioPath);
+            mp.setAudioStreamType(android.media.AudioManager.STREAM_MUSIC);
+        } catch (Throwable t) {
+            showError("音频打开失败", t.getMessage());
+            return;
+        }
+
+        // 控制条：文件名 + 进度 + 播放/暂停 + 停止
+        final android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
+        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(16), dp(16), dp(16));
+        panel.setGravity(android.view.Gravity.CENTER);
+        contentLayout.addView(panel, 1, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        final android.widget.TextView tvTitle = new android.widget.TextView(this);
+        tvTitle.setText((fileName == null || fileName.equals("null") ? af.getName() : fileName)
+                + "  (" + (fileType == null || fileType.equals("null") ? "音频" : fileType) + ")");
+        tvTitle.setTextSize(16);
+        tvTitle.setGravity(android.view.Gravity.CENTER);
+        tvTitle.setMaxLines(2);
+        panel.addView(tvTitle, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        android.widget.LinearLayout timeRow = new android.widget.LinearLayout(this);
+        timeRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        timeRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        timeRow.setPadding(0, dp(8), 0, dp(4));
+        final android.widget.TextView tvTime = new android.widget.TextView(this);
+        tvTime.setText("00:00 / 00:00");
+        tvTime.setTextSize(12);
+        final android.widget.ProgressBar pb = new android.widget.ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        pb.setMax(1000);
+        android.widget.LinearLayout.LayoutParams pbLp = new android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        pbLp.setMargins(dp(8), 0, dp(8), 0);
+        timeRow.addView(tvTime, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+        timeRow.addView(pb, pbLp);
+        panel.addView(timeRow, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+        audioProgress = pb;
+
+        android.widget.LinearLayout btnRow = new android.widget.LinearLayout(this);
+        btnRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        btnRow.setGravity(android.view.Gravity.CENTER);
+        final android.widget.Button btnPlay = new android.widget.Button(this);
+        btnPlay.setText("▶ 播放");
+        final android.widget.Button btnStop = new android.widget.Button(this);
+        btnStop.setText("■ 停止");
+        android.widget.LinearLayout.LayoutParams btnLp = new android.widget.LinearLayout.LayoutParams(
+                dp(110), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        btnLp.setMargins(dp(8), dp(8), dp(8), 0);
+        btnRow.addView(btnPlay, btnLp);
+        btnRow.addView(btnStop, btnLp);
+        panel.addView(btnRow, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        btnPlay.setOnClickListener(v -> {
+            if (mp == null) return;
+            try {
+                if (mp.isPlaying()) {
+                    mp.pause();
+                    btnPlay.setText("▶ 播放");
+                    stopAudioProgress();
+                } else {
+                    mp.start();
+                    btnPlay.setText("⏸ 暂停");
+                    startAudioProgress(mp, pb, tvTime);
+                }
+            } catch (Throwable t) {
+                Toast.makeText(this, "播放失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+        btnStop.setOnClickListener(v -> {
+            if (mp == null) return;
+            try {
+                mp.stop();
+                mp.reset();
+                btnPlay.setText("▶ 播放");
+                pb.setProgress(0);
+                tvTime.setText("00:00 / 00:00");
+                stopAudioProgress();
+            } catch (Throwable ignored) {
+            }
+        });
+
+        mp.setOnPreparedListener(m -> {
+            m.setLooping(false);
+            tvTime.setText("00:00 / " + formatDuration(m.getDuration()));
+        });
+        mp.setOnCompletionListener(m -> {
+            btnPlay.setText("▶ 播放");
+            pb.setProgress(pb.getMax());
+            stopAudioProgress();
+        });
+        mp.setOnErrorListener((m, what, extra) -> {
+            stopAudioProgress();
+            Toast.makeText(this, "音频播放错误(what=" + what + ", extra=" + extra + ")，可尝试用其他应用打开", Toast.LENGTH_LONG).show();
+            return true;
+        });
+        try {
+            mp.prepareAsync();
+        } catch (Throwable t) {
+            showError("音频打开失败", t.getMessage());
+        }
+    }
+
+    /** 隐藏/释放已展示的音频播放器（切换渲染内容或退出时调用） */
+    private void hideAudioPlayer() {
+        stopAudioProgress();
+        if (audioPlayer != null) {
+            try {
+                audioPlayer.stop();
+            } catch (Throwable ignored) {
+            }
+            try {
+                audioPlayer.release();
+            } catch (Throwable ignored) {
+            }
+            audioPlayer = null;
+        }
+        audioProgress = null;
+    }
+
+    private void startAudioProgress(final android.media.MediaPlayer mp,
+                                    final android.widget.ProgressBar pb,
+                                    final android.widget.TextView tvTime) {
+        stopAudioProgress();
+        audioProgressRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mp == null || pb == null || tvTime == null || audioProgressRunnable != this) return;
+                try {
+                    int dur = mp.getDuration();
+                    int pos = mp.getCurrentPosition();
+                    if (dur > 0) {
+                        pb.setProgress((int) ((long) pos * pb.getMax() / dur));
+                        tvTime.setText(formatDuration(pos) + " / " + formatDuration(dur));
+                    }
+                } catch (Throwable ignored) {
+                }
+                if (audioProgressRunnable == this) {
+                    tvTime.postDelayed(this, 500);
+                }
+            }
+        };
+        tvTime.post(audioProgressRunnable);
+    }
+
+    private void stopAudioProgress() {
+        // run() 首行以 audioProgressRunnable != this 判断退出，置空即停轮询
+        audioProgressRunnable = null;
+    }
+
+    private String formatDuration(int ms) {
+        if (ms < 0) return "00:00";
+        int s = ms / 1000;
+        return String.format(java.util.Locale.US, "%02d:%02d", s / 60, s % 60);
+    }
+
+    private int dp(int v) {
+        return Math.round(getResources().getDisplayMetrics().density * v);
+    }
+
     @Override
     protected void onDestroy() {
         hideVideoView();
+        hideAudioPlayer();
         super.onDestroy();
     }
 

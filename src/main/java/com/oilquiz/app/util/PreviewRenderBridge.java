@@ -156,6 +156,10 @@ public class PreviewRenderBridge {
             engines.add(new com.oilquiz.app.util.render.PowerPointRenderEngine());
             // 视频：应用内 VideoView 播放（不依赖系统播放器）
             engines.add(new com.oilquiz.app.util.render.VideoRenderEngine());
+            // 音频：应用内 MediaPlayer 播放（抖音 BGM mp3 等）
+            engines.add(new com.oilquiz.app.util.render.AudioRenderEngine());
+            // 压缩包：ZIP 条目列表（docx/xlsx/pptx 本质是 zip）
+            engines.add(new com.oilquiz.app.util.render.ZipRenderEngine());
             // 最后注册通用的文本引擎
             engines.add(new com.oilquiz.app.util.render.TextRenderEngine());
         }

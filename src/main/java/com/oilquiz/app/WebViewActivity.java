@@ -1454,7 +1454,7 @@ public class WebViewActivity extends BaseActivity {
         WebSettings shellSettings = webView.getSettings();
         shellSettings.setJavaScriptCanOpenWindowsAutomatically(true);
         shellSettings.setMediaPlaybackRequiresUserGesture(false);
-        shellSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        shellSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW); // 安全：混合内容一律禁止（防降级窃取登录态）
 
         // 身份认证支持：开启 Cookie（含第三方——SSO 联合登录必需），登录态应用内持久化
         android.webkit.CookieManager shellCookieMgr = android.webkit.CookieManager.getInstance();
@@ -1479,6 +1479,8 @@ public class WebViewActivity extends BaseActivity {
             @Override
             public void onPageFinished(String url) {
                 AppLogger.d(TAG, "页面加载完成: " + url);
+                // 捕获登录态 Cookie 到应用级仓库（供 web_render/python_web_reader/OkHttp 复用）
+                captureCookiesForUrl(url);
                 // 注入JavaScript来优化页面显示
                 injectOptimizationScript(webView);
                 // 更新标签页标题
@@ -1633,6 +1635,25 @@ public class WebViewActivity extends BaseActivity {
     }
     
     /**
+     * 页面加载完成后捕获登录态 Cookie 到应用级仓库（供 web_render / python_web_reader / OkHttp 复用）。
+     * 立即捕获一次 + 延迟再捕一次：部分站点在 onPageFinished 后仍会异步写 Cookie（SSO 回调/XHR）。
+     */
+    private void captureCookiesForUrl(String url) {
+        if (url == null) return;
+        try {
+            com.oilquiz.app.webview.AppCookieStore.getInstance().captureFromWebView(url);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    com.oilquiz.app.webview.AppCookieStore.getInstance().captureFromWebView(url);
+                } catch (Throwable ignored) {
+                }
+            }, 1500);
+        } catch (Throwable t) {
+            AppLogger.e(TAG, "捕获 Cookie 失败: " + t.getMessage());
+        }
+    }
+
+    /**
      * 从WebView更新标签页标题样式
      */
     private void updateTabTitleFromWebView(int tabIndex) {
@@ -1670,6 +1691,9 @@ public class WebViewActivity extends BaseActivity {
         
         WebSettings webSettings = webView.getSettings();
         AppResourceManager.getInstance(this).webView().configureWebSettings(webSettings);
+
+        // 伪装为正常 Chrome UA（默认 UA 带 wv 标记，站点会拒绝 document.cookie/登录 Cookie）
+        webSettings.setUserAgentString(com.oilquiz.app.webview.WebViewDefaults.CHROME_USER_AGENT);
         
         webSettings.setGeolocationEnabled(true);
         webSettings.setGeolocationDatabasePath(getFilesDir().getPath());
@@ -1680,7 +1704,7 @@ public class WebViewActivity extends BaseActivity {
         // （覆盖安全配置中的严格项：弹窗由 onCreateWindow 统一路由回主 WebView，不真正开新窗口）
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
         webSettings.setMediaPlaybackRequiresUserGesture(false);
-        webSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        webSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW); // 安全：混合内容一律禁止（防降级窃取登录态）
 
         // 身份认证支持：开启 Cookie（含第三方——SSO 联合登录必需），登录态应用内持久化
         android.webkit.CookieManager cookieMgr = android.webkit.CookieManager.getInstance();
@@ -1716,6 +1740,8 @@ public class WebViewActivity extends BaseActivity {
             @Override
             public void onPageFinished(String url) {
                 AppLogger.d(TAG, "页面加载完成: " + url);
+                // 捕获登录态 Cookie 到应用级仓库（供 web_render/python_web_reader/OkHttp 复用）
+                captureCookiesForUrl(url);
                 // 注入JavaScript来优化页面显示
                 injectOptimizationScript(webView);
             }

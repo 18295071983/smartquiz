@@ -75,9 +75,11 @@ public class JsExecuteTool implements AITool {
                 + "code=要执行的JS代码（语句或表达式均可），执行后返回：成功与否、返回值、console.log 输出、错误信息。"
                 + "支持标准 ES6 核心语法（箭头函数/模板字符串/解构/let-const/class/Promise/**async-await**）；"
                 + "**支持 Promise/异步结果**（返回 Promise 的代码会等待其结果，受 timeout 限制）；"
-                + "**支持受限网络**：window.__http.get(url)/__http.post(url, body) 返回 **Promise**（可 await），"
-                + "解析后为 {ok,status,body} 对象（内部为原生同步调用，多次调用会串行累计耗时）；"
-                + "仅 http/https、6s 超时、响应≤512KB——可调 API/拉数据；"
+                + "**支持受限网络**：window.__http.get(url, opts)/__http.post(url, body, opts) 返回 **Promise**（可 await），"
+                + "解析后为 {ok,status,body,setCookies} 对象；opts.headers 可传自定义请求头（如 {Cookie:'a=1'}）；"
+                + "未显式传 Cookie 时自动携带应用内已保存的该站 Cookie，响应头 Set-Cookie 随 setCookies 返回；"
+                + "**读 Cookie**：window.__http.cookies(url) 返回该域已存 Cookie 字符串；"
+                + "仅 http/https、6s 超时、响应≤512KB——可调 API/拉数据/带登录态访问；"
                 + "**支持受限文件**：window.__fs.read/write/list/delete/exists 返回 **Promise**（可 await），解析后为对象"
                 + "（仅限 Agent 工作区 files/ 目录内，相对路径防 .. 穿越，绝对路径越出工作区会拒绝，文件≤512KB）——可读写工作区文件；"
                 + "执行引擎是系统 WebView 的 JS 引擎（evaluateJavascript），**无 Java 互操作**（Java 包/类不可用，非 Rhino/Nashorn）；"
@@ -87,7 +89,10 @@ public class JsExecuteTool implements AITool {
                 + "适合：算法验证、数据转换/清洗、JSON 处理、正则测试、前端逻辑调试、URL 编解码、调用 HTTP API。"
                 + "**顶层 return 已自动兼容**：检测到代码顶层有 return 会自动包成立即执行函数 IIFE 并返回其结果，"
                 + "可直接写 return 值; 返回结果；也可用 console.log 输出。"
-                + "限制：原生 fetch/XHR 跨域会被 CORS 拦截（网络请用 __http，文件请用 __fs），不能访问 DOM/页面渲染。"
+                + "url=可选，传入 http/https 地址时先加载该真实网页，再在**真实页面上下文**执行代码"
+                + "（此时可读 document.cookie / localStorage、访问页面 DOM；否则默认在 about:blank 内存页执行，"
+                + "origin 为 null，document.cookie/localStorage 会被浏览器安全策略拒绝）。"
+                + "限制：默认（无 url）时原生 fetch/XHR 跨域会被 CORS 拦截（网络请用 __http，文件请用 __fs），不能访问 DOM/页面渲染。"
                 + "**并发上限：单批同时执行 ≤4 路**（超出会等待 2s 后明确报『JS 执行并发已满』，不会静默丢值）；"
                 + "**单个脚本内部多次桥接调用（__http/__fs）请串行 await**，勿用 Promise.all 并发打桥（会累积阻塞与并发压力）；"
                 + "排查\"无返回值\"时先确认未超并发，再用 console.log 逐点打桩定位卡点。"
@@ -98,6 +103,7 @@ public class JsExecuteTool implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
         params.put("code", "要执行的 JavaScript 代码（语句或表达式，可用 console.log 输出调试）");
+        params.put("url", "可选，http/https 地址：先加载该真实网页，再在真实页面上下文执行代码（可读 document.cookie / localStorage）");
         params.put("timeout", "执行超时秒数（1-30，默认 8）");
         return params;
     }
@@ -124,6 +130,15 @@ public class JsExecuteTool implements AITool {
             }
         } catch (Exception ignored) {
         }
+        String pageUrl = null;
+        Object u = parameters.get("url");
+        if (u != null && !String.valueOf(u).trim().isEmpty()) {
+            String uv = String.valueOf(u).trim();
+            if (!uv.startsWith("http://") && !uv.startsWith("https://")) {
+                return AIToolResult.fail("url 仅支持 http/https 地址: " + uv);
+            }
+            pageUrl = uv;
+        }
 
         // 并发闸：最多 MAX_CONCURRENCY 路同时执行；先等待 2s 拿许可（排队场景友好），
         // 超时则明确报错——绝不静默丢弃（超限丢值曾表现为"执行成功但无返回值"，已修复）
@@ -139,7 +154,7 @@ public class JsExecuteTool implements AITool {
                     + " 路），请降低并发或分批调用后重试——超限时结果会被明确拒绝，不会静默丢值");
         }
         try {
-            return runJs(code, timeout);
+            return runJs(code, timeout, pageUrl);
         } finally {
             CONCURRENCY.release();
         }
@@ -173,7 +188,7 @@ public class JsExecuteTool implements AITool {
         return n;
     }
 
-    private AIToolResult runJs(String code, int timeoutSeconds) {
+    private AIToolResult runJs(String code, int timeoutSeconds, String pageUrl) {
         final CountDownLatch loaded = new CountDownLatch(1);
         final CountDownLatch done = new CountDownLatch(1);
         final String[] rawResult = new String[1];
@@ -186,14 +201,16 @@ public class JsExecuteTool implements AITool {
                 holder[0] = webView;
                 WebSettings s = webView.getSettings();
                 s.setJavaScriptEnabled(true);
-                // 关闭 DOM 存储：null origin 页面的 localStorage 在不同 WebView 实例间可能共享，
-                // 关闭可消除该泄漏面（引导页只用内存数组，不依赖 localStorage）
-                s.setDomStorageEnabled(false);
+                // 无 url 时：null origin 内存引导页的 localStorage 在不同 WebView 实例间可能共享，
+                // 关闭可消除该泄漏面（引导页只用内存数组）；有 url 时需开启（真实页面 localStorage 正常隔离）
+                s.setDomStorageEnabled(pageUrl != null);
                 s.setAllowFileAccess(false);
                 s.setAllowContentAccess(false);
                 s.setAllowFileAccessFromFileURLs(false);
                 s.setAllowUniversalAccessFromFileURLs(false);
                 s.setJavaScriptCanOpenWindowsAutomatically(false);
+                // 与浏览器一致的伪装 UA（真实页面模式下站点 Cookie 策略按正常 Chrome 处理）
+                s.setUserAgentString(com.oilquiz.app.webview.WebViewDefaults.CHROME_USER_AGENT);
                 webView.setWebViewClient(new WebViewClient() {
                     @Override
                     public void onPageFinished(WebView view, String url) {
@@ -203,7 +220,12 @@ public class JsExecuteTool implements AITool {
                 // Android 原生桥：JS 侧 AndroidBridge.done(结果JSON) 回传异步(Promise)结果；
                 // httpGet/httpPost 提供受限网络（仅 http/https，超时/大小限制见 http()）
                 webView.addJavascriptInterface(new JsBridge(rawResult, done), "AndroidBridge");
-                webView.loadDataWithBaseURL(null, BOOTSTRAP_HTML, "text/html", "utf-8", null);
+                if (pageUrl != null) {
+                    // 真实页面模式：先加载网页，加载完成后再注入执行框架（document.cookie/localStorage 可用）
+                    webView.loadUrl(pageUrl);
+                } else {
+                    webView.loadDataWithBaseURL(null, BOOTSTRAP_HTML, "text/html", "utf-8", null);
+                }
             } catch (Throwable t) {
                 setupError[0] = t;
                 loaded.countDown();
@@ -212,8 +234,11 @@ public class JsExecuteTool implements AITool {
         });
 
         try {
-            if (!loaded.await(5, TimeUnit.SECONDS)) {
-                return AIToolResult.fail("JS 运行环境初始化超时");
+            int loadWait = pageUrl != null ? Math.max(timeoutSeconds, 15) : 5;
+            if (!loaded.await(loadWait, TimeUnit.SECONDS)) {
+                return AIToolResult.fail(pageUrl != null
+                        ? "页面加载超时（" + loadWait + "s）: " + pageUrl
+                        : "JS 运行环境初始化超时");
             }
             if (setupError[0] != null) {
                 return AIToolResult.fail("JS 运行环境初始化失败: " + setupError[0].getMessage());
@@ -224,9 +249,12 @@ public class JsExecuteTool implements AITool {
             final WebView webView = holder[0];
             // 用户代码 JSON 转义后嵌入 window.__run("...")（__run 内用 eval 执行）
             final String quoted = JSONObject.quote(code);
+            final String injection = pageUrl != null
+                    ? buildRealPageInjection(quoted)
+                    : "window.__run(" + quoted + ")";
             MAIN.post(() -> {
                 try {
-                    webView.evaluateJavascript("window.__run(" + quoted + ")", value -> {
+                    webView.evaluateJavascript(injection, value -> {
                         // Promise 路径：__run 返回 __async_pending 标记，结果由 AndroidBridge.done
                         // 异步回传（rawResult 已被覆盖），这里不写不 countDown，避免覆盖真结果；
                         // 同步路径：正常写入并结束。
@@ -324,8 +352,11 @@ public class JsExecuteTool implements AITool {
             + "return JSON.stringify({ok:true,value:window.__enc(r),logs:window.__jslogs});}"
             + "catch(e){return JSON.stringify({ok:false,error:window.__errMsg(e),logs:window.__jslogs});}};"
             + "window.__http={"
-            + "get:function(url){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.httpGet(url)));});},"
-            + "post:function(url,body){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.httpPost(url,body)));});}};"
+            + "get:function(url,opts){var h=(opts&&opts.headers)?JSON.stringify(opts.headers):'{}';"
+            + "return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.httpGet2(url,h)));});},"
+            + "post:function(url,body,opts){var h=(opts&&opts.headers)?JSON.stringify(opts.headers):'{}';"
+            + "return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.httpPost2(url,body||'{}',h)));});},"
+            + "cookies:function(url){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.getCookies(url||'')));});}};"
             + "window.__fs={"
             + "read:function(p){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsRead(p)));});},"
             + "write:function(p,c){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsWrite(p,c)));});},"
@@ -334,6 +365,44 @@ public class JsExecuteTool implements AITool {
             + "exists:function(p){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsExists(p)));});}};"
             + "})();"
             + "</script></body></html>";
+
+    /** 真实页面模式注入：定义执行框架后立即运行用户代码。
+     *  在真实 http/https 页面上下文执行，document.cookie / localStorage 可用。 */
+    private static String buildRealPageInjection(String quotedCode) {
+        return "(function(){"
+                + "window.__jslogs=[];"
+                + "var push=function(a){var p=[];for(var i=0;i<a.length;i++){var x=a[i];"
+                + "p.push(typeof x==='object'?(x===null?'null':JSON.stringify(x)):String(x));}"
+                + "window.__jslogs.push(p.join(' '));};"
+                + "console.log=function(){push(arguments);};"
+                + "console.error=function(){push(arguments);};"
+                + "console.warn=function(){push(arguments);};"
+                + "console.info=function(){push(arguments);};"
+                + "window.__enc=function(v){return v===undefined?null:(typeof v==='object'?JSON.stringify(v):String(v));};"
+                + "window.__errMsg=function(e){return (e&&e.message)?String(e.message):String(e);};"
+                + "window.__http={"
+                + "get:function(url,opts){var h=(opts&&opts.headers)?JSON.stringify(opts.headers):'{}';"
+                + "return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.httpGet2(url,h)));});},"
+                + "post:function(url,body,opts){var h=(opts&&opts.headers)?JSON.stringify(opts.headers):'{}';"
+                + "return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.httpPost2(url,body||'{}',h)));});},"
+                + "cookies:function(url){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.getCookies(url||'')));});}};"
+                + "window.__fs={"
+                + "read:function(p){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsRead(p)));});},"
+                + "write:function(p,c){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsWrite(p,c)));});},"
+                + "list:function(d){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsList(d)));});},"
+                + "delete:function(p){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsDelete(p)));});},"
+                + "exists:function(p){return new Promise(function(resolve){resolve(JSON.parse(AndroidBridge.fsExists(p)));});}};"
+                + "window.__run=function(c){"
+                + "try{var r=eval(c);"
+                + "if(r&&typeof r.then==='function'){"
+                + "r.then(function(v){AndroidBridge.done(JSON.stringify({ok:true,value:window.__enc(v),logs:window.__jslogs}));})"
+                + ".catch(function(e){AndroidBridge.done(JSON.stringify({ok:false,error:window.__errMsg(e),logs:window.__jslogs}));});"
+                + "return JSON.stringify({ok:true,value:'__async_pending',logs:[]});}"
+                + "return JSON.stringify({ok:true,value:window.__enc(r),logs:window.__jslogs});}"
+                + "catch(e){return JSON.stringify({ok:false,error:window.__errMsg(e),logs:window.__jslogs});}};"
+                + "window.__run(" + quotedCode + ");"
+                + "})()";
+    }
 
     /** JS ↔ Android 桥：done 回传 Promise 结果；httpGet/httpPost 提供受限网络。
      *  方法在 WebView JS 线程同步调用，HttpURLConnection 有 10s 超时兜底，不阻塞 UI。 */
@@ -360,15 +429,43 @@ public class JsExecuteTool implements AITool {
 
         @JavascriptInterface
         public String httpGet(String url) {
-            return http(url, null, "GET");
+            return http(url, null, "GET", null);
         }
 
         @JavascriptInterface
         public String httpPost(String url, String body) {
-            return http(url, body, "POST");
+            return http(url, body, "POST", null);
         }
 
-        private String http(String url, String body, String method) {
+        /** 带自定义请求头版本（headersJson 为 JSON 对象，如 {"Cookie":"a=1","X-Trace":"1"}） */
+        @JavascriptInterface
+        public String httpGet2(String url, String headersJson) {
+            return http(url, null, "GET", headersJson);
+        }
+
+        @JavascriptInterface
+        public String httpPost2(String url, String body, String headersJson) {
+            return http(url, body, "POST", headersJson);
+        }
+
+        /** 读取指定 URL 域下应用已保存的 Cookie（CookieManager） */
+        @JavascriptInterface
+        public String getCookies(String url) {
+            try {
+                String cookie = "";
+                try {
+                    String ck = android.webkit.CookieManager.getInstance().getCookie(url);
+                    if (ck != null) cookie = ck;
+                } catch (Throwable ignored) {
+                }
+                return "{\"ok\":true,\"cookie\":" + org.json.JSONObject.quote(cookie) + "}";
+            } catch (Throwable t) {
+                String msg = t.getMessage() == null ? String.valueOf(t) : t.getMessage();
+                return "{\"ok\":false,\"error\":" + org.json.JSONObject.quote(msg) + "}";
+            }
+        }
+
+        private String http(String url, String body, String method, String headersJson) {
             try {
                 if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) {
                     return "{\"ok\":false,\"error\":\"仅支持 http/https URL\"}";
@@ -378,6 +475,40 @@ public class JsExecuteTool implements AITool {
                 conn.setConnectTimeout(6000);
                 conn.setReadTimeout(6000);
                 conn.setRequestMethod(method);
+                // 自定义请求头（含 Cookie）；未显式传 Cookie 时自动携带应用内已保存的该站 Cookie（cookie jar）
+                boolean hasCookie = false;
+                if (headersJson != null && !headersJson.isEmpty() && !"{}".equals(headersJson)) {
+                    try {
+                        org.json.JSONObject hdrs = new org.json.JSONObject(headersJson);
+                        Iterator<String> it = hdrs.keys();
+                        while (it.hasNext()) {
+                            String k = it.next();
+                            String v = String.valueOf(hdrs.opt(k));
+                            if ("Cookie".equalsIgnoreCase(k)) hasCookie = true;
+                            conn.setRequestProperty(k, v);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (!hasCookie) {
+                    // 安全：明文 HTTP 不自动携带登录态 Cookie（防中间人窃听请求头中的登录凭证）；
+                    // 显式通过 headersJson 传 Cookie 属于用户明确意图，不受此限制
+                    boolean _plainHttp = url.startsWith("http://");
+                    boolean _hasLogin = false;
+                    try {
+                        _hasLogin = com.oilquiz.app.webview.AppCookieStore.getInstance().hasLogin(url);
+                    } catch (Throwable ignored) {
+                    }
+                    if (!_plainHttp || !_hasLogin) {
+                        try {
+                            String ck = android.webkit.CookieManager.getInstance().getCookie(url);
+                            if (ck != null && !ck.isEmpty()) {
+                                conn.setRequestProperty("Cookie", ck);
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
                 if ("POST".equals(method)) {
                     conn.setDoOutput(true);
                     conn.setRequestProperty("Content-Type", "application/json");
@@ -411,12 +542,32 @@ public class JsExecuteTool implements AITool {
                         r.close();
                     }
                 }
+                // 收集响应 Set-Cookie（登录/会话下发），随结果返回供复用
+                StringBuilder setCookies = new StringBuilder("[");
+                boolean first = true;
+                try {
+                    java.util.Map<String, java.util.List<String>> hf = conn.getHeaderFields();
+                    if (hf != null) {
+                        for (java.util.Map.Entry<String, java.util.List<String>> e : hf.entrySet()) {
+                            if (e.getKey() != null && "set-cookie".equalsIgnoreCase(e.getKey())) {
+                                for (String v : e.getValue()) {
+                                    if (!first) setCookies.append(',');
+                                    first = false;
+                                    setCookies.append(org.json.JSONObject.quote(v));
+                                }
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+                setCookies.append(']');
                 conn.disconnect();
                 if (tooBig) {
                     return "{\"ok\":false,\"error\":\"响应超过512KB限制\"}";
                 }
                 return "{\"ok\":true,\"status\":" + status + ",\"body\":"
-                        + org.json.JSONObject.quote(sb.toString()) + "}";
+                        + org.json.JSONObject.quote(sb.toString())
+                        + ",\"setCookies\":" + setCookies + "}";
             } catch (Throwable t) {
                 String msg = t.getMessage() == null ? String.valueOf(t) : t.getMessage();
                 return "{\"ok\":false,\"error\":" + org.json.JSONObject.quote(msg) + "}";

@@ -54,7 +54,7 @@ public class RenderExecutor {
     private final ContentRenderer fallbackRenderer = new MarkdownContentRenderer();
 
     /** 渲染结果 LRU 缓存（key = content hashcode，避免滚动时重复渲染） */
-    private static final int CACHE_SIZE = 50;
+    private static final int CACHE_SIZE = 300;
     private final LruCache<String, Spanned> renderCache = new LruCache<>(CACHE_SIZE);
 
     private RenderExecutor() {

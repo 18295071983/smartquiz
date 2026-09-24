@@ -91,6 +91,14 @@ public class PythonWebReaderTool extends BaseAITool {
         String url = strParam(parameters, "url", "");
         String method = strParam(parameters, "method", "GET");
         String headers = jsonParam(parameters, "headers");
+        // 自动注入应用内已保存的 WebView 登录态 Cookie（未显式传 Cookie 时）
+        // 安全：明文 HTTP 不自动携带登录态 Cookie（防中间人窃听请求头中的登录凭证）
+        String cookie = "";
+        if (!url.startsWith("http://") || !com.oilquiz.app.webview.AppCookieStore.getInstance().hasLogin(url)) {
+            String ck = com.oilquiz.app.webview.AppCookieStore.getInstance().getCookieHeader(url);
+            cookie = ck != null ? ck : "";
+        }
+        cookie = quoteString(cookie);
         String params = jsonParam(parameters, "params");
         String data = jsonParam(parameters, "data");
         int timeout = intParam(parameters, "timeout", 15);
@@ -108,6 +116,10 @@ public class PythonWebReaderTool extends BaseAITool {
             "url = %s\n" +
             "method = %s\n" +
             "headers = %s or {}\n" +
+            "if 'Cookie' not in headers:\n" +
+            "    _stored_cookie = %s\n" +
+            "    if _stored_cookie:\n" +
+            "        headers['Cookie'] = _stored_cookie\n" +
             "params = %s or {}\n" +
             "data = %s\n" +
             "timeout = %d\n" +
@@ -152,7 +164,7 @@ public class PythonWebReaderTool extends BaseAITool {
             "        print(text)\n" +
             "except Exception as e:\n" +
             "    print('抓取失败: ' + str(e))\n",
-            quoteString(url), quoteString(method), headers, params, data,
+            quoteString(url), quoteString(method), headers, cookie, params, data,
             timeout, maxChars, jsonOnly ? "True" : "False"
         );
     }
@@ -162,6 +174,14 @@ public class PythonWebReaderTool extends BaseAITool {
         String url = strParam(parameters, "url", "");
         String content = strParam(parameters, "content", null);
         int maxChars = intParam(parameters, "max_chars", 8000);
+        // 自动注入应用内已保存的 WebView 登录态 Cookie
+        // 安全：明文 HTTP 不自动携带登录态 Cookie（防中间人窃听请求头中的登录凭证）
+        String cookie = "";
+        if (!url.startsWith("http://") || !com.oilquiz.app.webview.AppCookieStore.getInstance().hasLogin(url)) {
+            String ck = com.oilquiz.app.webview.AppCookieStore.getInstance().getCookieHeader(url);
+            cookie = ck != null ? ck : "";
+        }
+        cookie = quoteString(cookie);
 
         return String.format(
             "# -*- coding: utf-8 -*-\n" +
@@ -179,7 +199,11 @@ public class PythonWebReaderTool extends BaseAITool {
             "if not html:\n" +
             "    try:\n" +
             "        import requests\n" +
-            "        resp = requests.get(url, timeout=15)\n" +
+            "        _h = {}\n" +
+            "        _stored_cookie = %s\n" +
+            "        if _stored_cookie:\n" +
+            "            _h['Cookie'] = _stored_cookie\n" +
+            "        resp = requests.get(url, headers=_h, timeout=15)\n" +
             "        resp.encoding = resp.apparent_encoding or 'utf-8'\n" +
             "        html = resp.text\n" +
             "        print('状态码: ' + str(resp.status_code))\n" +
@@ -260,7 +284,7 @@ public class PythonWebReaderTool extends BaseAITool {
             "        print(json.dumps(json_ld, ensure_ascii=False)[:max_chars])\n" +
             "except Exception as e:\n" +
             "    print('提取失败: ' + str(e))\n",
-            quoteString(url), quoteString(content), maxChars
+            quoteString(url), quoteString(content), maxChars, cookie
         );
     }
 

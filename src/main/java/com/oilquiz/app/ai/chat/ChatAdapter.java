@@ -39,10 +39,19 @@ import android.util.DisplayMetrics;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
@@ -1687,10 +1696,118 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 复制是为了不污染 RenderExecutor 的渲染缓存。
      */
     private void setRenderedText(TextView textView, String content, int availableWidth) {
-        Spanned rendered = formatMessageContent(content, availableWidth);
-        Spannable spannable = new SpannableStringBuilder(rendered);
-        TextViewSpan.applyTo(spannable, textView);
-        textView.setText(spannable);
+        // 渲染统一走后台线程池（避免主线程卡顿/ANR）：单线程串行保证与主线程一致的渲染器线程安全，
+        // 代次守卫丢弃过期结果，防抖合并避免流式更新时渲染队列堆积。
+        renderInto(textView, content, availableWidth);
+    }
+
+    /** 后台渲染请求（防抖合并的最小单位） */
+    private static final class RenderRequest {
+        final TextView textView;
+        final String content;
+        final int availableWidth;
+        final long token;
+        RenderRequest(TextView tv, String content, int w, long token) {
+            this.textView = tv;
+            this.content = content;
+            this.availableWidth = w;
+            this.token = token;
+        }
+    }
+
+    /** 主线程 Handler：渲染结果统一回投主线程应用 */
+    private static final Handler RENDER_MAIN_HANDLER = new Handler(Looper.getMainLooper());
+
+    /** 单线程渲染池：Markwon/Prism4j 等渲染器按主线程同样的串行语义执行，只是搬离 UI 线程 */
+    private static final ExecutorService RENDER_POOL = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "ChatRenderPool");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** 全局渲染代次序列：每次请求分配新 token，应用时校验防止过期渲染覆盖新内容 */
+    private static final AtomicLong RENDER_SEQ = new AtomicLong();
+
+    /** 每视图当前有效 token */
+    private static final ConcurrentHashMap<TextView, Long> RENDER_TOKENS = new ConcurrentHashMap<>();
+
+    /** 待渲染请求（防抖合并：同视图只保留最新一条） */
+    private static final ConcurrentHashMap<TextView, RenderRequest> PENDING_RENDERS = new ConcurrentHashMap<>();
+
+    /** 是否已有排队的批量渲染任务 */
+    private static final AtomicBoolean DRAIN_SCHEDULED = new AtomicBoolean();
+
+    /** 提交异步渲染：同视图最新内容合并 + 代次守卫 */
+    static void renderInto(TextView textView, String content, int availableWidth) {
+        if (textView == null) return;
+        if (content == null) content = "";
+        long token = RENDER_SEQ.incrementAndGet();
+        RENDER_TOKENS.put(textView, token);
+        PENDING_RENDERS.put(textView, new RenderRequest(textView, content, availableWidth, token));
+        if (DRAIN_SCHEDULED.compareAndSet(false, true)) {
+            RENDER_POOL.execute(ChatAdapter::drainPendingRenders);
+        }
+    }
+
+    /** 批量消费待渲染请求（在渲染线程执行） */
+    private static void drainPendingRenders() {
+        for (;;) {
+            List<RenderRequest> batch = new ArrayList<>(PENDING_RENDERS.values());
+            PENDING_RENDERS.clear();
+            if (batch.isEmpty()) {
+                DRAIN_SCHEDULED.set(false);
+                // 清空瞬间又来了新请求：保持标记并继续下一轮，避免丢请求
+                if (PENDING_RENDERS.isEmpty()) {
+                    return;
+                }
+                DRAIN_SCHEDULED.set(true);
+                continue;
+            }
+            for (RenderRequest req : batch) {
+                renderOne(req);
+            }
+        }
+    }
+
+    /** 后台渲染单个请求 */
+    private static void renderOne(RenderRequest req) {
+        final Spanned rendered;
+        try {
+            // 与 formatMessageContent 等效；使用 Application Context 保证渲染器初始化与资源可用
+            rendered = RenderExecutor.getInstance().execute(
+                    req.content, SmartQuizApplication.getAppContext(), req.availableWidth);
+        } catch (Throwable t) {
+            RENDER_MAIN_HANDLER.post(() -> applyFallbackText(req));
+            return;
+        }
+        RENDER_MAIN_HANDLER.post(() -> applyRenderedText(req.textView, rendered, req.token));
+    }
+
+    /** 主线程应用渲染结果（代次校验通过才 setText） */
+    private static void applyRenderedText(TextView textView, Spanned rendered, long token) {
+        if (!isRenderCurrent(textView, token)) return;
+        try {
+            Spannable spannable = new SpannableStringBuilder(rendered);
+            TextViewSpan.applyTo(spannable, textView);
+            textView.setText(spannable);
+        } catch (Throwable ignored) {
+            // 应用失败（视图已分离等）：静默丢弃，等待下次渲染
+        }
+    }
+
+    /** 渲染失败兜底：主线程直接显示原文 */
+    private static void applyFallbackText(RenderRequest req) {
+        if (!isRenderCurrent(req.textView, req.token)) return;
+        try {
+            req.textView.setText(req.content);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 代次校验：返回 false 表示该视图已有更新的渲染请求，丢弃过期结果 */
+    private static boolean isRenderCurrent(TextView textView, long token) {
+        Long cur = RENDER_TOKENS.get(textView);
+        return cur != null && cur.longValue() == token;
     }
 
     /**
@@ -3423,12 +3540,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (w <= 0) {
                     w = tv.getContext().getResources().getDisplayMetrics().widthPixels;
                 }
-                android.text.Spanned rendered =
-                        com.oilquiz.app.ai.chat.render.RenderExecutor.getInstance()
-                                .execute(content, tv.getContext(), w);
-                android.text.Spannable sp = new android.text.SpannableStringBuilder(rendered);
-                io.noties.markwon.core.spans.TextViewSpan.applyTo(sp, tv);
-                tv.setText(sp);
+                ChatAdapter.renderInto(tv, content, w);
             });
         }
     }

@@ -508,9 +508,11 @@ public class OnlineToolManager {
         boolean isKnowledgeImport = "knowledge_base".equals(toolName) && arguments != null
                 && (arguments.contains("import_document") || arguments.contains("import_file")
                     || arguments.contains("import_json"));
+        // douyin_downloader：首次执行含 UIFID 自愈抓取（WebView 15-17s）+ 官方解析，默认 30s 会误杀
+        boolean isDouyinDownload = "douyin_downloader".equals(toolName);
         int effectiveTimeout = isKnowledgeImport
                 ? KNOWLEDGE_IMPORT_TIMEOUT_MS
-                : ((isPermissionRequest || isUserInteractionWait || isMediaSubmit)
+                : ((isPermissionRequest || isUserInteractionWait || isMediaSubmit || isDouyinDownload)
                         ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS);
 
         // 带重试的执行

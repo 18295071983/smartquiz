@@ -165,7 +165,8 @@ public class OnlineAgentEngine {
      *  calculator 移出核心（模型内置数学能力足够，要精确计算可 tool_registry 发现拿回）；
      *  time_date 加入核心（今天几号/现在几点/日期推算，问答与提醒场景高实用）。 */
     private static final java.util.Set<String> CORE_TOOLS = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
-            "ui_component", "workspace", "network_search", "time_date", "tool_registry", "knowledge_base"
+            "ui_component", "workspace", "network_search", "time_date", "tool_registry", "knowledge_base",
+            "douyin_downloader"
     ));
     /** 会话工具集上限（2026-09-23 v2）：核心 6 + 最多 3 个扩展工具——默认少带，模型不知道再发现 */
     private static final int MAX_SESSION_TOOLS = 9;

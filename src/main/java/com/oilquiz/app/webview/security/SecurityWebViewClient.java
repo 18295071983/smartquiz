@@ -121,16 +121,55 @@ public class SecurityWebViewClient extends WebViewClient {
         // 4. 检查非 HTTP/HTTPS 协议
         if (scheme != null && !scheme.startsWith("http") && !scheme.equals("file")) {
             Log.w(TAG, "拦截非标准协议: " + scheme + " - " + url);
-            
-            // 尝试用浏览器打开
+            // 有能处理该协议的应用（含系统浏览器）→ 交给系统打开
             try {
                 Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                view.getContext().startActivity(intent);
+                if (view.getContext().getPackageManager().resolveActivity(intent, 0) != null) {
+                    view.getContext().startActivity(intent);
+                    return true;
+                }
+                // 无任何应用能处理 → 明确提示，不让页面静默失败
+                Log.w(TAG, "无应用能处理该协议: " + scheme);
+                try {
+                    view.post(() -> {
+                        try {
+                            android.widget.Toast.makeText(view.getContext(),
+                                    "系统没有能打开此链接的应用（" + scheme + "）", android.widget.Toast.LENGTH_LONG).show();
+                        } catch (Throwable ignored) {
+                        }
+                    });
+                } catch (Throwable ignored) {
+                }
             } catch (Exception e) {
                 Log.e(TAG, "无法打开 URL: " + url, e);
             }
             return true;
+        }
+
+        // 4.5 明文 HTTP + 登录态域名 → 拦截（防明文页面 JS 读取/上传登录 Cookie）
+        if ("http".equalsIgnoreCase(scheme)) {
+            try {
+                boolean hasLogin = com.oilquiz.app.webview.AppCookieStore.getInstance().hasLogin(url);
+                if (hasLogin) {
+                    Log.w(TAG, "拦截明文 HTTP 访问（该域名存有登录态 Cookie，明文传输有泄露风险）: " + url);
+                    try {
+                        view.post(() -> {
+                            try {
+                                android.widget.Toast.makeText(
+                                        view.getContext(),
+                                        "已阻止明文 HTTP 访问：该站点存有登录 Cookie，明文传输可能泄露登录态，请改用 https://",
+                                        android.widget.Toast.LENGTH_LONG).show();
+                            } catch (Throwable ignored) {
+                            }
+                        });
+                    } catch (Throwable ignored) {
+                    }
+                    return true;
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "明文 HTTP 登录态检查异常: " + t.getMessage());
+            }
         }
 
         // 5. 标准 HTTP/HTTPS URL，让 WebView 正常处理

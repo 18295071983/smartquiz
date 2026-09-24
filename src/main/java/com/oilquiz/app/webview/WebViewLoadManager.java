@@ -126,6 +126,10 @@ public class WebViewLoadManager {
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setCacheMode(enableCache ? WebSettings.LOAD_DEFAULT : WebSettings.LOAD_NO_CACHE);
+
+        // 伪装为正常 Chrome UA：默认 UA 带 wv 标记会被站点识别为"非正常浏览器"，
+        // 导致拒绝 document.cookie / 不下发登录 Cookie
+        settings.setUserAgentString(com.oilquiz.app.webview.WebViewDefaults.CHROME_USER_AGENT);
         
         // 图片加载优化 - 先不自动加载图片，等页面加载完成后再加载
         settings.setLoadsImagesAutomatically(false);

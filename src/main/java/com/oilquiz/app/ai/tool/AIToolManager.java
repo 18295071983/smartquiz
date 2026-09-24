@@ -260,6 +260,8 @@ public class AIToolManager {
             registerToolFactory("image_gen", ImageGenTool.class, ImageGenTool::new);
             registerToolFactory("memory", MemoryTool.class, MemoryTool::new);
             registerToolFactory("chat_history", ChatHistoryTool.class, ChatHistoryTool::new); // 对话历史（跨会话上下文，读本地持久化历史文件）
+            // 2026-09-25：抖音下载工具由动态工具固化为内置工具（脚本内置 assets/douyin_downloader.py，v2.4）
+            registerToolFactory("douyin_downloader", DouyinDownloaderTool.class, DouyinDownloaderTool::new);
         registerToolFactory("task", TaskTool.class, TaskTool::new); // 维度四 P0-1：任务状态跟踪
         registerToolFactory("import_list_files", ImportListFilesTool.class, ImportListFilesTool::new); // AI导入：发现题库文件
         registerToolFactory("import_start", ImportStartTool.class, ImportStartTool::new); // AI导入：启动异步导入
@@ -891,6 +893,9 @@ public class AIToolManager {
                     org.json.JSONObject obj = arr.getJSONObject(i);
                     String name = obj.optString("name", "");
                     if (name.isEmpty() || dynamicTools.containsKey(name)) continue;
+                    // 2026-09-25：同名内置工具优先——工具固化为内置后，跳过存量同名动态条目，
+                    // 避免旧动态版与新内置版同名共存造成行为分叉（如 douyin_downloader）
+                    if (toolFactories.containsKey(name)) continue;
                     String description = obj.optString("description", "用户自定义工具");
                     String type = obj.optString("type", "java");
                     Map<String, String> params = new java.util.LinkedHashMap<>();
@@ -1644,8 +1649,10 @@ public class AIToolManager {
                         "JS代码执行工具：在后台执行 JavaScript 代码并返回运行结果（弥补手机端无 Node 的缺口）。"
                                 + "code=要执行的JS代码（语句或表达式均可），返回：是否成功、返回值、console.log 输出、错误信息。"
                                 + "支持标准 ES6 核心语法（箭头函数/模板字符串/解构/let-const/class/Promise/async-await），"
-                                + "支持 Promise 异步结果（受 timeout 限制）；支持受限网络 window.__http.get(url)/post(url,body)"
-                                + "（返回 Promise，解析后为{ok,status,body}对象；仅 http/https，6s 超时，响应≤512KB）；"
+                                + "支持 Promise 异步结果（受 timeout 限制）；支持受限网络 window.__http.get(url,opts)/post(url,body,opts)"
+                                + "（返回 Promise，解析后为{ok,status,body,setCookies}对象；opts.headers 可传自定义请求头，"
+                                + "未显式传 Cookie 时自动携带应用内该站 Cookie，响应 Set-Cookie 随 setCookies 返回；"
+                                + "读 Cookie 用 window.__http.cookies(url)；仅 http/https，6s 超时，响应≤512KB）；"
                                 + "支持受限文件 window.__fs.read/write/list/delete/exists"
                                 + "（返回 Promise，解析后为对象；仅限工作区 files/ 内，防穿越，文件≤512KB）；"
                                 + "执行引擎是系统 WebView 的 JS 引擎，**无 Java 互操作**（Java 包/类不可用，非 Rhino/Nashorn）；"
@@ -1653,12 +1660,16 @@ public class AIToolManager {
                                 + "老机型 WebView 可能缺失较新特性，跨机型稳妥写法仍建议 ES6 核心语法；"
                                 + "适合算法验证、数据转换/清洗、"
                                 + "JSON 处理、正则测试、前端逻辑调试、URL 编解码、调用 HTTP API、读写工作区文件。"
-                                + "限制：原生 fetch/XHR 跨域被 CORS 拦截（网络用 __http、文件用 __fs），不能访问 DOM/页面渲染。"
+                                + "url=可选，传 http/https 地址时先加载该真实网页，再在真实页面上下文执行代码"
+                                + "（可读 document.cookie / localStorage / DOM；否则默认 about:blank 内存页，origin=null，"
+                                + "document.cookie/localStorage 会被浏览器安全策略拒绝）。"
+                                + "限制：默认（无 url）时原生 fetch/XHR 跨域被 CORS 拦截（网络用 __http、文件用 __fs），不能访问 DOM/页面渲染。"
                                 + "代码顶层 return 已自动兼容（自动包 IIFE 并返回其结果），可直接 return 返回结果；"
                                 + "并发上限：单批同时执行≤4路（超出等待2s后明确报「JS执行并发已满」，不静默丢值）；"
                                 + "脚本内多次桥接调用请串行 await，勿 Promise.all 并发打桥；"
                                 + "死循环用 timeout 参数（秒，默认8，最大30）超时终止。")
                         .addParameter("code", "string", "要执行的 JavaScript 代码（语句或表达式，可用 console.log 输出调试）", true)
+                        .addParameter("url", "string", "可选，http/https 地址：先加载该真实网页，再在真实页面上下文执行代码（可读 document.cookie / localStorage）", false)
                         .addParameter("timeout", "integer", "执行超时秒数（1-30，默认 8）", false)
                         .category("code")
                         .whenToUse("用户要求运行/验证/调试 JavaScript 代码、处理 JSON 数据、测试正则或前端逻辑时使用；"
@@ -1733,11 +1744,13 @@ public class AIToolManager {
                         "网页渲染浏览工具：用真实 WebView 打开网页并提取内容（能看到 JS 渲染后的真实页面，"
                                 + "比 requests 抓 HTML 文本更完整）。"
                                 + "url=网页地址（必填）；action=text（默认，返回标题+正文文本+链接数）/screenshot（截图保存）/both（文本+截图）。"
+                                + "js=可选，页面加载完成后在真实页面上下文执行 JS（可读 document.cookie / localStorage，同步表达式，返回值与 console 输出随结果给出）。"
                                 + "支持现代网页（含 SPA/JS 动态内容，加载完成后自动提取）；截图保存到工作区 files/screenshots/，返回路径。"
-                                + "限制：仅支持 http/https；不能操作页面（点击/填表/登录），只读浏览。"
-                                + "适合：查看网页实际内容、核对页面效果、调研资料。")
+                                + "限制：仅支持 http/https；不能点击/填表，只读浏览。"
+                                + "适合：查看网页实际内容、核对页面效果、调研资料、在真实页面读取登录态 Cookie/localStorage。")
                         .addParameter("url", "string", "要浏览的网页地址（必填，http/https）", true)
                         .addParameter("action", "string", "操作: text(默认，提取标题+正文) / screenshot(仅截图) / both(文本+截图)", false)
+                        .addParameter("js", "string", "可选，页面加载完成后在真实页面上下文执行的 JS 代码（可读 document.cookie / localStorage，同步表达式）", false)
                         .addParameter("timeout", "integer", "页面加载超时秒数（默认 12，最大 30）", false)
                         .category("search")
                         .whenToUse("需要查看网页实际渲染内容/JS动态页面/核对页面效果时使用（比 python_web_reader 更完整）")

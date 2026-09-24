@@ -131,18 +131,19 @@ public class AgentWorkspaceView {
         clearBtn.setOnClickListener(v -> {
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
                 .setTitle("清空长期文件")
-                .setMessage("将删除 files/ 下用户/Agent 产生的长期文件（内置指南文件《工具创建指南.md》《使用速查表.md》《HTML_DESIGN_RULES.md》《APK_SOURCE_GUIDE.md》会保留）。确定继续吗？")
+                .setMessage("将删除 files/ 下用户/Agent 产生的长期文件（内置指南文档受保护自动保留：《工具创建指南.md》《使用速查表.md》《核心工具速查.md》《HTML_DESIGN_RULES.md》《APK_SOURCE_GUIDE.md》《douyin_downloader_GUIDE.md》）。确定继续吗？")
                 .setPositiveButton("清空", (dialog, which) -> {
                     int removed = 0;
+                    int protectedSkipped = 0;
                     for (AgentWorkspace.WorkspaceFile f : ws.listFiles()) {
-                        if ("files".equals(f.zone)
-                                && !"工具创建指南.md".equals(f.name)
-                                && !"使用速查表.md".equals(f.name)
-                                && !"HTML_DESIGN_RULES.md".equals(f.name)
-                                && !"APK_SOURCE_GUIDE.md".equals(f.name)
-                                && ws.deleteFile(f.name)) removed++;
+                        if (!"files".equals(f.zone)) continue;
+                        if (AgentWorkspace.isBuiltinGuideFile(f.name)) {
+                            protectedSkipped++;
+                            continue;
+                        }
+                        if (ws.deleteFile(f.name)) removed++;
                     }
-                    Toast.makeText(context, "已清空长期文件，删除 " + removed + " 个（内置指南已保留）",
+                    Toast.makeText(context, "已清空长期文件，删除 " + removed + " 个，保护内置文档 " + protectedSkipped + " 个",
                             Toast.LENGTH_SHORT).show();
                     refresh();
                 })
@@ -282,7 +283,8 @@ public class AgentWorkspaceView {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView nameTv = new TextView(context);
-        nameTv.setText("📄 " + f.name);
+        boolean builtin = AgentWorkspace.isBuiltinGuideFile(f.name);
+        nameTv.setText((builtin ? "🔒 " : "📄 ") + f.name);
         nameTv.setTextSize(13);
         nameTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         nameTv.setTextColor(color(R.color.text_primary));
@@ -290,7 +292,7 @@ public class AgentWorkspaceView {
 
         SimpleDateFormat sdf = new SimpleDateFormat("MM-dd HH:mm", Locale.getDefault());
         TextView metaTv = new TextView(context);
-        metaTv.setText(formatSize(f.size) + " · " + sdf.format(new Date(f.lastModified)));
+        metaTv.setText((builtin ? "内置文档 · 自动恢复 · " : "") + formatSize(f.size) + " · " + sdf.format(new Date(f.lastModified)));
         metaTv.setTextSize(11);
         metaTv.setTextColor(color(R.color.text_secondary));
         metaTv.setPadding(0, dp(2), 0, 0);
@@ -325,8 +327,9 @@ public class AgentWorkspaceView {
         delBtn.setTextColor(color(R.color.error));
         delBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
         delBtn.setOnClickListener(v -> {
-            AgentWorkspace.getInstance(context).deleteFile(f.name);
-            Toast.makeText(context, "已删除: " + f.name, Toast.LENGTH_SHORT).show();
+            boolean ok = AgentWorkspace.getInstance(context).deleteFile(f.name);
+            Toast.makeText(context, ok ? ("已删除: " + f.name) : "系统内置文档受保护，无法删除（应用重启自动恢复）",
+                    Toast.LENGTH_SHORT).show();
             refresh();
         });
         row.addView(delBtn);
