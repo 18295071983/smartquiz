@@ -232,8 +232,10 @@
   - run：执行任务+自动续接会话（task=自然语言描述，如"看看D盘有哪些项目文件夹"；已有 session_id 直接续接，没有自动创建）；start：新建会话（重置电脑端记忆）；history：读当前会话历史（max=条数，默认10）；get_status：检查桥接与 dsh 双通道状态；set_config：配置 base_url(电脑地址)+token(访问令牌)。
   - 会话续接原理：dsh web 事件溯源日志持久（append-only session log），同一 session_id 连续 prompt 即续接（实测：第二轮问"我刚才让你回复什么"→ 正确回忆第一轮回复）。
   - 安全：必须配置 token（桥接服务启动时打印）才可调用；未配置/鉴权失败明确报错；base_url 仅允许 http/https；dsh web(127.0.0.1:3080) 只监听电脑本机，手机只访问带 token 的桥接层(8218)。
+- **扫码一键配对（pair）**：电脑端启动桥接后自动打开浏览器显示配对页（http://127.0.0.1:8218/pair，仅本机可访问），页面二维码内容=dshpair://电脑IP:8218?token=令牌；手机端 action=pair 打开相机扫二维码，自动保存 base_url/token（zxing-android-embedded 4.3.0）。配对后会话重置（session_id 清除）。
+- **ACP 升级通道（调研已验证，待 dsh 升级启用）**：官方正路=ACP v1 JSON-RPC。dsh-acp-server@0.12.0 已装（dsh plugin --profile acp add dsh-acp-server），启动=dsh --profile acp serve --host 0.0.0.0 --port 7800 --token xxx（自带鉴权+内置 Web 客户端）。协议：POST /acp initialize→session/new(mcpServers:{})→session/prompt；GET /acp/stream(SSE) 流式结果；会话续接=复用 sessionId + dsh/sessions/resume（持久会话）。已实测：initialize 200（agentCapabilities.list/resume/close 全支持）、SSE 链路通；**但 dsh-acp-server 0.12 需 dsh≥0.1.2**，本机 dsh 0.1.1-rc.2 的 agents.create 内部报错（.slice on undefined），升级 dsh 后即可启用（届时桥接可换 ACP 后端，App 无感）。
 - **限制**：电脑端需先启动 v2 桥接服务（python tools/dsh_bridge_server.py --token xxx --cwd 工作目录）且 dsh web 可用（dsh web --no-open，127.0.0.1:3080）；手机与电脑需同一网络或经安全隧道。
-- **参数**：`action`（run/start/history/get_status/set_config）、`task`、`max`、`base_url`、`token`、`timeout`
+- **参数**：`action`（pair/run/start/history/get_status/set_config）、`task`、`max`、`base_url`、`token`、`timeout`
 
 ### python_analyze_data — Python 数据分析
 - **分类**：python

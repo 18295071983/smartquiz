@@ -1,0 +1,4 @@
+﻿[init] 200
+[session/new] 202
+== session/new 结果 ==
+{"jsonrpc": "2.0", "id": "99", "error": {"code": -32603, "message": "Internal error", "data": {"details": "Cannot read properties of undefined (reading 'slice')"}}}

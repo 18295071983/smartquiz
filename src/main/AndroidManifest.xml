@@ -115,6 +115,12 @@
             android:name=".ui.activity.AgentDebugActivity"
             android:exported="false"
             android:label="Agent 调试控制台" />
+        <!-- remote_dsh 扫码配对（仅应用内启动，相机权限已在 uses-permission 声明） -->
+        <activity
+            android:name=".ai.tool.RemoteDshPairScanActivity"
+            android:exported="false"
+            android:label="扫描电脑配对二维码"
+            android:screenOrientation="portrait" />
         <activity
             android:name=".infra.DebugKeyInjectActivity"
             android:exported="false"

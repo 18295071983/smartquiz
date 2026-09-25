@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.tool;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.util.Log;
 
@@ -47,7 +48,8 @@ import java.util.Map;
         description = "远程控制电脑（DeepSeek dsh 官方会话通道）：调用电脑上安装的 dsh（DeepSeek Harness Shell）执行任务，"
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接（电脑端 dsh 记忆连续）。"
                 + "前提：电脑端已启动 tools/dsh_bridge_server.py（v2）桥接服务，并在本工具配置好电脑地址(base_url)与访问令牌(token)。"
-                + "动作：① action=run 执行任务并自动续接会话：task 填要电脑干的活（自然语言即可，如\"看看D盘有哪些项目文件夹\"\"把某文件复制到桌面\"）；"
+                + "动作：① action=pair 扫码一键配对（推荐）：打开相机扫描电脑端配对页二维码，自动保存地址与令牌；"
+                + "② action=run 执行任务并自动续接会话：task 填要电脑干的活（自然语言即可，如\"看看D盘有哪些项目文件夹\"\"把某文件复制到桌面\"）；"
                 + "② action=start 新建会话（重置电脑端记忆）；"
                 + "③ action=history 读当前会话历史（max=条数，默认10）；"
                 + "④ action=get_status 检查桥接服务与 dsh 是否在线；"
@@ -57,6 +59,7 @@ import java.util.Map;
         category = "remote",
         aliases = {"dsh", "远程控制电脑", "电脑操作", "remote_pc"},
         actions = {
+                @Action(name = "pair", description = "扫码一键配对：扫描电脑端配对页二维码自动保存地址与令牌"),
                 @Action(name = "run", description = "在电脑上执行一个 dsh 任务（自动续接会话）"),
                 @Action(name = "start", description = "新建 dsh 会话（重置电脑端记忆），返回新的 session_id"),
                 @Action(name = "history", description = "读当前会话最近历史（max=条数，默认10）"),
@@ -64,7 +67,7 @@ import java.util.Map;
                 @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
         },
         params = {
-                @Param(name = "action", type = "string", description = "操作: run(默认) / start / history / get_status / set_config", required = false),
+                @Param(name = "action", type = "string", description = "操作: pair(扫码配对) / run(默认) / start / history / get_status / set_config", required = false),
                 @Param(name = "task", type = "string", description = "dsh 任务描述（自然语言，告诉电脑干什么）", required = false),
                 @Param(name = "max", type = "integer", description = "history 读取条数（默认 10，范围 1~200）", required = false),
                 @Param(name = "base_url", type = "string", description = "电脑端桥接地址，如 http://192.168.1.100:8218（set_config 用）", required = false),
@@ -99,14 +102,14 @@ public class RemoteDshTool implements AITool {
         return "远程控制电脑（DeepSeek dsh 官方会话通道）：调用电脑上的 dsh（DeepSeek Harness Shell）执行任务，"
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接。"
                 + "前提：电脑端已启动 tools/dsh_bridge_server.py(v2) 桥接服务，并配置好 base_url 与 token。"
-                + "动作：run(执行任务+自动续接) / start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
+                + "动作：pair(扫码一键配对) / run(执行任务+自动续接) / start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。安全：只有配置了正确 token 才能调用。";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作: run(默认，执行任务+自动续接) / start(新建会话) / history(读历史) / get_status(检查状态) / set_config(配置)");
+        params.put("action", "操作: pair(扫码一键配对，推荐) / run(默认，执行任务+自动续接) / start(新建会话) / history(读历史) / get_status(检查状态) / set_config(配置)");
         params.put("task", "dsh 任务描述（自然语言），如\"看看D盘有哪些项目文件夹\"");
         params.put("max", "history 读取条数（默认 10，范围 1~200）");
         params.put("base_url", "电脑端桥接地址，如 http://192.168.1.100:8218（set_config 用）");
@@ -146,6 +149,8 @@ public class RemoteDshTool implements AITool {
         }
         try {
             switch (action) {
+                case "pair":
+                    return handlePair();
                 case "set_config":
                     return handleSetConfig(parameters);
                 case "get_status":
@@ -198,6 +203,41 @@ public class RemoteDshTool implements AITool {
                 + (baseUrl.isEmpty() ? getBaseUrl() : baseUrl)
                 + "\ntoken=" + (token.isEmpty() ? "(保持原值)" : token.substring(0, Math.min(4, token.length())) + "***")
                 + "\nsession_id=" + (sessionId.isEmpty() ? "(保持原值)" : sessionId));
+    }
+
+    private AIToolResult handlePair() {
+        RemoteDshPairBridge.lastResult = null;
+        try {
+            Intent intent = new Intent(context, RemoteDshPairScanActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+        } catch (Exception e) {
+            Log.e(TAG, "start scan activity: " + e.getMessage(), e);
+            return AIToolResult.fail("无法打开扫码页: " + e.getMessage());
+        }
+        // 等待扫码结果（最多 120 秒）
+        long deadline = System.currentTimeMillis() + 120_000;
+        String r;
+        while ((r = RemoteDshPairBridge.lastResult) == null && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(400);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return AIToolResult.fail("扫码被中断");
+            }
+        }
+        if (r == null) {
+            return AIToolResult.fail("等待扫码超时（120秒）：请确认手机相机已对准电脑屏幕上的配对二维码。"
+                    + "\n备选：action=set_config 手动填 base_url=http://电脑IP:8218 和 token=桥接服务启动时打印的令牌");
+        }
+        String baseUrl = getBaseUrl();
+        String tok = getToken();
+        if (baseUrl.isEmpty() || tok.isEmpty()) {
+            return AIToolResult.fail("扫码完成但配置未生效（base_url/token 为空），请重试或手动 set_config");
+        }
+        return AIToolResult.success("扫码配对成功 ✓\nbase_url=" + baseUrl
+                + "\ntoken=" + tok.substring(0, Math.min(4, tok.length())) + "***"
+                + "\n\n现在可以对 AI 说：远程控制电脑 / 在电脑上执行...");
     }
 
     private AIToolResult handleStatus() {

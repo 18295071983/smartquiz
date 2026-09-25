@@ -1,5 +1,10 @@
 # 变更日志
 
+## [2026-09-25] remote_dsh v2.1：扫码一键配对 + ACP 通道调研
+1. **扫码一键配对（pair）**：电脑端桥接服务新增 /pair 配对页（内联 qrcode-generator JS 生成 dshpair:// 二维码；仅 127.0.0.1 可访问，不泄露令牌给局域网）+ 启动自动打开浏览器；新增 /pair.json（loopback 返回 qr_text/base_url/token）。App 端新增 RemoteDshPairScanActivity（DecoratedBarcodeView + zxing-android-embedded 4.3.0 扫码，相机权限运行时请求）+ RemoteDshPairBridge（解析 dshpair:// 自动写配置、重置会话）；remote_dsh 新增 action=pair（调起扫码页、轮询结果、120s 超时）。已验证：/pair 页 60KB 含 QR、/pair.json 正确（局域网 IP 探测 192.168.1.5）、Host 头伪造不受影响（按 TCP 对端 IP 判 loopback）；装机 PID 32135 注册正常、扫码页真机启动不崩（CAMERA 已 grant）。
+2. **ACP 官方通道调研（B 方向）**：dsh-acp-server@0.12.0 安装（npm i -g + dsh plugin --profile acp add）；服务起得来（dsh --profile acp serve --host 0.0.0.0 --port 7800 --token xxx，healthz ok）；ACP v1 协议实测：initialize 200（agentInfo dsh 0.12.0，sessionCapabilities.list/resume/close 全支持）、POST /acp 需带 Acp-Connection-Id header、SSE 流链路通（收到 session/new 校验错误→补 mcpServers:{} 后进入 agent 创建）。**阻塞点**：dsh-acp-server 0.12 需 dsh≥0.1.2，本机 dsh 0.1.1-rc.2 的 agents.create 内部抛 "Cannot read properties of undefined (reading 'slice')"。等 dsh 升级后启用（届时桥接换 ACP 后端，App 无感；或直接用 7800 自带 token 鉴权）。
+3. 桥接服务修复：pair_html 补 import io（NameError 修复）；/pair 仅 loopback、/pair.json 同理。
+
 ## [2026-09-25] remote_dsh 升级 v2：官方会话通道（多轮会话续接）
 背景：v1 每次任务都是全新 headless 会话，电脑端 dsh 记忆不连续。用户选升级方案"2"（官方 JSON-RPC/ACP 会话续接）。
 调研结论：官方正路 = dsh web 常驻 + 官方 HTTP API（POST /api/<method> + RPC envelope：session.create / session.prompt / session.history / api.events.mux），会话事件溯源日志持久（Resume/Fork/Replay 同源）；ACP 插件是第三方（agenticcontrolplane），官方 SDK 需匹配版本，最终落地走 dsh web 官方 API 通道（本机 0.1.1-rc.2 直接可用，loopback 无 cookie 鉴权）。

@@ -37,10 +37,12 @@ v2 核心变化：新增**官方会话通道**（dsh web API，127.0.0.1:3080）
     * 本服务默认监听 0.0.0.0（同一 Wi-Fi 手机可达）；建议仅内网使用，公网请走 Tailscale/FRP 等隧道。
 """
 import argparse
+import io
 import json
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -48,6 +50,7 @@ import time
 import urllib.request
 import urllib.error
 import uuid
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TOKEN = None
@@ -55,6 +58,7 @@ DSH_CMD = "dsh"
 DSH_HOME = None
 WEB_BASE = "http://127.0.0.1:3080"
 DEFAULT_CWD = None
+BRIDGE_PORT = 8218
 RUNNING_JOBS = {}
 
 
@@ -215,6 +219,72 @@ def web_session_list():
 # ---------------------------------------------------------------------------
 # v1 headless 通道（保留为 fallback）
 # ---------------------------------------------------------------------------
+def local_ip():
+    """探测本机局域网 IP（UDP connect 法，不发包）。失败返回 127.0.0.1。"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        return "127.0.0.1"
+
+
+def pair_qr_text(port, token):
+    """手机扫码内容：dshpair://<ip>:<port>?token=<token>"""
+    return "dshpair://%s:%d?token=%s" % (local_ip(), port, token)
+
+
+def pair_html(port, token):
+    """配对页（仅本机可访问）：内联 qrcode-generator JS 生成 QR。"""
+    qr_js = ""
+    qjs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qrcodegen.js")
+    try:
+        with io.open(qjs, encoding="utf-8") as f:
+            qr_js = f.read()
+    except Exception as e:
+        log("pair_html qrcodegen.js 读取失败: %s (%s)" % (repr(e), qjs))
+        qr_js = "// qrcodegen.js 缺失，无法渲染二维码"
+    qr_text = pair_qr_text(port, token)
+    return (u"""<!doctype html>
+<html><head><meta charset="utf-8"><title>答题宝 · dsh 远程配对</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;
+background:#0f172a;color:#e2e8f0;min-height:100vh;margin:0;padding:24px;box-sizing:border-box}
+h1{font-size:20px;margin:0 0 8px} h2{font-size:14px;color:#94a3b8;font-weight:normal;margin:0 0 16px}
+#qr{background:#fff;padding:16px;border-radius:12px;margin:16px 0;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.url{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all;background:#1e293b;
+padding:10px 12px;border-radius:8px;max-width:92vw;color:#7dd3fc}
+.steps{max-width:430px;font-size:14px;line-height:1.8;color:#94a3b8;margin-top:16px}
+.steps b{color:#e2e8f0} code{background:#1e293b;padding:2px 6px;border-radius:4px;color:#7dd3fc}
+</style></head><body>
+<h1>答题宝 · 远程 dsh 配对</h1><h2>用手机扫码，自动填入电脑地址与令牌</h2>
+<div id="qr"></div>
+<div class="url" id="url"></div>
+<div class="steps">
+<b>配对步骤：</b><br>
+1. 手机打开「答题宝」→ AI 对话<br>
+2. 对 AI 说「<b>远程控制电脑 / 远程配对</b>」（会调用 remote_dsh 的 pair 动作）<br>
+3. 用手机扫描上方二维码 → 自动保存电脑地址与令牌<br>
+4. 完成，之后可以直接让 AI 远程控制电脑（支持多轮会话续接）<br><br>
+<b>安全：</b>本页面仅电脑本机（127.0.0.1）可访问；二维码里的令牌不会暴露给局域网其他设备。
+</div>
+<script>
+""" + qr_js + """
+(function(){
+  var qrText = %r;
+  document.getElementById('url').textContent = qrText;
+  var qr = qrcode(0,'M'); qr.addData(qrText); qr.make();
+  document.getElementById('qr').innerHTML = qr.createImgTag(6,16);
+})();
+</script></body></html>""" % qr_text).encode("utf-8")
+
+
+
+
 def resolve_dsh_cmd(name):
     """解析 dsh 可执行文件：优先 shutil.which（遵循 PATHEXT 可找到 .cmd/.bat），
     Windows 上 .cmd/.bat 需经 cmd /c 执行，普通 exe 直接执行。"""
@@ -294,10 +364,33 @@ class Handler(BaseHTTPRequestHandler):
         log("%s %s" % (self.address_string(), fmt % args))
 
     # ---------- GET ----------
+    def _is_loopback(self):
+        host = self.client_address[0] if self.client_address else ""
+        return host in ("127.0.0.1", "::1", "localhost")
+
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/health":
             return self._send_json(200, {"ok": True, "service": "dsh-bridge", "version": 2})
+        if path == "/pair":
+            if not self._is_loopback():
+                return self._send_json(403, {"ok": False, "error": "pair page is local-only"})
+            html = pair_html(BRIDGE_PORT, TOKEN)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(html)
+            return
+        if path == "/pair.json":
+            if not self._is_loopback():
+                return self._send_json(403, {"ok": False, "error": "pair info is local-only"})
+            return self._send_json(200, {
+                "ok": True, "qr_text": pair_qr_text(BRIDGE_PORT, TOKEN),
+                "base_url": "http://%s:%d" % (local_ip(), BRIDGE_PORT),
+                "token": TOKEN,
+            })
         if not self._auth_ok():
             return self._send_json(401, {"ok": False, "error": "unauthorized"})
         if path == "/status":
@@ -421,17 +514,25 @@ def main():
     ap.add_argument("--cwd", default="", help="会话默认工作目录（dsh 里跑命令的目录）")
     args = ap.parse_args()
 
+    global BRIDGE_PORT
     TOKEN = args.token.strip() or secrets.token_urlsafe(24)
     DSH_CMD = args.dsh
     DSH_HOME = args.dsh_home
     WEB_BASE = "http://127.0.0.1:%d" % args.web_port
     DEFAULT_CWD = args.cwd.strip() or None
+    BRIDGE_PORT = args.port
 
     log("dsh 桥接服务 v2 启动: http://%s:%d" % (args.host, args.port))
     log("访问令牌(请复制到 App 配置): %s" % TOKEN)
     log("dsh web 通道: %s | 默认工作目录: %s" % (WEB_BASE, DEFAULT_CWD or "(未指定)"))
     log("headless 命令: %s | DSH_HOME=%s" % (DSH_CMD, DSH_HOME or "(系统默认)"))
     log("警告: 服务未加密, 请仅在内网使用")
+    log("配对页(本机浏览器): http://127.0.0.1:%d/pair  (手机扫码=一键配对)" % args.port)
+    log("配对文本(手机手动输入备用): %s" % pair_qr_text(args.port, TOKEN))
+    try:
+        webbrowser.open("http://127.0.0.1:%d/pair" % args.port)
+    except Exception:
+        pass
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     try:

@@ -1,0 +1,4 @@
+﻿[initialize] 200 conn= 5551f178-d6b0-45c0-9c55-abe6ffe90243
+{"jsonrpc":"2.0","id":"e4fa4a5a-3bd0-4e71-8220-72f5f4d6d204","result":{"protocolVersion":1,"agentInfo":{"name":"dsh","version":"0.12.0"},"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":false,"audio":false,"embeddedContext":false},"sessionCapabilities":{"close":{},"list":{},"resume":{}}},"authMethods":[]}}
+[session/new] 202 
+SESSION = None

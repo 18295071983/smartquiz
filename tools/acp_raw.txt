@@ -1,0 +1,6 @@
+﻿[init] 200 conn= fe68125f-a3c6-459b-a7c9-e5f60247755f body= {"jsonrpc":"2.0","id":"1","result":{"protocolVersion":1,"agentInfo":{"name":"dsh","version":"0.12.0"},"agentCapabilities":{"loadSession":true,"promptC
+[session/new] 202 
+[stream] status 200
+== received 2 lines ==
+data: {"jsonrpc":"2.0","id":"9","error":{"code":-32602,"message":"Invalid params","data":{"_errors":[],"mcpServers":{"_errors":["Required value is missing"]}}}}
+
