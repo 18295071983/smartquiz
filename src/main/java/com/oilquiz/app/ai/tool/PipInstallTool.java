@@ -46,7 +46,7 @@ import java.util.zip.ZipInputStream;
 public class PipInstallTool implements AITool {
 
     private static final String TAG = "PipInstallTool";
-    private static final String MIRROR_DEFAULT = "https://pypi.tuna.tsinghua.edu.cn/simple";
+    private static final String MIRROR_DEFAULT = "https://mirrors.aliyun.com/pypi/simple";
     private static final String PREF = "pip_install_config";
     private static final String KEY_MIRROR = "pip_mirror";
     private static final int DEFAULT_TIMEOUT_SECONDS = 60;
@@ -82,7 +82,7 @@ public class PipInstallTool implements AITool {
                 + "① 在线安装：从PyPI镜像下载wheel并安装到本地运行环境，安装后立即生效且跨重启保留；"
                 + "② 本地安装：package 传本地 .whl 文件路径（如 /sdcard/.../xxx-py3-none-any.whl）直接从该文件安装；"
                 + "③ 只下载：action=download 仅下载最新匹配的wheel到工作区 files/wheels/ 返回路径，之后可再用本地安装装它；"
-                + "④ 换源：source 参数指定镜像源（tuna/aliyun/pypi/自定义URL）并持久化为默认，action=set_source 单独设置。"
+                + "④ 换源：source 参数指定镜像源（aliyun(默认)/tuna/pypi/自定义URL）并持久化为默认，action=set_source 单独设置。"
                 + "package=包名（支持 name、name==版本、name>=版本、name~=版本）或本地whl路径。"
                 + "限制：只能安装纯Python包（wheel为py3-none-any，如 pytz/tqdm/simplejson/python-docx 等）；"
                 + "带C扩展的包（numpy/scipy/lxml 等，wheel含cp310/abi3等平台tag）在Android上无法运行时编译"
@@ -95,7 +95,7 @@ public class PipInstallTool implements AITool {
         Map<String, String> params = new HashMap<>();
         params.put("package", "要安装的包名或带版本约束（pytz / python-docx==1.1.2 / requests>=2.31），或本地wheel文件路径（/sdcard/.../xxx-py3-none-any.whl）");
         params.put("action", "操作: install(默认，安装) / download(仅下载wheel到files/wheels/返回路径) / set_source(设置默认镜像源)");
-        params.put("source", "镜像源: tuna(默认，清华) / aliyun(阿里云) / pypi(官方) / 自定义URL(http/https开头)；设置后持久化为默认");
+        params.put("source", "镜像源: aliyun(默认，阿里云) / tuna(清华) / pypi(官方) / 自定义URL(http/https开头)；设置后持久化为默认");
         params.put("timeout", "下载超时秒数（默认 60，最大 300）");
         return params;
     }
@@ -136,11 +136,11 @@ public class PipInstallTool implements AITool {
             case "tuna":
             case "tsinghua":
             case "清华":
-                return MIRROR_DEFAULT;
+                return "https://pypi.tuna.tsinghua.edu.cn/simple";
             case "aliyun":
             case "阿里":
             case "阿里云":
-                return "https://mirrors.aliyun.com/pypi/simple";
+                return MIRROR_DEFAULT;
             case "pypi":
             case "official":
             case "官方":
