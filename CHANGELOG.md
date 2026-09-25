@@ -1,5 +1,13 @@
 # 变更日志
 
+## [2026-09-25] dsh 升级 0.1.5-rc.3 + remote_dsh v3（ACP 官方通道落地）
+1. **dsh 升级 0.1.5-rc.3**（launcher npm install，@deepseek-ai/dsh 壳+全依赖重建；主 DSH_HOME 配置/215MB 会话未动，升级前已备份 settings/.credentials/profiles 配置到 tools/dsh-home-backup/）。`dsh --version`=0.1.5-rc.3。
+2. **主 home web(3080) 0.1.5 跑通**：0.1.5 web 带 token 鉴权（/?token= 换 cookie），旧 /api/session/* 路由已移除。web profile 第三方插件（marketplace/notify-win/toolkit github源）与 0.1.5 不兼容已摘除（备份可恢复），保留 dsh-desktop/dsh-image-pathify。
+3. **ACP serve 落地主 home**：profiles/acp 重建为 dsh-base + dsh-acp-server@0.12（官方 dsh-acp-app 是 stdio 模式，HTTP 通道用 dsh-acp-server）。`dsh --profile acp serve --host 0.0.0.0 --port 7800 --token acp-test-token`，healthz ok + 内置 Web UI 200。
+4. **桥接 v3（dsh_bridge_server.py）后端切 ACP**：AcpClient（initialize→session/new(mcpServers:{})→session/prompt(blocks数组)→SSE agent_message_chunk 聚合 + stopReason）；/session start/prompt/history/get_status/set_config + headless /run fallback 保留；pair 扫码配对不变。修复：urllib 响应头大小写（acp-connection-id）。**App 无感**（8218 接口不变）。
+5. **E2E 验证**：start→acp-xxx；R1"只回复两个字：OK"→"好的"；R2"我刚才让你回复什么"→"好的好的"（续接记忆成立）；history 4 条。ACP serve 重启后旧 sessionId 失效需重新 start。
+6. 测试脚本存档：agent workspace 下 test_acp_015.py（0.1.5 全链路）、bridge_e2e.py（桥接 E2E）。
+
 ## [2026-09-25] remote_dsh v2.1：扫码一键配对 + ACP 通道调研
 1. **扫码一键配对（pair）**：电脑端桥接服务新增 /pair 配对页（内联 qrcode-generator JS 生成 dshpair:// 二维码；仅 127.0.0.1 可访问，不泄露令牌给局域网）+ 启动自动打开浏览器；新增 /pair.json（loopback 返回 qr_text/base_url/token）。App 端新增 RemoteDshPairScanActivity（DecoratedBarcodeView + zxing-android-embedded 4.3.0 扫码，相机权限运行时请求）+ RemoteDshPairBridge（解析 dshpair:// 自动写配置、重置会话）；remote_dsh 新增 action=pair（调起扫码页、轮询结果、120s 超时）。已验证：/pair 页 60KB 含 QR、/pair.json 正确（局域网 IP 探测 192.168.1.5）、Host 头伪造不受影响（按 TCP 对端 IP 判 loopback）；装机 PID 32135 注册正常、扫码页真机启动不崩（CAMERA 已 grant）。
 2. **ACP 官方通道调研（B 方向）**：dsh-acp-server@0.12.0 安装（npm i -g + dsh plugin --profile acp add）；服务起得来（dsh --profile acp serve --host 0.0.0.0 --port 7800 --token xxx，healthz ok）；ACP v1 协议实测：initialize 200（agentInfo dsh 0.12.0，sessionCapabilities.list/resume/close 全支持）、POST /acp 需带 Acp-Connection-Id header、SSE 流链路通（收到 session/new 校验错误→补 mcpServers:{} 后进入 agent 创建）。**阻塞点**：dsh-acp-server 0.12 需 dsh≥0.1.2，本机 dsh 0.1.1-rc.2 的 agents.create 内部抛 "Cannot read properties of undefined (reading 'slice')"。等 dsh 升级后启用（届时桥接换 ACP 后端，App 无感；或直接用 7800 自带 token 鉴权）。

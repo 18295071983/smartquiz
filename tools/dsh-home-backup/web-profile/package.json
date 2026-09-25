@@ -1,0 +1,23 @@
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "@deepseek-ai/dsh-toolkit": "github:omdsh-dev/dsh-toolkit",
+    "dsh-desktop": "^0.2.0",
+    "dsh-image-pathify": "^0.2.0",
+    "dsh-notify-win": "github:Andyqwe44/dsh-notify-win",
+    "dsh-plugin-marketplace": "^0.2.8"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "dsh-plugin-marketplace",
+        "dsh-notify-win",
+        "@deepseek-ai/dsh-toolkit",
+        "dsh-image-pathify"
+      ]
+    }
+  }
+}

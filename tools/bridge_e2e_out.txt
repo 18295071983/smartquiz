@@ -1,0 +1,5 @@
+﻿[start] {"ok": true, "action": "start", "session_id": "acp-748e98e9-652e-416c-91b2-edbbe238071e", "duration_ms": 1548}
+SID = acp-748e98e9-652e-416c-91b2-edbbe238071e
+[R1] {"ok": true, "action": "prompt", "session_id": "acp-748e98e9-652e-416c-91b2-edbbe238071e", "reply": "好的", "duration_ms": 1618}
+[R2] {"ok": true, "action": "prompt", "session_id": "acp-748e98e9-652e-416c-91b2-edbbe238071e", "reply": "好的好的", "duration_ms": 1625}
+[history] {"ok": true, "action": "history", "session_id": "acp-748e98e9-652e-416c-91b2-edbbe238071e", "text": "1. [用户] 只回复两个字：OK\n2. [AI] 好的\n3. [用户] 我刚才让你回复什么？只把那个词照抄一遍\n4. [AI] 好的好的", "count": 4}

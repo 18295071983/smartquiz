@@ -1,0 +1,28 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+
+# 启用会话内容全文检索（覆盖 web bundle 的 openAt: never）。
+# 首次搜索时才打开内存索引，Node 22 启动保持安静。
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: first-search
+
+# 启用技能徽章 UI（覆盖 base bundle 的 disabled: true）。
+- id: skill-badge
+  disabled: false
+
+# 插件/工具全开：默认 agent preset 切换到 code（PTC 模式）。
+# code = standard 全部工具（文件/Shell/网页/子代理/工作流/目标/Skills/计划）
+#       + Code Mode SDK（模型用一个 TypeScript 程序批量执行多步操作）。
+- id: agent-presets
+  config:
+    default: code
+
+# 已停用：dsh-desktop 是 npm 上的占位包（只有 package.json/README，没有 index.js），
+# 加载它会让整个插件树启动失败（127.0.0.1 拒绝连接）。真机桌面端是 Electron 应用，
+# 不是 dsh 插件；若要 Web UI 桥接插件，应装 @dsh-desktop/client。
+# - insert:
+#     - id: dsh-desktop
+#       name: 'dsh-desktop'

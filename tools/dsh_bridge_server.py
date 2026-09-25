@@ -1,38 +1,44 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-dsh 桥接服务 v2（电脑端）— 官方会话通道版
+dsh 桥接服务 v3（电脑端）— ACP 官方通道版
 ============================================
 让手机端"答题宝"App 通过 HTTP 远程调用本机的 DeepSeek dsh（DeepSeek Harness Shell）。
 
-v2 核心变化：新增**官方会话通道**（dsh web API，127.0.0.1:3080）：
-    * session.create 创建会话 -> session.prompt 异步入队 -> 轮询 session.history 取回合结果
-    * 同一 sessionId 连续 prompt = 多轮会话续接（dsh 侧记忆连续，事件溯源日志持久）
-    * 原有 headless /run 保留为 fallback（web 通道不可用时自动降级）
+v3 核心变化：后端切换为 **ACP 官方通道**（dsh --profile acp serve，127.0.0.1:7800）：
+    * 原因：dsh 0.1.5 起 web 通道 API 重构（/api/session/* 移除、cookie 鉴权），
+            官方远程标准为 ACP v1（JSON-RPC + SSE），本桥接直接对接。
+    * session/new 创建会话（mcpServers:{}）-> session/prompt（blocks 数组）-> SSE
+      agent_message_chunk 流式聚合 + result.stopReason 判定回合结束
+    * 同一 sessionId 连续 prompt = 多轮会话续接（dsh 侧记忆连续）
+    * 本地内存记录会话历史（ACP 无 history RPC）
+    * 原有 headless /run 保留为 fallback（ACP 不可用时降级）
 
 用法：
     python dsh_bridge_server.py [--port 8218] [--token xxx] [--dsh dsh]
-                                [--dsh-home C:\\...\\dsh-home] [--web-port 3080] [--cwd 默认工作目录]
+                                [--dsh-home C:\\...\\dsh-home] [--cwd 默认工作目录]
+                                [--acp-base http://127.0.0.1:7800] [--acp-token acp-test-token]
 
     --token 必填（安全红线）：App 调用时带 Authorization: Bearer <token>。
-            未提供时自动生成一个随机 token 并打印，复制到 App 配置即可。
+    --acp-token 需与电脑端 `dsh --profile acp serve --token xxx` 一致。
 
-端点（除 /health 外均需 Bearer token）：
+端点（除 /health、/pair 外均需 Bearer token）：
     GET  /health            存活检查（免鉴权）
-    GET  /status            桥接+dsh 双通道可用性
+    GET  /pair              扫码配对页（仅 127.0.0.1 可访问）
+    GET  /pair.json         配对信息（qr_text/base_url/token，仅本机）
+    GET  /status            桥接+ACP 通道可用性
     POST /run               执行 dsh headless 任务（v1 保留，fallback）
-                             body: {"task":"...", "timeout": 120}
-    POST /session           官方会话通道（v2 新增）
+    POST /session           官方会话通道（v3 = ACP 后端）
                              body:
                                {"action":"start"}                                   -> 创建会话，返回 session_id
                                {"action":"prompt","session_id":"...","text":"..."}  -> 同会话续接，返回 reply
-                               {"action":"history","session_id":"...","max":10}     -> 读会话历史（user/assistant 纯文本）
-                               {"action":"list"}                                   -> 会话列表
-                             resp: {"ok":bool,"session_id":"...","reply":"...","duration_ms":1234,
-                                    "error":"...","fallback":"headless"|null}
+                               {"action":"history","session_id":"...","max":10}     -> 读会话历史（本桥接内存记录）
+                               {"action":"get_status"}                              -> ACP 状态
+                               {"action":"set_config","key":"cwd","value":"..."}    -> 设置默认工作目录
 
 安全说明：
-    * dsh web 只监听 127.0.0.1:3080，永不直接暴露给手机；手机只访问本桥接层（token 鉴权）。
+    * ACP serve 由电脑端 dsh 提供（--profile acp serve --host 0.0.0.0 --port 7800 --token xxx，
+      bearer 鉴权）；手机只访问本桥接层（token 鉴权），不直接接触 7800。
     * 必须带 token 访问 /run、/status、/session；启动日志会打印一次 token。
     * 本服务默认监听 0.0.0.0（同一 Wi-Fi 手机可达）；建议仅内网使用，公网请走 Tailscale/FRP 等隧道。
 """
@@ -56,10 +62,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 TOKEN = None
 DSH_CMD = "dsh"
 DSH_HOME = None
-WEB_BASE = "http://127.0.0.1:3080"
-DEFAULT_CWD = None
 BRIDGE_PORT = 8218
+DEFAULT_CWD = None
 RUNNING_JOBS = {}
+SESSION_HISTORY = {}          # sid -> [{role, text}]
+ACP_BASE = "http://127.0.0.1:7800"
+ACP_TOKEN = "acp-test-token"
 
 
 def log(msg):
@@ -67,160 +75,191 @@ def log(msg):
 
 
 # ---------------------------------------------------------------------------
-# 官方会话通道（dsh web API，HTTP POST /api/<method>，RPC envelope）
+# ACP 客户端（dsh-acp-server HTTP serve，ACP v1 JSON-RPC + SSE）
 # ---------------------------------------------------------------------------
-def dsh_api(method, payload, timeout=30):
-    """调用 dsh web 官方 API。返回解析后的 dict，失败时返回 {"error": ...}。"""
-    body = json.dumps({
-        "type": "client-request",
-        "rpcId": str(uuid.uuid4()),
-        "method": method,
-        "payload": payload,
-    }, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(WEB_BASE + "/api/" + method, data=body, method="POST")
-    req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        return {"error": "HTTP %d" % e.code, "body": e.read().decode("utf-8", "replace")[:200]}
-    except Exception as e:
-        return {"error": str(e)}
+class AcpClient:
+    def __init__(self):
+        self.base = ACP_BASE
+        self.token = ACP_TOKEN
+        self.conn = None          # acp-connection-id
+        self.events = []
+        self.lock = threading.Lock()
+        self._sse_stop = threading.Event()
+        self._sse_thread = None
+
+    def _post(self, path, body, headers=None, timeout=30):
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(self.base + path, data=data, method="POST")
+        req.add_header("Content-Type", "application/json; charset=utf-8")
+        req.add_header("Authorization", "Bearer " + self.token)
+        if self.conn and headers is None:
+            req.add_header("Acp-Connection-Id", self.conn)
+        if headers:
+            for k, v in headers.items():
+                req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, r.read().decode("utf-8"), dict(r.headers)
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8", "replace")[:300], dict(e.headers)
+        except Exception as e:
+            return 0, "request failed: %s" % e, {}
+
+    def _sse_loop(self):
+        try:
+            req = urllib.request.Request(self.base + "/acp/stream")
+            req.add_header("Authorization", "Bearer " + self.token)
+            req.add_header("Acp-Connection-Id", self.conn)
+            with urllib.request.urlopen(req, timeout=600) as r:
+                while not self._sse_stop.is_set():
+                    line = r.readline()
+                    if not line:
+                        break
+                    t = line.decode("utf-8", "replace").strip()
+                    if t.startswith("data:"):
+                        raw = t[5:].strip()
+                        if not raw:
+                            continue
+                        try:
+                            ev = json.loads(raw)
+                            with self.lock:
+                                self.events.append(ev)
+                        except Exception:
+                            pass
+        except Exception as e:
+            with self.lock:
+                self.events.append({"sse_error": str(e)})
+
+    def ensure(self):
+        if self.conn:
+            return True
+        st, body, hdrs = self._post("/acp", {"jsonrpc": "2.0", "id": "1",
+                                             "method": "initialize",
+                                             "params": {"protocolVersion": 1,
+                                                        "clientCapabilities": {}}})
+        if st != 200:
+            log("ACP initialize 失败: %s %s" % (st, body[:200]))
+            return False
+        conn = hdrs.get("Acp-Connection-Id") or hdrs.get("acp-connection-id")
+        if not conn:
+            # urllib 的 dict(r.headers) 键大小写可能被归一化，兜底遍历
+            for k, v in hdrs.items():
+                if k.lower() == "acp-connection-id":
+                    conn = v
+                    break
+        if not conn:
+            log("ACP initialize 无连接头（%s）" % json.dumps(hdrs)[:200])
+            return False
+        self.conn = conn
+        self._sse_stop = threading.Event()
+        self._sse_thread = threading.Thread(target=self._sse_loop, daemon=True)
+        self._sse_thread.start()
+        time.sleep(1)
+        log("ACP 连接建立: %s" % conn)
+        return True
+
+    def session_new(self, cwd=None):
+        if not self.ensure():
+            return None, "ACP 未连接（请确认电脑端 dsh --profile acp serve 已在 7800 运行）"
+        params = {"cwd": cwd or DEFAULT_CWD or ".", "mode": "default",
+                  "mpker": None, "mcpServers": {}, "clientSessionConfig": {}}
+        rid = str(int(time.time() * 1000) % 100000) + "-n"
+        st, body, _ = self._post("/acp", {"jsonrpc": "2.0", "id": rid, "method": "session/new",
+                                          "params": params})
+        if st not in (200, 202):
+            return None, "session/new HTTP %d: %s" % (st, body[:200])
+        t0 = time.time()
+        while time.time() - t0 < 60:
+            with self.lock:
+                for e in self.events:
+                    if e.get("id") == rid and isinstance(e.get("result"), dict):
+                        sid = e["result"].get("sessionId")
+                        if sid:
+                            return sid, None
+                    if e.get("id") == rid and e.get("error"):
+                        return None, json.dumps(e["error"], ensure_ascii=False)[:300]
+            time.sleep(0.5)
+        return None, "session/new 超时"
+
+    def prompt(self, sid, text, timeout=240):
+        if not self.ensure():
+            return None, "ACP 未连接"
+        rid = str(int(time.time() * 1000) % 100000) + "-p"
+        st, body, _ = self._post("/acp", {"jsonrpc": "2.0", "id": rid, "method": "session/prompt",
+                                          "params": {"sessionId": sid,
+                                                     "prompt": [{"type": "text", "text": text}]}})
+        if st not in (200, 202):
+            return None, "session/prompt HTTP %d: %s" % (st, body[:200])
+        t0 = time.time()
+        chunks = []
+        while time.time() - t0 < timeout:
+            with self.lock:
+                done = [e for e in self.events
+                        if str(e.get("id")) == rid and isinstance(e.get("result"), dict)
+                        and e["result"].get("stopReason")]
+                if done:
+                    for e2 in self.events:
+                        p = e2.get("params") or {}
+                        u = p.get("update") or {}
+                        if u.get("sessionUpdate") == "agent_message_chunk" \
+                                and p.get("sessionId") == sid:
+                            ct = u.get("content") or {}
+                            if ct.get("type") == "text" and ct.get("text"):
+                                chunks.append(ct["text"])
+                    return "".join(chunks), None
+                err = [e for e in self.events
+                       if str(e.get("id")) == rid and e.get("error")]
+                if err:
+                    return None, json.dumps(err[-1]["error"], ensure_ascii=False)[:300]
+            time.sleep(0.8)
+        return None, "等待回复超时(%ds)" % timeout
+
+    def alive(self):
+        try:
+            req = urllib.request.Request(self.base + "/acp/healthz")
+            req.add_header("Authorization", "Bearer " + self.token)
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status == 200
+        except Exception:
+            return False
 
 
-def web_alive():
-    """探测 dsh web 通道是否可用（session.list 快速探测）。"""
-    r = dsh_api("session.list", {}, timeout=5)
-    return r.get("result", {}).get("ok") is True
+ACP = AcpClient()
 
 
-def web_session_create(cwd=None):
-    """创建官方会话。cwd 缺省用 DEFAULT_CWD。"""
-    payload = {}
-    if cwd:
-        payload["cwd"] = cwd
-    elif DEFAULT_CWD:
-        payload["cwd"] = DEFAULT_CWD
-    r = dsh_api("session.create", payload, timeout=15)
-    if "error" in r:
-        return None, r["error"]
-    res = r.get("result", {})
-    if not res.get("ok"):
-        return None, json.dumps(res.get("error", r), ensure_ascii=False)[:300]
-    return res.get("value", {}).get("sessionId"), None
+def acp_session_new(cwd=None):
+    sid, err = ACP.session_new(cwd)
+    if sid:
+        SESSION_HISTORY[sid] = []
+    return sid, err
 
 
-def web_session_prompt(session_id, text, timeout=240, poll=2):
-    """向会话发消息（异步入队）并轮询历史直到回合结束，返回 (reply, error, turn)。"""
-    r = dsh_api("session.prompt", {
-        "sessionId": session_id, "mode": "queue",
-        "content": [{"type": "text", "text": text}],
-    }, timeout=15)
-    if "error" in r:
-        return None, "prompt 调用失败: %s" % r["error"], None
-    res = r.get("result", {})
-    if not res.get("ok"):
-        return None, "prompt 被拒绝: %s" % json.dumps(res.get("error", r), ensure_ascii=False)[:300], None
-
-    # 记录 prompt 前的最新 seq，之后只看增量
-    before = _history_tail_seq(session_id)
-    t0 = time.time()
-    last_reply = None
-    last_turn = None
-    while time.time() - t0 < timeout:
-        h = dsh_api("session.history", {"sessionId": session_id, "maxMessages": 50}, timeout=15)
-        if "error" not in h:
-            events = h.get("result", {}).get("value", {}).get("events", [])
-            turn_done = None
-            reply = None
-            for e in events:
-                ev = e.get("event", {})
-                seq = ev.get("seq", 0)
-                if seq <= before:
-                    continue
-                et = ev.get("type", "")
-                if et == "turn/end":
-                    turn_done = ev.get("data", {}).get("turn")
-                elif et == "assistant/message":
-                    msg = (ev.get("data") or {}).get("message") or {}
-                    if msg.get("role") == "assistant":
-                        reply = _content_to_text(msg.get("content"))
-                        last_turn = (ev.get("data") or {}).get("turn", last_turn)
-            if reply:
-                last_reply = reply
-            if turn_done is not None and last_reply is not None:
-                return last_reply, None, last_turn or turn_done
-            if turn_done is not None:
-                # 回合结束但没有 assistant 文本（空回复/异常）
-                return last_reply, None, turn_done
-        time.sleep(poll)
-    if last_reply is not None:
-        return last_reply, None, last_turn
-    return None, "等待回复超时(%ds)" % timeout, last_turn
+def acp_session_prompt(session_id, text, timeout=240):
+    reply, err = ACP.prompt(session_id, text, timeout=timeout)
+    if err is None:
+        hist = SESSION_HISTORY.setdefault(session_id, [])
+        hist.append({"role": "user", "text": text[:2000]})
+        hist.append({"role": "assistant", "text": (reply or "")[:2000]})
+        if len(hist) > 200:
+            del hist[: len(hist) - 200]
+    return reply, err
 
 
-def _history_tail_seq(session_id):
-    """读 history 尾部事件的最大 seq（用于增量判断）。"""
-    h = dsh_api("session.history", {"sessionId": session_id, "maxMessages": 10}, timeout=10)
-    try:
-        events = h["result"]["value"]["events"]
-        return max(ev.get("event", {}).get("seq", 0) for ev in events)
-    except Exception:
-        return 0
+def acp_session_history(session_id, max_msgs=10):
+    hist = SESSION_HISTORY.get(session_id)
+    if not hist:
+        return None, "ACP 会话无本地历史（会话需在本桥接创建过）"
+    return list(hist[-max(1, min(200, max_msgs)):]), None
 
 
-def _content_to_text(content):
-    """assistant message content -> 纯文本。"""
-    if not content:
-        return ""
-    parts = []
-    for block in content:
-        if not isinstance(block, dict):
-            continue
-        t = block.get("type")
-        if t == "text":
-            parts.append(block.get("text", ""))
-        elif t in ("thinking", "tool_use", "tool_result"):
-            parts.append("[%s]" % t)
-    return "\n".join(x for x in parts if x).strip()
-
-
-def web_session_history(session_id, max_msgs=10):
-    """读会话历史，文本化为 user/assistant 消息列表。"""
-    h = dsh_api("session.history", {"sessionId": session_id, "maxMessages": max(1, min(200, max_msgs))}, timeout=15)
-    if "error" in h:
-        return None, h["error"]
-    value = h.get("result", {}).get("value", {})
-    msgs = []
-    for e in value.get("events", []):
-        ev = e.get("event", {})
-        et = ev.get("type", "")
-        if et in ("user/message", "assistant/message"):
-            data = ev.get("data") or {}
-            if et == "assistant/message":
-                role = "assistant"
-                text = _content_to_text((data.get("message") or {}).get("content"))
-            else:
-                role = "user"
-                text = _content_to_text(data.get("content"))
-            if text:
-                msgs.append({"role": role, "text": text[:2000]})
-    return msgs, None
-
-
-def web_session_list():
-    r = dsh_api("session.list", {}, timeout=10)
-    if "error" in r:
-        return None, r["error"]
-    value = r.get("result", {}).get("value", {})
-    return value.get("items", []), None
+def acp_session_list():
+    return list(SESSION_HISTORY.keys()), None
 
 
 # ---------------------------------------------------------------------------
 # v1 headless 通道（保留为 fallback）
 # ---------------------------------------------------------------------------
 def local_ip():
-    """探测本机局域网 IP（UDP connect 法，不发包）。失败返回 127.0.0.1。"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -233,12 +272,10 @@ def local_ip():
 
 
 def pair_qr_text(port, token):
-    """手机扫码内容：dshpair://<ip>:<port>?token=<token>"""
     return "dshpair://%s:%d?token=%s" % (local_ip(), port, token)
 
 
 def pair_html(port, token):
-    """配对页（仅本机可访问）：内联 qrcode-generator JS 生成 QR。"""
     qr_js = ""
     qjs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qrcodegen.js")
     try:
@@ -283,11 +320,7 @@ padding:10px 12px;border-radius:8px;max-width:92vw;color:#7dd3fc}
 </script></body></html>""" % qr_text).encode("utf-8")
 
 
-
-
 def resolve_dsh_cmd(name):
-    """解析 dsh 可执行文件：优先 shutil.which（遵循 PATHEXT 可找到 .cmd/.bat），
-    Windows 上 .cmd/.bat 需经 cmd /c 执行，普通 exe 直接执行。"""
     if os.path.sep in name or (os.path.altsep and os.path.altsep in name):
         return name, name.lower().endswith((".cmd", ".bat"))
     found = shutil.which(name)
@@ -304,7 +337,6 @@ def resolve_dsh_cmd(name):
 
 
 def run_dsh(task, timeout):
-    """调 dsh headless 跑一个任务，返回 (ok, output, exit_code, duration_ms)"""
     env = dict(os.environ)
     if DSH_HOME:
         env["DSH_HOME"] = DSH_HOME
@@ -336,7 +368,6 @@ def run_dsh(task, timeout):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    # ---------- 工具方法 ----------
     def _send_json(self, code, obj):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -363,7 +394,6 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         log("%s %s" % (self.address_string(), fmt % args))
 
-    # ---------- GET ----------
     def _is_loopback(self):
         host = self.client_address[0] if self.client_address else ""
         return host in ("127.0.0.1", "::1", "localhost")
@@ -371,7 +401,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/health":
-            return self._send_json(200, {"ok": True, "service": "dsh-bridge", "version": 2})
+            return self._send_json(200, {"ok": True, "service": "dsh-bridge", "version": 3,
+                                         "backend": "acp"})
         if path == "/pair":
             if not self._is_loopback():
                 return self._send_json(403, {"ok": False, "error": "pair page is local-only"})
@@ -394,31 +425,29 @@ class Handler(BaseHTTPRequestHandler):
         if not self._auth_ok():
             return self._send_json(401, {"ok": False, "error": "unauthorized"})
         if path == "/status":
-            web = web_alive()
+            acp_ok = ACP.alive()
             headless_ok = None
             probe = None
-            if not web:
+            if not acp_ok:
                 ok, out, code, dur = run_dsh("只回复两个字：OK", 30)
                 headless_ok, probe = ok, out[:200]
-            items, lerr = (web_session_list() if web else (None, None))
+            items, lerr = (acp_session_list() if acp_ok else (None, None))
             return self._send_json(200, {
-                "ok": True, "version": 2,
-                "channels": {"session_web": web, "headless": headless_ok},
-                "web_base": WEB_BASE,
+                "ok": True, "version": 3, "backend": "acp",
+                "channels": {"session_acp": acp_ok, "headless": headless_ok},
+                "acp_base": ACP_BASE,
                 "sessions_count": (len(items) if items is not None else 0),
                 "probe_output": probe,
                 "active_jobs": len(RUNNING_JOBS),
             })
         return self._send_json(404, {"ok": False, "error": "not found"})
 
-    # ---------- POST ----------
     def do_POST(self):
         if not self._auth_ok():
             return self._send_json(401, {"ok": False, "error": "unauthorized"})
         path = self.path.split("?")[0]
         body = self._read_json()
 
-        # ---- /run（headless fallback）----
         if path == "/run":
             task = str(body.get("task", "")).strip()
             if not task:
@@ -434,7 +463,6 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": ok, "output": out, "exit_code": code, "duration_ms": dur, "task": task,
             })
 
-        # ---- /session（官方会话通道）----
         if path == "/session":
             return self._handle_session(body)
         return self._send_json(404, {"ok": False, "error": "not found"})
@@ -444,7 +472,7 @@ class Handler(BaseHTTPRequestHandler):
         t0 = time.time()
 
         if action == "start":
-            sid, err = web_session_create(str(body.get("cwd") or "").strip() or None)
+            sid, err = acp_session_new(str(body.get("cwd") or "").strip() or None)
             if err:
                 return self._send_json(200, {"ok": False, "action": "start", "error": err,
                                              "fallback": "headless"})
@@ -464,77 +492,85 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 timeout = 240
             log("会话任务(%ds): sid=%s text=%s" % (timeout, sid, text[:120]))
-            reply, err, turn = web_session_prompt(sid, text, timeout=timeout)
+            reply, err = acp_session_prompt(sid, text, timeout=timeout)
             dur = int((time.time() - t0) * 1000)
             if err:
                 log("会话失败: %s" % err)
                 return self._send_json(200, {"ok": False, "action": "prompt", "session_id": sid,
                                              "error": err, "duration_ms": dur})
-            log("会话完成: turn=%s dur=%dms reply=%s" % (turn, dur, (reply or "")[:80]))
+            log("会话完成: dur=%dms reply=%s" % (dur, (reply or "")[:80]))
             return self._send_json(200, {"ok": True, "action": "prompt", "session_id": sid,
-                                         "reply": reply or "", "turn": turn, "duration_ms": dur})
+                                         "reply": reply or "", "duration_ms": dur})
 
         if action == "history":
             sid = str(body.get("session_id") or "").strip()
             try:
-                mx = max(1, min(200, int(body.get("max", 10))))
+                max_msgs = max(1, min(200, int(body.get("max", 10))))
             except Exception:
-                mx = 10
+                max_msgs = 10
             if not sid:
                 return self._send_json(400, {"ok": False, "action": "history", "error": "session_id 不能为空"})
-            msgs, err = web_session_history(sid, mx)
+            msgs, err = acp_session_history(sid, max_msgs)
             if err:
                 return self._send_json(200, {"ok": False, "action": "history", "error": err})
             # 文本化（App 端轻量 JSON 解析不支持嵌套数组）
             lines = []
             for i, m in enumerate(msgs, 1):
-                role = "用户" if m["role"] == "user" else "AI"
-                lines.append("%d. [%s] %s" % (i, role, m["text"]))
+                role = "用户" if m.get("role") == "user" else "AI"
+                lines.append("%d. [%s] %s" % (i, role, m.get("text", "")))
             return self._send_json(200, {"ok": True, "action": "history", "session_id": sid,
                                          "text": "\n".join(lines) or "(空)", "count": len(msgs)})
 
-        if action == "list":
-            items, err = web_session_list()
-            if err:
-                return self._send_json(200, {"ok": False, "action": "list", "error": err})
-            return self._send_json(200, {"ok": True, "action": "list", "sessions": items})
+        if action == "get_status":
+            return self._send_json(200, {
+                "ok": True, "action": "get_status", "backend": "acp",
+                "acp_alive": ACP.alive(), "sessions": list(SESSION_HISTORY.keys()),
+            })
 
-        return self._send_json(400, {"ok": False, "error": "未知 action: %s" % action})
+        if action == "set_config":
+            key = str(body.get("key") or "").strip()
+            value = str(body.get("value") or "").strip()
+            if key == "cwd":
+                global DEFAULT_CWD
+                DEFAULT_CWD = value or None
+                return self._send_json(200, {"ok": True, "action": "set_config",
+                                             "key": key, "value": DEFAULT_CWD})
+            return self._send_json(400, {"ok": False, "action": "set_config",
+                                         "error": "仅支持 cwd 配置"})
+
+        return self._send_json(400, {"ok": False, "action": action, "error": "未知动作"})
 
 
 def main():
-    global TOKEN, DSH_CMD, DSH_HOME, WEB_BASE, DEFAULT_CWD
-    ap = argparse.ArgumentParser(description="dsh 桥接服务 v2（电脑端，官方会话通道）")
+    global BRIDGE_PORT, TOKEN, DSH_CMD, DSH_HOME, ACP_BASE, ACP_TOKEN, DEFAULT_CWD
+    ap = argparse.ArgumentParser(description="答题宝 · dsh 远程桥接 v3 (ACP 后端)")
     ap.add_argument("--port", type=int, default=8218)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--token", default="")
     ap.add_argument("--dsh", default="dsh")
     ap.add_argument("--dsh-home", default=os.environ.get("DSH_HOME", ""))
-    ap.add_argument("--web-port", type=int, default=3080)
     ap.add_argument("--cwd", default="", help="会话默认工作目录（dsh 里跑命令的目录）")
+    ap.add_argument("--acp-base", default="http://127.0.0.1:7800", help="ACP serve 地址")
+    ap.add_argument("--acp-token", default="acp-test-token", help="ACP serve bearer token")
     args = ap.parse_args()
-
-    global BRIDGE_PORT
-    TOKEN = args.token.strip() or secrets.token_urlsafe(24)
-    DSH_CMD = args.dsh
-    DSH_HOME = args.dsh_home
-    WEB_BASE = "http://127.0.0.1:%d" % args.web_port
+    BRIDGE_PORT, TOKEN = args.port, args.token
+    DSH_CMD, DSH_HOME = args.dsh, args.dsh_home
+    ACP_BASE, ACP_TOKEN = args.acp_base.rstrip("/"), args.acp_token
     DEFAULT_CWD = args.cwd.strip() or None
-    BRIDGE_PORT = args.port
-
-    log("dsh 桥接服务 v2 启动: http://%s:%d" % (args.host, args.port))
+    if not TOKEN:
+        log("未配置 --token：App 将无法鉴权（拒绝所有请求）。请传 --token xxx")
+    ACP.base, ACP.token = ACP_BASE, ACP_TOKEN
+    log("dsh 桥接服务 v3 (ACP) 启动: http://%s:%d" % (args.host, args.port))
     log("访问令牌(请复制到 App 配置): %s" % TOKEN)
-    log("dsh web 通道: %s | 默认工作目录: %s" % (WEB_BASE, DEFAULT_CWD or "(未指定)"))
-    log("headless 命令: %s | DSH_HOME=%s" % (DSH_CMD, DSH_HOME or "(系统默认)"))
-    log("警告: 服务未加密, 请仅在内网使用")
+    log("ACP 后端: %s | 默认工作目录: %s" % (ACP_BASE, DEFAULT_CWD or "(未指定)"))
     log("配对页(本机浏览器): http://127.0.0.1:%d/pair  (手机扫码=一键配对)" % args.port)
     log("配对文本(手机手动输入备用): %s" % pair_qr_text(args.port, TOKEN))
     try:
         webbrowser.open("http://127.0.0.1:%d/pair" % args.port)
     except Exception:
         pass
-
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    srv = ThreadingHTTPServer((args.host, BRIDGE_PORT), Handler)
+    log("桥接 v3 (ACP) 监听 http://%s:%d  token=%s" % (args.host, BRIDGE_PORT, TOKEN))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
