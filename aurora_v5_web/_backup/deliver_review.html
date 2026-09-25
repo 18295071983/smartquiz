@@ -1,0 +1,82 @@
+<html style="margin:0;padding:0;">
+<title>极光时钟 v9.53 交付审查结论</title>
+<div style="width:100%;box-sizing:border-box;background:#0b1622;color:#eaf6ff;font-family:'HarmonyOS Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;padding:22px 26px;border-radius:16px;line-height:1.55;">
+  <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;border-bottom:1px solid rgba(94,242,201,.28);padding-bottom:12px;">
+    <div style="font-size:21px;font-weight:700;letter-spacing:.5px;">极光时钟 · 交付前审查</div>
+    <div style="font-size:13px;color:#8fb3c9;">v9.53 / code 70 · 包 com.cjhtmldemo.p4c0c03e6e19f · APK 2.26MB</div>
+    <div style="margin-left:auto;font-size:13px;color:#5ef2c9;font-weight:600;">结论：可交付 ✓</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:14px;">
+    <!-- 左：合规核对 -->
+    <div style="background:rgba(10,32,48,.5);border:1px solid rgba(120,220,200,.18);border-radius:14px;padding:14px 16px;">
+      <div style="font-size:15px;font-weight:700;color:#5ef2c9;margin-bottom:10px;">① 壳 WebView 合规核对（HTML_DESIGN_RULES）</div>
+      <div style="font-size:13.5px;display:flex;flex-direction:column;gap:7px;">
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 入口 index.html · 资源全部相对路径</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> viewport-fit=cover + user-scalable=no（壳推荐）</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 安全区 --sa-t/--sa-b：桥物理px÷DPR，上限64px，env()兜底</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 天气远程 API 走 AndroidApp.request()（无 CORS，回调名必传）</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 脚本依赖序：core→audio→fx→faces×9→alarm→timer→world→citycodes→settings→app→weather</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 无 eval 远程串 · 无明文密钥 · 无 Service Worker</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 表盘外置协议 ACFace · 版本线 9.x / 6x 沿用同一 keystore</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 沉浸/方向/亮度/常亮/截图/前台服务均走原生桥，失败静默降级</div>
+      </div>
+    </div>
+
+    <!-- 中：界面逻辑 -->
+    <div style="background:rgba(10,32,48,.5);border:1px solid rgba(120,220,200,.18);border-radius:14px;padding:14px 16px;">
+      <div style="font-size:15px;font-weight:700;color:#5ef2c9;margin-bottom:10px;">② 界面逻辑检查</div>
+      <div style="font-size:13.5px;display:flex;flex-direction:column;gap:7px;">
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 46 个交互元素全部有事件绑定，无僵尸按钮</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 5 Tab 导航 · 闹钟/秒表/倒计时/番茄/世界时钟逻辑完整</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 沉浸：进入自动回时钟页 + 壳全屏轮询兜底</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 横竖屏：桥 setOrientation 真转屏，body.landscape 响应式</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 天气链路：GPS→逆地理→2501城码匹配→中国天气网/itboy→open-meteo兜底</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 城市选择器搜索实测命中（固原→101170401）</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 单击报时/双击沉浸/滑动切表盘，防误触互斥</div>
+      </div>
+    </div>
+
+    <!-- 右：显示效果 + 修改评估 -->
+    <div style="background:rgba(10,32,48,.5);border:1px solid rgba(120,220,200,.18);border-radius:14px;padding:14px 16px;">
+      <div style="font-size:15px;font-weight:700;color:#5ef2c9;margin-bottom:10px;">③ 显示效果（shot.py 桌面/移动自检）</div>
+      <div style="font-size:13.5px;display:flex;flex-direction:column;gap:7px;">
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 桌面 1416×761 / 移动 492×705，均无横向溢出</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> 4 布局天气胶囊就位（竖/横 × 普通/沉浸）</div>
+        <div><span style="color:#5ef2c9;font-weight:700;">✓</span> consoleErrors 仅 file:// 下天气 CORS（壳内走桥，预期）</div>
+        <div><span style="color:#c9a6ff;font-weight:700;">◦</span> lint 项均属既有设计/豁免：翻页钟上下半页裁切、face-tabs 全宽横滚、emoji 图标体系、11px 级 caption、顶栏 34px 图标按钮（密集工具栏惯例）</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:14px;">
+    <!-- 已修复 -->
+    <div style="background:rgba(53,94,75,.16);border:1px solid rgba(91,146,121,.5);border-radius:14px;padding:13px 16px;">
+      <div style="font-size:14.5px;font-weight:700;color:#8ef0a0;margin-bottom:8px;">本轮已修复（进 9.53）</div>
+      <div style="font-size:13.5px;"><span style="color:#8ef0a0;font-weight:700;">▲</span> APK 混入 _backup/_shots 约 2MB 开发文件 → 打包脚本加排除规则 → APK 4.14MB 降至 <b style="color:#eaf6ff;">2.26MB</b>，zip 46 个文件干净，已重装手机</div>
+    </div>
+    <!-- 建议 -->
+    <div style="background:rgba(124,90,51,.14);border:1px solid rgba(201,154,78,.5);border-radius:14px;padding:13px 16px;">
+      <div style="font-size:14.5px;font-weight:700;color:#ffb26b;margin-bottom:8px;">可选打磨（不影响交付）</div>
+      <div style="font-size:13.5px;display:flex;flex-direction:column;gap:6px;">
+        <div>· 顶栏 4 个图标按钮 34→40px，提升误触友好（需配横屏留白）</div>
+        <div>· 补 data-URI favicon（壳内不显示，仅网页预览场景有意义）</div>
+        <div>· 若客户有品牌规范，emoji 图标可换内联 SVG 体系</div>
+      </div>
+    </div>
+    <!-- 不推荐动 -->
+    <div style="background:rgba(75,85,99,.14);border:1px solid rgba(148,163,184,.4);border-radius:14px;padding:13px 16px;">
+      <div style="font-size:14.5px;font-weight:700;color:#cbd5e1;margin-bottom:8px;">不建议改动（机制/壳约束）</div>
+      <div style="font-size:13.5px;display:flex;flex-direction:column;gap:6px;">
+        <div>· 翻页钟数字裁切/双写 = 翻页动画实现本身</div>
+        <div>· viewport 禁缩放 = 壳官方推荐（防时钟界面误缩放）</div>
+        <div>· 安全区上限 64px 防御 = 壳规则要求，勿放开</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:14px;padding:10px 14px;border-radius:12px;background:rgba(94,242,201,.08);border:1px dashed rgba(94,242,201,.35);font-size:13px;color:#b9d8c9;">
+    <b style="color:#5ef2c9;">交付说明要点：</b>应用名 极光时钟 · v9.53(70) · 2.26MB · 本地打包加载；定位授权由壳自动放行 WebView；天气数据来自中国天气网/itboy（桥代理无 CORS），无网络时自动回退 open-meteo；城市表内置 2501 城，支持搜索与 GPS 定位匹配；离线时钟/闹钟/计时功能不依赖网络。
+  </div>
+</div>
+</html>

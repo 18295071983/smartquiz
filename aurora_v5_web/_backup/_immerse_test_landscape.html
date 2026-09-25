@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="aurora" data-face="flip" data-fx="stars">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#06101e">
+<title>极光时钟</title>
+<!-- ================= 样式（多文件工程） ================= -->
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/controls.css">
+<link rel="stylesheet" href="css/app.css">
+<!-- 表盘样式（外置：新增表盘 = css/faces/ 加文件 + js/faces/ 加注册） -->
+<link rel="stylesheet" href="css/faces/flip.css">
+<link rel="stylesheet" href="css/faces/nixie.css">
+<link rel="stylesheet" href="css/faces/digital.css">
+<link rel="stylesheet" href="css/faces/analog.css">
+<link rel="stylesheet" href="css/faces/ring.css">
+<link rel="stylesheet" href="css/faces/dot.css">
+<link rel="stylesheet" href="css/faces/neon.css">
+<link rel="stylesheet" href="css/faces/word.css">
+<link rel="stylesheet" href="css/faces/pulse.css">
+</head>
+<body class="landscape immerse">
+<div id="stage">
+  <canvas id="fx"></canvas>
+  <div class="glows"><i></i><i></i><i></i></div>
+  <div class="vignette"></div>
+  <div class="mask" id="mask"></div>
+
+  <header class="topbar">
+    <div class="tb-left">
+      <span class="brand"><i class="dot"></i>极光时钟</span>
+      <span class="chip" id="chipBat">电量 --</span>
+      <span class="chip" id="chipAlarm">无闹钟</span>
+    </div>
+    <div class="tb-right">
+      <button class="ibtn" id="btnOrient" title="横竖屏">⟳</button>
+      <button class="ibtn" id="btnImmerse" title="沉浸全屏">⛶</button>
+      <button class="ibtn" id="btnKeep" title="屏幕常亮">☀</button>
+      <button class="ibtn" id="btnTheme" title="换主题">🎨</button>
+    </div>
+  </header>
+
+  <main id="pages">
+    <!-- ========== 时钟 ========== -->
+    <section class="page on" id="pg-clock">
+      <div class="cmeta">
+        <div class="cm-greet" id="cmGreet"></div>
+        <div class="cm-date" id="cmDate"></div>
+      </div>
+      <div class="cm-weather" id="cmWeather" title="点击切换城市">
+        <span class="w-ico" id="wIco">🌡️</span>
+        <span class="w-temp" id="wTemp">--°</span>
+        <span class="w-city" id="wCity">银川</span>
+        <span class="w-hl" id="wHL"></span>
+      </div>
+      <div class="face-tabs" id="faceTabs"></div>
+      <div class="face-host" id="faceHost"></div>
+      <div class="cm-tip" id="cmTip"></div>
+      <div class="quick" id="quick">
+        <button class="qbtn" data-act="orient">横竖屏</button>
+        <button class="qbtn" data-act="immerse">沉浸</button>
+        <button class="qbtn" data-act="tick">滴答声</button>
+        <button class="qbtn" data-act="chime">整点报时</button>
+        <button class="qbtn" data-act="sound">助眠声景</button>
+        <button class="qbtn" data-act="fx">换动效</button>
+      </div>
+    </section>
+
+    <!-- ========== 闹钟 ========== -->
+    <section class="page" id="pg-alarm">
+      <div class="phead"><h2>闹钟</h2><button class="pill" id="btnAddAlarm">＋ 新建</button></div>
+      <div class="list" id="alarmList"></div>
+      <div class="empty" id="alarmEmpty">还没有闹钟 · 点右上角「新建」添加</div>
+    </section>
+
+    <!-- ========== 计时 ========== -->
+    <section class="page" id="pg-timer">
+      <div class="seg" id="timerSeg">
+        <button class="on" data-t="sw">秒表</button>
+        <button data-t="cd">倒计时</button>
+        <button data-t="pomo">番茄钟</button>
+      </div>
+
+      <div class="tpanel on" id="tp-sw">
+        <div class="bigmono mono" id="swDisp">00:00.00</div>
+        <div class="brow">
+          <button class="rbtn ghost" id="swLap">计次</button>
+          <button class="rbtn primary" id="swRun">开始</button>
+          <button class="rbtn ghost" id="swReset">重置</button>
+        </div>
+        <div class="laps" id="swLaps"></div>
+      </div>
+
+      <div class="tpanel" id="tp-cd">
+        <div class="ringwrap">
+          <svg viewBox="0 0 220 220" class="ringsvg">
+            <circle class="rbg" cx="110" cy="110" r="96"></circle>
+            <circle class="rfg" id="cdRing" cx="110" cy="110" r="96"></circle>
+          </svg>
+          <div class="rlabel"><div class="mono" id="cdDisp">05:00</div><div class="rsub" id="cdSub">倒计时</div></div>
+        </div>
+        <div class="chips" id="cdPresets"></div>
+        <div class="steppers">
+          <label>分<input type="number" id="cdMin" min="0" max="600" value="5"></label>
+          <label>秒<input type="number" id="cdSec" min="0" max="59" value="0"></label>
+        </div>
+        <div class="brow">
+          <button class="rbtn ghost" id="cdReset">重置</button>
+          <button class="rbtn primary" id="cdRun">开始</button>
+        </div>
+      </div>
+
+      <div class="tpanel" id="tp-pomo">
+        <div class="ringwrap">
+          <svg viewBox="0 0 220 220" class="ringsvg">
+            <circle class="rbg" cx="110" cy="110" r="96"></circle>
+            <circle class="rfg alt" id="pmRing" cx="110" cy="110" r="96"></circle>
+          </svg>
+          <div class="rlabel"><div class="mono" id="pmDisp">25:00</div><div class="rsub" id="pmPhase">专注</div></div>
+        </div>
+        <div class="steppers">
+          <label>专注<input type="number" id="pmWork" min="1" max="120" value="25"></label>
+          <label>休息<input type="number" id="pmRest" min="1" max="60" value="5"></label>
+        </div>
+        <div class="rounds" id="pmRounds">已完成 0 轮</div>
+        <div class="brow">
+          <button class="rbtn ghost" id="pmReset">重置</button>
+          <button class="rbtn primary" id="pmRun">开始</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 世界时钟 ========== -->
+    <section class="page" id="pg-world">
+      <div class="phead"><h2>世界时钟</h2><button class="pill" id="btnAddCity">＋ 添加城市</button></div>
+      <div class="list" id="worldList"></div>
+    </section>
+
+    <!-- ========== 设置 ========== -->
+    <section class="page" id="pg-set">
+      <div class="phead"><h2>设置</h2><button class="pill ghost" id="btnSetClose" title="返回时钟">✕</button></div>
+
+      <div class="blk">
+        <div class="bt">主题配色 <span class="note" id="noteTheme">极光</span></div>
+        <div class="grid g-theme" id="themeGrid"></div>
+      </div>
+
+      <div class="blk">
+        <div class="bt">表盘样式 <span class="note" id="noteFace">翻页钟</span></div>
+        <div class="grid g-face" id="faceGrid"></div>
+      </div>
+
+      <div class="blk">
+        <div class="bt">背景动效 <span class="note" id="noteFx">星空</span></div>
+        <div class="grid g-fx" id="fxGrid"></div>
+      </div>
+
+      <div class="blk">
+        <div class="bt">显示</div>
+        <div class="row"><span>24 小时制</span><label class="swi"><input type="checkbox" id="o24" checked><i></i></label></div>
+        <div class="row"><span>显示秒</span><label class="swi"><input type="checkbox" id="oSec" checked><i></i></label></div>
+        <div class="row"><span>显示日期与问候</span><label class="swi"><input type="checkbox" id="oMeta" checked><i></i></label></div>
+        <div class="row"><span>显示天气</span><label class="swi"><input type="checkbox" id="oWx" checked><i></i></label></div>
+        <div class="row"><span>指针平滑扫秒</span><label class="swi"><input type="checkbox" id="oSmooth" checked><i></i></label></div>
+        <div class="row"><span>氛围呼吸光晕</span><label class="swi"><input type="checkbox" id="oGlow" checked><i></i></label></div>
+        <div class="row col"><span>亮度遮罩 <b id="vBright">100%</b></span><input type="range" id="oBright" min="15" max="100" value="100"></div>
+        <div class="row" id="rowSysBright"><span>同步系统亮度</span><label class="swi"><input type="checkbox" id="oSysBright"><i></i></label></div>
+      </div>
+
+      <div class="blk">
+        <div class="bt">声音</div>
+        <div class="row"><span>走秒滴答声</span><label class="swi"><input type="checkbox" id="oTick"><i></i></label></div>
+    <div class="row"><span>滴答音色</span><select id="oTickTone"></select></div>
+        <div class="row"><span>整点报时</span><label class="swi"><input type="checkbox" id="oChime"><i></i></label></div>
+        <div class="row" id="rowSpeak"><span>语音报时（TTS）</span><label class="swi"><input type="checkbox" id="oSpeak"><i></i></label></div>
+        <div class="row" id="rowVoice"><span>语音音色</span><select id="oVoice"></select></div>
+        <div class="row" id="rowEng"><span>语音引擎</span><select id="oEng"></select></div>
+        <div class="row" id="rowTtsState"><span>语音状态</span><b id="vTtsState" style="font-weight:normal;font-size:11px;color:var(--dim)">检测中…</b></div>
+        <div class="row"><span>按键音效</span><label class="swi"><input type="checkbox" id="oClick"><i></i></label></div>
+        <div class="row"><span>闹钟震动</span><label class="swi"><input type="checkbox" id="oVib" checked><i></i></label></div>
+        <div class="row"><span>报时音色</span><select id="oChimeTone"></select></div>
+        <div class="row"><span>按键音色</span><select id="oClickTone"></select></div>
+        <div class="row col"><span>总音量 <b id="vVol">70%</b></span><input type="range" id="oVol" min="0" max="100" value="60"></div>
+        <div class="bt small">助眠 / 专注声景（可叠加）</div>
+        <div class="grid g-sound" id="soundGrid"></div>
+      </div>
+
+      <div class="blk">
+        <div class="bt">系统</div>
+        <div class="row"><span>屏幕常亮</span><label class="swi"><input type="checkbox" id="oKeep"><i></i></label></div>
+        <div class="row"><span>前台服务保活</span><label class="swi"><input type="checkbox" id="oFore"><i></i></label></div>
+        <div class="row"><span>屏幕方向</span><select id="oOrient">
+          <option value="auto">跟随系统</option>
+          <option value="portrait">竖屏</option>
+          <option value="landscape">横屏</option>
+        </select></div>
+        <button class="pill wide ghost" id="btnShot">截图当前画面</button>
+        <button class="pill wide ghost" id="btnInfo">设备与版本信息</button>
+        <button class="pill wide ghost" id="btnReset">恢复默认设置</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" id="tabbar">
+    <button class="tab on" data-pg="clock"><i>🕐</i><span>时钟</span></button>
+    <button class="tab" data-pg="alarm"><i>⏰</i><span>闹钟</span></button>
+    <button class="tab" data-pg="timer"><i>⏱</i><span>计时</span></button>
+    <button class="tab" data-pg="world"><i>🌍</i><span>世界</span></button>
+    <button class="tab" data-pg="set"><i>⚙️</i><span>设置</span></button>
+  </nav>
+</div>
+
+<div class="sheet-mask" id="sheetMask"></div>
+<div class="sheet" id="sheet">
+  <div class="shead"><b id="sheetTitle">标题</b><button class="ibtn" id="sheetClose">✕</button></div>
+  <div class="sbody" id="sheetBody"></div>
+</div>
+
+<div class="ringov" id="ringOv">
+  <div class="rocard">
+    <div class="roPulse"></div>
+    <div class="mono roTime" id="roTime">07:00</div>
+    <div class="roLabel" id="roLabel">起床啦</div>
+    <div class="brow">
+      <button class="rbtn ghost" id="roSnooze">贪睡 5 分钟</button>
+      <button class="rbtn danger" id="roStop">停止</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ================= 脚本（按依赖顺序加载） ================= -->
+<script src="js/core.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/fx.js"></script>
+<!-- 表盘注册表 + 外置表盘（新增表盘在此追加一个 <script> 即可） -->
+<script src="js/faces/registry.js"></script>
+<script src="js/faces/flip.js"></script>
+<script src="js/faces/nixie.js"></script>
+<script src="js/faces/digital.js"></script>
+<script src="js/faces/analog.js"></script>
+<script src="js/faces/ring.js"></script>
+<script src="js/faces/dot.js"></script>
+<script src="js/faces/neon.js"></script>
+<script src="js/faces/word.js"></script>
+<script src="js/faces/pulse.js"></script>
+<!-- 功能模块 -->
+<script src="js/alarm.js"></script>
+<script src="js/timer.js"></script>
+<script src="js/world.js"></script>
+<script src="vox_data.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/app.js"></script>
+<script src="js/weather.js"></script>
+</body>
+</html>

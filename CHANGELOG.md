@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-09-25] remote_dsh 升级 v2：官方会话通道（多轮会话续接）
+背景：v1 每次任务都是全新 headless 会话，电脑端 dsh 记忆不连续。用户选升级方案"2"（官方 JSON-RPC/ACP 会话续接）。
+调研结论：官方正路 = dsh web 常驻 + 官方 HTTP API（POST /api/<method> + RPC envelope：session.create / session.prompt / session.history / api.events.mux），会话事件溯源日志持久（Resume/Fork/Replay 同源）；ACP 插件是第三方（agenticcontrolplane），官方 SDK 需匹配版本，最终落地走 dsh web 官方 API 通道（本机 0.1.1-rc.2 直接可用，loopback 无 cookie 鉴权）。
+改动：
+1. 电脑端 tools/dsh_bridge_server.py v2：保留 v1 headless /run 为 fallback；新增官方会话通道 /session 端点——action=start（session.create，--cwd 指定工作目录）/ prompt（session.prompt 异步入队 + 轮询 session.history 等 turn/end 与 assistant/message 取最终回复，超时 30~600s）/ history（读历史，文本化，App 端轻量解析）/ list（会话列表）；/status 改双通道探测（web 可用性 + sessions_count）；prompt 增量判断（记录 prompt 前最新 seq，只处理增量事件）。
+2. App 端 RemoteDshTool v2：actions 增加 start（新建会话）/history（读历史 max=条数）；run 升级为会话模式——配置已有 session_id 直接续接，没有先自动创建并保存（SharedPreferences 持久化）；get_status 显示会话通道可用性；描述/参数同步。
+3. 文档同步：AgentWorkspace 两模板、项目根 使用速查表.md、docs/AI工具功能清单.md、CHANGELOG 更新为 v2 官方会话通道说明。
+- 验证：dsh web API 全链路实测（session.list→create→prompt 异步入队→history 轮询取 assistant/message；同 sessionId 第二轮问"我刚才让你回复什么"→ 正确回复"OK"=多轮续接成功）；桥接 v2 端到端（health/401/status/start/prompt×2 续接/history 文本化）Python 客户端全过；编译装机 PID 15292，logcat 确认 remote_dsh 注册。
+- 安全：dsh web(3080) 只监听电脑本机，手机永远只访问带 token 的桥接层(8218)；token 必填鉴权；--cwd 限制 dsh 会话工作目录。
+
 ## [2026-09-25] 新增 remote_dsh 工具（手机远程控制电脑，DeepSeek dsh 桥接）
 背景：电脑装有 @deepseek-ai/dsh（DeepSeek Harness Shell，headless 模式可被程序调用），用户希望手机端答题宝 App 能远程控制电脑。
 改动：

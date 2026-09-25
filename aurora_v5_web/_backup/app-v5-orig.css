@@ -1,0 +1,216 @@
+/* 极光时钟 v5 · 页面：列表/分段/计时/世界/设置/弹层/响铃/Toast/横屏 */
+/* ========== 列表页通用 ========== */
+.phead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 12px;flex:0 0 auto}
+.phead h2{margin:0;font-size:19px;font-weight:600;letter-spacing:.6px}
+.pill{padding:8px 14px;border-radius:13px;font-size:12.5px;font-family:inherit;cursor:pointer;transition:.2s;
+ background:var(--acc);color:#04121a;border:0;font-weight:600;box-shadow:0 0 16px rgba(var(--glow),.4)}
+.pill:active{transform:scale(.94)}
+.pill.ghost{background:var(--panel);color:var(--txt);border:1px solid var(--line);box-shadow:none;font-weight:500}
+.pill.wide{width:100%;padding:12px;margin-top:8px}
+.list{display:flex;flex-direction:column;gap:9px;padding-bottom:14px}
+.empty{text-align:center;color:var(--dim);font-size:12.5px;padding:34px 0;opacity:.75}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px;backdrop-filter:blur(10px);
+ animation:fadeUp .32s both;transition:.25s;position:relative;overflow:hidden}
+.card:active{transform:scale(.985)}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.card-t{font-size:26px;font-weight:300;letter-spacing:-.02em;font-family:"SF Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.card-t.off{opacity:.35}
+.card-m{font-size:11.5px;color:var(--dim);margin-top:5px;letter-spacing:.5px}
+.card-x{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:9px}
+.tag{font-size:10.5px;padding:3px 8px;border-radius:8px;background:rgba(255,255,255,.07);color:var(--dim)}
+.tag.on{background:rgba(var(--glow),.18);color:var(--acc)}
+.card-acts{display:flex;gap:8px;margin-top:11px}
+.sbtn{flex:1;padding:9px;border-radius:11px;font-size:12px;font-family:inherit;cursor:pointer;
+ background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--txt);transition:.2s}
+.sbtn:active{transform:scale(.95)}
+.sbtn.danger{color:#ff8b8b;border-color:rgba(255,120,120,.3)}
+
+/* ========== 分段 / 计时 ========== */
+.seg{display:flex;gap:5px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:4px;margin:4px 0 14px;flex:0 0 auto}
+.seg button{flex:1;padding:9px 0;border:0;border-radius:11px;background:transparent;color:var(--dim);font-size:12.5px;
+ font-family:inherit;cursor:pointer;transition:.22s}
+.seg button.on{background:var(--acc);color:#04121a;font-weight:600;box-shadow:0 0 14px rgba(var(--glow),.35)}
+.tpanel{display:none;flex-direction:column;align-items:center;gap:16px;padding-bottom:16px}
+.tpanel.on{display:flex;animation:fadeUp .3s both}
+.bigmono{font-family:"SF Mono",ui-monospace,monospace;font-size:clamp(30px,min(calc(var(--cw)*.13),calc(var(--ch)*.16)),84px);font-weight:300;
+ letter-spacing:-.02em;font-variant-numeric:tabular-nums;text-shadow:0 0 30px rgba(var(--glow),.3)}
+.brow{display:flex;gap:11px;justify-content:center;width:100%;flex-wrap:wrap}
+.brow.wrap{margin-top:6px}
+.rbtn{min-width:104px;padding:13px 20px;border-radius:15px;font-size:14px;font-family:inherit;cursor:pointer;transition:.2s;
+ border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);backdrop-filter:blur(8px)}
+.rbtn:active{transform:scale(.94)}
+.rbtn.primary{background:var(--acc);color:#04121a;border-color:transparent;font-weight:600;box-shadow:0 0 20px rgba(var(--glow),.45)}
+.rbtn.danger{background:linear-gradient(135deg,#ff5f6d,#ff2d55);color:#fff;border-color:transparent;font-weight:600;box-shadow:0 0 20px rgba(255,60,80,.5)}
+.rbtn.ghost{background:var(--panel)}
+.laps,.rounds{width:100%;max-height:calc(var(--ch)*.34);overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+.laps::-webkit-scrollbar{width:0}
+.lap{display:flex;justify-content:space-between;font-size:12.5px;padding:9px 12px;border-radius:11px;
+ background:var(--panel);border:1px solid var(--line);color:var(--dim);font-family:"SF Mono",ui-monospace,monospace}
+.rounds{text-align:center;font-size:12.5px;color:var(--dim)}
+.ringwrap{position:relative;width:min(calc(var(--cw)*.64),max(150px, calc(var(--ch) - 250px)),272px);height:min(calc(var(--cw)*.64),max(150px, calc(var(--ch) - 250px)),272px);aspect-ratio:1;display:grid;place-items:center}
+.ringsvg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.ringsvg circle{fill:none;stroke-linecap:round}
+.rbg{stroke:rgba(255,255,255,.07);stroke-width:9}
+.rfg{stroke:var(--acc);stroke-width:9;stroke-dasharray:603;stroke-dashoffset:0;
+ transition:stroke-dashoffset .28s linear;filter:drop-shadow(0 0 10px rgba(var(--glow),.75))}
+.rfg.alt{stroke:var(--acc2);filter:drop-shadow(0 0 10px color-mix(in srgb,var(--acc2) 70%,transparent))}
+.rlabel{position:relative;text-align:center;z-index:2}
+.rlabel .mono{font-size:clamp(26px,min(calc(var(--cw)*.10),calc(var(--ch)*.08)),54px);font-weight:300}
+.rlabel .rsub{font-size:11.5px;color:var(--dim);letter-spacing:2px;margin-top:5px}
+.chips,.steppers{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.chips button{padding:8px 13px;border-radius:11px;font-size:12px;font-family:inherit;cursor:pointer;
+ background:var(--panel);border:1px solid var(--line);color:var(--dim);transition:.2s}
+.chips button.on{color:var(--acc);border-color:rgba(var(--glow),.55)}
+.steppers label,.row label,.tpanel label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--dim);align-items:center}
+.steppers input,.row input[type=number]{width:82px;padding:9px;border-radius:11px;text-align:center;font-size:15px;font-family:inherit;
+ background:var(--panel);border:1px solid var(--line);color:var(--txt);outline:none}
+
+/* ========== 世界时钟 ========== */
+.city{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-radius:var(--r);
+ background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(10px);animation:fadeUp .3s both}
+.city-l{display:flex;flex-direction:column;gap:3px;min-width:0}
+.city-n{font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.city-s{font-size:11px;color:var(--dim);letter-spacing:.5px}
+.city-r{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.city-t{font-size:21px;font-weight:300;font-family:"SF Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.city-d{font-size:10.5px;color:var(--dim)}
+.city-del{width:26px;height:26px;border-radius:9px;border:1px solid var(--line);background:transparent;color:#ff9a9a;font-size:12px;cursor:pointer}
+
+/* ========== 设置 ========== */
+.blk{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px;margin-bottom:11px;backdrop-filter:blur(10px);animation:fadeUp .3s both}
+.bt{font-size:13px;font-weight:600;letter-spacing:.6px;margin-bottom:11px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt.small{font-size:12px;font-weight:500;margin-top:14px;color:var(--dim)}
+.note{font-size:11px;color:var(--acc);font-weight:400}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;font-size:13px;border-top:1px solid rgba(255,255,255,.05)}
+.row:first-of-type{border-top:0}
+.row.col{flex-direction:column;align-items:stretch;gap:8px}
+.row span b{color:var(--acc);font-weight:600}
+.row select{padding:8px 10px;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--txt);font-size:12.5px;font-family:inherit;outline:none;max-width:52%}
+input[type=range]{-webkit-appearance:none;width:100%;height:5px;border-radius:4px;background:rgba(255,255,255,.13);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;height:19px;border-radius:50%;background:var(--acc);
+ box-shadow:0 0 12px rgba(var(--glow),.7);cursor:pointer}
+.swi{position:relative;width:46px;height:26px;flex:0 0 auto;display:inline-block}
+.swi input{opacity:0;width:0;height:0}
+.swi i{position:absolute;inset:0;border-radius:20px;background:rgba(255,255,255,.12);transition:.25s;cursor:pointer}
+.swi i::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.25s}
+.swi input:checked+i{background:var(--acc);box-shadow:0 0 14px rgba(var(--glow),.5)}
+.swi input:checked+i::after{transform:translateX(20px)}
+.grid{display:grid;gap:9px}
+.g-theme{grid-template-columns:repeat(6,1fr)}
+.g-face{grid-template-columns:repeat(4,1fr)}
+.g-fx{grid-template-columns:repeat(5,1fr)}
+.g-sound{grid-template-columns:repeat(4,1fr)}
+.g-theme i{height:36px;border-radius:12px;display:block;position:relative;border:2px solid transparent;cursor:pointer;transition:.22s}
+.g-theme i.on{border-color:#fff;transform:scale(1.06);box-shadow:0 0 16px rgba(var(--glow),.55)}
+.opt{padding:9px 4px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid var(--line);text-align:center;
+ font-size:10.5px;color:var(--dim);cursor:pointer;transition:.2s;font-family:inherit}
+.opt.on{color:var(--acc);border-color:rgba(var(--glow),.6);background:rgba(var(--glow),.12);box-shadow:0 0 14px rgba(var(--glow),.22)}
+.opt b{display:block;font-size:15px;margin-bottom:3px;font-weight:400}
+.g-sound .opt b{font-size:17px}
+
+/* ========== 全屏操作层（所有编辑/选择操作均全屏执行） ========== */
+.sheet-mask{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:.3s;backdrop-filter:blur(4px)}
+.sheet-mask.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;inset:0;z-index:81;display:flex;flex-direction:column;
+ background:linear-gradient(180deg,var(--bg2),var(--bg1));
+ opacity:0;transform:scale(.96);transition:opacity .26s,transform .26s cubic-bezier(.22,1,.36,1);
+ box-shadow:0 0 60px rgba(0,0,0,.6);pointer-events:none}
+.sheet.on{opacity:1;transform:none;pointer-events:auto}
+.shead{display:flex;align-items:center;justify-content:space-between;padding:calc(var(--sa-t,0px) + 12px) 18px 12px;flex:0 0 auto;border-bottom:1px solid rgba(255,255,255,.06)}
+.shead b{font-size:16px;font-weight:600}
+.sbody{padding:14px 18px calc(var(--sa-b,0px) + 26px);overflow-y:auto}
+.sbody::-webkit-scrollbar{width:0}
+.fld{margin-bottom:15px}
+.fld>label{display:block;font-size:11.5px;color:var(--dim);margin-bottom:8px;letter-spacing:.5px}
+.fld input[type=text],.fld input[type=time],.fld input[type=number],.fld select{width:100%;padding:12px;border-radius:13px;
+ background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--txt);font-size:14px;font-family:inherit;outline:none}
+.fld input[type=time]{font-size:22px;text-align:center;font-family:"SF Mono",ui-monospace,monospace;letter-spacing:2px}
+.wk{display:flex;gap:6px;flex-wrap:wrap}
+.wk button{flex:1;min-width:38px;padding:9px 0;border-radius:11px;font-size:12px;font-family:inherit;cursor:pointer;
+ background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--dim);transition:.2s}
+.wk button.on{background:var(--acc);color:#04121a;border-color:transparent;font-weight:600}
+.ring-list{display:flex;flex-direction:column;gap:8px}
+.ring-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border-radius:13px;
+ background:rgba(255,255,255,.05);border:1px solid var(--line);font-size:13px;cursor:pointer;transition:.2s}
+.ring-opt.on{border-color:rgba(var(--glow),.6);color:var(--acc)}
+.ring-opt .p{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:rgba(var(--glow),.15);color:var(--acc);font-size:14px}
+
+/* ========== 响铃全屏 ========== */
+.ringov{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;
+ background:radial-gradient(120% 90% at 50% 40%,color-mix(in srgb,var(--acc) 22%,#000),#000 70%)}
+.ringov.on{display:flex;animation:ringIn .4s both}
+@keyframes ringIn{from{opacity:0;transform:scale(1.06)}to{opacity:1;transform:none}}
+.rocard{position:relative;text-align:center;padding:40px 26px;display:flex;flex-direction:column;align-items:center;gap:18px;z-index:2}
+.roPulse{position:absolute;top:50%;left:50%;width:56vmin;height:56vmin;margin:-28vmin 0 0 -28vmin;border-radius:50%;
+ background:radial-gradient(circle,rgba(var(--glow),.34),transparent 68%);animation:roBreath 1.9s ease-in-out infinite}
+@keyframes roBreath{0%,100%{transform:scale(.85);opacity:.6}50%{transform:scale(1.15);opacity:1}}
+.roTime{position:relative;font-size:clamp(40px,min(calc(var(--cw)*.17),calc(var(--ch)*.14)),110px);font-weight:200;letter-spacing:-.02em;
+ text-shadow:0 0 40px rgba(var(--glow),.5);animation:roShake 1.4s ease-in-out infinite}
+@keyframes roShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.roLabel{position:relative;font-size:16px;color:var(--dim);letter-spacing:3px}
+.ringov .brow{position:relative;margin-top:12px}
+
+/* 表盘切换过渡 */
+.face{transform:scale(var(--face-s,1))}
+body{--face-s:1.1}
+body.landscape{--face-s:1.16}
+body.immerse{--face-s:1.2}
+body.landscape.immerse{--face-s:1.3}
+.face.on{display:flex;animation:faceIn .45s cubic-bezier(.22,1,.36,1)}
+@keyframes faceIn{from{opacity:0;transform:scale(calc(var(--face-s,1)*.94)) translateY(10px);filter:blur(6px)}to{opacity:1;transform:scale(var(--face-s,1));filter:none}}
+body.immerse .cmeta,body.immerse .cm-tip{transition:opacity .5s ease,transform .5s ease}
+
+/* ========== Toast ========== */
+#toast{position:fixed;left:50%;bottom:calc(var(--sa-b,0px) + 92px);transform:translate(-50%,20px);
+ z-index:99;padding:11px 20px;border-radius:15px;background:rgba(12,18,30,.94);border:1px solid var(--line);
+ color:var(--txt);font-size:13px;opacity:0;pointer-events:none;transition:.3s;backdrop-filter:blur(10px);max-width:min(calc(var(--cw)*.82),calc(var(--ch)*.9));text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0);animation:toastPop .3s cubic-bezier(.2,1.4,.4,1)}
+@keyframes toastPop{from{transform:translate(-50%,14px) scale(.92);opacity:0}to{transform:translate(-50%,0) scale(1);opacity:1}}
+/* 点击涟漪 */
+.ripple{position:absolute;border-radius:50%;background:rgba(var(--glow),.4);transform:scale(0);animation:rip .55s ease-out;pointer-events:none}
+@keyframes rip{to{transform:scale(3.4);opacity:0}}
+
+/* ========== 横屏（模拟旋转） ========== */
+#stage.rot{position:fixed;top:50%;left:50%;transform-origin:center center}
+body.landscape .topbar,body.landscape .tabbar{padding-left:max(14px,var(--sa-l,0px));padding-right:max(14px,var(--sa-r,0px))}
+/* v3: 尺寸统一由 --cw/--ch(视觉宽高) 驱动，旧 vh override 已移除 */
+/* 横屏布局优化 */
+body.landscape .face-host{justify-content:center}
+body.landscape #pg-clock.on{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);grid-template-rows:auto 1fr auto auto;gap:6px 12px;align-items:center}
+body.landscape #pg-clock .face-tabs{grid-column:1/-1;grid-row:1}
+body.landscape #pg-clock .face-host{grid-column:1;grid-row:2/5;min-height:0}
+body.landscape #pg-clock .cmeta{grid-column:2;grid-row:2;text-align:left;padding-left:6px;align-self:center}
+body.landscape #pg-clock .cm-greet{font-size:clamp(14px,calc(var(--cw)*.026),20px);letter-spacing:2px}
+body.landscape #pg-clock .cm-date{font-size:11.5px}
+body.landscape #pg-clock .cm-tip{grid-column:2;grid-row:3;text-align:left;padding-left:6px;align-self:center}
+body.landscape #pg-clock .quick{grid-column:2;grid-row:4;justify-content:flex-start;align-content:flex-start}
+body.landscape #pg-clock .face-host{padding:8px 0}
+body.landscape #pg-clock .face-host,body.landscape #pg-clock .flip-wrap{min-width:0;max-width:100%}
+body.landscape #pg-clock .cmeta,body.landscape #pg-clock .cm-tip{min-width:0;word-break:break-word;overflow-wrap:anywhere}
+body.landscape .tpanel{gap:10px}
+
+/* ========== 横屏沉浸模式（v5 优化） ========== */
+/* 纯净全屏：时钟最大化居中，问候/日期精致浮动 */
+body.landscape.immerse #pg-clock.on{display:block}
+body.landscape.immerse .face-host{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+body.landscape.immerse .cmeta{position:absolute;top:calc(var(--sa-t,0px) + 16px);left:calc(var(--sa-l,0px) + 22px);right:auto;
+  text-align:left;opacity:.62;padding:0;z-index:5;pointer-events:none}
+body.landscape.immerse .cm-greet{font-size:clamp(14px,calc(var(--cw)*.022),18px);letter-spacing:1.5px;margin:0}
+body.landscape.immerse .cm-date{font-size:11px;margin-top:4px}
+body.landscape.immerse .cm-tip{position:absolute;bottom:calc(var(--sa-b,0px) + 18px);right:calc(var(--sa-r,0px) + 22px);
+  left:auto;text-align:right;opacity:.5;padding:0;z-index:5;pointer-events:none;max-width:44%;font-size:11px;min-height:0}
+/* 沉浸切换过渡：文字淡入淡出 */
+body.landscape.immerse .cmeta,body.landscape.immerse .cm-tip{animation:immFade .6s ease both}
+@keyframes immFade{from{opacity:0;transform:translateY(6px)}to{opacity:.62}}
+body.landscape.immerse .cm-tip{animation-name:immFadeTip}
+@keyframes immFadeTip{from{opacity:0;transform:translateY(-4px)}to{opacity:.5}}
+
+/* ========== 设置页 横屏适配（v5） ========== */
+body.landscape #pg-set.on{padding:2px 16px 12px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:max-content;gap:10px 14px;align-content:start}
+body.landscape #pg-set .phead{grid-column:1/-1;padding:6px 2px 2px}
+body.landscape #pg-set .blk{margin-bottom:0}
+body.landscape .g-theme{grid-template-columns:repeat(10,1fr)}
+body.landscape .g-face{grid-template-columns:repeat(6,1fr)}
+body.landscape .g-fx{grid-template-columns:repeat(8,1fr)}
+body.landscape .g-sound{grid-template-columns:repeat(7,1fr)}
+

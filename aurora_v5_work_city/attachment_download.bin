@@ -1,0 +1,36 @@
+极光时钟 · 交付前审查
+v9.53 / code 70 · 包 com.cjhtmldemo.p4c0c03e6e19f · APK 2.26MB
+结论：可交付 ✓
+① 壳 WebView 合规核对（HTML_DESIGN_RULES）
+✓ 入口 index.html · 资源全部相对路径
+✓ viewport-fit=cover + user-scalable=no（壳推荐）
+✓ 安全区 --sa-t/--sa-b：桥物理px÷DPR，上限64px，env()兜底
+✓ 天气远程 API 走 AndroidApp.request()（无 CORS，回调名必传）
+✓ 脚本依赖序：core→audio→fx→faces×9→alarm→timer→world→citycodes→settings→app→weather
+✓ 无 eval 远程串 · 无明文密钥 · 无 Service Worker
+✓ 表盘外置协议 ACFace · 版本线 9.x / 6x 沿用同一 keystore
+✓ 沉浸/方向/亮度/常亮/截图/前台服务均走原生桥，失败静默降级
+② 界面逻辑检查
+✓ 46 个交互元素全部有事件绑定，无僵尸按钮
+✓ 5 Tab 导航 · 闹钟/秒表/倒计时/番茄/世界时钟逻辑完整
+✓ 沉浸：进入自动回时钟页 + 壳全屏轮询兜底
+✓ 横竖屏：桥 setOrientation 真转屏，body.landscape 响应式
+✓ 天气链路：GPS→逆地理→2501城码匹配→中国天气网/itboy→open-meteo兜底
+✓ 城市选择器搜索实测命中（固原→101170401）
+✓ 单击报时/双击沉浸/滑动切表盘，防误触互斥
+③ 显示效果（shot.py 桌面/移动自检）
+✓ 桌面 1416×761 / 移动 492×705，均无横向溢出
+✓ 4 布局天气胶囊就位（竖/横 × 普通/沉浸）
+✓ consoleErrors 仅 file:// 下天气 CORS（壳内走桥，预期）
+◦ lint 项均属既有设计/豁免：翻页钟上下半页裁切、face-tabs 全宽横滚、emoji 图标体系、11px 级 caption、顶栏 34px 图标按钮（密集工具栏惯例）
+本轮已修复（进 9.53）
+▲ APK 混入 _backup/_shots 约 2MB 开发文件 → 打包脚本加排除规则 → APK 4.14MB 降至 2.26MB，zip 46 个文件干净，已重装手机
+可选打磨（不影响交付）
+· 顶栏 4 个图标按钮 34→40px，提升误触友好（需配横屏留白）
+· 补 data-URI favicon（壳内不显示，仅网页预览场景有意义）
+· 若客户有品牌规范，emoji 图标可换内联 SVG 体系
+不建议改动（机制/壳约束）
+· 翻页钟数字裁切/双写 = 翻页动画实现本身
+· viewport 禁缩放 = 壳官方推荐（防时钟界面误缩放）
+· 安全区上限 64px 防御 = 壳规则要求，勿放开
+交付说明要点：应用名 极光时钟 · v9.53(70) · 2.26MB · 本地打包加载；定位授权由壳自动放行 WebView；天气数据来自中国天气网/itboy（桥代理无 CORS），无网络时自动回退 open-meteo；城市表内置 2501 城，支持搜索与 GPS 定位匹配；离线时钟/闹钟/计时功能不依赖网络。

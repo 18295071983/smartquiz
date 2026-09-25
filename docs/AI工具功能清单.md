@@ -225,14 +225,15 @@
 - **限制**：只装 py3-none-any；带 C 扩展的包（numpy/scipy/lxml 等）Android 上无法运行时编译，拒绝并提示编译期预打包。
 - **参数**：`package`、`action`（install/download/set_source）、`source`、`timeout`
 
-### remote_dsh — 远程控制电脑（DeepSeek dsh 桥接）
+### remote_dsh — 远程控制电脑（DeepSeek dsh 官方会话通道）
 - **分类**：remote
-- **功能**：调用电脑端安装的 dsh（DeepSeek Harness Shell）执行任务，AI 可远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活。
-  - 架构：手机 App → HTTP(Bearer token) → 电脑端 tools/dsh_bridge_server.py → dsh --profile headless "任务"
-  - run：执行任务（task=自然语言描述，如"看看D盘有哪些项目文件夹"）；get_status：检查桥接与 dsh 在线状态；set_config：配置 base_url(电脑地址)+token(访问令牌)。
-  - 安全：必须配置 token（桥接服务启动时打印）才可调用；未配置/鉴权失败明确报错；base_url 仅允许 http/https。
-- **限制**：电脑端需先启动桥接服务（python tools/dsh_bridge_server.py --token xxx）；手机与电脑需同一网络或经安全隧道。
-- **参数**：`action`、`task`、`base_url`、`token`、`timeout`
+- **功能**：调用电脑端安装的 dsh（DeepSeek Harness Shell）执行任务，AI 可远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，**支持多轮会话续接**（电脑端 dsh 记忆连续）。
+  - 架构：手机 App → HTTP(Bearer token) → 电脑端 tools/dsh_bridge_server.py(v2) → dsh web 官方 API（session.create / session.prompt / session.history）；web 通道不可用时自动降级 headless。
+  - run：执行任务+自动续接会话（task=自然语言描述，如"看看D盘有哪些项目文件夹"；已有 session_id 直接续接，没有自动创建）；start：新建会话（重置电脑端记忆）；history：读当前会话历史（max=条数，默认10）；get_status：检查桥接与 dsh 双通道状态；set_config：配置 base_url(电脑地址)+token(访问令牌)。
+  - 会话续接原理：dsh web 事件溯源日志持久（append-only session log），同一 session_id 连续 prompt 即续接（实测：第二轮问"我刚才让你回复什么"→ 正确回忆第一轮回复）。
+  - 安全：必须配置 token（桥接服务启动时打印）才可调用；未配置/鉴权失败明确报错；base_url 仅允许 http/https；dsh web(127.0.0.1:3080) 只监听电脑本机，手机只访问带 token 的桥接层(8218)。
+- **限制**：电脑端需先启动 v2 桥接服务（python tools/dsh_bridge_server.py --token xxx --cwd 工作目录）且 dsh web 可用（dsh web --no-open，127.0.0.1:3080）；手机与电脑需同一网络或经安全隧道。
+- **参数**：`action`（run/start/history/get_status/set_config）、`task`、`max`、`base_url`、`token`、`timeout`
 
 ### python_analyze_data — Python 数据分析
 - **分类**：python

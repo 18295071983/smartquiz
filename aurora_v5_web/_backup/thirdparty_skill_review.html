@@ -1,0 +1,45 @@
+<html style="margin:0;padding:0;">
+<title>第三方 webview 技能评估</title>
+<div style="width:100%;box-sizing:border-box;background:#0b1622;color:#eaf6ff;font-family:'HarmonyOS Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;padding:22px 26px;border-radius:16px;line-height:1.55;">
+  <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;border-bottom:1px solid rgba(94,242,201,.28);padding-bottom:12px;">
+    <div style="font-size:20px;font-weight:700;">第三方 webview 界面设计技能 · 评估</div>
+    <div style="margin-left:auto;font-size:13px;color:#ffb26b;font-weight:600;">结论：不推荐安装</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px;margin-top:14px;">
+    <div style="background:rgba(10,32,48,.5);border:1px solid rgba(120,220,200,.18);border-radius:14px;padding:14px 16px;">
+      <div style="font-size:14.5px;font-weight:700;color:#5ef2c9;">SkillMD · web-interface-guidelines</div>
+      <div style="font-size:12px;color:#8fb3c9;margin:4px 0 10px;">Vercel 衍生 · 通用 Web UI 准则 · 2 文件</div>
+      <div style="font-size:13px;display:flex;flex-direction:column;gap:5px;">
+        <div><span style="color:#5ef2c9;">✓</span> 触控目标 ≥44px / 焦点环 / safe-area</div>
+        <div><span style="color:#5ef2c9;">✓</span> 无障碍语义 / aria-label / 减少动效</div>
+        <div><span style="color:#ff8b8b;">✗</span> 无壳桥/打包/安全区桥/依赖序约束</div>
+        <div><span style="color:#ff8b8b;">✗</span> 与壳冲突：禁缩放 vs 壳推荐 user-scalable=no</div>
+      </div>
+    </div>
+
+    <div style="background:rgba(10,32,48,.5);border:1px solid rgba(120,220,200,.18);border-radius:14px;padding:14px 16px;">
+      <div style="font-size:14.5px;font-weight:700;color:#5ef2c9;">LobeHub · android-design-guidelines</div>
+      <div style="font-size:12px;color:#8fb3c9;margin:4px 0 10px;">Material 3 原生准则 · Compose/sp/dp</div>
+      <div style="font-size:13px;display:flex;flex-direction:column;gap:5px;">
+        <div><span style="color:#ff8b8b;">✗</span> 面向 Jetpack 原生应用，非 WebView HTML</div>
+        <div><span style="color:#ff8b8b;">✗</span> MaterialTheme/动态取色与页面 CSS 无关</div>
+        <div><span style="color:#8fb3c9;">○</span> 48dp 触控目标可作参考（本项目 34px 密集工具栏）</div>
+      </div>
+    </div>
+
+    <div style="background:rgba(53,94,75,.16);border:1px solid rgba(91,146,121,.5);border-radius:14px;padding:14px 16px;">
+      <div style="font-size:14.5px;font-weight:700;color:#8ef0a0;">现有方案（已覆盖，无需第三方）</div>
+      <div style="font-size:13px;display:flex;flex-direction:column;gap:5px;margin-top:8px;">
+        <div><span style="color:#8ef0a0;">✓</span> html2apk → HTML_DESIGN_RULES.md：壳硬约束权威</div>
+        <div><span style="color:#8ef0a0;">✓</span> html skill → 视觉规范 + shot.py 自动化自检</div>
+        <div><span style="color:#8ef0a0;">✓</span> 本轮已实际完成：合规核对 + 逻辑审查 + 截图证据</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:14px;padding:10px 14px;border-radius:12px;background:rgba(124,90,51,.14);border:1px dashed rgba(201,154,78,.5);font-size:13px;color:#e8d5b0;">
+    <b style="color:#ffb26b;">结论：</b>第三方技能与现有覆盖重叠、缺壳专属约束、且与壳推荐相冲突（禁缩放）；维持 html2apk + html 双技能即可交付，不建议安装。若未来客户要求通用 Web 可访问性（WCAG）认证，可把 web-interface-guidelines 的 ARIA/焦点环条目作为附加清单参考，但不作为主标准。
+  </div>
+</div>
+</html>
