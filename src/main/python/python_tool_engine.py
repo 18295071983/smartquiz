@@ -226,7 +226,10 @@ class PythonToolEngine:
         }
         
         stdout_buffer = io.StringIO()
-        stderr_buffer = io.StringIO()
+        # stderr 用真文件缓冲：io.StringIO 无 fileno()，tqdm/rich 等库写入时会抛
+        # io.UnsupportedOperation 甚至引发进程崩溃；临时文件有 fileno 且 isatty()=False，
+        # tqdm 会自动降级为不渲染进度条，两者都安全。
+        stderr_file = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
         
         namespace = {
             "__name__": "__main__",
@@ -264,7 +267,7 @@ class PythonToolEngine:
                         to_exec = _wrap_top_level_return(to_exec)
 
                 if capture_output:
-                    with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                    with redirect_stdout(stdout_buffer), redirect_stderr(stderr_file):
                         exec(to_exec, namespace, namespace)
                 else:
                     exec(to_exec, namespace, namespace)
@@ -282,7 +285,14 @@ class PythonToolEngine:
             finally:
                 if capture_output:
                     result["stdout"] = stdout_buffer.getvalue()
-                    result["stderr"] = stderr_buffer.getvalue()
+                    stderr_file.flush()
+                    stderr_file.seek(0)
+                    stderr_val = stderr_file.read()
+                    stderr_file.close()
+                    # stderr 超长截断（tqdm 进度条等可能写入大量字符）
+                    if len(stderr_val) > 20000:
+                        stderr_val = "[stderr 过长已截断, 原长 %d 字符]\n" % len(stderr_val) + stderr_val[-15000:]
+                    result["stderr"] = stderr_val
                 result["ui_actions"] = ui_action_log
         
         thread = threading.Thread(target=run_code)

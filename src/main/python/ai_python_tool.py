@@ -14,6 +14,21 @@ from typing import Dict, List, Any, Optional
 from python_tool_engine import PythonToolEngine, get_engine
 
 
+# ===== 兼容补丁：python-barcode 0.9.0 需要 ImageFont.FreeTypeFont.getsize（Pillow 10+ 已移除）=====
+# 固化在模块加载时执行一次，避免重启后失效（会话内补丁只对当次有效）
+try:
+    from PIL import ImageFont
+    if not hasattr(ImageFont.FreeTypeFont, "getsize"):
+        def _ft_getsize(self, text, *args, **kwargs):
+            bbox = self.getbbox(text, *args, **kwargs)
+            if bbox is None:
+                return (0, 0)
+            return (bbox[2] - bbox[0], bbox[3] - bbox[1])
+        ImageFont.FreeTypeFont.getsize = _ft_getsize
+except Exception:
+    pass
+
+
 class AIPythonTool:
     """
     AI Python 工具

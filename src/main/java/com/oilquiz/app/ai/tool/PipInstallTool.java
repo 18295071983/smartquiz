@@ -154,10 +154,6 @@ public class PipInstallTool implements AITool {
     public AIToolResult execute(Map<String, Object> parameters) {
         Object pkgObj = parameters.get("package");
         if (pkgObj == null) pkgObj = parameters.get("name");
-        if (pkgObj == null || String.valueOf(pkgObj).trim().isEmpty()) {
-            return AIToolResult.fail("缺少参数: package（要安装的包名，如 pytz 或 python-docx==1.1.2，或本地 wheel 路径）");
-        }
-        String spec = String.valueOf(pkgObj).trim();
         String action = "install";
         Object actObj = parameters.get("action");
         if (actObj != null && !String.valueOf(actObj).trim().isEmpty()) {
@@ -166,6 +162,7 @@ public class PipInstallTool implements AITool {
         // 源参数：设置后持久化为默认（set_source 单独处理；install/download 时也可指定本次源）
         Object srcObj = parameters.get("source");
         String sourceParam = srcObj != null ? String.valueOf(srcObj).trim() : "";
+        // set_source 不需要 package：切换/查询默认源与安装包解耦
         if (action.equals("set_source")) {
             if (sourceParam.isEmpty()) {
                 // 未传 source 时返回当前源
@@ -189,6 +186,10 @@ public class PipInstallTool implements AITool {
         if (!action.equals("install") && !action.equals("download")) {
             return AIToolResult.fail("未知 action: " + action + "（支持 install / download / set_source）");
         }
+        if (pkgObj == null || String.valueOf(pkgObj).trim().isEmpty()) {
+            return AIToolResult.fail("缺少参数: package（要安装的包名，如 pytz 或 python-docx==1.1.2，或本地 wheel 路径）");
+        }
+        String spec = String.valueOf(pkgObj).trim();
         if (sourceParam != null && !sourceParam.isEmpty()) {
             String resolved = resolveMirrorParam(sourceParam);
             if (resolved != null) {
