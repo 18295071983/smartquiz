@@ -19,35 +19,35 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 远程 dsh 工具 v2：通过电脑端 dsh 桥接服务（tools/dsh_bridge_server.py v2）远程调用
+ * 远程 dsh 工具 v3：通过电脑端 dsh 桥接服务（tools/dsh_bridge_server.py v3）远程调用
  * DeepSeek dsh（DeepSeek Harness Shell），让 AI 远程操作电脑。
  *
- * v2 核心变化：**官方会话通道**——桥接服务改为对接 dsh web 官方 API
- * （session.create / session.prompt / session.history），同一 session_id 连续调用 =
- * 多轮会话续接（电脑端 dsh 记忆连续，事件溯源日志持久）。
+ * v3 核心变化：**ACP 官方通道**——dsh 已升级 0.1.5，桥接服务后端对接 ACP v1
+ * （dsh --profile acp serve，127.0.0.1:7800；session/new + session/prompt + SSE 流式），
+ * 同一 session_id 连续调用 = 多轮会话续接（电脑端 dsh 记忆连续）。
  *
  * 架构：
- *   手机 App → HTTP(Bearer token) → 电脑端 dsh_bridge_server v2 → dsh web API(127.0.0.1:3080)
- *                                                                  └→ headless(仅 web 通道不可用时 fallback)
+ *   手机 App → HTTP(Bearer token) → 电脑端 dsh_bridge_server v3 → ACP serve(127.0.0.1:7800)
+ *                                                                  └→ headless(仅 ACP 不可用时 fallback)
  *
  * 动作：
  *   run(默认)  执行任务并自动续接会话：配置里已有 session_id 则直接续接，没有则先自动创建；
  *              task=自然语言任务描述；返回 AI 的回复。
  *   start      显式新建会话（重置电脑端 dsh 记忆），返回新的 session_id。
  *   history    读当前会话最近 N 条历史（文本摘要），检查 dsh 侧记忆。
- *   get_status 检查桥接服务与 dsh 双通道状态。
+ *   get_status 检查桥接服务与 dsh ACP 通道状态。
  *   set_config 配置 base_url / token / session_id（session_id 通常自动维护，一般无需手填）。
  *
  * 安全红线：
  *   * 桥接服务必须带 token 鉴权（Authorization: Bearer），未配置时不执行任何任务；
  *   * base_url 必须是 http:// 或 https:// 开头，禁止其他协议；
- *   * dsh web(3080) 只监听电脑本机，手机永远只访问带 token 的桥接层(8218)。
+ *   * ACP serve(7800) 由电脑端 dsh 提供（bearer 鉴权），手机永远只访问带 token 的桥接层(8218)。
  */
 @Tool(
         value = "remote_dsh",
         description = "远程控制电脑（DeepSeek dsh 官方会话通道）：调用电脑上安装的 dsh（DeepSeek Harness Shell）执行任务，"
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接（电脑端 dsh 记忆连续）。"
-                + "前提：电脑端已启动 tools/dsh_bridge_server.py（v2）桥接服务，并在本工具配置好电脑地址(base_url)与访问令牌(token)。"
+                + "前提：电脑端已启动 tools/dsh_bridge_server.py（v3，ACP 官方通道）桥接服务，并在本工具配置好电脑地址(base_url)与访问令牌(token)。"
                 + "动作：① action=pair 扫码一键配对（推荐）：打开相机扫描电脑端配对页二维码，自动保存地址与令牌；"
                 + "② action=run 执行任务并自动续接会话：task 填要电脑干的活（自然语言即可，如\"看看D盘有哪些项目文件夹\"\"把某文件复制到桌面\"）；"
                 + "② action=start 新建会话（重置电脑端记忆）；"
@@ -101,7 +101,7 @@ public class RemoteDshTool implements AITool {
     public String getDescription() {
         return "远程控制电脑（DeepSeek dsh 官方会话通道）：调用电脑上的 dsh（DeepSeek Harness Shell）执行任务，"
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接。"
-                + "前提：电脑端已启动 tools/dsh_bridge_server.py(v2) 桥接服务，并配置好 base_url 与 token。"
+                + "前提：电脑端已启动 tools/dsh_bridge_server.py(v3，ACP 官方通道) 桥接服务，并配置好 base_url 与 token。"
                 + "动作：pair(扫码一键配对) / run(执行任务+自动续接) / start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。安全：只有配置了正确 token 才能调用。";
     }
@@ -256,11 +256,11 @@ public class RemoteDshTool implements AITool {
             if (err != null && "unauthorized".equals(err)) {
                 return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
             }
-            StringBuilder sb = new StringBuilder("桥接服务在线 ✓（v2 会话通道）\n");
+            StringBuilder sb = new StringBuilder("桥接服务在线 ✓（v3 ACP 通道）\n");
             Object channels = resp.get("channels");
-            boolean webOk = channels != null && Boolean.TRUE.equals(
-                    ((Map<?, ?>) channels).get("session_web"));
-            sb.append("官方会话通道(dsh web): ").append(webOk ? "可用 ✓" : "不可用 ✗").append("\n");
+            boolean acpOk = channels != null && Boolean.TRUE.equals(
+                    ((Map<?, ?>) channels).get("session_acp"));
+            sb.append("ACP 官方通道(dsh 0.1.5): ").append(acpOk ? "可用 ✓" : "不可用 ✗").append("\n");
             Object cnt = resp.get("sessions_count");
             if (cnt != null) sb.append("电脑端 dsh 会话数: ").append(cnt).append("\n");
             String sid = getSessionId();
