@@ -254,6 +254,7 @@ public class AIToolManager {
             registerToolFactory("calculator", CalculatorTool.class, CalculatorTool::new);
             registerToolFactory("js_execute", JsExecuteTool.class, JsExecuteTool::new); // JS执行（WebView内核，弥补无Node缺口）
             registerToolFactory("pip_install", PipInstallTool.class, PipInstallTool::new); // 运行时安装纯Python包
+            registerToolFactory("remote_dsh", RemoteDshTool.class, RemoteDshTool::new); // 远程控制电脑（dsh桥接）
             registerToolFactory("screen_capture", ScreenCaptureTool.class, ScreenCaptureTool::new); // 截屏（MediaProjection授权）
             registerToolFactory("screen_watch", ScreenWatchTool.class, ScreenWatchTool::new); // 盯梢（监控屏幕直到目标出现/消失/画面变化）
             registerToolFactory("web_render", WebRenderTool.class, WebRenderTool::new); // 网页渲染浏览（DOM文本+截图）

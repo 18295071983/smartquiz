@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-09-25] 新增 remote_dsh 工具（手机远程控制电脑，DeepSeek dsh 桥接）
+背景：电脑装有 @deepseek-ai/dsh（DeepSeek Harness Shell，headless 模式可被程序调用），用户希望手机端答题宝 App 能远程控制电脑。
+改动：
+1. 电脑端 tools/dsh_bridge_server.py：Python 标准库 HTTP 桥接服务（无依赖），Bearer token 鉴权；/health 免鉴权存活检查、/status 桥接+dsh 探测、/run 执行 dsh headless 任务（超时可控）；Windows 下 dsh.cmd 经 cmd /c 执行；自动生成随机 token 并打印。
+2. App 端 RemoteDshTool（remote_dsh）：run(执行任务)/get_status(检查状态)/set_config(配置 base_url+token)；未配置/401 明确报错；输出 2 万字符截断；base_url 仅允许 http/https。
+3. 注册：AIToolManager registerToolFactory + OnlineToolManager 意图（远程控制电脑/dsh/电脑操作等）。
+4. 文档同步：AgentWorkspace 两模板（使用速查表/核心工具速查）、项目根 使用速查表.md、docs/AI工具功能清单.md 新增 remote_dsh 条目。
+- 验证：dsh headless 实测 3.2s 返回；桥接服务端到端（health/401鉴权/中文任务/status）Python 客户端全过；编译装机。
+- 安全：token 必填（服务启动时生成打印），未配置 App 端拒绝执行；建议仅内网使用。
+
 ## [2026-09-25] 运行时内置 pip 模块 + 工具描述/文档同步（解决 App 内 Python 环境无 pip）
 背景：Chaquopy 内嵌 CPython 3.10 无独立 python 可执行文件（sys.executable 指向不存在的二进制），`python -m pip` / subprocess 场景必然失败；且随包内嵌的 site-packages 不含 pip。
 改动：

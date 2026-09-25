@@ -225,6 +225,15 @@
 - **限制**：只装 py3-none-any；带 C 扩展的包（numpy/scipy/lxml 等）Android 上无法运行时编译，拒绝并提示编译期预打包。
 - **参数**：`package`、`action`（install/download/set_source）、`source`、`timeout`
 
+### remote_dsh — 远程控制电脑（DeepSeek dsh 桥接）
+- **分类**：remote
+- **功能**：调用电脑端安装的 dsh（DeepSeek Harness Shell）执行任务，AI 可远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活。
+  - 架构：手机 App → HTTP(Bearer token) → 电脑端 tools/dsh_bridge_server.py → dsh --profile headless "任务"
+  - run：执行任务（task=自然语言描述，如"看看D盘有哪些项目文件夹"）；get_status：检查桥接与 dsh 在线状态；set_config：配置 base_url(电脑地址)+token(访问令牌)。
+  - 安全：必须配置 token（桥接服务启动时打印）才可调用；未配置/鉴权失败明确报错；base_url 仅允许 http/https。
+- **限制**：电脑端需先启动桥接服务（python tools/dsh_bridge_server.py --token xxx）；手机与电脑需同一网络或经安全隧道。
+- **参数**：`action`、`task`、`base_url`、`token`、`timeout`
+
 ### python_analyze_data — Python 数据分析
 - **分类**：python
 - **功能**：数据分析（统计/清洗/转换/图表计算）。适合处理用户提供的数据或表格内容。

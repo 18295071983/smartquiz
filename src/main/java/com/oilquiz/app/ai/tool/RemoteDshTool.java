@@ -1,0 +1,388 @@
+package com.oilquiz.app.ai.tool;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.util.Log;
+
+import com.oilquiz.app.ai.tool.annotation.Action;
+import com.oilquiz.app.ai.tool.annotation.Param;
+import com.oilquiz.app.ai.tool.annotation.Tool;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * 远程 dsh 工具：通过电脑端 dsh 桥接服务（tools/dsh_bridge_server.py）远程调用
+ * DeepSeek dsh（DeepSeek Harness Shell），让 AI 可以远程操作电脑。
+ *
+ * 架构：
+ *   手机 App → HTTP(带 Bearer token) → 电脑端 dsh_bridge_server → dsh --profile headless "任务"
+ *
+ * 安全红线：
+ *   * 桥接服务必须带 token 鉴权（Authorization: Bearer），未配置时不执行任何任务；
+ *   * base_url 必须是 http:// 或 https:// 开头，禁止其他协议；
+ *   * 任务内容原样传给电脑端 dsh，由电脑端负责（dsh 本身在电脑本地执行）。
+ */
+@Tool(
+        value = "remote_dsh",
+        description = "远程控制电脑（DeepSeek dsh 桥接）：调用电脑上安装的 dsh（DeepSeek Harness Shell）执行任务，"
+                + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活。"
+                + "前提：电脑端已启动 tools/dsh_bridge_server.py 桥接服务，并在本工具配置好电脑地址(base_url)与访问令牌(token)。"
+                + "动作：① action=run 执行任务：task 填要电脑干的活（自然语言即可，如\"看看D盘有哪些项目文件夹\"\"把某文件复制到桌面\"）；"
+                + "② action=get_status 检查桥接服务与 dsh 是否在线；"
+                + "③ action=set_config 配置/修改电脑地址与令牌：base_url=http://电脑IP:8218，token=桥接服务启动时打印的令牌。"
+                + "未配置或鉴权失败会明确报错，不会静默执行。"
+                + "安全：只有配置了正确 token 才能调用；task 描述给电脑端执行，勿让用户代码注入。",
+        category = "remote",
+        aliases = {"dsh", "远程控制电脑", "电脑操作", "remote_pc"},
+        actions = {
+                @Action(name = "run", description = "在电脑上执行一个 dsh 任务（自然语言）"),
+                @Action(name = "get_status", description = "检查桥接服务与 dsh 状态"),
+                @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
+        },
+        params = {
+                @Param(name = "action", type = "string", description = "操作: run(默认) / get_status / set_config", required = false),
+                @Param(name = "task", type = "string", description = "dsh 任务描述（自然语言，告诉电脑干什么）", required = false),
+                @Param(name = "base_url", type = "string", description = "电脑端桥接地址，如 http://192.168.1.100:8218（set_config 用）", required = false),
+                @Param(name = "token", type = "string", description = "桥接服务访问令牌（set_config 用，bridge 启动时打印）", required = false),
+                @Param(name = "timeout", type = "integer", description = "任务超时秒数（默认 120，范围 5~600）", required = false)
+        }
+)
+public class RemoteDshTool implements AITool {
+
+    private static final String TAG = "RemoteDshTool";
+    private static final String PREF = "remote_dsh_config";
+    private static final String KEY_URL = "base_url";
+    private static final String KEY_TOKEN = "token";
+    private static final int DEFAULT_TIMEOUT_SECONDS = 120;
+    private static final int MAX_TIMEOUT_SECONDS = 600;
+    private static final int OUTPUT_LIMIT = 20000; // 输出截断，防撑爆对话
+
+    private final Context context;
+
+    public RemoteDshTool(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    @Override
+    public String getName() {
+        return "remote_dsh";
+    }
+
+    @Override
+    public String getDescription() {
+        return "远程控制电脑（DeepSeek dsh 桥接）：调用电脑上的 dsh（DeepSeek Harness Shell）执行任务，"
+                + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活。"
+                + "前提：电脑端已启动 tools/dsh_bridge_server.py 桥接服务，并在本工具配置好 base_url 与 token。"
+                + "动作：run(执行任务，task=自然语言描述) / get_status(检查在线状态) / set_config(配置 base_url+token)。"
+                + "未配置或鉴权失败会明确报错，不会静默执行。安全：只有配置了正确 token 才能调用。";
+    }
+
+    @Override
+    public Map<String, String> getParameterDescriptions() {
+        Map<String, String> params = new HashMap<>();
+        params.put("action", "操作: run(默认，执行任务) / get_status(检查状态) / set_config(配置电脑地址与令牌)");
+        params.put("task", "dsh 任务描述（自然语言），如\"看看D盘有哪些项目文件夹\"");
+        params.put("base_url", "电脑端桥接地址，如 http://192.168.1.100:8218（set_config 用）");
+        params.put("token", "桥接服务访问令牌（set_config 用，桥接服务启动时打印）");
+        params.put("timeout", "任务超时秒数（默认 120，范围 5~600）");
+        return params;
+    }
+
+    // ---------- 配置 ----------
+    private SharedPreferences getPrefs() {
+        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+    }
+
+    private String getBaseUrl() {
+        return getPrefs().getString(KEY_URL, "");
+    }
+
+    private String getToken() {
+        return getPrefs().getString(KEY_TOKEN, "");
+    }
+
+    @Override
+    public AIToolResult execute(Map<String, Object> parameters) {
+        String action = "run";
+        Object actObj = parameters.get("action");
+        if (actObj != null && !String.valueOf(actObj).trim().isEmpty()) {
+            action = String.valueOf(actObj).trim().toLowerCase();
+        }
+        try {
+            switch (action) {
+                case "set_config":
+                    return handleSetConfig(parameters);
+                case "get_status":
+                    return handleStatus();
+                case "run":
+                default:
+                    return handleRun(parameters);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "execute error: " + e.getMessage(), e);
+            return AIToolResult.fail("remote_dsh 执行异常: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
+    private AIToolResult handleSetConfig(Map<String, Object> parameters) {
+        String baseUrl = parameters.get("base_url") != null ? String.valueOf(parameters.get("base_url")).trim() : "";
+        String token = parameters.get("token") != null ? String.valueOf(parameters.get("token")).trim() : "";
+        if (baseUrl.isEmpty() && token.isEmpty()) {
+            // 未传任何值：返回当前配置（token 打码）
+            String cur = getBaseUrl();
+            String tok = getToken();
+            return AIToolResult.success(
+                    "当前 remote_dsh 配置：\nbase_url=" + (cur.isEmpty() ? "(未配置)" : cur)
+                            + "\ntoken=" + (tok.isEmpty() ? "(未配置)" : tok.substring(0, Math.min(4, tok.length())) + "***")
+                            + "\n\n配置方法：action=set_config 传 base_url=http://电脑IP:8218 和 token=桥接服务启动时打印的令牌");
+        }
+        // 校验 base_url
+        if (!baseUrl.isEmpty()) {
+            String lower = baseUrl.toLowerCase();
+            if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+                return AIToolResult.fail("base_url 必须以 http:// 或 https:// 开头，如 http://192.168.1.100:8218");
+            }
+            while (baseUrl.endsWith("/")) {
+                baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+            }
+        }
+        SharedPreferences.Editor ed = getPrefs().edit();
+        if (!baseUrl.isEmpty()) ed.putString(KEY_URL, baseUrl);
+        if (!token.isEmpty()) ed.putString(KEY_TOKEN, token);
+        ed.apply();
+        return AIToolResult.success("remote_dsh 配置已保存：\nbase_url="
+                + (baseUrl.isEmpty() ? getBaseUrl() : baseUrl)
+                + "\ntoken=" + (token.isEmpty() ? "(保持原值)" : token.substring(0, Math.min(4, token.length())) + "***"));
+    }
+
+    private AIToolResult handleStatus() {
+        String baseUrl = getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            return AIToolResult.fail("remote_dsh 未配置：请先 action=set_config 设置 base_url(电脑地址) 和 token(访问令牌)。"
+                    + "\n电脑端需先启动: python tools/dsh_bridge_server.py --token 你的令牌");
+        }
+        try {
+            Map<String, Object> resp = httpJson(baseUrl + "/status", "GET", null, 30);
+            if (resp == null) {
+                return AIToolResult.fail("无法连接电脑端桥接服务: " + baseUrl
+                        + "\n请确认：① 电脑端服务已启动 ② 手机与电脑同一网络 ③ 地址端口正确");
+            }
+            Object err = resp.get("error");
+            if (err != null && "unauthorized".equals(err)) {
+                return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
+            }
+            Object dshOk = resp.get("dsh_ok");
+            StringBuilder sb = new StringBuilder("桥接服务在线 ✓\n");
+            sb.append("dsh 可用: ").append(Boolean.TRUE.equals(dshOk) ? "是 ✓" : "否 ✗").append("\n");
+            sb.append("探测耗时: ").append(resp.get("probe_duration_ms")).append("ms\n");
+            Object probe = resp.get("probe_output");
+            if (probe != null && !String.valueOf(probe).trim().isEmpty()) {
+                sb.append("探测输出: ").append(String.valueOf(probe).trim());
+            }
+            return AIToolResult.success(sb.toString());
+        } catch (Exception e) {
+            return AIToolResult.fail("查询状态异常: " + e.getMessage());
+        }
+    }
+
+    private AIToolResult handleRun(Map<String, Object> parameters) {
+        String baseUrl = getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            return AIToolResult.fail("remote_dsh 未配置：请先 action=set_config 设置 base_url(电脑地址) 和 token(访问令牌)。"
+                    + "\n电脑端启动方式: python tools/dsh_bridge_server.py --token 你的令牌");
+        }
+        String task = parameters.get("task") != null ? String.valueOf(parameters.get("task")).trim() : "";
+        if (task.isEmpty()) {
+            return AIToolResult.fail("缺少参数: task（告诉电脑干什么，自然语言即可）");
+        }
+        int timeout = DEFAULT_TIMEOUT_SECONDS;
+        Object tObj = parameters.get("timeout");
+        if (tObj != null) {
+            try {
+                timeout = (int) Math.min(MAX_TIMEOUT_SECONDS, Math.max(5, Double.parseDouble(String.valueOf(tObj))));
+            } catch (Exception ignored) {
+            }
+        }
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("task", task);
+            body.put("timeout", timeout);
+            Map<String, Object> resp = httpJson(baseUrl + "/run", "POST", body, timeout + 30);
+            if (resp == null) {
+                return AIToolResult.fail("无法连接电脑端桥接服务: " + baseUrl
+                        + "\n请确认：① 电脑端服务已启动 ② 手机与电脑同一网络 ③ 地址端口正确");
+            }
+            Object err = resp.get("error");
+            if (err != null && "unauthorized".equals(err)) {
+                return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
+            }
+            Object ok = resp.get("ok");
+            Object output = resp.get("output");
+            String out = output != null ? String.valueOf(output) : "";
+            if (out.length() > OUTPUT_LIMIT) {
+                out = out.substring(0, OUTPUT_LIMIT) + "\n...[输出过长已截断]";
+            }
+            Object dur = resp.get("duration_ms");
+            StringBuilder sb = new StringBuilder();
+            sb.append(Boolean.TRUE.equals(ok) ? "电脑任务完成 ✓" : "电脑任务执行失败（看输出判断原因）");
+            if (dur != null) sb.append(" 耗时 ").append(dur).append("ms");
+            sb.append("\n").append(out);
+            return AIToolResult.success(sb.toString());
+        } catch (Exception e) {
+            return AIToolResult.fail("远程调用异常: " + e.getMessage());
+        }
+    }
+
+    // ---------- HTTP ----------
+    /**
+     * 发送 HTTP 请求并解析 JSON 响应。
+     * @return 解析后的 Map；连接失败返回 null；HTTP 错误也尝试解析 body。
+     */
+    private Map<String, Object> httpJson(String url, String method, Map<String, Object> body, int timeoutSec) throws Exception {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(timeoutSec * 1000);
+            conn.setRequestMethod(method);
+            conn.setRequestProperty("Accept", "application/json");
+            String token = getToken();
+            if (!token.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + token);
+            }
+            if (body != null) {
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                byte[] payload = jsonEncode(body).getBytes(StandardCharsets.UTF_8);
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(payload);
+                }
+            }
+            int code = conn.getResponseCode();
+            InputStream in = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            String text = in != null ? readAll(in) : "";
+            Map<String, Object> parsed = jsonDecode(text);
+            if (parsed == null) parsed = new HashMap<>();
+            parsed.put("_http_code", code);
+            return parsed;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private static String jsonEncode(Map<String, Object> map) {
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, Object> e : map.entrySet()) {
+            if (!first) sb.append(",");
+            first = false;
+            sb.append('"').append(escape(e.getKey())).append("\":");
+            Object v = e.getValue();
+            if (v instanceof Number) {
+                sb.append(v);
+            } else {
+                sb.append('"').append(escape(String.valueOf(v))).append('"');
+            }
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private static String escape(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                    else sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static Map<String, Object> jsonDecode(String text) {
+        // 轻量 JSON 对象解析（仅一层 string/number/bool 值，够桥接响应用）
+        Map<String, Object> map = new HashMap<>();
+        if (text == null) return map;
+        String s = text.trim();
+        if (s.isEmpty() || s.charAt(0) != '{') return map;
+        int i = 1;
+        int n = s.length();
+        while (i < n) {
+            while (i < n && (s.charAt(i) == ' ' || s.charAt(i) == ',' || s.charAt(i) == '\n' || s.charAt(i) == '\r' || s.charAt(i) == '\t')) i++;
+            if (i >= n || s.charAt(i) == '}') break;
+            if (s.charAt(i) != '"') { i++; continue; }
+            int keyEnd = s.indexOf('"', i + 1);
+            if (keyEnd < 0) break;
+            String key = s.substring(i + 1, keyEnd);
+            i = s.indexOf(':', keyEnd);
+            if (i < 0) break;
+            i++;
+            while (i < n && (s.charAt(i) == ' ' || s.charAt(i) == '\n' || s.charAt(i) == '\r' || s.charAt(i) == '\t')) i++;
+            if (i >= n) break;
+            char c = s.charAt(i);
+            if (c == '"') {
+                int valEnd = i + 1;
+                StringBuilder val = new StringBuilder();
+                while (valEnd < n) {
+                    char vc = s.charAt(valEnd);
+                    if (vc == '\\' && valEnd + 1 < n) {
+                        char nx = s.charAt(valEnd + 1);
+                        switch (nx) {
+                            case 'n': val.append('\n'); break;
+                            case 'r': val.append('\r'); break;
+                            case 't': val.append('\t'); break;
+                            case '"': val.append('"'); break;
+                            case '\\': val.append('\\'); break;
+                            default: val.append(nx);
+                        }
+                        valEnd += 2;
+                        continue;
+                    }
+                    if (vc == '"') break;
+                    val.append(vc);
+                    valEnd++;
+                }
+                map.put(key, val.toString());
+                i = valEnd + 1;
+            } else if (c == 't') { map.put(key, Boolean.TRUE); i += 4; }
+            else if (c == 'f') { map.put(key, Boolean.FALSE); i += 5; }
+            else if (c == 'n') { map.put(key, null); i += 4; }
+            else if (c == '-' || (c >= '0' && c <= '9')) {
+                int j = i;
+                while (j < n && (s.charAt(j) == '-' || s.charAt(j) == '+' || s.charAt(j) == '.' || s.charAt(j) == 'e' || s.charAt(j) == 'E' || Character.isDigit(s.charAt(j)))) j++;
+                String num = s.substring(i, j);
+                try {
+                    if (num.contains(".") || num.contains("e") || num.contains("E")) map.put(key, Double.parseDouble(num));
+                    else map.put(key, Long.parseLong(num));
+                } catch (NumberFormatException ignored) {
+                    map.put(key, num);
+                }
+                i = j;
+            } else { i++; }
+        }
+        return map;
+    }
+
+    private static String readAll(InputStream in) throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+        return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+    }
+}

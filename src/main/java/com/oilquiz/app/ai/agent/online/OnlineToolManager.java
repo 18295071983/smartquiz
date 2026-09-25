@@ -305,6 +305,10 @@ public class OnlineToolManager {
                 if (containsAny(msg, "数据库", "题库", "题目", "背诵", "测验", "刷题", "database", "records")) {
                     include.add("database");
                 }
+                if (containsAny(msg, "远程控制电脑", "远程操作电脑", "dsh", "电脑操作", "操作电脑", "控制电脑",
+                        "远程电脑", "电脑上", "帮我看看电脑", "电脑文件")) {
+                    include.add("remote_dsh");
+                }
                 if (containsAny(msg, "导入", "题库导入", "导入题目", "导入题库", "import", "导入文件")) {
                     include.add("import_list_files"); include.add("import_start");
                     include.add("import_status"); include.add("import_cancel");
