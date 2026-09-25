@@ -1,0 +1,7 @@
+# ============ 运行日志 / 测试痕迹 ============
+*.log
+acp_*.txt
+prompt_events*.txt
+
+# ============ dsh 升级 home（含 .credentials.yaml 等敏感凭据，禁止提交）============
+dsh-upg-home/
