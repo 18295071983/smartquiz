@@ -5,3 +5,6 @@ prompt_events*.txt
 
 # ============ dsh 升级 home（含 .credentials.yaml 等敏感凭据，禁止提交）============
 dsh-upg-home/
+
+dsh-home-backup/
+
