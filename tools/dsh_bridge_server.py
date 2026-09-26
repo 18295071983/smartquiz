@@ -259,7 +259,8 @@ def acp_session_list():
 # ---------------------------------------------------------------------------
 # v1 headless 通道（保留为 fallback）
 # ---------------------------------------------------------------------------
-def local_ip():
+def _default_route_ip():
+    """默认路由出口 IP（UDP connect 小技巧，不发包）"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -268,11 +269,58 @@ def local_ip():
         finally:
             s.close()
     except Exception:
-        return "127.0.0.1"
+        return None
 
 
-def pair_qr_text(port, token):
-    return "dshpair://%s:%d?token=%s" % (local_ip(), port, token)
+def local_ips():
+    """本机所有可供手机访问的候选 IPv4（默认路由 IP 排第一）。
+
+    为什么不能只取一个：这台电脑同时接了以太网(192.168.1.5) 和 Wi-Fi(192.168.101.20)，
+    而手机在哪个网段是未知的 —— 只报默认路由那个，手机在另一个网段时就会"IP 对不上"（实测踩到）。
+    另外注意：socket.gethostname() 解析在本机只返回 192.168.1.5，拿不到第二张网卡，
+    所以 Windows 下用 PowerShell 枚举网卡地址。
+    """
+    found = []
+    default = _default_route_ip()
+    if os.name == "nt":
+        try:
+            # 只取"首选(Preferred)"地址：网卡断开后 Windows 仍会留着 Deprecated 的旧地址，
+            # 之前就是把已断开的 Wi-Fi 192.168.101.20 当候选报给手机 → 手机 ARP 不到、报 IP 对不上（实测）
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-NetIPAddress -AddressFamily IPv4 -AddressState Preferred | ForEach-Object { $_.IPAddress }"],
+                capture_output=True, text=True, timeout=10).stdout
+            found.extend([ln.strip() for ln in out.splitlines() if ln.strip()])
+        except Exception as e:
+            log("枚举本机网卡地址失败（退回默认路由 IP）: %s" % e)
+    if not found:
+        try:
+            found.extend([a[4][0] for a in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)])
+        except Exception:
+            pass
+
+    ips = []
+    for ip in ([default] if default else []) + found:
+        if not ip or ip.startswith("127.") or ip.startswith("169.254."):
+            continue
+        if ip not in ips:
+            ips.append(ip)
+    return ips or ["127.0.0.1"]
+
+
+def local_ip():
+    """默认（第一个）候选 IP —— 供只认单个地址的老逻辑使用"""
+    return local_ips()[0]
+
+
+def pair_qr_text(port, token, ip=None):
+    return "dshpair://%s:%d?token=%s" % (ip or local_ip(), port, token)
+
+
+def pair_candidates(port, token):
+    """所有候选配对信息：手机连哪个网，就扫那个网段的二维码"""
+    return [{"ip": ip, "base_url": "http://%s:%d" % (ip, port), "qr_text": pair_qr_text(port, token, ip)}
+            for ip in local_ips()]
 
 
 def pair_html(port, token):
@@ -284,22 +332,25 @@ def pair_html(port, token):
     except Exception as e:
         log("pair_html qrcodegen.js 读取失败: %s (%s)" % (repr(e), qjs))
         qr_js = "// qrcodegen.js 缺失，无法渲染二维码"
-    qr_text = pair_qr_text(port, token)
-    return (u"""<!doctype html>
+    items_json = json.dumps(pair_candidates(port, token), ensure_ascii=False)
+    html = u"""<!doctype html>
 <html><head><meta charset="utf-8"><title>答题宝 · dsh 远程配对</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 body{font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;
 background:#0f172a;color:#e2e8f0;min-height:100vh;margin:0;padding:24px;box-sizing:border-box}
 h1{font-size:20px;margin:0 0 8px} h2{font-size:14px;color:#94a3b8;font-weight:normal;margin:0 0 16px}
-#qr{background:#fff;padding:16px;border-radius:12px;margin:16px 0;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+#qrs{display:flex;flex-wrap:wrap;gap:20px;justify-content:center;margin:8px 0}
+.card{display:flex;flex-direction:column;align-items:center}
+.qrbox{background:#fff;padding:14px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.ip{font-family:ui-monospace,monospace;font-size:13px;color:#7dd3fc;margin-top:8px}
 .url{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all;background:#1e293b;
 padding:10px 12px;border-radius:8px;max-width:92vw;color:#7dd3fc}
 .steps{max-width:430px;font-size:14px;line-height:1.8;color:#94a3b8;margin-top:16px}
 .steps b{color:#e2e8f0} code{background:#1e293b;padding:2px 6px;border-radius:4px;color:#7dd3fc}
 </style></head><body>
-<h1>答题宝 · 远程 dsh 配对</h1><h2>用手机扫码，自动填入电脑地址与令牌</h2>
-<div id="qr"></div>
+<h1>答题宝 · 远程 dsh 配对</h1><h2>手机连的是哪个网，就扫那个网段的二维码</h2>
+<div id="qrs"></div>
 <div class="url" id="url"></div>
 <div class="steps">
 <b>配对步骤：</b><br>
@@ -307,17 +358,28 @@ padding:10px 12px;border-radius:8px;max-width:92vw;color:#7dd3fc}
 2. 对 AI 说「<b>远程控制电脑 / 远程配对</b>」（会调用 remote_dsh 的 pair 动作）<br>
 3. 用手机扫描上方二维码 → 自动保存电脑地址与令牌<br>
 4. 完成，之后可以直接让 AI 远程控制电脑（支持多轮会话续接）<br><br>
+<b>扫码后连不上 / 提示"同一网络、IP 对不上"？</b>说明手机和电脑不在同一个网段 —— 换上面另一个二维码扫即可
+（本机有多个网卡时会列出多个候选地址，例如以太网 192.168.1.x 与 Wi-Fi 192.168.101.x）。<br><br>
 <b>安全：</b>本页面仅电脑本机（127.0.0.1）可访问；二维码里的令牌不会暴露给局域网其他设备。
 </div>
 <script>
 """ + qr_js + """
 (function(){
-  var qrText = %r;
-  document.getElementById('url').textContent = qrText;
-  var qr = qrcode(0,'M'); qr.addData(qrText); qr.make();
-  document.getElementById('qr').innerHTML = qr.createImgTag(6,16);
+  var items = __ITEMS__;
+  var box = document.getElementById('qrs');
+  items.forEach(function(it){
+    var card = document.createElement('div'); card.className = 'card';
+    var qrbox = document.createElement('div'); qrbox.className = 'qrbox';
+    var qr = qrcode(0,'M'); qr.addData(it.qr_text); qr.make();
+    qrbox.innerHTML = qr.createImgTag(5,12);
+    var label = document.createElement('div'); label.className = 'ip';
+    label.textContent = it.ip + '  →  ' + it.base_url;
+    card.appendChild(qrbox); card.appendChild(label); box.appendChild(card);
+  });
+  document.getElementById('url').textContent = items.length ? items[0].qr_text : '';
 })();
-</script></body></html>""" % qr_text).encode("utf-8")
+</script></body></html>"""
+    return html.replace("__ITEMS__", items_json).encode("utf-8")
 
 
 def resolve_dsh_cmd(name):
@@ -417,10 +479,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/pair.json":
             if not self._is_loopback():
                 return self._send_json(403, {"ok": False, "error": "pair info is local-only"})
+            cands = pair_candidates(BRIDGE_PORT, TOKEN)
             return self._send_json(200, {
-                "ok": True, "qr_text": pair_qr_text(BRIDGE_PORT, TOKEN),
-                "base_url": "http://%s:%d" % (local_ip(), BRIDGE_PORT),
+                "ok": True,
+                # 兼容老字段：默认（第一个候选）地址
+                "qr_text": cands[0]["qr_text"] if cands else "",
+                "base_url": cands[0]["base_url"] if cands else "http://127.0.0.1:%d" % BRIDGE_PORT,
                 "token": TOKEN,
+                # 多网卡候选：手机在哪个网段就扫哪个
+                "candidates": cands,
             })
         if not self._auth_ok():
             return self._send_json(401, {"ok": False, "error": "unauthorized"})
@@ -564,7 +631,8 @@ def main():
     log("访问令牌(请复制到 App 配置): %s" % TOKEN)
     log("ACP 后端: %s | 默认工作目录: %s" % (ACP_BASE, DEFAULT_CWD or "(未指定)"))
     log("配对页(本机浏览器): http://127.0.0.1:%d/pair  (手机扫码=一键配对)" % args.port)
-    log("配对文本(手机手动输入备用): %s" % pair_qr_text(args.port, TOKEN))
+    for c in pair_candidates(args.port, TOKEN):
+        log("配对候选: %s   (手机手动输入: %s  token=%s)" % (c["ip"], c["base_url"], TOKEN))
     try:
         webbrowser.open("http://127.0.0.1:%d/pair" % args.port)
     except Exception:
