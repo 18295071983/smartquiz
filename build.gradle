@@ -389,6 +389,20 @@ dependencies {
     // 走 MediaCodec 硬件编解码，不打包 ffmpeg，体积几乎不增加（transformer 约 300KB）。
     implementation "androidx.media3:media3-transformer:1.3.1"
     implementation "androidx.media3:media3-effect:1.3.1"
+
+    // ===== ffmpeg 引擎（media_toolkit 的 engine=ffmpeg 回退/扩展）=====
+    // 为什么用这个坐标：原 com.arthenica:ffmpeg-kit-* 已于 2025-04 停止维护并从仓库撤下；
+    // dev.ffmpegkit-maintained 是活跃维护的 drop-in 分叉（同一套 com.arthenica.ffmpegkit API）。
+    // 为什么这次能成（之前 Termux 版失败两次）：这些是 NDK/bionic 构建的 libav*，
+    // 走 jniLibs → nativeLibraryDir → System.loadLibrary 正常加载，**不需要 exec、不需要任何权限**；
+    // Termux 那套是动态链接到 Termux 自己的 stub 库/同名不同 ABI 的 libc++，加载阶段就炸。
+    // min 变体不含外部库（无 x264/mp3lame），但 rv40/cook/wmv3/vc1 等原生解码器齐全，
+    // 且带 h264/hevc/aac 的 MediaCodec 硬件桥。仅 arm64-v8a + x86_64，我们 arm64-only → 约 +8MB APK。
+    // 注意 @aar + 显式声明它的传递依赖 smart-exception-java：
+    // 这个 AAR 只有 POM（无 Gradle Module Metadata），AGP 的 dataBinding 取产物步骤会去找 .jar 而失败。
+    // 强制按 aar 产物解析即可绕过；@aar 会丢掉 POM 里的传递依赖，所以下面手工补上。
+    implementation "dev.ffmpegkit-maintained:ffmpeg-kit-min:8.1.9@aar"
+    implementation "com.arthenica:smart-exception-java:0.2.1"
     
     // PdfiumAndroid - 免费开源PDF渲染库 (Google Pdfium)
     implementation("com.github.barteksc:pdfium-android:1.9.0") {

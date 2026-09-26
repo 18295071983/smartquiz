@@ -1511,8 +1511,8 @@ public class AIToolManager {
                     .category("media")
                     .build();
             case "media_toolkit":
-                return ToolDefinition.builder("media_toolkit", "本地媒体工具箱（系统自带硬解硬编，不依赖 ffmpeg/外部二进制，处理过程不需要任何权限、不联网；读取外部文件仍受 App 已有存储访问限制）：probe 看媒体信息（时长/分辨率/帧率/码率/音视频轨/编码器）；frame/thumbnail 截帧出图（时间/百分比/帧序号/多帧）；extract_audio 无损抽取音轨（aac→m4a、mp3→mp3）；to_wav 解码 WAV（默认 16k 单声道，可喂语音识别）；trim 无损剪切（关键帧对齐）；transcode 转码/压缩/改分辨率/换容器（H.264/H.265/AAC，可去音轨）；image_ops 图片缩放/裁剪/旋转/翻转/灰度/转格式。输入支持绝对路径/工作区相对路径/content:// URI；输出默认落工作区 files/media/。视频信息/截帧/抽音频/压视频/图片批处理优先用本工具；内置 shell 工具箱里没有 ffmpeg（也装不上），不要去 shell 里找。能力边界：能处理的格式/编码取决于设备解码器与编码器（avi/flv/rmvb 等冷门容器、时间轴水印/多路混流/字幕烧录等复杂滤镜链不支持）；做不到时明确报错并如实回复用户，不要承诺。")
-                    .addParameter("action", "string", "操作: probe(媒体信息)/frame(截帧)/thumbnail(缩略图)/extract_audio(无损抽音轨)/to_wav(转WAV)/trim(无损剪切)/transcode(转码压缩)/image_ops(图片处理)", true)
+                return ToolDefinition.builder("media_toolkit", "本地媒体工具箱（系统硬解硬编 + 内置 ffmpeg 引擎回退，处理过程不需要任何权限、不联网；读取外部文件仍受 App 已有存储访问限制）：probe 看媒体信息（时长/分辨率/帧率/码率/音视频轨/编码器）；frame/thumbnail 截帧出图（时间/百分比/帧序号/多帧）；extract_audio 无损抽取音轨（aac→m4a、mp3→mp3）；to_wav 解码 WAV（默认 16k 单声道，可喂语音识别）；trim 无损剪切（关键帧对齐）；transcode 转码/压缩/改分辨率/换容器（H.264/H.265/AAC，可去音轨）；image_ops 图片缩放/裁剪/旋转/翻转/灰度/转格式。输入支持绝对路径/工作区相对路径/content:// URI；输出默认落工作区 files/media/。视频信息/截帧/抽音频/压视频/图片批处理优先用本工具；内置 shell 工具箱里没有 ffmpeg（也装不上），不要去 shell 里找。engine=auto(默认，系统框架优先，打不开或做不到时自动回退内置 ffmpeg)/system(只用系统框架)/ffmpeg(直接用 ffmpeg)。内置 ffmpeg 补上了系统框架没有的能力：avi/flv/rmvb/wmv 等冷门容器、rv40/cook/wmv3/vc1 等老编码、任意容器重封装，以及 filter 动作的滤镜链（vfilter/afilter，如 scale/fps/overlay/ass字幕/atempo/volume）。能力边界：ffmpeg 的 min 构建不含 mp3/opus 编码器（mp3 只能抽已有音轨）、不含 freetype 故 drawtext 文字水印不可用；转码走 h264_mediacodec/hevc_mediacodec 硬件桥（实测可用），非主流编码是纯软解会慢；做不到时必须如实告知用户，不要承诺。")
+                    .addParameter("action", "string", "操作: probe(媒体信息)/frame(截帧)/thumbnail(缩略图)/extract_audio(无损抽音轨)/to_wav(转WAV)/trim(无损剪切)/transcode(转码压缩)/filter(ffmpeg滤镜链)/image_ops(图片处理)", true)
                     .addParameter("path", "string", "输入文件：绝对路径、工作区相对路径或 content:// URI", true)
                     .addParameter("output", "string", "输出文件；缺省存工作区 files/media/ 并自动命名", false)
                     .addParameter("time", "string", "frame 用：截帧时间（秒，可小数，如 3.5）", false)
@@ -1538,6 +1538,9 @@ public class AIToolManager {
                     .addParameter("bitrate", "string", "transcode 用：视频码率 kbps（强制重编视频）", false)
                     .addParameter("scale", "string", "transcode 用：等比缩放倍数（0.5=宽高减半）；实际分辨率由设备编码器对齐决定，以返回的 output_width/height 为准", false)
                     .addParameter("remove_audio", "string", "transcode 用：true=去掉音轨", false)
+                    .addParameter("engine", "string", "引擎: auto(默认,系统优先+ffmpeg回退)/system(只用系统)/ffmpeg(只用ffmpeg)", false)
+                    .addParameter("vfilter", "string", "filter 用：视频滤镜串（ffmpeg -vf，如 scale=-2:720,fps=10、overlay=10:10）", false)
+                    .addParameter("afilter", "string", "filter 用：音频滤镜串（ffmpeg -af，如 atempo=1.5,volume=2）", false)
                     .category("media")
                     .build();
             case "system_connect":

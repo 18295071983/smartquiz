@@ -294,7 +294,7 @@
 
 ### media_toolkit — 本地媒体工具箱
 - **分类**：media
-- **功能**：系统自带硬解硬编（MediaExtractor / MediaCodec / MediaMuxer / MediaMetadataRetriever + Media3 Transformer）完成常见音视频处理，**不依赖 ffmpeg/外部二进制，处理过程不需要任何权限、不联网**（读取外部文件仍受 App 已有存储访问限制）。
+- **功能**：两套引擎，**系统框架优先**（MediaExtractor / MediaCodec / MediaMuxer / MediaMetadataRetriever + Media3 Transformer），打不开或做不到时**自动回退内置 ffmpeg**（ffmpeg-kit-min 8.1.9，以库形式 `System.loadLibrary` 加载，进程内 ffmpeg n8.1.3）。处理过程**不需要任何权限、不联网**（读取外部文件仍受 App 已有存储访问限制）。
   - `probe`：媒体信息（时长/分辨率/帧率/码率/旋转/音视频轨/编码器；视频、音频、图片都行）
   - `frame`：截帧出图（`time` 秒 / `percent` 0-100 / `index` 帧序号 / `count`=N 均匀抽 N 张 / `exact`=精确帧）
   - `thumbnail`：缩略图（默认 10% 处、最长边 512）
@@ -303,10 +303,13 @@
   - `trim`：无损剪切（`start`/`end` 秒，关键帧对齐，不重编码，MP4 输出）
   - `transcode`：转码/压缩/改分辨率/换容器（`video_mime`/`audio_mime`/`width`/`height`/`scale`/`bitrate`/`remove_audio`/`timeout`；keep+无效果=纯重封装）
   - `image_ops`：图片处理（`width`/`height`/`max`/`crop`/`rotate`/`flip`/`gray`/`format`/`quality`）
+  - `filter`：ffmpeg 滤镜链（`vfilter`/`afilter`，如 scale/fps/crop/overlay/ass字幕/atempo/volume）—— 系统框架没有的能力
+  - `engine`：`auto`（默认，系统优先 + 自动回退 ffmpeg）/ `system`（只用系统）/ `ffmpeg`（只用 ffmpeg）
+  - 内置 ffmpeg 实测能力：avi/flv/rmvb(.rm)/wmv(asf) 解封装；rv40/rv30/cook/wmv3/vc1/msmpeg4v3 解码；h264_mediacodec/hevc_mediacodec 硬件编码桥；体积 arm64-v8a 未压缩 15.06MB（APK 内压缩约 7.8MB）
   - 输入支持绝对路径/工作区相对路径/content:// URI；输出默认落工作区 `files/media/`，返回文件绝对路径
   - Python 侧同等能力：`import android_media`（probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/image_ops）
-  - **能力边界**：能否处理由设备解码器/编码器决定（avi/flv/rmvb 等冷门容器、时间轴水印/多路混流/字幕烧录等复杂滤镜链不支持）；`trim` 为关键帧对齐（非帧级精确）；`transcode` 实际分辨率会被编码器对齐取整（以返回 `output_width`/`output_height` 为准）。做不到时明确报错，不越界承诺
-- **参数**：`action`（必填）、`path`（必填）、`output`、`time`、`percent`、`index`、`count`、`exact`、`width`、`height`、`max`、`format`、`quality`、`crop`、`rotate`、`flip`、`gray`、`start`、`end`、`rate`、`channels`、`video_mime`、`audio_mime`、`bitrate`、`scale`、`remove_audio`、`timeout`
+  - **能力边界**：仍不支持 mp3/opus **编码**（min 构建无 lame/libopus，mp3 只能抽已有音轨）、drawtext 文字水印（无 freetype）、时间轴水印/画中画/多路混流这类复杂编排；非主流编码为纯软解会慢。`trim` 为关键帧对齐（非帧级精确）；`transcode` 实际分辨率会被编码器对齐取整（以返回 `output_width`/`output_height` 为准）。做不到时明确报错，不越界承诺
+- **参数**：`action`（必填）、`path`（必填）、`output`、`time`、`percent`、`index`、`count`、`exact`、`width`、`height`、`max`、`format`、`quality`、`crop`、`rotate`、`flip`、`gray`、`start`、`end`、`rate`、`channels`、`video_mime`、`audio_mime`、`bitrate`、`scale`、`remove_audio`、`timeout`、`engine`、`vfilter`、`afilter`
 
 ---
 

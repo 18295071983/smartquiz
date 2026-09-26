@@ -87,7 +87,9 @@ import java.util.concurrent.atomic.AtomicReference;
         + "trim 无损剪切（关键帧对齐，秒）；transcode 转码/压缩/改分辨率/换容器（H.264/H.265/AAC，可去音轨）；"
         + "image_ops 图片处理（缩放/裁剪/旋转/翻转/灰度/转格式/压缩）。"
         + "输入支持绝对路径、工作区相对路径、content:// URI（读取外部文件仍受 App 已有存储访问限制）；输出默认落工作区 files/media/。"
-        + "能力边界：能处理的格式/编码取决于设备解码器与编码器（avi/flv/rmvb 等冷门容器、时间轴水印/多路混流/字幕烧录等复杂滤镜链不支持）；做不到时明确报错并如实回复用户，不要承诺。",
+        + "另内置 ffmpeg 引擎（engine=auto 时系统框架打不开就自动回退）：avi/flv/rmvb/wmv 等冷门容器、rv40/cook/wmv3/vc1 等老编码、"
+        + "任意容器重封装、以及 filter 动作的滤镜链（scale/crop/fps/overlay/ass 字幕/atempo/volume/concat）都能做。"
+        + "边界：mp3 编码不支持（min 构建无 lame），文字水印 drawtext 不支持（无 freetype），仍做不到时必须如实告知用户，不要承诺。",
     category = "media",
     actions = {
         @Action(name = "probe", description = "读取媒体信息：时长、分辨率、帧率、码率、旋转、音视频轨与编码器（视频/音频/图片都可以）"),
@@ -97,7 +99,8 @@ import java.util.concurrent.atomic.AtomicReference;
         @Action(name = "to_wav", description = "解码音轨为 WAV（默认 16kHz 单声道 16bit；rate/channels 可调），适合喂语音识别或剪辑"),
         @Action(name = "trim", description = "无损剪切时间区间（start/end 秒，关键帧对齐，不重新编码，MP4 输出）"),
         @Action(name = "transcode", description = "转码/压缩/改分辨率/换容器（video_mime/audio_mime/width/height/scale/bitrate/remove_audio）；实际分辨率由设备编码器对齐决定，返回 output_width/output_height 是真实值"),
-        @Action(name = "image_ops", description = "图片处理：resize(width/height/max)、crop=x,y,w,h、rotate=度、flip=h/v、gray、format=png/jpeg/webp、quality")
+        @Action(name = "image_ops", description = "图片处理：resize(width/height/max)、crop=x,y,w,h、rotate=度、flip=h/v、gray、format=png/jpeg/webp、quality"),
+        @Action(name = "filter", description = "ffmpeg 滤镜/任意处理（vfilter/afilter 传 ffmpeg 滤镜串，如 scale=-2:720,fps=10 / overlay / ass 字幕 / atempo=1.5,volume=2；也可用来做系统引擎做不到的转码）")
     },
     params = {
         @Param(name = "action", type = "string", description = "操作: probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/image_ops", required = true),
@@ -126,7 +129,10 @@ import java.util.concurrent.atomic.AtomicReference;
         @Param(name = "bitrate", type = "string", description = "transcode 用：视频码率 kbps（如 2000；会强制重编视频）", required = false),
         @Param(name = "scale", type = "string", description = "transcode 用：等比缩放倍数（如 0.5 表示宽高减半）", required = false),
         @Param(name = "remove_audio", type = "string", description = "transcode 用：true=去掉音轨", required = false),
-        @Param(name = "timeout", type = "string", description = "transcode 用：最长等待秒数（默认 180，最大 900）", required = false)
+        @Param(name = "timeout", type = "string", description = "transcode 用：最长等待秒数（默认 180，最大 900）；ffmpeg 引擎默认 300", required = false),
+        @Param(name = "engine", type = "string", description = "引擎: auto(默认，系统框架优先、失败自动回退 ffmpeg)/system(只用系统框架，失败不回退)/ffmpeg(直接用 ffmpeg)", required = false),
+        @Param(name = "vfilter", type = "string", description = "filter 用：视频滤镜串（ffmpeg -vf，如 scale=-2:720,fps=10、crop=iw:ih-20:0:10、overlay=10:10）", required = false),
+        @Param(name = "afilter", type = "string", description = "filter 用：音频滤镜串（ffmpeg -af，如 atempo=1.5,volume=2、aresample=44100）", required = false)
     }
 )
 public class MediaToolkitTool implements AITool {
@@ -182,7 +188,10 @@ public class MediaToolkitTool implements AITool {
         m.put("bitrate", "transcode 用：视频码率 kbps");
         m.put("scale", "transcode 用：等比缩放倍数（0.5=宽高减半）；实际分辨率由设备编码器对齐决定，以返回的 output_width/height 为准");
         m.put("remove_audio", "transcode 用：true=去掉音轨");
-        m.put("timeout", "transcode 用：最长等待秒数（默认 180，最大 900）");
+        m.put("timeout", "transcode 用：最长等待秒数（默认 180，最大 900）；ffmpeg 引擎默认 300");
+        m.put("engine", "引擎: auto(默认,系统优先+ffmpeg回退)/system(只用系统)/ffmpeg(只用ffmpeg)");
+        m.put("vfilter", "filter 用：视频滤镜串（ffmpeg -vf，如 scale=-2:720,fps=10）");
+        m.put("afilter", "filter 用：音频滤镜串（ffmpeg -af，如 atempo=1.5,volume=2）");
         return m;
     }
 
@@ -192,9 +201,45 @@ public class MediaToolkitTool implements AITool {
 
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
-        String action = str(parameters, "action", "probe").toLowerCase(Locale.ROOT).trim();
+        final String action = str(parameters, "action", "probe").toLowerCase(Locale.ROOT).trim();
         try {
-            switch (action) {
+            // engine=ffmpeg：直接用 ffmpeg（图片处理与引擎无关，仍走系统实现）
+            if ("ffmpeg".equalsIgnoreCase(str(parameters, "engine", "auto")) && !"image_ops".equals(action)) {
+                AIToolResult forced = ffmpegAction(action, parameters);
+                if (forced != null) return forced;   // 不支持的 action 交给 dispatch 报"未知 action"
+            }
+            AIToolResult r;
+            try {
+                r = dispatch(action, parameters);
+            } catch (Throwable t) {
+                // 关键：系统引擎是"抛异常"而不是"返回失败"的（如 MediaExtractor.setDataSource 抛 IOException），
+                // 不在这里兜住就会绕过 ffmpeg 回退（真机实测 avi 转 WAV 踩到）
+                Log.w(TAG, "系统引擎异常 action=" + action, t);
+                r = AIToolResult.fail("media_toolkit 执行失败（" + action + "）: " + describe(t));
+            }
+            if (r.isSuccess() || !fallbackAllowed(action, parameters, r)) return r;
+            // 系统媒体框架做不到 → 回退 ffmpeg（engine=auto 的默认行为）
+            AIToolResult f = ffmpegAction(action, parameters);
+            if (f == null) return r;
+            if (f.isSuccess()) return f;
+            return AIToolResult.fail(r.getErrorMessage() + "；ffmpeg 引擎回退也失败: " + f.getErrorMessage());
+        } catch (Throwable t) {
+            Log.w(TAG, "media_toolkit 执行失败 action=" + action, t);
+            return AIToolResult.fail("media_toolkit 执行失败（" + action + "）: " + describe(t));
+        }
+    }
+
+    /** 是否允许回退 ffmpeg：engine=system 禁止；参数/输入类错误不回退（回退也一样失败，白等） */
+    private boolean fallbackAllowed(String action, Map<String, Object> p, AIToolResult failed) {
+        if ("system".equalsIgnoreCase(str(p, "engine", "auto"))) return false;
+        if ("image_ops".equals(action)) return false;
+        if (!FfmpegEngine.available()) return false;
+        String msg = String.valueOf(failed.getErrorMessage());
+        return !msg.contains("缺少 path") && !msg.contains("输入文件不存在") && !msg.contains("未知 action");
+    }
+
+    private AIToolResult dispatch(String action, Map<String, Object> parameters) throws Exception {
+        switch (action) {
                 case "probe":
                 case "info":
                 case "ffprobe":
@@ -225,13 +270,12 @@ public class MediaToolkitTool implements AITool {
                 case "image":
                 case "photo":
                     return imageOps(parameters);
+                case "filter":
+                    // 滤镜链只有 ffmpeg 能做
+                    return ffmpegAction("filter", parameters);
                 default:
                     return AIToolResult.fail("未知 action: " + action
-                            + "（支持 probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/image_ops）");
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "media_toolkit 执行失败 action=" + action, t);
-            return AIToolResult.fail("media_toolkit 执行失败（" + action + "）: " + describe(t));
+                            + "（支持 probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/filter/image_ops）");
         }
     }
 
@@ -1435,6 +1479,482 @@ public class MediaToolkitTool implements AITool {
             }
         }
         return (int) out.length();
+    }
+
+    // ==================================================================
+    // ffmpeg 引擎（engine=ffmpeg 直用 / 系统引擎失败后的回退）
+    // ------------------------------------------------------------------
+    // 系统媒体框架的设备解封装器只有 10 种（aac/amr/flac/midi/mkv/mp3/mp4/mpeg2/ogg/wav），
+    // avi/flv/rmvb/wmv 打不开，也没有滤镜链 —— 这一块由内置 ffmpeg（ffmpeg-kit-min）补上。
+    // ==================================================================
+
+    private AIToolResult ffmpegAction(String action, Map<String, Object> p) {
+        if (!FfmpegEngine.available()) {
+            return AIToolResult.fail("ffmpeg 引擎不可用：libav* 未加载成功（看 logcat 标签 FfmpegEngine）");
+        }
+        try {
+            switch (action) {
+                case "probe":
+                    return ffmpegProbe(p);
+                case "frame":
+                case "thumbnail":
+                    return ffmpegFrames(p, "thumbnail".equals(action));
+                case "extract_audio":
+                    return ffmpegExtractAudio(p);
+                case "to_wav":
+                    return ffmpegToWav(p);
+                case "trim":
+                    return ffmpegTrim(p);
+                case "transcode":
+                case "filter":
+                    return ffmpegTranscode(p, "filter".equals(action));
+                default:
+                    return null;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "ffmpeg 引擎执行失败 action=" + action, t);
+            return AIToolResult.fail("ffmpeg 引擎执行失败（" + action + "）: " + describe(t));
+        }
+    }
+
+    /** ffmpeg 只能吃本地文件：content:// 先落临时文件 */
+    private File ffmpegInput(String path) throws Exception {
+        File f = FfmpegEngine.materialize(context, path, null);
+        if (f == null || !f.exists()) throw new IllegalArgumentException("输入文件不存在: " + path);
+        return f;
+    }
+
+    /** ffprobe 拿源尺寸/时长（算缩放用），失败返回 null */
+    private JSONObject ffprobeInfo(String path) {
+        try {
+            return FfmpegEngine.probe(context, path);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static int[] firstVideoSize(JSONObject info) {
+        if (info == null) return new int[]{0, 0};
+        JSONArray tracks = info.optJSONArray("tracks");
+        if (tracks == null) return new int[]{0, 0};
+        for (int i = 0; i < tracks.length(); i++) {
+            JSONObject t = tracks.optJSONObject(i);
+            if (t != null && "video".equals(t.optString("type")) && t.optInt("width") > 0) {
+                return new int[]{t.optInt("width"), t.optInt("height")};
+            }
+        }
+        return new int[]{0, 0};
+    }
+
+    private AIToolResult ffmpegProbe(Map<String, Object> p) throws Exception {
+        String path = requirePath(p);
+        File in = ffmpegInput(path);
+        JSONObject info = FfmpegEngine.probe(context, path);
+        JSONArray tracks = info.optJSONArray("tracks");
+        boolean hasVideo = false, hasAudio = false;
+        if (tracks != null) {
+            for (int i = 0; i < tracks.length(); i++) {
+                JSONObject t = tracks.optJSONObject(i);
+                if (t == null) continue;
+                if ("video".equals(t.optString("type"))) hasVideo = true;
+                if ("audio".equals(t.optString("type"))) hasAudio = true;
+            }
+        }
+        int[] wh = firstVideoSize(info);
+        JSONObject out = new JSONObject();
+        out.put("path", path);
+        out.put("file", in.getAbsolutePath());
+        out.put("engine", "ffmpeg (" + FfmpegEngine.version() + ")");
+        out.put("container", guessContainer(path));
+        out.put("format", info.optString("format"));
+        out.put("format_long", info.optString("format_long"));
+        JSONObject meta = new JSONObject();
+        meta.put("duration_sec", round2(info.optDouble("duration_sec")));
+        if (wh[0] > 0) {
+            meta.put("width", wh[0]);
+            meta.put("height", wh[1]);
+        }
+        if (info.optLong("bitrate_kbps") > 0) meta.put("bitrate_kbps", info.optLong("bitrate_kbps"));
+        long size = info.optLong("size_bytes");
+        if (size <= 0) size = in.length();
+        meta.put("size_bytes", size);
+        meta.put("size_text", humanSize(size));
+        meta.put("has_video", hasVideo);
+        meta.put("has_audio", hasAudio);
+        out.put("type", hasVideo ? "video" : (hasAudio ? "audio" : "other"));
+        out.put("metadata", meta);
+        out.put("track_count", info.optInt("track_count"));
+        out.put("tracks", tracks == null ? new JSONArray() : tracks);
+        return AIToolResult.success(out.toString(2));
+    }
+
+    private AIToolResult ffmpegFrames(Map<String, Object> p, boolean thumb) throws Exception {
+        String path = requirePath(p);
+        File in = ffmpegInput(path);
+        String fmt = str(p, "format", "jpg");
+        int quality = clamp(intParam(p, "quality", 90), 1, 100);
+        int count = intParam(p, "count", 0);
+        int index = intParam(p, "index", -1);
+
+        JSONObject info = ffprobeInfo(path);
+        int[] wh = firstVideoSize(info);
+        double duration = info == null ? 0 : info.optDouble("duration_sec");
+
+        int wantW = intParam(p, "width", 0);
+        int wantH = intParam(p, "height", 0);
+        int maxSide = intParam(p, "max", 0);
+        if (thumb && wantW <= 0 && wantH <= 0 && maxSide <= 0) maxSide = 512;
+        if (maxSide > 0 && wh[0] > 0 && wh[1] > 0 && Math.max(wh[0], wh[1]) > maxSide) {
+            double s = maxSide / (double) Math.max(wh[0], wh[1]);
+            wantW = (int) Math.round(wh[0] * s);
+            wantH = (int) Math.round(wh[1] * s);
+        } else if (wantW > 0 && wantH <= 0 && wh[0] > 0 && wh[1] > 0) {
+            wantH = (int) Math.round(wantW * (double) wh[1] / wh[0]);
+        } else if (wantH > 0 && wantW <= 0 && wh[0] > 0 && wh[1] > 0) {
+            wantW = (int) Math.round(wantH * (double) wh[0] / wh[1]);
+        }
+        String scale = (wantW > 0 && wantH > 0) ? ("scale=" + wantW + ":" + wantH) : "";
+
+        List<Double> times = new ArrayList<>();
+        if (count > 1) {
+            double d = duration > 0 ? duration : 1;
+            for (int i = 0; i < count; i++) times.add(d * i / count);
+        } else if (index >= 0) {
+            times.add(-1.0);   // 用 select 滤镜按帧序号取，时间点占位
+        } else if (p.get("percent") != null) {
+            times.add(duration * doubleParam(p, "percent", 10) / 100.0);
+        } else if (p.get("time") != null) {
+            times.add(doubleParam(p, "time", 0));
+        } else {
+            times.add(thumb ? duration * 0.1 : 0.0);
+        }
+
+        JSONArray saved = new JSONArray();
+        for (int i = 0; i < times.size(); i++) {
+            double t = times.get(i);
+            boolean useIndex = t < 0;
+            String name = times.size() > 1
+                    ? baseName(path) + "_" + (i + 1) + "." + extFor(fmt)
+                    : (thumb ? baseName(path) + "_thumb." : baseName(path) + "_" + (useIndex ? ("f" + index) : fmtTime(t)) + ".") + extFor(fmt);
+            File out = times.size() > 1 ? uniqueOut(p, name, i) : resolveOutput(p, name);
+
+            List<String> args = new ArrayList<>();
+            args.add("-y");
+            args.add("-hide_banner");
+            if (!useIndex) {
+                args.add("-ss");
+                args.add(fmtSeconds(Math.max(0, t)));
+            }
+            args.add("-i");
+            args.add(in.getAbsolutePath());
+            List<String> filters = new ArrayList<>();
+            if (useIndex) filters.add("select=eq(n\\," + index + ")");
+            if (!scale.isEmpty()) filters.add(scale);
+            if (!filters.isEmpty()) {
+                args.add("-vf");
+                args.add(join(filters, ","));
+            }
+            if (useIndex) {
+                args.add("-vsync");
+                args.add("0");
+            }
+            args.add("-frames:v");
+            args.add("1");
+            args.add("-q:v");
+            args.add(String.valueOf(jpegQ(quality)));
+            args.add(out.getAbsolutePath());
+
+            FfmpegEngine.Result r = FfmpegEngine.run(args.toArray(new String[0]), 120000);
+            if (!r.success || !out.exists() || out.length() <= 0) continue;
+            JSONObject item = new JSONObject();
+            item.put("file", out.getAbsolutePath());
+            item.put("time_sec", useIndex ? -1 : round2(Math.max(0, t)));
+            item.put("size_bytes", out.length());
+            saved.put(item);
+        }
+        if (saved.length() == 0) {
+            return AIToolResult.fail("ffmpeg 截帧失败（时间点可能超出时长 " + round2(duration) + "s）");
+        }
+        JSONObject out = new JSONObject();
+        out.put("ok", true);
+        out.put("engine", "ffmpeg");
+        out.put("count", saved.length());
+        out.put("duration_sec", round2(duration));
+        out.put("files", saved);
+        out.put("first_file", saved.getJSONObject(0).getString("file"));
+        return AIToolResult.success(out.toString(2));
+    }
+
+    private AIToolResult ffmpegExtractAudio(Map<String, Object> p) throws Exception {
+        String path = requirePath(p);
+        File in = ffmpegInput(path);
+        File out = resolveOutputExt(p, baseName(path) + "_audio", ".m4a");
+        FfmpegEngine.Result r = FfmpegEngine.run(new String[]{"-y", "-hide_banner", "-i", in.getAbsolutePath(),
+                "-vn", "-c:a", "copy", out.getAbsolutePath()}, 300000);
+        String mode = "remux(无损重封装,未重新编码)";
+        if (!r.success || !out.exists() || out.length() <= 0) {
+            if (out.exists()) out.delete();
+            r = FfmpegEngine.run(new String[]{"-y", "-hide_banner", "-i", in.getAbsolutePath(),
+                    "-vn", "-c:a", "aac", "-b:a", "128k", out.getAbsolutePath()}, 300000);
+            mode = "re-encode(aac 128k)";
+        }
+        if (!r.success || !out.exists() || out.length() <= 0) {
+            return AIToolResult.fail("ffmpeg 抽取音轨失败: " + r.describe());
+        }
+        JSONObject o = fileJson(out, r);
+        o.put("mode", mode);
+        return AIToolResult.success(o.toString(2));
+    }
+
+    private AIToolResult ffmpegToWav(Map<String, Object> p) throws Exception {
+        String path = requirePath(p);
+        File in = ffmpegInput(path);
+        int rate = clamp(intParam(p, "rate", 16000), 8000, 48000);
+        int ch = clamp(intParam(p, "channels", 1), 1, 2);
+        File out = resolveOutputExt(p, baseName(path) + "_" + (rate / 1000) + "k", ".wav");
+        FfmpegEngine.Result r = FfmpegEngine.run(new String[]{"-y", "-hide_banner", "-i", in.getAbsolutePath(),
+                "-vn", "-ac", String.valueOf(ch), "-ar", String.valueOf(rate), "-c:a", "pcm_s16le",
+                out.getAbsolutePath()}, 600000);
+        if (!r.success || !out.exists() || out.length() <= 44) {
+            return AIToolResult.fail("ffmpeg 转 WAV 失败: " + r.describe());
+        }
+        JSONObject o = fileJson(out, r);
+        o.put("sample_rate", rate);
+        o.put("channels", ch);
+        o.put("format", "WAV PCM 16bit");
+        o.put("duration_sec", round2((out.length() - 44) / (double) (rate * ch * 2)));
+        return AIToolResult.success(o.toString(2));
+    }
+
+    private AIToolResult ffmpegTrim(Map<String, Object> p) throws Exception {
+        String path = requirePath(p);
+        File in = ffmpegInput(path);
+        double start = doubleParam(p, "start", 0);
+        double end = doubleParam(p, "end", -1);
+        File out = resolveOutputExt(p, baseName(path) + "_trim", ".mp4");
+        List<String> base = new ArrayList<>();
+        base.add("-y");
+        base.add("-hide_banner");
+        if (start > 0) {
+            base.add("-ss");
+            base.add(fmtSeconds(start));
+        }
+        base.add("-i");
+        base.add(in.getAbsolutePath());
+        if (end > start) {
+            base.add("-t");
+            base.add(fmtSeconds(end - start));
+        }
+        // 先试无损（-c copy，关键帧对齐）；失败再重编码（帧级精确）
+        List<String> copyArgs = new ArrayList<>(base);
+        copyArgs.add("-c");
+        copyArgs.add("copy");
+        copyArgs.add(out.getAbsolutePath());
+        FfmpegEngine.Result r = FfmpegEngine.run(copyArgs.toArray(new String[0]), 300000);
+        String mode = "remux(无损重封装,关键帧对齐)";
+        if (!r.success || !out.exists() || out.length() <= 0) {
+            if (out.exists()) out.delete();
+            List<String> encArgs = new ArrayList<>(base);
+            encArgs.add("-c:v");
+            encArgs.add("h264_mediacodec");
+            encArgs.add("-c:a");
+            encArgs.add("aac");
+            encArgs.add(out.getAbsolutePath());
+            r = FfmpegEngine.run(encArgs.toArray(new String[0]), 600000);
+            mode = "re-encode(h264 帧级精确)";
+            if (!r.success || !out.exists() || out.length() <= 0) {
+                if (out.exists()) out.delete();
+                encArgs = new ArrayList<>(base);
+                encArgs.add("-c:v");
+                encArgs.add("mpeg4");
+                encArgs.add("-c:a");
+                encArgs.add("aac");
+                encArgs.add(out.getAbsolutePath());
+                r = FfmpegEngine.run(encArgs.toArray(new String[0]), 600000);
+            }
+        }
+        if (!r.success || !out.exists() || out.length() <= 0) {
+            return AIToolResult.fail("ffmpeg 剪切失败: " + r.describe());
+        }
+        JSONObject o = fileJson(out, r);
+        o.put("mode", mode);
+        o.put("requested_start_sec", round2(start));
+        o.put("requested_end_sec", end > 0 ? round2(end) : -1);
+        return AIToolResult.success(o.toString(2));
+    }
+
+    private AIToolResult ffmpegTranscode(Map<String, Object> p, boolean filter) throws Exception {
+        String path = requirePath(p);
+        File in = ffmpegInput(path);
+        String ext = str(p, "format", "");
+        File out = resolveOutputExt(p, baseName(path) + (filter ? "_filtered" : "_out"),
+                ext.isEmpty() ? ".mp4" : ("." + ext.replace(".", "")));
+
+        JSONObject info = ffprobeInfo(path);
+        int[] wh = firstVideoSize(info);
+
+        List<String> base = new ArrayList<>();
+        base.add("-y");
+        base.add("-hide_banner");
+        double start = doubleParam(p, "start", 0);
+        double end = doubleParam(p, "end", -1);
+        if (start > 0) {
+            base.add("-ss");
+            base.add(fmtSeconds(start));
+        }
+        base.add("-i");
+        base.add(in.getAbsolutePath());
+        if (end > start) {
+            base.add("-t");
+            base.add(fmtSeconds(end - start));
+        }
+
+        String vf = filter ? str(p, "vfilter", "") : scaleFilter(p, wh);
+        if (!vf.isEmpty()) {
+            base.add("-vf");
+            base.add(vf);
+        }
+        String af = filter ? str(p, "afilter", "") : "";
+        if (!af.isEmpty()) {
+            base.add("-af");
+            base.add(af);
+        }
+
+        boolean removeAudio = boolParam(p, "remove_audio", false) || "none".equalsIgnoreCase(str(p, "audio_mime", "aac"));
+        String audioCodec;
+        if (removeAudio) {
+            audioCodec = null;
+        } else {
+            String am = str(p, "audio_mime", "aac").toLowerCase(Locale.ROOT);
+            if (am.equals("copy") || am.equals("keep")) {
+                audioCodec = "copy";
+            } else if (am.equals("aac") || am.isEmpty()) {
+                audioCodec = "aac";
+            } else if (am.equals("flac")) {
+                audioCodec = "flac";
+            } else if (am.equals("mp3") || am.equals("libmp3lame")) {
+                return AIToolResult.fail("mp3 编码不支持：内置 ffmpeg（min 构建）不含 libmp3lame，设备也没有 mp3 编码器。"
+                        + "可改用 aac/flac（音频）或先用系统引擎的 extract_audio 无损抽 mp3 源文件");
+            } else if (am.equals("opus")) {
+                return AIToolResult.fail("opus 编码不支持：内置 ffmpeg（min 构建）不含 libopus。可改用 aac/flac");
+            } else {
+                audioCodec = am;
+            }
+        }
+
+        int bitrate = intParam(p, "bitrate", 0);
+        String want = str(p, "video_mime", filter ? "h264" : "keep").toLowerCase(Locale.ROOT);
+        boolean needsEncode = !vf.isEmpty() || !af.isEmpty() || bitrate > 0;
+        List<String> candidates = new ArrayList<>();
+        if ((want.equals("keep") || want.isEmpty()) && !needsEncode) {
+            candidates.add("copy");
+        } else if (want.equals("keep") || want.isEmpty() || want.equals("h264") || want.equals("avc")) {
+            candidates.add("h264_mediacodec");
+            candidates.add("mpeg4");
+        } else if (want.equals("h265") || want.equals("hevc")) {
+            candidates.add("hevc_mediacodec");
+            candidates.add("mpeg4");
+        } else if (want.equals("mpeg4")) {
+            candidates.add("mpeg4");
+        } else {
+            candidates.add(want);
+            candidates.add("mpeg4");
+        }
+
+        long timeoutMs = clamp(intParam(p, "timeout", 300), 10, 900) * 1000L;
+        FfmpegEngine.Result last = null;
+        String usedCodec = null;
+        for (String vc : candidates) {
+            if (out.exists()) out.delete();
+            List<String> args = new ArrayList<>(base);
+            args.add("-c:v");
+            args.add(vc);
+            if (bitrate > 0 && !"copy".equals(vc)) {
+                args.add("-b:v");
+                args.add(bitrate + "k");
+            }
+            if (removeAudio) {
+                args.add("-an");
+            } else {
+                args.add("-c:a");
+                args.add(audioCodec);
+            }
+            args.add(out.getAbsolutePath());
+            last = FfmpegEngine.run(args.toArray(new String[0]), timeoutMs);
+            if (last.success && out.exists() && out.length() > 0) {
+                usedCodec = vc;
+                break;
+            }
+        }
+        if (usedCodec == null || last == null) {
+            return AIToolResult.fail("ffmpeg 处理失败: " + (last == null ? "无输出" : last.describe()));
+        }
+        JSONObject o = fileJson(out, last);
+        o.put("video_codec", usedCodec);
+        o.put("audio_codec", removeAudio ? "none" : audioCodec);
+        if (!vf.isEmpty()) o.put("vfilter", vf);
+        if (!af.isEmpty()) o.put("afilter", af);
+        if (info != null) o.put("source_duration_sec", round2(info.optDouble("duration_sec")));
+        int[] outWh = firstVideoSize(ffprobeInfo(out.getAbsolutePath()));
+        if (outWh[0] > 0) {
+            o.put("output_width", outWh[0]);
+            o.put("output_height", outWh[1]);
+        }
+        if (candidates.size() > 1 && !candidates.get(0).equals(usedCodec)) {
+            o.put("codec_note", "首选 " + candidates.get(0) + " 不可用，已自动降级为 " + usedCodec);
+        }
+        return AIToolResult.success(o.toString(2));
+    }
+
+    /** 按 scale/width/height 生成 ffmpeg scale 滤镜；不需要缩放返回 "" */
+    private String scaleFilter(Map<String, Object> p, int[] srcWh) {
+        double scale = doubleParam(p, "scale", 0);
+        int w = intParam(p, "width", 0);
+        int h = intParam(p, "height", 0);
+        if (scale <= 0 && w <= 0 && h <= 0) return "";
+        if (scale > 0) {
+            if (srcWh[0] > 0 && srcWh[1] > 0) {
+                w = (int) Math.round(srcWh[0] * scale);
+                h = (int) Math.round(srcWh[1] * scale);
+            } else if (w <= 0) {
+                return "";
+            }
+        }
+        if (w > 0 && h <= 0) h = -2;
+        if (h > 0 && w <= 0) w = -2;
+        return "scale=" + w + ":" + h;
+    }
+
+    private JSONObject fileJson(File out, FfmpegEngine.Result r) throws Exception {
+        JSONObject o = new JSONObject();
+        o.put("ok", true);
+        o.put("engine", "ffmpeg");
+        o.put("file", out.getAbsolutePath());
+        o.put("size_bytes", out.length());
+        o.put("size_text", humanSize(out.length()));
+        o.put("elapsed_ms", r.ms);
+        return o;
+    }
+
+    private static String fmtSeconds(double v) {
+        return String.format(Locale.US, "%.3f", v);
+    }
+
+    private static int jpegQ(int quality) {
+        if (quality >= 95) return 2;
+        if (quality >= 85) return 3;
+        if (quality >= 70) return 6;
+        if (quality >= 50) return 10;
+        return 20;
+    }
+
+    private static String join(List<String> parts, String sep) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) sb.append(sep);
+            sb.append(parts.get(i));
+        }
+        return sb.toString();
     }
 
     // ==================================================================

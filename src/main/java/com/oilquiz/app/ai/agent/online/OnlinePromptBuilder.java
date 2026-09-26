@@ -386,11 +386,12 @@ public class OnlinePromptBuilder {
                 + "probe 读媒体信息(时长/分辨率/帧率/码率/轨道/编码器)；frame/thumbnail 截帧出图(time=秒 或 percent=0-100 或 index=帧序号，count=N 抽 N 张)；"
                 + "extract_audio 无损抽音轨(aac→m4a、mp3→mp3，不重编码)；to_wav 解码 WAV(默认 16k 单声道，可直接喂语音识别)；"
                 + "trim 无损剪切(start/end 秒，关键帧对齐，不重编码)；transcode 转码/压缩/改分辨率/换容器(video_mime=h264/h265/av1/keep、audio_mime=aac/none/keep、width/height/scale/bitrate/remove_audio，走硬件编解码，长任务可给 timeout)；"
-                + "image_ops 图片处理(width/height/max/crop=x,y,w,h/rotate/flip=h|v/gray/format=png|jpeg|webp/quality)。"
+                + "image_ops 图片处理(width/height/max/crop=x,y,w,h/rotate/flip=h|v/gray/format=png|jpeg|webp/quality)；filter 滤镜链(vfilter/afilter 传 ffmpeg 滤镜串，如 scale=-2:720,fps=10 / atempo=1.5,volume=2)。engine=auto(默认：系统框架优先，打不开或做不到时自动回退内置 ffmpeg)/system(只用系统)/ffmpeg(只用 ffmpeg)。"
                 + "输入支持绝对路径、工作区相对路径、content:// URI（读取外部文件仍受 App 已有存储访问限制）；输出默认落工作区 files/media/，返回 file 绝对路径（可直接给 image/video 组件渲染）。\n");
-        sb.append("  【能力边界｜不要越界承诺】能处理的容器/编码由**设备**的解码器与编码器决定，不是 ffmpeg 那种通吃：avi/flv/rmvb 等冷门容器多数设备解不了，"
-                + "时间轴水印/画中画/多路混流/字幕烧录等复杂滤镜链做不了，trim 是**关键帧对齐**（不是帧级精确），transcode 的实际分辨率会被编码器对齐取整（以返回的 output_width/height 为准）。"
-                + "遇到做不了的，直接告诉用户\"设备媒体框架不支持这个格式/这件事\"，不要硬凑一条能跑但结果是错的路径。\n");
+        sb.append("  【能力边界｜不要越界承诺】avi/flv/rmvb/wmv 等系统框架打不开的容器、rv40/cook/wmv3/vc1 等老编码，engine=auto 会自动回退**内置 ffmpeg 引擎**（真机实测可读可截帧可转码，转码走 h264_mediacodec 硬件桥）；"
+                + "滤镜链（scale/fps/overlay/ass字幕/atempo/volume）用 filter 动作。仍然做不到的：mp3/opus **编码**（min 构建无 lame/opus 编码器，mp3 只能抽已有音轨）、drawtext 文字水印（无 freetype）、时间轴水印/画中画/多路混流这类复杂编排；"
+                + "非主流编码是纯软解会慢。trim 是**关键帧对齐**（不是帧级精确），transcode 实际分辨率会被编码器对齐取整（以返回的 output_width/height 为准）。"
+                + "遇到确实做不了的，如实告诉用户，不要硬凑一条能跑但结果是错的路径。\n");
         sb.append("【Python 媒体处理】Python 里 import android_media 可调用同一套能力（probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/image_ops，参数与工具一致）；纯图片批处理也可直接用 Pillow。\n");
         sb.append("【Python 环境预装库】可直接 import（无需安装）：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)。读写 Word/PPT/PDF 直接用 docx / pptx / pypdf（已预装，无需再装）。画数据图表用 matplotlib 或 Pillow；matplotlib 画中文前先调用 setup_matplotlib_cjk()（android_helper 已 star-import，注册系统 CJK 字体，避免中文方框）；复杂图表（子图/对数轴/热力图等）用 python_execute 写 matplotlib 代码。\n\n");
         return sb.toString();
