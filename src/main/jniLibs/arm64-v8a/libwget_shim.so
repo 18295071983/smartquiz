@@ -1,0 +1,22 @@
+#!/system/bin/sh
+# wget 包装：https 交给 App 内下载服务（内置 busybox 未编译 TLS）。
+# 注意：本文件必须放在 nativeLibraryDir（随 APK 解压）—— App 数据目录里的文件不允许 exec。
+BIN_DIR=$(dirname "$0")
+PORT="$HTTP_FETCH_PORT"
+if [ -z "$PORT" ]; then PORT=$(cat "$BIN_DIR/.http_port" 2>/dev/null); fi
+OUT=""
+URL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -O) OUT="$2"; shift 2 ;;
+    -O*) OUT=$(echo "$1" | cut -c3-); shift ;;
+    -q|--quiet|-nv|--no-verbose|-c|--continue|-N|--timestamping) shift ;;
+    -*) shift ;;
+    *) if [ -z "$URL" ]; then URL="$1"; fi; shift ;;
+  esac
+done
+if [ -z "$URL" ]; then echo 'wget: missing URL' >&2; exit 1; fi
+if [ -z "$OUT" ]; then OUT=$(basename "$URL"); fi
+if [ -z "$PORT" ]; then echo 'wget: 下载服务未就绪（HTTP_FETCH_PORT 未设置）' >&2; exit 1; fi
+B64=$(printf '%s' "$URL" | base64 | tr -d '\n' | tr '+/' '-_')
+exec "$BIN_DIR/busybox" wget -O "$OUT" "http://127.0.0.1:$PORT/$B64"

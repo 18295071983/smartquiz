@@ -107,4 +107,75 @@ $pcDir = Join-Path $tmp 'pcre2'
 Expand-Deb $pcDeb $pcDir
 Install-File (Get-ChildItem $pcDir -Recurse -Filter 'libpcre2-8.so' | Select-Object -First 1).FullName 'libpcre2-8.so'
 
+# 3) RUNPATH 补成 $ORIGIN：让内置库在自己的目录里被找到，不带 LD_LIBRARY_PATH 裸跑也不再报
+#    "CANNOT LINK EXECUTABLE ... library libbusybox.so not found"（Termux 原值是 /data/data/com.termux/files/usr/lib）
+function Patch-Runpath([string]$path) {
+    $d = [System.IO.File]::ReadAllBytes($path)
+    $old = [System.Text.Encoding]::ASCII.GetBytes('/data/data/com.termux/files/usr/lib')
+    $newStr = '$ORIGIN' + ([string][char]0) * ($old.Length - 7)
+    $new = [System.Text.Encoding]::ASCII.GetBytes($newStr)
+    $hit = 0
+    for ($i = 0; $i -le $d.Length - $old.Length; $i++) {
+        $same = $true
+        for ($j = 0; $j -lt $old.Length; $j++) { if ($d[$i + $j] -ne $old[$j]) { $same = $false; break } }
+        if ($same) { [Array]::Copy($new, 0, $d, $i, $new.Length); $hit++; $i += $old.Length - 1 }
+    }
+    [System.IO.File]::WriteAllBytes($path, $d)
+    Write-Host ("  RUNPATH -> $ORIGIN: " + (Split-Path $path -Leaf) + "  hits=" + $hit)
+}
+foreach ($f in @('libbusybox_launcher.so', 'libbusybox.so', 'libandroid-selinux.so')) {
+    Patch-Runpath (Join-Path $out $f)
+}
+
+# 4) wget/curl 包装脚本：https 交给 App 内下载服务（busybox 未编译 TLS）。
+#    必须以 lib*.so 命名并放在 jniLibs 里 —— App 数据目录里的文件不允许 exec（实测 Permission denied）。
+$wgetShim = @'
+#!/system/bin/sh
+BIN_DIR=$(dirname "$0")
+PORT="$HTTP_FETCH_PORT"
+if [ -z "$PORT" ]; then PORT=$(cat "$BIN_DIR/.http_port" 2>/dev/null); fi
+OUT=""
+URL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -O) OUT="$2"; shift 2 ;;
+    -O*) OUT=$(echo "$1" | cut -c3-); shift ;;
+    -q|--quiet|-nv|--no-verbose|-c|--continue|-N|--timestamping) shift ;;
+    -*) shift ;;
+    *) if [ -z "$URL" ]; then URL="$1"; fi; shift ;;
+  esac
+done
+if [ -z "$URL" ]; then echo 'wget: missing URL' >&2; exit 1; fi
+if [ -z "$OUT" ]; then OUT=$(basename "$URL"); fi
+if [ -z "$PORT" ]; then echo 'wget: download service not ready' >&2; exit 1; fi
+B64=$(printf '%s' "$URL" | base64 | tr -d '\n' | tr '+/' '-_')
+exec "$BIN_DIR/busybox" wget -O "$OUT" "http://127.0.0.1:$PORT/$B64"
+'@
+$curlShim = @'
+#!/system/bin/sh
+BIN_DIR=$(dirname "$0")
+PORT="$HTTP_FETCH_PORT"
+if [ -z "$PORT" ]; then PORT=$(cat "$BIN_DIR/.http_port" 2>/dev/null); fi
+OUT=""
+URL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|--output) OUT="$2"; shift 2 ;;
+    -O|--remote-name) OUT=""; shift ;;
+    -s|--silent|-S|--show-error|-L|--location|-f|--fail|-k|--insecure|-#|--progress-bar) shift ;;
+    -X|--request|-H|--header|-d|--data|-u|--user|-A|--user-agent) shift 2 ;;
+    -*) shift ;;
+    *) if [ -z "$URL" ]; then URL="$1"; fi; shift ;;
+  esac
+done
+if [ -z "$URL" ]; then echo 'curl: no URL specified' >&2; exit 2; fi
+if [ -z "$OUT" ]; then OUT="-"; fi
+if [ -z "$PORT" ]; then echo 'curl: download service not ready' >&2; exit 1; fi
+B64=$(printf '%s' "$URL" | base64 | tr -d '\n' | tr '+/' '-_')
+exec "$BIN_DIR/busybox" wget -q -O "$OUT" "http://127.0.0.1:$PORT/$B64"
+'@
+[System.IO.File]::WriteAllText((Join-Path $out 'libwget_shim.so'), ($wgetShim -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText((Join-Path $out 'libcurl_shim.so'), ($curlShim -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
+Write-Host '  安装 libwget_shim.so / libcurl_shim.so'
+
 Write-Host '完成。注意：busybox 是 GPLv2，随 APK 分发需按 GPL 提供对应源码（busybox.net）。'

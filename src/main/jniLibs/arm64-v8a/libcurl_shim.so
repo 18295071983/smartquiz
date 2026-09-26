@@ -1,0 +1,22 @@
+#!/system/bin/sh
+# curl 包装：同上
+BIN_DIR=$(dirname "$0")
+PORT="$HTTP_FETCH_PORT"
+if [ -z "$PORT" ]; then PORT=$(cat "$BIN_DIR/.http_port" 2>/dev/null); fi
+OUT=""
+URL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|--output) OUT="$2"; shift 2 ;;
+    -O|--remote-name) OUT=""; shift ;;
+    -s|--silent|-S|--show-error|-L|--location|-f|--fail|-k|--insecure|-#|--progress-bar) shift ;;
+    -X|--request|-H|--header|-d|--data|-u|--user|-A|--user-agent) shift 2 ;;
+    -*) shift ;;
+    *) if [ -z "$URL" ]; then URL="$1"; fi; shift ;;
+  esac
+done
+if [ -z "$URL" ]; then echo 'curl: no URL specified' >&2; exit 2; fi
+if [ -z "$OUT" ]; then OUT="-"; fi
+if [ -z "$PORT" ]; then echo 'curl: 下载服务未就绪（HTTP_FETCH_PORT 未设置）' >&2; exit 1; fi
+B64=$(printf '%s' "$URL" | base64 | tr -d '\n' | tr '+/' '-_')
+exec "$BIN_DIR/busybox" wget -q -O "$OUT" "http://127.0.0.1:$PORT/$B64"

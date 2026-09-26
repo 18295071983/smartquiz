@@ -73,24 +73,25 @@ public class SystemResourceToolDeviceTest {
         System.out.println("[TEST] find     => " + out(shell("find $HOME -maxdepth 2 -name *.db 2>/dev/null | head -3")));
     }
 
-    /** 安全层回归：2>/dev/null 放行、/proc 拦截、sleep 秒拒 */
+    /** 护栏已全部移除：这些以前被拦的写法现在都必须放行；另外验证 wget 的 https（走 App 内下载服务） */
     @Test
-    public void securityChecks() {
-        AIToolResult devNull = shell("ls /sdcard/Download 2>/dev/null");
-        System.out.println("[TEST] 2>/dev/null => success=" + devNull.isSuccess() + " " + out(devNull));
-        assertTrue("2>/dev/null 应放行", devNull.isSuccess());
+    public void guardrailsRemoved() {
+        AIToolResult rm = shell("rm -rf $HOME/__no_such_dir__ ; echo rm-ok");
+        System.out.println("[TEST] rm -rf   => success=" + rm.isSuccess() + " " + out(rm).replace('\n', '|'));
+        assertTrue("rm 应放行", rm.isSuccess());
 
-        AIToolResult proc = shell("ls /proc");
-        System.out.println("[TEST] ls /proc   => success=" + proc.isSuccess() + " err=" + proc.getErrorMessage());
-        assertFalse("ls /proc 应被拦", proc.isSuccess());
+        AIToolResult proc = shell("ls /proc | head -3");
+        System.out.println("[TEST] ls /proc => success=" + proc.isSuccess() + " " + out(proc).replace('\n', '|'));
+        assertTrue("ls /proc 应放行", proc.isSuccess());
 
-        AIToolResult sleeping = shell("sleep 30");
-        System.out.println("[TEST] sleep 30   => success=" + sleeping.isSuccess() + " err=" + sleeping.getErrorMessage());
-        assertFalse("sleep 30 应被秒拒", sleeping.isSuccess());
+        AIToolResult sub = shell("echo year=$(date +%Y) home=$HOME");
+        System.out.println("[TEST] 命令替换 => success=" + sub.isSuccess() + " " + out(sub).replace('\n', '|'));
+        assertTrue("命令替换应放行", sub.isSuccess());
 
-        AIToolResult rm = shell("rm -rf /sdcard/x");
-        System.out.println("[TEST] rm -rf     => success=" + rm.isSuccess() + " err=" + rm.getErrorMessage());
-        assertFalse("rm 应被拦", rm.isSuccess());
+        AIToolResult https = shell("wget -O $HOME/ws_https_test.html https://www.baidu.com && wc -c < $HOME/ws_https_test.html");
+        String h = out(https).trim().replace('\n', '|');
+        System.out.println("[TEST] wget https => success=" + https.isSuccess() + " out=" + h);
+        assertTrue("wget https 应下到内容，实际: " + h, https.isSuccess() && h.matches("(?s).*\\d{4,}.*"));
     }
 
     /** 真超时：25 秒强杀并返回已产生输出（旧实现在这里会永远卡住，最后被框架 30s 报成 null） */
@@ -129,6 +130,24 @@ public class SystemResourceToolDeviceTest {
         assertTrue("LD_LIBRARY_PATH 应指向 " + bin + "，实际输出: " + flat, flat.contains("LD=" + bin));
         assertTrue("python 里 busybox 应能执行，实际输出: " + flat, flat.contains("BusyBox v1.38.0"));
         assertTrue("python 里 sed 管道应可用，实际输出: " + flat, flat.contains("SED=HI"));
+    }
+
+    /**
+     * 裸跑：清空环境（env -i）直接执行内置 busybox 与 applet 软链接。
+     * 以前会报 CANNOT LINK EXECUTABLE ... library "libbusybox.so" not found，
+     * 因为要把 LD_LIBRARY_PATH 指向库所在目录；现已把三个 ELF 的 RUNPATH 补成 $ORIGIN。
+     */
+    @Test
+    public void bareRunWithoutEnv() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        String binDir = ctx.getFilesDir().getAbsolutePath() + "/bin";
+        String r = out(shell("env -i " + binDir + "/busybox | head -1")).trim();
+        System.out.println("[EXP] bare busybox => " + r);
+        assertTrue("裸跑 busybox 应能执行（RUNPATH=$ORIGIN）: " + r, r.contains("BusyBox v1.38.0"));
+        String r2 = out(shell("env -i " + binDir + "/md5sum /system/bin/sh")).trim();
+        System.out.println("[EXP] bare md5sum => " + r2);
+        assertTrue("裸跑 applet 应能执行: " + r2, r2.matches("(?s).*[0-9a-f]{32}.*"));
     }
 
     /** 探测内置 busybox 哪些 applet 在 App 域可用（静态 musl 二进制部分 applet 会被 seccomp SIGSYS） */

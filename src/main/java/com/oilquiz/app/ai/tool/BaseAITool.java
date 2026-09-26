@@ -12,7 +12,7 @@ public abstract class BaseAITool implements AITool {
 
     /** 内置 Linux 工具箱说明：注解(注解值必须是编译期常量)与工具描述共用一份文案 */
     public static final String TOOLKIT_HINT = "shell_command 已内置 busybox 1.38（Termux 官方 bionic 构建，无需安装 Termux、无需任何权限）："
-            + "ash(完整 Linux shell)/wget/awk/vi/telnet/tar/gzip/md5sum/base64/httpd/… 400+ 命令可直接按名字调用；"
+            + "ash(完整 Linux shell)/awk/vi/telnet/tar/gzip/md5sum/base64/httpd/… 400+ 命令可直接按名字调用（wget/curl 已支持 https，走 App 内下载服务）；"
             + "系统自带的 toybox 命令优先（sed/grep/find/sort/head 等），busybox 在 PATH 末尾补足系统没有的，"
             + "也可用 $BUSYBOX_BIN_DIR 下的绝对路径调用。Python/JS 子进程同样可用（App 启动时已把 PATH/LD_LIBRARY_PATH 注入，"
             + "python_execute 里 subprocess 直接调 busybox/sed 等即可）。复杂逻辑建议写成脚本放工作区再执行（sh /路径/脚本.sh）："

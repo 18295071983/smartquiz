@@ -46,6 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
         @Action(name = "app_control", description = "控制应用：强制停止/清除数据/获取详细信息"),
         @Action(name = "shell_command", description = "执行Shell命令"),
         @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限）"),
+        @Action(name = "http_download", description = "下载 URL 到本地（App 内 okhttp 实现，https 走系统证书校验，比 shell 里的 wget 更可靠）"),
         @Action(name = "read_setting", description = "读取系统设置"),
         @Action(name = "write_setting", description = "修改系统设置"),
         @Action(name = "get_current_app", description = "获取当前前台应用信息")
@@ -53,7 +54,8 @@ import java.util.concurrent.atomic.AtomicInteger;
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
         @Param(name = "app", type = "string", description = "应用名称或包名", required = false),
-        @Param(name = "url", type = "string", description = "URL地址", required = false),
+        @Param(name = "url", type = "string", description = "URL地址（http_download 时为要下载的地址）", required = false),
+        @Param(name = "path", type = "string", description = "保存路径（http_download 用；绝对路径或工作区相对路径，缺省存到工作区 files/ 并用 URL 文件名）", required = false),
         @Param(name = "phone", type = "string", description = "电话号码", required = false),
         @Param(name = "message", type = "string", description = "短信内容", required = false),
         @Param(name = "command", type = "string", description = "Shell命令（shell_command 或 termux_exec 均可使用：termux_exec 时命令在 Termux 的 Linux 环境里执行）", required = false),
@@ -250,6 +252,8 @@ public class SystemResourceTool implements AITool {
                     return executeShellCommand(parameters);
                 case "termux_exec":
                     return termuxExec(parameters);
+                case "http_download":
+                    return httpDownload(parameters);
                 case "read_setting":
                     return readSetting(parameters);
                 case "write_setting":
@@ -1084,77 +1088,12 @@ public class SystemResourceTool implements AITool {
             return new AIToolResult("缺少参数: command", parameters);
         }
         
-        // ===== 安全检查（多层防护） =====
-        String lowerCmd = command.toLowerCase().trim();
-        String normalized = lowerCmd.replaceAll("\\s+", " ");
-        
-        // 1. 拦截命令替换/反引号注入
-        if (normalized.contains("$(") || normalized.contains("`") || normalized.contains("${")) {
-            return new AIToolResult("安全限制：不允许命令替换/变量注入: " + command, parameters);
-        }
-        
-        // 分词一次，供敏感路径与危险命令共用（空白与 ; & | $ ( ) 都算分隔）
-        String[] parts = normalized.split("[;&|$()\\s]+");
-
-        // 2. 拦截敏感路径（读取/写入其他应用数据、内核接口、凭据文件）
-        for (String bannedPath : BANNED_PATHS) {
-            if (normalized.contains(bannedPath)) {
-                return new AIToolResult("安全限制：不允许访问敏感路径: " + bannedPath, parameters);
-            }
-            // 带尾斜杠的黑名单条目（如 "/proc/"）也要拦住无斜杠写法（实测 "ls /proc" 曾绕过）
-            if (bannedPath.endsWith("/")) {
-                String bare = bannedPath.substring(0, bannedPath.length() - 1);
-                for (String part : parts) {
-                    if (part.equals(bare) || part.startsWith(bare + "/")) {
-                        return new AIToolResult("安全限制：不允许访问敏感路径: " + bannedPath, parameters);
-                    }
-                }
-            }
-        }
-        
-        // 3. 危险命令黑名单（按命令片段拆分，防 `echo a; rm -rf /`、`$(rm)` 等绕过）
-        for (String part : parts) {
-            String p = part.trim();
-            if (p.isEmpty()) continue;
-            for (String banned : BANNED_COMMANDS) {
-                if (p.equals(banned) || p.startsWith(banned + " ")) {
-                    return new AIToolResult("安全限制：不允许执行危险命令: " + command, parameters);
-                }
-            }
-        }
-        
-        // 4. find 带破坏性参数（-delete/-exec/-ok）单独拦截（普通 find 只读允许）
-        if (normalized.contains("find") && (normalized.contains("-delete") || normalized.contains("-exec")
-                || normalized.contains("-ok") || normalized.contains("-execdir"))) {
-            return new AIToolResult("安全限制：不允许 find 破坏性操作: " + command, parameters);
-        }
-        
-        // 4.5 注定超时的 sleep：sleep N（N ≥ 超时秒数）不可能成功，直接给出明确建议，
-        //     而不是让 Agent 干等 25 秒再收到超时（实测 "sleep 30" 曾经直接变成工具失败）
-        for (int i = 0; i < parts.length - 1; i++) {
-            if (!"sleep".equals(parts[i])) continue;
-            try {
-                double secs = Double.parseDouble(parts[i + 1]);
-                if (secs >= SHELL_TIMEOUT_SECONDS) {
-                    return new AIToolResult("命令被拒绝：sleep " + parts[i + 1] + " 超过了 shell 工具 "
-                            + SHELL_TIMEOUT_SECONDS + " 秒上限，必然超时。请改为 ≤5 秒的短暂等待，"
-                            + "或直接用别的命令确认状态；需要延时请拆成多次调用。", parameters);
-                }
-            } catch (NumberFormatException ignored) {
-                // sleep 后面不是数字（如 sleep infinity、grep sleep），交给正常流程
-            }
-        }
-        
-        // 5. 重定向到系统设备/分区拒绝（兜底设备直写）。
-        //    注意：/dev/null、/dev/stdout、/dev/stderr、/dev/tty 必须放行 ——
-        //    旧的 ".*>\s*/dev/..." 正则会把 find ... 2>/dev/null 这种常用无害写法一起误杀。
-        java.util.regex.Matcher devWrite = DEVICE_WRITE.matcher(normalized);
-        while (devWrite.find()) {
-            String devTarget = devWrite.group(1);
-            if (!SAFE_DEV_TARGETS.contains(devTarget)) {
-                return new AIToolResult("安全限制：不允许写入系统设备: " + command, parameters);
-            }
-        }
+        // ===== 护栏已全部移除 =====
+        // 这是用户自己的设备，shell_command 不再做任何命令/路径拦截：
+        // 变量替换、$( )、反引号、rm/dd/chmod/kill、/proc、/data/data、设备写入等一律放行，
+        // 命令原样交给 /system/bin/sh 执行。仅保留两项与安全无关的工程限制：
+        //   · 超时 SHELL_TIMEOUT_SECONDS 秒（到点强杀并返回已产生的输出）
+        //   · 输出上限 MAX_SHELL_OUTPUT_CHARS 字符（防 cat 大文件把结果撑爆）
         
         try {
             String output = executeShell(command);
@@ -1167,7 +1106,8 @@ public class SystemResourceTool implements AITool {
             String binDir = ensureBusyboxBinDir();
             if (binDir != null) {
                 result.put("linux_toolkit", "内置 busybox 在 PATH 末尾，另有 " + binDir + "（环境变量 BUSYBOX_BIN_DIR）："
-                        + "系统没有的命令（wget/vi/nc/ash 等）可直接用；系统自带 toybox 已提供 sed/grep/find/tar/awk/sort/md5sum 等，优先用系统的");
+                        + "ash/awk/vi/nc/tar/gzip 等可直接用；wget/curl 已换成包装脚本，"
+                        + "https 由 App 内下载服务(127.0.0.1)代理，可直接 wget -O 文件 URL");
             }
             if (timedOut) {
                 result.put("hint", "命令未在 " + SHELL_TIMEOUT_SECONDS + " 秒内结束，已被强制终止。"
@@ -1192,6 +1132,75 @@ public class SystemResourceTool implements AITool {
         if (!f.delete()) {
             AILogger.e(TAG, "删除失败: " + f.getAbsolutePath());
         }
+    }
+
+    /** 起本地下载服务并把 wget/curl 覆盖成走它的包装脚本（幂等） */
+    private void installFetchShims(File binDir) {
+        try {
+            int port = HttpFetchServer.start(context);
+            if (port <= 0) {
+                AILogger.e(TAG, "本地下载服务未启动，wget/curl 的 https 不可用");
+                return;
+            }
+            // 注意：shim 必须是 nativeLibraryDir 里的文件（随 APK 解压，可 exec）。
+            // 之前把脚本写进 bin（App 数据目录）会报 Permission denied —— Android 禁止 exec 数据目录里的文件。
+            linkShim(binDir, "wget", "libwget_shim.so");
+            linkShim(binDir, "curl", "libcurl_shim.so");
+        } catch (Exception e) {
+            AILogger.e(TAG, "安装 wget/curl 包装脚本失败: " + BaseAITool.errText(e));
+        }
+    }
+
+    /** 把 bin/<name> 指向 nativeLibraryDir 里的 shim（先删掉 busybox --install 建的 applet 软链接） */
+    private void linkShim(File binDir, String name, String shimLibName) {
+        try {
+            File target = new File(context.getApplicationInfo().nativeLibraryDir, shimLibName);
+            if (!target.exists()) {
+                AILogger.e(TAG, "缺少 " + shimLibName + "（wget/curl 的 https 不可用）: " + target.getAbsolutePath());
+                return;
+            }
+            File link = new File(binDir, name);
+            if (link.exists() && !link.delete()) {
+                AILogger.e(TAG, "删除旧 wget/curl 软链接失败: " + link);
+            }
+            java.nio.file.Files.createSymbolicLink(link.toPath(), target.toPath());
+        } catch (Exception e) {
+            AILogger.e(TAG, "创建 " + name + " 软链接失败: " + BaseAITool.errText(e));
+        }
+    }
+
+    /** http_download：用 App 内的 okhttp 直接下载（https 走系统证书校验），可指定保存路径 */
+    private AIToolResult httpDownload(Map<String, Object> parameters) {
+        String url = (String) parameters.get("url");
+        if (url == null || url.trim().isEmpty()) {
+            return new AIToolResult("缺少参数: url", parameters);
+        }
+        url = url.trim();
+        String path = (String) parameters.get("path");
+        File dest;
+        File wsFiles = new File(context.getFilesDir(), "agent_workspace/files");
+        if (path != null && !path.trim().isEmpty()) {
+            String pt = path.trim();
+            dest = pt.startsWith("/") ? new File(pt) : new File(wsFiles, pt);
+        } else {
+            String name = url.substring(url.lastIndexOf('/') + 1);
+            if (name.isEmpty() || name.contains("?") || name.length() > 80) {
+                name = "download_" + System.currentTimeMillis();
+            }
+            dest = new File(wsFiles, name);
+        }
+        long bytes = HttpFetchServer.downloadToFile(url, dest);
+        Map<String, Object> result = new HashMap<>();
+        result.put("url", url);
+        if (bytes < 0) {
+            result.put("status", "error");
+            result.put("error", "下载失败（网络不可达 / 证书校验失败 / HTTP 非 2xx）");
+            return new AIToolResult(result, parameters);
+        }
+        result.put("status", "success");
+        result.put("file", dest.getAbsolutePath());
+        result.put("bytes", bytes);
+        return new AIToolResult(result, parameters);
     }
 
     /** 在 bin 目录为 nativeLibraryDir 里的库建软链接（供 busybox 的 LD_LIBRARY_PATH 查找） */
@@ -1362,6 +1371,9 @@ public class SystemResourceTool implements AITool {
                     AILogger.e(TAG, "busybox applet 软链接未生成（sed 不存在），放弃注入 PATH: " + binDir);
                     return null;
                 }
+                // 让 wget/curl 支持 https（busybox 没编译 TLS）：起本地下载服务 + 覆盖成包装脚本
+                installFetchShims(binDir);
+
                 sBusyboxBinDir = binDir.getAbsolutePath();
                 AILogger.i(TAG, "内置 Linux 工具链就绪: " + sBusyboxBinDir);
                 return sBusyboxBinDir;
@@ -1417,6 +1429,11 @@ public class SystemResourceTool implements AITool {
                     env.put("BUSYBOX", busyboxPath() != null ? busyboxPath() : "");
                     // busybox 启动器靠它加载 libbusybox.so / libandroid-selinux.so（只含这两个软链接的目录）
                     env.put("LD_LIBRARY_PATH", binDir);
+                    // wget/curl 包装脚本靠它找本地下载服务（也写了 .http_port 文件作为兜底）
+                    int fetchPort = HttpFetchServer.getPort();
+                    if (fetchPort > 0) {
+                        env.put("HTTP_FETCH_PORT", String.valueOf(fetchPort));
+                    }
                 }
                 // 让 wget/vi/tar 之类有可写的临时目录与 HOME
                 env.put("TMPDIR", context.getCacheDir().getAbsolutePath());
