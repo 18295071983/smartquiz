@@ -14,12 +14,13 @@ import org.json.JSONException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @Tool(
     value = "python_analyze_data",
-    description = "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时用本工具，复杂任务用python_execute",
+    description = "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时用本工具，复杂任务用python_execute；data 支持 JSON 数组/对象、带表头 CSV、逗号或换行分隔列表(如 10, 20, 30)",
     category = "python",
     aliases = {"data_analysis", "analyze", "数据分析"},
     actions = {
@@ -28,7 +29,7 @@ import java.util.Map;
         @Action(name = "process", description = "数据处理")
     },
     params = {
-        @Param(name = "data", type = "list", description = "数据数组", required = true),
+        @Param(name = "data", type = "list", description = "数据：JSON 数组/对象，或带表头 CSV、逗号/换行分隔列表", required = true),
         @Param(name = "task", type = "string", description = "任务描述", required = false)
     }
 )
@@ -38,7 +39,7 @@ public class PythonDataAnalysisTool extends BaseAITool {
     private final PythonToolManager toolManager;
     
     public PythonDataAnalysisTool(Context context) {
-        super("python_analyze_data", "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时用本工具，复杂任务用python_execute");
+        super("python_analyze_data", "使用Python分析数据(统计/清洗/转换/图表计算等)。与python_execute的区别：本工具专注数据分析场景，适合处理用户提供的数据或表格内容；python_execute可执行任意Python代码(含文件/网络/UI组件等)。数据量大时用本工具，复杂任务用python_execute；data 支持 JSON 数组/对象、带表头 CSV、逗号或换行分隔列表(如 10, 20, 30)");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
     }
@@ -65,7 +66,12 @@ public class PythonDataAnalysisTool extends BaseAITool {
                 String dataStr = ((String) dataObj).trim();
                 dataList = parseJsonArray(dataStr);
                 if (dataList == null) {
-                    // 尝试作为单个值处理
+                    // 非 JSON：按 CSV/逗号/换行/分号/顿号/制表符解析
+                    // （用户常直接贴 "10, 20, 30" 或带表头的 CSV，此前会被当成"1 条记录"）
+                    dataList = parseCsvOrDelimited(dataStr);
+                }
+                if (dataList == null) {
+                    // 仍解析不出：作为单个值处理
                     dataList = new ArrayList<>();
                     try {
                         dataList.add(Integer.parseInt(dataStr));
@@ -230,6 +236,119 @@ public class PythonDataAnalysisTool extends BaseAITool {
         }
     }
     
+    /**
+     * 非 JSON 文本的兜底解析：
+     * <ol>
+     *   <li>带表头的 CSV（≥2 行、列数一致、首行含非数字列名）→ [{列名: 值}, ...]，可直接做分组统计；</li>
+     *   <li>单行/多行分隔列表（逗号/中文逗号/分号/顿号/制表符/竖线/换行）→ [值, ...]；</li>
+     *   <li>都解析不出（少于 2 个值）返回 null，由调用方按"单个值"处理。</li>
+     * </ol>
+     */
+    private static List<Object> parseCsvOrDelimited(String text) {
+        if (text == null) return null;
+        String t = text.trim();
+        if (t.isEmpty()) return null;
+        String[] lines = t.split("\\r?\\n");
+        // 1) 带表头的 CSV
+        if (lines.length >= 2) {
+            List<String[]> rows = new ArrayList<>();
+            for (String line : lines) {
+                if (line.trim().isEmpty()) continue;
+                String[] cells = splitDelimitedLine(line);
+                for (int i = 0; i < cells.length; i++) {
+                    cells[i] = cells[i].trim().replaceAll("^\"|\"$", "");
+                }
+                rows.add(cells);
+            }
+            if (rows.size() >= 2) {
+                int cols = rows.get(0).length;
+                boolean uniform = cols >= 2;
+                for (String[] r : rows) {
+                    if (r.length != cols) { uniform = false; break; }
+                }
+                boolean headerLooksText = false;
+                for (String c : rows.get(0)) {
+                    if (!c.isEmpty() && !isNumericValue(c)) { headerLooksText = true; break; }
+                }
+                if (uniform && headerLooksText) {
+                    List<Object> out = new ArrayList<>();
+                    String[] head = rows.get(0);
+                    for (int r = 1; r < rows.size(); r++) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        for (int c = 0; c < cols; c++) {
+                            row.put(head[c], coerceValue(rows.get(r)[c]));
+                        }
+                        out.add(row);
+                    }
+                    if (out.size() >= 1) return out;
+                }
+            }
+        }
+        // 2) 分隔列表
+        String[] parts = splitDelimitedLine(t);
+        if (parts.length < 2) parts = lines;
+        List<Object> out = new ArrayList<>();
+        for (String p : parts) {
+            String v = p.trim().replaceAll("^\"|\"$", "");
+            if (!v.isEmpty()) out.add(coerceValue(v));
+        }
+        return out.size() >= 2 ? out : null;
+    }
+
+    /**
+     * 按分隔符（半/全角逗号、半/全角分号、顿号、制表符、竖线）拆分一"行"，
+     * 支持双引号包裹的字段：{"香,蕉",3} → ["香,蕉", "3"]（避免内嵌逗号被拆开导致静默错数据）。
+     */
+    private static String[] splitDelimitedLine(String line) {
+        List<String> cells = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inQuote = false;
+        for (int i = 0; i < line.length(); i++) {
+            char ch = line.charAt(i);
+            if (ch == '"') {
+                if (inQuote && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    cur.append('"');
+                    i++;
+                } else {
+                    inQuote = !inQuote;
+                }
+            } else if (!inQuote && isDelimiterChar(ch)) {
+                cells.add(cur.toString().trim());
+                cur.setLength(0);
+            } else {
+                cur.append(ch);
+            }
+        }
+        cells.add(cur.toString().trim());
+        return cells.toArray(new String[0]);
+    }
+
+    private static boolean isDelimiterChar(char c) {
+        return c == ',' || c == '\uFF0C' || c == ';' || c == '\uFF1B'
+                || c == '\t' || c == '\u3001' || c == '|';
+    }
+
+    private static boolean isNumericValue(String s) {
+        if (s == null || s.isEmpty()) return false;
+        try {
+            Double.parseDouble(s);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static Object coerceValue(String s) {
+        if (isNumericValue(s)) {
+            try {
+                return Integer.parseInt(s);
+            } catch (Exception e) {
+                return Double.parseDouble(s);
+            }
+        }
+        return s;
+    }
+
     private String quoteString(String s) {
         if (s == null) return "None";
         return "\"" + s.replace("\\", "\\\\")
@@ -242,7 +361,7 @@ public class PythonDataAnalysisTool extends BaseAITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("data", "array, 数据数组，如 [1,2,3,4,5] 或 ['a','b','a','c']");
+        params.put("data", "array/text, 数据数组或文本：JSON [1,2,3] / ['a','b']、带表头 CSV（name,qty\n苹果,2）、逗号或换行分隔（10, 20, 30）");
         params.put("task", "string, 分析任务描述（可选）");
         return params;
     }

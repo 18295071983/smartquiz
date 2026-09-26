@@ -538,3 +538,59 @@ def create_and_run(name, code, args=None):
     path = create_python_file(name, code)
     result = run_python_file(path, args)
     return f"文件: {path}\n\n输出:\n{result}"
+
+# ==================== matplotlib 中文字体 ====================
+
+# Android 系统字体目录不在 matplotlib font_manager 的扫描范围内，
+# 不注册就会画出一堆方框（"matplotlib 没有中文字体"）。
+_CJK_FONT_CANDIDATES = [
+    '/system/fonts/NotoSansCJK-Regular.ttc',
+    '/system/fonts/NotoSansSC-Regular.otf',
+    '/system/fonts/DroidSansFallbackFull.ttf',
+    '/system/fonts/DroidSansFallback.ttf',
+    '/system/fonts/SansSerif-Regular.ttf',
+    '/system/fonts/NotoSerifCJK-Regular.ttc',
+]
+
+def cjk_font_path():
+    """返回一个可用的中文字体文件路径（找不到返回 None）。"""
+    cands = []
+    try:
+        base = os.path.dirname(os.path.abspath(__file__))
+        cands += [os.path.join(base, 'simhei.ttf'), os.path.join(base, 'simkai.ttf')]
+    except Exception:
+        pass
+    cands += _CJK_FONT_CANDIDATES
+    for p in cands:
+        try:
+            if p and os.path.exists(p):
+                return p
+        except Exception:
+            continue
+    return None
+
+def setup_matplotlib_cjk():
+    """让 matplotlib 能正常显示中文，返回注册的字体名（失败返回 None）。
+
+    用法（python_execute 里 android_helper 已 star-import，可直接调用）：
+        setup_matplotlib_cjk()
+        plt.title('中文标题')      # 不再显示方框
+    """
+    try:
+        import matplotlib
+        from matplotlib import font_manager
+    except Exception:
+        return None
+    path = cjk_font_path()
+    if not path:
+        return None
+    try:
+        font_manager.fontManager.addfont(path)
+        name = font_manager.FontProperties(fname=path).get_name()
+        old = [f for f in matplotlib.rcParams.get('font.sans-serif', []) if f != name]
+        matplotlib.rcParams['font.sans-serif'] = [name] + old
+        matplotlib.rcParams['font.family'] = 'sans-serif'
+        matplotlib.rcParams['axes.unicode_minus'] = False
+        return name
+    except Exception:
+        return None

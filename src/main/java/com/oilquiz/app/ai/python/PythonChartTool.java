@@ -43,7 +43,7 @@ import java.util.Map;
         @Param(name = "title", type = "string", description = "图表标题(可选)", required = false),
         @Param(name = "width", type = "integer", description = "图片宽度(默认800)", required = false),
         @Param(name = "height", type = "integer", description = "图片高度(默认500)", required = false),
-        @Param(name = "output_path", type = "string", description = "保存路径(默认工作区files/)", required = false),
+        @Param(name = "output_path", type = "string", description = "保存路径(默认工作区files/xxx.png)；支持相对路径，如 files/chart.png 或 chart.png，会自动解析到工作区", required = false),
         @Param(name = "colors", type = "array", description = "系列颜色数组(可选，默认内置色板)", required = false),
         @Param(name = "show_values", type = "boolean", description = "是否显示数值(默认true)", required = false)
     }
@@ -112,10 +112,17 @@ public class PythonChartTool extends BaseAITool {
         boolean showValues = boolParam(parameters, "show_values", true);
 
         // 默认输出：工作区 files/agent_chart_时间戳.png
+        String wsFiles = new java.io.File(context.getFilesDir(),
+                "agent_workspace" + java.io.File.separator + "files").getAbsolutePath();
         if (outputPath == null || outputPath.isEmpty()) {
-            String wsFiles = new java.io.File(context.getFilesDir(),
-                    "agent_workspace" + java.io.File.separator + "files").getAbsolutePath();
             outputPath = wsFiles + java.io.File.separator + "agent_chart_" + System.currentTimeMillis() + ".png";
+        } else if (!outputPath.startsWith("/")) {
+            // 相对路径统一解析到工作区 files/：Android 进程 cwd 是只读的，
+            // 传 "files/x.png" 或 "x.png" 直接 save 会报 [Errno 30] Read-only file system: 'files'
+            String rel = outputPath.replace('\\', '/');
+            if (rel.startsWith("./")) rel = rel.substring(2);
+            if (rel.startsWith("files/")) rel = rel.substring("files/".length());
+            outputPath = new java.io.File(wsFiles, rel).getAbsolutePath();
         }
 
         return String.format(
@@ -407,7 +414,7 @@ public class PythonChartTool extends BaseAITool {
         params.put("title", "图表标题(可选)");
         params.put("width", "图片宽度(默认800)");
         params.put("height", "图片高度(默认500)");
-        params.put("output_path", "保存路径(默认工作区files/)");
+        params.put("output_path", "保存路径(默认工作区files/xxx.png)；相对路径自动解析到工作区(files/chart.png 或 chart.png)");
         params.put("colors", "系列颜色数组(可选，默认内置色板)");
         params.put("show_values", "是否显示数值(默认true)");
         return params;

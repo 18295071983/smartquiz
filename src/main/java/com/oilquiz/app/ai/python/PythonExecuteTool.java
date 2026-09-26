@@ -525,7 +525,8 @@ public class PythonExecuteTool extends BaseAITool {
         //   读/写 Word: import docx（python-docx）    读/写 PPT: import pptx（python-pptx）
         //   PDF: import pypdf                          Excel 写入: import xlsxwriter
         sb.append("# numpy/PIL/lxml/regex/pandas/matplotlib 含 native 扩展，需 Agent 代码中显式 import\n");
-        sb.append("# 文档类已预装、按需 import：docx(python-docx) / pptx(python-pptx) / pypdf / xlsxwriter\n\n");
+        sb.append("# 文档类已预装、按需 import：docx(python-docx) / pptx(python-pptx) / pypdf / xlsxwriter\n");
+        sb.append("# matplotlib 画中文前先调用 setup_matplotlib_cjk()（android_helper 已 star-import，注册系统 CJK 字体，否则中文显示方框）\n\n");
         
         // ===== Android 辅助模块 =====
         sb.append("# Android 环境辅助模块（文件/CSV/SQLite/XML/数据统计）\n");
