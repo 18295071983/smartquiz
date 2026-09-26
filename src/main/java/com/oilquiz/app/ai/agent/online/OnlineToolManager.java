@@ -248,6 +248,7 @@ public class OnlineToolManager {
         map.put("time", java.util.Arrays.asList("time_date"));
         map.put("app", java.util.Arrays.asList("app_operation"));
         map.put("system", java.util.Arrays.asList("system_resource", "linux_shell"));
+        map.put("media", java.util.Arrays.asList("media_toolkit", "video_to_player"));
         map.put("study_plan", java.util.Arrays.asList("file_generator"));
         map.put("history", java.util.Arrays.asList("chat_history")); // 对话历史（跨会话上下文）
         map.put("knowledge", java.util.Arrays.asList("knowledge_base"));
@@ -364,6 +365,13 @@ public class OnlineToolManager {
                 }
                 if (containsAny(msg, "打开应用", "启动应用", "打开app", "运行应用", "app操作", "打开软件")) {
                     include.add("app_operation");
+                }
+                // 媒体处理类：看视频/音频信息、截帧封面、抽音轨、转 WAV、剪一段、压缩转码、图片缩放裁剪转格式
+                if (containsAny(msg, "视频", "音频", "转码", "截帧", "抽帧", "封面", "缩略图", "提取音频", "抽音轨",
+                        "剪切视频", "裁剪视频", "剪一段", "视频压缩", "压缩视频", "压缩图片", "图片压缩", "分辨率",
+                        "帧率", "码率", "视频格式", "转mp4", "转wav", "转成mp4", "换成mp4", "媒体信息", "视频信息",
+                        "音频信息", "图片尺寸", "改图片大小", "旋转图片", "裁剪图片", "图片转格式", "九宫格预览")) {
+                    include.add("media_toolkit");
                 }
                 if (containsAny(msg, "系统信息", "设备信息", "内存", "存储空间", "电池", "wifi", "系统资源")) {
                     include.add("system_resource");

@@ -235,6 +235,8 @@ public class AIToolManager {
         registerToolFactory("excel_tool", ExcelTool.class, ExcelTool::new);
         registerToolFactory("ocr_recognize", OCRRecognizeTool.class, OCRRecognizeTool::new);
         registerToolFactory("video_to_player", VideoToPlayerTool.class, VideoToPlayerTool::new);
+        // 本地媒体工具箱：系统硬解硬编（probe/截帧/抽音轨/WAV/剪切/转码/图片处理），不依赖 ffmpeg
+        registerToolFactory("media_toolkit", MediaToolkitTool.class, MediaToolkitTool::new);
         registerToolFactory("system_connect", SystemConnectTool.class, SystemConnectTool::new);
         // 纯本地工具：文本处理（JSON/编码/正则）与单位换算（零网络依赖）
         registerToolFactory("text_tools", TextToolsTool.class, TextToolsTool::new);
@@ -1506,6 +1508,36 @@ public class AIToolManager {
                     .addParameter("url", "string", "视频页面链接或直链URL（必填）", true)
                     .addParameter("title", "string", "视频标题（可选，默认取文件名）", false)
                     .addParameter("timeout", "integer", "下载超时秒数（可选，默认120）", false)
+                    .category("media")
+                    .build();
+            case "media_toolkit":
+                return ToolDefinition.builder("media_toolkit", "本地媒体工具箱（系统自带硬解硬编，无需 ffmpeg、无需权限、不联网）：probe 看媒体信息（时长/分辨率/帧率/码率/音视频轨/编码器）；frame/thumbnail 截帧出图（时间/百分比/帧序号/多帧）；extract_audio 无损抽取音轨（aac→m4a、mp3→mp3）；to_wav 解码 WAV（默认 16k 单声道，可喂语音识别）；trim 无损剪切（关键帧对齐）；transcode 转码/压缩/改分辨率/换容器（H.264/H.265/AAC，可去音轨）；image_ops 图片缩放/裁剪/旋转/翻转/灰度/转格式。输入支持绝对路径/工作区相对路径/content:// URI；输出默认落工作区 files/media/。视频信息/截帧/抽音频/压视频/图片批处理优先用本工具（比 shell 里的 ffmpeg 更靠得住：不依赖外部二进制）")
+                    .addParameter("action", "string", "操作: probe(媒体信息)/frame(截帧)/thumbnail(缩略图)/extract_audio(无损抽音轨)/to_wav(转WAV)/trim(无损剪切)/transcode(转码压缩)/image_ops(图片处理)", true)
+                    .addParameter("path", "string", "输入文件：绝对路径、工作区相对路径或 content:// URI", true)
+                    .addParameter("output", "string", "输出文件；缺省存工作区 files/media/ 并自动命名", false)
+                    .addParameter("time", "string", "frame 用：截帧时间（秒，可小数，如 3.5）", false)
+                    .addParameter("percent", "string", "frame 用：按视频时长百分比取帧（0-100）", false)
+                    .addParameter("index", "string", "frame 用：按帧序号取帧（0 开始）", false)
+                    .addParameter("count", "string", "frame 用：均匀抽 N 张（如 9 张做九宫格）", false)
+                    .addParameter("exact", "string", "frame 用：true=精确帧(慢)，默认最近关键帧", false)
+                    .addParameter("width", "string", "输出/缩放宽度（frame/thumbnail/image_ops/transcode）", false)
+                    .addParameter("height", "string", "输出/缩放高度（frame/thumbnail/image_ops/transcode）", false)
+                    .addParameter("max", "string", "最长边上限（image_ops/thumbnail，等比缩放）", false)
+                    .addParameter("format", "string", "输出图片格式: png/jpeg/webp（默认 jpg）", false)
+                    .addParameter("quality", "string", "jpeg/webp 质量 1-100（默认 90）", false)
+                    .addParameter("crop", "string", "image_ops 用：裁剪区域 x,y,w,h（像素）", false)
+                    .addParameter("rotate", "string", "image_ops 用：旋转角度（90/180/270 或任意度数）", false)
+                    .addParameter("flip", "string", "image_ops 用：翻转 h=水平 v=垂直", false)
+                    .addParameter("gray", "string", "image_ops 用：true=转灰度", false)
+                    .addParameter("start", "string", "trim/transcode 用：起始时间（秒，默认 0）", false)
+                    .addParameter("end", "string", "trim/transcode 用：结束时间（秒，默认到结尾）", false)
+                    .addParameter("rate", "string", "to_wav 用：采样率（默认 16000）", false)
+                    .addParameter("channels", "string", "to_wav 用：声道数 1/2（默认 1）", false)
+                    .addParameter("video_mime", "string", "transcode 用：h264/h265/av1/keep（默认 keep）", false)
+                    .addParameter("audio_mime", "string", "transcode 用：aac/none/keep（默认 aac）", false)
+                    .addParameter("bitrate", "string", "transcode 用：视频码率 kbps（强制重编视频）", false)
+                    .addParameter("scale", "string", "transcode 用：等比缩放倍数（0.5=宽高减半）；实际分辨率由设备编码器对齐决定，以返回的 output_width/height 为准", false)
+                    .addParameter("remove_audio", "string", "transcode 用：true=去掉音轨", false)
                     .category("media")
                     .build();
             case "system_connect":

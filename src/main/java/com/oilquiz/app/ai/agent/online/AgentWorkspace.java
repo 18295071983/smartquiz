@@ -43,7 +43,9 @@ public class AgentWorkspace {
             "apk_shell/guides/APK_SOURCE_GUIDE.md",
             // 2026-09-25：抖音下载内置工具 v3.2 文档（官方内核+UIFID自愈+双通道），工作区重建自动恢复
             "apk_shell/guides/douyin_downloader_GUIDE.md",
-            "apk_shell/guides/LINUX_TOOLKIT_GUIDE.md"
+            "apk_shell/guides/LINUX_TOOLKIT_GUIDE.md",
+            // 2026-09-26：本地媒体工具箱（media_toolkit）文档，工作区重建自动恢复
+            "apk_shell/guides/MEDIA_TOOLKIT_GUIDE.md"
     };
 
     private final Context appContext;
@@ -551,6 +553,7 @@ public class AgentWorkspace {
                 + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳v8.1·62桥清单/回调契约)\n"
                 + "   《douyin_downloader_GUIDE.md》(抖音下载内置工具v3.2:官方内核/UIFID自愈/双通道,删除自动恢复)。\n"
                 + "   《LINUX_TOOLKIT_GUIDE.md》(内置 Linux 工具箱: 工具清单/命令路由/示例/限制/如何加工具)。\n"
+                + "   《MEDIA_TOOLKIT_GUIDE.md》(本地媒体工具箱: 截帧/抽音轨/转WAV/剪切/转码/图片处理 + android_media)。\n"
                 + "================================================================\n";
     }
 
@@ -651,6 +654,7 @@ public class AgentWorkspace {
                 + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
                 + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
                 + "   video_to_player  视频下载转播放(解析视频源/下载到工作区)\n"
+                + "   media_toolkit    本地媒体工具箱: probe信息/frame截帧/extract_audio抽音轨/to_wav/trim剪切/transcode转码/image_ops图片\n"
                 + "   export_apk       APK导出(把HTML打包成可安装安卓应用；规则见files/HTML_DESIGN_RULES.md)\n"
                 + "   control_lookup   控件查询(查找可用UI控件/组件)\n"
                 + "   layout_editor    动态画布编辑(set/add/patch/get 同一component_id)\n"
@@ -671,7 +675,8 @@ public class AgentWorkspace {
                 + "     · Python 里同样可用：import android_shell（run/run_argv/available/tool_path）\n"
                 + "     · wget/curl 支持 https（内置 curl 自带 TLS；wget 走 App 内下载服务）；也可用 system_resource(action=http_download, url=...)\n"
                 + "     · 单条命令 25 秒超时（超时返回已产生输出）；长任务用 tmux；默认不拦截，shell_mode 可开只读\n"
-                + "     · 示例：rg -n TODO /sdcard/Download ；jq . f.json ；ffmpeg -i in.mp4 -ss 3 -frames:v 1 out.jpg ；tar -czf $HOME/a.tar.gz dir\n"
+                + "     · 示例：rg -n TODO /sdcard/Download ；jq . f.json ；tar -czf $HOME/a.tar.gz dir\n"
+                + "     · 没有 ffmpeg（也装不上，见《LINUX_TOOLKIT_GUIDE.md》第七节）：音视频/图片处理一律用 media_toolkit（probe/截帧/抽音轨/转WAV/剪切/转码/图片）\n"
                 + "   **脚本 vs 二进制（容易踩坑）**：Android 禁止执行写进工作区/App 数据目录的二进制文件（Permission denied），\n"
                 + "     所以复杂逻辑写成 .sh 放工作区，用 sh /完整路径/脚本.sh 执行；二进制只能随 App 打包分发。\n"
                 + "   完整说明见工作区《LINUX_TOOLKIT_GUIDE.md》。\n"
@@ -682,6 +687,21 @@ public class AgentWorkspace {
                 + "   from android_ui import show_toast, show_dialog, create_component, update_component,\n"
                 + "       get_component_result, close_component\n"
                 + "   便捷函数: ask_input / ask_choice / show_progress\n"
+                + "八、本地媒体工具箱（media_toolkit）\n"
+                + "----------------------------------------------------------------\n"
+                + "   系统自带硬解硬编，无需 ffmpeg、无需权限、不联网（内置工具箱里没有 ffmpeg，别再找）：\n"
+                + "     · probe          媒体信息：时长/分辨率/帧率/码率/旋转/音视频轨/编码器（视频、音频、图片都行）\n"
+                + "     · frame          截帧出图：time=秒 / percent=0-100 / index=帧序号 / count=N 抽N张 / exact=true 精确帧\n"
+                + "     · thumbnail      缩略图：默认 10% 处、最长边 512（列表预览用）\n"
+                + "     · extract_audio  无损抽音轨（aac→m4a、mp3→mp3，重封装不重编码，秒级完成）\n"
+                + "     · to_wav         解码 WAV：默认 16kHz 单声道（可直接喂 SenseVoice/ASR），rate/channels 可调\n"
+                + "     · trim           无损剪切：start/end 秒，关键帧对齐（起点会吸附到前一个关键帧），不重编码\n"
+                + "     · transcode      转码/压缩/换容器：video_mime=h264/h265/av1/keep、audio_mime=aac/none/keep、\n"
+                + "                      width/height/scale/bitrate/remove_audio；keep+无效果=纯重封装(换容器，秒级)\n"
+                + "     · image_ops      图片：width/height/max、crop=x,y,w,h、rotate、flip=h|v、gray、format、quality\n"
+                + "   输入：绝对路径 / 工作区相对路径 / content:// URI；输出默认 files/media/，返回 file 绝对路径。\n"
+                + "     · Python 里 import android_media 用同一套能力；纯图片批处理也可直接用 Pillow。\n"
+                + "   完整说明（能力边界/示例/限制）见工作区《MEDIA_TOOLKIT_GUIDE.md》。\n"
                 + "================================================================\n";
     }
 
@@ -739,6 +759,7 @@ public class AgentWorkspace {
                 + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
                 + "   douyin_downloader  抖音下载(官方内核解析+UIFID自愈,自动解包落袋,支持链接/分享文案/BGM)\n"
                 + "   video_to_player  视频下载转播放(解析视频源/下载到工作区)\n"
+                + "   media_toolkit    本地媒体工具箱: probe信息/frame截帧/extract_audio抽音轨/to_wav/trim剪切/transcode转码/image_ops图片\n"
                 + "   export_apk       APK导出(把HTML打包成可安装安卓应用；规则见files/HTML_DESIGN_RULES.md)\n"
                 + "   control_lookup   控件查询(查找可用UI控件/组件)\n"
                 + "   layout_editor    动态画布编辑(set/add/patch/get 同一component_id)\n"

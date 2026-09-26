@@ -88,7 +88,7 @@ tmux new-session -d -s job 'aria2c -d $HOME -o f.iso URL'
 | 同名命令 | 路由默认先内置；若某命令在系统里有更好实现，用 `route` 调成 `stkb` |
 | 权限 | 系统能力（存储全盘/定位/相机）仍需用户授权；`/data/data/其他应用` 读不到 |
 | 许可 | busybox 等为 GPL 系许可，随 App 分发需按各自许可提供源码 |
-| 未内置 | git（依赖不可执行的 libexec 辅助程序）、ffmpeg（Termux 依赖图有空壳库 + 与系统库同名冲突，详见提交说明） |
+| 未内置 | git（依赖不可执行的 libexec 辅助程序）、ffmpeg（Termux 依赖图有空壳库 + 与系统库同名冲突，详见提交说明）。**音视频/图片请用 media_toolkit**（系统硬解硬编，见《MEDIA_TOOLKIT_GUIDE.md》） |
 
 ## 八、在 Python 里用同一套工具
 
@@ -108,8 +108,9 @@ print(android_shell.tool_path("sqlite3"))             # 取绝对路径
 #    文件：tools/tests/bundle_termux_bins.py
 # 2) 重新打包（会自动解析包依赖闭包、生成 lib<name>_bin.so 与清单）
 python tools/tests/bundle_termux_bins.py
-# 3) 可选：一起打包 ffmpeg（依赖约 90MB）
-python tools/tests/bundle_termux_bins.py --with-ffmpeg
+# 3) ffmpeg：脚本里保留了 --with-ffmpeg（依赖约 90MB），但**实测装了也跑不起来**
+#    （Termux 依赖图里有空壳 .so，且 libc++/libz/libssl 与系统库同名同 ABI 冲突；
+#      详见提交 56a8821 的记录），所以当前不要开。音视频需求走 media_toolkit。
 ```
 
 Java 侧不用改：运行时按 `libtoolkit_manifest.so` 清单把工具软链接进 `bin/`，

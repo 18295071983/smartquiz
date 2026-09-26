@@ -292,6 +292,21 @@
 - **功能**：输入视频页面链接或直链 URL，解析视频源并下载到本地工作区，返回 `local_path`（mp4 绝对路径）供 video_player 组件渲染原生播放。直链（mp4/webm 等扩展名或视频 Content-Type）直接下载；网页链接抓取 HTML 提取 og:video 或 `<video>` 标签 src 后下载。
 - **参数**：`url`（必填）、`title`、`timeout`
 
+### media_toolkit — 本地媒体工具箱
+- **分类**：media
+- **功能**：系统自带硬解硬编（MediaExtractor / MediaCodec / MediaMuxer / MediaMetadataRetriever + Media3 Transformer）完成常见音视频处理，**无需 ffmpeg、无需权限、不联网**。
+  - `probe`：媒体信息（时长/分辨率/帧率/码率/旋转/音视频轨/编码器；视频、音频、图片都行）
+  - `frame`：截帧出图（`time` 秒 / `percent` 0-100 / `index` 帧序号 / `count`=N 均匀抽 N 张 / `exact`=精确帧）
+  - `thumbnail`：缩略图（默认 10% 处、最长边 512）
+  - `extract_audio`：无损抽音轨（aac→m4a、mp3→mp3，重封装不重编码）
+  - `to_wav`：解码 WAV（默认 16kHz 单声道 16bit，可直接喂语音识别；`rate`/`channels` 可调）
+  - `trim`：无损剪切（`start`/`end` 秒，关键帧对齐，不重编码，MP4 输出）
+  - `transcode`：转码/压缩/改分辨率/换容器（`video_mime`/`audio_mime`/`width`/`height`/`scale`/`bitrate`/`remove_audio`/`timeout`；keep+无效果=纯重封装）
+  - `image_ops`：图片处理（`width`/`height`/`max`/`crop`/`rotate`/`flip`/`gray`/`format`/`quality`）
+  - 输入支持绝对路径/工作区相对路径/content:// URI；输出默认落工作区 `files/media/`，返回文件绝对路径
+  - Python 侧同等能力：`import android_media`（probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/image_ops）
+- **参数**：`action`（必填）、`path`（必填）、`output`、`time`、`percent`、`index`、`count`、`exact`、`width`、`height`、`max`、`format`、`quality`、`crop`、`rotate`、`flip`、`gray`、`start`、`end`、`rate`、`channels`、`video_mime`、`audio_mime`、`bitrate`、`scale`、`remove_audio`、`timeout`
+
 ---
 
 ## 八、UI 组件类
@@ -424,7 +439,7 @@
 | 数据文本 | database、text_tools |
 | 系统设备 | system_resource、system_connect、permission_manager、app_operation |
 | Python | python_execute、python_analyze_data、python_web_reader、python_chart |
-| 媒体视觉 | image_gen、dashscope_media、ocr_recognize、video_to_player |
+| 媒体视觉 | image_gen、dashscope_media、ocr_recognize、video_to_player、media_toolkit |
 | UI 组件 | ui_component、ui_component_plugin、control_lookup、layout_editor |
 | 工具管理 | tool_registry、create_dynamic_tool、ai_create_tool |
 | 语音 | voice_input、speech_synthesis |

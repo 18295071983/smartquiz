@@ -382,6 +382,13 @@ public class OnlinePromptBuilder {
         sb.append("  【工作区速查】工作区 files/ 目录内置《工具创建指南.md》（创建工具/动态插件/控件树详解）、《使用速查表.md》（全部工具/组件速查）、《HTML_DESIGN_RULES.md》（生成导出 APK 的 HTML 时的设计规则）、《LINUX_TOOLKIT_GUIDE.md》（内置 Linux 工具箱：清单/路由/示例/限制）、《APK_SOURCE_GUIDE.md》（导出 APK 壳的 40 个原生桥方法清单/回调契约），创建工具/选组件/导出 APK 前可先 workspace 读取，避免凭空造参数。\n\n");
         sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块：from android_ui import show_toast, show_dialog, update_progress；耗时操作或需要用户感知进度时主动使用。\n");
         sb.append("【linux_shell 工具】shell 能力已独立成 linux_shell（优先于 system_resource(action=shell_command)）：action=exec 跑命令、tools 列内置工具与版本、download 下载 URL、route 改命令路由。内置（随包、免权限）busybox(280+ applet)/openssl(真TLS)/ssh/scp/sftp/ssh-keygen/curl/aria2c/rg/jq/sqlite3/zstd/zip/unzip/file/tree/ncdu/htop/ps/free/tmux/nano/gawk，加上系统 toybox(sed/grep/find/sort…)；命令按 内置->系统->busybox->toybox 路由，失败自动回退，action=route 可按命令改写(order=bskt/stkb/b，reset 恢复)。Python 里 import android_shell 用同一套环境(run/available/tool_path)。单条命令 25 秒超时（超时返回已产生输出）；默认不拦截，可用 system_resource(action=shell_mode, mode=readonly) 打开。详见工作区《LINUX_TOOLKIT_GUIDE.md》。\n");
+        sb.append("【media_toolkit 工具】本地媒体处理用 media_toolkit（系统硬解硬编，无需 ffmpeg/权限/联网），别去 shell 里找 ffmpeg（内置工具箱没有 ffmpeg）："
+                + "probe 读媒体信息(时长/分辨率/帧率/码率/轨道/编码器)；frame/thumbnail 截帧出图(time=秒 或 percent=0-100 或 index=帧序号，count=N 抽 N 张)；"
+                + "extract_audio 无损抽音轨(aac→m4a、mp3→mp3，不重编码)；to_wav 解码 WAV(默认 16k 单声道，可直接喂语音识别)；"
+                + "trim 无损剪切(start/end 秒，关键帧对齐，不重编码)；transcode 转码/压缩/改分辨率/换容器(video_mime=h264/h265/av1/keep、audio_mime=aac/none/keep、width/height/scale/bitrate/remove_audio，走硬件编解码，长任务可给 timeout)；"
+                + "image_ops 图片处理(width/height/max/crop=x,y,w,h/rotate/flip=h|v/gray/format=png|jpeg|webp/quality)。"
+                + "输入支持绝对路径、工作区相对路径、content:// URI；输出默认落工作区 files/media/，返回 file 绝对路径（可直接给 image/video 组件渲染）。\n");
+        sb.append("【Python 媒体处理】Python 里 import android_media 可调用同一套能力（probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/image_ops，参数与工具一致）；纯图片批处理也可直接用 Pillow。\n");
         sb.append("【Python 环境预装库】可直接 import（无需安装）：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)。读写 Word/PPT/PDF 直接用 docx / pptx / pypdf（已预装，无需再装）。画数据图表用 matplotlib 或 Pillow；matplotlib 画中文前先调用 setup_matplotlib_cjk()（android_helper 已 star-import，注册系统 CJK 字体，避免中文方框）；复杂图表（子图/对数轴/热力图等）用 python_execute 写 matplotlib 代码。\n\n");
         return sb.toString();
     }
