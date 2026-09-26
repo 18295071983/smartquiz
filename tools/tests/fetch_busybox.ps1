@@ -121,7 +121,7 @@ function Patch-Runpath([string]$path) {
         if ($same) { [Array]::Copy($new, 0, $d, $i, $new.Length); $hit++; $i += $old.Length - 1 }
     }
     [System.IO.File]::WriteAllBytes($path, $d)
-    Write-Host ("  RUNPATH -> $ORIGIN: " + (Split-Path $path -Leaf) + "  hits=" + $hit)
+    Write-Host ("  RUNPATH -> ${ORIGIN}: " + (Split-Path $path -Leaf) + "  hits=" + $hit)
 }
 foreach ($f in @('libbusybox_launcher.so', 'libbusybox.so', 'libandroid-selinux.so')) {
     Patch-Runpath (Join-Path $out $f)
