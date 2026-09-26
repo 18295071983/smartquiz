@@ -147,11 +147,13 @@ android {
             // Android 里 ApplicationInfo.nativeLibraryDir 会指向这些真实文件。
             useLegacyPackaging = true
             // busybox 是已 strip 过的 ELF 可执行文件，别让 AGP 的 strip 任务再动它
-            keepDebugSymbols += ["**/libbusybox.so", "**/libbusybox_launcher.so",
-                                 "**/libwget_shim.so",
-                                 "**/libopenssl.so", "**/libcrypto.so", "**/libssl.so",
+            // 内置工具链全部免 strip：既有已 strip 的 ELF，也有 shell 脚本(包装)、tar.gz(依赖库包)、
+            // PEM(CA) 与 JSON(工具清单)，AGP 对非 ELF 跑 llvm-strip 会失败
+            keepDebugSymbols += ["**/libbusybox*.so", "**/libwget_shim.so",
+                                 "**/libopenssl_bin.so", "**/libcrypto.so", "**/libssl.so",
                                  "**/libz.so", "**/libcacert.pem.so",
-                                 "**/libssh_*.so", "**/libssh_libs.so"]
+                                 "**/libssh_*.so", "**/libssh_libs.so",
+                                 "**/liblauncher.so", "**/libtoolkit_*.so", "**/lib*_bin.so"]
         }
     }
 

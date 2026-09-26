@@ -1192,6 +1192,106 @@ public class SystemResourceTool implements AITool {
         return new SystemResourceTool(ctx).executeShellCommand(parameters);
     }
 
+    // ===== 命令路由配置的读写（整命令行 linux_shell(action=route) 与设置页 UI 共用） =====
+
+    /** 路由配置文件：<files>/bin/.route（每行 "命令=顺序"，顺序字符 b/s/k/t） */
+    public static File routeFile(Context ctx) {
+        return new File(new File(ctx.getFilesDir(), "bin"), ".route");
+    }
+
+    /** 读出全部路由配置（有序） */
+    public static java.util.LinkedHashMap<String, String> readRoutes(Context ctx) {
+        java.util.LinkedHashMap<String, String> routes = new java.util.LinkedHashMap<>();
+        try {
+            File f = routeFile(ctx);
+            if (f.exists()) {
+                for (String line : new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8").split("\n")) {
+                    String s = line.trim();
+                    int eq = s.indexOf('=');
+                    if (eq > 0) {
+                        routes.put(s.substring(0, eq).trim(), s.substring(eq + 1).trim());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "读路由配置失败: " + BaseAITool.errText(e));
+        }
+        return routes;
+    }
+
+    /** 写入全部路由配置（空则删除文件） */
+    public static void writeRoutes(Context ctx, java.util.Map<String, String> routes) {
+        try {
+            File f = routeFile(ctx);
+            if (routes == null || routes.isEmpty()) {
+                if (f.exists() && !f.delete()) {
+                    AILogger.e(TAG, "删除路由配置失败: " + f);
+                }
+                return;
+            }
+            File dir = f.getParentFile();
+            if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
+                AILogger.e(TAG, "创建 bin 目录失败: " + dir);
+                return;
+            }
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, String> e : routes.entrySet()) {
+                sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
+            }
+            java.nio.file.Files.write(f.toPath(), sb.toString().getBytes("UTF-8"));
+        } catch (Exception e) {
+            AILogger.e(TAG, "写路由配置失败: " + BaseAITool.errText(e));
+        }
+    }
+
+    /** 单个命令改路由：order 为 null/空/reset 表示恢复默认 */
+    public static boolean setRoute(Context ctx, String name, String order) {
+        if (name == null || name.trim().isEmpty()) {
+            return false;
+        }
+        String n = name.trim();
+        java.util.LinkedHashMap<String, String> routes = readRoutes(ctx);
+        boolean changed;
+        if (order == null || order.trim().isEmpty() || "reset".equalsIgnoreCase(order.trim())
+                || "default".equalsIgnoreCase(order.trim())) {
+            changed = routes.remove(n) != null;
+        } else {
+            String cleaned = order.trim().toLowerCase().replaceAll("[^bskt]", "");
+            if (cleaned.isEmpty()) {
+                return false;
+            }
+            changed = !cleaned.equals(routes.put(n, cleaned));
+        }
+        writeRoutes(ctx, routes);
+        return changed;
+    }
+
+    /** 可路由的命令名：优先读工具包清单，取不到就列 bin 目录下的可执行项 */
+    public static java.util.List<String> routableToolNames(Context ctx) {
+        java.util.List<String> names = new java.util.ArrayList<>();
+        try {
+            File manifest = new File(ctx.getApplicationInfo().nativeLibraryDir, TOOLKIT_MANIFEST_LIB);
+            if (manifest.exists()) {
+                org.json.JSONObject obj = new org.json.JSONObject(
+                        new String(java.nio.file.Files.readAllBytes(manifest.toPath()), "UTF-8"));
+                org.json.JSONArray arr = obj.optJSONArray("tools");
+                if (arr != null) {
+                    for (int i = 0; i < arr.length(); i++) {
+                        names.add(arr.getJSONObject(i).getString("name"));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "读工具清单失败: " + BaseAITool.errText(e));
+        }
+        for (String extra : new String[]{"busybox", "openssl", "ssh", "scp", "sftp", "ssh-keygen", "gawk"}) {
+            if (!names.contains(extra)) {
+                names.add(extra);
+            }
+        }
+        java.util.Collections.sort(names);
+        return names;
+    }
     /**
      * 供 linux_shell(action=route) 用：查询/修改命令路由顺序。
      * 写在 bin/.route（每行 "命令=顺序"），路由器每次执行都会读它。
@@ -1266,8 +1366,18 @@ public class SystemResourceTool implements AITool {
         result.put("status", "success");
         String binDir = t.ensureBusyboxBinDir();
         result.put("bin_dir", binDir != null ? binDir : "(未就绪)");
-        String[] names = {"busybox", "openssl", "ssh", "curl", "aria2c", "rg", "jq", "sqlite3", "zstd",
-                "zip", "file", "tree", "ncdu", "htop", "ps", "tmux", "nano", "gawk"};
+        // 从工具包清单读名字（加工具后自动出现，不用改代码），busybox 永远放第一个
+        java.util.List<String> toolNames = new java.util.ArrayList<>();
+        toolNames.add("busybox");
+        for (String n : routableToolNames(ctx)) {
+            if (!"busybox".equals(n)) {
+                toolNames.add(n);
+            }
+        }
+        if (toolNames.size() > 40) {
+            toolNames = new java.util.ArrayList<>(toolNames.subList(0, 40));
+        }
+        String[] names = toolNames.toArray(new String[0]);
         // 注意：逐个跑 --version 最坏情况会超过框架的 30 秒工具超时，
         // 所以单个限 3 秒、整体 12 秒预算，超了就返回已探到的结果。
         StringBuilder sb = new StringBuilder();

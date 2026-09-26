@@ -201,11 +201,13 @@ public class ToolboxActivity extends AppCompatActivity {
         showToolDialog("设置与数据", new String[]{
             "主题设置",
             "语言设置",
-            "数据备份"
+            "数据备份",
+            "命令路由（Linux 工具箱）"
         }, new Class<?>[]{
             ThemeActivity.class,
             LanguageActivity.class,
-            BackupActivity.class
+            BackupActivity.class,
+            LinuxRouteActivity.class
         });
     }
 

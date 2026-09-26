@@ -33,6 +33,7 @@ Android 对应用执行外部程序有两条硬限制，这个工具箱就是绕
 | 加密 / 网络 | `openssl`（真 TLS，含 CA 包）、`curl`（https）、`ssh` `scp` `sftp` `ssh-keygen` `ssh-keyscan` `ssh-add`、`aria2c`（多线程下载/断点续传） |
 | 文本 / 数据 | `jq`、`rg`(ripgrep)、`sqlite3`、`file`、`tree` |
 | 压缩 | `zstd`、`zip`、`unzip`（tar/gzip 由 busybox 提供） |
+| 音视频 | `ffmpeg`、`ffprobe`（转码 / 抽音轨 / 抽帧 / 读元信息） |
 | 系统 / 终端 | `htop`、`ps`、`free`、`ncdu`、`tmux`、`nano` |
 | 系统自带（直接可用） | toybox：sed / grep / find / sort / head / tail / wc / md5sum / base64 / xargs / diff / du / df … |
 
@@ -73,6 +74,10 @@ aria2c -x8 -s8 -d $HOME -o big.zip "https://example.com/big.zip"
 echo | openssl s_client -connect www.baidu.com:443 -servername www.baidu.com 2>&1 | head -5
 # SSH（注意 Termux 默认 ~/.ssh 路径不可写，用 -o 指定）
 ssh -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o IdentityFile=$HOME/.ssh/id_ed25519 -p 443 git@ssh.github.com
+# 音视频：抽音轨 / 转码 / 抽第 1 帧
+ffmpeg -i in.mp4 -vn -acodec copy out.m4a
+ffmpeg -i in.mp4 -ss 00:00:03 -frames:v 1 thumb.jpg
+ffprobe -v error -show_entries format=duration -of csv=p=0 in.mp4
 # 长任务放 tmux，避免被工具超时打断
 tmux new-session -d -s job 'aria2c -d $HOME -o f.iso URL'
 ```
@@ -88,7 +93,7 @@ tmux new-session -d -s job 'aria2c -d $HOME -o f.iso URL'
 | 同名命令 | 路由默认先内置；若某命令在系统里有更好实现，用 `route` 调成 `stkb` |
 | 权限 | 系统能力（存储全盘/定位/相机）仍需用户授权；`/data/data/其他应用` 读不到 |
 | 许可 | busybox 等为 GPL 系许可，随 App 分发需按各自许可提供源码 |
-| 未内置 | git（网络操作依赖不可执行的 libexec 辅助程序）、ffmpeg（可用脚本参数开启） |
+| 未内置 | git（网络操作依赖不可执行的 libexec 辅助程序） |
 
 ## 八、在 Python 里用同一套工具
 

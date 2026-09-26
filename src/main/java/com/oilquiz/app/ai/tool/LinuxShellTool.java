@@ -23,7 +23,7 @@ import java.util.Map;
     value = "linux_shell",
     description = "内置 Linux 命令行工具箱（随 App 打包，无需安装 Termux、无需任何权限）："
         + "busybox(ash/awk/vi/telnet/tar/gzip…)、openssl(真 TLS)、ssh/scp/sftp/ssh-keygen、curl、aria2c、"
-        + "rg(ripgrep)、jq、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk。"
+        + "rg(ripgrep)、jq、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk、ffmpeg/ffprobe（音视频转码/抽帧）。"
         + "action=exec 执行命令；action=tools 列出内置工具与版本；action=download 下载 URL 到文件。"
         + "单条命令 25 秒超时（超时返回已产生的输出）；默认不做任何命令拦截（可用 system_resource 的 shell_mode 开只读）",
     category = "system",

@@ -1302,7 +1302,7 @@ public class AIToolManager {
                     .category("web")
                     .build();
             case "linux_shell":
-                return ToolDefinition.builder("linux_shell", "内置 Linux 命令行工具箱（随 App 打包，无需 Termux、无需权限）：busybox(ash/awk/vi/telnet/tar/gzip)、openssl(真 TLS)、ssh/scp/sftp/ssh-keygen、curl、aria2c(多线程下载)、rg(ripgrep 搜索)、jq(JSON)、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk。exec 执行命令；tools 列出工具与版本；download 下载 URL；route 改命令路由顺序。单条命令 25 秒超时（超时返回已产生输出）；默认不拦截任何命令")
+                return ToolDefinition.builder("linux_shell", "内置 Linux 命令行工具箱（随 App 打包，无需 Termux、无需权限）：busybox(ash/awk/vi/telnet/tar/gzip)、openssl(真 TLS)、ssh/scp/sftp/ssh-keygen、curl、aria2c(多线程下载)、rg(ripgrep 搜索)、jq(JSON)、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk、ffmpeg/ffprobe(音视频)。exec 执行命令；tools 列出工具与版本；download 下载 URL；route 改命令路由顺序。单条命令 25 秒超时（超时返回已产生输出）；默认不拦截任何命令")
                     .addParameter("action", "string", "操作: exec(执行命令)/tools(列出工具)/download(下载URL)/route(改命令路由)", true, "exec")
                     .addParameter("command", "string", "要执行的命令（exec 用，如 curl -sI https://example.com | head -3、rg -n TODO /sdcard/Download、jq . file.json）；route 时填命令名", false)
                     .addParameter("url", "string", "下载地址（download 用，https 走系统证书校验）", false)

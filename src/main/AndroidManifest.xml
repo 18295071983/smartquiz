@@ -141,6 +141,10 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- 内置 Linux 工具箱的命令路由设置（linux_shell 的路由顺序） -->
+        <activity
+            android:name=".ui.activity.LinuxRouteActivity"
+            android:exported="false" />
         <activity
             android:name=".ui.activity.LoginActivity"
             android:exported="false" />
