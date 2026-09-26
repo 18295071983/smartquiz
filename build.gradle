@@ -65,6 +65,12 @@ android {
                 install "python-wheels/requests-2.34.2-py3-none-any.whl"
                 install "python-wheels/beautifulsoup4-4.15.0-py3-none-any.whl"
                 install "python-wheels/jieba-0.42.1.tar.gz"
+
+                // ===== 文档读写（纯Python本地wheel；原生依赖 lxml/Pillow 见下方 install；typing-extensions 已随 bs4 自动装）=====
+                install "python-wheels/python_docx-1.2.0-py3-none-any.whl"          // Word .docx 读写        → import docx
+                install "python-wheels/python_pptx-1.0.2-py3-none-any.whl"          // PowerPoint .pptx 读写 → import pptx
+                install "python-wheels/pypdf-6.19.0-py3-none-any.whl"               // PDF 读取/合并/拆分     → import pypdf
+                install "python-wheels/xlsxwriter-3.2.9-py3-none-any.whl"           // python-pptx 依赖       → import xlsxwriter
                 
                 // native包从Chaquopy源获取Android预编译wheel
                 // 国内镜像源作为额外源加速下载
