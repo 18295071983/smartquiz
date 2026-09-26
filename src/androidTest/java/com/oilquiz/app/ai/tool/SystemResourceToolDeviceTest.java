@@ -152,6 +152,20 @@ public class SystemResourceToolDeviceTest {
         assertTrue("裸跑 applet 应能执行: " + r2, r2.matches("(?s).*[0-9a-f]{32}.*"));
     }
 
+    /** 路由：内置 -> 系统 -> busybox -> toybox，任一环节不可用不应把命令搞挂 */
+    @Test
+    public void routingWorks() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        String r = out(shell("ls / >/dev/null && echo LS_OK; cat /system/build.prop >/dev/null 2>&1; echo CAT_DONE;"
+                + " ash -c 'echo ASH_OK'; sed --version 2>&1 | head -1; jq --version; openssl version;"
+                + " wget -O /dev/null https://www.baidu.com >/dev/null 2>&1 && echo WGET_OK")).replace('\n', '|');
+        System.out.println("[EXP] routing => " + r);
+        assertTrue("路由应保证常用命令都可用: " + r,
+                r.contains("LS_OK") && r.contains("CAT_DONE") && r.contains("ASH_OK")
+                        && r.contains("jq-") && r.contains("OpenSSL") && r.contains("WGET_OK"));
+    }
+
     /** 独立工具 linux_shell + 新内置工具链（curl/jq/rg/sqlite3/zstd…） */
     @Test
     public void linuxShellToolWorks() {

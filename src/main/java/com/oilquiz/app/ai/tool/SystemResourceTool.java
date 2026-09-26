@@ -111,7 +111,7 @@ public class SystemResourceTool implements AITool {
 
     // ===== 额外内置的 Termux 工具（bionic 构建，随 jniLibs 解压到 nativeLibraryDir，可执行）=====
     /** openssl CLI：真正带 TLS（busybox 的 wget 没有 TLS） */
-    private static final String OPENSSL_BIN_LIB = "libopenssl.so";
+    private static final String OPENSSL_BIN_LIB = "libopenssl_bin.so";
     /** openssl 的运行时库（libcrypto/libssl/libz） */
     private static final String[] EXTRA_LIB_NAMES = {"libcrypto.so", "libssl.so", "libz.so"};
     /** CA 包：内容是 PEM，命名成 lib*.so 只是为了能随 jniLibs 打包 */
@@ -1330,8 +1330,8 @@ public class SystemResourceTool implements AITool {
             }
             // 注意：shim 必须是 nativeLibraryDir 里的文件（随 APK 解压，可 exec）。
             // 之前把脚本写进 bin（App 数据目录）会报 Permission denied —— Android 禁止 exec 数据目录里的文件。
+            // 只保留 wget 的 https 包装（内置 bushybox wget 未编译 TLS）；curl 用内置的（自带 TLS）
             linkShim(binDir, "wget", "libwget_shim.so");
-            linkShim(binDir, "curl", "libcurl_shim.so");
         } catch (Exception e) {
             AILogger.e(TAG, "安装 wget/curl 包装脚本失败: " + BaseAITool.errText(e));
         }
@@ -1374,6 +1374,59 @@ public class SystemResourceTool implements AITool {
     /** 按 libtoolkit_manifest.so 清单解包依赖库并把工具软链接进 PATH */
 
 
+    /** 把 busybox --list 的结果写到 bin/.busybox_applets，供路由器判断某命令是否是 busybox applet */
+    private void writeBusyboxAppletList(File binDir) {
+        try {
+            File busybox = new File(binDir, "busybox");
+            if (!busybox.exists()) {
+                return;
+            }
+            Process p = new ProcessBuilder(busybox.getAbsolutePath(), "--list")
+                    .redirectErrorStream(true).start();
+            p.getOutputStream().close();
+            BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+            if (!p.waitFor(15, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+            }
+            java.nio.file.Files.write(new File(binDir, ".busybox_applets").toPath(),
+                    sb.toString().getBytes("UTF-8"));
+        } catch (Exception e) {
+            AILogger.e(TAG, "写 busybox applet 清单失败: " + BaseAITool.errText(e));
+        }
+    }
+
+    /** 把 busybox applet 软链接改成指向 liblauncher.so（路由器）：内置不可用时回退系统/toybox */
+    private void rerouteApplets(File binDir) {
+        try {
+            File list = new File(binDir, ".busybox_applets");
+            File router = new File(context.getApplicationInfo().nativeLibraryDir, LAUNCHER_LIB);
+            if (!list.exists() || !router.exists()) {
+                return;
+            }
+            String all = new String(java.nio.file.Files.readAllBytes(list.toPath()), "UTF-8");
+            int n = 0;
+            for (String raw : all.split("\n")) {
+                String name = raw.trim();
+                if (name.isEmpty() || "busybox".equals(name)) {
+                    continue;
+                }
+                File link = new File(binDir, name);
+                if (link.exists() && !link.delete()) {
+                    continue;
+                }
+                java.nio.file.Files.createSymbolicLink(link.toPath(), router.toPath());
+                n++;
+            }
+            AILogger.i(TAG, "applet 已改走路由器: " + n + " 个");
+        } catch (Exception e) {
+            AILogger.e(TAG, "改路由失败: " + BaseAITool.errText(e));
+        }
+    }
     private void linkBin(File binDir, String name, String libName) {
         linkShim(binDir, name, libName);
     }
@@ -1592,7 +1645,7 @@ public class SystemResourceTool implements AITool {
                 for (String lib : EXTRA_LIB_NAMES) {
                     linkLib(binDir, lib);
                 }
-                linkBin(binDir, "openssl", OPENSSL_BIN_LIB);
+                linkBin(binDir, "openssl", LAUNCHER_LIB);
                 // openssh：依赖库解包到 files/lib（dlopen 允许），可执行文件软链接到 nativeLibraryDir
                 File libDir = new File(context.getFilesDir(), "lib");
                 if (rebuild || !libDir.isDirectory() || (libDir.list() != null && libDir.list().length == 0)) {
@@ -1653,6 +1706,10 @@ public class SystemResourceTool implements AITool {
                     AILogger.e(TAG, "busybox applet 软链接未生成（sed 不存在），放弃注入 PATH: " + binDir);
                     return null;
                 }
+                // 写 busybox applet 清单并把这些软链接改成走【路由器】：内置不可用时回退系统/toybox
+                writeBusyboxAppletList(binDir);
+                rerouteApplets(binDir);
+
                 // 让 wget/curl 支持 https（busybox 没编译 TLS）：起本地下载服务 + 覆盖成包装脚本
                 installFetchShims(binDir);
                 // 通用工具包（bundle_termux_bins.py 生成）：解包依赖库 + 按清单建软链接
@@ -1703,11 +1760,9 @@ public class SystemResourceTool implements AITool {
                 if (oldPath != null && !oldPath.isEmpty()) {
                     basePath = basePath + ":" + oldPath;
                 }
-                // 注意：busybox 放【PATH 末尾】。实测静态 musl busybox 的部分 applet（sed/sh 等）在
-                // App 域会被 seccomp 以 SIGSYS 杀掉（Bad system call），若放最前面会把系统自带
-                // toybox 的 sed/grep/sh 劫持成会崩的版本 —— 那是把好用的命令搞坏，绝不可取。
-                // 放末尾：系统已有的命令照旧用 toybox，只有 toybox 没有的（wget/vi/nc…）才走 busybox。
-                env.put("PATH", binDir != null ? (basePath + ":" + binDir) : basePath);
+                // 内置目录放【PATH 最前】：所有名字都经路由器（内置 -> 系统 -> busybox -> toybox），
+                // 内置实现不可用时自动回退到系统/toybox，所以不会再出现“把好用的命令劫持成会崩的版本”。
+                env.put("PATH", binDir != null ? (binDir + ":" + basePath) : basePath);
                 if (binDir != null) {
                     env.put("BUSYBOX_BIN_DIR", binDir);
                     env.put("BUSYBOX", busyboxPath() != null ? busyboxPath() : "");
