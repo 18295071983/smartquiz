@@ -29,24 +29,36 @@
   保留输出目录（默认每次覆盖；.class 可用于事后 javap 检查）。
 
 .EXAMPLE
-  # 推荐：子进程方式（脚本结尾会 exit，在同会话里用 & 调用会结束该 pwsh 会话）
-  powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\javac_check.ps1 src\main\java\com\oilquiz\app\ai\python\PythonToolManager.java
+  # 单个文件（推荐子进程方式：脚本结尾会 exit，同会话 & 调用会结束该 pwsh 会话）
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\javac_check.ps1 ^
+      -Files src\main\java\com\oilquiz\app\ai\python\PythonToolManager.java
 
 .EXAMPLE
-  .\tools\tests\javac_check.ps1 src\main\java\com\oilquiz\app\ai\python\PythonToolManager.java
+  # 多个互相引用的文件：用【逗号】分隔（-Files a.java,b.java），或用数组 @('a.java','b.java')
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\javac_check.ps1 ^
+      -Files src\main\java\com\oilquiz\app\ai\tool\BaseAITool.java,src\main\java\com\oilquiz\app\ai\python\PythonFileOpsTool.java
 
-.EXAMPLE
-  # 多个互相引用的文件一起编
-  .\tools\tests\javac_check.ps1 src\main\java\com\oilquiz\app\ai\tool\BaseAITool.java src\main\java\com\oilquiz\app\ai\python\PythonFileOpsTool.java
+.NOTES
+  ⚠️ 不要写成 "-Files a.java b.java"（空格分隔）：PowerShell 会把第二个值绑到 -OutDir 上，
+  历史上曾因此把源码文件当成输出目录（先删文件、再建同名目录），源码看起来"凭空消失"。
+  脚本已加硬护栏（输出目录必须在 <repo>\.workbuddy\ 下、且不得等于任何源文件）兜底，
+  但仍请用逗号或数组形式。
 #>
-[CmdletBinding()]
+# PositionalBinding=$false：禁止位置绑定。否则 "javac_check.ps1 -Files a.java b.java" 里的
+# 第二个值可能被绑到后面的 -OutDir 上 —— 曾因此把源码文件当成输出目录（先删文件、再建同名目录），
+# 造成源码"凭空消失"。
+[CmdletBinding(PositionalBinding = $false)]
 param(
-    [Parameter(Mandatory = $true, ValueFromRemainingArguments = $true)]
-    [string[]]$Files,
-
     [string]$OutDir = ".workbuddy/tmp/javac_out",
 
-    [switch]$KeepOut
+    [switch]$KeepOut,
+
+    # $Files 必须【放在最后】并带 ValueFromRemainingArguments：
+    #   · 放前面时，"-Files a.java b.java" 里的第二个值会被绑到下一个位置参数 -OutDir 上
+    #     —— 曾因此把源码文件当输出目录（先删文件、再建同名目录）；
+    #   · powershell -File 模式下逗号不会自动拆成数组，所以下面还会按逗号再拆一次。
+    [Parameter(Mandatory = $true, ValueFromRemainingArguments = $true)]
+    [string[]]$Files
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,14 +115,43 @@ try {
 
     # ---- 4. 源文件（转绝对路径 + 正斜杠）----
     $srcFiles = @()
+    $fileList = @()
     foreach ($f in $Files) {
+        foreach ($part in ([string]$f -split ',')) {   # 兼容 -Files a.java,b.java
+            if ($part.Trim().Length -gt 0) { $fileList += $part.Trim() }
+        }
+    }
+    if ($fileList.Count -eq 0) { throw "没有要编译的源文件（-Files 不能为空）" }
+    foreach ($f in $fileList) {
         $p = if ([System.IO.Path]::IsPathRooted($f)) { $f } else { Join-Path $repoRoot $f }
         if (-not (Test-Path $p)) { throw "源文件不存在: $f" }
+        if ((Get-Item $p).PSIsContainer) { throw "源文件是目录而不是文件: $f" }
         $srcFiles += (Resolve-Path $p).Path.Replace('\', '/')
     }
 
     # ---- 5. 写无 BOM 的 @argfile ----
     $outAbs = if ([System.IO.Path]::IsPathRooted($OutDir)) { $OutDir } else { Join-Path $repoRoot $OutDir }
+
+    # ===== 硬护栏（血的教训）=====
+    # 输出目录必须落在 <repo>/.workbuddy/ 下，且不能等于任何源文件：
+    # 参数绑定一旦出错（曾发生：第二个文件被绑到 -OutDir），脚本会「先删掉那个源文件、再建同名目录
+    # 当输出目录」，javac 还把 class 写进去、退出码 0 —— 源码看起来就"凭空消失"了。双重拦截。
+    $outAbsFull = [System.IO.Path]::GetFullPath($outAbs)
+    $safeRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot ".workbuddy"))
+    if (-not $outAbsFull.StartsWith($safeRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "拒绝执行：输出目录必须在 $safeRoot 下（当前为 $outAbsFull）"
+    }
+    foreach ($sf in $srcFiles) {
+        if ($sf -is [string] -and $sf.Trim().Length -gt 0) {
+            $sfFull = [System.IO.Path]::GetFullPath($sf)
+            if ($sfFull.Equals($outAbsFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "拒绝执行：输出目录与源文件相同（$outAbsFull）——参数绑定可能出错"
+            }
+            if ((Get-Item $sfFull).PSIsContainer) {
+                throw "拒绝执行：源文件其实是目录而不是文件（参数绑定可能出错）: $sfFull"
+            }
+        }
+    }
     if (-not $KeepOut -and (Test-Path $outAbs)) { Remove-Item $outAbs -Recurse -Force }
     New-Item -ItemType Directory -Force $outAbs | Out-Null
     $argFile = Join-Path $outAbs "javac.args"
