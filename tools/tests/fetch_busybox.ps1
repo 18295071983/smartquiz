@@ -133,7 +133,12 @@ $wgetShim = @'
 #!/system/bin/sh
 BIN_DIR=$(dirname "$0")
 PORT="$HTTP_FETCH_PORT"
-if [ -z "$PORT" ]; then PORT=$(cat "$BIN_DIR/.http_port" 2>/dev/null); fi
+TOKEN="$HTTP_FETCH_TOKEN"
+if [ -z "$PORT" ] || [ -z "$TOKEN" ]; then
+  set -- $(cat "$BIN_DIR/.http_port" 2>/dev/null)
+  if [ -z "$PORT" ]; then PORT="$1"; fi
+  if [ -z "$TOKEN" ]; then TOKEN="$2"; fi
+fi
 OUT=""
 URL=""
 while [ $# -gt 0 ]; do
@@ -149,13 +154,18 @@ if [ -z "$URL" ]; then echo 'wget: missing URL' >&2; exit 1; fi
 if [ -z "$OUT" ]; then OUT=$(basename "$URL"); fi
 if [ -z "$PORT" ]; then echo 'wget: download service not ready' >&2; exit 1; fi
 B64=$(printf '%s' "$URL" | base64 | tr -d '\n' | tr '+/' '-_')
-exec "$BIN_DIR/busybox" wget -O "$OUT" "http://127.0.0.1:$PORT/$B64"
+exec "$BIN_DIR/busybox" wget -O "$OUT" "http://127.0.0.1:$PORT/$TOKEN/$B64"
 '@
 $curlShim = @'
 #!/system/bin/sh
 BIN_DIR=$(dirname "$0")
 PORT="$HTTP_FETCH_PORT"
-if [ -z "$PORT" ]; then PORT=$(cat "$BIN_DIR/.http_port" 2>/dev/null); fi
+TOKEN="$HTTP_FETCH_TOKEN"
+if [ -z "$PORT" ] || [ -z "$TOKEN" ]; then
+  set -- $(cat "$BIN_DIR/.http_port" 2>/dev/null)
+  if [ -z "$PORT" ]; then PORT="$1"; fi
+  if [ -z "$TOKEN" ]; then TOKEN="$2"; fi
+fi
 OUT=""
 URL=""
 while [ $# -gt 0 ]; do
@@ -172,7 +182,7 @@ if [ -z "$URL" ]; then echo 'curl: no URL specified' >&2; exit 2; fi
 if [ -z "$OUT" ]; then OUT="-"; fi
 if [ -z "$PORT" ]; then echo 'curl: download service not ready' >&2; exit 1; fi
 B64=$(printf '%s' "$URL" | base64 | tr -d '\n' | tr '+/' '-_')
-exec "$BIN_DIR/busybox" wget -q -O "$OUT" "http://127.0.0.1:$PORT/$B64"
+exec "$BIN_DIR/busybox" wget -q -O "$OUT" "http://127.0.0.1:$PORT/$TOKEN/$B64"
 '@
 [System.IO.File]::WriteAllText((Join-Path $out 'libwget_shim.so'), ($wgetShim -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
 [System.IO.File]::WriteAllText((Join-Path $out 'libcurl_shim.so'), ($curlShim -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))

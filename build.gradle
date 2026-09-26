@@ -148,7 +148,7 @@ android {
             useLegacyPackaging = true
             // busybox 是已 strip 过的 ELF 可执行文件，别让 AGP 的 strip 任务再动它
             keepDebugSymbols += ["**/libbusybox.so", "**/libbusybox_launcher.so",
-                                 "**/libwget_shim.so", "**/libcurl_shim.so",
+                                 "**/libwget_shim.so",
                                  "**/libopenssl.so", "**/libcrypto.so", "**/libssl.so",
                                  "**/libz.so", "**/libcacert.pem.so",
                                  "**/libssh_*.so", "**/libssh_libs.so"]

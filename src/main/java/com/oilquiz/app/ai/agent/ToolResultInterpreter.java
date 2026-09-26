@@ -1159,6 +1159,10 @@ public class ToolResultInterpreter {
             if (exitCode != null) sb.append("退出码: ").append(exitCode).append("\n");
             if (hint != null) sb.append("💡 ").append(hint).append("\n");
             if (toolkit != null) sb.append("ℹ️ ").append(toolkit).append("\n");
+            String file = strDeep(obj, "file", "filePath", "path");
+            String bytes = strDeep(obj, "bytes", "size");
+            if (file != null) sb.append("\uD83D\uDCC4 文件：").append(file).append('\n');
+            if (bytes != null) sb.append("\uD83D\uDCE6 大小：").append(bytes).append(" 字节").append('\n');
             return sb.toString().trim();
         }
         return sb.toString().trim();

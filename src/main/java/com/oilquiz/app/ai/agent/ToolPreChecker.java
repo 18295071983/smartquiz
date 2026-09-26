@@ -386,6 +386,9 @@ public class ToolPreChecker {
                     case "termux_exec":
                         required.add("command");
                         break;
+                    case "http_download":
+                        required.add("url");
+                        break;
                     case "send_sms":
                     case "make_call":
                         required.add("phone_number");

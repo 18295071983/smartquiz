@@ -44,6 +44,8 @@ public final class HttpFetchServer {
 
     private static final String TAG = "HttpFetchServer";
     private static volatile int sPort = -1;
+    /** 回环接口只对本机可见，但同机任何 App 都能连 —— 取个随机 token 做鉴权，避免被当免费代理 */
+    private static volatile String sToken = null;
     private static volatile boolean sRunning = false;
 
     private HttpFetchServer() {
@@ -54,6 +56,11 @@ public final class HttpFetchServer {
         return sPort;
     }
 
+    /** 回环服务鉴权 token（未启动为 null） */
+    public static String getToken() {
+        return sToken;
+    }
+
     /** 幂等启动；返回监听端口（失败 -1） */
     public static synchronized int start(final Context ctx) {
         if (sRunning && sPort > 0) {
@@ -62,13 +69,20 @@ public final class HttpFetchServer {
         try {
             final ServerSocket server = new ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"));
             sPort = server.getLocalPort();
+            // token 落在 bin/.http_port（格式："端口 token"），包装脚本会带上它
+            StringBuilder tk = new StringBuilder();
+            java.util.Random rnd = new java.util.Random();
+            for (int i = 0; i < 16; i++) {
+                tk.append(Integer.toHexString(rnd.nextInt(16)));
+            }
+            sToken = tk.toString();
             sRunning = true;
             // 端口落盘，供 shell 包装脚本读取（不依赖环境变量注入，Python 子进程也能用）
             try {
                 File binDir = new File(ctx.getFilesDir(), "bin");
                 if (binDir.isDirectory()) {
                     java.nio.file.Files.write(new File(binDir, ".http_port").toPath(),
-                            String.valueOf(sPort).getBytes(StandardCharsets.UTF_8));
+                            (sPort + " " + sToken).getBytes(StandardCharsets.UTF_8));
                 }
             } catch (Exception ignored) {
             }
@@ -122,7 +136,14 @@ public final class HttpFetchServer {
             if (path.startsWith("/")) {
                 path = path.substring(1);
             }
-            String target = decodeTarget(path);
+            // 路径格式：/<token>/<base64url 目标>
+            int slash = path.indexOf('/');
+            String token = slash > 0 ? path.substring(0, slash) : path;
+            if (sToken != null && !sToken.equals(token)) {
+                writeError(out, 403, "forbidden");
+                return;
+            }
+            String target = decodeTarget(slash > 0 ? path.substring(slash + 1) : "");
             if (target == null) {
                 writeError(out, 400, "bad target url");
                 return;

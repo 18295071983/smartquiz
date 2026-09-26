@@ -42,7 +42,8 @@ public class AgentWorkspace {
             "apk_shell/guides/HTML_DESIGN_RULES.md",
             "apk_shell/guides/APK_SOURCE_GUIDE.md",
             // 2026-09-25：抖音下载内置工具 v3.2 文档（官方内核+UIFID自愈+双通道），工作区重建自动恢复
-            "apk_shell/guides/douyin_downloader_GUIDE.md"
+            "apk_shell/guides/douyin_downloader_GUIDE.md",
+            "apk_shell/guides/LINUX_TOOLKIT_GUIDE.md"
     };
 
     private final Context appContext;
@@ -549,6 +550,7 @@ public class AgentWorkspace {
                 + "   内置指南（删除后应用启动自动重建）：《工具创建指南.md》《使用速查表.md》\n"
                 + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳v8.1·62桥清单/回调契约)\n"
                 + "   《douyin_downloader_GUIDE.md》(抖音下载内置工具v3.2:官方内核/UIFID自愈/双通道,删除自动恢复)。\n"
+                + "   《LINUX_TOOLKIT_GUIDE.md》(内置 Linux 工具箱: 工具清单/命令路由/示例/限制/如何加工具)。\n"
                 + "================================================================\n";
     }
 
@@ -656,7 +658,8 @@ public class AgentWorkspace {
                 + "   update_models_profile 模型配置更新\n\n"
                 + "六、内置 Linux 命令工具箱（system_resource：shell_command / termux_exec）\n"
                 + "----------------------------------------------------------------\n"
-                + "   shell_command 已内置 busybox 1.38（Termux 官方 bionic 构建，随 App 打包，无需装 Termux、无需任何权限）：\n"
+                + "   独立工具 linux_shell(action=exec/tools/download/route)；system_resource(shell_command) 兼容保留。\n"
+                + "   内置（Termux bionic 构建，随 App 打包，无需装 Termux、无需任何权限）：\n"
                 + "     · 系统自带 toybox 优先：sed/grep/find/sort/head/tail/wc/md5sum/base64/xargs/diff/du/df/tee/xxd…\n"
                 + "     · busybox 在 PATH 末尾补足系统没有的：ash(完整 Linux shell)/awk/wget/vi/telnet/nc/tar/gzip/httpd/crontab…\n"
                 + "     · 环境已配好：$BUSYBOX_BIN_DIR（applet 软链接目录）、PATH、TMPDIR、HOME、LD_LIBRARY_PATH\n"

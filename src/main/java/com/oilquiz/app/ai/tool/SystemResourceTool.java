@@ -1268,10 +1268,19 @@ public class SystemResourceTool implements AITool {
         result.put("bin_dir", binDir != null ? binDir : "(未就绪)");
         String[] names = {"busybox", "openssl", "ssh", "curl", "aria2c", "rg", "jq", "sqlite3", "zstd",
                 "zip", "file", "tree", "ncdu", "htop", "ps", "tmux", "nano", "gawk"};
+        // 注意：逐个跑 --version 最坏情况会超过框架的 30 秒工具超时，
+        // 所以单个限 3 秒、整体 12 秒预算，超了就返回已探到的结果。
         StringBuilder sb = new StringBuilder();
+        long startAt = System.currentTimeMillis();
+        int done = 0;
         for (String n : names) {
-            String out = t.shellCapture(n + " --version 2>&1 | head -1", 8);
+            if (System.currentTimeMillis() - startAt > 12000) {
+                sb.append("...(剩余 ").append(names.length - done).append(" 个工具跳过：列举超时)").append('\n');
+                break;
+            }
+            String out = t.shellCapture(n + " --version 2>&1 | head -1", 3);
             sb.append(n).append(": ").append(out == null || out.isEmpty() ? "(无)" : out).append('\n');
+            done++;
         }
         result.put("tools", sb.toString().trim());
         return new AIToolResult(result, parameters);
@@ -1679,10 +1688,25 @@ public class SystemResourceTool implements AITool {
                 }
                 boolean rebuild = !boxPath.equals(recordedTarget);
                 if (rebuild) {
+                    // 重建前先保住用户的路由配置（bin/.route），否则每次重装都会被清掉
+                    String savedRoute = null;
+                    try {
+                        File rf = new File(binDir, ".route");
+                        if (rf.exists()) {
+                            savedRoute = new String(java.nio.file.Files.readAllBytes(rf.toPath()), "UTF-8");
+                        }
+                    } catch (Exception ignored) {
+                    }
                     deleteRecursively(binDir);
                     if (!binDir.mkdirs()) {
                         AILogger.e(TAG, "无法创建 busybox 软链接目录: " + binDir);
                         return null;
+                    }
+                    if (savedRoute != null && !savedRoute.isEmpty()) {
+                        try {
+                            java.nio.file.Files.write(new File(binDir, ".route").toPath(), savedRoute.getBytes("UTF-8"));
+                        } catch (Exception ignored) {
+                        }
                     }
                 }
                 // busybox 用 argv[0] 判断自己要扮演哪个 applet：文件叫 libbusybox.so 时直接调用会
@@ -1835,6 +1859,9 @@ public class SystemResourceTool implements AITool {
                     int fetchPort = HttpFetchServer.getPort();
                     if (fetchPort > 0) {
                         env.put("HTTP_FETCH_PORT", String.valueOf(fetchPort));
+                        if (HttpFetchServer.getToken() != null) {
+                            env.put("HTTP_FETCH_TOKEN", HttpFetchServer.getToken());
+                        }
                     }
                     // 内置 CA 包（openssl / curl 用）
                     File ca = new File(context.getApplicationInfo().nativeLibraryDir, CA_CERT_LIB);
