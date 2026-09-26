@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 
 @Tool(
     value = "python_execute",
-    description = "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab；绘制图表用matplotlib(先设中文字体)或Pillow。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）",
+    description = "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）",
     category = "python",
     aliases = {"python", "run_python", "python_code"},
     actions = {
@@ -53,7 +53,7 @@ public class PythonExecuteTool extends BaseAITool {
             "[\"']?([/\\\\]?[\\w./\\\\-]+\\.(xlsx|xls|csv|json|xml|tsv))[\"']?");
     
     public PythonExecuteTool(Context context) {
-        super("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab；绘制图表用matplotlib(先设中文字体)或Pillow。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）");
+        super("python_execute", "执行Python代码。脚本内置android_ui模块(真实显示在手机界面)：系统原生组件 dialog/progress/input/choice(create_component→component_id→update/close/get_result 阻塞取结果)；内置UI组件库(create_component('类型', props={...}) 渲染成聊天流卡片，props带actions可交互；类型列表见 ui_component 工具 component_type 参数；web=网页卡片、image=图片卡片)；便捷函数 ask_input/ask_choice/show_progress；脚本最后print输出作为结果返回。环境预装库(可直接import，无需安装)：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)；读写 Word/PPT/PDF 直接用 docx/pptx/pypdf，无需再装；绘制图表用matplotlib(先设中文字体)或Pillow。运行时已内置pip模块(import pip可用)。安装新Python包：① 优先 action=pip_install(package=包名)（pip.main编程式安装到filesDir/python_user_packages，装后本会话即可import）；② 纯Python包(py3-none-any wheel)最稳用 pip_install 工具(自研下载器，不依赖pip)；③ 编程式: import pip; pip.main(['install','--target','<可写目录>','包名'])。【禁止】用 subprocess 或 python -m pip（Chaquopy无独立python可执行文件，必然失败）");
         this.context = context.getApplicationContext();
         this.toolManager = PythonToolManager.getInstance(context);
         this.fileReaderTool = new FileReaderTool(context);
@@ -245,7 +245,8 @@ public class PythonExecuteTool extends BaseAITool {
             "    modules.append(('stdlib', m))\n" +
             "# 检查第三方库\n" +
             "third_party = ['requests','numpy','PIL','bs4','lxml','jieba','regex',\n" +
-            "  'openpyxl','yaml','tabulate','dateutil','chardet','xlrd','pandas','matplotlib']\n" +
+            "  'openpyxl','yaml','tabulate','dateutil','chardet','xlrd','pandas','matplotlib',\n" +
+            "  'docx','pptx','pypdf','xlsxwriter']\n" +
             "for m in third_party:\n" +
             "  spec = importlib.util.find_spec(m)\n" +
             "  if spec:\n" +
@@ -273,7 +274,9 @@ public class PythonExecuteTool extends BaseAITool {
         info.put("third_party", new String[]{
             "requests", "numpy", "PIL/Pillow", "bs4/BeautifulSoup", "lxml", "jieba", "regex",
             "openpyxl", "pyyaml", "tabulate", "python-dateutil", "chardet", "xlrd", "pandas",
-            "matplotlib"
+            "matplotlib",
+            "python-docx/docx(Word读写)", "python-pptx/pptx(PPT读写)", "pypdf(PDF读取/合并/拆分)",
+            "XlsxWriter/xlsxwriter(Excel写入)"
         });
         return new AIToolResult(info, null);
     }
@@ -518,7 +521,11 @@ public class PythonExecuteTool extends BaseAITool {
         }
         // 含 native C 扩展的库不自动加载，避免 SIGSEGV
         // Agent 代码中可按需 import numpy/pandas/PIL/lxml/regex/matplotlib
-        sb.append("# numpy/PIL/lxml/regex/pandas/matplotlib 含 native 扩展，需 Agent 代码中显式 import\n\n");
+        // 文档类（纯 Python，但会拉起 lxml/Pillow）同样不自动加载，Agent 按需 import：
+        //   读/写 Word: import docx（python-docx）    读/写 PPT: import pptx（python-pptx）
+        //   PDF: import pypdf                          Excel 写入: import xlsxwriter
+        sb.append("# numpy/PIL/lxml/regex/pandas/matplotlib 含 native 扩展，需 Agent 代码中显式 import\n");
+        sb.append("# 文档类已预装、按需 import：docx(python-docx) / pptx(python-pptx) / pypdf / xlsxwriter\n\n");
         
         // ===== Android 辅助模块 =====
         sb.append("# Android 环境辅助模块（文件/CSV/SQLite/XML/数据统计）\n");

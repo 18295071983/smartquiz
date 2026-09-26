@@ -381,7 +381,7 @@ public class OnlinePromptBuilder {
         sb.append("  【复用与管理】ui_component_plugin(action=list) 查看已有插件(含长久/临时)；ui_component(action=list_types) 查看注册类型；直接用其 name 创建即可复用，不要重复注册。\n");
         sb.append("  【工作区速查】工作区 files/ 目录内置《工具创建指南.md》（创建工具/动态插件/控件树详解）、《使用速查表.md》（全部工具/组件速查）、《HTML_DESIGN_RULES.md》（生成导出 APK 的 HTML 时的设计规则）、《APK_SOURCE_GUIDE.md》（导出 APK 壳的 40 个原生桥方法清单/回调契约），创建工具/选组件/导出 APK 前可先 workspace 读取，避免凭空造参数。\n\n");
         sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块：from android_ui import show_toast, show_dialog, update_progress；耗时操作或需要用户感知进度时主动使用。\n");
-        sb.append("【Python 环境预装库】可直接 import（无需安装）：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab。画数据图表用 matplotlib（先设中文字体）或 Pillow；复杂图表（子图/对数轴/热力图等）用 python_execute 写 matplotlib 代码。\n\n");
+        sb.append("【Python 环境预装库】可直接 import（无需安装）：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)。读写 Word/PPT/PDF 直接用 docx / pptx / pypdf（已预装，无需再装）。画数据图表用 matplotlib（先设中文字体）或 Pillow；复杂图表（子图/对数轴/热力图等）用 python_execute 写 matplotlib 代码。\n\n");
         return sb.toString();
     }
 
