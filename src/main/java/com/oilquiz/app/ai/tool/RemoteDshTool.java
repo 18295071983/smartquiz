@@ -479,11 +479,58 @@ public class RemoteDshTool implements AITool {
         return sb.toString();
     }
 
+    /**
+     * JSON 响应 → Map。
+     *
+     * <p>优先用 org.json 递归解析：旧的手写轻量解析器**只认顶层值、不认嵌套对象**，
+     * 于是 /status 里嵌套的 {@code channels.session_acp} 永远取不到 →
+     * 明明 ACP 通道可用，App 也一律显示"ACP 官方通道: 不可用 ✗"（真机实测踩到）。
+     * 手写版本保留为兜底（org.json 解析失败时使用）。
+     */
     private static Map<String, Object> jsonDecode(String text) {
-        // 轻量 JSON 对象解析（仅一层 string/number/bool 值，够桥接响应用）
         Map<String, Object> map = new HashMap<>();
         if (text == null) return map;
         String s = text.trim();
+        if (s.isEmpty() || s.charAt(0) != '{') return map;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(s);
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                map.put(k, jsonToJava(o.opt(k)));
+            }
+            return map;
+        } catch (Throwable t) {
+            Log.w(TAG, "org.json 解析失败，退回轻量解析: " + t.getMessage());
+        }
+        return jsonDecodeLoose(s);
+    }
+
+    /** org.json 值 → 纯 Java 值（嵌套对象转 Map、数组转 List，递归） */
+    private static Object jsonToJava(Object v) {
+        if (v instanceof org.json.JSONObject) {
+            org.json.JSONObject o = (org.json.JSONObject) v;
+            Map<String, Object> m = new HashMap<>();
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                m.put(k, jsonToJava(o.opt(k)));
+            }
+            return m;
+        }
+        if (v instanceof org.json.JSONArray) {
+            org.json.JSONArray a = (org.json.JSONArray) v;
+            java.util.List<Object> l = new java.util.ArrayList<>();
+            for (int i = 0; i < a.length(); i++) l.add(jsonToJava(a.opt(i)));
+            return l;
+        }
+        return v;   // String / Integer / Long / Double / Boolean / null
+    }
+
+    private static Map<String, Object> jsonDecodeLoose(String s) {
+        // 轻量 JSON 对象解析（仅一层 string/number/bool 值，兜底用）
+        Map<String, Object> map = new HashMap<>();
+        if (s == null) return map;
         if (s.isEmpty() || s.charAt(0) != '{') return map;
         int i = 1;
         int n = s.length();

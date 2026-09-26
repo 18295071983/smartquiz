@@ -214,14 +214,27 @@ class AcpClient:
             time.sleep(0.8)
         return None, "等待回复超时(%ds)" % timeout
 
-    def alive(self):
-        try:
-            req = urllib.request.Request(self.base + "/acp/healthz")
-            req.add_header("Authorization", "Bearer " + self.token)
-            with urllib.request.urlopen(req, timeout=5) as r:
-                return r.status == 200
-        except Exception:
-            return False
+    # 最近一次探测结果（供 /status 的 probe_output 展示，便于排错）
+    last_probe = None
+
+    def alive(self, attempts=2):
+        """ACP 是否可用。失败重试一次：实测偶发瞬时探测失败会让 App 误报"ACP 不可用 ✗"。"""
+        last = None
+        for i in range(max(1, attempts)):
+            try:
+                req = urllib.request.Request(self.base + "/acp/healthz")
+                req.add_header("Authorization", "Bearer " + self.token)
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    if r.status == 200:
+                        self.last_probe = "ok (HTTP 200)"
+                        return True
+                    last = "HTTP %s" % r.status
+            except Exception as e:
+                last = "%s: %s" % (type(e).__name__, e)
+            if i + 1 < max(1, attempts):
+                time.sleep(0.4)
+        self.last_probe = last or "unknown"
+        return False
 
 
 ACP = AcpClient()
@@ -494,10 +507,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/status":
             acp_ok = ACP.alive()
             headless_ok = None
-            probe = None
-            if not acp_ok:
-                ok, out, code, dur = run_dsh("只回复两个字：OK", 30)
-                headless_ok, probe = ok, out[:200]
+            probe = ACP.last_probe
+            # 说明：这里以前在 ACP 探测失败时会跑一次 30 秒的 headless 任务来"验证兜底通道"，
+            # 结果是"查个状态"要等 30 秒（App 侧 30s 读超时刚好踩线）。改成不主动跑：
+            # headless 是 run 时的降级路径，真的要用时再打，状态里只报 ACP 探测结果。
             items, lerr = (acp_session_list() if acp_ok else (None, None))
             return self._send_json(200, {
                 "ok": True, "version": 3, "backend": "acp",
