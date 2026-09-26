@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-09-27] remote_dsh 走花生壳（贝锐）内网穿透打通
+1. 电脑端：花生壳客户端（HskDDNS 9.4.1，服务 HskService/HskFileService 自启）建映射——**内网主机 127.0.0.1、内网端口 8218**，
+   外网为 HTTPS/443 映射，地址 `https://***REMOVED***`（**地址固定**，优于 Cloudflare 快速隧道每次变）。
+   实测确认：本机 8218 上有来自 phtunnel 的 ESTABLISHED 连接；公网 `/health`、`/status` 均 200 且 `session_acp=true`。
+2. 桥接以 `--public-url https://***REMOVED***` 启动 → 配对页第一个二维码即花生壳地址
+   （协议形态 `dshpair://<host>?scheme=https&port=443&token=…`，App 端已支持解析、https 默认端口不拼 :443）。
+3. token 换为 32 位随机（公网暴露）；App 配置写入 base_url=https://***REMOVED***。
+4. 安全复核：公网 /pair 与 /pair.json 均 403（花生壳为 TCP 透传，Host 是域名，被 Host 校验拦住），token 未泄露。
+5. 真机验证：App uid 走花生壳 `/health` HTTP 200（529ms）、`remote_dsh get_status` success=true 且 ACP 通道可用；
+   用例 RemoteDshBridgeDeviceTest 2/2 通过（并修掉用例对执行顺序的依赖：传 -e publicUrl/-e token 时先写入配置）。
+6. 维护：电脑端桥接需保持运行（tools/start_dsh_bridge.bat 一键起本机部分）；停用只需在花生壳控制台停掉该映射。
+
 ## [2026-09-26] tools/start_dsh_bridge.bat：dsh 桥接一键启动（附 pair 页排错）
 1. 新增 Windows 启动脚本（双击即用）：先起 ACP serve(127.0.0.1:7800)，再起桥接(0.0.0.0:8218)；
    桥接启动会自动打开配对页 http://127.0.0.1:8218/pair 并打印配对文本（dshpair://IP:8218?token=…）。

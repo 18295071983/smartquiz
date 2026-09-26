@@ -36,6 +36,14 @@ public class RemoteDshBridgeDeviceTest {
     @Test
     public void bridgeReachableFromAppUid() throws Exception {
         Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        // 若传了 -e publicUrl/-e token，先写入配置（避免用例执行顺序导致"还没配对"）
+        android.os.Bundle iargs = InstrumentationRegistry.getArguments();
+        String argUrl = iargs.getString("publicUrl");
+        String argToken = iargs.getString("token");
+        if (argUrl != null && argToken != null) {
+            RemoteDshPairBridge.parseAndSave(ctx,
+                    "dshpair://" + new java.net.URL(argUrl).getHost() + "?scheme=https&port=443&token=" + argToken);
+        }
         SharedPreferences sp = ctx.getSharedPreferences("remote_dsh_config", Context.MODE_PRIVATE);
         String baseUrl = sp.getString("base_url", "");
         String token = sp.getString("token", "");
