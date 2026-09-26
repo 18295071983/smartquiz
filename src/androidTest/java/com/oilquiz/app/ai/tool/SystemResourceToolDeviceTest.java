@@ -127,7 +127,9 @@ public class SystemResourceToolDeviceTest {
         String flat = String.valueOf(r.stdout).replace('\n', '|').replace('\r', ' ');
         System.out.println("[EXP] python success=" + r.success + " stdout=" + flat + " err=" + r.error);
         String bin = ctx.getFilesDir().getAbsolutePath() + "/bin";
-        assertTrue("LD_LIBRARY_PATH 应指向 " + bin + "，实际输出: " + flat, flat.contains("LD=" + bin));
+        // 注：为了让系统二进制（/system/bin/curl）不被我们的 libcrypto 污染，全局 LD_LIBRARY_PATH 已移除，
+        // 内置工具改由 liblauncher.so 自带库路径；这里只校验 BINDIR 与工具本身可用。
+        assertTrue("BINDIR 应指向 " + bin + "，实际输出: " + flat, flat.contains("BINDIR=" + bin));
         assertTrue("python 里 busybox 应能执行，实际输出: " + flat, flat.contains("BusyBox v1.38.0"));
         assertTrue("python 里 sed 管道应可用，实际输出: " + flat, flat.contains("SED=HI"));
     }
@@ -148,6 +150,47 @@ public class SystemResourceToolDeviceTest {
         String r2 = out(shell("env -i " + binDir + "/md5sum /system/bin/sh")).trim();
         System.out.println("[EXP] bare md5sum => " + r2);
         assertTrue("裸跑 applet 应能执行: " + r2, r2.matches("(?s).*[0-9a-f]{32}.*"));
+    }
+
+    /** 独立工具 linux_shell + 新内置工具链（curl/jq/rg/sqlite3/zstd…） */
+    @Test
+    public void linuxShellToolWorks() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        com.oilquiz.app.ai.tool.LinuxShellTool shell = new com.oilquiz.app.ai.tool.LinuxShellTool(ctx);
+        java.util.Map<String, Object> p = new java.util.HashMap<>();
+        p.put("action", "exec");
+        p.put("command", "jq --version; rg --version | head -1; sqlite3 --version; zstd --version 2>&1 | head -1;"
+                + " curl -sI https://www.baidu.com | head -1");
+        AIToolResult r = shell.execute(p);
+        String o = String.valueOf(((java.util.Map<?, ?>) r.getResult()).get("output")).replace('\n', '|');
+        System.out.println("[EXP] linux_shell exec => " + o);
+        // sqlite3 --version 只输出 "3.53.4 2026-07-24 ..."（不含 sqlite 字样），所以按版本号判断
+        assertTrue("jq/rg/sqlite3/zstd/curl 都应可用: " + o, r.isSuccess() && o.contains("jq-")
+                && o.contains("ripgrep") && o.contains("3.53.") && o.contains("Zstandard") && o.contains("HTTP"));
+        p.put("action", "tools");
+        AIToolResult t = shell.execute(p);
+        String tools = String.valueOf(((java.util.Map<?, ?>) t.getResult()).get("tools")).replace('\n', '|');
+        System.out.println("[EXP] linux_shell tools => " + tools.substring(0, Math.min(400, tools.length())));
+        assertTrue("tools 应列出内置工具", t.isSuccess() && tools.contains("openssl"));
+    }
+
+    /** Python 也能用同一套内置工具（android_shell 模块） */
+    @Test
+    public void pythonAndroidShellWorks() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        String code = "import android_shell\n"
+                + "r = android_shell.run('curl -sI https://www.baidu.com | head -1')\n"
+                + "print('HTTP=' + r['stdout'].strip())\n"
+                + "print('JQ=' + str(android_shell.tool_path('jq')))\n"
+                + "print('RG=' + android_shell.run('rg --version')[ 'stdout'].split()[1])\n";
+        com.oilquiz.app.ai.python.PythonToolManager.ExecutionResult res =
+                com.oilquiz.app.ai.python.PythonToolManager.getInstance(ctx).executeCode(code, null);
+        String out = String.valueOf(res.stdout).replace('\n', '|');
+        System.out.println("[EXP] python android_shell => " + out);
+        assertTrue("python 里 curl/jq/rg 都应可用: " + out,
+                out.contains("HTTP=") && out.contains("jq") && out.contains("RG="));
     }
 
     /** 只读模式开关：默认 full（不拦）→ readonly（拦 rm/敏感路径）→ 切回 full 恢复放行 */

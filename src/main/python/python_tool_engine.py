@@ -248,7 +248,6 @@ class PythonToolEngine:
                 cur = os.environ.get("PATH", "")
                 if bin_dir not in cur.split(os.pathsep):
                     os.environ["PATH"] = (cur + os.pathsep + bin_dir) if cur else bin_dir
-                os.environ["LD_LIBRARY_PATH"] = bin_dir
                 os.environ["BUSYBOX_BIN_DIR"] = bin_dir
         except Exception:
             pass

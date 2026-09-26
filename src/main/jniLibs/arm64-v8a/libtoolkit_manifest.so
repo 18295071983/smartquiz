@@ -1,0 +1,91 @@
+{
+ "libs_bundle": "libtoolkit_libs.so",
+ "extract_dir": "toolkit_lib",
+ "tools": [
+  {
+   "name": "aria2c",
+   "lib": "libaria2c_bin.so",
+   "pkg": "aria2c"
+  },
+  {
+   "name": "curl",
+   "lib": "libcurl_bin.so",
+   "pkg": "curl"
+  },
+  {
+   "name": "file",
+   "lib": "libfile_bin.so",
+   "pkg": "file"
+  },
+  {
+   "name": "free",
+   "lib": "libfree_bin.so",
+   "pkg": "free"
+  },
+  {
+   "name": "gawk",
+   "lib": "libgawk_bin.so",
+   "pkg": "gawk"
+  },
+  {
+   "name": "htop",
+   "lib": "libhtop_bin.so",
+   "pkg": "htop"
+  },
+  {
+   "name": "jq",
+   "lib": "libjq_bin.so",
+   "pkg": "jq"
+  },
+  {
+   "name": "nano",
+   "lib": "libnano_bin.so",
+   "pkg": "nano"
+  },
+  {
+   "name": "ncdu",
+   "lib": "libncdu_bin.so",
+   "pkg": "ncdu"
+  },
+  {
+   "name": "ps",
+   "lib": "libps_bin.so",
+   "pkg": "ps"
+  },
+  {
+   "name": "rg",
+   "lib": "librg_bin.so",
+   "pkg": "rg"
+  },
+  {
+   "name": "sqlite3",
+   "lib": "libsqlite3_bin.so",
+   "pkg": "sqlite3"
+  },
+  {
+   "name": "tmux",
+   "lib": "libtmux_bin.so",
+   "pkg": "tmux"
+  },
+  {
+   "name": "tree",
+   "lib": "libtree_bin.so",
+   "pkg": "tree"
+  },
+  {
+   "name": "unzip",
+   "lib": "libunzip_bin.so",
+   "pkg": "unzip"
+  },
+  {
+   "name": "zip",
+   "lib": "libzip_bin.so",
+   "pkg": "zip"
+  },
+  {
+   "name": "zstd",
+   "lib": "libzstd_bin.so",
+   "pkg": "zstd"
+  }
+ ]
+}

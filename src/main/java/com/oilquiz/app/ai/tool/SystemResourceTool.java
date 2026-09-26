@@ -120,6 +120,12 @@ public class SystemResourceTool implements AITool {
     // ===== openssh（Termux bionic 构建）：可执行文件随 jniLibs，依赖库以 tar.gz 单文件分发 =====
     /** ssh 系列可执行文件（bin 目录里做成软链接，指向 nativeLibraryDir/libssh_*.so） */
     private static final String[] SSH_BIN_NAMES = {"ssh", "scp", "sftp", "ssh-keygen", "ssh-keyscan", "ssh-add"};
+    /** 通用工具包清单（tools/tests/bundle_termux_bins.py 生成）：JSON，列出工具名 -> lib*.so */
+    private static final String TOOLKIT_MANIFEST_LIB = "libtoolkit_manifest.so";
+
+    /** C 启动器：为单个工具设置依赖库路径后再 exec 真正的二进制（避免全局 LD_LIBRARY_PATH 污染系统命令） */
+    private static final String LAUNCHER_LIB = "liblauncher.so";
+
     /** 依赖库包：tar.gz（保留 libcrypto.so.3 这类带版本号的真实名字）—— dlopen 数据目录允许，execve 不允许，
      *  所以库可以解包到 files/lib 用 LD_LIBRARY_PATH 加载，二进制必须留在 nativeLibraryDir。 */
     private static final String SSH_LIBS_BUNDLE = "libssh_libs.so";
@@ -1181,6 +1187,122 @@ public class SystemResourceTool implements AITool {
         }
     }
     
+    /** 供 linux_shell 等其它工具复用：在完整内置环境下执行命令 */
+    public static AIToolResult runShellStatic(Context ctx, Map<String, Object> parameters) {
+        return new SystemResourceTool(ctx).executeShellCommand(parameters);
+    }
+
+    /** 供 linux_shell 复用：下载 URL 到文件 */
+    public static AIToolResult httpDownloadStatic(Context ctx, Map<String, Object> parameters) {
+        return new SystemResourceTool(ctx).httpDownload(parameters);
+    }
+
+    /** 列出内置工具及版本（linux_shell action=tools） */
+    public static AIToolResult toolkitStatus(Context ctx, Map<String, Object> parameters) {
+        SystemResourceTool t = new SystemResourceTool(ctx);
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
+        String binDir = t.ensureBusyboxBinDir();
+        result.put("bin_dir", binDir != null ? binDir : "(未就绪)");
+        String[] names = {"busybox", "openssl", "ssh", "curl", "aria2c", "rg", "jq", "sqlite3", "zstd",
+                "zip", "file", "tree", "ncdu", "htop", "ps", "tmux", "nano", "gawk"};
+        StringBuilder sb = new StringBuilder();
+        for (String n : names) {
+            String out = t.shellCapture(n + " --version 2>&1 | head -1", 8);
+            sb.append(n).append(": ").append(out == null || out.isEmpty() ? "(无)" : out).append('\n');
+        }
+        result.put("tools", sb.toString().trim());
+        return new AIToolResult(result, parameters);
+    }
+
+    /** 同步跑一条命令并取输出（内部用） */
+    private String shellCapture(String command, long timeoutSec) {
+        Process p = null;
+        try {
+            p = new ProcessBuilder("/system/bin/sh", "-c", command).redirectErrorStream(true).start();
+            p.getOutputStream().close();
+            BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) {
+                sb.append(line);
+                if (sb.length() > 200) {
+                    break;
+                }
+            }
+            if (!p.waitFor(timeoutSec, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            if (p != null) {
+                p.destroyForcibly();
+            }
+            return "";
+        }
+    }
+
+    /** 按 libtoolkit_manifest.so 清单解包依赖库并把工具软链接进 PATH */
+    private void ensureGenericTools(File binDir, boolean rebuild) {
+        try {
+            File manifest = new File(context.getApplicationInfo().nativeLibraryDir, TOOLKIT_MANIFEST_LIB);
+            if (!manifest.exists()) {
+                return;
+            }
+            String json = new String(java.nio.file.Files.readAllBytes(manifest.toPath()), "UTF-8");
+            org.json.JSONObject obj = new org.json.JSONObject(json);
+            String bundle = obj.optString("libs_bundle", "libtoolkit_libs.so");
+            File libDir = new File(context.getFilesDir(), obj.optString("extract_dir", "toolkit_lib"));
+            if (rebuild || !libDir.isDirectory() || libDir.list() == null || libDir.list().length == 0) {
+                extractBundle(binDir, libDir, bundle);
+            }
+            org.json.JSONArray arr = obj.optJSONArray("tools");
+            if (arr == null) {
+                return;
+            }
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject t = arr.getJSONObject(i);
+                // 走启动器而不是直接指向 lib<name>_bin.so：启动器会设置 LD_LIBRARY_PATH
+                linkBin(binDir, t.getString("name"), LAUNCHER_LIB);
+            }
+            AILogger.i(TAG, "通用工具包就绪: " + arr.length() + " 个工具, 库目录=" + libDir);
+        } catch (Exception e) {
+            AILogger.e(TAG, "加载通用工具包失败: " + BaseAITool.errText(e));
+        }
+    }
+
+    /** 通用解包：把 bundle（tar.gz）解到 dir */
+    private void extractBundle(File binDir, File dir, String bundleName) {
+        try {
+            File bundle = new File(context.getApplicationInfo().nativeLibraryDir, bundleName);
+            if (!bundle.exists()) {
+                AILogger.e(TAG, "缺少依赖库包: " + bundle.getAbsolutePath());
+                return;
+            }
+            if (dir.exists()) {
+                deleteRecursively(dir);
+            }
+            if (!dir.mkdirs() && !dir.isDirectory()) {
+                return;
+            }
+            ProcessBuilder pb = new ProcessBuilder(new File(binDir, "busybox").getAbsolutePath(),
+                    "tar", "-xzf", bundle.getAbsolutePath(), "-C", dir.getAbsolutePath());
+            pb.redirectErrorStream(true);
+            pb.environment().put("LD_LIBRARY_PATH", binDir.getAbsolutePath());
+            Process proc = pb.start();
+            proc.getOutputStream().close();
+            if (!proc.waitFor(40, TimeUnit.SECONDS)) {
+                proc.destroyForcibly();
+                AILogger.e(TAG, "解包依赖库超时: " + bundleName);
+                return;
+            }
+            int n = dir.list() == null ? 0 : dir.list().length;
+            AILogger.i(TAG, "解包 " + bundleName + " 完成 exit=" + proc.exitValue() + " 文件数=" + n);
+        } catch (Exception e) {
+            AILogger.e(TAG, "解包失败 " + bundleName + ": " + BaseAITool.errText(e));
+        }
+    }
+
     /** 递归删除（重建 bin 目录用） */
     private void deleteRecursively(File f) {
         File[] children = f.listFiles();
@@ -1194,7 +1316,11 @@ public class SystemResourceTool implements AITool {
         }
     }
 
-    /** 起本地下载服务并把 wget/curl 覆盖成走它的包装脚本（幂等） */
+    /** 供 linux_shell 等其它工具复用：在完整内置环境下执行命令 */
+
+
+
+
     private void installFetchShims(File binDir) {
         try {
             int port = HttpFetchServer.start(context);
@@ -1245,7 +1371,9 @@ public class SystemResourceTool implements AITool {
         }
     }
 
-    /** 把随包分发的二进制/脚本软链接进 PATH（先删掉 busybox --install 建的 applet 软链接） */
+    /** 按 libtoolkit_manifest.so 清单解包依赖库并把工具软链接进 PATH */
+
+
     private void linkBin(File binDir, String name, String libName) {
         linkShim(binDir, name, libName);
     }
@@ -1470,8 +1598,9 @@ public class SystemResourceTool implements AITool {
                 if (rebuild || !libDir.isDirectory() || (libDir.list() != null && libDir.list().length == 0)) {
                     extractSshLibs(binDir, libDir);
                 }
+                // 全部走 C 启动器（它只给自己的进程设置依赖库路径，避免污染系统二进制）
                 for (String n : SSH_BIN_NAMES) {
-                    linkBin(binDir, n, "libssh_" + n.replace('-', '_') + ".so");
+                    linkBin(binDir, n, LAUNCHER_LIB);
                 }
                 if (rebuild) {
                     ProcessBuilder installPb = new ProcessBuilder(invokePath, "--install", "-s", binDir.getAbsolutePath());
@@ -1526,6 +1655,8 @@ public class SystemResourceTool implements AITool {
                 }
                 // 让 wget/curl 支持 https（busybox 没编译 TLS）：起本地下载服务 + 覆盖成包装脚本
                 installFetchShims(binDir);
+                // 通用工具包（bundle_termux_bins.py 生成）：解包依赖库 + 按清单建软链接
+                ensureGenericTools(binDir, rebuild);
 
                 sBusyboxBinDir = binDir.getAbsolutePath();
                 AILogger.i(TAG, "内置 Linux 工具链就绪: " + sBusyboxBinDir);
@@ -1581,7 +1712,8 @@ public class SystemResourceTool implements AITool {
                     env.put("BUSYBOX_BIN_DIR", binDir);
                     env.put("BUSYBOX", busyboxPath() != null ? busyboxPath() : "");
                     // busybox 启动器靠它加载 libbusybox.so / libandroid-selinux.so（只含这两个软链接的目录）
-                    env.put("LD_LIBRARY_PATH", binDir + ":" + new File(context.getFilesDir(), "lib").getAbsolutePath());
+                    // 不再向 shell 注入 LD_LIBRARY_PATH：那会让系统二进制（如 /system/bin/curl）
+                    // 加载到我们的 libcrypto.so 而符号不匹配。内置工具由 liblauncher.so 自带环境。
                     // wget/curl 包装脚本靠它找本地下载服务（也写了 .http_port 文件作为兜底）
                     int fetchPort = HttpFetchServer.getPort();
                     if (fetchPort > 0) {
