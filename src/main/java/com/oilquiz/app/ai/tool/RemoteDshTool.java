@@ -332,8 +332,13 @@ public class RemoteDshTool implements AITool {
             }
             Object cnt = resp.get("count");
             Object text = resp.get("text");
+            if (text == null) {
+                // 会话失效/取自失败时，把原因如实带出来（以前只显示"(空)"，看不出为什么）
+                return AIToolResult.fail("读取会话历史失败"
+                        + (err != null ? (": " + err) : "（bridge 未返回 text，可能是会话已失效，可 action=start 重开）"));
+            }
             return AIToolResult.success("会话历史（最近 " + (cnt != null ? cnt : max) + " 条）：\n"
-                    + (text != null ? String.valueOf(text) : "(空)"));
+                    + String.valueOf(text));
         } catch (Exception e) {
             return AIToolResult.fail("读取历史异常: " + e.getMessage());
         }
@@ -361,48 +366,110 @@ public class RemoteDshTool implements AITool {
             String sid = getSessionId();
             // 会话模式：没有 session_id 先自动创建
             if (sid.isEmpty()) {
-                Map<String, Object> startBody = new HashMap<>();
-                startBody.put("action", "start");
-                Map<String, Object> startResp = httpJson(baseUrl + "/session", "POST", startBody, 30);
-                Object newSid = startResp != null ? startResp.get("session_id") : null;
-                if (newSid == null || String.valueOf(newSid).trim().isEmpty()) {
-                    return AIToolResult.fail("自动创建会话失败（bridge 未启动？）：" + startResp);
+                sid = createSession(baseUrl);
+                if (sid == null) {
+                    return AIToolResult.fail("自动创建会话失败（bridge/ACP 未启动？）：" + baseUrl);
                 }
-                sid = String.valueOf(newSid);
                 saveSessionId(sid);
             }
-            Map<String, Object> body = new HashMap<>();
-            body.put("action", "prompt");
-            body.put("session_id", sid);
-            body.put("text", task);
-            body.put("timeout", timeout);
-            Map<String, Object> resp = httpJson(baseUrl + "/session", "POST", body, timeout + 30);
-            if (resp == null) {
-                return AIToolResult.fail("无法连接电脑端桥接服务: " + baseUrl
-                        + "\n请确认：① 电脑端服务已启动 ② 手机与电脑同一网络 ③ 地址端口正确");
+
+            // 发任务；若会话已失效（bridge/ACP 重启、电脑端会话被清理）自动重建会话并重试一次
+            Map<String, Object> resp = null;
+            Object ok = null, reply = null, dur = null, turn = null;
+            String errText = "";
+            for (int attempt = 0; attempt < 2; attempt++) {
+                resp = sendPrompt(baseUrl, sid, task, timeout);
+                if (resp == null) {
+                    return AIToolResult.fail("无法连接电脑端桥接服务: " + baseUrl
+                            + "\n请确认：① 电脑端服务已启动 ② 手机与电脑同网（或隧道/映射可用） ③ 地址端口正确");
+                }
+                Object err = resp.get("error");
+                if (err != null && "unauthorized".equals(err)) {
+                    return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
+                }
+                ok = resp.get("ok");
+                reply = resp.get("reply");
+                dur = resp.get("duration_ms");
+                turn = resp.get("turn");
+                errText = err == null ? "" : String.valueOf(err);
+                if (Boolean.TRUE.equals(ok) || attempt > 0 || !isDeadSessionError(errText)) {
+                    break;
+                }
+                // 会话失效 → 重建后重试（不打扰用户）
+                Log.w(TAG, "会话失效，自动重建: " + errText);
+                String nsid = createSession(baseUrl);
+                if (nsid == null) break;
+                sid = nsid;
+                saveSessionId(nsid);
             }
-            Object err = resp.get("error");
-            if (err != null && "unauthorized".equals(err)) {
-                return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
-            }
-            Object ok = resp.get("ok");
-            Object reply = resp.get("reply");
+
             String out = reply != null ? String.valueOf(reply) : "";
             if (out.length() > OUTPUT_LIMIT) {
                 out = out.substring(0, OUTPUT_LIMIT) + "\n...[输出过长已截断]";
             }
-            Object turn = resp.get("turn");
-            Object dur = resp.get("duration_ms");
             StringBuilder sb = new StringBuilder();
-            sb.append(Boolean.TRUE.equals(ok) ? "电脑任务完成 ✓" : "电脑任务执行失败（看输出判断原因）");
+            sb.append(Boolean.TRUE.equals(ok) ? "电脑任务完成 ✓" : "电脑任务失败 ✗");
             sb.append("（会话续接模式）");
             if (turn != null) sb.append(" 第").append(turn).append("轮");
             if (dur != null) sb.append(" 耗时 ").append(dur).append("ms");
+            if (!Boolean.TRUE.equals(ok)) {
+                // 关键：把 bridge/ACP 给的失败原因如实带出来，否则用户只看到空输出无从判断
+                if (!errText.isEmpty()) sb.append("\n原因: ").append(errText);
+                sb.append("\n提示：电脑端 dsh 可能没装好/未登录（ACP serve 不可用），或该任务超时；"
+                        + "可用 action=get_status 看通道状态，或 action=start 重开会话");
+            }
             sb.append("\n").append(out);
-            return AIToolResult.success(sb.toString());
+            return Boolean.TRUE.equals(ok)
+                    ? AIToolResult.success(sb.toString())
+                    : AIToolResult.fail(sb.toString());
         } catch (Exception e) {
             return AIToolResult.fail("远程调用异常: " + e.getMessage());
         }
+    }
+
+    /** 新建会话，返回 session_id（失败返回 null） */
+    private String createSession(String baseUrl) {
+        Map<String, Object> startBody = new HashMap<>();
+        startBody.put("action", "start");
+        try {
+            Map<String, Object> startResp = httpJson(baseUrl + "/session", "POST", startBody, 30);
+            Object newSid = startResp != null ? startResp.get("session_id") : null;
+            if (newSid == null || String.valueOf(newSid).trim().isEmpty()) {
+                Log.w(TAG, "创建会话失败: " + startResp);
+                return null;
+            }
+            return String.valueOf(newSid);
+        } catch (Exception e) {
+            Log.w(TAG, "创建会话异常: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 发一轮任务到桥接（prompt） */
+    private Map<String, Object> sendPrompt(String baseUrl, String sid, String task, int timeout) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("action", "prompt");
+        body.put("session_id", sid);
+        body.put("text", task);
+        body.put("timeout", timeout);
+        try {
+            return httpJson(baseUrl + "/session", "POST", body, timeout + 30);
+        } catch (Exception e) {
+            Log.w(TAG, "prompt 请求异常: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 判断错误是否属于"会话已失效"（bridge/ACP 重启后旧 sessionId 就废了）。
+     * 命中则自动开新会话重试一次，用户无感。
+     */
+    private static boolean isDeadSessionError(String err) {
+        if (err == null) return false;
+        String e = err.toLowerCase();
+        return e.contains("session") || e.contains("not found") || e.contains("不存在")
+                || e.contains("invalid") || e.contains("expired") || e.contains("失效")
+                || e.contains("unknown") || e.contains("no such");
     }
 
     // ---------- HTTP ----------
@@ -442,7 +509,25 @@ public class RemoteDshTool implements AITool {
         }
     }
 
+    /**
+     * 请求体编码。改用 org.json：手写版会把 Boolean 变成字符串 "true"、也不支持嵌套对象/数组
+     * （响应侧早就换成 org.json 了，这里保持一致）；org.json 失败时退回手写编码。
+     */
     private static String jsonEncode(Map<String, Object> map) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            for (Map.Entry<String, Object> e : map.entrySet()) {
+                o.put(e.getKey(), e.getValue());
+            }
+            return o.toString();
+        } catch (Exception ex) {
+            Log.w(TAG, "请求体编码失败，退回手写编码: " + ex.getMessage());
+            return jsonEncodeLoose(map);
+        }
+    }
+
+    /** 手写兜底编码（escape 已覆盖引号/反斜杠/换行/控制字符） */
+    private static String jsonEncodeLoose(Map<String, Object> map) {
         StringBuilder sb = new StringBuilder("{");
         boolean first = true;
         for (Map.Entry<String, Object> e : map.entrySet()) {
@@ -450,7 +535,7 @@ public class RemoteDshTool implements AITool {
             first = false;
             sb.append('"').append(escape(e.getKey())).append("\":");
             Object v = e.getValue();
-            if (v instanceof Number) {
+            if (v instanceof Number || v instanceof Boolean) {
                 sb.append(v);
             } else {
                 sb.append('"').append(escape(String.valueOf(v))).append('"');

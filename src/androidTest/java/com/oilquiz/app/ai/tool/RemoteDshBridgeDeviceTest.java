@@ -137,6 +137,43 @@ public class RemoteDshBridgeDeviceTest {
         assertTrue("公网隧道下桥接应在线: " + r.getResult(), String.valueOf(r.getResult()).contains("桥接服务在线"));
     }
 
+    /**
+     * 真跑一轮任务：start → run → history，走完整链路
+     * （手机 App uid → 花生壳公网 → 电脑桥接 → ACP serve → dsh agent）。
+     */
+    @Test
+    public void remoteDshRealTaskWorks() throws Exception {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        RemoteDshTool tool = new RemoteDshTool(ctx);
+
+        Map<String, Object> p = new HashMap<>();
+        p.put("action", "start");
+        AIToolResult st = tool.execute(p);
+        System.out.println("[EXP] start   => success=" + st.isSuccess() + "  " + st.getResult() + st.getErrorMessage());
+        assertTrue("start 应成功: " + st.getErrorMessage(), st.isSuccess());
+
+        p.clear();
+        p.put("action", "run");
+        p.put("task", "只回复两个字：OK");
+        p.put("timeout", 120);
+        long t0 = System.currentTimeMillis();
+        AIToolResult r = tool.execute(p);
+        long ms = System.currentTimeMillis() - t0;
+        System.out.println("[EXP] run     => success=" + r.isSuccess() + "  " + ms + "ms\n"
+                + r.getResult() + r.getErrorMessage());
+        assertTrue("run 应成功（失败原因会一并带出）: " + r.getErrorMessage(), r.isSuccess());
+        String out = String.valueOf(r.getResult());
+        assertTrue("结果里应标明任务完成", out.contains("电脑任务完成"));
+        assertTrue("结果不应为空", out.trim().length() > 20);
+
+        p.clear();
+        p.put("action", "history");
+        p.put("max", 5);
+        AIToolResult h = tool.execute(p);
+        System.out.println("[EXP] history => success=" + h.isSuccess() + "\n" + h.getResult() + h.getErrorMessage());
+        assertTrue("history 应成功: " + h.getErrorMessage(), h.isSuccess());
+    }
+
     private static String readAll(HttpURLConnection c) throws Exception {
         try (InputStream in = c.getInputStream()) {
             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
