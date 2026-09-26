@@ -2,6 +2,7 @@ package com.oilquiz.app.ai.agent.online;
 
 import android.content.Context;
 
+import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
 import com.oilquiz.app.util.AILogger;
@@ -41,6 +42,8 @@ public class OnlineToolManager {
     private static final int PERMISSION_TOOL_TIMEOUT_MS = 120_000;
     /** 知识库文件导入（OCR/PDF/Office 解析/AI 语音识别转写）耗时长，超时放宽到 180 秒 */
     private static final int KNOWLEDGE_IMPORT_TIMEOUT_MS = 180_000;
+    /** 工具自声明超时的硬上限（11 分钟）：防止个别工具把调用方拖死 */
+    private static final int MAX_TOOL_TIMEOUT_MS = 660_000;
     private static final int MAX_RETRY = 2;
     /** 工具结果截断上限：防止超大结果撑爆上下文/请求体（截断后带标记，提示模型分片读取） */
     private static final int RESULT_MAX_LENGTH = 16 * 1024;
@@ -525,10 +528,26 @@ public class OnlineToolManager {
                     || arguments.contains("import_json"));
         // douyin_downloader：首次执行含 UIFID 自愈抓取（WebView 15-17s）+ 官方解析，默认 30s 会误杀
         boolean isDouyinDownload = "douyin_downloader".equals(toolName);
-        int effectiveTimeout = isKnowledgeImport
+        int baseTimeout = isKnowledgeImport
                 ? KNOWLEDGE_IMPORT_TIMEOUT_MS
                 : ((isPermissionRequest || isUserInteractionWait || isMediaSubmit || isDouyinDownload)
                         ? PERMISSION_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS);
+        // 工具自声明超时（2026-09-27）：耗时不可控的工具（如 remote_dsh 在电脑上真跑任务）自己声明要等多久。
+        // 实测踩到的坑：手机端 remote_dsh 传 timeout=150，仍被这里的 30s 默认值掐断，
+        // 且超时后模型拿到的是空结果 → 只能盲目重试（token 从 137 万烧到 196 万，用户看到"有些问题"）。
+        int declaredTimeout = 0;
+        try {
+            AITool toolImpl = aiToolManager.getTool(toolName);
+            if (toolImpl != null) {
+                long declared = toolImpl.executionTimeoutMs(params);
+                if (declared > 0) {
+                    declaredTimeout = (int) Math.min(MAX_TOOL_TIMEOUT_MS, declared);
+                }
+            }
+        } catch (Exception e) {
+            AILogger.w(TAG, "读取工具自声明超时失败(" + toolName + "): " + e.getMessage());
+        }
+        int effectiveTimeout = Math.max(baseTimeout, declaredTimeout);
 
         // 带重试的执行
         Exception lastException = null;
@@ -591,7 +610,14 @@ public class OnlineToolManager {
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
-        String errorMsg = lastException != null ? lastException.getMessage() : "工具执行失败";
+        // 超时要说清楚"等了多久、任务可能还在跑"，否则调用方只拿到 null 消息（模型看到空结果只能瞎猜）
+        String errorMsg;
+        if (lastException instanceof TimeoutException) {
+            errorMsg = "工具 " + toolName + " 执行超时（已等待 " + (effectiveTimeout / 1000) + "s）：已停止等待。"
+                    + "任务可能仍在后台继续；请缩小任务范围，或用工具自己的 timeout 参数给足时间后重试。";
+        } else {
+            errorMsg = lastException != null ? lastException.getMessage() : "工具执行失败";
+        }
         usageTracker.recordCall(toolName, arguments, false, elapsed, errorMsg);
         return OnlineToolResult.failure(toolCallId, toolName, errorMsg, elapsed);
     }

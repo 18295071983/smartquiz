@@ -19,16 +19,23 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 远程 dsh 工具 v3：通过电脑端 dsh 桥接服务（tools/dsh_bridge_server.py v3）远程调用
+ * 远程 dsh 工具 v4：通过电脑端 dsh 桥接服务（tools/dsh_bridge_server.py v4）远程调用
  * DeepSeek dsh（DeepSeek Harness Shell），让 AI 远程操作电脑。
  *
- * v3 核心变化：**ACP 官方通道**——dsh 已升级 0.1.5，桥接服务后端对接 ACP v1
- * （dsh --profile acp serve，127.0.0.1:7800；session/new + session/prompt + SSE 流式），
- * 同一 session_id 连续调用 = 多轮会话续接（电脑端 dsh 记忆连续）。
+ * 通道：**ACP 官方通道**（dsh --profile acp serve，127.0.0.1:7800；session/new + session/prompt + SSE 流式），
+ * 同一 session_id 连续调用 = 多轮会话续接（电脑端 dsh 记忆连续）。桥接版本/ACP 版本一律由 /status 如实上报，
+ * 代码里不写死版本号（写死过 "dsh 0.1.5"，手机端 AI 据此误判"版本不兼容"）。
+ *
+ * v4 要点（2026-09-27，实测驱动）：
+ *   * 桥接为每个会话建立会话流并自动应答 session/request_permission —— 此前写文件/跑命令类任务会永久挂起；
+ *   * 本工具按 timeout+45s 向 OnlineToolManager 申报执行超时（不再被其 30s 默认值掐断），
+ *     超时时如实说明"等了多久、任务可能仍在电脑上"；
+ *   * 新增 shell 动作：把 task 当命令经 bridge /exec 直连执行（不经电脑端 LLM，毫秒级、输出原样）。
  *
  * 架构：
- *   手机 App → HTTP(Bearer token) → 电脑端 dsh_bridge_server v3 → ACP serve(127.0.0.1:7800)
- *                                                                  └→ headless(仅 ACP 不可用时 fallback)
+ *   手机 App → HTTP(Bearer token) → 电脑端 dsh_bridge_server v4 → ACP serve(127.0.0.1:7800)
+ *                                                             ├→ /exec 直连命令（shell 动作）
+ *                                                             └→ headless(仅 ACP 不可用时 fallback)
  *
  * 动作：
  *   run(默认)  执行任务并自动续接会话：配置里已有 session_id 则直接续接，没有则先自动创建；
@@ -47,28 +54,31 @@ import java.util.Map;
         value = "remote_dsh",
         description = "远程控制电脑（DeepSeek dsh 官方会话通道）：调用电脑上安装的 dsh（DeepSeek Harness Shell）执行任务，"
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接（电脑端 dsh 记忆连续）。"
-                + "前提：电脑端已启动 tools/dsh_bridge_server.py（v3，ACP 官方通道）桥接服务，并在本工具配置好电脑地址(base_url)与访问令牌(token)。"
-                + "动作：① action=pair 扫码一键配对（推荐）：打开相机扫描电脑端配对页二维码，自动保存地址与令牌；"
-                + "② action=run 执行任务并自动续接会话：task 填要电脑干的活（自然语言即可，如\"看看D盘有哪些项目文件夹\"\"把某文件复制到桌面\"）；"
-                + "② action=start 新建会话（重置电脑端记忆）；"
-                + "③ action=history 读当前会话历史（max=条数，默认10）；"
-                + "④ action=get_status 检查桥接服务与 dsh 是否在线；"
-                + "⑤ action=set_config 配置/修改电脑地址与令牌：base_url=http://电脑IP:8218，token=桥接服务启动时打印的令牌。"
+                + "前提：电脑端已启动 tools/dsh_bridge_server.py（ACP 官方通道 + /exec 直连）桥接服务，并在本工具配置好电脑地址(base_url)与访问令牌(token)。"
+                + "动作：① action=run（默认）在电脑上执行任务并自动续接会话：task 用自然语言，如\"看看D盘有哪些项目文件夹\"；"
+                + "② action=shell 直接把 task 当一条命令执行（bridge 直连，不经电脑端 LLM，毫秒级、输出原样）：凡是要\"跑这条命令并把原始输出贴回来\"就用它，如 task=\"git status\"；"
+                + "③ action=pair 扫码一键配对（推荐）：扫电脑端配对页二维码，自动保存地址与令牌；"
+                + "④ action=start 新建会话（重置电脑端记忆）；⑤ action=history 读当前会话历史（max=条数，默认10）；"
+                + "⑥ action=get_status 检查桥接服务与 dsh 是否在线；"
+                + "⑦ action=set_config 配置/修改电脑地址与令牌：base_url=http://电脑IP:8218，token=桥接服务启动时打印的令牌。"
+                + "长任务：timeout 真的生效（秒，5~600，默认 120），编译/下载/长命令请给足（如 300）；超时会被中断且拿不到结果。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。"
                 + "安全：只有配置了正确 token 才能调用；task 描述给电脑端执行，勿让用户代码注入。",
         category = "remote",
         aliases = {"dsh", "远程控制电脑", "电脑操作", "remote_pc"},
         actions = {
                 @Action(name = "pair", description = "扫码一键配对：扫描电脑端配对页二维码自动保存地址与令牌"),
-                @Action(name = "run", description = "在电脑上执行一个 dsh 任务（自动续接会话）"),
+                @Action(name = "run", description = "在电脑上执行一个 dsh 任务（自动续接会话，适合自然语言任务）"),
+                @Action(name = "shell", description = "把 task 当命令直接在电脑上执行（不经 LLM，毫秒级、输出原样）"),
                 @Action(name = "start", description = "新建 dsh 会话（重置电脑端记忆），返回新的 session_id"),
                 @Action(name = "history", description = "读当前会话最近历史（max=条数，默认10）"),
                 @Action(name = "get_status", description = "检查桥接服务与 dsh 状态"),
                 @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
         },
         params = {
-                @Param(name = "action", type = "string", description = "操作: pair(扫码配对) / run(默认) / start / history / get_status / set_config", required = false),
-                @Param(name = "task", type = "string", description = "dsh 任务描述（自然语言，告诉电脑干什么）", required = false),
+                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / pair(扫码配对) / start / history / get_status / set_config", required = false),
+                @Param(name = "task", type = "string", description = "run=任务描述（自然语言）；shell=要执行的命令原文", required = false),
+                @Param(name = "shell", type = "string", description = "shell 动作的执行器: auto(默认，优先 pwsh 回退 powershell) / cmd / bash", required = false),
                 @Param(name = "max", type = "integer", description = "history 读取条数（默认 10，范围 1~200）", required = false),
                 @Param(name = "base_url", type = "string", description = "电脑端桥接地址，如 http://192.168.1.100:8218（set_config 用）", required = false),
                 @Param(name = "token", type = "string", description = "桥接服务访问令牌（set_config 用，bridge 启动时打印）", required = false),
@@ -85,6 +95,8 @@ public class RemoteDshTool implements AITool {
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
     private static final int MAX_TIMEOUT_SECONDS = 600;
     private static final int OUTPUT_LIMIT = 20000; // 输出截断，防撑爆对话
+    /** 工具自声明超时的硬上限，与 OnlineToolManager.MAX_TOOL_TIMEOUT_MS 对齐 */
+    private static final long MAX_TOOL_TIMEOUT_MS = 660_000L;
 
     private final Context context;
 
@@ -101,20 +113,23 @@ public class RemoteDshTool implements AITool {
     public String getDescription() {
         return "远程控制电脑（DeepSeek dsh 官方会话通道）：调用电脑上的 dsh（DeepSeek Harness Shell）执行任务，"
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接。"
-                + "前提：电脑端已启动 tools/dsh_bridge_server.py(v3，ACP 官方通道) 桥接服务，并配置好 base_url 与 token。"
-                + "动作：pair(扫码一键配对) / run(执行任务+自动续接) / start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
+                + "前提：电脑端已启动 tools/dsh_bridge_server.py(ACP 官方通道 + /exec 直连) 桥接服务，并配置好 base_url 与 token。"
+                + "动作：run(执行任务+自动续接，自然语言) / shell(把 task 当命令直接跑，不经 LLM、输出原样) / "
+                + "pair(扫码一键配对) / start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
+                + "timeout 参数真的生效（秒，最长600），长任务请给足。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。安全：只有配置了正确 token 才能调用。";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作: pair(扫码一键配对，推荐) / run(默认，执行任务+自动续接) / start(新建会话) / history(读历史) / get_status(检查状态) / set_config(配置)");
-        params.put("task", "dsh 任务描述（自然语言），如\"看看D盘有哪些项目文件夹\"");
+        params.put("action", "操作: run(默认，自然语言任务+自动续接) / shell(把 task 当命令直接跑，不经 LLM) / pair(扫码一键配对，推荐) / start(新建会话) / history(读历史) / get_status(检查状态) / set_config(配置)");
+        params.put("task", "run=任务描述（自然语言，如\"看看D盘有哪些项目文件夹\"）；shell=要执行的命令原文（如 git status）");
+        params.put("shell", "shell 动作的执行器: auto(默认) / cmd / bash");
         params.put("max", "history 读取条数（默认 10，范围 1~200）");
         params.put("base_url", "电脑端桥接地址，如 http://192.168.1.100:8218（set_config 用）");
         params.put("token", "桥接服务访问令牌（set_config 用，桥接服务启动时打印）");
-        params.put("timeout", "任务超时秒数（默认 120，范围 5~600）");
+        params.put("timeout", "任务超时秒数（默认 120，范围 5~600；长任务请给足，超时会中断且拿不到结果）");
         return params;
     }
 
@@ -159,6 +174,8 @@ public class RemoteDshTool implements AITool {
                     return handleStart();
                 case "history":
                     return handleHistory(parameters);
+                case "shell":
+                    return handleShell(parameters);
                 case "run":
                 default:
                     return handleRun(parameters);
@@ -256,11 +273,33 @@ public class RemoteDshTool implements AITool {
             if (err != null && "unauthorized".equals(err)) {
                 return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
             }
-            StringBuilder sb = new StringBuilder("桥接服务在线 ✓（v3 ACP 通道）\n");
+            Object ver = resp.get("version");
+            StringBuilder sb = new StringBuilder("桥接服务在线 ✓（ACP 通道，桥接 v"
+                    + (ver != null ? ver : "?") + "）\n");
             Object channels = resp.get("channels");
             boolean acpOk = channels != null && Boolean.TRUE.equals(
                     ((Map<?, ?>) channels).get("session_acp"));
-            sb.append("ACP 官方通道(dsh 0.1.5): ").append(acpOk ? "可用 ✓" : "不可用 ✗").append("\n");
+            // 版本号一律来自 ACP 自报（agentInfo），不再写死——之前写死 "dsh 0.1.5"，
+            // 手机端 AI 据此判断"版本不兼容"，实际运行的是另一个版本，属于误导。
+            String acpVer = "";
+            Object agent = resp.get("acp_agent");
+            if (agent instanceof Map) {
+                Object n = ((Map<?, ?>) agent).get("name");
+                Object v = ((Map<?, ?>) agent).get("version");
+                if (n != null || v != null) {
+                    acpVer = "（" + (n != null ? n : "?") + (v != null ? " " + v : "") + "）";
+                }
+            }
+            sb.append("ACP 官方通道").append(acpVer).append(": ")
+                    .append(acpOk ? "可用 ✓" : "不可用 ✗").append("\n");
+            Object pp = resp.get("permission_policy");
+            if (pp != null) {
+                sb.append("权限自动应答: ").append(pp).append("（allow=写文件/跑命令自动放行一次）\n");
+            }
+            Object streams = resp.get("session_streams");
+            if (streams instanceof java.util.List) {
+                sb.append("活跃会话流: ").append(((java.util.List<?>) streams).size()).append("\n");
+            }
             Object cnt = resp.get("sessions_count");
             if (cnt != null) sb.append("电脑端 dsh 会话数: ").append(cnt).append("\n");
             String sid = getSessionId();
@@ -358,14 +397,7 @@ public class RemoteDshTool implements AITool {
         if (task.isEmpty()) {
             return AIToolResult.fail("缺少参数: task（告诉电脑干什么，自然语言即可）");
         }
-        int timeout = DEFAULT_TIMEOUT_SECONDS;
-        Object tObj = parameters.get("timeout");
-        if (tObj != null) {
-            try {
-                timeout = (int) Math.min(MAX_TIMEOUT_SECONDS, Math.max(5, Double.parseDouble(String.valueOf(tObj))));
-            } catch (Exception ignored) {
-            }
-        }
+        int timeout = resolveTimeout(parameters);
         try {
             String sid = getSessionId();
             // 会话模式：没有 session_id 先自动创建
@@ -426,8 +458,97 @@ public class RemoteDshTool implements AITool {
             return Boolean.TRUE.equals(ok)
                     ? AIToolResult.success(sb.toString())
                     : AIToolResult.fail(sb.toString());
+        } catch (java.net.SocketTimeoutException te) {
+            return AIToolResult.fail("电脑端在 " + timeout + "s 内没有返回（HTTP 读超时）：任务可能仍在电脑上执行。"
+                    + "\n建议：① 调大 timeout（最长 600s）后重试；② 若只是要跑一条命令拿输出，改用 action=shell（不经 LLM，快得多）");
+        } catch (java.io.IOException io) {
+            return AIToolResult.fail("无法连接电脑端桥接服务: " + baseUrl
+                    + "\n请确认：① 电脑端服务已启动（双击 tools\\start_dsh_bridge.bat）② 手机与电脑同网/隧道可用 ③ 地址端口正确"
+                    + "\n原因: " + io.getMessage());
         } catch (Exception e) {
             return AIToolResult.fail("远程调用异常: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 声明本工具单次执行需要的超时（毫秒）。
+     * 工具管理器默认只给 30s，但这里的任务是"在电脑上真跑"（起 dsh agent/跑命令，几十秒很常见）：
+     * 实测传 timeout=150 仍在 30s 被掐断、模型只拿到空结果。故按 timeout + 45s 余量申报。
+     */
+    @Override
+    public long executionTimeoutMs(Map<String, Object> args) {
+        int t = resolveTimeout(args);
+        return Math.min(MAX_TOOL_TIMEOUT_MS, (t + 45L) * 1000L);
+    }
+
+    /** 解析 timeout 参数（秒；5~600，默认 120） */
+    private static int resolveTimeout(Map<String, Object> parameters) {
+        int timeout = DEFAULT_TIMEOUT_SECONDS;
+        Object tObj = parameters != null ? parameters.get("timeout") : null;
+        if (tObj != null) {
+            try {
+                timeout = (int) Math.min(MAX_TIMEOUT_SECONDS, Math.max(5, Double.parseDouble(String.valueOf(tObj))));
+            } catch (Exception ignored) {
+            }
+        }
+        return timeout;
+    }
+
+    /**
+     * action=shell：把 task 当成一条命令，直接在电脑上执行（bridge POST /exec，不经 LLM）。
+     * 适合"跑这条命令并把输出原样贴回来"：毫秒级返回，输出不被模型改写或省略。
+     */
+    private AIToolResult handleShell(Map<String, Object> parameters) {
+        String baseUrl = getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            return AIToolResult.fail("remote_dsh 未配置（还没配对过电脑）。"
+                    + "\n最简单：对 AI 说「远程配对」→ 打开相机扫电脑配对页的二维码"
+                    + "（电脑端先双击 tools\\start_dsh_bridge.bat）"
+                    + "\n也可以手动：action=set_config base_url=<电脑地址> token=<令牌>");
+        }
+        String cmd = parameters.get("task") != null ? String.valueOf(parameters.get("task")).trim() : "";
+        if (cmd.isEmpty() && parameters.get("cmd") != null) {
+            cmd = String.valueOf(parameters.get("cmd")).trim();
+        }
+        if (cmd.isEmpty()) {
+            return AIToolResult.fail("缺少参数: task（要执行的命令，如 Get-Date / cmd /c dir / git status）");
+        }
+        int timeout = resolveTimeout(parameters);
+        Map<String, Object> body = new HashMap<>();
+        body.put("cmd", cmd);
+        body.put("timeout", timeout);
+        Object sh = parameters.get("shell");
+        if (sh != null && !String.valueOf(sh).trim().isEmpty()) {
+            body.put("shell", String.valueOf(sh).trim());
+        }
+        try {
+            Map<String, Object> resp = httpJson(baseUrl + "/exec", "POST", body, timeout + 20);
+            if (resp == null) {
+                return AIToolResult.fail("无法连接电脑端桥接服务: " + baseUrl
+                        + "\n请确认：① 电脑端服务已启动（tools\\start_dsh_bridge.bat）② 手机与电脑同网/隧道可用 ③ 地址端口正确");
+            }
+            Object err = resp.get("error");
+            if (err != null && "unauthorized".equals(err)) {
+                return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
+            }
+            if (err != null) {
+                return AIToolResult.fail("电脑端执行失败: " + err);
+            }
+            String out = resp.get("output") != null ? String.valueOf(resp.get("output")) : "";
+            if (out.length() > OUTPUT_LIMIT) {
+                out = out.substring(0, OUTPUT_LIMIT) + "\n...[输出过长已截断]";
+            }
+            boolean ok = Boolean.TRUE.equals(resp.get("ok"));
+            StringBuilder sb = new StringBuilder();
+            sb.append(ok ? "电脑命令执行完成 ✓" : "电脑命令执行失败 ✗（非零退出）");
+            if (resp.get("exit_code") != null) sb.append(" exit=").append(resp.get("exit_code"));
+            if (resp.get("duration_ms") != null) sb.append(" 耗时 ").append(resp.get("duration_ms")).append("ms");
+            sb.append("\n").append(out.isEmpty() ? "(无输出)" : out);
+            return ok ? AIToolResult.success(sb.toString()) : AIToolResult.fail(sb.toString());
+        } catch (java.net.SocketTimeoutException te) {
+            return AIToolResult.fail("电脑端命令在 " + timeout + "s 内没有返回（HTTP 读超时）");
+        } catch (Exception e) {
+            return AIToolResult.fail("命令执行异常: " + e.getMessage());
         }
     }
 
@@ -450,18 +571,14 @@ public class RemoteDshTool implements AITool {
     }
 
     /** 发一轮任务到桥接（prompt） */
-    private Map<String, Object> sendPrompt(String baseUrl, String sid, String task, int timeout) {
+    private Map<String, Object> sendPrompt(String baseUrl, String sid, String task, int timeout) throws Exception {
         Map<String, Object> body = new HashMap<>();
         body.put("action", "prompt");
         body.put("session_id", sid);
         body.put("text", task);
         body.put("timeout", timeout);
-        try {
-            return httpJson(baseUrl + "/session", "POST", body, timeout + 30);
-        } catch (Exception e) {
-            Log.w(TAG, "prompt 请求异常: " + e.getMessage());
-            return null;
-        }
+        // 不在这里吞异常：读超时（电脑端迟迟不回）与连不上是两种问题，要让 handleRun 分辨并给出不同提示
+        return httpJson(baseUrl + "/session", "POST", body, timeout + 30);
     }
 
     /**

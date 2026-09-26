@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-09-27] remote_dsh「能用但有问题」彻底定位并修掉：ACP 权限请求无人应答 + App 端 30s 硬超时
+1. 用户反馈：「手机端跟现在的 dsh 有点不兼容，ACP 服务有问题，用到是能用，但有些问题」。按用户要求先取证再改：
+   拉了手机端今天的 AI 日志（files/ai_logs/ai_log_20260927.txt）与历史对话，并对着电脑端 dsh 的 ACP 服务逐条实测。
+2. **真因①：ACP 权限请求从来没有被应答，写/执行类任务永久挂起。**
+   - 现象（日志取证 07:29–07:31）：手机让电脑「跑这条命令并把输出贴回来」时，
+     `remote_dsh timeout (attempt 0)` → 30003ms 失败、**工具结果长度 0**，模型只能反复 `start` 重试（token 从 137 万烧到 196 万）。
+   - 实测定位：dsh 的 ACP 在执行**需要授权的工具**（写文件、跑 pwsh 命令）前会发 `session/request_permission` 并**等客户端回答**；
+     该请求**只投递到"会话流"**（`GET /acp/stream` + `Acp-Session-Id` 头），而桥接只开了连接流、也从不回答 →
+     `session/prompt` 永不 settle，桥接侧只看到「等待回复超时(90s)」。只读任务（读文件）不需要授权，所以看起来"能用"。
+     （探针实测：同一写文件任务挂死 90s；补上应答后 8.8s 成功并拿到 raw 输出。）
+   - 修复（tools/dsh_bridge_server.py，v3 → v4）：`AcpClient` 新增**每会话 SSE 流**（会话创建时建立、prompt 前确保在线、断线重开）、
+     自动应答 `session/request_permission`（默认 `allow-once`，`--permission deny` 可改为拒绝），
+     应答记录进 /status 的 `permissions`（含时间/会话/toolCallId/选项/HTTP 码）便于审计。
+3. **真因②：App 端 30s 硬超时，工具自己声明的 timeout 形同虚设，且超时后返回空结果。**
+   - 取证：手机端 AI 传了 `"timeout": 150`，`OnlineToolManager` 仍在 30s（`TOOL_TIMEOUT_MS`）掐断，
+     失败消息为 null → 模型收到长度 0 的结果，只能盲目重试。
+   - 修复：`AITool` 新增可选方法 `executionTimeoutMs(args)`（默认 0 = 用默认值，风格与已有 default 方法一致）；
+     `OnlineToolManager` 取"默认值与工具声明值的较大者"（全局硬上限 11 分钟），超时时返回**可诊断**的错误
+     （等了多少秒、任务可能仍在跑、建议缩小任务或调大 timeout），不再返回空消息；
+     `RemoteDshTool` 按 `timeout + 45s` 申报（内部 HTTP 读超时 `timeout+30s`，先于管理器上限触发 → 报错始终来自工具本身）。
+4. **新增 bridge `POST /exec` + 工具 `action=shell`：直连执行命令（不经电脑端 LLM）。**
+   - 动机：手机让电脑"跑条命令贴输出"时，走 `run`（headless/ACP 会话）要起一个完整 agent（几十秒 + 烧 token + 输出可能被改写），
+     而这本可以是一条命令的时间。实测 `/exec`：`Get-Item CHANGELOG.md | ...Length` → 256ms 返回 `123741`；非零退出如实回传 `exit=3`。
+   - 安全：与 /run 同级鉴权（Bearer token），权限模型不变（能跑 dsh agent 本来就能跑命令）；并发上限 4，超出返回 429。
+   - 其他健壮性：客户端提前断开（App 超时/取消）不再刷整页 `ConnectionResetError` traceback（自定义 `BridgeHTTPServer.handle_error`）。
+5. 验证：桥接 v4 起后重跑**此前挂死的同一个写文件任务** → 8.8s 成功（`wrote` + 时间戳原样返回），
+   /status.permissions 出现 `allow-once` 审计记录；`/exec` 长/短命令、非零退出、中文输出（字节级核对 UTF-8）全部正确。
+   真机复跑 **6/6 通过**（新增 `RemoteDshTimeoutDeviceTest` 3 例 + 原 `RemoteDshBridgeDeviceTest` 3 例回归），关键实测值：
+   * `shell` 直连命令 success=true **1914ms**（桥接侧 219ms）；`shell=cmd, task=exit 7` → success=false 且带 `exit=7`；
+   * **40s 长任务走 OnlineToolManager 真实路径：success=true、40609ms** —— 这正是修复前必被 30s 默认值杀掉的场景；
+   * 公网隧道 /health HTTP 200 104ms（version=4）、get_status 111ms、start→run→history 全通（run 960ms）；
+   * /status 新增 `session_streams`（会话流已建立）、`permission_policy=allow`、`permissions`（allow-once 审计）。
+7. 顺带修掉一处**误导源**：App 状态文案把版本号写死成「ACP 官方通道(dsh 0.1.5)」，而实际运行的 ACP 自报
+   `agentInfo=dsh 0.12.0` —— 手机端 AI 正是据此判断「手机与 dsh 版本不兼容」。现在版本号一律由 bridge 的
+   `/status.acp_agent`（ACP initialize 自报）带出，代码里不再写死版本；`RemoteDshTool` 头注释同步到 v4。
+6. 文档：工具描述已写清 `shell` 与 timeout 语义（长任务请给足，最长 600s）；`docs/AI工具功能清单.md`、`docs/使用速查表.md`、
+   `docs/工具创建指南.md` 同步。
+
 ## [2026-09-27] remote_dsh：配置改为「只走扫码」+ 修 3 个工具问题 + 真机复跑
 1. 用户要求：每次重新连接都用扫码配对，不要程序化往 App 写配置。按此执行——
    手机端配置**已清空**（未配置状态），之后只由用户扫码写入。未配置时的提示已改成先教扫码：

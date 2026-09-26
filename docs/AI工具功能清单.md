@@ -228,15 +228,26 @@
 ### remote_dsh — 远程控制电脑（DeepSeek dsh 官方会话通道）
 - **分类**：remote
 - **功能**：调用电脑端安装的 dsh（DeepSeek Harness Shell）执行任务，AI 可远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，**支持多轮会话续接**（电脑端 dsh 记忆连续）。
-  - 架构：手机 App → HTTP(Bearer token) → 电脑端 tools/dsh_bridge_server.py(v2) → dsh web 官方 API（session.create / session.prompt / session.history）；web 通道不可用时自动降级 headless。
+  - 架构：手机 App → HTTP(Bearer token) → 电脑端 tools/dsh_bridge_server.py(v4) → dsh ACP serve（session/new / session/prompt / SSE；每会话一条流）；命令类任务可走 /exec 直连；ACP 不可用时降级 headless。
   - run：执行任务+自动续接会话（task=自然语言描述，如"看看D盘有哪些项目文件夹"；已有 session_id 直接续接，没有自动创建）；start：新建会话（重置电脑端记忆）；history：读当前会话历史（max=条数，默认10）；get_status：检查桥接与 dsh 双通道状态；set_config：配置 base_url(电脑地址)+token(访问令牌)。
   - 会话续接原理：dsh web 事件溯源日志持久（append-only session log），同一 session_id 连续 prompt 即续接（实测：第二轮问"我刚才让你回复什么"→ 正确回忆第一轮回复）。
   - 安全：必须配置 token（桥接服务启动时打印）才可调用；未配置/鉴权失败明确报错；base_url 仅允许 http/https；dsh web(127.0.0.1:3080) 只监听电脑本机，手机只访问带 token 的桥接层(8218)。
 - **扫码一键配对（pair）**：电脑端启动桥接后自动打开浏览器显示配对页（http://127.0.0.1:8218/pair，仅本机可访问），页面二维码内容=dshpair://电脑IP:8218?token=令牌；手机端 action=pair 打开相机扫二维码，自动保存 base_url/token（zxing-android-embedded 4.3.0）。配对后会话重置（session_id 清除）。
 - **ACP 官方通道（v3 已启用）**：dsh 已升级 0.1.5-rc.3（launcher npm install，主 DSH_HOME 配置/会话未动）。ACP serve=dsh --profile acp serve --host 0.0.0.0 --port 7800 --token xxx（dsh-acp-server@0.12，bearer 鉴权 + 内置 Web UI + healthz）。协议：POST /acp initialize（响应 Acp-Connection-Id）→session/new（必须带 mcpServers:{}）→session/prompt（prompt 为 blocks 数组，非对象）；GET /acp/stream(SSE) 流式 agent_message_chunk + result.stopReason 判定回合。**桥接 v3 后端切 ACP**（App 无感，接口不变）：session start/prompt(同 sessionId 续接)/history(本桥接内存记录)/get_status/set_config + headless /run fallback。已验证：start→prompt 两轮续接（R2 回忆 R1）→history 全通。
 - **0.1.5 注意事项**：① dsh web(3080) 升级后带 token 鉴权（/api/session/* 旧路由已移除），本桥接不再依赖 web 通道；② 主 home web profile 第三方插件（dsh-plugin-marketplace@0.2.8、dsh-notify-win、dsh-toolkit github 源）与 0.1.5 不兼容（dsh-settings 删除 installSettingsSection API），已从 bundles 摘除（原 package.json 备份在 tools/dsh-home-backup/web-profile/，dsh-desktop/dsh-image-pathify 保留）；③ ACP serve 重启后旧 sessionId 失效，App 重新 action=start 即可。
-- **限制**：电脑端需先启动 v2 桥接服务（python tools/dsh_bridge_server.py --token xxx --cwd 工作目录）且 dsh web 可用（dsh web --no-open，127.0.0.1:3080）；手机与电脑需同一网络或经安全隧道。
-- **参数**：`action`（pair/run/start/history/get_status/set_config）、`task`、`max`、`base_url`、`token`、`timeout`
+- **限制**：电脑端需先启动桥接（双击 tools/start_dsh_bridge.bat，等价于 python tools/dsh_bridge_server.py --token xxx --cwd 工作目录）**且 ACP serve 在 7800 运行**（dsh --profile acp serve --host 127.0.0.1 --port 7800 --token xxx；启动脚本已一并拉起）；手机与电脑需同一网络或经安全隧道（花生壳映射 127.0.0.1:8218）。
+- **直连执行（shell，2026-09-27 新增）**：`action=shell` 把 `task` 当一条命令直接在电脑上跑（bridge `POST /exec`，**不经电脑端 LLM**）——
+  毫秒级返回、输出原样（含 stderr）、非零退出如实回传。适合"跑这条命令并把原始输出贴回来"（`git status`、`Get-ChildItem`…）。
+  此前这类任务走 `run`（起完整 dsh agent，几十秒 + 烧 token + 输出可能被模型改写）。可选 `shell=auto|cmd|bash`（默认 auto：优先 pwsh 回退 powershell）。
+- **ACP 权限应答（v4 修复）**：dsh ACP 在执行**需要授权的工具**（写文件、跑命令）前会发 `session/request_permission` 并等客户端回答，
+  该请求**只投递到会话流**（`GET /acp/stream` + `Acp-Session-Id`）。此前桥接只开连接流且从不回答 →
+  这类任务**永久挂起**直到超时（手机端只看到"等待回复超时"，表现为"ACP 有问题、用起来有毛病"）。
+  现在桥接为每个会话建立会话流并自动应答（默认 `allow-once`，`--permission deny` 可整体拒绝），
+  应答记录在 `/status` 的 `permissions`（时间/会话/toolCallId/选项/HTTP 码）可审计。
+- **超时语义（2026-09-27 修复）**：`timeout` 参数现在真的生效（秒，5~600，默认 120）——
+  `RemoteDshTool.executionTimeoutMs()` 按 `timeout+45s` 向 `OnlineToolManager` 申报，
+  不再被其 30s 默认值掐断（此前实测 `timeout=150` 仍在 30s 失败且结果为空）。超时会明确告知"等了多久、任务可能仍在电脑上"。
+- **参数**：`action`（run/shell/pair/start/history/get_status/set_config）、`task`、`max`、`shell`、`base_url`、`token`、`timeout`
 
 ### python_analyze_data — Python 数据分析
 - **分类**：python

@@ -34,10 +34,25 @@ AITool 接口 → BaseAITool 抽象类 → 各具体工具
 
 ```java
 public interface AITool {
+    String getName();
     String getDescription();                          // 工具描述
     AIToolResult execute(Map<String, Object> parameters);  // 执行
+    Map<String, String> getParameterDescriptions();
+    // 可选（default 方法，返回 null/0 表示走通用逻辑）
+    default Map<String, Object> getOutputSchema() { return null; }
+    default Map<String, Object> presentCall(Map<String, Object> args) { return null; }
+    default Map<String, Object> presentResult(Map<String, Object> args, AIToolResult r) { return null; }
+    /** 本工具单次执行需要的超时（毫秒）；0 = 用 OnlineToolManager 的默认值 */
+    default long executionTimeoutMs(Map<String, Object> args) { return 0L; }
 }
 ```
+
+**关于超时（2026-09-27 新增，实测驱动）**：托管调用方 `OnlineToolManager` 对所有工具套了 30s 默认超时
+（`ui_component.get_result`/`permission_manager`/`dashscope_media`/`knowledge_base.import_*` 等另有放宽）。
+**耗时不可控的工具必须自己声明** `executionTimeoutMs`，调用方取"默认值与声明值的较大者"（硬上限 11 分钟），
+否则会出现"工具自己以为还有时间、调用方已经把它掐了"。踩过的实例：`remote_dsh` 在电脑上真跑任务，
+手机端传 `timeout=150` 仍在 30s 被杀，且超时后模型只拿到空结果 → 只能盲目重试。
+超时失败时调用方会返回可诊断的错误（等了多久、任务可能仍在后台），不再返回空消息。
 
 ### 2.3 BaseAITool 抽象类
 
