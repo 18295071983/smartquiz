@@ -157,7 +157,8 @@ public class SystemResourceToolDeviceTest {
     public void routingWorks() {
         Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
         SystemResourceTool.prepareToolkit(ctx);
-        String r = out(shell("ls / >/dev/null && echo LS_OK; cat /system/build.prop >/dev/null 2>&1; echo CAT_DONE;"
+        // 注意：ls / 对普通 App 本来就是 Permission denied（根目录不可读），要用可访问目录
+        String r = out(shell("ls $HOME >/dev/null && echo LS_OK; cat /system/build.prop >/dev/null 2>&1; echo CAT_DONE;"
                 + " ash -c 'echo ASH_OK'; sed --version 2>&1 | head -1; jq --version; openssl version;"
                 + " wget -O /dev/null https://www.baidu.com >/dev/null 2>&1 && echo WGET_OK")).replace('\n', '|');
         System.out.println("[EXP] routing => " + r);
