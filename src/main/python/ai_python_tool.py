@@ -90,7 +90,10 @@ class AIPythonTool:
             "error": exec_result.get("error"),
             "attempts": exec_result.get("attempts", 0),
             "fixes": exec_result.get("fixes_applied", []),
-            "code": exec_result.get("final_code", code)
+            "code": exec_result.get("final_code", code),
+            # 引擎/环境错误标记：Java 层可据此区分"用户代码错"与"执行器/环境坏"，
+            # 避免 agent 对着环境问题反复改自己的代码
+            "environment_error": exec_result.get("environment_error", False)
         })
         
         if result["success"]:
@@ -460,7 +463,10 @@ print(json.dumps(result, ensure_ascii=False, indent=2))
             "error": exec_result.get("error"),
             "attempts": exec_result.get("attempts", 0),
             "fixes": exec_result.get("fixes_applied", []),
-            "code": exec_result.get("final_code", code)
+            "code": exec_result.get("final_code", code),
+            # 引擎/环境错误标记：Java 层可据此区分"用户代码错"与"执行器/环境坏"，
+            # 避免 agent 对着环境问题反复改自己的代码
+            "environment_error": exec_result.get("environment_error", False)
         })
         
         return result

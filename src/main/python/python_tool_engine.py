@@ -75,6 +75,14 @@ def _build_prelude_namespace() -> dict:
 
 _PRELUDE_NAMESPACE = _build_prelude_namespace()
 
+# NameError 通用补 import 表（双保险）：标准库模块名 → 需要插到源码顶部的那一行 import。
+# 例：脚本写了 tmp = tempfile.mkdtemp() 却忘了 import tempfile —— 自动修复会补上 'import tempfile'。
+# 与 _PRELUDE_NAMESPACE 互补：预置命名空间负责"直接能用"，这里负责"没预置到 / 被脚本自己覆盖掉"的名字。
+_STDLIB_IMPORT_FIX: dict = {'ET': 'import xml.etree.ElementTree as ET'}
+for _m in _PRELUDE_MODULES:
+    _base = _m.split('.')[0]
+    _STDLIB_IMPORT_FIX.setdefault(_base, 'import ' + _base)
+
 
 def _is_return_outside_function(err: SyntaxError) -> bool:
     """判断 SyntaxError 是否为模块级 return（'return' outside function）"""
@@ -284,37 +292,57 @@ class PythonToolEngine:
             "ui_actions": []
         }
         
-        stdout_buffer = io.StringIO()
-        # stderr 用真文件缓冲：io.StringIO 无 fileno()，tqdm/rich 等库写入时会抛
-        # io.UnsupportedOperation 甚至引发进程崩溃；临时文件有 fileno 且 isatty()=False，
-        # tqdm 会自动降级为不渲染进度条，两者都安全。
-        stderr_file = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
-        
-        namespace = {
-            "__name__": "__main__",
-            "__builtins__": __builtins__,
-            "engine": self,
-        }
-        # 注入标准库预置命名空间（tempfile/os/json/pathlib… 无需脚本自己 import），
-        # 与 python_execute 的 prelude 对齐；variables 在其后 update，保证调用方传参优先。
-        if _PRELUDE_NAMESPACE:
-            namespace.update(_PRELUDE_NAMESPACE)
-        
-        if variables:
-            # 兼容 Java（Chaquopy HashMap）传入：Java Map 不是 Iterable，直接 update 会崩
-            namespace.update(_normalize_variables(variables))
-        
-        # UI 操作记录
-        ui_action_log = []
-        
-        def ui_wrapper(action):
-            ui_action_log.append(action)
-            if ui_callback:
-                try:
-                    return ui_callback(action)
-                except Exception as e:
-                    return {'success': False, 'message': str(e)}
-            return {'success': False, 'message': 'UI callback not set'}
+        # 前置准备（stdout/stderr 缓冲、命名空间、UI 回调）整段包 try：
+        # 这些是"引擎自身"的步骤，一旦出错（如 engine 模块缺 import、临时文件不可用），
+        # 异常若直接穿透出去会绕过 execute_with_auto_fix 的修复循环，被 Java 层当成
+        # "用户代码报错"——agent 看到的就只是 NameError 却无从修起。这里改为归一化成
+        # environment_error 结果：循环能进、上报为"引擎环境错误"、不浪费修复次数。
+        try:
+            stdout_buffer = io.StringIO()
+            # stderr 用真文件缓冲：io.StringIO 无 fileno()，tqdm/rich 等库写入时会抛
+            # io.UnsupportedOperation 甚至引发进程崩溃；临时文件有 fileno 且 isatty()=False，
+            # tqdm 会自动降级为不渲染进度条，两者都安全。
+            stderr_file = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
+            
+            namespace = {
+                "__name__": "__main__",
+                "__builtins__": __builtins__,
+                "engine": self,
+            }
+            # 注入标准库预置命名空间（tempfile/os/json/pathlib… 无需脚本自己 import），
+            # 与 python_execute 的 prelude 对齐；variables 在其后 update，保证调用方传参优先。
+            if _PRELUDE_NAMESPACE:
+                namespace.update(_PRELUDE_NAMESPACE)
+            
+            if variables:
+                # 兼容 Java（Chaquopy HashMap）传入：Java Map 不是 Iterable，直接 update 会崩
+                namespace.update(_normalize_variables(variables))
+            
+            # UI 操作记录
+            ui_action_log = []
+            
+            def ui_wrapper(action):
+                ui_action_log.append(action)
+                if ui_callback:
+                    try:
+                        return ui_callback(action)
+                    except Exception as e:
+                        return {'success': False, 'message': str(e)}
+                return {'success': False, 'message': 'UI callback not set'}
+        except Exception as _engine_exc:
+            result.update({
+                "success": False,
+                "error": {
+                    "type": "EnvironmentError",
+                    "message": "引擎环境错误: " + str(_engine_exc),
+                    "traceback": traceback.format_exc(),
+                    "environment_error": True,
+                },
+                "stderr": traceback.format_exc(),
+                "execution_time": time.time() - start_time,
+                "environment_error": True,
+            })
+            return result
         
         def run_code():
             nonlocal result
@@ -699,6 +727,11 @@ class PythonToolEngine:
         error_type: str = error.get("type", "")
         error_msg: str = error.get("message", "")
         
+        # 引擎自身/环境错误：不是用户代码的问题，不做"修代码"尝试（改了也没用，白耗次数），
+        # 由上层按 environment_error 原样上报。
+        if error_type in ("EnvironmentError", "EngineError"):
+            return code, False
+        
         fixed_code = code
         
         if error_type == "ModuleNotFoundError":
@@ -728,6 +761,9 @@ class PythonToolEngine:
                     }
                     if var_name in imports_map:
                         fixed_code = imports_map[var_name] + '\n' + code
+                elif var_name in _STDLIB_IMPORT_FIX:
+                    # 标准库名缺 import：通用补一行 import（预置命名空间已覆盖大部分，这里双保险）
+                    fixed_code = _STDLIB_IMPORT_FIX[var_name] + '\n' + code
         
         elif error_type == "AttributeError":
             pass
@@ -844,10 +880,27 @@ class PythonToolEngine:
                     "attempts": attempt + 1,
                     "fixes_applied": fixes_applied,
                     "final_code": current_code,
+                    "environment_error": False,
                     "packages_installed": packages_result.get("packages_installed", [])
                 }
             
             last_error = result.get("error")
+            
+            # 引擎/环境错误：不消耗修复次数、不重试，直接按环境错误上报，
+            # 避免 agent 对着"环境坏了"反复改自己的代码。
+            if result.get("environment_error"):
+                return {
+                    "success": False,
+                    "result": None,
+                    "stdout": result.get("stdout", ""),
+                    "stderr": result.get("stderr", ""),
+                    "error": last_error,
+                    "execution_time": result.get("execution_time", 0.0),
+                    "attempts": attempt + 1,
+                    "fixes_applied": fixes_applied,
+                    "final_code": current_code,
+                    "environment_error": True,
+                }
             
             fixed_code, was_fixed = self.fix_code(
                 current_code, last_error or {}, attempt, max_attempts
@@ -872,7 +925,8 @@ class PythonToolEngine:
             "error": last_error,
             "attempts": max_attempts,
             "fixes_applied": fixes_applied,
-            "final_code": current_code
+            "final_code": current_code,
+            "environment_error": bool(result.get("environment_error"))
         }
     
     def save_script(self, name: str, code: str, description: str = "") -> str:
