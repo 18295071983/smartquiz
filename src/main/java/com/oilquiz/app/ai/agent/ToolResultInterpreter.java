@@ -1137,6 +1137,30 @@ public class ToolResultInterpreter {
                 break;
             }
         }
+
+        // shell_command / termux_exec：命令与输出必须原样带出来。
+        // 注意：这里以前没有分支，shell 的 output 会被整条丢掉，只显示一句"操作结果"。
+        String command = strDeep(obj, "command");
+        String cmdOutput = strDeep(obj, "output", "stdout");
+        String cmdErr = strDeep(obj, "stderr");
+        String exitCode = strDeep(obj, "exit_code");
+        String toolkit = strDeep(obj, "linux_toolkit");
+        String hint = strDeep(obj, "hint");
+        if (command != null || cmdOutput != null || cmdErr != null || exitCode != null) {
+            sb.setLength(0);
+            sb.append("⌨️ ").append(action != null ? action : "命令执行");
+            if (status != null) sb.append("  [").append(status).append("]");
+            sb.append("\n");
+            if (command != null) sb.append("$ ").append(command).append("\n");
+            if (cmdOutput != null && !cmdOutput.isEmpty()) sb.append(cmdOutput).append("\n");
+            if (cmdErr != null && !cmdErr.isEmpty() && !cmdErr.equals(cmdOutput)) {
+                sb.append("stderr: ").append(cmdErr).append("\n");
+            }
+            if (exitCode != null) sb.append("退出码: ").append(exitCode).append("\n");
+            if (hint != null) sb.append("💡 ").append(hint).append("\n");
+            if (toolkit != null) sb.append("ℹ️ ").append(toolkit).append("\n");
+            return sb.toString().trim();
+        }
         return sb.toString().trim();
     }
 

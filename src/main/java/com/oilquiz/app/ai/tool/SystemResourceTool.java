@@ -1211,6 +1211,23 @@ public class SystemResourceTool implements AITool {
         }
     }
 
+    /**
+     * 预热内置 Linux 工具箱（App 启动时后台调用）。
+     *
+     * <p>为什么要预热：bin 目录是懒创建的，而 Python 引擎只在启动时读一次 PATH/LD_LIBRARY_PATH；
+     * 不预热的话，从没调过 shell_command 的会话里 python_execute 的 subprocess 用不到 busybox。
+     */
+    public static void prepareToolkit(Context ctx) {
+        if (ctx == null) {
+            return;
+        }
+        try {
+            new SystemResourceTool(ctx).ensureBusyboxBinDir();
+        } catch (Exception e) {
+            AILogger.e(TAG, "预热内置工具箱失败: " + e.getMessage());
+        }
+    }
+
     /** 内置 busybox 启动器的真实路径（系统解压出来的 nativeLibraryDir，可 execve） */
     private String busyboxPath() {
         try {

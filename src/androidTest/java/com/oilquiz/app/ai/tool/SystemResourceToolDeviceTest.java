@@ -24,7 +24,10 @@ import static org.junit.Assert.assertTrue;
  * 为什么要有它：本机 adb 输入注入被 ROM 禁用，没法用 UI 自动化驱动 agent，
  * 这段测试直接以 App 自身 uid/权限调用工具，等价于 agent 的调用路径。
  *
- * 运行：.\gradlew.bat connectedDebugAndroidTest --tests "*SystemResourceToolDeviceTest*"
+ * 运行（本机 MIUI 会拦截 Gradle 的自动安装，报 INSTALL_FAILED_USER_RESTRICTED，所以用 am instrument）：
+ *   adb install -r build\outputs\apk\debug\*.apk 且 adb install -r build\outputs\apk\androidTest\debug\*.apk
+ *   adb shell am instrument -w -e class com.oilquiz.app.ai.tool.SystemResourceToolDeviceTest com.oilquiz.app.test/androidx.test.runner.AndroidJUnitRunner
+ * 单个用例：-e class ...SystemResourceToolDeviceTest#方法名（如 #busyboxAppletProbe）
  */
 @RunWith(AndroidJUnit4.class)
 public class SystemResourceToolDeviceTest {
@@ -100,6 +103,32 @@ public class SystemResourceToolDeviceTest {
         System.out.println("[TEST] timeout in " + ms + "ms => " + text);
         assertTrue("应在 24~31 秒之间被强杀（实际 " + ms + "ms）", ms >= 24000 && ms < 31000);
         assertTrue("超时信息里应带已产生的输出: " + text, text.contains("before-hang"));
+    }
+
+    /**
+     * Python 通道也要能用内置 busybox。
+     * 实测坑：shell_command 注入了 PATH/LD_LIBRARY_PATH，而 python_execute 里 subprocess 用的是
+     * Python 进程自己的环境，两条都没有 → which busybox 找不到、裸跑启动器报 libbusybox.so not found。
+     */
+    @Test
+    public void pythonSubprocessSeesBusybox() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        String code = "import os, subprocess\n"
+                + "print('BINDIR=' + str(os.environ.get('BUSYBOX_BIN_DIR')))\n"
+                + "print('LD=' + str(os.environ.get('LD_LIBRARY_PATH')))\n"
+                + "p = subprocess.run('busybox | head -1', shell=True, capture_output=True, text=True)\n"
+                + "print('RUN=' + (p.stdout.strip() or p.stderr.strip()))\n"
+                + "q = subprocess.run('echo hi | sed s/hi/HI/', shell=True, capture_output=True, text=True)\n"
+                + "print('SED=' + q.stdout.strip())\n";
+        com.oilquiz.app.ai.python.PythonToolManager.ExecutionResult r =
+                com.oilquiz.app.ai.python.PythonToolManager.getInstance(ctx).executeCode(code, null);
+        String flat = String.valueOf(r.stdout).replace('\n', '|').replace('\r', ' ');
+        System.out.println("[EXP] python success=" + r.success + " stdout=" + flat + " err=" + r.error);
+        String bin = ctx.getFilesDir().getAbsolutePath() + "/bin";
+        assertTrue("LD_LIBRARY_PATH 应指向 " + bin + "，实际输出: " + flat, flat.contains("LD=" + bin));
+        assertTrue("python 里 busybox 应能执行，实际输出: " + flat, flat.contains("BusyBox v1.38.0"));
+        assertTrue("python 里 sed 管道应可用，实际输出: " + flat, flat.contains("SED=HI"));
     }
 
     /** 探测内置 busybox 哪些 applet 在 App 域可用（静态 musl 二进制部分 applet 会被 seccomp SIGSYS） */

@@ -777,7 +777,9 @@ public class ToolGuideFlow {
                         new GuideStep.Option("发送短信", "send_sms"),
                         new GuideStep.Option("拨打电话", "make_call"),
                         new GuideStep.Option("列出已装应用", "list_apps"),
-                        new GuideStep.Option("获取应用信息", "get_app_info")
+                        new GuideStep.Option("获取应用信息", "get_app_info"),
+                        new GuideStep.Option("执行Shell命令(含内置busybox)", "shell_command"),
+                        new GuideStep.Option("在Termux中执行命令", "termux_exec")
                 )
         ));
         // 打开应用：应用名（动态拉取已装应用列表供点选，减少手动输入）
@@ -817,9 +819,18 @@ public class ToolGuideFlow {
                 true, true,
                 "action", "send_sms"
         ));
+        // 执行命令：command
+        steps.add(GuideStep.inputStep(
+                "执行什么命令?",
+                "shell_command 走系统 shell（内置 busybox：ash/wget/awk/vi/telnet 等，无需安装）",
+                "command",
+                "例如：pm list packages | head -20 或 wget -O /sdcard/a.zip URL",
+                true, false,
+                "action", "shell_command|termux_exec"
+        ));
         steps.add(GuideStep.confirmStep("确认执行", "信息无误就点执行"));
         return new ToolGuideFlow("system_resource", "系统资源",
-                "打开应用/网址、发送短信、拨打电话等系统级操作", steps);
+                "打开应用/网址、发送短信、拨打电话，或执行 Shell 命令（内置 busybox 工具链）/ Termux 命令", steps);
     }
 
     /** permission_manager 权限管理工具 */

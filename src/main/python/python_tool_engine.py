@@ -236,6 +236,22 @@ class PythonToolEngine:
         mpl_dir = os.path.join(cache_dir, "matplotlib")
         os.makedirs(mpl_dir, exist_ok=True)
         os.environ["MPLCONFIGDIR"] = mpl_dir
+
+        # 内置 busybox 工具链：shell_command 通道会注入 PATH 与 LD_LIBRARY_PATH，
+        # 但 Python 里的 subprocess 用的是本进程环境，两条都没有 —— 实测表现为
+        # which busybox 找不到、裸跑启动器报 'CANNOT LINK EXECUTABLE ... libbusybox.so not found'。
+        # 这里补上，让 Agent 在 python_execute 里跑子进程也能用内置命令（与 shell_command 一致）。
+        try:
+            app_files = os.path.dirname(self.work_dir)   # <files>/python_tools -> <files>
+            bin_dir = os.path.join(app_files, "bin")
+            if os.path.isdir(bin_dir) and os.path.exists(os.path.join(bin_dir, "busybox")):
+                cur = os.environ.get("PATH", "")
+                if bin_dir not in cur.split(os.pathsep):
+                    os.environ["PATH"] = (cur + os.pathsep + bin_dir) if cur else bin_dir
+                os.environ["LD_LIBRARY_PATH"] = bin_dir
+                os.environ["BUSYBOX_BIN_DIR"] = bin_dir
+        except Exception:
+            pass
     
     def _load_installed_packages(self):
         """加载已安装的包列表"""

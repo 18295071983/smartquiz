@@ -1,4 +1,4 @@
-# 抓取并安装"内置 Linux 命令工具箱"（Termux 官方 busybox，bionic 构建）
+﻿# 抓取并安装"内置 Linux 命令工具箱"（Termux 官方 busybox，bionic 构建）
 #
 # 为什么用 Termux 的包，而不是 busybox.net 的静态二进制：
 #   busybox.net / Alpine 的静态版是 musl 静态链接，实测在 App 域会被 Android 的 seccomp
@@ -18,24 +18,28 @@ $tmp = Join-Path $repo '.workbuddy\tmp\busybox_fetch'
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 
 function Get-PackageFile([string]$pkg) {
-    $req = [System.Net.WebRequest]::Create($base + 'dists/stable/main/binary-aarch64/Packages')
-    $req.UserAgent = 'pip/26.2.1'
-    $txt = (New-Object System.IO.StreamReader($req.GetResponse().GetResponseStream())).ReadToEnd() -replace "`r", ''
-    $m = [regex]::Match($txt, "(?ms)^Package: $([regex]::Escape($pkg))\$.*?(?=^Package: |\z)")
-    if (-not $m.Success) { throw "索引里找不到包: $pkg" }
-    return [regex]::Match($m.Value, 'Filename: (\S+)').Groups[1].Value
+    # 必须用 Invoke-WebRequest 并兼容返回 byte[] 的情况：
+    # 用 [System.Net.WebRequest] + StreamReader 读这个索引会拿到解析不了的内容（实测：匹配不到任何包）
+    $resp = Invoke-WebRequest -Uri ($base + 'dists/stable/main/binary-aarch64/Packages') -UseBasicParsing -TimeoutSec 180
+    $c = $resp.Content
+    $txt = if ($c -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($c) } else { [string]$c }
+    # 逐行扫描，不用正则：索引是 CRLF、内容大，正则的 ^ $ 锚点在这里很容易踩坑（实测匹配不到）
+    $lines = $txt -split "`n"
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i].Trim() -eq ('Package: ' + $pkg)) {
+            for ($j = $i; $j -lt [Math]::Min($i + 40, $lines.Count); $j++) {
+                if ($lines[$j].StartsWith('Filename: ')) { return $lines[$j].Substring(10).Trim() }
+            }
+        }
+    }
+    throw "索引里找不到包: $pkg"
 }
 
 function Save-Deb([string]$pkg, [string]$dest) {
     if (Test-Path $dest) { return }
     $fn = Get-PackageFile $pkg
     Write-Host "下载 $pkg <- $fn"
-    $req = [System.Net.WebRequest]::Create($base + $fn)
-    $req.UserAgent = 'pip/26.2.1'
-    $resp = $req.GetResponse()
-    $fs = [System.IO.File]::Create($dest)
-    $resp.GetResponseStream().CopyTo($fs)
-    $fs.Close(); $resp.Close()
+    Invoke-WebRequest -Uri ($base + $fn) -OutFile $dest -UseBasicParsing -TimeoutSec 300
 }
 
 # .deb 是 ar 归档：取出 data.tar.* 并用系统 tar 解开

@@ -143,6 +143,13 @@ public class SmartQuizApplication extends Application {
                 com.oilquiz.app.theme.WallpaperStore.ensureBuiltin(this);
             } catch (Throwable ignored) {
             }
+            // 预热内置 Linux 工具箱（busybox applet 软链接 + 依赖库软链接）。
+            // 必须在 Python 引擎起来之前就绪：Python 只在启动时读一次 PATH/LD_LIBRARY_PATH，
+            // 否则 python_execute 里的 subprocess 用不到 busybox（实测复现过）。
+            try {
+                com.oilquiz.app.ai.tool.SystemResourceTool.prepareToolkit(this);
+            } catch (Throwable ignored) {
+            }
         }, "wallpaper-init").start();
 
         // 应用壁纸跟随：系统壁纸变化时，若开启「跟随系统壁纸」模式，重建前台页面刷新背景。
