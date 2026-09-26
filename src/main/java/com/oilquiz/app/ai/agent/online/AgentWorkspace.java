@@ -659,7 +659,7 @@ public class AgentWorkspace {
                 + "     · 系统自带 toybox 优先：sed/grep/find/sort/head/tail/wc/md5sum/base64/xargs/diff/du/df/tee/xxd…\n"
                 + "     · busybox 在 PATH 末尾补足系统没有的：ash(完整 Linux shell)/awk/wget/vi/telnet/nc/tar/gzip/httpd/crontab…\n"
                 + "     · 环境已配好：$BUSYBOX_BIN_DIR（applet 软链接目录）、PATH、TMPDIR、HOME、LD_LIBRARY_PATH\n"
-                + "     · Python/JS 子进程同样可用（App 启动时预热并注入），python_execute 里 subprocess.run('busybox ...') 直接能跑\n"
+                + "     · Python 子进程同样可用（js_execute 没有子进程能力）（App 启动时预热并注入），python_execute 里 subprocess.run('busybox ...') 直接能跑\n"
                 + "     · 示例：wget -O /sdcard/a.zip URL ；tar -czf $HOME/a.tar.gz dir ；ash -c 'for i in 1 2 3; do echo $i; done'\n"
                 + "     · wget/curl 已支持 https（走 App 内下载服务 127.0.0.1）；也可用 system_resource(action=http_download, url=...)；单条命令 25 秒超时（超时返回已产生的输出），不做任何命令拦截\n"
                 + "\n"
