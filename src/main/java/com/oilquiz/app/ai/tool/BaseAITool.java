@@ -9,6 +9,14 @@ import java.util.Map;
  * 提供了工具的基本属性和默认实现，子类只需实现execute方法
  */
 public abstract class BaseAITool implements AITool {
+
+    /** 内置 Linux 工具箱说明：注解(注解值必须是编译期常量)与工具描述共用一份文案 */
+    public static final String TOOLKIT_HINT = "shell_command 已内置 busybox 1.38（Termux 官方 bionic 构建，无需安装 Termux、无需任何权限）："
+            + "ash(完整 Linux shell)/wget/awk/vi/telnet/tar/gzip/md5sum/base64/httpd/… 400+ 命令可直接按名字调用；"
+            + "系统自带的 toybox 命令优先（sed/grep/find/sort/head 等），busybox 在 PATH 末尾补足系统没有的，"
+            + "也可用 $BUSYBOX_BIN_DIR 下的绝对路径调用。复杂逻辑建议写成脚本放工作区再执行（sh /路径/脚本.sh）："
+            + "Android 禁止执行工作区/数据目录里的二进制文件（Permission denied），但脚本由解释器读取，不受限";
+
     private final String toolName;
     private final String description;
 

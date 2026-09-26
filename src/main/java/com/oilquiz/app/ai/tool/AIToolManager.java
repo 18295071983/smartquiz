@@ -1302,8 +1302,8 @@ public class AIToolManager {
                     .category("web")
                     .build();
             case "system_resource":
-                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command有安全管控：危险命令(rm/reboot/su/dd/chmod/kill/wget等)与敏感路径(/data/data、/proc、/sys、凭据文件)会被拦截，单条命令10秒超时")
-                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/list_apps/check_app/get_app_info/app_control/shell_command/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
+                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command已内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；有安全管控：破坏性/系统级命令(rm/reboot/su/dd/chmod/kill/truncate等)与敏感路径(/data/data、/proc、/sys、凭据文件)会被拦截，单条命令25秒超时（超时则终止并返回已产生的输出，会挂起的交互式命令不要用）。termux_exec：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受上述黑名单限制），返回 stdout/stderr/exit_code，20秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command")
+                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/list_apps/check_app/get_app_info/app_control/shell_command/termux_exec/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
                     .addParameter("app", "string", "应用名称或包名，支持模糊匹配", false)
                     .addParameter("url", "string", "URL地址", false)
                     .addParameter("phone", "string", "电话号码", false)
@@ -1313,7 +1313,7 @@ public class AIToolManager {
                     .addParameter("body", "string", "邮件正文(send_email用)", false)
                     .addParameter("location", "string", "地图查询地点/坐标(open_map用，如\"天安门\"或\"39.9,116.4\")", false)
                     .addParameter("address", "string", "地图地址(open_map用，location的别名)", false)
-                    .addParameter("command", "string", "Shell命令（如: pm list packages, dumpsys activity top, input tap 500 500。危险命令/敏感路径被拦截，10秒超时）", false)
+                    .addParameter("command", "string", "Shell命令（如: pm list packages, dumpsys activity top, sed -n 1,20p f.txt, grep -rn TODO /sdcard/Download；termux_exec 时交给 Termux 的 bash -lc 执行）。shell_command：内置 busybox 工具箱可直接按名字用，危险命令/敏感路径被拦截，25秒超时，2>/dev/null 允许；termux_exec：Termux 的 Linux 环境、无黑名单、20秒超时", false)
                     .addParameter("setting_type", "string", "设置类型: system/secure/global", false)
                     .addParameter("setting_key", "string", "设置键名", false)
                     .addParameter("setting_value", "string", "设置值", false)

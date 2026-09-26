@@ -57,6 +57,10 @@
     <!-- 安装未知来源应用权限 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Termux 集成：允许 agent 通过 termux_exec 在 Termux 的 Linux 环境里执行命令
+         （Termux 侧还需在 ~/.termux/termux.properties 里开启 allow-external-apps=true） -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
     <!-- 系统通知权限 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 通知震动（闹钟/提醒到点震动） -->
@@ -129,6 +133,13 @@
         <activity
             android:name=".infra.DebugLayoutInjectActivity"
             android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- Termux RUN_COMMAND 运行时授权弹窗（HyperOS/MIUI 禁用了 adb 的 pm grant，只能 App 内请求） -->
+        <activity
+            android:name=".ai.tool.TermuxPermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
             android:name=".ui.activity.LoginActivity"

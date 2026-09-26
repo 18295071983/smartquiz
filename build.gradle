@@ -139,6 +139,16 @@ android {
         pickFirst "**/libvulkan.so.*"
         pickFirst "**/libc++_shared.so"
         exclude "**/org/apache/commons/math3/**"
+
+        jniLibs {
+            // 内置 Linux 命令工具链（libbusybox.so = Alpine busybox-static，aarch64 静态二进制）：
+            // targetSdk>=29 的应用不能执行自己写进 data 目录的文件，只有系统解压出来的
+            // nativeLibraryDir 里的文件才允许 execve —— 所以必须打开 legacy 打包方式（=解压）。
+            // Android 里 ApplicationInfo.nativeLibraryDir 会指向这些真实文件。
+            useLegacyPackaging = true
+            // busybox 是已 strip 过的 ELF 可执行文件，别让 AGP 的 strip 任务再动它
+            keepDebugSymbols += ["**/libbusybox.so", "**/libbusybox_launcher.so"]
+        }
     }
 
     signingConfigs {
@@ -415,6 +425,9 @@ dependencies {
     testImplementation "androidx.test.ext:junit:1.1.5"
     androidTestImplementation "androidx.test:core:1.5.0"
     androidTestImplementation "androidx.test.ext:junit:1.1.5"
+    // AndroidJUnitRunner 本体在 androidx.test:runner 里：只声明 ext:junit 时测试 APK 缺这个类，
+    // 真机上会报 ClassNotFoundException: androidx.test.runner.AndroidJUnitRunner（已实测）
+    androidTestImplementation "androidx.test:runner:1.5.2"
     androidTestImplementation "org.mockito:mockito-android:4.8.1"
     implementation project(':viewer')
 }
