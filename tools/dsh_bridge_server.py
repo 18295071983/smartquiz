@@ -350,10 +350,10 @@ def pair_candidates(port, token):
                               "qr_text": "dshpair://%s:%s?token=%s" % (host, p, token),
                               "label": "公网/隧道（花生壳等）"})
             else:
-                # https 默认 443：扫码协议表达不了 scheme，只能复制地址用 set_config 配
-                cands.append({"ip": host, "base_url": base, "qr_text": "",
-                              "label": "公网/隧道（https 默认端口，扫码协议不支持，请用 remote_dsh set_config）",
-                              "manual": True})
+                # https 默认 443：把 scheme/port 放进 query，App 侧已支持解析（旧版 App 会提示升级）
+                cands.append({"ip": host, "base_url": base,
+                              "qr_text": "dshpair://%s?scheme=%s&port=443&token=%s" % (host, scheme, token),
+                              "label": "公网/隧道（HTTPS）"})
     for ip in local_ips():
         cands.append({"ip": ip, "base_url": "http://%s:%d" % (ip, port),
                       "qr_text": pair_qr_text(port, token, ip), "label": "局域网"})
@@ -502,8 +502,21 @@ class Handler(BaseHTTPRequestHandler):
         log("%s %s" % (self.address_string(), fmt % args))
 
     def _is_loopback(self):
-        host = self.client_address[0] if self.client_address else ""
-        return host in ("127.0.0.1", "::1", "localhost")
+        """是否真的是"电脑本机"访问（/pair 与 /pair.json 只允许本机）。
+
+        2026-09-26 实测踩到的漏洞：走 Cloudflare 隧道时，cloudflared 是**从 127.0.0.1 连过来**的，
+        只看 client_address 会让公网访客也能打开 /pair.json 并把 token 读走。
+        所以额外要求 Host 是回环地址，且没有任何代理/隧道头。
+        """
+        host_hdr = (self.headers.get("Host") or "").strip().lower()
+        host_only = host_hdr.split(":")[0]
+        if host_only not in ("127.0.0.1", "localhost", "::1", "[::1]"):
+            return False
+        for h in ("CF-Connecting-IP", "CF-Ray", "X-Forwarded-For", "X-Real-IP", "Forwarded"):
+            if self.headers.get(h):
+                return False
+        peer = self.client_address[0] if self.client_address else ""
+        return peer in ("127.0.0.1", "::1", "localhost")
 
     def do_GET(self):
         path = self.path.split("?")[0]

@@ -17,6 +17,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -79,6 +80,53 @@ public class RemoteDshBridgeDeviceTest {
             if (!acpOk) Thread.sleep(800);
         }
         assertTrue("ACP 通道应可用（bridge 的 /acp/healthz 探测）", acpOk);
+    }
+
+    /**
+     * 公网/隧道形态：既验证新的配对码解析（dshpair://host?scheme=https&port=443&token=…），
+     * 也验证 App 的 uid 能真的走隧道打到电脑（用 -e publicUrl/-e token 传参）。
+     */
+    @Test
+    public void publicTunnelParsingAndReachability() throws Exception {
+        android.os.Bundle args = InstrumentationRegistry.getArguments();
+        String publicUrl = args.getString("publicUrl");
+        String token = args.getString("token");
+        org.junit.Assume.assumeTrue("需要 -e publicUrl=… -e token=… 参数", publicUrl != null && token != null);
+
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+
+        // 1) 配对码解析：隧道地址是 https 默认端口（URL 里没有端口），旧解析会因 port<=0 失败
+        String host = new java.net.URL(publicUrl).getHost();
+        String qr = "dshpair://" + host + "?scheme=https&port=443&token=" + token;
+        String err = RemoteDshPairBridge.parseAndSave(ctx, qr);
+        System.out.println("[EXP] 隧道配对码解析 => err=" + err + "  qr=" + qr);
+        assertNull("隧道形态配对码应能解析: " + err, err);
+        String saved = ctx.getSharedPreferences("remote_dsh_config", Context.MODE_PRIVATE)
+                .getString("base_url", "");
+        System.out.println("[EXP] 解析后保存的 base_url => " + saved);
+        assertEquals("https 默认端口不应拼 :443", publicUrl, saved);
+
+        // 2) App uid 直接打公网隧道 /health
+        long t0 = System.currentTimeMillis();
+        HttpURLConnection c = (HttpURLConnection) new java.net.URL(publicUrl + "/health").openConnection();
+        c.setConnectTimeout(20000);
+        c.setReadTimeout(30000);
+        int code = c.getResponseCode();
+        String body = readAll(c);
+        System.out.println("[EXP] 公网隧道 /health => HTTP " + code + "  " + (System.currentTimeMillis() - t0) + "ms  " + body);
+        assertEquals("App 进程应能通过公网隧道访问桥接", 200, code);
+
+        // 3) 真实工具路径（get_status）
+        Map<String, Object> p = new HashMap<>();
+        p.put("action", "get_status");
+        t0 = System.currentTimeMillis();
+        AIToolResult r = new RemoteDshTool(ctx).execute(p);
+        System.out.println("[EXP] 公网隧道 get_status => success=" + r.isSuccess() + "  "
+                + (System.currentTimeMillis() - t0) + "ms");
+        System.out.println("[EXP]   result=" + r.getResult());
+        System.out.println("[EXP]   error=" + r.getErrorMessage());
+        assertTrue("公网隧道下 get_status 应成功: " + r.getErrorMessage(), r.isSuccess());
+        assertTrue("公网隧道下桥接应在线: " + r.getResult(), String.valueOf(r.getResult()).contains("桥接服务在线"));
     }
 
     private static String readAll(HttpURLConnection c) throws Exception {

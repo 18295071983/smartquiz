@@ -32,10 +32,31 @@ public final class RemoteDshPairBridge {
         String host = uri.getHost();
         int port = uri.getPort();
         String token = uri.getQueryParameter("token");
-        if (host == null || host.isEmpty() || port <= 0 || token == null || token.trim().isEmpty()) {
-            return "配对码缺少电脑地址或令牌（host/port/token）:\n" + s;
+        // 公网/隧道（花生壳、Cloudflare 等）形态：dshpair://<host>?scheme=https&port=443&token=...
+        // —— 隧道地址常常是 https 默认端口（URL 里没有端口），旧解析因 port<=0 直接判失败
+        String scheme = uri.getQueryParameter("scheme");
+        String portParam = uri.getQueryParameter("port");
+        if (port <= 0 && portParam != null && !portParam.trim().isEmpty()) {
+            try {
+                port = Integer.parseInt(portParam.trim());
+            } catch (NumberFormatException ignored) {
+            }
         }
-        String baseUrl = "http://" + host + ":" + port;
+        if (scheme == null || scheme.trim().isEmpty()) {
+            scheme = port > 0 ? "http" : "https";
+        } else {
+            scheme = scheme.trim().toLowerCase();
+        }
+        if (!"http".equals(scheme) && !"https".equals(scheme)) {
+            return "配对码里的 scheme 不支持（只支持 http/https）:\n" + s;
+        }
+        if (host == null || host.isEmpty() || token == null || token.trim().isEmpty()) {
+            return "配对码缺少电脑地址或令牌（host/token）:\n" + s;
+        }
+        boolean defaultPort = port <= 0
+                || ("https".equals(scheme) && port == 443)
+                || ("http".equals(scheme) && port == 80);
+        String baseUrl = defaultPort ? (scheme + "://" + host) : (scheme + "://" + host + ":" + port);
         SharedPreferences.Editor ed = context
                 .getSharedPreferences("remote_dsh_config", Context.MODE_PRIVATE).edit();
         ed.putString("base_url", baseUrl);
