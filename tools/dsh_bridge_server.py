@@ -46,6 +46,7 @@ import argparse
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -68,6 +69,9 @@ RUNNING_JOBS = {}
 SESSION_HISTORY = {}          # sid -> [{role, text}]
 ACP_BASE = "http://127.0.0.1:7800"
 ACP_TOKEN = "acp-test-token"
+# 公网/隧道地址（花生壳 http://xxx.vicp.net:12345、Cloudflare https://xxx.trycloudflare.com、frp 等）：
+# 设置后会作为额外配对候选出现在配对页，手机在任何网络都能扫它配对
+PUBLIC_URL = ""
 
 
 def log(msg):
@@ -331,9 +335,29 @@ def pair_qr_text(port, token, ip=None):
 
 
 def pair_candidates(port, token):
-    """所有候选配对信息：手机连哪个网，就扫那个网段的二维码"""
-    return [{"ip": ip, "base_url": "http://%s:%d" % (ip, port), "qr_text": pair_qr_text(port, token, ip)}
-            for ip in local_ips()]
+    """所有候选配对信息：手机连哪个网，就扫那个网段的二维码；配了公网/隧道地址时它排第一"""
+    cands = []
+    if PUBLIC_URL:
+        m = re.match(r"^(https?)://([^/:]+)(?::(\d+))?/?$", PUBLIC_URL.strip())
+        if not m:
+            log("--public-url 无法解析（应形如 http://host:port 或 https://host），已忽略: %s" % PUBLIC_URL)
+        else:
+            scheme, host, p = m.group(1), m.group(2), m.group(3)
+            base = "%s://%s%s" % (scheme, host, (":" + p) if p else "")
+            if p:
+                # 手机扫码协议是 dshpair://host:port?token=...（只带 host+port），这里能直接扫
+                cands.append({"ip": host + ":" + p, "base_url": base,
+                              "qr_text": "dshpair://%s:%s?token=%s" % (host, p, token),
+                              "label": "公网/隧道（花生壳等）"})
+            else:
+                # https 默认 443：扫码协议表达不了 scheme，只能复制地址用 set_config 配
+                cands.append({"ip": host, "base_url": base, "qr_text": "",
+                              "label": "公网/隧道（https 默认端口，扫码协议不支持，请用 remote_dsh set_config）",
+                              "manual": True})
+    for ip in local_ips():
+        cands.append({"ip": ip, "base_url": "http://%s:%d" % (ip, port),
+                      "qr_text": pair_qr_text(port, token, ip), "label": "局域网"})
+    return cands
 
 
 def pair_html(port, token):
@@ -357,6 +381,7 @@ h1{font-size:20px;margin:0 0 8px} h2{font-size:14px;color:#94a3b8;font-weight:no
 .card{display:flex;flex-direction:column;align-items:center}
 .qrbox{background:#fff;padding:14px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 .ip{font-family:ui-monospace,monospace;font-size:13px;color:#7dd3fc;margin-top:8px}
+.manual{background:#1e293b;color:#fbbf24;padding:14px 16px;border-radius:12px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap;max-width:260px}
 .url{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all;background:#1e293b;
 padding:10px 12px;border-radius:8px;max-width:92vw;color:#7dd3fc}
 .steps{max-width:430px;font-size:14px;line-height:1.8;color:#94a3b8;margin-top:16px}
@@ -382,12 +407,19 @@ padding:10px 12px;border-radius:8px;max-width:92vw;color:#7dd3fc}
   var box = document.getElementById('qrs');
   items.forEach(function(it){
     var card = document.createElement('div'); card.className = 'card';
-    var qrbox = document.createElement('div'); qrbox.className = 'qrbox';
-    var qr = qrcode(0,'M'); qr.addData(it.qr_text); qr.make();
-    qrbox.innerHTML = qr.createImgTag(5,12);
+    if (!it.manual) {
+      var qrbox = document.createElement('div'); qrbox.className = 'qrbox';
+      var qr = qrcode(0,'M'); qr.addData(it.qr_text); qr.make();
+      qrbox.innerHTML = qr.createImgTag(5,12);
+      card.appendChild(qrbox);
+    } else {
+      var mbox = document.createElement('div'); mbox.className = 'manual';
+      mbox.textContent = it.base_url + '\n(token: 见下方 URL 行)';
+      card.appendChild(mbox);
+    }
     var label = document.createElement('div'); label.className = 'ip';
-    label.textContent = it.ip + '  →  ' + it.base_url;
-    card.appendChild(qrbox); card.appendChild(label); box.appendChild(card);
+    label.textContent = (it.label ? it.label + ' — ' : '') + it.ip;
+    card.appendChild(label); box.appendChild(card);
   });
   document.getElementById('url').textContent = items.length ? items[0].qr_text : '';
 })();
@@ -622,7 +654,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global BRIDGE_PORT, TOKEN, DSH_CMD, DSH_HOME, ACP_BASE, ACP_TOKEN, DEFAULT_CWD
+    global BRIDGE_PORT, TOKEN, DSH_CMD, DSH_HOME, ACP_BASE, ACP_TOKEN, DEFAULT_CWD, PUBLIC_URL
     ap = argparse.ArgumentParser(description="答题宝 · dsh 远程桥接 v3 (ACP 后端)")
     ap.add_argument("--port", type=int, default=8218)
     ap.add_argument("--host", default="0.0.0.0")
@@ -632,10 +664,14 @@ def main():
     ap.add_argument("--cwd", default="", help="会话默认工作目录（dsh 里跑命令的目录）")
     ap.add_argument("--acp-base", default="http://127.0.0.1:7800", help="ACP serve 地址")
     ap.add_argument("--acp-token", default="acp-test-token", help="ACP serve bearer token")
+    ap.add_argument("--public-url", default="",
+                    help="公网/隧道地址（花生壳 http://xxx.vicp.net:12345 / Cloudflare https://xxx.trycloudflare.com 等），"
+                         "会作为额外配对候选出现在配对页")
     args = ap.parse_args()
     BRIDGE_PORT, TOKEN = args.port, args.token
     DSH_CMD, DSH_HOME = args.dsh, args.dsh_home
     ACP_BASE, ACP_TOKEN = args.acp_base.rstrip("/"), args.acp_token
+    PUBLIC_URL = args.public_url.strip()
     DEFAULT_CWD = args.cwd.strip() or None
     if not TOKEN:
         log("未配置 --token：App 将无法鉴权（拒绝所有请求）。请传 --token xxx")
