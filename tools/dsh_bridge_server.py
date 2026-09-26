@@ -414,7 +414,7 @@ padding:10px 12px;border-radius:8px;max-width:92vw;color:#7dd3fc}
       card.appendChild(qrbox);
     } else {
       var mbox = document.createElement('div'); mbox.className = 'manual';
-      mbox.textContent = it.base_url + '\n(token: 见下方 URL 行)';
+      mbox.textContent = it.base_url + '  (手动输入该地址；token 见页面下方 URL 行)';
       card.appendChild(mbox);
     }
     var label = document.createElement('div'); label.className = 'ip';
