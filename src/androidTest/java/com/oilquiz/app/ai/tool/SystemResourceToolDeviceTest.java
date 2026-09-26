@@ -150,6 +150,84 @@ public class SystemResourceToolDeviceTest {
         assertTrue("裸跑 applet 应能执行: " + r2, r2.matches("(?s).*[0-9a-f]{32}.*"));
     }
 
+    /** 只读模式开关：默认 full（不拦）→ readonly（拦 rm/敏感路径）→ 切回 full 恢复放行 */
+    @Test
+    public void shellModeSwitch() {
+        java.util.Map<String, Object> p = new java.util.HashMap<>();
+        p.put("action", "shell_mode");
+        p.put("mode", "full");
+        System.out.println("[TEST] switch full => " + tool.execute(p).getResult());
+        assertTrue("full 模式 rm 应放行", shell("rm -rf $HOME/__no_such__ ; echo ok").isSuccess());
+        p.put("mode", "readonly");
+        System.out.println("[TEST] switch readonly => " + tool.execute(p).getResult());
+        AIToolResult rm = shell("rm -rf /sdcard/x");
+        System.out.println("[TEST] readonly rm => success=" + rm.isSuccess() + " err=" + rm.getErrorMessage());
+        assertFalse("[readonly] rm 应被拦", rm.isSuccess());
+        AIToolResult proc = shell("ls /proc");
+        System.out.println("[TEST] readonly /proc => success=" + proc.isSuccess() + " err=" + proc.getErrorMessage());
+        assertFalse("[readonly] /proc 应被拦", proc.isSuccess());
+        p.put("mode", "full");
+        tool.execute(p);
+        assertTrue("切回 full 后 rm 应放行", shell("rm -rf $HOME/__no_such__ ; echo ok").isSuccess());
+    }
+
+    /** 内置 openssl：真 TLS 能力（busybox 的 wget 没有 TLS，这个有） */
+    @Test
+    public void opensslTlsWorks() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        String v = out(shell("openssl version")).trim();
+        System.out.println("[EXP] openssl version => " + v);
+        assertTrue("openssl 应可用: " + v, v.contains("OpenSSL"));
+        String hs = out(shell("echo | openssl s_client -connect www.baidu.com:443 -servername www.baidu.com 2>&1"
+                + " | grep -E 'CONNECTED|subject=|issuer=|Verify return code' | head -6"));
+        String flat = hs.replace('\n', '|');
+        System.out.println("[EXP] openssl handshake => " + flat);
+        assertTrue("应完成 TLS 握手并拿到证书: " + flat, flat.contains("CONNECTED") || flat.contains("subject="));
+    }
+
+    /** 内置 openssh：ssh/scp/sftp/ssh-keygen 可用（依赖库解包在 files/lib，可执行文件在 nativeLibraryDir） */
+    @Test
+    public void opensshWorks() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        String v = out(shell("ssh -V 2>&1 | head -1")).trim();
+        System.out.println("[EXP] ssh -V => " + v);
+        assertTrue("ssh 应可执行: " + v, v.contains("OpenSSH"));
+        String kg = out(shell("mkdir -p $HOME/.ssh; rm -f $HOME/.ssh/test_k*; ssh-keygen -t ed25519 -f $HOME/.ssh/test_k -N '' -q"
+                + " && ls -l $HOME/.ssh/test_k | wc -l")).trim();
+        System.out.println("[EXP] ssh-keygen => " + kg.replace('\n', '|'));
+        assertTrue("ssh-keygen 应能生成密钥: " + kg, kg.contains("1"));
+        String net = out(shell("ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -p 443 -T git@ssh.github.com 2>&1 | head -3"))
+                .replace('\n', '|');
+        System.out.println("[EXP] ssh 真实连接 => " + net);
+    }
+
+    /**
+     * 决定 ssh 打包方案的关键实验：动态库能不能从 App 数据目录加载？
+     * （execve 数据目录已被证明禁止；若 dlopen 允许，则一批带版本号 SONAME 的库可以
+     *   原样解包到数据目录用 LD_LIBRARY_PATH 加载，省掉逐个改名补丁）
+     */
+    @Test
+    public void dlopenFromAppDataProbe() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        try {
+            java.io.File src = new java.io.File(ctx.getApplicationInfo().nativeLibraryDir, "libz.so");
+            java.io.File dst = new java.io.File(ctx.getFilesDir(), "probe_libz.so");
+            java.nio.file.Files.copy(src.toPath(), dst.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            // 用 System.load（dlopen）判断：数据目录里的 .so 能不能被加载
+            try {
+                System.load(dst.getAbsolutePath());
+                System.out.println("[EXP] dlopen-from-appdata => OK（数据目录的 .so 可以 dlopen）");
+            } catch (Throwable e) {
+                System.out.println("[EXP] dlopen-from-appdata => FAILED: " + e);
+            }
+        } catch (Exception e) {
+            System.out.println("[EXP] dlopen-from-appdata EXCEPTION " + e);
+        }
+    }
+
     /** 探测内置 busybox 哪些 applet 在 App 域可用（静态 musl 二进制部分 applet 会被 seccomp SIGSYS） */
     @Test
     public void busyboxAppletProbe() {

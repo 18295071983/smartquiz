@@ -47,6 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger;
         @Action(name = "shell_command", description = "执行Shell命令"),
         @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限）"),
         @Action(name = "http_download", description = "下载 URL 到本地（App 内 okhttp 实现，https 走系统证书校验，比 shell 里的 wget 更可靠）"),
+        @Action(name = "shell_mode", description = "切换 shell 拦截模式：full=不拦截(默认，用户自己的设备) / readonly=恢复危险命令与敏感路径拦截 / query=查询当前"),
         @Action(name = "read_setting", description = "读取系统设置"),
         @Action(name = "write_setting", description = "修改系统设置"),
         @Action(name = "get_current_app", description = "获取当前前台应用信息")
@@ -55,6 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger;
         @Param(name = "action", type = "string", description = "操作类型", required = true),
         @Param(name = "app", type = "string", description = "应用名称或包名", required = false),
         @Param(name = "url", type = "string", description = "URL地址（http_download 时为要下载的地址）", required = false),
+        @Param(name = "mode", type = "string", description = "shell_mode 用: full(默认不拦) / readonly(开启拦截) / query(查询)", required = false),
         @Param(name = "path", type = "string", description = "保存路径（http_download 用；绝对路径或工作区相对路径，缺省存到工作区 files/ 并用 URL 文件名）", required = false),
         @Param(name = "phone", type = "string", description = "电话号码", required = false),
         @Param(name = "message", type = "string", description = "短信内容", required = false),
@@ -106,6 +108,21 @@ public class SystemResourceTool implements AITool {
     private static final String BUSYBOX_SELINUX_LIB_NAME = "libandroid-selinux.so";
     /** libandroid-selinux 又依赖 Termux 的 pcre2 */
     private static final String BUSYBOX_PCRE2_LIB_NAME = "libpcre2-8.so";
+
+    // ===== 额外内置的 Termux 工具（bionic 构建，随 jniLibs 解压到 nativeLibraryDir，可执行）=====
+    /** openssl CLI：真正带 TLS（busybox 的 wget 没有 TLS） */
+    private static final String OPENSSL_BIN_LIB = "libopenssl.so";
+    /** openssl 的运行时库（libcrypto/libssl/libz） */
+    private static final String[] EXTRA_LIB_NAMES = {"libcrypto.so", "libssl.so", "libz.so"};
+    /** CA 包：内容是 PEM，命名成 lib*.so 只是为了能随 jniLibs 打包 */
+    private static final String CA_CERT_LIB = "libcacert.pem.so";
+
+    // ===== openssh（Termux bionic 构建）：可执行文件随 jniLibs，依赖库以 tar.gz 单文件分发 =====
+    /** ssh 系列可执行文件（bin 目录里做成软链接，指向 nativeLibraryDir/libssh_*.so） */
+    private static final String[] SSH_BIN_NAMES = {"ssh", "scp", "sftp", "ssh-keygen", "ssh-keyscan", "ssh-add"};
+    /** 依赖库包：tar.gz（保留 libcrypto.so.3 这类带版本号的真实名字）—— dlopen 数据目录允许，execve 不允许，
+     *  所以库可以解包到 files/lib 用 LD_LIBRARY_PATH 加载，二进制必须留在 nativeLibraryDir。 */
+    private static final String SSH_LIBS_BUNDLE = "libssh_libs.so";
     /** applet 软链接目录（filesDir/bin）：只初始化一次 */
     private static final Object BUSYBOX_LOCK = new Object();
     private static volatile String sBusyboxBinDir;
@@ -254,6 +271,8 @@ public class SystemResourceTool implements AITool {
                     return termuxExec(parameters);
                 case "http_download":
                     return httpDownload(parameters);
+                case "shell_mode":
+                    return shellMode(parameters);
                 case "read_setting":
                     return readSetting(parameters);
                 case "write_setting":
@@ -1095,6 +1114,47 @@ public class SystemResourceTool implements AITool {
         //   · 超时 SHELL_TIMEOUT_SECONDS 秒（到点强杀并返回已产生的输出）
         //   · 输出上限 MAX_SHELL_OUTPUT_CHARS 字符（防 cat 大文件把结果撑爆）
         
+        // readonly 模式才走拦截（默认 full：用户自己的设备，不拦截）
+        if (isGuardEnabled()) {
+            String lower = command.toLowerCase().trim();
+            String[] parts = lower.split("[;&|$()\\s]+");
+            for (String bannedPath : BANNED_PATHS) {
+                if (lower.contains(bannedPath)) {
+                    return new AIToolResult("[readonly] 不允许访问敏感路径: " + bannedPath, parameters);
+                }
+                // 带尾斜杠的黑名单条目（/proc/、/sys/）也要拦住 "ls /proc" 这种无斜杠写法
+                if (bannedPath.endsWith("/")) {
+                    String bare = bannedPath.substring(0, bannedPath.length() - 1);
+                    for (String part : parts) {
+                        if (part.equals(bare) || part.startsWith(bare + "/")) {
+                            return new AIToolResult("[readonly] 不允许访问敏感路径: " + bannedPath, parameters);
+                        }
+                    }
+                }
+            }
+            for (String part : parts) {
+                String p = part.trim();
+                if (p.isEmpty()) {
+                    continue;
+                }
+                for (String banned : BANNED_COMMANDS) {
+                    if (p.equals(banned) || p.startsWith(banned + " ")) {
+                        return new AIToolResult("[readonly] 不允许执行危险命令: " + command, parameters);
+                    }
+                }
+            }
+            for (int i = 0; i < parts.length - 1; i++) {
+                if (!"sleep".equals(parts[i])) {
+                    continue;
+                }
+                try {
+                    if (Double.parseDouble(parts[i + 1]) >= SHELL_TIMEOUT_SECONDS) {
+                        return new AIToolResult("[readonly] sleep 超过 " + SHELL_TIMEOUT_SECONDS + " 秒必然超时，已拒绝", parameters);
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
         try {
             String output = executeShell(command);
             boolean timedOut = output != null && output.startsWith("(命令执行超时");
@@ -1151,6 +1211,45 @@ public class SystemResourceTool implements AITool {
         }
     }
 
+    /** 用内置 busybox 的 tar 解包 ssh 依赖库到 files/lib（保留真实文件名，含带版本号的 SONAME） */
+    private void extractSshLibs(File binDir, File libDir) {
+        Process proc = null;
+        try {
+            File bundle = new File(context.getApplicationInfo().nativeLibraryDir, SSH_LIBS_BUNDLE);
+            if (!bundle.exists()) {
+                AILogger.e(TAG, "缺少 ssh 依赖库包: " + bundle.getAbsolutePath());
+                return;
+            }
+            if (libDir.exists()) {
+                deleteRecursively(libDir);
+            }
+            if (!libDir.mkdirs() && !libDir.isDirectory()) {
+                AILogger.e(TAG, "无法创建库目录: " + libDir);
+                return;
+            }
+            ProcessBuilder pb = new ProcessBuilder(new File(binDir, "busybox").getAbsolutePath(),
+                    "tar", "-xzf", bundle.getAbsolutePath(), "-C", libDir.getAbsolutePath());
+            pb.redirectErrorStream(true);
+            pb.environment().put("LD_LIBRARY_PATH", binDir.getAbsolutePath());
+            proc = pb.start();
+            proc.getOutputStream().close();
+            if (!proc.waitFor(30, TimeUnit.SECONDS)) {
+                proc.destroyForcibly();
+                AILogger.e(TAG, "解包 ssh 依赖库超时");
+                return;
+            }
+            int n = libDir.list() == null ? 0 : libDir.list().length;
+            AILogger.i(TAG, "ssh 依赖库解包完成 exit=" + proc.exitValue() + " 文件数=" + n);
+        } catch (Exception e) {
+            AILogger.e(TAG, "解包 ssh 依赖库失败: " + BaseAITool.errText(e));
+        }
+    }
+
+    /** 把随包分发的二进制/脚本软链接进 PATH（先删掉 busybox --install 建的 applet 软链接） */
+    private void linkBin(File binDir, String name, String libName) {
+        linkShim(binDir, name, libName);
+    }
+
     /** 把 bin/<name> 指向 nativeLibraryDir 里的 shim（先删掉 busybox --install 建的 applet 软链接） */
     private void linkShim(File binDir, String name, String shimLibName) {
         try {
@@ -1169,7 +1268,48 @@ public class SystemResourceTool implements AITool {
         }
     }
 
-    /** http_download：用 App 内的 okhttp 直接下载（https 走系统证书校验），可指定保存路径 */
+    // ===== shell 拦截模式开关（默认 full：不拦；readonly 恢复旧的命令/路径拦截）=====
+    // ===== shell 拦截模式开关（默认 full：不拦；readonly 恢复旧的命令/路径拦截）=====
+    private static final String PREF_NAME = "system_resource_prefs";
+    private static final String PREF_GUARD = "shell_guard_enabled";
+
+    private boolean isGuardEnabled() {
+        try {
+            return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getBoolean(PREF_GUARD, false);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void setGuardEnabled(boolean on) {
+        try {
+            context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF_GUARD, on).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** shell_mode：切换/查询 shell 拦截模式（默认 full 不拦；readonly 恢复拦截） */
+    private AIToolResult shellMode(Map<String, Object> parameters) {
+        String mode = (String) parameters.get("mode");
+        boolean changed = false;
+        if (mode != null) {
+            String m = mode.trim().toLowerCase();
+            if ("readonly".equals(m) || "guard".equals(m) || "on".equals(m)) {
+                setGuardEnabled(true);
+                changed = true;
+            } else if ("full".equals(m) || "off".equals(m) || "open".equals(m)) {
+                setGuardEnabled(false);
+                changed = true;
+            }
+        }
+        boolean on = isGuardEnabled();
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
+        result.put("shell_guard", on ? "readonly" : "full");
+        result.put("description", on ? "readonly：拦截危险命令(rm/dd/chmod/kill/mount/su…)与敏感路径(/data/data、/proc、/sys)，sleep 超限直接拒" : "full：不拦截任何命令（默认，用户自己的设备）");
+        result.put("changed", changed);
+        return new AIToolResult(result, parameters);
+    }
     private AIToolResult httpDownload(Map<String, Object> parameters) {
         String url = (String) parameters.get("url");
         if (url == null || url.trim().isEmpty()) {
@@ -1320,6 +1460,19 @@ public class SystemResourceTool implements AITool {
                 linkLib(binDir, BUSYBOX_CORE_LIB_NAME);
                 linkLib(binDir, BUSYBOX_SELINUX_LIB_NAME);
                 linkLib(binDir, BUSYBOX_PCRE2_LIB_NAME);
+                // 额外工具：openssl（带 TLS）及其运行时库
+                for (String lib : EXTRA_LIB_NAMES) {
+                    linkLib(binDir, lib);
+                }
+                linkBin(binDir, "openssl", OPENSSL_BIN_LIB);
+                // openssh：依赖库解包到 files/lib（dlopen 允许），可执行文件软链接到 nativeLibraryDir
+                File libDir = new File(context.getFilesDir(), "lib");
+                if (rebuild || !libDir.isDirectory() || (libDir.list() != null && libDir.list().length == 0)) {
+                    extractSshLibs(binDir, libDir);
+                }
+                for (String n : SSH_BIN_NAMES) {
+                    linkBin(binDir, n, "libssh_" + n.replace('-', '_') + ".so");
+                }
                 if (rebuild) {
                     ProcessBuilder installPb = new ProcessBuilder(invokePath, "--install", "-s", binDir.getAbsolutePath());
                     installPb.redirectErrorStream(true);
@@ -1428,11 +1581,17 @@ public class SystemResourceTool implements AITool {
                     env.put("BUSYBOX_BIN_DIR", binDir);
                     env.put("BUSYBOX", busyboxPath() != null ? busyboxPath() : "");
                     // busybox 启动器靠它加载 libbusybox.so / libandroid-selinux.so（只含这两个软链接的目录）
-                    env.put("LD_LIBRARY_PATH", binDir);
+                    env.put("LD_LIBRARY_PATH", binDir + ":" + new File(context.getFilesDir(), "lib").getAbsolutePath());
                     // wget/curl 包装脚本靠它找本地下载服务（也写了 .http_port 文件作为兜底）
                     int fetchPort = HttpFetchServer.getPort();
                     if (fetchPort > 0) {
                         env.put("HTTP_FETCH_PORT", String.valueOf(fetchPort));
+                    }
+                    // 内置 CA 包（openssl / curl 用）
+                    File ca = new File(context.getApplicationInfo().nativeLibraryDir, CA_CERT_LIB);
+                    if (ca.exists()) {
+                        env.put("SSL_CERT_FILE", ca.getAbsolutePath());
+                        env.put("CURL_CA_BUNDLE", ca.getAbsolutePath());
                     }
                 }
                 // 让 wget/vi/tar 之类有可写的临时目录与 HOME

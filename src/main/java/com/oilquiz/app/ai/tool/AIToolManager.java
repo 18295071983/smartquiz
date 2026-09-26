@@ -1302,11 +1302,12 @@ public class AIToolManager {
                     .category("web")
                     .build();
             case "system_resource":
-                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command已内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；不对命令做任何拦截（原样交给系统 shell 执行），单条命令25秒超时（超时强杀并返回已产生输出）（超时则终止并返回已产生的输出，会挂起的交互式命令不要用）。termux_exec：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受上述黑名单限制），返回 stdout/stderr/exit_code，20秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command")
-                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/list_apps/check_app/get_app_info/app_control/shell_command/termux_exec/http_download/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
+                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command已内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；默认不对命令做任何拦截（原样交给系统 shell 执行），可用 action=shell_mode 切换到 readonly 恢复拦截；单条命令25秒超时（超时强杀并返回已产生输出）。另内置 openssl(真TLS)/ssh/scp/sftp/ssh-keygen（Termux bionic 构建）（超时则终止并返回已产生的输出，会挂起的交互式命令不要用）。termux_exec：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受上述黑名单限制），返回 stdout/stderr/exit_code，20秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command")
+                    .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/list_apps/check_app/get_app_info/app_control/shell_command/shell_mode/termux_exec/http_download/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
                     .addParameter("app", "string", "应用名称或包名，支持模糊匹配", false)
                     .addParameter("url", "string", "URL地址(http_download 时为要下载的地址)", false)
                     .addParameter("path", "string", "保存路径(http_download 用；绝对路径或工作区相对路径，缺省存工作区 files/ 并用 URL 文件名)", false)
+                    .addParameter("mode", "string", "shell_mode 用: full(默认不拦) / readonly(开启拦截) / query(查询)", false)
                     .addParameter("phone", "string", "电话号码", false)
                     .addParameter("message", "string", "短信内容", false)
                     .addParameter("to", "string", "收件人邮箱(send_email用，必填)", false)
