@@ -274,8 +274,10 @@ public class RemoteDshTool implements AITool {
     private AIToolResult handleStart() {
         String baseUrl = getBaseUrl();
         if (baseUrl.isEmpty()) {
-            return AIToolResult.fail("remote_dsh 未配置：请先 action=set_config 设置 base_url(电脑地址) 和 token(访问令牌)。"
-                    + "\n电脑端启动方式: python tools/dsh_bridge_server.py --token 你的令牌");
+            return AIToolResult.fail("remote_dsh 未配置（还没配对过电脑）。"
+                    + "\n最简单：对 AI 说「远程配对」→ 打开相机扫电脑配对页的二维码（电脑端先双击 tools\\start_dsh_bridge.bat，"
+                    + "配对页 http://127.0.0.1:8218/pair 会自动打开，扫第一个码即可）"
+                    + "\n也可以手动：action=set_config base_url=<电脑地址> token=<令牌>");
         }
         try {
             Map<String, Object> body = new HashMap<>();
@@ -347,8 +349,10 @@ public class RemoteDshTool implements AITool {
     private AIToolResult handleRun(Map<String, Object> parameters) {
         String baseUrl = getBaseUrl();
         if (baseUrl.isEmpty()) {
-            return AIToolResult.fail("remote_dsh 未配置：请先 action=set_config 设置 base_url(电脑地址) 和 token(访问令牌)。"
-                    + "\n电脑端启动方式: python tools/dsh_bridge_server.py --token 你的令牌");
+            return AIToolResult.fail("remote_dsh 未配置（还没配对过电脑）。"
+                    + "\n最简单：对 AI 说「远程配对」→ 打开相机扫电脑配对页的二维码（电脑端先双击 tools\\start_dsh_bridge.bat，"
+                    + "配对页 http://127.0.0.1:8218/pair 会自动打开，扫第一个码即可）"
+                    + "\n也可以手动：action=set_config base_url=<电脑地址> token=<令牌>");
         }
         String task = parameters.get("task") != null ? String.valueOf(parameters.get("task")).trim() : "";
         if (task.isEmpty()) {
