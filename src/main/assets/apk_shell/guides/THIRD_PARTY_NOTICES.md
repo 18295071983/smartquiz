@@ -1,6 +1,7 @@
 # 第三方组件与许可声明（THIRD PARTY NOTICES）
 
-> 仓库副本。随 APK 分发的那份在 `src/main/assets/apk_shell/guides/THIRD_PARTY_NOTICES.md`（应用启动会自动恢复到工作区并受删除保护），**两处改动需同步**。
+> 本文件随 APK 打包（assets/apk_shell/guides/），应用启动时自动恢复到工作区 `files/` 并受删除保护；
+> 仓库内另有一份同内容副本：`docs/THIRD_PARTY_NOTICES.md`（两处改动需同步）。
 
 本项目随 APK 分发以下第三方二进制/库，按各自许可要求在此声明来源与许可。
 

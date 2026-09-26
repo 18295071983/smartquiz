@@ -253,7 +253,7 @@ avi / flv / rmvb / wmv 一律打不开，也没有滤镜链。这块由**内置 
 ### 许可（LGPL）
 
 内置 ffmpeg 为 **LGPL v3**（min 变体，未链接 GPL 组件）。按 LGPL 要求，分发时需随包提供对应源码/许可信息：
-见仓库 `docs/THIRD_PARTY_NOTICES.md`（ffmpeg-kit 源码地址与版本）。
+见工作区 **`THIRD_PARTY_NOTICES.md`**（随包内置，应用启动自动恢复；仓库同内容副本在 `docs/THIRD_PARTY_NOTICES.md`）。
 
 ## 八、排错
 

@@ -235,6 +235,37 @@ public class FfmpegEngineDeviceTest {
         }
     }
 
+    // ==================== 5. 文档随包与保护（LGPL 合规） ====================
+
+    /** ffmpeg 是 LGPL，许可声明必须随包分发、并在工作区受保护（删除后自动恢复） */
+    @Test
+    public void licenceNoticeIsShippedAndProtected() throws Exception {
+        for (String name : new String[]{"THIRD_PARTY_NOTICES.md", "MEDIA_TOOLKIT_GUIDE.md"}) {
+            assertTrue(name + " 应被登记为内置文档（删除受保护 + 自动恢复）",
+                    com.oilquiz.app.ai.agent.online.AgentWorkspace.isBuiltinGuideFile(name));
+            String asset = "apk_shell/guides/" + name;
+            String content;
+            try (InputStream in = ctx.getAssets().open(asset)) {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) bos.write(buf, 0, n);
+                content = new String(bos.toByteArray(), "UTF-8");
+            }
+            System.out.println("[EXP] 随包文档 " + name + " => " + content.length() + " 字符");
+            assertTrue(name + " 应真的打进 APK 的 assets", content.length() > 200);
+            File inWorkspace = new File(ctx.getFilesDir(),
+                    "agent_workspace/files/" + name);
+            System.out.println("[EXP] 工作区副本 " + name + " => exists=" + inWorkspace.exists()
+                    + " size=" + inWorkspace.length());
+            if ("THIRD_PARTY_NOTICES.md".equals(name)) {
+                assertTrue("许可声明里应写清 ffmpeg 的 LGPL 与源码地址",
+                        content.contains("LGPL") && content.contains("ffmpegkit-maintained"));
+                assertTrue("许可声明应已恢复到工作区（应用启动时自动恢复）", inWorkspace.exists() && inWorkspace.length() > 200);
+            }
+        }
+    }
+
     // ==================== 辅助 ====================
 
     private boolean generateAvi(File out) {

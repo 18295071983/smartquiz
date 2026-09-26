@@ -45,7 +45,10 @@ public class AgentWorkspace {
             "apk_shell/guides/douyin_downloader_GUIDE.md",
             "apk_shell/guides/LINUX_TOOLKIT_GUIDE.md",
             // 2026-09-26：本地媒体工具箱（media_toolkit）文档，工作区重建自动恢复
-            "apk_shell/guides/MEDIA_TOOLKIT_GUIDE.md"
+            "apk_shell/guides/MEDIA_TOOLKIT_GUIDE.md",
+            // 2026-09-26：第三方组件与许可声明（含内置 ffmpeg 的 LGPL v3 声明）
+            // —— LGPL 要求分发时随附许可/源码信息，所以它必须随 APK 走，不能只放仓库
+            "apk_shell/guides/THIRD_PARTY_NOTICES.md"
     };
 
     private final Context appContext;
@@ -553,7 +556,8 @@ public class AgentWorkspace {
                 + "   《HTML_DESIGN_RULES.md》(导出APK的HTML设计规则)《APK_SOURCE_GUIDE.md》(导出APK壳v8.1·62桥清单/回调契约)\n"
                 + "   《douyin_downloader_GUIDE.md》(抖音下载内置工具v3.2:官方内核/UIFID自愈/双通道,删除自动恢复)。\n"
                 + "   《LINUX_TOOLKIT_GUIDE.md》(内置 Linux 工具箱: 工具清单/命令路由/示例/限制/如何加工具)。\n"
-                + "   《MEDIA_TOOLKIT_GUIDE.md》(本地媒体工具箱: 截帧/抽音轨/转WAV/剪切/转码/图片处理 + android_media)。\n"
+                + "   《MEDIA_TOOLKIT_GUIDE.md》(本地媒体工具箱: 截帧/抽音轨/转WAV/剪切/转码/滤镜/图片处理 + 内置 ffmpeg 引擎 + android_media)。\n"
+                + "   《THIRD_PARTY_NOTICES.md》(第三方组件与许可声明: ffmpeg LGPL v3 源码地址、busybox GPL v2 等)。\n"
                 + "================================================================\n";
     }
 
