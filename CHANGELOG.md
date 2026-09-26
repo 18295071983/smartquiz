@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-09-26] tools/start_dsh_bridge.bat：dsh 桥接一键启动（附 pair 页排错）
+1. 新增 Windows 启动脚本（双击即用）：先起 ACP serve(127.0.0.1:7800)，再起桥接(0.0.0.0:8218)；
+   桥接启动会自动打开配对页 http://127.0.0.1:8218/pair 并打印配对文本（dshpair://IP:8218?token=…）。
+   用法：`start_dsh_bridge.bat [桥接端口] [ACP端口]`（默认 8218/7800），令牌在脚本内改（默认 ***REMOVED***）。
+2. 排错记录：`http://127.0.0.1:8218/pair 打不开` 的最常见原因是**服务没起**（8218/7800 都没有监听），
+   不是页面或代码问题；起服务后实测 /health、/pair(HTTP 200)、/pair.json、/status(session_acp=true)、
+   POST /session(action=start) 返回 acp-<uuid> 会话 id 全部正常。ACP 只绑 127.0.0.1，手机只访问桥接层。
+3. 冒烟：用备用端口 8219/7801 验证脚本本身可用（health/pair.json 正常）后清理，未影响正式端口。
+
 ## [2026-09-25] dsh 升级 0.1.5-rc.3 + remote_dsh v3（ACP 官方通道落地）
 1. **dsh 升级 0.1.5-rc.3**（launcher npm install，@deepseek-ai/dsh 壳+全依赖重建；主 DSH_HOME 配置/215MB 会话未动，升级前已备份 settings/.credentials/profiles 配置到 tools/dsh-home-backup/）。`dsh --version`=0.1.5-rc.3。
 2. **主 home web(3080) 0.1.5 跑通**：0.1.5 web 带 token 鉴权（/?token= 换 cookie），旧 /api/session/* 路由已移除。web profile 第三方插件（marketplace/notify-win/toolkit github源）与 0.1.5 不兼容已摘除（备份可恢复），保留 dsh-desktop/dsh-image-pathify。
