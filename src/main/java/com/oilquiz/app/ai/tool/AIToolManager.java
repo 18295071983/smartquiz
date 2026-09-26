@@ -1302,6 +1302,15 @@ public class AIToolManager {
                     .category("web")
                     .build();
             case "linux_shell":
+                return ToolDefinition.builder("linux_shell", "内置 Linux 命令行工具箱（随 App 打包，无需 Termux、无需权限）：busybox(ash/awk/vi/telnet/tar/gzip)、openssl(真 TLS)、ssh/scp/sftp/ssh-keygen、curl、aria2c(多线程下载)、rg(ripgrep 搜索)、jq(JSON)、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk。exec 执行命令；tools 列出工具与版本；download 下载 URL；route 改命令路由顺序。单条命令 25 秒超时（超时返回已产生输出）；默认不拦截任何命令")
+                    .addParameter("action", "string", "操作: exec(执行命令)/tools(列出工具)/download(下载URL)/route(改命令路由)", true, "exec")
+                    .addParameter("command", "string", "要执行的命令（exec 用，如 curl -sI https://example.com | head -3、rg -n TODO /sdcard/Download、jq . file.json）；route 时填命令名", false)
+                    .addParameter("url", "string", "下载地址（download 用，https 走系统证书校验）", false)
+                    .addParameter("path", "string", "保存路径（download 用；缺省存工作区 files/ 并用 URL 文件名）", false)
+                    .addParameter("order", "string", "route 用：路由顺序 b=内置 s=系统 k=busybox t=toybox（如 bskt/stkb/b），reset 恢复默认", false)
+                    .category("system")
+                    .build();
+            case "system_resource":
                 return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command已内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；默认不对命令做任何拦截（原样交给系统 shell 执行），可用 action=shell_mode 切换到 readonly 恢复拦截；单条命令25秒超时（超时强杀并返回已产生输出）。另内置 openssl(真TLS)/ssh/scp/sftp/ssh-keygen（Termux bionic 构建）（超时则终止并返回已产生的输出，会挂起的交互式命令不要用）。termux_exec：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受上述黑名单限制），返回 stdout/stderr/exit_code，20秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command")
                     .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/list_apps/check_app/get_app_info/app_control/shell_command/shell_mode/termux_exec/http_download/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
                     .addParameter("app", "string", "应用名称或包名，支持模糊匹配", false)

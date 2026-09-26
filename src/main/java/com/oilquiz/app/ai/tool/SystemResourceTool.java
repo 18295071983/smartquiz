@@ -1192,6 +1192,68 @@ public class SystemResourceTool implements AITool {
         return new SystemResourceTool(ctx).executeShellCommand(parameters);
     }
 
+    /**
+     * 供 linux_shell(action=route) 用：查询/修改命令路由顺序。
+     * 写在 bin/.route（每行 "命令=顺序"），路由器每次执行都会读它。
+     * 顺序字符：b=内置 s=系统 k=busybox t=toybox，例如 bskt / stkb / b / bst。
+     */
+    public static AIToolResult routeStatic(Context ctx, Map<String, Object> parameters) {
+        Map<String, Object> result = new HashMap<>();
+        File binDir = new File(ctx.getFilesDir(), "bin");
+        File routeFile = new File(binDir, ".route");
+        Object rawName = parameters.get("command");
+        Object rawOrder = parameters.get("order");
+        String name = rawName instanceof String ? ((String) rawName).trim() : null;
+        String order = rawOrder instanceof String ? ((String) rawOrder).trim().toLowerCase() : null;
+        try {
+            java.util.LinkedHashMap<String, String> routes = new java.util.LinkedHashMap<>();
+            if (routeFile.exists()) {
+                String all = new String(java.nio.file.Files.readAllBytes(routeFile.toPath()), "UTF-8");
+                for (String line : all.split("\n")) {
+                    String s = line.trim();
+                    int eq = s.indexOf('=');
+                    if (eq > 0) {
+                        routes.put(s.substring(0, eq).trim(), s.substring(eq + 1).trim());
+                    }
+                }
+            }
+            boolean changed = false;
+            if (name != null && !name.isEmpty() && !"query".equals(name)) {
+                if (order == null || order.isEmpty() || "reset".equals(order) || "default".equals(order)) {
+                    changed = routes.remove(name) != null;
+                } else {
+                    String cleaned = order.replaceAll("[^bskt]", "");
+                    if (cleaned.isEmpty()) {
+                        result.put("status", "error");
+                        result.put("error", "order 只能由 b(内置)/s(系统)/k(busybox)/t(toybox) 组成，例如 bskt、stkb");
+                        return new AIToolResult(result, parameters);
+                    }
+                    routes.put(name, cleaned);
+                    changed = true;
+                }
+                if (!binDir.isDirectory() && !binDir.mkdirs()) {
+                    result.put("status", "error");
+                    result.put("error", "bin 目录不存在，请先执行一次 linux_shell(action=tools)");
+                    return new AIToolResult(result, parameters);
+                }
+                StringBuilder sb = new StringBuilder();
+                for (Map.Entry<String, String> e : routes.entrySet()) {
+                    sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
+                }
+                java.nio.file.Files.write(routeFile.toPath(), sb.toString().getBytes("UTF-8"));
+            }
+            result.put("status", "success");
+            result.put("default_order", "bskt（内置 -> 系统 -> busybox -> toybox）");
+            result.put("routes", routes.isEmpty() ? "(全部使用默认顺序)" : routes.toString());
+            result.put("changed", changed);
+            result.put("hint", "改顺序：linux_shell(action=route, command=curl, order=stkb)；恢复：order=reset");
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            result.put("status", "error");
+            result.put("error", BaseAITool.errText(e));
+            return new AIToolResult(result, parameters);
+        }
+    }
     /** 供 linux_shell 复用：下载 URL 到文件 */
     public static AIToolResult httpDownloadStatic(Context ctx, Map<String, Object> parameters) {
         return new SystemResourceTool(ctx).httpDownload(parameters);

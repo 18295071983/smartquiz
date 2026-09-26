@@ -40,6 +40,11 @@ public class SystemResourceToolDeviceTest {
         tool = new SystemResourceTool(ctx);
     }
 
+    /** 按已有参数 map 执行 linux_shell 并取 output 文本 */
+    private String shellOut(java.util.Map<String, Object> params) {
+        return out(new com.oilquiz.app.ai.tool.LinuxShellTool(
+                InstrumentationRegistry.getInstrumentation().getTargetContext()).execute(params));
+    }
     private AIToolResult shell(String cmd) {
         Map<String, Object> p = new HashMap<>();
         p.put("action", "shell_command");
@@ -150,6 +155,39 @@ public class SystemResourceToolDeviceTest {
         String r2 = out(shell("env -i " + binDir + "/md5sum /system/bin/sh")).trim();
         System.out.println("[EXP] bare md5sum => " + r2);
         assertTrue("裸跑 applet 应能执行: " + r2, r2.matches("(?s).*[0-9a-f]{32}.*"));
+    }
+
+    /** 路由可运行时改写：把 jq 限成只用 toybox（没有）应当失败，reset 后恢复 */
+    @Test
+    public void routeActionWorks() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        com.oilquiz.app.ai.tool.LinuxShellTool shell = new com.oilquiz.app.ai.tool.LinuxShellTool(ctx);
+        java.util.Map<String, Object> p = new java.util.HashMap<>();
+        p.put("action", "route");
+        p.put("command", "jq");
+        p.put("order", "b");
+        System.out.println("[EXP] route set => " + shell.execute(p).getResult());
+        String ok = shellOut(execOf("jq --version"));
+        p.put("order", "t");   // toybox 没有 jq，且不允许回退到内置 -> 应当失败
+        System.out.println("[EXP] route set t => " + shell.execute(p).getResult());
+        String bad = shellOut(execOf("jq --version 2>&1"));
+        System.out.println("[EXP] jq with order=t => " + bad.trim());
+        p.put("order", "reset");
+        System.out.println("[EXP] route reset => " + shell.execute(p).getResult());
+        String back = shellOut(execOf("jq --version"));
+        System.out.println("[EXP] jq after reset => " + back.trim());
+        assertTrue("默认应可用: " + ok, ok.contains("jq-"));
+        assertTrue("限定只有 toybox 且无实现时应报错: " + bad, !bad.contains("jq-"));
+        assertTrue("reset 后应恢复: " + back, back.contains("jq-"));
+    }
+
+    /** 小工具：把 exec 参数包成 map 给 LinuxShellTool 用 */
+    private java.util.Map<String, Object> execOf(String command) {
+        java.util.Map<String, Object> m = new java.util.HashMap<>();
+        m.put("action", "exec");
+        m.put("command", command);
+        return m;
     }
 
     /** 路由：内置 -> 系统 -> busybox -> toybox，任一环节不可用不应把命令搞挂 */

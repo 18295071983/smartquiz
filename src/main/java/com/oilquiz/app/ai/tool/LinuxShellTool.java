@@ -30,10 +30,12 @@ import java.util.Map;
     actions = {
         @Action(name = "exec", description = "执行 shell 命令（/system/bin/sh -c，带完整内置工具环境）"),
         @Action(name = "tools", description = "列出内置工具及版本"),
-        @Action(name = "download", description = "下载 URL 到本地文件（https 走系统证书校验）")
+        @Action(name = "download", description = "下载 URL 到本地文件（https 走系统证书校验）"),
+        @Action(name = "route", description = "查询/修改某命令的路由顺序（b=内置 s=系统 k=busybox t=toybox，默认 bskt）")
     },
     params = {
-        @Param(name = "action", type = "string", description = "操作: exec/tools/download", required = true),
+        @Param(name = "action", type = "string", description = "操作: exec/tools/download/route", required = true),
+        @Param(name = "order", type = "string", description = "route 用：路由顺序，如 bskt/stkb/b；reset 恢复默认", required = false),
         @Param(name = "command", type = "string", description = "要执行的命令（exec 用）", required = false),
         @Param(name = "url", type = "string", description = "下载地址（download 用）", required = false),
         @Param(name = "path", type = "string", description = "保存路径（download 用；缺省存工作区 files/ 并用 URL 文件名）", required = false)
@@ -65,6 +67,7 @@ public class LinuxShellTool implements AITool {
         descriptions.put("command", "要执行的命令（exec 用，如 curl -sI https://example.com | head -3、rg -n TODO /sdcard/Download、jq . f.json）");
         descriptions.put("url", "下载地址（download 用，https 走系统证书校验）");
         descriptions.put("path", "保存路径（download 用；缺省存工作区 files/ 并用 URL 文件名）");
+        descriptions.put("order", "route 用：路由顺序（b=内置 s=系统 k=busybox t=toybox），如 bskt、stkb；reset 恢复默认");
         return descriptions;
     }
 
@@ -81,6 +84,8 @@ public class LinuxShellTool implements AITool {
             case "download":
             case "wget":
                 return SystemResourceTool.httpDownloadStatic(context, parameters);
+            case "route":
+                return SystemResourceTool.routeStatic(context, parameters);
             case "exec":
             case "run":
             default:
