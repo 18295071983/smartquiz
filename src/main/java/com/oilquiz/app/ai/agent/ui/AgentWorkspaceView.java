@@ -131,13 +131,13 @@ public class AgentWorkspaceView {
         clearBtn.setOnClickListener(v -> {
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
                 .setTitle("清空长期文件")
-                .setMessage("将删除 files/ 下用户/Agent 产生的长期文件（内置指南文档受保护自动保留：《工具创建指南.md》《使用速查表.md》《核心工具速查.md》《HTML_DESIGN_RULES.md》《APK_SOURCE_GUIDE.md》《douyin_downloader_GUIDE.md》）。确定继续吗？")
+                .setMessage("将删除 files/ 下用户/Agent 产生的长期文件（内置指南/许可文档受保护，自动保留；它们删掉也会在下次启动自动恢复）。确定继续吗？")
                 .setPositiveButton("清空", (dialog, which) -> {
                     int removed = 0;
                     int protectedSkipped = 0;
                     for (AgentWorkspace.WorkspaceFile f : ws.listFiles()) {
                         if (!"files".equals(f.zone)) continue;
-                        if (AgentWorkspace.isBuiltinGuideFile(f.name)) {
+                        if (AgentWorkspace.isBuiltinGuideFile(context, f.name)) {
                             protectedSkipped++;
                             continue;
                         }
@@ -283,7 +283,7 @@ public class AgentWorkspaceView {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView nameTv = new TextView(context);
-        boolean builtin = AgentWorkspace.isBuiltinGuideFile(f.name);
+        boolean builtin = AgentWorkspace.isBuiltinGuideFile(context, f.name);
         nameTv.setText((builtin ? "🔒 " : "📄 ") + f.name);
         nameTv.setTextSize(13);
         nameTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);

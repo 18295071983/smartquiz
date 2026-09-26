@@ -37,19 +37,18 @@ public class AgentWorkspace {
     private static final String FILES_DIR = "files";
     /** 公共目录根：Download/OilQuiz（SDK 29+ 用户可见） */
     private static final String PUBLIC_ROOT = "OilQuiz";
-    /** 内置指导文档（assets/apk_shell/guides/，删除后工作区重建时自动恢复） */
-    private static final String[] BUILTIN_GUIDE_ASSETS = {
-            "apk_shell/guides/HTML_DESIGN_RULES.md",
-            "apk_shell/guides/APK_SOURCE_GUIDE.md",
-            // 2026-09-25：抖音下载内置工具 v3.2 文档（官方内核+UIFID自愈+双通道），工作区重建自动恢复
-            "apk_shell/guides/douyin_downloader_GUIDE.md",
-            "apk_shell/guides/LINUX_TOOLKIT_GUIDE.md",
-            // 2026-09-26：本地媒体工具箱（media_toolkit）文档，工作区重建自动恢复
-            "apk_shell/guides/MEDIA_TOOLKIT_GUIDE.md",
-            // 2026-09-26：第三方组件与许可声明（含内置 ffmpeg 的 LGPL v3 声明）
-            // —— LGPL 要求分发时随附许可/源码信息，所以它必须随 APK 走，不能只放仓库
-            "apk_shell/guides/THIRD_PARTY_NOTICES.md"
-    };
+    /**
+     * 内置指导文档目录（assets 下）。
+     *
+     * <p>**自动发现**：这个目录里的文件全部会被随包分发、启动时恢复到工作区、并自动纳入删除保护 ——
+     * 新增文档只要把 .md 丢进 {@code src/main/assets/apk_shell/guides/}，**不用改任何代码**
+     * （以前是硬编码数组，每加一份文档都要记得回来加白名单，太容易漏）。
+     */
+    private static final String GUIDE_ASSET_DIR = "apk_shell/guides";
+
+    /** 运行时发现的"内置文档"文件名（assets 目录扫描 + 代码生成的两类），供删除保护判定用 */
+    private static final java.util.Set<String> BUILTIN_GUIDE_NAMES =
+            java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<String>());
 
     private final Context appContext;
     private final File workspaceDir;
@@ -119,10 +118,22 @@ public class AgentWorkspace {
         ensureBuiltinGuideAssets();
     }
 
+    /** assets 里有哪些内置指导文档（自动扫描目录；失败返回空数组，不影响启动） */
+    private String[] listGuideAssets() {
+        try {
+            String[] names = appContext.getAssets().list(GUIDE_ASSET_DIR);
+            return names == null ? new String[0] : names;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "扫描内置指导文档目录失败（" + GUIDE_ASSET_DIR + "）: " + t.getMessage());
+            return new String[0];
+        }
+    }
+
     /** 从 assets 恢复内置指导文档到 files/（每次覆盖写；删除后应用重启/工作区重建即恢复） */
     private void ensureBuiltinGuideAssets() {
-        for (String asset : BUILTIN_GUIDE_ASSETS) {
-            try (java.io.InputStream in = appContext.getAssets().open(asset)) {
+        for (String asset : listGuideAssets()) {
+            String full = GUIDE_ASSET_DIR + "/" + asset;
+            try (java.io.InputStream in = appContext.getAssets().open(full)) {
                 java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
                 byte[] buf = new byte[8192];
                 int n;
@@ -130,9 +141,11 @@ public class AgentWorkspace {
                 String content = new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
                 String name = asset.substring(asset.lastIndexOf('/') + 1);
                 writeGuideFile(name, content);
+                BUILTIN_GUIDE_NAMES.add(name);
                 AILogger.i(TAG, "内置指导文档已就绪: files/" + name);
             } catch (Throwable t) {
-                AILogger.w(TAG, "恢复内置指导文档失败: " + asset + " - " + t.getMessage());
+                // 目录项（assets.list 会把子目录也列出来）会在这里失败，属正常
+                AILogger.w(TAG, "恢复内置指导文档失败: " + full + " - " + t.getMessage());
             }
         }
     }
@@ -361,26 +374,36 @@ public class AgentWorkspace {
      *  工作区根（此前 deleteFile 用 resolveFile 拼到 workspaceDir，实际文件在
      *  files/ 子目录时删除失败——Agent 管理界面"删除文件无效"根因）。
      *  这里依次在 files/ → tmp/ → 工作区根 搜索并删除。 */
-    /** 是否为内置工作区文档（系统生成/随包发布，自动恢复，删除受保护） */
+    /**
+     * 是否为内置工作区文档（随包发布/代码生成，启动自动恢复，删除受保护）。
+     *
+     * <p>名单是**运行时发现**的：assets/{@value #GUIDE_ASSET_DIR} 下扫描到的全部文件
+     * + {@link #generatedGuides()} 里代码生成的那几份。所以新增文档**不需要**在这里加白名单。
+     */
     public static boolean isBuiltinGuideFile(String fileName) {
         if (fileName == null) return false;
         String n = fileName.trim();
         if (n.contains("/")) n = n.substring(n.lastIndexOf('/') + 1);
-        // 三个工作区自动生成指南
-        if (n.equals("工具创建指南.md") || n.equals("使用速查表.md") || n.equals("核心工具速查.md")) return true;
-        // 随包内置指导文档（assets/apk_shell/guides/）
-        for (String asset : BUILTIN_GUIDE_ASSETS) {
-            String base = asset.substring(asset.lastIndexOf('/') + 1);
-            if (n.equals(base)) return true;
+        return BUILTIN_GUIDE_NAMES.contains(n);
+    }
+
+    /** 同上，但允许在名单还没建立（工作区尚未初始化）时用 context 触发一次发现 */
+    public static boolean isBuiltinGuideFile(android.content.Context ctx, String fileName) {
+        if (BUILTIN_GUIDE_NAMES.isEmpty() && ctx != null) {
+            try {
+                getInstance(ctx);   // 构造过程会扫描 assets 并生成指南，顺带把名单建起来
+            } catch (Throwable t) {
+                AILogger.w(TAG, "初始化工作区以判定内置文档失败: " + t.getMessage());
+            }
         }
-        return false;
+        return isBuiltinGuideFile(fileName);
     }
 
     public boolean deleteFile(String fileName) {
         if (fileName == null || fileName.trim().isEmpty()) return false;
         String name = fileName.trim();
         // 内置文档保护：工作区自动恢复的系统文件不允许删除（管理页/工具/AI 统一拦截）
-        if (isBuiltinGuideFile(name)) {
+        if (isBuiltinGuideFile(appContext, name)) {
             AILogger.i(TAG, "Delete blocked: builtin guide protected: " + name);
             return false;
         }
@@ -428,13 +451,27 @@ public class AgentWorkspace {
 
     // ==================== 工作区指南文件（创建工具指南 + 使用速查表） ====================
 
+    /**
+     * 代码生成的工作区指南：**唯一改动点**（名称 → 内容生成器）。
+     * 生成与"删除保护名单"共用这张表，新增/改名只要动这里一处。
+     */
+    private java.util.Map<String, java.util.function.Supplier<String>> generatedGuides() {
+        java.util.LinkedHashMap<String, java.util.function.Supplier<String>> m = new java.util.LinkedHashMap<>();
+        m.put("工具创建指南.md", this::buildToolCreationGuide);
+        m.put("使用速查表.md", this::buildUsageCheatsheet);
+        m.put("核心工具速查.md", this::buildCoreToolsCheatsheet);
+        return m;
+    }
+
     /** 在工作区长期文件区（files/）生成指南文件（幂等；纯静态内容，无外部依赖，可安全在构造期调用） */
     public void ensureGuideFiles() {
         try {
-            writeGuideFile("工具创建指南.md", buildToolCreationGuide());
-            writeGuideFile("使用速查表.md", buildUsageCheatsheet());
-            writeGuideFile("核心工具速查.md", buildCoreToolsCheatsheet());
-            AILogger.i(TAG, "工作区指南文件已生成: files/工具创建指南.md, files/使用速查表.md, files/核心工具速查.md");
+            java.util.Map<String, java.util.function.Supplier<String>> guides = generatedGuides();
+            for (java.util.Map.Entry<String, java.util.function.Supplier<String>> e : guides.entrySet()) {
+                writeGuideFile(e.getKey(), e.getValue().get());
+                BUILTIN_GUIDE_NAMES.add(e.getKey());
+            }
+            AILogger.i(TAG, "工作区指南文件已生成: " + guides.keySet());
         } catch (Throwable t) {
             AILogger.w(TAG, "生成工作区指南文件失败: " + t.getMessage());
         }

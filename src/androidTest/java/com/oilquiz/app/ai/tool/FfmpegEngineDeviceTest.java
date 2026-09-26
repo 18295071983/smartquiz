@@ -240,9 +240,18 @@ public class FfmpegEngineDeviceTest {
     /** ffmpeg 是 LGPL，许可声明必须随包分发、并在工作区受保护（删除后自动恢复） */
     @Test
     public void licenceNoticeIsShippedAndProtected() throws Exception {
+        // 关键回归点：内置文档名单必须是**自动发现**的 —— assets 目录里有多少份，就有多少份受保护，
+        // 以后往 assets/apk_shell/guides/ 里丢新文档，不需要改代码、也不需要改这个测试
+        String[] assetGuides = ctx.getAssets().list("apk_shell/guides");
+        assertNotNull("assets 里应有内置指导文档", assetGuides);
+        System.out.println("[EXP] assets 内置文档数 => " + assetGuides.length + " : " + java.util.Arrays.toString(assetGuides));
+        for (String a : assetGuides) {
+            assertTrue("assets 里的 " + a + " 应自动纳入删除保护（无需手工加白名单）",
+                    com.oilquiz.app.ai.agent.online.AgentWorkspace.isBuiltinGuideFile(ctx, a));
+        }
         for (String name : new String[]{"THIRD_PARTY_NOTICES.md", "MEDIA_TOOLKIT_GUIDE.md"}) {
             assertTrue(name + " 应被登记为内置文档（删除受保护 + 自动恢复）",
-                    com.oilquiz.app.ai.agent.online.AgentWorkspace.isBuiltinGuideFile(name));
+                    com.oilquiz.app.ai.agent.online.AgentWorkspace.isBuiltinGuideFile(ctx, name));
             String asset = "apk_shell/guides/" + name;
             String content;
             try (InputStream in = ctx.getAssets().open(asset)) {
