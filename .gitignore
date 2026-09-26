@@ -259,3 +259,7 @@ apk_export/
 
 # APK 签名辅助文件
 *.idsig
+
+# 本地桥接令牌（绝不入库）：start_tunnel_bridge.ps1 / start_dsh_bridge.bat 从这里读
+tools/.bridge_token
+*.bridge_token

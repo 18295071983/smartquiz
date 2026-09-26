@@ -9,10 +9,18 @@
 param(
   [int]$BridgePort = 8218,
   [int]$AcpPort = 7800,
-  [string]$Token = "***REMOVED***",
+  [string]$Token = "",   # 留空则从 tools\.bridge_token 读取（该文件在 .gitignore 里，绝不入库）
   [string]$Cloudflared = "D:\Temp\cloudflared.exe"
 )
 $ErrorActionPreference = "Continue"
+if (-not $Token) {
+  $tokFile = Join-Path $PSScriptRoot ".bridge_token"
+  if (Test-Path $tokFile) { $Token = (Get-Content $tokFile -Raw).Trim() }
+}
+if (-not $Token) {
+  Write-Host "ERROR: token missing. Put it into tools\.bridge_token (gitignored) or pass -Token xxx"
+  exit 1
+}
 $repo = Split-Path -Parent $PSScriptRoot          # tools/.. = repo root
 $log  = Join-Path $env:TEMP "cloudflared-tunnel.log"
 

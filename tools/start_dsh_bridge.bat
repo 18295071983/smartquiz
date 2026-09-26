@@ -8,7 +8,14 @@ REM            http://127.0.0.1:8218/pair
 REM  Token is fixed below (must match what the phone pairs with).
 REM ==============================================================
 setlocal
-set TOKEN=***REMOVED***
+REM 令牌从本地文件读（tools\.bridge_token 已在 .gitignore，绝不入库）
+set TOKEN=
+if exist "%~dp0.bridge_token" (set /p TOKEN=<"%~dp0.bridge_token")
+if "%TOKEN%"=="" (
+  echo [ERROR] missing token: put it into tools\.bridge_token  or pass as 3rd arg
+  pause
+  exit /b 1
+)
 if "%~1"=="" (set BPORT=8218) else (set BPORT=%~1)
 if "%~2"=="" (set APORT=7800) else (set APORT=%~2)
 cd /d "%~dp0.."
