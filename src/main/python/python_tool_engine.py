@@ -13,8 +13,67 @@ import importlib
 import importlib.util
 import time
 import threading
+# execute_code 里用 tempfile.TemporaryFile 做 stderr 的"真文件缓冲"（避免 tqdm/rich 写 StringIO 崩），
+# 而原先只有个别方法内部局部 import —— 模块级缺这一行会让所有执行路径一进来就
+# NameError: name 'tempfile' is not defined。必须放在模块级。
+import tempfile
 import re
 from contextlib import redirect_stdout, redirect_stderr
+
+
+# ==================== 标准库预置命名空间 ====================
+# 为什么需要：python_execute 路径由 Java 侧 PythonExecuteTool.buildSafeCode 拼了一大段标准库
+# prelude；而其它执行路径（python_analyze_data / python_chart / python_file_ops /
+# python_web_reader / python_calculate / 动态 Python 工具 / douyin 等）都直接走本引擎，
+# 命名空间里原先只有 __builtins__ + engine —— AI 生成的代码只要用到 tempfile/os/json/pathlib
+# 等未显式 import 的标准库名，就会 NameError: name 'tempfile' is not defined
+# （表现为"好多执行路径都坏了"）。这里统一注入，让所有路径与 python_execute 行为一致。
+_PRELUDE_MODULES = (
+    'os', 'sys', 'io', 're', 'math', 'random', 'time', 'datetime', 'json', 'csv',
+    'hashlib', 'base64', 'string', 'textwrap', 'difflib', 'copy', 'struct', 'codecs',
+    'unicodedata', 'bisect', 'heapq', 'array', 'queue', 'pathlib', 'tempfile', 'shutil',
+    'glob', 'fnmatch', 'zipfile', 'gzip', 'pickle', 'statistics', 'decimal', 'fractions',
+    'sqlite3', 'configparser', 'argparse', 'logging', 'enum', 'dataclasses', 'typing',
+    'contextlib', 'operator', 'calendar', 'locale', 'collections', 'itertools', 'functools',
+    'urllib', 'urllib.parse', 'urllib.request', 'urllib.error', 'http', 'http.client', 'html',
+    'xml', 'xml.etree.ElementTree',
+)
+
+
+def _build_prelude_namespace() -> dict:
+    """构建标准库预置命名空间（模块对象 + 常用 from-import 名）；单项失败静默跳过。"""
+    ns: dict = {}
+    for name in _PRELUDE_MODULES:
+        try:
+            ns[name] = importlib.import_module(name)
+        except Exception:
+            pass
+    try:
+        from collections import Counter, OrderedDict, defaultdict, deque, namedtuple
+        ns.update(Counter=Counter, OrderedDict=OrderedDict, defaultdict=defaultdict,
+                  deque=deque, namedtuple=namedtuple)
+    except Exception:
+        pass
+    try:
+        from itertools import chain, product, combinations, permutations, groupby
+        ns.update(chain=chain, product=product, combinations=combinations,
+                  permutations=permutations, groupby=groupby)
+    except Exception:
+        pass
+    try:
+        from functools import reduce, partial, lru_cache, wraps
+        ns.update(reduce=reduce, partial=partial, lru_cache=lru_cache, wraps=wraps)
+    except Exception:
+        pass
+    try:
+        import xml.etree.ElementTree as _ET
+        ns['ET'] = _ET
+    except Exception:
+        pass
+    return ns
+
+
+_PRELUDE_NAMESPACE = _build_prelude_namespace()
 
 
 def _is_return_outside_function(err: SyntaxError) -> bool:
@@ -236,6 +295,10 @@ class PythonToolEngine:
             "__builtins__": __builtins__,
             "engine": self,
         }
+        # 注入标准库预置命名空间（tempfile/os/json/pathlib… 无需脚本自己 import），
+        # 与 python_execute 的 prelude 对齐；variables 在其后 update，保证调用方传参优先。
+        if _PRELUDE_NAMESPACE:
+            namespace.update(_PRELUDE_NAMESPACE)
         
         if variables:
             # 兼容 Java（Chaquopy HashMap）传入：Java Map 不是 Iterable，直接 update 会崩
