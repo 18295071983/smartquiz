@@ -1349,14 +1349,14 @@ public class AIToolManager {
                     .category("python")
                     .build();
             case "python_file_ops":
-                return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=严格解析CSV(标准库RFC4180)/JSON/XML/Excel(xlsx读写)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析/xlsx写入等场景")
+                return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(pypdf，含加密)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入等场景")
                     .addParameter("action", "string", "操作: read/parse/write/append/replace", false, "read")
                     .addParameter("file_path", "string", "文件路径", true)
                     .addParameter("content", "string", "内容(write/append用)", false)
                     .addParameter("old_text", "string", "被替换文本(replace用)", false)
                     .addParameter("new_text", "string", "替换为(replace用，可为空=删除)", false)
                     .addParameter("encoding", "string", "编码(write/append用，默认utf-8)", false, "utf-8")
-                    .addParameter("format", "string", "解析格式(parse用: csv/json/xml/xlsx，留空按扩展名)", false)
+                    .addParameter("format", "string", "解析格式(parse用: csv/tsv/json/xml/xlsx/docx/pptx/pdf，留空按扩展名)", false)
                     .addParameter("max_rows", "integer", "最大行数(parse用，默认500)", false, 500)
                     .addParameter("max_chars", "integer", "最大输出字符数(默认8000)", false, 8000)
                     .addParameter("sheet_index", "integer", "工作表索引(parse xlsx用，默认0)", false, 0)

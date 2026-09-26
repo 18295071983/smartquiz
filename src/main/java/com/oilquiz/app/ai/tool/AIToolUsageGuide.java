@@ -176,7 +176,7 @@ public class AIToolUsageGuide {
         guide.append("│ python_execute   │ 执行Python代码                        │\n");
         guide.append("│ python_analyze_data│ 使用Python分析数据                    │\n");
         guide.append("│ python_web_reader │ Python抓网页/API(requests+bs4)        │\n");
-        guide.append("│ python_file_ops   │ Python文件读/改/解析(标准库+openpyxl)   │\n");
+        guide.append("│ python_file_ops   │ Python文件读/改/解析(含docx/pptx/pdf)  │\n");
         guide.append("│ python_chart      │ Python绘图(Pillow/matplotlib):柱/线/饼/散点→PNG │\n");
         guide.append("│ location         │ 获取当前位置/城市/经纬度                │\n");
         guide.append("│ file_reader      │ 读取/按行/搜索/解析Excel-CSV-JSON-XML/列目录 │\n");
