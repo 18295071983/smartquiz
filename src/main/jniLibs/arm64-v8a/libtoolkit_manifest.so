@@ -13,16 +13,6 @@
    "pkg": "curl"
   },
   {
-   "name": "ffmpeg",
-   "lib": "libffmpeg_bin.so",
-   "pkg": "ffmpeg"
-  },
-  {
-   "name": "ffprobe",
-   "lib": "libffprobe_bin.so",
-   "pkg": "ffprobe"
-  },
-  {
    "name": "file",
    "lib": "libfile_bin.so",
    "pkg": "file"

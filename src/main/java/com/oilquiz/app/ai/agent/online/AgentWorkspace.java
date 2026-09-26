@@ -662,7 +662,7 @@ public class AgentWorkspace {
                 + "   内置（Termux bionic 构建，随 App 打包，无需装 Termux、无需任何权限）：\n"
                 + "     · busybox 1.38（280+ applet：ash/awk/vi/telnet/tar/gzip/nc/httpd/crontab…）\n"
                 + "     · openssl 3.6.3（真 TLS + CA 包）、ssh/scp/sftp/ssh-keygen/ssh-keyscan/ssh-add、curl、aria2c\n"
-                + "     · jq / ripgrep(rg) / sqlite3 / zstd / zip / unzip / file / tree / ncdu / htop / ps / free / tmux / nano / gawk / ffmpeg / ffprobe\n"
+                + "     · jq / ripgrep(rg) / sqlite3 / zstd / zip / unzip / file / tree / ncdu / htop / ps / free / tmux / nano / gawk\n"
                 + "     · 系统自带 toybox 一直可用（sed/grep/find/sort/head/tail/wc/md5sum/base64/xargs/diff/du/df…）\n"
                 + "   命令路由：内置 → /system/bin → busybox → toybox，某个实现不可用会自动回退；PATH 里内置目录在最前。\n"
                 + "     查看/修改：linux_shell(action=route[, command=名字, order=bskt/stkb/b])，order=reset 恢复；\n"

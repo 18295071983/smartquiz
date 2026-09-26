@@ -190,16 +190,6 @@ public class SystemResourceToolDeviceTest {
         return m;
     }
 
-    /** 内置 ffmpeg/ffprobe（依赖 110 个库，单独验证一次） */
-    @Test
-    public void ffmpegWorks() {
-        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        SystemResourceTool.prepareToolkit(ctx);
-        String v = out(shell("ffmpeg -version 2>&1 | head -1; ffprobe -version 2>&1 | head -1")).replace('\n', '|');
-        System.out.println("[EXP] ffmpeg => " + v);
-        assertTrue("ffmpeg/ffprobe 都应可用: " + v, v.contains("ffmpeg version") && v.contains("ffprobe version"));
-    }
-
     /** 路由：内置 -> 系统 -> busybox -> toybox，任一环节不可用不应把命令搞挂 */
     @Test
     public void routingWorks() {
