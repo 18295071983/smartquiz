@@ -294,7 +294,7 @@
 
 ### media_toolkit — 本地媒体工具箱
 - **分类**：media
-- **功能**：系统自带硬解硬编（MediaExtractor / MediaCodec / MediaMuxer / MediaMetadataRetriever + Media3 Transformer）完成常见音视频处理，**无需 ffmpeg、无需权限、不联网**。
+- **功能**：系统自带硬解硬编（MediaExtractor / MediaCodec / MediaMuxer / MediaMetadataRetriever + Media3 Transformer）完成常见音视频处理，**不依赖 ffmpeg/外部二进制，处理过程不需要任何权限、不联网**（读取外部文件仍受 App 已有存储访问限制）。
   - `probe`：媒体信息（时长/分辨率/帧率/码率/旋转/音视频轨/编码器；视频、音频、图片都行）
   - `frame`：截帧出图（`time` 秒 / `percent` 0-100 / `index` 帧序号 / `count`=N 均匀抽 N 张 / `exact`=精确帧）
   - `thumbnail`：缩略图（默认 10% 处、最长边 512）
@@ -305,6 +305,7 @@
   - `image_ops`：图片处理（`width`/`height`/`max`/`crop`/`rotate`/`flip`/`gray`/`format`/`quality`）
   - 输入支持绝对路径/工作区相对路径/content:// URI；输出默认落工作区 `files/media/`，返回文件绝对路径
   - Python 侧同等能力：`import android_media`（probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/image_ops）
+  - **能力边界**：能否处理由设备解码器/编码器决定（avi/flv/rmvb 等冷门容器、时间轴水印/多路混流/字幕烧录等复杂滤镜链不支持）；`trim` 为关键帧对齐（非帧级精确）；`transcode` 实际分辨率会被编码器对齐取整（以返回 `output_width`/`output_height` 为准）。做不到时明确报错，不越界承诺
 - **参数**：`action`（必填）、`path`（必填）、`output`、`time`、`percent`、`index`、`count`、`exact`、`width`、`height`、`max`、`format`、`quality`、`crop`、`rotate`、`flip`、`gray`、`start`、`end`、`rate`、`channels`、`video_mime`、`audio_mime`、`bitrate`、`scale`、`remove_audio`、`timeout`
 
 ---

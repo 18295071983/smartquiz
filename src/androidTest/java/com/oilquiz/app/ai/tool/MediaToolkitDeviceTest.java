@@ -331,6 +331,16 @@ public class MediaToolkitDeviceTest {
         AIToolResult bad = tool.execute(params("action_only"));
         System.out.println("[EXP] no path => success=" + bad.isSuccess() + " err=" + bad.getErrorMessage());
         assertTrue("缺 path 应失败", !bad.isSuccess());
+
+        // 描述里承诺"做不到会明确报错"：不支持的容器必须失败并说清原因，而不是"成功但空壳"
+        File fakeAvi = new File(dir, "fake.avi");
+        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(fakeAvi)) {
+            fos.write(new byte[4096]);
+        }
+        AIToolResult unknown = tool.execute(params("probe", "path", fakeAvi.getAbsolutePath()));
+        System.out.println("[EXP] unsupported container => success=" + unknown.isSuccess() + " err=" + unknown.getErrorMessage());
+        assertTrue("不支持的容器应失败并说明原因: " + unknown.getErrorMessage(),
+                !unknown.isSuccess() && String.valueOf(unknown.getErrorMessage()).contains("无法识别"));
     }
 
     /** Python 侧 android_media 必须能用（Chaquopy 里 jclass 调 Java 实现） */

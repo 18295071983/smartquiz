@@ -117,7 +117,8 @@ public class AIToolUsageGuide {
         sb.append("  8. 【重要】生成图片优先调用 image_gen 工具（会自动下载并内联显示在对话中），或 dashscope_media（通义万相）；也可直接输出 image_grid 组件标记展示图片。\n");
         sb.append("     尽量避免用 python_execute 拼 URL、用 system_resource open_url 打开浏览器等方式绕路（这些方式图片无法在对话内展示）。\n");
         sb.append("     图片生成后直接内联展示给用户，不要让用户离开对话去浏览器查看。\n");
-        sb.append("  8.5 音视频处理（看信息/截帧封面/抽音频/转WAV/剪切/压缩转码/图片缩放裁剪转格式）一律用 media_toolkit（系统硬解硬编，无需 ffmpeg/权限/联网）；内置 shell 工具箱里没有 ffmpeg，不要去 shell 里找。Python 里用 import android_media。\n");
+        sb.append("  8.5 音视频处理（看信息/截帧封面/抽音频/转WAV/剪切/压缩转码/图片缩放裁剪转格式）一律用 media_toolkit（系统硬解硬编，不依赖 ffmpeg/外部二进制，处理过程不需要权限、不联网）；内置 shell 工具箱里没有 ffmpeg（也装不上），不要去 shell 里找。Python 里用 import android_media。\n");
+        sb.append("      能力边界：能处理什么由设备的解码/编码器决定（avi/flv/rmvb 等冷门容器、时间轴水印/多路混流/字幕烧录等复杂滤镜链不支持）；trim 仅关键帧对齐；transcode 实际分辨率会被编码器对齐取整（以返回 output_width/height 为准）。做不到就如实说明，不要承诺。\n");
         sb.append("  9. 用户明确表达偏好/身份/常用信息（如：我叫小明、我住在北京、我喜欢简洁回答）时，用 memory 工具 save 保存（key 用英文短词如 user_name/preference_city）；\n");
         sb.append("     需要回忆用户历史信息时用 memory recall；不确定时先 list。记忆会跨对话保留。\n");
         sb.append("  9.5 用户提到\"之前/上次/历史里\"（之前创建的组件/工具/文件、说过的话）时，用 chat_history 工具读对话历史找回上下文（source=ai 默认，可 search 关键词）；历史只读。\n");

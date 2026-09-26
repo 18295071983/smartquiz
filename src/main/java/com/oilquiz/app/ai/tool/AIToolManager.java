@@ -1511,7 +1511,7 @@ public class AIToolManager {
                     .category("media")
                     .build();
             case "media_toolkit":
-                return ToolDefinition.builder("media_toolkit", "本地媒体工具箱（系统自带硬解硬编，无需 ffmpeg、无需权限、不联网）：probe 看媒体信息（时长/分辨率/帧率/码率/音视频轨/编码器）；frame/thumbnail 截帧出图（时间/百分比/帧序号/多帧）；extract_audio 无损抽取音轨（aac→m4a、mp3→mp3）；to_wav 解码 WAV（默认 16k 单声道，可喂语音识别）；trim 无损剪切（关键帧对齐）；transcode 转码/压缩/改分辨率/换容器（H.264/H.265/AAC，可去音轨）；image_ops 图片缩放/裁剪/旋转/翻转/灰度/转格式。输入支持绝对路径/工作区相对路径/content:// URI；输出默认落工作区 files/media/。视频信息/截帧/抽音频/压视频/图片批处理优先用本工具（比 shell 里的 ffmpeg 更靠得住：不依赖外部二进制）")
+                return ToolDefinition.builder("media_toolkit", "本地媒体工具箱（系统自带硬解硬编，不依赖 ffmpeg/外部二进制，处理过程不需要任何权限、不联网；读取外部文件仍受 App 已有存储访问限制）：probe 看媒体信息（时长/分辨率/帧率/码率/音视频轨/编码器）；frame/thumbnail 截帧出图（时间/百分比/帧序号/多帧）；extract_audio 无损抽取音轨（aac→m4a、mp3→mp3）；to_wav 解码 WAV（默认 16k 单声道，可喂语音识别）；trim 无损剪切（关键帧对齐）；transcode 转码/压缩/改分辨率/换容器（H.264/H.265/AAC，可去音轨）；image_ops 图片缩放/裁剪/旋转/翻转/灰度/转格式。输入支持绝对路径/工作区相对路径/content:// URI；输出默认落工作区 files/media/。视频信息/截帧/抽音频/压视频/图片批处理优先用本工具；内置 shell 工具箱里没有 ffmpeg（也装不上），不要去 shell 里找。能力边界：能处理的格式/编码取决于设备解码器与编码器（avi/flv/rmvb 等冷门容器、时间轴水印/多路混流/字幕烧录等复杂滤镜链不支持）；做不到时明确报错并如实回复用户，不要承诺。")
                     .addParameter("action", "string", "操作: probe(媒体信息)/frame(截帧)/thumbnail(缩略图)/extract_audio(无损抽音轨)/to_wav(转WAV)/trim(无损剪切)/transcode(转码压缩)/image_ops(图片处理)", true)
                     .addParameter("path", "string", "输入文件：绝对路径、工作区相对路径或 content:// URI", true)
                     .addParameter("output", "string", "输出文件；缺省存工作区 files/media/ 并自动命名", false)

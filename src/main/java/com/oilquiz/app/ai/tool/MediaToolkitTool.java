@@ -81,12 +81,13 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @Tool(
     value = "media_toolkit",
-    description = "本地媒体工具箱（系统自带硬解硬编，无需 ffmpeg、无需权限、不联网）："
+    description = "本地媒体工具箱（系统自带硬解硬编，不依赖 ffmpeg/外部二进制，处理过程不需要权限、不联网）："
         + "probe 看媒体信息（时长/分辨率/码率/帧率/音视频轨/编码器）；frame/thumbnail 截帧出图（可按时间/百分比/帧序号/多帧）；"
         + "extract_audio 无损抽取音轨（m4a/mp3）；to_wav 解码成 WAV（默认 16k 单声道，可喂语音识别）；"
         + "trim 无损剪切（关键帧对齐，秒）；transcode 转码/压缩/改分辨率/换容器（H.264/H.265/AAC，可去音轨）；"
         + "image_ops 图片处理（缩放/裁剪/旋转/翻转/灰度/转格式/压缩）。"
-        + "输入支持绝对路径、工作区相对路径、content:// URI；输出默认落工作区 files/media/",
+        + "输入支持绝对路径、工作区相对路径、content:// URI（读取外部文件仍受 App 已有存储访问限制）；输出默认落工作区 files/media/。"
+        + "能力边界：能处理的格式/编码取决于设备解码器与编码器（avi/flv/rmvb 等冷门容器、时间轴水印/多路混流/字幕烧录等复杂滤镜链不支持）；做不到时明确报错并如实回复用户，不要承诺。",
     category = "media",
     actions = {
         @Action(name = "probe", description = "读取媒体信息：时长、分辨率、帧率、码率、旋转、音视频轨与编码器（视频/音频/图片都可以）"),
@@ -146,9 +147,10 @@ public class MediaToolkitTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "本地媒体工具箱（系统硬解硬编，无需 ffmpeg/权限/联网）："
+        return "本地媒体工具箱（系统硬解硬编，不依赖 ffmpeg/外部二进制，处理过程不需要权限、不联网）："
                 + "probe 媒体信息；frame/thumbnail 截帧出图；extract_audio 无损抽音轨；to_wav 转 WAV（默认16k单声道）；"
-                + "trim 无损剪切；transcode 转码/压缩/改分辨率/换容器；image_ops 图片缩放裁剪旋转转格式";
+                + "trim 无损剪切；transcode 转码/压缩/改分辨率/换容器；image_ops 图片缩放裁剪旋转转格式。"
+                + "能否处理取决于设备解码/编码器，不支持的容器或滤镜会明确报错";
     }
 
     @Override
@@ -167,7 +169,7 @@ public class MediaToolkitTool implements AITool {
         m.put("max", "最长边上限（image_ops/thumbnail，等比缩放）");
         m.put("format", "输出图片格式: png/jpeg/webp（默认 jpg）");
         m.put("quality", "jpeg/webp 质量 1-100（默认 90）");
-        m.put("crop", "image_ops 用：裁剪区域 x,y,w,h（像素）");
+        m.put("crop", "image_ops 用：裁剪区域 x,y,w,h（原图像素，坐标系=已按 EXIF 转正后的方向）");
         m.put("rotate", "image_ops 用：旋转角度（90/180/270 或任意度数）");
         m.put("flip", "image_ops 用：翻转 h=水平 v=垂直");
         m.put("gray", "image_ops 用：true=转灰度");
@@ -178,7 +180,7 @@ public class MediaToolkitTool implements AITool {
         m.put("video_mime", "transcode 用：h264/h265/av1/keep（默认 keep）");
         m.put("audio_mime", "transcode 用：aac/none/keep（默认 aac）");
         m.put("bitrate", "transcode 用：视频码率 kbps");
-        m.put("scale", "transcode 用：等比缩放倍数（0.5=宽高减半）");
+        m.put("scale", "transcode 用：等比缩放倍数（0.5=宽高减半）；实际分辨率由设备编码器对齐决定，以返回的 output_width/height 为准");
         m.put("remove_audio", "transcode 用：true=去掉音轨");
         m.put("timeout", "transcode 用：最长等待秒数（默认 180，最大 900）");
         return m;
@@ -299,10 +301,10 @@ public class MediaToolkitTool implements AITool {
                 out.put("image", img);
                 return AIToolResult.success(out.toString(2));
             }
-            // 不是图片也不是能解码的媒体
-            out.put("type", "unknown");
-            out.put("hint", "系统媒体框架无法识别该文件（可能是不支持的容器/编码，或需要 ffmpeg 的格式，如 avi/flv/rmvb）");
-            return AIToolResult.success(out.toString(2));
+            // 不是图片也不是能解码的媒体 → 明确报错（描述里承诺的"做不到会明确报错"必须兑现）
+            return AIToolResult.fail("系统媒体框架无法识别该文件（container=" + guessContainer(path)
+                    + "）：设备解码器读不到轨道，可能是不支持的容器/编码（avi/flv/rmvb/wmv 等）。"
+                    + "请如实告诉用户\"设备媒体框架不支持这个格式\"，不要硬凑一条能跑但结果是错的路子。");
         }
 
         // 通用元数据（MediaMetadataRetriever）

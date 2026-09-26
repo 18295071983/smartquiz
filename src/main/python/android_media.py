@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """本地媒体工具箱的 Python 入口（与 media_toolkit 工具共用同一套 Java 实现）。
 
-能力（系统硬解硬编，无需 ffmpeg、无需权限、不联网）：
+能力（系统硬解硬编，不依赖 ffmpeg/外部二进制，处理过程不需要权限、不联网）：
     probe          媒体信息（时长/分辨率/帧率/码率/轨道/编码器）
     frame          按时间/百分比/帧序号截帧，count=N 抽 N 张
     thumbnail      缩略图（默认 10% 处、最长边 512）
@@ -19,6 +19,10 @@
     android_media.to_wav("/sdcard/Download/a.mp4")
 
 输入路径：绝对路径 / 工作区相对路径 / content:// URI；输出默认落工作区 files/media/。
+
+能力边界：能做哪些格式/编码由设备解码器与编码器决定（avi/flv/rmvb 等冷门容器、时间轴水印/多路混流/
+字幕烧录等复杂滤镜链做不了）；trim 是关键帧对齐；transcode 实际分辨率会被编码器对齐取整
+（以返回的 output_width/output_height 为准）。做不到时这里会抛 RuntimeError，如实转告用户即可。
 """
 
 import json as _json

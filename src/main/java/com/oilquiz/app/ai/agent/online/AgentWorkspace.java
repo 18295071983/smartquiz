@@ -689,7 +689,7 @@ public class AgentWorkspace {
                 + "   便捷函数: ask_input / ask_choice / show_progress\n"
                 + "八、本地媒体工具箱（media_toolkit）\n"
                 + "----------------------------------------------------------------\n"
-                + "   系统自带硬解硬编，无需 ffmpeg、无需权限、不联网（内置工具箱里没有 ffmpeg，别再找）：\n"
+                + "   系统自带硬解硬编，不依赖 ffmpeg/外部二进制，处理过程不需要权限、不联网（内置工具箱里没有 ffmpeg，也装不上，别再找）：\n"
                 + "     · probe          媒体信息：时长/分辨率/帧率/码率/旋转/音视频轨/编码器（视频、音频、图片都行）\n"
                 + "     · frame          截帧出图：time=秒 / percent=0-100 / index=帧序号 / count=N 抽N张 / exact=true 精确帧\n"
                 + "     · thumbnail      缩略图：默认 10% 处、最长边 512（列表预览用）\n"
@@ -701,6 +701,10 @@ public class AgentWorkspace {
                 + "     · image_ops      图片：width/height/max、crop=x,y,w,h、rotate、flip=h|v、gray、format、quality\n"
                 + "   输入：绝对路径 / 工作区相对路径 / content:// URI；输出默认 files/media/，返回 file 绝对路径。\n"
                 + "     · Python 里 import android_media 用同一套能力；纯图片批处理也可直接用 Pillow。\n"
+                + "   **能力边界（不要越界承诺）**：能处理什么由设备的解码/编码器决定 —— avi/flv/rmvb 等冷门容器多数解不了；\n"
+                + "     时间轴水印/画中画/多路混流/字幕烧录等复杂滤镜链做不了；trim 是关键帧对齐（非帧级精确）；\n"
+                + "     transcode 实际分辨率会被编码器对齐取整（以返回 output_width/height 为准）；读取外部文件仍受 App 已有存储访问限制。\n"
+                + "     做不到就如实告诉用户\"设备媒体框架不支持这个格式/这件事\"，不要硬凑。\n"
                 + "   完整说明（能力边界/示例/限制）见工作区《MEDIA_TOOLKIT_GUIDE.md》。\n"
                 + "================================================================\n";
     }
