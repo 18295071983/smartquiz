@@ -27,7 +27,7 @@ import java.util.Map;
  */
 @Tool(
     value = "python_file_ops",
-    description = "Python文件工具(标准库+openpyxl+python-docx+python-pptx+pypdf)：阅读与修改。read=读文本(自动检测编码)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(含加密)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入等场景",
+    description = "Python文件工具(标准库+openpyxl+python-docx+python-pptx+pypdf)：阅读与修改。read=读文本(自动检测编码)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(含加密)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入等场景。注意：工作区 tmp/ 是临时区，每轮对话结束自动清理，重要文件请写到 files/ 长期区",
     category = "python",
     aliases = {"python文件", "py_file", "python_file", "文件脚本"},
     actions = {
@@ -76,7 +76,7 @@ public class PythonFileOpsTool extends BaseAITool {
             return formatResult(result, action);
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage(), e);
-            return AIToolResult.fail("Python文件工具失败: " + e.getMessage());
+            return AIToolResult.fail("Python文件工具失败: " + errText(e));
         }
     }
 

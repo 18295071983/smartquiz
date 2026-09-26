@@ -82,7 +82,7 @@ public class PythonWebReaderTool extends BaseAITool {
             return formatResult(result, action);
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage(), e);
-            return AIToolResult.fail("Python网页工具失败: " + e.getMessage());
+            return AIToolResult.fail("Python网页工具失败: " + errText(e));
         }
     }
 

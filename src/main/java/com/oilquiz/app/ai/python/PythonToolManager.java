@@ -123,6 +123,25 @@ public class PythonToolManager {
     /** UI handler 专用锁：与 this 锁分离，避免渲染主线程在 Python 初始化持锁期间被阻塞（ANR） */
     private final Object uiActionHandlerLock = new Object();
 
+    /**
+     * Python 执行全局锁：同一时刻只允许一段 Python 在跑。
+     *
+     * <p>为什么必须串行（真机实测过故障）：
+     * <ul>
+     *   <li>Chaquopy 只有一个 Python 解释器实例；</li>
+     *   <li>{@code python_tool_engine.execute_code} 依赖 {@code redirect_stdout/redirect_stderr}
+     *       这类**进程级全局状态**来捕获输出，两个线程同时执行会互相抢 stdout —— 表现为
+     *       「输出为空 / 两条调用的结果粘连成一条 / 结果与调用错配」（且操作其实已成功）；</li>
+     *   <li>同一文件的读-改-写（append + replace 同文件）在没有锁时会被写坏（内容截断、丢换行）。</li>
+     * </ul>
+     * 触发条件很常见：{@code OnlineAgentEngine} 用 4 线程池并发执行**同一批** tool calls，
+     * 模型一次返回多个 python_* 调用就会并发进入这里。
+     *
+     * <p>代价：Python 工具之间不再并行（本来就只有一个解释器）；脚本内若阻塞等用户交互，
+     * 其它 Python 调用会排队，属可接受（远好于返回错乱结果）。
+     */
+    private static final Object PYTHON_EXEC_LOCK = new Object();
+
     /** 获取（懒创建）UI 动作处理器，供工具/Agent 直接填参数调用系统 UI 组件。
      *  使用独立锁对象而非 synchronized(this)：Python 初始化在后台线程持有 this 锁并等待主线程时，
      *  渲染主线程调本方法不再被 this 锁阻塞（修复 UI 渲染 ANR）。 */
@@ -574,6 +593,13 @@ public class PythonToolManager {
      * @param contextData    上下文数据（以 dict 形式传给 Python 端，脚本内可用；null 则不传）
      */
     public ExecutionResult executeCode(String code, Map<String, Object> contextData, int timeoutSeconds) {
+        synchronized (PYTHON_EXEC_LOCK) {
+            return executeCodeLocked(code, contextData, timeoutSeconds);
+        }
+    }
+
+    /** executeCode 的实现体；调用方必须已持有 {@link #PYTHON_EXEC_LOCK}。 */
+    private ExecutionResult executeCodeLocked(String code, Map<String, Object> contextData, int timeoutSeconds) {
         if (!initialized) {
             if (!initialize()) {
                 return new ExecutionResult(false, null, "Python tool manager not initialized");
@@ -606,6 +632,13 @@ public class PythonToolManager {
     }
     
     public ExecutionResult processTask(String task, Map<String, Object> contextData) {
+        synchronized (PYTHON_EXEC_LOCK) {
+            return processTaskLocked(task, contextData);
+        }
+    }
+
+    /** processTask 的实现体；与 executeCode 共用同一把 Python 执行锁。 */
+    private ExecutionResult processTaskLocked(String task, Map<String, Object> contextData) {
         if (!initialized) {
             if (!initialize()) {
                 return new ExecutionResult(false, null, "Python tool manager not initialized");

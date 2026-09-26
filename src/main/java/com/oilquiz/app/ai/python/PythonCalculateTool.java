@@ -64,7 +64,7 @@ public class PythonCalculateTool extends BaseAITool {
             
         } catch (Exception e) {
             Log.e(TAG, "Error executing Python calculation: " + e.getMessage(), e);
-            return AIToolResult.fail("计算失败: " + e.getMessage());
+            return AIToolResult.fail("计算失败: " + errText(e));
         }
     }
     

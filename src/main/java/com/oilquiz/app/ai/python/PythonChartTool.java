@@ -78,7 +78,7 @@ public class PythonChartTool extends BaseAITool {
             return formatResult(result, action);
         } catch (Exception e) {
             Log.e(TAG, "Error: " + e.getMessage(), e);
-            return AIToolResult.fail("Python绘图失败: " + e.getMessage());
+            return AIToolResult.fail("Python绘图失败: " + errText(e));
         }
     }
 

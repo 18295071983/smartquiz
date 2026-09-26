@@ -1349,7 +1349,7 @@ public class AIToolManager {
                     .category("python")
                     .build();
             case "python_file_ops":
-                return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(pypdf，含加密)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入等场景")
+                return ToolDefinition.builder("python_file_ops", "Python文件工具(标准库+openpyxl)：阅读与修改。read=读文本(UTF-8/GB18030/UTF-16自动检测)；parse=解析CSV(RFC4180)/JSON/XML/Excel(xlsx)/Word(docx，含表格)/PPT(pptx，含表格与备注)/PDF(pypdf，含加密)；write=写文件；append=追加；replace=文本替换。适合严格CSV解析、Word/PPT/PDF 取文本、xlsx写入等场景。注意：工作区 tmp/ 每轮结束自动清理，重要文件写到 files/ 长期区")
                     .addParameter("action", "string", "操作: read/parse/write/append/replace", false, "read")
                     .addParameter("file_path", "string", "文件路径", true)
                     .addParameter("content", "string", "内容(write/append用)", false)

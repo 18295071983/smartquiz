@@ -105,7 +105,7 @@ public class PythonDataAnalysisTool extends BaseAITool {
             
         } catch (Exception e) {
             Log.e(TAG, "Error executing Python data analysis: " + e.getMessage(), e);
-            return AIToolResult.fail("分析失败: " + e.getMessage());
+            return AIToolResult.fail("分析失败: " + errText(e));
         }
     }
     

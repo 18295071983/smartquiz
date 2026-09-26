@@ -123,7 +123,7 @@ public class PythonExecuteTool extends BaseAITool {
             
         } catch (Exception e) {
             Log.e(TAG, "Error executing Python tool: " + e.getMessage(), e);
-            return AIToolResult.fail("执行失败: " + e.getMessage());
+            return AIToolResult.fail("执行失败: " + errText(e));
         }
     }
     
