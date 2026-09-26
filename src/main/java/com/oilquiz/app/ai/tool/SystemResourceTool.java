@@ -1983,6 +1983,8 @@ public class SystemResourceTool implements AITool {
                 // 让 wget/vi/tar 之类有可写的临时目录与 HOME
                 env.put("TMPDIR", context.getCacheDir().getAbsolutePath());
                 env.put("HOME", context.getFilesDir().getAbsolutePath());
+                // 给 C 路由器精确的应用数据目录（多用户/工作资料下路径不同，不能靠硬编码）
+                env.put("APP_FILES", context.getFilesDir().getAbsolutePath());
                 env.put("TERM", "dumb");
             } catch (Exception ignored) {
             }

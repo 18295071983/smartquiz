@@ -86,19 +86,41 @@ public final class HttpFetchServer {
                 }
             } catch (Exception ignored) {
             }
-            final ExecutorService pool = Executors.newFixedThreadPool(4);
+            // 并发上限 + 有界队列：避免被并发请求刷爆内存/CPU（满了直接 503，不排队堆积）。
+            // 回环口只对本机可见、且已要求 token，这里再兜一层资源保护。
+            final java.util.concurrent.ThreadPoolExecutor pool = new java.util.concurrent.ThreadPoolExecutor(
+                    2, 4, 30, java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(16),
+                    new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
             Thread t = new Thread(new Runnable() {
                 @Override
                 public void run() {
                     while (sRunning) {
                         try {
                             final Socket sock = server.accept();
-                            pool.execute(new Runnable() {
-                                @Override
-                                public void run() {
-                                    handle(sock);
+                            try {
+                                pool.execute(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        handle(sock);
+                                    }
+                                });
+                            } catch (java.util.concurrent.RejectedExecutionException busy) {
+                                // 线程池 + 队列都满了：立刻回 503，别把连接堆在内存里
+                                try {
+                                    java.io.OutputStream o = sock.getOutputStream();
+                                    byte[] msg = "busy".getBytes("UTF-8");
+                                    o.write(("HTTP/1.1 503 Busy\r\nContent-Length: " + msg.length
+                                            + "\r\nConnection: close\r\n\r\n").getBytes("ISO-8859-1"));
+                                    o.write(msg);
+                                    o.flush();
+                                } catch (Exception ignored) {
                                 }
-                            });
+                                try {
+                                    sock.close();
+                                } catch (Exception ignored) {
+                                }
+                            }
                         } catch (Exception e) {
                             if (sRunning) {
                                 AILogger.e(TAG, "accept 失败: " + e.getMessage());

@@ -190,6 +190,20 @@ public class SystemResourceToolDeviceTest {
         return m;
     }
 
+    /** 路由器路径解析：APP_FILES/HOME 都不可用时，按 uid 自动推导（多用户/工作资料也适用） */
+    @Test
+    public void routerPathFallback() {
+        Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SystemResourceTool.prepareToolkit(ctx);
+        // 清掉 APP_FILES 并把 HOME 指到不存在的目录：路由器必须忽略，改按 getuid()/100000 推导
+        String r = out(shell("env -u APP_FILES HOME=/nonexistent-dir ash -c 'echo ROUTER_OK'")).trim();
+        System.out.println("[EXP] router auto-path => " + r);
+        assertTrue("HOME 不可用时应自动推导数据目录: " + r, r.contains("ROUTER_OK"));
+        String r2 = out(shell("APP_FILES=" + ctx.getFilesDir().getAbsolutePath() + " ash -c 'echo APPFILES_OK'")).trim();
+        System.out.println("[EXP] router APP_FILES => " + r2);
+        assertTrue("APP_FILES 应被采用: " + r2, r2.contains("APPFILES_OK"));
+    }
+
     /** 路由：内置 -> 系统 -> busybox -> toybox，任一环节不可用不应把命令搞挂 */
     @Test
     public void routingWorks() {

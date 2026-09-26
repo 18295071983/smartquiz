@@ -17,7 +17,36 @@
 #include <string.h>
 #include <unistd.h>
 
-static const char *APP_FILES = "/data/user/0/com.oilquiz.app/files";
+/**
+ * 应用数据目录（files/）——多用户 / 工作资料下路径不同，所以不能写死：
+ *   1) 优先 $APP_FILES（App 注入的精确路径）
+ *   2) 其次 $HOME（App 注入，且系统 shell 也有）
+ *   3) 自动推导：Android 的 uid = userId * 100000 + appId，
+ *      所以 /data/user/<uid/100000>/<包名>/files —— 不依赖任何环境变量，多用户也对
+ *   4) 以上都不可用（目录不存在）时，退回单用户默认路径
+ */
+static char g_app_files[PATH_MAX];
+
+static const char *app_files(void) {
+    if (g_app_files[0] != '\0') {
+        return g_app_files;
+    }
+    const char *env = getenv("APP_FILES");
+    if (env == NULL || env[0] == '\0') {
+        env = getenv("HOME");
+    }
+    if (env != NULL && env[0] != '\0' && access(env, R_OK) == 0) {
+        snprintf(g_app_files, sizeof(g_app_files), "%s", env);
+        return g_app_files;
+    }
+    snprintf(g_app_files, sizeof(g_app_files), "/data/user/%d/com.oilquiz.app/files",
+             (int) (getuid() / 100000));
+    if (access(g_app_files, R_OK) == 0) {
+        return g_app_files;
+    }
+    snprintf(g_app_files, sizeof(g_app_files), "%s", "/data/user/0/com.oilquiz.app/files");
+    return g_app_files;
+}
 #define MAX_ARGS 4096
 
 static char g_exe_dir[PATH_MAX];
@@ -25,7 +54,7 @@ static char g_exe_dir[PATH_MAX];
 /** name 是否出现在 bin/.busybox_applets（busybox --list 的结果，每行一个） */
 static int is_busybox_applet(const char *name) {
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/bin/.busybox_applets", APP_FILES);
+    snprintf(path, sizeof(path), "%s/bin/.busybox_applets", app_files());
     FILE *f = fopen(path, "r");
     if (f == NULL) {
         return 0;
@@ -50,7 +79,7 @@ static int is_busybox_applet(const char *name) {
 static void route_order(const char *name, char *order, size_t size) {
     snprintf(order, size, "bskt");
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/bin/.route", APP_FILES);
+    snprintf(path, sizeof(path), "%s/bin/.route", app_files());
     FILE *f = fopen(path, "r");
     if (f == NULL) {
         return;
@@ -83,7 +112,7 @@ static void set_bundled_env(void) {
     // 顺序很重要：toolkit_lib / lib 必须排在 nativeLibraryDir 之前，
     // 否则 App 自带的 libc++_shared.so（不同 NDK 版本）会抢在 Termux 版前面被加载，
     // ffmpeg 这类工具就会出现符号不匹配。
-    snprintf(libs, sizeof(libs), "%s/toolkit_lib:%s/lib:%s", APP_FILES, APP_FILES, g_exe_dir);
+    snprintf(libs, sizeof(libs), "%s/toolkit_lib:%s/lib:%s", app_files(), app_files(), g_exe_dir);
     setenv("LD_LIBRARY_PATH", libs, 1);
 }
 

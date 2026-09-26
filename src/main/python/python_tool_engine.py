@@ -249,6 +249,7 @@ class PythonToolEngine:
                 if bin_dir not in cur.split(os.pathsep):
                     os.environ["PATH"] = (cur + os.pathsep + bin_dir) if cur else bin_dir
                 os.environ["BUSYBOX_BIN_DIR"] = bin_dir
+                os.environ["APP_FILES"] = app_files
         except Exception:
             pass
     
