@@ -113,6 +113,17 @@ public class VncView extends View {
         setBackgroundColor(0xFF000000);
     }
 
+    /** 画布被手指按下时回调：VNC 客户端惯例是"一碰画面就把工具条收起来"，别挡着正在操作的地方 */
+    public interface OnCanvasTouchListener {
+        void onCanvasTouch();
+    }
+
+    private OnCanvasTouchListener canvasTouchListener;
+
+    public void setOnCanvasTouchListener(OnCanvasTouchListener l) {
+        this.canvasTouchListener = l;
+    }
+
     public void setClient(VncClient c) {
         this.client = c;
         invalidate();
@@ -205,6 +216,9 @@ public class VncView extends View {
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
+        if (ev.getActionMasked() == MotionEvent.ACTION_DOWN && canvasTouchListener != null) {
+            canvasTouchListener.onCanvasTouch();
+        }
         VncClient c = client;
         if (c == null || !c.isRunning()) {
             return true;

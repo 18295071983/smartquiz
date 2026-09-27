@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 浮层控制面板的底：半透明深色圆角，压住桌面也能看清按钮（RealVNC/bVNC 都是这个套路） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#D91B1B1B" />
+    <corners android:radius="@dimen/radius_14" />
+    <stroke
+        android:width="1dp"
+        android:color="#33FFFFFF" />
+</shape>

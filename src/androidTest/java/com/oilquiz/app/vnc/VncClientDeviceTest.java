@@ -437,7 +437,12 @@ public class VncClientDeviceTest {
                 com.oilquiz.app.R.id.btn_vnc_paste, com.oilquiz.app.R.id.btn_vnc_bars,
                 com.oilquiz.app.R.id.btn_vnc_rotate, com.oilquiz.app.R.id.btn_vnc_wheel_up,
                 com.oilquiz.app.R.id.btn_vnc_wheel_down, com.oilquiz.app.R.id.btn_vnc_controls,
-                com.oilquiz.app.R.id.vnc_controls, com.oilquiz.app.R.id.vnc_root
+                com.oilquiz.app.R.id.vnc_controls, com.oilquiz.app.R.id.vnc_root,
+                com.oilquiz.app.R.id.vnc_topbar, com.oilquiz.app.R.id.vnc_more,
+                com.oilquiz.app.R.id.btn_vnc_more, com.oilquiz.app.R.id.btn_vnc_ctrl,
+                com.oilquiz.app.R.id.btn_vnc_alt, com.oilquiz.app.R.id.btn_vnc_shift,
+                com.oilquiz.app.R.id.btn_vnc_esc, com.oilquiz.app.R.id.btn_vnc_tab,
+                com.oilquiz.app.R.id.btn_vnc_enter, com.oilquiz.app.R.id.btn_vnc_help
         };
         StringBuilder missing = new StringBuilder();
         for (int id : ids) {
@@ -448,5 +453,56 @@ public class VncClientDeviceTest {
         }
         System.out.println("[VNC] 图形界面页 inflate 成功，缺失: " + (missing.length() == 0 ? "(无)" : missing));
         assertFalse("布局缺控件: " + missing, missing.length() > 0);
+
+        // 新版排布的三条硬约束（用户要求"按钮好好管理下，参考别人的"）：
+        // ① 不再有横向滚动容器 —— 老版把 15 个按钮挤成一行，非要横滑才能找到按钮，最难用；
+        // ② 「更多」行默认收起，面板默认只占 3 行；
+        // ③ 面板里每一行的按钮等宽（weight=1），不会出现一个巨宽一个挤成一条缝。
+        java.util.List<String> scrollers = new java.util.ArrayList<>();
+        collectScrollers(root, scrollers);
+        assertTrue("不该再有横向滚动容器: " + scrollers, scrollers.isEmpty());
+
+        assertEquals("「更多」行默认应收起", android.view.View.GONE,
+                root.findViewById(com.oilquiz.app.R.id.vnc_more).getVisibility());
+
+        android.view.ViewGroup panel = root.findViewById(com.oilquiz.app.R.id.vnc_controls);
+        int rows = 0;
+        for (int i = 0; i < panel.getChildCount(); i++) {
+            android.view.View child = panel.getChildAt(i);
+            if (!(child instanceof android.widget.LinearLayout)) {
+                continue;
+            }
+            android.widget.LinearLayout row = (android.widget.LinearLayout) child;
+            if (row.getOrientation() != android.widget.LinearLayout.HORIZONTAL) {
+                continue;
+            }
+            rows++;
+            for (int j = 0; j < row.getChildCount(); j++) {
+                android.view.View b = row.getChildAt(j);
+                if (b.getId() == com.oilquiz.app.R.id.vnc_port) {
+                    continue;
+                }
+                android.widget.LinearLayout.LayoutParams lp =
+                        (android.widget.LinearLayout.LayoutParams) b.getLayoutParams();
+                assertEquals("按钮应等宽(weight=1): "
+                                + base.getResources().getResourceEntryName(b.getId()),
+                        1f, lp.weight, 0.01f);
+            }
+        }
+        assertTrue("控制面板应至少 3 行分组，实际 " + rows, rows >= 3);
+        System.out.println("[VNC] 控制面板 " + rows + " 行，无横向滚动，按钮等宽，「更多」默认收起");
+    }
+
+    /** 递归找出布局里所有横向滚动容器（新版布局应当一个都没有） */
+    private static void collectScrollers(android.view.View v, java.util.List<String> out) {
+        if (v instanceof android.widget.HorizontalScrollView) {
+            out.add(v.getClass().getSimpleName());
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                collectScrollers(g.getChildAt(i), out);
+            }
+        }
     }
 }
