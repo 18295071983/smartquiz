@@ -495,7 +495,11 @@ public final class TermuxEnvInstaller {
             echo "OILQUIZ_SHELL bus=$DBUS_SESSION_BUS_ADDRESS 应答=$(bus_ok && echo 活 || echo 死)"
             # ② 独占：xfce4-session 会按它保存的会话把面板/通知守护再拉一份（见上面 javadoc），
             #    桌面只由本脚本负责，所以连会话管理器一起清掉。
+            #    连 startxfce4 那条会话也一起清 —— 真机上出现过"外壳会话 + startxfce4 会话"并存，
+            #    两边各有一个面板、都贴在屏幕顶部，用户点到的那份可能挂在另一条总线上（菜单点了没反应）。
+            #    这条脚本每次启动都由 App 用 base64 重写（ensure_shell_b64），所以这个兜底总是最新的。
             pkill -9 -x xfce4-session >/dev/null 2>&1
+            pkill -9 -f 'startxfce[4]' >/dev/null 2>&1
             # 面板必须独占：旧实例活着会让新实例 "Name org.xfce.Panel lost" 直接退出。
             #    xfce4-panel 对 SIGTERM 是优雅退出（要存配置、慢），所以 -9 并等它真的消失。
             pkill -9 -x xfce4-panel >/dev/null 2>&1

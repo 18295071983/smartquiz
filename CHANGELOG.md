@@ -33,6 +33,18 @@
 5. **踩到的一个坑**：把 `>> /tmp/quiz_shell.log` 写在 **Termux 侧**那条命令上会直接
    `Permission denied`（Android 的 `/tmp` 不可写）→ 整条外壳会话根本没起来（组件数全 0）。
    重定向必须写在**容器内**执行的那条命令里。
+9. **外壳脚本里再加一道"独占兜底"**：连 `startxfce4` 那条会话也一起清掉
+   （`pkill -9 -f 'startxfce[4]'`）。原因是真机上仍偶发出现"外壳会话 + startxfce4 会话"并存，
+   两边的面板都贴屏幕顶部，用户点到的那份可能挂在另一条总线上。这条脚本每次启动都由 App
+   用 base64 重写（`ensure_shell_b64`），所以兜底永远是最新版本，不依赖"一键准备"。
+10. **终态真机验证**（当前这台机器上）：
+    - `startxfce4` 进程 **0 个**；`Xvnc=1 xfwm4=1 xfce4-panel=1 xfce4-notifyd=1 xfdesktop=1 xfce4-session=0`；
+    - **面板与外壳脚本在同一条总线上**（`/tmp/dbus-x0KkmNkdhz` 两边一致）；
+    - noVNC 网页 `http://127.0.0.1:6080/vnc.html` → **200**；
+    - 用 xdotool 发**真鼠标事件**逐行点菜单：`y=230` → **Thunar 起来了** ✓；
+      `y=130` 只拉起 `xfce4-mime-helper`（那一项是「网络浏览器」，容器里没装浏览器，
+      所以看起来"点了没反应"——这正是用户最初那个观感的一部分）。
+
 6. **启动器只在「一键准备」时写过一次** ✗ —— App 升级后 `ensure_shell` / `ensure_desktop` 的改动
    **根本没到设备上**（设备上那份 41 KB 的 `~/ubuntu-gui` 还是老逻辑，依旧会另起 `startxfce4`）。
    现在 `startGuiInTermux` / `restartGuiInTermux` 每次都会把**当前版本**的启动器写到公共下载目录
