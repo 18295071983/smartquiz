@@ -211,7 +211,8 @@ public final class TermuxEnvInstaller {
         return SCRIPT_TEMPLATE
                 .replace("__ROOTFS__", root)
                 .replace("__TUNA__", TUNA_ROOTFS_URL)
-                .replace("__GUI_INNER__", GUI_INNER_COMMAND);
+                .replace("__GUI_INNER__", GUI_INNER_COMMAND)
+                .replace("__GUI_FILE_B64__", b64(buildGuiFile()));
     }
 
     // ---------- 图形界面（X11 + VNC）----------
@@ -237,7 +238,7 @@ public final class TermuxEnvInstaller {
      */
     public static final String GUI_INNER_COMMAND =
             "pkill -x Xvnc >/dev/null 2>&1; pkill -x x11vnc >/dev/null 2>&1; pkill -x Xvfb >/dev/null 2>&1; "
-                    + "pkill -x xclock >/dev/null 2>&1; pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1; sleep 1; "
+                    + "pkill -x xclock >/dev/null 2>&1; sleep 1; "
                     + "rm -f /tmp/.X11-unix/X1 /tmp/.X1-lock; "
                     + "exec Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
                     + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz";
@@ -252,22 +253,66 @@ public final class TermuxEnvInstaller {
      * <p>用 base64 传输写进 Termux 家目录：heredoc 在这种"多层引号 + 非交互 shell"的场景下太容易出岔子。
      */
     public static final String GUI_DEMO_PY = """
-            import tkinter as tk, time, sys
+            import tkinter as tk
+            import tkinter.font as tkfont
+            import time, sys
             r = tk.Tk()
             r.title("OilQuiz GUI")
             r.geometry("760x380+40+40")
             r.configure(bg="#0b3d91")
-            big = tk.Label(r, font=("DejaVu Sans", 64, "bold"), fg="white", bg="#0b3d91")
+            # 关键：Tk 默认字体是 DejaVu Sans，没有中文字形，中文会显示成方框（tofu）。
+            # 把全局默认字体换成容器里装的中文字体，这样所有控件（以及用户自己写的 tkinter 程序，
+            # 只要照抄这两行）都有中文。
+            default = tkfont.nametofont("TkDefaultFont")
+            default.configure(family="WenQuanYi Micro Hei")
+            big = tk.Label(r, font=("WenQuanYi Micro Hei", 60, "bold"), fg="white", bg="#0b3d91")
             big.pack(pady=(36, 8))
-            tk.Label(r, font=("DejaVu Sans", 17), fg="#cfe8ff", bg="#0b3d91",
-                     text="Ubuntu 24.04 + tkinter " + sys.version.split()[0] + " / 内置 Chaquopy 做不到这个").pack()
-            tk.Button(r, text="能点说明输入也通了", font=("DejaVu Sans", 15)).pack(pady=14)
+            tk.Label(r, font=("WenQuanYi Micro Hei", 17), fg="#cfe8ff", bg="#0b3d91",
+                     text="答题宝 · Ubuntu 24.04 + tkinter " + sys.version.split()[0]).pack()
+            tk.Label(r, font=("WenQuanYi Micro Hei", 15), fg="#9fd0ff", bg="#0b3d91",
+                     text="中文字体已装好，不会再显示方框").pack(pady=(4, 0))
+            tk.Button(r, text="能点说明输入也通了", font=("WenQuanYi Micro Hei", 15)).pack(pady=12)
             def tick():
                 big.config(text=time.strftime("%H:%M:%S"))
                 r.after(500, tick)
             tick()
             r.mainloop()
             """;
+
+    /**
+     * fontconfig 兜底：把通用族（sans-serif/serif/monospace）优先指向中文字体。
+     *
+     * <p>只装字体还不够：很多程序（含 Tk 默认字体）会点名 DejaVu Sans，而它没有中文字形 → 方框。
+     * 这条规则让"没点名具体字体"的程序都能出中文；点名了 DejaVu 的，见 GUI_DEMO_PY 里的 TkDefaultFont 写法。
+     */
+    public static final String FONTCONFIG_LOCAL_CONF = """
+            <?xml version="1.0"?>
+            <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+            <fontconfig>
+              <match target="pattern"><test name="family"><string>sans-serif</string></test><edit name="family" mode="prepend" binding="strong"><string>WenQuanYi Micro Hei</string></edit></match>
+              <match target="pattern"><test name="family"><string>serif</string></test><edit name="family" mode="prepend" binding="strong"><string>WenQuanYi Micro Hei</string></edit></match>
+              <match target="pattern"><test name="family"><string>monospace</string></test><edit name="family" mode="prepend" binding="strong"><string>WenQuanYi Micro Hei</string></edit></match>
+            </fontconfig>
+            """;
+
+    /**
+     * 把若干条 shell 语句拼成一行：普通语句之间用 "; "，而以 {@code &} 结尾的后台语句后面不能再加分号
+     * （{@code &; i=0} 是语法错误，真机上被 ash -n 门禁抓到过）。
+     */
+    private static String joinShell(String... parts) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : parts) {
+            sb.append(p);
+            sb.append(p.trim().endsWith("&") ? ' ' : "; ");
+        }
+        return sb.toString();
+    }
+
+    /** 演示脚本 base64 / fontconfig base64（都用 base64 下发，避开引号与 XML 转义） */
+    private static String b64(String s) {
+        return android.util.Base64.encodeToString(
+                s.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
+    }
 
     /** 写演示窗口 + 挂到 :1 上跑（两行 bash，供启动/重启脚本复用；base64 传源码） */
     /** 演示脚本的 base64（脚本里用 base64 -d 写出，彻底避免引号/转义问题） */
@@ -296,40 +341,38 @@ public final class TermuxEnvInstaller {
      * <p>进程匹配用括号模式 {@code x11vn[c]}，避免匹配到本脚本自己的命令行（里面有 {@code x11vn[c]} 字面量）。
      */
     public static String buildGuiStartScript() {
-        return String.join("\n",
+        // 全部拼成**一行**（分号分隔、不放 # 注释）：
+        // 真机实测：多行脚本经 RUN_COMMAND 下发时正文不执行，回包只有 .bashrc 横幅 ——
+        // 一行能被第一条 # 之后整段注释掉，所以这里既不用换行也不写注释。
+        return joinShell(
                 "H=\"${HOME:-/data/data/com.termux/files/home}\"",
                 "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
                 "export PREFIX",
                 "export HOME=\"$H\"",
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
                 "LOG=\"$H/.quiz_gui.log\"",
-                "QUIZ_DEMO_B64=\"" + demoBase64() + "\"",
+                "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
+                "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "UP() { pgrep -x Xvnc >/dev/null 2>&1; }",
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
-                "ensure_demo() {",
-                "  " + "echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"",
-                "  if ! DEMO_UP; then",
-                "    setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 &",
-                "    sleep 2",
-                "  fi",
-                "}",
-                "if UP; then ensure_demo; echo \"GUI_ALREADY_UP\"; exit 0; fi",
+                "ensure_fonts() { setsid nohup timeout 30 proot-distro login ubuntu -- /bin/bash -lc \"echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
+                "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
+                "TRACE=\"$H/.quiz_gui_start_trace.log\"",
+                "trace() { echo \"$(date '+%T') $1\" >> \"$TRACE\"; }",
+                "trace \"script-start\"",
+                "ensure_fonts",
+                "trace \"font-scheduled\"",
+                "if UP; then ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
                 "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
-                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 &",
+                "trace \"starting-xvnc\"",
+                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do",
-                "  sleep 1",
-                "  i=$((i+1))",
-                "  if UP; then",
-                "    ensure_demo",
-                "    echo \"GUI_UP\"",
-                "    exit 0",
-                "  fi",
-                "done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
+                "trace \"gui-failed\"",
                 "echo \"GUI_FAILED\"",
                 "tail -15 \"$LOG\"",
-                "echo \"（若显示 socket 被占用，先清掉残留在跑的 Xvnc：pkill -f 'Xvn[c] :1'）\"",
+                "echo \"若 socket 被占用，先清掉残留在跑的 Xvnc：pkill -f 'Xvn[c] :1'\"",
                 "exit 1");
     }
 
@@ -343,36 +386,35 @@ public final class TermuxEnvInstaller {
     }
 
     /** Termux 侧「重启图形界面」脚本：服务端被反复连断弄脏（banner 变 3.3、安全类型返回 0）时自愈用 */
+    /** Termux 侧「重启图形界面」脚本（单行，理由同 buildGuiStartScript）：服务端被弄脏时自愈用 */
     public static String buildGuiRestartScript() {
-        return String.join("\n",
+        return joinShell(
                 "H=\"${HOME:-/data/data/com.termux/files/home}\"",
                 "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
                 "export PREFIX",
                 "export HOME=\"$H\"",
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
                 "LOG=\"$H/.quiz_gui.log\"",
+                "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
+                "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
+                "UP() { pgrep -x Xvnc >/dev/null 2>&1; }",
+                "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
+                "ensure_fonts() { setsid nohup timeout 30 proot-distro login ubuntu -- /bin/bash -lc \"echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
+                "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
                 "pkill -x Xvnc >/dev/null 2>&1",
                 "pkill -x xclock >/dev/null 2>&1",
+                "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1",
                 "sleep 1",
                 "echo \"[$(date '+%T')] restart\" >> \"$LOG\"",
-                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 &",
+                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do",
-                "  sleep 1",
-                "  i=$((i+1))",
-                "  if pgrep -x Xvnc >/dev/null 2>&1; then",
-                "    " + guiDemoLines()[0],
-                "    " + guiDemoLines()[1],
-                "    echo \"GUI_RESTARTED\"",
-                "    exit 0",
-                "  fi",
-                "done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
                 "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
     }
 
     /** 让 Termux 重启图形界面；返回 null 表示已下发 */
     public static String restartGuiInTermux(Context ctx) {
-        return runInTermux(ctx, buildGuiRestartScript(), true);
+        return runInTermux(ctx, buildGuiRestartScript(), false);
     }
 
     /** Termux 侧「图形界面状态」脚本：端口通就再列一下容器里的 Xvnc 进程 */
@@ -402,6 +444,29 @@ public final class TermuxEnvInstaller {
     }
 
     /**
+     * `~/ubuntu-gui` 文件内容（由「一键准备」写出来，App 之后只用一条短命令去跑它）。
+     *
+     * <p>为什么绕这一下：长脚本文本经 RUN_COMMAND 直接下发时，真机实测**不执行**（回包只有 .bashrc 横幅），
+     * 而以"文件 + bash 文件 start"形式跑完全正常 —— 换行/长度都不再是问题。
+     */
+    public static String buildGuiFile() {
+        return String.join("\n",
+                "#!/data/data/com.termux/files/usr/bin/bash",
+                "case \"$1\" in",
+                "  stop)",
+                buildGuiStopScript(),
+                "    ;;",
+                "  status)",
+                buildGuiStatusScript(),
+                "    ;;",
+                "  *)",
+                buildGuiStartScript(),
+                "    ;;",
+                "esac",
+                "");
+    }
+
+    /**
      * 让 Termux 起图形界面。
      *
      * <p>先把脚本落盘到 Download/OilQuiz/termux_env/gui_start.sh：
@@ -418,7 +483,12 @@ public final class TermuxEnvInstaller {
         writeTextFile(ctx, "gui_stop.sh", buildGuiStopScript());
         writeTextFile(ctx, "gui_status.sh", buildGuiStatusScript());
         writeTextFile(ctx, "gui_demo.py", GUI_DEMO_PY);
-        return runInTermux(ctx, script, true);
+        // 只下发一条**短命令**去跑 ~/ubuntu-gui（由「一键准备」写出来的文件）。
+        // 原因：长脚本文本经 RUN_COMMAND 下发时实测不执行（回包只有 .bashrc 横幅，连 trace 都写不出来），
+        // 而以"文件 + 短命令"形式跑就完全正常（同一份内容手动 bash 文件 100% 成功）。
+        String shortCmd = "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui start"
+                + " || echo NO_UBUNTU_GUI_请先点一次一键准备";
+        return runInTermux(ctx, shortCmd, true);
     }
 
     /** 让 Termux 停图形界面；返回 null 表示已下发 */
@@ -450,7 +520,7 @@ public final class TermuxEnvInstaller {
             }
 
             gui_pkgs_ok() {
-              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v xclock >/dev/null 2>&1' 2>/dev/null
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && (ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 || fc-list :lang=zh 2>/dev/null | grep -q .)' 2>/dev/null
             }
 
             quiz_main() {
@@ -532,10 +602,10 @@ public final class TermuxEnvInstaller {
               if ! command -v proot-distro >/dev/null 2>&1; then
                 bad "没有 proot-distro，跳过图形界面组件"
               elif gui_pkgs_ok; then
-                ok "Xvnc（TigerVNC）已安装，跳过"
+                ok "Xvnc（TigerVNC）+ 中文字体已安装，跳过"
               else
                 echo "正在容器内安装 tigervnc-standalone-server / x11-utils / x11-apps / procps / xdotool / imagemagick（约 70MB，2~4 分钟）…"
-                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick' || bad "图形界面组件安装失败：请检查网络后重跑本页"
+                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu' || bad "图形界面组件安装失败：请检查网络后重跑本页"
                 if gui_pkgs_ok; then ok "X11/VNC 组件就绪"; else bad "X11/VNC 组件没装全"; fi
               fi
 
@@ -545,18 +615,7 @@ public final class TermuxEnvInstaller {
             exec proot-distro login ubuntu -- "$@"
             QUIZ_UBUNTU_EOF
               chmod +x "$HOME_DIR/ubuntu"
-              cat > "$HOME_DIR/ubuntu-gui" <<'QUIZ_GUI_EOF'
-            #!/data/data/com.termux/files/usr/bin/bash
-            # 答题宝 · 图形界面（X11 + VNC）启停。用法: ubuntu-gui [start|stop|status]
-            H="${HOME:-/data/data/com.termux/files/home}"
-            PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-            export PREFIX
-            export HOME="$H"
-            export PATH="$PREFIX/bin:/system/bin"
-            LOG="$H/.quiz_gui.log"
-            PORT=5900
-            PORTUP() { (echo > /dev/tcp/127.0.0.1/$PORT) 2>/dev/null; }
-            INNER='__GUI_INNER__'
+              echo "__GUI_FILE_B64__" | base64 -d > "$HOME_DIR/ubuntu-gui"
             case "$1" in
               stop)
                 proot-distro login ubuntu -- /bin/bash -lc 'pkill -x Xvnc; pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1
@@ -728,7 +787,10 @@ public final class TermuxEnvInstaller {
             i.putExtra(EXTRA_RC_PATH, "/data/data/com.termux/files/usr/bin/bash");
             i.putExtra(EXTRA_RC_ARGS, new String[]{"-lc", command});
             i.putExtra(EXTRA_RC_WORKDIR, "/data/data/com.termux/files/home");
-            i.putExtra(EXTRA_RC_BACKGROUND, true);
+            // 必须 false（与项目里能用的 SystemResourceTool.termuxExec 一致）：
+            // background=true 配 PendingIntent 回执时，实测 bash 起来了但**命令行没被执行**
+            // （回包只有 .bashrc 横幅）—— 这就是"通道自检看着 ok 其实啥也没跑"的原因。
+            i.putExtra(EXTRA_RC_BACKGROUND, false);
             i.putExtra(EXTRA_RC_PENDING_INTENT, reply);
             ctx.startService(i);
 
@@ -770,7 +832,8 @@ public final class TermuxEnvInstaller {
                 "echo \"containers: $(proot-distro list -q 2>/dev/null | tr '\\n' ' ')\"",
                 "echo \"last-setup: $(tail -1 $HOME/.quiz_env_setup.status 2>/dev/null)\"",
                 "echo \"allow-external-apps: $(grep -c '^allow-external-apps=true' $HOME/.termux/termux.properties 2>/dev/null)\"",
-                "test -x $HOME/ubuntu-gui && echo ubuntu-gui=yes || echo ubuntu-gui=no");
+                "test -x $HOME/ubuntu-gui && echo ubuntu-gui=yes || echo ubuntu-gui=no",
+                "echo \"cjk-font: $(proot-distro login ubuntu -- fc-list :lang=zh 2>/dev/null | wc -l) 个\"");
     }
 
     /** 已装 Termux 的签名 SHA-256（大写冒号分隔，与 keytool 输出一致）；取不到返回 null */

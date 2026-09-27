@@ -155,6 +155,8 @@ public class TermuxEnvSetupDeviceTest {
         TermuxEnvInstaller.ChannelResult r = TermuxEnvInstaller.runInTermuxAndWait(c, "echo QUIZ_CHANNEL_OK", 25);
         System.out.println("[CH] 通道自检 ok=" + r.ok + " stdout=" + r.stdout.trim() + " error=" + r.error);
         assertTrue("通道应可用（失败原因: " + r.error + "）", r.ok);
+        assertTrue("回包必须是命令自己的输出（不能只有 .bashrc 横幅 —— 那是假绿）: " + r.stdout,
+                r.stdout.contains("QUIZ_CHANNEL_OK"));
         TermuxEnvInstaller.ChannelResult d =
                 TermuxEnvInstaller.runInTermuxAndWait(c, TermuxEnvInstaller.buildDiagnoseCommand(), 25);
         System.out.println("[CH] 诊断输出:\n" + d.stdout);

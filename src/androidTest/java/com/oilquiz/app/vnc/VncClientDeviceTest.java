@@ -297,15 +297,20 @@ public class VncClientDeviceTest {
     @Test
     public void guiScriptsAreConsistent() {
         String setup = TermuxEnvInstaller.buildSetupScript("/sdcard/Download/OilQuiz/termux_env/ubuntu-base-24.04.5-base-arm64.tar.gz");
-        assertTrue("准备脚本应含 GUI 启动命令", setup.contains(TermuxEnvInstaller.GUI_INNER_COMMAND));
+        // 准备脚本现在把 ~/ubuntu-gui 整份内容用 base64 写出去（长脚本文本直接下发不执行，见 CHANGELOG），
+        // 所以断言改成在"文件内容"上做。
+        assertTrue("~/ubuntu-gui 文件内容应含 GUI 启动命令",
+                TermuxEnvInstaller.buildGuiFile().contains(TermuxEnvInstaller.GUI_INNER_COMMAND));
         assertTrue("准备脚本应写 ~/ubuntu-gui", setup.contains("ubuntu-gui"));
         assertTrue("应装 tigervnc-standalone-server（Xvnc）", setup.contains("tigervnc-standalone-server"));
+        assertTrue("应装中文字体（否则中文显示成方框）", setup.contains("fonts-wqy-microhei"));
         assertTrue("应装 xdotool（GUI 自动化）", setup.contains("xdotool"));
         assertTrue("应装 imagemagick（截图）", setup.contains("imagemagick"));
-        assertTrue("Xvnc 必须前台常驻（exec）", setup.contains("exec Xvnc :1"));
-        assertTrue("Xvnc 要免密码/免 X 授权", setup.contains("-SecurityTypes None") && setup.contains("-ac"));
+        String guiFile = TermuxEnvInstaller.buildGuiFile();
+        assertTrue("Xvnc 必须前台常驻（exec）", guiFile.contains("exec Xvnc :1"));
+        assertTrue("Xvnc 要免密码/免 X 授权", guiFile.contains("-SecurityTypes None") && guiFile.contains("-ac"));
         assertTrue("启动前必须清 :1 的残留 socket（否则 bind 失败直接退出）",
-                setup.contains("rm -f /tmp/.X11-unix/X1"));
+                guiFile.contains("rm -f /tmp/.X11-unix/X1"));
         assertFalse("不要再带 x11vnc 那套参数", setup.contains("-noshm") || setup.contains("-threads"));
 
         String start = TermuxEnvInstaller.buildGuiStartScript();
