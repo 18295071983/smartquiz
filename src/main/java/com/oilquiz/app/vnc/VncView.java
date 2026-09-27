@@ -67,6 +67,46 @@ public class VncView extends View {
         init();
     }
 
+    /**
+     * 双击画面 = 在"适应屏幕"和"1:1 原始比例"之间切换（小屏上很实用）。
+     *
+     * <p>必须**懒创建**：GestureDetector 内部会创建 Handler，字段初始化时若所在线程没有 Looper
+     * （例如仪器化用例在测试线程里 inflate 布局）会抛 "Can't create handler inside thread ..." 直接崩。
+     */
+    private android.view.GestureDetector gestures;
+
+    private android.view.GestureDetector gestures() {
+        if (gestures == null) {
+            gestures = new android.view.GestureDetector(getContext(),
+                    new android.view.GestureDetector.SimpleOnGestureListener() {
+                        @Override
+                        public boolean onDoubleTap(MotionEvent e) {
+                            setFitToScreen(!fitToScreen);
+                            invalidate();
+                            return true;
+                        }
+                    });
+        }
+        return gestures;
+    }
+
+    public boolean isFitToScreen() {
+        return fitToScreen;
+    }
+
+    /** 工具栏「滚轮↑/↓」用：在视图中心发一次滚轮事件（手指不好控制时的替代操作） */
+    public void sendWheel(boolean up) {
+        VncClient c = client;
+        if (c == null) {
+            return;
+        }
+        int[] pos = new int[2];
+        toRemote(getWidth() / 2f, getHeight() / 2f, pos);
+        int button = up ? 8 : 16;
+        c.sendPointer(button, pos[0], pos[1]);
+        c.sendPointer(0, pos[0], pos[1]);
+    }
+
     private void init() {
         setFocusable(true);
         setFocusableInTouchMode(true);
@@ -169,6 +209,7 @@ public class VncView extends View {
         if (c == null || !c.isRunning()) {
             return true;
         }
+        gestures().onTouchEvent(ev);
         int[] pos = new int[2];
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:

@@ -102,6 +102,24 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
         });
         findViewById(R.id.btn_vnc_zoom_in).setOnClickListener(v -> vncView.zoomBy(1.25f));
         findViewById(R.id.btn_vnc_zoom_out).setOnClickListener(v -> vncView.zoomBy(0.8f));
+        findViewById(R.id.btn_vnc_controls).setOnClickListener(v -> {
+            android.view.View c = findViewById(R.id.vnc_controls);
+            boolean show = c.getVisibility() != android.view.View.VISIBLE;
+            c.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
+            ((android.widget.TextView) findViewById(R.id.btn_vnc_controls)).setText(show ? "≡" : "▣");
+            status(show ? "控制栏已展开" : "控制栏已收起（画面全屏，右上角 ▣ 可再展开）");
+        });
+        findViewById(R.id.btn_vnc_rotate).setOnClickListener(v -> {
+            boolean nowLandscape = getResources().getConfiguration().orientation
+                    == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+            setRequestedOrientation(nowLandscape
+                    ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+            status(nowLandscape ? "切到竖屏…" : "切到横屏…");
+            handler.postDelayed(this::syncDesktopSize, 900);
+        });
+        findViewById(R.id.btn_vnc_wheel_up).setOnClickListener(v -> vncView.sendWheel(true));
+        findViewById(R.id.btn_vnc_wheel_down).setOnClickListener(v -> vncView.sendWheel(false));
         findViewById(R.id.btn_vnc_bars).setOnClickListener(v -> {
             immersive = !immersive;
             applyImmersive();
@@ -174,6 +192,8 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
             vncView.setFitToScreen(true);
             vncView.invalidate();
             handler.postDelayed(this::tickStatus, 800);
+            // 连上后立刻把远端桌面改成贴合手机屏幕的尺寸（竖屏/横屏各一个桌面）
+            handler.postDelayed(this::syncDesktopSize, 400);
         });
     }
 
@@ -290,6 +310,33 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
         status("已连接 " + connectedW + "x" + connectedH
                 + (connectedName.isEmpty() ? "" : "（" + connectedName + "）") + " " + tail);
         handler.postDelayed(this::tickStatus, 1000);
+    }
+
+    /**
+     * 让远端桌面尺寸贴合当前可视区域：竖屏就是竖屏桌面、横屏就是横屏桌面。
+     *
+     * <p>这是画面太小的根治办法：以前 1280x720 的横屏桌面被硬缩进竖屏，只剩中间一条。
+     * TigerVNC 支持动态改分辨率（SetDesktopSize），XFCE 会自动重排。
+     */
+    private void syncDesktopSize() {
+        int w = vncView.getWidth();
+        int h = vncView.getHeight();
+        if (w < 200 || h < 200 || !client.isRunning()) {
+            return;
+        }
+        float k = Math.min(1f, 1920f / Math.max(w, h));
+        int tw = Math.max(480, (int) (w * k));
+        int th = Math.max(320, (int) (h * k));
+        client.requestDesktopSize(tw, th);
+        android.util.Log.i("VncActivity", "requestDesktopSize " + tw + "x" + th);
+        status("已请求桌面适配为 " + tw + "x" + th + "（画面会填满屏幕）");
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        handler.postDelayed(this::syncDesktopSize, 600);
+        handler.postDelayed(this::applyImmersive, 200);
     }
 
     private void status(String s) {

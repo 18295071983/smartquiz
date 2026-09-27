@@ -228,7 +228,59 @@ public class VncClientDeviceTest {
     }
 
     /**
-     * 回归：主动 stop()（含 start() 内部的复位）**不能**回调 onDisconnected。
+     * 验证"画面太小"的根治手段：客户端请求改分辨率（SetDesktopSize）后，远端桌面尺寸应跟着变。
+     * 这是竖屏/横屏自适应的基础。
+     */
+    @Test
+    public void desktopSizeFollowsRequest() throws Exception {
+        if (!portOpen("127.0.0.1", TermuxEnvInstaller.VNC_PORT, 3000)) {
+            System.out.println("[VNC] 5900 没在监听，跳过");
+            return;
+        }
+        final CountDownLatch connected = new CountDownLatch(1);
+        final boolean[] ok = new boolean[1];
+        final int[] size = new int[2];
+        VncClient client = new VncClient(new VncClient.Listener() {
+            @Override
+            public void onConnected(int w, int h, String name) {
+                ok[0] = true;
+                size[0] = w;
+                size[1] = h;
+                connected.countDown();
+            }
+
+            @Override
+            public void onFrameReady() {
+            }
+
+            @Override
+            public void onClipboard(String text) {
+            }
+
+            @Override
+            public void onDisconnected(String reason) {
+                connected.countDown();
+            }
+        });
+        client.start("127.0.0.1", TermuxEnvInstaller.VNC_PORT, 5000);
+        assertTrue("应能连上", connected.await(20, TimeUnit.SECONDS) && ok[0]);
+        System.out.println("[VNC] 初始桌面 " + size[0] + "x" + size[1]);
+        client.requestDesktopSize(640, 480);
+        boolean resized = false;
+        for (int i = 0; i < 30 && !resized; i++) {
+            Thread.sleep(500);
+            resized = client.getWidth() == 640 && client.getHeight() == 480;
+        }
+        System.out.println("[VNC] 请求 640x480 后实际 " + client.getWidth() + "x" + client.getHeight()
+                + "（resized=" + resized + "）");
+        // 收尾：还原成 1280x720，别把演示桌面留在小尺寸
+        client.requestDesktopSize(1280, 720);
+        Thread.sleep(1500);
+        client.stop();
+        assertTrue("请求改分辨率后桌面尺寸应跟着变（TigerVNC 支持 SetDesktopSize）", resized);
+    }
+
+    /** 回归：主动 stop()（含 start() 内部的复位）**不能**回调 onDisconnected。
      *
      * <p>真机踩到过：VncActivity 的重试靠 start() → stop() 复位，如果这里误报"服务端关闭了连接"，
      * 页面就会把自发的重连当成失败，重试次数被白白吃掉（现象：点启动后"尝试 3 次"就放弃）。
@@ -383,7 +435,9 @@ public class VncClientDeviceTest {
                 com.oilquiz.app.R.id.btn_vnc_right, com.oilquiz.app.R.id.btn_vnc_fit,
                 com.oilquiz.app.R.id.btn_vnc_zoom_in, com.oilquiz.app.R.id.btn_vnc_zoom_out,
                 com.oilquiz.app.R.id.btn_vnc_paste, com.oilquiz.app.R.id.btn_vnc_bars,
-                com.oilquiz.app.R.id.vnc_root
+                com.oilquiz.app.R.id.btn_vnc_rotate, com.oilquiz.app.R.id.btn_vnc_wheel_up,
+                com.oilquiz.app.R.id.btn_vnc_wheel_down, com.oilquiz.app.R.id.btn_vnc_controls,
+                com.oilquiz.app.R.id.vnc_controls, com.oilquiz.app.R.id.vnc_root
         };
         StringBuilder missing = new StringBuilder();
         for (int id : ids) {

@@ -641,6 +641,33 @@ public class VncClient {
         }
     }
 
+    /**
+     * 请求服务端把桌面改成指定尺寸（RFB SetDesktopSize，消息类型 251）。
+     *
+     * <p>TigerVNC/Xvnc 支持动态改分辨率，XFCE 会自动重排面板；这样竖屏就是竖屏桌面、
+     * 横屏就是横屏桌面 —— 不用再把 1280x720 硬缩进手机屏（那才是"画面太小"的根源）。
+     */
+    public void requestDesktopSize(int w, int h) {
+        if (!running || w < 320 || h < 240 || w > 4096 || h > 4096) {
+            return;
+        }
+        byte[] m = new byte[8 + 16];
+        m[0] = (byte) 251;                 // SetDesktopSize
+        m[1] = 0;                          // padding
+        m[2] = (byte) (w >> 8);
+        m[3] = (byte) w;
+        m[4] = (byte) (h >> 8);
+        m[5] = (byte) h;
+        m[6] = 1;                          // number of screens
+        m[7] = 0;                          // padding
+        // screen: id(4) x(2) y(2) w(2) h(2) flags(4)
+        m[16] = (byte) (w >> 8);
+        m[17] = (byte) w;
+        m[18] = (byte) (h >> 8);
+        m[19] = (byte) h;
+        enqueue(m);
+    }
+
     // ---------------- 输入 ----------------
 
     /** buttonMask: bit0=左键, bit1=中键, bit2=右键；滚轮用 bit3(上)/bit4(下) 瞬时按下 */
