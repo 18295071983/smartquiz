@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-09-27] 审查「输入指针没有捕获」：三个真 bug（其中一个把 6080 彻底搞死）
+
+用户报「输入指针没有捕获啊，审查下代码」。按链路逐段查，结论是**服务端没问题，App 侧有三个 bug**。
+
+1. **先证明服务端是好的**（避免误判方向）：容器里起 `xev`，用裸 RFB 客户端（握手 → SetPixelFormat → PointerEvent）
+   点它的窗口，xev 收到 **ButtonPress=11 / ButtonRelease=10 / MotionNotify=34**，事件是 `button 1, same_screen YES`
+   —— Xvnc 的指针输入链路完全正常。
+   （顺带踩坑：RFB 的 SetPixelFormat 是 **20 字节** = 1 类型 + **3 填充** + 16 格式，我第一次漏了填充，服务端直接断我连接。）
+2. **真 bug ①：每次启动/重启都新起 websockify、旧的从不清理**。实测堆到 **9 个**，最后监听进程 accept 卡死 ——
+   **5900/6080 双双 timeout（不是 refused）**，手机端画面停在最后一帧、点哪儿都没反应，
+   这正是用户看到的「输入指针没有捕获」。新增容器内 `kill_stale`：按 `/proc/<pid>/cmdline` 的
+   **argv[1] 是否以 /websockify 结尾**精确识别（避免 `pkill -f` 把执行它的会话一起杀掉），启动与重启路径都先清一遍。
+3. **真 bug ②：我自己的心跳在打 websockify**。`VncWebActivity` 原来每 4 秒开一个裸 TCP 连接探 6080，
+   而 websockify **每个连接 fork 一个子进程**（日志里的 `new handler Process`）—— 这些「连上但不发请求」的子进程
+   全挂着不退（实测存活 7 个），最后把监听拖死。改成页面加载后**只读 noVNC 自己的 JS 状态**
+   （`UI.rfb._rfbConnectionState`），一个 socket 都不开。
+4. **真 bug ③：状态条的拖动监听被覆盖**。`FloatingDrag.attach(bar…)` 之后又调 `resetTimerOnTouch(bar)`，
+   两者都是 `setOnTouchListener`、后设的生效 → 状态条拖不动（只有 ≡ 能拖）。调整为先 resetTimer 再 attach。
+5. 顺手补：WebView 加 `setFocusable/setFocusableInTouchMode/requestFocus`（键盘输入需要焦点），
+   以及 `onPageFinished` / `onReceivedError` 回调（页面加载失败会直接说清楚，不再只是黑屏）。
+6. **修完实测**：存活 websockify = **1**、5900 出 `RFB 003.008`、6080 监听、`vnc.html` HTTP 200；
+   手机端 noVNC 正常显示 XFCE 桌面（OCR：`文件(F) 编辑(E) 视图(V) 转到(G) 书签(B) 帮助(H)`、
+   `警告：您正在使用超级帐户…`）。
+
 ## [2026-09-27] 按用户选择：留在 XFCE，卸载 MATE
 
 用户回「4 把 mate 删了」（选「留在 XFCE」，并删掉 MATE）。

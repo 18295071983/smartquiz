@@ -429,6 +429,38 @@ public final class TermuxEnvInstaller {
             """;
 
     /**
+     * 清掉残留的 websockify（容器内运行）。
+     *
+     * <p>真机踩到：每次「启动/重启图形界面」都会新起一个 websockify，旧的从不清理 ——
+     * 实测堆到 **9 个**，最后监听进程 accept 卡死，**5900/6080 双双 timeout**（不是 refused，是挂着），
+     * 手机端画面停在最后一帧、点哪儿都没反应（用户报的「输入指针没有捕获」就是这个）。
+     *
+     * <p>为什么用 python 而不是 {@code pkill -f websockify}：图形界面那条命令行本身就含
+     * "websockify" 字样，{@code pkill -f} 会把执行它的会话一起杀掉（这个坑之前踩过）。
+     * 这里按 {@code /proc/<pid>/cmdline} 的 <b>argv[1] 是否以 /websockify 结尾</b> 精确识别。
+     */
+    public static final String GUI_KILL_STALE_PY = """
+            import os, signal
+            me = os.getpid()
+            killed = []
+            for pid in os.listdir('/proc'):
+                if not pid.isdigit() or int(pid) == me:
+                    continue
+                try:
+                    raw = open('/proc/%s/cmdline' % pid, 'rb').read().decode('utf-8', 'ignore')
+                except Exception:
+                    continue
+                parts = [p for p in raw.split(chr(0)) if p]
+                if len(parts) > 1 and parts[1].endswith('/websockify'):
+                    try:
+                        os.kill(int(pid), signal.SIGKILL)
+                        killed.append(pid)
+                    except Exception:
+                        pass
+            print('stale websockify killed: ' + (','.join(killed) if killed else 'none'))
+            """;
+
+    /**
      * 演示窗口源码：tkinter 实时时钟 + 一个按钮。
      *
      * <p>为什么要有它：桌面如果完全静止（早先用的 xclock 在 proot 下不走了），
@@ -545,6 +577,9 @@ public final class TermuxEnvInstaller {
                 "[ -n \"$SESSION\" ] || SESSION=startxfce4",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
+                "QUIZ_KILL_B64=\"" + b64(GUI_KILL_STALE_PY) + "\"",
+                // 残留 websockify 会把 6080 卡死（真机堆到 9 个、端口 timeout）——每次启动前先清
+                "kill_stale() { echo \"$QUIZ_KILL_B64\" | base64 -d > \"$H/.quiz_kill_stale.py\"; proot-distro login ubuntu -- python3 /data/data/com.termux/files/home/.quiz_kill_stale.py 2>/dev/null | tail -1; }",
                 // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
                 // 真机踩过 —— 僵尸 Xvnc 让健康检查误判成"已启动"，用户那边 5900 根本连不上
                 "UP() { for p in $(pgrep -x Xvnc 2>/dev/null); do st=$(sed -n 's/^State:[[:space:]]*\\([A-Z]\\).*/\\1/p' /proc/$p/status 2>/dev/null); case \"$st\" in R|S|D|T|t|W|X|I) return 0;; esac; done; return 1; }",
@@ -558,6 +593,7 @@ public final class TermuxEnvInstaller {
                 "trace \"script-start\"",
                 "ensure_fonts",
                 "ensure_zh",
+                "kill_stale",
                 "trace \"font-scheduled\"",
                 "if UP; then ensure_zh; ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
@@ -601,6 +637,9 @@ public final class TermuxEnvInstaller {
                 "[ -n \"$SESSION\" ] || SESSION=startxfce4",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
+                "QUIZ_KILL_B64=\"" + b64(GUI_KILL_STALE_PY) + "\"",
+                // 残留 websockify 会把 6080 卡死（真机堆到 9 个、端口 timeout）——每次启动前先清
+                "kill_stale() { echo \"$QUIZ_KILL_B64\" | base64 -d > \"$H/.quiz_kill_stale.py\"; proot-distro login ubuntu -- python3 /data/data/com.termux/files/home/.quiz_kill_stale.py 2>/dev/null | tail -1; }",
                 // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
                 // 真机踩过 —— 僵尸 Xvnc 让健康检查误判成"已启动"，用户那边 5900 根本连不上
                 "UP() { for p in $(pgrep -x Xvnc 2>/dev/null); do st=$(sed -n 's/^State:[[:space:]]*\\([A-Z]\\).*/\\1/p' /proc/$p/status 2>/dev/null); case \"$st\" in R|S|D|T|t|W|X|I) return 0;; esac; done; return 1; }",
@@ -609,6 +648,7 @@ public final class TermuxEnvInstaller {
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
                 "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
                 "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
+                "kill_stale",
                 "pkill -x Xvnc >/dev/null 2>&1",
                 "pkill -x xclock >/dev/null 2>&1",
                 "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1",

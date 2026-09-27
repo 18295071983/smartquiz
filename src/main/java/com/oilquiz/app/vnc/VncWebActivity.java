@@ -99,12 +99,34 @@ public class VncWebActivity extends AppCompatActivity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);      // noVNC 用 localStorage 存设置
-        s.setSupportZoom(false);           // 缩放交给 noVNC 自己（resize=scale）
+        s.setSupportZoom(false);           // 缩放交给 noVNC 自己（resize=remote）
         s.setBuiltInZoomControls(false);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         web.setBackgroundColor(0xFF000000);
-        web.setWebViewClient(new WebViewClient());
+        // 键盘输入要 WebView 先拿到焦点，否则软键盘按了也发不到远端（noVNC 靠 keydown）
+        web.setFocusable(true);
+        web.setFocusableInTouchMode(true);
+        web.requestFocus();
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                web.requestFocus();          // 页面加载完再要一次焦点（键盘）
+                webLoaded = true;
+                status("noVNC 页面已加载，正在连接远端桌面…");
+            }
+
+            @Override
+            public void onReceivedError(WebView view, android.webkit.WebResourceRequest req,
+                                        android.webkit.WebResourceError err) {
+                super.onReceivedError(view, req, err);
+                // 页面本身加载失败（通常是容器里的 websockify 没起来），直接说清楚
+                status("noVNC 页面加载失败：" + (err == null ? "" : err.getDescription())
+                        + "（点「启动桌面」或「重连」）");
+                webLoaded = false;
+            }
+        });
         // noVNC 的界面会调用 Fullscreen API，而 WebView 必须由 App 接住 onShowCustomView 才算支持，
         // 否则 noVNC 会弹「noVNC 遇到一个错误：Fullscreen is not supported」（真机截图抓到过）。
         web.setWebChromeClient(new WebChromeClient() {
@@ -168,13 +190,14 @@ public class VncWebActivity extends AppCompatActivity {
             scheduleAutoHide();
         });
         findViewById(R.id.btn_vnc_web_hide).setOnClickListener(v -> showBar(false));
-        // 浮层可以拖：状态条拖"状态文字/空白"处，≡ 整个都能拖；位置会记住
-        // （用户要求：「动态按钮不能拖动啊，为何是固定位置」）。没拖动的那一下仍当点击用。
+        // 注意顺序：resetTimerOnTouch 和 FloatingDrag 都是 setOnTouchListener，后设的生效 ——
+        // 之前先 attach 再 resetTimer，结果把状态条的拖动监听覆盖掉了（状态条拖不动就是这个原因）。
+        resetTimerOnTouch(bar);
+        // 浮层可以拖：状态条拖"状态文字/空白"处，≡ 整个都能拖；位置会记住，松手吸附最近边缘；
         // 长按 = 收成贴着边的小圆点（再长按恢复），需要画面完全干净时用
         FloatingDrag.attach(bar, findViewById(R.id.vnc_web_root), "bar", null, this::toggleMini);
         FloatingDrag.attach(toggle, findViewById(R.id.vnc_web_root), "toggle", () -> showBar(true),
                 this::toggleMini);
-        resetTimerOnTouch(bar);
 
         applyInsetsPadding(findViewById(R.id.vnc_web_root));
         mini = getSharedPreferences(PREF_MINI, MODE_PRIVATE).getBoolean(KEY_MINI, false);
@@ -267,19 +290,56 @@ public class VncWebActivity extends AppCompatActivity {
         if (destroyed) {
             return;
         }
-        probeAsync(up -> {
-            if (destroyed) {
-                return;
-            }
-            if (up && !webLoaded) {
-                openPage("桌面已就绪");
-            } else if (!up) {
-                status("图形界面未运行（点「启动图形界面」）");
-            } else {
-                status("noVNC 已连接 127.0.0.1:" + VNC_PORT);
-            }
-        });
-        handler.postDelayed(this::tickStatus, 4000);
+        if (webLoaded) {
+            // 页面已经在跑：只问 noVNC 自己的状态，**不再开裸 TCP 连接打 websockify** ——
+            // 之前每 4 秒连一次 6080，是把这个代理搞卡（最后 6080 timeout）的元凶之一。
+            queryNoVncState();
+        } else {
+            probeAsync(up -> {
+                if (destroyed) {
+                    return;
+                }
+                if (up) {
+                    openPage("桌面已就绪");
+                } else {
+                    status("图形界面未运行（点「启动桌面」）");
+                }
+            });
+        }
+        handler.postDelayed(this::tickStatus, 5000);
+    }
+
+    /** 读 noVNC 自己的连接状态（纯 JS，不开 socket） */
+    private void queryNoVncState() {
+        if (web == null) {
+            return;
+        }
+        web.evaluateJavascript(
+                "(function(){try{return (window.UI && UI.rfb) ? UI.rfb._rfbConnectionState : 'no-rfb';}"
+                        + "catch(e){return 'err';}})()",
+                value -> {
+                    if (destroyed) {
+                        return;
+                    }
+                    String v = value == null ? "" : value.replace("\"", "");
+                    switch (v) {
+                        case "connected":
+                            status("noVNC 已连接 127.0.0.1:" + VNC_PORT);
+                            break;
+                        case "connecting":
+                            status("正在连接远端桌面…");
+                            break;
+                        case "disconnected":
+                            status("连接已断开，正在自动重连…（noVNC reconnect=1）");
+                            break;
+                        case "no-rfb":
+                            status("页面已就绪，等待 noVNC 建立会话…");
+                            break;
+                        default:
+                            status("noVNC 状态：" + v);
+                            break;
+                    }
+                });
     }
 
     private void status(String s) {
