@@ -586,6 +586,12 @@ public final class TermuxEnvInstaller {
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
+                // 桌面外壳兜底：proot 里 XFCE 的会话管理器经常拉不起客户端（退回只启 Failsafe、Client 全空），
+                // 结果【没有窗口管理器】—— 所有 XFCE 窗口都是 10x10 没被 map，面板看不见也点不到
+                // （真机实测：「启动器点不到」就是这个）。按 WM→面板→桌面 的顺序补齐，各用独立 dbus 会话；
+                // 会话自己能起来时这里就是空操作。
+                "START_SHELL() { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $1\" >/dev/null 2>&1 < /dev/null & }",
+                "ensure_shell() { pgrep -x xfwm4 >/dev/null 2>&1 || START_SHELL \"xfwm4 --replace --compositor=off --sm-client-disable\"; sleep 3; pgrep -x xfce4-panel >/dev/null 2>&1 || START_SHELL \"xfce4-panel\"; sleep 2; pgrep -x xfdesktop >/dev/null 2>&1 || START_SHELL \"xfdesktop\"; }",
                 "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
                 "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
                 "TRACE=\"$H/.quiz_gui_start_trace.log\"",
@@ -595,13 +601,13 @@ public final class TermuxEnvInstaller {
                 "ensure_zh",
                 "kill_stale",
                 "trace \"font-scheduled\"",
-                "if UP; then ensure_zh; ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
+                "if UP; then ensure_zh; ensure_desktop; ensure_shell; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
                 "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
                 "trace \"starting-xvnc\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_zh; ensure_desktop; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_zh; ensure_desktop; ensure_shell; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
                 "trace \"gui-failed\"",
                 "echo \"GUI_FAILED\"",
                 "tail -15 \"$LOG\"",
@@ -646,6 +652,12 @@ public final class TermuxEnvInstaller {
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
+                // 桌面外壳兜底：proot 里 XFCE 的会话管理器经常拉不起客户端（退回只启 Failsafe、Client 全空），
+                // 结果【没有窗口管理器】—— 所有 XFCE 窗口都是 10x10 没被 map，面板看不见也点不到
+                // （真机实测：「启动器点不到」就是这个）。按 WM→面板→桌面 的顺序补齐，各用独立 dbus 会话；
+                // 会话自己能起来时这里就是空操作。
+                "START_SHELL() { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $1\" >/dev/null 2>&1 < /dev/null & }",
+                "ensure_shell() { pgrep -x xfwm4 >/dev/null 2>&1 || START_SHELL \"xfwm4 --replace --compositor=off --sm-client-disable\"; sleep 3; pgrep -x xfce4-panel >/dev/null 2>&1 || START_SHELL \"xfce4-panel\"; sleep 2; pgrep -x xfdesktop >/dev/null 2>&1 || START_SHELL \"xfdesktop\"; }",
                 "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
                 "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
                 "kill_stale",
@@ -656,7 +668,7 @@ public final class TermuxEnvInstaller {
                 "echo \"[$(date '+%T')] restart\" >> \"$LOG\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_zh; ensure_desktop; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_zh; ensure_desktop; ensure_shell; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
                 "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
     }
 
