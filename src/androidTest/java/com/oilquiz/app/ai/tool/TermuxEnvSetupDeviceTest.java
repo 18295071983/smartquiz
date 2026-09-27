@@ -12,6 +12,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -143,6 +144,54 @@ public class TermuxEnvSetupDeviceTest {
         }
     }
 
+    /** 通道自检必须真的通（真发命令 + 等回执），并能拿到环境诊断 */
+    @Test
+    public void channelProbeWorks() {
+        Context c = ctx();
+        if (TermuxEnvInstaller.termuxVersion(c) == null || !TermuxEnvInstaller.hasRunCommandPermission(c)) {
+            System.out.println("[CH] 没装 Termux 或没授权，跳过通道自检");
+            return;
+        }
+        TermuxEnvInstaller.ChannelResult r = TermuxEnvInstaller.runInTermuxAndWait(c, "echo QUIZ_CHANNEL_OK", 25);
+        System.out.println("[CH] 通道自检 ok=" + r.ok + " stdout=" + r.stdout.trim() + " error=" + r.error);
+        assertTrue("通道应可用（失败原因: " + r.error + "）", r.ok);
+        TermuxEnvInstaller.ChannelResult d =
+                TermuxEnvInstaller.runInTermuxAndWait(c, TermuxEnvInstaller.buildDiagnoseCommand(), 25);
+        System.out.println("[CH] 诊断输出:\n" + d.stdout);
+        assertTrue("诊断应含 proot-distro 行", d.stdout.contains("proot-distro="));
+        assertTrue("诊断应含 last-setup 行", d.stdout.contains("last-setup:"));
+    }
+
+    /** 短命令：写进公共目录的一行命令，且文件内容 == 当前生成的脚本全文（改脚本不用改命令） */
+    @Test
+    public void shortManualCommandWritesScriptFile() throws Exception {
+        Context c = ctx();
+        String cmd = TermuxEnvInstaller.shortManualCommand(c);
+        System.out.println("[CH] 短命令=" + cmd);
+        assertNotNull("应能写出 setup.sh 并给出一行命令", cmd);
+        assertTrue("应是 bash + 公共目录路径",
+                cmd.startsWith("bash ") && cmd.contains("OilQuiz/termux_env/setup.sh"));
+        String path = cmd.substring("bash ".length());
+        String fromFile = new String(Files.readAllBytes(new File(path).toPath()), StandardCharsets.UTF_8);
+        File r = TermuxEnvInstaller.exportedRootfs(c);
+        String generated = TermuxEnvInstaller.buildSetupScript(r == null ? null : r.getAbsolutePath());
+        assertEquals("文件内容应与当前生成的脚本一致", generated, fromFile);
+    }
+
+    /** 签名指纹：格式必须是 SHA-256，且能对内置包常量给出明确结论 */
+    @Test
+    public void signerFingerprintFormat() {
+        Context c = ctx();
+        String s = TermuxEnvInstaller.installedTermuxSigner(c);
+        System.out.println("[CH] 已装 Termux 签名=" + s
+                + " 与内置包一致=" + TermuxEnvInstaller.termuxSignerMatchesBundled(c));
+        if (s != null) {
+            assertTrue("签名应是 32 组两位十六进制: " + s, s.matches("([0-9A-F]{2}:){31}[0-9A-F]{2}"));
+        }
+        assertTrue("内置包指纹常量格式应正确",
+                TermuxEnvInstaller.BUNDLED_TERMUX_SIGNER_SHA256.matches("([0-9A-F]{2}:){31}[0-9A-F]{2}"));
+    }
+
     /** 未授予 RUN_COMMAND 权限时，一键下发要给出明确原因（不静默失败） */
     @Test
     public void runInTermuxReportsMissingPermission() {
@@ -173,7 +222,7 @@ public class TermuxEnvSetupDeviceTest {
         int[] ids = {com.oilquiz.app.R.id.env_status, com.oilquiz.app.R.id.env_log,
                 com.oilquiz.app.R.id.btn_install_termux, com.oilquiz.app.R.id.btn_export_rootfs,
                 com.oilquiz.app.R.id.btn_run_setup, com.oilquiz.app.R.id.btn_grant,
-                com.oilquiz.app.R.id.btn_copy_cmd};
+                com.oilquiz.app.R.id.btn_fix_channel, com.oilquiz.app.R.id.btn_copy_cmd};
         StringBuilder missing = new StringBuilder();
         for (int id : ids) {
             if (root.findViewById(id) == null) {

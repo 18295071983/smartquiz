@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-09-27] 「一键准备」把能自动的全自动：通道自检 + 一行修复 + 自动复检（并讲清哪一步无法自动）
+
+用户问「Termux 连不上了，能在一键配置时自动配置吗」。先把能力边界说清楚，再把能自动的全部自动化。
+
+1. **为什么做不到 100% 自动**：`allow-external-apps`（Termux 允许外部应用调用它）这个开关只能由 Termux 自己
+   写进 `~/.termux/termux.properties`：
+   · Android 不允许 App A 写 App B 的私有目录（Termux 是另一个 UID）；
+   · Termux 的 RUN_COMMAND 会主动拒绝没开这个开关的调用（Termux 的安全设计，不是 bug）；
+   · MIUI 又禁掉了 adb 代授（`pm grant` 抛 SecurityException），设备也没有 root/Shizuku；
+   · 本项目里的 `AccessibilityHelper` 只是无障碍描述辅助，**没有声明 AccessibilityService**，
+     所以 App 也无法用无障碍服务代替用户在 Termux 里打字。
+   结论：「首次打开这个开关」必须用户执行一次；App 能做的是把它压到"一行命令 + 粘贴回车"。
+2. **本次做成的自动化**：
+   · 新增「**自检并修复通道**」按钮：真发一条命令并等 Termux 广播回执（唯一可信判据），失败原因分类明确 ——
+     没装 Termux / 没授 RUN_COMMAND 权限 / 系统拒绝 / Termux 20s 没回执（= allow-external-apps 没开或被系统冻结）。
+   · 修复命令从"整段 5KB 脚本"压成**一行**：App 把脚本全文写到 `Download/OilQuiz/termux_env/setup.sh`，
+     用户只需粘 `bash /sdcard/Download/OilQuiz/termux_env/setup.sh`；以后脚本改了这行命令也不用变
+     （设备用例断言"文件内容 == 当前生成脚本"）。
+   · 自动复制到剪贴板 + 自动打开 Termux；用户粘完切回本页时 onResume **自动复检**（不用再点）。
+   · 通道通了以后「自检」还会打印环境现状：proot-distro 有无、容器列表、上次准备结果 `fail=0/1`、
+     `allow-external-apps` 是否已写、`~/ubuntu-gui` 是否存在 —— 排障不用再猜。
+3. **新增签名冲突预警**（很可能是"连不上"的真因）：内置包是 **F-Droid 官方签名**，早期装的是 **GitHub debug 包**，
+   签名不同 → 系统会拒绝覆盖安装（表现为"装了没反应/安装失败"）。现在安装前会比对已装 Termux 的签名指纹
+   （SHA-256 与内置包常量），不一致时明确给两条路：继续用现有 Termux（推荐，只需一次粘贴）/ 卸载重装内置包
+   （**容器与数据会一起没**）。
+4. **无设备也能验的部分（已验）**：从 Java 源码机械抽取全部 Termux 侧脚本，用真 bash（Git Bash）做语法门禁：
+   `setup.sh`(179 行) / `gui_start.sh` / `gui_stop.sh` / `gui_status.sh` / `diag.sh` **全部 `bash -n` 退出 0**。
+5. 新增 3 个真机用例（等设备回来跑）：通道自检必须通并拿到诊断、短命令文件内容==当前脚本全文、签名指纹格式与结论。
+6. 待设备回归复验：上述 3 个新用例 + 之前两项（准备脚本 `ash -n`、VNC 帧内容非全黑）。
 ## [2026-09-27] 新增「图形界面（VNC）」：内置 RFB 客户端，在答题宝里显示 Linux 桌面
 
 用户问「vnc 可以内置到 app 中吗」。结论：**客户端能内置，服务端进不了 App 进程**（targetSdk 35 不能 execve

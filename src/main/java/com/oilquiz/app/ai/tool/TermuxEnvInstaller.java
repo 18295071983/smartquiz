@@ -1,11 +1,16 @@
 package com.oilquiz.app.ai.tool;
 
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
 import android.os.Environment;
 
 import androidx.core.content.FileProvider;
@@ -511,6 +516,204 @@ public final class TermuxEnvInstaller {
 
     private static String shellQuote(String s) {
         return "'" + String.valueOf(s).replace("'", "'\\''") + "'";
+    }
+
+    // ---------- 通道自检 / 一键修复（Termux 侧配置） ----------
+
+    /**
+     * 内置 Termux APK 的签名证书 SHA-256（F-Droid 官方签名，keytool -printcert -jarfile 得出）。
+     * 用来判断"已装的 Termux 能否被内置包覆盖安装"：签名不同时系统会直接拒绝更新安装。
+     */
+    public static final String BUNDLED_TERMUX_SIGNER_SHA256 =
+            "22:8F:B2:CF:E9:08:31:C1:49:9E:C3:CC:AF:61:E9:6E:8E:1C:E7:07:66:B9:47:46:72:CE:42:73:34:D4:1C:42";
+
+    private static final String RUN_COMMAND_SERVICE = "com.termux.app.RunCommandService";
+    private static final String ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND";
+    private static final String EXTRA_RC_PATH = "com.termux.RUN_COMMAND_PATH";
+    private static final String EXTRA_RC_ARGS = "com.termux.RUN_COMMAND_ARGUMENTS";
+    private static final String EXTRA_RC_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR";
+    private static final String EXTRA_RC_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND";
+    private static final String EXTRA_RC_PENDING_INTENT = "com.termux.RUN_COMMAND_PENDING_INTENT";
+    private static final String EXTRA_RESULT_BUNDLE = "result";
+    private static final String RESULT_STDOUT = "stdout";
+    private static final String RESULT_STDERR = "stderr";
+    private static final String RESULT_ERRMSG = "errmsg";
+    private static final String RESULT_ACTION = "com.oilquiz.app.TERMUX_EXEC_RESULT";
+    private static final java.util.concurrent.atomic.AtomicInteger REQ_CODE =
+            new java.util.concurrent.atomic.AtomicInteger(4200);
+
+    /** 一次"真发命令并等 Termux 回执"的结果 */
+    public static final class ChannelResult {
+        public final boolean ok;
+        public final String stdout;
+        public final String stderr;
+        public final String error;
+
+        ChannelResult(boolean ok, String stdout, String stderr, String error) {
+            this.ok = ok;
+            this.stdout = stdout == null ? "" : stdout;
+            this.stderr = stderr == null ? "" : stderr;
+            this.error = error;
+        }
+    }
+
+    /**
+     * 真发一条命令并等回执（广播）。**这是"通道到底通不通"的唯一可信判据**，
+     * 比"我下发了 intent 没报错"强得多。
+     *
+     * <p>失败原因会区分：没装 Termux / 没授权 / 系统拒绝 / Termux 没回执
+     * （后者通常是 allow-external-apps 没开，或 Termux 被系统冻结/清过数据）。
+     */
+    public static ChannelResult runInTermuxAndWait(Context ctx, String command, int timeoutSeconds) {
+        if (termuxVersion(ctx) == null) {
+            return new ChannelResult(false, "", "", "Termux 没装");
+        }
+        if (!hasRunCommandPermission(ctx)) {
+            return new ChannelResult(false, "", "", "还没授予 RUN_COMMAND 权限（点上面的授权按钮）");
+        }
+        final java.util.concurrent.ArrayBlockingQueue<Intent> queue =
+                new java.util.concurrent.ArrayBlockingQueue<>(1);
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                queue.offer(intent);
+            }
+        };
+        boolean registered = false;
+        try {
+            IntentFilter filter = new IntentFilter(RESULT_ACTION);
+            if (Build.VERSION.SDK_INT >= 33) {
+                ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                ctx.registerReceiver(receiver, filter);
+            }
+            registered = true;
+
+            Intent replyIntent = new Intent(RESULT_ACTION).setPackage(ctx.getPackageName());
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 31) {
+                flags |= PendingIntent.FLAG_MUTABLE;   // Termux 要往里面塞结果 Bundle
+            }
+            PendingIntent reply = PendingIntent.getBroadcast(ctx, REQ_CODE.incrementAndGet(), replyIntent, flags);
+
+            Intent i = new Intent(ACTION_RUN_COMMAND);
+            i.setClassName(TERMUX_PACKAGE, RUN_COMMAND_SERVICE);
+            i.putExtra(EXTRA_RC_PATH, "/data/data/com.termux/files/usr/bin/bash");
+            i.putExtra(EXTRA_RC_ARGS, new String[]{"-lc", command});
+            i.putExtra(EXTRA_RC_WORKDIR, "/data/data/com.termux/files/home");
+            i.putExtra(EXTRA_RC_BACKGROUND, true);
+            i.putExtra(EXTRA_RC_PENDING_INTENT, reply);
+            ctx.startService(i);
+
+            Intent result = queue.poll(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
+            if (result == null) {
+                return new ChannelResult(false, "", "", "Termux " + timeoutSeconds
+                        + "s 没回执（最常见原因：Termux 侧 allow-external-apps 没开；也可能 Termux 被系统冻结/清除过数据）");
+            }
+            Bundle b = result.getBundleExtra(EXTRA_RESULT_BUNDLE);
+            if (b == null) {
+                return new ChannelResult(false, "", "", "Termux 回执里没有结果 Bundle");
+            }
+            String out = b.getString(RESULT_STDOUT, "");
+            String err = b.getString(RESULT_STDERR, "");
+            String errmsg = b.getString(RESULT_ERRMSG, "");
+            if (errmsg != null && !errmsg.isEmpty()) {
+                return new ChannelResult(false, out, err, "Termux 报错: " + errmsg);
+            }
+            return new ChannelResult(true, out, err, null);
+        } catch (SecurityException se) {
+            return new ChannelResult(false, "", "", "系统拒绝了 RUN_COMMAND（权限没生效）: " + se.getMessage());
+        } catch (Exception e) {
+            return new ChannelResult(false, "", "", e.getClass().getSimpleName() + ": " + e.getMessage());
+        } finally {
+            if (registered) {
+                try {
+                    ctx.unregisterReceiver(receiver);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    /** 一次拿到环境诊断：proot-distro / 容器 / 上次准备结果 / allow-external-apps 是否已写 */
+    public static String buildDiagnoseCommand() {
+        return String.join("; ",
+                "echo \"PREFIX=$PREFIX\"",
+                "command -v proot-distro >/dev/null 2>&1 && echo proot-distro=yes || echo proot-distro=no",
+                "echo \"containers: $(proot-distro list -q 2>/dev/null | tr '\\n' ' ')\"",
+                "echo \"last-setup: $(tail -1 $HOME/.quiz_env_setup.status 2>/dev/null)\"",
+                "echo \"allow-external-apps: $(grep -c '^allow-external-apps=true' $HOME/.termux/termux.properties 2>/dev/null)\"",
+                "test -x $HOME/ubuntu-gui && echo ubuntu-gui=yes || echo ubuntu-gui=no");
+    }
+
+    /** 已装 Termux 的签名 SHA-256（大写冒号分隔，与 keytool 输出一致）；取不到返回 null */
+    public static String installedTermuxSigner(Context ctx) {
+        try {
+            android.content.pm.PackageInfo pi = ctx.getPackageManager().getPackageInfo(
+                    TERMUX_PACKAGE, PackageManager.GET_SIGNATURES);
+            android.content.pm.Signature[] sigs = pi.signatures;
+            if (sigs == null || sigs.length == 0) {
+                return null;
+            }
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(sigs[0].toByteArray());
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < d.length; i++) {
+                if (i > 0) {
+                    sb.append(':');
+                }
+                sb.append(String.format(java.util.Locale.US, "%02X", d[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 已装 Termux 与内置包是否同签名；不同签名时"更新安装"会被系统直接拒绝 */
+    public static boolean termuxSignerMatchesBundled(Context ctx) {
+        String s = installedTermuxSigner(ctx);
+        return s != null && s.equalsIgnoreCase(BUNDLED_TERMUX_SIGNER_SHA256);
+    }
+
+    /** 把准备脚本全文写到公共下载目录（App 有权限，Termux 有存储权限后能读）；失败返回 null */
+    public static File writeSetupScriptFile(Context ctx) {
+        try {
+            File r = exportedRootfs(ctx);
+            File f = new File(publicDir(ctx), "setup.sh");
+            try (OutputStream out = new FileOutputStream(f)) {
+                out.write(buildSetupScript(r == null ? null : r.getAbsolutePath())
+                        .getBytes(StandardCharsets.UTF_8));
+            }
+            return f;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 手动兜底的"一行命令"：把 5KB 的准备脚本写到公共目录，让用户只需要粘一行
+     * {@code bash /sdcard/Download/OilQuiz/termux_env/setup.sh}。
+     * 返回 null 表示写不进去（此时只能退回复制整段脚本）。
+     */
+    public static String shortManualCommand(Context ctx) {
+        File f = writeSetupScriptFile(ctx);
+        return f == null ? null : "bash " + f.getAbsolutePath();
+    }
+
+    /** 在本机打开 Termux（用户去粘贴那一行） */
+    public static boolean openTermux(Context ctx) {
+        try {
+            Intent i = ctx.getPackageManager().getLaunchIntentForPackage(TERMUX_PACKAGE);
+            if (i == null) {
+                return false;
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(i);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public static String readAssetText(Context ctx, String assetName) {

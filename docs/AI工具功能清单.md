@@ -235,6 +235,11 @@
 - **排障日志**：整段准备输出 `tee` 到 Termux 的 `~/.quiz_env_setup.log`，状态写 `~/.quiz_env_setup.status`（末行 `fail=0/1`）。排查时先看这两个文件。
 - **存储权限**：Termux 未授予存储权限时读不到本地 29MB 包（`/sdcard` 拒绝、`~/storage` 不存在），界面状态区会显示「未授予」，脚本会提示在 Termux 执行 `termux-setup-storage` 并点允许；本次则自动联网下 30MB。
 - **许可**：Termux 为 GPLv3（源码 github.com/termux/termux-app），Ubuntu 镜像按其各组件许可；见 `THIRD_PARTY_NOTICES.md`。
+- **通道自检与自动修复（2026-09-27）**：「一键准备」页新增「**自检并修复通道**」——真发一条命令并等 Termux 广播回执，失败原因分类明确（没装 Termux / 没授权 / 系统拒绝 / 20s 没回执=allow-external-apps 没开）。
+  · 唯一无法自动的一步：`allow-external-apps` 只能由 Termux 自己写进它的私有目录（Android 不允许 A 应用写 B 应用私有目录；MIUI 禁掉 adb 代授；本 App 也没有 AccessibilityService）。App 把这一步压成**一行命令 + 粘贴回车**：脚本全文写到 `Download/OilQuiz/termux_env/setup.sh`，用户只需粘 `bash /sdcard/Download/OilQuiz/termux_env/setup.sh`（脚本改版也不用改这行）。
+  · 自动复制 + 自动打开 Termux；用户回到本页自动复检（onResume），通了就继续。
+  · **签名冲突预警**：内置 Termux 是 F-Droid 官方签名；若设备上是 GitHub debug 包（或反之），覆盖安装会被系统拒绝 —— 界面会显示「Termux 签名：与内置包不一致 ⚠️」并给出两条路（继续用现有 Termux / 卸载重装但容器会没）。
+  · 「自检」的输出含：proot-distro 有无、容器列表、上次准备 `fail=0/1`、`allow-external-apps` 计数、`~/ubuntu-gui` 是否存在。
 
 ### 图形界面（VNC）— 在答题宝里看 Linux 桌面
 - **入口**：工具集 → 设置与数据 → **图形界面（VNC）**；环境准备页也有「启动图形界面（VNC）」按钮。

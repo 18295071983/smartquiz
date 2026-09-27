@@ -2,6 +2,8 @@ package com.oilquiz.app.ai.tool;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -33,6 +35,10 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     private MaterialButton grantBtn;
     private MaterialButton copyBtn;
     private volatile boolean busy;
+    /** 通道自检结论（展示在状态区） */
+    private String channelState = "未检测（点「自检并修复通道」）";
+    /** 是否正处于"等用户去 Termux 粘一行命令"的状态（回到本页自动复检） */
+    private volatile boolean pendingFix;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,15 +74,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             startActivity(new Intent(this, TermuxPermissionActivity.class));
             log("已打开 Termux 权限请求：请在弹窗里点「允许」。\n（若没弹窗，说明厂商 ROM 拦了，改用「复制手动命令」粘到 Termux 执行）");
         });
-        copyBtn.setOnClickListener(v -> {
-            String script = TermuxEnvInstaller.buildSetupScript(rootfsPath());
-            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm != null) {
-                cm.setPrimaryClip(ClipData.newPlainText("termux-setup", script));
-                log("已复制准备脚本。到 Termux 里长按粘贴并回车即可（约 3~6 分钟）。");
-                toast("命令已复制到剪贴板");
-            }
-        });
+        copyBtn.setOnClickListener(v -> copyManualCommand());
+        findViewById(R.id.btn_fix_channel).setOnClickListener(v -> doFixChannel());
 
         refresh();
     }
@@ -85,6 +84,37 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refresh();
+        // 用户去 Termux 粘完那一行命令回来后，自动复检通道（通了就不用再点任何东西）
+        if (pendingFix && !busy) {
+            pendingFix = false;
+            log("检测到你回到本页了，正在复检 Termux 通道…");
+            doFixChannel();
+        }
+    }
+
+    /**
+     * 复制"手动兜底命令"。
+     *
+     * <p>优先给**一行短命令**（脚本全文已写到 Download/OilQuiz/termux_env/setup.sh，Termux 有存储权限就能读），
+     * 而不是把 5KB 脚本全文塞进剪贴板；没有存储权限或写不进去时，才退回复制全文。
+     */
+    private void copyManualCommand() {
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        boolean storage = TermuxEnvInstaller.termuxHasStoragePermission(this);
+        String shortCmd = storage ? TermuxEnvInstaller.shortManualCommand(this) : null;
+        String text = shortCmd != null ? shortCmd : TermuxEnvInstaller.buildSetupScript(rootfsPath());
+        if (cm != null) {
+            cm.setPrimaryClip(ClipData.newPlainText("termux-setup", text));
+        }
+        if (shortCmd != null) {
+            log("已复制一行命令：\n" + shortCmd + "\n\n"
+                    + "到 Termux 里长按终端 → 粘贴 → 回车即可（脚本全文已写到 "
+                    + "Download/OilQuiz/termux_env/setup.sh，与 App 当前版本一致，以后改脚本这行命令不用变）。");
+        } else {
+            log("已复制准备脚本全文（Termux 还没有存储权限，只能整段粘贴；"
+                    + "授权后本按钮会改成只复制一行）。到 Termux 里长按粘贴并回车（约 3~6 分钟）。");
+        }
+        toast("命令已复制到剪贴板");
     }
 
     private String rootfsPath() {
@@ -108,8 +138,13 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 ? "已授予 ✓（用本地 28.5MB 包，不联网）"
                 : "未授予 ⚠️（读不到本地包 → 会联网下 30MB；一键准备时会弹授权框，请点『允许』）").append("\n");
         sb.append("Ubuntu 根文件系统：").append(rootfs == null ? "未导出 ✗" : ("已导出 ✓ " + mb(rootfs.length()))).append("\n");
+        sb.append("Termux 签名：").append(ver == null ? "—"
+                : (TermuxEnvInstaller.termuxSignerMatchesBundled(this)
+                ? "与内置包一致 ✓（可直接更新安装）"
+                : "与内置包不一致 ⚠️（覆盖安装会被系统拒绝；继续用现有 Termux 也行）")).append("\n");
         sb.append("内置包：Termux ").append(apkAsset > 0 ? mb(apkAsset) : "（未内置，需自行下载）")
-                .append(" / Ubuntu ").append(rootAsset > 0 ? mb(rootAsset) : "（未内置）");
+                .append(" / Ubuntu ").append(rootAsset > 0 ? mb(rootAsset) : "（未内置）").append("\n");
+        sb.append("通道自检：").append(channelState);
         statusView.setText(sb.toString());
 
         installBtn.setEnabled(!busy && ver == null);
@@ -123,6 +158,14 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
     private void doInstallTermux() {
         if (TermuxEnvInstaller.termuxVersion(this) != null) {
+            if (!TermuxEnvInstaller.termuxSignerMatchesBundled(this)) {
+                log("已装的 Termux 与内置包**签名不一致**，系统会拒绝覆盖安装。两个选择：\n"
+                        + "· 【推荐】继续用你现在这个 Termux，不用装内置包 —— 只需要让它允许外部应用调用，"
+                        + "点「自检并修复通道」，我会给你一行命令（粘一次即可）；\n"
+                        + "· 或者：卸载 Termux 再装内置包 —— 注意容器/Ubuntu 环境会一起被删除，之后要重新跑一次「一键准备」。");
+                toast("签名不一致，请看下方说明");
+                return;
+            }
             toast("Termux 已安装");
             return;
         }
@@ -183,6 +226,66 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             log("一键下发失败：" + err + hint + "\n改用「复制手动命令」：粘到 Termux 里执行同样能装好。");
             toast("请用「复制手动命令」");
         }
+    }
+
+    /**
+     * 通道自检 + 一键修复。
+     *
+     * <p>Android 不允许 App A 写 App B 的私有目录，也不允许绕过 Termux 自己声明的
+     * {@code allow-external-apps} 开关（MIUI 还禁掉了 adb 代授 pm grant），所以"首次打开这个开关"
+     * 只能由用户在 Termux 里执行一次。本方法把这个唯一的手动步骤压到极限：
+     * 自动复制**一行**命令 + 自动打开 Termux + 用户回来时自动复检，之后全自动。
+     */
+    private void doFixChannel() {
+        if (TermuxEnvInstaller.termuxVersion(this) == null) {
+            log("Termux 还没装。先点第 1 步「安装 Termux」（内置官方包）。");
+            return;
+        }
+        busy = true;
+        refresh();
+        log("正在自检 Termux 通道（真发一条命令并等回执，约 20 秒）…");
+        new Thread(() -> {
+            TermuxEnvInstaller.ChannelResult probe =
+                    TermuxEnvInstaller.runInTermuxAndWait(this, "echo QUIZ_CHANNEL_OK", 20);
+            if (probe.ok) {
+                TermuxEnvInstaller.ChannelResult diag = TermuxEnvInstaller.runInTermuxAndWait(
+                        this, TermuxEnvInstaller.buildDiagnoseCommand(), 25);
+                channelState = "可用 ✓";
+                runOnUiThread(() -> {
+                    busy = false;
+                    refresh();
+                    log("✅ 通道可用：答题宝已经能把命令送进 Termux 并拿回输出，一键准备/图形界面都能自动化了。\n\n"
+                            + "环境现状：\n" + diag.stdout);
+                });
+                return;
+            }
+            channelState = "不可用 ✗";
+            String shortCmd = TermuxEnvInstaller.termuxHasStoragePermission(this)
+                    ? TermuxEnvInstaller.shortManualCommand(this) : null;
+            final String cmd = shortCmd;
+            runOnUiThread(() -> {
+                busy = false;
+                refresh();
+                boolean copied = false;
+                if (cmd != null) {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("termux-fix", cmd));
+                        copied = true;
+                    }
+                }
+                boolean opened = TermuxEnvInstaller.openTermux(this);
+                pendingFix = true;
+                log("❌ 通道不可用：" + probe.error + "\n\n"
+                        + (cmd != null
+                        ? (copied ? "已把修复命令复制到剪贴板：\n" + cmd + "\n\n" : "修复命令：\n" + cmd + "\n\n")
+                        : "修复命令（Termux 没存储权限，只能整段粘贴）：点「复制手动命令」\n\n")
+                        + (opened ? "已打开 Termux：" : "请手动打开 Termux：")
+                        + "长按终端 → 粘贴 → 回车。\n"
+                        + "这一行会写好 allow-external-apps 并立即生效（只需做这一次）。\n"
+                        + "做完切回答题宝，我会自动复检并继续。");
+            });
+        }, "termux-channel-probe").start();
     }
 
     private void log(String s) {

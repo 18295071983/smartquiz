@@ -159,6 +159,17 @@
                         app:backgroundTint="?attr/colorSecondaryContainer"
                         app:cornerRadius="@dimen/radius_22"/>
                     <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_fix_channel"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_weight="1"
+                        android:text="自检并修复通道"
+                        android:textSize="@dimen/text_13"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_copy_cmd"
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_44"
