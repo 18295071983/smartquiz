@@ -224,6 +224,13 @@
   - 运行时已内置 pip 模块（`import pip` 可用）。安装新 Python 包：① `action=pip_install(package=包名)`（pip.main 编程式装到 filesDir/python_user_packages）；② 纯 Python 包（py3-none-any wheel）最稳用 `pip_install` 工具（自研下载器，不依赖 pip）；③ 编程式 `import pip; pip.main(['install','--target','<可写目录>','包名'])`。**禁止** subprocess 或 `python -m pip`（Chaquopy 无独立 python 可执行文件，必然失败）。
 - **参数**：`code`（上限 200KB）、`task`、`context`、`timeout`（5~120 秒）
 
+### 「完整体 Python」路线（Termux + proot-distro Ubuntu，2026-09-27 真机走通）
+- 内置 Chaquopy Python 永远没有 tkinter/curses/readline（Android 平台限制）；要这些就上真 Linux：
+  · 手机上已装 **Termux 0.118.3**（GitHub debug 包，targetSdk 28 → 仍可 exec 私有目录）与 **Ubuntu 24.04.5 容器**（proot-distro 5.9）；
+  · 容器内 Python **3.12.3**：tkinter(Tk 8.6)、curses、readline、sqlite3、ssl、lzma、bz2、zlib、ctypes、multiprocessing/fork、venv、pip、setuptools 全部可用；`pip install` 可直接用。
+- 用法：Termux 里跑 `~/ubuntu`（= `proot-distro login ubuntu`）；或让 AI 用 `system_resource(action=termux_exec)` 跑 `proot-distro login ubuntu -- python3 ...`（首次需用户手点一次 Termux 权限弹窗，小米禁止 adb 代授）。
+- 重装/迁移要点：`proot-distro 5.9` 默认走 Docker Hub（国内会卡死）→ 用 URL 装清华的 ubuntu-base tar.gz；容器内 Python 3.12 已无 `distutils`（用 setuptools 替代）。
+
 ### pip_install — 运行时安装纯 Python 包
 - **分类**：code
 - **功能**：自研 wheel 下载器（不依赖运行时 pip），从 PyPI 索引（默认官方 pypi.org/simple，镜像找不到时自动回退官方源）下载纯 Python 包解压到 filesDir/runtime_packages/ 并注入 sys.path（装后 python_execute 即可 import，跨重启保留）。
