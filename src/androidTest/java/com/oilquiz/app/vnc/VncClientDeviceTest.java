@@ -316,7 +316,9 @@ public class VncClientDeviceTest {
         assertFalse("不要用裸连 5900 探测（半截握手会把 TigerVNC 弄脏）",
                 start.contains("/dev/tcp/127.0.0.1/5900"));
         assertTrue("失败时要提示清残留 Xvnc", start.contains("pkill -f 'Xvn[c] :1'"));
-        assertTrue("启动后要放个可见窗口（避免纯黑桌面）", start.contains("xclock -geometry"));
+        assertTrue("启动后要放一个会动的演示窗口（桌面静止=没有帧更新，用户会以为坏了）",
+                start.contains(".quiz_gui_demo.py")
+                        && TermuxEnvInstaller.GUI_DEMO_PY.contains("time.strftime"));
         assertTrue("要有自愈用的重启脚本", TermuxEnvInstaller.buildGuiRestartScript().contains("GUI_RESTARTED"));
         assertFalse("不要再回到 x11vnc 那套（-threads 实测空转且不再监听）", setup.contains("-threads"));
 

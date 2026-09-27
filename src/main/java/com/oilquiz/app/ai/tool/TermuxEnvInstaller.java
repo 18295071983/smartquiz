@@ -237,10 +237,53 @@ public final class TermuxEnvInstaller {
      */
     public static final String GUI_INNER_COMMAND =
             "pkill -x Xvnc >/dev/null 2>&1; pkill -x x11vnc >/dev/null 2>&1; pkill -x Xvfb >/dev/null 2>&1; "
-                    + "pkill -x xclock >/dev/null 2>&1; sleep 1; "
+                    + "pkill -x xclock >/dev/null 2>&1; pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1; sleep 1; "
                     + "rm -f /tmp/.X11-unix/X1 /tmp/.X1-lock; "
                     + "exec Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
                     + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz";
+
+    /**
+     * 演示窗口源码：tkinter 实时时钟 + 一个按钮。
+     *
+     * <p>为什么要有它：桌面如果完全静止（早先用的 xclock 在 proot 下不走了），
+     * VNC 就没有画面变化、也就没有帧更新 —— 用户会以为"只显示两帧/坏了"。
+     * 这个窗口每 500ms 刷新一次，顺便还证明了 tkinter（内置 Chaquopy 做不到）真的能用。
+     *
+     * <p>用 base64 传输写进 Termux 家目录：heredoc 在这种"多层引号 + 非交互 shell"的场景下太容易出岔子。
+     */
+    public static final String GUI_DEMO_PY = """
+            import tkinter as tk, time, sys
+            r = tk.Tk()
+            r.title("OilQuiz GUI")
+            r.geometry("760x380+40+40")
+            r.configure(bg="#0b3d91")
+            big = tk.Label(r, font=("DejaVu Sans", 64, "bold"), fg="white", bg="#0b3d91")
+            big.pack(pady=(36, 8))
+            tk.Label(r, font=("DejaVu Sans", 17), fg="#cfe8ff", bg="#0b3d91",
+                     text="Ubuntu 24.04 + tkinter " + sys.version.split()[0] + " / 内置 Chaquopy 做不到这个").pack()
+            tk.Button(r, text="能点说明输入也通了", font=("DejaVu Sans", 15)).pack(pady=14)
+            def tick():
+                big.config(text=time.strftime("%H:%M:%S"))
+                r.after(500, tick)
+            tick()
+            r.mainloop()
+            """;
+
+    /** 写演示窗口 + 挂到 :1 上跑（两行 bash，供启动/重启脚本复用；base64 传源码） */
+    /** 演示脚本的 base64（脚本里用 base64 -d 写出，彻底避免引号/转义问题） */
+    private static String demoBase64() {
+        return android.util.Base64.encodeToString(
+                GUI_DEMO_PY.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
+    }
+
+    private static String[] guiDemoLines() {
+        String b64 = android.util.Base64.encodeToString(
+                GUI_DEMO_PY.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
+        return new String[]{
+                "echo \"" + b64 + "\" | base64 -d > \"$H/.quiz_gui_demo.py\"",
+                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 &"
+        };
+    }
 
     /**
      * Termux 侧「启动图形界面」脚本（幂等）。
@@ -260,8 +303,17 @@ public final class TermuxEnvInstaller {
                 "export HOME=\"$H\"",
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
                 "LOG=\"$H/.quiz_gui.log\"",
+                "QUIZ_DEMO_B64=\"" + demoBase64() + "\"",
                 "UP() { pgrep -x Xvnc >/dev/null 2>&1; }",
-                "if UP; then echo \"GUI_ALREADY_UP\"; exit 0; fi",
+                "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
+                "ensure_demo() {",
+                "  " + "echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"",
+                "  if ! DEMO_UP; then",
+                "    setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 &",
+                "    sleep 2",
+                "  fi",
+                "}",
+                "if UP; then ensure_demo; echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
                 "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 &",
@@ -270,11 +322,7 @@ public final class TermuxEnvInstaller {
                 "  sleep 1",
                 "  i=$((i+1))",
                 "  if UP; then",
-                "    # 放个看得见的东西，免得第一次进去是纯黑桌面让人以为没连上。",
-                "    # 这里绝对不能「连一下 5900 看看通不通」：半截握手会把 TigerVNC 弄脏（真机实测），",
-                "    # 之后真实客户端会被拒——banner 变 3.3 且安全类型返回 0。所以就绪判断只看进程名。",
-                "    setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 xclock -geometry 320x320+30+30\" >/dev/null 2>&1 &",
-                "    sleep 2",
+                "    ensure_demo",
                 "    echo \"GUI_UP\"",
                 "    exit 0",
                 "  fi",
@@ -312,7 +360,12 @@ public final class TermuxEnvInstaller {
                 "while [ $i -lt 20 ]; do",
                 "  sleep 1",
                 "  i=$((i+1))",
-                "  if pgrep -x Xvnc >/dev/null 2>&1; then echo \"GUI_RESTARTED\"; exit 0; fi",
+                "  if pgrep -x Xvnc >/dev/null 2>&1; then",
+                "    " + guiDemoLines()[0],
+                "    " + guiDemoLines()[1],
+                "    echo \"GUI_RESTARTED\"",
+                "    exit 0",
+                "  fi",
                 "done",
                 "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
     }
@@ -335,9 +388,37 @@ public final class TermuxEnvInstaller {
                 "fi");
     }
 
-    /** 让 Termux 起图形界面；返回 null 表示已下发（真实结果要轮询 5900 端口） */
+    /** 把一段文本写到公共下载目录（调试/给用户检查用）；失败返回 null */
+    public static File writeTextFile(Context ctx, String name, String content) {
+        try {
+            File f = new File(publicDir(ctx), name);
+            try (OutputStream out = new FileOutputStream(f)) {
+                out.write(content.getBytes(StandardCharsets.UTF_8));
+            }
+            return f;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 让 Termux 起图形界面。
+     *
+     * <p>先把脚本落盘到 Download/OilQuiz/termux_env/gui_start.sh：
+     * ① Termux 有存储权限时只下发一行 {@code bash <路径>}（省得几千字符塞进 Intent）；
+     * ② 出问题时这个文件就是"App 到底下发了什么"的字节级证据（真机排查时非常有用）。
+     */
     public static String startGuiInTermux(Context ctx) {
-        return runInTermux(ctx, buildGuiStartScript(), true);
+        String script = buildGuiStartScript();
+        // 落盘只为"出问题时能看 App 到底下发了什么"（真机排查用）。
+        // 注意：不要改成让 Termux 执行这个文件 —— /sdcard 上 App 写的脚本 Termux 读不了
+        // （实测 bash /sdcard/... → Permission denied, exit 126），只能由 App 直接把脚本文本下发。
+        writeTextFile(ctx, "gui_start.sh", script);
+        writeTextFile(ctx, "gui_restart.sh", buildGuiRestartScript());
+        writeTextFile(ctx, "gui_stop.sh", buildGuiStopScript());
+        writeTextFile(ctx, "gui_status.sh", buildGuiStatusScript());
+        writeTextFile(ctx, "gui_demo.py", GUI_DEMO_PY);
+        return runInTermux(ctx, script, true);
     }
 
     /** 让 Termux 停图形界面；返回 null 表示已下发 */
