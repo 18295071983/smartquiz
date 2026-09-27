@@ -414,7 +414,11 @@ public final class TermuxEnvInstaller {
 
     /** 让 Termux 重启图形界面；返回 null 表示已下发 */
     public static String restartGuiInTermux(Context ctx) {
-        return runInTermux(ctx, buildGuiRestartScript(), false);
+        // 与启动一样：只下发一条短命令，并且后台执行（background=true）。
+        // 早先这里用了 background=false → Termux 会被弹到前台，用户看到"点一下就跳到 Termux"。
+        String shortCmd = "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui restart"
+                + " || echo NO_UBUNTU_GUI_请先点一次一键准备";
+        return runInTermux(ctx, shortCmd, true);
     }
 
     /** Termux 侧「图形界面状态」脚本：端口通就再列一下容器里的 Xvnc 进程 */
@@ -458,6 +462,9 @@ public final class TermuxEnvInstaller {
                 "    ;;",
                 "  status)",
                 buildGuiStatusScript(),
+                "    ;;",
+                "  restart)",
+                buildGuiRestartScript(),
                 "    ;;",
                 "  *)",
                 buildGuiStartScript(),
