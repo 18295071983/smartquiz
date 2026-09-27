@@ -245,13 +245,18 @@ public final class TermuxEnvInstaller {
                     // ① 把 noVNC 网页（/usr/share/novnc）发出来；② 把 WebSocket 桥到 127.0.0.1:5900。
                     // 真机实测：ws 握手 101 + 收到 RFB 003.008 横幅。
                     + "Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
-                    + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz & "
+                    + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz & XVNC=$!; "
                     + "sleep 2; "
+                    // websockify 只当"后台助手"：它要是因为 6080 被上一轮的实例占住而启动失败，
+                    // 绝不能把桌面一起带走（真机踩过：exec websockify 抢不到端口就退出 →
+                    //  proot 会话结束 → Xvnc 被 --kill-on-exit 带走 → 5900 没人监听，
+                    //  而 pgrep 还能看到僵尸 Xvnc，健康检查以为一切正常）。
                     + "if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then "
-                    + "exec websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900; "
+                    + "websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 "
+                    + ">> /tmp/quiz_websockify.log 2>&1 & "
                     + "fi; "
-                    // 没有 websockify（老环境还没装 novnc）就退回"只跑 Xvnc"，用 wait 常驻别让会话退出
-                    + "wait";
+                    // 会话寿命只跟着 Xvnc：它活着图形界面就活着
+                    + "wait $XVNC";
 
     /**
      * 容器内「中文化 + 北京时间」脚本（可重复运行，只做一次性修复）。
@@ -534,7 +539,9 @@ public final class TermuxEnvInstaller {
                 "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
-                "UP() { pgrep -x Xvnc >/dev/null 2>&1; }",
+                // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
+                // 真机踩过 —— 僵尸 Xvnc 让健康检查误判成"已启动"，用户那边 5900 根本连不上
+                "UP() { for p in $(pgrep -x Xvnc 2>/dev/null); do st=$(sed -n 's/^State:[[:space:]]*\\([A-Z]\\).*/\\1/p' /proc/$p/status 2>/dev/null); case \"$st\" in R|S|D|T|t|W|X|I) return 0;; esac; done; return 1; }",
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
@@ -582,7 +589,9 @@ public final class TermuxEnvInstaller {
                 "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
-                "UP() { pgrep -x Xvnc >/dev/null 2>&1; }",
+                // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
+                // 真机踩过 —— 僵尸 Xvnc 让健康检查误判成"已启动"，用户那边 5900 根本连不上
+                "UP() { for p in $(pgrep -x Xvnc 2>/dev/null); do st=$(sed -n 's/^State:[[:space:]]*\\([A-Z]\\).*/\\1/p' /proc/$p/status 2>/dev/null); case \"$st\" in R|S|D|T|t|W|X|I) return 0;; esac; done; return 1; }",
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",

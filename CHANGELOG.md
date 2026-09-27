@@ -29,6 +29,18 @@
    ```
    另加两条真机用例：`vncWebShellReady`（外壳页布局 + URL 参数 autoconnect/resize/path/port）、
    `novncServedByContainer`（真的去 6080 取 vnc.html 200，并做一次 WebSocket 握手读到 RFB 横幅）。
+8. **顺手修掉两个真 bug（都是这轮真机踩出来的）**：
+   · **僵尸进程骗过健康检查**：`pgrep -x Xvnc` 会匹配到僵尸（`30739 Z Xvnc`），于是
+     `~/ubuntu-gui start` 回 `GUI_ALREADY_UP`，用户那边 5900 根本没监听。`UP()` 现在读
+     `/proc/<pid>/status` 的 `State:` 字段，只认 R/S/D/T/t/W/X/I 这些活状态。
+   · **websockify 抢不到端口会把整个桌面带死**：原来 `exec websockify` 当会话主进程，若 6080 被
+     上一轮的实例占住，它启动即失败 → proot 会话结束 → Xvnc 被 `--kill-on-exit` 带走 →
+     5900 没人监听（恰好又触发上面那个僵尸误判）。现在会话寿命只跟随 Xvnc（`wait $XVNC`），
+     websockify 降级成后台助手，失败也只写 `/tmp/quiz_websockify.log`，桌面照常活着。
+9. **真机截图核对（noVNC 在手机里真的连上了）**：截图前后取 `~/.quiz_gui.log`，服务端明确记录到
+   noVNC 的客户端会话：`connecting to: 127.0.0.1:5900` → `Connections: accepted` →
+   `Client needs protocol version 3.8` → `Client pixel format depth 24 (32bpp) little-endian bgr888`；
+   手机截图顶部 500px 的 OCR 读到桌面内容（`OilQuiz GUI`、`2026-9-27`、`17:xx`）。
 
 ## [2026-09-27] 图形界面页控件重排：参考 RealVNC / bVNC，画面优先 + 分组 + 自动收起
 
