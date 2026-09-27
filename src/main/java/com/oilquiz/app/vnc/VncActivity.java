@@ -43,6 +43,12 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
     private int retryCount = 0;
     private int autoRetry = 0;
     private boolean destroyed = false;
+    /** 已收到的帧数 / 最后一帧时间：状态行直接显示，黑屏时一眼分清"没收到帧"还是"没画出来" */
+    private volatile int frameCount = 0;
+    private volatile long lastFrameAt = 0L;
+    private int connectedW;
+    private int connectedH;
+    private String connectedName = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -114,6 +120,11 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
             status("已把剪贴板发给远端（在远端 Ctrl+V 粘贴）");
         });
 
+        // 测试专用：给了 auto_finish_ms 就自己关掉（让它的客户端断开，不干扰后续用例）
+        long autoFinish = getIntent().getLongExtra("auto_finish_ms", 0L);
+        if (autoFinish > 0) {
+            handler.postDelayed(this::finish, autoFinish);
+        }
         hint("用法：点「启动图形界面」等它连上，就能在答题宝里看到 Linux 桌面。"
                 + "轻点=左键，拖动=拖拽，双指滑=滚轮，双指捏合=缩放；「右键」后再点=右键。");
         handler.postDelayed(this::connectNow, 400);
@@ -155,15 +166,21 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
         retryCount = 0;
         runOnUiThread(() -> {
             android.util.Log.i("VncActivity", "已连接 " + width + "x" + height + " name=" + serverName);
+            connectedW = width;
+            connectedH = height;
+            connectedName = serverName == null ? "" : serverName;
             status("已连接 " + width + "x" + height
-                    + (serverName == null || serverName.isEmpty() ? "" : "（" + serverName + "）"));
+                    + (connectedName.isEmpty() ? "" : "（" + connectedName + "）"));
             vncView.setFitToScreen(true);
             vncView.invalidate();
+            handler.postDelayed(this::tickStatus, 800);
         });
     }
 
     @Override
     public void onFrameReady() {
+        frameCount++;
+        lastFrameAt = System.currentTimeMillis();
         vncView.postInvalidate();
     }
 
@@ -194,6 +211,16 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
             // 自动重连几次就通了，所以这里措辞是"正在连接第 N 次"而不是"失败"，避免用户以为连不上。
             if (autoRetry < 5) {
                 autoRetry++;
+                if (autoRetry == 2) {
+                    // 服务端可能被反复连断弄脏（真机现象：banner 变 3.3 且安全类型返回 0，之后怎么连都被拒）
+                    // 这时候唯一有效的办法是把它重启一遍 —— 自动做掉，别让用户去 Termux 敲命令
+                    String err = TermuxEnvInstaller.restartGuiInTermux(this);
+                    status(err == null
+                            ? "图形界面没响应，正在自动重启服务端…（第 " + autoRetry + " 次尝试）"
+                            : "自动重启服务端失败：" + err);
+                    handler.postDelayed(this::connectNow, 5000);
+                    return;
+                }
                 status("正在连接 127.0.0.1:" + parsePort() + " …（第 " + autoRetry + " 次尝试，最多 5 次）");
                 handler.postDelayed(this::connectNow, 800);
                 return;
@@ -247,6 +274,24 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
         root.requestApplyInsets();
     }
 
+    /** 每秒刷新一次状态行：已收帧数 + 最后帧时间（黑屏时能立刻判断卡在哪） */
+    private void tickStatus() {
+        if (destroyed || !client.isRunning()) {
+            return;
+        }
+        int n = frameCount;
+        String tail;
+        if (n == 0) {
+            tail = "· 还没收到画面（服务端没回更新，正在自动重发请求…）";
+        } else {
+            long age = (System.currentTimeMillis() - lastFrameAt) / 1000;
+            tail = "· 已收 " + n + " 帧，最后一帧 " + age + " 秒前（画面静止时不再刷新是正常的）";
+        }
+        status("已连接 " + connectedW + "x" + connectedH
+                + (connectedName.isEmpty() ? "" : "（" + connectedName + "）") + " " + tail);
+        handler.postDelayed(this::tickStatus, 1000);
+    }
+
     private void status(String s) {
         statusView.setText(s);
     }
@@ -254,6 +299,27 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
     private void hint(String s) {
         hintView.setText(s);
         hintView.setVisibility(View.VISIBLE);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // 回到页面：没连就自动连（后台时我们主动断开，回来再接上）
+        if (client != null && !client.isRunning() && !destroyed) {
+            handler.postDelayed(this::connectNow, 300);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // 离开页面就断开：远程桌面在后台持续收帧既费电，也会和别的客户端抢服务端
+        // （真机踩到过：页面留在前台占着一个客户端，后面新连接被服务端冷落，Framebuffer updates: 0）
+        if (client != null && client.isRunning()) {
+            client.stop();
+            status("已暂停（回到本页会自动重连）");
+        }
+        handler.removeCallbacksAndMessages(null);
     }
 
     @Override
@@ -274,6 +340,7 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
     @Override
     protected void onDestroy() {
         destroyed = true;
+        frameCount = 0;
         handler.removeCallbacksAndMessages(null);
         if (client != null) {
             client.stop();

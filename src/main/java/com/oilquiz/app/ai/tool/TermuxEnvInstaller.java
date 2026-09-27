@@ -294,6 +294,34 @@ public final class TermuxEnvInstaller {
                 "echo GUI_STOPPED");
     }
 
+    /** Termux 侧「重启图形界面」脚本：服务端被反复连断弄脏（banner 变 3.3、安全类型返回 0）时自愈用 */
+    public static String buildGuiRestartScript() {
+        return String.join("\n",
+                "H=\"${HOME:-/data/data/com.termux/files/home}\"",
+                "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
+                "export PREFIX",
+                "export HOME=\"$H\"",
+                "export PATH=\"$PREFIX/bin:/system/bin\"",
+                "LOG=\"$H/.quiz_gui.log\"",
+                "pkill -x Xvnc >/dev/null 2>&1",
+                "pkill -x xclock >/dev/null 2>&1",
+                "sleep 1",
+                "echo \"[$(date '+%T')] restart\" >> \"$LOG\"",
+                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 &",
+                "i=0",
+                "while [ $i -lt 20 ]; do",
+                "  sleep 1",
+                "  i=$((i+1))",
+                "  if pgrep -x Xvnc >/dev/null 2>&1; then echo \"GUI_RESTARTED\"; exit 0; fi",
+                "done",
+                "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
+    }
+
+    /** 让 Termux 重启图形界面；返回 null 表示已下发 */
+    public static String restartGuiInTermux(Context ctx) {
+        return runInTermux(ctx, buildGuiRestartScript(), true);
+    }
+
     /** Termux 侧「图形界面状态」脚本：端口通就再列一下容器里的 Xvnc 进程 */
     public static String buildGuiStatusScript() {
         return String.join("\n",

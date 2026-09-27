@@ -87,6 +87,8 @@ public class VncClient {
      */
     private final BlockingQueue<byte[]> outQueue = new LinkedBlockingQueue<>(512);
     private Thread writer;
+    private Thread keepAlive;
+    private volatile boolean gotFirstFrame;
 
     private int width;
     private int height;
@@ -129,8 +131,10 @@ public class VncClient {
         closing = false;
         final int myGen = ++generation;
         running = true;
+        gotFirstFrame = false;
         outQueue.clear();
         startWriter();
+        startKeepAlive();
         Thread t = new Thread(() -> {
             String reason = null;
             try {
@@ -161,7 +165,48 @@ public class VncClient {
             w.interrupt();
             writer = null;
         }
+        Thread k = keepAlive;
+        if (k != null) {
+            k.interrupt();
+            keepAlive = null;
+        }
         closeQuietly();
+    }
+
+    /**
+     * 看门狗：客户端请求帧之后，服务端**偶发一个更新都不回**（真机日志：Framebuffer updates: 0），
+     * 表现就是"已连接但画面全黑"。所以首帧没到就每 1.5 秒重发一次请求（全量），
+     * 拿到首帧后每 5 秒发一次增量请求当保活。
+     */
+    private void startKeepAlive() {
+        Thread t = new Thread(() -> {
+            while (running) {
+                try {
+                    Thread.sleep(gotFirstFrame ? 5000 : 1500);
+                } catch (InterruptedException e) {
+                    break;
+                }
+                if (!running || out == null) {
+                    continue;
+                }
+                enqueueFrameRequest(gotFirstFrame);
+            }
+        }, "vnc-keepalive");
+        t.setDaemon(true);
+        keepAlive = t;
+        t.start();
+    }
+
+    /** 把一条 FramebufferUpdateRequest 放进发送队列（看门狗/保活用） */
+    private void enqueueFrameRequest(boolean incremental) {
+        byte[] m = new byte[10];
+        m[0] = 3;
+        m[1] = (byte) (incremental ? 1 : 0);
+        m[6] = (byte) (width >> 8);
+        m[7] = (byte) width;
+        m[8] = (byte) (height >> 8);
+        m[9] = (byte) height;
+        enqueue(m);
     }
 
     /** 独立写线程：把队列里的输入消息真正写进 socket（UI 线程永不碰 socket） */
@@ -418,6 +463,9 @@ public class VncClient {
             if (bitmap != null && pixels != null) {
                 bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
             }
+        }
+        if (rects > 0) {
+            gotFirstFrame = true;
         }
         Listener l = listener;
         if (l != null && rects > 0) {

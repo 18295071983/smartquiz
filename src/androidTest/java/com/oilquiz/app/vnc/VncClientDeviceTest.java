@@ -157,6 +157,76 @@ public class VncClientDeviceTest {
         client.stop();
     }
 
+    /** 跑一轮"连接→等首帧"，返回画面颜色数；<0 表示连不上，0 表示连上但没帧（黑屏） */
+    private int connectAndGrabFrame(long frameWaitMs) throws Exception {
+        final CountDownLatch connected = new CountDownLatch(1);
+        final CountDownLatch frame = new CountDownLatch(1);
+        final boolean[] ok = new boolean[1];
+        VncClient client = new VncClient(new VncClient.Listener() {
+            @Override
+            public void onConnected(int w, int h, String name) {
+                ok[0] = true;
+                connected.countDown();
+            }
+
+            @Override
+            public void onFrameReady() {
+                frame.countDown();
+            }
+
+            @Override
+            public void onClipboard(String text) {
+            }
+
+            @Override
+            public void onDisconnected(String reason) {
+                connected.countDown();
+            }
+        });
+        client.start("127.0.0.1", TermuxEnvInstaller.VNC_PORT, 5000);
+        boolean c = connected.await(20, TimeUnit.SECONDS) && ok[0];
+        if (!c) {
+            client.stop();
+            return -1;
+        }
+        boolean f = frame.await(frameWaitMs, TimeUnit.MILLISECONDS);
+        int colors = 0;
+        if (f) {
+            android.graphics.Bitmap bmp = client.getBitmap();
+            java.util.HashSet<Integer> distinct = new java.util.HashSet<>();
+            for (int yy = 0; yy < bmp.getHeight(); yy += 17) {
+                for (int xx = 0; xx < bmp.getWidth(); xx += 17) {
+                    distinct.add(bmp.getPixel(xx, yy));
+                }
+            }
+            colors = distinct.size();
+        }
+        client.stop();
+        return f ? Math.max(colors, 1) : 0;
+    }
+
+    /**
+     * 回归（用户实际现象）："已连接 1280x720 但没有画面"。
+     *
+     * <p>真机日志：有的连接握手完全成功，但服务端 {@code Framebuffer updates: 0} —— 一个更新都不回，
+     * 客户端就卡在读，画面全黑。现在客户端有看门狗：首帧没到就每 1.5 秒重发请求。
+     * 这里连着做 3 轮"连接→断开"，每轮都必须拿到首帧。
+     */
+    @Test
+    public void frameArrivesOnEveryReconnect() throws Exception {
+        if (!portOpen("127.0.0.1", TermuxEnvInstaller.VNC_PORT, 3000)) {
+            System.out.println("[VNC] 5900 没在监听，跳过");
+            return;
+        }
+        for (int round = 1; round <= 3; round++) {
+            int colors = connectAndGrabFrame(15000);
+            System.out.println("[VNC] 第 " + round + " 轮：colors=" + colors
+                    + (colors > 0 ? "（有画面）" : (colors == 0 ? "（连上但没帧=黑屏）" : "（没连上）")));
+            assertTrue("第 " + round + " 轮应拿到首帧（看门狗会重发请求）", colors > 0);
+            Thread.sleep(400);
+        }
+    }
+
     /**
      * 回归：主动 stop()（含 start() 内部的复位）**不能**回调 onDisconnected。
      *
@@ -211,11 +281,16 @@ public class VncClientDeviceTest {
     public void showVncActivityForScreenshot() throws Exception {
         android.content.Intent i = new android.content.Intent(ctx(), VncActivity.class);
         i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        i.putExtra("auto_finish_ms", 19000L);   // 用例结束前自己关掉，别留着客户端干扰后续用例
         // 不能用 startActivitySync：VNC 页面在持续收帧重绘，事件队列一直不空闲，
         // startActivitySync 会等 45 秒后超时（实测就是这么失败的）。直接 startActivity 即可。
         ctx().startActivity(i);
         System.out.println("[VNC] 图形界面页已拉起，保持 18 秒供截图");
         Thread.sleep(18000);
+        // 收尾：按返回关掉页面。否则它的客户端会一直挂着，
+        // 后面的用例再连就会遇到"服务端一个更新都不回"（真机踩到过）。
+        System.out.println("[VNC] 等页面按 auto_finish_ms 自己关闭（它会断开客户端）");
+        Thread.sleep(4000);
     }
 
     /** 准备脚本与 App 侧启动脚本必须一致（同一份容器内命令），且带上真机踩坑必需的参数 */
@@ -242,6 +317,7 @@ public class VncClientDeviceTest {
                 start.contains("/dev/tcp/127.0.0.1/5900"));
         assertTrue("失败时要提示清残留 Xvnc", start.contains("pkill -f 'Xvn[c] :1'"));
         assertTrue("启动后要放个可见窗口（避免纯黑桌面）", start.contains("xclock -geometry"));
+        assertTrue("要有自愈用的重启脚本", TermuxEnvInstaller.buildGuiRestartScript().contains("GUI_RESTARTED"));
         assertFalse("不要再回到 x11vnc 那套（-threads 实测空转且不再监听）", setup.contains("-threads"));
 
         String status = TermuxEnvInstaller.buildGuiStatusScript();
