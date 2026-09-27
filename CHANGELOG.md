@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-09-27] 桌面外壳改用「共用常驻 D-Bus 总线」启动（顺带更正一次误判）
+
+用户问「基本功能够用了吧」。核对时我一度以为面板没画出来（`xwininfo ... | grep xfce4-panel` 只看到 10x10），
+后来发现**是我的检查方式错了**：真正的面板窗口**没有名字**，要按 class 用
+`xdotool search --class xfce4-panel` 才看得到 —— 实测 **1280x27 @ 0,0** ✓
+（桌面 1280x720、整屏截图 28100 色、启动器菜单正常）。
+
+不过排查中确实抓到一个真问题并修掉了：
+
+1. **`xfce4-panel` 会 fork 到后台**，而 `dbus-run-session -- xfce4-panel` 的直接子进程一退出就会**把总线拆掉** ——
+   真机报 `xfce4-panel: Name org.xfce.Panel lost on the message dbus, exiting` 加
+   `There is already a running instance`，面板因此会时好时坏。
+   （`xfwm4` / `xfce4-notifyd` / `xfdesktop` 不 fork，所以它们一直没问题。）
+2. **修法**：新增容器侧脚本 `~/.quiz_shell.sh`（App 用 base64 写出）：用 `dbus-daemon --session --fork`
+   起一条**独立常驻**的总线（地址存 `/tmp/oilquiz_bus_addr`），四个组件（wm / notifyd / panel / desktop）
+   都挂它；`ensure_shell` 改成 `bash ~/.quiz_shell.sh <角色>`，顺序 **WM → notifyd → 面板 → 桌面**，
+   面板每次重建（避免旧实例挂在已被拆掉的总线上互相顶掉）。
+3. **验证**：冷启动（杀掉全部外壳进程）→ `~/ubuntu-gui restart` →
+   `xfwm4=1 xfce4-notifyd=1 xfce4-panel=1 xfdesktop=1`；面板真窗口 **1280x27**；
+   整屏截图 **28100 色**；点左上角启动器弹出中文菜单
+   （使用命令行 / 收藏夹 / 最近使用 / 全部应用程序 / 互联网 / 开发 / 设置 / 图形 / 系统）✓。
+
 ## [2026-09-27] 补齐远程桌面缺的组件 + 通知区域（systray）回归面板
 
 用户问「看看还有哪些组件漏了」，随后「装上」。
