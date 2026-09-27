@@ -13,6 +13,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -61,6 +62,10 @@ public class VncWebActivity extends AppCompatActivity {
     private boolean webLoaded = false;
     private boolean destroyed = false;
     private boolean immersive = true;
+    /** 迷你模式：浮层收成一个小圆点贴着边，画面完全不被挡 */
+    private boolean mini;
+    private static final String KEY_MINI = "mini";
+    private static final String PREF_MINI = "vnc_prefs";
 
     /**
      * noVNC 页面地址。参数含义（noVNC 1.3 的 query 参数）：
@@ -165,12 +170,18 @@ public class VncWebActivity extends AppCompatActivity {
         findViewById(R.id.btn_vnc_web_hide).setOnClickListener(v -> showBar(false));
         // 浮层可以拖：状态条拖"状态文字/空白"处，≡ 整个都能拖；位置会记住
         // （用户要求：「动态按钮不能拖动啊，为何是固定位置」）。没拖动的那一下仍当点击用。
-        FloatingDrag.attach(bar, findViewById(R.id.vnc_web_root), "bar", null);
-        FloatingDrag.attach(toggle, findViewById(R.id.vnc_web_root), "toggle", () -> showBar(true));
+        // 长按 = 收成贴着边的小圆点（再长按恢复），需要画面完全干净时用
+        FloatingDrag.attach(bar, findViewById(R.id.vnc_web_root), "bar", null, this::toggleMini);
+        FloatingDrag.attach(toggle, findViewById(R.id.vnc_web_root), "toggle", () -> showBar(true),
+                this::toggleMini);
         resetTimerOnTouch(bar);
 
         applyInsetsPadding(findViewById(R.id.vnc_web_root));
+        mini = getSharedPreferences(PREF_MINI, MODE_PRIVATE).getBoolean(KEY_MINI, false);
         showBar(true);
+        if (mini) {
+            applyMini(false);
+        }
         status("图形界面：检查中…");
         probeAsync(up -> {
             if (up) {
@@ -275,7 +286,45 @@ public class VncWebActivity extends AppCompatActivity {
         statusView.setText(s);
     }
 
+    /** 长按浮层：收起 / 恢复 */
+    private void toggleMini() {
+        mini = !mini;
+        getSharedPreferences(PREF_MINI, MODE_PRIVATE).edit().putBoolean(KEY_MINI, mini).apply();
+        applyMini(true);
+    }
+
+    /** mini 时 ≡ 缩成 30dp 半透明小圆点、状态条收起；恢复时还原成 44dp */
+    private void applyMini(boolean feedback) {
+        float d = getResources().getDisplayMetrics().density;
+        int size = (int) ((mini ? 30 : 44) * d);
+        ViewGroup.LayoutParams lp = toggle.getLayoutParams();
+        lp.width = size;
+        lp.height = size;
+        toggle.setLayoutParams(lp);
+        ((TextView) toggle).setTextSize(mini ? 12 : 20);
+        toggle.setAlpha(mini ? 0.55f : 1f);
+        if (mini) {
+            bar.setVisibility(View.GONE);
+            toggle.setVisibility(View.VISIBLE);
+            cancelAutoHide();
+        } else {
+            toggle.setVisibility(bar.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        }
+        final View root = findViewById(R.id.vnc_web_root);
+        root.post(() -> FloatingDrag.reclamp(toggle, root, "toggle"));
+        if (feedback) {
+            Toast.makeText(this, mini ? "浮层已收起（长按小圆点恢复）" : "浮层已恢复",
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void showBar(boolean show) {
+        if (show && mini) {
+            // 点 ≡ 要展开状态条时，顺便从小圆点恢复
+            mini = false;
+            getSharedPreferences(PREF_MINI, MODE_PRIVATE).edit().putBoolean(KEY_MINI, false).apply();
+            applyMini(false);
+        }
         bar.setVisibility(show ? View.VISIBLE : View.GONE);
         toggle.setVisibility(show ? View.GONE : View.VISIBLE);
         if (show) {

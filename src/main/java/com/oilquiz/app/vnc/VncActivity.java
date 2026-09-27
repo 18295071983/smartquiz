@@ -239,7 +239,13 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
         // 面板里任何一次按下都重新计时，别让面板在用户正点的时候收起来
         resetTimerOnTouch(panel);
         // 顶部状态胶囊也能拖（拖状态文字/空白处；里面的按钮照常点）
-        FloatingDrag.attach(findViewById(R.id.vnc_topbar), findViewById(R.id.vnc_root), "topbar", null);
+        // 可拖（松手吸附最近边缘）；长按 = 回到默认位置
+        FloatingDrag.attach(findViewById(R.id.vnc_topbar), findViewById(R.id.vnc_root), "topbar",
+                null, () -> {
+                    FloatingDrag.reset(findViewById(R.id.vnc_topbar),
+                            findViewById(R.id.vnc_root), "topbar");
+                    Toast.makeText(this, "状态胶囊已回到默认位置", Toast.LENGTH_SHORT).show();
+                });
         updateConnectionButtons();
     }
 
