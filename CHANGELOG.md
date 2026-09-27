@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-09-27] 按用户选择：留在 XFCE，卸载 MATE
+
+用户回「4 把 mate 删了」（选「留在 XFCE」，并删掉 MATE）。
+
+1. 容器里 `apt-get purge -y 'mate-*' caja caja-common marco` + `autoremove`：剩余 mate/caja/marco 包 **0 个**，
+   `/usr/share/xsessions/` 只剩 `xfce.desktop`，容器释放约 **1GB**（已用 177G → 176G）。
+2. App 侧把 MATE 相关内容全摘掉：一键准备的 apt 列表、`gui_pkgs_ok` 的 mate-session 检查、
+   `desktop` 子命令的 mate 分支、`ensure_desktop` 的 mate 检测与 pkill（源码里 `grep mate` = **0**）。
+   默认会话保持 `startxfce4`；切换能力保留（`bash ~/ubuntu-gui desktop xfce4|lxqt`）。
+3. 设备上的 `~/ubuntu-gui` 同步（mate 引用 13 → 2），删掉 `~/.quiz_desktop`（走默认 XFCE）。
+4. 卸载后回归验证：`xfce4-session=2 / xfce4-panel=2 / lxqt=0`、桌面 `1920x881` 截图 **4926 色**（内容正常）、
+   noVNC 网页 `HTTP 200`、新 APK 安装 `Success`。
+
 ## [2026-09-27] 桌面换成 MATE，并做成可切换（mate / xfce4 / lxqt 一条命令）
 
 用户说「把 ubuntu 的桌面换一下，看看有没有合适的，大点也没事」。
