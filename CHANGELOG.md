@@ -1,5 +1,51 @@
 # 变更日志
 
+## [2026-09-27] 「菜单里点没反应」根因：两套桌面会话抢屏幕（外加更正几次"总线已死"的误判）
+
+用户报「我菜单里点没反应啊，你检查下菜单」。查下来是两个独立问题，外加我自己几次误判：
+
+1. **同一个 X 上跑着两套 XFCE 会话** ✗：`ensure_desktop()` 另起了一条
+   `dbus-run-session -- startxfce4`，`ensure_shell()` 又起了 `.quiz_shell.sh` 那条 ——
+   于是出现**两个面板**（`xfce4-panel` 的单实例检测走会话总线，两条总线互相看不见，
+   各自都认为自己唯一），而**窗口管理器只有 `.quiz_shell.sh` 那条有**
+   （`startxfce4` 在 proot 里退回 Failsafe，不拉 xfwm4）。两个面板都贴屏幕顶部重叠，
+   用户点到哪一份全看谁在上面。
+   修法：`ensure_shell()` 改成按「外壳脚本在不在」判断（原来按 `xfce4-panel` 判断，
+   面板还没起来时就会重复起一条）；`ensure_desktop()` 在外壳已运行时**只清理**抢屏幕的
+   `startxfce4` / `xfce4-session`（含被 D-Bus 激活起来的）；调用顺序改成先 `ensure_shell` 再 `ensure_desktop`。
+   实测组件数：`xfwm4=1 xfce4-notifyd=1 xfce4-panel=1 xfdesktop=1 xfce4-session=0` ✓
+2. **更正我前面几次"总线已死"的误判** ✗✗（真机隔离实验）：
+   **同一条会话里** `dbus-send --session … ListNames` **✓ 通**；换一个
+   `proot-distro login` 会话去连**同一条**总线 **✗ 不通**（socket 文件明明在、`-S` 也判真）。
+   原因是 proot 下 D-Bus 鉴权要用 `SO_PEERCRED` 读对端身份，另一个 proot 实例拿不到，
+   客户端会一直卡在 AUTH 直到超时（报的就是 `Did not receive a reply … the reply timeout expired`）。
+   X 之所以能跨会话用，是因为 Xvnc 带了 `-ac`（根本不查授权）。
+   **结论：总线 + 全部客户端必须待在同一个 proot 会话里**，不许再从别的会话去"测"总线。
+3. **外壳改由 `dbus-run-session` 持有总线**（`GUI_INNER_COMMAND` 与 `ensure_shell` 都改成
+   `dbus-run-session -- bash .quiz_shell.sh`），脚本内保留一个**同会话验活**的兜底：
+   连不通就自己 `--nofork` 重开一条 —— GTK 拿不到可用总线时会自己 autolaunch 一条 `--fork` 的
+   临时总线，那种 daemon 随一次性会话被 `--kill-on-exit` 回收 → 面板就挂在死总线上。
+   脚本把结果写进 `/tmp/quiz_shell.log`：`OILQUIZ_SHELL bus=… 应答=活` ✓
+4. **顺手查清"点第一项没反应"**：Whisker 菜单第一项是「网络浏览器」、第二项「邮件阅读器」，
+   容器里**既没有浏览器也没有邮件客户端** —— 日志里直接写着 `Couldn't find a suitable web browser!`。
+   真机用 xdotool 发**真鼠标事件**点第 4 项「使用命令行」，Thunar 窗口随即出现（OCR 确认）✓，
+   说明菜单的启动通路本身是好的，不好使的是那两项没有对应程序。
+5. **踩到的一个坑**：把 `>> /tmp/quiz_shell.log` 写在 **Termux 侧**那条命令上会直接
+   `Permission denied`（Android 的 `/tmp` 不可写）→ 整条外壳会话根本没起来（组件数全 0）。
+   重定向必须写在**容器内**执行的那条命令里。
+6. **启动器只在「一键准备」时写过一次** ✗ —— App 升级后 `ensure_shell` / `ensure_desktop` 的改动
+   **根本没到设备上**（设备上那份 41 KB 的 `~/ubuntu-gui` 还是老逻辑，依旧会另起 `startxfce4`）。
+   现在 `startGuiInTermux` / `restartGuiInTermux` 每次都会把**当前版本**的启动器写到公共下载目录
+   （`Download/OilQuiz/termux_env/ubuntu-gui.sh`，跟 `setup.sh` 同一条通道），再用一条短命令
+   `cp` 进 `$HOME` 并执行（/sdcard 是 noexec，必须先拷出来）。启动器从此跟 App 同版本。
+7. **外壳加了单实例锁**（`/tmp/oilquiz_shell.pid`）：真机上出现过多条外壳会话，它们会互相
+   `pkill` 组件、把面板重新挂到新总线上，最后"谁在屏幕上看运气"。后起的会话现在直接退出。
+8. **`xfce4-notifyd` 的裸命令是错的** ✗：Ubuntu 24.04 把可执行文件放在
+   `/usr/lib/<多架构>/xfce4/notifyd/xfce4-notifyd`，**不在 PATH 里** —— 脚本里写 `xfce4-notifyd &`
+   会 `command not found` 静默失败（真机查到的就是"通知守护一直没起来"）。
+   现在按真实路径启动（带 `command -v` 兜底）。同理 `gui_pkgs_ok()` 里的
+   `command -v xfce4-notifyd` 判定**永远为假**，会导致老环境每次重跑「一键准备」都白装一遍 —— 一并改成查真实路径。
+
 ## [2026-09-27] 换源到清华 ports + 装图形包管理器 Synaptic（并把两件事固化进一键准备）
 
 用户问「有包管理器吗，有包商店吗」，随后「那就换 顺便安装 synaptic」。

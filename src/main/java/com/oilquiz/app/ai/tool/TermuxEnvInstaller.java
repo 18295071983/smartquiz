@@ -245,7 +245,10 @@ public final class TermuxEnvInstaller {
                     // ① 把 noVNC 网页（/usr/share/novnc）发出来；② 把 WebSocket 桥到 127.0.0.1:5900。
                     // 真机实测：ws 握手 101 + 收到 RFB 003.008 横幅。
                     + "Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
-                    + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz & XVNC=$!; "
+                    // 注意：这条命令是塞在双引号里下发的，**不转义的 $ 会被外层 Termux shell 先展开成空** ✗
+                    // 真机踩到：容器里实际跑的是 "XVNC=; ... [ -f ] && bash   & wait" —— 变量全没了，
+                    // 外壳脚本因此永远没在 Xvnc 会话里起来（总线随之死掉 → 菜单点了没反应）。
+                    + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz & XVNC=\\$!; "
                     + "sleep 2; "
                     // websockify 只当"后台助手"：它要是因为 6080 被上一轮的实例占住而启动失败，
                     // 绝不能把桌面一起带走（真机踩过：exec websockify 抢不到端口就退出 →
@@ -255,8 +258,18 @@ public final class TermuxEnvInstaller {
                     + "websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 "
                     + ">> /tmp/quiz_websockify.log 2>&1 & "
                     + "fi; "
+                    // 桌面外壳（总线 + WM + 通知守护 + 面板 + 桌面）挂到**这一条**会话里，
+                    // 并且用 dbus-run-session 持有总线 —— proot 下 D-Bus **跨会话连不通**
+                    // （见 GUI_SHELL_SH 的 javadoc）：总线必须和它的全部客户端待在同一个会话里。
+                    // 这条会话因为 wait $XVNC 会一直活着，所以 Xvnc 活多久、总线和外壳就活多久。
+                    // 输出重定向必须写在**容器内**那条命令里：在 Termux 侧重定向到 /tmp 会
+                    // "Permission denied"（Android 的 /tmp 不可写），整条会话都起不来（真机踩到）。
+                    + "SHELL_SH=/data/data/com.termux/files/home/.quiz_shell.sh; "
+                    + "if [ -f \\\"\\$SHELL_SH\\\" ]; then "
+                    + "if command -v dbus-run-session >/dev/null 2>&1; then dbus-run-session -- bash \\\"\\$SHELL_SH\\\"; "
+                    + "else bash \\\"\\$SHELL_SH\\\"; fi >> /tmp/quiz_shell.log 2>&1 & fi; "
                     // 会话寿命只跟着 Xvnc：它活着图形界面就活着
-                    + "wait $XVNC";
+                    + "wait \\$XVNC";
 
     /**
      * 容器内「中文化 + 北京时间」脚本（可重复运行，只做一次性修复）。
@@ -434,52 +447,81 @@ public final class TermuxEnvInstaller {
     /**
      * 容器侧的「桌面外壳」启动器（由 {@code ensure_shell} 调用）。
      *
-     * <p><b>为什么要共用一条常驻总线</b>：{@code xfce4-panel} 启动后会 **fork 到后台**，
-     * 而 {@code dbus-run-session -- xfce4-panel} 的直接子进程一退出就会**把总线拆掉** ——
-     * 真机报的就是 {@code xfce4-panel: Name org.xfce.Panel lost on the message dbus, exiting}
-     * 加 {@code There is already a running instance}（面板于是时好时坏、窗口停在 10x10 不被 map）。
-     * 所以这里用 {@code dbus-daemon --session --fork} 起一条**独立常驻**的总线，把地址存文件，
-     * 四个组件都挂它。（xfwm4 / xfce4-notifyd / xfdesktop 不 fork，本来就没这问题。）
+     * <p><b>为什么总线必须和客户端同会话（真机定论）</b>：proot 下 D-Bus **跨会话根本连不通**。
+     * 总线上做鉴权要用 {@code SO_PEERCRED} 读对端身份，而另一个 proot 实例拿不到，
+     * 客户端会一直卡在 AUTH 直到超时。真机实测：同一条会话里 {@code dbus-send} ✓，
+     * 换一个 {@code proot-distro login} 会话去连**同一条**总线 ✗（socket 文件明明在、
+     * {@code -S} 也判真）—— 所以“总线死了”这个结论以前被误判过好几次，全是拿别的会话去测出来的。
+     * X 之所以能跨会话用，是因为 Xvnc 带了 {@code -ac}（完全不查授权）。
+     *
+     * <p>结论：**总线 + 全部客户端都待在同一个 proot 会话里**。本脚本就是那条会话的负载
+     * （由 {@code dbus-run-session} 持有总线），WM / 通知守护 / 面板 / 桌面都是它的子进程，
+     * 一起活、一起死；{@code ensure_shell} 只负责把这条会话拉起来。
+     *
+     * <p>{@code xfce4-session} 必须一起清掉：它会按自己保存的会话把面板/通知守护**再拉一份**，
+     * 那一份挂在另一条总线上，和本脚本的面板重叠在屏幕顶部 —— 用户点到的可能正是那一份。
      */
     public static final String GUI_SHELL_SH = """
             #!/bin/bash
             # 答题宝图形界面外壳：共用一条常驻 dbus 会话总线
             BUSDIR=/tmp/oilquiz_bus_addr
-            ensure_bus() {
-              if [ -f "$BUSDIR" ]; then
-                p=$(sed -n 's/^unix:path=//p' "$BUSDIR" | head -1)
-                [ -n "$p" ] && [ -S "$p" ] && return 0
-              fi
-              rm -f "$BUSDIR"
-              dbus-daemon --session --fork --print-address=1 --print-pid=1 > "$BUSDIR" 2>/dev/null || return 1
-              return 0
-            }
             export DISPLAY=:1
             export LANG=zh_CN.UTF-8
             export LANGUAGE=zh_CN:zh
             export LC_ALL=zh_CN.UTF-8
-            ensure_bus || exit 1
-            export DBUS_SESSION_BUS_ADDRESS="$(head -1 "$BUSDIR")"
-            case "$1" in
-              wm)
-                pgrep -x xfwm4 >/dev/null 2>&1 && exit 0
-                exec xfwm4 --replace --compositor=off --sm-client-disable
-                ;;
-              notifyd)
-                pgrep -x xfce4-notifyd >/dev/null 2>&1 && exit 0
-                exec xfce4-notifyd
-                ;;
-              panel)
-                # 面板一定要重建：旧实例可能挂在另一条（已被拆掉的）总线上，会互相顶掉
-                pkill -x xfce4-panel >/dev/null 2>&1
-                sleep 1
-                exec xfce4-panel
-                ;;
-              desktop)
-                pgrep -x xfdesktop >/dev/null 2>&1 && exit 0
-                exec xfdesktop
-                ;;
-            esac
+            bus_ok() { dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames >/dev/null 2>&1; }
+            # ⓪ 单实例：两套外壳会话会互相 pkill 组件、把面板重新挂到新总线上（真机见过 2 条），
+            #    最后谁在屏幕上看运气。锁住，后起的直接退出。
+            LOCK=/tmp/oilquiz_shell.pid
+            if [ -f "$LOCK" ]; then
+              OLD=$(cat "$LOCK" 2>/dev/null)
+              if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && kill -0 "$OLD" 2>/dev/null; then
+                echo "OILQUIZ_SHELL 已有外壳在跑(pid=$OLD)，本进程退出"
+                exit 0
+              fi
+            fi
+            echo $$ > "$LOCK"
+            trap 'rm -f "$LOCK"' EXIT
+            # ① 总线：优先用外面 dbus-run-session 给的那条（它在本会话里，能用），
+            #    但必须**在本会话内验活**。真机踩到：GTK 拿不到可用总线时会自己 autolaunch
+            #    一条 --fork 的临时总线，那种 daemon 随一次性会话被 --kill-on-exit 回收 →
+            #    面板就挂在了死总线上。死掉就自己重开一条（--nofork 挂后台，靠末尾 wait 活着）。
+            if ! bus_ok; then
+              rm -f "$BUSDIR"
+              dbus-daemon --session --nofork --print-address=1 > "$BUSDIR" 2>/dev/null &
+              sleep 2
+              export DBUS_SESSION_BUS_ADDRESS="$(head -1 "$BUSDIR")"
+            fi
+            echo "OILQUIZ_SHELL bus=$DBUS_SESSION_BUS_ADDRESS 应答=$(bus_ok && echo 活 || echo 死)"
+            # ② 独占：xfce4-session 会按它保存的会话把面板/通知守护再拉一份（见上面 javadoc），
+            #    桌面只由本脚本负责，所以连会话管理器一起清掉。
+            pkill -9 -x xfce4-session >/dev/null 2>&1
+            # 面板必须独占：旧实例活着会让新实例 "Name org.xfce.Panel lost" 直接退出。
+            #    xfce4-panel 对 SIGTERM 是优雅退出（要存配置、慢），所以 -9 并等它真的消失。
+            pkill -9 -x xfce4-panel >/dev/null 2>&1
+            pkill -9 -x xfce4-notifyd >/dev/null 2>&1
+            pkill -9 -x xfwm4 >/dev/null 2>&1
+            pkill -9 -x xfdesktop >/dev/null 2>&1
+            i=0
+            while [ $i -lt 8 ]; do
+              pgrep -x xfce4-panel >/dev/null 2>&1 || break
+              sleep 1
+              i=$((i+1))
+            done
+            # ③ 顺序：WM → 通知守护 → 面板 → 桌面（面板要等 WM 才能拿到位置；notifyd 要在面板前，否则通知区域会崩）
+            xfwm4 --replace --compositor=off --sm-client-disable &
+            sleep 3
+            # notifyd 的可执行文件**不在 PATH 里**（Ubuntu 24.04 放在
+            # /usr/lib/<多架构>/xfce4/notifyd/xfce4-notifyd），写裸命令会 "command not found"
+            # 静默失败（真机踩到：通知守护一直没起来）。
+            NOTIFYD="$(command -v xfce4-notifyd 2>/dev/null)"
+            [ -x "$NOTIFYD" ] || NOTIFYD=/usr/lib/aarch64-linux-gnu/xfce4/notifyd/xfce4-notifyd
+            [ -x "$NOTIFYD" ] && "$NOTIFYD" &
+            sleep 2
+            xfce4-panel &
+            sleep 3
+            xfdesktop &
+            wait
             exit 0
             """;
 
@@ -645,7 +687,8 @@ public final class TermuxEnvInstaller {
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
                 // 桌面外壳兜底：proot 里 XFCE 的会话管理器经常拉不起客户端（退回只启 Failsafe、Client 全空），
                 // 结果【没有窗口管理器】—— 所有 XFCE 窗口都是 10x10 没被 map，面板看不见也点不到
-                // （真机实测：「启动器点不到」就是这个）。按 WM→面板→桌面 的顺序补齐，各用独立 dbus 会话；
+                // （真机实测：「启动器点不到」就是这个）。按 WM→面板→桌面 的顺序补齐，
+                // 且**必须共用同一条 dbus 会话**（跨会话总线连不通，见 GUI_SHELL_SH javadoc）；
                 // 会话自己能起来时这里就是空操作。
                 "START_SHELL() { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $1\" >/dev/null 2>&1 < /dev/null & }",
                 // 顺序有讲究：① WM 必须最先（没它窗口不会被 map，真机实测全是 10x10）；
@@ -653,9 +696,12 @@ public final class TermuxEnvInstaller {
                 // ③ WM 是新起的话，面板必须跟着重建一次 —— 面板若在"没有 WM"的时刻建窗口，
                 //    那些窗口不会再被 map（真机实测：面板窗口一直是 10x10、看不见）。
                 // 顺序：WM → 通知守护 → 面板 → 桌面（都在一条常驻总线上跑，见 GUI_SHELL_SH）
-                "ensure_shell() { ensure_shell_b64; SHELL_SH=\"$H/.quiz_shell.sh\"; pgrep -x xfwm4 >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash \"$SHELL_SH\" wm >/dev/null 2>&1 < /dev/null & sleep 4; }; pgrep -x xfce4-notifyd >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash \"$SHELL_SH\" notifyd >/dev/null 2>&1 < /dev/null & sleep 2; }; setsid nohup proot-distro login ubuntu -- /bin/bash \"$SHELL_SH\" panel >/dev/null 2>&1 < /dev/null & sleep 5; pgrep -x xfdesktop >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash \"$SHELL_SH\" desktop >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
+// 每次启动/重启都重建这条常驻外壳会话（保证总线一定是活的；否则菜单点了没反应）
+                // 外壳由 Xvnc 那条长活会话负责拉起（见 GUI_INNER_COMMAND），这里只把脚本落盘 + 兜底：
+                // 万一 Xvnc 会话起来时脚本还没写好，这里补一次（面板缺了才动手，避免重复起）。
+                "ensure_shell() { ensure_shell_b64; i=0; while [ $i -lt 8 ]; do pgrep -f 'quiz_shell.s[h]' >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- bash $H/.quiz_shell.sh >> /tmp/quiz_shell.log 2>&1\" >/dev/null 2>&1 < /dev/null & sleep 14; }",
                 "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
-                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
+                "ensure_desktop() { if pgrep -f 'quiz_shell.s[h]' >/dev/null 2>&1; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -f \"startxfce[4]\" >/dev/null 2>&1; pkill -f \"lxqt-sessio[n]\" >/dev/null 2>&1; pkill -9 -x xfce4-session >/dev/null 2>&1' >/dev/null 2>&1; return 0; fi; pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
                 "TRACE=\"$H/.quiz_gui_start_trace.log\"",
                 "trace() { echo \"$(date '+%T') $1\" >> \"$TRACE\"; }",
                 "trace \"script-start\"",
@@ -663,13 +709,13 @@ public final class TermuxEnvInstaller {
                 "ensure_zh",
                 "kill_stale",
                 "trace \"font-scheduled\"",
-                "if UP; then ensure_zh; ensure_desktop; ensure_shell; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
+                "if UP; then ensure_zh; ensure_shell; ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
                 "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
                 "trace \"starting-xvnc\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_zh; ensure_desktop; ensure_shell; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_zh; ensure_shell; ensure_desktop; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
                 "trace \"gui-failed\"",
                 "echo \"GUI_FAILED\"",
                 "tail -15 \"$LOG\"",
@@ -718,7 +764,8 @@ public final class TermuxEnvInstaller {
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
                 // 桌面外壳兜底：proot 里 XFCE 的会话管理器经常拉不起客户端（退回只启 Failsafe、Client 全空），
                 // 结果【没有窗口管理器】—— 所有 XFCE 窗口都是 10x10 没被 map，面板看不见也点不到
-                // （真机实测：「启动器点不到」就是这个）。按 WM→面板→桌面 的顺序补齐，各用独立 dbus 会话；
+                // （真机实测：「启动器点不到」就是这个）。按 WM→面板→桌面 的顺序补齐，
+                // 且**必须共用同一条 dbus 会话**（跨会话总线连不通，见 GUI_SHELL_SH javadoc）；
                 // 会话自己能起来时这里就是空操作。
                 "START_SHELL() { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $1\" >/dev/null 2>&1 < /dev/null & }",
                 // 顺序有讲究：① WM 必须最先（没它窗口不会被 map，真机实测全是 10x10）；
@@ -726,9 +773,12 @@ public final class TermuxEnvInstaller {
                 // ③ WM 是新起的话，面板必须跟着重建一次 —— 面板若在"没有 WM"的时刻建窗口，
                 //    那些窗口不会再被 map（真机实测：面板窗口一直是 10x10、看不见）。
                 // 顺序：WM → 通知守护 → 面板 → 桌面（都在一条常驻总线上跑，见 GUI_SHELL_SH）
-                "ensure_shell() { ensure_shell_b64; SHELL_SH=\"$H/.quiz_shell.sh\"; pgrep -x xfwm4 >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash \"$SHELL_SH\" wm >/dev/null 2>&1 < /dev/null & sleep 4; }; pgrep -x xfce4-notifyd >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash \"$SHELL_SH\" notifyd >/dev/null 2>&1 < /dev/null & sleep 2; }; setsid nohup proot-distro login ubuntu -- /bin/bash \"$SHELL_SH\" panel >/dev/null 2>&1 < /dev/null & sleep 5; pgrep -x xfdesktop >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash \"$SHELL_SH\" desktop >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
+// 每次启动/重启都重建这条常驻外壳会话（保证总线一定是活的；否则菜单点了没反应）
+                // 外壳由 Xvnc 那条长活会话负责拉起（见 GUI_INNER_COMMAND），这里只把脚本落盘 + 兜底：
+                // 万一 Xvnc 会话起来时脚本还没写好，这里补一次（面板缺了才动手，避免重复起）。
+                "ensure_shell() { ensure_shell_b64; i=0; while [ $i -lt 8 ]; do pgrep -f 'quiz_shell.s[h]' >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- bash $H/.quiz_shell.sh >> /tmp/quiz_shell.log 2>&1\" >/dev/null 2>&1 < /dev/null & sleep 14; }",
                 "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
-                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
+                "ensure_desktop() { if pgrep -f 'quiz_shell.s[h]' >/dev/null 2>&1; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -f \"startxfce[4]\" >/dev/null 2>&1; pkill -f \"lxqt-sessio[n]\" >/dev/null 2>&1; pkill -9 -x xfce4-session >/dev/null 2>&1' >/dev/null 2>&1; return 0; fi; pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
                 "kill_stale",
                 "pkill -x Xvnc >/dev/null 2>&1",
                 "pkill -x xclock >/dev/null 2>&1",
@@ -737,7 +787,7 @@ public final class TermuxEnvInstaller {
                 "echo \"[$(date '+%T')] restart\" >> \"$LOG\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_zh; ensure_desktop; ensure_shell; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_zh; ensure_shell; ensure_desktop; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
                 "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
     }
 
@@ -745,7 +795,9 @@ public final class TermuxEnvInstaller {
     public static String restartGuiInTermux(Context ctx) {
         // 与启动一样：只下发一条短命令，并且后台执行（background=true）。
         // 早先这里用了 background=false → Termux 会被弹到前台，用户看到"点一下就跳到 Termux"。
-        String shortCmd = "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui restart"
+        writeGuiLauncherFile(ctx);
+        String shortCmd = refreshLauncherCmd()
+                + "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui restart"
                 + " || echo NO_UBUNTU_GUI_请先点一次一键准备";
         return runInTermux(ctx, shortCmd, true);
     }
@@ -818,6 +870,33 @@ public final class TermuxEnvInstaller {
      * ① Termux 有存储权限时只下发一行 {@code bash <路径>}（省得几千字符塞进 Intent）；
      * ② 出问题时这个文件就是"App 到底下发了什么"的字节级证据（真机排查时非常有用）。
      */
+    /**
+     * 把**当前 App 版本**的 {@code ~/ubuntu-gui} 启动器写到公共下载目录。
+     *
+     * <p><b>真机踩到的坑</b>：{@code ~/ubuntu-gui} 以前只在「一键准备」时写一次，于是 App 升级后
+     * {@code ensure_shell} / {@code ensure_desktop} 这些改动**根本没到设备上** ——
+     * 老启动器依旧会另起一条 {@code dbus-run-session -- startxfce4}，与新建的外壳会话抢屏幕：
+     * 同一个 X 上出现两个面板（{@code xfce4-panel} 的单实例检测走会话总线，两条总线互相看不见，
+     * 于是各自都认为自己唯一），用户点到的正是老的那一份 → 「菜单里点没反应」。
+     * 现在每次启动/重启图形界面都先刷新它，启动器永远跟 App 同版本。
+     */
+    private static void writeGuiLauncherFile(Context ctx) {
+        writeTextFile(ctx, "ubuntu-gui.sh", buildGuiFile());
+    }
+
+    /**
+     * Termux 侧短命令片段：把上面那份启动器拷进 {@code $HOME}。
+     * 必须先拷出来再执行 —— /sdcard 是 noexec，直接 {@code bash /sdcard/...} 会 exit 126（真机踩到）。
+     * 拿不到就静默跳过，沿用设备上已有的那份（老环境没给存储权限时不会因此启动失败）。
+     */
+    private static String refreshLauncherCmd() {
+        return "SRC=\"\"; "
+                + "for c in /sdcard/Download/" + EXPORT_SUBDIR + "/ubuntu-gui.sh "
+                + "\"$HOME/storage/downloads/" + EXPORT_SUBDIR + "/ubuntu-gui.sh\"; do "
+                + "[ -f \"$c\" ] && SRC=\"$c\" && break; done; "
+                + "[ -n \"$SRC\" ] && cp \"$SRC\" \"$HOME/ubuntu-gui\" && chmod 700 \"$HOME/ubuntu-gui\"; ";
+    }
+
     public static String startGuiInTermux(Context ctx) {
         String script = buildGuiStartScript();
         // 落盘只为"出问题时能看 App 到底下发了什么"（真机排查用）。
@@ -831,7 +910,10 @@ public final class TermuxEnvInstaller {
         // 只下发一条**短命令**去跑 ~/ubuntu-gui（由「一键准备」写出来的文件）。
         // 原因：长脚本文本经 RUN_COMMAND 下发时实测不执行（回包只有 .bashrc 横幅，连 trace 都写不出来），
         // 而以"文件 + 短命令"形式跑就完全正常（同一份内容手动 bash 文件 100% 成功）。
-        String shortCmd = "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui start"
+        // 先把当前版本的启动器刷新到设备上（否则跑的还是「一键准备」时写下的老版本）
+        writeGuiLauncherFile(ctx);
+        String shortCmd = refreshLauncherCmd()
+                + "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui start"
                 + " || echo NO_UBUNTU_GUI_请先点一次一键准备";
         return runInTermux(ctx, shortCmd, true);
     }
@@ -867,7 +949,7 @@ public final class TermuxEnvInstaller {
             gui_pkgs_ok() {
               # 检查项要跟着"实际用到的组件"走：新加的 notifyd/任务管理器/截图/看图/压缩没装时，
               # 这里必须返回非 0，否则老环境重跑「一键准备」会跳过 step 5、永远补不上这些组件。
-              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1 && command -v xfce4-notifyd >/dev/null 2>&1 && command -v xfce4-taskmanager >/dev/null 2>&1 && command -v xfce4-screenshooter >/dev/null 2>&1 && command -v ristretto >/dev/null 2>&1 && command -v xarchiver >/dev/null 2>&1 && command -v synaptic >/dev/null 2>&1' 2>/dev/null
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1 && { command -v xfce4-notifyd >/dev/null 2>&1 || ls /usr/lib/*/xfce4/notifyd/xfce4-notifyd >/dev/null 2>&1; } && command -v xfce4-taskmanager >/dev/null 2>&1 && command -v xfce4-screenshooter >/dev/null 2>&1 && command -v ristretto >/dev/null 2>&1 && command -v xarchiver >/dev/null 2>&1 && command -v synaptic >/dev/null 2>&1' 2>/dev/null
             }
 
             quiz_main() {
