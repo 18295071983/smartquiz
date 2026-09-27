@@ -175,6 +175,52 @@
                 android:contentDescription="工具中心"/>
         </LinearLayout>
 
+        <!-- 电脑连接状态条（remote_dsh）：常驻可见，点一下进「远程连接（电脑）」。
+             为什么要加：连接状态以前只在 AI 的文字回复里出现，界面上没有任何提示（用户反馈 2026-09-27）。 -->
+        <LinearLayout
+            android:id="@+id/remote_dsh_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="@dimen/space_12"
+            android:layout_marginTop="@dimen/space_6"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/status_bar_background"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
+
+            <View
+                android:id="@+id/remote_dsh_dot"
+                android:layout_width="@dimen/size_12"
+                android:layout_height="@dimen/size_12"
+                android:layout_marginEnd="@dimen/space_8"
+                android:background="@drawable/circle_red"/>
+
+            <TextView
+                android:id="@+id/remote_dsh_text"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="电脑未配对"
+                android:textSize="@dimen/text_12"
+                android:textColor="?attr/colorControlText"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/remote_dsh_action"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_8"
+                android:text="去配对 ›"
+                android:textSize="@dimen/text_12"
+                android:textStyle="bold"
+                android:textColor="?attr/colorPrimary"/>
+        </LinearLayout>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="@dimen/size_0"

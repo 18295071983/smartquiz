@@ -194,6 +194,11 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnAIService;
     /** 远程连接（电脑）：连接/断开/清除配置入口（工具抽屉「管理」组） */
     private MaterialButton btnRemoteDsh;
+    /** 聊天页顶部「电脑连接」常驻状态条（点一下进连接界面） */
+    private android.view.View remoteDshBar;
+    private android.view.View remoteDshDot;
+    private android.widget.TextView remoteDshText;
+    private android.widget.TextView remoteDshAction;
     private MaterialButton btnModelDownload;
     private MaterialButton btnAiInit;
     private View thinkingIndicator;
@@ -500,6 +505,16 @@ public class AIChatActivity extends BaseActivity {
             btnAICenter = findViewById(R.id.btn_ai_center);
             btnAIService = findViewById(R.id.btn_ai_service);
         btnRemoteDsh = findViewById(R.id.btn_remote_dsh);
+        remoteDshBar = findViewById(R.id.remote_dsh_bar);
+        remoteDshDot = findViewById(R.id.remote_dsh_dot);
+        remoteDshText = findViewById(R.id.remote_dsh_text);
+        remoteDshAction = findViewById(R.id.remote_dsh_action);
+        if (remoteDshBar != null) {
+            remoteDshBar.setOnClickListener(v ->
+                    startActivity(new Intent(AIChatActivity.this,
+                            com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)));
+        }
+        refreshRemoteDshBar();
             btnModelDownload = findViewById(R.id.btn_model_download);
             btnAiInit = findViewById(R.id.btn_ai_init);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
@@ -1537,6 +1552,7 @@ public class AIChatActivity extends BaseActivity {
         }
         if (btnRemoteDsh != null) {
             btnRemoteDsh.setOnClickListener(v -> {
+                // 工具抽屉入口：先收起抽屉再进连接界面
                 if (drawerLayout != null) {
                     drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
                 }
@@ -10744,9 +10760,47 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+/**
+     * 刷新聊天页顶部的「电脑连接」状态条。
+     *
+     * <p>为什么要常驻这一条：连接状态以前只在 AI 的文字回复里出现，聊天界面上没有任何提示
+     * （用户反馈 2026-09-27："AI 对话界面没有任何 UI 提示，只能在对话流中显示"）。
+     * 三种状态：未配对（红）/ 已连接（绿）/ 已断开（黄），点一下进「远程连接（电脑）」。
+     */
+    private void refreshRemoteDshBar() {
+        if (remoteDshBar == null) {
+            return;
+        }
+        boolean configured = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this);
+        boolean connected = com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this);
+        int dotRes;
+        String text;
+        String action;
+        if (!configured) {
+            dotRes = R.drawable.circle_red;
+            text = "电脑未配对：可远程控制电脑（扫码即可）";
+            action = "去配对 ›";
+        } else if (connected) {
+            dotRes = R.drawable.circle_green;
+            text = "电脑已连接：" + com.oilquiz.app.ai.tool.RemoteDshTool.configValue(this, "base_url")
+                    + "（AI 可远程操作）";
+            action = "管理 ›";
+        } else {
+            dotRes = R.drawable.circle_yellow;
+            text = "电脑已断开：AI 会被拒绝执行";
+            action = "去连接 ›";
+        }
+        remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dotRes));
+        remoteDshText.setText(text);
+        remoteDshAction.setText(action);
+        remoteDshBar.setVisibility(View.VISIBLE);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        // 电脑连接状态可能在「远程连接（电脑）」界面被改过：回来自动刷新顶部状态条
+        refreshRemoteDshBar();
         // 同步本地Agent开关状态（可能在其他页面切换过）
         if (chipLocalAgent != null && aiConfig != null) {
             chipLocalAgent.setChecked(aiConfig.isLocalAgentEnabled());
