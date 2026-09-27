@@ -134,17 +134,26 @@ public class VncClientDeviceTest {
         assertEquals("位图宽度应与 ServerInit 一致", size[0], client.getBitmap().getWidth());
         // 帧内容不能全黑：X 桌面上有窗口（环境准备里会起 xclock / 演示窗口），
         // 全黑说明要么没真收到画面、要么像素解码/编码协商错了。
-        android.graphics.Bitmap bmp = client.getBitmap();
-        java.util.HashSet<Integer> distinct = new java.util.HashSet<>();
-        for (int yy = 0; yy < bmp.getHeight(); yy += 13) {
-            for (int xx = 0; xx < bmp.getWidth(); xx += 13) {
-                distinct.add(bmp.getPixel(xx, yy));
+        // 帧内容不能全黑：环境准备/启动脚本会起一个 xclock 窗口，但它是异步的，
+        // 所以这里等最多 12 秒（冷启动时第一帧可能还是空的）。
+        int colors = 0;
+        for (int i = 0; i < 24 && colors <= 2; i++) {
+            android.graphics.Bitmap bmp = client.getBitmap();
+            java.util.HashSet<Integer> distinct = new java.util.HashSet<>();
+            for (int yy = 0; yy < bmp.getHeight(); yy += 13) {
+                for (int xx = 0; xx < bmp.getWidth(); xx += 13) {
+                    distinct.add(bmp.getPixel(xx, yy));
+                }
+            }
+            colors = distinct.size();
+            if (colors <= 2) {
+                Thread.sleep(500);
             }
         }
-        System.out.println("[VNC] 帧内不同颜色数=" + distinct.size());
-        assertTrue("帧内容不应全黑（实际颜色数 " + distinct.size() + "）", distinct.size() > 2);
+        System.out.println("[VNC] 帧内不同颜色数=" + colors);
+        assertTrue("帧内容不应全黑（等待后颜色数 " + colors + "）", colors > 2);
         System.out.println("[VNC] RFB 客户端验收通过（" + size[0] + "x" + size[1] + " name=" + name[0]
-                + " 颜色数=" + distinct.size() + "）");
+                + " 颜色数=" + colors + "）");
         client.stop();
     }
 
@@ -185,11 +194,11 @@ public class VncClientDeviceTest {
         assertTrue("App 侧启动脚本应 setsid nohup 常驻", start.contains("setsid nohup"));
         assertTrue("App 侧启动脚本应与准备脚本用同一份容器命令", start.contains(TermuxEnvInstaller.GUI_INNER_COMMAND));
         assertTrue("App 侧启动脚本应幂等（已在跑就退出）", start.contains("GUI_ALREADY_UP"));
-        assertTrue("就绪判断应在 Termux 侧 0 成本做（端口+进程双条件）",
-                start.contains("pgrep -f") && start.contains("Xvn[c] :1")
-                        && start.contains("/dev/tcp/127.0.0.1/5900"));
+        assertTrue("就绪判断只看进程名（零副作用，不碰 5900）", start.contains("pgrep -x Xvnc"));
+        assertFalse("不要用裸连 5900 探测（半截握手会把 TigerVNC 弄脏）",
+                start.contains("/dev/tcp/127.0.0.1/5900"));
         assertTrue("失败时要提示清残留 Xvnc", start.contains("pkill -f 'Xvn[c] :1'"));
-        assertTrue("启动后要预热服务端（x11vnc 首个客户端约 5 秒才发横幅）", start.contains("s.recv(12)"));
+        assertTrue("启动后要放个可见窗口（避免纯黑桌面）", start.contains("xclock -geometry"));
         assertFalse("不要再回到 x11vnc 那套（-threads 实测空转且不再监听）", setup.contains("-threads"));
 
         String status = TermuxEnvInstaller.buildGuiStatusScript();
@@ -247,7 +256,8 @@ public class VncClientDeviceTest {
                 com.oilquiz.app.R.id.btn_vnc_disconnect, com.oilquiz.app.R.id.btn_vnc_keyboard,
                 com.oilquiz.app.R.id.btn_vnc_right, com.oilquiz.app.R.id.btn_vnc_fit,
                 com.oilquiz.app.R.id.btn_vnc_zoom_in, com.oilquiz.app.R.id.btn_vnc_zoom_out,
-                com.oilquiz.app.R.id.btn_vnc_paste
+                com.oilquiz.app.R.id.btn_vnc_paste, com.oilquiz.app.R.id.btn_vnc_bars,
+                com.oilquiz.app.R.id.vnc_root
         };
         StringBuilder missing = new StringBuilder();
         for (int id : ids) {

@@ -47,10 +47,12 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // 自带状态行/工具栏，不再用系统 ActionBar：屏幕全留给桌面
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle("图形界面（VNC）");
+            getSupportActionBar().hide();
         }
         setContentView(R.layout.activity_vnc);
+        applyImmersive();
 
         vncView = findViewById(R.id.vnc_view);
         statusView = findViewById(R.id.vnc_status);
@@ -94,6 +96,13 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
         });
         findViewById(R.id.btn_vnc_zoom_in).setOnClickListener(v -> vncView.zoomBy(1.25f));
         findViewById(R.id.btn_vnc_zoom_out).setOnClickListener(v -> vncView.zoomBy(0.8f));
+        findViewById(R.id.btn_vnc_bars).setOnClickListener(v -> {
+            immersive = !immersive;
+            applyImmersive();
+            applyInsetsPadding(findViewById(R.id.vnc_root));
+            status(immersive ? "已隐藏系统状态栏（画面占满屏幕）" : "已显示系统状态栏");
+        });
+        applyInsetsPadding(findViewById(R.id.vnc_root));
         findViewById(R.id.btn_vnc_paste).setOnClickListener(v -> {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm == null || cm.getPrimaryClip() == null || cm.getPrimaryClip().getItemCount() == 0) {
@@ -201,6 +210,43 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
         });
     }
 
+    /** 是否沉浸（隐藏系统状态栏/导航栏）；默认沉浸，画面才不会被状态栏压住 */
+    private boolean immersive = true;
+
+    /**
+     * 沉浸/非沉浸切换。
+     *
+     * <p>targetSdk 35 在 Android 15+ 会被强制"边到边"，内容默认画到系统状态栏底下 ——
+     * 远程桌面这种要占满屏幕的界面，正确做法是隐藏系统栏；用户想看时间/电量时再切回来，
+     * 切回来时用 insets 给内容留出安全区（见 {@link #applyInsetsPadding(View)}）。
+     */
+    private void applyImmersive() {
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        androidx.core.view.WindowInsetsControllerCompat c = androidx.core.view.WindowCompat
+                .getInsetsController(getWindow(), getWindow().getDecorView());
+        if (c == null) {
+            return;
+        }
+        if (immersive) {
+            c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+            c.setSystemBarsBehavior(
+                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        } else {
+            c.show(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+        }
+    }
+
+    /** 系统栏可见时给根布局留出 insets，避免画面被压住 */
+    private void applyInsetsPadding(final View root) {
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            int top = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).top;
+            int bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).bottom;
+            v.setPadding(0, immersive ? 0 : top, 0, immersive ? 0 : bottom);
+            return insets;
+        });
+        root.requestApplyInsets();
+    }
+
     private void status(String s) {
         statusView.setText(s);
     }
@@ -208,6 +254,21 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
     private void hint(String s) {
         hintView.setText(s);
         hintView.setVisibility(View.VISIBLE);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // MIUI 下只在 onCreate 里申请隐藏系统栏经常不生效，这里和拿到焦点时再各申请一次
+        applyImmersive();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            applyImmersive();
+        }
     }
 
     @Override
