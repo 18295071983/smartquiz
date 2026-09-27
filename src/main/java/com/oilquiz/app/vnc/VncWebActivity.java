@@ -64,13 +64,16 @@ public class VncWebActivity extends AppCompatActivity {
 
     /**
      * noVNC 页面地址。参数含义（noVNC 1.3 的 query 参数）：
-     * {@code autoconnect=1} 打开就连、{@code resize=scale} 桌面自适应屏幕、
-     * {@code reconnect=1} 断线自动重连、{@code path=websockify} 走 websockify 的默认路径。
+     * {@code autoconnect=1} 打开就连、{@code reconnect=1} 断线自动重连、
+     * {@code path=websockify} 走 websockify 的默认路径，
+     * {@code resize=remote} 是**横竖屏适配的关键**：让 noVNC 用 SetDesktopSize 请求 Xvnc
+     * 把远端桌面改成和手机窗口一样的分辨率（竖屏 → 竖屏桌面，XFCE 自动重排），
+     * 而不是 {@code scale} 那种"把 1280x720 硬缩进屏幕"（竖屏只剩中间一条、字还发虚）。
      */
     public static String buildUrl() {
         return "http://127.0.0.1:" + WEB_PORT + "/vnc.html"
                 + "?host=127.0.0.1&port=" + WEB_PORT + "&path=websockify"
-                + "&autoconnect=1&resize=scale&reconnect=1&reconnect_delay=2000"
+                + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
                 + "&show_dot=1&bell=0";
     }
 
@@ -142,6 +145,23 @@ public class VncWebActivity extends AppCompatActivity {
         });
         findViewById(R.id.btn_vnc_web_native).setOnClickListener(v ->
                 startActivity(new Intent(this, VncActivity.class)));
+        findViewById(R.id.btn_vnc_web_rotate).setOnClickListener(v -> {
+            boolean land = getResources().getConfiguration().orientation
+                    == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+            setRequestedOrientation(land
+                    ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+            ((android.widget.TextView) v).setText(land ? "横屏" : "竖屏");
+            status(land ? "切到竖屏，正在重新适配远端桌面…" : "切到横屏，正在重新适配远端桌面…");
+            scheduleAutoHide();
+        });
+        findViewById(R.id.btn_vnc_web_bars).setOnClickListener(v -> {
+            immersive = !immersive;
+            applyImmersive();
+            applyInsetsPadding(findViewById(R.id.vnc_web_root));
+            status(immersive ? "已隐藏系统栏（画面占满屏幕）" : "已显示系统栏");
+            scheduleAutoHide();
+        });
         findViewById(R.id.btn_vnc_web_hide).setOnClickListener(v -> showBar(false));
         toggle.setOnClickListener(v -> showBar(true));
         resetTimerOnTouch(bar);
@@ -313,6 +333,29 @@ public class VncWebActivity extends AppCompatActivity {
             return insets;
         });
         root.requestApplyInsets();
+    }
+
+    /**
+     * 横竖屏切换后的适配。
+     *
+     * <p>本页带 {@code configChanges=orientation|screenSize}，旋转时不会重建 Activity，
+     * WebView 的窗口尺寸跟着变；noVNC 的 {@code resize=remote} 会按新窗口尺寸请求 Xvnc 改分辨率。
+     * 但 WebView 里那次 resize 事件不一定触发重新协商，所以这里**显式重载一次页面**求稳
+     * （本地连接，重连不到 2 秒），顺便把状态条叫回来告诉用户发生了什么。
+     */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        boolean land = newConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        status((land ? "横屏" : "竖屏") + "：正在重新适配远端桌面…");
+        showBar(true);
+        handler.postDelayed(() -> {
+            if (!destroyed) {
+                webLoaded = true;
+                web.loadUrl(buildUrl());
+            }
+        }, 700);
+        applyImmersive();
     }
 
     @Override

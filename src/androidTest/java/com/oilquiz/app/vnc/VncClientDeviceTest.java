@@ -518,7 +518,8 @@ public class VncClientDeviceTest {
                 com.oilquiz.app.R.id.vnc_web_bar, com.oilquiz.app.R.id.vnc_web_status,
                 com.oilquiz.app.R.id.btn_vnc_web_gui, com.oilquiz.app.R.id.btn_vnc_web_reload,
                 com.oilquiz.app.R.id.btn_vnc_web_native, com.oilquiz.app.R.id.btn_vnc_web_hide,
-                com.oilquiz.app.R.id.btn_vnc_web_toggle
+                com.oilquiz.app.R.id.btn_vnc_web_toggle, com.oilquiz.app.R.id.btn_vnc_web_rotate,
+                com.oilquiz.app.R.id.btn_vnc_web_bars
         };
         StringBuilder missing = new StringBuilder();
         for (int id : ids) {
@@ -533,7 +534,8 @@ public class VncClientDeviceTest {
         System.out.println("[VNC] noVNC URL = " + url);
         assertTrue("地址应指向 vnc.html: " + url, url.contains("/vnc.html"));
         assertTrue("应自动连接: " + url, url.contains("autoconnect=1"));
-        assertTrue("应自适应缩放: " + url, url.contains("resize=scale"));
+        // 横竖屏适配的关键：resize=remote 才会让远端桌面改分辨率（scale 只是把 1280x720 硬缩进屏幕）
+        assertTrue("应让远端桌面跟着屏幕改分辨率: " + url, url.contains("resize=remote"));
         assertTrue("应走 websockify 路径: " + url, url.contains("path=websockify"));
         assertTrue("端口应是 websockify 的 6080: " + url,
                 url.contains("port=" + com.oilquiz.app.vnc.VncWebActivity.WEB_PORT));

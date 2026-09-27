@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  图形界面（VNC · noVNC 外壳）：画面与操作全部交给 noVNC（容器里 Ubuntu 的 novnc 包，MPL-2.0），
-  本页只提供一条中文状态条：状态 + 启动/重连/原生模式 + 收起。
-  noVNC 自己带中文界面（app/locale/zh_CN.json，随设备语言自动生效），所以这里不再重复造按钮。
+  图形界面（VNC · noVNC 外壳）：画面与操作全部交给 noVNC（容器里 Ubuntu 的 novnc 包，MPL-2.0）。
+  横竖屏适配靠三样：
+    ① noVNC 用 resize=remote —— 让 Xvnc 把远端桌面改成和手机窗口一样的分辨率（竖屏就是竖屏桌面），
+       而不是把 1280x720 硬缩进屏幕（那样竖屏只会剩中间一条、字还发虚）；
+    ② 旋转后本页重载一次页面，显式让 noVNC 重新请求改分辨率；
+    ③ 「横屏」按钮可以不听系统自动旋转、手动定死方向；「系统栏」决定要不要藏状态栏。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/vnc_web_root"
@@ -15,7 +18,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 中文状态条：8 秒不动自动收起，只留左上角的 ≡ -->
+    <!-- 状态条：上排状态 + 收起，下排按钮；8 秒不动自动收起，只留左上角 ≡ -->
     <LinearLayout
         android:id="@+id/vnc_web_bar"
         android:layout_width="wrap_content"
@@ -23,70 +26,128 @@
         android:layout_gravity="top|start"
         android:layout_margin="@dimen/space_8"
         android:background="@drawable/bg_vnc_panel"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/space_12"
-        android:paddingEnd="4dp">
+        android:orientation="vertical"
+        android:padding="6dp">
 
-        <TextView
-            android:id="@+id/vnc_web_status"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxWidth="150dp"
-            android:maxLines="2"
-            android:text="图形界面：准备中…"
-            android:textColor="#FFFFFFFF"
-            android:textSize="@dimen/text_12" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_vnc_web_gui"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_marginStart="6dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:minWidth="0dp"
-            android:text="启动图形界面"
-            android:textAllCaps="false"
-            android:textSize="@dimen/text_12" />
+            <TextView
+                android:id="@+id/vnc_web_status"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:text="图形界面：准备中…"
+                android:textColor="#FFFFFFFF"
+                android:textSize="@dimen/text_12" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_vnc_web_reload"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_marginStart="4dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:minWidth="0dp"
-            android:text="重连"
-            android:textAllCaps="false"
-            android:textSize="@dimen/text_12" />
+            <TextView
+                android:id="@+id/btn_vnc_web_hide"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:text="✕"
+                android:textColor="#FFFFFFFF"
+                android:textSize="15sp" />
+        </LinearLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_vnc_web_native"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:layout_marginStart="4dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:minWidth="0dp"
-            android:text="原生模式"
-            android:textAllCaps="false"
-            android:textSize="@dimen/text_12" />
+        <LinearLayout
+            android:layout_width="300dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/btn_vnc_web_hide"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:gravity="center"
-            android:text="✕"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_web_gui"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingLeft="0dp"
+                android:paddingRight="0dp"
+                android:text="启动桌面"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_web_reload"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingLeft="0dp"
+                android:paddingRight="0dp"
+                android:text="重连"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_web_rotate"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingLeft="0dp"
+                android:paddingRight="0dp"
+                android:text="横屏"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_web_native"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingLeft="0dp"
+                android:paddingRight="0dp"
+                android:text="原生"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_web_bars"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingLeft="0dp"
+                android:paddingRight="0dp"
+                android:text="系统栏"
+                android:textAllCaps="false"
+                android:textSize="11sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- 收起后仍留一个 ≡，随时把状态条叫回来 -->
