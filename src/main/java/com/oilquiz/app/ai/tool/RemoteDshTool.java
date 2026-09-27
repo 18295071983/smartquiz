@@ -206,10 +206,14 @@ public class RemoteDshTool implements AITool {
     private static final String PREF_UI = "ai_prefs";
     private static final String KEY_SHOW_BAR = "remote_dsh_bar";
 
-    /** 聊天页顶部「电脑连接」状态条是否显示（默认显示；用户点 ✕ 或在连接界面关掉后为 false） */
+    /**
+     * 聊天页顶部「电脑连接」状态条是否显示。
+     * **默认关闭**（2026-09-27 按用户要求）：大多数用户不用远程控制电脑，不该在聊天页常驻占一行；
+     * 需要的人在「远程连接（电脑）」里打开开关，或配对后自行开启。
+     */
     public static boolean isBarEnabled(Context c) {
         return c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
-                .getBoolean(KEY_SHOW_BAR, true);
+                .getBoolean(KEY_SHOW_BAR, false);
     }
 
     public static void setBarEnabled(Context c, boolean enabled) {
@@ -241,13 +245,56 @@ public class RemoteDshTool implements AITool {
         return null;
     }
 
+    // ---------- 电脑端程序导出（新用户拿不到脚本 = 功能没法用） ----------
+
+    /** 电脑端程序在 assets 里的目录 */
+    private static final String ASSET_DIR = "remote_dsh";
+    /** 导出给用户的电脑端文件（放到同一个文件夹即可启动） */
+    private static final String[] BRIDGE_FILES = {
+            "start_dsh_bridge.bat", "start_dsh_bridge.sh",
+            "dsh_bridge_server.py", "qrcodegen.js", "README.md"
+    };
+
+    /**
+     * 把电脑端要用的程序导出到公共下载目录 Download/OilQuiz/remote_dsh/。
+     * 用户把整个文件夹拷到电脑上，双击 start_dsh_bridge.bat 即可（README 里有完整步骤）。
+     *
+     * @return 导出目录的绝对路径
+     */
+    public static String exportBridgeFiles(Context c) throws Exception {
+        java.io.File dir = new java.io.File(
+                android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS),
+                "OilQuiz/remote_dsh");
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new java.io.IOException("无法创建目录：" + dir.getAbsolutePath()
+                    + "（请在系统设置里给本应用「所有文件访问」权限）");
+        }
+        for (String name : BRIDGE_FILES) {
+            try (java.io.InputStream in = c.getAssets().open(ASSET_DIR + "/" + name);
+                 java.io.OutputStream out = new java.io.FileOutputStream(new java.io.File(dir, name))) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                }
+            }
+        }
+        return dir.getAbsolutePath();
+    }
+
+    /** 第一次用这个功能时的引导文案（工具给 AI 的提示里也用它指路） */
+    public static String firstTimeHint() {
+        return "第一次用远程控制电脑：打开「工具集 → 设置与数据 → 远程连接（电脑）」→ 点「怎么用 / 电脑端怎么配」看教程（"
+                + "那里可以把电脑端程序一键导出到手机 Download/OilQuiz/remote_dsh/，再拷到电脑上双击启动）";
+    }
+
     /** 统一前置检查：未配置 / 已断开 → 返回失败结果；正常返回 null */
     private AIToolResult precheck() {
         if (getBaseUrl().isEmpty()) {
             return AIToolResult.fail("remote_dsh 未配置（还没配对过电脑）。"
-                    + "\n最简单：对 AI 说「远程配对」→ 打开相机扫电脑配对页的二维码（电脑端先双击 tools\\start_dsh_bridge.bat，"
-                    + "配对页 http://127.0.0.1:8218/pair 会自动打开，扫第一个码即可）"
-                    + "\n也可以：工具集 → 设置与数据 → 远程连接（电脑），扫码或手动填地址+令牌");
+                    + "\n" + firstTimeHint()
+                    + "\n也可以对 AI 说「远程配对」直接扫码：电脑端跑起桥接后会显示配对页 http://127.0.0.1:8218/pair");
         }
         if (!isConnected(context)) {
             return AIToolResult.fail("已断开电脑连接（配置还在，只是本机停用，电脑端未受影响）。"
@@ -372,8 +419,7 @@ public class RemoteDshTool implements AITool {
         String baseUrl = getBaseUrl();
         if (baseUrl.isEmpty()) {
             return AIToolResult.fail("remote_dsh 未配置：还没配对过电脑。"
-                    + "\n工具集 → 设置与数据 → 远程连接（电脑）：扫码配对，或手动填地址+令牌"
-                    + "\n电脑端需先启动 tools\\start_dsh_bridge.bat（含 ACP serve）");
+                    + "\n" + firstTimeHint());
         }
         try {
             Map<String, Object> resp = httpJson(baseUrl + "/status", "GET", null, 30);
@@ -470,9 +516,9 @@ public class RemoteDshTool implements AITool {
             setConnected(context, false);
             return AIToolResult.fail("连接失败：" + e.getMessage()
                     + "\n地址: " + getBaseUrl()
-                    + "\n排查：① 电脑端双击 tools\\start_dsh_bridge.bat（含 ACP serve）"
-                    + " ② 手机与电脑同网或隧道可用 ③ token 是否与桥接一致"
-                    + "\n也可以在界面上重扫二维码：工具集 → 设置与数据 → 远程连接（电脑）");
+                    + "\n排查：① 电脑端启动了 start_dsh_bridge.bat（含 ACP serve）且窗口还开着"
+                    + " ② 手机与电脑同网或隧道可用 ③ token 是否与电脑端打印的一致"
+                    + "\n第一次配电脑端？看教程：工具集 → 设置与数据 → 远程连接（电脑）→「怎么用 / 电脑端怎么配」");
         }
     }
 

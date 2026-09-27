@@ -95,6 +95,12 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
             });
         }
 
+        android.view.View guideBtn = findViewById(R.id.btn_guide);
+        if (guideBtn != null) {
+            guideBtn.setOnClickListener(v ->
+                    startActivity(new Intent(this, RemoteDshGuideActivity.class)));
+        }
+
         bindActions();
         refresh();
         if (RemoteDshTool.isConfigured(this)) {

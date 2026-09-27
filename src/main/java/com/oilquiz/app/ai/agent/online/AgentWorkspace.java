@@ -713,6 +713,7 @@ public class AgentWorkspace {
                 + "     查看/修改：linux_shell(action=route[, command=名字, order=bskt/stkb/b])，order=reset 恢复；\n"
                 + "     也可在「工具集 → 设置与数据 → 命令路由（Linux 工具箱）」界面点选。\n"
                 + "   远程连接（电脑）：工具集 → 设置与数据 → 远程连接（电脑）——手动连接/断开/清除配置/扫码配对；\n"
+                + "     第一次用（尤其电脑端怎么配）：该界面顶部「怎么用 / 电脑端怎么配」教程页，可一键把电脑端程序导出到手机；\n"
                 + "     断开期间 remote_dsh 一律拒绝执行（配置保留），连接后才允许；用户说「连接电脑/断开电脑」时用 remote_dsh(action=connect/disconnect)。\n"
                 + "   环境：HOME/TMPDIR/SSL_CERT_FILE 已配好；需要依赖库的工具由 liblauncher.so 自带库路径（不污染系统命令）。\n"
                 + "     · Python 里同样可用：import android_shell（run/run_argv/available/tool_path）\n"

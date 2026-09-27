@@ -16,6 +16,19 @@
         android:orientation="vertical"
         android:padding="@dimen/space_16">
 
+        <!-- ===== 教程入口（新用户第一步） ===== -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_guide"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_44"
+            android:layout_marginBottom="@dimen/space_12"
+            android:text="❓ 怎么用 / 电脑端怎么配（含导出电脑端程序）"
+            android:textSize="@dimen/text_13"
+            android:textAllCaps="false"
+            android:textColor="?attr/colorOnTertiaryContainer"
+            app:backgroundTint="?attr/colorTertiaryContainer"
+            app:cornerRadius="@dimen/radius_22"/>
+
         <!-- ===== 状态卡 ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
