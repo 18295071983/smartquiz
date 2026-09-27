@@ -357,18 +357,19 @@ public final class TermuxEnvInstaller {
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
+                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
                 "TRACE=\"$H/.quiz_gui_start_trace.log\"",
                 "trace() { echo \"$(date '+%T') $1\" >> \"$TRACE\"; }",
                 "trace \"script-start\"",
                 "ensure_fonts",
                 "trace \"font-scheduled\"",
-                "if UP; then ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
+                "if UP; then ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
                 "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
                 "trace \"starting-xvnc\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_desktop; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
                 "trace \"gui-failed\"",
                 "echo \"GUI_FAILED\"",
                 "tail -15 \"$LOG\"",
@@ -401,6 +402,7 @@ public final class TermuxEnvInstaller {
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
+                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
                 "pkill -x Xvnc >/dev/null 2>&1",
                 "pkill -x xclock >/dev/null 2>&1",
                 "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1",
@@ -408,7 +410,7 @@ public final class TermuxEnvInstaller {
                 "echo \"[$(date '+%T')] restart\" >> \"$LOG\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_desktop; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
                 "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
     }
 
@@ -527,7 +529,7 @@ public final class TermuxEnvInstaller {
             }
 
             gui_pkgs_ok() {
-              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && (ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 || fc-list :lang=zh 2>/dev/null | grep -q .)' 2>/dev/null
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1' 2>/dev/null
             }
 
             quiz_main() {
@@ -609,10 +611,10 @@ public final class TermuxEnvInstaller {
               if ! command -v proot-distro >/dev/null 2>&1; then
                 bad "没有 proot-distro，跳过图形界面组件"
               elif gui_pkgs_ok; then
-                ok "Xvnc（TigerVNC）+ 中文字体已安装，跳过"
+                ok "Xvnc + XFCE 桌面 + 中文字体已安装，跳过"
               else
-                echo "正在容器内安装 tigervnc-standalone-server / x11-utils / x11-apps / procps / xdotool / imagemagick（约 70MB，2~4 分钟）…"
-                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig' || bad "图形界面组件安装失败：请检查网络后重跑本页"
+                echo "正在容器内安装 TigerVNC + XFCE 桌面（面板/开始菜单/文件管理器/终端）+ 中文字体（约 110MB，3~6 分钟）…"
+                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig xfce4 xfce4-terminal thunar mousepad dbus-x11' || bad "图形界面组件安装失败：请检查网络后重跑本页"
                 if gui_pkgs_ok; then ok "X11/VNC 组件就绪"; else bad "X11/VNC 组件没装全"; fi
               fi
 
