@@ -224,6 +224,14 @@
   - 运行时已内置 pip 模块（`import pip` 可用）。安装新 Python 包：① `action=pip_install(package=包名)`（pip.main 编程式装到 filesDir/python_user_packages）；② 纯 Python 包（py3-none-any wheel）最稳用 `pip_install` 工具（自研下载器，不依赖 pip）；③ 编程式 `import pip; pip.main(['install','--target','<可写目录>','包名'])`。**禁止** subprocess 或 `python -m pip`（Chaquopy 无独立 python 可执行文件，必然失败）。
 - **参数**：`code`（上限 200KB）、`task`、`context`、`timeout`（5~120 秒）
 
+### 完整 Python 环境（Termux + Ubuntu）— 一键准备界面
+- **入口**：工具集 → 设置与数据 → **完整 Python 环境**。
+- **内置官方包**：`assets/termux_env/` 里带 Termux 0.118.3（F-Droid 官方签名，GPLv3，108.6MB）与 Ubuntu 官方 ubuntu-base 24.04.5（28.5MB）。
+- **三步**：① 安装 Termux（系统安装器确认一次）② 导出根文件系统到 `Download/OilQuiz/termux_env/` ③ 在 Termux 里准备容器（装 proot-distro → 用本地 tar.gz 建容器 → apt 装 python3-full + python3-tk → 建 `~/ubuntu` 入口）。
+- **为什么必须独立安装 Termux**：Android 只允许 targetSdk<29 的应用执行自己私有目录里的二进制，proot/apt 依赖这一点；本 App targetSdk 35，无法合并。
+- **自动化边界**：第 ③ 步可由 App 通过 Termux 的 RUN_COMMAND 自动下发（需用户手点一次权限）；若 Termux 的 `allow-external-apps` 未开，用界面上的「复制手动命令」粘进 Termux 跑一次即可（脚本会自己把该配置打开）。
+- **许可**：Termux 为 GPLv3（源码 github.com/termux/termux-app），Ubuntu 镜像按其各组件许可；见 `THIRD_PARTY_NOTICES.md`。
+
 ### 「完整体 Python」路线（Termux + proot-distro Ubuntu，2026-09-27 真机走通）
 - 内置 Chaquopy Python 永远没有 tkinter/curses/readline（Android 平台限制）；要这些就上真 Linux：
   · 手机上已装 **Termux 0.118.3**（GitHub debug 包，targetSdk 28 → 仍可 exec 私有目录）与 **Ubuntu 24.04.5 容器**（proot-distro 5.9）；

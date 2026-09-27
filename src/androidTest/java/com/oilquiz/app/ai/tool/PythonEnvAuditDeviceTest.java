@@ -78,14 +78,14 @@ public class PythonEnvAuditDeviceTest {
         String out = String.valueOf(r.stdout);
         // 关键能力回归：这些是 App 现有功能真正依赖的（HTTPS/压缩/SQLite/原生调用/fork 子进程），
         // 将来升 Chaquopy 若把它们弄丢，这条会立刻红。
-        for (String must : new String[]{""ssl"", ""sqlite3"", ""lzma"", ""bz2"", ""zlib"",
-                ""ctypes"", ""socket"", ""asyncio"", ""distutils"", ""setuptools""}) {
+        for (String must : new String[]{"ssl", "sqlite3", "lzma", "bz2", "zlib",
+                "ctypes", "socket", "asyncio", "distutils", "setuptools"}) {
             int i = out.indexOf("std_missing");
             String missing = i >= 0 ? out.substring(i) : out;
             org.junit.Assert.assertFalse("关键标准库模块不应缺失: " + must + " | " + missing,
                     missing.contains(must));
         }
-        org.junit.Assert.assertTrue("应有 fork（multiprocessing 依赖）: " + out, out.contains(""fork": true"));
-        org.junit.Assert.assertTrue("三方库应全部可导入: " + out, out.contains(""third_missing": []"));
+        org.junit.Assert.assertTrue("应有 fork（multiprocessing 依赖）: " + out, out.contains("\"fork\": true"));
+        org.junit.Assert.assertTrue("三方库应全部可导入: " + out, out.contains("\"third_missing\": []"));
     }
 }

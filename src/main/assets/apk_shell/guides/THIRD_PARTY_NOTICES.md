@@ -35,3 +35,21 @@ jq（MIT）、ripgrep（MIT/Unlicense）、sqlite3（Public Domain）、zstd（B
 aria2c（GPLv2+）、zip/unzip（Info-ZIP）、file（BSD）、tree（GPLv2）、ncdu（MIT）、htop（GPLv2）、tmux（ISC）、nano（GPLv3）、gawk（GPLv3）。
 
 以上均为 Termux 官方仓库构建，源码见 https://github.com/termux/termux-packages 。
+
+## 5. Termux 应用（GPL v3，随包分发的安装包）
+
+- 组件：**Termux 0.118.3**（versionCode 1002，F-Droid 官方签名，非 debuggable）
+- 形式：以 APK 文件随包分发（`assets/termux_env/termux-0.118.3-fdroid.apk`，108.6 MB），由「完整 Python 环境」界面引导用户安装
+- 用途：提供可执行 proot/apt 的 Linux 环境（Android 只允许 targetSdk<29 的应用执行自己私有目录里的二进制，本 App targetSdk 35，无法在自己进程内提供该能力）
+- 来源：F-Droid 官方仓库（分发镜像 https://mirrors.tuna.tsinghua.edu.cn/fdroid/repo/com.termux_1002.apk ）
+- 许可：**GNU General Public License v3.0**
+- 源码与许可全文：https://github.com/termux/termux-app （LICENSE.md）
+- 对应源码获取方式：按 GPL v3，用户可通过上述仓库获取对应版本完整源码；本项目未对 Termux 做任何修改（原样分发官方 APK）
+
+## 6. Ubuntu Base 根文件系统（多许可，随包分发的系统镜像）
+
+- 组件：**ubuntu-base 24.04.5（arm64）**（`assets/termux_env/ubuntu-base-24.04.5-base-arm64.tar.gz`，28.5 MB）
+- 用途：proot-distro 从本地文件创建 Ubuntu 容器（省一次下载）
+- 来源：Ubuntu 官方 ubuntu-cdimage（分发镜像 https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ ）
+- 许可：镜像内各组件的许可与版权声明见容器内 `/usr/share/doc/*/copyright`；Ubuntu 名称与镜像使用遵循 Canonical 的商标与再分发政策
+- 本项目未修改该镜像内容（原样分发官方压缩包）

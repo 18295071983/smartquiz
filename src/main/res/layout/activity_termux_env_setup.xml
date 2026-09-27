@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  完整 Python 环境（Termux + Ubuntu）一键准备。
+  入口：工具集 → 设置与数据 → 完整 Python 环境。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorBackground"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_16">
+
+        <!-- 状态卡 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🐍 完整 Python 环境（Termux + Ubuntu）"
+                    android:textSize="@dimen/text_18"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText"/>
+                <TextView
+                    android:id="@+id/env_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:lineSpacingExtra="3dp"
+                    android:textSize="@dimen/text_13"
+                    android:textColor="?attr/colorControlTextSecondary"
+                    android:text="检查中…"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 三步操作卡 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="第 1 步 · 安装 Termux（内置官方包，系统会确认一次）"
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorControlText"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_install_termux"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="安装 Termux"
+                    android:textSize="@dimen/text_14"
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnPrimary"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_22"/>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:layout_marginBottom="@dimen/space_12"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.2"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="第 2 步 · 导出 Ubuntu 根文件系统到 Download/OilQuiz/termux_env/"
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorControlText"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_export_rootfs"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="导出 Ubuntu 根文件系统（28.5 MB）"
+                    android:textSize="@dimen/text_14"
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnPrimary"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_22"/>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:layout_marginBottom="@dimen/space_12"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.2"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="第 3 步 · 在 Termux 里准备容器并安装完整 Python（约 3~6 分钟）"
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorControlText"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_run_setup"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="一键准备（在 Termux 里执行，可见进度）"
+                    android:textSize="@dimen/text_14"
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnPrimary"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_22"/>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:orientation="horizontal">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_grant"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_weight="1"
+                        android:text="授予 Termux 权限"
+                        android:textSize="@dimen/text_13"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_copy_cmd"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/space_8"
+                        android:text="复制手动命令"
+                        android:textSize="@dimen/text_13"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- 日志 / 说明卡 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+                <TextView
+                    android:id="@+id/env_log"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="3dp"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"
+                    android:text=""/>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:lineSpacingExtra="3dp"
+                    android:textSize="@dimen/text_11"
+                    android:textColor="?attr/colorControlTextHint"
+                    android:text="说明：Termux 必须作为独立应用安装（Android 只允许 targetSdk&lt;29 的应用执行自己私有目录里的二进制，proot/apt 靠这一点才能跑），所以无法合并进答题宝本体。\n内置包来源：Termux 0.118.3（F-Droid 官方签名，GPLv3，源码 github.com/termux/termux-app）+ Ubuntu 官方 ubuntu-base 24.04.5。\n装好后：Termux 里输入 ~/ubuntu 进真 Ubuntu；App 里的 AI 也能通过 termux_exec 调用它。"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+</ScrollView>

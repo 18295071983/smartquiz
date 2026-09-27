@@ -131,6 +131,12 @@
             android:exported="false"
             android:label="远程连接（电脑）"
             android:parentActivityName=".ui.activity.ToolboxActivity" />
+        <!-- 完整 Python 环境（Termux + Ubuntu）一键准备（工具集 → 设置与数据） -->
+        <activity
+            android:name=".ai.tool.TermuxEnvSetupActivity"
+            android:exported="false"
+            android:label="完整 Python 环境"
+            android:parentActivityName=".ui.activity.ToolboxActivity" />
         <!-- 使用教程：怎么用 + 电脑端怎么配 + 导出电脑端程序 -->
         <activity
             android:name=".ai.tool.RemoteDshGuideActivity"
