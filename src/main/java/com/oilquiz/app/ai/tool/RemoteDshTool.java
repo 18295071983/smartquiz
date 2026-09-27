@@ -252,7 +252,7 @@ public class RemoteDshTool implements AITool {
     /** 导出给用户的电脑端文件（放到同一个文件夹即可启动） */
     private static final String[] BRIDGE_FILES = {
             "start_dsh_bridge.bat", "start_dsh_bridge.sh",
-            "dsh_bridge_server.py", "qrcodegen.js", "README.md"
+            "dsh_bridge_server.py", "pair_page.html", "qrcodegen.js", "README.md"
     };
 
     /**

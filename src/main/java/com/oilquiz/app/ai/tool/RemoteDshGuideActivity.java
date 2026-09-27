@@ -61,8 +61,9 @@ public class RemoteDshGuideActivity extends AppCompatActivity {
                 String dir = RemoteDshTool.exportBridgeFiles(getApplicationContext());
                 ok = true;
                 msg = "已导出到：\n" + dir
-                        + "\n\n里面 5 个文件（start_dsh_bridge.bat / .sh、dsh_bridge_server.py、qrcodegen.js、README.md）\n"
-                        + "请整个文件夹拷到电脑上，双击 start_dsh_bridge.bat 启动。";
+                        + "\n\n里面 6 个文件（start_dsh_bridge.bat / .sh、dsh_bridge_server.py、pair_page.html、"
+                        + "qrcodegen.js、README.md）\n"
+                        + "请整个文件夹拷到电脑上，双击 start_dsh_bridge.bat 启动（文件缺一不可）。";
             } catch (Exception e) {
                 ok = false;
                 msg = "导出失败：" + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())

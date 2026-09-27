@@ -459,8 +459,15 @@ def pair_candidates(port, token):
 
 
 def pair_html(port, token):
+    """渲染配对页。
+
+    页面本体在 **项目文件 pair_page.html**（2026-09-27 从 Python 内联字符串里抽出来）：
+    内联写法让 Python 的转义规则悄悄改页面内容，实测导致 JS 里出现裸换行 → 整段脚本报错 →
+    一个二维码都不显示。现在这里只做占位符替换，页面用编辑器改、用 node 测试验。
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
     qr_js = ""
-    qjs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qrcodegen.js")
+    qjs = os.path.join(here, "qrcodegen.js")
     try:
         with io.open(qjs, encoding="utf-8") as f:
             qr_js = f.read()
@@ -468,62 +475,26 @@ def pair_html(port, token):
         log("pair_html qrcodegen.js 读取失败: %s (%s)" % (repr(e), qjs))
         qr_js = "// qrcodegen.js 缺失，无法渲染二维码"
     items_json = json.dumps(pair_candidates(port, token), ensure_ascii=False)
-    html = u"""<!doctype html>
-<html><head><meta charset="utf-8"><title>答题宝 · dsh 远程配对</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-body{font-family:system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;
-background:#0f172a;color:#e2e8f0;min-height:100vh;margin:0;padding:24px;box-sizing:border-box}
-h1{font-size:20px;margin:0 0 8px} h2{font-size:14px;color:#94a3b8;font-weight:normal;margin:0 0 16px}
-#qrs{display:flex;flex-wrap:wrap;gap:20px;justify-content:center;margin:8px 0}
-.card{display:flex;flex-direction:column;align-items:center}
-.qrbox{background:#fff;padding:14px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
-.ip{font-family:ui-monospace,monospace;font-size:13px;color:#7dd3fc;margin-top:8px}
-.manual{background:#1e293b;color:#fbbf24;padding:14px 16px;border-radius:12px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap;max-width:260px}
-.url{font-family:ui-monospace,monospace;font-size:12px;word-break:break-all;background:#1e293b;
-padding:10px 12px;border-radius:8px;max-width:92vw;color:#7dd3fc}
-.steps{max-width:430px;font-size:14px;line-height:1.8;color:#94a3b8;margin-top:16px}
-.steps b{color:#e2e8f0} code{background:#1e293b;padding:2px 6px;border-radius:4px;color:#7dd3fc}
-</style></head><body>
-<h1>答题宝 · 远程 dsh 配对</h1><h2>手机连的是哪个网，就扫那个网段的二维码</h2>
-<div id="qrs"></div>
-<div class="url" id="url"></div>
-<div class="steps">
-<b>配对步骤：</b><br>
-1. 手机打开「答题宝」→ AI 对话<br>
-2. 对 AI 说「<b>远程控制电脑 / 远程配对</b>」（会调用 remote_dsh 的 pair 动作）<br>
-3. 用手机扫描上方二维码 → 自动保存电脑地址与令牌<br>
-4. 完成，之后可以直接让 AI 远程控制电脑（支持多轮会话续接）<br><br>
-<b>扫码后连不上 / 提示"同一网络、IP 对不上"？</b>说明手机和电脑不在同一个网段 —— 换上面另一个二维码扫即可
-（本机有多个网卡时会列出多个候选地址，例如以太网 192.168.1.x 与 Wi-Fi 192.168.101.x）。<br><br>
-<b>安全：</b>本页面仅电脑本机（127.0.0.1）可访问；二维码里的令牌不会暴露给局域网其他设备。
-</div>
-<script>
-""" + qr_js + """
-(function(){
-  var items = __ITEMS__;
-  var box = document.getElementById('qrs');
-  items.forEach(function(it){
-    var card = document.createElement('div'); card.className = 'card';
-    if (!it.manual) {
-      var qrbox = document.createElement('div'); qrbox.className = 'qrbox';
-      var qr = qrcode(0,'M'); qr.addData(it.qr_text); qr.make();
-      qrbox.innerHTML = qr.createImgTag(5,12);
-      card.appendChild(qrbox);
-    } else {
-      var mbox = document.createElement('div'); mbox.className = 'manual';
-      mbox.textContent = it.base_url + '  (手动输入该地址；token 见页面下方 URL 行)';
-      card.appendChild(mbox);
-    }
-    var label = document.createElement('div'); label.className = 'ip';
-    label.textContent = (it.label ? it.label + ' — ' : '') + it.ip;
-    card.appendChild(label); box.appendChild(card);
-  });
-  document.getElementById('url').textContent = items.length ? items[0].qr_text : '';
-})();
-</script></body></html>"""
-    return html.replace("__ITEMS__", items_json).encode("utf-8")
-
+    page_path = os.path.join(here, "pair_page.html")
+    try:
+        with io.open(page_path, encoding="utf-8") as f:
+            html = f.read()
+    except Exception as e:
+        # 页面文件缺失时不 500，直接给"手动配对"信息（token + 候选地址），用户仍能配上
+        log("pair_html pair_page.html 读取失败: %s (%s)" % (repr(e), page_path))
+        rows = "".join("<li>%s → <code>%s</code></li>" % (c.get("label", ""), c.get("base_url", ""))
+                       for c in pair_candidates(port, token))
+        return (u"""<!doctype html><html><head><meta charset="utf-8">
+<title>答题宝 · 手动配对</title></head><body style="font-family:system-ui;padding:24px">
+<h2>配对页文件缺失，请手动配对</h2>
+<p>原因：%s</p>
+<p>电脑端目录里缺少 <code>pair_page.html</code>（重新从手机 App「远程连接（电脑）→ 怎么用」导出电脑端程序即可恢复）。</p>
+<p>手动配对：手机「远程连接（电脑）」→ 手动配置，填下面的地址与令牌：</p>
+<ul>%s</ul>
+<p>访问令牌：<code>%s</code></p>
+</body></html>""" % (e, rows, token)).encode("utf-8")
+    return (html.replace("/*__QRCODE_JS__*/", qr_js)
+                .replace("__ITEMS__", items_json)).encode("utf-8")
 
 def resolve_dsh_cmd(name):
     if os.path.sep in name or (os.path.altsep and os.path.altsep in name):

@@ -7,6 +7,7 @@
 | `start_dsh_bridge.bat` | Windows 一键启动（双击即可） |
 | `start_dsh_bridge.sh` | macOS / Linux 启动（`bash start_dsh_bridge.sh`） |
 | `dsh_bridge_server.py` | 桥接服务本体（手机 ↔ 电脑之间的转发层） |
+| `pair_page.html` | 配对网页（浏览器里显示二维码那一页） |
 | `qrcodegen.js` | 配对页二维码渲染（脚本会用到） |
 
 ## 一次性准备（约 5 分钟）
@@ -17,7 +18,7 @@
    npm install -g @deepseek-ai/dsh
    dsh
    ```
-4. 把这 4 个文件放到电脑上**同一个文件夹**里（放桌面也行）。
+4. 把这 6 个文件放到电脑上**同一个文件夹**里（放桌面也行，文件缺一不可）。
 
 ## 每次使用
 1. 双击 `start_dsh_bridge.bat`（macOS/Linux：`bash start_dsh_bridge.sh`）

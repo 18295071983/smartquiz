@@ -1,5 +1,21 @@
 # 变更日志
 
+## [2026-09-27] 配对页从 Python 内联字符串抽成项目文件 tools/pair_page.html
+1. 用户问「配对网页是代码生成的还是电脑项目文件」——如实回答：**页面本体是 `pair_html()` 里的 Python 三引号字符串拼出来的**（
+   只有 `qrcodegen.js` 是从磁盘读的项目文件）。这个写法正是前几天「配对页一个二维码都不显示」的根因：
+   Python 的转义规则会悄悄改页面内容（一个 `'\n'` 被解释成真换行 → JS 里出现裸换行 → 整段脚本 SyntaxError）。
+2. 重构：页面移到项目文件 `tools/pair_page.html`（HTML/CSS/JS 完整可编辑，带说明注释），
+   两个占位符 `/*__QRCODE_JS__*/`（注入 qrcodegen.js）与 `__ITEMS__`（注入配对候选 JSON）；
+   `pair_html()` 只做`读文件 + 字符串替换`，不再拼 HTML。
+3. 兜底：页面文件缺失时不再 500，而是返回一个「手动配对」页（列出候选地址 + 访问令牌 + 恢复方法）——
+   实测把 pair_page.html 拿掉后，返回的页面含「手动配对」与令牌 ✓。
+4. 导出集同步为 **6 个文件**（多了 `pair_page.html`）：assets、导出清单、`RemoteDshGuideDeviceTest` 断言、
+   教程页/README/功能清单里「5 个文件」的文案全部改口（缺一不可）。
+5. 验证：
+   · 桥接重启后 `/pair` HTTP 200、页内 <img>=2、
+   · 二维码渲染回归 `node tools/tests/pair_page_render_test.js http://127.0.0.1:8218/pair` → `qrbox=2 / 含 img=2 → OK`；
+   · 用**导出的那套文件**单独起一个实例（8299 端口）→ `/pair` img=2 且不是兜底页，node 回归 OK（该实例没带 --public-url，正确显示 1 张局域网二维码），
+     同时 `/status` 报 version=4 / session_acp=true / agent=dsh 0.12.0 —— 证明导出的文件集是完整可用的。
 ## [2026-09-27] 连接状态条默认关闭 + 新增「怎么用 / 电脑端怎么配」教程页 + 电脑端程序一键导出
 1. 用户指出的三个产品问题：① 状态条应默认关闭；② 新用户不会配置电脑端；③ 大多数用户不用这功能，要用的人得知道怎么用、电脑端怎么配。
 2. **状态条默认关闭**：`ai_prefs.remote_dsh_bar` 默认值由 true 改为 **false**（聊天页不再为多数用户常驻占一行）；

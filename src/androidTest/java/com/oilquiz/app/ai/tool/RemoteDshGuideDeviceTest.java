@@ -58,7 +58,7 @@ public class RemoteDshGuideDeviceTest {
         System.out.println("[EXP] 导出目录 = " + dir);
         assertTrue("导出目录应存在: " + dir, new File(dir).isDirectory());
         String[] names = {"start_dsh_bridge.bat", "start_dsh_bridge.sh",
-                "dsh_bridge_server.py", "qrcodegen.js", "README.md"};
+                "dsh_bridge_server.py", "pair_page.html", "qrcodegen.js", "README.md"};
         StringBuilder bad = new StringBuilder();
         for (String n : names) {
             File f = new File(dir, n);

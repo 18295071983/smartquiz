@@ -78,7 +78,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="1) 电脑上装 Node.js 18+（nodejs.org）\n2) 装 Python 3.9+（python.org，Windows 安装时勾选 Add Python to PATH）\n3) 装 dsh：命令行执行  npm install -g @deepseek-ai/dsh  然后运行 dsh 按提示配置好模型\n4) 把下面导出的 5 个文件放到电脑上同一个文件夹里"
+                    android:text="1) 电脑上装 Node.js 18+（nodejs.org）\n2) 装 Python 3.9+（python.org，Windows 安装时勾选 Add Python to PATH）\n3) 装 dsh：命令行执行  npm install -g @deepseek-ai/dsh  然后运行 dsh 按提示配置好模型\n4) 把下面导出的 6 个文件放到电脑上同一个文件夹里（缺一不可）"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary"/>
 
