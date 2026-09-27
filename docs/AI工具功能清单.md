@@ -217,7 +217,8 @@
 
 ### pip_install — 运行时安装纯 Python 包
 - **分类**：code
-- **功能**：自研 wheel 下载器（不依赖运行时 pip），从 PyPI 镜像下载纯 Python 包（py3-none-any wheel）解压到 filesDir/runtime_packages/ 并注入 sys.path（装后 python_execute 即可 import，跨重启保留）。
+- **功能**：自研 wheel 下载器（不依赖运行时 pip），从 PyPI 索引（默认官方 pypi.org/simple，镜像找不到时自动回退官方源）下载纯 Python 包解压到 filesDir/runtime_packages/ 并注入 sys.path（装后 python_execute 即可 import，跨重启保留）。
+  - 2026-09-27 修：索引 href 用 URI 归一化（镜像索引是 ../../packages/… 相对路径，直接拼会 404）；锚点解析改成"先抓 <a> 标签再取 href 与文本"（PyPI 锚点带 data-* 属性，旧正则匹配数为 0）；wheel tag 放宽为 py3|py2.py3|py|py2 + none-any；无约束时排除预发布版；已装判断比对版本（跨版本会升级）并清理旧版 dist-info。
   - 在线安装：`package=包名`（支持 name / name==版本 / name>=版本 / name~=版本），递归解析纯 Python 依赖，C 依赖列入 skipped 返回；
   - 本地安装：package 传本地 .whl 文件路径直接从文件安装；
   - 仅下载：action=download 下载 wheel 到工作区 files/wheels/；换源：source 参数（tuna/aliyun/pypi/自定义）并持久化默认。

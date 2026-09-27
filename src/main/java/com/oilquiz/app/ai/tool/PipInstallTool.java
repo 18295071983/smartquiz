@@ -33,10 +33,11 @@ import java.util.zip.ZipInputStream;
  *
  * 背景：Chaquopy 的 site-packages 在 APK 内（不可写）且无 pip/编译器，运行时无法装带 C 扩展的包。
  * 但【纯 Python 包】（wheel 名为 py3-none-any，如 pytz/tqdm/simplejson/python-docx 等）可运行时安装：
- * 从清华 PyPI 镜像下载 wheel → 解压到 filesDir/runtime_packages/ → 注入 sys.path（跨会话持久生效）。
+ * 从 PyPI 索引（默认官方 pypi.org/simple，可切清华/阿里镜像）解析 wheel → 解压到
+ * filesDir/runtime_packages/ → 注入 sys.path（跨会话持久生效）。
  *
  * 限制与行为：
- * - 只装 py3-none-any wheel；含 C 扩展（其他 wheel tag）或 sdist 一律拒绝并提示"需编译期预打包"；
+ * - 只装纯 Python wheel（tag 为 py3 / py2.py3 / py / py2 + none-any）；含 C 扩展或 sdist 一律拒绝并提示「需编译期预打包」；
  * - 依赖递归解析（Requires-Dist），纯 Python 依赖自动装，C 依赖列入 skipped 返回；
  * - 包名/版本约束：package 支持 name、name==version、name>=version、name~=version；
  * - 来源仅清华镜像（国内快），下载超时可配；
@@ -46,7 +47,10 @@ import java.util.zip.ZipInputStream;
 public class PipInstallTool implements AITool {
 
     private static final String TAG = "PipInstallTool";
-    private static final String MIRROR_DEFAULT = "https://mirrors.aliyun.com/pypi/simple";
+    // 默认 PyPI 官方源：索引最新最全。镜像（清华/阿里）可用 set_mirror 切换，
+    // 但镜像索引会滞后（实测阿里云上 pyfiglet 只到 1.0.0rc1，官方已有 1.0.4），
+    // 所以下面 resolveWheelFromMirror 在镜像找不到匹配时还会回退到官方源。
+    private static final String MIRROR_DEFAULT = "https://pypi.org/simple";
     private static final String PREF = "pip_install_config";
     private static final String KEY_MIRROR = "pip_mirror";
     private static final int DEFAULT_TIMEOUT_SECONDS = 60;
@@ -54,8 +58,12 @@ public class PipInstallTool implements AITool {
     private static final String USER_AGENT = "Mozilla/5.0 (Linux; Android) MobileQuizAgent/1.0";
 
     private static final Pattern NAME_PATTERN = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]*$");
+    // 纯 Python wheel：tag 为 py3 / py2.py3 / py2 / py（都不含 C 扩展，Python 3 下可用）。
+    // 2026-09-27 修：原来只认 "-py3-none-any.whl"，把 "py2.py3-none-any" 也拒了——
+    // 实测 pyfiglet 在阿里云只有 0.8.post1-py2.py3（被拒）+ 1.0.0rc1-py3（唯一通过），
+    // 于是工具"只能"装到 rc 预发布版。现在 py2.py3 也接受。
     private static final Pattern WHEEL_FILENAME = Pattern.compile(
-            "^([A-Za-z0-9._-]+)-([0-9][A-Za-z0-9._-]*?)(?:-[0-9][A-Za-z0-9._-]*)?-py3-none-any\\.whl$");
+            "^([A-Za-z0-9._-]+)-([0-9][A-Za-z0-9._-]*?)(?:-[0-9][A-Za-z0-9._-]*)?-(?:py2\\.py3|py3|py2|py)-none-any\\.whl$");
     private static final Pattern REQUIRES_DIST = Pattern.compile(
             "^Requires-Dist:\\s*([A-Za-z0-9._-]+)\\s*(?:\\(([^)]*)\\))?\\s*(?:;[^\\n]*)?$", Pattern.MULTILINE);
 
@@ -84,7 +92,7 @@ public class PipInstallTool implements AITool {
                 + "③ 只下载：action=download 仅下载最新匹配的wheel到工作区 files/wheels/ 返回路径，之后可再用本地安装装它；"
                 + "④ 换源：source 参数指定镜像源（aliyun(默认)/tuna/pypi/自定义URL）并持久化为默认，action=set_source 单独设置。"
                 + "package=包名（支持 name、name==版本、name>=版本、name~=版本）或本地whl路径。"
-                + "限制：只能安装纯Python包（wheel为py3-none-any，如 pytz/tqdm/simplejson/python-docx 等）；"
+                + "限制：只能安装纯Python包（纯 Python wheel：py3/py2.py3 + none-any，如 pytz/tqdm/simplejson/python-docx 等）；"
                 + "带C扩展的包（numpy/scipy/lxml 等，wheel含cp310/abi3等平台tag）在Android上无法运行时编译"
                 + "（设备无编译工具链、公共PyPI无Android ABI的wheel），会明确拒绝并提示编译期预打包。"
                 + "递归处理纯Python依赖，C依赖列入skipped返回。python_execute 可直接 import 已安装包。本工具不依赖运行时 pip 模块(自研wheel下载器)，运行时pip不可用时仍可用；与 python_execute 的 action=pip_install(pip.main编程式，装到filesDir/python_user_packages)安装目录不同互不覆盖。禁止用 subprocess 或 python -m pip(Chaquopy无独立python可执行文件)。";
@@ -399,34 +407,100 @@ public class PipInstallTool implements AITool {
         return new String[]{name, constraint};
     }
 
-    /** 解析镜像并选择匹配约束的最新纯 Python wheel；返回 {downloadUrl, filename, version}，找不到返回 null */
+    /**
+     * 解析镜像并选择匹配约束的最新纯 Python wheel；找不到时回退官方源。
+     * 返回 {downloadUrl, filename, version}。
+     */
     private String[] resolveWheelFromMirror(String normName, String constraint, int timeout) {
+        String[] found = resolveFromIndex(getMirror(), normName, constraint, timeout);
+        if (found != null) return found;
+        // 镜像索引会滞后/可能没有目标 wheel：回退官方源再试一次（下载走索引里的绝对 href）
         String mirror = getMirror();
-        String pageUrl = mirror.endsWith("/") ? mirror + normName + "/" : mirror + "/" + normName + "/";
+        if (!mirror.contains("pypi.org")) {
+            AILogger.i(TAG, "镜像未找到匹配 wheel，回退官方源: " + normName);
+            return resolveFromIndex("https://pypi.org/simple", normName, constraint, timeout);
+        }
+        return null;
+    }
+
+    /**
+     * 从指定索引解析出最合适的纯 Python wheel；返回 {downloadUrl, filename, version}，找不到返回 null。
+     * 规则：① 只接受纯 Python wheel（py3 / py2.py3 / py / py2 + none-any）；
+     *      ② 无显式版本约束时**排除预发布版**（rc/beta/dev）——实测踩过"只能装到 1.0.0rc1"的坑；
+     *      ③ href 用 URI 归一化解析（镜像索引里是 ../../packages/... 相对路径，
+     *         原来直接"镜像base+href"拼出来是 /simple/../../packages/... → 404）；
+     *      ④ 同版本取最高。
+     */
+    private String[] resolveFromIndex(String indexBase, String normName, String constraint, int timeout) {
+        String pageUrl = indexBase.endsWith("/") ? indexBase + normName + "/" : indexBase + "/" + normName + "/";
         String page = httpGet(pageUrl, timeout);
-        if (page == null) return null;
+        if (page == null) {
+            AILogger.w(TAG, "索引不可读: " + pageUrl);
+            return null;
+        }
         List<String[]> wheels = new ArrayList<>(); // {href, filename, version}
-        Matcher m = Pattern.compile("<a\\s+href=\"([^\"]+)\">([^<]+\\.whl)</a>", Pattern.CASE_INSENSITIVE).matcher(page);
-        while (m.find()) {
-            String filename = m.group(2).trim();
+        // 解析锚点：不能要求 href 与 ">" 紧邻——PyPI 的锚点带一堆额外属性：
+        //   <a href="https://files.pythonhosted.org/.../pyfiglet-1.0.4-py3-none-any.whl#sha256=..."
+        //      data-requires-python="&gt;=3.9" data-dist-info-metadata="sha256=..." ...>pyfiglet-1.0.4-py3-none-any.whl</a>
+        // 旧正则在这里一个都匹配不到（实测 0 个），于是「官方源回退」也像「没有 wheel」。
+        Matcher tag = Pattern.compile("<a\\s+([^>]*)>([^<]*)</a>", Pattern.CASE_INSENSITIVE).matcher(page);
+        while (tag.find()) {
+            String attrs = tag.group(1);
+            String text = tag.group(2).trim();
+            Matcher hrefM = Pattern.compile("href\\s*=\\s*\"([^\"]+)\"").matcher(attrs);
+            if (!hrefM.find()) continue;
+            String href = hrefM.group(1);
+            String filename = text.endsWith(".whl") ? text : lastSegment(href);
             Matcher wm = WHEEL_FILENAME.matcher(filename);
             if (wm.matches() && wm.group(1).toLowerCase().equals(normName)) {
-                wheels.add(new String[]{m.group(1), filename, wm.group(2)});
+                wheels.add(new String[]{href, filename, wm.group(2)});
             }
+        }
+        if (wheels.isEmpty()) {
+            AILogger.w(TAG, "索引里没有匹配的纯 Python wheel（索引格式变化或该包只有源码包）: " + pageUrl);
         }
         String[] chosen = null;
         for (String[] w : wheels) {
             if (constraint != null && !versionMatches(w[2], constraint)) continue;
+            // 没指定版本时不自动装预发布版（要装就显式写 ==1.0.0rc1）
+            if (constraint == null && isPrerelease(w[2])) continue;
             if (chosen == null || compareVersions(w[2], chosen[2]) > 0) chosen = w;
         }
         if (chosen == null) return null;
-        String mirrorBase = getMirror();
-        if (!mirrorBase.endsWith("/")) mirrorBase += "/";
-        String downloadUrl = chosen[0].startsWith("http")
-                ? chosen[0] : mirrorBase + chosen[0];
+        String downloadUrl = resolveHref(pageUrl, chosen[0]);
+        AILogger.i(TAG, "选定 " + chosen[1] + " ← " + indexBase);
         return new String[]{downloadUrl, chosen[1], chosen[2]};
     }
 
+    /** 取 URL 最后一段（去掉 query/fragment），锚点文本为空时兜底取文件名 */
+    private static String lastSegment(String href) {
+        String s = href == null ? "" : href.trim();
+        int hash = s.indexOf('#');
+        if (hash >= 0) s = s.substring(0, hash);
+        int q = s.indexOf('?');
+        if (q >= 0) s = s.substring(0, q);
+        int slash = s.lastIndexOf('/');
+        return slash >= 0 ? s.substring(slash + 1) : s;
+    }
+
+    /** 把索引里的 href 解析成绝对 URL（正确处理 ../../ 相对路径；已是绝对的直接用） */
+    private static String resolveHref(String pageUrl, String href) {
+        String h = href == null ? "" : href.trim();
+        if (h.startsWith("http://") || h.startsWith("https://")) return h;
+        try {
+            return new java.net.URI(pageUrl).resolve(h).toString();
+        } catch (Exception e) {
+            AILogger.w(TAG, "href 归一化失败，退回简单拼接: " + e.getMessage());
+            String base = pageUrl.endsWith("/") ? pageUrl : pageUrl + "/";
+            return base + h;
+        }
+    }
+
+    /** 是否预发布版（rc/beta/alpha/dev/pre） */
+    private static boolean isPrerelease(String version) {
+        if (version == null) return false;
+        return version.toLowerCase().matches(".*(a|b|c|rc|alpha|beta|pre|dev)\\d*$");
+    }
     private InstallOutcome installOne(String spec, int timeout) throws Exception {
         String[] nc = parseNameConstraint(spec);
         String name = nc[0];
@@ -439,24 +513,42 @@ public class PipInstallTool implements AITool {
         }
         String normName = name.replace('-', '_').toLowerCase();
 
-        // 已安装检查（同名视为已装，如需升级请先删目录或改版本约束）
+        // 已安装检查：同名且版本满足约束才算"已装"。
+        // 2026-09-27 修：原来只要同名就跳过——装了 0.8.post1 后再要求 ==1.0.4 会误报"已安装（跳过）"，
+        // 用户以为升级成功其实没装。现在从 dist-info 目录名解析已装版本，和约束比对。
         File runtimeDir = new File(appContext.getFilesDir(), "runtime_packages");
-        boolean already = runtimeDir.exists() && runtimeDir.list((d, f) -> {
-            String lf = f.toLowerCase();
-            return lf.startsWith(normName) && (lf.endsWith(".dist-info") || new File(d, f).isDirectory());
-        }).length > 0;
+        String installedVersion = null;
+        if (runtimeDir.exists()) {
+            File[] infos = runtimeDir.listFiles((d, f) -> {
+                String lf = f.toLowerCase();
+                return lf.startsWith(normName) && (lf.endsWith(".dist-info") || new File(d, f).isDirectory());
+            });
+            if (infos != null && infos.length > 0) {
+                String dirName = infos[0].getName();
+                // 形如 pyfiglet-0.8.post1.dist-info / pyfiglet-1.0.4
+                String body = dirName;
+                int di = body.toLowerCase().lastIndexOf(".dist-info");
+                if (di > 0) body = body.substring(0, di);
+                int dash = body.lastIndexOf('-');
+                if (dash > 0 && dash + 1 < body.length()) installedVersion = body.substring(dash + 1);
+            }
+        }
+        boolean already = installedVersion != null
+                && (constraint == null || versionMatches(installedVersion, constraint));
 
         String[] chosen = resolveWheelFromMirror(normName, constraint, timeout);
         if (chosen == null) {
             InstallOutcome fail = new InstallOutcome();
             fail.installedName = name + (constraint != null ? constraint : "");
-            fail.skippedReason = "镜像中没有可用的纯 Python wheel（py3-none-any）——可能含 C 扩展、仅提供源码包或镜像访问失败，需编译期预打包";
+            fail.skippedReason = "镜像与官方源都没有匹配的纯 Python wheel（py3/py2.py3 + none-any）——"
+                    + "可能含 C 扩展、仅提供源码包、版本约束写错，或网络不可达。可先用 action=list_mirror 看当前源；"
+                    + "C 扩展包需在打包期预置（Chaquopy 依赖清单）";
             return fail;
         }
         if (already) {
             InstallOutcome done = new InstallOutcome();
             done.installedName = name + "==" + chosen[2];
-            done.skippedReason = "已安装（跳过）";
+            done.skippedReason = "已安装 " + name + "==" + installedVersion + "（满足约束，跳过）";
             return done;
         }
 
@@ -477,12 +569,39 @@ public class PipInstallTool implements AITool {
             return fail;
         }
         unzipWheel(wheelBytes, runtimeDir);
+        // 同包旧版本 dist-info 清掉（否则 importlib.metadata 会同时看到两个版本）
+        cleanupOldDistInfos(runtimeDir, normName, chosen[2]);
 
         // 读取 METADATA 依赖
         InstallOutcome out = new InstallOutcome();
         out.installedName = name + "==" + chosen[2];
         out.dependencies = readDependencies(runtimeDir, normName);
         return out;
+    }
+
+    /** 删除同包其它版本的 dist-info（保留刚装的 keepVersion） */
+    private void cleanupOldDistInfos(File runtimeDir, String normName, String keepVersion) {
+        File[] infos = runtimeDir.listFiles((d, f) ->
+                f.toLowerCase().startsWith(normName) && f.toLowerCase().endsWith(".dist-info"));
+        if (infos == null) return;
+        String keep = (normName + "-" + keepVersion + ".dist-info").toLowerCase();
+        for (File di : infos) {
+            if (di.getName().toLowerCase().equals(keep)) continue;
+            deleteRecursively(di);
+            AILogger.i(TAG, "清理旧版 dist-info: " + di.getName());
+        }
+    }
+
+    private static void deleteRecursively(File f) {
+        if (f == null || !f.exists()) return;
+        if (f.isDirectory()) {
+            File[] kids = f.listFiles();
+            if (kids != null) {
+                for (File k : kids) deleteRecursively(k);
+            }
+        }
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
     }
 
     private List<String> readDependencies(File runtimeDir, String normName) {

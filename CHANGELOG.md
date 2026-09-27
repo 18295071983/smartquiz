@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-09-27] 按手机端 AI 的检测记录修 pip_install：索引解析/相对路径/tag 过滤/预发布/升级判断
+1. 用户提示「手机对话记录里有 python 的检测记录」。查最新会话（ac0457a3，09:36）——手机端 AI 对 pip_install 做了完整取证，
+   结论是三个 bug 叠加导致「提示安装完成、实际什么都没装」。我逐条到代码里复核，**两条成立、一条与当前代码不符**，另外又发现两个它没提到的问题：
+   · 成立①：wheel 下载 URL 用 `镜像base + href` 直接拼，而索引里是 `../../packages/…` 相对路径 →
+     实测拼出 `https://mirrors.aliyun.com/pypi/simple/../../packages/…` → **HTTP 404**（不是它说的 UA 403：
+     实测工具自己的 UA 访问阿里云是 200，403 是它拿 Dalvik UA 试出来的）。已改为 `URI.resolve()` 归一化。
+   · 成立②（它没提但我实测出来）：**索引锚点解析在 PyPI 官方源上一个都匹配不到**。旧正则要求 `href=\"…\">` 紧邻，
+     而 PyPI 的锚点是 `<a href=\"…\" data-requires-python=\"…\" data-core-metadata=\"…\">文件名</a>` → 实测匹配数 **0**。
+     已改为「先抓 <a> 标签、再取 href 与锚点文本」（文本为空时用 URL 末段兜底）。
+   · 不成立：它说「只挑第一个 wheel、不比较版本」——当前代码里 `compareVersions()` 是有的（是它当时 APK 版本较旧，或镜像当时不同）。
+   · 另发现③：wheel tag 过滤只认 `-py3-none-any.whl`，把 `py2.py3-none-any`（Python 3 完全可用）也拒了 → 某些包会因此只剩 rc 可装；已放宽为 py3|py2.py3|py|py2 + none-any。
+   · 另发现④：无版本约束时会自动装**预发布版**；已排除（要装就显式写 `==1.0.0rc1`）。
+   · 另发现⑤：`已安装` 判断只看同名、不看版本 → 装了 0.8 后再要求 `==1.0.4` 会误报「已安装（跳过）」；
+     现在从 dist-info 目录名解析已装版本并与约束比对，且装新版后清理旧版 dist-info（只留一个）。
+2. 其他改动：默认源从阿里云改为 **PyPI 官方 pypi.org/simple**（索引最新最全），镜像找不到匹配 wheel 时自动回退官方源；
+   `runtime_packages` 目录本就会被注入 sys.path（`PythonToolManager.ensureRuntimePackagesInPath` 在目录存在时注入）——
+   之前它「从没被创建」是因为所有安装都失败了，不是注入逻辑的问题。
+3. **一处自我更正**：我一度说「阿里云只有 0.8.post1 与 1.0.0rc1 两个 wheel」——那是抓取不完整导致的误判；
+   完整列出后阿里云与 PyPI 都有全套 7 个 wheel（含 1.0.4-py3）。
+4. 真机验证（新增 `PipInstallDeviceTest`，2/2 通过）：
+   · `pip_install pyfiglet` → success=true、装到 **1.0.4**（不再 rc）、落盘 `pyfiglet-1.0.4.dist-info`、
+     `import pyfiglet` 实测 `PYFIGLET_OK 1.0.4`；
+   · `pyfiglet==1.0.4`（已装 0.8 时）→ 走升级不再误报跳过，且旧版 dist-info 被清掉（目录里只剩 1 个）；
+   · 日志佐证：`选定 pyfiglet-1.0.4-py3-none-any.whl ← https://mirrors.aliyun.com/pypi/simple`、`清理旧版 dist-info: pyfiglet-0.8.post1.dist-info`。
 ## [2026-09-27] 从手机对话里查出并修掉两个真问题：没有正规清除配置入口 + set_config 不校验地址
 1. 用户让「看一下手机上的对话」。查 08:04 的会话（c8e53784）发现手机端 AI 想断开时的真实调用序列：
    ① `set_config{base_url:"",token:""}` → 我实现成「查询当前配置」，所以**没断开**（语义含糊）；
