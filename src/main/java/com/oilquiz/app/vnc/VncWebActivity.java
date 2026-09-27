@@ -11,6 +11,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -54,6 +55,9 @@ public class VncWebActivity extends AppCompatActivity {
     private TextView statusView;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile boolean probing = false;
+    /** noVNC 全屏时由 WebView 交过来的自定义 View */
+    private View customView;
+    private WebChromeClient.CustomViewCallback customCallback;
     private boolean webLoaded = false;
     private boolean destroyed = false;
     private boolean immersive = true;
@@ -93,7 +97,42 @@ public class VncWebActivity extends AppCompatActivity {
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         web.setBackgroundColor(0xFF000000);
         web.setWebViewClient(new WebViewClient());
-        web.setWebChromeClient(new WebChromeClient());
+        // noVNC 的界面会调用 Fullscreen API，而 WebView 必须由 App 接住 onShowCustomView 才算支持，
+        // 否则 noVNC 会弹「noVNC 遇到一个错误：Fullscreen is not supported」（真机截图抓到过）。
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                if (customView != null) {
+                    callback.onCustomViewHidden();
+                    return;
+                }
+                customView = view;
+                customCallback = callback;
+                ((ViewGroup) findViewById(R.id.vnc_web_root))
+                        .addView(view, new FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT));
+                web.setVisibility(View.GONE);
+                bar.setVisibility(View.GONE);
+                toggle.setVisibility(View.GONE);
+                applyImmersive();
+            }
+
+            @Override
+            public void onHideCustomView() {
+                if (customView == null) {
+                    return;
+                }
+                ((ViewGroup) findViewById(R.id.vnc_web_root)).removeView(customView);
+                customView = null;
+                web.setVisibility(View.VISIBLE);
+                if (customCallback != null) {
+                    customCallback.onCustomViewHidden();
+                    customCallback = null;
+                }
+                showBar(false);   // 退出全屏后保持画面干净，只留左上角 ≡
+            }
+        });
 
         findViewById(R.id.btn_vnc_web_gui).setOnClickListener(v -> startGuiAndWait());
         findViewById(R.id.btn_vnc_web_reload).setOnClickListener(v -> {
@@ -308,6 +347,17 @@ public class VncWebActivity extends AppCompatActivity {
         }
         cancelAutoHide();
         handler.removeCallbacksAndMessages(null);
+    }
+
+    /** 全屏中按返回键：先退出全屏，别直接把页面关掉 */
+    @Override
+    @SuppressWarnings("deprecation")
+    public void onBackPressed() {
+        if (customView != null) {
+            web.getWebChromeClient().onHideCustomView();
+            return;
+        }
+        super.onBackPressed();
     }
 
     @Override
