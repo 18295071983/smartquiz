@@ -25,6 +25,14 @@
    图形界面启动/重启脚本新增 `ensure_zh()`（0.2 秒快速守卫，只在缺词典时才修复并重启会话）。
 7. **验证**：`bash -n` 通过（`.quiz_zh_fix.sh`、`ubuntu-gui`）；真机 `bash ~/ubuntu-gui start` → `GUI_ALREADY_UP`；
    桌面截图 OCR 中文正常；`BUILD SUCCESSFUL`。
+8. **现成的中文开始菜单挂上面板**（用户说「改」）：Whisker Menu 装好后插到顶部面板最左边、顶替原来的菜单。
+   踩到两个坑并已解决：① 手动解包只拷了插件、没拷依赖 → 缺 `libgtk-layer-shell.so.0` → 面板弹
+   「插件"Whisker 菜单"意外地离开了面板」（60 秒内重启多次后被面板自动从配置里删掉）；改为
+   `apt-get install` 并补装 `libgtk-layer-shell0 libgarcon-1-0 libgarcon-gtk3-1-0`，`ldd` 缺库数归零后正常；
+   ② 必须在 `startxfce4` 之前改面板配置，否则运行中的 xfconfd 会写回旧配置覆盖 —— `ensure_zh` 现在
+   **先停会话再修复**，守卫也加了「Whisker 已挂」这一项（约 0.2 秒）。
+   实测点开菜单：`关于 Xfce`、`应用程序查找器 / 查找和启动在您系统上安装的应用程序`、
+   `文件管理器 / 浏览文件系统`、`文本编辑器设置 / 配置 Mousepad 文本编辑器` —— 全中文。
 
 ## [2026-09-27] 「一键准备」把能自动的全自动：通道自检 + 一行修复 + 自动复检（并讲清哪一步无法自动）
 

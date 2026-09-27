@@ -328,8 +328,88 @@ public final class TermuxEnvInstaller {
                 dpkg-deb -x /tmp/xfce4-whiskermenu-plugin*.deb /tmp/quiz-wm >/dev/null 2>&1
                 cp -a /tmp/quiz-wm/. / 2>/dev/null
                 rm -rf /tmp/quiz-wm /tmp/xfce4-whiskermenu-plugin*.deb
+                apt-get install -y --no-install-recommends libgtk-layer-shell0 libgarcon-1-0 libgarcon-gtk3-1-0 >/dev/null 2>&1
               fi
               echo "· 已装现成的中文开始菜单 Whisker Menu"
+            fi
+            # 把 Whisker Menu 挂到顶部面板最左边当主菜单。
+            # 坑一：插件缺 libgtk-layer-shell.so.0 会崩溃（真机：面板弹「插件意外离开」，60 秒内重启多次后
+            #       被面板自动从配置里删掉）——所以上面装了依赖，这里再查一次缺库就放弃挂载。
+            # 坑二：必须在会话来起来之前改配置，否则运行中的 xfconfd 会把自己的配置写回去覆盖掉。
+            if command -v python3 >/dev/null 2>&1 && ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1; then
+              if ldd /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so 2>/dev/null | grep -q 'not found'; then
+                echo "⚠️  Whisker Menu 仍然缺依赖，跳过挂载（不影响自带的中文菜单）"
+              else
+                python3 - <<'QUIZ_PANEL_PY'
+            import os
+            CFG = "/root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
+            sep = chr(10)
+            def minimal():
+                lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+                         '<channel name="xfce4-panel" version="1.0">',
+                         '  <property name="configver" type="int" value="2"/>',
+                         '  <property name="panels" type="array">',
+                         '    <value type="int" value="1"/>',
+                         '    <property name="panel-1" type="empty">',
+                         '      <property name="position" type="string" value="p=6;x=0;y=0"/>',
+                         '      <property name="length" type="uint" value="100"/>',
+                         '      <property name="position-locked" type="bool" value="true"/>',
+                         '      <property name="size" type="uint" value="26"/>',
+                         '      <property name="plugin-ids" type="array">',
+                         '        <value type="int" value="23"/>',
+                         '        <value type="int" value="2"/>',
+                         '        <value type="int" value="3"/>',
+                         '        <value type="int" value="6"/>',
+                         '        <value type="int" value="12"/>',
+                         '        <value type="int" value="14"/>',
+                         '      </property>',
+                         '    </property>',
+                         '  </property>',
+                         '  <property name="plugins" type="empty">',
+                         '    <property name="plugin-2" type="string" value="tasklist">',
+                         '      <property name="grouping" type="uint" value="1"/>',
+                         '    </property>',
+                         '    <property name="plugin-3" type="string" value="separator">',
+                         '      <property name="expand" type="bool" value="true"/>',
+                         '      <property name="style" type="uint" value="0"/>',
+                         '    </property>',
+                         '    <property name="plugin-6" type="string" value="systray">',
+                         '      <property name="square-icons" type="bool" value="true"/>',
+                         '    </property>',
+                         '    <property name="plugin-12" type="string" value="clock"/>',
+                         '    <property name="plugin-14" type="string" value="actions"/>',
+                         '    <property name="plugin-23" type="string" value="whiskermenu"/>',
+                         '  </property>',
+                         '</channel>', '']
+                os.makedirs(os.path.dirname(CFG), exist_ok=True)
+                open(CFG, "w", encoding="utf-8").write(sep.join(lines))
+                print("· 已生成面板配置：开始菜单在最左")
+            if not os.path.exists(CFG):
+                minimal()
+            else:
+                s = open(CFG, encoding="utf-8").read()
+                if 'value="whiskermenu"' in s:
+                    print("· 开始菜单已挂好")
+                else:
+                    old = '<property name="plugins" type="empty">'
+                    s = s.replace(old, old + sep + '    <property name="plugin-23" type="string" value="whiskermenu"/>', 1)
+                    i = s.index('<property name="panel-1"')
+                    k = s.index('<property name="plugin-ids"', i)
+                    k2 = s.index('</property>', k)
+                    seg = s[k:k2]
+                    line1 = '        <value type="int" value="1"/>' + sep
+                    while line1 in seg:
+                        seg = seg.replace(line1, '', 1)
+                    if '<value type="int" value="23"/>' not in seg:
+                        first = seg.index('<value')
+                        seg = seg[:first] + '<value type="int" value="23"/>' + sep + '        ' + seg[first:]
+                    open(CFG, "w", encoding="utf-8").write(s[:k] + seg + s[k2:])
+                    rc = "/root/.config/xfce4/panel/whiskermenu-23.rc"
+                    os.makedirs(os.path.dirname(rc), exist_ok=True)
+                    open(rc, "w", encoding="utf-8").write('[Configuration]' + sep + 'button-title=应用' + sep)
+                    print("· 已把中文开始菜单插到面板最左边（顶替原来的英文菜单）")
+            QUIZ_PANEL_PY
+              fi
             fi
             echo "ZH_FIX_OK tz=$(cat /etc/timezone 2>/dev/null) 中文词典=$(ls /usr/share/locale/zh_CN/LC_MESSAGES 2>/dev/null | wc -l)"
             """;
@@ -449,7 +529,7 @@ public final class TermuxEnvInstaller {
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
-                "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo && grep -q zh_CN /etc/default/locale' >/dev/null 2>&1 && return 0; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 2; }",
+                "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
                 "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
                 "TRACE=\"$H/.quiz_gui_start_trace.log\"",
                 "trace() { echo \"$(date '+%T') $1\" >> \"$TRACE\"; }",
@@ -497,7 +577,7 @@ public final class TermuxEnvInstaller {
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
-                "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo && grep -q zh_CN /etc/default/locale' >/dev/null 2>&1 && return 0; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 2; }",
+                "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
                 "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
                 "pkill -x Xvnc >/dev/null 2>&1",
                 "pkill -x xclock >/dev/null 2>&1",
