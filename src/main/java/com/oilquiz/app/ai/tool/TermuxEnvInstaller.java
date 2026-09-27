@@ -541,7 +541,9 @@ public final class TermuxEnvInstaller {
                 // 换桌面只要改这个文件（bash ~/ubuntu-gui desktop xfce4 就能切回去）
                 "DESKTOP_FILE=\"$H/.quiz_desktop\"",
                 "SESSION=\"$(cat \"$DESKTOP_FILE\" 2>/dev/null)\"",
-                "[ -n \"$SESSION\" ] || SESSION=mate-session",
+                // 默认 XFCE：它在 proot/无 GPU 环境下明显更稳（MATE 实测面板空白 + 通知区域 applet 崩），
+                // MATE 仍装着，用「bash ~/ubuntu-gui desktop mate」一条命令就能切过去
+                "[ -n \"$SESSION\" ] || SESSION=startxfce4",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
                 // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
@@ -596,7 +598,9 @@ public final class TermuxEnvInstaller {
                 // 换桌面只要改这个文件（bash ~/ubuntu-gui desktop xfce4 就能切回去）
                 "DESKTOP_FILE=\"$H/.quiz_desktop\"",
                 "SESSION=\"$(cat \"$DESKTOP_FILE\" 2>/dev/null)\"",
-                "[ -n \"$SESSION\" ] || SESSION=mate-session",
+                // 默认 XFCE：它在 proot/无 GPU 环境下明显更稳（MATE 实测面板空白 + 通知区域 applet 崩），
+                // MATE 仍装着，用「bash ~/ubuntu-gui desktop mate」一条命令就能切过去
+                "[ -n \"$SESSION\" ] || SESSION=startxfce4",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
                 // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
@@ -632,7 +636,7 @@ public final class TermuxEnvInstaller {
         return String.join("\n",
                 "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
-                "echo \"当前桌面: $(cat \"$HOME/.quiz_desktop\" 2>/dev/null || echo mate-session)\"",
+                "echo \"当前桌面: $(cat \"$HOME/.quiz_desktop\" 2>/dev/null || echo startxfce4)\"",
                 "if pgrep -f 'Xvn[c] :1' >/dev/null 2>&1; then",
                 "  echo \"GUI_RUNNING 127.0.0.1:" + VNC_PORT + "\"",
                 "  proot-distro login ubuntu -- /bin/bash -lc 'ps -ef | grep -E \"Xvnc|x11vnc|Xvfb\" | grep -v grep | head -3'",
