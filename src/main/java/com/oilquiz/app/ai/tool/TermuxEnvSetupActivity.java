@@ -45,6 +45,17 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         statusView = findViewById(R.id.env_status);
         logView = findViewById(R.id.env_log);
         installBtn = findViewById(R.id.btn_install_termux);
+        findViewById(R.id.btn_open_vnc).setOnClickListener(v -> {
+            String err = TermuxEnvInstaller.startGuiInTermux(this);
+            if (err != null) {
+                log("启动图形界面失败：" + err + "\n（需要先装好 Termux、授予 RUN_COMMAND 权限，并跑过一次「一键准备」）");
+                return;
+            }
+            log("已让 Termux 启动图形界面（Xvfb 1280x720 + x11vnc :5900）。\n"
+                    + "马上打开「图形界面（VNC）」页，若显示「等待图形界面就绪…」会自动重试到连上为止。\n"
+                    + "Termux 侧日志：~/.quiz_gui.log");
+            startActivity(new Intent(this, com.oilquiz.app.vnc.VncActivity.class));
+        });
         exportBtn = findViewById(R.id.btn_export_rootfs);
         runBtn = findViewById(R.id.btn_run_setup);
         grantBtn = findViewById(R.id.btn_grant);

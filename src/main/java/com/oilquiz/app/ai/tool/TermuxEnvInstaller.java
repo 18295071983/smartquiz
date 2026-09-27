@@ -184,11 +184,11 @@ public final class TermuxEnvInstaller {
     /**
      * 生成"在 Termux 里执行"的准备脚本。
      *
-     * <p>2026-09-27 真机踩坑后重写，四条硬要求：
+     * <p>2026-09-27 真机踩坑后重写，硬要求：
      * <ul>
      *   <li><b>幂等</b>：已装过的机器再点一次不能报错。proot-distro 5.9 的 {@code list} 把人类可读
      *       列表打到 <b>stderr</b>（stdout 为空），旧脚本用 {@code list 2>/dev/null | grep -q ubuntu}
-     *       必然判成"没装"→ 再 install → {@code Error: container 'ubuntu' already exists} →
+     *       必然判成"没装"→ 再 install → {@code Error: container already exists} →
      *       被 {@code set -e} 判死退出 1（用户真机实测所见）。现在用 {@code list -q}（走 stdout）、
      *       {@code list 2>&1} 与容器目录三重判定，命中就跳过。</li>
      *   <li><b>不假装成功</b>：失败打 ❌ 并以 exit 1 结束，全部通过才 ✅ + exit 0。</li>
@@ -205,7 +205,93 @@ public final class TermuxEnvInstaller {
                 : rootfsPath;
         return SCRIPT_TEMPLATE
                 .replace("__ROOTFS__", root)
-                .replace("__TUNA__", TUNA_ROOTFS_URL);
+                .replace("__TUNA__", TUNA_ROOTFS_URL)
+                .replace("__GUI_INNER__", GUI_INNER_COMMAND);
+    }
+
+    // ---------- 图形界面（X11 + VNC）----------
+
+    /** VNC 端口（x11vnc 监听 127.0.0.1，仅本机可见） */
+    public static final int VNC_PORT = 5900;
+
+    /**
+     * 容器内启动图形界面的命令。四条真机踩出来的硬要求：
+     * <ol>
+     *   <li><b>x11vnc 必须前台常驻</b>（这里用 exec）：proot 会话一退出就会带走所有子进程，
+     *       早先 {@code x11vnc -bg} 一挂后台，Xvfb 立刻跟着死。</li>
+     *   <li><b>不要传 -encodings</b>：Ubuntu 的 x11vnc 0.9.16 不认这个参数，直接
+     *       {@code *** unrecognized option(s) ***} 退出；编码本来就由客户端 SetEncodings 决定，
+     *       我们的客户端只报 copyrect/hextile/raw。</li>
+     *   <li><b>-noshm 是必须的</b>：proot 下 {@code shmget(scanline)} 会被拒（Permission denied）。</li>
+     *   <li>Xvfb 加 {@code -ac} 省掉 X 授权文件麻烦。</li>
+     * </ol>
+     */
+    public static final String GUI_INNER_COMMAND =
+            "pkill -x Xvfb >/dev/null 2>&1; pkill -x xclock >/dev/null 2>&1; sleep 1; "
+                    + "Xvfb :1 -screen 0 1280x720x24 -nolisten tcp -ac >/tmp/quiz-xvfb.log 2>&1 & sleep 3; "
+                    + "DISPLAY=:1 xclock -geometry 240x240+20+20 >/dev/null 2>&1 & "
+                    + "exec x11vnc -display :1 -rfbport 5900 -localhost -forever -shared -alwaysshared "
+                    + "-nopw -noshm -timeout 10 -wait 20 -defer 20";
+
+    /**
+     * Termux 侧「启动图形界面」脚本（幂等）。
+     *
+     * <p>就绪判断用**容器里有没有 x11vnc 进程**，不裸连 5900：x11vnc 默认单线程，
+     * 裸 TCP 连上就断会留下半开连接，把它堵住（真机实测：端口开着但永远不发版本横幅）。
+     */
+    public static String buildGuiStartScript() {
+        return String.join("\n",
+                "H=\"${HOME:-/data/data/com.termux/files/home}\"",
+                "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
+                "export PREFIX",
+                "export HOME=\"$H\"",
+                "export PATH=\"$PREFIX/bin:/system/bin\"",
+                "LOG=\"$H/.quiz_gui.log\"",
+                "UP() { proot-distro login ubuntu -- pgrep -x x11vnc >/dev/null 2>&1; }",
+                "if UP; then echo \"GUI_ALREADY_UP\"; exit 0; fi",
+                ": > \"$LOG\"",
+                "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
+                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 &",
+                "i=0",
+                "while [ $i -lt 20 ]; do",
+                "  sleep 1",
+                "  i=$((i+1))",
+                "  if UP; then echo \"GUI_UP\"; exit 0; fi",
+                "done",
+                "echo \"GUI_FAILED\"; tail -15 \"$LOG\"",
+                "exit 1");
+    }
+
+    /** Termux 侧「停止图形界面」脚本 */
+    public static String buildGuiStopScript() {
+        return String.join("\n",
+                "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
+                "export PATH=\"$PREFIX/bin:/system/bin\"",
+                "proot-distro login ubuntu -- /bin/bash -lc 'pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1",
+                "echo GUI_STOPPED");
+    }
+
+    /** Termux 侧「图形界面状态」脚本：端口通就再列一下容器里的 Xvfb/x11vnc 进程 */
+    public static String buildGuiStatusScript() {
+        return String.join("\n",
+                "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
+                "export PATH=\"$PREFIX/bin:/system/bin\"",
+                "if proot-distro login ubuntu -- pgrep -x x11vnc >/dev/null 2>&1; then",
+                "  echo \"GUI_RUNNING 127.0.0.1:" + VNC_PORT + "\"",
+                "  proot-distro login ubuntu -- /bin/bash -lc 'ps -ef | grep -E \"Xvfb|x11vnc\" | grep -v grep | head -3'",
+                "else",
+                "  echo \"GUI_STOPPED\"",
+                "fi");
+    }
+
+    /** 让 Termux 起图形界面；返回 null 表示已下发（真实结果要轮询 5900 端口） */
+    public static String startGuiInTermux(Context ctx) {
+        return runInTermux(ctx, buildGuiStartScript(), true);
+    }
+
+    /** 让 Termux 停图形界面；返回 null 表示已下发 */
+    public static String stopGuiInTermux(Context ctx) {
+        return runInTermux(ctx, buildGuiStopScript(), true);
     }
 
     private static final String SCRIPT_TEMPLATE = """
@@ -231,10 +317,14 @@ public final class TermuxEnvInstaller {
               return 1
             }
 
+            gui_pkgs_ok() {
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvfb >/dev/null 2>&1 && command -v x11vnc >/dev/null 2>&1' 2>/dev/null
+            }
+
             quiz_main() {
               FAIL=0
 
-              step "0/5 允许外部应用调用（答题宝后续才能自动下发命令）"
+              step "0/6 允许外部应用调用（答题宝后续才能自动下发命令）"
               mkdir -p "$HOME_DIR/.termux"
               touch "$HOME_DIR/.termux/termux.properties"
               grep -q "^allow-external-apps" "$HOME_DIR/.termux/termux.properties" || echo "allow-external-apps=true" >> "$HOME_DIR/.termux/termux.properties"
@@ -245,7 +335,7 @@ public final class TermuxEnvInstaller {
                 bad "allow-external-apps 没写进去，请手查 $HOME_DIR/.termux/termux.properties"
               fi
 
-              step "1/5 存储权限（决定用本地 29MB 包还是联网下 30MB）"
+              step "1/6 存储权限（决定用本地 29MB 包还是联网下 30MB）"
               STORAGE_OK=0
               [ -d "$HOME_DIR/storage" ] && STORAGE_OK=1
               if [ "$STORAGE_OK" = 0 ]; then
@@ -262,7 +352,7 @@ public final class TermuxEnvInstaller {
                 echo "    · 本次改为联网下载（清华镜像，约 30MB）"
               fi
 
-              step "2/5 proot-distro"
+              step "2/6 proot-distro"
               if command -v proot-distro >/dev/null 2>&1; then
                 ok "proot-distro 已安装"
               else
@@ -271,7 +361,7 @@ public final class TermuxEnvInstaller {
                 pkg install -y proot-distro >/dev/null 2>&1 || bad "proot-distro 安装失败：请检查网络后重跑本页"
               fi
 
-              step "3/5 Ubuntu 容器"
+              step "3/6 Ubuntu 容器"
               if ! command -v proot-distro >/dev/null 2>&1; then
                 bad "没有 proot-distro，跳过容器步骤"
               elif container_installed; then
@@ -296,7 +386,7 @@ public final class TermuxEnvInstaller {
                 fi
               fi
 
-              step "4/5 容器内完整 Python（tkinter/curses/readline/sqlite3/ssl/lzma/venv）"
+              step "4/6 容器内完整 Python（tkinter/curses/readline/sqlite3/ssl/lzma/venv）"
               PY_CHECK='import tkinter, curses, readline, sqlite3, ssl, lzma, multiprocessing, venv; print("完整 Python", __import__("sys").version.split()[0], "| tkinter Tk", tkinter.TkVersion, "| fork", hasattr(__import__("os"), "fork"))'
               if command -v proot-distro >/dev/null 2>&1 && proot-distro login ubuntu -- /usr/bin/python3 -c "$PY_CHECK" 2>/dev/null; then
                 ok "容器内 Python 已完整，跳过 apt（省 2~4 分钟）"
@@ -306,16 +396,65 @@ public final class TermuxEnvInstaller {
                 proot-distro login ubuntu -- /usr/bin/python3 -c "$PY_CHECK" 2>/dev/null || bad "容器内 Python 仍不完整"
               fi
 
-              step "5/5 入口 ~/ubuntu 与最终验证"
+              step "5/6 图形界面组件（X11 + VNC，约 78MB，仅首次）"
+              if ! command -v proot-distro >/dev/null 2>&1; then
+                bad "没有 proot-distro，跳过图形界面组件"
+              elif gui_pkgs_ok; then
+                ok "Xvfb / x11vnc 已安装，跳过"
+              else
+                echo "正在容器内安装 xvfb / x11vnc / x11-utils / x11-apps / procps / xdotool / imagemagick（约 78MB，2~4 分钟）…"
+                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends xvfb x11vnc x11-utils x11-apps procps xdotool imagemagick' || bad "图形界面组件安装失败：请检查网络后重跑本页"
+                if gui_pkgs_ok; then ok "X11/VNC 组件就绪"; else bad "X11/VNC 组件没装全"; fi
+              fi
+
+              step "6/6 入口（~/ubuntu、~/ubuntu-gui）与最终验证"
               cat > "$HOME_DIR/ubuntu" <<'QUIZ_UBUNTU_EOF'
             #!/data/data/com.termux/files/usr/bin/bash
             exec proot-distro login ubuntu -- "$@"
             QUIZ_UBUNTU_EOF
               chmod +x "$HOME_DIR/ubuntu"
+              cat > "$HOME_DIR/ubuntu-gui" <<'QUIZ_GUI_EOF'
+            #!/data/data/com.termux/files/usr/bin/bash
+            # 答题宝 · 图形界面（X11 + VNC）启停。用法: ubuntu-gui [start|stop|status]
+            H="${HOME:-/data/data/com.termux/files/home}"
+            PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+            export PREFIX
+            export HOME="$H"
+            export PATH="$PREFIX/bin:/system/bin"
+            LOG="$H/.quiz_gui.log"
+            PORT=5900
+            PORTUP() { (echo > /dev/tcp/127.0.0.1/$PORT) 2>/dev/null; }
+            INNER='__GUI_INNER__'
+            case "$1" in
+              stop)
+                proot-distro login ubuntu -- /bin/bash -lc 'pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1
+                echo "图形界面已停止"
+                ;;
+              status)
+                if PORTUP; then echo "图形界面运行中: 127.0.0.1:$PORT"; else echo "图形界面未运行"; fi
+                ;;
+              *)
+                if PORTUP; then echo "图形界面已在运行: 127.0.0.1:$PORT"; exit 0; fi
+                : > "$LOG"
+                echo "正在启动图形界面（Xvfb 1280x720 + x11vnc :$PORT）..."
+                setsid nohup proot-distro login ubuntu -- /bin/bash -lc "$INNER" >> "$LOG" 2>&1 &
+                i=0
+                while [ $i -lt 20 ]; do
+                  sleep 1
+                  i=$((i+1))
+                  if PORTUP; then echo "✅ 图形界面已就绪: 127.0.0.1:$PORT"; exit 0; fi
+                done
+                echo "❌ 20 秒内端口未打开；日志 $LOG："
+                tail -20 "$LOG"
+                exit 1
+                ;;
+            esac
+            QUIZ_GUI_EOF
+              chmod +x "$HOME_DIR/ubuntu-gui"
               if "$HOME_DIR/ubuntu" python3 -c 'import tkinter, curses, readline, sqlite3, ssl, lzma, multiprocessing; print("✅ 完整体 Python 验证通过 | Python", __import__("sys").version.split()[0], "| tkinter Tk", tkinter.TkVersion)'; then
                 echo ""
                 echo "🎉 环境准备完成：Termux 里输入  ~/ubuntu  进入真 Ubuntu"
-                echo "   答题宝以后可直接用这个环境跑 Python（含 tkinter 图形库）"
+                echo "   图形界面：答题宝「图形界面（VNC）」页点「启动图形界面」，或 Termux 里 ~/ubuntu-gui start"
               else
                 bad "最终验证失败：~/ubuntu 里缺 tkinter 或其它模块"
               fi

@@ -1,5 +1,46 @@
 # 变更日志
 
+## [2026-09-27] 新增「图形界面（VNC）」：内置 RFB 客户端，在答题宝里显示 Linux 桌面
+
+用户问「vnc 可以内置到 app 中吗」。结论：**客户端能内置，服务端进不了 App 进程**（targetSdk 35 不能 execve
+私有目录二进制，与 Termux 同理），但服务端可以装在已有的 Ubuntu 容器里 —— APK 基本不涨（+几十 KB 代码），
+服务端体积（约 78MB deb）落在容器里。
+
+1. **App 侧（全自研，不引第三方库）**：
+   · `com.oilquiz.app.vnc.VncClient`：RFB 3.8 客户端（版本/安全类型握手 → ServerInit → SetPixelFormat
+     32bpp/depth24/小端 → SetEncodings [CopyRect, Hextile, Raw, DesktopSize] → 收帧循环；
+     Raw/Hextile/CopyRect/DesktopSize 解码；PointerEvent/KeyEvent/ClientCutText/ServerCutText）。
+     不引 android-vnc-viewer / LibVNC —— 它们都是 GPL，链接会把整个 App 拖成 GPL。
+   · `VncView`：绘制帧缓冲 + 缩放/平移；单指=左键拖动（轻点即单击）、双指滑=滚轮、双指捏合=缩放、
+     「右键」按钮后下一次点击=右键；软键盘经 `onCreateInputConnection` 逐字翻译成 keysym。
+   · `VncKeysym`：Android KeyEvent/字符 → X11 keysym（Latin-1 就是字符码；特殊键查表；Ctrl/Alt 单独发送）。
+   · `VncActivity` + `activity_vnc.xml`：状态栏（连接状态/端口/重连计数）+ 工具栏（启动图形界面/连接/断开/
+     键盘/右键/适应/放大/缩小/粘贴到远端）+ 使用说明。入口：工具集 → 设置与数据 → **图形界面（VNC）**；
+     环境准备页也加了「启动图形界面（VNC）」按钮（起服务端后直接开页面）。
+2. **容器侧**：一键准备的第 5 步新增 `apt-get install -y --no-install-recommends xvfb x11vnc x11-utils
+   x11-apps procps xdotool imagemagick`（实测 78MB/73 个 deb，arm64 全部可得），并写出 `~/ubuntu-gui`
+   启停脚本（start/stop/status）。App 也能直接下发同样的启动命令（与脚本共用同一份容器内命令，
+   由 `GUI_INNER_COMMAND` 单点定义 + 单元断言保证不漂移）。
+3. **AI 侧**：`system_resource` 新增 `gui` 动作（start/stop/status）；更细的 GUI 操作可让 AI 用 `termux_exec`
+   跑容器里的 `xdotool`（点击/输入）与 `import`（截图）。
+4. **真机踩出来的五个坑（都已修，且都有对应断言）**：
+   · **`-encodings` 不能传给 x11vnc**：Ubuntu 的 x11vnc 0.9.16 报 `*** unrecognized option(s) ***` 直接退出；
+     编码本来就由客户端 SetEncodings 决定，客户端只报 copyrect/hextile/raw 即可。
+   · **proot 会话一退出就带走所有子进程**：早先 `x11vnc -bg` 一挂后台，Xvfb 立刻跟着死；
+     改成 x11vnc **前台常驻**（`exec x11vnc …`）+ Termux 侧 `setsid nohup` 挂住整段 proot 会话。
+   · **`-noshm` 必须带**：proot 下 `shmget(scanline)` 被拒（Permission denied）。
+   · **`-threads` 不能用**：0.9.16 线程模式下实测 x11vnc 会空转（34% CPU）且**不再监听端口**；
+     改回单线程 + `-timeout 10` 防僵尸客户端。
+   · **不要用裸 TCP 连接探测就绪**：连上就断会留下半开连接把单线程 x11vnc 堵死（现象：端口开着但
+     永远不发版本横幅）；就绪判断改成「容器里有没有 x11vnc 进程」（`pgrep -x x11vnc`）。
+   · （客户端侧）**`NetworkOnMainThreadException`**：触摸事件在 UI 线程直接 write/flush socket 会当场打死 App；
+     改成输入事件入队 + 独立写线程，另给握手加 8 秒读超时，并对 x11vnc 偶发的不发横幅自动重连。
+5. **真机验证**：
+   · `VncClientDeviceTest`（真连 127.0.0.1:5900）：`第 1 次握手=true 尺寸=1280x720 name=localhost:1`，
+     收到 FramebufferUpdate；连跑 3 次单测 + 全类 **5/5 OK**（Rfb 用例内置 5 次自动重连）。
+   · 容器侧独立取证：ImageMagick `import -window root` 抓 X 根窗口 = **1280x720 / 204 色**（说明桌面真有窗口，
+     不是黑屏）；python 探针收到 Raw 全帧 3,686,400 字节（=1280x720x4，与协议一致）。
+   · 工具集入口的真实性用截图 OCR 取证：列表里出现「图形界面 (VNC)」。
 ## [2026-09-27] 修复「完整 Python 环境」一键准备在"已装过的机器"上必然失败（幂等 + 全程日志 + 真实取证）
 
 用户报「Termux 有个问题」。Termux 自身没有 crash_logs、logcat 无 FATAL，终端文字既不在 logcat 也不在无障碍树，

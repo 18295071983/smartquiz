@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/colorBackground">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
+        android:paddingTop="@dimen/space_4"
+        android:paddingBottom="@dimen/space_4">
+
+        <TextView
+            android:id="@+id/vnc_status"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlText"
+            android:text="准备中…" />
+
+        <EditText
+            android:id="@+id/vnc_port"
+            android:layout_width="72dp"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:textSize="@dimen/text_12"
+            android:gravity="center"
+            android:maxLength="5"
+            android:text="5900" />
+    </LinearLayout>
+
+    <com.oilquiz.app.vnc.VncView
+        android:id="@+id/vnc_view"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/space_8"
+            android:paddingEnd="@dimen/space_8"
+            android:paddingTop="@dimen/space_4"
+            android:paddingBottom="@dimen/space_4">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_gui"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_4"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="启动图形界面" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_connect"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_4"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="连接" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_disconnect"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_4"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="断开" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_keyboard"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_4"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="键盘" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_right"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_4"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="右键" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_fit"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_4"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="适应" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_zoom_in"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_4"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="放大" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_zoom_out"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/space_4"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="缩小" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vnc_paste"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"
+                android:text="粘贴到远端" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <TextView
+        android:id="@+id/vnc_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_12"
+        android:paddingBottom="@dimen/space_8"
+        android:lineSpacingExtra="2dp"
+        android:textSize="@dimen/text_11"
+        android:textColor="?attr/colorControlTextSecondary"
+        android:visibility="gone"
+        android:text="" />
+</LinearLayout>

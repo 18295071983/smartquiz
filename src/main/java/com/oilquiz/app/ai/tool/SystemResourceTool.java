@@ -50,7 +50,8 @@ import java.util.concurrent.atomic.AtomicInteger;
         @Action(name = "shell_mode", description = "切换 shell 拦截模式：full=不拦截(默认，用户自己的设备) / readonly=恢复危险命令与敏感路径拦截 / query=查询当前"),
         @Action(name = "read_setting", description = "读取系统设置"),
         @Action(name = "write_setting", description = "修改系统设置"),
-        @Action(name = "get_current_app", description = "获取当前前台应用信息")
+        @Action(name = "get_current_app", description = "获取当前前台应用信息"),
+        @Action(name = "gui", description = "图形界面（X11/VNC）：在 Linux 容器里启动/停止图形桌面（start/stop），或查状态（status）。启动后用户可在答题宝「图形界面（VNC）」页看到桌面；需要更细的 GUI 操作可用 termux_exec 跑容器里的 xdotool/import（已随环境准备装好）")
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
@@ -64,7 +65,8 @@ import java.util.concurrent.atomic.AtomicInteger;
         @Param(name = "setting_type", type = "string", description = "设置类型: system/secure/global", required = false),
         @Param(name = "setting_key", type = "string", description = "设置键名", required = false),
         @Param(name = "setting_value", type = "string", description = "设置值", required = false),
-        @Param(name = "control_action", type = "string", description = "控制操作: force_stop/clear_data/detailed_info", required = false)
+        @Param(name = "control_action", type = "string", description = "控制操作: force_stop/clear_data/detailed_info", required = false),
+        @Param(name = "op", type = "string", description = "gui 用: start(默认，启动图形界面) / stop / status", required = false)
     }
 )
 public class SystemResourceTool implements AITool {
@@ -285,6 +287,8 @@ public class SystemResourceTool implements AITool {
                     return writeSetting(parameters);
                 case "get_current_app":
                     return getCurrentApp(parameters);
+                case "gui":
+                    return guiControl(parameters);
                 default:
                     return new AIToolResult("未知操作: " + action, parameters);
             }
@@ -2088,6 +2092,35 @@ public class SystemResourceTool implements AITool {
      * </ol>
      * 结果通过 PendingIntent 广播回传，Bundle 键：stdout/stderr/exitCode/errmsg。
      */
+    /**
+     * 图形界面（X11 + VNC）启停。
+     *
+     * <p>服务端在 Ubuntu 容器里跑（Xvfb + x11vnc，监听 127.0.0.1:5900，仅本机可见），
+     * 客户端是答题宝内置的自研 RFB 实现（{@code com.oilquiz.app.vnc}）。
+     */
+    private AIToolResult guiControl(Map<String, Object> parameters) {
+        String op = parameters.get("op") == null ? "start" : String.valueOf(parameters.get("op")).trim();
+        if ("status".equals(op)) {
+            Map<String, Object> p = new HashMap<>(parameters);
+            p.put("command", TermuxEnvInstaller.buildGuiStatusScript());
+            return termuxExec(p);
+        }
+        if ("stop".equals(op)) {
+            String err = TermuxEnvInstaller.stopGuiInTermux(context);
+            return new AIToolResult(err == null
+                    ? "已让 Termux 停止图形界面（容器里的 x11vnc / Xvfb 已杀）。"
+                    : "停止失败: " + err, parameters);
+        }
+        String err = TermuxEnvInstaller.startGuiInTermux(context);
+        if (err != null) {
+            return new AIToolResult("启动图形界面失败: " + err, parameters);
+        }
+        return new AIToolResult("已让 Termux 启动图形界面：容器里 Xvfb 1280x720 + x11vnc 监听 127.0.0.1:5900（"
+                + "端口起来约需 5~10 秒；Termux 侧日志 ~/.quiz_gui.log）。"
+                + "用户可在答题宝「图形界面（VNC）」页直接看到桌面；你也可以用 termux_exec 跑 "
+                + "proot-distro login ubuntu -- /bin/bash -lc 'DISPLAY=:1 xdotool ...' 去操作窗口。", parameters);
+    }
+
     private AIToolResult termuxExec(Map<String, Object> parameters) {
         String command = (String) parameters.get("command");
         if (command == null || command.trim().isEmpty()) {

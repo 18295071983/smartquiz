@@ -236,6 +236,16 @@
 - **存储权限**：Termux 未授予存储权限时读不到本地 29MB 包（`/sdcard` 拒绝、`~/storage` 不存在），界面状态区会显示「未授予」，脚本会提示在 Termux 执行 `termux-setup-storage` 并点允许；本次则自动联网下 30MB。
 - **许可**：Termux 为 GPLv3（源码 github.com/termux/termux-app），Ubuntu 镜像按其各组件许可；见 `THIRD_PARTY_NOTICES.md`。
 
+### 图形界面（VNC）— 在答题宝里看 Linux 桌面
+- **入口**：工具集 → 设置与数据 → **图形界面（VNC）**；环境准备页也有「启动图形界面（VNC）」按钮。
+- **架构**：App 内置自研 RFB 客户端（`com.oilquiz.app.vnc`）→ `127.0.0.1:5900` → Termux 里常驻的 proot 会话（Xvfb 1280x720 + x11vnc）。
+  · 服务端**放不进 App 进程**（targetSdk 35 不能 execve 私有目录二进制，与 Termux 同理），所以装在 Ubuntu 容器里；客户端完全内置，**不需要任何第三方 VNC App**。
+  · 不引 GPL 的 VNC 库（android-vnc-viewer / LibVNC），因此只实现自控服务端会用到的编码：Raw / Hextile / CopyRect / DesktopSize。
+- **服务端**：`~/ubuntu-gui [start|stop|status]`（一键准备的第 5 步会 `apt-get install xvfb x11vnc x11-utils x11-apps procps xdotool imagemagick`，约 78MB，仅首次）。
+- **手势**：单指=左键（轻点即单击）、拖动=拖拽、双指滑=滚轮、双指捏合=缩放；「右键」按钮后的下一次点击=右键；「键盘」打开软键盘（Latin-1 字符发 keysym，中文用「粘贴到远端」）。
+- **踩坑备忘（改这块前必读）**：x11vnc 0.9.16 **不认 `-encodings`**（会直接退出）；**必须 `-noshm`**（proot 下 shmget 被拒）；**不要 `-threads`**（实测空转且不再监听）；**就绪判断不要裸连 5900**（半开连接会把单线程 x11vnc 堵死，用 `pgrep -x x11vnc`）；x11vnc 必须**前台常驻**（proot 会话退出会带走 Xvfb）。
+- **日志**：Termux 侧 `~/.quiz_gui.log`；容器内 `/tmp/quiz-xvfb.log`、`/tmp/quiz-x11vnc.log`。
+
 ### 「完整体 Python」路线（Termux + proot-distro Ubuntu，2026-09-27 真机走通）
 - 内置 Chaquopy Python 永远没有 tkinter/curses/readline（Android 平台限制）；要这些就上真 Linux：
   · 手机上已装 **Termux 0.118.3**（GitHub debug 包，targetSdk 28 → 仍可 exec 私有目录）与 **Ubuntu 24.04.5 容器**（proot-distro 5.9）；
