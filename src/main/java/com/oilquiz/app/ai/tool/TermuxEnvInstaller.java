@@ -241,8 +241,17 @@ public final class TermuxEnvInstaller {
             "pkill -x Xvnc >/dev/null 2>&1; pkill -x x11vnc >/dev/null 2>&1; pkill -x Xvfb >/dev/null 2>&1; "
                     + "pkill -x xclock >/dev/null 2>&1; sleep 1; "
                     + "rm -f /tmp/.X11-unix/X1 /tmp/.X1-lock; "
-                    + "exec Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
-                    + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz";
+                    // Xvnc 退到后台，会话主进程交给 websockify —— 它一个进程干两件事：
+                    // ① 把 noVNC 网页（/usr/share/novnc）发出来；② 把 WebSocket 桥到 127.0.0.1:5900。
+                    // 真机实测：ws 握手 101 + 收到 RFB 003.008 横幅。
+                    + "Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
+                    + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz & "
+                    + "sleep 2; "
+                    + "if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then "
+                    + "exec websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900; "
+                    + "fi; "
+                    // 没有 websockify（老环境还没装 novnc）就退回"只跑 Xvnc"，用 wait 常驻别让会话退出
+                    + "wait";
 
     /**
      * 容器内「中文化 + 北京时间」脚本（可重复运行，只做一次性修复）。
@@ -705,7 +714,7 @@ public final class TermuxEnvInstaller {
             }
 
             gui_pkgs_ok() {
-              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1' 2>/dev/null
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1' 2>/dev/null
             }
 
             quiz_main() {
@@ -800,7 +809,7 @@ public final class TermuxEnvInstaller {
                 ok "Xvnc + XFCE 桌面 + 中文字体已安装，跳过"
               else
                 echo "正在容器内安装 TigerVNC + XFCE 桌面（面板/开始菜单/文件管理器/终端）+ 中文字体（约 110MB，3~6 分钟）…"
-                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig xfce4 xfce4-terminal thunar mousepad dbus-x11' || bad "图形界面组件安装失败：请检查网络后重跑本页"
+                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig xfce4 xfce4-terminal thunar mousepad dbus-x11 novnc websockify' || bad "图形界面组件安装失败：请检查网络后重跑本页"
                 if gui_pkgs_ok; then ok "X11/VNC 组件就绪"; else bad "X11/VNC 组件没装全"; fi
               fi
 

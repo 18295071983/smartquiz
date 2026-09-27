@@ -205,7 +205,8 @@ public class ToolboxActivity extends AppCompatActivity {
             "命令路由（Linux 工具箱）",
             "远程连接（电脑）",
             "完整 Python 环境（Termux + Ubuntu）",
-            "图形界面（VNC）"
+            "图形界面（VNC）",
+            "图形界面（原生模式）"
         }, new Class<?>[]{
             ThemeActivity.class,
             LanguageActivity.class,
@@ -213,6 +214,7 @@ public class ToolboxActivity extends AppCompatActivity {
             LinuxRouteActivity.class,
             com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class,
             com.oilquiz.app.ai.tool.TermuxEnvSetupActivity.class,
+            com.oilquiz.app.vnc.VncWebActivity.class,
             com.oilquiz.app.vnc.VncActivity.class
         });
     }

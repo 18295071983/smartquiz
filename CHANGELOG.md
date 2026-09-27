@@ -1,5 +1,35 @@
 # 变更日志
 
+## [2026-09-27] VNC 界面改用现成的 noVNC（MPL-2.0）：「外壳式」实现，不再自己画界面
+
+用户问「可以使用别人的源代码吗。你自己设计的不行啊」。先把三家的 LICENSE 拉下来核对：
+
+| 项目 | 协议 | 能否进这个 **MIT** 项目 |
+|---|---|---|
+| bVNC / aRDP（iiordanov） | **GPLv3**（LICENSE 原文） | ❌ 搬进来整个 App 必须转 GPLv3 并开源 |
+| android-vnc-viewer / LibVNC | GPLv2 | ❌ 同上 |
+| **noVNC（官方）** | **MPL-2.0**（core 库） | ✅ 可用，保留版权声明即可 |
+
+用户选「内置 noVNC」。实现分工（关键：**noVNC 一行代码都不进我们的 APK**，它由容器里 Ubuntu 的
+`novnc` 包提供，我们只是"用"它 —— 连 MPL 的分发义务都不涉及）：
+
+1. **容器侧**：`apt install novnc websockify`（Ubuntu 24.04 是 noVNC 1.3.0）。`GUI_INNER_COMMAND`
+   改成 `Xvnc … &` + `exec websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900` ——
+   **一个进程同时干两件事**：发布 noVNC 网页 + 把 WebSocket 桥到 Xvnc；没装 websockify 时退回 `wait`
+   只跑 Xvnc，不会把图形界面搞死。`gui_pkgs_ok` 也加了 websockify/novnc 检查，老环境再点一次「一键准备」即补上。
+2. **App 侧**：新增 `VncWebActivity`（WebView 外壳）+ `activity_vnc_web.xml`，只保留一条中文状态条
+   （状态 / 启动图形界面 / 重连 / 原生模式 / 收起），8 秒不动自动收起，只留左上角 ≡。
+   协议、渲染、输入、缩放、设置面板、剪贴板**全部由 noVNC 承担**，连中文界面都是它自带的
+   （`app/locale/zh_CN.json`，随设备语言生效）。工具入口默认走这个页面，原自研客户端保留为「原生模式」。
+3. **真机验证（链路整条打通）**：
+   ```
+   HTTP 200 15212 bytes（/vnc.html，含 app/ui.js）
+   握手: HTTP/1.1 101 Switching Protocols
+   RFB 横幅: b'RFB 003.008\n'   服务端海报正常: True
+   ```
+   另加两条真机用例：`vncWebShellReady`（外壳页布局 + URL 参数 autoconnect/resize/path/port）、
+   `novncServedByContainer`（真的去 6080 取 vnc.html 200，并做一次 WebSocket 握手读到 RFB 横幅）。
+
 ## [2026-09-27] 图形界面页控件重排：参考 RealVNC / bVNC，画面优先 + 分组 + 自动收起
 
 用户说「vnc界面的按钮你好好管理下，参考下别人的」。老版是一条常驻的横向滚动按钮栏（15 个按钮挤一行，

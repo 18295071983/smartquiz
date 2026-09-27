@@ -505,4 +505,115 @@ public class VncClientDeviceTest {
             }
         }
     }
+
+    /** noVNC 外壳页：布局能 inflate，noVNC 的地址参数齐全 */
+    @Test
+    public void vncWebShellReady() {
+        Context base = ctx();
+        Context themed = new android.view.ContextThemeWrapper(base, base.getApplicationInfo().theme);
+        android.view.View root = android.view.LayoutInflater.from(themed)
+                .inflate(com.oilquiz.app.R.layout.activity_vnc_web, null);
+        int[] ids = {
+                com.oilquiz.app.R.id.vnc_web_root, com.oilquiz.app.R.id.vnc_web,
+                com.oilquiz.app.R.id.vnc_web_bar, com.oilquiz.app.R.id.vnc_web_status,
+                com.oilquiz.app.R.id.btn_vnc_web_gui, com.oilquiz.app.R.id.btn_vnc_web_reload,
+                com.oilquiz.app.R.id.btn_vnc_web_native, com.oilquiz.app.R.id.btn_vnc_web_hide,
+                com.oilquiz.app.R.id.btn_vnc_web_toggle
+        };
+        StringBuilder missing = new StringBuilder();
+        for (int id : ids) {
+            if (root.findViewById(id) == null) {
+                missing.append(missing.length() == 0 ? "" : ", ")
+                        .append(base.getResources().getResourceEntryName(id));
+            }
+        }
+        assertFalse("noVNC 外壳页缺控件: " + missing, missing.length() > 0);
+
+        String url = com.oilquiz.app.vnc.VncWebActivity.buildUrl();
+        System.out.println("[VNC] noVNC URL = " + url);
+        assertTrue("地址应指向 vnc.html: " + url, url.contains("/vnc.html"));
+        assertTrue("应自动连接: " + url, url.contains("autoconnect=1"));
+        assertTrue("应自适应缩放: " + url, url.contains("resize=scale"));
+        assertTrue("应走 websockify 路径: " + url, url.contains("path=websockify"));
+        assertTrue("端口应是 websockify 的 6080: " + url,
+                url.contains("port=" + com.oilquiz.app.vnc.VncWebActivity.WEB_PORT));
+    }
+
+    /**
+     * 容器里的 noVNC 服务真的可用：6080 能取到 vnc.html，并且 WebSocket 桥过去能收到 RFB 横幅。
+     *
+     * <p>这条用例把"外壳式实现"的关键环节钉死 —— 之前纯靠手工 python 脚本验证过一次
+     * （握手 101 + RFB 003.008），这里固化成可回归的真机用例。
+     */
+    @Test
+    public void novncServedByContainer() throws Exception {
+        // 幂等：图形界面没起来就请 Termux 拉起来
+        com.oilquiz.app.ai.tool.TermuxEnvInstaller.startGuiInTermux(ctx());
+
+        java.net.Socket probe = null;
+        long deadline = System.currentTimeMillis() + 90_000;
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                probe = new java.net.Socket();
+                probe.connect(new java.net.InetSocketAddress("127.0.0.1",
+                        com.oilquiz.app.vnc.VncWebActivity.WEB_PORT), 900);
+                break;
+            } catch (Exception e) {
+                probe = null;
+                Thread.sleep(3000);
+            }
+        }
+        assertNotNull("90 秒内 6080 没起来：容器里的 websockify 没跟着图形界面一起跑", probe);
+        probe.close();
+
+        // ① HTTP：vnc.html 应 200
+        java.net.Socket http = new java.net.Socket();
+        http.connect(new java.net.InetSocketAddress("127.0.0.1",
+                com.oilquiz.app.vnc.VncWebActivity.WEB_PORT), 3000);
+        http.setSoTimeout(6000);
+        http.getOutputStream().write(("GET /vnc.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+                .getBytes("UTF-8"));
+        java.io.ByteArrayOutputStream body = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = http.getInputStream().read(buf)) > 0) {
+            body.write(buf, 0, n);
+        }
+        http.close();
+        String resp = new String(body.toByteArray(), "ISO-8859-1");
+        System.out.println("[VNC] noVNC HTTP 响应首行: " + resp.split("\r\n")[0]);
+        assertTrue("vnc.html 应 200: " + resp.split("\r\n")[0], resp.startsWith("HTTP/1.1 200"));
+        assertTrue("vnc.html 内容应有 noVNC/UI 脚本", resp.contains("noVNC") || resp.contains("app/ui.js"));
+
+        // ② WebSocket 握手 → RFB 版本横幅
+        java.net.Socket ws = new java.net.Socket();
+        ws.connect(new java.net.InetSocketAddress("127.0.0.1",
+                com.oilquiz.app.vnc.VncWebActivity.WEB_PORT), 3000);
+        ws.setSoTimeout(8000);
+        byte[] keyBytes = new byte[16];
+        new java.util.Random().nextBytes(keyBytes);
+        String wsKey = android.util.Base64.encodeToString(keyBytes, android.util.Base64.NO_WRAP);
+        ws.getOutputStream().write(("GET /websockify HTTP/1.1\r\n"
+                + "Host: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                + "Sec-WebSocket-Key: " + wsKey + "\r\nSec-WebSocket-Version: 13\r\n"
+                + "Sec-WebSocket-Protocol: binary\r\n\r\n").getBytes("UTF-8"));
+        java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
+        long wsDeadline = System.currentTimeMillis() + 8000;
+        while (System.currentTimeMillis() < wsDeadline && raw.size() < 512) {
+            try {
+                n = ws.getInputStream().read(buf);
+                if (n <= 0) {
+                    break;
+                }
+                raw.write(buf, 0, n);
+            } catch (java.net.SocketTimeoutException e) {
+                break;
+            }
+        }
+        ws.close();
+        String handshake = new String(raw.toByteArray(), "ISO-8859-1");
+        assertTrue("WebSocket 应升级成功: " + handshake.split("\r\n")[0], handshake.contains("101"));
+        assertTrue("WebSocket 桥应能把 RFB 横幅送过来", handshake.contains("RFB 003."));
+        System.out.println("[VNC] noVNC 服务可用：vnc.html 200 + WebSocket 101 + RFB 横幅已收到");
+    }
 }

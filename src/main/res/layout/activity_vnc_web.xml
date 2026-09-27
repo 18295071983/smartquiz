@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  图形界面（VNC · noVNC 外壳）：画面与操作全部交给 noVNC（容器里 Ubuntu 的 novnc 包，MPL-2.0），
+  本页只提供一条中文状态条：状态 + 启动/重连/原生模式 + 收起。
+  noVNC 自己带中文界面（app/locale/zh_CN.json，随设备语言自动生效），所以这里不再重复造按钮。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/vnc_web_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <WebView
+        android:id="@+id/vnc_web"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 中文状态条：8 秒不动自动收起，只留左上角的 ≡ -->
+    <LinearLayout
+        android:id="@+id/vnc_web_bar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="@dimen/space_8"
+        android:background="@drawable/bg_vnc_panel"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="4dp">
+
+        <TextView
+            android:id="@+id/vnc_web_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxWidth="150dp"
+            android:maxLines="2"
+            android:text="图形界面：准备中…"
+            android:textColor="#FFFFFFFF"
+            android:textSize="@dimen/text_12" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_vnc_web_gui"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="6dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:text="启动图形界面"
+            android:textAllCaps="false"
+            android:textSize="@dimen/text_12" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_vnc_web_reload"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="4dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:text="重连"
+            android:textAllCaps="false"
+            android:textSize="@dimen/text_12" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_vnc_web_native"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="4dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:text="原生模式"
+            android:textAllCaps="false"
+            android:textSize="@dimen/text_12" />
+
+        <TextView
+            android:id="@+id/btn_vnc_web_hide"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="#FFFFFFFF"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <!-- 收起后仍留一个 ≡，随时把状态条叫回来 -->
+    <TextView
+        android:id="@+id/btn_vnc_web_toggle"
+        android:layout_width="@dimen/size_44"
+        android:layout_height="@dimen/size_44"
+        android:layout_gravity="top|start"
+        android:layout_margin="@dimen/space_8"
+        android:background="@drawable/bg_vnc_panel"
+        android:gravity="center"
+        android:text="≡"
+        android:textColor="#FFFFFFFF"
+        android:textSize="20sp"
+        android:visibility="gone" />
+</FrameLayout>
