@@ -62,14 +62,30 @@ public class TermuxEnvSetupDeviceTest {
         String script = TermuxEnvInstaller.buildSetupScript("/sdcard/Download/OilQuiz/termux_env/ubuntu-base.tar.gz");
         System.out.println("[EXP] 脚本长度=" + script.length() + " 行数=" + script.split("\n").length);
         assertTrue("应设置 allow-external-apps", script.contains("allow-external-apps=true"));
-        assertTrue("应用本地 rootfs 建容器",
-                script.contains("ROOTFS=\"/sdcard/Download/OilQuiz/termux_env/ubuntu-base.tar.gz\"")
-                        && script.contains("file://$ROOTFS"));
+        assertTrue("应带上本地 rootfs 路径",
+                script.contains("ROOTFS_ARG=\"/sdcard/Download/OilQuiz/termux_env/ubuntu-base.tar.gz\""));
         assertTrue("本地包读不到时应回退清华镜像",
                 script.contains("mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage"));
         assertTrue("应装 python3-full", script.contains("python3-full"));
         assertTrue("应装 python3-tk", script.contains("python3-tk"));
         assertTrue("应换清华源", script.contains("mirrors.tuna.tsinghua.edu.cn"));
+
+        // ---- 2026-09-27 真机 bug 回归：proot-distro 5.9 的 list 把列表打到 stderr ----
+        // 旧脚本用 "proot-distro list 2>/dev/null | grep -q ubuntu" 判定，必然判成"没装" → 再 install →
+        // "container ubuntu already exists" → set -e 退出 1（就是用户屏幕上那条报错）。
+        assertFalse("已装判定不能只看 stdout（5.9 的 list 走 stderr）",
+                script.contains("list 2>/dev/null | grep -q ubuntu"));
+        assertTrue("应用 list -q（5.9 唯一走 stdout 的形态）", script.contains("proot-distro list -q"));
+        assertTrue("应合并 stderr 兜底", script.contains("proot-distro list 2>&1"));
+        assertTrue("应按容器目录兜底",
+                script.contains("var/lib/proot-distro/containers/ubuntu")
+                        && script.contains("var/lib/proot-distro/installed-rootfs/ubuntu"));
+        assertTrue("已装必须跳过安装（幂等）", script.contains("已存在，跳过下载与安装"));
+        assertTrue("装容器要显式命名", script.contains("proot-distro install -n ubuntu"));
+        assertFalse("不能用 set -e 把可恢复情况判死", script.contains("set -e"));
+        assertTrue("全部输出要落盘成日志（排障用）", script.contains("tee \"$LOG\""));
+        assertTrue("成功/失败要有区分退出码", script.contains("exit \"$FAIL\""));
+        assertTrue("存储权限缺失要给出授权路径", script.contains("termux-setup-storage"));
 
         // 真语法检查：App 自带 busybox 的 ash -n
         File bb = new File(c.getFilesDir(), "bin/busybox");
@@ -100,6 +116,31 @@ public class TermuxEnvSetupDeviceTest {
             if (ch == '\'') quoteCount++;
         }
         assertTrue("单引号应成对（实际 " + quoteCount + "）", quoteCount % 2 == 0);
+    }
+
+    /**
+     * 端到端：把**真实生成的准备脚本**通过 RUN_COMMAND 下发给 Termux 跑一遍（幂等路径）。
+     *
+     * <p>用例只能断言"下发被接受" + 语法过关；真实结果由外部 adb 核对 Termux 私有文件：
+     * ~/.quiz_env_setup.log 末尾出现「全部完成 ✅」、~/.quiz_env_setup.status 末行 fail=0、
+     * ~/ubuntu 存在。这样才算跑通，而不是"我以为跑通了"。
+     */
+    @Test
+    public void pushRealSetupScriptToTermux() {
+        Context c = ctx();
+        if (TermuxEnvInstaller.termuxVersion(c) == null || !TermuxEnvInstaller.hasRunCommandPermission(c)) {
+            System.out.println("[EXP] 没有 Termux 或没授权，跳过真实脚本下发");
+            return;
+        }
+        File rootfs = TermuxEnvInstaller.exportedRootfs(c);
+        String script = TermuxEnvInstaller.buildSetupScript(rootfs == null ? null : rootfs.getAbsolutePath());
+        String err = TermuxEnvInstaller.runInTermux(c, script, true);
+        System.out.println("[EXP] 下发真实准备脚本: " + (err == null ? "已接受" : err));
+        org.junit.Assert.assertNull("真实脚本下发应被接受: " + err, err);
+        try {
+            Thread.sleep(25000);
+        } catch (InterruptedException ignored) {
+        }
     }
 
     /** 未授予 RUN_COMMAND 权限时，一键下发要给出明确原因（不静默失败） */

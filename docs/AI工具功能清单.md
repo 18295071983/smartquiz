@@ -230,6 +230,10 @@
 - **三步**：① 安装 Termux（系统安装器确认一次）② 导出根文件系统到 `Download/OilQuiz/termux_env/` ③ 在 Termux 里准备容器（装 proot-distro → 用本地 tar.gz 建容器 → apt 装 python3-full + python3-tk → 建 `~/ubuntu` 入口）。
 - **为什么必须独立安装 Termux**：Android 只允许 targetSdk<29 的应用执行自己私有目录里的二进制，proot/apt 依赖这一点；本 App targetSdk 35，无法合并。
 - **自动化边界**：第 ③ 步可由 App 通过 Termux 的 RUN_COMMAND 自动下发（需用户手点一次权限）；若 Termux 的 `allow-external-apps` 未开，用界面上的「复制手动命令」粘进 Termux 跑一次即可（脚本会自己把该配置打开）。
+- **幂等**：准备脚本可反复点、反复跑（2026-09-27 修）。已装过的机器会跳过下载/安装/apt。
+  · **坑**：`proot-distro 5.9` 的 `list` 把列表打到 **stderr**，判定"是否已装"必须用 `list -q`（走 stdout）或 `list 2>&1`，否则会误判成没装 → `install` 撞 `already exists`（旧版本就是这样退出 1 的）。
+- **排障日志**：整段准备输出 `tee` 到 Termux 的 `~/.quiz_env_setup.log`，状态写 `~/.quiz_env_setup.status`（末行 `fail=0/1`）。排查时先看这两个文件。
+- **存储权限**：Termux 未授予存储权限时读不到本地 29MB 包（`/sdcard` 拒绝、`~/storage` 不存在），界面状态区会显示「未授予」，脚本会提示在 Termux 执行 `termux-setup-storage` 并点允许；本次则自动联网下 30MB。
 - **许可**：Termux 为 GPLv3（源码 github.com/termux/termux-app），Ubuntu 镜像按其各组件许可；见 `THIRD_PARTY_NOTICES.md`。
 
 ### 「完整体 Python」路线（Termux + proot-distro Ubuntu，2026-09-27 真机走通）

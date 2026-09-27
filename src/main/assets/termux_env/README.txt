@@ -18,6 +18,16 @@
    用途：proot-distro 从本地文件安装 Ubuntu 容器（省掉一次下载）
    许可：Ubuntu 镜像内各组件的许可见容器内 /usr/share/doc/*/copyright
 
+排障（重要）
+---------
+· 准备脚本**可以反复运行**：已装的部分（proot-distro / 容器 / 容器内 Python）会自动跳过，不会报
+  "container 'ubuntu' already exists"（这是 2026-09-27 修掉的 bug：proot-distro 5.9 的 `list` 把列表
+  打到 stderr，旧脚本用 `list 2>/dev/null | grep` 判定，必然误判成"没装"）。
+· 全程日志：Termux 的 ~/.quiz_env_setup.log（每次运行会覆盖），状态：~/.quiz_env_setup.status（末行 fail=0/1）。
+  出问题先 `cat ~/.quiz_env_setup.log`。
+· 外部存储权限：Termux 未授予时读不到 /sdcard 上的本地包（~ 下也不会有 storage 软链），
+  脚本会提示执行 `termux-setup-storage` 并点「允许」；未授权则自动联网下载 30MB（清华镜像）。
+
 用户侧流程（App「完整 Python 环境」界面）：
    ① 安装 Termux（本目录的 APK，系统安装器确认一次）
    ② 导出本目录的 Ubuntu 根文件系统到 Download/OilQuiz/termux_env/

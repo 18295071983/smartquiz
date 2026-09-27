@@ -192,7 +192,7 @@
                     android:lineSpacingExtra="3dp"
                     android:textSize="@dimen/text_11"
                     android:textColor="?attr/colorControlTextHint"
-                    android:text="说明：Termux 必须作为独立应用安装（Android 只允许 targetSdk&lt;29 的应用执行自己私有目录里的二进制，proot/apt 靠这一点才能跑），所以无法合并进答题宝本体。\n内置包来源：Termux 0.118.3（F-Droid 官方签名，GPLv3，源码 github.com/termux/termux-app）+ Ubuntu 官方 ubuntu-base 24.04.5。\n装好后：Termux 里输入 ~/ubuntu 进真 Ubuntu；App 里的 AI 也能通过 termux_exec 调用它。"/>
+                    android:text="说明：Termux 必须作为独立应用安装（Android 只允许 targetSdk&lt;29 的应用执行自己私有目录里的二进制，proot/apt 靠这一点才能跑），所以无法合并进答题宝本体。\n内置包来源：Termux 0.118.3（F-Droid 官方签名，GPLv3，源码 github.com/termux/termux-app）+ Ubuntu 官方 ubuntu-base 24.04.5。\n装好后：Termux 里输入 ~/ubuntu 进真 Ubuntu；App 里的 AI 也能通过 termux_exec 调用它。\n准备脚本可重复运行（已装过的会跳过，不会报 already exists）；全程日志写在 Termux 的 ~/.quiz_env_setup.log，出问题先看它。\n若手机上弹出「允许访问文件」请点允许，否则读不到本地 28.5MB 包，会改成联网下载 30MB（也能装成）。"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
     </LinearLayout>

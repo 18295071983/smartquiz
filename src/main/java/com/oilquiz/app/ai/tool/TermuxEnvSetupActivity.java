@@ -85,6 +85,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     private void refresh() {
         String ver = TermuxEnvInstaller.termuxVersion(this);
         boolean perm = TermuxEnvInstaller.hasRunCommandPermission(this);
+        boolean store = TermuxEnvInstaller.termuxHasStoragePermission(this);
         File rootfs = TermuxEnvInstaller.exportedRootfs(this);
         long apkAsset = TermuxEnvInstaller.assetSize(this, TermuxEnvInstaller.ASSET_TERMUX_APK);
         long rootAsset = TermuxEnvInstaller.assetSize(this, TermuxEnvInstaller.ASSET_ROOTFS);
@@ -92,6 +93,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         StringBuilder sb = new StringBuilder();
         sb.append("Termux：").append(ver == null ? "未安装 ✗" : ("已安装 ✓ v" + ver)).append("\n");
         sb.append("RUN_COMMAND 权限：").append(perm ? "已授予 ✓" : "未授予（需手点一次）").append("\n");
+        sb.append("Termux 存储权限：").append(store
+                ? "已授予 ✓（用本地 28.5MB 包，不联网）"
+                : "未授予 ⚠️（读不到本地包 → 会联网下 30MB；一键准备时会弹授权框，请点『允许』）").append("\n");
         sb.append("Ubuntu 根文件系统：").append(rootfs == null ? "未导出 ✗" : ("已导出 ✓ " + mb(rootfs.length()))).append("\n");
         sb.append("内置包：Termux ").append(apkAsset > 0 ? mb(apkAsset) : "（未内置，需自行下载）")
                 .append(" / Ubuntu ").append(rootAsset > 0 ? mb(rootAsset) : "（未内置）");
@@ -156,12 +160,16 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     private void doRunSetup() {
         String script = TermuxEnvInstaller.buildSetupScript(rootfsPath());
         String err = TermuxEnvInstaller.runInTermux(this, script, false);
+        boolean store = TermuxEnvInstaller.termuxHasStoragePermission(this);
+        String hint = store ? "" : "\n提示：Termux 还没有存储权限，本次会联网下 30MB；屏幕上弹「允许访问文件」时点『允许』，下次就能用本地包了。";
         if (err == null) {
-            log("已把准备脚本下发给 Termux（会打开一个可见会话显示进度）。\n"
+            log("已把准备脚本下发给 Termux（会打开一个可见会话显示进度）。" + hint + "\n"
+                    + "脚本是幂等的：已装过的部分会跳过，重复点不会报 already exists。\n"
+                    + "全程日志写在 Termux 的 ~/.quiz_env_setup.log，出问题就看它（或在 Termux 里执行 cat ~/.quiz_env_setup.log）。\n"
                     + "如果 Termux 窗口里报错：多半是 allow-external-apps 没开 —— 用「复制手动命令」粘一次即可（脚本会自己把它打开）。");
             toast("已在 Termux 里开始准备");
         } else {
-            log("一键下发失败：" + err + "\n改用「复制手动命令」：粘到 Termux 里执行同样能装好。");
+            log("一键下发失败：" + err + hint + "\n改用「复制手动命令」：粘到 Termux 里执行同样能装好。");
             toast("请用「复制手动命令」");
         }
     }

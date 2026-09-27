@@ -1,5 +1,42 @@
 # 变更日志
 
+## [2026-09-27] 修复「完整 Python 环境」一键准备在"已装过的机器"上必然失败（幂等 + 全程日志 + 真实取证）
+
+用户报「Termux 有个问题」。Termux 自身没有 crash_logs、logcat 无 FATAL，终端文字既不在 logcat 也不在无障碍树，
+于是**截图 + 电脑端 Windows OCR** 取证（本模型不能看图，OCR 是唯一读屏通道），拿到真实报错：
+
+```
+⚠️  未授予存储权限：读不到本地包 /sdcard/Download/OilQuiz/termux_env/ubuntu-base-24.04.5-base-arm64.tar.gz
+Error: container 'ubuntu' already exists. Specify a different name with --name NAME
+[Process completed (code 1)]
+```
+
+1. **根因（实测钉死）**：`proot-distro 5.9.0` 的 `list` 把人类可读列表打到 **stderr**（实测 stdout 0 字节 / stderr 76 字节）。
+   旧守卫 `proot-distro list 2>/dev/null | grep -q ubuntu` 丢掉 stderr → 永远判成"没装" → 再 `install` →
+   `container already exists` → `set -e` 当场退出 1。同机实测 `proot-distro list -q` 输出 7 字节在 stdout，
+   这才是 5.9 唯一机器可读的形态；另实测 5.9 的容器真实路径是 `$PREFIX/var/lib/proot-distro/containers/<name>`
+   （旧代码猜的 `installed-rootfs/` 在新版已不存在）。
+2. **三处修正**：
+   · **幂等判定三重**：容器目录 + `list -q` + `list 2>&1`，命中即跳过下载与安装（不再撞 already exists）；
+   · **去掉 `set -e`**：逐步骤记 `❌`，结尾统一 `exit $FAIL`；容器内 Python 先探测、已完整就跳过 apt（省 2~4 分钟）；
+   · 容器内安装用 `-n ubuntu` 显式命名，`~/ubuntu` 入口改用 heredoc 写入（避免嵌套引号）。
+3. **可排障**：整段输出 `tee` 到 Termux 的 `~/.quiz_env_setup.log`，并写 `~/.quiz_env_setup.status`（末行 `fail=0/1`）。
+   以后"看看 Termux 日志"就有确定文件可看。
+4. **存储权限如实说明**：实测 Termux 未授权时 `/sdcard` 读拒绝、`~/storage` 不存在，本地 29MB 包用不上；
+   界面状态区新增「Termux 存储权限」一行，脚本明确提示"执行 `termux-setup-storage` 并点允许，再点一次一键准备"，
+   本次则联网下 30MB（清华镜像）。
+5. **真机验证（机械抽取源码里的模板去真跑，不是字符串断言）**：
+   ```
+   ---- 3/5 Ubuntu 容器 ----
+   ✅ 容器 ubuntu 已存在，跳过下载与安装（重复运行不会破坏已有环境）
+   ---- 4/5 容器内完整 Python ----
+   ✅ 容器内 Python 已完整，跳过 apt（省 2~4 分钟）
+   ===== 全部完成 ✅ =====
+   EXITCODE=0   （.quiz_env_setup.status: 2026-09-27 12:00:15 fail=0）
+   ```
+   同一场景旧脚本退出 1、新脚本退出 0。`TermuxEnvSetupDeviceTest` 增 9 条回归断言（含"不得只看 stdout""不得用 set -e"）
+   + 1 个真实下发用例。
+6. 附带澄清：`locks/ubuntu.lock` 残留**无害**（实测并发第二个 `proot-distro login` 正常成功、退出 0）。
 ## [2026-09-27] 新增「完整 Python 环境（Termux + Ubuntu）」一键准备（内置官方安装包）
 1. 用户要求把完整 Python 环境**内置**。已实现：App 内置两个**官方产物**（`assets/termux_env/`），
    并提供「工具集 → 设置与数据 → 完整 Python 环境」界面三步走：
