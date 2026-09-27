@@ -158,6 +158,49 @@ public class VncClientDeviceTest {
     }
 
     /**
+     * 回归：主动 stop()（含 start() 内部的复位）**不能**回调 onDisconnected。
+     *
+     * <p>真机踩到过：VncActivity 的重试靠 start() → stop() 复位，如果这里误报"服务端关闭了连接"，
+     * 页面就会把自发的重连当成失败，重试次数被白白吃掉（现象：点启动后"尝试 3 次"就放弃）。
+     */
+    @Test
+    public void intentionalStopDoesNotReportDisconnect() throws Exception {
+        Context c = ctx();
+        if (!portOpen("127.0.0.1", TermuxEnvInstaller.VNC_PORT, 2000)) {
+            System.out.println("[VNC] 5900 没在监听，跳过（先跑一次 rfbHandshakeAndFirstFrame）");
+            return;
+        }
+        final CountDownLatch connected = new CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicInteger disconnects =
+                new java.util.concurrent.atomic.AtomicInteger();
+        VncClient client = new VncClient(new VncClient.Listener() {
+            @Override
+            public void onConnected(int w, int h, String name) {
+                connected.countDown();
+            }
+
+            @Override
+            public void onFrameReady() {
+            }
+
+            @Override
+            public void onClipboard(String text) {
+            }
+
+            @Override
+            public void onDisconnected(String reason) {
+                disconnects.incrementAndGet();
+            }
+        });
+        client.start("127.0.0.1", TermuxEnvInstaller.VNC_PORT, 5000);
+        assertTrue("应能连上", connected.await(20, TimeUnit.SECONDS));
+        client.stop();
+        Thread.sleep(2500);
+        System.out.println("[VNC] 主动 stop 后 onDisconnected 次数=" + disconnects.get());
+        assertEquals("主动关闭不该上报断开（否则页面会把重试误判成失败）", 0, disconnects.get());
+    }
+
+    /**
      * 把图形界面页真的拉到前台并保持 15 秒，供外部 adb 截图取证。
      *
      * <p>Instrumentation 以自家 UID 启动自家 Activity，不受 exported=false 限制

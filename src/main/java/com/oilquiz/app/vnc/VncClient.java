@@ -70,6 +70,17 @@ public class VncClient {
     private volatile boolean running;
 
     /**
+     * 主动关闭标记 + 连接代次。
+     *
+     * <p>为什么需要：{@link #start} 内部会先 {@link #stop()}（重置上一次），如果这时还回调
+     * {@code onDisconnected}，页面会把"自己发起的重连"误判成"服务端断开"，于是重试次数被白白吃掉
+     * （真机现象：点「启动图形界面」后"尝试 3 次"就报"服务端关闭了连接"）。
+     * 代次用于避免上一轮的 reader 线程在新一轮 start 之后才收尾、误报断开。
+     */
+    private volatile boolean closing;
+    private volatile int generation;
+
+    /**
      * 输入事件（指针/按键/剪贴板）的发送队列 + 独立写线程。
      * 必须在非主线程写 socket：UI 线程直接 write/flush 会触发
      * {@code NetworkOnMainThreadException} 把 App 打死（真机实测踩到过）。
@@ -115,6 +126,8 @@ public class VncClient {
     /** 起 reader 线程：连接 → 握手 → 收帧循环。重复调用会先断开旧连接。 */
     public void start(final String host, final int port, final int connectTimeoutMs) {
         stop();
+        closing = false;
+        final int myGen = ++generation;
         running = true;
         outQueue.clear();
         startWriter();
@@ -132,7 +145,7 @@ public class VncClient {
             running = false;
             closeQuietly();
             Listener l = listener;
-            if (l != null) {
+            if (l != null && !closing && myGen == generation) {
                 l.onDisconnected(reason == null ? "服务端关闭了连接" : reason);
             }
         }, "vnc-reader");
@@ -141,6 +154,7 @@ public class VncClient {
     }
 
     public void stop() {
+        closing = true;
         running = false;
         Thread w = writer;
         if (w != null) {
