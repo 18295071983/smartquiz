@@ -1,5 +1,24 @@
 # 变更日志
 
+## [2026-09-27] 补齐远程桌面缺的组件 + 通知区域（systray）回归面板
+
+用户问「看看还有哪些组件漏了」，随后「装上」。
+
+1. **审计结果**：面板配置里用到的插件 `.so` **一个不缺** ✓；缺的是软件层组件 ——
+   `xfce4-notifyd`（通知守护）、`xfce4-taskmanager`、`xfce4-screenshooter`、`ristretto`（看图）、
+   `xarchiver` + `thunar-archive-plugin`（解压/压缩）、`catfish`（搜索）、`parole`（播放器）、
+   `xfce4-clipman`（剪贴板）、`xfce4-power-manager`（容器里意义不大）。
+   当时在跑的守护只有 `xfwm4 / xfce4-panel / xfdesktop / xfsettingsd / xfconfd`。
+2. **已装**（6 个，全部带中文词典 ✓，菜单项 40 → 45）：
+   `xfce4-notifyd xfce4-taskmanager xfce4-screenshooter ristretto xarchiver thunar-archive-plugin`。
+3. **通知区域（systray）加回面板** ✓：当初它崩溃正是**因为没有通知守护**；装上 `xfce4-notifyd` 后
+   把 `plugin-6`（systray）加回 `panel-1` 的 `plugin-ids`，实测**通知区域 applet 正常加载、面板稳定不崩** ✓。
+4. **做成持久**：`ensure_shell` 增加"缺就补 `xfce4-notifyd`"，并**排在面板之前**
+   （否则面板启动时通知区域仍会因为找不到守护而崩）；一键准备的 apt 列表也补上这 6 个包。
+5. **真机验证**：把四样全杀掉（`xfwm4=0 xfce4-notifyd=0 xfce4-panel=0 xfdesktop=0`）→
+   `~/ubuntu-gui restart` → **`xfwm4=1 xfce4-notifyd=1 xfce4-panel=1 xfdesktop=1`，通知区域=2** ✓；
+   启动器菜单可开、中文项正常 ✓。
+
 ## [2026-09-27] 远程桌面「启动器点不到」真因：**没有窗口管理器**（已修，并做成每次启动自动补齐）
 
 用户让检查「远程 ubuntu GUI 启动器的功能是否正常」。结论：**不正常**，但根因不在启动器，而在**桌面外壳没被拉起来**。
