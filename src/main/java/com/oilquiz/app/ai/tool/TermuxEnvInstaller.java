@@ -862,7 +862,9 @@ public final class TermuxEnvInstaller {
             }
 
             gui_pkgs_ok() {
-              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1 ' 2>/dev/null
+              # 检查项要跟着"实际用到的组件"走：新加的 notifyd/任务管理器/截图/看图/压缩没装时，
+              # 这里必须返回非 0，否则老环境重跑「一键准备」会跳过 step 5、永远补不上这些组件。
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1 && command -v xfce4-notifyd >/dev/null 2>&1 && command -v xfce4-taskmanager >/dev/null 2>&1 && command -v xfce4-screenshooter >/dev/null 2>&1 && command -v ristretto >/dev/null 2>&1 && command -v xarchiver >/dev/null 2>&1' 2>/dev/null
             }
 
             quiz_main() {
@@ -968,31 +970,9 @@ public final class TermuxEnvInstaller {
             QUIZ_UBUNTU_EOF
               chmod +x "$HOME_DIR/ubuntu"
               echo "__GUI_FILE_B64__" | base64 -d > "$HOME_DIR/ubuntu-gui"
-            case "$1" in
-              stop)
-                proot-distro login ubuntu -- /bin/bash -lc 'pkill -x Xvnc; pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1
-                echo "图形界面已停止"
-                ;;
-              status)
-                if PORTUP; then echo "图形界面运行中: 127.0.0.1:$PORT"; else echo "图形界面未运行"; fi
-                ;;
-              *)
-                if PORTUP; then echo "图形界面已在运行: 127.0.0.1:$PORT"; exit 0; fi
-                : > "$LOG"
-                echo "正在启动图形界面（TigerVNC Xvnc 1280x720 :$PORT）..."
-                setsid nohup proot-distro login ubuntu -- /bin/bash -lc "$INNER" >> "$LOG" 2>&1 &
-                i=0
-                while [ $i -lt 20 ]; do
-                  sleep 1
-                  i=$((i+1))
-                  if PORTUP; then echo "✅ 图形界面已就绪: 127.0.0.1:$PORT"; exit 0; fi
-                done
-                echo "❌ 20 秒内端口未打开；日志 $LOG："
-                tail -20 "$LOG"
-                exit 1
-                ;;
-            esac
-            QUIZ_GUI_EOF
+            # 说明：~/ubuntu-gui 的完整内容由上面的 __GUI_FILE_B64__ 写出（含 ensure_zh / kill_stale /
+            # ensure_shell 等全部逻辑）。这里以前还残留过一段旧的 case 分支，会被当成正常脚本执行、
+            # 用到未定义的 PORTUP/$INNER/$LOG —— 已删除，别再放回来。
               chmod +x "$HOME_DIR/ubuntu-gui"
               if "$HOME_DIR/ubuntu" python3 -c 'import tkinter, curses, readline, sqlite3, ssl, lzma, multiprocessing; print("✅ 完整体 Python 验证通过 | Python", __import__("sys").version.split()[0], "| tkinter Tk", tkinter.TkVersion)'; then
                 echo ""

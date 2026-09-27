@@ -1,5 +1,24 @@
 # 变更日志
 
+## [2026-09-27] 「一键准备」查漏补缺：删掉 step 6 里残留的旧脚本块 + 把新组件纳入前置检查
+
+用户问「一键配置这个功能都配置好了吗」。逐段核对后发现两处真问题，已修：
+
+1. **step 6 里混进了一段旧脚本**（一个没有 heredoc 开头的 `case "$1" in … esac`，外加一行孤立的 `QUIZ_GUI_EOF`）——
+   它会被当成正常脚本执行，里面用的 `PORTUP` / `$INNER` / `$LOG` 在该上下文里都没定义；
+   `$INNER` 为空时还会拿空命令去起会话。已删除并在原位留了说明。
+2. **`gui_pkgs_ok()` 只检查旧的 5 项**（Xvnc / startxfce4 / 中文字体 / websockify / noVNC 网页）——
+   老环境重跑「一键准备」会**跳过 step 5**，永远补不上新增的
+   `xfce4-notifyd / xfce4-taskmanager / xfce4-screenshooter / ristretto / xarchiver`。已补进检查项。
+3. 现在「一键准备」完整覆盖：（0）allow-external-apps（1）存储权限（2）proot-distro（3）Ubuntu 容器
+   （3.5）容器中文化 + 北京时间 + 面板开始菜单（4）容器内完整 Python（5）TigerVNC / XFCE / 中文字体 /
+   noVNC+websockify / 六个新组件（6）写 `~/ubuntu`、`~/ubuntu-gui` 并做最终验证。
+   另有 `.quiz_shell.sh`、`.quiz_kill_stale.py` 两个助手由图形界面启动流程写出
+   （`ensure_shell_b64` / `kill_stale`），一键准备不必重复写。
+4. **门禁**：把 SCRIPT_TEMPLATE 从 Java 源码抽出来跑 `bash -n` → **退出码 0** ✓
+   （这种"残留块"就是靠它才发现得了）；并抽查 13 个关键点全部命中 ✓
+   （中文相关字面量如 locale-gen / Asia/Shanghai / whiskermenu 在 ZH_FIX_SH 里，经 `__ZH_FIX_B64__` 注入 ✓）。
+
 ## [2026-09-27] 桌面外壳改用「共用常驻 D-Bus 总线」启动（顺带更正一次误判）
 
 用户问「基本功能够用了吧」。核对时我一度以为面板没画出来（`xwininfo ... | grep xfce4-panel` 只看到 10x10），
