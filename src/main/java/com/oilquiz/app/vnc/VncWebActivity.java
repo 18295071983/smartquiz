@@ -60,6 +60,8 @@ public class VncWebActivity extends AppCompatActivity {
     private View customView;
     private WebChromeClient.CustomViewCallback customCallback;
     private boolean webLoaded = false;
+    /** 是否已经检查过 noVNC 的「只读模式」记忆（只查一次，避免反复重载） */
+    private boolean viewOnlyChecked;
     private boolean destroyed = false;
     private boolean immersive = true;
     /** 迷你模式：浮层收成一个小圆点贴着边，画面完全不被挡 */
@@ -113,7 +115,13 @@ public class VncWebActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 web.requestFocus();          // 页面加载完再要一次焦点（键盘）
+                if (!viewOnlyChecked) {
+                    viewOnlyChecked = true;
+                    fixStaleViewOnly();
+                    return;
+                }
                 webLoaded = true;
+                installProbe();
                 status("noVNC 页面已加载，正在连接远端桌面…");
             }
 
@@ -309,14 +317,73 @@ public class VncWebActivity extends AppCompatActivity {
         handler.postDelayed(this::tickStatus, 5000);
     }
 
+    /**
+     * 修掉 noVNC 存下来的「只读模式」—— 真机实测的「输入指针没有捕获」根因。
+     *
+     * <p>noVNC 把界面设置存进 localStorage，而它的 {@code readSetting()} / query 参数那条路
+     * **都不做布尔转换**：
+     * <pre>
+     * initSetting(name, defVal) {
+     *     let val = WebUtil.getConfigVar(name);                        // query 参数，原始字符串
+     *     if (val === null) val = WebUtil.readSetting(name, defVal);   // localStorage，也是原始字符串
+     * }
+     * </pre>
+     * 所以只要「只读模式」被打开过一次，localStorage 里就留下 {@code view_only="true"}，
+     * 之后每次都赋给 {@code UI.rfb.viewOnly} → **noVNC 静默丢弃全部指针与键盘输入**
+     * （实测本机 {@code http://127.0.0.1:6080} 下就是这个值；传 {@code view_only=false} 也没用，
+     *  因为字符串 "false" 在 JS 里同样是真值）。
+     *
+     * <p>处理：进页面检查一次，有这条记忆就删掉并重载，让默认的布尔 {@code false} 生效。
+     */
+    private void fixStaleViewOnly() {
+        web.evaluateJavascript(
+                "(function(){try{var v=window.localStorage.getItem('view_only');"
+                        + "if(v===null||v==='false'){return 'ok';}"
+                        + "window.localStorage.removeItem('view_only');return 'fixed:'+v;}"
+                        + "catch(e){return 'err';}})()",
+                value -> {
+                    if (destroyed) {
+                        return;
+                    }
+                    if (value != null && value.contains("fixed")) {
+                        status("检测到 noVNC 被存成了「只读模式」，已清除并重新加载…");
+                        web.reload();
+                    } else {
+                        webLoaded = true;
+                        installProbe();
+                        status("noVNC 页面已加载，正在连接远端桌面…");
+                    }
+                });
+    }
+
+    /**
+     * 往页面注入一个轻量探针，只为把 noVNC 的真实连接状态显示到状态条上。
+     *
+     * <p>坑：noVNC 1.3 的 {@code app/ui.js} 是 **ES 模块**（{@code const UI = …; export default UI}），
+     * **没有 window.UI** —— 直接写 {@code UI.rfb} 会 ReferenceError（状态条会显示 "err"）。
+     * 用**动态 import 取同一个模块实例**：ES 模块按解析后的 URL 单例，
+     * 页面里那份 {@code /app/ui.js} 与这里 import 的是同一个对象。
+     */
+    private void installProbe() {
+        web.evaluateJavascript(
+                "(function(){if(window.__oqUI||window.__oqInit){return 'ok';}window.__oqInit=1;"
+                        + "import('http://127.0.0.1:" + WEB_PORT + "/app/ui.js')"
+                        + ".then(function(m){window.__oqUI=m.default;}).catch(function(e){});"
+                        + "return 'installing';})()",
+                null);
+    }
+
     /** 读 noVNC 自己的连接状态（纯 JS，不开 socket） */
     private void queryNoVncState() {
         if (web == null) {
             return;
         }
         web.evaluateJavascript(
-                "(function(){try{return (window.UI && UI.rfb) ? UI.rfb._rfbConnectionState : 'no-rfb';}"
-                        + "catch(e){return 'err';}})()",
+                "(function(){try{"
+                        + "if(!window.__oqUI){return 'no-rfb';}"
+                        + "var ui=window.__oqUI;"
+                        + "return (ui&&ui.rfb)?ui.rfb._rfbConnectionState:'no-rfb';"
+                        + "}catch(e){return 'err';}})()",
                 value -> {
                     if (destroyed) {
                         return;
@@ -333,6 +400,8 @@ public class VncWebActivity extends AppCompatActivity {
                             status("连接已断开，正在自动重连…（noVNC reconnect=1）");
                             break;
                         case "no-rfb":
+                            // UI 模块可能还没 import 完，补一次（幂等）
+                            installProbe();
                             status("页面已就绪，等待 noVNC 建立会话…");
                             break;
                         default:

@@ -1,5 +1,32 @@
 # 变更日志
 
+## [2026-09-27] 「输入指针没有捕获」真因：noVNC 把自己的「只读模式」记在了 localStorage
+
+用户报「输入指针没有捕获啊，审查下代码」，并怀疑是浮层吞了操作。逐段查完后，真因是 **noVNC 自己的设置持久化**：
+
+1. **真因（有实据）**：翻 WebView 的 localStorage（`app_webview/Default/Local Storage/leveldb`）看到
+   `http://127.0.0.1:6080` 下面存着 **`view_only = "true"`**。而 noVNC 读设置的过程**不做布尔转换**：
+   ```js
+   initSetting(name, defVal) {
+       let val = WebUtil.getConfigVar(name);                        // query 参数，原始字符串
+       if (val === null) val = WebUtil.readSetting(name, defVal);   // localStorage，也是原始字符串
+   }
+   ```
+   于是字符串 `"true"` 被直接赋给 `UI.rfb.viewOnly` → **noVNC 静默丢弃全部指针与键盘输入**。
+   （传 `view_only=false` 也没用：JS 里字符串 `"false"` 同样是真值。）
+2. **修法（最小改动）**：`onPageFinished` 里检查一次，发现这条记忆就 `localStorage.removeItem('view_only')`
+   并重载，让默认的布尔 `false` 生效；每次进页面都会自愈。
+   实测：leveldb 里该键**最后一条记录已变成删除**（此前紧跟 `true`），状态条也从 `err` 变成
+   `noVNC 已连接 127.0.0.1:5900`。
+3. 顺带修：状态条那个读 noVNC 状态的小探针原来写的是 `window.UI`，但 noVNC 1.3 的 `app/ui.js` 是
+   **ES 模块**（`const UI = …; export default UI`），**没有 window.UI** → 一直返回 `err`。
+   改用**动态 import 取同一个模块实例**（ES 模块按 URL 单例）。
+4. **不是浮层吞的**（回答用户最初怀疑）：浮层只有 `wrap_content` 状态条与 44dp 的 ≡，触摸监听也只在它们自己身上；
+   `dumpsys`/MIUIInput 都能看到触摸到达 Activity 窗口。之前那次「本页 5 / 画面 0」的测量很可能是戳在状态条区域造成的，
+   不足以下结论 —— 所以按用户要求把那些诊断代码全部回滚，只留这个有实据的最小修复。
+5. 回滚说明：`git checkout -- .` 清掉了诊断代码；顺手 `git clean -fd` 删掉的都是未跟踪的生成物/空目录
+   （`src/jniLibs`、`src/main/assets/weather`、`src/main/cpp/-p` 等），`assembleDebug` 验证 **BUILD SUCCESSFUL**，不影响构建。
+
 ## [2026-09-27] 审查「输入指针没有捕获」：三个真 bug（其中一个把 6080 彻底搞死）
 
 用户报「输入指针没有捕获啊，审查下代码」。按链路逐段查，结论是**服务端没问题，App 侧有三个 bug**。
