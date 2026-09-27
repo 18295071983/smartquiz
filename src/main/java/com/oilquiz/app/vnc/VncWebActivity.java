@@ -163,7 +163,10 @@ public class VncWebActivity extends AppCompatActivity {
             scheduleAutoHide();
         });
         findViewById(R.id.btn_vnc_web_hide).setOnClickListener(v -> showBar(false));
-        toggle.setOnClickListener(v -> showBar(true));
+        // 浮层可以拖：状态条拖"状态文字/空白"处，≡ 整个都能拖；位置会记住
+        // （用户要求：「动态按钮不能拖动啊，为何是固定位置」）。没拖动的那一下仍当点击用。
+        FloatingDrag.attach(bar, findViewById(R.id.vnc_web_root), "bar", null);
+        FloatingDrag.attach(toggle, findViewById(R.id.vnc_web_root), "toggle", () -> showBar(true));
         resetTimerOnTouch(bar);
 
         applyInsetsPadding(findViewById(R.id.vnc_web_root));
@@ -355,6 +358,14 @@ public class VncWebActivity extends AppCompatActivity {
                 web.loadUrl(buildUrl());
             }
         }, 700);
+        // 浮层位置在新方向上可能越界，拉回屏幕内（用户的拖动偏好保留）
+        handler.postDelayed(() -> {
+            if (!destroyed) {
+                View root = findViewById(R.id.vnc_web_root);
+                FloatingDrag.reclamp(bar, root, "bar");
+                FloatingDrag.reclamp(toggle, root, "toggle");
+            }
+        }, 400);
         applyImmersive();
     }
 

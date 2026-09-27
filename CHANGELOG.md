@@ -1,5 +1,20 @@
 # 变更日志
 
+## [2026-09-27] VNC 浮层可以拖了：状态条与悬浮 ≡ 跟着手指走，位置记得住
+
+用户问「动态按钮不能拖动啊，为何是固定位置」—— 之前这两个浮层是用 `layout_gravity` 钉在左上角的，
+根本没接拖动。
+
+1. 新增 `FloatingDrag`（可复用）：拖动**超过 touchSlop 才算拖**（否则仍按点击处理，按钮不会点不动）、
+   位置写进 `SharedPreferences`（`vnc_prefs` 的 `<key>_x/_y`，下次进来还在老地方）、
+   拖动中与转屏后都会 **clamp 回屏幕内**（不会甩到看不见的地方）。
+2. 接上去的位置：noVNC 外壳页的**状态条**（拖状态文字/空白处，里面的按钮照常点）和**悬浮 ≡**（整个都能拖）；
+   原生模式页的**顶部状态胶囊**同样可拖；两个页面转屏后都重新 clamp。
+3. 真机用例 `FloatingDragDeviceTest`：直接合成 MotionEvent 派发给 View（这台 MIUI 明确拒绝 shell 注入触摸 ——
+   `SecurityException: Injecting input events requires the INJECT_EVENTS permission`，所以 adb 没法模拟拖动），
+   断言四件事：**跟手 300/200px**、**位置写进 SharedPreferences**、**越界 clamp 到 800/1900**、
+   **原地一下仍算点击**。真机结果 `OK (1 test)`。
+
 ## [2026-09-27] 图形界面（VNC）横竖屏适配：resize=remote + 旋转后重协商 + 手动「横屏」按钮
 
 用户要求「进行横竖屏适配」。之前 noVNC 用的是 `resize=scale` —— 只是把固定的 1280x720 桌面**硬缩进**屏幕，
