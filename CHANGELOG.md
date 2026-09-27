@@ -1,45 +1,5 @@
 # 变更日志
 
-## [2026-09-27] 远程桌面「启动器」不正常：XFCE 的窗口管理器压根没起来（xfconf/D-Bus 自动激活在 proot 下失效）
-
-用户让检查「远程 ubuntu GUI 启动器的功能是否正常」。实测结论：**不正常**，而且原因不在启动器本身。
-
-1. **现象与证据**（容器内 `xdotool` 实测，不依赖手机）：
-   ```
-   xfce4-session=2   xfce4-panel=1   xfwm4=0   xfdesktop=0
-   ```
-   **窗口管理器 xfwm4 不在跑** → 没有窗口装饰/管理，面板也拿不到 strut（WM 才负责给面板预留位置）→
-   面板被窗口盖住、**启动器菜单点不到**。xfdesktop（桌面图标）同样没起。
-2. **xfwm4 为什么起不来**（手动起的报错）：
-   ```
-   xfwm4-CRITICAL **: Xfconf could not be initialized
-   xfwm4-WARNING **: Missing data from default files
-   Failed to init libxfconf: The connection is closed.
-   ```
-   即 **xfconf 连不上**。进一步查：会话总线是活的，但 `dbus-send … org.xfce.Xfconf` **不可访问** ——
-   XFCE 的 **D-Bus 自动激活在 proot 下不工作**，所以 `xfconfd` 从没挂到会话总线上；
-   面板不依赖它也能跑，而 **xfwm4 必须要有 xfconf，初始化失败就直接退出**。
-3. **修法**：在**同一个 `dbus-run-session` 里先把 `xfconfd` 拉起来**再启动会话：
-   ```
-   exec dbus-run-session -- sh -c 'xfconfd >/dev/null 2>&1 & sleep 1; exec $SESSION'
-   ```
-   另外把 xfwm4 的**合成关掉**（VNC 无 GL，`Unsupported GL renderer (llvmpipe)`，合成本来也不该开）：
-   直接写 `~/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml` 的 `use_compositing=false`
-   （写文件不依赖总线，比 xfconf-query 可靠）。
-4. 同时清掉了 `~/.cache/sessions/xfce4-session-localhost:1`（保存的会话状态丢了 xfwm4/xfdesktop，
-   清了才会按默认会话起全）。
-5. **验证结果：仍未恢复**（如实记录）。清掉坏会话文件后重启，组件依然是
-   `xfce4-session=2  xfwm4=0  xfce4-panel=0  xfdesktop=0  xfconfd=2` —— 会话管理器起来了但**一个客户端都不拉**。
-   `xfconfd` 前置这一处是有效的（现在确实有 `xfconfd` 在跑），但**不足以让会话把外壳拉起来**，
-   所以**「启动器用不了」这个问题目前仍是未修复状态**，只是根因链已经查清：
-   ① 用户级会话文件里只有 `Failsafe` 且 `Client0..4_Command` 全为 `empty` → 什么都不启动；
-   ② `xfwm4` 依赖 xfconf，拿不到就退出；③ D-Bus 自动激活在 proot 下不稳。
-6. **待用户决定的两个方案**（不再自行乱试）：
-   · **A（推荐）**：绕开 `xfce4-session`，直接起外壳 —— `xfwm4 --compositor=off &` + `xfce4-panel &` + `xfdesktop &`，
-     由我们已有的启动脚本维护，依赖最少、改动可控；
-   · **B**：换成不依赖会话管理器的轻量桌面（LXQt / openbox+lxpanel），中文包齐全。
-
-
 ## [2026-09-27] 「输入指针没有捕获」真因：noVNC 把自己的「只读模式」记在了 localStorage
 
 用户报「输入指针没有捕获啊，审查下代码」，并怀疑是浮层吞了操作。逐段查完后，真因是 **noVNC 自己的设置持久化**：
