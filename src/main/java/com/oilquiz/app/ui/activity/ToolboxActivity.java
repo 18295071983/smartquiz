@@ -202,12 +202,14 @@ public class ToolboxActivity extends AppCompatActivity {
             "主题设置",
             "语言设置",
             "数据备份",
-            "命令路由（Linux 工具箱）"
+            "命令路由（Linux 工具箱）",
+            "远程连接（电脑）"
         }, new Class<?>[]{
             ThemeActivity.class,
             LanguageActivity.class,
             BackupActivity.class,
-            LinuxRouteActivity.class
+            LinuxRouteActivity.class,
+            com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class
         });
     }
 

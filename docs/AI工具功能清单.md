@@ -247,7 +247,12 @@
 - **超时语义（2026-09-27 修复）**：`timeout` 参数现在真的生效（秒，5~600，默认 120）——
   `RemoteDshTool.executionTimeoutMs()` 按 `timeout+45s` 向 `OnlineToolManager` 申报，
   不再被其 30s 默认值掐断（此前实测 `timeout=150` 仍在 30s 失败且结果为空）。超时会明确告知"等了多久、任务可能仍在电脑上"。
-- **参数**：`action`（run/shell/pair/start/history/get_status/set_config）、`task`、`max`、`shell`、`base_url`、`token`、`timeout`
+- **连接界面（2026-09-27 新增）**：**工具集 → 设置与数据 → 远程连接（电脑）**（AI 对话页工具抽屉「管理」组也有入口「🖥️ 远程连接（电脑）」）——
+  连接（探测 GET /status，通了才置为已连接、才允许执行）/ 断开（本机停用：run·shell·start·history 一律被拒，配置与令牌保留，电脑端不受影响）/
+  清除配置（地址/令牌/会话/连接状态全清，二次确认）/ 扫码配对 / 手动填地址+令牌 → 保存并连接。
+  状态点：绿=已连接、黄=已断开、红=未配置；显示令牌打码与位数、当前会话、最近探测时间与耗时。
+  AI 也可代劳：`action=connect`（连接）、`action=disconnect`（断开）。
+- **参数**：`action`（run/shell/connect/disconnect/pair/start/history/get_status/set_config）、`task`、`max`、`shell`、`base_url`、`token`、`timeout`
 
 ### python_analyze_data — Python 数据分析
 - **分类**：python

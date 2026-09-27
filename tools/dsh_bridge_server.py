@@ -81,6 +81,8 @@ PUBLIC_URL = ""
 PERMISSION_POLICY = "allow"
 # 同时在跑的任务上限（headless /run 与直连 /exec 共用），防止手机端猛点把电脑压满
 MAX_CONCURRENT_JOBS = 4
+# 每个会话一条常驻 SSE 流，这里给个上限（超出关最旧的，下次用到会自动重开）
+MAX_SESSION_STREAMS = 6
 
 
 def log(msg):
@@ -196,9 +198,20 @@ class AcpClient:
         cur = self.session_streams.get(sid)
         if cur and cur.get("thread") and cur["thread"].is_alive():
             return True
+        # 上限：会话流按会话常驻，长期使用会累积（实测一天测试下来 5 条）。
+        # 超过上限就关掉最久没碰过的那条；该会话下次 prompt 前会自动重开（open_session_stream 幂等），
+        # 期间消息由服务端会话信箱排队，不会丢。
+        while len(self.session_streams) >= MAX_SESSION_STREAMS:
+            oldest = min(self.session_streams.items(), key=lambda kv: kv[1].get("opened", 0))
+            try:
+                oldest[1]["stop"].set()
+            except Exception:
+                pass
+            self.session_streams.pop(oldest[0], None)
+            log("会话流超上限，已关闭最旧的一条: %s" % oldest[0])
         stop = threading.Event()
         th = threading.Thread(target=self._sse_loop, args=("SESS", sid), daemon=True)
-        self.session_streams[sid] = {"stop": stop, "thread": th}
+        self.session_streams[sid] = {"stop": stop, "thread": th, "opened": time.time()}
         th.start()
         log("会话流已建立: %s" % sid)
         return True

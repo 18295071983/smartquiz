@@ -1,0 +1,351 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  远程连接（电脑）：手动连接 / 断开 / 清除配置 / 扫码配对 / 手动填地址令牌。
+  入口：AI 对话页工具抽屉「管理」组、工具集 → 设置与数据、AI 服务状态页。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorBackground"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/space_16">
+
+        <!-- ===== 状态卡 ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <View
+                        android:id="@+id/status_dot"
+                        android:layout_width="@dimen/size_12"
+                        android:layout_height="@dimen/size_12"
+                        android:layout_marginEnd="@dimen/space_8"
+                        android:background="@drawable/circle_red"/>
+
+                    <TextView
+                        android:id="@+id/status_text"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="未配置"
+                        android:textSize="@dimen/text_18"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/status_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text=""
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextHint"/>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:layout_marginBottom="@dimen/space_12"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.2"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="56dp"
+                        android:text="地址"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                    <TextView
+                        android:id="@+id/value_url"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="end"
+                        android:text="(未配置)"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="56dp"
+                        android:text="令牌"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                    <TextView
+                        android:id="@+id/value_token"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="end"
+                        android:text="(未配置)"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="56dp"
+                        android:text="会话"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlTextSecondary"/>
+                    <TextView
+                        android:id="@+id/value_session"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="end"
+                        android:text="(未创建)"
+                        android:textSize="@dimen/text_14"
+                        android:textColor="?attr/colorControlText"/>
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== 连接控制卡 ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_connect"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_weight="1"
+                        android:text="连接"
+                        android:textSize="@dimen/text_14"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnPrimary"
+                        app:backgroundTint="?attr/colorPrimary"
+                        app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_disconnect"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/space_8"
+                        android:text="断开"
+                        android:textSize="@dimen/text_14"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorControlText"
+                        app:backgroundTint="?attr/colorSurfaceVariant"
+                        app:cornerRadius="@dimen/radius_22"/>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/probe_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:text="点「连接」探测电脑端桥接"
+                    android:textSize="@dimen/text_12"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="3dp"
+                    android:textColor="?attr/colorControlTextSecondary"/>
+
+                <TextView
+                    android:id="@+id/probe_time"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_4"
+                    android:text=""
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextHint"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== 配对 / 手动配置卡 ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_12"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="配对"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_4"
+                    android:text="扫电脑配对页二维码自动填写（推荐）；也可在下面手动填地址与令牌。"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorControlTextSecondary"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:orientation="horizontal">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_scan"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_weight="1"
+                        android:text="扫码配对"
+                        android:textSize="@dimen/text_14"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_clear"
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_weight="1"
+                        android:layout_marginStart="@dimen/space_8"
+                        android:text="清除配置"
+                        android:textSize="@dimen/text_14"
+                        android:textAllCaps="false"
+                        android:textColor="@color/on_error_container"
+                        app:backgroundTint="@color/error_container"
+                        app:cornerRadius="@dimen/radius_22"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_16"
+                    android:layout_marginBottom="@dimen/space_12"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.2"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="手动配置"
+                    android:textSize="@dimen/text_14"
+                    android:textColor="?attr/colorControlText"/>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:hint="电脑桥接地址"
+                    app:helperText="如 http://192.168.1.5:8218 或 https://xxx.vicp.fun"
+                    app:boxCornerRadiusTopStart="12dp"
+                    app:boxCornerRadiusTopEnd="12dp"
+                    app:boxCornerRadiusBottomStart="12dp"
+                    app:boxCornerRadiusBottomEnd="12dp">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/url_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textUri"
+                        android:maxLines="1"
+                        android:textSize="@dimen/text_14"/>
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:hint="访问令牌"
+                    app:helperText="桥接启动时打印的令牌，配对页二维码里也含它"
+                    app:boxCornerRadiusTopStart="12dp"
+                    app:boxCornerRadiusTopEnd="12dp"
+                    app:boxCornerRadiusBottomStart="12dp"
+                    app:boxCornerRadiusBottomEnd="12dp">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/token_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text"
+                        android:maxLines="1"
+                        android:textSize="@dimen/text_14"/>
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_save"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:text="保存并连接"
+                    android:textSize="@dimen/text_14"
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnPrimary"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_22"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== 电脑端提示 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="电脑端准备：双击 tools\start_dsh_bridge.bat（会一并拉起 ACP serve 并打开配对页 http://127.0.0.1:8218/pair）。\n断开只影响手机这边：AI 会被拒绝执行，电脑端桥接与会话不受影响，配置保留。"
+            android:textSize="@dimen/text_12"
+            android:lineSpacingExtra="3dp"
+            android:textColor="?attr/colorControlTextHint"/>
+    </LinearLayout>
+</ScrollView>

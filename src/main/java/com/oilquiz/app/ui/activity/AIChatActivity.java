@@ -192,6 +192,8 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnAgentManager;
     private MaterialButton btnAICenter;
     private MaterialButton btnAIService;
+    /** 远程连接（电脑）：连接/断开/清除配置入口（工具抽屉「管理」组） */
+    private MaterialButton btnRemoteDsh;
     private MaterialButton btnModelDownload;
     private MaterialButton btnAiInit;
     private View thinkingIndicator;
@@ -497,6 +499,7 @@ public class AIChatActivity extends BaseActivity {
             btnAgentManager = findViewById(R.id.btn_agent_manager);
             btnAICenter = findViewById(R.id.btn_ai_center);
             btnAIService = findViewById(R.id.btn_ai_service);
+        btnRemoteDsh = findViewById(R.id.btn_remote_dsh);
             btnModelDownload = findViewById(R.id.btn_model_download);
             btnAiInit = findViewById(R.id.btn_ai_init);
             thinkingIndicator = findViewById(R.id.thinking_indicator);
@@ -1531,6 +1534,15 @@ public class AIChatActivity extends BaseActivity {
         if (btnAIService != null) {
             btnAIService.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this, AIServiceStatusActivity.class)));
+        }
+        if (btnRemoteDsh != null) {
+            btnRemoteDsh.setOnClickListener(v -> {
+                if (drawerLayout != null) {
+                    drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
+                }
+                startActivity(new Intent(AIChatActivity.this,
+                        com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class));
+            });
         }
         if (btnModelDownload != null) {
             btnModelDownload.setOnClickListener(v ->

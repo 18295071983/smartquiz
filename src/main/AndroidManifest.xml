@@ -125,6 +125,12 @@
             android:exported="false"
             android:label="扫描电脑配对二维码"
             android:screenOrientation="portrait" />
+        <!-- 远程连接（电脑）：手动连接/断开/清除配置/扫码（工具集 → 设置与数据） -->
+        <activity
+            android:name=".ai.tool.RemoteDshConnectActivity"
+            android:exported="false"
+            android:label="远程连接（电脑）"
+            android:parentActivityName=".ui.activity.ToolboxActivity" />
         <activity
             android:name=".infra.DebugKeyInjectActivity"
             android:exported="false"

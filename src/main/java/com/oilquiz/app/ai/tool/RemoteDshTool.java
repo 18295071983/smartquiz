@@ -60,7 +60,9 @@ import java.util.Map;
                 + "③ action=pair 扫码一键配对（推荐）：扫电脑端配对页二维码，自动保存地址与令牌；"
                 + "④ action=start 新建会话（重置电脑端记忆）；⑤ action=history 读当前会话历史（max=条数，默认10）；"
                 + "⑥ action=get_status 检查桥接服务与 dsh 是否在线；"
-                + "⑦ action=set_config 配置/修改电脑地址与令牌：base_url=http://电脑IP:8218，token=桥接服务启动时打印的令牌。"
+                + "⑦ action=connect 连接电脑 / action=disconnect 断开电脑连接（断开后工具拒绝执行，配置保留）；"
+                + "⑧ action=set_config 配置/修改电脑地址与令牌：base_url=http://电脑IP:8218，token=桥接服务启动时打印的令牌。"
+                + "用户也可以自己在手机上操作：「工具集 → 设置与数据 → 远程连接（电脑）」里连接/断开/清除配置/扫码。"
                 + "长任务：timeout 真的生效（秒，5~600，默认 120），编译/下载/长命令请给足（如 300）；超时会被中断且拿不到结果。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。"
                 + "安全：只有配置了正确 token 才能调用；task 描述给电脑端执行，勿让用户代码注入。",
@@ -70,13 +72,15 @@ import java.util.Map;
                 @Action(name = "pair", description = "扫码一键配对：扫描电脑端配对页二维码自动保存地址与令牌"),
                 @Action(name = "run", description = "在电脑上执行一个 dsh 任务（自动续接会话，适合自然语言任务）"),
                 @Action(name = "shell", description = "把 task 当命令直接在电脑上执行（不经 LLM，毫秒级、输出原样）"),
+                @Action(name = "connect", description = "用已保存的地址/令牌连接电脑（探测桥接，通了才允许执行任务）"),
+                @Action(name = "disconnect", description = "断开电脑连接（配置保留；断开期间工具拒绝执行）"),
                 @Action(name = "start", description = "新建 dsh 会话（重置电脑端记忆），返回新的 session_id"),
                 @Action(name = "history", description = "读当前会话最近历史（max=条数，默认10）"),
                 @Action(name = "get_status", description = "检查桥接服务与 dsh 状态"),
                 @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
         },
         params = {
-                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / pair(扫码配对) / start / history / get_status / set_config", required = false),
+                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(断开) / pair(扫码配对) / start / history / get_status / set_config", required = false),
                 @Param(name = "task", type = "string", description = "run=任务描述（自然语言）；shell=要执行的命令原文", required = false),
                 @Param(name = "shell", type = "string", description = "shell 动作的执行器: auto(默认，优先 pwsh 回退 powershell) / cmd / bash", required = false),
                 @Param(name = "max", type = "integer", description = "history 读取条数（默认 10，范围 1~200）", required = false),
@@ -92,6 +96,8 @@ public class RemoteDshTool implements AITool {
     private static final String KEY_URL = "base_url";
     private static final String KEY_TOKEN = "token";
     private static final String KEY_SESSION = "session_id";
+    /** 连接开关：false = 用户主动断开（配置保留，但工具一律拒绝执行，直到重新连接） */
+    private static final String KEY_CONNECTED = "connected";
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
     private static final int MAX_TIMEOUT_SECONDS = 600;
     private static final int OUTPUT_LIMIT = 20000; // 输出截断，防撑爆对话
@@ -115,7 +121,8 @@ public class RemoteDshTool implements AITool {
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接。"
                 + "前提：电脑端已启动 tools/dsh_bridge_server.py(ACP 官方通道 + /exec 直连) 桥接服务，并配置好 base_url 与 token。"
                 + "动作：run(执行任务+自动续接，自然语言) / shell(把 task 当命令直接跑，不经 LLM、输出原样) / "
-                + "pair(扫码一键配对) / start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
+                + "connect(连接电脑) / disconnect(断开) / pair(扫码一键配对) / start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
+                + "界面入口：工具集 → 设置与数据 → 远程连接（电脑）。"
                 + "timeout 参数真的生效（秒，最长600），长任务请给足。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。安全：只有配置了正确 token 才能调用。";
     }
@@ -123,7 +130,7 @@ public class RemoteDshTool implements AITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作: run(默认，自然语言任务+自动续接) / shell(把 task 当命令直接跑，不经 LLM) / pair(扫码一键配对，推荐) / start(新建会话) / history(读历史) / get_status(检查状态) / set_config(配置)");
+        params.put("action", "操作: run(默认，自然语言任务+自动续接) / shell(把 task 当命令直接跑，不经 LLM) / connect(连接电脑) / disconnect(断开) / pair(扫码一键配对) / start(新建会话) / history(读历史) / get_status(检查状态) / set_config(配置)");
         params.put("task", "run=任务描述（自然语言，如\"看看D盘有哪些项目文件夹\"）；shell=要执行的命令原文（如 git status）");
         params.put("shell", "shell 动作的执行器: auto(默认) / cmd / bash");
         params.put("max", "history 读取条数（默认 10，范围 1~200）");
@@ -155,6 +162,83 @@ public class RemoteDshTool implements AITool {
         getPrefs().edit().putString(KEY_SESSION, sessionId.trim()).apply();
     }
 
+    // ---------- 连接状态（供「远程连接（电脑）」界面与本工具共用） ----------
+
+    private static SharedPreferences prefsOf(Context c) {
+        return c.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE);
+    }
+
+    /** 是否配对过（地址与令牌都在） */
+    public static boolean isConfigured(Context c) {
+        SharedPreferences p = prefsOf(c);
+        String u = p.getString(KEY_URL, "");
+        String t = p.getString(KEY_TOKEN, "");
+        return u != null && !u.trim().isEmpty() && t != null && !t.trim().isEmpty();
+    }
+
+    /**
+     * 是否处于"已连接"状态。
+     * 语义：配对/手动连接后为 true；用户点「断开」后为 false（此时工具一律拒绝执行并提示去界面重新连接）。
+     * 老配置（没有该标记）视为已连接——升级后不会突然"用不了"。
+     */
+    public static boolean isConnected(Context c) {
+        SharedPreferences p = prefsOf(c);
+        return isConfigured(c) && p.getBoolean(KEY_CONNECTED, true);
+    }
+
+    public static void setConnected(Context c, boolean connected) {
+        prefsOf(c).edit().putBoolean(KEY_CONNECTED, connected).apply();
+    }
+
+    /** 断开：标记为断开并清掉本地会话记录；地址/令牌保留（下次点连接即可用） */
+    public static void disconnect(Context c) {
+        prefsOf(c).edit().putBoolean(KEY_CONNECTED, false).remove(KEY_SESSION).apply();
+    }
+
+    /** 清除配置：地址、令牌、会话、连接标记全部清空 */
+    public static void clearConfig(Context c) {
+        prefsOf(c).edit().clear().apply();
+    }
+
+    /** 界面用：读原始配置值（token 不在这里打码，由界面决定怎么显示） */
+    public static String configValue(Context c, String key) {
+        return prefsOf(c).getString(key, "");
+    }
+
+    /** 界面用：写入地址+令牌并置为已连接（手动连接）；返回错误信息或 null */
+    public static String saveManualConfig(Context c, String baseUrl, String token) {
+        String u = baseUrl == null ? "" : baseUrl.trim();
+        String t = token == null ? "" : token.trim();
+        if (u.isEmpty() || t.isEmpty()) {
+            return "地址和令牌都要填（地址形如 http://192.168.1.5:8218 或 https://xxx.vicp.fun）";
+        }
+        String lower = u.toLowerCase();
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            return "地址必须以 http:// 或 https:// 开头";
+        }
+        while (u.endsWith("/")) {
+            u = u.substring(0, u.length() - 1);
+        }
+        prefsOf(c).edit().putString(KEY_URL, u).putString(KEY_TOKEN, t)
+                .putBoolean(KEY_CONNECTED, true).remove(KEY_SESSION).apply();
+        return null;
+    }
+
+    /** 统一前置检查：未配置 / 已断开 → 返回失败结果；正常返回 null */
+    private AIToolResult precheck() {
+        if (getBaseUrl().isEmpty()) {
+            return AIToolResult.fail("remote_dsh 未配置（还没配对过电脑）。"
+                    + "\n最简单：对 AI 说「远程配对」→ 打开相机扫电脑配对页的二维码（电脑端先双击 tools\\start_dsh_bridge.bat，"
+                    + "配对页 http://127.0.0.1:8218/pair 会自动打开，扫第一个码即可）"
+                    + "\n也可以：工具集 → 设置与数据 → 远程连接（电脑），扫码或手动填地址+令牌");
+        }
+        if (!isConnected(context)) {
+            return AIToolResult.fail("已断开电脑连接（配置还在，只是本机停用，电脑端未受影响）。"
+                    + "\n重新连接：工具集 → 设置与数据 → 远程连接（电脑）→ 点「连接」；或对我说「连接电脑」");
+        }
+        return null;
+    }
+
     @Override
     public AIToolResult execute(Map<String, Object> parameters) {
         String action = "run";
@@ -176,6 +260,10 @@ public class RemoteDshTool implements AITool {
                     return handleHistory(parameters);
                 case "shell":
                     return handleShell(parameters);
+                case "connect":
+                    return handleConnect();
+                case "disconnect":
+                    return handleDisconnect();
                 case "run":
                 default:
                     return handleRun(parameters);
@@ -199,7 +287,9 @@ public class RemoteDshTool implements AITool {
                     "当前 remote_dsh 配置：\nbase_url=" + (cur.isEmpty() ? "(未配置)" : cur)
                             + "\ntoken=" + (tok.isEmpty() ? "(未配置)" : tok.substring(0, Math.min(4, tok.length())) + "***")
                             + "\nsession_id=" + (sid.isEmpty() ? "(未创建)" : sid)
-                            + "\n\n配置方法：action=set_config 传 base_url=http://电脑IP:8218 和 token=桥接服务启动时打印的令牌");
+                            + "\n连接状态=" + (cur.isEmpty() ? "(未配置)" : (isConnected(context) ? "已连接" : "已断开"))
+                            + "\n\n可视化操作：工具集 → 设置与数据 → 远程连接（电脑）（连接/断开/清除配置/扫码）"
+                            + "\n或 action=set_config 传 base_url=http://电脑IP:8218 和 token=桥接服务启动时打印的令牌");
         }
         // 校验 base_url
         if (!baseUrl.isEmpty()) {
@@ -215,8 +305,10 @@ public class RemoteDshTool implements AITool {
         if (!baseUrl.isEmpty()) ed.putString(KEY_URL, baseUrl);
         if (!token.isEmpty()) ed.putString(KEY_TOKEN, token);
         if (!sessionId.isEmpty()) ed.putString(KEY_SESSION, sessionId);
+        // 写入配置即视为要使用：自动置为已连接（否则用户手动 set_config 后还得再去点一次连接）
+        ed.putBoolean(KEY_CONNECTED, true);
         ed.apply();
-        return AIToolResult.success("remote_dsh 配置已保存：\nbase_url="
+        return AIToolResult.success("remote_dsh 配置已保存（已置为已连接）：\nbase_url="
                 + (baseUrl.isEmpty() ? getBaseUrl() : baseUrl)
                 + "\ntoken=" + (token.isEmpty() ? "(保持原值)" : token.substring(0, Math.min(4, token.length())) + "***")
                 + "\nsession_id=" + (sessionId.isEmpty() ? "(保持原值)" : sessionId));
@@ -252,16 +344,19 @@ public class RemoteDshTool implements AITool {
         if (baseUrl.isEmpty() || tok.isEmpty()) {
             return AIToolResult.fail("扫码完成但配置未生效（base_url/token 为空），请重试或手动 set_config");
         }
-        return AIToolResult.success("扫码配对成功 ✓\nbase_url=" + baseUrl
+        setConnected(context, true);   // 扫码配对 = 连接
+        return AIToolResult.success("扫码配对成功 ✓（已连接）\nbase_url=" + baseUrl
                 + "\ntoken=" + tok.substring(0, Math.min(4, tok.length())) + "***"
-                + "\n\n现在可以对 AI 说：远程控制电脑 / 在电脑上执行...");
+                + "\n\n现在可以对 AI 说：远程控制电脑 / 在电脑上执行..."
+                + "\n也可以到「工具集 → 设置与数据 → 远程连接（电脑）」手动连接/断开/清除配置");
     }
 
     private AIToolResult handleStatus() {
         String baseUrl = getBaseUrl();
         if (baseUrl.isEmpty()) {
-            return AIToolResult.fail("remote_dsh 未配置：请先 action=set_config 设置 base_url(电脑地址) 和 token(访问令牌)。"
-                    + "\n电脑端需先启动: python tools/dsh_bridge_server.py --token 你的令牌");
+            return AIToolResult.fail("remote_dsh 未配置：还没配对过电脑。"
+                    + "\n工具集 → 设置与数据 → 远程连接（电脑）：扫码配对，或手动填地址+令牌"
+                    + "\n电脑端需先启动 tools\\start_dsh_bridge.bat（含 ACP serve）");
         }
         try {
             Map<String, Object> resp = httpJson(baseUrl + "/status", "GET", null, 30);
@@ -273,51 +368,112 @@ public class RemoteDshTool implements AITool {
             if (err != null && "unauthorized".equals(err)) {
                 return AIToolResult.fail("鉴权失败(401)：token 不正确，请 action=set_config 重新配置 token");
             }
-            Object ver = resp.get("version");
-            StringBuilder sb = new StringBuilder("桥接服务在线 ✓（ACP 通道，桥接 v"
-                    + (ver != null ? ver : "?") + "）\n");
-            Object channels = resp.get("channels");
-            boolean acpOk = channels != null && Boolean.TRUE.equals(
-                    ((Map<?, ?>) channels).get("session_acp"));
-            // 版本号一律来自 ACP 自报（agentInfo），不再写死——之前写死 "dsh 0.1.5"，
-            // 手机端 AI 据此判断"版本不兼容"，实际运行的是另一个版本，属于误导。
-            String acpVer = "";
-            Object agent = resp.get("acp_agent");
-            if (agent instanceof Map) {
-                Object n = ((Map<?, ?>) agent).get("name");
-                Object v = ((Map<?, ?>) agent).get("version");
-                if (n != null || v != null) {
-                    acpVer = "（" + (n != null ? n : "?") + (v != null ? " " + v : "") + "）";
-                }
-            }
-            sb.append("ACP 官方通道").append(acpVer).append(": ")
-                    .append(acpOk ? "可用 ✓" : "不可用 ✗").append("\n");
-            Object pp = resp.get("permission_policy");
-            if (pp != null) {
-                sb.append("权限自动应答: ").append(pp).append("（allow=写文件/跑命令自动放行一次）\n");
-            }
-            Object streams = resp.get("session_streams");
-            if (streams instanceof java.util.List) {
-                sb.append("活跃会话流: ").append(((java.util.List<?>) streams).size()).append("\n");
-            }
-            Object cnt = resp.get("sessions_count");
-            if (cnt != null) sb.append("电脑端 dsh 会话数: ").append(cnt).append("\n");
+            StringBuilder sb = new StringBuilder(statusText(resp, 0));
+            sb.append("连接状态: ").append(isConnected(context) ? "已连接 ✓"
+                    : "已断开（工具会拒绝执行；点界面「连接」即可恢复）").append("\n");
             String sid = getSessionId();
             sb.append("当前会话: ").append(sid.isEmpty() ? "(未创建，run 时自动创建)" : sid);
+            if (!isConnected(context)) {
+                sb.append("\n\n重新连接：工具集 → 设置与数据 → 远程连接（电脑）→ 点「连接」");
+            }
             return AIToolResult.success(sb.toString());
         } catch (Exception e) {
             return AIToolResult.fail("查询状态异常: " + e.getMessage());
         }
     }
 
-    private AIToolResult handleStart() {
-        String baseUrl = getBaseUrl();
-        if (baseUrl.isEmpty()) {
-            return AIToolResult.fail("remote_dsh 未配置（还没配对过电脑）。"
-                    + "\n最简单：对 AI 说「远程配对」→ 打开相机扫电脑配对页的二维码（电脑端先双击 tools\\start_dsh_bridge.bat，"
-                    + "配对页 http://127.0.0.1:8218/pair 会自动打开，扫第一个码即可）"
-                    + "\n也可以手动：action=set_config base_url=<电脑地址> token=<令牌>");
+    /**
+     * 状态文本（handleStatus 与「远程连接（电脑）」界面的探测共用）。
+     * 版本号一律来自 ACP 自报（agentInfo），不写死——之前写死过 "dsh 0.1.5"，
+     * 手机端 AI 据此判断"版本不兼容"，而实际运行的是另一个版本，属于误导。
+     */
+    private static String statusText(Map<String, Object> resp, long ms) {
+        StringBuilder sb = new StringBuilder();
+        Object ver = resp.get("version");
+        sb.append("桥接服务在线 ✓（ACP 通道，桥接 v").append(ver != null ? ver : "?").append("）");
+        if (ms > 0) sb.append("  耗时 ").append(ms).append("ms");
+        sb.append("\n");
+        Object channels = resp.get("channels");
+        boolean acpOk = channels != null && Boolean.TRUE.equals(((Map<?, ?>) channels).get("session_acp"));
+        String acpVer = "";
+        Object agent = resp.get("acp_agent");
+        if (agent instanceof Map) {
+            Object n = ((Map<?, ?>) agent).get("name");
+            Object v = ((Map<?, ?>) agent).get("version");
+            if (n != null || v != null) {
+                acpVer = "（" + (n != null ? n : "?") + (v != null ? " " + v : "") + "）";
+            }
         }
+        sb.append("ACP 官方通道").append(acpVer).append(": ")
+                .append(acpOk ? "可用 ✓" : "不可用 ✗").append("\n");
+        Object pp = resp.get("permission_policy");
+        if (pp != null) sb.append("权限自动应答: ").append(pp).append("（allow=写文件/跑命令自动放行一次）\n");
+        Object streams = resp.get("session_streams");
+        if (streams instanceof java.util.List) {
+            sb.append("活跃会话流: ").append(((java.util.List<?>) streams).size()).append("\n");
+        }
+        Object cnt = resp.get("sessions_count");
+        if (cnt != null) sb.append("电脑端 dsh 会话数: ").append(cnt).append("\n");
+        Object jobs = resp.get("active_jobs");
+        if (jobs != null) sb.append("电脑端在跑任务: ").append(jobs).append("\n");
+        return sb.toString();
+    }
+
+    /** 供「远程连接（电脑）」界面用：探测一次桥接状态并返回可读文本；未配置/连不上抛异常 */
+    public static String probeStatusText(Context context) throws Exception {
+        RemoteDshTool t = new RemoteDshTool(context);
+        String baseUrl = t.getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            throw new IllegalStateException("还没配置电脑地址");
+        }
+        long t0 = System.currentTimeMillis();
+        Map<String, Object> resp = t.httpJson(baseUrl + "/status", "GET", null, 15);
+        long ms = System.currentTimeMillis() - t0;
+        if (resp == null) {
+            throw new java.io.IOException("电脑端无响应");
+        }
+        Object code = resp.get("_http_code");
+        if (code != null && !String.valueOf(code).startsWith("2")) {
+            throw new java.io.IOException("HTTP " + code + " " + resp.get("error"));
+        }
+        return statusText(resp, ms);
+    }
+
+    /** action=connect：用当前配置探测桥接，通了就置为"已连接" */
+    private AIToolResult handleConnect() {
+        if (getBaseUrl().isEmpty()) {
+            return AIToolResult.fail("还没配对过电脑：action=pair 扫码，或到「工具集 → 设置与数据 → 远程连接（电脑）」扫码/手填地址+令牌");
+        }
+        try {
+            String text = probeStatusText(context);
+            setConnected(context, true);
+            return AIToolResult.success("已连接电脑 ✓\n" + text
+                    + "\n现在可以直接让我在电脑上干活（run 执行任务 / shell 跑命令）。");
+        } catch (Exception e) {
+            setConnected(context, false);
+            return AIToolResult.fail("连接失败：" + e.getMessage()
+                    + "\n地址: " + getBaseUrl()
+                    + "\n排查：① 电脑端双击 tools\\start_dsh_bridge.bat（含 ACP serve）"
+                    + " ② 手机与电脑同网或隧道可用 ③ token 是否与桥接一致"
+                    + "\n也可以在界面上重扫二维码：工具集 → 设置与数据 → 远程连接（电脑）");
+        }
+    }
+
+    /** action=disconnect：本机断开（配置保留，电脑端不受影响；本地会话记录清掉） */
+    private AIToolResult handleDisconnect() {
+        boolean wasConnected = isConnected(context);
+        disconnect(context);
+        return AIToolResult.success("已断开电脑连接 ✓" + (wasConnected ? "" : "（原本就是断开状态）")
+                + "\n配置与令牌保留，电脑端桥接/会话不受影响；断开期间工具会拒绝执行。"
+                + "\n重新连接：工具集 → 设置与数据 → 远程连接（电脑）→ 点「连接」，或对我说「连接电脑」");
+    }
+
+    private AIToolResult handleStart() {
+        AIToolResult gate = precheck();
+        if (gate != null) {
+            return gate;
+        }
+        String baseUrl = getBaseUrl();
         try {
             Map<String, Object> body = new HashMap<>();
             body.put("action", "start");
@@ -342,10 +498,11 @@ public class RemoteDshTool implements AITool {
     }
 
     private AIToolResult handleHistory(Map<String, Object> parameters) {
-        String baseUrl = getBaseUrl();
-        if (baseUrl.isEmpty()) {
-            return AIToolResult.fail("remote_dsh 未配置：请先 action=set_config 设置 base_url 和 token。");
+        AIToolResult gate = precheck();
+        if (gate != null) {
+            return gate;
         }
+        String baseUrl = getBaseUrl();
         String sid = getSessionId();
         if (sid.isEmpty()) {
             return AIToolResult.fail("还没有会话：请先 action=run 执行任务（会自动创建会话）或 action=start 新建会话");
@@ -386,13 +543,11 @@ public class RemoteDshTool implements AITool {
     }
 
     private AIToolResult handleRun(Map<String, Object> parameters) {
-        String baseUrl = getBaseUrl();
-        if (baseUrl.isEmpty()) {
-            return AIToolResult.fail("remote_dsh 未配置（还没配对过电脑）。"
-                    + "\n最简单：对 AI 说「远程配对」→ 打开相机扫电脑配对页的二维码（电脑端先双击 tools\\start_dsh_bridge.bat，"
-                    + "配对页 http://127.0.0.1:8218/pair 会自动打开，扫第一个码即可）"
-                    + "\n也可以手动：action=set_config base_url=<电脑地址> token=<令牌>");
+        AIToolResult gate = precheck();
+        if (gate != null) {
+            return gate;
         }
+        String baseUrl = getBaseUrl();
         String task = parameters.get("task") != null ? String.valueOf(parameters.get("task")).trim() : "";
         if (task.isEmpty()) {
             return AIToolResult.fail("缺少参数: task（告诉电脑干什么，自然语言即可）");
@@ -499,13 +654,11 @@ public class RemoteDshTool implements AITool {
      * 适合"跑这条命令并把输出原样贴回来"：毫秒级返回，输出不被模型改写或省略。
      */
     private AIToolResult handleShell(Map<String, Object> parameters) {
-        String baseUrl = getBaseUrl();
-        if (baseUrl.isEmpty()) {
-            return AIToolResult.fail("remote_dsh 未配置（还没配对过电脑）。"
-                    + "\n最简单：对 AI 说「远程配对」→ 打开相机扫电脑配对页的二维码"
-                    + "（电脑端先双击 tools\\start_dsh_bridge.bat）"
-                    + "\n也可以手动：action=set_config base_url=<电脑地址> token=<令牌>");
+        AIToolResult gate = precheck();
+        if (gate != null) {
+            return gate;
         }
+        String baseUrl = getBaseUrl();
         String cmd = parameters.get("task") != null ? String.valueOf(parameters.get("task")).trim() : "";
         if (cmd.isEmpty() && parameters.get("cmd") != null) {
             cmd = String.valueOf(parameters.get("cmd")).trim();

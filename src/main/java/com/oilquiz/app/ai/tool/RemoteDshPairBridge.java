@@ -61,6 +61,8 @@ public final class RemoteDshPairBridge {
                 .getSharedPreferences("remote_dsh_config", Context.MODE_PRIVATE).edit();
         ed.putString("base_url", baseUrl);
         ed.putString("token", token.trim());
+        // 配对 = 连接（用户主动断开过的话，扫码后应恢复可用）
+        ed.putBoolean("connected", true);
         // 配对后重置会话（旧会话可能来自另一台电脑/已过期）
         ed.remove("session_id");
         ed.apply();
