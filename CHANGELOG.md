@@ -1,5 +1,16 @@
 # 变更日志
 
+## [2026-09-27] 聊天页连接状态条加开关（用户要求：不要一直显示）
+1. 用户反馈：「这个顶部状态条设置个开关，不要一直显示。」
+2. 两处控制，立即生效：
+   · 状态条右侧新增 ✕（`remote_dsh_hide`）：点一下立刻隐藏，并记住偏好（Toast 提示可在连接界面重新打开）；
+   · 「远程连接（电脑）」界面新增开关「在聊天页顶部显示连接状态条」（`switch_chat_bar`，SwitchMaterial），随时可开回来。
+   偏好存在 `ai_prefs.remote_dsh_bar`（默认显示）——注意与配对配置 `remote_dsh_config` 分开存：
+   「清除配置」不会把这个显示偏好一起清掉（`RemoteDshTool.isBarEnabled/setBarEnabled`）。
+   聊天页 `refreshRemoteDshBar()` 先判开关：关掉时状态条直接 `GONE`，不再占用顶部空间。
+3. 真机验证（`AIChatRemoteBarDeviceTest` 新增开关用例；与 `RemoteDshConnectDeviceTest` 合计 6/6 通过）：
+   · `[EXP] 开关关闭时状态条可见性 = GONE` / `[EXP] 开关打开时状态条可见性 = VISIBLE`；
+   · 布局校验补上 `switch_chat_bar`（缺失控件：(无)）；三种状态文案仍逐条校验通过。
 ## [2026-09-27] 聊天页顶部新增「电脑连接」常驻状态条（用户反馈：界面上没有任何 UI 提示）
 1. 用户反馈：「AI 对话界面没有任何 UI 提示，只能在对话流中显示」——连接状态只出现在 AI 的文字回复里，界面本身看不出来。
 2. 修复：AI 聊天页顶部（模型状态胶囊下方）新增常驻状态条 `remote_dsh_bar`（复用 `status_bar_background` 胶囊样式），三态一目了然，点一下进「远程连接（电脑）」：

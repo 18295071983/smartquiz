@@ -199,6 +199,8 @@ public class AIChatActivity extends BaseActivity {
     private android.view.View remoteDshDot;
     private android.widget.TextView remoteDshText;
     private android.widget.TextView remoteDshAction;
+    /** 状态条上的 ✕（隐藏；偏好可在「远程连接（电脑）」里重新打开） */
+    private android.widget.ImageButton remoteDshHide;
     private MaterialButton btnModelDownload;
     private MaterialButton btnAiInit;
     private View thinkingIndicator;
@@ -513,6 +515,16 @@ public class AIChatActivity extends BaseActivity {
             remoteDshBar.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this,
                             com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)));
+        }
+        remoteDshHide = findViewById(R.id.remote_dsh_hide);
+        if (remoteDshHide != null) {
+            remoteDshHide.setOnClickListener(v -> {
+                com.oilquiz.app.ai.tool.RemoteDshTool.setBarEnabled(this, false);
+                remoteDshBar.setVisibility(View.GONE);
+                android.widget.Toast.makeText(this,
+                        "已隐藏连接状态条（可在「远程连接（电脑）」里重新打开）",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            });
         }
         refreshRemoteDshBar();
             btnModelDownload = findViewById(R.id.btn_model_download);
@@ -10769,6 +10781,11 @@ public class AIChatActivity extends BaseActivity {
      */
     private void refreshRemoteDshBar() {
         if (remoteDshBar == null) {
+            return;
+        }
+        // 用户可关（✕ 或「远程连接（电脑）」里的开关）：关了就不再常驻显示
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isBarEnabled(this)) {
+            remoteDshBar.setVisibility(View.GONE);
             return;
         }
         boolean configured = com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this);

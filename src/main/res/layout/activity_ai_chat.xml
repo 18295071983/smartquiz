@@ -219,6 +219,18 @@
                 android:textSize="@dimen/text_12"
                 android:textStyle="bold"
                 android:textColor="?attr/colorPrimary"/>
+
+            <!-- 关闭按钮：只隐藏这条状态条（偏好可在「远程连接（电脑）」里重新打开） -->
+            <ImageButton
+                android:id="@+id/remote_dsh_hide"
+                android:layout_width="@dimen/size_24"
+                android:layout_height="@dimen/size_24"
+                android:layout_marginStart="@dimen/space_6"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_close"
+                android:scaleType="centerInside"
+                android:contentDescription="隐藏状态条"
+                app:tint="?attr/colorControlTextSecondary"/>
         </LinearLayout>
 
         <LinearLayout

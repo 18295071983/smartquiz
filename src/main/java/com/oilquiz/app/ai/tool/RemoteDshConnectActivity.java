@@ -51,6 +51,8 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
     private MaterialButton saveBtn;
     private TextInputEditText urlInput;
     private TextInputEditText tokenInput;
+    /** 聊天页顶部状态条开关 */
+    private com.google.android.material.switchmaterial.SwitchMaterial switchChatBar;
 
     private volatile boolean busy;
     /** 是否做过首次自动探测（onResume 会被重复调用，避免每次返回都打网络） */
@@ -83,6 +85,15 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
         saveBtn = findViewById(R.id.btn_save);
         urlInput = findViewById(R.id.url_input);
         tokenInput = findViewById(R.id.token_input);
+        switchChatBar = findViewById(R.id.switch_chat_bar);
+        if (switchChatBar != null) {
+            // 先设状态再挂监听，避免初始化时误触发保存
+            switchChatBar.setChecked(RemoteDshTool.isBarEnabled(this));
+            switchChatBar.setOnCheckedChangeListener((btn, checked) -> {
+                RemoteDshTool.setBarEnabled(this, checked);
+                toast(checked ? "聊天页会显示连接状态条" : "聊天页不再显示连接状态条");
+            });
+        }
 
         bindActions();
         refresh();

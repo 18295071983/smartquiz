@@ -153,7 +153,7 @@ public class RemoteDshConnectDeviceTest {
                 com.oilquiz.app.R.id.btn_scan, com.oilquiz.app.R.id.btn_clear,
                 com.oilquiz.app.R.id.btn_save, com.oilquiz.app.R.id.url_input,
                 com.oilquiz.app.R.id.token_input, com.oilquiz.app.R.id.probe_text,
-                com.oilquiz.app.R.id.probe_time
+                com.oilquiz.app.R.id.probe_time, com.oilquiz.app.R.id.switch_chat_bar
         };
         StringBuilder missing = new StringBuilder();
         for (int id : ids) {

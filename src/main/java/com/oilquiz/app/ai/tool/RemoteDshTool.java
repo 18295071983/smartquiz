@@ -200,6 +200,23 @@ public class RemoteDshTool implements AITool {
         prefsOf(c).edit().clear().apply();
     }
 
+    // ---------- 聊天页顶部状态条开关（用户要求：不要一直显示，要能关） ----------
+    // 存在 ai_prefs（界面偏好）而不是 remote_dsh_config：清除配对配置时不该把这个偏好也清掉。
+
+    private static final String PREF_UI = "ai_prefs";
+    private static final String KEY_SHOW_BAR = "remote_dsh_bar";
+
+    /** 聊天页顶部「电脑连接」状态条是否显示（默认显示；用户点 ✕ 或在连接界面关掉后为 false） */
+    public static boolean isBarEnabled(Context c) {
+        return c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
+                .getBoolean(KEY_SHOW_BAR, true);
+    }
+
+    public static void setBarEnabled(Context c, boolean enabled) {
+        c.getApplicationContext().getSharedPreferences(PREF_UI, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_SHOW_BAR, enabled).apply();
+    }
+
     /** 界面用：读原始配置值（token 不在这里打码，由界面决定怎么显示） */
     public static String configValue(Context c, String key) {
         return prefsOf(c).getString(key, "");

@@ -70,6 +70,7 @@ public class AIChatRemoteBarDeviceTest {
         TextView bar = a.findViewById(R.id.remote_dsh_text);
         TextView action = a.findViewById(R.id.remote_dsh_action);
         assertNotNull("聊天页应有「电脑连接」状态条 remote_dsh_text", bar);
+        assertNotNull("状态条应有隐藏按钮 remote_dsh_hide", a.findViewById(R.id.remote_dsh_hide));
         String text = String.valueOf(bar.getText());
         System.out.println("[EXP] 聊天页状态条: " + text + "  |  右侧按钮=" + (action != null ? action.getText() : "?"));
         android.os.Bundle args = InstrumentationRegistry.getArguments();
@@ -80,10 +81,56 @@ public class AIChatRemoteBarDeviceTest {
         return text;
     }
 
+    /**
+     * 开关：关掉状态条后聊天页不应再显示（用户要求「不要一直显示」）；打开后恢复。
+     */
+    @Test
+    public void chatBarFollowsSwitch() throws Exception {
+        Context c = ctx();
+        Instrumentation inst = InstrumentationRegistry.getInstrumentation();
+        pairFromArgs(c);
+
+        RemoteDshTool.setBarEnabled(c, false);
+        String off = openChatAndReadBarVisibility(inst);
+        Assume.assumeTrue("聊天页无法启动（MIUI 限制），跳过", off != null);
+        System.out.println("[EXP] 开关关闭时状态条可见性 = " + off);
+        assertTrue("关掉开关后状态条应隐藏（GONE）: " + off, off.contains("GONE"));
+
+        RemoteDshTool.setBarEnabled(c, true);
+        String on = openChatAndReadBarVisibility(inst);
+        System.out.println("[EXP] 开关打开时状态条可见性 = " + on);
+        assertTrue("打开开关后状态条应可见: " + on, on.contains("VISIBLE"));
+    }
+
+    /** 拉起聊天页，返回状态条 View 的可见性字符串（启动失败返回 null） */
+    private static String openChatAndReadBarVisibility(Instrumentation inst) throws Exception {
+        try {
+            Intent main = new Intent(ctx(), com.oilquiz.app.MainActivity.class);
+            main.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            inst.startActivitySync(main);
+            Thread.sleep(1200);
+        } catch (Exception ignored) {
+        }
+        Intent i = new Intent(ctx(), AIChatActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Activity a;
+        try {
+            a = inst.startActivitySync(i);
+        } catch (RuntimeException e) {
+            System.out.println("[EXP] 聊天页启动被拦截: " + e.getMessage());
+            return null;
+        }
+        android.view.View bar = a.findViewById(R.id.remote_dsh_bar);
+        assertNotNull("聊天页应有状态条容器 remote_dsh_bar", bar);
+        return bar.getVisibility() == android.view.View.GONE ? "GONE"
+                : (bar.getVisibility() == android.view.View.VISIBLE ? "VISIBLE" : "其他");
+    }
+
     @Test
     public void chatPageShowsRemoteConnectionBar() throws Exception {
         Context c = ctx();
         Instrumentation inst = InstrumentationRegistry.getInstrumentation();
+        RemoteDshTool.setBarEnabled(c, true);   // 与开关用例解耦：本用例只验内容，不验开关
 
         // 1) 未配对状态：应显示"电脑未配对"（红色点 + 去配对）
         RemoteDshTool.clearConfig(c);
