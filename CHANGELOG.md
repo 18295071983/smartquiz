@@ -1,5 +1,21 @@
 # 变更日志
 
+## [2026-09-27] 换源到清华 ports + 装图形包管理器 Synaptic（并把两件事固化进一键准备）
+
+用户问「有包管理器吗，有包商店吗」，随后「那就换 顺便安装 synaptic」。
+
+1. **换源**：容器里原来是官方 `http://ports.ubuntu.com/ubuntu-ports`（arm64 专用源）——
+   而一键准备里的换源 sed 只匹配 `archive/security.ubuntu.com`，所以**一直没换动** ✗。
+   现已改为 `https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports`，实测 `apt update` 拉
+   **36.7 MB / 16 秒（≈2.2 MB/s）** ✓（这次是全量重拉，看得出速度）。原文件备份为 `*.bak-oilquiz`。
+2. **装了 synaptic**（图形包管理器）：`/usr/sbin/synaptic` ✓、菜单项 ✓；在桌面上实测能起来，
+   而且**界面是中文** ✓（OCR：`您应该定期刷新软件包信息…共列出 912 个软件包，已安装 622 个，已破坏 0 个`）。
+   已装包数 618 → 622。
+3. **固化进一键准备**：两处换源 sed（`ZH_FIX_SH` 与 step 4）都补上 `ports.ubuntu.com/ubuntu-ports` 映射；
+   step 5 的 apt 列表与 `gui_pkgs_ok()` 前置检查都加上 `synaptic`（否则老环境重跑会跳过、永远补不上）。
+4. **限制说明**：proot 容器里 **snap / flatpak 都用不了**（无 systemd、无 bubblewrap），
+   所以"软件商店"只能基于 apt 仓库（可装 **91,290** 个包）。
+
 ## [2026-09-27] 「一键准备」查漏补缺：删掉 step 6 里残留的旧脚本块 + 把新组件纳入前置检查
 
 用户问「一键配置这个功能都配置好了吗」。逐段核对后发现两处真问题，已修：

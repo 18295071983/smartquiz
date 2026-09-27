@@ -286,7 +286,10 @@ public final class TermuxEnvInstaller {
             export DEBIAN_FRONTEND=noninteractive
             TUNA=0
             for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
-              if [ -f "$f" ] && grep -q 'archive.ubuntu.com' "$f"; then
+              # arm64 的 Ubuntu 根文件系统用的是 ports.ubuntu.com/ubuntu-ports，
+              # 只换 archive/security 换不动（真机实测：容器一直是官方 ports 源，装大包很慢）
+              if [ -f "$f" ] && grep -qE 'archive.ubuntu.com|security.ubuntu.com|ports.ubuntu.com' "$f"; then
+                sed -i 's|http://ports.ubuntu.com/ubuntu-ports|https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports|g' "$f"
                 sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' "$f"
                 sed -i 's|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' "$f"
                 TUNA=1
@@ -864,7 +867,7 @@ public final class TermuxEnvInstaller {
             gui_pkgs_ok() {
               # 检查项要跟着"实际用到的组件"走：新加的 notifyd/任务管理器/截图/看图/压缩没装时，
               # 这里必须返回非 0，否则老环境重跑「一键准备」会跳过 step 5、永远补不上这些组件。
-              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1 && command -v xfce4-notifyd >/dev/null 2>&1 && command -v xfce4-taskmanager >/dev/null 2>&1 && command -v xfce4-screenshooter >/dev/null 2>&1 && command -v ristretto >/dev/null 2>&1 && command -v xarchiver >/dev/null 2>&1' 2>/dev/null
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1 && command -v xfce4-notifyd >/dev/null 2>&1 && command -v xfce4-taskmanager >/dev/null 2>&1 && command -v xfce4-screenshooter >/dev/null 2>&1 && command -v ristretto >/dev/null 2>&1 && command -v xarchiver >/dev/null 2>&1 && command -v synaptic >/dev/null 2>&1' 2>/dev/null
             }
 
             quiz_main() {
@@ -948,7 +951,7 @@ public final class TermuxEnvInstaller {
                 ok "容器内 Python 已完整，跳过 apt（省 2~4 分钟）"
               else
                 echo "正在容器内安装 python3-full / python3-tk / pip / venv（约 2~4 分钟）…"
-                proot-distro login ubuntu -- /bin/bash -lc 'for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do if [ -f "$f" ]; then sed -i "s|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g; s|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g" "$f"; fi; done; apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3-full python3-tk python3-venv python3-pip python3-setuptools ca-certificates' || bad "容器内 apt 安装失败：请检查网络后重跑本页"
+                proot-distro login ubuntu -- /bin/bash -lc 'for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do if [ -f "$f" ]; then sed -i "s|http://ports.ubuntu.com/ubuntu-ports|https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports|g; s|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g; s|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g" "$f"; fi; done; apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3-full python3-tk python3-venv python3-pip python3-setuptools ca-certificates' || bad "容器内 apt 安装失败：请检查网络后重跑本页"
                 proot-distro login ubuntu -- /usr/bin/python3 -c "$PY_CHECK" 2>/dev/null || bad "容器内 Python 仍不完整"
               fi
 
@@ -959,7 +962,7 @@ public final class TermuxEnvInstaller {
                 ok "Xvnc + XFCE 桌面 + 中文字体已安装，跳过"
               else
                 echo "正在容器内安装 TigerVNC + XFCE 桌面（面板/开始菜单/文件管理器/终端）+ 中文字体（约 110MB，3~6 分钟）…"
-                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig xfce4 xfce4-terminal thunar mousepad dbus-x11 novnc websockify xfce4-notifyd xfce4-taskmanager xfce4-screenshooter ristretto xarchiver thunar-archive-plugin' || bad "图形界面组件安装失败：请检查网络后重跑本页"
+                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig xfce4 xfce4-terminal thunar mousepad dbus-x11 novnc websockify xfce4-notifyd xfce4-taskmanager xfce4-screenshooter ristretto xarchiver thunar-archive-plugin synaptic' || bad "图形界面组件安装失败：请检查网络后重跑本页"
                 if gui_pkgs_ok; then ok "X11/VNC 组件就绪"; else bad "X11/VNC 组件没装全"; fi
               fi
 
