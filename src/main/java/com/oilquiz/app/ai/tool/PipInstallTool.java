@@ -59,9 +59,8 @@ public class PipInstallTool implements AITool {
 
     private static final Pattern NAME_PATTERN = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]*$");
     // 纯 Python wheel：tag 为 py3 / py2.py3 / py2 / py（都不含 C 扩展，Python 3 下可用）。
-    // 2026-09-27 修：原来只认 "-py3-none-any.whl"，把 "py2.py3-none-any" 也拒了——
-    // 实测 pyfiglet 在阿里云只有 0.8.post1-py2.py3（被拒）+ 1.0.0rc1-py3（唯一通过），
-    // 于是工具"只能"装到 rc 预发布版。现在 py2.py3 也接受。
+    // 2026-09-27 修：原来只认 "-py3-none-any.whl"，把 "py2.py3-none-any"（Python 3 下同样可用）也拒了。
+    // 实测 pyfiglet 的 py2.py3 wheel 是 0.8.post1 这一版，被旧规则滤掉后候选集进一步变窄；现在放宽接受。
     private static final Pattern WHEEL_FILENAME = Pattern.compile(
             "^([A-Za-z0-9._-]+)-([0-9][A-Za-z0-9._-]*?)(?:-[0-9][A-Za-z0-9._-]*)?-(?:py2\\.py3|py3|py2|py)-none-any\\.whl$");
     private static final Pattern REQUIRES_DIST = Pattern.compile(
