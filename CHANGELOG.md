@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-09-27] 内置 Python 环境审计：手机 AI 说「Python 不完整」，实测是「只剩 Android 上没有的那几样」
+1. 用户提示「对话中还说我的 python 不完整」。查会话 209a6449（09:29）：手机端 AI 答复「Linux 装的是完全体；Android/Termux 不是完整 Linux，tkinter 基本没有、部分 C 扩展受限」，
+   并建议「想要完全体就用 Termux + proot-distro 装真 Ubuntu」。这话不算错，但对**本 App 内置的 Python** 说得太笼统，我用实测把结论钉死。
+2. 新增 `PythonEnvAuditDeviceTest`（真机跑审计脚本），实测结果：
+   · 真 CPython **3.10.15**、平台 `linux`、`pip 23.0.1` 模块在；
+   · `fork/execv/spawnv/getuid` 都可用，`multiprocessing` 支持 `[fork, spawn, forkserver]`；
+   · 标准库抽查 57 项 → **51 项可用**，缺的 6 项全是 Android 本就没有的：`tkinter`、`curses`、`readline`、`grp`、`ensurepip`，
+     外加 `_zlib`（这是 CPython 内部名，`zlib` 本身可用——审计脚本的误报）；
+     关键能力 `ssl/sqlite3/lzma/bz2/zlib/ctypes/socket/asyncio/distutils/setuptools` **全部在**；
+   · 已打包三方库 **21/21** 全部可导入（numpy/pandas/matplotlib/Pillow/lxml/cryptography/requests/bs4/docx/pptx/pypdf/openpyxl/yaml/tabulate/dateutil/chardet/xlrd/reportlab/simplejson/regex/jieba）。
+3. 结论（也写进 `docs/AI工具功能清单.md`，避免以后再含糊表述）：这句话真正的含义是
+   「运行时 `pip_install` 只能装纯 Python wheel；C 扩展包要在打包期加进 Chaquopy 依赖清单」——而 App 早就这么预装了 numpy/pandas/matplotlib/lxml/cryptography，
+   所以并非「装不了 C 扩展」，而是「不能运行时现编译」。tkinter/curses/readline 属 Android 平台缺失，任何 Android 上的 CPython 都一样。
+4. 回归保障：审计用例带断言——关键标准库缺失、fork 消失、三方库有缺失都会立刻失败（本次 `OK (1 test)`）。
 ## [2026-09-27] 按手机端 AI 的检测记录修 pip_install：索引解析/相对路径/tag 过滤/预发布/升级判断
 1. 用户提示「手机对话记录里有 python 的检测记录」。查最新会话（ac0457a3，09:36）——手机端 AI 对 pip_install 做了完整取证，
    结论是三个 bug 叠加导致「提示安装完成、实际什么都没装」。我逐条到代码里复核，**两条成立、一条与当前代码不符**，另外又发现两个它没提到的问题：

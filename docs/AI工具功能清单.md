@@ -209,6 +209,15 @@
 
 ## 六、Python 执行类
 
+### 内置 Python 环境能力清单（2026-09-27 真机实测，勿再含糊地说"不完整"）
+- **运行时**：真 CPython **3.10.15**，`sys.platform = linux`；`pip 23.0.1` 模块在（`import pip` 可用）。
+- **平台能力**：`os.fork` / `execv` / `spawnv` / `getuid` 均可用；`multiprocessing` 支持 `[fork, spawn, forkserver]`。
+- **标准库**：抽查 57 项，**51 项可用**；缺失仅 6 项且都是 Android 上本就没有的 GUI/终端类库：
+  `tkinter`、`curses`、`readline`、`grp`、`ensurepip`（pip 模块本身在，只是不能自举），以及 `_zlib`（这属于CPython 内部名，`zlib` 本身可用——是审计脚本的误报）。
+  **ssl / sqlite3 / lzma / bz2 / zlib / ctypes / socket / asyncio / distutils / setuptools 全部可用。**
+- **已打包三方库**：21/21 全部可导入 —— numpy、pandas、matplotlib、Pillow、lxml、cryptography、requests、bs4、python-docx、python-pptx、pypdf、openpyxl、pyyaml、tabulate、python-dateutil、chardet、xlrd、reportlab、simplejson、regex、jieba。
+- **"只能装纯 Python 包"的准确含义**：`pip_install`（运行时）只能装纯 Python wheel；**C 扩展包不是不能有，而是要在打包期加进 Chaquopy 依赖清单**（App 已经这样预装了 numpy/pandas/matplotlib/lxml/cryptography 等）。真机回归见 `PythonEnvAuditDeviceTest`（关键模块缺失或 fork 消失会立刻失败）。
+
 ### python_execute — 执行 Python 代码
 - **分类**：python
 - **功能**：执行任意 Python 代码。内置 `android_ui` 模块（真实显示在手机界面）：系统原生组件 dialog/progress/input/choice（create_component → component_id → update/close/get_result 阻塞取结果）；内置 UI 组件库（create_component 渲染成聊天流卡片，props 带 actions 可交互）；便捷函数 ask_input/ask_choice/show_progress。脚本最后 print 输出作为结果返回。
