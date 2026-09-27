@@ -60,7 +60,8 @@ import java.util.Map;
                 + "③ action=pair 扫码一键配对（推荐）：扫电脑端配对页二维码，自动保存地址与令牌；"
                 + "④ action=start 新建会话（重置电脑端记忆）；⑤ action=history 读当前会话历史（max=条数，默认10）；"
                 + "⑥ action=get_status 检查桥接服务与 dsh 是否在线；"
-                + "⑦ action=connect 连接电脑 / action=disconnect 断开电脑连接（断开后工具拒绝执行，配置保留）；"
+                + "⑦ action=connect 连接电脑 / action=disconnect 临时停用（配置保留，断开后工具拒绝执行）/ "
+                + "action=clear_config 清空配置（地址令牌全清；别用 set_config 传假地址来「断开」，那会把配置写坏）；"
                 + "⑧ action=set_config 配置/修改电脑地址与令牌：base_url=http://电脑IP:8218，token=桥接服务启动时打印的令牌。"
                 + "用户也可以自己在手机上操作：「工具集 → 设置与数据 → 远程连接（电脑）」里连接/断开/清除配置/扫码。"
                 + "长任务：timeout 真的生效（秒，5~600，默认 120），编译/下载/长命令请给足（如 300）；超时会被中断且拿不到结果。"
@@ -74,13 +75,14 @@ import java.util.Map;
                 @Action(name = "shell", description = "把 task 当命令直接在电脑上执行（不经 LLM，毫秒级、输出原样）"),
                 @Action(name = "connect", description = "用已保存的地址/令牌连接电脑（探测桥接，通了才允许执行任务）"),
                 @Action(name = "disconnect", description = "断开电脑连接（配置保留；断开期间工具拒绝执行）"),
+                @Action(name = "clear_config", description = "清空配对配置（地址/令牌/会话全清；要临时停用请用 disconnect）"),
                 @Action(name = "start", description = "新建 dsh 会话（重置电脑端记忆），返回新的 session_id"),
                 @Action(name = "history", description = "读当前会话最近历史（max=条数，默认10）"),
                 @Action(name = "get_status", description = "检查桥接服务与 dsh 状态"),
                 @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
         },
         params = {
-                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(断开) / pair(扫码配对) / start / history / get_status / set_config", required = false),
+                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码配对) / start / history / get_status / set_config", required = false),
                 @Param(name = "task", type = "string", description = "run=任务描述（自然语言）；shell=要执行的命令原文", required = false),
                 @Param(name = "shell", type = "string", description = "shell 动作的执行器: auto(默认，优先 pwsh 回退 powershell) / cmd / bash", required = false),
                 @Param(name = "max", type = "integer", description = "history 读取条数（默认 10，范围 1~200）", required = false),
@@ -121,7 +123,8 @@ public class RemoteDshTool implements AITool {
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接。"
                 + "前提：电脑端已启动 tools/dsh_bridge_server.py(ACP 官方通道 + /exec 直连) 桥接服务，并配置好 base_url 与 token。"
                 + "动作：run(执行任务+自动续接，自然语言) / shell(把 task 当命令直接跑，不经 LLM、输出原样) / "
-                + "connect(连接电脑) / disconnect(断开) / pair(扫码一键配对) / start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
+                + "connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码一键配对) / "
+                + "start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
                 + "界面入口：工具集 → 设置与数据 → 远程连接（电脑）。"
                 + "timeout 参数真的生效（秒，最长600），长任务请给足。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。安全：只有配置了正确 token 才能调用。";
@@ -130,7 +133,7 @@ public class RemoteDshTool implements AITool {
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
-        params.put("action", "操作: run(默认，自然语言任务+自动续接) / shell(把 task 当命令直接跑，不经 LLM) / connect(连接电脑) / disconnect(断开) / pair(扫码一键配对) / start(新建会话) / history(读历史) / get_status(检查状态) / set_config(配置)");
+        params.put("action", "操作: run(默认，自然语言任务+自动续接) / shell(把 task 当命令直接跑，不经 LLM) / connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码一键配对) / start(新建会话) / history(读历史) / get_status(检查状态) / set_config(配置)");
         params.put("task", "run=任务描述（自然语言，如\"看看D盘有哪些项目文件夹\"）；shell=要执行的命令原文（如 git status）");
         params.put("shell", "shell 动作的执行器: auto(默认) / cmd / bash");
         params.put("max", "history 读取条数（默认 10，范围 1~200）");
@@ -289,6 +292,34 @@ public class RemoteDshTool implements AITool {
                 + "那里可以把电脑端程序一键导出到手机 Download/OilQuiz/remote_dsh/，再拷到电脑上双击启动）";
     }
 
+    /**
+     * 校验 base_url 是否是"真实可用"的地址；返回错误描述，OK 返回 null。
+     * 拦掉 0.0.0.0 / 空 host / 端口 0 / 端口越界 这些"看着像地址、其实连不上"的写法。
+     */
+    private static String validateBaseUrl(String baseUrl) {
+        try {
+            java.net.URL u = new java.net.URL(baseUrl);
+            String host = u.getHost();
+            if (host == null || host.trim().isEmpty()) {
+                return "缺少主机名";
+            }
+            String h = host.trim();
+            if (h.equals("0.0.0.0") || h.equals("::") || h.equals("[::]")) {
+                return "0.0.0.0 不是可连接的主机（它是「监听所有网卡」的意思）";
+            }
+            int port = u.getPort();
+            if (port == 0) {
+                return "端口不能是 0";
+            }
+            if (port > 65535) {
+                return "端口越界: " + port;
+            }
+            return null;
+        } catch (Exception e) {
+            return "地址格式不对（" + e.getMessage() + "）";
+        }
+    }
+
     /** 统一前置检查：未配置 / 已断开 → 返回失败结果；正常返回 null */
     private AIToolResult precheck() {
         if (getBaseUrl().isEmpty()) {
@@ -316,6 +347,9 @@ public class RemoteDshTool implements AITool {
                     return handlePair();
                 case "set_config":
                     return handleSetConfig(parameters);
+                case "clear_config":
+                case "reset":
+                    return handleClearConfig();
                 case "get_status":
                     return handleStatus();
                 case "start":
@@ -338,10 +372,32 @@ public class RemoteDshTool implements AITool {
         }
     }
 
+    /**
+     * action=clear_config：清空配对配置（地址/令牌/会话/连接状态）。
+     *
+     * 为什么要单独给个动作（2026-09-27 从手机对话里发现的坑）：AI 想"清除/断开"时没有正规入口，
+     * 只能瞎试 set_config base_url="" （被当成"查询配置"）、base_url="clear"（被校验拒），
+     * 最后竟然写了个假地址 http://0.0.0.0:0 来"断开"——把手机配置污染了。
+     */
+    private AIToolResult handleClearConfig() {
+        String before = getBaseUrl();
+        clearConfig(context);
+        return AIToolResult.success("已清除电脑连接配置 ✓"
+                + (before.isEmpty() ? "（原本就没有配置）" : "\n  原地址: " + before)
+                + "\n地址、令牌、会话、连接状态都已清空；要再用请重新扫码配对（工具集 → 设置与数据 → 远程连接（电脑）→ 扫码配对）。"
+                + "\n提示：只想临时停用（保留配置）请用 action=disconnect。");
+    }
+
     private AIToolResult handleSetConfig(Map<String, Object> parameters) {
         String baseUrl = parameters.get("base_url") != null ? String.valueOf(parameters.get("base_url")).trim() : "";
         String token = parameters.get("token") != null ? String.valueOf(parameters.get("token")).trim() : "";
         String sessionId = parameters.get("session_id") != null ? String.valueOf(parameters.get("session_id")).trim() : "";
+        // 明确表达"清除"的写法也接受（AI 会自然地说 base_url=clear/none/-）
+        String lowerUrl = baseUrl.toLowerCase();
+        if (lowerUrl.equals("clear") || lowerUrl.equals("none") || lowerUrl.equals("null") || lowerUrl.equals("-")
+                || lowerUrl.equals("empty")) {
+            return handleClearConfig();
+        }
         if (baseUrl.isEmpty() && token.isEmpty() && sessionId.isEmpty()) {
             // 未传任何值：返回当前配置（token 打码）
             String cur = getBaseUrl();
@@ -355,14 +411,21 @@ public class RemoteDshTool implements AITool {
                             + "\n\n可视化操作：工具集 → 设置与数据 → 远程连接（电脑）（连接/断开/清除配置/扫码）"
                             + "\n或 action=set_config 传 base_url=http://电脑IP:8218 和 token=桥接服务启动时打印的令牌");
         }
-        // 校验 base_url
+        // 校验 base_url（2026-09-27：之前不校验，手机端 AI 用 http://0.0.0.0:0 当"断开"也被收下了）
         if (!baseUrl.isEmpty()) {
             String lower = baseUrl.toLowerCase();
             if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
-                return AIToolResult.fail("base_url 必须以 http:// 或 https:// 开头，如 http://192.168.1.100:8218");
+                return AIToolResult.fail("base_url 必须以 http:// 或 https:// 开头，如 http://192.168.1.100:8218"
+                        + "\n（要清除配置用 action=clear_config；要临时停用用 action=disconnect）");
             }
             while (baseUrl.endsWith("/")) {
                 baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+            }
+            String check = validateBaseUrl(baseUrl);
+            if (check != null) {
+                return AIToolResult.fail("base_url 不可用：" + check
+                        + "\n给个真实可达的地址，例如 http://192.168.1.100:8218 或 https://xxx.vicp.fun"
+                        + "\n（要清除配置用 action=clear_config；要临时停用用 action=disconnect）");
             }
         }
         SharedPreferences.Editor ed = getPrefs().edit();

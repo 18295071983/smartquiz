@@ -1,5 +1,24 @@
 # 变更日志
 
+## [2026-09-27] 从手机对话里查出并修掉两个真问题：没有正规清除配置入口 + set_config 不校验地址
+1. 用户让「看一下手机上的对话」。查 08:04 的会话（c8e53784）发现手机端 AI 想断开时的真实调用序列：
+   ① `set_config{base_url:"",token:""}` → 我实现成「查询当前配置」，所以**没断开**（语义含糊）；
+   ② `set_config{base_url:"clear",token:"clear"}` → 被「必须以 http:// 开头」拒掉；
+   ③ AI 只好**瞎试** `set_config{base_url:"http://0.0.0.0:0",token:"disconnected"}` → **我居然收下了**，把手机配置写成了假地址；
+   ④ 随后 `get_status` 失败 → AI 回复「状态查询返回 Invalid URL，确认不通」。
+   注：先怀疑过这是 AI 编的（AI 日志里搜不到 Invalid URL），核对代码后**更正**：工具失败原因确实会进模型上下文
+   （`OnlineAgentEngine` 里 tool 消息 content = `"工具执行失败: " + error`），日志只记 result 长度所以看不到——AI 那句是如实转述。
+2. 修一：新增正规清除入口 `action=clear_config`（别名 `reset`），直接清空地址/令牌/会话/连接状态；
+   并接受 AI 的自然写法 `set_config{base_url:"clear"}`（clear/none/null/-/empty 都等价于清除）；
+   工具描述里明确区分 「disconnect = 临时停用，保留配置」 与 「clear_config = 清空配置」，并写明**不要**用 set_config 传假地址来断开。
+3. 修二：`set_config` 增加地址校验 `validateBaseUrl()`：拒绝 0.0.0.0 / :: / 空主机名 / 端口 0 / 端口越界 / 格式错误，
+   失败时**不改动已有配置**（实测：`0.0.0.0:0` 被拒且原地址保持不变）。
+4. 真机验证：新增 `clearConfigActionAndBogusUrlRejected` 用例，`RemoteDshConnectDeviceTest` **5/5 通过**；实测输出：
+   · `set_config http://0.0.0.0:0 => success=false err=base_url 不可用：0.0.0.0 不是可连接的主机（它是「监听所有网卡」的意思）…`
+   · `clear_config => success=true 已清除电脑连接配置 ✓ | 原地址: https://<花生壳域名> | …提示：只想临时停用请用 action=disconnect`
+   · 端口 0、缺主机名同样被拒；`base_url=clear` 等价于清除。
+5. 排查中发现的**环境问题（非代码）**：手机在 192.168.101.19，电脑只有以太网 192.168.1.5 —— 两端不同网段，必须走花生壳隧道；
+   当时隧道客户端没在运行（公网 /health 连接被关闭），导致一条用例失败（EOFException）。隧道拉起后（HskDDNS + phtunnel）公网 /health 恢复 200，用例复跑通过。
 ## [2026-09-27] 配对页从 Python 内联字符串抽成项目文件 tools/pair_page.html
 1. 用户问「配对网页是代码生成的还是电脑项目文件」——如实回答：**页面本体是 `pair_html()` 里的 Python 三引号字符串拼出来的**（
    只有 `qrcodegen.js` 是从磁盘读的项目文件）。这个写法正是前几天「配对页一个二维码都不显示」的根因：

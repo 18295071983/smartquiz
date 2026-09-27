@@ -255,7 +255,8 @@
   连接（探测 GET /status，通了才置为已连接、才允许执行）/ 断开（本机停用：run·shell·start·history 一律被拒，配置与令牌保留，电脑端不受影响）/
   清除配置（地址/令牌/会话/连接状态全清，二次确认）/ 扫码配对 / 手动填地址+令牌 → 保存并连接。
   状态点：绿=已连接、黄=已断开、红=未配置；显示令牌打码与位数、当前会话、最近探测时间与耗时。
-  AI 也可代劳：`action=connect`（连接）、`action=disconnect`（断开）。
+  AI 也可代劳：`action=connect`（连接）、`action=disconnect`（临时停用，保留配置）、`action=clear_config`（清空配置，别名 reset）。
+  `set_config` 会校验地址（拒绝 0.0.0.0/端口 0/空主机名，失败不改动原配置）；`set_config{base_url:"clear"}` 等价于清除配置。
 - **参数**：`action`（run/shell/connect/disconnect/pair/start/history/get_status/set_config）、`task`、`max`、`shell`、`base_url`、`token`、`timeout`
 
 ### python_analyze_data — Python 数据分析

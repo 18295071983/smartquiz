@@ -209,4 +209,54 @@ public class RemoteDshConnectDeviceTest {
         }
         a.finish();
     }
+
+    /**
+     * 清除配置的正规入口 + 假地址校验。
+     * 背景（2026-09-27 从手机对话里发现）：AI 想"断开"时没有正规入口，只能瞎试
+     * set_config base_url=""（被当成查询配置）、base_url="clear"（被校验拒），
+     * 最后写了个假地址 http://0.0.0.0:0 来"断开"——而工具居然收下了，把手机配置污染了。
+     */
+    @Test
+    public void clearConfigActionAndBogusUrlRejected() throws Exception {
+        Context c = connectByPairingArgs();
+        RemoteDshTool tool = new RemoteDshTool(c);
+        assertTrue("配对后应有配置", RemoteDshTool.isConfigured(c));
+        String good = RemoteDshTool.configValue(c, "base_url");
+
+        // 1) 假地址必须被拒，且不能污染已有配置
+        Map<String, Object> p = new HashMap<>();
+        p.put("action", "set_config");
+        p.put("base_url", "http://0.0.0.0:0");
+        p.put("token", "disconnected");
+        AIToolResult bad = tool.execute(p);
+        System.out.println("[EXP] set_config http://0.0.0.0:0 => success=" + bad.isSuccess()
+                + " err=" + String.valueOf(bad.getErrorMessage()).replace("\n", " | "));
+        assertFalse("0.0.0.0:0 应被拒绝", bad.isSuccess());
+        assertEquals("失败时不应改动已有配置", good, RemoteDshTool.configValue(c, "base_url"));
+
+        p.put("base_url", "http://192.168.1.5:0");
+        assertFalse("端口 0 应被拒绝", tool.execute(p).isSuccess());
+        p.put("base_url", "http://");
+        assertFalse("缺主机名应被拒绝", tool.execute(p).isSuccess());
+
+        // 2) 正规清除入口
+        p.clear();
+        p.put("action", "clear_config");
+        AIToolResult clr = tool.execute(p);
+        System.out.println("[EXP] clear_config => success=" + clr.isSuccess()
+                + " " + String.valueOf(clr.getResult()).replace("\n", " | "));
+        assertTrue("clear_config 应成功", clr.isSuccess());
+        assertFalse("清除后不应再有配置", RemoteDshTool.isConfigured(c));
+        assertFalse("清除后连接状态也应为 false", RemoteDshTool.isConnected(c));
+
+        // 3) base_url=clear（AI 的自然写法）等价于清除
+        connectByPairingArgs();
+        assertTrue("重新配对后应有配置", RemoteDshTool.isConfigured(c));
+        p.clear();
+        p.put("action", "set_config");
+        p.put("base_url", "clear");
+        assertTrue("base_url=clear 应等价于清除配置", tool.execute(p).isSuccess());
+        assertFalse("base_url=clear 后不应再有配置", RemoteDshTool.isConfigured(c));
+    }
+
 }
