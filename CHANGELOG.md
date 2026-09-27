@@ -1,5 +1,31 @@
 # 变更日志
 
+## [2026-09-27] 界面为何是英文：Ubuntu 精简镜像把翻译词典整类排除了（时区一并对齐北京时间）
+
+用户问「就问一句为何不是中文，而且时区也不对」。查清后是**容器根文件系统的包管理配置**问题，不是环境变量。
+
+1. **根因（真机证据）**：`/etc/dpkg/dpkg.cfg.d/excludes` 里有一行
+   `path-exclude=/usr/share/locale/*/LC_MESSAGES/*.mo` —— 装包时所有程序自带的翻译词典都被跳过、根本没落盘。
+   · `dpkg -V xfce4-panel` 报 **65 个 missing**，其中 63 个是各语种 `.mo`；
+   · 而 `dpkg -L xfce4-panel` 的语种列表里 `zh_CN` 明明在 —— 不是上游没翻译，是本地被排除了；
+   · `ls /usr/share/locale/zh_CN/LC_MESSAGES` = **0 个文件**（`/usr/share/locale-langpack/zh_CN` 有 413 个，
+     所以终端/coreutils 是中文，而 XFCE/Thunar 这些「词典只在自己包里」的组件永远英文）。
+2. **修复**：解除该排除 → 已装的包 dpkg 不会补写 `.mo`，于是用 `apt-get download + dpkg-deb -x` 把
+   xfce4-panel/xfwm4/xfdesktop4/libxfce4ui/xfconf/exo/thunar/appfinder 的中文词典手动抠回 `/usr/share/locale`。
+   实测 `zh_CN` 词典 0 → 10 个（`xfce4-panel.mo`、`thunar.mo`、whisker 都在）。
+3. **时区**：`/etc/timezone=Asia/Shanghai` + `/etc/localtime` 软链；容器 `date` →
+   `2026年 09月 27日 星期日 16:27:21 CST`（中文星期 + 北京时间，与手机一致）。
+4. **语言环境**：`locale-gen` 生成 `zh_CN.UTF-8`，写入 `/etc/default/locale`、`/etc/environment`、
+   `/etc/profile.d/00-quiz-locale.sh`；XFCE 会话启动行显式带 `LANG/LANGUAGE/LC_ALL=zh_CN.UTF-8`
+   （改的是 `ensure_desktop`：之前没带，即使有词典也不会生效）。
+5. **用现成的中文启动器**（用户提示「别自己写」）：装上 `xfce4-whiskermenu-plugin`；系统自带的
+   `xfce4-appfinder` 与面板「所有应用程序」菜单在词典补回后**自己就变中文** —— 截图 OCR 实测
+   `Thunar 文件管理器`、`用文件管理器浏览文件系统`、`Xfce 终端`、`Xfce 设置`。手写的那版已删除。
+6. **固化进「一键准备」**：新增容器脚本 `ZH_FIX_SH`（幂等，72 行）与「3.5/6 中文界面与北京时间」步骤；
+   图形界面启动/重启脚本新增 `ensure_zh()`（0.2 秒快速守卫，只在缺词典时才修复并重启会话）。
+7. **验证**：`bash -n` 通过（`.quiz_zh_fix.sh`、`ubuntu-gui`）；真机 `bash ~/ubuntu-gui start` → `GUI_ALREADY_UP`；
+   桌面截图 OCR 中文正常；`BUILD SUCCESSFUL`。
+
 ## [2026-09-27] 「一键准备」把能自动的全自动：通道自检 + 一行修复 + 自动复检（并讲清哪一步无法自动）
 
 用户问「Termux 连不上了，能在一键配置时自动配置吗」。先把能力边界说清楚，再把能自动的全部自动化。

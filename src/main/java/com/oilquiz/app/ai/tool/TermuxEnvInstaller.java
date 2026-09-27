@@ -212,7 +212,8 @@ public final class TermuxEnvInstaller {
                 .replace("__ROOTFS__", root)
                 .replace("__TUNA__", TUNA_ROOTFS_URL)
                 .replace("__GUI_INNER__", GUI_INNER_COMMAND)
-                .replace("__GUI_FILE_B64__", b64(buildGuiFile()));
+                .replace("__GUI_FILE_B64__", b64(buildGuiFile()))
+                .replace("__ZH_FIX_B64__", b64(ZH_FIX_SH));
     }
 
     // ---------- 图形界面（X11 + VNC）----------
@@ -242,6 +243,96 @@ public final class TermuxEnvInstaller {
                     + "rm -f /tmp/.X11-unix/X1 /tmp/.X1-lock; "
                     + "exec Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
                     + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz";
+
+    /**
+     * 容器内「中文化 + 北京时间」脚本（可重复运行，只做一次性修复）。
+     *
+     * <p><b>真机查到的根因</b>：Ubuntu 精简根文件系统自带 {@code /etc/dpkg/dpkg.cfg.d/excludes}，
+     * 里面有一行 {@code path-exclude=/usr/share/locale/}{@code *}{@code /LC_MESSAGES/*.mo} ——
+     * 装包时<b>所有程序自带的翻译词典都被跳过、根本没落盘</b>。证据：
+     * {@code dpkg -V xfce4-panel} 报 65 个 missing（63 个是各语种 .mo），
+     * 而 {@code dpkg -L xfce4-panel} 的语种列表里 zh_CN 明明在。
+     * 所以 XFCE 面板 / Thunar / 开始菜单一直显示英文，跟设没设 LANG 无关
+     * （语言包 language-pack-zh-hans 只覆盖 main 里的组件，XFCE 在 universe，词典只在自己包里）。
+     *
+     * <p>脚本干四件事：① 注释掉那条排除；② 把已装好的包缺的中文词典用
+     * {@code apt-get download + dpkg-deb -x} 手动抠回来（dpkg 不会为已安装包重写 .mo）；
+     * ③ 生成 zh_CN.UTF-8 并写 /etc/default/locale、/etc/environment、/etc/profile.d；
+     * ④ 时区设为 Asia/Shanghai，并装上现成的中文开始菜单 Whisker Menu。
+     */
+    public static final String ZH_FIX_SH = """
+            #!/bin/bash
+            # 答题宝 · 容器中文化与北京时间（可重复运行）
+            set +e
+            EX=/etc/dpkg/dpkg.cfg.d/excludes
+            if [ -f "$EX" ] && grep -q '^path-exclude=/usr/share/locale' "$EX"; then
+              sed -i 's|^path-exclude=/usr/share/locale.*|# &|' "$EX"
+              echo "· 已解除 dpkg 对翻译词典的排除（这是界面永远英文的根因）"
+            fi
+            export DEBIAN_FRONTEND=noninteractive
+            TUNA=0
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+              if [ -f "$f" ] && grep -q 'archive.ubuntu.com' "$f"; then
+                sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' "$f"
+                sed -i 's|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' "$f"
+                TUNA=1
+              fi
+            done
+            if [ "$(cat /etc/timezone 2>/dev/null)" != "Asia/Shanghai" ]; then
+              ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+              echo "Asia/Shanghai" > /etc/timezone
+              echo "· 时区已设为 Asia/Shanghai（北京时间）"
+            fi
+            cat > /etc/default/locale <<'QUIZ_LOCALE_EOF'
+            LANG=zh_CN.UTF-8
+            LANGUAGE=zh_CN:zh
+            LC_ALL=zh_CN.UTF-8
+            QUIZ_LOCALE_EOF
+            cp /etc/default/locale /etc/environment
+            mkdir -p /etc/profile.d
+            cat > /etc/profile.d/00-quiz-locale.sh <<'QUIZ_PROFILE_EOF'
+            export LANG=zh_CN.UTF-8
+            export LANGUAGE=zh_CN:zh
+            export LC_ALL=zh_CN.UTF-8
+            QUIZ_PROFILE_EOF
+            if ! locale -a 2>/dev/null | grep -qi 'zh_CN.utf'; then
+              if ! command -v locale-gen >/dev/null 2>&1; then
+                [ "$TUNA" = 1 ] && apt-get update -y >/dev/null 2>&1
+                apt-get install -y --no-install-recommends locales >/dev/null 2>&1
+              fi
+              grep -q '^zh_CN.UTF-8' /etc/locale.gen 2>/dev/null || echo 'zh_CN.UTF-8 UTF-8' >> /etc/locale.gen
+              locale-gen >/dev/null 2>&1 && echo "· 已生成 zh_CN.UTF-8"
+            fi
+            if [ ! -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo ] || [ ! -f /usr/share/locale/zh_CN/LC_MESSAGES/thunar.mo ]; then
+              [ "$TUNA" = 1 ] && apt-get update -y >/dev/null 2>&1
+              apt-get install -y --no-install-recommends language-pack-zh-hans language-pack-zh-hans-base >/dev/null 2>&1
+              T=/tmp/quiz-zh-mo
+              rm -rf "$T"
+              mkdir -p "$T/deb" "$T/ex"
+              cd "$T/deb" || exit 1
+              for p in xfce4-panel xfwm4 xfdesktop4 libxfce4ui-2-0 libxfce4util7 xfconf libgarcon-1-0 exo-utils xfce4-appfinder; do
+                apt-get download "$p" >/dev/null 2>&1
+              done
+              for d in *.deb; do
+                [ -f "$d" ] && dpkg-deb -x "$d" "$T/ex" >/dev/null 2>&1
+              done
+              [ -d "$T/ex/usr/share/locale" ] && cp -a "$T/ex/usr/share/locale/." /usr/share/locale/ 2>/dev/null
+              rm -rf "$T"
+              echo "· 中文词典已补齐：$(ls /usr/share/locale/zh_CN/LC_MESSAGES 2>/dev/null | wc -l) 个"
+            fi
+            if ! ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1; then
+              apt-get install -y --no-install-recommends xfce4-whiskermenu-plugin >/dev/null 2>&1
+              if ! ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1; then
+                cd /tmp && apt-get download xfce4-whiskermenu-plugin >/dev/null 2>&1
+                mkdir -p /tmp/quiz-wm
+                dpkg-deb -x /tmp/xfce4-whiskermenu-plugin*.deb /tmp/quiz-wm >/dev/null 2>&1
+                cp -a /tmp/quiz-wm/. / 2>/dev/null
+                rm -rf /tmp/quiz-wm /tmp/xfce4-whiskermenu-plugin*.deb
+              fi
+              echo "· 已装现成的中文开始菜单 Whisker Menu"
+            fi
+            echo "ZH_FIX_OK tz=$(cat /etc/timezone 2>/dev/null) 中文词典=$(ls /usr/share/locale/zh_CN/LC_MESSAGES 2>/dev/null | wc -l)"
+            """;
 
     /**
      * 演示窗口源码：tkinter 实时时钟 + 一个按钮。
@@ -353,23 +444,26 @@ public final class TermuxEnvInstaller {
                 "LOG=\"$H/.quiz_gui.log\"",
                 "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
+                "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
                 "UP() { pgrep -x Xvnc >/dev/null 2>&1; }",
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
-                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
+                "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo && grep -q zh_CN /etc/default/locale' >/dev/null 2>&1 && return 0; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 2; }",
+                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
                 "TRACE=\"$H/.quiz_gui_start_trace.log\"",
                 "trace() { echo \"$(date '+%T') $1\" >> \"$TRACE\"; }",
                 "trace \"script-start\"",
                 "ensure_fonts",
+                "ensure_zh",
                 "trace \"font-scheduled\"",
-                "if UP; then ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
+                "if UP; then ensure_zh; ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
                 "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
                 "trace \"starting-xvnc\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_desktop; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_zh; ensure_desktop; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
                 "trace \"gui-failed\"",
                 "echo \"GUI_FAILED\"",
                 "tail -15 \"$LOG\"",
@@ -398,11 +492,13 @@ public final class TermuxEnvInstaller {
                 "LOG=\"$H/.quiz_gui.log\"",
                 "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
+                "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
                 "UP() { pgrep -x Xvnc >/dev/null 2>&1; }",
                 "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
-                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
+                "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo && grep -q zh_CN /etc/default/locale' >/dev/null 2>&1 && return 0; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 2; }",
+                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
                 "pkill -x Xvnc >/dev/null 2>&1",
                 "pkill -x xclock >/dev/null 2>&1",
                 "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1",
@@ -410,7 +506,7 @@ public final class TermuxEnvInstaller {
                 "echo \"[$(date '+%T')] restart\" >> \"$LOG\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_desktop; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_zh; ensure_desktop; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
                 "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
     }
 
@@ -595,6 +691,16 @@ public final class TermuxEnvInstaller {
                 else
                   bad "容器创建失败（想推倒重来：proot-distro reset ubuntu）"
                 fi
+              fi
+
+              step "3.5/6 中文界面与北京时间（语言 / 时区 / 翻译词典）"
+              if command -v proot-distro >/dev/null 2>&1; then
+                echo "正在把容器改成中文：Ubuntu 精简镜像有一行 path-exclude 把 /usr/share/locale/*/LC_MESSAGES/*.mo 全排除了，"
+                echo "所以 XFCE / Thunar 这些自带词典的程序一直显示英文。现在解除它并把词典补回来（首次约 1~2 分钟）…"
+                echo "__ZH_FIX_B64__" | base64 -d > "$HOME_DIR/.quiz_zh_fix.sh"
+                proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -8
+              else
+                echo "⚠️  没有 proot-distro，跳过中文化"
               fi
 
               step "4/6 容器内完整 Python（tkinter/curses/readline/sqlite3/ssl/lzma/venv）"
