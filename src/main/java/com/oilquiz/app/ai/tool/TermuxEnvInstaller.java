@@ -216,33 +216,41 @@ public final class TermuxEnvInstaller {
 
     // ---------- 图形界面（X11 + VNC）----------
 
-    /** VNC 端口（x11vnc 监听 127.0.0.1，仅本机可见） */
+    /** VNC 端口（容器里的 Xvnc 监听 127.0.0.1，仅本机可见） */
     public static final int VNC_PORT = 5900;
 
     /**
-     * 容器内启动图形界面的命令。四条真机踩出来的硬要求：
+     * 容器内启动图形界面的命令：**用 TigerVNC 的 Xvnc**（X server + VNC 一个进程搞定）。
+     *
+     * <p>为什么不用 Xvfb + x11vnc（最早那版）：x11vnc 0.9.16 在 proot 下太脆 ——
+     * {@code -encodings} 不认、{@code shmget} 被拒（要 -noshm）、{@code -threads} 会空转且不再监听，
+     * 而且客户端连上后**时好时坏地不发版本横幅**（真机实测：冷启动时 4 次重连全失败、最后进程直接没了）。
+     * 换 Xvnc 后同一个 proot 环境里前台跑满 12 秒毫无问题。
+     *
+     * <p>三条硬要求：
      * <ol>
-     *   <li><b>x11vnc 必须前台常驻</b>（这里用 exec）：proot 会话一退出就会带走所有子进程，
-     *       早先 {@code x11vnc -bg} 一挂后台，Xvfb 立刻跟着死。</li>
-     *   <li><b>不要传 -encodings</b>：Ubuntu 的 x11vnc 0.9.16 不认这个参数，直接
-     *       {@code *** unrecognized option(s) ***} 退出；编码本来就由客户端 SetEncodings 决定，
-     *       我们的客户端只报 copyrect/hextile/raw。</li>
-     *   <li><b>-noshm 是必须的</b>：proot 下 {@code shmget(scanline)} 会被拒（Permission denied）。</li>
-     *   <li>Xvfb 加 {@code -ac} 省掉 X 授权文件麻烦。</li>
+     *   <li><b>Xvnc 必须前台常驻</b>（这里用 exec）：proot 会话一退出就会带走所有子进程。</li>
+     *   <li><b>启动前必须清残留 socket</b>：{@code :1} 的旧 socket 还在时，Xvnc 会直接
+     *       {@code failed to bind socket: Address already in use} 退出（真机踩到过）。</li>
+     *   <li>{@code -SecurityTypes None} 免密码、{@code -ac} 免 X 授权、{@code -AlwaysShared} 允许多客户端。</li>
      * </ol>
      */
     public static final String GUI_INNER_COMMAND =
-            "pkill -x Xvfb >/dev/null 2>&1; pkill -x xclock >/dev/null 2>&1; sleep 1; "
-                    + "Xvfb :1 -screen 0 1280x720x24 -nolisten tcp -ac >/tmp/quiz-xvfb.log 2>&1 & sleep 3; "
-                    + "DISPLAY=:1 xclock -geometry 240x240+20+20 >/dev/null 2>&1 & "
-                    + "exec x11vnc -display :1 -rfbport 5900 -localhost -forever -shared -alwaysshared "
-                    + "-nopw -noshm -timeout 10 -wait 20 -defer 20";
+            "pkill -x Xvnc >/dev/null 2>&1; pkill -x x11vnc >/dev/null 2>&1; pkill -x Xvfb >/dev/null 2>&1; "
+                    + "pkill -x xclock >/dev/null 2>&1; sleep 1; "
+                    + "rm -f /tmp/.X11-unix/X1 /tmp/.X1-lock; "
+                    + "exec Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
+                    + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz";
 
     /**
      * Termux 侧「启动图形界面」脚本（幂等）。
      *
-     * <p>就绪判断用**容器里有没有 x11vnc 进程**，不裸连 5900：x11vnc 默认单线程，
-     * 裸 TCP 连上就断会留下半开连接，把它堵住（真机实测：端口开着但永远不发版本横幅）。
+     * <p>就绪判断 = 端口已监听 <b>且</b> 进程还在（两条都在 Termux 侧做，0 成本，不用起 proot 登录）：
+     * 早先每秒起一次 {@code proot-distro login} 去判断，实测要等 16 秒才连上；而只按进程名判断又会撞上
+     * <b>僵死的 proot 进程</b>（容器里早就没有 x11vnc 了、进程表里还留着）→ 误判"已在运行" → 什么都不启动
+     * （真机踩到过：冷启动 30 秒端口都没开）。
+     *
+     * <p>进程匹配用括号模式 {@code x11vn[c]}，避免匹配到本脚本自己的命令行（里面有 {@code x11vn[c]} 字面量）。
      */
     public static String buildGuiStartScript() {
         return String.join("\n",
@@ -252,7 +260,7 @@ public final class TermuxEnvInstaller {
                 "export HOME=\"$H\"",
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
                 "LOG=\"$H/.quiz_gui.log\"",
-                "UP() { proot-distro login ubuntu -- pgrep -x x11vnc >/dev/null 2>&1; }",
+                "UP() { (echo > /dev/tcp/127.0.0.1/5900) 2>/dev/null && pgrep -f 'Xvn[c] :1' >/dev/null 2>&1; }",
                 "if UP; then echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
                 "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
@@ -261,9 +269,19 @@ public final class TermuxEnvInstaller {
                 "while [ $i -lt 20 ]; do",
                 "  sleep 1",
                 "  i=$((i+1))",
-                "  if UP; then echo \"GUI_UP\"; exit 0; fi",
+                "  if UP; then",
+                "    # 预热：先替用户读一次版本横幅，第一个真实客户端就不用等；",
+                "    # 先用容器里的 python3 走一遍读横幅，用户点进 VNC 页就是秒连。",
+                "    proot-distro login ubuntu -- /usr/bin/python3 -c \"import socket;s=socket.socket();s.settimeout(15);s.connect(('127.0.0.1',5900));print(s.recv(12))\" >/dev/null 2>&1",
+                "    setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 xclock -geometry 320x320+30+30\" >/dev/null 2>&1 &",
+                "    sleep 1",
+                "    echo \"GUI_UP\"",
+                "    exit 0",
+                "  fi",
                 "done",
-                "echo \"GUI_FAILED\"; tail -15 \"$LOG\"",
+                "echo \"GUI_FAILED\"",
+                "tail -15 \"$LOG\"",
+                "echo \"（若显示 socket 被占用，先清掉残留在跑的 Xvnc：pkill -f 'Xvn[c] :1'）\"",
                 "exit 1");
     }
 
@@ -272,18 +290,18 @@ public final class TermuxEnvInstaller {
         return String.join("\n",
                 "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
-                "proot-distro login ubuntu -- /bin/bash -lc 'pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1",
+                "proot-distro login ubuntu -- /bin/bash -lc 'pkill -x Xvnc; pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1",
                 "echo GUI_STOPPED");
     }
 
-    /** Termux 侧「图形界面状态」脚本：端口通就再列一下容器里的 Xvfb/x11vnc 进程 */
+    /** Termux 侧「图形界面状态」脚本：端口通就再列一下容器里的 Xvnc 进程 */
     public static String buildGuiStatusScript() {
         return String.join("\n",
                 "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
-                "if proot-distro login ubuntu -- pgrep -x x11vnc >/dev/null 2>&1; then",
+                "if pgrep -f 'Xvn[c] :1' >/dev/null 2>&1; then",
                 "  echo \"GUI_RUNNING 127.0.0.1:" + VNC_PORT + "\"",
-                "  proot-distro login ubuntu -- /bin/bash -lc 'ps -ef | grep -E \"Xvfb|x11vnc\" | grep -v grep | head -3'",
+                "  proot-distro login ubuntu -- /bin/bash -lc 'ps -ef | grep -E \"Xvnc|x11vnc|Xvfb\" | grep -v grep | head -3'",
                 "else",
                 "  echo \"GUI_STOPPED\"",
                 "fi");
@@ -323,7 +341,7 @@ public final class TermuxEnvInstaller {
             }
 
             gui_pkgs_ok() {
-              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvfb >/dev/null 2>&1 && command -v x11vnc >/dev/null 2>&1' 2>/dev/null
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v xclock >/dev/null 2>&1' 2>/dev/null
             }
 
             quiz_main() {
@@ -401,14 +419,14 @@ public final class TermuxEnvInstaller {
                 proot-distro login ubuntu -- /usr/bin/python3 -c "$PY_CHECK" 2>/dev/null || bad "容器内 Python 仍不完整"
               fi
 
-              step "5/6 图形界面组件（X11 + VNC，约 78MB，仅首次）"
+              step "5/6 图形界面组件（TigerVNC Xvnc + X 工具，约 70MB，仅首次）"
               if ! command -v proot-distro >/dev/null 2>&1; then
                 bad "没有 proot-distro，跳过图形界面组件"
               elif gui_pkgs_ok; then
-                ok "Xvfb / x11vnc 已安装，跳过"
+                ok "Xvnc（TigerVNC）已安装，跳过"
               else
-                echo "正在容器内安装 xvfb / x11vnc / x11-utils / x11-apps / procps / xdotool / imagemagick（约 78MB，2~4 分钟）…"
-                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends xvfb x11vnc x11-utils x11-apps procps xdotool imagemagick' || bad "图形界面组件安装失败：请检查网络后重跑本页"
+                echo "正在容器内安装 tigervnc-standalone-server / x11-utils / x11-apps / procps / xdotool / imagemagick（约 70MB，2~4 分钟）…"
+                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick' || bad "图形界面组件安装失败：请检查网络后重跑本页"
                 if gui_pkgs_ok; then ok "X11/VNC 组件就绪"; else bad "X11/VNC 组件没装全"; fi
               fi
 
@@ -432,7 +450,7 @@ public final class TermuxEnvInstaller {
             INNER='__GUI_INNER__'
             case "$1" in
               stop)
-                proot-distro login ubuntu -- /bin/bash -lc 'pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1
+                proot-distro login ubuntu -- /bin/bash -lc 'pkill -x Xvnc; pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1
                 echo "图形界面已停止"
                 ;;
               status)
@@ -441,7 +459,7 @@ public final class TermuxEnvInstaller {
               *)
                 if PORTUP; then echo "图形界面已在运行: 127.0.0.1:$PORT"; exit 0; fi
                 : > "$LOG"
-                echo "正在启动图形界面（Xvfb 1280x720 + x11vnc :$PORT）..."
+                echo "正在启动图形界面（TigerVNC Xvnc 1280x720 :$PORT）..."
                 setsid nohup proot-distro login ubuntu -- /bin/bash -lc "$INNER" >> "$LOG" 2>&1 &
                 i=0
                 while [ $i -lt 20 ]; do

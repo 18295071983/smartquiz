@@ -172,22 +172,25 @@ public class VncClientDeviceTest {
         String setup = TermuxEnvInstaller.buildSetupScript("/sdcard/Download/OilQuiz/termux_env/ubuntu-base-24.04.5-base-arm64.tar.gz");
         assertTrue("准备脚本应含 GUI 启动命令", setup.contains(TermuxEnvInstaller.GUI_INNER_COMMAND));
         assertTrue("准备脚本应写 ~/ubuntu-gui", setup.contains("ubuntu-gui"));
-        assertTrue("应装 xvfb", setup.contains("xvfb"));
-        assertTrue("应装 x11vnc", setup.contains("x11vnc"));
+        assertTrue("应装 tigervnc-standalone-server（Xvnc）", setup.contains("tigervnc-standalone-server"));
         assertTrue("应装 xdotool（GUI 自动化）", setup.contains("xdotool"));
         assertTrue("应装 imagemagick（截图）", setup.contains("imagemagick"));
-        assertTrue("-noshm 必须带（proot 下 shmget 会被拒）", setup.contains("-noshm"));
-        assertFalse("不能带 -encodings（Ubuntu 的 x11vnc 0.9.16 不认，会直接退出）", setup.contains("-encodings"));
-        assertTrue("x11vnc 必须前台常驻（exec）", setup.contains("exec x11vnc"));
+        assertTrue("Xvnc 必须前台常驻（exec）", setup.contains("exec Xvnc :1"));
+        assertTrue("Xvnc 要免密码/免 X 授权", setup.contains("-SecurityTypes None") && setup.contains("-ac"));
+        assertTrue("启动前必须清 :1 的残留 socket（否则 bind 失败直接退出）",
+                setup.contains("rm -f /tmp/.X11-unix/X1"));
+        assertFalse("不要再带 x11vnc 那套参数", setup.contains("-noshm") || setup.contains("-threads"));
 
         String start = TermuxEnvInstaller.buildGuiStartScript();
         assertTrue("App 侧启动脚本应 setsid nohup 常驻", start.contains("setsid nohup"));
         assertTrue("App 侧启动脚本应与准备脚本用同一份容器命令", start.contains(TermuxEnvInstaller.GUI_INNER_COMMAND));
         assertTrue("App 侧启动脚本应幂等（已在跑就退出）", start.contains("GUI_ALREADY_UP"));
-        assertTrue("就绪判断应用容器内进程名，不裸连 5900", start.contains("pgrep -x x11vnc"));
-        assertFalse("不要裸连 5900 探测（会把单线程 x11vnc 堵死）", start.contains("/dev/tcp/127.0.0.1/5900"));
-        assertTrue("应给 x11vnc 加 -timeout，防止僵尸客户端堵死", setup.contains("-timeout 10"));
-        assertFalse("不要用 x11vnc 的 -threads（真机实测会空转且不再监听）", setup.contains("-threads"));
+        assertTrue("就绪判断应在 Termux 侧 0 成本做（端口+进程双条件）",
+                start.contains("pgrep -f") && start.contains("Xvn[c] :1")
+                        && start.contains("/dev/tcp/127.0.0.1/5900"));
+        assertTrue("失败时要提示清残留 Xvnc", start.contains("pkill -f 'Xvn[c] :1'"));
+        assertTrue("启动后要预热服务端（x11vnc 首个客户端约 5 秒才发横幅）", start.contains("s.recv(12)"));
+        assertFalse("不要再回到 x11vnc 那套（-threads 实测空转且不再监听）", setup.contains("-threads"));
 
         String status = TermuxEnvInstaller.buildGuiStatusScript();
         assertTrue("状态脚本应报 GUI_RUNNING/GUI_STOPPED",

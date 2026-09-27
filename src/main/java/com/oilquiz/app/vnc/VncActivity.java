@@ -181,15 +181,18 @@ public class VncActivity extends AppCompatActivity implements VncClient.Listener
                 handler.postDelayed(this::connectNow, 2000);
                 return;
             }
-            // x11vnc 偶发"接了连接却不发版本横幅"：这类失败自动重连几次就通了
-            if (autoRetry < 4) {
+            // x11vnc 偶发"接了连接却不发版本横幅"（真机实测约一半首次尝试会这样）：
+            // 自动重连几次就通了，所以这里措辞是"正在连接第 N 次"而不是"失败"，避免用户以为连不上。
+            if (autoRetry < 5) {
                 autoRetry++;
-                status("连接失败：" + reason + " → 自动重连（第 " + autoRetry + " 次）");
-                handler.postDelayed(this::connectNow, 1500);
+                status("正在连接 127.0.0.1:" + parsePort() + " …（第 " + autoRetry + " 次尝试，最多 5 次）");
+                handler.postDelayed(this::connectNow, 800);
                 return;
             }
             android.util.Log.i("VncActivity", "已断开: " + reason);
             status("已断开：" + reason);
+            hint("连不上 127.0.0.1:5900。点「启动图形界面」让 Termux 起服务端（约 5~10 秒），"
+                    + "或到 Termux 里执行 ~/ubuntu-gui status 看状态、~/.quiz_gui.log 看日志。");
             if (retryCount >= 15) {
                 hint("连不上 127.0.0.1:5900。可能是：① 容器里还没装 X11/VNC 组件"
                         + "（去「完整 Python 环境」页点一次「一键准备」）；"

@@ -47,8 +47,12 @@ public class VncClient {
     private static final int ENC_HEXTILE = 5;
     private static final int ENC_DESKTOP_SIZE = -223;
 
-    /** 握手阶段读超时（毫秒）：超了就当这次连接失败，交给上层重连 */
-    private static final int HANDSHAKE_TIMEOUT_MS = 8000;
+    /**
+     * 握手阶段读超时（毫秒）。必须给足：x11vnc 刚启动时，第一个客户端要先经过一次 websockets 探测，
+     * 实测约 5 秒才收到版本横幅（真机上把这里调到 4 秒会 5 次重连全失败）。
+     * 启动脚本那边会先做一次预热，所以用户点进来通常是秒连。
+     */
+    private static final int HANDSHAKE_TIMEOUT_MS = 12000;
 
     private static final int MSG_FRAMEBUFFER_UPDATE = 0;
     private static final int MSG_SET_COLOUR_MAP = 1;
