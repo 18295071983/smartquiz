@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-09-27] 桌面换成 MATE，并做成可切换（mate / xfce4 / lxqt 一条命令）
+
+用户说「把 ubuntu 的桌面换一下，看看有没有合适的，大点也没事」。
+
+1. 装了 **MATE 1.26**（mate-desktop-environment + mate-terminal + caja）。实测进程齐活：mate-session / marco /
+   mate-panel ×5 / caja；中文词典 10 个（caja、mate-panel、mate-session-manager…）；面板标题已经是
+   「顶部面板 / 底部面板」。
+2. 踩坑与修法（都是真机踩出来的）：
+   · `ubuntu-mate-default-settings` 解包卡在 `orca.desktop.dpkg-new: Permission denied`（proot 下 dpkg 建临时文件被拒）
+     → 先 `rm` 掉冲突文件再 `dpkg -i` 就过了；
+   · 我一度用 `--force-remove-reinstreq` 把它拔了 → `mate-session-manager` 依赖不满足，3 个包卡在 `iU`
+     → 按上面重装后 `dpkg --configure -a` 全部配置完成；
+   · **在容器里 setsid 起的桌面会话会随那条 login 退出被杀**（我一开始截到的"空桌面"就是这个原因），
+     必须像 App 那样从 Termux 侧 `setsid nohup proot-distro login ... exec dbus-run-session -- $SESSION`。
+3. **桌面可切换**：`~/.quiz_desktop` 存会话命令，`bash ~/ubuntu-gui desktop mate|xfce4|lxqt` 切换，
+   `~/ubuntu-gui status` 显示当前桌面。`ensure_desktop` 修了一个真 bug：**当前跑的会话与配置不一致时先杀掉旧会话**
+   （原来只判断"有没有会话在跑"，于是切了桌面还是旧的在跑 —— 真机实测 MATE 与 XFCE 同时在跑、两套面板打架）。
+   一键准备里也加了 MATE（apt 列表 + `gui_pkgs_ok` 检查 mate-session）。
+4. **比 XFCE 差的地方（如实说）**：MATE 的**通知区域 applet 会崩**并在启动时弹一次中文报错框
+   （dconf 里是 `applet-iid='NotificationAreaAppletFactory::NotificationArea'`，可以摘掉）；没装壁纸包，桌面是纯色。
+   XFCE 这套在 proot 下明显更稳（整个会话都在用）。随时 `bash ~/ubuntu-gui desktop xfce4 && bash ~/ubuntu-gui restart` 切回。
+
 ## [2026-09-27] 浮层再进化：松手吸附最近边缘 + 长按收起成小圆点（再长按恢复）
 
 用户回「可以」，同意上一条里提的两个行为。在已有「拖动 + 记忆位置 + 越界 clamp」之上加：

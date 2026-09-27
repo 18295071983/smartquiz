@@ -537,6 +537,11 @@ public final class TermuxEnvInstaller {
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
                 "LOG=\"$H/.quiz_gui.log\"",
                 "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
+                // 桌面环境可选：~/.quiz_desktop 里存会话命令（mate-session / startxfce4 / startlxqt），
+                // 换桌面只要改这个文件（bash ~/ubuntu-gui desktop xfce4 就能切回去）
+                "DESKTOP_FILE=\"$H/.quiz_desktop\"",
+                "SESSION=\"$(cat \"$DESKTOP_FILE\" 2>/dev/null)\"",
+                "[ -n \"$SESSION\" ] || SESSION=mate-session",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
                 // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
@@ -546,7 +551,7 @@ public final class TermuxEnvInstaller {
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
                 "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
-                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
+                "ensure_desktop() { pgrep -f 'mate-sessio[n]' >/dev/null 2>&1 && RUN=mate-session; pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x mate-session; pkill -x mate-panel; pkill -x caja; pkill -x marco' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
                 "TRACE=\"$H/.quiz_gui_start_trace.log\"",
                 "trace() { echo \"$(date '+%T') $1\" >> \"$TRACE\"; }",
                 "trace \"script-start\"",
@@ -587,6 +592,11 @@ public final class TermuxEnvInstaller {
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
                 "LOG=\"$H/.quiz_gui.log\"",
                 "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
+                // 桌面环境可选：~/.quiz_desktop 里存会话命令（mate-session / startxfce4 / startlxqt），
+                // 换桌面只要改这个文件（bash ~/ubuntu-gui desktop xfce4 就能切回去）
+                "DESKTOP_FILE=\"$H/.quiz_desktop\"",
+                "SESSION=\"$(cat \"$DESKTOP_FILE\" 2>/dev/null)\"",
+                "[ -n \"$SESSION\" ] || SESSION=mate-session",
                 "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
                 "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
                 // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
@@ -596,7 +606,7 @@ public final class TermuxEnvInstaller {
                 "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
                 "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
                 "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
-                "ensure_desktop() { pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- startxfce4\" >/dev/null 2>&1 < /dev/null & sleep 3; }; }",
+                "ensure_desktop() { pgrep -f 'mate-sessio[n]' >/dev/null 2>&1 && RUN=mate-session; pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x mate-session; pkill -x mate-panel; pkill -x caja; pkill -x marco' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
                 "pkill -x Xvnc >/dev/null 2>&1",
                 "pkill -x xclock >/dev/null 2>&1",
                 "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1",
@@ -622,6 +632,7 @@ public final class TermuxEnvInstaller {
         return String.join("\n",
                 "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
                 "export PATH=\"$PREFIX/bin:/system/bin\"",
+                "echo \"当前桌面: $(cat \"$HOME/.quiz_desktop\" 2>/dev/null || echo mate-session)\"",
                 "if pgrep -f 'Xvn[c] :1' >/dev/null 2>&1; then",
                 "  echo \"GUI_RUNNING 127.0.0.1:" + VNC_PORT + "\"",
                 "  proot-distro login ubuntu -- /bin/bash -lc 'ps -ef | grep -E \"Xvnc|x11vnc|Xvfb\" | grep -v grep | head -3'",
@@ -658,6 +669,15 @@ public final class TermuxEnvInstaller {
                 "    ;;",
                 "  status)",
                 buildGuiStatusScript(),
+                "    ;;",
+                "  desktop)",
+                "    case \"$2\" in",
+                "      mate)  echo mate-session > \"$HOME/.quiz_desktop\" ;;",
+                "      xfce4) echo startxfce4  > \"$HOME/.quiz_desktop\" ;;",
+                "      lxqt)  echo startlxqt   > \"$HOME/.quiz_desktop\" ;;",
+                "      *)     echo \"用法: bash ~/ubuntu-gui desktop mate|xfce4|lxqt\"; exit 1 ;;",
+                "    esac",
+                "    echo \"桌面会话已切换为 $(cat \"$HOME/.quiz_desktop\")(下次 start/restart 生效)\"",
                 "    ;;",
                 "  restart)",
                 buildGuiRestartScript(),
@@ -723,7 +743,7 @@ public final class TermuxEnvInstaller {
             }
 
             gui_pkgs_ok() {
-              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1' 2>/dev/null
+              proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1 && command -v mate-session >/dev/null 2>&1' 2>/dev/null
             }
 
             quiz_main() {
@@ -818,7 +838,7 @@ public final class TermuxEnvInstaller {
                 ok "Xvnc + XFCE 桌面 + 中文字体已安装，跳过"
               else
                 echo "正在容器内安装 TigerVNC + XFCE 桌面（面板/开始菜单/文件管理器/终端）+ 中文字体（约 110MB，3~6 分钟）…"
-                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig xfce4 xfce4-terminal thunar mousepad dbus-x11 novnc websockify' || bad "图形界面组件安装失败：请检查网络后重跑本页"
+                proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig xfce4 xfce4-terminal thunar mousepad dbus-x11 novnc websockify mate-desktop-environment mate-terminal caja' || bad "图形界面组件安装失败：请检查网络后重跑本页"
                 if gui_pkgs_ok; then ok "X11/VNC 组件就绪"; else bad "X11/VNC 组件没装全"; fi
               fi
 
