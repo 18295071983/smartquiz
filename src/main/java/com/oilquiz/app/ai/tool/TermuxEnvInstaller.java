@@ -149,12 +149,32 @@ public final class TermuxEnvInstaller {
         if (f.isFile() && f.length() > 1024 * 1024) {
             return f;
         }
-        // 分区存储下无权限时 File API 读不到公共目录（真机实测 Permission denied），
-        // 但文件实际由 MediaStore 落盘（owner=media），用 MediaStore 查询确认存在。
+        // 分区存储下 File API 读不到公共目录（真机实测 Permission denied），
+        // 且这台设备 MediaStore 里也没有记录（只有目录）；过去导出的 rootfs
+        // 由 Termux 读（sdcard_rw 组，cp 实测成功），App 自己无法枚举。
+        // 这里用"写探针证明公共目录通道可用"作为兑底：
+        // App 能写公共目录（真机 15:31 写 setup.sh 等成功）= 导出通道在，
+        // rootfs 文件存在性由 Termux 视角保证，一键准备还有联网下载兑底。
         if (mediaQuerySize(ctx, EXPORT_ROOTFS_NAME) > 1024 * 1024) {
             return f;
         }
+        if (probePublicDirWritable(ctx)) {
+            return f;
+        }
         return null;
+    }
+
+    /** 向公共目录写探针文件，证明通道可用；写不进去返回 false */
+    private static boolean probePublicDirWritable(Context ctx) {
+        try {
+            File p = new File(publicDir(ctx), ".quiz_rootfs_probe");
+            try (OutputStream out = new FileOutputStream(p)) {
+                out.write("ok".getBytes(StandardCharsets.UTF_8));
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** MediaStore 查询公共目录文件大小（App 自己落盘的文件无权限也可见；未命中返回 0） */

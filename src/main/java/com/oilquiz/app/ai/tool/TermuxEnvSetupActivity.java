@@ -71,8 +71,12 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         exportBtn.setOnClickListener(v -> doExportRootfs());
         runBtn.setOnClickListener(v -> doRunSetup());
         grantBtn.setOnClickListener(v -> {
-            startActivity(new Intent(this, TermuxPermissionActivity.class));
-            log("已打开 Termux 权限请求：请在弹窗里点「允许」。\n（若没弹窗，说明厂商 ROM 拦了，改用「复制手动命令」粘到 Termux 执行）");
+            if (TermuxEnvInstaller.hasRunCommandPermission(this)) {
+                log("RUN_COMMAND 权限已授予。\n如果还需要 Termux 读取本地包（ｾ/storage 访问）：\n在 Termux 里执行  termux-setup-storage  并在系统弹窗点「允许」（或 Termux 设置——应用——打开“所有文件访问”）。");
+            } else {
+                startActivity(new Intent(this, TermuxPermissionActivity.class));
+                log("已打开 Termux 权限请求：请在弹窗里点「允许」。\n（若没弹窗，说明厂商 ROM 拦了，改用「复制手动命令」粘到 Termux 执行）");
+            }
         });
         copyBtn.setOnClickListener(v -> copyManualCommand());
         findViewById(R.id.btn_fix_channel).setOnClickListener(v -> doFixChannel());
@@ -152,7 +156,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         exportBtn.setEnabled(!busy && rootfs == null);
         exportBtn.setText(rootfs == null ? "导出 Ubuntu 根文件系统（28.5 MB）" : "根文件系统已导出，无需重复导出");
         runBtn.setEnabled(!busy && ver != null);
-        grantBtn.setEnabled(!busy && !perm);
+        // 不再因 RUN_COMMAND 已授予而禁用：点击后按状态分支（未授→请求页；已授→存储指引）
+        grantBtn.setEnabled(!busy);
         copyBtn.setEnabled(!busy);
     }
 
