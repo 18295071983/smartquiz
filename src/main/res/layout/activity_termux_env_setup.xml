@@ -291,7 +291,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_44"
                             android:layout_marginTop="@dimen/space_8"
-                            android:text="一键准备（在 Termux 里执行，可见进度）"
+                            android:text="一键准备（自动执行）"
                             android:textSize="@dimen/text_14"
                             android:textAllCaps="false"
                             android:textColor="?attr/colorOnPrimary"
