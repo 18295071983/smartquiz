@@ -487,10 +487,17 @@ public final class TermuxEnvInstaller {
             #    一条 --fork 的临时总线，那种 daemon 随一次性会话被 --kill-on-exit 回收 →
             #    面板就挂在了死总线上。死掉就自己重开一条（--nofork 挂后台，靠末尾 wait 活着）。
             if ! bus_ok; then
-              rm -f "$BUSDIR"
-              dbus-daemon --session --nofork --print-address=1 > "$BUSDIR" 2>/dev/null &
-              sleep 2
-              export DBUS_SESSION_BUS_ADDRESS="$(head -1 "$BUSDIR")"
+              sleep 1
+              if ! bus_ok; then
+                sleep 1
+                if ! bus_ok; then
+                  # 兑底总线：重试两次仍不通再自开（避免 dbus-run-session 的 daemon 未就绪被误判成死了而开出第二条总线）
+                  rm -f "$BUSDIR"
+                  dbus-daemon --session --nofork --print-address=1 > "$BUSDIR" 2>/dev/null &
+                  sleep 2
+                  export DBUS_SESSION_BUS_ADDRESS="$(head -1 "$BUSDIR")"
+                fi
+              fi
             fi
             echo "OILQUIZ_SHELL bus=$DBUS_SESSION_BUS_ADDRESS 应答=$(bus_ok && echo 活 || echo 死)"
             # ①.5 让 D-Bus **按需激活**出来的服务也拿到 DISPLAY。
@@ -502,6 +509,7 @@ public final class TermuxEnvInstaller {
             #     把环境变量写进总线的激活环境，激活实例就正常了。
             if command -v dbus-update-activation-environment >/dev/null 2>&1; then
               dbus-update-activation-environment DISPLAY XAUTHORITY LANG LC_ALL >/dev/null 2>&1
+            fi
             # ①.6 websockify 看门狗：归**这条长活会话**所有，端口不通才拉起，通了就只定时探活。
             #      真机踩到两个坑：① 启动器每次 kill_stale 都会把正在服务的 websockify 清掉，
             #      而「桌面已就绪」那条分支不会再拉起它 → 网页 http=000（手机上看不到画面）；
@@ -516,7 +524,6 @@ public final class TermuxEnvInstaller {
                   sleep 5
                 done
               ) &
-            fi
             fi
             # ② 独占：xfce4-session 会按它保存的会话把面板/通知守护再拉一份（见上面 javadoc），
             #    桌面只由本脚本负责，所以连会话管理器一起清掉。
@@ -592,6 +599,21 @@ public final class TermuxEnvInstaller {
                 echo "OILQUIZ_SHELL 文件管理器服务未注册 ✗ $n"
               fi
             done
+            # ⑤ 运行期自愈看门狗：面板/WM 被 proot 或内存压力干掉后没有自愈机制，
+            #    窗口变 10x10、面板消失都得重启图形界面才恢复；这里 5 秒一轮补齐。
+            (
+              while true; do
+                if ! pgrep -x xfwm4 >/dev/null 2>&1; then
+                  xfwm4 --replace --compositor=off --sm-client-disable >> /tmp/quiz_shell_watchdog.log 2>&1 &
+                fi
+                if ! pgrep -x xfce4-panel >/dev/null 2>&1; then
+                  pkill -9 -x xfce4-panel >/dev/null 2>&1
+                  sleep 1
+                  xfce4-panel >> /tmp/quiz_shell_watchdog.log 2>&1 &
+                fi
+                sleep 5
+              done
+            ) &
             wait
             exit 0
             """;
