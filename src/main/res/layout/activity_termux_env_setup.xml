@@ -2,6 +2,7 @@
 <!--
   完整 Python 环境（Termux + Ubuntu）一键准备。
   入口：工具集 → 设置与数据 → 完整 Python 环境。
+  结构：页面头 → 环境状态卡（含手动刷新）→ 三步操作卡（步骤徽章）→ 运行日志卡。
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -16,45 +17,107 @@
         android:orientation="vertical"
         android:padding="@dimen/space_16">
 
-        <!-- 状态卡 -->
+        <!-- 页面头 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="@dimen/space_16">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🐍 完整 Python 环境"
+                android:textSize="@dimen/text_22"
+                android:textStyle="bold"
+                android:textColor="?attr/colorControlText"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Termux + Ubuntu 一键部署 · 装好即可让 AI 调用真实 Linux 环境"
+                android:textSize="@dimen/text_13"
+                android:textColor="?attr/colorControlTextSecondary"/>
+        </LinearLayout>
+
+        <!-- ① 环境状态卡 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="16dp"
+            app:cardElevation="3dp"
+            app:cardCornerRadius="18dp"
             app:cardBackgroundColor="?attr/colorCardBackground">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="@dimen/space_16">
-                <TextView
-                    android:layout_width="wrap_content"
+
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="🐍 完整 Python 环境（Termux + Ubuntu）"
-                    android:textSize="@dimen/text_18"
-                    android:textStyle="bold"
-                    android:textColor="?attr/colorControlText"/>
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="环境检查"
+                        android:textSize="@dimen/text_16"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorControlText"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_refresh"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:contentDescription="刷新状态"
+                        app:icon="@drawable/ic_refresh"
+                        app:iconSize="20dp"
+                        app:iconTint="?attr/colorPrimary"
+                        app:iconGravity="textStart"
+                        app:backgroundTint="?attr/colorPrimaryContainer"
+                        app:cornerRadius="20dp"
+                        app:strokeWidth="0dp"
+                        android:insetLeft="0dp"
+                        android:insetTop="0dp"
+                        android:insetRight="0dp"
+                        android:insetBottom="0dp"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:layout_marginBottom="@dimen/space_12"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.15"/>
+
                 <TextView
                     android:id="@+id/env_status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:lineSpacingExtra="3dp"
+                    android:lineSpacingExtra="4dp"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary"
                     android:text="检查中…"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="· 进入页面或点右上角刷新，自动重新检测"
+                    android:textSize="@dimen/text_11"
+                    android:textColor="?attr/colorControlTextHint"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 三步操作卡 -->
+        <!-- ② 三步操作卡 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="16dp"
+            app:cardElevation="3dp"
+            app:cardCornerRadius="18dp"
             app:cardBackgroundColor="?attr/colorCardBackground">
             <LinearLayout
                 android:layout_width="match_parent"
@@ -62,90 +125,197 @@
                 android:orientation="vertical"
                 android:padding="@dimen/space_16">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="第 1 步 · 安装 Termux（内置官方包，系统会确认一次）"
-                    android:textSize="@dimen/text_14"
-                    android:textColor="?attr/colorControlText"/>
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_install_termux"
-                    android:layout_width="match_parent"
-                    android:layout_height="@dimen/size_44"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:text="安装 Termux"
-                    android:textSize="@dimen/text_14"
-                    android:textAllCaps="false"
-                    android:textColor="?attr/colorOnPrimary"
-                    app:backgroundTint="?attr/colorPrimary"
-                    app:cornerRadius="@dimen/radius_22"/>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="@dimen/space_12"
-                    android:layout_marginBottom="@dimen/space_12"
-                    android:background="?attr/colorControlTextHint"
-                    android:alpha="0.2"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="第 2 步 · 导出 Ubuntu 根文件系统到 Download/OilQuiz/termux_env/"
-                    android:textSize="@dimen/text_14"
-                    android:textColor="?attr/colorControlText"/>
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_export_rootfs"
-                    android:layout_width="match_parent"
-                    android:layout_height="@dimen/size_44"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:text="导出 Ubuntu 根文件系统（28.5 MB）"
-                    android:textSize="@dimen/text_14"
-                    android:textAllCaps="false"
-                    android:textColor="?attr/colorOnPrimary"
-                    app:backgroundTint="?attr/colorPrimary"
-                    app:cornerRadius="@dimen/radius_22"/>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="@dimen/space_12"
-                    android:layout_marginBottom="@dimen/space_12"
-                    android:background="?attr/colorControlTextHint"
-                    android:alpha="0.2"/>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="第 3 步 · 在 Termux 里准备容器并安装完整 Python（约 3~6 分钟）"
-                    android:textSize="@dimen/text_14"
-                    android:textColor="?attr/colorControlText"/>
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_run_setup"
-                    android:layout_width="match_parent"
-                    android:layout_height="@dimen/size_44"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:text="一键准备（在 Termux 里执行，可见进度）"
-                    android:textSize="@dimen/text_14"
-                    android:textAllCaps="false"
-                    android:textColor="?attr/colorOnPrimary"
-                    app:backgroundTint="?attr/colorPrimary"
-                    app:cornerRadius="@dimen/radius_22"/>
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_open_vnc"
-                    android:layout_width="match_parent"
-                    android:layout_height="@dimen/size_44"
-                    android:layout_marginTop="@dimen/space_8"
-                    android:text="启动图形界面（VNC，看 Linux 桌面）"
-                    android:textSize="@dimen/text_13"
-                    android:textAllCaps="false"
-                    android:textColor="?attr/colorOnSecondaryContainer"
-                    app:backgroundTint="?attr/colorSecondaryContainer"
-                    app:cornerRadius="@dimen/radius_22"/>
+                <!-- 步骤 1 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/space_8"
+                    android:orientation="horizontal">
+                    <TextView
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:layout_marginEnd="@dimen/space_12"
+                        android:gravity="center"
+                        android:background="@drawable/bg_step_badge"
+                        android:text="1"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorOnPrimary"/>
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="安装 Termux"
+                            android:textSize="@dimen/text_15"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorControlText"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="内置官方包 108.6MB，系统会弹一次安装确认"
+                            android:textSize="@dimen/text_12"
+                            android:textColor="?attr/colorControlTextSecondary"/>
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_install_termux"
+                            android:layout_width="match_parent"
+                            android:layout_height="@dimen/size_44"
+                            android:layout_marginTop="@dimen/space_8"
+                            android:text="安装 Termux"
+                            android:textSize="@dimen/text_14"
+                            android:textAllCaps="false"
+                            android:textColor="?attr/colorOnPrimary"
+                            app:backgroundTint="?attr/colorPrimary"
+                            app:cornerRadius="@dimen/radius_22"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_16"
+                    android:layout_marginBottom="@dimen/space_16"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.15"/>
+
+                <!-- 步骤 2 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <TextView
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:layout_marginEnd="@dimen/space_12"
+                        android:gravity="center"
+                        android:background="@drawable/bg_step_badge"
+                        android:text="2"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorOnPrimary"/>
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="导出 Ubuntu 根文件系统"
+                            android:textSize="@dimen/text_15"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorControlText"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="28.5MB 内置包 → Download/OilQuiz/termux_env/"
+                            android:textSize="@dimen/text_12"
+                            android:textColor="?attr/colorControlTextSecondary"/>
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_export_rootfs"
+                            android:layout_width="match_parent"
+                            android:layout_height="@dimen/size_44"
+                            android:layout_marginTop="@dimen/space_8"
+                            android:text="导出 Ubuntu 根文件系统（28.5 MB）"
+                            android:textSize="@dimen/text_14"
+                            android:textAllCaps="false"
+                            android:textColor="?attr/colorOnPrimary"
+                            app:backgroundTint="?attr/colorPrimary"
+                            app:cornerRadius="@dimen/radius_22"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_16"
+                    android:layout_marginBottom="@dimen/space_16"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.15"/>
+
+                <!-- 步骤 3 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <TextView
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:layout_marginEnd="@dimen/space_12"
+                        android:gravity="center"
+                        android:background="@drawable/bg_step_badge"
+                        android:text="3"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorOnPrimary"/>
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="一键准备完整 Python 环境"
+                            android:textSize="@dimen/text_15"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorControlText"/>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="在 Termux 里跑准备脚本，约 3~6 分钟，全程可见进度"
+                            android:textSize="@dimen/text_12"
+                            android:textColor="?attr/colorControlTextSecondary"/>
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_run_setup"
+                            android:layout_width="match_parent"
+                            android:layout_height="@dimen/size_44"
+                            android:layout_marginTop="@dimen/space_8"
+                            android:text="一键准备（在 Termux 里执行，可见进度）"
+                            android:textSize="@dimen/text_14"
+                            android:textAllCaps="false"
+                            android:textColor="?attr/colorOnPrimary"
+                            app:backgroundTint="?attr/colorPrimary"
+                            app:cornerRadius="@dimen/radius_22"/>
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_open_vnc"
+                            android:layout_width="match_parent"
+                            android:layout_height="@dimen/size_44"
+                            android:layout_marginTop="@dimen/space_8"
+                            android:text="🖥️ 启动图形界面（VNC 桌面）"
+                            android:textSize="@dimen/text_13"
+                            android:textAllCaps="false"
+                            android:textColor="?attr/colorOnSecondaryContainer"
+                            app:backgroundTint="?attr/colorSecondaryContainer"
+                            app:cornerRadius="@dimen/radius_22"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_16"
+                    android:layout_marginBottom="@dimen/space_16"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.15"/>
+
+                <!-- 次级操作 -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/space_8"
+                    android:text="辅助操作"
+                    android:textSize="@dimen/text_12"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlTextHint"/>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:orientation="horizontal">
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_grant"
@@ -153,7 +323,7 @@
                         android:layout_height="@dimen/size_44"
                         android:layout_weight="1"
                         android:text="授予 Termux 权限"
-                        android:textSize="@dimen/text_13"
+                        android:textSize="@dimen/text_12"
                         android:textAllCaps="false"
                         android:textColor="?attr/colorOnSecondaryContainer"
                         app:backgroundTint="?attr/colorSecondaryContainer"
@@ -163,8 +333,9 @@
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_44"
                         android:layout_weight="1"
-                        android:text="自检并修复通道"
-                        android:textSize="@dimen/text_13"
+                        android:layout_marginStart="@dimen/space_8"
+                        android:text="自检修复通道"
+                        android:textSize="@dimen/text_12"
                         android:textAllCaps="false"
                         android:textColor="?attr/colorOnSecondaryContainer"
                         app:backgroundTint="?attr/colorSecondaryContainer"
@@ -176,7 +347,7 @@
                         android:layout_weight="1"
                         android:layout_marginStart="@dimen/space_8"
                         android:text="复制手动命令"
-                        android:textSize="@dimen/text_13"
+                        android:textSize="@dimen/text_12"
                         android:textAllCaps="false"
                         android:textColor="?attr/colorOnSecondaryContainer"
                         app:backgroundTint="?attr/colorSecondaryContainer"
@@ -185,19 +356,33 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 日志 / 说明卡 -->
+        <!-- ③ 运行日志卡 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/space_12"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="16dp"
+            app:cardElevation="3dp"
+            app:cardCornerRadius="18dp"
             app:cardBackgroundColor="?attr/colorCardBackground">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="@dimen/space_16">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="运行日志"
+                    android:textSize="@dimen/text_16"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText"/>
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:layout_marginBottom="@dimen/space_12"
+                    android:background="?attr/colorControlTextHint"
+                    android:alpha="0.15"/>
                 <TextView
                     android:id="@+id/env_log"
                     android:layout_width="match_parent"

@@ -80,6 +80,10 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         });
         copyBtn.setOnClickListener(v -> copyManualCommand());
         findViewById(R.id.btn_fix_channel).setOnClickListener(v -> doFixChannel());
+        findViewById(R.id.btn_refresh).setOnClickListener(v -> {
+            refresh();
+            toast("已刷新状态");
+        });
 
         refresh();
     }
