@@ -54,6 +54,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         logView = findViewById(R.id.env_log);
         installBtn = findViewById(R.id.btn_install_termux);
         findViewById(R.id.btn_open_vnc).setOnClickListener(v -> {
+            if (busy) { toast("正在执行中，请稍候"); return; }
+            if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
+            if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
             String err = TermuxEnvInstaller.startGuiInTermux(this);
             if (err != null) {
                 log("启动图形界面失败：" + err + "\n（需要先装好 Termux、授予 RUN_COMMAND 权限，并跑过一次「一键准备」）");
@@ -81,7 +84,11 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             }
         });
         copyBtn.setOnClickListener(v -> copyManualCommand());
-        findViewById(R.id.btn_fix_channel).setOnClickListener(v -> doFixChannel());
+        findViewById(R.id.btn_fix_channel).setOnClickListener(v -> {
+            if (busy) { toast("正在执行中，请稍候"); return; }
+            if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
+            doFixChannel();
+        });
         findViewById(R.id.btn_refresh).setOnClickListener(v -> {
             refresh();
             toast("已刷新状态");
@@ -171,15 +178,13 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         // 不再因 RUN_COMMAND 已授予而禁用：点击后按状态分支（未授→请求页；已授→存储指引）
         grantBtn.setEnabled(!busy);
         copyBtn.setEnabled(!busy);
-        // 辅助操作全部条件启用：条件不满足置灰，防止乱点出 bug
-        boolean envReady = ver != null;
-        boolean canCmd = envReady && perm;
-        findViewById(R.id.btn_open_vnc).setEnabled(!busy && canCmd);
-        findViewById(R.id.btn_fix_channel).setEnabled(!busy && envReady);
-        findViewById(R.id.btn_open_ubuntu).setEnabled(!busy && canCmd);
-        findViewById(R.id.btn_view_logs).setEnabled(!busy && canCmd);
-        findViewById(R.id.btn_restart_gui).setEnabled(!busy && canCmd);
-        findViewById(R.id.btn_stop_gui).setEnabled(!busy && canCmd);
+        // 辅助按钮保持可点，点击时由 onClick 守卫判条件，不满足弹小字提示并不执行（防乱点但不置灰）
+        findViewById(R.id.btn_open_vnc).setEnabled(!busy);
+        findViewById(R.id.btn_fix_channel).setEnabled(!busy);
+        findViewById(R.id.btn_open_ubuntu).setEnabled(!busy);
+        findViewById(R.id.btn_view_logs).setEnabled(!busy);
+        findViewById(R.id.btn_restart_gui).setEnabled(!busy);
+        findViewById(R.id.btn_stop_gui).setEnabled(!busy);
     }
 
     /** 完成态按钮视觉：未完成=主色+下载图标；已完成=次色+勾图标 */
@@ -194,6 +199,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
     /** 进 Ubuntu 终端：在 Termux 可见会话里 exec ~/ubuntu */
     private void doOpenUbuntuShell() {
+        if (busy) { toast("正在执行中，请稍候"); return; }
+        if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
         if (TermuxEnvInstaller.termuxVersion(this) == null) { log("Termux 还没装，请先执行第 1 步。"); return; }
         if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { log("RUN_COMMAND 权限未授予，先点「授予 Termux 权限」。"); return; }
         String err = TermuxEnvInstaller.runInTermux(this, "exec ~/ubuntu", false);
@@ -204,6 +212,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
     /** 查看 Termux 侧环境日志：在可见会话里 tail 三个日志 */
     private void doViewEnvLogs() {
+        if (busy) { toast("正在执行中，请稍候"); return; }
+        if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
         if (TermuxEnvInstaller.termuxVersion(this) == null) { log("Termux 还没装，请先执行第 1 步。"); return; }
         if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { log("RUN_COMMAND 权限未授予。"); return; }
         String cmd = "echo '===== setup 日志（尾 60 行）====='; tail -60 ~/.quiz_env_setup.log 2>/dev/null; "
@@ -216,6 +227,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
     /** 重启图形界面：先刷新启动器（与设备同版本）再 restart */
     private void doRestartGui() {
+        if (busy) { toast("正在执行中，请稍候"); return; }
+        if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
         String shortCmd = refreshLauncherCmdForActivity()
                 + "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui restart || echo NO_UBUNTU_GUI_请先点一次一键准备";
         String err = TermuxEnvInstaller.runInTermux(this, shortCmd, true);
@@ -224,6 +238,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
     /** 停止图形界面 */
     private void doStopGui() {
+        if (busy) { toast("正在执行中，请稍候"); return; }
+        if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
         String shortCmd = "bash $HOME/ubuntu-gui stop 2>/dev/null; "
                 + "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1; echo GUI_STOPPED";
         String err = TermuxEnvInstaller.runInTermux(this, shortCmd, true);
