@@ -204,10 +204,18 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
         if (TermuxEnvInstaller.termuxVersion(this) == null) { log("Termux 还没装，请先执行第 1 步。"); return; }
         if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { log("RUN_COMMAND 权限未授予，先点「授予 Termux 权限」。"); return; }
-        String err = TermuxEnvInstaller.runInTermux(this, "exec ~/ubuntu", false);
-        log(err == null
-                ? "已在 Termux 打开 Ubuntu 终端，直接输入命令即可；输入 exit 退回 Termux。"
-                : "打开失败：" + err);
+        // 不用 RUN_COMMAND 可见会话 exec 交互 shell：长期挂起会占住命令通道，
+        // 导致后续其他按钮的 RUN_COMMAND 下发排队/无响应（真机实测）。
+        // 改为：唤起 Termux 前台，用户输入 ~/ubuntu 回车进入，通道不被占用。
+        Intent ti = getPackageManager().getLaunchIntentForPackage("com.termux");
+        if (ti == null) {
+            toast("未找到 Termux");
+            return;
+        }
+        ti.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(ti);
+        toast("已打开 Termux，输入 ~/ubuntu 回车进入 Ubuntu");
+        log("已打开 Termux。在 Termux 里输入  ~/ubuntu  回车即可进入 Ubuntu（输入 exit 退回 Termux）。\n说明：为了不占用命令通道（RUN_COMMAND），进 Ubuntu 由你在 Termux 里手动输入这一行，其他按钮不受影响。");
     }
 
     /** 查看 Termux 侧环境日志：在可见会话里 tail 三个日志 */
