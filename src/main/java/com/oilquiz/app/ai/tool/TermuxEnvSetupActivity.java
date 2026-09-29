@@ -22,7 +22,7 @@ import java.io.File;
 /**
  * 「完整 Python 环境（Termux + Ubuntu）」一键准备界面。
  *
- * <p>入口：工具集 → 设置与数据 → 完整 Python 环境。
+ * <p>入口：工具集 → 设置与系统环境 → 完整 Python 环境。
  * 三步：① 装内置的 Termux 官方包 ② 导出内置的 Ubuntu 根文件系统 ③ 在 Termux 里准备容器 + apt 装 python3-full/tk。
  * 第 ③ 步优先用 Termux 的 RUN_COMMAND 自动下发（需要用户在 App 内点一次"允许"，小米禁止 adb 代授）；
  * 若权限没给，界面提供"复制手动命令"，粘进 Termux 即可完成同样的事。

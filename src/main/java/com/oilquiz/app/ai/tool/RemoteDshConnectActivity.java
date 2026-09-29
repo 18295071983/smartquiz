@@ -31,7 +31,7 @@ import java.util.Locale;
  *   <li><b>清除配置</b>：地址/令牌/会话/连接状态全部清空（二次确认）。</li>
  * </ul>
  *
- * <p>入口：① AI 对话页工具抽屉「管理」组的「🖥️ 远程连接（电脑）」；② 工具集 → 设置与数据 → 远程连接（电脑）。
+ * <p>入口：① AI 对话页工具抽屉「管理」组的「🖥️ 远程连接（电脑）」；② 工具集 → 设置与系统环境 → 远程连接（电脑）。
  * 本页只影响手机本地的"用不用"；探测就是一次 GET /status，不发任何控制指令。
  */
 public class RemoteDshConnectActivity extends AppCompatActivity {

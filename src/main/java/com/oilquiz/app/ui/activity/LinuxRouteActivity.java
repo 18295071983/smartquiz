@@ -28,7 +28,7 @@ import java.util.List;
  * 内置(lib&lt;name&gt;_bin.so) → /system/bin/&lt;name&gt; → busybox → toybox。
  * 这里让用户按命令选择顺序，配置写到 files/bin/.route，立即生效（路由器每次执行都会读）。
  *
- * <p>入口：工具集 → 设置与数据 → 命令路由。
+ * <p>入口：工具集 → 设置与系统环境 → 命令路由。
  */
 public class LinuxRouteActivity extends AppCompatActivity {
 

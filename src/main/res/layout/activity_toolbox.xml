@@ -220,7 +220,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 设置与数据 -->
+            <!-- 设置与系统环境 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/card_settings"
                 android:layout_width="match_parent"
@@ -236,7 +236,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="设置与数据"
+                        android:text="设置与系统环境"
                         android:textSize="@dimen/text_16"
                         android:textStyle="bold"
                         android:textColor="?attr/colorControlText"
@@ -244,7 +244,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="主题设置、语言设置、数据备份"
+                        android:text="主题、语言、备份、Linux 工具箱、远程连接、Python 环境"
                         android:textSize="@dimen/text_14"
                         android:textColor="?attr/colorControlTextSecondary"/>
                 </LinearLayout>

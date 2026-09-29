@@ -63,7 +63,7 @@ import java.util.Map;
                 + "⑦ action=connect 连接电脑 / action=disconnect 临时停用（配置保留，断开后工具拒绝执行）/ "
                 + "action=clear_config 清空配置（地址令牌全清；别用 set_config 传假地址来「断开」，那会把配置写坏）；"
                 + "⑧ action=set_config 配置/修改电脑地址与令牌：base_url=http://电脑IP:8218，token=桥接服务启动时打印的令牌。"
-                + "用户也可以自己在手机上操作：「工具集 → 设置与数据 → 远程连接（电脑）」里连接/断开/清除配置/扫码。"
+                + "用户也可以自己在手机上操作：「工具集 → 设置与系统环境 → 远程连接（电脑）」里连接/断开/清除配置/扫码。"
                 + "长任务：timeout 真的生效（秒，5~600，默认 120），编译/下载/长命令请给足（如 300）；超时会被中断且拿不到结果。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。"
                 + "安全：只有配置了正确 token 才能调用；task 描述给电脑端执行，勿让用户代码注入。",
@@ -125,7 +125,7 @@ public class RemoteDshTool implements AITool {
                 + "动作：run(执行任务+自动续接，自然语言) / shell(把 task 当命令直接跑，不经 LLM、输出原样) / "
                 + "connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码一键配对) / "
                 + "start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
-                + "界面入口：工具集 → 设置与数据 → 远程连接（电脑）。"
+                + "界面入口：工具集 → 设置与系统环境 → 远程连接（电脑）。"
                 + "timeout 参数真的生效（秒，最长600），长任务请给足。"
                 + "未配置或鉴权失败会明确报错，不会静默执行。安全：只有配置了正确 token 才能调用。";
     }
@@ -288,7 +288,7 @@ public class RemoteDshTool implements AITool {
 
     /** 第一次用这个功能时的引导文案（工具给 AI 的提示里也用它指路） */
     public static String firstTimeHint() {
-        return "第一次用远程控制电脑：打开「工具集 → 设置与数据 → 远程连接（电脑）」→ 点「怎么用 / 电脑端怎么配」看教程（"
+        return "第一次用远程控制电脑：打开「工具集 → 设置与系统环境 → 远程连接（电脑）」→ 点「怎么用 / 电脑端怎么配」看教程（"
                 + "那里可以把电脑端程序一键导出到手机 Download/OilQuiz/remote_dsh/，再拷到电脑上双击启动）";
     }
 
@@ -329,7 +329,7 @@ public class RemoteDshTool implements AITool {
         }
         if (!isConnected(context)) {
             return AIToolResult.fail("已断开电脑连接（配置还在，只是本机停用，电脑端未受影响）。"
-                    + "\n重新连接：工具集 → 设置与数据 → 远程连接（电脑）→ 点「连接」；或对我说「连接电脑」");
+                    + "\n重新连接：工具集 → 设置与系统环境 → 远程连接（电脑）→ 点「连接」；或对我说「连接电脑」");
         }
         return null;
     }
@@ -384,7 +384,7 @@ public class RemoteDshTool implements AITool {
         clearConfig(context);
         return AIToolResult.success("已清除电脑连接配置 ✓"
                 + (before.isEmpty() ? "（原本就没有配置）" : "\n  原地址: " + before)
-                + "\n地址、令牌、会话、连接状态都已清空；要再用请重新扫码配对（工具集 → 设置与数据 → 远程连接（电脑）→ 扫码配对）。"
+                + "\n地址、令牌、会话、连接状态都已清空；要再用请重新扫码配对（工具集 → 设置与系统环境 → 远程连接（电脑）→ 扫码配对）。"
                 + "\n提示：只想临时停用（保留配置）请用 action=disconnect。");
     }
 
@@ -408,7 +408,7 @@ public class RemoteDshTool implements AITool {
                             + "\ntoken=" + (tok.isEmpty() ? "(未配置)" : tok.substring(0, Math.min(4, tok.length())) + "***")
                             + "\nsession_id=" + (sid.isEmpty() ? "(未创建)" : sid)
                             + "\n连接状态=" + (cur.isEmpty() ? "(未配置)" : (isConnected(context) ? "已连接" : "已断开"))
-                            + "\n\n可视化操作：工具集 → 设置与数据 → 远程连接（电脑）（连接/断开/清除配置/扫码）"
+                            + "\n\n可视化操作：工具集 → 设置与系统环境 → 远程连接（电脑）（连接/断开/清除配置/扫码）"
                             + "\n或 action=set_config 传 base_url=http://电脑IP:8218 和 token=桥接服务启动时打印的令牌");
         }
         // 校验 base_url（2026-09-27：之前不校验，手机端 AI 用 http://0.0.0.0:0 当"断开"也被收下了）
@@ -475,7 +475,7 @@ public class RemoteDshTool implements AITool {
         return AIToolResult.success("扫码配对成功 ✓（已连接）\nbase_url=" + baseUrl
                 + "\ntoken=" + tok.substring(0, Math.min(4, tok.length())) + "***"
                 + "\n\n现在可以对 AI 说：远程控制电脑 / 在电脑上执行..."
-                + "\n也可以到「工具集 → 设置与数据 → 远程连接（电脑）」手动连接/断开/清除配置");
+                + "\n也可以到「工具集 → 设置与系统环境 → 远程连接（电脑）」手动连接/断开/清除配置");
     }
 
     private AIToolResult handleStatus() {
@@ -500,7 +500,7 @@ public class RemoteDshTool implements AITool {
             String sid = getSessionId();
             sb.append("当前会话: ").append(sid.isEmpty() ? "(未创建，run 时自动创建)" : sid);
             if (!isConnected(context)) {
-                sb.append("\n\n重新连接：工具集 → 设置与数据 → 远程连接（电脑）→ 点「连接」");
+                sb.append("\n\n重新连接：工具集 → 设置与系统环境 → 远程连接（电脑）→ 点「连接」");
             }
             return AIToolResult.success(sb.toString());
         } catch (Exception e) {
@@ -568,7 +568,7 @@ public class RemoteDshTool implements AITool {
     /** action=connect：用当前配置探测桥接，通了就置为"已连接" */
     private AIToolResult handleConnect() {
         if (getBaseUrl().isEmpty()) {
-            return AIToolResult.fail("还没配对过电脑：action=pair 扫码，或到「工具集 → 设置与数据 → 远程连接（电脑）」扫码/手填地址+令牌");
+            return AIToolResult.fail("还没配对过电脑：action=pair 扫码，或到「工具集 → 设置与系统环境 → 远程连接（电脑）」扫码/手填地址+令牌");
         }
         try {
             String text = probeStatusText(context);
@@ -581,7 +581,7 @@ public class RemoteDshTool implements AITool {
                     + "\n地址: " + getBaseUrl()
                     + "\n排查：① 电脑端启动了 start_dsh_bridge.bat（含 ACP serve）且窗口还开着"
                     + " ② 手机与电脑同网或隧道可用 ③ token 是否与电脑端打印的一致"
-                    + "\n第一次配电脑端？看教程：工具集 → 设置与数据 → 远程连接（电脑）→「怎么用 / 电脑端怎么配」");
+                    + "\n第一次配电脑端？看教程：工具集 → 设置与系统环境 → 远程连接（电脑）→「怎么用 / 电脑端怎么配」");
         }
     }
 
@@ -591,7 +591,7 @@ public class RemoteDshTool implements AITool {
         disconnect(context);
         return AIToolResult.success("已断开电脑连接 ✓" + (wasConnected ? "" : "（原本就是断开状态）")
                 + "\n配置与令牌保留，电脑端桥接/会话不受影响；断开期间工具会拒绝执行。"
-                + "\n重新连接：工具集 → 设置与数据 → 远程连接（电脑）→ 点「连接」，或对我说「连接电脑」");
+                + "\n重新连接：工具集 → 设置与系统环境 → 远程连接（电脑）→ 点「连接」，或对我说「连接电脑」");
     }
 
     private AIToolResult handleStart() {

@@ -60,7 +60,7 @@ public class ToolboxActivity extends AppCompatActivity {
         // 学习工具
         findViewById(R.id.card_study).setOnClickListener(v -> showStudyTools());
 
-        // 设置与数据
+        // 设置与系统环境
         findViewById(R.id.card_settings).setOnClickListener(v -> showSettingsDataTools());
 
         // 其他功能
@@ -198,7 +198,7 @@ public class ToolboxActivity extends AppCompatActivity {
     }
 
     private void showSettingsDataTools() {
-        showToolDialog("设置与数据", new String[]{
+        showToolDialog("设置与系统环境", new String[]{
             "主题设置",
             "语言设置",
             "数据备份",
