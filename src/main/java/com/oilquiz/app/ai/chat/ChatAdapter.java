@@ -505,11 +505,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(actionButtons);
 
-        TextView btnCopy = createActionButton(ctx, R.string.chat_copy, colorTextSecondary, true);
-        TextView btnSpeak = createActionButton(ctx, R.string.chat_speak, colorTextSecondary, true);
-        TextView btnShare = createActionButton(ctx, R.string.chat_share, colorTextSecondary, true);
-        TextView btnRegenerate = createActionButton(ctx, R.string.chat_regenerate, colorTextSecondary, true);
-        TextView btnNewChat = createActionButton(ctx, R.string.chat_new_chat, colorTextSecondary, false);
+        // 操作栏位于消息卡片之外的深蓝渐变背景上，固定浅色文字(半透明白)保证可读
+        int actionTextColor = 0xE8FFFFFF;
+        TextView btnCopy = createActionButton(ctx, R.string.chat_copy, actionTextColor, true);
+        TextView btnSpeak = createActionButton(ctx, R.string.chat_speak, actionTextColor, true);
+        TextView btnShare = createActionButton(ctx, R.string.chat_share, actionTextColor, true);
+        TextView btnRegenerate = createActionButton(ctx, R.string.chat_regenerate, actionTextColor, true);
+        TextView btnNewChat = createActionButton(ctx, R.string.chat_new_chat, actionTextColor, false);
         actionButtons.addView(btnCopy);
         actionButtons.addView(btnSpeak);
         actionButtons.addView(btnShare);
@@ -532,7 +534,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         TextView statusText = new TextView(ctx);
         statusText.setTextSize(10f);
-        statusText.setTextColor(colorTextSecondary);
+        statusText.setTextColor(0xB3FFFFFF); // 深蓝渐变背景上状态文字用半透明白
         statusText.setVisibility(View.GONE);
         statusRow.addView(statusText);
 
@@ -623,7 +625,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         tv.setText(textRes);
         tv.setTextSize(11f);
         tv.setTextColor(color);
-        tv.setPadding(dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx));
+        // 2026-09-29: 操作栏压在深蓝渐变背景上，加半透明白描边胶囊+极淡白底，避免无边框看不清
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        gd.setCornerRadius(dpToPx(12, ctx));
+        gd.setStroke(dpToPx(1, ctx), 0x59FFFFFF);
+        gd.setColor(0x1AFFFFFF);
+        tv.setBackground(gd);
+        tv.setPadding(dpToPx(8, ctx), dpToPx(3, ctx), dpToPx(8, ctx), dpToPx(3, ctx));
         tv.setClickable(true);
         tv.setFocusable(true);
         tv.setForeground(getSelectableItemBackground(ctx));
