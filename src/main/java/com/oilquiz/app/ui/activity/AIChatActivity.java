@@ -335,6 +335,8 @@ public class AIChatActivity extends BaseActivity {
      *  VM 的 chatMessages 是 initialize 时的一次性快照，旋转重建后不含本次会话新组件，
      *  故文件加载完成前禁止 VM 快照抢位填充 chatHistory（否则最新组件丢失）。 */
     private volatile boolean fileHistoryLoaded = false;
+    /** 用户主动清空/新建对话后置位：作废尚未完成的异步历史加载结果，防止旧会话回灌顶掉新消息 */
+    private volatile boolean historyLoadStale = false;
 
     // ===== 思考内容定时渲染（节流）：防止每 token notifyItemChanged 导致思考区画面抽搐 =====
     /** 思考区最小刷新间隔（ms）：思考 token 累积后批量刷新一次 */
@@ -803,6 +805,8 @@ public class AIChatActivity extends BaseActivity {
                                 }
                             }
                             runOnUiThread(() -> {
+                                // 用户已主动清空/新建对话：丢弃本次历史加载结果，防止回灌顶掉新消息
+                                if (historyLoadStale) return;
                                 // 文件历史是权威持久化源（含最新组件）。VM observe 可能已用
                                 // 启动时快照填充（旋转重建时 VM 保留，快照缺本次会话新组件），
                                 // 这里必须用文件数据替换而非跳过，否则最新组件/消息会丢失。
@@ -849,6 +853,8 @@ public class AIChatActivity extends BaseActivity {
                                         }
                                     }
                                     runOnUiThread(() -> {
+                                        // 用户已主动清空/新建对话：丢弃本次历史加载结果，防止回灌顶掉新消息
+                                        if (historyLoadStale) return;
                                         chatHistory.clear();
                                         chatHistory.addAll(pageMsgs);
                                         // 恢复补发 id：旧会话组件/思考轮 id 缺失时按 turnId 前缀补发
@@ -7745,6 +7751,9 @@ public class AIChatActivity extends BaseActivity {
                 if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             }
             // 同步清理所有数据源
+            // 用户主动清空：作废异步历史加载结果，防止旧会话回灌顶掉新对话
+            historyLoadStale = true;
+            fileHistoryLoaded = true;
             chatHistory.clear();
             refreshSessionStats();
             if (chatViewModel != null) {
@@ -7800,6 +7809,9 @@ public class AIChatActivity extends BaseActivity {
                 }).start();
             }
             // 清空当前对话上下文和页面消息
+            // 用户主动新建对话：作废异步历史加载结果，防止旧会话回灌顶掉新对话
+            historyLoadStale = true;
+            fileHistoryLoaded = true;
             currentSessionId = null; // 重置会话 ID，下次保存时创建新会话
             chatHistory.clear();
             if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
