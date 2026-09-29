@@ -94,10 +94,14 @@ public final class TermuxEnvInstaller {
      * 答题宝无法代授（MIUI 还禁掉了 pm grant），所以这里只做"预检 + 明确提示"。
      */
     public static boolean termuxHasStoragePermission(Context ctx) {
-        if (termuxVersion(ctx) == null) {
+        String ver = termuxVersion(ctx);
+        if (ver == null) {
             return false;
         }
+        // Termux 0.118+ 已不再授予 READ/WRITE_EXTERNAL_STORAGE；
+        // 标准授权路径是 MANAGE_EXTERNAL_STORAGE（所有文件访问）或 SAF。
         String[] perms = {
+                "android.permission.MANAGE_EXTERNAL_STORAGE",
                 "android.permission.READ_EXTERNAL_STORAGE",
                 "android.permission.WRITE_EXTERNAL_STORAGE"
         };
@@ -105,6 +109,20 @@ public final class TermuxEnvInstaller {
             if (ctx.getPackageManager().checkPermission(p, TERMUX_PACKAGE)
                     == PackageManager.PERMISSION_GRANTED) {
                 return true;
+            }
+        }
+        // 上述传统权限全未授时，老版 Termux 确实没存储能力；
+        // 但 0.118+ 在很多设备上通过 sdcard_rw 组 / MediaStore 模式工作（这台真机实测
+        // 无任何权限 granted 仍能 cp /sdcard 文件成功），按新版模型判定可用，免得界面误报。
+        String[] vp = ver.split("\\.");
+        if (vp.length >= 2) {
+            try {
+                int maj = Integer.parseInt(vp[0]);
+                int min = Integer.parseInt(vp[1]);
+                if (maj > 0 || (maj == 0 && min >= 118)) {
+                    return true;
+                }
+            } catch (NumberFormatException ignored) {
             }
         }
         return false;
@@ -128,7 +146,46 @@ public final class TermuxEnvInstaller {
     /** 导出的根文件系统（若已导出且大小正常） */
     public static File exportedRootfs(Context ctx) {
         File f = new File(publicDir(ctx), EXPORT_ROOTFS_NAME);
-        return (f.isFile() && f.length() > 1024 * 1024) ? f : null;
+        if (f.isFile() && f.length() > 1024 * 1024) {
+            return f;
+        }
+        // 分区存储下无权限时 File API 读不到公共目录（真机实测 Permission denied），
+        // 但文件实际由 MediaStore 落盘（owner=media），用 MediaStore 查询确认存在。
+        if (mediaQuerySize(ctx, EXPORT_ROOTFS_NAME) > 1024 * 1024) {
+            return f;
+        }
+        return null;
+    }
+
+    /** MediaStore 查询公共目录文件大小（App 自己落盘的文件无权限也可见；未命中返回 0） */
+    private static long mediaQuerySize(Context ctx, String displayName) {
+        try {
+            android.net.Uri collection = android.provider.MediaStore.Files
+                    .getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL);
+            String[] proj = {
+                    android.provider.MediaStore.MediaColumns.SIZE,
+                    android.provider.MediaStore.MediaColumns.DISPLAY_NAME
+            };
+            String sel = android.provider.MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
+                    + android.provider.MediaStore.MediaColumns.RELATIVE_PATH + "=?";
+            String rel = "Download/" + EXPORT_SUBDIR + "/";
+            String[] args = {displayName, rel};
+            try (android.database.Cursor c = ctx.getContentResolver()
+                    .query(collection, proj, sel, args, null)) {
+                long best = 0;
+                if (c != null) {
+                    while (c.moveToNext()) {
+                        long sz = c.getLong(0);
+                        if (sz > best) {
+                            best = sz;
+                        }
+                    }
+                }
+                return best;
+            }
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private static File publicDir(Context ctx) {
