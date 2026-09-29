@@ -10,11 +10,9 @@
         <item name="colorSecondaryVariant">@color/secondary_container</item>
         <item name="colorOnSecondary">@color/on_secondary</item>
         <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
-        <!-- targetSdk 35 + Android 15(API 35) 强制 edge-to-edge（状态栏透明、内容上顶），
-             本项目 247 个布局均未做 fitsSystemWindows，界面会被状态栏遮挡。
-             此属性让 Android 15 设备退出强制 edge-to-edge、恢复旧行为（内容不进状态栏、状态栏可着色）。
-             注意：Android 16(API 36) 已移除该属性，届时需走真 edge-to-edge 适配（见 EdgeToEdgeHelper 方案）。 -->
-        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+        <!-- targetSdk 36 (Android 16)：强制 edge-to-edge 不可退出，
+             全部界面由 EdgeToEdgeHelper 真适配接管（decorFits=false +
+             根容器 insets padding + 深浅图标）。 -->
         <item name="android:windowBackground">?attr/colorBackground</item>
         <item name="colorSurface">@color/surface</item>
         <item name="colorOnSurface">@color/on_surface</item>
