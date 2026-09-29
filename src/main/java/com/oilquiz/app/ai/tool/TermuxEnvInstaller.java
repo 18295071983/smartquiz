@@ -502,6 +502,21 @@ public final class TermuxEnvInstaller {
             #     把环境变量写进总线的激活环境，激活实例就正常了。
             if command -v dbus-update-activation-environment >/dev/null 2>&1; then
               dbus-update-activation-environment DISPLAY XAUTHORITY LANG LC_ALL >/dev/null 2>&1
+            # ①.6 websockify 看门狗：归**这条长活会话**所有，端口不通才拉起，通了就只定时探活。
+            #      真机踩到两个坑：① 启动器每次 kill_stale 都会把正在服务的 websockify 清掉，
+            #      而「桌面已就绪」那条分支不会再拉起它 → 网页 http=000（手机上看不到画面）；
+            #      ② 谁都能起 websockify，于是多个实例抢 6080，抢输的当场退出，没人补。
+            #      放进外壳会话后：会话活着它就在，退出/被抢端口都能自愈（5 秒一轮）。
+            if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then
+              (
+                while true; do
+                  if ! curl -s -o /dev/null --max-time 3 http://127.0.0.1:6080/vnc.html; then
+                    /usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 >> /tmp/quiz_websockify.log 2>&1
+                  fi
+                  sleep 5
+                done
+              ) &
+            fi
             fi
             # ② 独占：xfce4-session 会按它保存的会话把面板/通知守护再拉一份（见上面 javadoc），
             #    桌面只由本脚本负责，所以连会话管理器一起清掉。
@@ -534,6 +549,34 @@ public final class TermuxEnvInstaller {
             [ -x "$NOTIFYD" ] || NOTIFYD=/usr/lib/aarch64-linux-gnu/xfce4/notifyd/xfce4-notifyd
             [ -x "$NOTIFYD" ] && "$NOTIFYD" &
             sleep 2
+            # ③.5 面板插件纠正：把没用的 pulseaudio 插件就地改成 systray。
+            #      真机实测两处毛病：① 容器里没有 pulseaudio，该插件每 5 秒重连一次刷屏
+            #      （最近 400 行日志里 77 次 "Disconnected from the PulseAudio server"）；
+            #      ② 面板配置里没有 systray → WPS 之类的托盘图标不显示、最小化到托盘的程序找不回。
+            #      就地替换的好处：plugin-ids 里的位置原样保留（托盘正好该在那个位置），
+            #      而且**必须在 xfce4-panel 启动之前**改 —— 面板退出时会把自己的配置写回去覆盖。
+            PANEL_XML=/root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
+            if [ -f "$PANEL_XML" ] && command -v python3 >/dev/null 2>&1; then
+              python3 - "$PANEL_XML" <<'QUIZ_PANEL_PY'
+            import sys, shutil, xml.etree.ElementTree as ET
+            path = sys.argv[1]
+            tree = ET.parse(path)
+            root = tree.getroot()
+            changed = []
+            for p in list(root.iter('property')):
+                if p.get('type') == 'string' and p.get('value') == 'pulseaudio':
+                    p.set('value', 'systray')
+                    if not any(c.get('name') == 'square-icons' for c in list(p)):
+                        ET.SubElement(p, 'property', {'name': 'square-icons', 'type': 'bool', 'value': 'true'})
+                    changed.append('plugin-' + str(p.get('name')).split('-')[-1] + ': pulseaudio->systray')
+            if changed:
+                shutil.copy(path, path + '.bak-oilquiz')
+                tree.write(path, encoding='utf-8', xml_declaration=True)
+                print('OILQUIZ_SHELL 面板插件已纠正: ' + '; '.join(changed))
+            else:
+                print('OILQUIZ_SHELL 面板插件无需改动')
+            QUIZ_PANEL_PY
+            fi
             xfce4-panel &
             sleep 3
             xfdesktop &
@@ -576,7 +619,10 @@ public final class TermuxEnvInstaller {
                 except Exception:
                     continue
                 parts = [p for p in raw.split(chr(0)) if p]
-                if len(parts) > 1 and parts[1].endswith('/websockify'):
+                # 认两种写法：全路径 /usr/bin/websockify（argv[1] 以 /websockify 结尾），
+                # 以及裸命令 websockify（argv[1] 就是 'websockify'）—— 后者以前漏网，
+                # 残留实例占着 6080，新起的绑不上就退出（真机踩到）。
+                if any((p.endswith('/websockify') or p == 'websockify') for p in parts[1:3]):
                     try:
                         os.kill(int(pid), signal.SIGKILL)
                         killed.append(pid)
@@ -707,6 +753,10 @@ public final class TermuxEnvInstaller {
                 "ensure_shell_b64() { echo \"$QUIZ_SHELL_B64\" | base64 -d > \"$H/.quiz_shell.sh\"; chmod 700 \"$H/.quiz_shell.sh\"; }",
                 // 残留 websockify 会把 6080 卡死（真机堆到 9 个、端口 timeout）——每次启动前先清
                 "kill_stale() { echo \"$QUIZ_KILL_B64\" | base64 -d > \"$H/.quiz_kill_stale.py\"; proot-distro login ubuntu -- python3 /data/data/com.termux/files/home/.quiz_kill_stale.py 2>/dev/null | tail -1; }",
+                // websockify 兜底：kill_stale 每次都会把它清掉，而"桌面已就绪"那条分支不会再拉起它——
+                // 真机踩到：Xvnc/桌面都在跑，但 6080 没人听 → noVNC 网页 http=000，手机上看不到画面。
+                // 这里单独开一条**长活会话**（websockify 后台跑 + wait 兜住会话寿命）把它补回来。
+                "ensure_websockify() { proot-distro login ubuntu -- /bin/bash -c 'curl -s -o /dev/null --max-time 3 http://127.0.0.1:6080/vnc.html' >/dev/null 2>&1 && return 0; [ -f /data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs/usr/bin/websockify ] || return 0; setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then /usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 >> /tmp/quiz_websockify.log 2>&1 & wait; fi\" >/dev/null 2>&1 < /dev/null & sleep 4; }",
                 // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
                 // 真机踩过 —— 僵尸 Xvnc 让健康检查误判成"已启动"，用户那边 5900 根本连不上
                 "UP() { for p in $(pgrep -x Xvnc 2>/dev/null); do st=$(sed -n 's/^State:[[:space:]]*\\([A-Z]\\).*/\\1/p' /proc/$p/status 2>/dev/null); case \"$st\" in R|S|D|T|t|W|X|I) return 0;; esac; done; return 1; }",
@@ -737,13 +787,13 @@ public final class TermuxEnvInstaller {
                 "ensure_zh",
                 "kill_stale",
                 "trace \"font-scheduled\"",
-                "if UP; then ensure_zh; ensure_shell; ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
+                "if UP; then ensure_websockify; ensure_zh; ensure_shell; ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
                 ": > \"$LOG\"",
                 "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
                 "trace \"starting-xvnc\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_zh; ensure_shell; ensure_desktop; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_websockify; ensure_zh; ensure_shell; ensure_desktop; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
                 "trace \"gui-failed\"",
                 "echo \"GUI_FAILED\"",
                 "tail -15 \"$LOG\"",
@@ -784,6 +834,10 @@ public final class TermuxEnvInstaller {
                 "ensure_shell_b64() { echo \"$QUIZ_SHELL_B64\" | base64 -d > \"$H/.quiz_shell.sh\"; chmod 700 \"$H/.quiz_shell.sh\"; }",
                 // 残留 websockify 会把 6080 卡死（真机堆到 9 个、端口 timeout）——每次启动前先清
                 "kill_stale() { echo \"$QUIZ_KILL_B64\" | base64 -d > \"$H/.quiz_kill_stale.py\"; proot-distro login ubuntu -- python3 /data/data/com.termux/files/home/.quiz_kill_stale.py 2>/dev/null | tail -1; }",
+                // websockify 兜底：kill_stale 每次都会把它清掉，而"桌面已就绪"那条分支不会再拉起它——
+                // 真机踩到：Xvnc/桌面都在跑，但 6080 没人听 → noVNC 网页 http=000，手机上看不到画面。
+                // 这里单独开一条**长活会话**（websockify 后台跑 + wait 兜住会话寿命）把它补回来。
+                "ensure_websockify() { proot-distro login ubuntu -- /bin/bash -c 'curl -s -o /dev/null --max-time 3 http://127.0.0.1:6080/vnc.html' >/dev/null 2>&1 && return 0; [ -f /data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs/usr/bin/websockify ] || return 0; setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then /usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 >> /tmp/quiz_websockify.log 2>&1 & wait; fi\" >/dev/null 2>&1 < /dev/null & sleep 4; }",
                 // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
                 // 真机踩过 —— 僵尸 Xvnc 让健康检查误判成"已启动"，用户那边 5900 根本连不上
                 "UP() { for p in $(pgrep -x Xvnc 2>/dev/null); do st=$(sed -n 's/^State:[[:space:]]*\\([A-Z]\\).*/\\1/p' /proc/$p/status 2>/dev/null); case \"$st\" in R|S|D|T|t|W|X|I) return 0;; esac; done; return 1; }",
@@ -815,7 +869,7 @@ public final class TermuxEnvInstaller {
                 "echo \"[$(date '+%T')] restart\" >> \"$LOG\"",
                 "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
                 "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_zh; ensure_shell; ensure_desktop; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
+                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_websockify; ensure_zh; ensure_shell; ensure_desktop; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
                 "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
     }
 

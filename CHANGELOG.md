@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-09-29] 面板没用的插件 + websockify 归属（并记录一个未解的偶发问题）
+
+用户问「目前 xfce 有什么问题」，体检后修了两条：
+
+1. **面板里的 pulseaudio 插件换成 systray** ✓
+   容器里**没装 pulseaudio**，但面板配置里有该插件 → 最近 400 行日志里 **77 次**
+   「Disconnected from the PulseAudio server. Attempting to reconnect in 5 seconds...」纯刷屏；
+   同时配置里**没有 systray** → WPS 之类的托盘图标不显示。
+   做法：把 `plugin-8` 就地由 `pulseaudio` 改成 `systray`（plugin-ids 里的位置原样保留），
+   并写进外壳脚本、**在 xfce4-panel 启动之前**执行（面板退出时会把自己的配置写回去覆盖）。
+   实测：`panel plugin-8=value="systray"` ✓，重启后最近 200 行 **PulseAudio 刷屏 = 0** ✓。
+
+2. **websockify 的归属问题** ✓（这条是修 1 的过程中撞出来的真 bug）
+   `kill_stale` 每次启动/重启都会把 websockify 清掉，而 **「桌面已就绪（GUI_ALREADY_UP）」那条分支
+   不会再把它拉起来** → 真机现象：Xvnc/桌面都在跑，但 **6080 没人听、noVNC 网页 http=000**，手机上看不到画面。
+   修了三处：
+   - 启动器加 `ensure_websockify()`：**直接探 6080**（比 pgrep 可靠），不通才拉起；
+   - `kill_stale` 的匹配放宽：原来只认 `argv[1] 以 /websockify 结尾`，**裸命令 `websockify` 漏网** →
+     残留实例占着 6080，新起的 bind 失败（日志 `OSError: [Errno 98] Address already in use`）；
+   - 外壳会话里加 **websockify 看门狗**（5 秒一轮：页面不通才拉起，通了就只探活），
+     让它归那条长活会话所有、能自愈。
+   实测：杀 websockify → `000` → 跑一次启动器 → **`200`** ✓。
+
+3. **未解问题（如实记录，别当成已修）**：真机上偶发**整条图形会话消失**
+   （Xvnc/外壳/组件一起没，Xvnc 日志里最后只有正常客户端断开，Termux 进程本身还活着 1 小时以上，
+   没有 OOM/被杀记录）。今天遇到 3 次。另外 6080 释放有竞态，看门狗要等下一轮（5 秒）才能抢到端口。
+   缓解：启动器 `UP()` 会判"没有活着的 Xvnc"从而整条重建 ✓（实测能自动恢复）；
+   根因还没定，下次要抓的是"谁把 Xvnc 收走的"（需要在消失瞬间采样 `/proc/*/stat` + logcat `am_kill`）。
+
 ## [2026-09-28] 修「桌面双击图标报 Launch Error」：文件管理器服务没人应答
 
 用户让我看他手机里 App 的 AI 对话记录，记录里有张截图 —— 双击桌面上的 `WPS表格.desktop` 报
