@@ -48,6 +48,14 @@ public final class EdgeToEdgeHelper {
             "com.oilquiz.app.ui.activity.AIChatActivity"
     };
 
+    /**
+     * AppBar 保持原位（不上顶）的界面：标题栏留在状态栏下方，
+     * 状态栏区显示窗口背景（壁纸/渐变背景延伸），用于与「无 AppBar 页」统一风格。
+     */
+    private static final String[] SKIP_APPBAR_INSET = {
+            "com.oilquiz.app.ui.activity.ToolboxActivity"
+    };
+
     /** 记录各 View 的原始 padding（insets 回调会重复触发，需绝对增量而非累积）。 */
     private static final java.util.WeakHashMap<View, int[]> ORIG_PADDING = new java.util.WeakHashMap<>();
 
@@ -88,7 +96,7 @@ public final class EdgeToEdgeHelper {
 
             ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
                 androidx.core.graphics.Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-                applyInsets(root, bars);
+                applyInsets(root, bars, activity);
                 return insets;
             });
             // 主动请求一次 insets 分发（部分设备首次不自动回调，避免内容漏到状态栏下）
@@ -107,17 +115,20 @@ public final class EdgeToEdgeHelper {
 
     /**
      * 顶部 insets 策略：
-     * 带 AppBar → AppBar 顶部 padding（标题栏上顶）；无 AppBar → 内容子 View 顶部 padding（背景延伸）。
+     * 带 AppBar → AppBar 顶部 padding（标题栏上顶）；AppBar 保持原位名单 →
+     * 给 AppBar 顶部 padding 让标题栏留在状态栏下方（状态栏区显示窗口背景=壁纸/渐变延伸）；
+     * 无 AppBar → 内容子 View 顶部 padding（背景延伸）。
      * 底部/左右 → 根容器 padding（背景仍全屏）。
      */
-    private static void applyInsets(View root, androidx.core.graphics.Insets bars) {
+    private static void applyInsets(View root, androidx.core.graphics.Insets bars, Activity activity) {
         View appBar = findAppBar(root);
-        if (appBar != null) {
+        boolean keepInPlace = appBar != null && isSkipAppBarInset(activity);
+        if (appBar != null && !keepInPlace) {
             // AppBar 上顶：状态栏区显示 AppBar 背景，内容自然被顶到 AppBar 之下
             int[] oa = orig(appBar);
             appBar.setPadding(oa[0], oa[1] + bars.top, oa[2], oa[3]);
         } else if (root instanceof ViewGroup && ((ViewGroup) root).getChildCount() > 0) {
-            // 背景（壁纸/背景色）延伸，只把内容顶下来
+            // 背景（壁纸/背景色）延伸，只把内容顶下来（AppBar 保持原位的页面同样如此）
             View child = ((ViewGroup) root).getChildAt(0);
             int[] oc = orig(child);
             child.setPadding(oc[0], oc[1] + bars.top, oc[2], oc[3]);
@@ -129,6 +140,17 @@ public final class EdgeToEdgeHelper {
         // 底部/左右：根容器（背景全屏延伸不受 padding 影响）
         int[] o = orig(root);
         root.setPadding(o[0] + bars.left, root.getPaddingTop(), o[2] + bars.right, o[3] + bars.bottom);
+    }
+
+    /** AppBar 是否保持原位（标题栏不顶到状态栏）。 */
+    private static boolean isSkipAppBarInset(Activity activity) {
+        String name = activity.getClass().getName();
+        for (String s : SKIP_APPBAR_INSET) {
+            if (s.equals(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static int[] orig(View v) {
@@ -247,7 +269,8 @@ public final class EdgeToEdgeHelper {
     private static boolean isLightStatusArea(View root, Activity activity) {
         try {
             View appBar = findAppBar(root);
-            if (appBar != null) {
+            // AppBar 保持原位的页面：状态栏区显示窗口背景（壁纸/渐变），不采样 AppBar 背景
+            if (appBar != null && !isSkipAppBarInset(activity)) {
                 int c = sampleColor(appBar.getBackground());
                 if (c != 0) {
                     return ColorUtils.calculateLuminance(c) > 0.5;
