@@ -161,6 +161,11 @@
                             android:textColor="?attr/colorControlTextSecondary"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_install_termux"
+                        app:icon="@drawable/ic_ai_download"
+                        app:iconTint="?attr/colorOnPrimary"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp"
+                    app:iconPadding="6dp"
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_44"
                             android:layout_marginTop="@dimen/space_8"
@@ -217,6 +222,11 @@
                             android:textColor="?attr/colorControlTextSecondary"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_export_rootfs"
+                        app:icon="@drawable/ic_export"
+                        app:iconTint="?attr/colorOnPrimary"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp"
+                    app:iconPadding="6dp"
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_44"
                             android:layout_marginTop="@dimen/space_8"
@@ -273,6 +283,11 @@
                             android:textColor="?attr/colorControlTextSecondary"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_run_setup"
+                        app:icon="@drawable/ic_ai_tool"
+                        app:iconTint="?attr/colorOnPrimary"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp"
+                    app:iconPadding="6dp"
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_44"
                             android:layout_marginTop="@dimen/space_8"
@@ -284,6 +299,11 @@
                             app:cornerRadius="@dimen/radius_22"/>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_open_vnc"
+                        app:icon="@drawable/ic_ai_connect"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp"
+                    app:iconPadding="6dp"
                             android:layout_width="match_parent"
                             android:layout_height="@dimen/size_44"
                             android:layout_marginTop="@dimen/space_8"
@@ -319,6 +339,11 @@
                     android:orientation="horizontal">
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_grant"
+                        app:icon="@drawable/ic_settings"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp"
+                    app:iconPadding="6dp"
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_44"
                         android:layout_weight="1"
@@ -330,6 +355,11 @@
                         app:cornerRadius="@dimen/radius_22"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_fix_channel"
+                        app:icon="@drawable/ic_ai_warning"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp"
+                    app:iconPadding="6dp"
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_44"
                         android:layout_weight="1"
@@ -342,6 +372,11 @@
                         app:cornerRadius="@dimen/radius_22"/>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_copy_cmd"
+                        app:icon="@drawable/ic_copy"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp"
+                    app:iconPadding="6dp"
                         android:layout_width="@dimen/size_0"
                         android:layout_height="@dimen/size_44"
                         android:layout_weight="1"

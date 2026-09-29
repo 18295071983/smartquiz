@@ -6,6 +6,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -14,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.button.MaterialButton;
 import com.oilquiz.app.R;
+import com.oilquiz.app.theme.ThemeColors;
 
 import java.io.File;
 
@@ -157,12 +159,24 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
         installBtn.setEnabled(!busy && ver == null);
         installBtn.setText(ver == null ? "安装 Termux" : "Termux 已安装，无需重复安装");
+        styleStepBtn(installBtn, ver != null);
         exportBtn.setEnabled(!busy && rootfs == null);
         exportBtn.setText(rootfs == null ? "导出 Ubuntu 根文件系统（28.5 MB）" : "根文件系统已导出，无需重复导出");
+        styleStepBtn(exportBtn, rootfs != null);
         runBtn.setEnabled(!busy && ver != null);
         // 不再因 RUN_COMMAND 已授予而禁用：点击后按状态分支（未授→请求页；已授→存储指引）
         grantBtn.setEnabled(!busy);
         copyBtn.setEnabled(!busy);
+    }
+
+    /** 完成态按钮视觉：未完成=主色+下载图标；已完成=次色+勾图标 */
+    private void styleStepBtn(MaterialButton b, boolean done) {
+        b.setIconResource(done ? R.drawable.ic_check : R.drawable.ic_ai_download);
+        int bg = ThemeColors.attr(this, done ? R.attr.colorSecondaryContainer : R.attr.colorPrimary);
+        int fg = ThemeColors.attr(this, done ? R.attr.colorOnSecondaryContainer : R.attr.colorOnPrimary);
+        b.setBackgroundTintList(ColorStateList.valueOf(bg));
+        b.setTextColor(fg);
+        b.setIconTint(ColorStateList.valueOf(fg));
     }
 
     private void doInstallTermux() {
