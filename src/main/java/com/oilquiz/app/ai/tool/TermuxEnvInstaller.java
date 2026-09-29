@@ -208,12 +208,12 @@ public final class TermuxEnvInstaller {
         String root = rootfsPath == null || rootfsPath.isEmpty()
                 ? ("/sdcard/Download/" + EXPORT_SUBDIR + "/" + EXPORT_ROOTFS_NAME)
                 : rootfsPath;
+        // setup.sh 不再内嵌大段 base64（以前 ~33KB 粘贴会被截断）：
+        // ubuntu-gui 全文与中文修复脚本由 App 写到公共目录，
+        // 模板内只在运行时从 sdcard 取回（见 writeSetupScriptFile）。
         return SCRIPT_TEMPLATE
                 .replace("__ROOTFS__", root)
-                .replace("__TUNA__", TUNA_ROOTFS_URL)
-                .replace("__GUI_INNER__", GUI_INNER_COMMAND)
-                .replace("__GUI_FILE_B64__", b64(buildGuiFile()))
-                .replace("__ZH_FIX_B64__", b64(ZH_FIX_SH));
+                .replace("__TUNA__", TUNA_ROOTFS_URL);
     }
 
     // ---------- 图形界面（X11 + VNC）----------
@@ -1123,10 +1123,21 @@ public final class TermuxEnvInstaller {
 
               step "3.5/6 中文界面与北京时间（语言 / 时区 / 翻译词典）"
               if command -v proot-distro >/dev/null 2>&1; then
-                echo "正在把容器改成中文：Ubuntu 精简镜像有一行 path-exclude 把 /usr/share/locale/*/LC_MESSAGES/*.mo 全排除了，"
-                echo "所以 XFCE / Thunar 这些自带词典的程序一直显示英文。现在解除它并把词典补回来（首次约 1~2 分钟）…"
-                echo "__ZH_FIX_B64__" | base64 -d > "$HOME_DIR/.quiz_zh_fix.sh"
-                proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -8
+                # 中文修复脚本由 App 写到公共下载目录（Download/OilQuiz/termux_env/zh_fix.sh），
+                # 这里只从 Termux 能读到的位置取回；读不到（存储权限未授予）就跳过，
+                # 之后 App 内启动图形界面时会自动补（ensure_zh）。
+                ZSRC=""
+                for c in /sdcard/Download/OilQuiz/termux_env/zh_fix.sh "$HOME_DIR/storage/downloads/OilQuiz/termux_env/zh_fix.sh"; do
+                  [ -f "$c" ] && ZSRC="$c" && break
+                done
+                if [ -n "$ZSRC" ]; then
+                  cp "$ZSRC" "$HOME_DIR/.quiz_zh_fix.sh" && chmod 700 "$HOME_DIR/.quiz_zh_fix.sh"
+                  echo "正在把容器改成中文：Ubuntu 精简镜像有一行 path-exclude 把 /usr/share/locale/*/LC_MESSAGES/*.mo 全排除了，"
+                  echo "所以 XFCE / Thunar 这些自带词典的程序一直显示英文。现在解除它并把词典补回来（首次约 1~2 分钟）…"
+                  proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -8
+                else
+                  echo "⚠️  读不到 App 写好的 zh_fix.sh（Termux 存储权限未授予？），本次跳过中文化；授权后重跑即可"
+                fi
               else
                 echo "⚠️  没有 proot-distro，跳过中文化"
               fi
@@ -1158,11 +1169,19 @@ public final class TermuxEnvInstaller {
             exec proot-distro login ubuntu -- "$@"
             QUIZ_UBUNTU_EOF
               chmod +x "$HOME_DIR/ubuntu"
-              echo "__GUI_FILE_B64__" | base64 -d > "$HOME_DIR/ubuntu-gui"
-            # 说明：~/ubuntu-gui 的完整内容由上面的 __GUI_FILE_B64__ 写出（含 ensure_zh / kill_stale /
-            # ensure_shell 等全部逻辑）。这里以前还残留过一段旧的 case 分支，会被当成正常脚本执行、
-            # 用到未定义的 PORTUP/$INNER/$LOG —— 已删除，别再放回来。
-              chmod +x "$HOME_DIR/ubuntu-gui"
+              # ~/ubuntu-gui 的完整内容由 App 写到公共下载目录（Download/OilQuiz/termux_env/ubuntu-gui.sh，
+              # App 每次启动图形界面都会刷新它），这里只取回；读不到（存储权限未授予）就跳过，
+              # App 内启动图形界面时会自动补。
+              GSRC=""
+              for c in /sdcard/Download/OilQuiz/termux_env/ubuntu-gui.sh "$HOME_DIR/storage/downloads/OilQuiz/termux_env/ubuntu-gui.sh"; do
+                [ -f "$c" ] && GSRC="$c" && break
+              done
+              if [ -n "$GSRC" ]; then
+                cp "$GSRC" "$HOME_DIR/ubuntu-gui" && chmod 700 "$HOME_DIR/ubuntu-gui"
+                echo "✅ ubuntu-gui 已就位（$GSRC）"
+              else
+                echo "⚠️  读不到 App 写好的 ubuntu-gui.sh（Termux 存储权限未授予？），本次跳过图形界面入口；授权后重跑即可"
+              fi
               if "$HOME_DIR/ubuntu" python3 -c 'import tkinter, curses, readline, sqlite3, ssl, lzma, multiprocessing; print("✅ 完整体 Python 验证通过 | Python", __import__("sys").version.split()[0], "| tkinter Tk", tkinter.TkVersion)'; then
                 echo ""
                 echo "🎉 环境准备完成：Termux 里输入  ~/ubuntu  进入真 Ubuntu"
@@ -1396,6 +1415,11 @@ public final class TermuxEnvInstaller {
                 out.write(buildSetupScript(r == null ? null : r.getAbsolutePath())
                         .getBytes(StandardCharsets.UTF_8));
             }
+            // setup.sh 不再内嵌大段 base64（33KB 粘贴会被截断）；
+            // ubuntu-gui 与中文修复脚本改为独立落盘，setup.sh 只在运行时从公共目录取回
+            // （Termux 授权存储后能读）。
+            writeTextFile(ctx, "ubuntu-gui.sh", buildGuiFile());
+            writeTextFile(ctx, "zh_fix.sh", ZH_FIX_SH);
             return f;
         } catch (Exception e) {
             return null;
@@ -1403,7 +1427,7 @@ public final class TermuxEnvInstaller {
     }
 
     /**
-     * 手动兜底的"一行命令"：把 5KB 的准备脚本写到公共目录，让用户只需要粘一行
+     * 手动兜底的"一行命令"：把准备脚本写到公共目录（已从 33KB 压到 ~11KB，不再内嵌大段 base64），让用户只需要粘一行
      * {@code bash /sdcard/Download/OilQuiz/termux_env/setup.sh}。
      * 返回 null 表示写不进去（此时只能退回复制整段脚本）。
      */
