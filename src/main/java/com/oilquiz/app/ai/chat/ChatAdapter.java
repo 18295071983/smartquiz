@@ -557,7 +557,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         TextView modelNameText = new TextView(ctx);
         modelNameText.setTextSize(10f);
-        modelNameText.setTextColor(colorTextSecondary);
+        modelNameText.setTextColor(0xE8FFFFFF); // 深蓝渐变背景上用白色
         LinearLayout.LayoutParams mntLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT);
         mntLp.weight = 1f;
         mntLp.setMarginStart(dpToPx(5, ctx));
@@ -566,12 +566,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         TextView modelLatencyText = new TextView(ctx);
         modelLatencyText.setTextSize(10f);
-        modelLatencyText.setTextColor(colorTextTertiary);
+        modelLatencyText.setTextColor(0xA8FFFFFF); // 深蓝渐变背景上用淡白
         modelInfoContainer.addView(modelLatencyText);
 
         TextView modelCostText = new TextView(ctx);
         modelCostText.setTextSize(10f);
-        modelCostText.setTextColor(colorTextTertiary);
+        modelCostText.setTextColor(0xA8FFFFFF); // 深蓝渐变背景上用淡白
         LinearLayout.LayoutParams mctLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         mctLp.setMarginStart(dp6);
@@ -581,7 +581,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // ===== 时间戳 =====
         TextView timestampText = new TextView(ctx);
         timestampText.setTextSize(10f);
-        timestampText.setTextColor(colorTextSecondary);
+        timestampText.setTextColor(0xB3FFFFFF); // 深蓝渐变背景上时间戳用半透明白
         LinearLayout.LayoutParams tsLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tsLp.setMarginStart(dp6);
