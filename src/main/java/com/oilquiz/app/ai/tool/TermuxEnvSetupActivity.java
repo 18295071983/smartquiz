@@ -86,6 +86,10 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             refresh();
             toast("已刷新状态");
         });
+        findViewById(R.id.btn_open_ubuntu).setOnClickListener(v -> doOpenUbuntuShell());
+        findViewById(R.id.btn_view_logs).setOnClickListener(v -> doViewEnvLogs());
+        findViewById(R.id.btn_restart_gui).setOnClickListener(v -> doRestartGui());
+        findViewById(R.id.btn_stop_gui).setOnClickListener(v -> doStopGui());
 
         refresh();
     }
@@ -177,6 +181,53 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         b.setBackgroundTintList(ColorStateList.valueOf(bg));
         b.setTextColor(fg);
         b.setIconTint(ColorStateList.valueOf(fg));
+    }
+
+    /** 进 Ubuntu 终端：在 Termux 可见会话里 exec ~/ubuntu */
+    private void doOpenUbuntuShell() {
+        if (TermuxEnvInstaller.termuxVersion(this) == null) { log("Termux 还没装，请先执行第 1 步。"); return; }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { log("RUN_COMMAND 权限未授予，先点「授予 Termux 权限」。"); return; }
+        String err = TermuxEnvInstaller.runInTermux(this, "exec ~/ubuntu", false);
+        log(err == null
+                ? "已在 Termux 打开 Ubuntu 终端，直接输入命令即可；输入 exit 退回 Termux。"
+                : "打开失败：" + err);
+    }
+
+    /** 查看 Termux 侧环境日志：在可见会话里 tail 三个日志 */
+    private void doViewEnvLogs() {
+        if (TermuxEnvInstaller.termuxVersion(this) == null) { log("Termux 还没装，请先执行第 1 步。"); return; }
+        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { log("RUN_COMMAND 权限未授予。"); return; }
+        String cmd = "echo '===== setup 日志（尾 60 行）====='; tail -60 ~/.quiz_env_setup.log 2>/dev/null; "
+                + "echo; echo '===== GUI 日志（尾 30 行）====='; tail -30 ~/.quiz_gui.log 2>/dev/null; "
+                + "echo; echo '===== GUI 启动跟踪（尾 20 行）====='; tail -20 ~/.quiz_gui_start_trace.log 2>/dev/null; "
+                + "echo; echo '===== 结束 ====='";
+        String err = TermuxEnvInstaller.runInTermux(this, cmd, false);
+        log(err == null ? "已打开 Termux 会话显示环境日志。" : "查看日志失败：" + err);
+    }
+
+    /** 重启图形界面：先刷新启动器（与设备同版本）再 restart */
+    private void doRestartGui() {
+        String shortCmd = refreshLauncherCmdForActivity()
+                + "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui restart || echo NO_UBUNTU_GUI_请先点一次一键准备";
+        String err = TermuxEnvInstaller.runInTermux(this, shortCmd, true);
+        log(err == null ? "已让 Termux 重启图形界面（可去 VNC 页看效果）。" : "重启失败：" + err);
+    }
+
+    /** 停止图形界面 */
+    private void doStopGui() {
+        String shortCmd = "bash $HOME/ubuntu-gui stop 2>/dev/null; "
+                + "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1; echo GUI_STOPPED";
+        String err = TermuxEnvInstaller.runInTermux(this, shortCmd, true);
+        log(err == null ? "已让 Termux 停止图形界面（VNC 断开）。" : "停止失败：" + err);
+    }
+
+    /** 拷贝自 TermuxEnvInstaller.refreshLauncherCmd 的体的快速版（用于 restart 前刷新启动器） */
+    private String refreshLauncherCmdForActivity() {
+        return "SRC=\"\"; "
+                + "for c in /sdcard/Download/" + TermuxEnvInstaller.EXPORT_SUBDIR + "/ubuntu-gui.sh "
+                + "\"$HOME/storage/downloads/" + TermuxEnvInstaller.EXPORT_SUBDIR + "/ubuntu-gui.sh\"; do "
+                + "[ -f \"$c\" ] && SRC=\"$c\" && break; done; "
+                + "[ -n \"$SRC\" ] && cp \"$SRC\" \"$HOME/ubuntu-gui\" && chmod 700 \"$HOME/ubuntu-gui\"; ";
     }
 
     private void doInstallTermux() {
