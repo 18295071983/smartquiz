@@ -212,6 +212,11 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     }
 
     private void doRunSetup() {
+        // 先把 setup.sh / ubuntu-gui.sh / zh_fix.sh 落到公共下载目录：
+        // setup.sh 里 step 3.5/6 要从 sdcard 取回后两个文件（中文化与 GUI 入口），
+        // 只下发文本的话它们永远不在设备上，那两个步骤会被跳过（真机已踩到）。
+        // 落盘失败（无存储权限）不影响主流程 —— 脚本文本照常经 RUN_COMMAND 下发。
+        TermuxEnvInstaller.writeSetupScriptFile(this);
         String script = TermuxEnvInstaller.buildSetupScript(rootfsPath());
         String err = TermuxEnvInstaller.runInTermux(this, script, false);
         boolean store = TermuxEnvInstaller.termuxHasStoragePermission(this);
