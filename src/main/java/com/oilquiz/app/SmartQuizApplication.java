@@ -325,12 +325,24 @@ public class SmartQuizApplication extends Application {
                     android.view.ViewGroup wc = (android.view.ViewGroup) activity.findViewById(android.R.id.content);
                     android.view.View root = (wc != null && wc.getChildCount() > 0) ? wc.getChildAt(0) : wc;
                     com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, root);
+                    // 统一沉浸: 窗口背景同步为页面根背景(壁纸/背景图)延伸到系统栏
+                    com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, root);
+                    // 图标自适应: 按状态栏区实际背景亮度设深/浅图标(含 AI 对话等 insets 白名单页)
+                    com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(activity, root);
                     // 多重刷新兜底：换壁纸返回 App 时 onResume 立即读取可能落在系统壁纸服务落盘竞态窗口（旧图），
                     // 300ms/1200ms 延迟再读两次，覆盖广播/颜色回调错过后的最后一次刷新机会
                     if (root != null) {
                         final android.view.View fRoot = root;
-                        root.postDelayed(() -> com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot), 300);
-                        root.postDelayed(() -> com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot), 1200);
+                        root.postDelayed(() -> {
+                            com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot);
+                            com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, fRoot);
+                            com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(activity, fRoot);
+                        }, 300);
+                        root.postDelayed(() -> {
+                            com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot);
+                            com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, fRoot);
+                            com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(activity, fRoot);
+                        }, 1200);
                     }
                 } catch (Throwable ignored) {
                 }

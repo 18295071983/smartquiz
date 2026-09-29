@@ -182,15 +182,8 @@ public class SystemUIResourceAdapter {
      * 应用系统主题到Activity
      */
     public void applySystemTheme(@NonNull AppCompatActivity activity) {
-        // 设置状态栏颜色
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            activity.getWindow().setStatusBarColor(primaryDarkColor);
-        }
-        
-        // 设置导航栏颜色
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            activity.getWindow().setNavigationBarColor(backgroundColor);
-        }
+        // edge-to-edge（targetSdk 36 / Android 16）下系统栏区域由应用内容绘制，
+        // 状态栏/导航栏透明由 EdgeToEdgeHelper 统一处理，此处不再做旧式着色（避免盖住 AppBar 背景/壁纸）。
     }
 
     /**
