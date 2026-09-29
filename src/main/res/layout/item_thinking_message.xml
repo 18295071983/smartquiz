@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:text="@string/chat_thinking_process"
         android:textSize="@dimen/text_11"
-        android:textColor="?attr/colorOnSurfaceVariant"
+        android:textColor="#B3FFFFFF"
         android:layout_marginBottom="@dimen/space_2"
         android:clickable="true"
         android:focusable="true"

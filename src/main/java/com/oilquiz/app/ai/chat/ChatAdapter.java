@@ -345,7 +345,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // ===== blockLabel（未使用，保持隐藏） =====
         TextView blockLabel = new TextView(ctx);
         blockLabel.setTextSize(10f);
-        blockLabel.setTextColor(colorTextSecondary);
+        blockLabel.setTextColor(0xB3FFFFFF); // 深蓝渐变背景上用半透明白
         blockLabel.setVisibility(View.GONE);
         LinearLayout.LayoutParams blockLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -485,7 +485,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView btnExpand = new TextView(ctx);
         btnExpand.setText(R.string.chat_expand_full);
         btnExpand.setTextSize(11f);
-        btnExpand.setTextColor(colorPrimary);
+        btnExpand.setTextColor(0xCCFFFFFF); // 深蓝渐变背景上用浅色
         btnExpand.setPadding(dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx));
         btnExpand.setClickable(true);
         btnExpand.setFocusable(true);

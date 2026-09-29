@@ -71,7 +71,7 @@ public class ChatStatsBar extends LinearLayout {
         tv.setText(text);
         tv.setTextSize(11f);
         tv.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        tv.setTextColor(0xFF6B7280);
+        tv.setTextColor(0xFFE5E7EB); // 深蓝渐变背景上用浅灰白
         tv.setGravity(Gravity.CENTER);
         tv.setPadding(dp(10), dp(3), dp(10), dp(3));
         tv.setBackground(makePillBackground());
@@ -85,7 +85,7 @@ public class ChatStatsBar extends LinearLayout {
     private android.graphics.drawable.Drawable makePillBackground() {
         // 浅灰圆角胶囊：与顶部状态条 status_bar_background 视觉一致
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(0x1A6B7280); // 10% 灰，跟随深浅色主题均可读
+        gd.setColor(0x26FFFFFF); // 15% 白底，深蓝渐变背景上胶囊可见
         gd.setCornerRadius(dp(14));
         return gd;
     }

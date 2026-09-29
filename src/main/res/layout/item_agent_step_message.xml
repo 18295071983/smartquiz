@@ -31,7 +31,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textSize="@dimen/text_14"
-            android:textColor="?attr/colorControlText"
+            android:textColor="#E8FFFFFF"
             android:lineSpacingExtra="2dp" />
 
         <!-- 推理模式标签（小标签） -->
@@ -58,7 +58,7 @@
         android:paddingStart="@dimen/space_24"
         android:paddingTop="@dimen/space_4"
         android:textSize="@dimen/text_13"
-        android:textColor="?attr/colorControlTextSecondary"
+        android:textColor="#B3FFFFFF"
         android:lineSpacingExtra="2dp"
         android:visibility="gone" />
 

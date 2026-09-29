@@ -11,7 +11,7 @@
         android:layout_height="wrap_content"
         android:text="📋 任务进度"
         android:textSize="@dimen/text_12"
-        android:textColor="@color/task_label"
+        android:textColor="#6EE7B7"
         android:layout_marginBottom="@dimen/space_4" />
 
     <TextView

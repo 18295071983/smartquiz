@@ -307,7 +307,7 @@
                     android:text="开始你的AI对话"
                     android:textSize="@dimen/text_20"
                     android:textStyle="bold"
-                    android:textColor="?attr/colorControlText"
+                    android:textColor="#E8FFFFFF"
                     android:layout_marginBottom="@dimen/space_8"/>
 
                 <TextView
@@ -315,7 +315,7 @@
                     android:layout_height="wrap_content"
                     android:text="输入消息开始对话，或尝试以下快捷命令："
                     android:textSize="@dimen/text_14"
-                    android:textColor="?attr/colorControlTextSecondary"
+                    android:textColor="#B3FFFFFF"
                     android:gravity="center"
                     android:layout_marginBottom="@dimen/space_24"/>
 
