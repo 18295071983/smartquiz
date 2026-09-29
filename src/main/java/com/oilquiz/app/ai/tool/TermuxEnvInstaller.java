@@ -493,6 +493,16 @@ public final class TermuxEnvInstaller {
               export DBUS_SESSION_BUS_ADDRESS="$(head -1 "$BUSDIR")"
             fi
             echo "OILQUIZ_SHELL bus=$DBUS_SESSION_BUS_ADDRESS 应答=$(bus_ok && echo 活 || echo 死)"
+            # ①.5 让 D-Bus **按需激活**出来的服务也拿到 DISPLAY。
+            #     真机踩到：激活出来的实例 "cannot open display:" 直接 exit 1 ——
+            #     日志原文 "Activated service 'org.freedesktop.FileManager1' failed:
+            #     Process org.freedesktop.FileManager1 exited with status 1"，
+            #     于是桌面双击 .desktop 图标时报「This feature requires a file manager
+            #     service to be present (such as the one supplied by thunar)」。
+            #     把环境变量写进总线的激活环境，激活实例就正常了。
+            if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+              dbus-update-activation-environment DISPLAY XAUTHORITY LANG LC_ALL >/dev/null 2>&1
+            fi
             # ② 独占：xfce4-session 会按它保存的会话把面板/通知守护再拉一份（见上面 javadoc），
             #    桌面只由本脚本负责，所以连会话管理器一起清掉。
             #    连 startxfce4 那条会话也一起清 —— 真机上出现过"外壳会话 + startxfce4 会话"并存，
@@ -506,6 +516,8 @@ public final class TermuxEnvInstaller {
             pkill -9 -x xfce4-notifyd >/dev/null 2>&1
             pkill -9 -x xfwm4 >/dev/null 2>&1
             pkill -9 -x xfdesktop >/dev/null 2>&1
+            # 旧会话里的 thunar 守护挂在**上一条**总线上，必须一起清掉，让它在新总线上重新注册
+            pkill -9 -x thunar >/dev/null 2>&1
             i=0
             while [ $i -lt 8 ]; do
               pgrep -x xfce4-panel >/dev/null 2>&1 || break
@@ -525,6 +537,18 @@ public final class TermuxEnvInstaller {
             xfce4-panel &
             sleep 3
             xfdesktop &
+            # ④ 文件管理器守护：xfdesktop 双击桌面图标时要通过 D-Bus 找 org.xfce.FileManager /
+            #    org.freedesktop.FileManager1。它**不能只靠 D-Bus 激活**（真机上激活实例 exit 1），
+            #    所以显式起一个；起来后在本会话内自查服务名有没有注册，结果写进日志备查。
+            command -v thunar >/dev/null 2>&1 && thunar --daemon &
+            sleep 3
+            for n in org.xfce.FileManager org.freedesktop.FileManager1; do
+              if dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.GetNameOwner string:$n >/dev/null 2>&1; then
+                echo "OILQUIZ_SHELL 文件管理器服务已注册 ✓ $n"
+              else
+                echo "OILQUIZ_SHELL 文件管理器服务未注册 ✗ $n"
+              fi
+            done
             wait
             exit 0
             """;

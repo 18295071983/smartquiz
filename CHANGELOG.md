@@ -1,5 +1,26 @@
 # 变更日志
 
+## [2026-09-28] 修「桌面双击图标报 Launch Error」：文件管理器服务没人应答
+
+用户让我看他手机里 App 的 AI 对话记录，记录里有张截图 —— 双击桌面上的 `WPS表格.desktop` 报
+`This feature requires a file manager service to be present (such as the one supplied by thunar)`。
+App 自带 AI 那句诊断（外壳脚本没起 thunar 守护）**是对的，而且当时确实还没修** ✗。真机核实：
+
+1. `thunar` 进程数 = **0**；日志里是
+   `Activating service 'org.freedesktop.FileManager1' requested by xfdesktop` →
+   `Activated service ... failed: Process ... exited with status 1`。
+2. 根因跟当天 notifyd 那次是**同一个**：**D-Bus 按需激活出来的实例拿不到 `DISPLAY`** ——
+   激活环境用的是总线自己的环境，里面没有 DISPLAY，实例起来就 `cannot open display:` 退 1。
+3. 修法两条：总线起来后 `dbus-update-activation-environment DISPLAY XAUTHORITY LANG LC_ALL`
+   （让所有激活实例都拿到 DISPLAY）；再显式起 `thunar --daemon`（不依赖激活）。
+   脚本还会在**同一条会话内**用 `GetNameOwner` 自查两个服务名有没有注册并写进日志备查；
+   清场时把旧 thunar 守护一起清掉（它挂在**上一条**总线上，新会话的客户端找不到它）。
+4. 真机验证（App 走一遍启动流程后）：`thunar=1`、外壳与面板同一条总线、日志出现
+   `OILQUIZ_SHELL 文件管理器服务已注册 ✓ org.xfce.FileManager` 与
+   `... ✓ org.freedesktop.FileManager1`，日志末尾**没有** FileManager 激活失败，noVNC 200 ✓
+5. 顺带把那个"startxfce4 计数 = 2"的疑点查清：`pgrep -af startxfce4` 的**真实列表是空的** ——
+   前几次都是我的计数被外层 proot 命令行里的字面量污染出来的**假阳性** ✗（也说明独占兜底一直在生效）。
+
 ## [2026-09-27] 「菜单里点没反应」根因：两套桌面会话抢屏幕（外加更正几次"总线已死"的误判）
 
 用户报「我菜单里点没反应啊，你检查下菜单」。查下来是两个独立问题，外加我自己几次误判：
