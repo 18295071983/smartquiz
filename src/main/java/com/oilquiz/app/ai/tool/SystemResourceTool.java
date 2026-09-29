@@ -45,7 +45,7 @@ import java.util.concurrent.atomic.AtomicInteger;
         @Action(name = "get_app_info", description = "获取应用信息"),
         @Action(name = "app_control", description = "控制应用：强制停止/清除数据/获取详细信息"),
         @Action(name = "shell_command", description = "执行Shell命令"),
-        @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限）"),
+        @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限）。注意：① 本工具同一时刻只执行一条命令，多条命令必须串行调用，不要并发（并发会串输出）；② 用 proot-distro login ubuntu 进容器后，容器内裸 git/gcc/make/cmake 等命令可能命中 Termux 的二进制（PATH 被继承），简单容器命令会被自动注入容器优先 PATH，复杂命令请自行用绝对路径 /usr/bin/git）"),
         @Action(name = "http_download", description = "下载 URL 到本地（App 内 okhttp 实现，https 走系统证书校验，比 shell 里的 wget 更可靠）"),
         @Action(name = "shell_mode", description = "切换 shell 拦截模式：full=不拦截(默认，用户自己的设备) / readonly=恢复危险命令与敏感路径拦截 / query=查询当前"),
         @Action(name = "read_setting", description = "读取系统设置"),
@@ -158,6 +158,9 @@ public class SystemResourceTool implements AITool {
     /** Termux 命令等待上限（秒）：Termux app-shell 启动 + 执行，留足余量但低于框架 30s */
     private static final long TERMUX_TIMEOUT_SECONDS = 20;
     private static final AtomicInteger TERMUX_REQUEST_CODE = new AtomicInteger(1000);
+    /** termux_exec 全局串行锁：多个并发调用的 receiver 都监听同一 action，广播会被所有 receiver 收到、
+     *  谁 poll 到算谁的 → 输出互相串（真机实测三条并发输出串到同一条）。同一时刻只允许一个调用在等结果。 */
+    private static final Object TERMUX_EXEC_LOCK = new Object();
 
     /** 敏感路径黑名单：读取/写入其他应用数据、内核接口、凭据文件一律拒绝 */
     private static final String[] BANNED_PATHS = {
@@ -2126,6 +2129,11 @@ public class SystemResourceTool implements AITool {
         if (command == null || command.trim().isEmpty()) {
             return new AIToolResult("缺少参数: command（termux_exec 需要在 Termux 中执行的命令）", parameters);
         }
+        // 容器 PATH 纠正：proot-distro login ubuntu 会继承 Termux 的 PATH，
+        // 容器里裸 git/gcc/make 命中的是 Termux 二进制（真机实测）。
+        // 只处理“简单容器命令”形态，复杂命令保持原样。
+        command = normalizeContainerPath(command);
+        parameters.put("command", command);
 
         // 1. Termux 是否已安装
         try {
@@ -2153,6 +2161,9 @@ public class SystemResourceTool implements AITool {
                     + "；另外 Termux 侧还需要 allow-external-apps=true。", parameters);
         }
 
+        // 全局串行锁：监听同一 action 的多个 receiver 会互相抢广播，
+        // 必须等上一个调用完成、receiver 注销后才能再注册新的。
+        synchronized (TERMUX_EXEC_LOCK) {
         final ArrayBlockingQueue<Intent> resultQueue = new ArrayBlockingQueue<>(1);
         final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
@@ -2243,8 +2254,44 @@ public class SystemResourceTool implements AITool {
                 }
             }
         }
+        } // synchronized (TERMUX_EXEC_LOCK) 结束
     }
     
+    /**
+     * 对进入 Ubuntu 容器的简单命令做 PATH 纠正。
+     *
+     * <p>proot-distro login ubuntu 会继承宿主的 PATH（Termux usr/bin 在前），
+     * 容器里裸 git/gcc/make 会命中 Termux 的二进制（真机实测）。这里只处理
+     * “proot-distro login ubuntu -- <简单命令>”这种形态：命令体不含引号/分号/
+     * 反引号/$ 时，改写为 bash -lc 内先 export 容器优先 PATH 再执行。
+     * 复杂命令（有引号嵌套、管道、变量）保持原样，由工具描述里的提示兑底。
+     */
+    private static String normalizeContainerPath(String command) {
+        String trimmed = command.trim();
+        if (!trimmed.startsWith("proot-distro login ubuntu")) {
+            return command;
+        }
+        String rest = trimmed.substring("proot-distro login ubuntu".length()).trim();
+        if (rest.isEmpty() || !rest.startsWith("--")) {
+            return command;
+        }
+        String body = rest.substring(2).trim();
+        if (body.isEmpty()) {
+            return command;
+        }
+        // 已显式处理的形态直接放行（用户已经自己管了 PATH 或用了绝对路径/自定义 bash）
+        if (body.startsWith("env PATH=") || body.startsWith("/usr/bin/") || body.startsWith("/bin/")
+                || body.startsWith("bash -")) {
+            return command;
+        }
+        // 简单命令判定：仅字母数字 + 路径/选项符号，不含引号、分号、反引号、$、管道、重定向
+        if (!body.matches("[A-Za-z0-9_./=+\\-:@%^, ]+")) {
+            return command;
+        }
+        return "proot-distro login ubuntu -- /bin/bash -lc \"export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
+                + body + "\"";
+    }
+
     /**
      * 读取系统设置
      */
