@@ -171,6 +171,15 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         // 不再因 RUN_COMMAND 已授予而禁用：点击后按状态分支（未授→请求页；已授→存储指引）
         grantBtn.setEnabled(!busy);
         copyBtn.setEnabled(!busy);
+        // 辅助操作全部条件启用：条件不满足置灰，防止乱点出 bug
+        boolean envReady = ver != null;
+        boolean canCmd = envReady && perm;
+        findViewById(R.id.btn_open_vnc).setEnabled(!busy && canCmd);
+        findViewById(R.id.btn_fix_channel).setEnabled(!busy && envReady);
+        findViewById(R.id.btn_open_ubuntu).setEnabled(!busy && canCmd);
+        findViewById(R.id.btn_view_logs).setEnabled(!busy && canCmd);
+        findViewById(R.id.btn_restart_gui).setEnabled(!busy && canCmd);
+        findViewById(R.id.btn_stop_gui).setEnabled(!busy && canCmd);
     }
 
     /** 完成态按钮视觉：未完成=主色+下载图标；已完成=次色+勾图标 */
