@@ -33,17 +33,45 @@ public final class ImportDirs {
     /** 缺字段题目报告文件（引导用户修复后重导） */
     public static final String ISSUES_REPORT_FILE = "import_issues_report.csv";
 
+    private static volatile android.content.Context appCtx;
+
     private ImportDirs() {
     }
 
-    /** 公共根目录 /storage/emulated/0/OilQuiz/（自动创建） */
+    /** App 启动时注入 context（决定走公共根还是私有根） */
+    public static void init(android.content.Context ctx) {
+        appCtx = ctx != null ? ctx.getApplicationContext() : null;
+        Log.i(TAG, "ImportDirs.init, hasAllFilesAccess=" + hasAllFilesAccess()
+                + ", root=" + publicRoot().getAbsolutePath());
+    }
+
+    /** 是否持有"所有文件访问"权限（Android 11+；旧版本恒 true） */
+    public static boolean hasAllFilesAccess() {
+        return android.os.Build.VERSION.SDK_INT < 30
+                || android.os.Environment.isExternalStorageManager();
+    }
+
+    /**
+     * 工作区根目录，双模式自动切换：
+     * <ul>
+     *   <li>有"所有文件访问" → /storage/emulated/0/OilQuiz/（文件管理器可见、用户习惯）</li>
+     *   <li>无权限 → App 私有 files/import_workspace/（Python 同进程可读写，无需任何权限；
+     *       私有持久目录不会被系统清理，导入/断点/缓存全链路照常跑）</li>
+     * </ul>
+     * 因为所有子目录都经本方法派生，切根后整条导入管线零改动自动跟随。
+     */
     public static File publicRoot() {
-        File root = new File(Environment.getExternalStorageDirectory(), PUBLIC_ROOT_NAME);
-        if (!root.exists()) {
-            boolean ok = root.mkdirs();
-            if (!ok) {
-                Log.w(TAG, "创建公共目录失败: " + root.getAbsolutePath());
-            }
+        File root;
+        if (hasAllFilesAccess()) {
+            root = new File(Environment.getExternalStorageDirectory(), PUBLIC_ROOT_NAME);
+        } else {
+            android.content.Context c = appCtx;
+            root = c != null
+                    ? new File(c.getFilesDir(), "import_workspace")
+                    : new File(Environment.getExternalStorageDirectory(), PUBLIC_ROOT_NAME);
+        }
+        if (!root.exists() && !root.mkdirs()) {
+            Log.w(TAG, "创建工作区目录失败: " + root.getAbsolutePath());
         }
         return root;
     }

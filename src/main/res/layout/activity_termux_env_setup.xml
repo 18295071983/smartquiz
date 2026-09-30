@@ -101,6 +101,36 @@
                     android:textColor="?attr/colorControlTextSecondary"
                     android:text="检查中…"/>
 
+                <!-- 异签名 Termux 引导（P2-7）：已装版与内置包签名不一致时明示，默认隐藏
+                     注意：不要用 ?attr/colorErrorContainer —— 本项目主题未定义该属性，inflate 会抛
+                     UnsupportedOperationException（真机踩过，TermuxEnvSetupActivity 直接闪退） -->
+                <TextView
+                    android:id="@+id/tv_signer_warn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:padding="@dimen/space_8"
+                    android:lineSpacingExtra="3dp"
+                    android:textSize="@dimen/text_12"
+                    android:textStyle="bold"
+                    android:textColor="#F5A623"
+                    android:visibility="gone"
+                    android:text="⚠️ 已装 Termux 与内置包签名不一致：点「安装 Termux」会被系统拒绝覆盖安装。推荐继续用现有 Termux（去点「自检并修复通道」，粘一行命令即可）；若想换成内置版，需先卸载旧 Termux（会清空已有容器环境）再装一次。"/>
+
+                <!-- 首次打开 Termux 初始化引导（P0-2）：刚装上且还没授权 RUN_COMMAND 时明示，默认隐藏 -->
+                <TextView
+                    android:id="@+id/tv_first_init_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:background="?attr/colorPrimaryContainer"
+                    android:padding="@dimen/space_8"
+                    android:lineSpacingExtra="3dp"
+                    android:textSize="@dimen/text_12"
+                    android:textColor="?attr/colorOnPrimaryContainer"
+                    android:visibility="gone"
+                    android:text="ℹ️ 首次打开 Termux 会自动初始化（下载基础包）：请等到出现命令行提示符 $ 再继续。初始化没完成时粘贴命令会报 command not found，容易误判成脚本坏了。"/>
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -324,19 +354,68 @@
                     android:background="?attr/colorControlTextHint"
                     android:alpha="0.15"/>
 
-                <!-- 次级操作 -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="@dimen/space_8"
-                    android:text="辅助操作"
-                    android:textSize="@dimen/text_12"
+                <!-- 智能引导：唯一主入口（其余高级功能收进"更多工具"） -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_smart_guide"
+                    app:icon="@drawable/ic_ai_tool"
+                    app:iconTint="?attr/colorOnPrimary"
+                    app:iconGravity="textStart"
+                    app:iconSize="22dp"
+                    app:iconPadding="8dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="🔍 智能检测引导 —— 粘贴一行，之后全自动"
+                    android:textSize="@dimen/text_14"
                     android:textStyle="bold"
-                    android:textColor="?attr/colorControlTextHint"/>
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnPrimary"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_22"/>
+
+                <!-- 动态辅助按钮：按当前缺失项自动变化，点一下自动复制/执行，不用手输命令 -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_aux_fix"
+                    app:icon="@drawable/ic_ai_warning"
+                    app:iconTint="?attr/colorOnPrimary"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp"
+                    app:iconPadding="6dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text=""
+                    android:textSize="@dimen/text_13"
+                    android:textStyle="bold"
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnPrimary"
+                    app:backgroundTint="?attr/colorPrimary"
+                    app:cornerRadius="@dimen/radius_22"
+                    android:visibility="gone"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_toggle_more"
+                    app:icon="@drawable/ic_settings"
+                    app:iconTint="?attr/colorOnSecondaryContainer"
+                    app:iconGravity="textStart"
+                    app:iconSize="16dp"
+                    app:iconPadding="6dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_marginTop="@dimen/space_8"
+                    android:text="更多工具 ▾"
+                    android:textSize="@dimen/text_13"
+                    android:textAllCaps="false"
+                    android:textColor="?attr/colorOnSecondaryContainer"
+                    app:backgroundTint="?attr/colorSecondaryContainer"
+                    app:cornerRadius="@dimen/radius_22"/>
+
                 <LinearLayout
+                    android:id="@+id/ll_more_tools"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    android:layout_marginTop="@dimen/space_8"
+                    android:orientation="vertical"
+                    android:visibility="gone">
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_grant"
                         app:icon="@drawable/ic_settings"
@@ -401,6 +480,22 @@
                         app:backgroundTint="?attr/colorSecondaryContainer"
                         app:cornerRadius="@dimen/radius_22"/>
                     <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_open_termux"
+                        app:icon="@drawable/ic_code"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                        app:iconGravity="textStart"
+                        app:iconSize="18dp"
+                        app:iconPadding="6dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_marginTop="@dimen/space_8"
+                        android:text="打开 Termux 终端（切回上次会话）"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_view_logs"
                         app:icon="@drawable/ic_log"
                         app:iconTint="?attr/colorOnSecondaryContainer"
@@ -448,6 +543,55 @@
                         android:textColor="?attr/colorOnSecondaryContainer"
                         app:backgroundTint="?attr/colorSecondaryContainer"
                         app:cornerRadius="@dimen/radius_22"/>
+                    <!-- 选装配套插件 -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_install_api"
+                        app:icon="@drawable/ic_ai_download"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                        app:iconGravity="textStart"
+                        app:iconSize="18dp"
+                        app:iconPadding="6dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_marginTop="@dimen/space_8"
+                        android:text="安装 Termux:API（选装）"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_install_boot"
+                        app:icon="@drawable/ic_ai_download"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                        app:iconGravity="textStart"
+                        app:iconSize="18dp"
+                        app:iconPadding="6dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_marginTop="@dimen/space_8"
+                        android:text="安装 Termux:Boot（选装）"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_enable_ssh"
+                        app:icon="@drawable/ic_settings"
+                        app:iconTint="?attr/colorOnSecondaryContainer"
+                        app:iconGravity="textStart"
+                        app:iconSize="18dp"
+                        app:iconPadding="6dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_44"
+                        android:layout_marginTop="@dimen/space_8"
+                        android:text="开启 SSH（电脑远程连 Termux / 容器）"
+                        android:textSize="@dimen/text_12"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        app:backgroundTint="?attr/colorSecondaryContainer"
+                        app:cornerRadius="@dimen/radius_22"/>
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -482,11 +626,12 @@
                 <TextView
                     android:id="@+id/env_log"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="240dp"
                     android:fontFamily="monospace"
                     android:lineSpacingExtra="3dp"
                     android:textSize="@dimen/text_12"
                     android:textColor="?attr/colorControlTextSecondary"
+                    android:scrollbars="vertical"
                     android:text=""/>
                 <TextView
                     android:layout_width="match_parent"

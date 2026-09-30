@@ -116,6 +116,8 @@ public class AgentWorkspace {
         ensureGuideFiles();
         // 内置 APK 壳指导文档（HTML 设计规则 + 壳源码指导）：删除后工作区重建时从 assets 恢复
         ensureBuiltinGuideAssets();
+        // 公共↔私有切换时迁移另一侧的用户文件（内置指南/busybox 已就绪后再判定，避免误删）
+        migrateFromOtherSide();
     }
 
     /** assets 里有哪些内置指导文档（自动扫描目录；失败返回空数组，不影响启动） */
@@ -154,6 +156,109 @@ public class AgentWorkspace {
         if (!workspaceDir.exists()) workspaceDir.mkdirs();
         if (!tmpDir.exists()) tmpDir.mkdirs();
         if (!filesDir.exists()) filesDir.mkdirs();
+    }
+
+    /**
+     * 工作区在公共↔私有之间切换时，把另一侧的用户文件迁移过来（避免"文件在另一侧、App 读不到"）。
+     * <ul>
+     *   <li>只搬用户文件：内置指南（BUILTIN_GUIDE_NAMES）、busybox_in_workspace 视为系统资源不搬不删</li>
+     *   <li>逐文件搬移：复制成功才删源，同名冲突保留当前侧；失败留源 → 下次启动幂等重试</li>
+     * </ul>
+     */
+    private void migrateFromOtherSide() {
+        try {
+            File other;
+            if (publicWorkspace) {
+                other = new File(appContext.getFilesDir(), WORKSPACE_DIR);
+            } else {
+                java.io.File downloadDir = android.os.Environment
+                        .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+                other = new File(downloadDir, PUBLIC_ROOT + "/" + WORKSPACE_DIR);
+            }
+            if (other == null || !other.isDirectory()) return;
+            boolean any = false;
+            File otherFiles = new File(other, FILES_DIR);
+            File otherTmp = new File(other, TMP_DIR);
+            if (otherFiles.isDirectory()) {
+                File[] entries = otherFiles.listFiles();
+                if (entries != null) {
+                    for (File e : entries) {
+                        if (e.isFile() && !isSystemEntry(e.getName())) {
+                            File dst = new File(filesDir, e.getName());
+                            if (!dst.exists() && copyEntry(e, dst)) {
+                                e.delete();
+                                any = true;
+                            }
+                        } else if (e.isDirectory()) {
+                            File dst = new File(filesDir, e.getName());
+                            if (!dst.exists() && copyEntry(e, dst)) {
+                                deleteRecursive(e);
+                                any = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if (otherTmp.isDirectory()) {
+                File[] entries = otherTmp.listFiles();
+                if (entries != null) {
+                    for (File e : entries) {
+                        File dst = new File(tmpDir, e.getName());
+                        if (!dst.exists() && copyEntry(e, dst)) {
+                            if (e.isDirectory()) deleteRecursive(e); else e.delete();
+                            any = true;
+                        }
+                    }
+                }
+            }
+            if (any) {
+                AILogger.i(TAG, "工作区已迁移 " + other.getAbsolutePath()
+                        + " → " + workspaceDir.getAbsolutePath());
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "工作区迁移失败: " + t.getMessage());
+        }
+    }
+
+    /** 系统资源判定：内置指南 + busybox 工具链，不参与迁移（不搬不删） */
+    private boolean isSystemEntry(String name) {
+        return "busybox_in_workspace".equals(name) || BUILTIN_GUIDE_NAMES.contains(name);
+    }
+
+    private boolean copyEntry(File src, File dst) {
+        try {
+            if (src.isDirectory()) {
+                if (!dst.mkdirs() && !dst.isDirectory()) return false;
+                File[] kids = src.listFiles();
+                if (kids != null) {
+                    for (File k : kids) {
+                        if (!copyEntry(k, new File(dst, k.getName()))) return false;
+                    }
+                }
+                return true;
+            }
+            try (java.io.InputStream in = new java.io.FileInputStream(src);
+                 java.io.OutputStream out = new java.io.FileOutputStream(dst)) {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                out.flush();
+            }
+            return true;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "迁移复制失败: " + src.getAbsolutePath() + " - " + t.getMessage());
+            return false;
+        }
+    }
+
+    private void deleteRecursive(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) {
+            for (File k : kids) {
+                if (k.isDirectory()) deleteRecursive(k); else k.delete();
+            }
+        }
+        f.delete();
     }
 
     /** 工作区是否位于公共目录（Download/OilQuiz） */

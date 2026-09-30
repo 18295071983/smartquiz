@@ -137,6 +137,13 @@ public class SmartQuizApplication extends Application {
         } catch (Throwable ignored) {
         }
 
+        // 导入工作区双根初始化：有"所有文件访问"→公共 /sdcard/OilQuiz；无权限 → 私有 files/import_workspace
+        // （Python 与 App 同进程可读写私有目录，导入管线无需该权限）
+        try {
+            com.oilquiz.app.ai.importing.v2.ImportDirs.init(this);
+        } catch (Throwable ignored) {
+        }
+
         // 后台线程预生成内置壁纸（仅首次或版本更新时）
         new Thread(() -> {
             try {

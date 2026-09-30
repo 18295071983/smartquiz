@@ -51,18 +51,19 @@ public class BackupManager {
         File backupDir = getBackupDir();
         File backupFile = new File(backupDir, getBackupFileName());
 
-        // 复制数据库文件到备份位置
-        try (FileInputStream fis = new FileInputStream(dbFile);
-             FileOutputStream fos = new FileOutputStream(backupFile)) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = fis.read(buffer)) > 0) {
-                fos.write(buffer, 0, length);
+        // 复制数据库文件到公共 Download/oilquiz_backup（MediaStore 写入，无需"所有文件访问"）
+        try (FileInputStream fis = new FileInputStream(dbFile)) {
+            String rel = com.oilquiz.app.util.PublicStorageWriter.writeStream(
+                    context, "oilquiz_backup", backupFile.getName(),
+                    "application/octet-stream", fis);
+            if (rel == null) {
+                throw new IOException("备份写入公共目录失败（请检查存储权限）");
             }
         }
 
-        // 验证备份文件
-        if (!validateBackupFile(backupFile, dbFile.length())) {
+        // 验证备份文件（MediaStore size 校验，无权限也可读）
+        if (com.oilquiz.app.util.PublicStorageWriter.size(
+                context, "oilquiz_backup", backupFile.getName()) != dbFile.length()) {
             throw new IOException("备份文件验证失败");
         }
 

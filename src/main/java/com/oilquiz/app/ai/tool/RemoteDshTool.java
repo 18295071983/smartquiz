@@ -265,25 +265,21 @@ public class RemoteDshTool implements AITool {
      * @return 导出目录的绝对路径
      */
     public static String exportBridgeFiles(Context c) throws Exception {
-        java.io.File dir = new java.io.File(
-                android.os.Environment.getExternalStoragePublicDirectory(
-                        android.os.Environment.DIRECTORY_DOWNLOADS),
-                "OilQuiz/remote_dsh");
-        if (!dir.exists() && !dir.mkdirs()) {
-            throw new java.io.IOException("无法创建目录：" + dir.getAbsolutePath()
-                    + "（请在系统设置里给本应用「所有文件访问」权限）");
-        }
+        // MediaStore 写入（无需"所有文件访问"权限）；文件管理器可见，可拷到电脑
+        String dirDesc = null;
         for (String name : BRIDGE_FILES) {
-            try (java.io.InputStream in = c.getAssets().open(ASSET_DIR + "/" + name);
-                 java.io.OutputStream out = new java.io.FileOutputStream(new java.io.File(dir, name))) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) {
-                    out.write(buf, 0, n);
+            try (java.io.InputStream in = c.getAssets().open(ASSET_DIR + "/" + name)) {
+                String rel = com.oilquiz.app.util.PublicStorageWriter.writeStream(
+                        c, "remote_dsh", name,
+                        com.oilquiz.app.util.PublicStorageWriter.guessMime(name), in);
+                if (rel == null) {
+                    throw new java.io.IOException("无法导出 " + name + "（公共目录不可写）");
                 }
+                int idx = rel.lastIndexOf('/');
+                dirDesc = idx > 0 ? rel.substring(0, idx) : rel;
             }
         }
-        return dir.getAbsolutePath();
+        return dirDesc == null ? "内部存储/Download/OilQuiz/remote_dsh" : dirDesc;
     }
 
     /** 第一次用这个功能时的引导文案（工具给 AI 的提示里也用它指路） */

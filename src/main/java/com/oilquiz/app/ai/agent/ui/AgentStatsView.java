@@ -129,6 +129,36 @@ public class AgentStatsView {
             }
         }
 
+        // 存储清理：运行日志 + 对话/使用记录（App 私有目录，可一键清理释放空间）
+        java.io.File filesDir = context.getFilesDir();
+        final java.io.File aiLogsDir = new java.io.File(filesDir, "ai_logs");
+        final long logBytes = dirSize(aiLogsDir);
+        final long chatBytes = chatRecordsSize(filesDir);
+
+        container.addView(createInfoCard(
+                "\uD83D\uDDD2\uFE0F 运行日志（ai_logs/）",
+                "每日 AI/Agent 运行日志，可安全清理（清理后自动重建）。当前: " + fmtSize(logBytes),
+                "清理日志", v -> confirmClear("清理运行日志",
+                        "将删除 ai_logs/ 下全部日志文件（约 " + fmtSize(logBytes) + "），日志会在后续运行中自动重建。确定继续吗？",
+                        () -> {
+                            int n = clearDirFiles(aiLogsDir);
+                            Toast.makeText(context, "已清理日志 " + n + " 个，释放 " + fmtSize(logBytes),
+                                    Toast.LENGTH_SHORT).show();
+                            refresh();
+                        })));
+
+        container.addView(createInfoCard(
+                "\uD83D\uDCAC 对话与使用记录",
+                "AI 聊天历史、Agent 使用记录、本地会话与附件。当前: " + fmtSize(chatBytes),
+                "清理记录", v -> confirmClear("清理对话与使用记录",
+                        "将删除全部 AI 聊天历史、Agent 使用记录、本地会话与附件（约 " + fmtSize(chatBytes) + "，不可恢复）。确定继续吗？",
+                        () -> {
+                            long freed = clearChatRecords(filesDir);
+                            Toast.makeText(context, "已清理对话与使用记录，释放 " + fmtSize(freed),
+                                    Toast.LENGTH_SHORT).show();
+                            refresh();
+                        })));
+
         if (container.getChildCount() == 0) {
             TextView empty = new TextView(context);
             empty.setText("暂无统计数据。\n使用 Agent 工具后，这里会显示使用情况。");
@@ -227,5 +257,80 @@ public class AgentStatsView {
         return (int) android.util.TypedValue.applyDimension(
                 android.util.TypedValue.COMPLEX_UNIT_DIP, value,
                 context.getResources().getDisplayMetrics());
+    }
+
+    // ---------- 存储清理工具 ----------
+
+    private void confirmClear(String title, String message, Runnable action) {
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("清理", (dialog, which) -> action.run())
+            .setNegativeButton("取消", null)
+            .show();
+    }
+
+    private long dirSize(java.io.File dir) {
+        if (dir == null || !dir.exists()) return 0;
+        long total = 0;
+        java.io.File[] kids = dir.listFiles();
+        if (kids != null) {
+            for (java.io.File k : kids) {
+                if (k.isDirectory()) total += dirSize(k);
+                else total += k.length();
+            }
+        }
+        return total;
+    }
+
+    private long chatRecordsSize(java.io.File filesDir) {
+        long total = dirSize(new java.io.File(filesDir, "conversations"))
+                + dirSize(new java.io.File(filesDir, "attachments"));
+        java.io.File[] kids = filesDir.listFiles();
+        if (kids != null) {
+            for (java.io.File k : kids) {
+                String n = k.getName();
+                if (k.isFile() && (n.startsWith("local_chat_history_") || n.startsWith("online_agent_history_")
+                        || n.equals("ai_chat_history.json"))) {
+                    total += k.length();
+                }
+            }
+        }
+        return total;
+    }
+
+    private long clearChatRecords(java.io.File filesDir) {
+        long freed = clearDirFiles(new java.io.File(filesDir, "conversations"))
+                + clearDirFiles(new java.io.File(filesDir, "attachments"));
+        java.io.File[] kids = filesDir.listFiles();
+        if (kids != null) {
+            for (java.io.File k : kids) {
+                String n = k.getName();
+                if (k.isFile() && (n.startsWith("local_chat_history_") || n.startsWith("online_agent_history_")
+                        || n.equals("ai_chat_history.json"))) {
+                    long sz = k.length();
+                    if (k.delete()) freed += sz;
+                }
+            }
+        }
+        return freed;
+    }
+
+    private int clearDirFiles(java.io.File dir) {
+        if (dir == null || !dir.exists()) return 0;
+        int n = 0;
+        java.io.File[] kids = dir.listFiles();
+        if (kids != null) {
+            for (java.io.File k : kids) {
+                if (k.delete()) n++;
+            }
+        }
+        return n;
+    }
+
+    private String fmtSize(long bytes) {
+        if (bytes < 1024) return bytes + "B";
+        if (bytes < 1024 * 1024) return String.format(java.util.Locale.US, "%.1fKB", bytes / 1024.0);
+        return String.format(java.util.Locale.US, "%.1fMB", bytes / (1024.0 * 1024));
     }
 }

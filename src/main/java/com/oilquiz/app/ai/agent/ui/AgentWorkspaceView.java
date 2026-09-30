@@ -44,6 +44,8 @@ public class AgentWorkspaceView {
         }
     };
 
+    private TextView statsView;
+
     public AgentWorkspaceView(Context context) {
         this.context = context;
     }
@@ -89,6 +91,13 @@ public class AgentWorkspaceView {
         desc.setPadding(0, dp(4), 0, dp(4));
         page.addView(desc);
 
+        // 占用统计（刷新时更新）
+        statsView = new TextView(context);
+        statsView.setTextSize(11);
+        statsView.setTextColor(color(R.color.text_tertiary));
+        statsView.setPadding(0, dp(2), 0, dp(4));
+        page.addView(statsView);
+
         // 未授权公共目录时：提示 + 一键跳转授权（授予后工作区自动切换公共目录并迁移旧文件）
         if (!isPublic) {
             TextView permBtn = new TextView(context);
@@ -102,6 +111,38 @@ public class AgentWorkspaceView {
             permLp.setMargins(0, dp(4), 0, dp(8));
             page.addView(permBtn, permLp);
             permBtn.setOnClickListener(v -> requestPublicStoragePermission());
+        }
+        // 公共模式下：回收私有目录里的旧工作区残留（历史遗留文件，切回私有时 App 自动重建内置指南）
+        if (isPublic) {
+            final java.io.File privWs = new java.io.File(context.getFilesDir(), "agent_workspace");
+            if (privWs.exists()) {
+                TextView reclaimBtn = new TextView(context);
+                reclaimBtn.setText("♻️ 回收私有残留（删除 App 私有目录旧工作区，释放空间）");
+                reclaimBtn.setTextSize(11);
+                reclaimBtn.setGravity(Gravity.CENTER);
+                reclaimBtn.setTextColor(color(R.color.text_secondary));
+                reclaimBtn.setBackground(buttonBackground(R.color.secondary_container));
+                LinearLayout.LayoutParams reclaimLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+                reclaimLp.setMargins(0, 0, 0, dp(8));
+                page.addView(reclaimBtn, reclaimLp);
+                reclaimBtn.setOnClickListener(v -> {
+                    new com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+                        .setTitle("回收私有残留")
+                        .setMessage("将删除应用私有目录中的旧工作区（含历史遗留文件，通常不到 1MB）。当前工作在公共目录，切回私有模式时 App 会自动重建内置指南，不影响使用。确定继续吗？")
+                        .setPositiveButton("回收", (dialog, which) -> {
+                            long sz = dirSize(privWs);
+                            boolean ok = deleteRecursive(privWs);
+                            Toast.makeText(context, ok
+                                            ? "已回收 " + formatSize(sz) + "（私有旧工作区已清除）"
+                                            : "回收失败（部分文件占用中，可稍后重试）",
+                                    Toast.LENGTH_SHORT).show();
+                            refresh();
+                        })
+                        .setNegativeButton("取消", null)
+                        .show();
+                });
+            }
         }
         // 分隔留白
         page.addView(new android.view.View(context), new LinearLayout.LayoutParams(
@@ -192,6 +233,18 @@ public class AgentWorkspaceView {
 
     private void refresh() {
         AgentWorkspace ws = AgentWorkspace.getInstance(context);
+        // 占用统计（独立于列表签名，每次轮询都刷新）
+        if (statsView != null) {
+            long wsFiles = dirSize(ws.getFilesDir());
+            long wsTmp = dirSize(ws.getTmpDir());
+            long privTotal = dirSize(new java.io.File(context.getFilesDir(), ""));
+            statsView.setText("💾 工作区占用: files/ " + formatSize(wsFiles)
+                    + " · tmp/ " + formatSize(wsTmp)
+                    + "\n📦 App 私有目录总量: " + formatSize(privTotal)
+                    + (ws.isPublicWorkspace()
+                            ? "（当前: 🌐 公共）"
+                            : "（当前: 🔒 私有）"));
+        }
         List<AgentWorkspace.WorkspaceFile> files = ws.listFiles();
 
         // 内容未变化时跳过重建（自动轮询 3s 一次，避免频繁 removeAllViews 闪烁/滚动跳动）
@@ -460,5 +513,40 @@ public class AgentWorkspaceView {
         } catch (Exception e) {
             Toast.makeText(context, "无法打开授权页: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ---------- 占用统计工具 ----------
+
+    private long dirSize(java.io.File dir) {
+        if (dir == null || !dir.exists()) return 0;
+        long total = 0;
+        java.io.File[] kids = dir.listFiles();
+        if (kids != null) {
+            for (java.io.File k : kids) {
+                if (k.isDirectory()) {
+                    total += dirSize(k);
+                } else {
+                    total += k.length();
+                }
+            }
+        }
+        return total;
+    }
+
+    private boolean deleteRecursive(java.io.File f) {
+        if (f == null || !f.exists()) return true;
+        boolean ok = true;
+        java.io.File[] kids = f.listFiles();
+        if (kids != null) {
+            for (java.io.File k : kids) {
+                if (k.isDirectory()) {
+                    if (!deleteRecursive(k)) ok = false;
+                } else {
+                    if (!k.delete()) ok = false;
+                }
+            }
+        }
+        if (!f.delete()) ok = false;
+        return ok;
     }
 }

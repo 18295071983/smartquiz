@@ -83,6 +83,15 @@ public class AgentManagerActivity extends AppCompatActivity {
             scrollView.setFillViewport(true);
             scrollView.setLayoutParams(new ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            // 壁纸背景下保证文字可读：主题适配底色 + 圆角 + 对比描边（跟随深浅色/换肤）
+            int surface = ThemeColors.get(requireContext(), R.color.surface_variant);
+            int border = ThemeColors.get(requireContext(), R.color.on_surface);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setColor((surface & 0x00FFFFFF) | 0xFF000000);
+            bg.setCornerRadius(dp(14));
+            bg.setStroke(dp(2), border);
+            scrollView.setBackground(bg);
+            scrollView.setPadding(dp(10), dp(8), dp(10), dp(10));
             scrollView.addView(content);
             return scrollView;
         }
@@ -91,7 +100,7 @@ public class AgentManagerActivity extends AppCompatActivity {
             TextView tv = new TextView(requireContext());
             tv.setText(text);
             tv.setTextSize(13);
-            tv.setTextColor(ThemeColors.get(R.color.hc_ff94a3b8));
+            tv.setTextColor(ThemeColors.get(requireContext(), R.color.text_tertiary));
             tv.setGravity(android.view.Gravity.CENTER);
             tv.setPadding(0, dp(24), 0, 0);
             container.addView(tv);

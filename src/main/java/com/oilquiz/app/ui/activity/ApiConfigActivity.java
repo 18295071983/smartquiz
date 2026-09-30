@@ -798,15 +798,13 @@ public class ApiConfigActivity extends BaseActivity {
             new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".json";
 
         try {
-            File exportDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            File exportFile = new File(exportDir, fileName);
-            
-            try (OutputStreamWriter writer = new OutputStreamWriter(
-                openFileOutput(fileName, MODE_PRIVATE))) {
-                writer.write(json);
+            // MediaStore 写入 Download/OilQuiz（无需"所有文件访问"；修复旧实现"写私有却提示公共路径"的不一致）
+            String rel = com.oilquiz.app.util.PublicStorageWriter.writeText(
+                    this, "", fileName, json);
+            if (rel == null) {
+                throw new java.io.IOException("导出写入公共目录失败（请检查存储权限）");
             }
-
-            Toast.makeText(this, getString(R.string.h_38d4b4e6) + exportFile.getAbsolutePath(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, getString(R.string.h_38d4b4e6) + rel, Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             Toast.makeText(this, getString(R.string.h_2e0d8c60) + e.getMessage(), Toast.LENGTH_SHORT).show();
         }

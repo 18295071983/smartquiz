@@ -222,11 +222,10 @@ public class AIImportActivity extends BaseActivity {
                 showToast(getString(R.string.h_e74c3ec4));
                 return;
             }
-            // 导入管线 Python 需读写公共目录 /storage/emulated/0/OilQuiz/，
-            // 先主动确认"所有文件访问"权限（不假设已授权），缺失则引导授权后重新导入
+            // 导入管线工作区已支持双根：无"所有文件访问"时自动切 App 私有工作区
+            // （Python 同进程可读写，无需授权），不再硬性阻断
             if (!hasPublicStoragePermission()) {
-                requestPublicStoragePermission();
-                return;
+                showToast("未授予「所有文件访问」，已自动使用 App 私有工作区导入（无需授权）");
             }
             startSmartImport();
         });
@@ -253,8 +252,7 @@ public class AIImportActivity extends BaseActivity {
                 return;
             }
             if (!hasPublicStoragePermission()) {
-                requestPublicStoragePermission();
-                return;
+                showToast("未授予「所有文件访问」，已自动使用 App 私有工作区导入（无需授权）");
             }
             startAgentImport();
         });

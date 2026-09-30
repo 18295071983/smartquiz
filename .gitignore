@@ -266,3 +266,10 @@ tools/.bridge_token
 
 # 公网/隧道地址（花生壳等），供 start_dsh_bridge.bat 读取
 tools/.public_url
+
+# ============ 调试产物 ============
+quiz_now.png
+termux_now*.png
+api_*.txt
+vc_*.txt
+seg_*.txt

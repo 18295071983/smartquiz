@@ -50,8 +50,8 @@ import io.noties.markwon.core.spans.TextViewSpan;
  */
 public class AgentSessionView extends LinearLayout {
 
-    private static final int COLOR_OK = 0xFF059669;
-    private static final int COLOR_ERR = 0xFFDC2626;
+    private final int COLOR_OK;
+    private final int COLOR_ERR;
     /** 流式渲染节流间隔（与对话页思考刷新一致） */
     private static final long REFRESH_INTERVAL_MS = 120;
 
@@ -75,6 +75,8 @@ public class AgentSessionView extends LinearLayout {
 
     public AgentSessionView(Context context) {
         super(context);
+        COLOR_OK = ThemeColors.get(context, R.color.success);
+        COLOR_ERR = ThemeColors.get(context, R.color.error);
         setOrientation(VERTICAL);
         setPadding(dp(14), dp(12), dp(14), dp(12));
         setBackground(rounded(ThemeColors.get(context, R.color.surface),
@@ -98,7 +100,8 @@ public class AgentSessionView extends LinearLayout {
         stopButton.setText("停止");
         stopButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         stopButton.setTextColor(COLOR_ERR);
-        stopButton.setBackground(rounded(0xFFFFFFFF, 0xFFFCA5A5, dp(8), 1));
+        stopButton.setBackground(rounded(ThemeColors.get(context, R.color.error_container),
+                ThemeColors.get(context, R.color.error), dp(8), 1));
         stopButton.setPadding(dp(10), 0, dp(10), 0);
         stopButton.setVisibility(GONE);
         stopButton.setOnClickListener(v -> stop());

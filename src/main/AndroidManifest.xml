@@ -137,6 +137,11 @@
             android:exported="false"
             android:label="完整 Python 环境"
             android:parentActivityName=".ui.activity.ToolboxActivity" />
+        <activity
+            android:name=".ai.tool.TermuxSetupMonitorActivity"
+            android:exported="false"
+            android:label="一键准备监控"
+            android:parentActivityName=".ai.tool.TermuxEnvSetupActivity" />
         <!-- 图形界面（VNC · noVNC）：容器里跑 websockify + noVNC，本页是 WebView 外壳（默认入口） -->
         <activity
             android:name=".vnc.VncWebActivity"
