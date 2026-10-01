@@ -137,24 +137,11 @@
             android:exported="false"
             android:label="完整 Python 环境"
             android:parentActivityName=".ui.activity.ToolboxActivity" />
+        <!-- App 内 SSH 终端（连本机 Termux sshd，操作容器；2026-10-02 新增） -->
         <activity
-            android:name=".ai.tool.TermuxSetupMonitorActivity"
+            android:name=".ui.activity.SshTerminalActivity"
             android:exported="false"
-            android:label="一键准备监控"
-            android:parentActivityName=".ai.tool.TermuxEnvSetupActivity" />
-        <!-- 图形界面（VNC · noVNC）：容器里跑 websockify + noVNC，本页是 WebView 外壳（默认入口） -->
-        <activity
-            android:name=".vnc.VncWebActivity"
-            android:exported="false"
-            android:label="图形界面（VNC）"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
-            android:parentActivityName=".ui.activity.ToolboxActivity" />
-        <!-- 图形界面（VNC · 原生模式）：自研 RFB 客户端，作为 noVNC 的备用入口 -->
-        <activity
-            android:name=".vnc.VncActivity"
-            android:exported="false"
-            android:label="图形界面（原生模式）"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:label="SSH 终端"
             android:parentActivityName=".ui.activity.ToolboxActivity" />
         <!-- 使用教程：怎么用 + 电脑端怎么配 + 导出电脑端程序 -->
         <activity

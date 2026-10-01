@@ -1,6 +1,9 @@
 package com.oilquiz.app.ai.jni;
 
 import android.util.Log;
+import android.content.Context;
+import android.preference.PreferenceManager;
+import com.oilquiz.app.ai.spi.AppServices;
 import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.ai.util.PromptBuilder;
 import com.oilquiz.app.ai.callback.StreamCallback;
@@ -113,6 +116,9 @@ public class LlamaHelper {
             AILogger.w(TAG, "initModel warning: " + validation.warningMessage);
         }
         
+        // GPU 后端偏好（OpenCL/Vulkan/auto）：读取设置并下发 native，加载时按 devices 过滤
+        applyBackendPreference();
+
         try {
             int result = nativeInitModel(modelPath, nCtx, nThreads);
             if (result == 0) {
@@ -146,6 +152,47 @@ public class LlamaHelper {
     }
 
     private static native int nativeInitModel(String modelPath, int nCtx, int nThreads);
+
+    // ========== GPU 后端开关（OpenCL / Vulkan / auto）==========
+    // 设置项 key: gpu_backend（默认 auto = 全部可用 GPU 设备，旧行为）
+    // 指定 opencl/vulkan 时 native 只 offload 到对应后端，另一个后端不参与权重放置
+    private static String sBackendPreference = "auto";
+
+    public static void setBackend(String backend) {
+        if (backend == null) return;
+        String b = backend.trim().toLowerCase();
+        if ("opencl".equals(b) || "vulkan".equals(b) || "auto".equals(b)) {
+            sBackendPreference = b;
+            AILogger.i(TAG, "GPU backend preference set to: " + b);
+        } else {
+            AILogger.w(TAG, "Invalid GPU backend: " + backend);
+        }
+    }
+
+    public static String getBackend() { return sBackendPreference; }
+
+    private static void applyBackendPreference() {
+        try {
+            Context ctx = AppServices.appContext();
+            if (ctx != null) {
+                String saved = PreferenceManager.getDefaultSharedPreferences(ctx)
+                    .getString("gpu_backend", "auto");
+                if (saved != null && !saved.isEmpty()) {
+                    sBackendPreference = saved.trim().toLowerCase();
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "applyBackendPreference failed: " + t.getMessage());
+        }
+        try {
+            nativeSetBackend(sBackendPreference);
+            AILogger.i(TAG, "GPU backend preference applied to native: " + sBackendPreference);
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeSetBackend unavailable: " + e.getMessage());
+        }
+    }
+
+    private static native void nativeSetBackend(String backend);
 
     // ========== 推理锁方法 ==========
     

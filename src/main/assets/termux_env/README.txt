@@ -20,9 +20,10 @@
 
 排障（重要）
 ---------
-· 准备脚本**可以反复运行**：已装的部分（proot-distro / 容器 / 容器内 Python）会自动跳过，不会报
+· 准备脚本**可以反复运行**：已装的部分（proot-distro / 容器）会自动跳过，不会报
   "container 'ubuntu' already exists"（这是 2026-09-27 修掉的 bug：proot-distro 5.9 的 `list` 把列表
   打到 stderr，旧脚本用 `list 2>/dev/null | grep` 判定，必然误判成"没装"）。
+· 容器内 Python 需要时手动装：~/ubuntu 里 apt-get install python3-full（App 的 AI 脚本用 Termux 内置 python，无需容器内装）。
 · 全程日志：Termux 的 ~/.quiz_env_setup.log（每次运行会覆盖），状态：~/.quiz_env_setup.status（末行 fail=0/1）。
   出问题先 `cat ~/.quiz_env_setup.log`。
 · 外部存储权限：Termux 未授予时读不到 /sdcard 上的本地包（~ 下也不会有 storage 软链），
@@ -31,5 +32,5 @@
 用户侧流程（App「完整 Python 环境」界面）：
    ① 安装 Termux（本目录的 APK，系统安装器确认一次）
    ② 导出本目录的 Ubuntu 根文件系统到 Download/OilQuiz/termux_env/
-   ③ 在 Termux 里执行一行命令：装 proot-distro → 用导出的 tar.gz 建容器 → apt 装 python3-full + python3-tk
+   ③ 在 Termux 里执行一行命令：装 proot-distro → 用导出的 tar.gz 建容器（Termux 内置 python 3.14 已随 22 包离线装好）
       （授予一次 RUN_COMMAND 权限后，第 ③ 步可由 App 自动完成）

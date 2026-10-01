@@ -220,7 +220,7 @@
                             android:layout_width="@dimen/size_0"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="OpenCL"
+                            android:text="GPU 后端"
                             android:textSize="@dimen/text_14"
                             android:textColor="?attr/colorControlTextSecondary"/>
                         <LinearLayout
@@ -314,6 +314,58 @@
                             android:text="应用并重载"
                             android:textSize="@dimen/text_13"
                             style="?attr/materialButtonOutlinedStyle"/>
+                    </LinearLayout>
+                    <!-- GPU 后端选择：修改后需重新加载模型才生效 -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/size_1"
+                        android:background="?attr/colorDivider"/>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingVertical="8dp">
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="GPU 后端"
+                            android:textSize="@dimen/text_14"
+                            android:textColor="?attr/colorControlTextSecondary"/>
+                        <RadioGroup
+                            android:id="@+id/gpu_backend_group"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginTop="6dp">
+                            <RadioButton
+                                android:id="@+id/backend_auto"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="自动"
+                                android:textSize="@dimen/text_13"/>
+                            <RadioButton
+                                android:id="@+id/backend_opencl"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="GPU 后端"
+                                android:textSize="@dimen/text_13"/>
+                            <RadioButton
+                                android:id="@+id/backend_vulkan"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="Vulkan"
+                                android:textSize="@dimen/text_13"/>
+                        </RadioGroup>
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="切换后需重新加载模型生效"
+                            android:textSize="@dimen/text_12"
+                            android:textColor="?attr/colorControlTextHint"/>
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>

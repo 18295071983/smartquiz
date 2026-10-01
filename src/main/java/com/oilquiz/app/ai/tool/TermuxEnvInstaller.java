@@ -174,12 +174,10 @@ public final class TermuxEnvInstaller {
 
     /** 导出的根文件系统（若已导出且大小正常） */
     public static File exportedRootfs(Context ctx) {
-        // 完成标记 + rootfs 实体双确认，全部走 PublicStorageWriter
-        // （MediaStore 通道，无需"所有文件访问"权限；rm 公共目录后
-        // MediaProvider watcher 会同步清记录，不再误判"已导出"）。
-        if (PublicStorageWriter.size(ctx, "termux_env", ".quiz_rootfs_done") <= 0) {
-            return null;
-        }
+        // 只以 tar.gz 实体为准（File/MediaStore 双通道，>1MB 即认为导出成功）。
+        // 不再用 .quiz_rootfs_done 隐藏文件做标记：MediaStore 会把点开头文件改名为
+        // _.quiz_rootfs_done（防隐藏文件绕过扫描），查询永远查不到 → 误判"未导出"
+        // → 向导卡死在第 3 步（真机踩到，残留了 10 个 _ 副本）。
         if (PublicStorageWriter.size(ctx, "termux_env", EXPORT_ROOTFS_NAME) > 1024 * 1024) {
             return new File(Environment.getExternalStoragePublicDirectory(
                     Environment.DIRECTORY_DOWNLOADS),
@@ -264,10 +262,10 @@ public final class TermuxEnvInstaller {
         return """
                 mkdir -p "$HOME/.termux/boot" && cat > "$HOME/.termux/boot/start-env.sh" <<'BOOTEOF'
                 #!/data/data/com.termux/files/usr/bin/bash
-                # quiz app: auto start Ubuntu GUI (VNC) after device boot
+                # quiz app: auto start Ubuntu env (SSH) after device boot
                 termux-wake-lock 2>/dev/null
                 sleep 25
-                [ -x "$HOME/ubuntu-gui" ] && bash "$HOME/ubuntu-gui" start 2>/dev/null
+                [ -f "$HOME/ubuntu" ] && nohup bash "$HOME/ubuntu" -c "service ssh start 2>/dev/null" >/dev/null 2>&1
                 BOOTEOF
                 chmod 700 "$HOME/.termux/boot/start-env.sh" && echo BOOT_SCRIPT_OK
                 """;
@@ -278,12 +276,21 @@ public final class TermuxEnvInstaller {
                 "OilQuiz/termux_env/" + EXPORT_ROOTFS_NAME);
         // MediaStore 优先：无"所有文件访问"权限也能写 Download 公共目录
         // （Termux 侧经 sdcard_rw 读公共目录实体，与 App 权限无关）
+        // 清理历史残留：旧版写 .quiz_rootfs_done 标记被 MediaStore 改名成 _ 开头且删不掉（每导一次多一个副本）
+        for (int i = 0; i < 30; i++) {
+            String n = i == 0 ? "_.quiz_rootfs_done" : "_.quiz_rootfs_done (" + i + ")";
+            PublicStorageWriter.delete(ctx, "termux_env", n);
+        }
         String rel = PublicStorageWriter.writeStream(ctx, "termux_env", EXPORT_ROOTFS_NAME,
                 null, ctx.getAssets().open(ASSET_DIR + "/" + ASSET_ROOTFS));
         if (rel == null) {
+            // MediaStore 一次失败：部分 ROM 的 MediaProvider 瞬时抖动，重试一次再落 File API 兜底
+            rel = PublicStorageWriter.writeStream(ctx, "termux_env", EXPORT_ROOTFS_NAME,
+                    null, ctx.getAssets().open(ASSET_DIR + "/" + ASSET_ROOTFS));
+        }
+        if (rel == null) {
             copyAsset(ctx, ASSET_ROOTFS, out);
         }
-        PublicStorageWriter.writeText(ctx, "termux_env", ".quiz_rootfs_done", "1");
         return out;
     }
 
@@ -327,61 +334,6 @@ public final class TermuxEnvInstaller {
         return buildRunnerScript(root, TUNA_ROOTFS_URL);
     }
 
-    // ---------- 图形界面（X11 + VNC）----------
-
-    /** VNC 端口（容器里的 Xvnc 监听 127.0.0.1，仅本机可见） */
-    public static final int VNC_PORT = 5900;
-
-    /**
-     * 容器内启动图形界面的命令：**用 TigerVNC 的 Xvnc**（X server + VNC 一个进程搞定）。
-     *
-     * <p>为什么不用 Xvfb + x11vnc（最早那版）：x11vnc 0.9.16 在 proot 下太脆 ——
-     * {@code -encodings} 不认、{@code shmget} 被拒（要 -noshm）、{@code -threads} 会空转且不再监听，
-     * 而且客户端连上后**时好时坏地不发版本横幅**（真机实测：冷启动时 4 次重连全失败、最后进程直接没了）。
-     * 换 Xvnc 后同一个 proot 环境里前台跑满 12 秒毫无问题。
-     *
-     * <p>三条硬要求：
-     * <ol>
-     *   <li><b>Xvnc 必须前台常驻</b>（这里用 exec）：proot 会话一退出就会带走所有子进程。</li>
-     *   <li><b>启动前必须清残留 socket</b>：{@code :1} 的旧 socket 还在时，Xvnc 会直接
-     *       {@code failed to bind socket: Address already in use} 退出（真机踩到过）。</li>
-     *   <li>{@code -SecurityTypes None} 免密码、{@code -ac} 免 X 授权、{@code -AlwaysShared} 允许多客户端。</li>
-     * </ol>
-     */
-    public static final String GUI_INNER_COMMAND =
-            "pkill -x Xvnc >/dev/null 2>&1; pkill -x x11vnc >/dev/null 2>&1; pkill -x Xvfb >/dev/null 2>&1; "
-                    + "pkill -x xclock >/dev/null 2>&1; sleep 1; "
-                    + "rm -f /tmp/.X11-unix/X1 /tmp/.X1-lock; "
-                    // Xvnc 退到后台，会话主进程交给 websockify —— 它一个进程干两件事：
-                    // ① 把 noVNC 网页（/usr/share/novnc）发出来；② 把 WebSocket 桥到 127.0.0.1:5900。
-                    // 真机实测：ws 握手 101 + 收到 RFB 003.008 横幅。
-                    + "Xvnc :1 -geometry 1280x720 -depth 24 -rfbport 5900 -localhost "
-                    // 注意：这条命令是塞在双引号里下发的，**不转义的 $ 会被外层 Termux shell 先展开成空** ✗
-                    // 真机踩到：容器里实际跑的是 "XVNC=; ... [ -f ] && bash   & wait" —— 变量全没了，
-                    // 外壳脚本因此永远没在 Xvnc 会话里起来（总线随之死掉 → 菜单点了没反应）。
-                    + "-SecurityTypes None -AlwaysShared -ac -desktop OilQuiz & XVNC=\\$!; "
-                    + "sleep 2; "
-                    // websockify 只当"后台助手"：它要是因为 6080 被上一轮的实例占住而启动失败，
-                    // 绝不能把桌面一起带走（真机踩过：exec websockify 抢不到端口就退出 →
-                    //  proot 会话结束 → Xvnc 被 --kill-on-exit 带走 → 5900 没人监听，
-                    //  而 pgrep 还能看到僵尸 Xvnc，健康检查以为一切正常）。
-                    + "if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then "
-                    + "websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 "
-                    + ">> /tmp/quiz_websockify.log 2>&1 & "
-                    + "fi; "
-                    // 桌面外壳（总线 + WM + 通知守护 + 面板 + 桌面）挂到**这一条**会话里，
-                    // 并且用 dbus-run-session 持有总线 —— proot 下 D-Bus **跨会话连不通**
-                    // （见 GUI_SHELL_SH 的 javadoc）：总线必须和它的全部客户端待在同一个会话里。
-                    // 这条会话因为 wait $XVNC 会一直活着，所以 Xvnc 活多久、总线和外壳就活多久。
-                    // 输出重定向必须写在**容器内**那条命令里：在 Termux 侧重定向到 /tmp 会
-                    // "Permission denied"（Android 的 /tmp 不可写），整条会话都起不来（真机踩到）。
-                    + "SHELL_SH=/data/data/com.termux/files/home/.quiz_shell.sh; "
-                    + "if [ -f \\\"\\$SHELL_SH\\\" ]; then "
-                    + "if command -v dbus-run-session >/dev/null 2>&1; then dbus-run-session -- bash \\\"\\$SHELL_SH\\\"; "
-                    + "else bash \\\"\\$SHELL_SH\\\"; fi >> /tmp/quiz_shell.log 2>&1 & fi; "
-                    // 会话寿命只跟着 Xvnc：它活着图形界面就活着
-                    + "wait \\$XVNC";
-
     /**
      * 容器内「中文化 + 北京时间」脚本（可重复运行，只做一次性修复）。
      *
@@ -402,6 +354,9 @@ public final class TermuxEnvInstaller {
             #!/bin/bash
             # 答题宝 · 容器中文化与北京时间（可重复运行）
             set +e
+            # ① proot 容器 DNS 兜底：ubuntu-base 的 resolv.conf 指向 127.0.0.53（systemd stub），
+            #    proot 里没有监听者 → apt/pip 全部报 Failed to fetch / Temporary failure resolving（真机最常见根因）
+            printf 'nameserver 8.8.8.8\nnameserver 223.5.5.5\nnameserver 114.114.114.114\n' > /etc/resolv.conf
             EX=/etc/dpkg/dpkg.cfg.d/excludes
             if [ -f "$EX" ] && grep -q '^path-exclude=/usr/share/locale' "$EX"; then
               sed -i 's|^path-exclude=/usr/share/locale.*|# &|' "$EX"
@@ -555,266 +510,6 @@ public final class TermuxEnvInstaller {
             echo "ZH_FIX_OK tz=$(cat /etc/timezone 2>/dev/null) 中文词典=$(ls /usr/share/locale/zh_CN/LC_MESSAGES 2>/dev/null | wc -l)"
             """;
 
-    /**
-     * 容器侧的「桌面外壳」启动器（由 {@code ensure_shell} 调用）。
-     *
-     * <p><b>为什么总线必须和客户端同会话（真机定论）</b>：proot 下 D-Bus **跨会话根本连不通**。
-     * 总线上做鉴权要用 {@code SO_PEERCRED} 读对端身份，而另一个 proot 实例拿不到，
-     * 客户端会一直卡在 AUTH 直到超时。真机实测：同一条会话里 {@code dbus-send} ✓，
-     * 换一个 {@code proot-distro login} 会话去连**同一条**总线 ✗（socket 文件明明在、
-     * {@code -S} 也判真）—— 所以“总线死了”这个结论以前被误判过好几次，全是拿别的会话去测出来的。
-     * X 之所以能跨会话用，是因为 Xvnc 带了 {@code -ac}（完全不查授权）。
-     *
-     * <p>结论：**总线 + 全部客户端都待在同一个 proot 会话里**。本脚本就是那条会话的负载
-     * （由 {@code dbus-run-session} 持有总线），WM / 通知守护 / 面板 / 桌面都是它的子进程，
-     * 一起活、一起死；{@code ensure_shell} 只负责把这条会话拉起来。
-     *
-     * <p>{@code xfce4-session} 必须一起清掉：它会按自己保存的会话把面板/通知守护**再拉一份**，
-     * 那一份挂在另一条总线上，和本脚本的面板重叠在屏幕顶部 —— 用户点到的可能正是那一份。
-     */
-    public static final String GUI_SHELL_SH = """
-            #!/bin/bash
-            # 答题宝图形界面外壳：共用一条常驻 dbus 会话总线
-            BUSDIR=/tmp/oilquiz_bus_addr
-            export DISPLAY=:1
-            export LANG=zh_CN.UTF-8
-            export LANGUAGE=zh_CN:zh
-            export LC_ALL=zh_CN.UTF-8
-            bus_ok() { dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames >/dev/null 2>&1; }
-            # ⓪ 单实例：两套外壳会话会互相 pkill 组件、把面板重新挂到新总线上（真机见过 2 条），
-            #    最后谁在屏幕上看运气。锁住，后起的直接退出。
-            LOCK=/tmp/oilquiz_shell.pid
-            if [ -f "$LOCK" ]; then
-              OLD=$(cat "$LOCK" 2>/dev/null)
-              if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && kill -0 "$OLD" 2>/dev/null; then
-                echo "OILQUIZ_SHELL 已有外壳在跑(pid=$OLD)，本进程退出"
-                exit 0
-              fi
-            fi
-            echo $$ > "$LOCK"
-            trap 'rm -f "$LOCK"' EXIT
-            # ① 总线：优先用外面 dbus-run-session 给的那条（它在本会话里，能用），
-            #    但必须**在本会话内验活**。真机踩到：GTK 拿不到可用总线时会自己 autolaunch
-            #    一条 --fork 的临时总线，那种 daemon 随一次性会话被 --kill-on-exit 回收 →
-            #    面板就挂在了死总线上。死掉就自己重开一条（--nofork 挂后台，靠末尾 wait 活着）。
-            if ! bus_ok; then
-              sleep 1
-              if ! bus_ok; then
-                sleep 1
-                if ! bus_ok; then
-                  # 兑底总线：重试两次仍不通再自开（避免 dbus-run-session 的 daemon 未就绪被误判成死了而开出第二条总线）
-                  rm -f "$BUSDIR"
-                  dbus-daemon --session --nofork --print-address=1 > "$BUSDIR" 2>/dev/null &
-                  sleep 2
-                  export DBUS_SESSION_BUS_ADDRESS="$(head -1 "$BUSDIR")"
-                fi
-              fi
-            fi
-            echo "OILQUIZ_SHELL bus=$DBUS_SESSION_BUS_ADDRESS 应答=$(bus_ok && echo 活 || echo 死)"
-            # ①.5 让 D-Bus **按需激活**出来的服务也拿到 DISPLAY。
-            #     真机踩到：激活出来的实例 "cannot open display:" 直接 exit 1 ——
-            #     日志原文 "Activated service 'org.freedesktop.FileManager1' failed:
-            #     Process org.freedesktop.FileManager1 exited with status 1"，
-            #     于是桌面双击 .desktop 图标时报「This feature requires a file manager
-            #     service to be present (such as the one supplied by thunar)」。
-            #     把环境变量写进总线的激活环境，激活实例就正常了。
-            if command -v dbus-update-activation-environment >/dev/null 2>&1; then
-              dbus-update-activation-environment DISPLAY XAUTHORITY LANG LC_ALL >/dev/null 2>&1
-            fi
-            # ①.6 websockify 看门狗：归**这条长活会话**所有，端口不通才拉起，通了就只定时探活。
-            #      真机踩到两个坑：① 启动器每次 kill_stale 都会把正在服务的 websockify 清掉，
-            #      而「桌面已就绪」那条分支不会再拉起它 → 网页 http=000（手机上看不到画面）；
-            #      ② 谁都能起 websockify，于是多个实例抢 6080，抢输的当场退出，没人补。
-            #      放进外壳会话后：会话活着它就在，退出/被抢端口都能自愈（5 秒一轮）。
-            if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then
-              (
-                while true; do
-                  if ! curl -s -o /dev/null --max-time 3 http://127.0.0.1:6080/vnc.html; then
-                    /usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 >> /tmp/quiz_websockify.log 2>&1
-                  fi
-                  sleep 5
-                done
-              ) &
-            fi
-            # ② 独占：xfce4-session 会按它保存的会话把面板/通知守护再拉一份（见上面 javadoc），
-            #    桌面只由本脚本负责，所以连会话管理器一起清掉。
-            #    连 startxfce4 那条会话也一起清 —— 真机上出现过"外壳会话 + startxfce4 会话"并存，
-            #    两边各有一个面板、都贴在屏幕顶部，用户点到的那份可能挂在另一条总线上（菜单点了没反应）。
-            #    这条脚本每次启动都由 App 用 base64 重写（ensure_shell_b64），所以这个兜底总是最新的。
-            pkill -9 -x xfce4-session >/dev/null 2>&1
-            pkill -9 -f 'startxfce[4]' >/dev/null 2>&1
-            # 面板必须独占：旧实例活着会让新实例 "Name org.xfce.Panel lost" 直接退出。
-            #    xfce4-panel 对 SIGTERM 是优雅退出（要存配置、慢），所以 -9 并等它真的消失。
-            pkill -9 -x xfce4-panel >/dev/null 2>&1
-            pkill -9 -x xfce4-notifyd >/dev/null 2>&1
-            pkill -9 -x xfwm4 >/dev/null 2>&1
-            pkill -9 -x xfdesktop >/dev/null 2>&1
-            # 旧会话里的 thunar 守护挂在**上一条**总线上，必须一起清掉，让它在新总线上重新注册
-            pkill -9 -x thunar >/dev/null 2>&1
-            i=0
-            while [ $i -lt 8 ]; do
-              pgrep -x xfce4-panel >/dev/null 2>&1 || break
-              sleep 1
-              i=$((i+1))
-            done
-            # ③ 顺序：WM → 通知守护 → 面板 → 桌面（面板要等 WM 才能拿到位置；notifyd 要在面板前，否则通知区域会崩）
-            xfwm4 --replace --compositor=off --sm-client-disable &
-            sleep 3
-            # notifyd 的可执行文件**不在 PATH 里**（Ubuntu 24.04 放在
-            # /usr/lib/<多架构>/xfce4/notifyd/xfce4-notifyd），写裸命令会 "command not found"
-            # 静默失败（真机踩到：通知守护一直没起来）。
-            NOTIFYD="$(command -v xfce4-notifyd 2>/dev/null)"
-            [ -x "$NOTIFYD" ] || NOTIFYD=/usr/lib/aarch64-linux-gnu/xfce4/notifyd/xfce4-notifyd
-            [ -x "$NOTIFYD" ] && "$NOTIFYD" &
-            sleep 2
-            # ③.5 面板插件纠正：把没用的 pulseaudio 插件就地改成 systray。
-            #      真机实测两处毛病：① 容器里没有 pulseaudio，该插件每 5 秒重连一次刷屏
-            #      （最近 400 行日志里 77 次 "Disconnected from the PulseAudio server"）；
-            #      ② 面板配置里没有 systray → WPS 之类的托盘图标不显示、最小化到托盘的程序找不回。
-            #      就地替换的好处：plugin-ids 里的位置原样保留（托盘正好该在那个位置），
-            #      而且**必须在 xfce4-panel 启动之前**改 —— 面板退出时会把自己的配置写回去覆盖。
-            PANEL_XML=/root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
-            if [ -f "$PANEL_XML" ] && command -v python3 >/dev/null 2>&1; then
-              python3 - "$PANEL_XML" <<'QUIZ_PANEL_PY'
-            import sys, shutil, xml.etree.ElementTree as ET
-            path = sys.argv[1]
-            tree = ET.parse(path)
-            root = tree.getroot()
-            changed = []
-            for p in list(root.iter('property')):
-                if p.get('type') == 'string' and p.get('value') == 'pulseaudio':
-                    p.set('value', 'systray')
-                    if not any(c.get('name') == 'square-icons' for c in list(p)):
-                        ET.SubElement(p, 'property', {'name': 'square-icons', 'type': 'bool', 'value': 'true'})
-                    changed.append('plugin-' + str(p.get('name')).split('-')[-1] + ': pulseaudio->systray')
-            if changed:
-                shutil.copy(path, path + '.bak-oilquiz')
-                tree.write(path, encoding='utf-8', xml_declaration=True)
-                print('OILQUIZ_SHELL 面板插件已纠正: ' + '; '.join(changed))
-            else:
-                print('OILQUIZ_SHELL 面板插件无需改动')
-            QUIZ_PANEL_PY
-            fi
-            xfce4-panel &
-            sleep 3
-            xfdesktop &
-            # ④ 文件管理器守护：xfdesktop 双击桌面图标时要通过 D-Bus 找 org.xfce.FileManager /
-            #    org.freedesktop.FileManager1。它**不能只靠 D-Bus 激活**（真机上激活实例 exit 1），
-            #    所以显式起一个；起来后在本会话内自查服务名有没有注册，结果写进日志备查。
-            command -v thunar >/dev/null 2>&1 && thunar --daemon &
-            sleep 3
-            for n in org.xfce.FileManager org.freedesktop.FileManager1; do
-              if dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.GetNameOwner string:$n >/dev/null 2>&1; then
-                echo "OILQUIZ_SHELL 文件管理器服务已注册 ✓ $n"
-              else
-                echo "OILQUIZ_SHELL 文件管理器服务未注册 ✗ $n"
-              fi
-            done
-            # ⑤ 运行期自愈看门狗：面板/WM 被 proot 或内存压力干掉后没有自愈机制，
-            #    窗口变 10x10、面板消失都得重启图形界面才恢复；这里 5 秒一轮补齐。
-            (
-              while true; do
-                if ! pgrep -x xfwm4 >/dev/null 2>&1; then
-                  xfwm4 --replace --compositor=off --sm-client-disable >> /tmp/quiz_shell_watchdog.log 2>&1 &
-                fi
-                if ! pgrep -x xfce4-panel >/dev/null 2>&1; then
-                  pkill -9 -x xfce4-panel >/dev/null 2>&1
-                  sleep 1
-                  xfce4-panel >> /tmp/quiz_shell_watchdog.log 2>&1 &
-                fi
-                sleep 5
-              done
-            ) &
-            wait
-            exit 0
-            """;
-
-    /**
-     * 清掉残留的 websockify（容器内运行）。
-     *
-     * <p>真机踩到：每次「启动/重启图形界面」都会新起一个 websockify，旧的从不清理 ——
-     * 实测堆到 **9 个**，最后监听进程 accept 卡死，**5900/6080 双双 timeout**（不是 refused，是挂着），
-     * 手机端画面停在最后一帧、点哪儿都没反应（用户报的「输入指针没有捕获」就是这个）。
-     *
-     * <p>为什么用 python 而不是 {@code pkill -f websockify}：图形界面那条命令行本身就含
-     * "websockify" 字样，{@code pkill -f} 会把执行它的会话一起杀掉（这个坑之前踩过）。
-     * 这里按 {@code /proc/<pid>/cmdline} 的 <b>argv[1] 是否以 /websockify 结尾</b> 精确识别。
-     */
-    public static final String GUI_KILL_STALE_PY = """
-            import os, signal
-            me = os.getpid()
-            killed = []
-            for pid in os.listdir('/proc'):
-                if not pid.isdigit() or int(pid) == me:
-                    continue
-                try:
-                    raw = open('/proc/%s/cmdline' % pid, 'rb').read().decode('utf-8', 'ignore')
-                except Exception:
-                    continue
-                parts = [p for p in raw.split(chr(0)) if p]
-                # 认两种写法：全路径 /usr/bin/websockify（argv[1] 以 /websockify 结尾），
-                # 以及裸命令 websockify（argv[1] 就是 'websockify'）—— 后者以前漏网，
-                # 残留实例占着 6080，新起的绑不上就退出（真机踩到）。
-                if any((p.endswith('/websockify') or p == 'websockify') for p in parts[1:3]):
-                    try:
-                        os.kill(int(pid), signal.SIGKILL)
-                        killed.append(pid)
-                    except Exception:
-                        pass
-            print('stale websockify killed: ' + (','.join(killed) if killed else 'none'))
-            """;
-
-    /**
-     * 演示窗口源码：tkinter 实时时钟 + 一个按钮。
-     *
-     * <p>为什么要有它：桌面如果完全静止（早先用的 xclock 在 proot 下不走了），
-     * VNC 就没有画面变化、也就没有帧更新 —— 用户会以为"只显示两帧/坏了"。
-     * 这个窗口每 500ms 刷新一次，顺便还证明了 tkinter（内置 Chaquopy 做不到）真的能用。
-     *
-     * <p>用 base64 传输写进 Termux 家目录：heredoc 在这种"多层引号 + 非交互 shell"的场景下太容易出岔子。
-     */
-    public static final String GUI_DEMO_PY = """
-            import tkinter as tk
-            import tkinter.font as tkfont
-            import time, sys
-            r = tk.Tk()
-            r.title("OilQuiz GUI")
-            r.geometry("760x380+40+40")
-            r.configure(bg="#0b3d91")
-            # 关键：Tk 默认字体是 DejaVu Sans，没有中文字形，中文会显示成方框（tofu）。
-            # 把全局默认字体换成容器里装的中文字体，这样所有控件（以及用户自己写的 tkinter 程序，
-            # 只要照抄这两行）都有中文。
-            default = tkfont.nametofont("TkDefaultFont")
-            default.configure(family="WenQuanYi Micro Hei")
-            big = tk.Label(r, font=("WenQuanYi Micro Hei", 60, "bold"), fg="white", bg="#0b3d91")
-            big.pack(pady=(36, 8))
-            tk.Label(r, font=("WenQuanYi Micro Hei", 17), fg="#cfe8ff", bg="#0b3d91",
-                     text="答题宝 · Ubuntu 24.04 + tkinter " + sys.version.split()[0]).pack()
-            tk.Label(r, font=("WenQuanYi Micro Hei", 15), fg="#9fd0ff", bg="#0b3d91",
-                     text="中文字体已装好，不会再显示方框").pack(pady=(4, 0))
-            tk.Button(r, text="能点说明输入也通了", font=("WenQuanYi Micro Hei", 15)).pack(pady=12)
-            def tick():
-                big.config(text=time.strftime("%H:%M:%S"))
-                r.after(500, tick)
-            tick()
-            r.mainloop()
-            """;
-
-    /**
-     * fontconfig 兜底：把通用族（sans-serif/serif/monospace）优先指向中文字体。
-     *
-     * <p>只装字体还不够：很多程序（含 Tk 默认字体）会点名 DejaVu Sans，而它没有中文字形 → 方框。
-     * 这条规则让"没点名具体字体"的程序都能出中文；点名了 DejaVu 的，见 GUI_DEMO_PY 里的 TkDefaultFont 写法。
-     */
-    public static final String FONTCONFIG_LOCAL_CONF = """
-            <?xml version="1.0"?>
-            <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-            <fontconfig>
-              <match target="pattern"><test name="family"><string>sans-serif</string></test><edit name="family" mode="prepend" binding="strong"><string>WenQuanYi Micro Hei</string></edit></match>
-              <match target="pattern"><test name="family"><string>serif</string></test><edit name="family" mode="prepend" binding="strong"><string>WenQuanYi Micro Hei</string></edit></match>
-              <match target="pattern"><test name="family"><string>monospace</string></test><edit name="family" mode="prepend" binding="strong"><string>WenQuanYi Micro Hei</string></edit></match>
-            </fontconfig>
-            """;
 
     /**
      * 把若干条 shell 语句拼成一行：普通语句之间用 "; "，而以 {@code &} 结尾的后台语句后面不能再加分号
@@ -827,208 +522,6 @@ public final class TermuxEnvInstaller {
             sb.append(p.trim().endsWith("&") ? ' ' : "; ");
         }
         return sb.toString();
-    }
-
-    /** 演示脚本 base64 / fontconfig base64（都用 base64 下发，避开引号与 XML 转义） */
-    private static String b64(String s) {
-        return android.util.Base64.encodeToString(
-                s.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
-    }
-
-    /** 写演示窗口 + 挂到 :1 上跑（两行 bash，供启动/重启脚本复用；base64 传源码） */
-    /** 演示脚本的 base64（脚本里用 base64 -d 写出，彻底避免引号/转义问题） */
-    private static String demoBase64() {
-        return android.util.Base64.encodeToString(
-                GUI_DEMO_PY.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
-    }
-
-    private static String[] guiDemoLines() {
-        String b64 = android.util.Base64.encodeToString(
-                GUI_DEMO_PY.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
-        return new String[]{
-                "echo \"" + b64 + "\" | base64 -d > \"$H/.quiz_gui_demo.py\"",
-                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 &"
-        };
-    }
-
-    /**
-     * Termux 侧「启动图形界面」脚本（幂等）。
-     *
-     * <p>就绪判断 = 端口已监听 <b>且</b> 进程还在（两条都在 Termux 侧做，0 成本，不用起 proot 登录）：
-     * 早先每秒起一次 {@code proot-distro login} 去判断，实测要等 16 秒才连上；而只按进程名判断又会撞上
-     * <b>僵死的 proot 进程</b>（容器里早就没有 x11vnc 了、进程表里还留着）→ 误判"已在运行" → 什么都不启动
-     * （真机踩到过：冷启动 30 秒端口都没开）。
-     *
-     * <p>进程匹配用括号模式 {@code x11vn[c]}，避免匹配到本脚本自己的命令行（里面有 {@code x11vn[c]} 字面量）。
-     */
-    public static String buildGuiStartScript() {
-        // 全部拼成**一行**（分号分隔、不放 # 注释）：
-        // 真机实测：多行脚本经 RUN_COMMAND 下发时正文不执行，回包只有 .bashrc 横幅 ——
-        // 一行能被第一条 # 之后整段注释掉，所以这里既不用换行也不写注释。
-        return joinShell(
-                "H=\"${HOME:-/data/data/com.termux/files/home}\"",
-                "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
-                "export PREFIX",
-                "export HOME=\"$H\"",
-                "export PATH=\"$PREFIX/bin:/system/bin\"",
-                "LOG=\"$H/.quiz_gui.log\"",
-                "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
-                // 桌面环境可选：~/.quiz_desktop 里存会话命令（startxfce4 / startlxqt），
-                // 换桌面只要改这个文件（bash ~/ubuntu-gui desktop lxqt 之类）
-                "DESKTOP_FILE=\"$H/.quiz_desktop\"",
-                "SESSION=\"$(cat \"$DESKTOP_FILE\" 2>/dev/null)\"",
-                // 默认 XFCE：proot/无 GPU 环境下实测最稳（MATE 面板空白 + applet 崩，已卸载）
-                "[ -n \"$SESSION\" ] || SESSION=startxfce4",
-                "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
-                "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
-                "QUIZ_KILL_B64=\"" + b64(GUI_KILL_STALE_PY) + "\"",
-                "QUIZ_SHELL_B64=\"" + b64(GUI_SHELL_SH) + "\"",
-                "ensure_shell_b64() { echo \"$QUIZ_SHELL_B64\" | base64 -d > \"$H/.quiz_shell.sh\"; chmod 700 \"$H/.quiz_shell.sh\"; }",
-                // 残留 websockify 会把 6080 卡死（真机堆到 9 个、端口 timeout）——每次启动前先清
-                "kill_stale() { echo \"$QUIZ_KILL_B64\" | base64 -d > \"$H/.quiz_kill_stale.py\"; proot-distro login ubuntu -- python3 /data/data/com.termux/files/home/.quiz_kill_stale.py 2>/dev/null | tail -1; }",
-                // websockify 兜底：kill_stale 每次都会把它清掉，而"桌面已就绪"那条分支不会再拉起它——
-                // 真机踩到：Xvnc/桌面都在跑，但 6080 没人听 → noVNC 网页 http=000，手机上看不到画面。
-                // 这里单独开一条**长活会话**（websockify 后台跑 + wait 兜住会话寿命）把它补回来。
-                "ensure_websockify() { proot-distro login ubuntu -- /bin/bash -c 'curl -s -o /dev/null --max-time 3 http://127.0.0.1:6080/vnc.html' >/dev/null 2>&1 && return 0; [ -f /data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs/usr/bin/websockify ] || return 0; setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then /usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 >> /tmp/quiz_websockify.log 2>&1 & wait; fi\" >/dev/null 2>&1 < /dev/null & sleep 4; }",
-                // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
-                // 真机踩过 —— 僵尸 Xvnc 让健康检查误判成"已启动"，用户那边 5900 根本连不上
-                "UP() { for p in $(pgrep -x Xvnc 2>/dev/null); do st=$(sed -n 's/^State:[[:space:]]*\\([A-Z]\\).*/\\1/p' /proc/$p/status 2>/dev/null); case \"$st\" in R|S|D|T|t|W|X|I) return 0;; esac; done; return 1; }",
-                "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
-                "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
-                "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
-                // 桌面外壳兜底：proot 里 XFCE 的会话管理器经常拉不起客户端（退回只启 Failsafe、Client 全空），
-                // 结果【没有窗口管理器】—— 所有 XFCE 窗口都是 10x10 没被 map，面板看不见也点不到
-                // （真机实测：「启动器点不到」就是这个）。按 WM→面板→桌面 的顺序补齐，
-                // 且**必须共用同一条 dbus 会话**（跨会话总线连不通，见 GUI_SHELL_SH javadoc）；
-                // 会话自己能起来时这里就是空操作。
-                "START_SHELL() { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $1\" >/dev/null 2>&1 < /dev/null & }",
-                // 顺序有讲究：① WM 必须最先（没它窗口不会被 map，真机实测全是 10x10）；
-                // ② notifyd 要在面板之前（否则通知区域 applet 找不到守护会崩）；
-                // ③ WM 是新起的话，面板必须跟着重建一次 —— 面板若在"没有 WM"的时刻建窗口，
-                //    那些窗口不会再被 map（真机实测：面板窗口一直是 10x10、看不见）。
-                // 顺序：WM → 通知守护 → 面板 → 桌面（都在一条常驻总线上跑，见 GUI_SHELL_SH）
-// 每次启动/重启都重建这条常驻外壳会话（保证总线一定是活的；否则菜单点了没反应）
-                // 外壳由 Xvnc 那条长活会话负责拉起（见 GUI_INNER_COMMAND），这里只把脚本落盘 + 兜底：
-                // 万一 Xvnc 会话起来时脚本还没写好，这里补一次（面板缺了才动手，避免重复起）。
-                "ensure_shell() { ensure_shell_b64; i=0; while [ $i -lt 8 ]; do pgrep -f 'quiz_shell.s[h]' >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- bash $H/.quiz_shell.sh >> /tmp/quiz_shell.log 2>&1\" >/dev/null 2>&1 < /dev/null & sleep 14; }",
-                "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
-                "ensure_desktop() { if pgrep -f 'quiz_shell.s[h]' >/dev/null 2>&1; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -f \"startxfce[4]\" >/dev/null 2>&1; pkill -f \"lxqt-sessio[n]\" >/dev/null 2>&1; pkill -9 -x xfce4-session >/dev/null 2>&1' >/dev/null 2>&1; return 0; fi; pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
-                "TRACE=\"$H/.quiz_gui_start_trace.log\"",
-                "trace() { echo \"$(date '+%T') $1\" >> \"$TRACE\"; }",
-                "trace \"script-start\"",
-                "ensure_fonts",
-                "ensure_zh",
-                "kill_stale",
-                "trace \"font-scheduled\"",
-                "if UP; then ensure_websockify; ensure_zh; ensure_shell; ensure_desktop; ensure_demo; trace \"already-up\"; echo \"GUI_ALREADY_UP\"; exit 0; fi",
-                ": > \"$LOG\"",
-                "echo \"[$(date '+%T')] start\" >> \"$LOG\"",
-                "trace \"starting-xvnc\"",
-                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
-                "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_websockify; ensure_zh; ensure_shell; ensure_desktop; ensure_demo; trace \"gui-up\"; echo \"GUI_UP\"; exit 0; fi; done",
-                "trace \"gui-failed\"",
-                "echo \"GUI_FAILED\"",
-                "tail -15 \"$LOG\"",
-                "echo \"若 socket 被占用，先清掉残留在跑的 Xvnc：pkill -f 'Xvn[c] :1'\"",
-                "exit 1");
-    }
-
-    /** Termux 侧「停止图形界面」脚本 */
-    public static String buildGuiStopScript() {
-        return String.join("\n",
-                "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
-                "export PATH=\"$PREFIX/bin:/system/bin\"",
-                "proot-distro login ubuntu -- /bin/bash -lc 'pkill -x Xvnc; pkill -x x11vnc; pkill -x Xvfb; pkill -x xclock' >/dev/null 2>&1",
-                "echo GUI_STOPPED");
-    }
-
-    /** Termux 侧「重启图形界面」脚本：服务端被反复连断弄脏（banner 变 3.3、安全类型返回 0）时自愈用 */
-    /** Termux 侧「重启图形界面」脚本（单行，理由同 buildGuiStartScript）：服务端被弄脏时自愈用 */
-    public static String buildGuiRestartScript() {
-        return joinShell(
-                "H=\"${HOME:-/data/data/com.termux/files/home}\"",
-                "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
-                "export PREFIX",
-                "export HOME=\"$H\"",
-                "export PATH=\"$PREFIX/bin:/system/bin\"",
-                "LOG=\"$H/.quiz_gui.log\"",
-                "QUIZ_DEMO_B64=\"" + b64(GUI_DEMO_PY) + "\"",
-                // 桌面环境可选：~/.quiz_desktop 里存会话命令（startxfce4 / startlxqt），
-                // 换桌面只要改这个文件（bash ~/ubuntu-gui desktop lxqt 之类）
-                "DESKTOP_FILE=\"$H/.quiz_desktop\"",
-                "SESSION=\"$(cat \"$DESKTOP_FILE\" 2>/dev/null)\"",
-                // 默认 XFCE：proot/无 GPU 环境下实测最稳（MATE 面板空白 + applet 崩，已卸载）
-                "[ -n \"$SESSION\" ] || SESSION=startxfce4",
-                "QUIZ_FONTCONF_B64=\"" + b64(FONTCONFIG_LOCAL_CONF) + "\"",
-                "QUIZ_ZH_B64=\"" + b64(ZH_FIX_SH) + "\"",
-                "QUIZ_KILL_B64=\"" + b64(GUI_KILL_STALE_PY) + "\"",
-                "QUIZ_SHELL_B64=\"" + b64(GUI_SHELL_SH) + "\"",
-                "ensure_shell_b64() { echo \"$QUIZ_SHELL_B64\" | base64 -d > \"$H/.quiz_shell.sh\"; chmod 700 \"$H/.quiz_shell.sh\"; }",
-                // 残留 websockify 会把 6080 卡死（真机堆到 9 个、端口 timeout）——每次启动前先清
-                "kill_stale() { echo \"$QUIZ_KILL_B64\" | base64 -d > \"$H/.quiz_kill_stale.py\"; proot-distro login ubuntu -- python3 /data/data/com.termux/files/home/.quiz_kill_stale.py 2>/dev/null | tail -1; }",
-                // websockify 兜底：kill_stale 每次都会把它清掉，而"桌面已就绪"那条分支不会再拉起它——
-                // 真机踩到：Xvnc/桌面都在跑，但 6080 没人听 → noVNC 网页 http=000，手机上看不到画面。
-                // 这里单独开一条**长活会话**（websockify 后台跑 + wait 兜住会话寿命）把它补回来。
-                "ensure_websockify() { proot-distro login ubuntu -- /bin/bash -c 'curl -s -o /dev/null --max-time 3 http://127.0.0.1:6080/vnc.html' >/dev/null 2>&1 && return 0; [ -f /data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs/usr/bin/websockify ] || return 0; setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"if [ -x /usr/bin/websockify ] && [ -f /usr/share/novnc/vnc.html ]; then /usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 >> /tmp/quiz_websockify.log 2>&1 & wait; fi\" >/dev/null 2>&1 < /dev/null & sleep 4; }",
-                // 只认"活着"的 Xvnc：僵尸进程（State: Z）也会被 pgrep 匹配到，
-                // 真机踩过 —— 僵尸 Xvnc 让健康检查误判成"已启动"，用户那边 5900 根本连不上
-                "UP() { for p in $(pgrep -x Xvnc 2>/dev/null); do st=$(sed -n 's/^State:[[:space:]]*\\([A-Z]\\).*/\\1/p' /proc/$p/status 2>/dev/null); case \"$st\" in R|S|D|T|t|W|X|I) return 0;; esac; done; return 1; }",
-                "DEMO_UP() { pgrep -f 'quiz_gui_dem[o]' >/dev/null 2>&1; }",
-                "ensure_fonts() { setsid nohup timeout 40 proot-distro login ubuntu -- /bin/bash -lc \"mkdir -p /etc/fonts; echo $QUIZ_FONTCONF_B64 | base64 -d > /etc/fonts/local.conf; command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1\" >/dev/null 2>&1 < /dev/null & }",
-                "ensure_demo() { echo \"$QUIZ_DEMO_B64\" | base64 -d > \"$H/.quiz_gui_demo.py\"; DEMO_UP || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"DISPLAY=:1 /usr/bin/python3 /data/data/com.termux/files/home/.quiz_gui_demo.py\" >/dev/null 2>&1 < /dev/null & sleep 2; }; }",
-                // 桌面外壳兜底：proot 里 XFCE 的会话管理器经常拉不起客户端（退回只启 Failsafe、Client 全空），
-                // 结果【没有窗口管理器】—— 所有 XFCE 窗口都是 10x10 没被 map，面板看不见也点不到
-                // （真机实测：「启动器点不到」就是这个）。按 WM→面板→桌面 的顺序补齐，
-                // 且**必须共用同一条 dbus 会话**（跨会话总线连不通，见 GUI_SHELL_SH javadoc）；
-                // 会话自己能起来时这里就是空操作。
-                "START_SHELL() { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $1\" >/dev/null 2>&1 < /dev/null & }",
-                // 顺序有讲究：① WM 必须最先（没它窗口不会被 map，真机实测全是 10x10）；
-                // ② notifyd 要在面板之前（否则通知区域 applet 找不到守护会崩）；
-                // ③ WM 是新起的话，面板必须跟着重建一次 —— 面板若在"没有 WM"的时刻建窗口，
-                //    那些窗口不会再被 map（真机实测：面板窗口一直是 10x10、看不见）。
-                // 顺序：WM → 通知守护 → 面板 → 桌面（都在一条常驻总线上跑，见 GUI_SHELL_SH）
-// 每次启动/重启都重建这条常驻外壳会话（保证总线一定是活的；否则菜单点了没反应）
-                // 外壳由 Xvnc 那条长活会话负责拉起（见 GUI_INNER_COMMAND），这里只把脚本落盘 + 兜底：
-                // 万一 Xvnc 会话起来时脚本还没写好，这里补一次（面板缺了才动手，避免重复起）。
-                "ensure_shell() { ensure_shell_b64; i=0; while [ $i -lt 8 ]; do pgrep -f 'quiz_shell.s[h]' >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- bash $H/.quiz_shell.sh >> /tmp/quiz_shell.log 2>&1\" >/dev/null 2>&1 < /dev/null & sleep 14; }",
-                "ensure_zh() { echo \"$QUIZ_ZH_B64\" | base64 -d > \"$H/.quiz_zh_fix.sh\"; proot-distro login ubuntu -- /bin/bash -lc 'test -f /usr/share/locale/zh_CN/LC_MESSAGES/xfce4-panel.mo || exit 1; grep -q zh_CN /etc/default/locale || exit 1; ls /usr/lib/*/xfce4/panel/plugins/libwhiskermenu.so >/dev/null 2>&1 || exit 0; grep -q whiskermenu /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' >/dev/null 2>&1 && return 0; proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session' >/dev/null 2>&1; sleep 3; timeout 600 proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -4; }",
-                "ensure_desktop() { if pgrep -f 'quiz_shell.s[h]' >/dev/null 2>&1; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -f \"startxfce[4]\" >/dev/null 2>&1; pkill -f \"lxqt-sessio[n]\" >/dev/null 2>&1; pkill -9 -x xfce4-session >/dev/null 2>&1' >/dev/null 2>&1; return 0; fi; pgrep -f 'xfce4-sessio[n]' >/dev/null 2>&1 && RUN=startxfce4; pgrep -f 'lxqt-sessio[n]' >/dev/null 2>&1 && RUN=startlxqt; if [ -n \"$RUN\" ] && [ \"$RUN\" != \"$SESSION\" ]; then proot-distro login ubuntu -- /bin/bash -lc 'pkill -x xfce4-session; pkill -x lxqt-session' >/dev/null 2>&1; sleep 3; RUN=\"\"; fi; [ -n \"$RUN\" ] || { setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"export LANG=zh_CN.UTF-8; export LANGUAGE=zh_CN:zh; export LC_ALL=zh_CN.UTF-8; export DISPLAY=:1; exec dbus-run-session -- $SESSION\" >/dev/null 2>&1 < /dev/null & sleep 4; }; }",
-                "kill_stale",
-                "pkill -x Xvnc >/dev/null 2>&1",
-                "pkill -x xclock >/dev/null 2>&1",
-                "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1",
-                "sleep 1",
-                "echo \"[$(date '+%T')] restart\" >> \"$LOG\"",
-                "setsid nohup proot-distro login ubuntu -- /bin/bash -lc \"" + GUI_INNER_COMMAND + "\" >> \"$LOG\" 2>&1 < /dev/null &",
-                "i=0",
-                "while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); if UP; then ensure_fonts; ensure_websockify; ensure_zh; ensure_shell; ensure_desktop; ensure_demo; echo \"GUI_RESTARTED\"; exit 0; fi; done",
-                "echo \"GUI_RESTART_FAILED\"; tail -10 \"$LOG\"; exit 1");
-    }
-
-    /** 让 Termux 重启图形界面；返回 null 表示已下发 */
-    public static String restartGuiInTermux(Context ctx) {
-        // 与启动一样：只下发一条短命令，并且后台执行（background=true）。
-        // 早先这里用了 background=false → Termux 会被弹到前台，用户看到"点一下就跳到 Termux"。
-        writeGuiLauncherFile(ctx);
-        String shortCmd = refreshLauncherCmd()
-                + "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui restart"
-                + " || echo NO_UBUNTU_GUI_请先点一次一键准备";
-        return runInTermux(ctx, shortCmd, true);
-    }
-
-    /** Termux 侧「图形界面状态」脚本：端口通就再列一下容器里的 Xvnc 进程 */
-    public static String buildGuiStatusScript() {
-        return String.join("\n",
-                "PREFIX=\"${PREFIX:-/data/data/com.termux/files/usr}\"",
-                "export PATH=\"$PREFIX/bin:/system/bin\"",
-                "echo \"当前桌面: $(cat \"$HOME/.quiz_desktop\" 2>/dev/null || echo startxfce4)\"",
-                "if pgrep -f 'Xvn[c] :1' >/dev/null 2>&1; then",
-                "  echo \"GUI_RUNNING 127.0.0.1:" + VNC_PORT + "\"",
-                "  proot-distro login ubuntu -- /bin/bash -lc 'ps -ef | grep -E \"Xvnc|x11vnc|Xvfb\" | grep -v grep | head -3'",
-                "else",
-                "  echo \"GUI_STOPPED\"",
-                "fi");
     }
 
     /** 把一段文本写到公共下载目录（调试/给用户检查用）；MediaStore 优先，无需"所有文件访问" */
@@ -1048,11 +541,20 @@ public final class TermuxEnvInstaller {
         return PublicStorageWriter.readTail(ctx, "termux_env", name, 8192);
     }
 
-    /** 一键开启 SSH：装 openssh → 设默认密码 → 启动 sshd → 把 IP/用户/端口写入公共文件（App 读取展示） */
+    /** 一键开启 SSH：装 openssh → 设默认密码 → 启动 sshd → 把 IP/用户/端口写入公共文件（App 读取展示）。
+     *  2026-10-02 改：① openssh 已随离线包内置（step2 ④ 组），脚本优先直接用；没有才联网 pkg install（先切清华源）。
+     *  ② 多行脚本不能经 RUN_COMMAND 直接下发（Termux 不执行长文本），本脚本由 App 先落盘为 enable_ssh.sh，
+     *  再下发单行 bash 执行（见 TermuxEnvSetupActivity.doEnableSsh）。③ 路径统一用 $HOME（bash -lc 下 Termux 已设）。 */
     public static String buildSshEnableScript() {
-        return "INFO=$HOME_DIR/storage/downloads/OilQuiz/termux_env/ssh_info.txt\n"
+        return "INFO=\"$HOME/storage/downloads/OilQuiz/termux_env/ssh_info.txt\"\n"
                 + "rm -f \"$INFO\"\n"
-                + "pkg install openssh -y >/dev/null 2>&1\n"
+                + "if ! command -v sshd >/dev/null 2>&1; then\n"
+                + "  if [ -f \"$PREFIX/etc/apt/sources.list\" ] && ! grep -qE \"tuna\\.tsinghua|ustc\\.edu|aliyun\\.com\" \"$PREFIX/etc/apt/sources.list\" 2>/dev/null; then\n"
+                + "    printf 'deb https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main stable main\\n' > \"$PREFIX/etc/apt/sources.list\"\n"
+                + "    pkg update -y >/dev/null 2>&1\n"
+                + "  fi\n"
+                + "  pkg install openssh -y >/dev/null 2>&1\n"
+                + "fi\n"
                 + "if ! command -v sshd >/dev/null 2>&1; then echo \"SSH_INSTALL_FAIL\" > \"$INFO\"; exit 1; fi\n"
                 + "(echo -e \"quiz2026\\nquiz2026\" | passwd) >/dev/null 2>&1\n"
                 + "sshd 2>/dev/null\n"
@@ -1074,108 +576,15 @@ public final class TermuxEnvInstaller {
         return readPublicText(ctx, SETUP_PUBLIC_LOG_NAME);
     }
 
-    /**
-     * `~/ubuntu-gui` 文件内容（由「一键准备」写出来，App 之后只用一条短命令去跑它）。
-     *
-     * <p>为什么绕这一下：长脚本文本经 RUN_COMMAND 直接下发时，真机实测**不执行**（回包只有 .bashrc 横幅），
-     * 而以"文件 + bash 文件 start"形式跑完全正常 —— 换行/长度都不再是问题。
-     */
-    public static String buildGuiFile() {
-        return String.join("\n",
-                "#!/data/data/com.termux/files/usr/bin/bash",
-                "case \"$1\" in",
-                "  stop)",
-                buildGuiStopScript(),
-                "    ;;",
-                "  status)",
-                buildGuiStatusScript(),
-                "    ;;",
-                "  desktop)",
-                "    case \"$2\" in",
-                "      xfce4) echo startxfce4  > \"$HOME/.quiz_desktop\" ;;",
-                "      lxqt)  echo startlxqt   > \"$HOME/.quiz_desktop\" ;;",
-                "      *)     echo \"用法: bash ~/ubuntu-gui desktop xfce4|lxqt\"; exit 1 ;;",
-                "    esac",
-                "    echo \"桌面会话已切换为 $(cat \"$HOME/.quiz_desktop\")(下次 start/restart 生效)\"",
-                "    ;;",
-                "  restart)",
-                buildGuiRestartScript(),
-                "    ;;",
-                "  *)",
-                buildGuiStartScript(),
-                "    ;;",
-                "esac",
-                "");
-    }
 
-    /**
-     * 让 Termux 起图形界面。
-     *
-     * <p>先把脚本落盘到 Download/OilQuiz/termux_env/gui_start.sh：
-     * ① Termux 有存储权限时只下发一行 {@code bash <路径>}（省得几千字符塞进 Intent）；
-     * ② 出问题时这个文件就是"App 到底下发了什么"的字节级证据（真机排查时非常有用）。
-     */
-    /**
-     * 把**当前 App 版本**的 {@code ~/ubuntu-gui} 启动器写到公共下载目录。
-     *
-     * <p><b>真机踩到的坑</b>：{@code ~/ubuntu-gui} 以前只在「一键准备」时写一次，于是 App 升级后
-     * {@code ensure_shell} / {@code ensure_desktop} 这些改动**根本没到设备上** ——
-     * 老启动器依旧会另起一条 {@code dbus-run-session -- startxfce4}，与新建的外壳会话抢屏幕：
-     * 同一个 X 上出现两个面板（{@code xfce4-panel} 的单实例检测走会话总线，两条总线互相看不见，
-     * 于是各自都认为自己唯一），用户点到的正是老的那一份 → 「菜单里点没反应」。
-     * 现在每次启动/重启图形界面都先刷新它，启动器永远跟 App 同版本。
-     */
-    private static void writeGuiLauncherFile(Context ctx) {
-        writeTextFile(ctx, "ubuntu-gui.sh", buildGuiFile());
-    }
-
-    /**
-     * Termux 侧短命令片段：把上面那份启动器拷进 {@code $HOME}。
-     * 必须先拷出来再执行 —— /sdcard 是 noexec，直接 {@code bash /sdcard/...} 会 exit 126（真机踩到）。
-     * 拿不到就静默跳过，沿用设备上已有的那份（老环境没给存储权限时不会因此启动失败）。
-     */
-    private static String refreshLauncherCmd() {
-        return "SRC=\"\"; "
-                + "for c in /sdcard/Download/" + EXPORT_SUBDIR + "/ubuntu-gui.sh "
-                + "\"$HOME/storage/downloads/" + EXPORT_SUBDIR + "/ubuntu-gui.sh\"; do "
-                + "[ -f \"$c\" ] && SRC=\"$c\" && break; done; "
-                + "[ -n \"$SRC\" ] && cp \"$SRC\" \"$HOME/ubuntu-gui\" && chmod 700 \"$HOME/ubuntu-gui\"; ";
-    }
-
-    public static String startGuiInTermux(Context ctx) {
-        String script = buildGuiStartScript();
-        // 落盘只为"出问题时能看 App 到底下发了什么"（真机排查用）。
-        // 注意：不要改成让 Termux 执行这个文件 —— /sdcard 上 App 写的脚本 Termux 读不了
-        // （实测 bash /sdcard/... → Permission denied, exit 126），只能由 App 直接把脚本文本下发。
-        writeTextFile(ctx, "gui_start.sh", script);
-        writeTextFile(ctx, "gui_restart.sh", buildGuiRestartScript());
-        writeTextFile(ctx, "gui_stop.sh", buildGuiStopScript());
-        writeTextFile(ctx, "gui_status.sh", buildGuiStatusScript());
-        writeTextFile(ctx, "gui_demo.py", GUI_DEMO_PY);
-        // 只下发一条**短命令**去跑 ~/ubuntu-gui（由「一键准备」写出来的文件）。
-        // 原因：长脚本文本经 RUN_COMMAND 下发时实测不执行（回包只有 .bashrc 横幅，连 trace 都写不出来），
-        // 而以"文件 + 短命令"形式跑就完全正常（同一份内容手动 bash 文件 100% 成功）。
-        // 先把当前版本的启动器刷新到设备上（否则跑的还是「一键准备」时写下的老版本）
-        writeGuiLauncherFile(ctx);
-        String shortCmd = refreshLauncherCmd()
-                + "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui start"
-                + " || echo NO_UBUNTU_GUI_请先点一次一键准备";
-        return runInTermux(ctx, shortCmd, true);
-    }
-
-    /** 让 Termux 停图形界面；返回 null 表示已下发 */
-    public static String stopGuiInTermux(Context ctx) {
-        return runInTermux(ctx, buildGuiStopScript(), true);
-    }
-
-    /** step 文件名（按依赖顺序） */
+    /** step 文件名（按依赖顺序）。已按用户要求移除中文化（step3_zh_fix）与容器内 Python（step4_python，App AI 用内置 Termux python）；step5_gui 已随 VNC 功能删除 */
     private static final String[] STEP_NAMES = {
             "step0_allow_external_apps.sh", "step1_storage.sh", "step2_proot.sh",
-            "step3_container.sh", "step3_zh_fix.sh", "step4_python.sh",
-            "step5_gui.sh", "step6_finalize.sh"
+            "step3_container.sh",
+            "step6_finalize.sh"
     };
 
-    /** 分阶段 runner：同步 8 个 step 脚本到 $HOME/.quiz_env_steps，顺序执行，失败即停（可续跑） */
+    /** 分阶段 runner：同步 5 个 step 脚本到 $HOME/.quiz_env_steps，顺序执行，失败即停（可续跑） */
     private static String buildRunnerScript(String root, String tuna) {
         String names = String.join(" ", STEP_NAMES);
         return """
@@ -1191,6 +600,9 @@ public final class TermuxEnvInstaller {
                 PUBLOG="$PUBDIR/setup_log.txt"
                 STEP_DIR="$HOME_DIR/.quiz_env_steps"
                 STEPS="__STEPS__"
+                # 若 Termux 还没建存储桥（~/storage 不存在），先申请（弹窗点允许）再找脚本；
+                # 否则 runner 直读 /sdcard 会被 Android 分区存储拒绝，8 个 step 一个都拷不到（真机踩过 126）
+                [ -d "$HOME_DIR/storage" ] || { echo "正在申请存储权限（系统弹窗请点『允许』）…"; termux-setup-storage >/dev/null 2>&1 || true; sleep 3; }
                 # 整段输出同时进日志（进程替换需 bash 4.4+，Termux 自带满足）
                 # 私有 LOG（~/.quiz_env_setup.log）+ 公共 PUBLOG（App 可读，页面实时监控执行过程）
                 mkdir -p "$PUBDIR" 2>/dev/null || true
@@ -1217,7 +629,7 @@ public final class TermuxEnvInstaller {
                 done
                 echo "$(date '+%F %T') fail=$LAST_FAIL" >> "$STATUS"
                 if [ "$LAST_FAIL" = 0 ]; then
-                  echo "🎉 环境准备完成：Termux 里输入  ~/ubuntu  进入真 Ubuntu；图形界面用 ~/ubuntu-gui start"
+                  echo "🎉 环境准备完成：Termux 里输入  ~/ubuntu  进入真 Ubuntu"
                   echo "fail=0"
                 else
                   echo "===== 有步骤失败 ❌（看上面的 ❌ 行；重跑会自动跳过已完成的步骤）====="
@@ -1278,14 +690,48 @@ public final class TermuxEnvInstaller {
                 + "fi\n"
                 + "echo \"step1=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
 
-        // step2：proot-distro
+        // step2：proot-distro（内置离线包优先，零联网；兜底联网 + 清华镜像；均幂等）
+        // 2026-10-02 重构：原"一行 dpkg --force-depends -i 全部 22 包"在 bootstrap 已带同/高版本库时会中途中止
+        //   （dpkg -i 一个包报错即中断后续），且错误被 >/dev/null 吞掉看不到原因。
+        //   现改为：① 先装基础依赖（容错）→ ② proot + proot-distro 核心单独装（失败再 force-depends 兜底）
+        //   → ③ python 全家桶（force-depends 容错，装不上不影响容器，联网兜底）。dpkg 输出全部进日志可查。
         l.add(stepHeader("step2")
                 + "if command -v proot-distro >/dev/null 2>&1; then\n"
                 + "  ok \"proot-distro 已安装\"\n"
                 + "else\n"
-                + "  echo \"正在安装 proot-distro（首次约 1~2 分钟）…\"\n"
-                + "  pkg update -y >/dev/null 2>&1 || true\n"
-                + "  pkg install -y proot-distro >/dev/null 2>&1 || bad \"proot-distro 安装失败：请检查网络后重跑\"\n"
+                + "  PKGS=\"$HOME/storage/downloads/OilQuiz/termux_env/pkgs\"\n"
+                + "  if [ -d \"$PKGS\" ] && ls \"$PKGS\"/*.deb >/dev/null 2>&1; then\n"
+                + "    echo \"正在本地离线安装 Termux 组件（proot / python 全家桶，共 22 包，零联网）…\"\n"
+                + "    cd \"$PKGS\"\n"
+                + "    # ① 基础依赖库：bootstrap 已带同/高版本时 dpkg 会提示『已安装/较新版本』，忽略即可（不中断后续）\n"
+                + "    dpkg -i libandroid-posix-semaphore_*.deb libandroid-shmem_*.deb libtalloc_*.deb libandroid-support_*.deb 2>&1 || true\n"
+                + "    # ② 核心：proot + proot-distro（容器地基，单独装；失败再用 --force-depends 兜底一次）\n"
+                + "    if ! dpkg -i proot_*.deb proot-distro_*.deb 2>&1; then\n"
+                + "      dpkg --force-depends -i proot_*.deb proot-distro_*.deb 2>&1 || true\n"
+                + "    fi\n"
+                + "    # ③ python 全家桶（App AI 用；force-depends 容错，失败由联网兜底；不影响容器）\n"
+                + "    dpkg --force-depends -i libbz2_*.deb libexpat_*.deb libffi_*.deb liblzma_*.deb libsqlite_*.deb gdbm_*.deb libcrypt_*.deb zlib_*.deb zstd_*.deb readline_*.deb ncurses_*.deb ncurses-ui-libs_*.deb openssl_*.deb ca-certificates_*.deb python_*.deb python-pip_*.deb 2>&1 || true\n"
+                + "    # ④ openssh 全家桶（SSH 功能，2026-10-02 内置；force-depends 容错，libc++ 由 bootstrap 自带）\n"
+                + "    dpkg --force-depends -i libandroid-glob_*.deb libresolv-wrapper_*.deb libdb_*.deb ldns_*.deb libedit_*.deb krb5_*.deb termux-auth_*.deb openssh-sftp-server_*.deb openssh_*.deb resolv-conf_*.deb 2>&1 || true\n"
+                + "    dpkg --configure -a >/dev/null 2>&1 || true\n"
+                + "    if command -v proot-distro >/dev/null 2>&1; then\n"
+                + "      ok \"proot-distro 已离线安装（未联网）\"\n"
+                + "    else\n"
+                + "      echo \"离线安装失败（上面 dpkg 输出可见原因），回退联网安装（清华镜像）…\"\n"
+                + "      if [ -f \"$PREFIX/etc/apt/sources.list\" ] && ! grep -qE \"tuna\\.tsinghua|ustc\\.edu|aliyun\\.com\" \"$PREFIX/etc/apt/sources.list\" 2>/dev/null; then\n"
+                + "        printf 'deb https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main stable main\\n' > \"$PREFIX/etc/apt/sources.list\"\n"
+                + "      fi\n"
+                + "      pkg update -y 2>&1 || true\n"
+                + "      pkg install -y proot-distro 2>&1 || bad \"proot-distro 安装失败：请检查网络后重跑\"\n"
+                + "    fi\n"
+                + "  else\n"
+                + "    echo \"未找到内置离线包（存储权限未授予？），联网安装（清华镜像）…\"\n"
+                + "    if [ -f \"$PREFIX/etc/apt/sources.list\" ] && ! grep -qE \"tuna\\.tsinghua|ustc\\.edu|aliyun\\.com\" \"$PREFIX/etc/apt/sources.list\" 2>/dev/null; then\n"
+                + "      printf 'deb https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main stable main\\n' > \"$PREFIX/etc/apt/sources.list\"\n"
+                + "    fi\n"
+                + "    pkg update -y 2>&1 || true\n"
+                + "    pkg install -y proot-distro 2>&1 || bad \"proot-distro 安装失败：请检查网络后重跑\"\n"
+                + "  fi\n"
                 + "fi\n"
                 + "echo \"step2=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
 
@@ -1329,79 +775,27 @@ public final class TermuxEnvInstaller {
                 + "fi\n"
                 + "echo \"step3=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
 
-        // step3.5：中文界面与北京时间（zh_fix.sh 由 App 写到公共目录，读不到就跳过）
-        l.add(stepHeader("step3_zh")
-                + "if command -v proot-distro >/dev/null 2>&1; then\n"
-                + "  ZSRC=\"\"\n"
-                + "  for c in /sdcard/Download/OilQuiz/termux_env/zh_fix.sh \"$HOME_DIR/storage/downloads/OilQuiz/termux_env/zh_fix.sh\"; do\n"
-                + "    [ -f \"$c\" ] && ZSRC=\"$c\" && break\n"
-                + "  done\n"
-                + "  if [ -n \"$ZSRC\" ]; then\n"
-                + "    cp \"$ZSRC\" \"$HOME_DIR/.quiz_zh_fix.sh\" && chmod 700 \"$HOME_DIR/.quiz_zh_fix.sh\"\n"
-                + "    echo \"正在把容器改成中文（语言/时区/词典，首次约 1~2 分钟）…\"\n"
-                + "    proot-distro login ubuntu -- /bin/bash /data/data/com.termux/files/home/.quiz_zh_fix.sh 2>&1 | tail -8\n"
-                + "  else\n"
-                + "    echo \"⚠️  读不到 App 写好的 zh_fix.sh（存储权限未授予？），本次跳过中文化\"\n"
-                + "  fi\n"
-                + "else\n"
-                + "  echo \"⚠️  没有 proot-distro，跳过中文化\"\n"
-                + "fi\n"
-                + "echo \"step3_zh=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
+        // step3.5：中文界面与北京时间 —— 已按用户要求移除（装 locales/语言包首次 1~2 分钟，非主链路必需）。
+        // 需要中文化时：Termux 里手动执行 ~/.quiz_zh_fix.sh（App 已把 zh_fix.sh 落到公共目录）。
 
-        // step4：容器内完整 Python
-        l.add(stepHeader("step4")
-                + "PY_CHECK='import tkinter, curses, readline, sqlite3, ssl, lzma, multiprocessing, venv; print(\"完整 Python\", __import__(\"sys\").version.split()[0], \"| tkinter Tk\", tkinter.TkVersion, \"| fork\", hasattr(__import__(\"os\"), \"fork\"))'\n"
-                + "if command -v proot-distro >/dev/null 2>&1 && proot-distro login ubuntu -- /usr/bin/python3 -c \"$PY_CHECK\" 2>/dev/null; then\n"
-                + "  ok \"容器内 Python 已完整，跳过 apt（省 2~4 分钟）\"\n"
-                + "else\n"
-                + "  echo \"正在容器内安装 python3-full / python3-tk / pip / venv（约 2~4 分钟）…\"\n"
-                + "  proot-distro login ubuntu -- /bin/bash -lc 'for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do if [ -f \"$f\" ]; then sed -i \"s|https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports|http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports|g; s|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports|g; s|http://archive.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g; s|http://security.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g\" \"$f\"; fi; done; HAVE_SRC=0; [ -f /etc/apt/sources.list ] && grep -q ubuntu /etc/apt/sources.list && HAVE_SRC=1; [ -f /etc/apt/sources.list.d/ubuntu.sources ] && grep -q URIs /etc/apt/sources.list.d/ubuntu.sources && HAVE_SRC=1; if [ \"$HAVE_SRC\" = 0 ]; then mkdir -p /etc/apt/sources.list.d; cat > /etc/apt/sources.list.d/quiz-ubuntu.list <<QSRC\n"
-                + "deb [trusted=yes] http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports noble main universe multiverse restricted\n"
-                + "deb [trusted=yes] http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports noble-updates main universe multiverse restricted\n"
-                + "deb [trusted=yes] http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports noble-security main universe multiverse restricted\n"
-                + "QSRC\n"
-                + "fi; apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3-full python3-tk python3-venv python3-pip python3-setuptools ca-certificates' && echo \"  \u23f3 安装通用 Python 依赖（requests/pandas/openpyxl/openai，清华 pip 镜像）…\" && proot-distro login ubuntu -- /bin/bash -lc 'pip3 install --break-system-packages -i https://pypi.tuna.tsinghua.edu.cn/simple requests pandas openpyxl openai' && ok \"容器内 Python 与通用依赖已完整安装\" || bad \"容器内 apt/pip 安装失败：请检查网络后重跑本页\"\n"
-                + "  proot-distro login ubuntu -- /usr/bin/python3 -c \"$PY_CHECK\" 2>/dev/null || bad \"容器内 Python 仍不完整\"\n"
-                + "fi\n"
-                + "echo \"step4=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
+        // step4：容器内 Python —— 已按用户要求删除。
+        // 原因：App 的 AI 脚本用内置的 Termux python（step2 离线装 22 包里的 python_3.14.6，零联网）；
+        // 容器内 python3-full/tkinter/pandas 需要联网 apt+pip（2~4 分钟），且其原用途（tkinter 图形）已随 VNC 删除。
+        // 需要时在 ~/ubuntu 里手动执行：apt-get install python3-full && pip3 install requests pandas
 
-        // step5：图形界面组件（TigerVNC + XFCE + 中文字体 + noVNC）
-        l.add(stepHeader("step5")
-                + "gui_pkgs_ok() {\n"
-                + "  proot-distro login ubuntu -- /bin/bash -lc 'command -v Xvnc >/dev/null 2>&1 && command -v startxfce4 >/dev/null 2>&1 && ls /usr/share/fonts/truetype/wqy/ >/dev/null 2>&1 && command -v websockify >/dev/null 2>&1 && ls /usr/share/novnc/vnc.html >/dev/null 2>&1 && { command -v xfce4-notifyd >/dev/null 2>&1 || ls /usr/lib/*/xfce4/notifyd/xfce4-notifyd >/dev/null 2>&1; } && command -v xfce4-taskmanager >/dev/null 2>&1 && command -v xfce4-screenshooter >/dev/null 2>&1 && command -v ristretto >/dev/null 2>&1 && command -v xarchiver >/dev/null 2>&1 && command -v synaptic >/dev/null 2>&1' 2>/dev/null\n"
-                + "}\n"
-                + "if ! command -v proot-distro >/dev/null 2>&1; then\n"
-                + "  bad \"没有 proot-distro，跳过图形界面组件（先修 step2）\"\n"
-                + "elif gui_pkgs_ok; then\n"
-                + "  ok \"Xvnc + XFCE 桌面 + 中文字体已安装，跳过\"\n"
-                + "else\n"
-                + "  echo \"正在容器内安装 TigerVNC + XFCE 桌面 + 中文字体（约 110MB，3~6 分钟）…\"\n"
-                + "  proot-distro login ubuntu -- /bin/bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -y && apt-get install -y --no-install-recommends tigervnc-standalone-server x11-utils x11-apps procps xdotool imagemagick fonts-wqy-microhei fonts-dejavu fontconfig xfce4 xfce4-terminal thunar mousepad dbus-x11 novnc websockify xfce4-notifyd xfce4-taskmanager xfce4-screenshooter ristretto xarchiver thunar-archive-plugin synaptic' || bad \"图形界面组件安装失败：请检查网络后重跑本页\"\n"
-                + "  if gui_pkgs_ok; then ok \"X11/VNC 组件就绪\"; else bad \"X11/VNC 组件没装全\"; fi\n"
-                + "fi\n"
-                + "echo \"step5=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
+        // step5：图形界面组件已随 VNC 功能删除（原 step5_gui.sh 不再生成）
 
-        // step6：入口（~/ubuntu、~/ubuntu-gui）与最终验证
+        // step6：入口（~/ubuntu）与最终验证
         l.add(stepHeader("step6")
                 + "cat > \"$HOME_DIR/ubuntu\" <<'QUIZ_UBUNTU_EOF'\n"
                 + "#!/data/data/com.termux/files/usr/bin/bash\n"
                 + "exec proot-distro login ubuntu -- \"$@\"\n"
                 + "QUIZ_UBUNTU_EOF\n"
                 + "chmod +x \"$HOME_DIR/ubuntu\"\n"
-                + "GSRC=\"\"\n"
-                + "for c in /sdcard/Download/OilQuiz/termux_env/ubuntu-gui.sh \"$HOME_DIR/storage/downloads/OilQuiz/termux_env/ubuntu-gui.sh\"; do\n"
-                + "  [ -f \"$c\" ] && GSRC=\"$c\" && break\n"
-                + "done\n"
-                + "if [ -n \"$GSRC\" ]; then\n"
-                + "  cp \"$GSRC\" \"$HOME_DIR/ubuntu-gui\" && chmod 700 \"$HOME_DIR/ubuntu-gui\"\n"
-                + "  echo \"✅ ubuntu-gui 已就位（$GSRC）\"\n"
+                + "if \"$HOME_DIR/ubuntu\" /bin/true; then\n"
+                + "  echo \"✅ 最终验证通过：容器可用（进 Ubuntu 用 ~/ubuntu；容器内 Python 需要时手动 apt 装）\"\n"
                 + "else\n"
-                + "  echo \"⚠️  读不到 App 写好的 ubuntu-gui.sh（存储权限未授予？），本次跳过图形界面入口\"\n"
-                + "fi\n"
-                + "if \"$HOME_DIR/ubuntu\" python3 -c 'import tkinter, curses, readline, sqlite3, ssl, lzma, multiprocessing; print(\"完整体 Python 验证通过\", __import__(\"sys\").version.split()[0])'; then\n"
-                + "  echo \"✅ 最终验证通过：~/ubuntu 里的 Python 完整\"\n"
-                + "else\n"
-                + "  bad \"最终验证失败：~/ubuntu 里缺 tkinter 或其它模块\"\n"
+                + "  bad \"最终验证失败：容器无法登录，请检查 step3\"\n"
                 + "fi\n"
                 + "echo \"step6=ok $(date '+%F %T')\" >> \"$STATUS\"\n");
 
@@ -1598,7 +992,6 @@ public final class TermuxEnvInstaller {
                 "echo \"containers: $(proot-distro list -q 2>/dev/null | tr '\\n' ' ')\"",
                 "echo \"last-setup: $(tail -1 $HOME/.quiz_env_setup.status 2>/dev/null)\"",
                 "echo \"allow-external-apps: $(grep -c '^allow-external-apps=true' $HOME/.termux/termux.properties 2>/dev/null)\"",
-                "test -x $HOME/ubuntu-gui && echo ubuntu-gui=yes || echo ubuntu-gui=no",
                 "echo \"cjk-font-file: $(proot-distro login ubuntu -- ls /usr/share/fonts/truetype/wqy/ 2>/dev/null | wc -l) 个（0=没装中文字体）\"");
     }
 
@@ -1644,19 +1037,59 @@ public final class TermuxEnvInstaller {
             for (int i = 0; i < STEP_NAMES.length; i++) {
                 writeTextFile(ctx, STEP_NAMES[i], steps.get(i));
             }
-            writeTextFile(ctx, "ubuntu-gui.sh", buildGuiFile());
             writeTextFile(ctx, "zh_fix.sh", ZH_FIX_SH);
+            // 内置 Termux 离线安装包（22 个 deb：proot / python 全家桶）一并导出，step2 零联网安装
+            exportTermuxPkgs(ctx);
             return new File(publicDir(ctx), "setup.sh");
         } catch (Exception e) {
             return null;
         }
     }
 
+    /** 把 assets/termux_pkgs/ 里的 deb 导出到公共目录 termux_env/pkgs/（幂等：已存在且非空则跳过） */
+    public static boolean exportTermuxPkgs(Context ctx) {
+        try {
+            String[] names = ctx.getAssets().list("termux_pkgs");
+            if (names == null || names.length == 0) {
+                return false;
+            }
+            boolean all = true;
+            for (String n : names) {
+                if (!n.endsWith(".deb")) continue;
+                if (PublicStorageWriter.size(ctx, "termux_env/pkgs", n) > 0) continue; // 已导出
+                byte[] bytes;
+                try (java.io.InputStream in = ctx.getAssets().open("termux_pkgs/" + n)) {
+                    bytes = readAllBytes(in);
+                }
+                if (bytes == null || bytes.length == 0) {
+                    all = false;
+                    continue;
+                }
+                String r = PublicStorageWriter.writeBytes(ctx, "termux_env/pkgs", n,
+                        "application/vnd.debian.binary-package", bytes);
+                if (r == null) all = false;
+            }
+            return all;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static byte[] readAllBytes(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[262144];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            bos.write(buf, 0, n);
+        }
+        return bos.toByteArray();
+    }
+
     /**
      * 手动兜底的"一行命令"：把准备脚本写到公共目录（已从 33KB 压到 ~11KB，不再内嵌大段 base64），让用户只需要粘一行。
      *
      * <p><b>注意：不能直接 {@code bash /sdcard/...}。</b>真机实测：/sdcard 是 noexec 且分区存储下
-     * Termux 直接读 App 写的文件 → {@code Permission denied, exit 126}（与 ubuntu-gui.sh 踩过的坑相同）。
+     * Termux 直接读 App 写的文件 → {@code Permission denied, exit 126}（App 写的脚本文件踩过同样坑）。
      * 所以这一行改为：先 {@code termux-setup-storage} 建立 ~/storage 桥（系统弹窗点允许），
      * 再把脚本拷到 $HOME（可执行）后 bash 运行。
      * 返回 null 表示脚本写不进去（此时只能退回复制整段脚本）。

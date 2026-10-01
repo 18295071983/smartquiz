@@ -33,7 +33,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
  *   <li>状态栏/导航栏图标深浅色：按状态栏区实际背景（AppBar 背景 / 窗口背景）亮度自动切换</li>
  * </ol>
  *
- * <p>不接管（白名单）：VncActivity/VncWebActivity（已全屏沉浸）、AIChatActivity（自有
+ * <p>不接管（白名单）：AIChatActivity（自有
  * 状态栏/IME insets 逻辑）；透明主题悬浮窗（无自有背景）亦跳过。
  *
  * <p>在 setContentView 之后调用，由 SmartQuizApplication 的 ActivityLifecycleCallbacks
@@ -43,8 +43,6 @@ public final class EdgeToEdgeHelper {
 
     /** 自有 insets/沉浸逻辑的界面类名（全类名），不接管以免覆盖其自定义监听。 */
     private static final String[] SKIP_OWNERS = {
-            "com.oilquiz.app.vnc.VncActivity",
-            "com.oilquiz.app.vnc.VncWebActivity",
             "com.oilquiz.app.ui.activity.AIChatActivity"
     };
 
@@ -228,11 +226,10 @@ public final class EdgeToEdgeHelper {
         }
     }
 
-    /** 窗口背景同步只跳过 VNC 全屏页与透明悬浮窗；AIChatActivity 虽为 insets 白名单，
+    /** 窗口背景同步只跳过透明悬浮窗；AIChatActivity 虽为 insets 白名单，
      *  但窗口背景同步仅改系统栏垫底背景，不与 main_content 的自有 insets 冲突，需同步壁纸。 */
     private static boolean isWindowBgSyncSkipped(Activity activity) {
-        String name = activity.getClass().getName();
-        return name.startsWith("com.oilquiz.app.vnc.") || isTranslucent(activity);
+        return isTranslucent(activity);
     }
 
     private static boolean isSkipped(Activity activity) {

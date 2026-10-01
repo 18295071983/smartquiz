@@ -1,22 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  仅 debug 构建生效的清单覆盖。
-  目的：把 VNC 两个页面导出，好让 adb 直接 am start 起来做真机验证
-  （正常情况下 exported="false" 的页面 adb 是拉不起来的：
-   "Permission Denial: starting Intent ... not exported from uid"，这是 Android 的安全策略）。
-  release 构建不含本文件，导出一律保持 false。
--->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
-    <application>
-        <activity
-            android:name=".vnc.VncWebActivity"
-            android:exported="true"
-            tools:replace="android:exported" />
-        <activity
-            android:name=".vnc.VncActivity"
-            android:exported="true"
-            tools:replace="android:exported" />
-    </application>
+<!-- 仅 debug 构建生效的清单覆盖（VNC 页面已随功能删除，本文件仅保留空壳以免误导） -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 </manifest>

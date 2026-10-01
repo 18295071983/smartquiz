@@ -1076,6 +1076,7 @@ private:
     // 空时表示模板未提供思考标签，调用方回退旧行为（不剥离思考段）。
     std::string mThinkStartTag;
     std::vector<std::string> mThinkEndTags;
+    std::string backendChoice = "auto";  // GPU 后端：auto=全部 / opencl / vulkan（设置项控制，加载时按 devices 过滤）
 
     // ===== 生成流程状态机（native）=====
     // 统一管理生成阶段与停止原因，替代散落的布尔/字符串状态，
@@ -1439,6 +1440,39 @@ public:
         // split_mode=LAYER: 按层分配给不同 GPU，适合异构设备
         model_params.split_mode = LLAMA_SPLIT_MODE_LAYER;
         model_params.main_gpu = 0;  // 主 GPU 设备索引
+
+        // ===== GPU 后端开关（OpenCL / Vulkan / auto）=====
+        // 设置项控制：auto = 使用所有可用 GPU 设备（旧行为）。
+        // 指定 opencl/vulkan 时，只将目标后端的 GPU device 放入 devices 数组，
+        // 强制 llama offload 到该后端（另一后端不参与权重放置）。
+        std::vector<ggml_backend_dev_t> selectedDevices;
+        if (backendChoice == "opencl" || backendChoice == "vulkan") {
+            for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+                ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+                if (!dev) continue;
+                enum ggml_backend_dev_type dType = ggml_backend_dev_type(dev);
+                if (dType != GGML_BACKEND_DEVICE_TYPE_GPU && dType != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
+                ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+                const char* regName = reg ? ggml_backend_reg_name(reg) : "";
+                bool isTarget = (backendChoice == "vulkan")
+                    ? (strstr(regName, "Vulkan") != nullptr)
+                    : (strstr(regName, "OpenCL") != nullptr);
+                if (isTarget) {
+                    selectedDevices.push_back(dev);
+                    LOGI("Backend switch: selected device %zu (backend=%s, name=%s)",
+                         i, regName, ggml_backend_dev_name(dev) ? ggml_backend_dev_name(dev) : "null");
+                }
+            }
+            if (!selectedDevices.empty()) {
+                selectedDevices.push_back(nullptr); // NULL-terminated
+                model_params.devices = selectedDevices.data();
+                LOGI("Backend switch: offload restricted to %s (%zu device(s))", backendChoice.c_str(), selectedDevices.size() - 1);
+            } else {
+                LOGW("Backend switch: no %s device found, using all available devices", backendChoice.c_str());
+            }
+        } else {
+            LOGI("Backend switch: auto mode, using all available GPU devices");
+        }
         
         if (this->gpuLayers > 0) {
             model_params.n_gpu_layers = this->gpuLayers;
@@ -3987,6 +4021,15 @@ public:
 
     void setGPULayers(int layers) { gpuLayers = layers; }
 
+    void setBackendChoice(const std::string& choice) {
+        if (choice == "opencl" || choice == "vulkan" || choice == "auto") {
+            backendChoice = choice;
+            LOGI("Backend choice set to: %s", choice.c_str());
+        } else {
+            LOGW("Invalid backend choice '%s', keeping '%s'", choice.c_str(), backendChoice.c_str());
+        }
+    }
+
     void setKvCacheType(int type) { kvCacheType = type; }
     void setThreadCount(int count) { threadCount = count; }
     void setMemoryPoolSize(int size) { memoryPoolSize = size; }
@@ -5580,6 +5623,8 @@ public:
 };
 
 static llama_jni::InferenceContext* s_helperContext = nullptr;
+// GPU 后端偏好（设置项）：setBackend 写入；initModel 创建 context 后应用（无论调用顺序）
+static std::string s_backendChoiceOverride = "auto";
 static std::mutex s_globalMutex;
 
 static NativeChatContext* g_chatContext = nullptr;
@@ -5612,6 +5657,25 @@ static bool isValidChatHandle(jlong handle) {
 }
 
 extern "C" {
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetBackend(
+    JNIEnv* env, jclass, jstring backend) {
+    if (backend == nullptr) {
+        LOGW("setBackend: null backend string, ignoring");
+        return;
+    }
+    const char* cstr = env->GetStringUTFChars(backend, nullptr);
+    if (cstr == nullptr) return;
+    std::string choice(cstr);
+    env->ReleaseStringUTFChars(backend, cstr);
+    std::lock_guard<std::mutex> lock(s_globalMutex);
+    s_backendChoiceOverride = choice;
+    LOGI("setBackend: preference -> %s", choice.c_str());
+    if (s_helperContext != nullptr) {
+        s_helperContext->setBackendChoice(choice);
+    }
+}
 
 JNIEXPORT jlong JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatCreate(
@@ -6329,6 +6393,7 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInitModel(
     }
     
     s_helperContext = new llama_jni::InferenceContext();
+    s_helperContext->setBackendChoice(s_backendChoiceOverride);
     if (!s_helperContext->loadModel(modelPathStr, nCtx, nThreads)) {
         LOGE("LlamaHelper: Failed to load model");
         delete s_helperContext;

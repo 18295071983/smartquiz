@@ -21,7 +21,6 @@ import androidx.core.content.FileProvider;
 import com.oilquiz.app.ai.agent.online.AgentWorkspace;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.tool.annotation.Action;
-import com.oilquiz.app.vnc.VncClient;
 import com.oilquiz.app.ai.tool.annotation.Param;
 import com.oilquiz.app.ai.tool.annotation.Tool;
 import com.oilquiz.app.util.AILogger;
@@ -62,9 +61,7 @@ import java.util.concurrent.atomic.AtomicReference;
         @Action(name = "shell_mode", description = "切换 shell 拦截模式：full=不拦截(默认，用户自己的设备) / readonly=恢复危险命令与敏感路径拦截 / query=查询当前"),
         @Action(name = "read_setting", description = "读取系统设置"),
         @Action(name = "write_setting", description = "修改系统设置"),
-        @Action(name = "get_current_app", description = "获取当前前台应用信息"),
-        @Action(name = "gui", description = "图形界面（X11/VNC）：在 Linux 容器里启动/停止图形桌面（start/stop），或查状态（status）。启动后用户可在答题宝「图形界面（VNC）」页看到桌面；需要更细的 GUI 操作可用 termux_exec 跑容器里的 xdotool/import（已随环境准备装好）"),
-        @Action(name = "desktop_screenshot", description = "抓取 Linux 容器图形界面（VNC 桌面）当前画面为 PNG 图片；复用 App 内置自研 RFB 客户端连 127.0.0.1:5900，无需在 Termux 容器里装任何包。需图形界面已启动（gui start 或工具集→图形界面（VNC）），抓帧约 1~18 秒。返回的图片可在对话中直接查看")
+        @Action(name = "get_current_app", description = "获取当前前台应用信息")
     },
     params = {
         @Param(name = "action", type = "string", description = "操作类型", required = true),
@@ -78,8 +75,7 @@ import java.util.concurrent.atomic.AtomicReference;
         @Param(name = "setting_type", type = "string", description = "设置类型: system/secure/global", required = false),
         @Param(name = "setting_key", type = "string", description = "设置键名", required = false),
         @Param(name = "setting_value", type = "string", description = "设置值", required = false),
-        @Param(name = "control_action", type = "string", description = "控制操作: force_stop/clear_data/detailed_info", required = false),
-        @Param(name = "op", type = "string", description = "gui 用: start(默认，启动图形界面) / stop / status", required = false)
+        @Param(name = "control_action", type = "string", description = "控制操作: force_stop/clear_data/detailed_info", required = false)
     }
 )
 public class SystemResourceTool implements AITool {
@@ -303,10 +299,6 @@ public class SystemResourceTool implements AITool {
                     return writeSetting(parameters);
                 case "get_current_app":
                     return getCurrentApp(parameters);
-                case "gui":
-                    return guiControl(parameters);
-                case "desktop_screenshot":
-                    return desktopScreenshot(parameters);
                 default:
                     return new AIToolResult("未知操作: " + action, parameters);
             }
@@ -2110,121 +2102,6 @@ public class SystemResourceTool implements AITool {
      * </ol>
      * 结果通过 PendingIntent 广播回传，Bundle 键：stdout/stderr/exitCode/errmsg。
      */
-    /**
-     * 图形界面（X11 + VNC）启停。
-     *
-     * <p>服务端在 Ubuntu 容器里跑（Xvfb + x11vnc，监听 127.0.0.1:5900，仅本机可见），
-     * 客户端是答题宝内置的自研 RFB 实现（{@code com.oilquiz.app.vnc}）。
-     */
-    private AIToolResult guiControl(Map<String, Object> parameters) {
-        String op = parameters.get("op") == null ? "start" : String.valueOf(parameters.get("op")).trim();
-        if ("status".equals(op)) {
-            Map<String, Object> p = new HashMap<>(parameters);
-            p.put("command", TermuxEnvInstaller.buildGuiStatusScript());
-            return termuxExec(p);
-        }
-        if ("stop".equals(op)) {
-            String err = TermuxEnvInstaller.stopGuiInTermux(context);
-            return new AIToolResult(err == null
-                    ? "已让 Termux 停止图形界面（容器里的 x11vnc / Xvfb 已杀）。"
-                    : "停止失败: " + err, parameters);
-        }
-        String err = TermuxEnvInstaller.startGuiInTermux(context);
-        if (err != null) {
-            return new AIToolResult("启动图形界面失败: " + err, parameters);
-        }
-        return new AIToolResult("已让 Termux 启动图形界面：容器里 Xvfb 1280x720 + x11vnc 监听 127.0.0.1:5900（"
-                + "端口起来约需 5~10 秒；Termux 侧日志 ~/.quiz_gui.log）。"
-                + "用户可在答题宝「图形界面（VNC）」页直接看到桌面；你也可以用 termux_exec 跑 "
-                + "proot-distro login ubuntu -- /bin/bash -lc 'DISPLAY=:1 xdotool ...' 去操作窗口。", parameters);
-    }
-
-    /**
-     * 抓取 Linux 容器图形界面（VNC 桌面）当前画面为 PNG。
-     *
-     * <p>复用自研 RFB 客户端（{@link VncClient}）连 127.0.0.1:5900 抓一帧存 PNG，
-     * 返回契约与文生图一致（filePath/contentUri + image_grid 组件），AI 对话里直接展示图片；
-     * 全程在 App 进程内完成，**不需要 Termux 容器装任何包**。
-     *
-     * <p>不做事先端口探测：Xvnc 支持 AlwaysShared，直接完整连接一次到位
-     * （握手读版本横幅），避免产生额外半开连接。
-     */
-    private AIToolResult desktopScreenshot(Map<String, Object> parameters) {
-        final VncClient[] holder = new VncClient[1];
-        final CountDownLatch frameLatch = new CountDownLatch(1);
-        final AtomicReference<Bitmap> frame = new AtomicReference<>();
-        final AtomicReference<String> err = new AtomicReference<>();
-        VncClient.Listener listener = new VncClient.Listener() {
-            @Override public void onConnected(int width, int height, String serverName) {
-                AILogger.i(TAG, "desktop_screenshot 已连接 " + width + "x" + height + " name=" + serverName);
-            }
-            @Override public void onFrameReady() {
-                VncClient c = holder[0];
-                if (c == null) return;
-                synchronized (c.frameLock) {
-                    Bitmap b = c.getBitmap();
-                    // 拷贝一份：reader 线程可能继续解码覆盖原 bitmap
-                    if (b != null) frame.set(b.copy(Bitmap.Config.ARGB_8888, false));
-                }
-                frameLatch.countDown();
-            }
-            @Override public void onClipboard(String text) { }
-            @Override public void onDisconnected(String reason) {
-                err.set(reason);
-                frameLatch.countDown();
-            }
-        };
-        final VncClient client = new VncClient(listener);
-        holder[0] = client;
-        try {
-            client.start("127.0.0.1", 5900, 8000);
-            boolean got = frameLatch.await(18, TimeUnit.SECONDS);
-            Bitmap b = frame.get();
-            if (!got || b == null) {
-                String why = err.get() != null ? err.get() : "首帧 18s 未到（桌面可能空闲无更新，保活请求已自动重发）";
-                return AIToolResult.fail("抓取桌面画面失败: " + why
-                        + "。请先确认图形界面已启动：gui start 或 工具集→图形界面（VNC）");
-            }
-            File dir = AgentWorkspace.getInstance(context).getFilesDir();
-            if (!dir.exists()) dir.mkdirs();
-            File target = new File(dir, "desktop_" + System.currentTimeMillis() + ".png");
-            try (FileOutputStream fos = new FileOutputStream(target)) {
-                b.compress(Bitmap.CompressFormat.PNG, 90, fos);
-            }
-            if (!target.exists() || target.length() == 0) {
-                return AIToolResult.fail("抓帧写入失败（空文件）");
-            }
-            Uri contentUri = FileProvider.getUriForFile(
-                    context, "com.oilquiz.app.fileprovider", target);
-            Map<String, Object> result = new HashMap<>();
-            result.put("status", "success");
-            result.put("filePath", target.getAbsolutePath());
-            result.put("contentUri", contentUri.toString());
-            result.put("size", target.length());
-            result.put("width", b.getWidth());
-            result.put("height", b.getHeight());
-            result.put("message", "已抓取 Linux 桌面画面（" + b.getWidth() + "x" + b.getHeight() + "）");
-            AIToolResult toolResult = AIToolResult.success(result);
-            try {
-                JSONObject props = new JSONObject();
-                props.put("columns", 1);
-                JSONArray images = new JSONArray();
-                images.put(contentUri.toString());
-                props.put("images", images);
-                toolResult.withComponent(ComponentData.of("image_grid", props));
-            } catch (Exception ignored) {
-            }
-            return toolResult;
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            return AIToolResult.fail("抓帧被中断");
-        } catch (Exception e) {
-            AILogger.e(TAG, "desktop_screenshot 失败: " + e.getMessage(), e);
-            return AIToolResult.fail("desktop_screenshot 失败: " + BaseAITool.errText(e));
-        } finally {
-            client.stop();
-        }
-    }
 
     private AIToolResult termuxExec(Map<String, Object> parameters) {
         String command = (String) parameters.get("command");

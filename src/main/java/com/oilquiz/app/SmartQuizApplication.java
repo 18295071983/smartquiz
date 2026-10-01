@@ -315,7 +315,7 @@ public class SmartQuizApplication extends Application {
             public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
                 currentActivity = activity;
                 // 真 edge-to-edge 全局适配（Android 16 强制 edge-to-edge 前的统一方案）：
-                // 开启内容延伸到系统栏 + 根容器 insets padding + 深浅图标；VNC/AI 对话/透明悬浮窗自动跳过
+                // 开启内容延伸到系统栏 + 根容器 insets padding + 深浅图标；AI 对话/透明悬浮窗自动跳过
                 com.oilquiz.app.theme.EdgeToEdgeHelper.apply(activity);
             }
             

@@ -13,13 +13,17 @@ add_compile_options(-O3 -DNDEBUG -fno-finite-math-only)
 # SPIRV-Headers 全局包含路径 (Vulkan 后端需要)
 add_compile_options(-I${CMAKE_SOURCE_DIR}/spirv-headers/include)
 
-# GPU 后端选型（2026-08 决策）：Adreno 走 OpenCL，Vulkan 降为备用。
+# GPU 后端选型（2026-08 决策，2026-10 更新）：OpenCL 主后端 + Vulkan 可切换。
 # 依据：Qualcomm 专有 OpenCL 驱动 + GGML_OPENCL_USE_ADRENO_KERNELS（Adreno 专属 kernel），
 # llama.cpp OpenCL 后端在 Adreno 830 实测 663 t/s prefill（llama-adreno 项目），
 # 上游有 Qualcomm 工程师持续维护（IWOCL 2025/2026）；
-# Vulkan 在 Adreno 上高级特性（coopmat/bfloat16/dot）驱动 bug 多，只能走 F16 基础路径。
+# 2026-09 官方 48 个 Vulkan 提交：正式启用 Adreno KHR coopmat（#29328，Gen6+ 硬件矩阵核心）、
+# argsort 修复（#29469）、bfloat16 条件化（#28155）。故两后端均编译进 APK，
+# 运行时由设置项 GPU 后端 切换（OpenCL/Vulkan/自动），见 native-lib.cpp setBackend。
+# 注意：NDK glslc 2022.3 不支持 cooperativeMatrix/bfloat16 扩展 → Vulkan 走基础路径（正确但较慢），
+# coopmat 变体需升级 shaderc 并真机验证后再放开。
 option(GGML_OPENCL "Enable OpenCL backend" ON)
-option(GGML_VULKAN "Enable Vulkan backend for GPU acceleration" OFF)
+option(GGML_VULKAN "Enable Vulkan backend for GPU acceleration" ON)
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)

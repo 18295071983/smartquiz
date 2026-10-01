@@ -119,6 +119,10 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private MaterialButton btnTestAi;
     private MaterialButton btnDeviceInfo;
     private MaterialButton btnApplyGpuLayers;
+    private android.widget.RadioGroup gpuBackendGroup;
+    private android.widget.RadioButton backendAuto;
+    private android.widget.RadioButton backendOpencl;
+    private android.widget.RadioButton backendVulkan;
     private android.widget.EditText gpuLayersInput;
     private SwitchMaterial aiEnableSwitch;
     private AppCompatSpinner optimizationModeSpinner;
@@ -267,6 +271,29 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         btnDeviceInfo = findViewById(R.id.btn_device_info);
 
         // GPU 层数设置（修改后需重载模型才生效）
+        // GPU backend switch (OpenCL / Vulkan / auto): saved to default SP key gpu_backend, applied to native on model load
+        gpuBackendGroup = findViewById(R.id.gpu_backend_group);
+        backendAuto = findViewById(R.id.backend_auto);
+        backendOpencl = findViewById(R.id.backend_opencl);
+        backendVulkan = findViewById(R.id.backend_vulkan);
+        if (gpuBackendGroup != null) {
+            // restore last choice
+            String savedBackend = android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+                    .getString("gpu_backend", "auto");
+            if ("opencl".equals(savedBackend)) backendOpencl.setChecked(true);
+            else if ("vulkan".equals(savedBackend)) backendVulkan.setChecked(true);
+            else backendAuto.setChecked(true);
+            gpuBackendGroup.setOnCheckedChangeListener((group, checkedId) -> {
+                String choice = "auto";
+                if (checkedId == R.id.backend_opencl) choice = "opencl";
+                else if (checkedId == R.id.backend_vulkan) choice = "vulkan";
+                android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+                        .edit().putString("gpu_backend", choice).apply();
+                LlamaHelper.setBackend(choice);
+                android.widget.Toast.makeText(this, "GPU backend switched to " + choice + ", reload model to take effect", android.widget.Toast.LENGTH_SHORT).show();
+            });
+        }
+
         gpuLayersInput = findViewById(R.id.gpu_layers_input);
         btnApplyGpuLayers = findViewById(R.id.btn_apply_gpu_layers);
         if (gpuLayersInput != null) {
@@ -707,7 +734,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 openclLight.setBackgroundResource(openclLoaded ? R.drawable.circle_green : R.drawable.circle_red);
             }
             if (openclStatus != null) {
-                openclStatus.setText(openclLoaded ? getString(R.string.h_bec33d31) : getString(R.string.h_467b3e03));
+                String backendPref2 = android.preference.PreferenceManager.getDefaultSharedPreferences(this).getString("gpu_backend", "auto");
+                String backendName2 = "vulkan".equals(backendPref2) ? "Vulkan" : ("opencl".equals(backendPref2) ? "OpenCL" : "自动");
+                openclStatus.setText(backendName2 + (openclLoaded ? " · 已启用" : " · 未启用"));
                 openclStatus.setTextColor(openclLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
             }
             

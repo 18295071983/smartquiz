@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -68,10 +69,6 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     private TextView signerWarnView;
     /** 首次打开 Termux 初始化提示行（UI 明示，默认隐藏） */
     private TextView firstInitHintView;
-    private MaterialButton installBtn;
-    private MaterialButton exportBtn;
-    private MaterialButton runBtn;
-    private MaterialButton grantBtn;
     private MaterialButton copyBtn;
     private volatile boolean busy;
     /** 通道自检结论（展示在状态区） */
@@ -80,9 +77,26 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     private volatile boolean pendingFix;
     /** 智能引导进行到的阶段：null=未进行；probe/perm/rootfs/storage/setup=正在引导该项 */
     private volatile String smartStage;
-    /** 动态辅助按钮：按当前缺失项自动变化（install/perm/rootfs/storage/setup，null=隐藏） */
-    private MaterialButton auxFixBtn;
+    /** 向导动作（onGuideMainClick 使用；由 refreshGuide 驱动） */
     private String auxFixAction;
+    /** 向导 UI：进度条 / 当前步骤标题 / 说明 */
+    private android.widget.ProgressBar guideProgress;
+    private TextView guideTitle;
+    private TextView guideDesc;
+
+    /** 一键安装步骤教程（5 行）：名称 + 详细说明 */
+    private static final String[][] STEP_INFO = {
+            {"授权通道（allow-external-apps）", "App 自动控制 Termux 的前提。点主按钮 → 系统弹窗点「允许」（可勾选始终允许）。没这个权限时 App 只能给你复制命令手动粘。"},
+            {"存储权限（termux-setup-storage）", "Termux 读取公共目录 Download/OilQuiz：本地 28.5MB 包、准备脚本、日志都从这里走。在 Termux 里执行 termux-setup-storage，弹「允许访问文件」时点允许。"},
+            {"安装 proot-distro", "Ubuntu 容器运行器（Termux 侧 pkg install proot-distro）。proot 让无 root 的手机也能跑完整 Ubuntu，是整个容器方案的地基。"},
+            {"创建 Ubuntu 容器", "Ubuntu 24.04 最小系统。App 内置的 rootfs 包已导出时本地导入（几秒）；否则联网下载约 30MB。"},
+            {"收尾与验证", "生成 ~/ubuntu 入口 + 最终验证（容器可用）。看到 🎉 即全部完成。容器内 Python 需要时在 ~/ubuntu 手动 apt 装。"}
+    };
+    /** 每步状态图标（⚪待开始 / ⏳进行中 / ✅完成 / ❌失败）与对应控件 */
+    private TextView[] stepStViews = new TextView[STEP_INFO.length];
+    private TextView[] stepNameViews = new TextView[STEP_INFO.length];
+    private TextView[] stepDetailViews = new TextView[STEP_INFO.length];
+    private TextView[] stepArrowViews = new TextView[STEP_INFO.length];
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -92,13 +106,35 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         }
         setContentView(R.layout.activity_termux_env_setup);
 
+        buildStepRows();
         statusView = findViewById(R.id.env_status);
         logView = findViewById(R.id.env_log);
         logView.setMovementMethod(new android.text.method.ScrollingMovementMethod());
         signerWarnView = findViewById(R.id.tv_signer_warn);
         firstInitHintView = findViewById(R.id.tv_first_init_hint);
-        installBtn = findViewById(R.id.btn_install_termux);
         findViewById(R.id.btn_enable_ssh).setOnClickListener(v -> doEnableSsh());
+        findViewById(R.id.btn_ssh_autostart).setOnClickListener(v -> {
+            if (TermuxEnvInstaller.termuxVersion(this) == null) {
+                log("🔍 还没装 Termux，先点上方「安装 Termux」。");
+                return;
+            }
+            if (!TermuxEnvInstaller.isAppInstalled(this, "com.termux.boot")) {
+                log("⚠️ 还没装 Termux:Boot——点上方「安装 Termux:Boot（选装）」装好后再点这个按钮。");
+                return;
+            }
+            // 写 ~/.termux/boot/start-sshd.sh（开机自动起 sshd）；单行命令，RUN_COMMAND 可执行
+            String script = "mkdir -p $HOME/.termux/boot && "
+                    + "printf '#!/data/data/com.termux/files/usr/bin/bash\\nsshd\\n' > $HOME/.termux/boot/start-sshd.sh && "
+                    + "chmod 700 $HOME/.termux/boot/start-sshd.sh && echo SSH_BOOT_OK";
+            execInTermux(script, true, () -> log("✅ 已设置 SSH 开机自启（~/.termux/boot/start-sshd.sh）。\n下次开机 Termux:Boot 会自动拉起 sshd。\n另外建议：系统设置 → 应用 → Termux → 电池/后台 → 设为「无限制」，能少被杀。"));
+        });
+        findViewById(R.id.btn_ssh_terminal).setOnClickListener(v -> {
+            if (TermuxEnvInstaller.termuxVersion(this) == null) {
+                log("🔍 还没装 Termux，先点上方「安装 Termux」。");
+                return;
+            }
+            startActivity(new android.content.Intent(this, com.oilquiz.app.ui.activity.SshTerminalActivity.class));
+        });
         findViewById(R.id.btn_open_termux).setOnClickListener(v -> {
             if (TermuxEnvInstaller.openTermux(this)) {
                 toast("已打开 Termux（显示上次会话）");
@@ -107,47 +143,15 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 toast("打开 Termux 失败");
             }
         });
-        findViewById(R.id.btn_open_vnc).setOnClickListener(v -> {
-            if (busy) { toast("正在执行中，请稍候"); return; }
-            if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
-            if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
-            toast("正在启动图形界面…");
-            String err = TermuxEnvInstaller.startGuiInTermux(this);
-            if (err != null) {
-                log("启动图形界面失败：" + err + "\n（需要先装好 Termux、授予 RUN_COMMAND 权限，并跑过一次「一键准备」）");
-                return;
-            }
-            log("已让 Termux 启动图形界面（Xvfb 1280x720 + x11vnc :5900）。\n"
-                    + "马上打开「图形界面（VNC）」页，若显示「等待图形界面就绪…」会自动重试到连上为止。\n"
-                    + "Termux 侧日志：~/.quiz_gui.log");
-            startActivity(new Intent(this, com.oilquiz.app.vnc.VncActivity.class));
-        });
-        exportBtn = findViewById(R.id.btn_export_rootfs);
-        runBtn = findViewById(R.id.btn_run_setup);
-        grantBtn = findViewById(R.id.btn_grant);
         copyBtn = findViewById(R.id.btn_copy_cmd);
 
-        installBtn.setOnClickListener(v -> doInstallTermux());
         findViewById(R.id.btn_smart_guide).setOnClickListener(v -> {
             if (busy) { toast("正在执行中，请稍候"); return; }
-            doSmartGuide();
+            onGuideMainClick();
         });
-        exportBtn.setOnClickListener(v -> doExportRootfs());
-        runBtn.setOnClickListener(v -> doRunSetup());
-        grantBtn.setOnClickListener(v -> {
-            if (TermuxEnvInstaller.hasRunCommandPermission(this)) {
-                log("RUN_COMMAND 权限已授予。\n如果还需要 Termux 读取本地包（ｾ/storage 访问）：\n在 Termux 里执行  termux-setup-storage  并在系统弹窗点「允许」（或 Termux 设置——应用——打开“所有文件访问”）。");
-            } else {
-                startActivity(new Intent(this, TermuxPermissionActivity.class));
-                log("已打开 Termux 权限请求：请在弹窗里点「允许」。\n（若没弹窗，说明厂商 ROM 拦了，改用「复制手动命令」粘到 Termux 执行）");
-            }
-        });
+
         copyBtn.setOnClickListener(v -> copyManualCommand());
-        findViewById(R.id.btn_fix_channel).setOnClickListener(v -> {
-            if (busy) { toast("正在执行中，请稍候"); return; }
-            if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
-            doFixChannel();
-        });
+
         findViewById(R.id.btn_refresh).setOnClickListener(v -> {
             refresh();
             toast("已刷新状态");
@@ -161,33 +165,10 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             toggleMore.setText(show ? "更多工具 ▲" : "更多工具 ▾");
         });
         // 动态辅助按钮：检测缺什么就给什么动作，点一下自动复制/执行，不用手输命令
-        auxFixBtn = findViewById(R.id.btn_aux_fix);
-        auxFixBtn.setOnClickListener(v -> {
-            String action = auxFixAction;
-            if (action == null) { return; }
-            if (busy) { toast("正在执行中，请稍候"); return; }
-            if ("install".equals(action)) {
-                doInstallTermux();
-            } else if ("perm".equals(action)) {
-                startActivity(new Intent(this, TermuxPermissionActivity.class));
-                log("已打开 Termux 权限请求：请在弹窗里点「允许」。");
-            } else if ("rootfs".equals(action)) {
-                doExportRootfs();
-            } else if ("storage".equals(action)) {
-                copyStorageCmdAndOpen();
-            } else if ("setup".equals(action)) {
-                startSetupStep();
-            } else if ("allowex".equals(action)) {
-                fixAllowExternalApps();
-            } else if ("overlay".equals(action)) {
-                // 直接跳到 Termux 的「显示在其他应用上层」设置页（Android 8+ 专用入口）
-                Intent oi = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + TermuxEnvInstaller.TERMUX_PACKAGE));
-                startActivity(oi);
-                log("已打开 Termux 的悬浮窗权限设置：打开「显示在其他应用上层」开关后回到本页点「刷新」。\n"
-                        + "（没有这项的话，走：设置 → 应用管理 → Termux → 高级/其他权限 → 显示在其他应用上层）");
-            }
-        });
+        guideProgress = findViewById(R.id.progress_guide);
+        guideTitle = findViewById(R.id.guide_title);
+        guideDesc = findViewById(R.id.guide_desc);
+
         findViewById(R.id.btn_open_ubuntu).setOnClickListener(v -> doOpenUbuntuShell());
         findViewById(R.id.btn_open_ubuntu).setOnLongClickListener(v -> {
             if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux"); return true; }
@@ -201,8 +182,6 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             return true;
         });
         findViewById(R.id.btn_view_logs).setOnClickListener(v -> doViewEnvLogs());
-        findViewById(R.id.btn_restart_gui).setOnClickListener(v -> doRestartGui());
-        findViewById(R.id.btn_stop_gui).setOnClickListener(v -> doStopGui());
         findViewById(R.id.btn_install_api).setOnClickListener(v ->
                 doInstallPlugin(TermuxEnvInstaller.ASSET_API_APK, TermuxEnvInstaller.TERMUX_API_PACKAGE, "Termux:API"));
         findViewById(R.id.btn_install_boot).setOnClickListener(v ->
@@ -296,59 +275,246 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         signerWarnView.setVisibility(signerMismatch ? View.VISIBLE : View.GONE);
         firstInitHintView.setVisibility(ver != null && !perm ? View.VISIBLE : View.GONE);
 
-        installBtn.setEnabled(!busy && ver == null);
-        installBtn.setText(ver == null ? "安装 Termux" : "Termux 已安装，无需重复安装");
-        styleStepBtn(installBtn, ver != null);
-        exportBtn.setEnabled(!busy && rootfs == null);
-        exportBtn.setText(rootfs == null ? "导出 Ubuntu 根文件系统（28.5 MB）" : "根文件系统已导出，无需重复导出");
-        styleStepBtn(exportBtn, rootfs != null);
-        runBtn.setEnabled(!busy && ver != null);
-        // 不再因 RUN_COMMAND 已授予而禁用：点击后按状态分支（未授→请求页；已授→存储指引）
-        grantBtn.setEnabled(!busy);
         copyBtn.setEnabled(!busy);
+
         // 辅助按钮保持可点，点击时由 onClick 守卫判条件，不满足弹小字提示并不执行（防乱点但不置灰）
         findViewById(R.id.btn_smart_guide).setEnabled(!busy);
-        findViewById(R.id.btn_open_vnc).setEnabled(!busy);
-        findViewById(R.id.btn_fix_channel).setEnabled(!busy);
         findViewById(R.id.btn_open_ubuntu).setEnabled(!busy);
         findViewById(R.id.btn_view_logs).setEnabled(!busy);
-        findViewById(R.id.btn_restart_gui).setEnabled(!busy);
-        findViewById(R.id.btn_stop_gui).setEnabled(!busy);
-        updateAuxFixButton();
+        refreshGuide();
     }
 
-    /** 动态辅助按钮：按当前"缺什么"显示对应动作；全就绪时隐藏（不手输、不用去翻更多工具） */
-    private void updateAuxFixButton() {
+    /** 刷新向导卡：按当前缺失项更新进度条/步骤标题/说明/主按钮（唯一主入口，其余按钮收进「更多工具」） */
+    private void refreshGuide() {
         String ver = TermuxEnvInstaller.termuxVersion(this);
+        boolean perm = TermuxEnvInstaller.hasRunCommandPermission(this);
+        boolean store = TermuxEnvInstaller.termuxHasStoragePermission(this);
+        boolean overlay = TermuxEnvInstaller.termuxHasOverlayPermission(this);
+        File rootfs = TermuxEnvInstaller.exportedRootfs(this);
+        boolean signerOk = ver != null && TermuxEnvInstaller.termuxSignerMatchesBundled(this);
+
+        String title;
+        String desc;
+        String btnText;
+        String action;
+        int progress;
         if (ver == null) {
-            showAux("📥 第 1 步：安装 Termux", "install");
-        } else if (!TermuxEnvInstaller.hasRunCommandPermission(this)) {
-            showAux("🔑 授予 RUN_COMMAND 权限", "perm");
-        } else if (TermuxEnvInstaller.exportedRootfs(this) == null) {
-            showAux("📦 导出 Ubuntu 根文件系统", "rootfs");
-        } else if (!TermuxEnvInstaller.termuxHasStoragePermission(this)) {
-            showAux("🔓 设置 Termux 存储（复制命令，弹窗点允许）", "storage");
-        } else if (!TermuxEnvInstaller.termuxHasOverlayPermission(this)) {
-            // Android 10+ 后台启动终端会话必需；缺失时 Termux 弹 "Display over other apps" 并拒开
-            showAux("🪟 开启 Termux 悬浮窗权限（后台自动执行必需）", "overlay");
+            progress = 5; title = "第 1 步 · 安装 Termux";
+            desc = "内置官方包 108.6MB。点下面按钮 → 系统弹一次安装确认 → 装完回来，我自动继续。\n提示：第一次打开 Termux 会自动初始化（下载基础包），请等出现命令行提示符 $ 再继续。";
+            btnText = "📥 安装 Termux"; action = "install";
+        } else if (!signerOk) {
+            progress = 10; title = "签名不一致 · 先定路线";
+            desc = "已装 Termux 与内置包签名不同，覆盖安装会被系统拒绝。推荐继续用现有 Termux：展开「更多工具」→「自检修复通道」粘一行命令即可；或卸载重装内置版（会清空容器环境）。";
+            btnText = "📋 查看解决说明"; action = null;
+        } else if (!perm) {
+            progress = 25; title = "第 2 步 · 授予 RUN_COMMAND 权限";
+            desc = "这是 App 能自动控制 Termux 的前提。点下面按钮 → 系统弹窗点「允许」（可勾选始终允许）。";
+            btnText = "🔑 授予权限（弹窗点允许）"; action = "perm";
+        } else if (rootfs == null) {
+            progress = 40; title = "第 3 步 · 导出 Ubuntu 根文件系统";
+            desc = "内置 28.5MB 包 → Download/OilQuiz/termux_env/。点一下自动导出，约几秒。";
+            btnText = "📦 导出 Ubuntu 包（28.5MB）"; action = "rootfs";
+        } else if (!store) {
+            progress = 55; title = "第 4 步 · 设置 Termux 存储";
+            desc = "复制命令到 Termux 粘贴回车 → 系统弹「允许访问文件」点「允许」。做完切回来，我自动继续。";
+            btnText = "🔓 复制存储命令并打开 Termux"; action = "storage";
+        } else if (!overlay) {
+            progress = 70; title = "第 5 步 · 开启悬浮窗权限";
+            desc = "Termux 后台自动执行必需。点下面按钮跳到设置页，打开「显示在其他应用上层」开关后回来。";
+            btnText = "🪟 去开启悬浮窗权限"; action = "overlay";
         } else if (!"可用 ✓".equals(channelState)) {
-            // 通道不通：最典型是 allow-external-apps 配置写了但 Termux 没重启加载（真机常见）。
-            // 给最短修复：一行命令写入配置并自动重启 Termux；回来复检通道，通了自动续跑环境。
-            showAux("⚡ 修复 allow-external-apps（粘贴后自动重启 Termux）", "allowex");
+            progress = 80; title = "第 6 步 · 修复命令通道";
+            desc = "App 控制 Termux 的通道未通（最常见：allow-external-apps 没生效）。复制一行命令到 Termux 粘贴，会自动重启 Termux 生效。做完切回来，我自动复检并继续。";
+            btnText = "⚡ 复制修复命令并打开 Termux"; action = "allowex";
         } else {
-            showAux(null, null);
+            progress = 100; title = "环境就绪 🎉";
+            desc = "Termux 通道、权限、Ubuntu 容器、Python 全部就绪。可在「更多工具」里进 Ubuntu 终端。";
+            btnText = "✅ 环境已就绪（点此重新检测）"; action = "done";
+        }
+        if (guideProgress != null) { guideProgress.setProgress(progress); }
+        if (guideTitle != null) { guideTitle.setText(title); }
+        if (guideDesc != null) { guideDesc.setText(desc); }
+        MaterialButton main = findViewById(R.id.btn_smart_guide);
+        main.setText(btnText);
+        main.setEnabled(!busy);
+        auxFixAction = action;
+        refreshStepTutorial();
+    }
+
+    /** 动态构建 7 行步骤教程（布局里只有空容器 ll_steps；每行 = 状态图标 + 序号 + 名称 + 箭头，点击展开详情） */
+    private void buildStepRows() {
+        LinearLayout container = findViewById(R.id.ll_steps);
+        if (container == null) return;
+        container.removeAllViews();
+        android.content.res.Resources res = getResources();
+        int px4 = Math.round(4 * res.getDisplayMetrics().density);
+        int px8 = Math.round(8 * res.getDisplayMetrics().density);
+        int px14 = Math.round(14 * res.getDisplayMetrics().density);
+        for (int i = 0; i < STEP_INFO.length; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(px4, px8, px4, px8);
+            row.setClickable(true);
+            row.setFocusable(true);
+            android.util.TypedValue tv = new android.util.TypedValue();
+            getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+            row.setBackgroundResource(tv.resourceId);
+
+            TextView st = new TextView(this);
+            st.setTextSize(15);
+            st.setText("⚪");
+            stepStViews[i] = st;
+
+            TextView num = new TextView(this);
+            num.setText(String.valueOf(i + 1));
+            num.setTextSize(13);
+            num.setTypeface(null, android.graphics.Typeface.BOLD);
+            num.setTextColor(ThemeColors.get(this, R.color.primary));
+            LinearLayout.LayoutParams numLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            numLp.setMarginStart(px8);
+            num.setLayoutParams(numLp);
+
+            TextView name = new TextView(this);
+            name.setText(STEP_INFO[i][0]);
+            name.setTextSize(13);
+            name.setTextColor(ThemeColors.get(this, R.color.text_primary));
+            name.setPadding(px8, 0, px4, 0);
+            LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            name.setLayoutParams(nameLp);
+            stepNameViews[i] = name;
+
+            TextView arrow = new TextView(this);
+            arrow.setText("▾");
+            arrow.setTextSize(12);
+            arrow.setTextColor(ThemeColors.get(this, R.color.text_secondary));
+            arrow.setPadding(px4, 0, 0, 0);
+            stepArrowViews[i] = arrow;
+
+            TextView detail = new TextView(this);
+            detail.setText(STEP_INFO[i][1]);
+            detail.setTextSize(12);
+            detail.setTextColor(ThemeColors.get(this, R.color.text_secondary));
+            detail.setLineSpacing(2 * res.getDisplayMetrics().density, 1f);
+            detail.setPadding(px14, 0, 0, px8);
+            detail.setVisibility(android.view.View.GONE);
+            stepDetailViews[i] = detail;
+
+            final int idx = i;
+            row.setOnClickListener(v -> toggleStepDetail(idx));
+
+            row.addView(st);
+            row.addView(num);
+            row.addView(name);
+            row.addView(arrow);
+            container.addView(row);
+            container.addView(detail);
         }
     }
 
-    private void showAux(String text, String action) {
-        auxFixAction = action;
-        if (text == null) {
-            auxFixBtn.setVisibility(View.GONE);
-        } else {
-            auxFixBtn.setText(text);
-            auxFixBtn.setVisibility(View.VISIBLE);
+    /** 点击某一行：展开/收起该步详细说明（箭头 ▾/▴ 同步切换） */
+    private void toggleStepDetail(int idx) {
+        if (idx < 0 || idx >= stepDetailViews.length) return;
+        TextView d = stepDetailViews[idx];
+        TextView a = stepArrowViews[idx];
+        boolean show = d.getVisibility() != android.view.View.VISIBLE;
+        d.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (a != null) a.setText(show ? "▴" : "▾");
+    }
+
+    /** 从日志行提取 step 编号（"step1_storage.sh"/"step3=ok"/"❌ step6..." 都能提取；非 step 行返回 -1） */
+    private int extractStepN(String line) {
+        int i = line.indexOf("step");
+        if (i < 0) return -1;
+        int j = i + 4;
+        while (j < line.length() && Character.isDigit(line.charAt(j))) j++;
+        if (j == i + 4) return -1;
+        int n;
+        try { n = Integer.parseInt(line.substring(i + 4, j)); } catch (NumberFormatException e) { return -1; }
+        return (n >= 0 && n < STEP_INFO.length) ? n : -1;
+    }
+
+    /**
+     * 刷新 5 行步骤状态（⚪待开始/⏳进行中/✅完成/❌失败）。
+     * 数据源双轨：① 公共日志 setup_log.txt 解析每步实时状态；② 环境检测补覆盖（通道/存储/rootfs/整体就绪）。
+     */
+    private void refreshStepTutorial() {
+        String[] sts = {"⚪", "⚪", "⚪", "⚪", "⚪", "⚪", "⚪"};
+        String log = TermuxEnvInstaller.readPublicSetupLog(this);
+        boolean perm = TermuxEnvInstaller.hasRunCommandPermission(this);
+        boolean store = TermuxEnvInstaller.termuxHasStoragePermission(this);
+        File rootfs = TermuxEnvInstaller.exportedRootfs(this);
+        boolean ready = "可用 ✓".equals(channelState) && perm && store && rootfs != null;
+        if (log != null && !log.isEmpty()) {
+            for (String raw : log.split("\n")) {
+                String line = raw.trim();
+                if (line.isEmpty()) continue;
+                int n;
+                if (line.contains("=ok")) {
+                    n = extractStepN(line);
+                    if (n >= 0) sts[n] = "✅";
+                } else if (line.startsWith("===== step")) {
+                    n = extractStepN(line);
+                    if (n >= 0) sts[n] = "⏳";
+                } else if (line.contains("❌")) {
+                    n = extractStepN(line);
+                    if (n >= 0) sts[n] = "❌";
+                }
+            }
+        }
+        // 环境检测补覆盖（日志未跑过/已手动完成的项也能标绿）
+        if (perm) sts[0] = "✅";
+        if (store) sts[1] = "✅";
+        if (rootfs != null) sts[3] = "✅";
+        if (ready) {
+            for (int i = 0; i < sts.length; i++) sts[i] = "✅";
+        }
+        int green = ThemeColors.get(this, R.color.success);
+        int orange = ThemeColors.get(this, R.color.warning);
+        int red = ThemeColors.get(this, R.color.error);
+        int gray = ThemeColors.get(this, R.color.text_secondary);
+        for (int i = 0; i < stepStViews.length; i++) {
+            TextView v = stepStViews[i];
+            if (v == null) continue;
+            v.setText(sts[i]);
+            if ("✅".equals(sts[i])) v.setTextColor(green);
+            else if ("⏳".equals(sts[i])) v.setTextColor(orange);
+            else if ("❌".equals(sts[i])) v.setTextColor(red);
+            else v.setTextColor(gray);
         }
     }
+
+    /** 向导主按钮：执行当前步骤动作（install/perm/rootfs/storage/overlay/allowex/done） */
+    private void onGuideMainClick() {
+        String action = auxFixAction;
+        if ("install".equals(action)) {
+            doInstallTermux();
+        } else if ("perm".equals(action)) {
+            startActivity(new Intent(this, TermuxPermissionActivity.class));
+            log("已打开 Termux 权限请求：请在弹窗里点「允许」。");
+        } else if ("rootfs".equals(action)) {
+            doExportRootfs();
+        } else if ("storage".equals(action)) {
+            copyStorageCmdAndOpen();
+        } else if ("overlay".equals(action)) {
+            Intent oi = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + TermuxEnvInstaller.TERMUX_PACKAGE));
+            startActivity(oi);
+            log("已打开 Termux 的悬浮窗权限设置：打开「显示在其他应用上层」开关后回到本页点「刷新」。\n"
+                    + "（没有这项的话，走：设置 → 应用管理 → Termux → 高级/其他权限 → 显示在其他应用上层）");
+        } else if ("allowex".equals(action)) {
+            fixAllowExternalApps();
+        } else if ("done".equals(action)) {
+            // 已就绪：真正执行 8 步环境安装（proot/容器/Python/GUI）——向导全流程的收尾动作
+            toast("环境准备开始…");
+            doRunSetup();
+        } else {
+            // action 为空（签名不一致等需先定路线的场景）：给路线说明
+            doSmartGuide();
+        }
+    }
+
 
     /** 完成态按钮视觉：未完成=主色+下载图标；已完成=次色+勾图标 */
     private void styleStepBtn(MaterialButton b, boolean done) {
@@ -415,44 +581,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         if (TermuxEnvInstaller.termuxVersion(this) == null) { log("Termux 还没装，请先执行第 1 步。"); return; }
         if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { log("RUN_COMMAND 权限未授予。"); return; }
         String cmd = "echo '===== setup 日志（尾 60 行）====='; tail -60 ~/.quiz_env_setup.log 2>/dev/null; "
-                + "echo; echo '===== GUI 日志（尾 30 行）====='; tail -30 ~/.quiz_gui.log 2>/dev/null; "
-                + "echo; echo '===== GUI 启动跟踪（尾 20 行）====='; tail -20 ~/.quiz_gui_start_trace.log 2>/dev/null; "
                 + "echo; echo '===== 结束 ====='";
         String err = TermuxEnvInstaller.runInTermux(this, cmd, false);
         log(err == null ? "已打开 Termux 会话显示环境日志。" : "查看日志失败：" + err);
-    }
-
-    /** 重启图形界面：先刷新启动器（与设备同版本）再 restart */
-    private void doRestartGui() {
-        toast("正在重启图形界面…");
-        if (busy) { toast("正在执行中，请稍候"); return; }
-        if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
-        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
-        String shortCmd = refreshLauncherCmdForActivity()
-                + "test -x $HOME/ubuntu-gui && bash $HOME/ubuntu-gui restart || echo NO_UBUNTU_GUI_请先点一次一键准备";
-        String err = TermuxEnvInstaller.runInTermux(this, shortCmd, true);
-        log(err == null ? "已让 Termux 重启图形界面（可去 VNC 页看效果）。" : "重启失败：" + err);
-    }
-
-    /** 停止图形界面 */
-    private void doStopGui() {
-        toast("正在停止图形界面…");
-        if (busy) { toast("正在执行中，请稍候"); return; }
-        if (TermuxEnvInstaller.termuxVersion(this) == null) { toast("请先安装 Termux（第 1 步）"); return; }
-        if (!TermuxEnvInstaller.hasRunCommandPermission(this)) { toast("请先授予 RUN_COMMAND 权限"); return; }
-        String shortCmd = "bash $HOME/ubuntu-gui stop 2>/dev/null; "
-                + "pkill -f 'quiz_gui_dem[o]' >/dev/null 2>&1; echo GUI_STOPPED";
-        String err = TermuxEnvInstaller.runInTermux(this, shortCmd, true);
-        log(err == null ? "已让 Termux 停止图形界面（VNC 断开）。" : "停止失败：" + err);
-    }
-
-    /** 拷贝自 TermuxEnvInstaller.refreshLauncherCmd 的体的快速版（用于 restart 前刷新启动器） */
-    private String refreshLauncherCmdForActivity() {
-        return "SRC=\"\"; "
-                + "for c in /sdcard/Download/" + TermuxEnvInstaller.EXPORT_SUBDIR + "/ubuntu-gui.sh "
-                + "\"$HOME/storage/downloads/" + TermuxEnvInstaller.EXPORT_SUBDIR + "/ubuntu-gui.sh\"; do "
-                + "[ -f \"$c\" ] && SRC=\"$c\" && break; done; "
-                + "[ -n \"$SRC\" ] && cp \"$SRC\" \"$HOME/ubuntu-gui\" && chmod 700 \"$HOME/ubuntu-gui\"; ";
     }
 
     private void doInstallTermux() {
@@ -494,6 +625,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
     private void doExportRootfs() {
         busy = true;
         refresh();
+        toast("正在导出 Ubuntu 包（28.5MB，约几秒）…");
         log("正在导出 Ubuntu 根文件系统到 Download/OilQuiz/termux_env/（28.5 MB）…");
         new Thread(() -> {
             String msg;
@@ -508,10 +640,16 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 busy = false;
                 refresh();
                 log(fMsg);
-                // 智能引导进行到 rootfs 阶段时，导出完成自动续接下一步
-                if ("rootfs".equals(smartStage) && TermuxEnvInstaller.exportedRootfs(this) != null) {
-                    log(fMsg + "\n✅ 根文件系统已导出，继续检测…");
-                    continueSmartGuide();
+                if (fMsg.startsWith("已导出")) {
+                    toast("✅ 导出完成");
+                    // 智能引导进行到 rootfs 阶段时，导出完成自动续接下一步
+                    if ("rootfs".equals(smartStage) && TermuxEnvInstaller.exportedRootfs(this) != null) {
+                        log(fMsg + "\n✅ 根文件系统已导出，继续检测…");
+                        continueSmartGuide();
+                    }
+                } else {
+                    // 失败也要让用户立刻看到原因，而不是只有日志区一行字
+                    toast("❌ " + fMsg);
                 }
             });
         }, "rootfs-export").start();
@@ -519,9 +657,9 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
 
     private void doRunSetup() {
         toast("正在下发准备脚本…");
-        // 先把 setup.sh / ubuntu-gui.sh / zh_fix.sh 落到公共下载目录：
-        // setup.sh 里 step 3.5/6 要从 sdcard 取回后两个文件（中文化与 GUI 入口），
-        // 只下发文本的话它们永远不在设备上，那两个步骤会被跳过（真机已踩到）。
+        // 先把 setup.sh / zh_fix.sh 落到公共下载目录：
+        // setup.sh 里 step 3/5/6 要从 sdcard 取回后两个文件（中文/容器收尾相关），
+        // 只下发文本的话它们永远不在设备上，那些步骤会被跳过（真机已踩到）。
         // 落盘失败（无存储权限）不影响主流程 —— 脚本文本照常经 RUN_COMMAND 下发。
         TermuxEnvInstaller.writeSetupScriptFile(this);
         String script = TermuxEnvInstaller.buildSetupScript(rootfsPath());
@@ -533,8 +671,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                     + "全程日志写在 Termux 的 ~/.quiz_env_setup.log，出问题就看它（或在 Termux 里执行 cat ~/.quiz_env_setup.log）。\n"
                     + "如果 Termux 窗口里报错：多半是 allow-external-apps 没开 —— 用「复制手动命令」粘一次即可（脚本会自己把它打开）。");
             toast("已在 Termux 里开始准备");
-            // 打开专用监控页：实时看 8 个步骤的 ✅/⏳/❌ 和原始日志
-            startActivity(new Intent(this, TermuxSetupMonitorActivity.class));
+            // 不再打开专用监控页（已删）：本页运行日志卡实时显示进度（每 2s 轮询 setup_log.txt），
+            // 完成判定看「🎉 环境准备完成」或「❌ 有步骤失败」
         });
     }
 
@@ -548,7 +686,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
      */
     private void doSmartGuide() {
         if (TermuxEnvInstaller.termuxVersion(this) == null) {
-            log("🔍 第 1 项未就绪：Termux 还没安装。\n点上方「安装 Termux」→ 系统弹窗点「安装」→ 装完回到本页再点一次「智能检测引导」。");
+            log("🔍 第 1 项未就绪：Termux 还没安装。\n点向导主按钮「安装 Termux」→ 系统弹窗点「安装」→ 装完回到本页，我自动检测并继续下一步。");
             toast("先安装 Termux");
             return;
         }
@@ -561,7 +699,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         }
         // ===== 核心：一步手动 + 之后全自动 =====
         // 唯一需要用户做的：在 Termux 里粘贴这一行回车（命令开头自动 termux-setup-storage 建桥，
-        // 系统弹窗点一次允许；然后脚本自动完成 allow-external-apps / 建容器 / Python / GUI）。
+        // 系统弹窗点一次允许；然后脚本自动完成 allow-external-apps / 建容器 / Python）。
         // 用户切回答题宝后，App 自动诊断确认并收尾，之后全自动运行。
         startSetupStep();
     }
@@ -585,12 +723,12 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 + (opened ? "已打开 Termux：" : "请手动打开 Termux：") + "长按终端 → 粘贴 → 回车。\n"
                 + "这一行会：\n"
                 + "① 开头自动执行 termux-setup-storage → 系统弹「允许访问文件」→ 点「允许」（只点这一次）\n"
-                + "② 自动完成：allow-external-apps（打开后 App 就能自动运行）· 用本地 28.5MB 包建 Ubuntu 容器 · 装完整 Python + 图形界面 · 写好 ~/ubuntu、~/ubuntu-gui 入口\n"
+                + "② 自动完成：allow-external-apps（打开后 App 就能自动运行）· 用本地 28.5MB 包建 Ubuntu 容器 · 装完整 Python · 写好 ~/ubuntu 入口\n"
                 + "（⚠️ 不能直接 bash /sdcard/...：noexec 会被拒绝，这行已自动处理）\n"
                 + "跑完看到「🎉 环境准备完成」后切回答题宝，我自动确认收尾 —— 之后 App 全自动，你不用再碰 Termux。"
                 : "🔍 智能引导：已复制完整准备脚本（Termux 无存储权限，只能整段粘贴）。\n"
                 + (opened ? "已打开 Termux：" : "请手动打开 Termux：") + "长按终端 → 粘贴 → 回车。\n"
-                + "脚本会自动：建立存储桥（弹窗点允许）· allow-external-apps · 建 Ubuntu 容器 · 装完整 Python + 图形界面 · 写好入口。\n"
+                + "脚本会自动：建立存储桥（弹窗点允许）· allow-external-apps · 建 Ubuntu 容器 · 装完整 Python · 写好入口。\n"
                 + "跑完看到「🎉 环境准备完成」后切回答题宝，我自动确认收尾。");
     }
 
@@ -683,22 +821,20 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             copyStorageCmdAndOpen();
             return;
         }
-        // 环境是否已准备：跑诊断命令看 ubuntu-gui 入口与上次准备结果（fail=0）
+        // 环境是否已准备：跑诊断命令看上次准备结果（fail=0）
         smartStage = "setup";
         new Thread(() -> {
             TermuxEnvInstaller.ChannelResult diag = TermuxEnvInstaller.runInTermuxAndWait(
                     this, TermuxEnvInstaller.buildDiagnoseCommand(), 25);
             runOnUiThread(() -> {
                 String out = diag.ok ? diag.stdout : "（诊断失败：" + diag.error + "）";
-                boolean guiReady = diag.ok && out.contains("ubuntu-gui=yes");
                 boolean envReady = diag.ok && out.contains("fail=0");
                 refresh();
-                if (guiReady && envReady) {
+                if (envReady) {
                     smartStage = null;
                     log("✅ 智能检测全部通过：Termux 通道可用、权限齐全、本地包就绪、环境已准备。\n\n环境现状：\n" + out);
                 } else {
-                    log("🔍 最后一步：环境还没准备（" + (guiReady ? "" : "缺 ~/ubuntu-gui 入口；")
-                            + (envReady ? "" : "上次准备未成功；") + "）。\n自动下发「一键准备」脚本（约 3~6 分钟，幂等可重复，已装的会跳过）…\n\n环境现状：\n" + out);
+                    log("🔍 最后一步：环境还没准备（" + (envReady ? "" : "上次准备未成功；") + "）。\n自动下发「一键准备」脚本（约 3~5 分钟，幂等可重复，已装的会跳过）…\n\n环境现状：\n" + out);
                     doRunSetup();
                 }
             });
@@ -796,12 +932,11 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                         busy = false;
                         refresh();
                         String out = diag.ok ? diag.stdout : "（诊断失败：" + diag.error + "）";
-                        boolean guiReady = diag.ok && out.contains("ubuntu-gui=yes");
                         boolean envReady = diag.ok && out.contains("fail=0");
-                        if (guiReady && envReady) {
+                        if (envReady) {
                             smartStage = null;
                             channelState = "可用 ✓";
-                            log("✅ 环境已就绪！Termux 通道也通了（allow-external-apps 已由脚本写好），以后 App 就能全自动：AI 调用、图形界面、进 Ubuntu 都行。\n\n环境现状：\n" + out);
+                            log("✅ 环境已就绪！Termux 通道也通了（allow-external-apps 已由脚本写好），以后 App 就能全自动：AI 调用、进 Ubuntu 都行。\n\n环境现状：\n" + out);
                         } else if (diag.ok && out.contains("fail=1")) {
                             smartStage = "setup";
                             pendingFix = true;
@@ -818,8 +953,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                         } else {
                             smartStage = "setup";
                             pendingFix = true;
-                            log("通道已通，但环境还没完全就绪（缺 " + (guiReady ? "" : "~/ubuntu-gui 入口；")
-                                    + (envReady ? "" : "fail=0 记录；") + "）。\n"
+                            log("通道已通，但环境还没完全就绪（" + (envReady ? "" : "缺 fail=0 记录；") + "）。\n"
                                     + "在 Termux 里再粘一次那一行跑完即可（幂等）。\n\n环境现状：\n" + out);
                         }
                     });
@@ -858,7 +992,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     busy = false;
                     refresh();
-                    log("✅ 通道可用：答题宝已经能把命令送进 Termux 并拿回输出，一键准备/图形界面都能自动化了。\n\n"
+                    log("✅ 通道可用：答题宝已经能把命令送进 Termux 并拿回输出，一键准备都能自动化了。\n\n"
                             + "环境现状：\n" + diag.stdout);
                 });
                 return;
@@ -961,12 +1095,16 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             log("🔍 还没装 Termux，先点上方「安装 Termux」，装完再回来开 SSH。");
             return;
         }
+        // 多行脚本不能经 RUN_COMMAND 直接下发（Termux 不执行长文本，真机踩过）：
+        // 先落盘为公共目录 enable_ssh.sh，再下发单行「bash 文件」执行。
         String script = TermuxEnvInstaller.buildSshEnableScript();
-        execInTermux(script, true, () -> {
+        File f = TermuxEnvInstaller.writeTextFile(this, "enable_ssh.sh", script);
+        String oneLine = "bash \"" + f.getAbsolutePath() + "\"";
+        execInTermux(oneLine, true, () -> {
             sshTries = 0;
             monitorHandler.removeCallbacks(sshPollRunnable);
             monitorHandler.post(sshPollRunnable);
-            log("🔑 正在 Termux 里安装 openssh 并启动 sshd（首次约 30 秒），装完自动显示连接信息…");
+            log("🔑 正在 Termux 里启动 sshd（openssh 已随离线包装好则秒起；没装到时联网装约 30 秒）…");
         });
     }
 
@@ -1013,7 +1151,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 log(fErr == null
                         ? "已唤起安装器：点「安装」装好 " + label + "。\n装好后回本页再点一次本按钮"
                         + (TermuxEnvInstaller.TERMUX_BOOT_PACKAGE.equals(pkg)
-                        ? "，我会自动写入开机自启脚本（开机自动拉起 Ubuntu 图形界面）。"
+                        ? "，我会自动写入开机自启脚本（开机自动拉起 Ubuntu 环境）。"
                         : "即配置完成（在 Termux 里 pkg install termux-api 装配套库即可调用手机硬件）。")
                         : "释放 " + label + " 安装包失败: " + fErr);
             });
@@ -1032,12 +1170,12 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             pendingFix = true;
             log("已复制开机自启脚本命令：\n\n" + cmd + "\n\n"
                     + (opened ? "已打开 Termux：" : "请手动打开 Termux：") + "长按终端 → 粘贴 → 回车。\n"
-                    + "看到 BOOT_SCRIPT_OK 即写入成功：重启手机后约 1 分钟会自动拉起 Ubuntu 图形界面。");
+                    + "看到 BOOT_SCRIPT_OK 即写入成功：重启手机后约 1 分钟会自动拉起 Ubuntu 环境（SSH/终端可用）。");
             return;
         }
         String err = TermuxEnvInstaller.runInTermux(this, cmd, true);
         log(err == null
-                ? "✅ 已写入开机自启脚本（~/.termux/boot/start-env.sh）：重启手机后约 1 分钟会自动拉起 Ubuntu 图形界面。"
+                ? "✅ 已写入开机自启脚本（~/.termux/boot/start-env.sh）：重启手机后约 1 分钟会自动拉起 Ubuntu 环境（SSH/终端可用）。"
                 : "写入失败：" + err + "\n（确认 Termux 通道可用后重试，或复制命令到 Termux 手动执行）");
     }
 
