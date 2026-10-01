@@ -295,10 +295,6 @@ dependencies {
     // 偏好设置
     implementation "androidx.preference:preference-ktx:1.2.1"
 
-    // SSH 客户端（App 内 SSH 终端连本机 Termux sshd，2026-10-02 新增；
-    // 0.2.x 支持现代 openssh 的 ed25519/rsa-sha2；0.1.55 太老协商会失败）
-    implementation "com.github.mwiede:jsch:0.2.18"
-    
     // 生命周期组件
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.7.0"
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0"

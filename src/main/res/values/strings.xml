@@ -662,9 +662,4 @@
     <string name="chat_desc_history">历史</string>
     <string name="chat_desc_clear">清空</string>
 
-    <!-- Termux terminal-view 文本选择（SSH 终端长按复制/粘贴） -->
-    <string name="copy_text">复制</string>
-    <string name="paste_text">粘贴</string>
-    <string name="text_selection_more">更多</string>
-
 </resources>

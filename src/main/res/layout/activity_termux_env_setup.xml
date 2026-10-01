@@ -357,22 +357,6 @@
                         app:backgroundTint="?attr/colorSecondaryContainer"
                         app:cornerRadius="@dimen/radius_22"/>
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_ssh_terminal"
-                        app:icon="@drawable/ic_keyboard"
-                        app:iconTint="?attr/colorOnSecondaryContainer"
-                        app:iconGravity="textStart"
-                        app:iconSize="18dp"
-                        app:iconPadding="6dp"
-                        android:layout_width="match_parent"
-                        android:layout_height="@dimen/size_40"
-                        android:layout_marginTop="@dimen/space_6"
-                        android:text="SSH 终端（App 内直连，进 Ubuntu 容器）"
-                        android:textSize="@dimen/text_12"
-                        android:textAllCaps="false"
-                        android:textColor="?attr/colorOnSecondaryContainer"
-                        app:backgroundTint="?attr/colorSecondaryContainer"
-                        app:cornerRadius="@dimen/radius_22"/>
-                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_ssh_autostart"
                         app:icon="@drawable/ic_settings"
                         app:iconTint="?attr/colorOnSecondaryContainer"

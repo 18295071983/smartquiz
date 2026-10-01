@@ -128,13 +128,6 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                     + "chmod 700 $HOME/.termux/boot/start-sshd.sh && echo SSH_BOOT_OK";
             execInTermux(script, true, () -> log("✅ 已设置 SSH 开机自启（~/.termux/boot/start-sshd.sh）。\n下次开机 Termux:Boot 会自动拉起 sshd。\n另外建议：系统设置 → 应用 → Termux → 电池/后台 → 设为「无限制」，能少被杀。"));
         });
-        findViewById(R.id.btn_ssh_terminal).setOnClickListener(v -> {
-            if (TermuxEnvInstaller.termuxVersion(this) == null) {
-                log("🔍 还没装 Termux，先点上方「安装 Termux」。");
-                return;
-            }
-            startActivity(new android.content.Intent(this, com.oilquiz.app.ui.activity.SshTerminalActivity.class));
-        });
         findViewById(R.id.btn_open_termux).setOnClickListener(v -> {
             if (TermuxEnvInstaller.openTermux(this)) {
                 toast("已打开 Termux（显示上次会话）");
