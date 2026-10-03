@@ -163,6 +163,13 @@ AgentChatHandler.startAgentLoop(message, ...)
     └─ AgentRouter → OnlineAgentEngine.execute()
 ```
 
+## 2026-09/10 更新
+
+- **在线引擎对齐 dsh 架构（9/23）**：工具实时注册、动态工具结构化、统计统一（缓存 usage 全字段直读），与 dsh 的 ACP 通道对齐。
+- **动态工具注入**：工具集扩充至 30+，新增 linux_shell（内置 Linux 工具箱/命令路由）、ssh_exec（JSch 远程 SSH）、media_toolkit（本地媒体工具箱）、remote_dsh（手机远程控制电脑，dsh 桥接）。
+- **本地推理加速（9/24）**：KV 前缀稳定、最小 prompt、核心工具速查常驻（file_reader/workspace）；新增详细 token 日志 + 思考 token UI 显示（Agent 调试）。
+- **Agent 工具执行**：shell_command 移除护栏（action=shell_mode 显式开关），命令路由 内置→系统→busybox→toybox 可调。
+
 ## 相关文档
 
 - [项目架构总览](01-project-overview.md)

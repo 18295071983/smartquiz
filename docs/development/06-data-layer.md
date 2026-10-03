@@ -88,6 +88,12 @@ com.oilquiz.app.ai.db        聊天历史数据库（独立）
 | `FileRedirectManager` | 文件重定向 |
 | `FileRedirectRule` | 重定向规则 |
 
+## 2026-09/10 更新
+
+- **存储体系脱离"所有文件访问"权限（10/01）**：统一 StorageWriter（MediaStore 优先）——公共目录（Download/OilQuiz 等）写入走 MediaStore API，不再依赖 MANAGE_EXTERNAL_STORAGE；根目录工作区（ImportDirs）MediaStore 管不到时引导授权。
+- **私有→公共目录同步迁移**：私有目录文件可迁移到公共目录，AI 对话页面的日志/对话记录/使用记录可管理清理（防 App 占用存储膨胀）。
+- **Termux 环境文件落盘**：setup.sh/ubuntu-gui.sh/zh_fix.sh 由 App 通过 MediaStore 落盘公共目录（Download/OilQuiz/termux_env/），一键准备脚本运行时取回（此前只下发文本导致 sdcard 无文件、中文化被跳过）。
+
 ## 相关文档
 
 - [项目架构总览](01-project-overview.md)

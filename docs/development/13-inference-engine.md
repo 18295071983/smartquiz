@@ -184,6 +184,12 @@ InferenceRouter.generateStream(...)
 | 桥接 | `ai.bridge.ModelExecutionBridge` | 模型执行桥接 |
 | 转换 | `ai.jni.TypeConverter` / `ChatRequest` | 类型转换/请求 |
 
+## 2026-09/10 更新
+
+- **llama.cpp 升级（10/01）**：合并官方最新 master（处理探针提交/GBK 修补），重新全量编译。
+- **GPU 双后端（10/01）**：CMake 同时启用 GGML_OPENCL + GGML_VULKAN；native 侧 backend 开关按设备能力探测；Java 侧 AI 服务界面/设备信息页可切换（不再硬编码 OpenCL）。
+- **Vulkan 编译适配**：Adreno 840 需用与厂商驱动一致的兼容 SPIR-V 工具链编译（替换过时 glslc）；coopmat/bfloat16/dot 等高级特性受驱动限制走 F16 基础路径兜底。
+
 ## 相关文档
 
 - [llama.cpp 功能设计](12-llama-cpp.md)

@@ -65,6 +65,13 @@ adb install -r build/app/outputs/apk/debug/答题宝-debug-2.0.apk
 - 工作区改动集中在后端性能优化（native-lib/AgentLoopEngine/AIConfig/AIWeatherManager）+ 设计文档（docs/development）。
 - 重构注意：改 AIChatActivity 前先 `git status` 确认；编译失败用 `git checkout -- <file>` 回滚。
 
+## 2026-09/10 更新（构建要点）
+
+- **版本**：AGP 8.9.2、Gradle 8.13、compileSdk/targetSdk 36、buildTools 36、NDK 26.1（固定）；JDK 17。
+- **edge-to-edge**：targetSdk 35+ 强制 e2e；不要再加 windowOptOutEdgeToEdgeEnforcement（API 36 已移除该属性）；新增界面统一经 EdgeToEdgeHelper 适配（根容器 insets padding）。
+- **Jetifier 注意**：ndroid.enableJetifier=true 全局生效；新增纯 Java 依赖若内含高版本字节码类（如 jsch 2.27+ 的 Java 24 ML-KEM class），须在 gradle.properties 加 ndroid.jetifier.ignorelist=<依赖名> 跳过转换，否则报 Unsupported class file major version 68。
+- **快速编译校验**：小改动优先用 	ools/tests/javac_check.ps1（秒级，不跑 Gradle），全量用 gradlew assembleDebug。
+
 ## 相关文档
 
 - [项目架构总览](01-project-overview.md)

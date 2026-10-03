@@ -77,6 +77,18 @@
 
 `DatabaseTool` / `NetworkSearchTool` / `WebPageReaderTool` / `SmartResearchTool` / `MemoryTool` / `FileReaderTool` / `FileAnalyzerTool` / `FileGeneratorTool` / `ExcelTool` / `TextToolsTool` / `CalculatorTool` / `UnitConverterTool` / `TimeDateTool` / `LocationTool` / `ControlLookupTool` / `ToolRegistryTool` / `OCRRecognizeTool` / `ImageGenTool` / `DashscopeMediaTool` / `SpeechSynthesisTool` / `VoiceInputTool` / `VideoToPlayerTool` / `PermissionManagerTool` / `SystemConnectTool` / `SystemResourceTool` / `AppOperationTool` / `WorkspaceTool` / `GetModelsProfileTool` / `UpdateModelsProfileTool` / `LayoutEditorTool`
 
+## 2026-09/10 更新
+
+- **新增模块**：
+  - TermuxEnvInstaller / TermuxEnvSetupActivity（一键准备向导：Termux + Ubuntu 容器，内置 Termux/API/Boot APK）
+  - EdgeToEdgeHelper（全局 edge-to-edge 适配，Application 生命周期统一接入）
+  - LinuxShellTool（内置 Linux 工具箱 + 命令路由）
+  - media_toolkit（内置 ffmpeg/ffprobe + Python android_media 接口）
+  - RemoteDshTool（手机远程控制电脑，dsh 桥接）
+  - StorageWriter（MediaStore 优先的统一存储写入）
+  - SystemResourceTool.ssh_exec（JSch 远程 SSH）
+- **已删除模块**：com.oilquiz.app.vnc（VNC/图形界面，10/01 整体删除）、内置 SSH 终端页面（10/02 删除）。
+
 ## 相关文档
 
 - [项目架构总览](01-project-overview.md)

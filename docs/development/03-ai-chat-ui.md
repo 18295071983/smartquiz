@@ -141,6 +141,12 @@ Watchdog：推理期间 20s 无心跳（`pushHeartbeat`）判定超时。
 
 Activity 观察这些 LiveData 驱动 ChatAdapter 渲染。
 
+## 2026-09/10 更新
+
+- **深蓝渐变背景全量可读性适配（9/29）**：root 层统计/时间戳/模型信息、统计胶囊、空状态、输入框、AI 消息操作栏全部改浅色或半透明白描边胶囊，确保深蓝渐变背景上文字可读。
+- **edge-to-edge 适配**：root 背景/壁纸延伸进系统栏，系统栏透明 + 根容器按 insets padding（状态栏/手势条/导航栏不重叠）；深浅图标自动切换；底部贴边弹窗（语音/OCR 模型选择器）经 EdgeToEdgeHelper.applyDialog 适配。
+- **历史加载修复**：新对话/清空后异步历史加载回灌顶掉新消息 → historyLoadStale 作废未完成加载（9/29）。
+
 ## 相关文档
 
 - [项目架构总览](01-project-overview.md)
