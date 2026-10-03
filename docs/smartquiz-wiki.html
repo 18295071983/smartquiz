@@ -3726,6 +3726,78 @@
   </div>
 </section>
 
+<!-- ===== 14. Termux 完整 Linux 环境 ===== -->
+<section id="termux-env">
+  <h2>Termux 完整 Linux 环境（一键准备）</h2>
+  <p>通过 App 内 <mark class="key">一键准备向导</mark> 在手机上装好 Termux + Ubuntu 容器（proot），获得完整 Linux 环境（apt / pip / git / ssh），AI 工具 <code>termux_exec</code> 可直接在容器内执行命令。</p>
+
+  <h3>向导流程（6 步，分步检测引导）</h3>
+  <div class="flow-steps">
+    <div class="flow-step">通道检测</div><div class="flow-arrow">→</div>
+    <div class="flow-step">存储授权</div><div class="flow-arrow">→</div>
+    <div class="flow-step">proot-distro</div><div class="flow-arrow">→</div>
+    <div class="flow-step">Ubuntu 容器</div><div class="flow-arrow">→</div>
+    <div class="flow-step">收尾验证</div>
+  </div>
+  <p>每步独立检测：不满足时引导用户点按钮复制单条命令到 Termux 执行（如 <code>bash /sdcard/Download/OilQuiz/termux_env/setup.sh</code>），前面未完成不会自动执行后面；失败原因分类明确（没装/没授权/系统拒绝/超时）。</p>
+
+  <div class="card">
+    <h4>内置包（assets/termux_env/）</h4>
+    <p><span class="tag">Termux 0.118.3</span> <span class="tag">Termux:API</span> <span class="tag">Termux:Boot（可选安装）</span> <span class="tag">Ubuntu base 24.04</span></p>
+    <p>⚠️ 内置包为 F-Droid 官方签名；若设备上已有 GitHub debug 包，覆盖安装会被系统拒绝（界面会提示签名不一致）。</p>
+  </div>
+
+  <div class="card">
+    <h4>已移除能力（勿再依赖）</h4>
+    <p><span class="tag danger">VNC/图形界面（2026-10-01 整体删除）</span> <span class="tag">容器内 python3 自动安装（改为需要时手动 apt-get install python3）</span></p>
+  </div>
+</section>
+
+<!-- ===== 15. AI 执行工具（shell / termux / ssh） ===== -->
+<section id="exec-tools">
+  <h2>AI 执行工具</h2>
+  <p>Agent 直接执行命令的三件套：本地 shell、Termux 容器、远程 SSH。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>工具</th><th>作用</th><th>关键点</th></tr></thead>
+      <tbody>
+        <tr><td><code>shell_command</code></td><td>本机 shell 执行命令</td><td>内置 busybox 400+ 命令 + openssl/ssh/scp（bionic 构建）；默认不拦截；25 秒超时</td></tr>
+        <tr><td><code>termux_exec</code></td><td>Termux 完整 Linux 环境执行</td><td>apt/pip/git/ssh 等不受限；20 秒超时；需已装 Termux 且授权</td></tr>
+        <tr><td><code>ssh_exec</code></td><td>SSH 连接任意远程主机执行单条命令</td><td>JSch 纯 Java；密码/密钥认证；不依赖本地 Termux；25 秒超时</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>ssh_exec（JSch 版，2026-10-03）</h3>
+  <div class="card">
+    <p><strong>能力：</strong>连接<mark class="key">任意 SSH 主机</mark>（电脑 / 云服务器 / 路由器 / NAS——任何开 sshd 的机器）执行单条命令，返回 stdout/stderr/退出码；连接失败按类型给排查提示（认证失败 / 网络不可达 / 超时）。</p>
+    <p><strong>认证：</strong>密码认证 JSch 原生开箱即用（无需 sshpass/askpass）；密钥认证缺省用 App 内 <code>~/.ssh/id_ed25519</code>，不存在时返回引导（shell_command 一键生成 + 公钥放目标机 authorized_keys）。</p>
+    <p><strong>参数：</strong>host / user / command 必填，port 默认 22，password / key_file 可选。</p>
+  </div>
+
+  <div class="card">
+    <h4>依赖坑（改构建前必读）</h4>
+    <p><code>com.github.mwiede:jsch:2.27.7</code> 的 jar 内含 Java 24 专用后量子 ML-KEM class（字节码 major 68）→ Jetifier 报 <code>Unsupported class file major version 68</code>；已在 <code>gradle.properties</code> 加 <code>android.jetifier.ignorelist=jsch</code> 跳过（纯 Java 库无需 AndroidX 转换）。<strong>Java 24 整体升级评估：不建议</strong>（AGP 8.x D8/R8 不支持 major 68）。</p>
+  </div>
+</section>
+
+<!-- ===== 16. 近期变更 v2.2.0（2026-09/10） ===== -->
+<section id="changelog-220">
+  <h2>近期变更 v2.2.0（2026-09 / 10）</h2>
+  <div class="card">
+    <p><span class="tag green">ssh_exec JSch 工具</span>
+       <span class="tag green">edge-to-edge 全面屏适配</span>
+       <span class="tag green">一键准备向导化</span>
+       <span class="tag green">VNC 删除</span>
+       <span class="tag green">MediaStore 存储迁移</span>
+       <span class="tag green">llama.cpp Vulkan/OpenCL 双后端</span>
+       <span class="tag green">Termux:API/Boot 内置</span>
+       <span class="tag green">主题/深色适配</span></p>
+  </div>
+  <p>完整变更记录见仓库根目录 <a href="../CHANGELOG.md" target="_blank">CHANGELOG.md</a>（9/30、10/01-02、10/03 三篇已补全）。</p>
+</section>
+
 <!-- ===== 13. 路线图 ===== -->
 <section id="roadmap">
   <h2>路线图</h2>
@@ -3769,7 +3841,7 @@
 <footer>
   <div class="container">
     <p>答题宝 SmartQuiz — 项目 Wiki</p>
-    <p>生成时间: 2026-08-02 &nbsp;|&nbsp; 版本: v2.0.1 &nbsp;|&nbsp; 许可证: MIT</p>
+    <p>生成时间: 2026-10-03 &nbsp;|&nbsp; 版本: v2.2.0 &nbsp;|&nbsp; 许可证: MIT</p>
     <p>仓库: <a href="https://github.com/18295071983/smartquiz" target="_blank">github.com/18295071983/smartquiz</a></p>
   </div>
 </footer>

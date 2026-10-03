@@ -9,21 +9,23 @@ docs/
 ├── ai_rules.md                            # AI 编码助手规则
 ├── QWeather_SDK_Guide.md                  # 和风天气 SDK 集成指南
 ├── README.md                              # 本索引
+├── smartquiz-wiki.html                    # 项目 Wiki（单文件 HTML，可视化导航）
+├── AI工具功能清单.md                       # AI 工具功能描述清单（agent 工具全集）
 ├── development/                           # 设计文档体系（重写）
 │   ├── 01-project-overview.md             # 项目架构总览
 │   ├── 02-ai-agent-architecture.md        # AI Agent 架构设计
 │   ├── 03-ai-chat-ui.md                   # AI 对话界面设计
-│   ├── 04-ai-service-inference.md         # AI 服务与推理设计
-│   ├── 05-tool-system.md                  # 工具系统设计
+│   ├── 04-ai-service-inference.md         # AI 服务与推理设计（含双后端）
+│   ├── 05-tool-system.md                  # 工具系统设计（含 ssh_exec）
 │   ├── 06-data-layer.md                   # 数据层设计
-│   ├── 07-hardware-performance.md         # 硬件与性能
+│   ├── 07-hardware-performance.md         # 硬件与性能（Vulkan 双后端）
 │   ├── 08-module-inventory.md             # 模块清单
 │   ├── 09-development-guide.md            # 开发规范
 │   ├── 10-database-design.md              # 数据库设计
-│   ├── 11-edge-model-deployment.md        # 端侧大模型部署设计
-│   ├── 12-llama-cpp.md                    # llama.cpp 功能设计
+│   ├── 11-edge-model-deployment.md        # 端侧大模型部署设计（双后端）
+│   ├── 12-llama-cpp.md                    # llama.cpp 功能设计（双后端）
 │   ├── 13-inference-engine.md             # 推理库与推理引擎设计
-│   ├── 14-cmake-build.md                  # CMake 构建设计
+│   ├── 14-cmake-build.md                  # CMake 构建设计（Vulkan ON）
 │   ├── 15-question-import.md              # 题库文件导入功能设计
 │   └── 16-ai-coding-conventions.md        # AI 工具编码约定
 ├── database/
@@ -34,14 +36,23 @@ docs/
     └── system_architecture.md             # 系统架构
 ```
 
+根目录另有：`CHANGELOG.md`（变更日志，含 2026-09/10 最新）、`TERMUX一键准备_用户配合设计.md`（一键准备交互设计）、`SETUP_GUIDE.md` / `DEVELOPMENT_GUIDE.md` / `TESTING_GUIDE.md`（开发指南）。
+
 ## 文档导航
 
 ### 新入开发者
 
-1. **项目概览** → [development/01-project-overview.md](development/01-project-overview.md)
-2. **系统架构** → [system/system_architecture.md](system/system_architecture.md)
-3. **开发规范** → [development/09-development-guide.md](development/09-development-guide.md)
-4. **数据库设计** → [development/10-database-design.md](development/10-database-design.md)
+1. **项目 Wiki** → [smartquiz-wiki.html](smartquiz-wiki.html)（浏览器打开）
+2. **项目概览** → [development/01-project-overview.md](development/01-project-overview.md)
+3. **系统架构** → [system/system_architecture.md](system/system_architecture.md)
+4. **开发规范** → [development/09-development-guide.md](development/09-development-guide.md)
+5. **数据库设计** → [development/10-database-design.md](development/10-database-design.md)
+
+### 最近变更与工具
+
+1. **变更日志** → [../CHANGELOG.md](../CHANGELOG.md)（最新：2026-10-03 ssh_exec/edge-to-edge）
+2. **AI 工具清单** → [AI工具功能清单.md](AI工具功能清单.md)
+3. **Termux 一键准备设计** → [../TERMUX一键准备_用户配合设计.md](../TERMUX一键准备_用户配合设计.md)
 
 ### AI 功能开发
 
