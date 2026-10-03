@@ -64,6 +64,25 @@
    缓解：启动器 `UP()` 会判"没有活着的 Xvnc"从而整条重建 ✓（实测能自动恢复）；
    根因还没定，下次要抓的是"谁把 Xvnc 收走的"（需要在消失瞬间采样 `/proc/*/stat` + logcat `am_kill`）。
 
+### 9/29 同日其余变更（按提交记录补全）
+
+**① targetSdk 36 升级 + edge-to-edge 全面适配（一天内成套落地）**
+- 升级 Android 16：AGP 8.4.0 → 8.9.2，compileSdk/targetSdk 36，buildTools 36，NDK 26.1 固定；移除 `windowOptOutEdgeToEdgeEnforcement`（API 36 已移除该属性），全部界面由 EdgeToEdgeHelper 真适配接管。
+- `EdgeToEdgeHelper` 真 edge-to-edge 全局适配：`decorFits=false` + 根容器 insets padding + 深浅图标自动切换，Application 生命周期统一接入，白名单跳过 VNC/AI 对话/透明悬浮窗。
+- 沉浸收官：背景/壁纸延伸进系统栏 + 图标自适应（db257db3）；工具集 AppBar 保持原位（状态栏区回归渐变背景延伸而非白色矩形块）；AI 对话深蓝渐变背景全量文字可读（root 层/统计胶囊/空状态/输入框/消息操作栏/时间戳模型信息全部浅色）。
+
+**② 一键准备界面重设计 + 加固（当日 12 条提交）**
+- 配置页重设计：卡片化三步操作 + 步骤徽章 + 状态卡手动刷新（零逻辑改动）；按钮视觉升级（主步骤带图标、完成态勾选图标+次色底、次级按钮各配图标）；文案缩短防换行；辅助按钮改竖向单行全宽。
+- 全部按钮条件启用矩阵：Termux 未装/权限未授/前置未完成时置灰防乱点；辅助按钮改"点击弹小字"（常亮可点，条件不满足 toast 提示原因不执行，不再置灰）。
+- 辅助操作新增四项：进 Ubuntu 终端/查看环境日志/重启图形界面/停止图形界面；进 Ubuntu 终端改为唤起 Termux 前台+手动输入（避免交互会话占死 RUN_COMMAND 通道导致其他按钮无响应）。
+- rootfs 检测加公共目录写探针兜底；两个误报修复：① exportedRootfs 在分区存储下 File API 读不到公共目录（真机 Permission denied，文件实为 MediaStore 落盘）→ 加 MediaStore 查询兜底；② Termux 0.118+ 不再授 READ/WRITE_EXTERNAL_STORAGE → 加 MANAGE 检查+新版模型判定。
+- 一键准备脚本 33KB 截断：拆掉两个大段 base64（ubuntu-gui 全文/中文修复），改由 App 落盘公共目录、setup.sh 运行时取回，脚本降至 ~8.4KB；自动下发前先落盘 setup.sh/ubuntu-gui.sh/zh_fix.sh（之前只下发文本，sdcard 无 zh_fix.sh 导致 step 3.5 中文化被跳过，真机日志实锤）。
+
+**③ 工具与对话（当日 3 条）**
+- 新增 AI 工具 `desktop_screenshot`：抓取 VNC 桌面画面（复用内置 VncClient 连 5900 抓帧存 PNG，image_grid 对话直显，无需容器装包）。
+- `termux_exec` 两处加固：全局串行锁防并发串扰；简单容器命令自动注入容器优先 PATH（proot 继承 Termux PATH 致 git/gcc 命中错二进制）。
+- AI 对话修复：新对话/清空后异步历史加载回灌顶掉新消息 → `historyLoadStale` 作废未完成加载。
+
 ## [2026-09-28] 修「桌面双击图标报 Launch Error」：文件管理器服务没人应答
 
 用户让我看他手机里 App 的 AI 对话记录，记录里有张截图 —— 双击桌面上的 `WPS表格.desktop` 报
@@ -632,3 +651,46 @@ Error: container 'ubuntu' already exists. Specify a different name with --name N
    · **坑③**：给容器写脚本时**不要嵌套引号**（我从 PowerShell 拼 `proot-distro login ubuntu -- bash -c '...'` 踩了两次：JSON 转义把换行变成字面 `\n`）。
      可靠做法：**本地写好脚本 → base64 → 设备端 `base64 -d` 落盘 → 让容器 `bash /path/script.sh` 执行**。
 3. 结果（真机实测）：Ubuntu **24.04.5 LTS**，Python **3.12.3**，
+
+## [2026-09-26] 内置工具箱/命令路由 + 媒体工具箱 + Python 文档库全家桶（当日 20+ 提交）
+
+**① shell 工具箱与命令路由**
+- shell_command 移除全部护栏（改用 action=shell_mode 显式开关 readonly）+ 内置 busybox 工具箱（400+ 命令）+ https 下载服务（wget/curl 支持 https）+ Termux 桥 + 内置 openssl（真 TLS）/openssh（bionic 构建）
+- 命令路由可视化开关（设置页）：内置→系统→busybox→toybox 顺序可调（action=route 运行时调整），不再担心覆盖系统命令；内置 17 个常用工具；独立出 linux_shell 工具 + Python 入口（android_shell）
+
+**② 媒体工具箱（media_toolkit）**
+- 内置 ffmpeg/ffprobe + media_toolkit 本地媒体工具箱（Python android_media 接口，engine=ffmpeg 回退 + filter 滤镜链；不需要 ffmpeg 也能用基础能力）
+- 许可声明随包分发（LGPL 合规）；能力边界文案收敛（不越界承诺）；工作区内置文档改自动发现（新增指南不再改白名单）
+
+**③ Python 文档库全家桶 + 工具修复**
+- 预装 4 个文档库（python-docx/pptx/pypdf/xlsxwriter，纯 Python wheel 本地装）——App 内 Python 可读写 Word/PPT/PDF；补齐可选依赖：cryptography（native，支持加密 PDF）+ 6 个纯 py 包
+- python_file_ops parse 支持 Word/PPT/PDF（docx 段落+表格/pptx 文本框+表格+备注/pdf 加密处理）；5 处工具描述/模块清单同步
+- python 引擎修复：模块级 import tempfile（缺了所有执行路径崩溃）、全局串行化防竞态、stderr 真文件缓冲（tqdm/rich 不再崩）
+- python_chart 相对路径只读文件系统 / analyze_data 只认 JSON / matplotlib 中文字体 三坑修复（android_helper 新增 cjk_font_path/setup_matplotlib_cjk）
+- 新增 tools/tests/javac_check.ps1 秒级 Java 编译校验 + 修严重 bug（参数绑定会误删源码——已两次误删并 git 恢复）
+
+## [2026-09-25] remote_dsh（手机远程控制电脑）+ pip 工具链 + 抖音下载 v3.2
+
+**① remote_dsh（手机远程控制电脑）**
+- 新增 remote_dsh 工具：电脑端 dsh_bridge_server.py 桥接服务（Bearer token 鉴权，调 dsh headless）+ App 端 run/get_status/set_config + 注册与意图
+- v2 官方会话通道（session.create/prompt/history 多轮续接，headless 降级保留）；v2.1 扫码一键配对（DecoratedBarcodeView 扫码页 + 电脑端/pair 二维码页）；v3 ACP 官方通道（dsh 0.1.5，主 home ACP serve 7800）
+- 备份目录含凭据，从 git 移除并 ignore（dsh-home-backup/）
+
+**② pip 工具链**
+- Chaquopy 运行时内置 pip 模块（App 内 python 环境有 pip 了）；PIP_SELFTEST 初始化自检（定位运行时 pip 问题）
+- pip_install 默认镜像源改阿里云（tuna 参数显式映射清华）；工具描述写清正确用法（禁止 python -m pip 子进程，用 pip.main 编程式或 pip_install 自研下载器）
+- python_execute stderr 改真文件缓冲（修复 tqdm/rich 写入 StringIO 崩溃）+ barcode getsize 补丁固化到加载时
+
+**③ 其他**
+- 抖音下载内置工具 v3.2 + 文件预览扩展 + WebView 安全/会话优化
+
+## [2026-09-23 ~ 09-24] Agent 引擎对齐 dsh 架构 + 本地推理加速
+
+- 在线 AI 引擎对齐 dsh 架构：工具实时注册/动态工具结构化/统计统一 + 缓存 usage 全字段直读
+- 本地推理加速：KV 前缀稳定/最小 prompt/核心工具速查常驻（file_reader/workspace）+ 加载瓶颈定位
+- Agent 调试增强（9/21）：详细 token 日志 + 思考 token UI 显示
+
+## [2026-09-21] 天气模块重构 + 极光时钟子项目（表盘体系大迭代）
+
+- 天气模块 + 沉浸舞台重构 + 表盘数据绑定修复
+- 极光时钟（子项目，独立 Windows 应用/表盘体系）：表盘大迭代（3D 立方/文字钟/辉光管/矩阵/数字针/3D 翻/LED/冷光/流彩/脉冲/轨迹等 13+ 表盘新增、重设计、删除回归）、四模式显示统一（竖屏/沉浸/横屏/横屏沉浸）、沉浸模式全屏兜底与设置重构、TTS 增强（真人语音音色/语音引擎选择/单击报时/半点报时）、Windows exe 壳（Electron + 内置本地服务，离线可用）；删除 exe 生成功能（aurora_exe 工程及产物）

@@ -185,6 +185,15 @@
   - `read_setting`/`write_setting`（system/secure/global）；`get_current_app`；`open_settings`；`share_text`
 - **参数**：`action`、`app`、`url`、`phone`、`message`、`to`、`subject`、`body`、`location`、`address`、`command`、`host`、`user`、`port`、`password`、`key_file`、`setting_type`、`setting_key`、`setting_value`、`control_action`、`setting`
 
+### linux_shell — 内置 Linux 命令行工具箱（独立工具）
+- **分类**：system
+- **功能**：随 App 打包的 Linux 命令行工具箱，**无需 Termux、无需权限**。内置 busybox（280+ applet）、openssl（真 TLS）、ssh/scp/sftp/ssh-keygen、curl、aria2c（多线程下载）、rg（ripgrep）、jq（JSON）、sqlite3、zstd、zip/unzip、file、tree、ncdu、htop/ps/free、tmux、nano、gawk；命令按 **内置→系统→busybox→toybox** 路由，失败自动回退。
+  - `action=exec`（默认）：执行命令（单条 25 秒超时，默认不拦截）
+  - `action=tools`：列出内置工具与版本
+  - `action=download`：下载 URL（url + path）
+  - `action=route`：改命令路由顺序（order=bskt/stkb/b，reset 恢复）
+- **参数**：`action`、`command`、`url`、`path`、`order`
+
 ### system_connect — 系统连接与设备能力
 - **分类**：system
 - **功能**：系统级 UI/数据/连接管理。
