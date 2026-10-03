@@ -242,6 +242,10 @@ dependencies {
     // 本地离线语音识别（SenseVoice）：直接复用 onnxruntime-android（rapidocr4j 已传递同版本，显式声明确保 API 可见）
     implementation "com.microsoft.onnxruntime:onnxruntime-android:1.18.0"
     implementation "net.i2p.crypto:eddsa:0.3.0"
+    // SSH 纯 Java 库（agent 的 ssh_exec 工具用：连接任意远程主机、密码/密钥认证、sftp、端口转发。
+    // 用社区活跃维护版 com.github.mwiede:jsch（官方 jcraft 停在 0.1.55 已不再维护）；
+    // 2.28.x 已修复 Terrapin(CVE-2023-48795) 等漏洞，ed25519 支持复用上面的 eddsa）
+    implementation "com.github.mwiede:jsch:2.27.7"
 
     implementation "androidx.appcompat:appcompat:1.7.0"
     implementation "com.google.android.material:material:1.12.0"

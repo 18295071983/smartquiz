@@ -1313,7 +1313,7 @@ public class AIToolManager {
                     .category("system")
                     .build();
             case "system_resource":
-                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、SSH远程连接、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command已内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；默认不对命令做任何拦截（原样交给系统 shell 执行），可用 action=shell_mode 切换到 readonly 恢复拦截；单条命令25秒超时（超时强杀并返回已产生输出）。另内置 openssl(真TLS)/ssh/scp/sftp/ssh-keygen（Termux bionic 构建）（超时则终止并返回已产生的输出，会挂起的交互式命令不要用）。ssh_exec：SSH 连接任意远程主机执行单条命令（host/user/command 必填，port 默认22；可连电脑/云服务器/路由器等任何 sshd 主机，不依赖本地 Termux；支持密钥免密或密码认证，密码走内置 askpass 开箱即用；非交互、25秒超时）。termux_exec：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受上述黑名单限制），返回 stdout/stderr/exit_code，20秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command")
+                return ToolDefinition.builder("system_resource", "系统资源调用工具，支持打开应用、打开URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行Shell命令、SSH远程连接、读写系统设置等。支持模糊匹配应用名，找不到时自动回退系统选择器。shell_command已内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；默认不对命令做任何拦截（原样交给系统 shell 执行），可用 action=shell_mode 切换到 readonly 恢复拦截；单条命令25秒超时（超时强杀并返回已产生输出）。另内置 openssl(真TLS)/ssh/scp/sftp/ssh-keygen（Termux bionic 构建）（超时则终止并返回已产生的输出，会挂起的交互式命令不要用）。ssh_exec：SSH 连接任意远程主机执行单条命令（host/user/command 必填，port 默认22；可连电脑/云服务器/路由器等任何 sshd 主机，不依赖本地 Termux；支持密钥免密或密码认证，密码认证 JSch 原生开箱即用；非交互、25秒超时）。termux_exec：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受上述黑名单限制），返回 stdout/stderr/exit_code，20秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command")
                     .addParameter("action", "string", "操作类型: open_app/open_url/send_sms/make_call/send_email/open_map/list_apps/check_app/get_app_info/app_control/shell_command/shell_mode/ssh_exec/termux_exec/http_download/read_setting/write_setting/get_current_app/open_settings/share_text", false, "open_app")
                     .addParameter("app", "string", "应用名称或包名，支持模糊匹配", false)
                     .addParameter("url", "string", "URL地址(http_download 时为要下载的地址)", false)
@@ -1330,7 +1330,7 @@ public class AIToolManager {
                     .addParameter("host", "string", "SSH 目标主机 IP/域名（ssh_exec 用，必填）", false)
                     .addParameter("port", "string", "SSH 端口，默认 22（ssh_exec 用）", false)
                     .addParameter("user", "string", "SSH 用户名（ssh_exec 用，必填）", false)
-                    .addParameter("password", "string", "SSH 密码（ssh_exec 用；App 内置 askpass 开箱即用，无需安装 sshpass）", false)
+                    .addParameter("password", "string", "SSH 密码（ssh_exec 用；JSch 原生支持，开箱即用，无需安装 sshpass）", false)
                     .addParameter("key_file", "string", "SSH 私钥绝对路径（ssh_exec 用；缺省尝试 App 内 ~/.ssh/id_ed25519）", false)
                     .addParameter("setting_type", "string", "设置类型: system/secure/global", false)
                     .addParameter("setting_key", "string", "设置键名", false)
