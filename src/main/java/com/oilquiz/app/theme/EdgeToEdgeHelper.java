@@ -73,6 +73,9 @@ public final class EdgeToEdgeHelper {
             // 系统栏区域由应用绘制：状态栏/导航栏透明（否则旧式着色层会盖住 AppBar 背景/壁纸）
             activity.getWindow().setStatusBarColor(Color.TRANSPARENT);
             activity.getWindow().setNavigationBarColor(Color.TRANSPARENT);
+            // MIUI 等系统会给导航栏区域强加对比 scrim（白色遮罩），滚动时与内容交替导致闪烁
+            // 官方文档：edge-to-edge 后应关闭 navigationBarContrastEnforced 去除该遮罩
+            activity.getWindow().setNavigationBarContrastEnforced(false);
 
             ViewGroup content = activity.findViewById(android.R.id.content);
             if (content == null) {
@@ -93,8 +96,10 @@ public final class EdgeToEdgeHelper {
             }
 
             ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
-                androidx.core.graphics.Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-                applyInsets(root, bars, activity);
+                // 官方推荐：systemBars 含状态栏/导航栏/标题栏；叠加 displayCutout 覆盖挖孔（横屏挖孔在左右侧）
+                androidx.core.graphics.Insets bars = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                applyInsets(root, bars, insets, activity);
                 return insets;
             });
             // 主动请求一次 insets 分发（部分设备首次不自动回调，避免内容漏到状态栏下）
@@ -118,7 +123,8 @@ public final class EdgeToEdgeHelper {
      * 无 AppBar → 内容子 View 顶部 padding（背景延伸）。
      * 底部/左右 → 根容器 padding（背景仍全屏）。
      */
-    private static void applyInsets(View root, androidx.core.graphics.Insets bars, Activity activity) {
+    private static void applyInsets(View root, androidx.core.graphics.Insets bars,
+                                    WindowInsetsCompat insets, Activity activity) {
         View appBar = findAppBar(root);
         boolean keepInPlace = appBar != null && isSkipAppBarInset(activity);
         if (appBar != null && !keepInPlace) {
@@ -135,9 +141,64 @@ public final class EdgeToEdgeHelper {
             root.setPadding(or[0], or[1] + bars.top, or[2], or[3]);
         }
 
+        // 底部兜底：部分系统（如个别 MIUI 版本）手势导航模式下 navigationBars 的底部 inset 可能为 0，
+        // 但 systemGestures 底部始终会报手势条区域 → 取两者最大值，确保小白条不遮挡内容
+        int bottom = Math.max(bars.bottom,
+                insets.getInsets(WindowInsetsCompat.Type.systemGestures()).bottom);
+
         // 底部/左右：根容器（背景全屏延伸不受 padding 影响）
         int[] o = orig(root);
-        root.setPadding(o[0] + bars.left, root.getPaddingTop(), o[2] + bars.right, o[3] + bars.bottom);
+        root.setPadding(o[0] + bars.left, root.getPaddingTop(), o[2] + bars.right, o[3] + bottom);
+    }
+
+    /**
+     * 底部贴边弹窗（Gravity.BOTTOM / 全屏 Dialog）的 edge-to-edge 适配：
+     * Android 15+（targetSdk 35+）强制 edge-to-edge 同样作用于 Dialog 窗口，
+     * 贴边弹窗的底部内容会被导航栏/手势条遮挡。透明系统栏 + 根容器 insets padding。
+     */
+    public static void applyDialog(android.app.Dialog dialog) {
+        try {
+            if (dialog == null || dialog.getWindow() == null) return;
+            android.view.Window window = dialog.getWindow();
+            WindowCompat.setDecorFitsSystemWindows(window, false);
+            window.setStatusBarColor(Color.TRANSPARENT);
+            window.setNavigationBarColor(Color.TRANSPARENT);
+            window.setNavigationBarContrastEnforced(false);
+
+            ViewGroup content = window.findViewById(android.R.id.content);
+            View root = content != null && content.getChildCount() > 0 ? content.getChildAt(0) : null;
+            if (root == null) return;
+            ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+                androidx.core.graphics.Insets bars = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                int bottom = Math.max(bars.bottom,
+                        insets.getInsets(WindowInsetsCompat.Type.systemGestures()).bottom);
+                int[] o = orig(root);
+                root.setPadding(o[0] + bars.left, o[1] + bars.top, o[2] + bars.right, o[3] + bottom);
+                return insets;
+            });
+            ViewCompat.requestApplyInsets(root);
+            WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window,
+                    window.getDecorView());
+            controller.setAppearanceLightStatusBars(isLightDialogArea(root));
+            controller.setAppearanceLightNavigationBars(isLightDialogArea(root));
+        } catch (Throwable ignored) {
+            // 静默降级：不影响弹窗显示
+        }
+    }
+
+    /** Dialog 根背景亮度：亮 → 深色图标。 */
+    private static boolean isLightDialogArea(View root) {
+        try {
+            int c = sampleColor(root.getBackground());
+            if (c != 0) return ColorUtils.calculateLuminance(c) > 0.5;
+            TypedValue tv = new TypedValue();
+            if (root.getContext().getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)) {
+                return ColorUtils.calculateLuminance(tv.data) > 0.5;
+            }
+        } catch (Throwable ignored) {
+        }
+        return true;
     }
 
     /** AppBar 是否保持原位（标题栏不顶到状态栏）。 */

@@ -147,6 +147,8 @@ public class SpeechModelSelectorDialog {
         initViews(view);
         loadModels();
 
+        // 底部贴边弹窗：targetSdk 36 强制 edge-to-edge，适配底部手势条/导航栏
+        com.oilquiz.app.theme.EdgeToEdgeHelper.applyDialog(dialog);
         dialog.show();
     }
 

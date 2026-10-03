@@ -633,6 +633,11 @@ public class AIChatActivity extends BaseActivity {
             updateEmptyState();
 
             // 程序化处理状态栏内边距（替代布局中的 fitsSystemWindows）
+            // 白名单页：显式开启 edge-to-edge + 透明系统栏（targetSdk 36 强制，但显式避免个别系统差异）
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+            getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            getWindow().setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+            getWindow().setNavigationBarContrastEnforced(false);
             View mainContent = findViewById(R.id.main_content);
             if (mainContent != null) {
                 androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(mainContent, (v, insets) -> {
@@ -645,6 +650,10 @@ public class AIChatActivity extends BaseActivity {
                     int bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
                     if (bottom == 0) {
                         bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom;
+                    }
+                    if (bottom == 0) {
+                        // MIUI 个别版本手势条 inset 报 0：systemGestures 底部始终报手势区高度
+                        bottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemGestures()).bottom;
                     }
                     v.setPadding(left, top, right, bottom);
                     return insets;

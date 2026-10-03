@@ -2187,9 +2187,15 @@ public class SystemResourceTool implements AITool {
 
             Intent result = resultQueue.poll(TERMUX_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (result == null) {
+                // 长任务（装包/下载/容器操作）超时提示更明确：不是通道坏了，是任务本身超过 20s
+                boolean longTask = isLongRunningCommand(command);
                 return new AIToolResult("Termux 命令超时（" + TERMUX_TIMEOUT_SECONDS + "s 未返回结果）。"
-                        + "常见原因：Termux 侧未开启 allow-external-apps，或命令自身长时间不结束（如进入交互、等待输入）。"
-                        + "请在 Termux 里执行：echo 'allow-external-apps=true' >> ~/.termux/termux.properties && termux-reload-settings", parameters);
+                        + (longTask
+                        ? "这条命令是装包/下载类长任务（apt/pip/proot 等），20 秒内跑不完属正常。"
+                        + "建议：① 在 Termux 里手动执行看完整过程；② 或让 App 用「一键准备」流程（分步骤、可续跑、有日志监控）。"
+                        : "")
+                        + (longTask ? "" : "常见原因：Termux 侧未开启 allow-external-apps，或命令自身长时间不结束（如进入交互、等待输入）。")
+                        + (longTask ? "" : "请在 Termux 里执行：echo 'allow-external-apps=true' >> ~/.termux/termux.properties && termux-reload-settings"), parameters);
             }
 
             Bundle bundle = result.getBundleExtra(TERMUX_RESULT_BUNDLE);
@@ -2208,8 +2214,8 @@ public class SystemResourceTool implements AITool {
             int exitCode = bundle.getInt(TERMUX_RESULT_EXIT_CODE, -1);
 
             out.put("exit_code", exitCode);
-            out.put("stdout", stdout != null ? stdout : "");
-            out.put("stderr", stderr != null ? stderr : "");
+            out.put("stdout", truncateOutput(stdout));
+            out.put("stderr", truncateOutput(stderr));
             if (errmsg != null && !errmsg.isEmpty()) {
                 out.put("status", "error");
                 out.put("error", errmsg);
@@ -2236,9 +2242,26 @@ public class SystemResourceTool implements AITool {
         } // synchronized (TERMUX_EXEC_LOCK) 结束
     }
     
+    /** 输出上限：超长输出截断保留头尾，防止撑爆工具结果（与 shell_command 的 MAX_SHELL_OUTPUT_CHARS 同思路） */
+    private static String truncateOutput(String s) {
+        if (s == null) return "";
+        if (s.length() <= 8000) return s;
+        return s.substring(0, 4000) + "\n…(输出过长已截断，共 " + s.length() + " 字符)…\n" + s.substring(s.length() - 2000);
+    }
+
+    /** 判断是否为装包/下载类长任务（apt/pip/proot/pkg/install/update 等，20 秒跑不完属正常） */
+    private static boolean isLongRunningCommand(String command) {
+        if (command == null) return false;
+        String c = command.trim().toLowerCase();
+        String[] hints = {"apt", "pip", "proot", "pkg ", "install", "update", "upgrade", "wget ", "curl ", "git clone", "tar ", "unzip"};
+        for (String h : hints) {
+            if (c.contains(h)) return true;
+        }
+        return false;
+    }
+
     /**
      * 对进入 Ubuntu 容器的简单命令做 PATH 纠正。
-     *
      * <p>proot-distro login ubuntu 会继承宿主的 PATH（Termux usr/bin 在前），
      * 容器里裸 git/gcc/make 会命中 Termux 的二进制（真机实测）。这里只处理
      * “proot-distro login ubuntu -- <简单命令>”这种形态：命令体不含引号/分号/

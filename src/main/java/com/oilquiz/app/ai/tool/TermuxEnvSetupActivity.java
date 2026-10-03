@@ -181,6 +181,26 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                 doInstallPlugin(TermuxEnvInstaller.ASSET_BOOT_APK, TermuxEnvInstaller.TERMUX_BOOT_PACKAGE, "Termux:Boot"));
 
         refresh();
+
+        // 首次打开：通道从未检测过且 Termux/权限已就绪 → 自动轻量探测一次（8 秒），
+        // 让向导直接显示"可用 ✓"或"不可用 ✗"，而不是停在"未检测"（之前每次进来都停在修复通道步骤）
+        if ("未检测（点「自检并修复通道」）".equals(channelState)
+                && TermuxEnvInstaller.termuxVersion(this) != null
+                && TermuxEnvInstaller.hasRunCommandPermission(this)) {
+            doQuickChannelProbe();
+        }
+    }
+
+    /** 轻量通道探测（8 秒）：只探测通断，不触发引导流程 */
+    private void doQuickChannelProbe() {
+        new Thread(() -> {
+            TermuxEnvInstaller.ChannelResult probe =
+                    TermuxEnvInstaller.runInTermuxAndWait(this, "echo QUIZ_CHANNEL_OK", 8);
+            runOnUiThread(() -> {
+                channelState = probe.ok ? "可用 ✓" : "不可用 ✗";
+                refresh();
+            });
+        }, "quick-channel-probe").start();
     }
 
     @Override
@@ -315,7 +335,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
             progress = 70; title = "第 5 步 · 开启悬浮窗权限";
             desc = "Termux 后台自动执行必需。点下面按钮跳到设置页，打开「显示在其他应用上层」开关后回来。";
             btnText = "🪟 去开启悬浮窗权限"; action = "overlay";
-        } else if (!"可用 ✓".equals(channelState)) {
+        } else if ("不可用 ✗".equals(channelState)) {
             progress = 80; title = "第 6 步 · 修复命令通道";
             desc = "App 控制 Termux 的通道未通（最常见：allow-external-apps 没生效）。复制一行命令到 Termux 粘贴，会自动重启 Termux 生效。做完切回来，我自动复检并继续。";
             btnText = "⚡ 复制修复命令并打开 Termux"; action = "allowex";
@@ -438,7 +458,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         boolean perm = TermuxEnvInstaller.hasRunCommandPermission(this);
         boolean store = TermuxEnvInstaller.termuxHasStoragePermission(this);
         File rootfs = TermuxEnvInstaller.exportedRootfs(this);
-        boolean ready = "可用 ✓".equals(channelState) && perm && store && rootfs != null;
+        boolean ready = !"不可用 ✗".equals(channelState) && perm && store && rootfs != null;
         if (log != null && !log.isEmpty()) {
             for (String raw : log.split("\n")) {
                 String line = raw.trim();
@@ -664,8 +684,8 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
                     + "全程日志写在 Termux 的 ~/.quiz_env_setup.log，出问题就看它（或在 Termux 里执行 cat ~/.quiz_env_setup.log）。\n"
                     + "如果 Termux 窗口里报错：多半是 allow-external-apps 没开 —— 用「复制手动命令」粘一次即可（脚本会自己把它打开）。");
             toast("已在 Termux 里开始准备");
-            // 不再打开专用监控页（已删）：本页运行日志卡实时显示进度（每 2s 轮询 setup_log.txt），
-            // 完成判定看「🎉 环境准备完成」或「❌ 有步骤失败」
+            // 本页运行日志卡实时显示进度（每 2s 轮询 setup_log.txt），完成/失败自动停止
+            startLogMonitor();
         });
     }
 
@@ -843,6 +863,7 @@ public class TermuxEnvSetupActivity extends AppCompatActivity {
         }
         boolean opened = TermuxEnvInstaller.openTermux(this);
         pendingFix = true;
+        smartStage = "storage-first";
         log("🔍 下一步：授予 Termux 存储权限（决定用本地 28.5MB 包还是联网下 30MB）。\n"
                 + "✅ 已复制命令：\n" + cmd + "\n\n"
                 + (opened ? "已打开 Termux：" : "请手动打开 Termux：") + "长按终端 → 粘贴 → 回车。\n"

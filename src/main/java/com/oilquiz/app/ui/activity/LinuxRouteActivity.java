@@ -17,6 +17,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.oilquiz.app.ai.tool.SystemResourceTool;
+import com.oilquiz.app.theme.ThemeColors;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -66,13 +67,13 @@ public class LinuxRouteActivity extends AppCompatActivity {
                 + "内置 → 系统 /system/bin → busybox → toybox\n\n"
                 + "改完立即生效，无需重启；配置保存在 files/bin/.route");
         header.setTextSize(13);
-        header.setTextColor(Color.DKGRAY);
+        header.setTextColor(ThemeColors.get(this, com.oilquiz.app.R.color.text_primary));
         header.setPadding(0, 0, 0, dp(12));
         container.addView(header);
 
         summary = new TextView(this);
         summary.setTextSize(12);
-        summary.setTextColor(Color.GRAY);
+        summary.setTextColor(ThemeColors.get(this, com.oilquiz.app.R.color.text_secondary));
         summary.setPadding(0, 0, 0, dp(12));
         container.addView(summary);
 
