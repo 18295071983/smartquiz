@@ -1152,6 +1152,13 @@ public class ToolResultInterpreter {
             if (status != null) sb.append("  [").append(status).append("]");
             sb.append("\n");
             if (command != null) sb.append("$ ").append(command).append("\n");
+            // ssh_exec 附加信息：连接目标与认证方式（如有）
+            String sshTarget = strDeep(obj, "target");
+            String sshMethod = strDeep(obj, "method");
+            if (sshTarget != null && !sshTarget.isEmpty()) {
+                sb.append("🔗 已连接 ").append(sshTarget)
+                        .append(sshMethod != null && !sshMethod.isEmpty() ? "（" + sshMethod + "）" : "").append("\n");
+            }
             if (cmdOutput != null && !cmdOutput.isEmpty()) sb.append(cmdOutput).append("\n");
             if (cmdErr != null && !cmdErr.isEmpty() && !cmdErr.equals(cmdOutput)) {
                 sb.append("stderr: ").append(cmdErr).append("\n");

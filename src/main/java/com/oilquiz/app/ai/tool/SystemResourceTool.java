@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicReference;
         @Action(name = "get_app_info", description = "获取应用信息"),
         @Action(name = "app_control", description = "控制应用：强制停止/清除数据/获取详细信息"),
         @Action(name = "shell_command", description = "执行Shell命令"),
+        @Action(name = "ssh_exec", description = "SSH 连接任意远程主机并执行单条命令（内置 ssh/scp 客户端，不依赖本地 Termux；可连电脑、云服务器、路由器、NAS 等任何开 sshd 的机器）。支持密钥免密或密码认证（密码认证走内置 askpass 机制，开箱即用无需安装）。注意：① 非交互，单条命令执行完即断开，25 秒超时；② 默认跳过主机指纹校验（StrictHostKeyChecking=no）方便首次连接；③ 参数 host=目标IP/域名、user=用户名、command=远程命令、port=端口(默认22)、password=密码、key_file=私钥路径"),
         @Action(name = "termux_exec", description = "在 Termux 中执行命令（完整 Linux 环境，可 apt/pip/ssh/git 等；需已装 Termux 并授予 RUN_COMMAND 权限）。注意：① 本工具同一时刻只执行一条命令，多条命令必须串行调用，不要并发（并发会串输出）；② 用 proot-distro login ubuntu 进容器后，容器内裸 git/gcc/make/cmake 等命令可能命中 Termux 的二进制（PATH 被继承），简单容器命令会被自动注入容器优先 PATH，复杂命令请自行用绝对路径 /usr/bin/git）"),
         @Action(name = "http_download", description = "下载 URL 到本地（App 内 okhttp 实现，https 走系统证书校验，比 shell 里的 wget 更可靠）"),
         @Action(name = "shell_mode", description = "切换 shell 拦截模式：full=不拦截(默认，用户自己的设备) / readonly=恢复危险命令与敏感路径拦截 / query=查询当前"),
@@ -71,7 +72,12 @@ import java.util.concurrent.atomic.AtomicReference;
         @Param(name = "path", type = "string", description = "保存路径（http_download 用；绝对路径或工作区相对路径，缺省存到工作区 files/ 并用 URL 文件名）", required = false),
         @Param(name = "phone", type = "string", description = "电话号码", required = false),
         @Param(name = "message", type = "string", description = "短信内容", required = false),
-        @Param(name = "command", type = "string", description = "Shell命令（shell_command 或 termux_exec 均可使用：termux_exec 时命令在 Termux 的 Linux 环境里执行）", required = false),
+        @Param(name = "command", type = "string", description = "Shell命令（shell_command 或 termux_exec 均可使用：termux_exec 时命令在 Termux 的 Linux 环境里执行；ssh_exec 时为要在远程主机执行的单条命令）", required = false),
+        @Param(name = "host", type = "string", description = "SSH 目标主机 IP/域名（ssh_exec 用）", required = false),
+        @Param(name = "port", type = "string", description = "SSH 端口，默认 22（ssh_exec 用）", required = false),
+        @Param(name = "user", type = "string", description = "SSH 用户名（ssh_exec 用）", required = false),
+        @Param(name = "password", type = "string", description = "SSH 密码（ssh_exec 用；App 内置 askpass 机制开箱即用，无需安装 sshpass）", required = false),
+        @Param(name = "key_file", type = "string", description = "SSH 私钥绝对路径（ssh_exec 用；缺省尝试 ~/.ssh/id_ed25519、id_rsa）", required = false),
         @Param(name = "setting_type", type = "string", description = "设置类型: system/secure/global", required = false),
         @Param(name = "setting_key", type = "string", description = "设置键名", required = false),
         @Param(name = "setting_value", type = "string", description = "设置值", required = false),
@@ -287,6 +293,8 @@ public class SystemResourceTool implements AITool {
                     return appControl(parameters);
                 case "shell_command":
                     return executeShellCommand(parameters);
+                case "ssh_exec":
+                    return sshExec(parameters);
                 case "termux_exec":
                     return termuxExec(parameters);
                 case "http_download":
@@ -2240,6 +2248,155 @@ public class SystemResourceTool implements AITool {
             }
         }
         } // synchronized (TERMUX_EXEC_LOCK) 结束
+    }
+
+    /**
+     * SSH 连接远程主机执行单条命令（内置 ssh 客户端，非交互）。
+     *
+     * <p>认证路径：
+     * <ol>
+     *   <li>传了 password → 需要 sshpass（App 未内置）。检测到则 sshpass -p 执行；
+     *       没有则返回引导（生成密钥对免密 / 先在 Termux 装 sshpass）；</li>
+     *   <li>没传 password → 密钥认证：key_file 指定，缺省依次尝试 ~/.ssh/id_ed25519、id_rsa。</li>
+     * </ol>
+     * 命令一次性执行完即断开；默认跳过主机指纹校验（StrictHostKeyChecking=no）方便首次连接。
+     */
+    private AIToolResult sshExec(Map<String, Object> parameters) {
+        String host = (String) parameters.get("host");
+        String user = (String) parameters.get("user");
+        String command = (String) parameters.get("command");
+        if (host == null || host.trim().isEmpty()) {
+            return new AIToolResult("缺少参数: host（SSH 目标主机 IP/域名）", parameters);
+        }
+        if (command == null || command.trim().isEmpty()) {
+            return new AIToolResult("缺少参数: command（要在远程主机执行的单条命令）", parameters);
+        }
+        String userAt = (user == null || user.trim().isEmpty()) ? "" : (user.trim() + "@");
+        String port = (String) parameters.get("port");
+        String portArg = (port == null || port.trim().isEmpty()) ? "" : ("-p " + port.trim() + " ");
+
+        String password = (String) parameters.get("password");
+        String keyFile = (String) parameters.get("key_file");
+
+        // 拼接认证段
+        String authSeg;
+        String methodDesc;
+        java.util.List<File> sshTempFiles = new java.util.ArrayList<>();
+        if (password != null && !password.isEmpty()) {
+            // 密码认证两条路径（都不依赖 Termux）：
+            // ① 有 sshpass → 直接用（最兼容）；
+            // ② 无 sshpass → OpenSSH 原生 SSH_ASKPASS 机制：写 askpass 脚本 + 密码文件，
+            //    ssh 在无 TTY 时自动回调脚本取密码（OpenSSH 8.4+ 配合 SSH_ASKPASS_REQUIRE=force 强制生效）
+            if (commandExists("sshpass")) {
+                authSeg = "sshpass -p '" + password.replace("'", "'\\''") + "' ";
+                methodDesc = "密码认证（sshpass）";
+            } else {
+                try {
+                    File passFile = new File(context.getCacheDir(), "sshpass_" + System.currentTimeMillis());
+                    File askScript = new File(context.getCacheDir(), "sshask_" + System.currentTimeMillis());
+                    java.nio.file.Files.write(passFile.toPath(), password.getBytes("UTF-8"));
+                    java.nio.file.Files.write(askScript.toPath(),
+                            ("#!/system/bin/sh\ncat '" + passFile.getAbsolutePath() + "'\n").getBytes("UTF-8"));
+                    if (!askScript.setExecutable(true, true)) {
+                        throw new IllegalStateException("无法设置 askpass 脚本可执行");
+                    }
+                    authSeg = "export SSH_ASKPASS='" + askScript.getAbsolutePath()
+                            + "' SSH_ASKPASS_REQUIRE=force DISPLAY=:0; ";
+                    methodDesc = "密码认证";
+                    sshTempFiles.add(passFile);
+                    sshTempFiles.add(askScript);
+                } catch (Exception e) {
+                    AILogger.e(TAG, "SSH_ASKPASS 初始化失败: " + BaseAITool.errText(e));
+                    return new AIToolResult("SSH 密码认证初始化失败: " + BaseAITool.errText(e)
+                            + "\n建议改用密钥免密（不传 password），或把密钥放到 key_file 指定路径。", parameters);
+                }
+            }
+        } else {
+            authSeg = "";
+            methodDesc = "密钥认证";
+            if (keyFile == null || keyFile.trim().isEmpty()) {
+                // 缺省：App 自己 HOME（filesDir）下的 ed25519；不存在则引导一键生成密钥对
+                keyFile = new File(context.getFilesDir(), ".ssh/id_ed25519").getAbsolutePath();
+            }
+            if (password == null || password.isEmpty()) {
+                File kf = new File(keyFile);
+                if (!kf.exists()) {
+                    String keyGen = "mkdir -p $HOME/.ssh && ssh-keygen -t ed25519 -N '' -f $HOME/.ssh/id_ed25519 && cat $HOME/.ssh/id_ed25519.pub";
+                    return new AIToolResult(new java.util.HashMap<String, Object>() {{
+                        put("status", "need_key");
+                        put("host", host);
+                        put("reason", "未找到 SSH 私钥（" + kf.getAbsolutePath() + "）。需要先生成密钥对并让目标机信任公钥。");
+                        put("guide", "两步完成免密：\n"
+                                + "① 在 shell_command 里执行一键生成并显示公钥：\n   " + keyGen + "\n"
+                                + "② 把输出的 .pub 内容追加到目标机 ~/.ssh/authorized_keys（或你常用的公钥管理后台），\n"
+                                + "   然后重新用 ssh_exec（不传 password 即可，缺省会自动用这个私钥）。\n"
+                                + "若目标机仅支持密码认证：直接传 password 即可（App 内置 askpass，无需安装任何东西）。");
+                    }}, parameters);
+                }
+            }
+        }
+
+        // 单引号包裹远程命令（防本地 shell 先做变量替换）；命令里若有单引号用 '\'' 转义
+        String remoteCmd = "'" + command.replace("'", "'\\''") + "'";
+        String keyArg = (password != null && !password.isEmpty())
+                ? ""
+                : ("-i '" + keyFile.replace("'", "'\\''") + "' ");
+
+        // 附加退出码回显（executeShell 合并输出且不返回退出码，用末尾标记解析）
+        String sshCmd = authSeg + "ssh " + keyArg + portArg
+                + "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+                + "-o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 "
+                + userAt + host + " " + remoteCmd
+                + "; echo __SSH_EXIT=$?";
+
+        try {
+            String output = executeShell(sshCmd);
+            // 清理 askpass 临时文件（密码/脚本），避免残留
+            for (File f : sshTempFiles) {
+                try {
+                    if (f != null && f.exists() && !f.delete()) f.deleteOnExit();
+                } catch (Exception ignored) {
+                }
+            }
+            if (output == null) {
+                return new AIToolResult("SSH 执行无输出（连接失败？）", parameters);
+            }
+            int exitCode = -1;
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("__SSH_EXIT=(-?\\d+)").matcher(output);
+            if (m.find()) {
+                exitCode = Integer.parseInt(m.group(1));
+                // 去掉标记行，避免污染输出
+                output = output.replace(m.group(0), "").replaceAll("\\n{2,}", "\n").trim();
+            }
+            Map<String, Object> result = new HashMap<>();
+            result.put("status", exitCode == 0 ? "success" : "failed");
+            result.put("method", methodDesc);
+            result.put("target", userAt + host);
+            result.put("exit_code", exitCode);
+            result.put("output", truncateOutput(output));
+            if (exitCode == 0) {
+                result.put("hint", "SSH 命令执行成功。之后如需免密：生成密钥对并放公钥到目标机 ~/.ssh/authorized_keys，即可不再传密码。");
+            } else if (exitCode == 255) {
+                result.put("hint", "SSH 连接失败（255=连接层错误）：检查 host/port/user 是否正确、目标机 sshd 是否在跑、网络是否可达；若用密码认证确认 sshpass 可用；密钥认证确认私钥路径正确且公钥已放入目标机 authorized_keys。");
+            }
+            return new AIToolResult(result, parameters);
+        } catch (Exception e) {
+            AILogger.e(TAG, "ssh_exec 失败: " + e.getMessage(), e);
+            return new AIToolResult("ssh_exec 失败: " + BaseAITool.errText(e), parameters);
+        }
+    }
+
+    /** shell 环境里是否有某命令（如 sshpass） */
+    private boolean commandExists(String name) {
+        try {
+            Process p = new ProcessBuilder("/system/bin/sh", "-c",
+                    "command -v " + name + " >/dev/null 2>&1 && echo YES").start();
+            String out = new String(p.getInputStream().readAllBytes(), "UTF-8").trim();
+            p.waitFor(3, TimeUnit.SECONDS);
+            return "YES".equals(out);
+        } catch (Exception e) {
+            return false;
+        }
     }
     
     /** 输出上限：超长输出截断保留头尾，防止撑爆工具结果（与 shell_command 的 MAX_SHELL_OUTPUT_CHARS 同思路） */

@@ -386,6 +386,11 @@ public class ToolPreChecker {
                     case "termux_exec":
                         required.add("command");
                         break;
+                    case "ssh_exec":
+                        required.add("command");
+                        required.add("host");
+                        required.add("user");
+                        break;
                     case "http_download":
                         required.add("url");
                         break;

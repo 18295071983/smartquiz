@@ -779,6 +779,7 @@ public class ToolGuideFlow {
                         new GuideStep.Option("列出已装应用", "list_apps"),
                         new GuideStep.Option("获取应用信息", "get_app_info"),
                         new GuideStep.Option("执行Shell命令(含内置busybox)", "shell_command"),
+                        new GuideStep.Option("SSH连接远程主机执行命令", "ssh_exec"),
                         new GuideStep.Option("在Termux中执行命令", "termux_exec")
                 )
         ));
@@ -828,9 +829,42 @@ public class ToolGuideFlow {
                 true, false,
                 "action", "shell_command|termux_exec"
         ));
+        // SSH 远程连接：host / user / 远程命令
+        steps.add(GuideStep.inputStep(
+                "SSH 目标主机?",
+                "输入远程主机 IP/域名（如 192.168.1.5 或 my-server.com）",
+                "host",
+                "例如：192.168.1.5",
+                false, false,
+                "action", "ssh_exec"
+        ));
+        steps.add(GuideStep.inputStep(
+                "SSH 用户名?",
+                "登录远程主机的用户名",
+                "user",
+                "例如：root 或 ubuntu",
+                false, false,
+                "action", "ssh_exec"
+        ));
+        steps.add(GuideStep.inputStep(
+                "SSH 端口?（默认 22 可跳过）",
+                "远程主机 sshd 端口，默认 22",
+                "port",
+                "22",
+                false, false,
+                "action", "ssh_exec"
+        ));
+        steps.add(GuideStep.inputStep(
+                "远程要执行的命令?",
+                "在远程主机执行的单条命令（非交互，执行完断开）。密钥免密或密码认证均可，首次连时按提示生成密钥对",
+                "command",
+                "例如：uname -a 或 df -h 或 uptime",
+                false, false,
+                "action", "ssh_exec"
+        ));
         steps.add(GuideStep.confirmStep("确认执行", "信息无误就点执行"));
         return new ToolGuideFlow("system_resource", "系统资源",
-                "打开应用/网址、发送短信、拨打电话，或执行 Shell 命令（内置 busybox 工具链）/ Termux 命令", steps);
+                "打开应用/网址、发送短信、拨打电话，执行 Shell 命令（内置 busybox 工具链）/ SSH 远程连接 / Termux 命令", steps);
     }
 
     /** permission_manager 权限管理工具 */
