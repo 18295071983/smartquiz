@@ -110,7 +110,7 @@ public interface AITool {
 |------|-----|------|
 | PermissionManagerTool | `ai.tool.PermissionManagerTool` | 权限管理 |
 | SystemConnectTool | `ai.tool.SystemConnectTool` | 系统连接 |
-| SystemResourceTool | `ai.tool.SystemResourceTool` | 系统资源 |
+| SystemResourceTool | `ai.tool.SystemResourceTool` | 系统资源（open_app/shell_command/termux_exec/ssh_exec/read_setting 等，见下） |
 | AppOperationTool | `ai.tool.AppOperationTool` | 应用操作 |
 | WorkspaceTool | `ai.tool.WorkspaceTool` | 工作区 |
 | GetModelsProfileTool / UpdateModelsProfileTool | `ai.tool.*` | 模型配置获取/更新 |

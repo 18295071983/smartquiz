@@ -176,12 +176,14 @@
 
 ### system_resource — 系统资源调用
 - **分类**：system
-- **功能**：打开应用、打开 URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行 Shell 命令、读写系统设置。支持应用名模糊匹配，找不到自动回退系统选择器。
+- **功能**：打开应用、打开 URL、发送短信、拨打电话、发送邮件、打开地图、控制应用、执行 Shell 命令、SSH 远程连接、读写系统设置。支持应用名模糊匹配，找不到自动回退系统选择器。
   - `open_app`/`open_url`/`send_sms`/`make_call`/`send_email`（to 必填+subject/body）/`open_map`（location/address）/`share_text`
   - `list_apps`/`check_app`/`get_app_info`/`app_control`
-  - `shell_command`：有安全管控，危险命令（rm/reboot/su/dd/chmod/kill/wget 等）与敏感路径（/data/data、/proc、/sys、凭据文件）被拦截，单条 10 秒超时
+  - `shell_command`：内置 busybox 工具箱（sed/awk/grep/find/tar/gzip/wget/vi/md5sum/base64/xargs/diff 等 400+ 命令，无需 Termux 直接调用）；内置 openssl（真 TLS）/ssh/scp/sftp/ssh-keygen（bionic 构建）；默认不拦截（可用 action=shell_mode 切 readonly）；单条 25 秒超时（超时强杀并返回已产生输出）
+  - `ssh_exec`：**SSH 连接任意远程主机执行单条命令**（JSch 纯 Java 实现，2026-10-03 起）：host/user/command 必填、port 默认 22；可连电脑/云服务器/路由器/NAS 等任何 sshd 主机，**不依赖本地 Termux**；密码认证 JSch 原生开箱即用（无需 sshpass/askpass）；密钥认证缺省用 App 内 `~/.ssh/id_ed25519`（不存在引导一键生成）；非交互、25 秒超时、返回 stdout/stderr/退出码；连接失败按类型给排查提示
+  - `termux_exec`：在 Termux 的完整 Linux 环境里执行命令（apt/pip/ssh/git/curl 等，不受 shell_command 黑名单限制），返回 stdout/stderr/exit_code，20 秒超时；需手机已装 Termux 且已授权；只用 shell 就能做的事优先 shell_command
   - `read_setting`/`write_setting`（system/secure/global）；`get_current_app`；`open_settings`；`share_text`
-- **参数**：`action`、`app`、`url`、`phone`、`message`、`to`、`subject`、`body`、`location`、`address`、`command`、`setting_type`、`setting_key`、`setting_value`、`control_action`、`setting`
+- **参数**：`action`、`app`、`url`、`phone`、`message`、`to`、`subject`、`body`、`location`、`address`、`command`、`host`、`user`、`port`、`password`、`key_file`、`setting_type`、`setting_key`、`setting_value`、`control_action`、`setting`
 
 ### system_connect — 系统连接与设备能力
 - **分类**：system
@@ -241,15 +243,9 @@
   · **签名冲突预警**：内置 Termux 是 F-Droid 官方签名；若设备上是 GitHub debug 包（或反之），覆盖安装会被系统拒绝 —— 界面会显示「Termux 签名：与内置包不一致 ⚠️」并给出两条路（继续用现有 Termux / 卸载重装但容器会没）。
   · 「自检」的输出含：proot-distro 有无、容器列表、上次准备 `fail=0/1`、`allow-external-apps` 计数、`~/ubuntu-gui` 是否存在。
 
-### 图形界面（VNC）— 在答题宝里看 Linux 桌面
-- **入口**：工具集 → 设置与数据 → **图形界面（VNC）**；环境准备页也有「启动图形界面（VNC）」按钮。
-- **架构**：App 内置自研 RFB 客户端（`com.oilquiz.app.vnc`）→ `127.0.0.1:5900` → Termux 里常驻的 proot 会话（Xvfb 1280x720 + x11vnc）。
-  · 服务端**放不进 App 进程**（targetSdk 35 不能 execve 私有目录二进制，与 Termux 同理），所以装在 Ubuntu 容器里；客户端完全内置，**不需要任何第三方 VNC App**。
-  · 不引 GPL 的 VNC 库（android-vnc-viewer / LibVNC），因此只实现自控服务端会用到的编码：Raw / Hextile / CopyRect / DesktopSize。
-- **服务端**：`~/ubuntu-gui [start|stop|status]`（一键准备的第 5 步会 `apt-get install xvfb x11vnc x11-utils x11-apps procps xdotool imagemagick`，约 78MB，仅首次）。
-- **手势**：单指=左键（轻点即单击）、拖动=拖拽、双指滑=滚轮、双指捏合=缩放；「右键」按钮后的下一次点击=右键；「键盘」打开软键盘（Latin-1 字符发 keysym，中文用「粘贴到远端」）。
-- **踩坑备忘（改这块前必读）**：x11vnc 0.9.16 **不认 `-encodings`**（会直接退出）；**必须 `-noshm`**（proot 下 shmget 被拒）；**不要 `-threads`**（实测空转且不再监听）；**就绪判断不要裸连 5900**（半开连接会把单线程 x11vnc 堵死，用 `pgrep -x x11vnc`）；x11vnc 必须**前台常驻**（proot 会话退出会带走 Xvfb）。
-- **日志**：Termux 侧 `~/.quiz_gui.log`；容器内 `/tmp/quiz-xvfb.log`、`/tmp/quiz-x11vnc.log`。
+### ~~图形界面（VNC）~~ — 已于 2026-10-01 整体删除（代码+UI+依赖）
+- **删除原因**：远程 VNC 不稳定（x11vnc 单线程易堵、容器内 apt/图形依赖反复失败、通道不稳），用户拍板整个移除；`com.oilquiz.app.vnc` 客户端、启动器、`~/ubuntu-gui` 脚本及相关 UI/文档全部删除。
+- **替代**：命令行/容器操作走 `system_resource(action=termux_exec)`；远程机器操作走 `system_resource(action=ssh_exec)`。
 
 ### 「完整体 Python」路线（Termux + proot-distro Ubuntu，2026-09-27 真机走通）
 - 内置 Chaquopy Python 永远没有 tkinter/curses/readline（Android 平台限制）；要这些就上真 Linux：

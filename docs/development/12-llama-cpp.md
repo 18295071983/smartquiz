@@ -141,7 +141,7 @@ setenv("GGML_OPENCL_FA_C8", "1", 0);
 // 条件：GGML_OPENCL_FA_C8=1 且 n_kv >= 2048
 ```
 
-- OpenCL ON / Vulkan OFF（当前设备）。
+- OpenCL ON / Vulkan ON（双后端，2026-10 起；设备支持哪个用哪个，AI 服务界面可切换）。
 - GPU 全量 36 层。
 - batch warmup（1 + 256 token）。
 

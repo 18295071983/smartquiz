@@ -129,7 +129,7 @@ void release();
 | 后端 | 状态 |
 |------|------|
 | OpenCL | **ON** |
-| Vulkan | OFF |
+| Vulkan | **ON**（2026-10 起双后端） |
 | Adreno 专用 Kernel | ON |
 | GPU 层数 | **全量 36 层**（`gpu_layers_manual=` 预置被忽略，以 auto=36 为准） |
 

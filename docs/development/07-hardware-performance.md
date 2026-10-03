@@ -20,8 +20,8 @@
 
 | 后端 | 状态 | 说明 |
 |------|------|------|
-| OpenCL | **ON** | 跨平台，兼容性好 |
-| Vulkan | OFF | 备用 |
+| OpenCL | **ON** | 跨平台，兼容性好（Adreno 830 实测 663 t/s prefill） |
+| Vulkan | **ON** | 双后端（2026-10 启用），设备支持即可切换 |
 
 **当前设备**（Snapdragon 8 Elite Gen 2 / Adreno 840v2）：
 - Adreno 专用 Kernel: ON

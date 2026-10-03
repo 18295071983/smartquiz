@@ -109,7 +109,7 @@ UNINITIALIZED → INITIALIZING → LOADING → READY → INFERRING → (ERROR/UN
 | `MemoryMonitor` | 内存监控 |
 
 当前设备（Snapdragon 8 Elite Gen 2）：
-- OpenCL: ON，Vulkan: OFF
+- OpenCL: ON，Vulkan: ON（双后端，2026-10 起；AI 服务界面可切换，不再硬编码）
 - Adreno 专用 Kernel: ON
 - GPU 全量 36 层（`gpu_layers_manual=` 预置会被忽略，以 auto=36 为准）
 

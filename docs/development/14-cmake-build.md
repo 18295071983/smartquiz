@@ -73,16 +73,17 @@ add_compile_options(-I${CMAKE_SOURCE_DIR}/spirv-headers/include)
 
 ```cmake
 option(GGML_OPENCL "Enable OpenCL backend" ON)
-option(GGML_VULKAN "Enable Vulkan backend" OFF)
+option(GGML_VULKAN "Enable Vulkan backend" ON)   # 2026-10 起双后端都开，设备支持哪个用哪个
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 ```
 
-**选型决策（Adreno 走 OpenCL，Vulkan 降为备用）**：
-- Qualcomm 专有 OpenCL 驱动 + `GGML_OPENCL_USE_ADRENO_KERNELS`（Adreno 专属 kernel）。
+**选型决策（Adreno 双后端：OpenCL 主、Vulkan 备）**：
+- Qualcomm 专有 OpenCL 驱动 + `GGML_OPENCL_USE_ADRENO_KERNELS`（Adreno 专属 kernel）——主路径。
 - llama.cpp OpenCL 后端在 Adreno 830 实测 663 t/s prefill。
-- Vulkan 在 Adreno 上高级特性（coopmat/bfloat16/dot）驱动 bug 多，只能走 F16 基础路径。
+- Vulkan 已启用为第二后端（coopmat/bfloat16/dot 等高级特性驱动支持有限，走 F16 基础路径兜底）；
+  native 侧按设备能力探测，Java 侧 AI 服务界面/设备信息页可切换，不再硬编码单后端。
 
 ### 3.3 多模态支持
 

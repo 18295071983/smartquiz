@@ -1,5 +1,40 @@
 # 变更日志
 
+## [2026-10-03] AI 新增 ssh_exec 工具（JSch 纯 Java 版）+ edge-to-edge 全面屏适配
+
+### ssh_exec 工具（agent 连接任意 SSH 主机）
+1. 新增 AI 工具 `ssh_exec`：SSH 连接**任意远程主机**（电脑/云服务器/路由器/NAS——任何开 sshd 的机器）执行单条命令；非交互、25 秒超时；返回 stdout/stderr/退出码；连接失败按错误类型给排查提示。
+2. 实现演进（本窗口）：内置 OpenSSH 二进制 + sshpass/SSH_ASKPASS 取巧 → **JSch 纯 Java 实现**（`com.github.mwiede:jsch:2.27.7`）：
+   - 密码认证：**JSch 原生**，开箱即用，彻底不依赖 Termux/sshpass/askpass；
+   - 密钥认证：key_file 指定，缺省用 App 内 `~/.ssh/id_ed25519`，不存在时返回引导（shell_command 一键生成 + 公钥放目标机 authorized_keys）；
+   - 8s 连接超时 + 25s 总超时，读线程 + channel 轮询，stdout/stderr 分离。
+3. 全链路接入：@Action/@Param 描述、AIToolManager 定义、必填预检（host/command/user）、对话引导流程（新增"SSH 连接远程主机"选项 + 主机/用户名/端口/命令四步输入）、结果展示。
+4. **依赖坑（必读）**：jsch 2.28.7/2.27.7 的 jar 内含 **Java 24 专用后量子 ML-KEM class**（`META-INF/versions/24/`，字节码 major 68）——Jetifier 扫描整个 jar 报 `Unsupported class file major version 68`。解法：`gradle.properties` 加 `android.jetifier.ignorelist=jsch` 跳过转换（纯 Java 库无需 AndroidX 转换；Kotlin/D8 只读 Java 8 基础类）。**Java 24 整体升级评估结论：不建议**——AGP 8.x 的 D8/R8 不支持 major 68、Gradle 8.13 需升 8.14+、ML-KEM 手机 SSH 用不上，收益≈0。
+5. 内置 SSH 终端此前已删除（10-01：外部 SSH 工具正常、内置页面连上卡/断），ssh_exec 是工具化命令执行，与终端无关。
+
+### edge-to-edge 全面屏适配（小米底部小白条）
+1. 按官方文档（targetSdk 35+ 强制 e2e、Dialog 同样强制）重构 `EdgeToEdgeHelper`：apply() 改 `systemBars()|displayCutout()` 组合；applyInsets() 底部取 `max(navigationBars, systemGestures)`（防个别 MIUI 手势条 inset 报 0）；新增 `applyDialog(Dialog)`（透明双栏 + 根 padding + 深浅图标采样）。
+2. 全项目核查底部贴边弹窗仅两个：SpeechModelSelectorDialog / OCRModelSelectorDialog（均 Gravity.BOTTOM）→ 接入 applyDialog()；CitySearchDialog 等居中弹窗不触导航栏未改；Material BottomSheetDialog 官方自动兼容。
+3. 闪烁根因修复：普通界面在 e2e 下自绘了与系统栏重叠的背景、又随系统栏 inset 反复重绘 → 与白条抢显示；统一改为系统栏透明 + 根容器按 insets padding（状态栏/手势条/导航栏不再重叠）。
+
+## [2026-10-01 ~ 10-02] VNC/图形界面整体删除 + Termux 一键准备收敛 + 内置包签名修复
+
+1. **VNC/图形界面功能整体删除**（代码+UI+依赖）：远程 VNC 不稳、容器内 apt/图形依赖反复失败、用户拍板不再要；`com.oilquiz.app.vnc` 客户端、启动器、`~/ubuntu-gui` 脚本、相关 UI 与文档段落全部移除。
+2. **Termux 一键准备收敛为 6 步**：通道 → 存储 → proot → 容器 → 收尾（原 8 步删掉 python3 自动安装与图形界面两步）；容器内 python3 改为需要时手动 `apt-get install python3`。
+3. **dpkg 中断修复**：收尾步 apt 前自动 `dpkg --configure -a`（幂等，修复此前安装被打断的遗留——不修后面所有 apt 都会拒绝干活）。
+4. **挖出的真 bug**：step4 生成安装脚本时 heredoc 换行符变成字面 `\n`（源替换转义写错），导致 apt 源没写进去、命令错乱；该步删除后坏脚本随之消失（step5 是正确写法）。
+5. **内置包签名修复**：内置 Termux:API/Boot 原为 GitHub debug 签名版，与 F-Droid 签名的 Termux 主应用不兼容被系统拒绝安装；换 F-Droid 官方签名版；proot/内置包同步更新。
+6. **内置 SSH 终端删除**：用户实测外部 SSH 工具连接正常、App 内置 SSH 页面连上卡/断，通道不稳定；内置页面整体删除（含 JSch 依赖），后续由 AI `ssh_exec` 工具承担远程命令能力。
+7. **proot/rootfs 内置**：proot-distro 与 ubuntu-base 内置仍偶发失败，最终走联网+清华源方案跑通；python3 不再自动装（用户拍板）。
+
+## [2026-09-30] Termux 一键准备向导化 + Termux:API/Boot 内置 + MediaStore 存储迁移 + 主题适配
+
+1. **一键准备向导化重构**：从"一股脑传 setup.sh"改为向导状态机（TermuxEnvSetupActivity）：分步检测（Termux 是否安装/授权/allow-external-apps → 存储 → proot → 容器 → 收尾），每步独立检测、不满足引导用户点按钮复制代码到 Termux，前面未完成不自动执行后面；支持监控日志容器、会话切换提示（toast）。
+2. **Termux:API / Termux:Boot 内置 + 选装入口**：两个配套应用 APK 内置到 assets，一键准备界面可选安装；Boot 用于开机自启 Termux 会话。
+3. **统一 StorageWriter（MediaStore 优先）**：所有工具类存储迁移到 MediaStore API（/sdcard/OilQuiz 根目录工作区绕不开时引导授权）；解决 targetSdk 36 下公共目录写入问题。
+4. **文件同步与残留清理**：私有目录 → 公共目录迁移同步；AI 对话页面的日志/对话记录/使用记录可管理清理（防 App 占用存储越来越大）。
+5. **主题适配**：agent 管理界面文字增加边框/底色（防壁纸导致看不清）；深色模式适配；硬编码颜色清理。
+
 ## [2026-09-29] 面板没用的插件 + websockify 归属（并记录一个未解的偶发问题）
 
 用户问「目前 xfce 有什么问题」，体检后修了两条：

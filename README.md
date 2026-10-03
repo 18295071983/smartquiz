@@ -15,10 +15,12 @@
 
 - **完全离线 AI 推理** - 基于 llama.cpp 的 C++ JNI 推理引擎，无需网络即可运行本地 LLM
 - **双轨 Agent 系统** - 本地 Agent + 在线 Agent 双架构，支持软件层思考链与工具调用
+- **AI 工具集** - shell_command（内置 busybox 400+ 命令）/ termux_exec（Termux 完整 Linux 环境）/ **ssh_exec（JSch 纯 Java，连接任意 SSH 主机）** 等 30+ 工具
 - **多模式推理** - 支持直接回答、思维链（Chain-of-Thought）、ReAct、计划执行等多种推理模式
 - **全栈语音能力** - 集成 TTS 语音合成与 ASR 语音识别，支持百度/讯飞/阿里云/火山引擎等多服务商
 - **多格式文件支持** - 支持 Excel、Word、PDF、CSV、JSON、Markdown 等格式的导入导出与预览
-- **Vulkan GPU 加速** - 移动端 Vulkan 后端推理，速度提升 40 倍
+- **GPU 双后端** - Vulkan / OpenCL 双后端推理（llama.cpp），设备支持哪个用哪个
+- **Termux 完整环境** - 一键准备向导：安装 Termux + Ubuntu 容器（proot），容器内 Python/apt/git 全可用
 
 ### 性能指标 (v2.1.0+)
 
@@ -48,10 +50,12 @@
 | 功能 | 描述 |
 |------|------|
 | 本地 LLM 推理 | 基于 llama.cpp，支持 Qwen2-0.5B 等模型，完整中文支持 |
+| GPU 双后端 | Vulkan / OpenCL 双后端（llama.cpp），AI 服务界面可切换 |
 | 本地 Agent 系统 | 状态机驱动的智能代理，支持 9 种执行状态 |
 | 在线 Agent 系统 | 支持 OpenAI 兼容 API 的在线 Agent，工具调用更强大 |
 | Agent 软件层 | 意图识别 → 复杂度分析 → 任务分解 → 执行引擎 → 思考链 → 结果整合 |
 | AI 对话 | 自然语言交互，智能问答，支持流式输出 |
+| AI 工具集 | shell_command（内置 busybox 400+ 命令、openssl/ssh/scp）、termux_exec（Termux 完整 Linux 环境）、ssh_exec（JSch 连接任意 SSH 主机）等 |
 | 题目生成 | AI 根据知识点自动生成题目 |
 | 题目分析 | 智能分析题目考点与解题思路 |
 | 学习助手 | 个性化学习建议与辅导 |
@@ -121,6 +125,8 @@
 | 文件处理 | Apache POI, iText7, Pdfium | 多格式文件读写 |
 | 天气 | 和风天气 SDK v5.2 | 天气数据服务 |
 | 文档预览 | TBS SDK, Markwon | 文档渲染与预览 |
+| SSH | com.github.mwiede:jsch 2.27.7 | AI ssh_exec 工具（连接任意 SSH 主机，JSch 原生密码/密钥认证） |
+| Termux 环境 | 内置 Termux 0.118.3 / API / Boot APK | 一键准备向导：完整 Linux 环境（Ubuntu 容器 + proot） |
 
 ### 项目结构
 
@@ -160,6 +166,15 @@ app/
 ```
 
 ## 最近更新
+
+### v2.2.0 (2026-10)
+- **AI ssh_exec 工具**：JSch 纯 Java 实现，连接任意远程 SSH 主机（电脑/服务器/路由器/NAS），密码/密钥双认证，不依赖 Termux
+- **edge-to-edge 全面屏适配**：小米全面屏底部小白条、Dialog 弹窗、闪烁问题全修复
+- **Termux 一键准备向导化**：6 步分步检测引导（通道→存储→proot→容器→收尾），不再一股脑传脚本；内置 Termux/API/Boot APK 可选安装
+- **VNC/图形界面功能整体删除**：远程桌面不稳，用户拍板移除
+- **存储迁移 MediaStore**：统一 StorageWriter，解决 targetSdk 36 公共目录写入；私有目录残留清理管理
+- **llama.cpp 升级 + GPU 双后端**：合并官方最新 master，Vulkan/OpenCL 双后端可切换（高通 Adreno 实测）
+- **主题适配**：agent 管理界面文字边框/底色、深色模式适配、硬编码颜色清理
 
 ### v2.1.0 (2026-07-29)
 - **Agent 软件层架构升级**：新增意图识别、复杂度分析、任务分解、执行引擎、思考链、结果整合六模块
