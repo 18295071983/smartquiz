@@ -242,6 +242,10 @@ public final class EdgeToEdgeHelper {
      * 把窗口背景同步为页面 root 背景（壁纸/背景图/背景色）：
      * 状态栏/导航栏区（edge-to-edge 下由窗口背景垫底）因此显示与页面一致的背景，
      * 实现「壁纸/背景延伸到系统栏」的统一观感。在 AppWallpaperManager 应用壁纸后调用。
+     *
+     * <p>修复：窗口背景若为位图类 Drawable（壁纸），受原始尺寸限制在底部系统栏区域
+     * 铺不满（露出 DecorView 默认黑色块）——强制 FILL 铺满，并把 DecorView 背景一并
+     * 设为同一背景（覆盖全窗口含系统栏）；root 无背景时用壁纸/主题背景色兜底。
      */
     public static void syncWindowBackground(Activity activity, View root) {
         try {
@@ -250,12 +254,40 @@ public final class EdgeToEdgeHelper {
             }
             android.graphics.drawable.Drawable bg = root.getBackground();
             if (bg == null) {
+                // 兜底：根布局无背景时，壁纸模式用壁纸，否则用主题背景色（保证系统栏区不露黑）
+                bg = com.oilquiz.app.theme.AppWallpaperManager.getWallpaperDrawable(activity);
+                if (bg == null) {
+                    TypedValue tv = new TypedValue();
+                    if (activity.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)) {
+                        bg = new android.graphics.drawable.ColorDrawable(tv.data);
+                    }
+                }
+            }
+            if (bg == null) {
                 return;
             }
+            // 位图类 Drawable 强制铺满（BitmapDrawable 默认 gravity FILL，但经 LayerDrawable
+            // 包装/部分 ROM 下可能按原始尺寸绘制，底部系统栏区域漏黑 → 显式 FILL）
+            bg = ensureFill(bg);
             activity.getWindow().setBackgroundDrawable(bg);
+            // DecorView 背景同步：覆盖整个窗口（含系统栏区域），双保险
+            activity.getWindow().getDecorView().setBackgroundDrawable(bg);
         } catch (Throwable ignored) {
             // 静默：失败不影响界面
         }
+    }
+
+    /** 递归强制位图 Drawable 铺满 bounds（FILL），保证系统栏区域也被背景覆盖。 */
+    private static android.graphics.drawable.Drawable ensureFill(android.graphics.drawable.Drawable d) {
+        if (d instanceof android.graphics.drawable.BitmapDrawable) {
+            ((android.graphics.drawable.BitmapDrawable) d).setGravity(android.view.Gravity.FILL);
+        } else if (d instanceof android.graphics.drawable.LayerDrawable) {
+            android.graphics.drawable.LayerDrawable ld = (android.graphics.drawable.LayerDrawable) d;
+            for (int i = 0; i < ld.getNumberOfLayers(); i++) {
+                ensureFill(ld.getDrawable(i));
+            }
+        }
+        return d;
     }
 
     /**

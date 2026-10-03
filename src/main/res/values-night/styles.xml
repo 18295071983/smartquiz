@@ -41,6 +41,9 @@
         <item name="colorDivider">?attr/colorOutline</item>
         <item name="colorAppBarBackground">?attr/colorSurface</item>
         <item name="colorOnAppBar">?attr/colorOnSurface</item>
+        <!-- 弹窗/对话框统一走应用 Dialog 主题：系统栏透明跟随窗口背景，避免 e2e 下底部黑色块 -->
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.App.Dialog</item>
+        <item name="alertDialogTheme">@style/ThemeOverlay.App.Dialog</item>
     </style>
 
     <style name="Theme.OilQuizApp" parent="Theme.OilQuizApp.Base"/>
@@ -365,6 +368,11 @@
 
     <!-- 对话框样式 - 深色模式 -->
     <style name="ThemeOverlay.App.Dialog" parent="ThemeOverlay.MaterialComponents.Dialog.Alert">
+        <!-- edge-to-edge(targetSdk 36)：Dialog 窗口系统栏透明，底部跟随窗口背景（表面色），消除黑色块 -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">true</item>
         <item name="colorPrimary">@color/purple_500</item>
         <item name="colorSurface">@color/surface_dark</item>
         <item name="shapeAppearanceOverlay">@style/ShapeAppearance.App.Dialog</item>
