@@ -7,6 +7,8 @@ import android.util.Log;
 
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
+import com.oilquiz.app.ai.engine.NpuLlmChat;
 import com.oilquiz.app.ai.jni.ChatRequest;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.model.InferenceType;
@@ -33,10 +35,17 @@ public class InferenceRouter {
 
     private static final String TAG = "InferenceRouter";
 
+    /** NPU（GenieX）引擎开关的持久化 */
+    private static final String PREFS_NPU = "npu_engine_prefs";
+    private static final String KEY_NPU_ENABLED = "npu_enabled";
+
     private static volatile InferenceRouter INSTANCE;
     private final Context context;
     private final ExecutorService executor;
     private final Handler mainHandler;
+
+    /** 是否把 NPU（Qualcomm GenieX）选为当前推理引擎 */
+    private volatile boolean npuEnabled;
     
     private OnlineModelManager onlineModelManager;
     private AIService aiService;
@@ -52,6 +61,56 @@ public class InferenceRouter {
             return t;
         });
         this.mainHandler = new Handler(Looper.getMainLooper());
+        try {
+            this.npuEnabled = this.context.getSharedPreferences(PREFS_NPU, Context.MODE_PRIVATE)
+                    .getBoolean(KEY_NPU_ENABLED, false);
+        } catch (Throwable ignored) {
+            this.npuEnabled = false;
+        }
+    }
+
+    // ==================== NPU（Qualcomm GenieX）引擎 ====================
+
+    /** 是否已把 NPU 选为当前推理引擎 */
+    public boolean isNpuEngineEnabled() {
+        return npuEnabled;
+    }
+
+    /**
+     * 切到 NPU 引擎（持久化），并异步确保 GenieX 侧载模型已加载。
+     *
+     * @param listener 加载结果回调（可为 null：那就在首次生成时按需加载）
+     */
+    public void enableNpuEngine(NpuLlmChat.LoadListener listener) {
+        setNpuEnabled(true);
+        // 互斥：先释放本地 llama.cpp 的权重再加载 NPU，避免"两份模型同时常驻"
+        // （0.6B 0.4GB / 4B 2.4GB，两份就是双倍内存 + 双份 KV cache）
+        releaseLocalModelForNpu();
+        NpuLlmChat.ensureLoadedAsync(context, listener);
+    }
+
+    public void enableNpuEngine() {
+        enableNpuEngine(null);
+    }
+
+    /** 切回本地 llama.cpp（在"选择模型"里选其它模型时调用） */
+    public void disableNpuEngine() {
+        // 互斥：关掉 NPU 就释放 GenieX 的权重与会话，避免与随后加载的本地模型两份并存
+        try { NpuLlmChat.release(); } catch (Throwable ignored) { }
+        logNativeMem("disableNpuEngine 释放 NPU 后");
+        setNpuEnabled(false);
+    }
+
+    private void setNpuEnabled(boolean enabled) {
+        npuEnabled = enabled;
+        try { NpuLlmChat.setEngineEnabled(enabled); } catch (Throwable ignored) { }
+        try {
+            context.getSharedPreferences(PREFS_NPU, Context.MODE_PRIVATE)
+                    .edit().putBoolean(KEY_NPU_ENABLED, enabled).apply();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "持久化 NPU 开关失败: " + t.getMessage());
+        }
+        AILogger.i(TAG, "NPU 引擎" + (enabled ? "已启用" : "已关闭"));
     }
 
     public static InferenceRouter getInstance(Context context) {
@@ -70,7 +129,12 @@ public class InferenceRouter {
      */
     public InferenceType getCurrentInferenceType() {
         ensureServicesInitialized();
-        
+
+        // NPU（GenieX）优先：它是用户显式选择的端侧推理引擎
+        if (npuEnabled) {
+            return InferenceType.NPU;
+        }
+
         // 检查是否有激活的在线模型
         OnlineModelManager.OnlineModelConfig activeOnline = onlineModelManager.getActiveModel();
         if (activeOnline != null) {
@@ -90,6 +154,14 @@ public class InferenceRouter {
      */
     public String getCurrentModelName() {
         ensureServicesInitialized();
+
+        if (npuEnabled) {
+            String npuModel = NpuLlmChat.getCurrentModel();
+            if (npuModel == null || npuModel.isEmpty()) {
+                return "Qwen3（NPU/GenieX）";
+            }
+            return npuModel + "（NPU）";
+        }
         
         // 检查是否有激活的在线模型
         OnlineModelManager.OnlineModelConfig activeOnline = onlineModelManager.getActiveModel();
@@ -126,7 +198,13 @@ public class InferenceRouter {
         ensureServicesInitialized();
         
         InferenceType type = getCurrentInferenceType();
-        
+
+        if (type == InferenceType.NPU) {
+            // 只把"错误"当不可用：IDLE 表示还没加载，首次生成时会按需加载
+            String st = NpuLlmChat.getStateName();
+            return !"ERROR".equals(st);
+        }
+
         if (type == InferenceType.ONLINE) {
             OnlineModelManager.OnlineModelConfig config = onlineModelManager.getActiveModel();
             return config != null && config.enabled;
@@ -143,7 +221,10 @@ public class InferenceRouter {
             ensureServicesInitialized();
             
             InferenceType type = getCurrentInferenceType();
-            
+
+            if (type == InferenceType.NPU) {
+                return generateNpuSync(prompt, config);
+            }
             if (type == InferenceType.ONLINE) {
                 return generateOnline(prompt, config);
             } else {
@@ -171,12 +252,116 @@ public class InferenceRouter {
         ensureServicesInitialized();
         
         InferenceType type = getCurrentInferenceType();
-        
-        if (type == InferenceType.ONLINE) {
+
+        if (type == InferenceType.NPU) {
+            generateNpuStream(prompt, config, callback);
+        } else if (type == InferenceType.ONLINE) {
             generateOnlineStream(prompt, config, callback);
         } else {
             generateLocalStream(prompt, config, callback);
         }
+    }
+
+    // ==================== NPU（GenieX）生成实现 ====================
+
+    /**
+     * 把当前对话历史转成 GenieX 需要的 roles/contents 两个平行数组。
+     *
+     * <p>为什么带 system：本地 llama.cpp 路径也是这么拼的（见 generateLocalStream），
+     * 保证两种引擎的回答风格一致。
+     */
+    private void buildNpuMessages(String prompt, InferenceConfig config,
+                                  List<String> roles, List<String> contents) {
+        roles.add("system");
+        contents.add("你是答题宝智能助手，请用中文简洁、准确地回答用户问题。");
+        if (config != null && config.history != null) {
+            for (ChatMessage msg : config.history) {
+                if (msg == null || msg.content == null || msg.content.isEmpty()) continue;
+                roles.add(msg.isAIMessage() ? "assistant" : "user");
+                contents.add(msg.content);
+            }
+        }
+        roles.add("user");
+        contents.add(prompt);
+    }
+
+    /**
+     * NPU 流式生成：按需加载 GenieX 侧载模型 → 套 chat template → 流式回调。
+     * 任何一步失败都通过 callback.onError 上报（界面据此提示或回退 llama.cpp）。
+     */
+    private void generateNpuStream(String prompt, InferenceConfig config, StreamCallback callback) {
+        callback.onStart();
+        final StringBuilder fullText = new StringBuilder();
+        NpuLlmChat.ensureLoadedAsync(context, new NpuLlmChat.LoadListener() {
+            @Override
+            public void onLoaded(String modelName) {
+                List<String> roles = new ArrayList<>();
+                List<String> contents = new ArrayList<>();
+                buildNpuMessages(prompt, config, roles, contents);
+                NpuLlmChat.sendChatAsync(
+                        roles.toArray(new String[0]),
+                        contents.toArray(new String[0]),
+                        Math.max(1, config == null ? 1024 : config.maxTokens),
+                        config != null && config.enableThinking,
+                        new NpuLlmChat.GenerateListener() {
+                            @Override
+                            public void onToken(String text) {
+                                fullText.append(text);
+                                mainHandler.post(() -> callback.onToken(text));
+                            }
+
+                            @Override
+                            public void onCompleted(int tokens, float tps, long elapsedMs) {
+                                mainHandler.post(() -> {
+                                    callback.onComplete(fullText.toString());
+                                    callback.onTokenStats(0, tokens);
+                                });
+                            }
+
+                            @Override
+                            public void onError(String message) {
+                                mainHandler.post(() -> callback.onError("NPU 推理失败: " + message));
+                            }
+                        });
+            }
+
+            @Override
+            public void onError(String message) {
+                mainHandler.post(() -> callback.onError("NPU 模型不可用: " + message));
+            }
+        });
+    }
+
+    /** NPU 同步生成（给 generate/generateSync 这类无流式的调用方用） */
+    private String generateNpuSync(String prompt, InferenceConfig config) {
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        final String[] out = new String[]{null};
+        final String[] err = new String[]{null};
+        generateNpuStream(prompt, config, new StreamCallback() {
+            @Override
+            public void onComplete(String fullText) {
+                out[0] = fullText;
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(String error) {
+                err[0] = error;
+                latch.countDown();
+            }
+        });
+        try {
+            if (!latch.await(10, java.util.concurrent.TimeUnit.MINUTES)) {
+                throw new RuntimeException("NPU 推理超时");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("NPU 推理被中断", e);
+        }
+        if (err[0] != null) {
+            throw new RuntimeException(err[0]);
+        }
+        return out[0] == null ? "" : out[0];
     }
 
     /**
@@ -206,6 +391,12 @@ public class InferenceRouter {
     public void stopInference() {
         if (LlamaHelper.isModelInitialized()) {
             LlamaHelper.stopGeneration();
+        }
+        // NPU（GenieX）引擎也要能停
+        try {
+            NpuLlmChat.stopGenerate();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "stopGenexX failed: " + t.getMessage());
         }
     }
 
@@ -272,7 +463,7 @@ public class InferenceRouter {
                     }
                 }
                 messages.add(new PromptBuilder.Message("user", prompt));
-                return LlamaHelper.generate(messages, config.maxTokens, config.temperature);
+                return NpuEngineRouter.generate(messages, config.maxTokens, config.temperature, 0.9f, 40);
             }
         } catch (Exception e) {
             AILogger.e(TAG, "Local generate failed: " + e.getMessage(), e);
@@ -341,7 +532,7 @@ public class InferenceRouter {
                 }
                 messages.add(new PromptBuilder.Message("user", prompt));
 
-                LlamaHelper.generateStream(messages, config.maxTokens, config.temperature, 0.9f, 40, false,
+                NpuEngineRouter.generateStream(messages, config.maxTokens, config.temperature, 0.9f, 40, config != null && config.enableThinking,
                     new LlamaHelper.TokenCallback() {
                         @Override
                         public void onToken(String token) {
@@ -434,6 +625,27 @@ public class InferenceRouter {
         executor.shutdown();
         if (onlineInferenceService != null) {
             onlineInferenceService.shutdown();
+        }
+    }
+
+    /** 切换引擎前释放本地 llama.cpp 权重（互斥，避免两份模型常驻） */
+    private void releaseLocalModelForNpu() {
+        try {
+            logNativeMem("释放本地模型前");
+            com.oilquiz.app.ai.jni.LlamaHelper.release();
+            logNativeMem("释放本地模型后");
+        } catch (Throwable t) {
+            com.oilquiz.app.util.AILogger.w("InferenceRouter", "释放本地模型失败: " + t);
+        }
+    }
+
+    /** 原生堆占用（模型权重都在这里，用来验证"是否占了两份"） */
+    private void logNativeMem(String tag) {
+        try {
+            long nativeHeap = android.os.Debug.getNativeHeapAllocatedSize();
+            com.oilquiz.app.util.AILogger.i("InferenceRouter",
+                    tag + ": nativeHeap=" + (nativeHeap / 1024 / 1024 / 1024.0) + " GB");
+        } catch (Throwable ignored) {
         }
     }
 }

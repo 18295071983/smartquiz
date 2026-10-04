@@ -46,16 +46,12 @@ public final class EdgeToEdgeHelper {
             "com.oilquiz.app.ui.activity.AIChatActivity"
     };
 
-    /**
-     * AppBar 保持原位（不上顶）的界面：标题栏留在状态栏下方，
-     * 状态栏区显示窗口背景（壁纸/渐变背景延伸），用于与「无 AppBar 页」统一风格。
-     */
-    private static final String[] SKIP_APPBAR_INSET = {
-            "com.oilquiz.app.ui.activity.ToolboxActivity"
-    };
 
     /** 记录各 View 的原始 padding（insets 回调会重复触发，需绝对增量而非累积）。 */
     private static final java.util.WeakHashMap<View, int[]> ORIG_PADDING = new java.util.WeakHashMap<>();
+
+    /** 记录各 View 的原始 top margin（顶部 insets 用 margin 下移 AppBar，需绝对增量而非累积）。 */
+    private static final java.util.WeakHashMap<View, int[]> ORIG_MARGIN = new java.util.WeakHashMap<>();
 
     private EdgeToEdgeHelper() {
     }
@@ -70,7 +66,13 @@ public final class EdgeToEdgeHelper {
             }
 
             WindowCompat.setDecorFitsSystemWindows(activity.getWindow(), false);
-            // 系统栏区域由应用绘制：状态栏/导航栏透明（否则旧式着色层会盖住 AppBar 背景/壁纸）
+            // 系统栏区域由应用绘制：状态栏与导航条都**透明**，让页面背景（壁纸/渐变）真正
+            // 铺到底 —— 与壁纸扩展功能一致（AIChatActivity 一直是这么做的）。
+            //
+            // 历史：这里曾是"导航条固定为主题 surface 色的不透明色带"（方案 A），目的是压掉
+            // MIUI 滚动时的动态对比遮罩闪烁。但那条色带与「壁纸扩展」打架：底部永远露一条白条，
+            // 壁纸铺不到底。2026-10-04 按需求删除色带；防闪烁改由
+            // navigationBarContrastEnforced=false 承担（系统不再叠加对比 scrim）。
             activity.getWindow().setStatusBarColor(Color.TRANSPARENT);
             activity.getWindow().setNavigationBarColor(Color.TRANSPARENT);
             // MIUI 等系统会给导航栏区域强加对比 scrim（白色遮罩），滚动时与内容交替导致闪烁
@@ -105,7 +107,7 @@ public final class EdgeToEdgeHelper {
             // 主动请求一次 insets 分发（部分设备首次不自动回调，避免内容漏到状态栏下）
             ViewCompat.requestApplyInsets(root);
 
-            // 深浅图标：按状态栏区实际背景亮度决定
+            // 深浅图标：状态栏/导航条都按壁纸区的实际亮度（透明栏下两者看到的是同一层背景）
             boolean light = isLightStatusArea(root, activity);
             WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
                     activity.getWindow(), activity.getWindow().getDecorView());
@@ -113,6 +115,47 @@ public final class EdgeToEdgeHelper {
             controller.setAppearanceLightNavigationBars(light);
         } catch (Throwable ignored) {
             // 静默降级：保持旧行为
+        }
+    }
+
+    /** 主题 surface 色（浅色/深色模式自动切换），导航条固定色带用。 */
+    private static int resolveSurfaceColor(android.content.Context context) {
+        try {
+            TypedValue tv = new TypedValue();
+            if (context.getTheme().resolveAttribute(
+                    com.google.android.material.R.attr.colorSurface, tv, true)) {
+                return tv.data;
+            }
+            if (context.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)) {
+                return tv.data;
+            }
+        } catch (Throwable ignored) {
+        }
+        return 0xFFFEFBFF;
+    }
+
+    /**
+     * 固定导航条为**透明**（与壁纸扩展一致），避免滚动/滑动时系统动态叠加对比遮罩闪烁。
+     *
+     * <p>历史：这里原来把导航条设成"主题 surface 色不透明色带"（方案 A）。那条色带与
+     * 壁纸扩展冲突（底部永远一条白条，壁纸铺不到底），2026-10-04 按要求删除；
+     * 防闪烁由 {@code navigationBarContrastEnforced=false} 承担。
+     *
+     * <p>在 onResume 壁纸同步（syncStatusBarIcons）之后调用，避免图标深浅被状态栏区亮度覆盖。
+     */
+    public static void stabilizeNavBar(Activity activity, View root) {
+        try {
+            if (activity == null || isTranslucent(activity)) {
+                return;
+            }
+            activity.getWindow().setNavigationBarColor(Color.TRANSPARENT);
+            activity.getWindow().setNavigationBarContrastEnforced(false);
+            WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
+                    activity.getWindow(), activity.getWindow().getDecorView());
+            boolean light = (root != null) ? isLightStatusArea(root, activity) : true;
+            controller.setAppearanceLightNavigationBars(light);
+        } catch (Throwable ignored) {
+            // 静默降级
         }
     }
 
@@ -126,13 +169,25 @@ public final class EdgeToEdgeHelper {
     private static void applyInsets(View root, androidx.core.graphics.Insets bars,
                                     WindowInsetsCompat insets, Activity activity) {
         View appBar = findAppBar(root);
-        boolean keepInPlace = appBar != null && isSkipAppBarInset(activity);
-        if (appBar != null && !keepInPlace) {
-            // AppBar 上顶：状态栏区显示 AppBar 背景，内容自然被顶到 AppBar 之下
-            int[] oa = orig(appBar);
-            appBar.setPadding(oa[0], oa[1] + bars.top, oa[2], oa[3]);
+        // 顶部策略（2026-10-04 按需求调整）：**带标题栏的页面，状态栏区也要显示页面背景
+        //（壁纸/渐变延伸）** —— 所以把 AppBar 整体下移状态栏高度，而不是只给它内部加 padding
+        //（后者会让标题栏背景继续盖住状态栏区，用户看到的是"状态栏=标题栏颜色"）。
+        if (appBar != null) {
+            ViewGroup.LayoutParams lp = appBar.getLayoutParams();
+            if (lp instanceof ViewGroup.MarginLayoutParams) {
+                // 首选：top margin 下移（LinearLayout / FrameLayout / CoordinatorLayout /
+                // RelativeLayout / ConstraintLayout 都支持 margin）
+                ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                int[] om = origMargin(appBar);
+                mlp.topMargin = om[0] + bars.top;
+                appBar.setLayoutParams(mlp);
+            } else {
+                // 容器不支持 margin：退化为"给 AppBar 内部加 padding"，背景仍由 root 延伸
+                int[] oa = orig(appBar);
+                appBar.setPadding(oa[0], oa[1] + bars.top, oa[2], oa[3]);
+            }
         } else if (root instanceof ViewGroup && ((ViewGroup) root).getChildCount() > 0) {
-            // 背景（壁纸/背景色）延伸，只把内容顶下来（AppBar 保持原位的页面同样如此）
+            // 无 AppBar：背景（壁纸/背景色）延伸，只把内容顶下来
             View child = ((ViewGroup) root).getChildAt(0);
             int[] oc = orig(child);
             child.setPadding(oc[0], oc[1] + bars.top, oc[2], oc[3]);
@@ -162,7 +217,9 @@ public final class EdgeToEdgeHelper {
             android.view.Window window = dialog.getWindow();
             WindowCompat.setDecorFitsSystemWindows(window, false);
             window.setStatusBarColor(Color.TRANSPARENT);
-            window.setNavigationBarColor(Color.TRANSPARENT);
+            // 导航条固定主题 surface 色（同 Activity 方案 A），避免贴边弹窗底部遮罩闪烁
+            int navColor = resolveSurfaceColor(dialog.getContext());
+            window.setNavigationBarColor(navColor);
             window.setNavigationBarContrastEnforced(false);
 
             ViewGroup content = window.findViewById(android.R.id.content);
@@ -201,22 +258,25 @@ public final class EdgeToEdgeHelper {
         return true;
     }
 
-    /** AppBar 是否保持原位（标题栏不顶到状态栏）。 */
-    private static boolean isSkipAppBarInset(Activity activity) {
-        String name = activity.getClass().getName();
-        for (String s : SKIP_APPBAR_INSET) {
-            if (s.equals(name)) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private static int[] orig(View v) {
         int[] o = ORIG_PADDING.get(v);
         if (o == null) {
             o = new int[]{v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), v.getPaddingBottom()};
             ORIG_PADDING.put(v, o);
+        }
+        return o;
+    }
+
+    /** 原始 top margin（绝对增量，避免 insets 回调重复触发时累积） */
+    private static int[] origMargin(View v) {
+        int[] o = ORIG_MARGIN.get(v);
+        if (o == null) {
+            android.view.ViewGroup.LayoutParams lp = v.getLayoutParams();
+            int top = (lp instanceof android.view.ViewGroup.MarginLayoutParams)
+                    ? ((android.view.ViewGroup.MarginLayoutParams) lp).topMargin : 0;
+            o = new int[]{top};
+            ORIG_MARGIN.put(v, o);
         }
         return o;
     }
@@ -252,29 +312,104 @@ public final class EdgeToEdgeHelper {
             if (activity == null || root == null || isWindowBgSyncSkipped(activity)) {
                 return;
             }
-            android.graphics.drawable.Drawable bg = root.getBackground();
-            if (bg == null) {
-                // 兜底：根布局无背景时，壁纸模式用壁纸，否则用主题背景色（保证系统栏区不露黑）
-                bg = com.oilquiz.app.theme.AppWallpaperManager.getWallpaperDrawable(activity);
-                if (bg == null) {
+
+            // 目标：**页面背景（不管是什么）都要延伸到系统栏区域**，同时
+            // Window / DecorView / 根布局 各持**独立** Drawable 实例。
+            //
+            // 历史 bug ①：直接拿 root.getBackground() 又 setBackgroundDrawable 给 Window 和
+            // DecorView —— 同一实例被三个尺寸不同的 owner 共用，滑动时互相重设 bounds → 重绘"打架"。
+            // 历史 bug ②（我上一版引入）：只把纯色复制给窗口、其它一律换"全局壁纸"，
+            // 导致**页面自己的背景（各界面单独壁纸/专属图片）不再延伸**。现在统一走「按页面背景
+            // 深拷贝一份独立实例」，是纯色就复制颜色，是图片就复用位图新建 Drawable。
+            android.graphics.drawable.Drawable rootBg = root.getBackground();
+            android.graphics.drawable.Drawable windowBg =
+                    independentCopy(rootBg, activity.getResources());
+
+            if (windowBg == null) {
+                // 页面自身没有背景：壁纸模式下用全局壁纸，否则用主题背景色（系统栏区不露黑）
+                windowBg = com.oilquiz.app.theme.AppWallpaperManager.getWallpaperDrawableForWindow(activity);
+                if (windowBg == null) {
                     TypedValue tv = new TypedValue();
                     if (activity.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)) {
-                        bg = new android.graphics.drawable.ColorDrawable(tv.data);
+                        windowBg = new android.graphics.drawable.ColorDrawable(tv.data);
                     }
                 }
             }
-            if (bg == null) {
+            if (windowBg == null) {
                 return;
             }
             // 位图类 Drawable 强制铺满（BitmapDrawable 默认 gravity FILL，但经 LayerDrawable
             // 包装/部分 ROM 下可能按原始尺寸绘制，底部系统栏区域漏黑 → 显式 FILL）
-            bg = ensureFill(bg);
-            activity.getWindow().setBackgroundDrawable(bg);
-            // DecorView 背景同步：覆盖整个窗口（含系统栏区域），双保险
-            activity.getWindow().getDecorView().setBackgroundDrawable(bg);
+            ensureFill(windowBg);
+            activity.getWindow().setBackgroundDrawable(windowBg);
+            // DecorView 背景同步：覆盖整个窗口（含系统栏区域），同样必须是另一份独立实例
+            android.graphics.drawable.Drawable decorBg =
+                    independentCopy(windowBg, activity.getResources());
+            if (decorBg != null) {
+                ensureFill(decorBg);
+                activity.getWindow().getDecorView().setBackgroundDrawable(decorBg);
+            }
+            // 诊断（与壁纸模块同 tag）：确认"页面背景 → 窗口背景"确实同步了、且各为独立实例
+            android.util.Log.i("WallpaperDebug", "系统栏背景同步: rootBg="
+                    + (rootBg == null ? "null" : rootBg.getClass().getSimpleName())
+                    + " → windowBg=" + windowBg.getClass().getSimpleName()
+                    + " → decorBg=" + (decorBg != null ? decorBg.getClass().getSimpleName() : "null")
+                    + ", mode=" + com.oilquiz.app.theme.AppWallpaperManager.getMode(activity));
         } catch (Throwable ignored) {
             // 静默：失败不影响界面
         }
+    }
+
+    /**
+     * 深拷贝一份**独立** Drawable（保留视觉，但不与源共享 bounds/状态）。
+     *
+     * <p>顺序：① ConstantState（BitmapDrawable/ColorDrawable/多数 shape 都支持）；
+     * ② LayerDrawable 逐层递归复制后重建外层（壁纸=位图+暗化遮罩就是这种）；
+     * ③ 都不行返回 null（由调用方兜底）。
+     */
+    private static android.graphics.drawable.Drawable independentCopy(
+            android.graphics.drawable.Drawable src, android.content.res.Resources res) {
+        if (src == null) {
+            return null;
+        }
+        try {
+            android.graphics.drawable.Drawable.ConstantState cs = src.getConstantState();
+            if (cs != null) {
+                return cs.newDrawable(res).mutate();
+            }
+        } catch (Throwable ignored) {
+        }
+        if (src instanceof android.graphics.drawable.LayerDrawable) {
+            try {
+                android.graphics.drawable.LayerDrawable ld = (android.graphics.drawable.LayerDrawable) src;
+                int n = ld.getNumberOfLayers();
+                android.graphics.drawable.Drawable[] layers = new android.graphics.drawable.Drawable[n];
+                boolean any = false;
+                for (int i = 0; i < n; i++) {
+                    android.graphics.drawable.Drawable layer = ld.getDrawable(i);
+                    android.graphics.drawable.Drawable c = independentCopy(layer, res);
+                    layers[i] = (c != null) ? c : layer;
+                    any |= (c != null);
+                }
+                if (any) {
+                    android.graphics.drawable.LayerDrawable out = new android.graphics.drawable.LayerDrawable(layers);
+                    // 保留各层原始的 gravity/inset（壁纸遮罩层通常无所谓，但别丢信息）
+                    for (int i = 0; i < n; i++) {
+                        int g = ld.getLayerGravity(i);
+                        if (g != 0) {
+                            out.setLayerGravity(i, g);
+                        }
+                    }
+                    return out;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (src instanceof android.graphics.drawable.ColorDrawable) {
+            return new android.graphics.drawable.ColorDrawable(
+                    ((android.graphics.drawable.ColorDrawable) src).getColor());
+        }
+        return null;
     }
 
     /** 递归强制位图 Drawable 铺满 bounds（FILL），保证系统栏区域也被背景覆盖。 */
@@ -353,19 +488,13 @@ public final class EdgeToEdgeHelper {
     }
 
     /**
-     * 状态栏区背景亮度：优先 AppBar 背景色（有 AppBar 时状态栏区显示它的背景），
-     * 否则按窗口背景（colorBackground）。亮背景 → 深色图标。
+     * 状态栏区背景亮度：一律按**页面根背景**（壁纸/渐变/背景色）采样。
+     *
+     * <p>2026-10-04：AppBar 已整体下移（状态栏区显示页面背景），不再采样 AppBar 背景
+     * —— 那会算出与真实背景相反的图标颜色。亮背景 → 深色图标。
      */
     private static boolean isLightStatusArea(View root, Activity activity) {
         try {
-            View appBar = findAppBar(root);
-            // AppBar 保持原位的页面：状态栏区显示窗口背景（壁纸/渐变），不采样 AppBar 背景
-            if (appBar != null && !isSkipAppBarInset(activity)) {
-                int c = sampleColor(appBar.getBackground());
-                if (c != 0) {
-                    return ColorUtils.calculateLuminance(c) > 0.5;
-                }
-            }
             int rc = sampleColor(root.getBackground());
             if (rc != 0) {
                 return ColorUtils.calculateLuminance(rc) > 0.5;

@@ -139,6 +139,10 @@ android {
 
         pickFirst "**/libvulkan.so.*"
         pickFirst "**/libc++_shared.so"
+        // libomp.so 两边都有：我们自己的 llama.cpp（libllama-jni.so 的 DT_NEEDED 里有 libomp.so）
+        // 和 GenieX AAR。GenieX 的库实测不需要 libomp（libggml-cpu/libllama 都不依赖它），
+        // 所以显式让 jniLibs 里我们那份胜出，顺便消掉 AGP 的 "2 files found for path" 告警。
+        pickFirst "**/libomp.so"
         exclude "**/org/apache/commons/math3/**"
 
         jniLibs {
@@ -155,6 +159,9 @@ android {
                                  "**/libz.so", "**/libcacert.pem.so",
                                  "**/libssh_*.so", "**/libssh_libs.so",
                                  "**/liblauncher.so", "**/libtoolkit_*.so", "**/lib*_bin.so"]
+            // Qualcomm QAIRT/QNN + Genie 预编译库：Hexagon DSP skel 带 Qualcomm 签名目录(.cat)，
+            // 被 llvm-strip 动过就可能加载失败 → 一律免 strip
+            keepDebugSymbols += ["**/libQnn*.so", "**/libGenie.so", "**/libcalculator*.so"]
         }
     }
 
@@ -236,6 +243,10 @@ dependencies {
     implementation files('libs/QWeather_Public_Android_V5.2.2.jar')
     // APK 签名库（App 内导出 APK 用：v1+v2+v3 签名，签名时自动对齐 STORED 条目）
     implementation files('libs/apksig-8.0.2.jar')
+    // Qualcomm GenieX Android SDK（NPU 端侧 LLM 推理：llama_cpp 跑 GGUF NPU/GPU/CPU，qairt 跑 AI Hub 预编译）
+    // 本地 AAR：阿里云镜像未同步 0.8.0（发布 <24h），官方 Maven Central 国内慢；本地文件最稳。
+    // 自带 arm64 native 库 + 模型下载/管理，无需 NDK/CMake。支持 SM8750/SM8850。
+    implementation files('libs/geniex-android-0.8.0.aar')
     // 本地高精度 OCR：RapidOCR4j-Android（RapidOCR Java 移植，PaddleOCR 系模型 + ONNX Runtime + OpenCV，
     // 端侧离线，中文精度远高于 ML Kit；内部已带 onnxruntime-android:1.18.0 与 opencv:4.9.0）
     implementation "io.github.hzkitty:rapidocr4j-android:1.0.0"

@@ -182,6 +182,27 @@ else()
     message(STATUS "OpenCL backend disabled")
 endif()
 
+# ============================================================================
+# NPU（Qualcomm Hexagon / HTP）ggml 后端开关。
+#
+# 目标：让 HTP 成为 CPU / Vulkan / OpenCL 之外的**第四个 ggml 设备**（上游文档原话：
+# "Hexagon NPU behaves as a GPU device when it comes to -ngl"），这样我们自己这份
+# llama.cpp 就能把层卸载到 NPU，全部功能（对话/Agent/题库导入/VLM）天然吃到 NPU，
+# 不再需要 GenieX 那份运行时。
+#
+# 必须放在 add_subdirectory(llama.cpp) **之前**（ggml 的 option 要先生效）。
+# 依赖 Hexagon SDK（qaic 生成 htp_iface stub + hexagon-clang 编 DSP skel）：
+#   HEXAGON_SDK_ROOT / HEXAGON_TOOLS_ROOT 环境变量指到 SDK 即自动开启。
+# 未设置时保持 OFF，现有构建完全不受影响。
+# ============================================================================
+if(DEFINED ENV{HEXAGON_SDK_ROOT} AND IS_DIRECTORY "$ENV{HEXAGON_SDK_ROOT}")
+    set(GGML_HEXAGON ON CACHE BOOL "ggml: enable Hexagon backend" FORCE)
+    message(STATUS "NPU: GGML_HEXAGON=ON (HEXAGON_SDK_ROOT=$ENV{HEXAGON_SDK_ROOT})")
+else()
+    set(GGML_HEXAGON OFF CACHE BOOL "ggml: enable Hexagon backend" FORCE)
+    message(STATUS "NPU: GGML_HEXAGON=OFF (未设置 HEXAGON_SDK_ROOT，跳过 Hexagon 后端)")
+endif()
+
 add_subdirectory(${LLAMA_CPP_PATH} build-llama)
 
 include_directories(
@@ -227,6 +248,26 @@ if(GGML_VULKAN)
     message(STATUS "Vulkan: Linked ggml-vulkan backend")
 endif()
 
+# NPU（HTP）：链入 Hexagon 后端（它是静态注册的，链进来即生效），
+# 并把 DSP 侧 skel（libggml-htp-v*.so）拷进 jniLibs 一起打包 —— 运行时由 FastRPC
+# 按名字从 nativeLibraryDir 加载（file:///libggml-htp-v%u.so?...&_dom=adsp）。
+if(GGML_HEXAGON)
+    target_link_libraries(llama-jni ggml-hexagon)
+    message(STATUS "NPU: linked ggml-hexagon backend (HTP)")
+    foreach(_htp_v v73 v75 v79 v81)
+        add_custom_command(TARGET llama-jni POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE_DIR:ggml-hexagon>/libggml-htp-${_htp_v}.so"
+                    "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libggml-htp-${_htp_v}.so"
+            COMMENT "NPU: copying libggml-htp-${_htp_v}.so to jniLibs")
+    endforeach()
+    add_custom_command(TARGET llama-jni POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:ggml-hexagon>"
+                "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libggml-hexagon.so"
+        COMMENT "NPU: copying libggml-hexagon.so to jniLibs")
+endif()
+
 if(GGML_OPENCL)
     message(STATUS "OpenCL: Using NDK stub library for compilation (runtime will load vendor driver)")
 endif()
@@ -236,3 +277,35 @@ set_target_properties(
     PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}"
 )
+
+# ============================================================================
+# ggml-probe：探测能否把 GenieX 的 Hexagon(NPU) 后端挂到我们自己的 llama.cpp 上。
+# 只 dlopen libllama-jni.so 的符号来调用（不重链那个 195MB 的大库），
+# 所以是独立的极简目标。见 ggml-probe.cpp 顶部注释。
+# ============================================================================
+add_library(
+    ggml-probe
+    SHARED
+    ggml-probe.cpp
+)
+
+target_link_libraries(
+    ggml-probe
+    log
+    dl
+)
+
+set_target_properties(
+    ggml-probe
+    PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}"
+)
+
+# ============================================================================
+# NPU 推理：改用 Qualcomm 官方 GenieX Android SDK（AAR: libs/geniex-android-0.8.0.aar）。
+# 它自带全套 arm64 原生库（libgeniex*、libllama/ggml-*、HTP v81 skel、QnnHtp* 2.45），
+# 所以这里**不再**编 JNI 外壳、也不再随包我们自己的 QNN/Genie 库 ——
+# 那些库与 AAR 里的同名文件会互相顶掉（AGP 让本地 jniLibs 取胜），最终把 2.43 的老 QNN
+# 塞给需要 2.45 的 GenieX，加载 context binary 时版本不兼容。
+# 旧的 npu-jni.cpp / qnn/ 头文件 / NpuHelper.java 已于 2026-10-03 整体退休。
+# ============================================================================

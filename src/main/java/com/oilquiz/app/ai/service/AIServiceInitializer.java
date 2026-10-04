@@ -47,7 +47,7 @@ public final class AIServiceInitializer {
     private static final double INTEGRITY_THRESHOLD = 0.90;
 
     /** 默认预置模型：多模态 Agent（视觉理解 + 思考链 + 原生工具调用） */
-    public static final String DEFAULT_MODEL_ID = "qwen3.8-4b-distill";
+    public static final String DEFAULT_MODEL_ID = "qwen3.5-4b";   // 原 qwen3.8-4b-distill 无 Q4_0(NPU 不兼容) 已移除；改为 Q4_0 的 4B（NPU 与 llama.cpp 通用）
 
     /** 全局初始化互斥锁 */
     private static final Object INIT_LOCK = new Object();

@@ -24,6 +24,24 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 2. 系统 DownloadManager - 后台下载、通知栏进度、无需额外依赖
  */
 public class ModelDownloadManager {
+
+    /**
+     * 从 URL/文件名推断量化（如 Qwen3-4B-Q4_0.gguf -> Q4_0）。
+     *
+     * 用于下载前的 NPU 兼容性提示：HTP 只原生加速 Q4_0/Q4_1/Q8_0/IQ4_NL/MXFP4/F16，
+     * K-quant（Q4_K_M/Q5_K_M/Q6_K...）会回落到 CPU。识别不出返回 null（不打扰用户）。
+     */
+    public static String guessQuantizationFromUrl(String url) {
+        if (url == null || url.isEmpty()) return null;
+        String name = url;
+        int q = name.indexOf('?');
+        if (q > 0) name = name.substring(0, q);
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) name = name.substring(slash + 1);
+        java.util.regex.Matcher mm = java.util.regex.Pattern
+                .compile("(?i)(q[0-9][_a-z0-9]*|iq[0-9][_a-z0-9]*|mxfp4|f16)").matcher(name);
+        return mm.find() ? mm.group(1).toUpperCase() : null;
+    }
     private static final String TAG = "ModelDownloadManager";
     private static final int BUFFER_SIZE = 65536; // 64KB
     /**
@@ -1163,6 +1181,7 @@ public static class ModelPresetInfo {
         public final String description;
         public final String downloadUrl;
         public final long sizeMB;
+
         public final String quantization;
         public final int contextLength;
         public final long minRamMB;

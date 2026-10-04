@@ -120,6 +120,11 @@ public class MainActivity extends BaseActivity {
         
         // 实时查询并更新题库统计信息
         updateQuestionCount();
+
+        // 注意：**不要**在这里做 NPU 探测 / GenieX 初始化。
+        // 2026-10-03 踩坑：原生层（QNN/Genie/GenieX 都是）偶尔会 abort（signal 6，Java 层抓不到、
+        // 连 FATAL EXCEPTION 都没有）→ 表现就是"一打开就秒退"。所以启动路径上只做轻量初始化，
+        // NPU 一律走用户点按的入口：AI 服务状态详情 →「NPU 推理」（GenieX SDK 在那里才 init）。
     }
     
     private AIService.DetailedStatusObserver aiStatusObserver;

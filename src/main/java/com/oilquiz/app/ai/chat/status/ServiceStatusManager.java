@@ -84,18 +84,86 @@ public class ServiceStatusManager {
         aiStatusObserver = new AIService.DetailedStatusObserver() {
             @Override
             public void onStateChanged(AIServiceState.ServiceStage stage, String message, int progress, long elapsedMs) {
+                // NPU（GenieX）引擎下本地服务状态与本轮推理无关 → 不覆盖状态栏
+                if (isNpuEngineOn()) return;
                 activity.runOnUiThread(() -> handleStatusChange(stage, message, progress, elapsedMs));
             }
             @Override
             public void onError(String errorMessage) {
+                // 关键：NPU 引擎下本地模型缺失/初始化失败不该弹进对话（否则界面一直报"AI服务初始化失败"，
+                // 而实际上 NPU 推理是正常的）
+                if (isNpuEngineOn()) return;
                 activity.runOnUiThread(() -> handleError(errorMessage));
             }
             @Override
             public void onInitialized(String modelName, long loadTimeMs) {
+                if (isNpuEngineOn()) return;
                 activity.runOnUiThread(() -> handleInitialized(modelName, loadTimeMs));
             }
         };
         aiService.registerDetailedStatusObserver(aiStatusObserver);
+    }
+
+    // ==================== NPU（Qualcomm GenieX）引擎 ====================
+
+    /** NPU（GenieX）引擎是否开启 */
+    private boolean isNpuEngineOn() {
+        try {
+            return inferenceRouter != null && inferenceRouter.isNpuEngineEnabled();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** NPU 状态一行摘要（顶部状态栏显示用） */
+    private String npuStatusLine() {
+        String st = com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();
+        String model = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+        float tps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+        StringBuilder sb = new StringBuilder("NPU（GenieX）· ").append(npuStateName(st));
+        if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
+        if (tps > 0) sb.append(String.format(java.util.Locale.US, " · %.1f t/s", tps));
+        return sb.toString();
+    }
+
+    private String npuStateName(String state) {
+        if (state == null) return "未知";
+        switch (state) {
+            case "IDLE": return "待加载（首次发送时自动加载）";
+            case "LOADING": return "模型加载中";
+            case "READY": return "就绪";
+            case "GENERATING": return "生成中";
+            case "DOWNLOADING": return "模型下载中";
+            case "ERROR": return "不可用";
+            default: return state;
+        }
+    }
+
+    /** NPU 状态详情对话框（独立于本地 AIService） */
+    private void showNpuStatusDetails() {
+        String model = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+        int tokens = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
+        long elapsed = com.oilquiz.app.ai.engine.NpuLlmChat.getLastElapsedMs();
+        float tps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+        StringBuilder sb = new StringBuilder();
+        sb.append("引擎: Qualcomm GenieX（llama_cpp 运行时）\n");
+        sb.append("算力单元: Hexagon NPU（HTP）\n");
+        sb.append("状态: ").append(npuStateName(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName())).append('\n');
+        sb.append("模型: ").append(model == null || model.isEmpty() ? "未加载" : model).append('\n');
+        if (tokens > 0) {
+            sb.append("上次推理: ").append(tokens).append(" tokens / ")
+                    .append(elapsed).append(" ms / ")
+                    .append(String.format(java.util.Locale.US, "%.1f t/s", tps)).append('\n');
+        }
+        sb.append("本地模型目录: files/gguf/qwen3-0.6b 与 qwen3-1.7b\n");
+        sb.append("(\u4e0d\u4f9d\u8d56 llama.cpp \u672c\u5730\u670d\u52a1)");
+
+        new AlertDialog.Builder(activity)
+                .setTitle("AI服务状态详情（NPU / GenieX）")
+                .setMessage(sb.toString())
+                .setPositiveButton("模型下载", (d, w) -> openModelDownload())
+                .setNegativeButton("关闭", null)
+                .show();
     }
 
     public void unregisterObserver() {
@@ -106,6 +174,10 @@ public class ServiceStatusManager {
     }
 
     public void updateInitialStatus() {
+        if (isNpuEngineOn()) {
+            updateStatusDisplay(AIServiceState.ServiceStage.INITIALIZED, npuStatusLine(), 100, 0);
+            return;
+        }
         if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
             updateOnlineModelStatus();
             return;
@@ -126,6 +198,11 @@ public class ServiceStatusManager {
     }
 
     public void showStatusDetails() {
+        // NPU（GenieX）引擎：本地 AIService 跟当前推理无关，显示 NPU 自己的详情
+        if (isNpuEngineOn()) {
+            showNpuStatusDetails();
+            return;
+        }
         if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
             showOnlineModelDetails();
             return;
@@ -231,6 +308,22 @@ public class ServiceStatusManager {
             .show();
     }
 
+    /**
+     * 打开「模型下载」页：NPU 模型走项目原有下载功能（`models_presets.json` 里已有
+     * Qwen3-0.6B / Qwen3-1.7B 的 **Q4_0** 预设 —— Q4_0 才是 Hexagon NPU 原生加速的量化）。
+     *
+     * <p>2026-10-04：独立的「NPU 推理」页已删除。NPU 已接进主对话流程，引擎开关在
+     * 「模型选择」页的「NPU 引擎（GenieX）」行，模型下载走这里。
+     */
+    private void openModelDownload() {
+        try {
+            activity.startActivity(new android.content.Intent(activity,
+                    com.oilquiz.app.ui.activity.ModelDownloadActivity.class));
+        } catch (Throwable t) {
+            callback.onShowToast("打不开模型下载页: " + t);
+        }
+    }
+
     public void setLoadingModel(boolean loading) {
         this.isLoadingModel = loading;
         if (!loading) {
@@ -286,6 +379,19 @@ public class ServiceStatusManager {
         loadingProgressMessageIndex = -1;
         lastLoadingProgressShown = -1;
         hideThinkingIndicator();
+
+        // 本地模型文件不存在（没下过 / 已删除）：**不是故障**，是"本来就不该尝试加载"。
+        // 不再往对话里写"AI服务初始化失败"、也不弹 toast —— 否则用户会以为 App 坏了，
+        // 而实际上（开了 NPU 时）推理完全正常，只是本地那份模型没下而已。
+        try {
+            if (aiService != null && !aiService.isCurrentModelFileExists()) {
+                android.util.Log.i("ServiceStatusManager",
+                        "本地模型文件不存在，忽略本地服务错误（不污染对话）: " + errorMessage);
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+
         callback.onAddErrorMessage("AI服务初始化失败", errorMessage, true);
         callback.onShowToast("模型加载失败");
     }
@@ -498,6 +604,8 @@ public class ServiceStatusManager {
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Status Details", fullDetails));
                 callback.onShowToast("已复制到剪贴板");
             })
+            // NPU 是设备能力，跟当前跑的是本地还是云端模型无关 → 两个详情页都给入口
+            // （之前只加在"本地"那份上，用云端模型的人根本看不到按钮）
             .setNegativeButton("关闭", null)
             .show();
     }
@@ -552,6 +660,20 @@ public class ServiceStatusManager {
                 details.append("\n\uD83D\uDCCB 模型信息\n").append(modelInfo).append("\n");
             }
         } catch (Exception ignored) { }
+
+        // NPU（GenieX 端侧推理）：只报零成本信息，真加载/推理走详情页的「NPU 推理」按钮。
+        // 2026-10-03 换轨：旧的手搓 QNN+Genie 自检已退休（随包 QNN 库会与 GenieX AAR 同名互顶，
+        // 且只能自检不能推理）；现在能力与状态统一由 GenieX SDK 汇报。
+        details.append("\n\uD83E\uDDE0 NPU（Qualcomm GenieX）\n");
+        details.append("运行时: GenieX SDK（llama_cpp 跑 GGUF / qairt 跑 AI Hub 预编译）\n");
+        details.append("算力单元: Hexagon NPU（HTP）· Adreno GPU · CPU\n");
+        details.append("状态: ").append(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName());
+        String npuModel = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+        if (npuModel != null && !npuModel.isEmpty()) details.append(" · ").append(npuModel);
+        float tps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+        if (tps > 0) details.append(" · 上次 ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
+        details.append("\n");
+        details.append("入口: 本页下方「NPU 推理」（支持 SM8750 / SM8850）\n");
 
         return details.toString();
     }

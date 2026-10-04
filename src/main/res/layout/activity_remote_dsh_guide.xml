@@ -78,7 +78,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="1) 电脑上装 Node.js 18+（nodejs.org）\n2) 装 Python 3.9+（python.org，Windows 安装时勾选 Add Python to PATH）\n3) 装 dsh：命令行执行  npm install -g @deepseek-ai/dsh  然后运行 dsh 按提示配置好模型\n4) 把下面导出的 6 个文件放到电脑上同一个文件夹里（缺一不可）"
+                    android:text="1) 电脑上装 Node.js 18+（nodejs.org）\n2) 装 Python 3.9+（python.org，Windows 安装时勾选 Add Python to PATH）\n3) 装 dsh：命令行执行  npm install -g @deepseek-ai/dsh  然后运行 dsh 按提示配置好模型（0.1.5+ 都行，装到最新版最省事）\n4) 把下面导出的 6 个文件放到电脑上同一个文件夹里（缺一不可）"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary"/>
 
@@ -109,7 +109,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="5) 在电脑上双击 start_dsh_bridge.bat（macOS/Linux 用 bash start_dsh_bridge.sh）\n   · 会弹出两个窗口：ACP 服务 + 桥接服务\n   · 桥接窗口会显示「访问令牌」，并自动打开配对页 http://127.0.0.1:8218/pair"
+                    android:text="5) 在电脑上双击 start_dsh_bridge.bat（macOS/Linux 用 bash start_dsh_bridge.sh）\n   · 只会弹一个窗口：桥接服务（8218）。桥接会自己在后台拉起 dsh 的 ACP 会话（stdio），不再需要单独的「ACP 服务」窗口，也不占用 7800 端口、不需要 ACP 令牌\n   · 窗口会显示「访问令牌」和电脑上的 dsh 版本，并自动打开配对页 http://127.0.0.1:8218/pair"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary"/>
             </LinearLayout>
@@ -189,7 +189,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="· 电脑上那两个窗口是否还开着？关掉窗口 = 断开\n· 手机和电脑在同一个 Wi-Fi 吗？不同网络要先做内网穿透（花生壳 / frp / Tailscale 等），把电脑 8218 端口映射出去，然后用「手动配置」填穿透后的地址\n· 令牌要和电脑窗口里打印的一致（配对页上也能看到）\n· 点「连接」会显示具体失败原因，按提示排查"
+                    android:text="· 电脑上那个窗口是否还开着？关掉窗口 = 断开（桥接与它拉起的 dsh 子进程一起退出）\n· 手机和电脑在同一个 Wi-Fi 吗？不同网络要先做内网穿透（花生壳 / frp / Tailscale 等），把电脑 8218 端口映射出去，然后用「手动配置」填穿透后的地址\n· 令牌要和电脑窗口里打印的一致（配对页上也能看到）\n· 点「连接」会显示具体失败原因，按提示排查\n· 窗口里报 error: unknown option '--host' → 电脑上还是旧版程序（0.1.5 时代要单独开 7800）：回本页重新「导出电脑端程序」，覆盖电脑上的旧文件\n· 让它跑命令时回来说沙箱/ACL 报错 → 用新版脚本启动即可（默认 --permission-mode danger-full-access，不再走 Windows 沙箱）"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary"/>
 
@@ -207,7 +207,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="· 只有配对过（拿到访问令牌）的手机才能连上，令牌只存在电脑本地文件里\n· 不用时关掉电脑上的窗口即可；App 里「断开」只影响手机侧，电脑端不受影响\n· 配对后手机端可以让电脑上的 AI 执行文件读写/命令，等同于把电脑交给你自己的 AI —— 请自行确认电脑上环境可信"
+                    android:text="· 只有配对过（拿到访问令牌）的手机才能连上，令牌只存在电脑本地文件里\n· 不用时关掉电脑上的窗口即可（桥接与 dsh 子进程一起退出）；App 里「断开」只影响手机侧，电脑端不受影响\n· 拿到令牌的手机 = 能让电脑上的 AI 读写文件、执行命令（默认不受沙箱限制），等同于把电脑交给你自己的 AI —— 请自行确认电脑上环境可信；做了公网隧道时尤其要保管好令牌"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary"/>
             </LinearLayout>

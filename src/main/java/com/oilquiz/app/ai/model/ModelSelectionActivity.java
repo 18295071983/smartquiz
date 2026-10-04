@@ -68,6 +68,25 @@ public class ModelSelectionActivity extends AppCompatActivity {
 
     private void initModels() {
         models = new ArrayList<>();
+
+        // NPU（Qualcomm GenieX）虚拟条目：不是"下载模型"，而是把推理引擎切到 Hexagon NPU。
+        // 模型走本地侧载（filesDir/gguf/qwen3-0.6b 或 qwen3-1.7b），无需网络。
+        models.add(new Model(
+                InferenceType.NPU_MODEL_ID,
+                "NPU（GenieX · Hexagon）",
+                "端侧 NPU 引擎：本地 GGUF 直接跑在 Hexagon NPU（仅 SM8750 / SM8850）",
+                "Qwen3 (GGUF)",
+                4096,
+                0,
+                "0.6B / 1.7B",
+                "Q4_0",
+                "内置侧载",
+                "~66 t/s",
+                0.95f,
+                0.78f,
+                "日常问答 · 离线 · 低功耗",
+                false));
+
         List<ModelPresetConfig.ModelPreset> presets = ModelPresetConfig.loadPresets(this);
         for (ModelPresetConfig.ModelPreset preset : presets) {
             models.add(ModelPresetConfig.toDisplayModel(preset));
@@ -122,6 +141,32 @@ public class ModelSelectionActivity extends AppCompatActivity {
 
         // 实际切换到选中的本地模型
         String modelName = model.getName();
+
+        // NPU（GenieX）虚拟条目：切引擎（不加载 llama.cpp 模型）
+        if (InferenceType.NPU_MODEL_ID.equals(model.getId())) {
+            Toast.makeText(this, "正在切换到 NPU 引擎（首次会自动加载侧载模型）…", Toast.LENGTH_SHORT).show();
+            inferenceRouter.enableNpuEngine(new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
+                @Override
+                public void onLoaded(String npuModelName) {
+                    runOnUiThread(() -> Toast.makeText(ModelSelectionActivity.this,
+                            "NPU 引擎已就绪：" + npuModelName, Toast.LENGTH_LONG).show());
+                }
+
+                @Override
+                public void onError(String message) {
+                    runOnUiThread(() -> Toast.makeText(ModelSelectionActivity.this,
+                            "NPU 引擎不可用：" + message + "（可在「NPU 推理」页侧载模型）",
+                            Toast.LENGTH_LONG).show());
+                }
+            });
+            return;
+        }
+
+        // 选其它模型 = 回退到 llama.cpp 引擎
+        if (inferenceRouter.isNpuEngineEnabled()) {
+            inferenceRouter.disableNpuEngine();
+        }
+
         inferenceRouter.switchModel(modelName);
         Toast.makeText(this, getString(R.string.h_f70a7dc7) + modelName, Toast.LENGTH_SHORT).show();
     }

@@ -103,6 +103,18 @@ public class NativeRecoveryHandler {
 
     public void triggerAutoRecovery() {
         if (aiService == null) return;
+
+        // 没有模型文件就没什么可"恢复"的：直接跳过（用户要求：先查文件再加载/恢复）。
+        // 之前这里会去加载一个不存在的模型 → 反复失败并往对话里写"AI服务初始化失败"。
+        try {
+            if (!aiService.isCurrentModelFileExists()) {
+                Log.w(TAG, "模型文件不存在，跳过自动恢复（无需恢复；请先下载/选择模型）");
+                clearPendingMessage();
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+
         String pendingMsg = pendingMessageForRecovery;
         new Thread(() -> {
             try {

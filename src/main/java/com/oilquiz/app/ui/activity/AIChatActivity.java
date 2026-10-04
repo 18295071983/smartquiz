@@ -740,7 +740,9 @@ public class AIChatActivity extends BaseActivity {
                 modelBridge.setLocalSessionId(currentSessionId);
             }
 
-            if (aiService == null && !shouldUseOnlineModel()) {
+            // NPU（GenieX）引擎不需要 llama.cpp 的本地服务：它自带模型加载与管理
+            boolean npuEngineOn = isNpuEngineOn();
+            if (aiService == null && !shouldUseOnlineModel() && !npuEngineOn) {
                 showToast(getString(R.string.h_16b746be));
                 return;
             }
@@ -4838,8 +4840,11 @@ public class AIChatActivity extends BaseActivity {
             // （模式精简为 普通/深度思考 两个，深度思考由普通对话路径注入思考指令+enableThinking）
             // R3-1/R8-2：本地 Agent 实验开关开启时，本地模型也走 Agent
             // （startAgentLoop 内再分流到 AgentSoftwareLayer，本地可调用工具）
-            if (shouldUseOnlineModel()
-                    || (aiConfig != null && aiConfig.isLocalAgentEnabled())) {
+            // NPU（GenieX）引擎：本地 Agent 那套依赖 llama.cpp 本地模型（工具调用/思考链），
+            // NPU 侧载模型没有工具能力 → 直接走普通对话分支，避免落进本地服务初始化/恢复。
+            boolean npuEngineOn = isNpuEngineOn();
+            if (!npuEngineOn && (shouldUseOnlineModel()
+                    || (aiConfig != null && aiConfig.isLocalAgentEnabled()))) {
                 showOnlineAgentFriendlyGuide(message);
                 processChatMessageWithAgent(message);
                 return;
@@ -4861,14 +4866,16 @@ public class AIChatActivity extends BaseActivity {
     private void processChatMessageNormal(String message) {
         // 轮次模式标记（历史/会话记录用；上下文构建共享完整历史，不再隔离）
         markLastUserMessageMode(ChatMessage.TURN_MODE_NORMAL);
-        if (aiService == null) {
+        // NPU（GenieX）引擎不依赖 aiService：跳过下面的"请选择模型"弹窗，直接进 NPU 推理路由
+        boolean npuOnForNormal = isNpuEngineOn();
+        if (aiService == null && !npuOnForNormal) {
             runOnUiThread(() -> {
                 new androidx.appcompat.app.AlertDialog.Builder(this)
                         .setTitle(getString(R.string.h_c1d12ffc))
                         .setMessage(getString(R.string.h_f81e293e) +
                                 "📥 本地Agent模型（推荐）\n" +
                                 "• 支持工具调用（天气/搜索/记忆等）、思考链\n" +
-                                "• 推荐 Qwen3.8-4B-Distill，约2.4GB\n\n" +
+                                "• 推荐 Qwen3.5-4B（Q4_0，约2.6GB，NPU 与 llama.cpp 通用）\n\n" +
                                 "💬 本地普通对话模型\n" +
                                 "• 轻量快速，仅普通对话\n" +
                                 "• 推荐 Qwen3.5-0.8B，约0.5GB\n\n" +
@@ -4894,7 +4901,9 @@ public class AIChatActivity extends BaseActivity {
         }
         
         // 检查 Native 层状态，如果无效则自动恢复
-        if (!modelBridge.isNativeStateValid()) {
+        // NPU（GenieX）引擎下跳过：那条路不用 llama.cpp 的 native 上下文，否则会被"自动恢复"
+        // 截走（去加载本机不存在的本地模型），表现就是卡在"准备模型文件"。
+        if (!isNpuEngineOn() && !modelBridge.isNativeStateValid()) {
             AppLogger.aiW(TAG, "Native state invalid, triggering auto-recovery");
             addSystemMessage("⚠️ 检测到AI模型状态异常，正在自动恢复...", ChatMessage.SystemMessageType.WARNING);
             if (recoveryHandler != null) {
@@ -4970,8 +4979,51 @@ public class AIChatActivity extends BaseActivity {
                 AppLogger.aiW(TAG, "set extra system sections failed: " + e.getMessage());
             }
         }
+        // ==================== NPU（Qualcomm GenieX）引擎分支 ====================
+        // 关键：对话页的本地普通对话走的是 modelBridge.execute(...) → AIService（llama.cpp），
+        // 根本不经过 InferenceRouter。所以 NPU 必须在这里分流，否则开了 NPU 也会去加载本地
+        // GGUF（本机没有 → "模型文件不存在" / 卡在"准备模型文件"）。
+        BridgeCallback bridgeCallback = createBridgeCallback(streamingIndex, streamingId);
+        // 能力感知：深度思考（思考链）请求留在 llama.cpp —— NPU 侧载的 Qwen3 是纯对话模型，
+        // 走 NPU 会让思考链能力变差（功能不降级）。多模态/工具链本来就不走这条分支。
+        if (isNpuEngineOn()) {
+            AppLogger.ai(TAG, "NPU（GenieX）引擎：改走 NPU 流式推理，跳过 modelBridge/AIService");
+            bridgeCallback.onGenerationStarted(streamingId);
+            final long npuStartMs = System.currentTimeMillis();
+            final StringBuilder npuFull = new StringBuilder();
+            com.oilquiz.app.ai.refactor.AIInferenceCore.InferenceConfig npuConfig =
+                    new com.oilquiz.app.ai.refactor.AIInferenceCore.InferenceConfig();
+            npuConfig.maxTokens = actualMaxTokens;
+            npuConfig.temperature = 0.7f;
+            // 深度思考透传给 GenieX 的 enable_thinking（applyChatTemplate 第 4 参）
+            npuConfig.enableThinking = enableThinking;
+            npuConfig.history = chatHistory == null ? null : new java.util.ArrayList<>(chatHistory);
+            inferenceRouter.generateStream(prompt, npuConfig, new StreamCallback() {
+                @Override
+                public void onToken(String token) {
+                    npuFull.append(token);
+                    bridgeCallback.onToken(streamingId, token);
+                }
+
+                @Override
+                public void onComplete(String fullText) {
+                    String text = fullText != null ? fullText : npuFull.toString();
+                    long elapsed = System.currentTimeMillis() - npuStartMs;
+                    bridgeCallback.onGenerationComplete(streamingId, text,
+                            com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens(), elapsed,
+                            com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps());
+                }
+
+                @Override
+                public void onError(String error) {
+                    bridgeCallback.onGenerationError(streamingId, error);
+                }
+            });
+            return;
+        }
+
         modelBridge.execute(ChatCommand.sendMessage(streamingId, prompt, actualMaxTokens, enableThinking),
-            createBridgeCallback(streamingIndex, streamingId));
+            bridgeCallback);
     }
 
     /**
@@ -5012,7 +5064,7 @@ public class AIChatActivity extends BaseActivity {
                         .setMessage(getString(R.string.h_f81e293e) +
                                 "📥 本地模型（推荐）\n" +
                                 "• 离线可用，无需网络，支持工具调用（天气/搜索/记忆等）\n" +
-                                "• 推荐 Qwen3.8-4B-Distill，约2.4GB\n\n" +
+                                "• 推荐 Qwen3.5-4B（Q4_0，约2.6GB，NPU 与 llama.cpp 通用）\n\n" +
                                 "🌐 在线模型\n" +
                                 "• 功能更强，支持 Agent 工具调用\n" +
                                 "• 支持豆包、DeepSeek、通义千问等")
@@ -5923,7 +5975,8 @@ public class AIChatActivity extends BaseActivity {
                         return;
                     }
                     endGeneration();
-                    boolean nativeInvalid = !modelBridge.isNativeStateValid();
+                    // NPU 引擎下不算"native 失效"：那条路不依赖 llama.cpp 的 native 上下文
+                    boolean nativeInvalid = !isNpuEngineOn() && !modelBridge.isNativeStateValid();
                     boolean shouldRecover = nativeInvalid &&
                         (recoveryHandler == null || !recoveryHandler.isRecovering()) &&
                         (serviceStatusManager == null || !serviceStatusManager.isLoadingModel());
@@ -6243,7 +6296,8 @@ public class AIChatActivity extends BaseActivity {
                 endGeneration();
                 
                 // 检查是否因 Native 状态无效导致错误
-                boolean nativeInvalid = !modelBridge.isNativeStateValid();
+                // NPU 引擎下不算"native 失效"（不依赖 llama.cpp native 上下文）
+                boolean nativeInvalid = !isNpuEngineOn() && !modelBridge.isNativeStateValid();
                 boolean shouldRecover = nativeInvalid && (recoveryHandler == null || !recoveryHandler.isRecovering()) && (serviceStatusManager == null || !serviceStatusManager.isLoadingModel());
                 
                 if (currentStreamingContent != null && currentStreamingContent.length() > 0) {
@@ -7649,6 +7703,11 @@ public class AIChatActivity extends BaseActivity {
 
         // 检查AI服务是否可用
         boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
+        // NPU（GenieX）引擎下本地 Agent 引擎永远不初始化（那条路依赖 llama.cpp 工具链）→
+        // 直接静默返回，免得每 10 秒刷一条"等待模型就绪"的告警。
+        if (isNpuEngineOn()) {
+            return;
+        }
         if (!useOnlineModel && (modelBridge == null || !modelBridge.isModelInitialized())) {
             // M13：补充原因日志——在线路径无需本地模型；本地路径未就绪时说明是"等待初始化"而非错误，
             // 模型就绪后 modelChangeListener 会再次触发本方法完成初始化
@@ -8686,8 +8745,30 @@ public class AIChatActivity extends BaseActivity {
                 }));
     }
 
+    /**
+     * NPU（Qualcomm GenieX）引擎是否开启。
+     *
+     * <p>开启后，所有"llama.cpp 本地模型"的状态检查（模型文件是否存在 / native 上下文是否有效 /
+     * 自动恢复）都必须跳过 —— 否则发送会被自动恢复逻辑截走，去加载本机并不存在的本地模型，
+     * 界面就卡在「准备模型文件」。
+     */
+    private boolean isNpuEngineOn() {
+        try {
+            return com.oilquiz.app.ai.inference.InferenceRouter
+                    .getInstance(this).isNpuEngineEnabled();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private boolean ensureModelLoaded(String pendingMessage) {
         if (shouldUseOnlineModel()) {
+            return true;
+        }
+        // NPU（Qualcomm GenieX）引擎：模型由 GenieX 自己按需加载（本地侧载 GGUF），
+        // 跟 llama.cpp 那套"本地模型文件必须在"的检查无关 —— 否则开了 NPU 也会被这里拦住，
+        // 报"模型文件不存在，请重新导入或切换模型"。
+        if (isNpuEngineOn()) {
             return true;
         }
         if (aiService == null) { showToast(getString(R.string.h_24e21aa7)); return false; }

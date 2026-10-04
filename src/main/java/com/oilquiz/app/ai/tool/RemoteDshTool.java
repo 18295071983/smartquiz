@@ -19,21 +19,25 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 远程 dsh 工具 v4：通过电脑端 dsh 桥接服务（tools/dsh_bridge_server.py v4）远程调用
+ * 远程 dsh 工具 v5：通过电脑端 dsh 桥接服务（tools/dsh_bridge_server.py v5）远程调用
  * DeepSeek dsh（DeepSeek Harness Shell），让 AI 远程操作电脑。
  *
- * 通道：**ACP 官方通道**（dsh --profile acp serve，127.0.0.1:7800；session/new + session/prompt + SSE 流式），
+ * 通道：**ACP 官方通道（stdio）**——桥接自己拉起 `dsh --profile acp` 子进程，
+ * session/new + session/prompt + session/update 流式；手机端协议/接口自 v3 起未变。
  * 同一 session_id 连续调用 = 多轮会话续接（电脑端 dsh 记忆连续）。桥接版本/ACP 版本一律由 /status 如实上报，
  * 代码里不写死版本号（写死过 "dsh 0.1.5"，手机端 AI 据此误判"版本不兼容"）。
  *
- * v4 要点（2026-09-27，实测驱动）：
- *   * 桥接为每个会话建立会话流并自动应答 session/request_permission —— 此前写文件/跑命令类任务会永久挂起；
+ * v5 要点（2026-10-03，客户端升级到 0.2.0-rc.2 后实测驱动）：
+ *   * 0.2.0 的 acp profile 只提供 stdio，`dsh --profile acp serve --host/--port/--token`
+ *     直接报 `unknown option '--host'`（那条 HTTP 通道来自第三方插件 dsh-acp-server，已不再需要）；
+ *     桥接改用原生 stdio：无插件、不占 7800 端口、不需要 ACP token。
+ *   * 桥接自动应答 session/request_permission（写文件/跑命令类任务不再永久挂起）；
  *   * 本工具按 timeout+45s 向 OnlineToolManager 申报执行超时（不再被其 30s 默认值掐断），
  *     超时时如实说明"等了多久、任务可能仍在电脑上"；
  *   * 新增 shell 动作：把 task 当命令经 bridge /exec 直连执行（不经电脑端 LLM，毫秒级、输出原样）。
  *
  * 架构：
- *   手机 App → HTTP(Bearer token) → 电脑端 dsh_bridge_server v4 → ACP serve(127.0.0.1:7800)
+ *   手机 App → HTTP(Bearer token) → 电脑端 dsh_bridge_server v5 → ACP stdio 子进程(dsh --profile acp)
  *                                                             ├→ /exec 直连命令（shell 动作）
  *                                                             └→ headless(仅 ACP 不可用时 fallback)
  *
@@ -48,7 +52,7 @@ import java.util.Map;
  * 安全红线：
  *   * 桥接服务必须带 token 鉴权（Authorization: Bearer），未配置时不执行任何任务；
  *   * base_url 必须是 http:// 或 https:// 开头，禁止其他协议；
- *   * ACP serve(7800) 由电脑端 dsh 提供（bearer 鉴权），手机永远只访问带 token 的桥接层(8218)。
+ *   * ACP 子进程只在本机 stdio 上跑（不监听端口），手机永远只访问带 token 的桥接层(8218)。
  */
 @Tool(
         value = "remote_dsh",
@@ -575,7 +579,7 @@ public class RemoteDshTool implements AITool {
             setConnected(context, false);
             return AIToolResult.fail("连接失败：" + e.getMessage()
                     + "\n地址: " + getBaseUrl()
-                    + "\n排查：① 电脑端启动了 start_dsh_bridge.bat（含 ACP serve）且窗口还开着"
+                    + "\n排查：① 电脑端启动了 start_dsh_bridge.bat（桥接会自动拉起 dsh ACP 子进程）且窗口还开着"
                     + " ② 手机与电脑同网或隧道可用 ③ token 是否与电脑端打印的一致"
                     + "\n第一次配电脑端？看教程：工具集 → 设置与系统环境 → 远程连接（电脑）→「怎么用 / 电脑端怎么配」");
         }
@@ -728,7 +732,7 @@ public class RemoteDshTool implements AITool {
             if (!Boolean.TRUE.equals(ok)) {
                 // 关键：把 bridge/ACP 给的失败原因如实带出来，否则用户只看到空输出无从判断
                 if (!errText.isEmpty()) sb.append("\n原因: ").append(errText);
-                sb.append("\n提示：电脑端 dsh 可能没装好/未登录（ACP serve 不可用），或该任务超时；"
+                sb.append("\n提示：电脑端 dsh 可能没装好/未登录（ACP 子进程起不来），或该任务超时；"
                         + "可用 action=get_status 看通道状态，或 action=start 重开会话");
             }
             sb.append("\n").append(out);

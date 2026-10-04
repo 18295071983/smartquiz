@@ -296,11 +296,13 @@ public class AIChatViewModel extends AndroidViewModel {
                 // 本地 AI 服务检查：在线模型可用时不视为失败（本地/在线解绑）
                 if (aiService == null) {
                     boolean online = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
-                    if (!online) {
+                    // NPU（GenieX）引擎也不需要 llama.cpp 的那套本地服务：它自己管模型加载
+                    boolean npu = inferenceRouter != null && inferenceRouter.isNpuEngineEnabled();
+                    if (!online && !npu) {
                         mainHandler.post(() -> {
                             errorLiveData.setValue("未选择任何模型");
                             setState(AIState.ERROR);
-                            aiErrorLiveData.postValue(new AIError("INIT", "未选择任何模型（本地或在线）", false));
+                            aiErrorLiveData.postValue(new AIError("INIT", "未选择任何模型（本地/在线/NPU）", false));
                         });
                         return;
                     }
@@ -367,12 +369,38 @@ public class AIChatViewModel extends AndroidViewModel {
         try {
             List<ChatMessage> loaded = chatHistoryManager.loadAIChatHistory();
             if (loaded != null && !loaded.isEmpty()) {
-                chatMessages.addAll(loaded);
-                AILogger.i(TAG, "Loaded " + loaded.size() + " chat messages");
+                // NPU（GenieX）引擎下，历史里的"本地服务初始化失败 / 模型文件不存在 / 自动恢复失败"
+                // 全是伪故障（本地那份模型没下载而已，NPU 推理并不需要它）→ 加载时直接过滤掉，
+                // 免得用户每次进来都看到"AI服务初始化失败"以为 App 坏了。
+                final boolean npuEngineOn = inferenceRouter != null && inferenceRouter.isNpuEngineEnabled();
+                int dropped = 0;
+                for (ChatMessage m : loaded) {
+                    if (npuEngineOn && isStaleLocalServiceError(m)) {
+                        dropped++;
+                        continue;
+                    }
+                    chatMessages.add(m);
+                }
+                if (dropped > 0) {
+                    AILogger.i(TAG, "已过滤 " + dropped + " 条本地服务失败历史（NPU 引擎下与推理无关）");
+                }
+                AILogger.i(TAG, "Loaded " + chatMessages.size() + " chat messages");
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to load chat history: " + e.getMessage());
         }
+    }
+
+    /** 是否是"本地 llama.cpp 服务"的历史噪声消息（NPU 引擎下应过滤） */
+    private boolean isStaleLocalServiceError(ChatMessage m) {
+        String c = (m == null) ? null : m.content;
+        if (c == null || c.isEmpty()) return false;
+        return c.contains("AI服务初始化失败")
+                || c.contains("Failed to locate model file")
+                || c.contains("模型文件不存在")
+                || c.contains("自动恢复失败")
+                || c.contains("正在恢复AI服务")
+                || c.contains("检测到AI模型状态异常");
     }
 
     // ========== 消息操作 ==========

@@ -2,11 +2,16 @@ package com.oilquiz.app.ai.model;
 
 /**
  * 推理类型枚举
- * 用于区分本地模型推理和在线模型推理
+ * 用于区分本地模型推理、在线模型推理、以及 NPU（Qualcomm GenieX）端侧推理
  */
 public enum InferenceType {
     LOCAL("本地模型"),
-    ONLINE("在线模型");
+    ONLINE("在线模型"),
+    /** Qualcomm GenieX 运行时：GGUF 直接跑在 Hexagon NPU（SM8750 / SM8850） */
+    NPU("NPU（GenieX）");
+
+    /** NPU 引擎在"选择模型"列表里的虚拟模型 ID */
+    public static final String NPU_MODEL_ID = "npu-geniex-hexagon";
 
     private final String displayName;
 

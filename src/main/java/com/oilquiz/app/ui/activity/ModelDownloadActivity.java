@@ -432,6 +432,9 @@ public class ModelDownloadActivity extends BaseActivity {
             "https://hf-mirror.com/MaziyarPanahi/Yi-Coder-1.5B-Chat-GGUF/resolve/main/Yi-Coder-1.5B-Chat.Q4_K_M.gguf",
             "Q4_K_M", "950 MB", "GGUF", "1.5B"));
 
+        // 只保留 Q4 量化：HTP 只原生加速 Q4_0/Q4_1/IQ4_NL/Q8_0，K-quant 会掉 CPU；
+        // 产品策略是"下载页只提供 Q4"，避免用户下了却跑不到 NPU。
+        models.removeIf(m -> m == null || m.quantization == null || !m.quantization.startsWith("Q4"));
         return models;
     }
 
@@ -584,7 +587,7 @@ public class ModelDownloadActivity extends BaseActivity {
         // 预填常见 q4_k_m 文件名（从 repo id 推断）
         String guess = repoId.substring(repoId.lastIndexOf('/') + 1).toLowerCase();
         if (!guess.endsWith(".gguf")) {
-            guess = guess.replace("-gguf", "").replace("_gguf", "") + "-q4_k_m.gguf";
+            guess = guess.replace("-gguf", "").replace("_gguf", "") + "-q4_0.gguf";
         }
         etFileName.setText(guess);
         etFileName.setSelection(etFileName.getText().length());
@@ -810,14 +813,36 @@ public class ModelDownloadActivity extends BaseActivity {
                        name = url.substring(url.lastIndexOf('/') + 1);
                    }
                    
-                   OnlineModelInfo customModel = new OnlineModelInfo(name, "自定义模型", url, "", "", "Custom", "");
-                   currentModelList.add(0, customModel);
-                   modelAdapter.notifyItemInserted(0);
-                   recyclerView.scrollToPosition(0);
-                   showToast(getString(R.string.h_fe9e6535));
+                   // 下载前提示：非 Q4 量化在 NPU 上不加速（会回落 CPU），先让用户确认
+                    String quant = com.oilquiz.app.ai.model.ModelDownloadManager.guessQuantizationFromUrl(url);
+                    final String fName = name;   // lambda 需要 effectively final（原代码给 name 重新赋过值）
+                    final String fUrl = url;
+                    if (quant != null && !quant.startsWith("Q4")) {
+                        new AlertDialog.Builder(ModelDownloadActivity.this)
+                                .setTitle("该量化不支持 NPU 加速")
+                                .setMessage("检测到量化：" + quant
+                                        + "\n\nNPU（Hexagon HTP）只原生加速 Q4_0 / Q4_1 / Q8_0 / IQ4_NL / MXFP4 / F16。"
+                                        + "\n该模型在 NPU 引擎下会回落到 CPU：功能可用，但速度明显更慢。"
+                                        + "\n\n是否仍要下载？")
+                                .setPositiveButton("仍然下载", (d2, w2) -> addCustomModel(fName, fUrl))
+                                .setNegativeButton("取消", null)
+                                .show();
+                        return;
+                    }
+                    addCustomModel(fName, fUrl);
                })
                .setNegativeButton(getString(R.string.h_625fb26b), null)
                .show();
+    }
+
+
+    /** 把自定义 URL 模型加入列表（下载前确认逻辑走完后统一从这里进） */
+    private void addCustomModel(String name, String url) {
+        OnlineModelInfo customModel = new OnlineModelInfo(name, "自定义模型", url, "", "", "Custom", "");
+        currentModelList.add(0, customModel);
+        modelAdapter.notifyItemInserted(0);
+        recyclerView.scrollToPosition(0);
+        showToast(getString(R.string.h_fe9e6535));
     }
 
     private void updateDownloadStats() {

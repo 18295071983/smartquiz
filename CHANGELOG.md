@@ -1,5 +1,172 @@
 # 变更日志
 
+## [2026-10-04] NPU 引擎与 llama.cpp「无缝切换、功能不降级」+ 预设全面 Q4 化 + 三项渲染修复
+
+本轮把 NPU（GenieX/Hexagon HTP）从"只在对话页可用"做成**本地推理的统一可选后端**，同时保证切换后功能不缩水；并把模型下载/搜索全链路收口到 Q4_0（HTP 原生加速的唯一甜点量化）。
+
+### 1) 无缝切换：能力感知路由 + 故障自动回退（新增 `ai/engine/NpuEngineRouter.java`）
+
+本地推理此前有 10+ 个入口**直接**调 `LlamaHelper`（`ALChat` / `InferenceQueue`×2 / `InferenceRouter`×2 / Agent 思考链×5 / 题库导入），所以上一次的 NPU 接入只在对话页生效。现在：
+
+- 新增路由器，**按能力分流**：普通文本生成走 NPU；需要**思考链 / 工具调用 / 多模态**的请求留在 llama.cpp（避免能力缩水）。
+- 已切到路由器的普通生成入口：`ALChat`、`InferenceQueue`（2 处）、`InferenceRouter` 本地兜底（2 处）。
+- **故障回退**：NPU 未加载/加载失败/推理异常 → 自动改走 `LlamaHelper`，用户最多觉得"这次慢一点"，不会得到"功能不可用"。
+- 开关镜像：`NpuEngineRouter.init()` 在 `SmartQuizApplication.onCreate` 读一次持久化开关推给 `NpuLlmChat.setEngineEnabled()`（**不触发任何原生初始化**，不碰启动路径）；`InferenceRouter.setNpuEnabled()` 同步写入，保证冷启动/运行期一致。
+- 实测日志：`NPU 引擎开关(镜像) = true`。
+
+### 2) 思考链在 NPU 上不再失效（根因：参数没传）
+
+GenieX 0.8.0 的真实签名（`javap` 取证）：
+
+```
+LlmWrapper.applyChatTemplate(ChatMessage[] messages, String tools, boolean addGenerationPrompt, boolean enableThinking, Continuation)
+```
+
+官方示例只传 3 个参数 → `enableThinking` 默认 **false**；我们原先同样只传 3 个，所以"深度思考"在 NPU 上等于没开。现全链路透传：深度思考开关 → `npuConfig.enableThinking` → `InferenceRouter.generateNpuStream` → `NpuLlmChat.sendChatAsync(..., thinking)` → `applyChatTemplate(..., thinking)`；同时预留 `toolsJson` 参数（工具调用接的时候直接用）。
+
+### 3) 引擎互斥：运行时不再占两份模型
+
+原先只有"冷启动跳过本地预加载"这一层保护，运行期切换会**两份权重同时常驻**（0.6B 0.4GB / 4B 2.4GB，外加两份 KV cache）。现在：
+
+| 场景 | 处理 |
+| --- | --- |
+| 开 NPU（`enableNpuEngine`） | 先 `LlamaHelper.release()` 释放本地权重，再加载 NPU |
+| 关 NPU（`disableNpuEngine`） | `NpuLlmChat.release()` 释放 GenieX 权重与会话 |
+| NPU 失败回退 llama.cpp | 回退前先释放 NPU（`NpuEngineRouter` 2 处流式回退） |
+
+并加 `logNativeMem()` 打点（`nativeHeap=x.xx GB`）便于回归验证。真机实测（NPU 引擎开启、无本地模型）：`Native Heap 25MB / Java Heap 21MB / Graphics 28MB / TOTAL PSS ≈ 292MB` —— 权重是 **mmap 文件页**（Clean，可回收可共享），不计入 Native Heap，因此"两份"只会在上述场景出现，现已堵住。唯一无法避免的是**两份原生库代码段**（GenieX 自带 ggml/llama + 我们的 `libllama-jni.so`），各十几 MB，属共享库映射，可忽略。
+
+### 4) 预设/下载/搜索全链路只保留 Q4_0
+
+HTP 只原生加速 **Q4_0 / Q4_1 / Q8_0 / IQ4_NL / MXFP4 / F16**；项目原预设几乎全是 Q4_K_M，会导致"下了却跑不到 NPU（掉 CPU）"。处理：
+
+- 脚本按预设仓库**自动换成 Q4_0**（其次 IQ4_NL）：`qwen3.5-0.8b / qwen3.5-2b / qwen3.5-4b / glm-edge-1.5b / internlm2.5-1.8b / minicpm-v4.6` 共 6 条，主源 hf-mirror + 备源 modelscope + 体积一并重写。
+- 仓库里没有 Q4_0/IQ4_NL 的 **5 条直接删除**：`qwen3-vl-2b-thinking`、`deepseek-r1-1.5b`、`qwen3.8-4b-distill`、`minicpm5-1b`、`minicpm3-4b`（连带修引用：`AIServiceInitializer.DEFAULT_MODEL_ID` 由 `qwen3.8-4b-distill` 改为 `qwen3.5-4b`，`AIChatActivity` 两处推荐文案同步更新）。
+- 新增 4B 的 NPU 预设 `qwen3-4b-q4_0-npu`（2.38GB，官方 Qwen3-4B-Q4_0，推荐）；一度新增的 `qwen3.8-4b-distill-q8_0-npu` 随后按"只保留 Q4"删除（该仓库只有 Q4_K_M/Q5_K_M/Q8_0）。
+- 下载页**在线推荐列表**统一过滤：`models.removeIf(m -> m.quantization == null || !m.quantization.startsWith("Q4"))`；**搜索预填文件名**由 `-q4_k_m.gguf` 改为 `-q4_0.gguf`。
+- 自定义 URL 新增**下载前提示**：`ModelDownloadManager.guessQuantizationFromUrl(url)` 识别量化，非 Q4 时弹确认框（"该量化不支持 NPU 加速…会回落到 CPU：功能可用但明显更慢"，仍然下载/取消），确认后才走 `addCustomModel()`。
+
+最终 APK 实测：**预设 9 条，量化全部 Q4_0**。
+
+### 5) 独立「NPU 推理」页删除，入口重指向
+
+删除 `NpuInferActivity` / `activity_npu_infer.xml` / `arrays_npu.xml` 与 Manifest 声明，全仓 0 处残留引用；入口改指更有用的地方：状态详情弹窗的"NPU 推理"按钮去掉、NPU 详情弹窗改开**模型下载页**、AI 服务状态页按钮文案改为「选择推理引擎（含 NPU）」（指向模型选择页）。NPU 的日常用法收敛为：模型选择页开关引擎 + 模型下载页下 Q4_0 模型 + 对话页直接用。
+
+### 6) 渲染三项修复（壁纸扩展 / 滑动重绘 / 状态栏区域）
+
+- **"滑动就重绘打架"根因**：`EdgeToEdgeHelper.syncWindowBackground()` 把**同一个 `Drawable` 实例**同时挂到 root、`Window`、`DecorView` 三个尺寸不同的 owner 上，每次重绘互相重设 bounds。现改为各自持有**独立实例**（新增 `independentCopy()`：优先 `ConstantState`，`LayerDrawable` 逐层递归重建，末选纯色）。
+- **位图缓存**：`AppWallpaperManager` 加缓存 + `invalidateWallpaperCache()`（挂在 `setMode` / `setLibraryPath` / `markWallpaperRefreshed`），避免 onResume/+300ms/+1200ms 三次都重新解码整屏壁纸；缓存键刻意不用系统壁纸指纹（那会每次读文件，主线程 I/O）。
+- **带标题栏页面状态栏区也延伸**：`applyInsets()` 由"给 AppBar 内部加 padding"（标题栏背景顶到状态栏）改为**给 AppBar 加 top margin 整体下移**，状态栏区显示页面背景/壁纸；不支持 margin 的容器保留 padding 降级；`ORIG_MARGIN` 保证 insets 回调重复触发是绝对增量。同步修改 `isLightStatusArea()`（改采样页面根背景，否则图标深浅算反），并删除已失效的 `SKIP_APPBAR_INSET` 白名单。
+
+### 7) 「把 NPU 做成自己 llama.cpp 的 ggml 后端」：根因更正 + 可选开关就位
+
+上一节（2026-10-03）结论文档写的是"ABI 兼容但插件注册 0 设备"，本轮**找到真正原因并更正**：
+
+- 我们这份 llama.cpp 的加载协议是**新式**：`ggml-backend-reg.cpp:220 load_backend()` 要求插件导出 `ggml_backend_init`（并可选 `ggml_backend_score`，返回 0 则静默跳过；随后校验 `reg->api_version == GGML_BACKEND_API_VERSION`）。
+- GenieX 的 `libggml-hexagon.so` 导出的是**老式** `ggml_backend_hexagon_reg`（`llvm-nm` 取证）→ 第 3 步就失败 → HTP 从未注册（此前观察到的"返回 0"是把返回值当 int 读的误读）。
+- **正确做法**：用仓库自带的 `ggml/src/ggml-hexagon/`（新版协议，含完整 DSP skel 源码 `htp/*.c`）自己编，上游文档写明 `GGML_HEXAGON=ON` + Hexagon SDK → HTP0 就是与 Vulkan/OpenCL/CPU 平级的 ggml 设备，`-ngl` 可卸载（"Hexagon NPU behaves as a GPU device when it comes to -ngl"）。
+- 已把接入准备好（默认关、现有构建零影响，已验证 BUILD OK）：`src/main/cpp/CMakeLists.txt` 中**设了 `HEXAGON_SDK_ROOT` 就自动 `GGML_HEXAGON=ON`**，ON 时链入 `ggml-hexagon` 并把 `libggml-hexagon.so` 与 `libggml-htp-v73/75/79/81.so` 拷进 `jniLibs/arm64-v8a/`。
+- **唯一缺口**：Hexagon SDK。CI 免登录仓库 `snapdragon-toolchain/hexagon-sdk` 只有 `amd64-lnx`（Linux ELF）与 `arm64-wos`（ARM64 Windows），**无 x86_64-Windows** 资产；官方 Windows 版需 Qualcomm 账号；本机无 Docker/WSL，QAIRT 内只有 DSP 预编译库无编译器。下一步二选一：装 WSL2 用 Linux 版（可用 `ghfast.top` / `gh-proxy.com` 加速下载，实测 HTTP 200 / 662MB），或登录官方下 Windows 版。
+
+## [2026-10-03] 补充实验：能否让 App 原有的 llama.cpp 直接吃 NPU？（结论：ABI 兼容，但插件注册 0 设备）
+
+> ⚠️ **本节结论已被 [2026-10-04] 第 7 条更正**：并非"ABI 兼容却被拒"，而是**插件加载协议不一致** —— 我们这份 llama.cpp 要 `ggml_backend_init`（新协议），GenieX 导出的是 `ggml_backend_hexagon_reg`（老协议），所以 `load_backend()` 在第 3 步失败、HTP 从未注册。当时的"插件注册 0 设备"与"`ggml_backend_load` 返回 0"都是误读（返回值被当 int 读）。正解是用仓库自带的 `ggml/src/ggml-hexagon/` 自己编。
+
+需求来自"NPU 要跟 App 的聊天引擎（llama.cpp）接上"。App 里有两份 llama.cpp：我们自己的 `libllama-jni.so`（CPU/OpenCL/Vulkan，Agent/题库导入/VLM 等全功能在用）与 GenieX AAR 自带的 `libllama.so` + `libggml-hexagon.so`（跑 HTP）。若能把后者作为**我们那份**的一个 ggml 后端挂上去，所有功能都能吃 NPU。
+
+实测（`src/main/cpp/ggml-probe.cpp`，独立极简 CMake 目标，只 dlopen `libllama-jni.so` 的符号来调用，不重链 195MB 大库）：
+1. **符号全通**：`libggml-hexagon.so` 需要的 **32 个 ggml C API 符号，`libllama-jni.so` 全部导出**（该库共导出 9843 个符号）；我们的库里确实带后端注册表（`ggml_backend_registry::load_backend`、`ggml_backend_reg_count/reg_get`、`ggml_backend_reg_dev_count/reg_dev_get`）。
+2. **运行期被接受**：`ggml_backend_load("<nativeLibDir>/libggml-hexagon.so")` 返回 **0**（成功），`ggml_backend_load_all()` 也返回 0 —— 说明 `GGML_BACKEND_API_VERSION` 校验通过，ABI 不存在硬冲突。
+3. **但注册 0 个设备**：加载前后，我们这份 llama.cpp 的后端始终只有 `Vulkan`(1 设备) / `OpenCL`(1) / `CPU`(1)。设了 `ADSP_LIBRARY_PATH`/`DSP_LIBRARY_PATH` 指向 nativeLibraryDir（插件里写死了 `file:///libggml-htp-v%u.so?htp_iface_skel_handle_invoke&_modver=1.0&_dom=adsp`）也没变。
+   → 插件依赖 **GenieX 自己的 DSP 会话引导**（他们日志里的 `Auto-resolved HTP runtime path`），单独挂到第三方 llama.cpp 上不足以让 HTP 设备出现。
+
+**结论与取舍**：目前"NPU 上的 llama.cpp"就是 **GenieX AAR 自带的那份**；App 原生那份 `libllama-jni.so` 继续负责 CPU/OpenCL/Vulkan 与全部工具链功能。要让**同一份**引擎既用 HTP 又保留工具链，只有两条路：
+- **B1（工作量大、风险高）**：把自己的 llama.cpp 重编为**动态 ggml**（`GGML_BACKEND_DL=ON` + 共享 ggml 库）并链到 GenieX 的 `libggml-base.so`/`libggml.so`，使插件注册进同一注册表；同时复刻其 DSP 引导。需要重编 195MB 大库，且 GPU 后端共存有回归风险。
+- **B2（推荐）**：保持两份，把需要 NPU 的功能逐个接到 GenieX 上（对话已接，题库导入/Agent 可续接），UI 明确区分引擎。
+
+`GgmlProbe` 与 `ggml-probe` 目标**保留为诊断工具**（不联网、不改配置、启动路径不调用）；原来的 `/data/local/tmp/ggml_probe` 自动触发钩子已移除。
+
+## [2026-10-03] NPU 主流程接入完成：改用 Qualcomm GenieX SDK，对话页问答直接跑 Hexagon NPU（实测 72–78 tok/s）
+
+**结论先说**：旧的手搓 QAIRT/QNN + Genie 路线（下面那节）只做到"自检"，**已整体退休**；换成 Qualcomm 官方 **GenieX Android SDK**（`com.qualcomm.qti:geniex-android:0.8.0`，本地 AAR 放 `libs/`），现在**对话页正常提问就直接在 NPU 上出字**。
+
+真机实证（Xiaomi 25113PN0EC / SM8850 / Hexagon v81，Qwen3-0.6B-Q4_0 本地侧载）：
+```
+llama_kv_cache: layer 0..27: dev = HTP0
+sched_reserve:  HTP0 compute buffer size = 298.75 MiB   CPU compute buffer size = 8.01 MiB
+sched_reserve:  graph: nodes = 986, splits = 2
+GenieXSdk: prefill_speed=803.98 tok/s, decoding_speed=77.78 tok/s
+```
+- 对比官方示例 App 的默认配置（HTP0 27MB / CPU 299MB、33 tok/s）：这里 `ModelConfig(nCtx=4096, nGpuLayers=-1)` 把整张图几乎全推给 Hexagon，CPU 只剩 8MB 兜底 → **快一倍**。
+- 多轮上下文生效：第二轮 `prefix match: past_prompt_tokens=235, match_len=217`（KV 前缀复用，不重算）。
+- **Q4_0 才是 NPU 甜点**：从 `libggml-htp-v81.so` 符号表确认 HTP 端原生支持 Q4_0/Q4_1/Q8_0/IQ4_NL/MXFP4/F16；**K-quant（Q4_K_M 等）不在列表里 → 会掉 CPU**，测 NPU 性能别用 K-quant。
+
+**为什么要换（旧路线的三个死结）**：① 手搓路线要 QNN context binary，本地 ONNX→QNN 转换 14 次尝试都倒在 QNN 不支持的算子/Reshape 推导上（`npu_demo/qnn_convert*.log`）；② 拿占位模型走 `GenieDialog_create` 会在原生层 abort（Java 抓不到，表现为点一下整个 App 闪退）；③ 自编 DSP skel 在零售机需要签名。GenieX 官方 AAR 自带**预签名 HTP skel + ggml-hexagon + QNN 2.45 全套**，这三个问题一次性消失。
+
+**关键改动清单**（本轮）：
+1. **依赖**：`implementation files('libs/geniex-android-0.8.0.aar')`（78MB，自带 arm64-v8a native + 模型管理，不需要 NDK/CMake）。
+2. **删掉旧的随包 QNN/Genie 库 + npu-jni**：`libQnnHtp.so`/`libQnnSystem.so`/`libQnnHtpV81Skel.so`/`libQnnHtpV81Stub.so`/`libGenie.so`/`libnpu-jni.so`、`src/main/cpp/npu-jni.cpp`、`src/main/cpp/qnn/`、`NpuHelper.java`、状态页「NPU 自检」。
+   - **为什么必须删**：GenieX 的 `libgeniex*.so` 是**运行期按文件名 dlopen** `libQnnHtp.so`，而 AGP 会让本地 `jniLibs` 覆盖 AAR 里的同名文件 → 若不删，它拿到的是我们那份 2.43 老 QNN，却要加载 2.45 工具链编译的 context binary（版本不兼容）。删后 APK 里是 GenieX 的 2.45 全套（libQnnHtp 2.82MB 等）。
+   - `libomp.so` 两边都有 → `pickFirst "**/libomp.so"` 保留我们那份（`llvm-readelf -d` 确认 `libllama-jni.so` 的 DT_NEEDED 里有它，而 GenieX 的库不需要）。
+3. **`NpuLlmChat.kt`**（新，Kotlin 封装）：init / 模型管理（hub 拉取 + **本地侧载**）/ 加载 / 流式生成 / 多轮 `sendChatAsync(roles, contents)` / 统计。
+   - **本地侧载（LOCALFS）**：目录必须在 **App 内部存储**（`filesDir/gguf/...`）。放过 `/sdcard/Android/data/<pkg>/files/` → App 读取 `Permission denied`（那层 FUSE 权限不由 App 掌控）。
+   - SDK 的模型管理器只认自己写的 `geniex.json` 清单 → `getPaths()` 为空时用"扫目录里的 `*.gguf`"兜底。
+   - **`GenieXSdk.init()` 必须先调**：JNI 注册在 init 里，漏了会抛 `UnsatisfiedLinkError: No implementation found for ... ModelManager.getPaths`（界面误报成"模型路径不正确"）。
+4. **推理路由 `InferenceRouter`**：新增 `InferenceType.NPU("NPU（GenieX）")` + 引擎开关（持久化）→ `generateStream/generate/generateSync` 分流，`stopInference()` 也停 NPU。
+5. **对话页接入（本轮最关键的一处）**：`AIChatActivity.processChatMessageNormal()` 的本地分支最终调的是 **`modelBridge.execute(...)` → AIService（llama.cpp）**，**根本不经过 `InferenceRouter`** —— 所以最初在路由层做的 NPU 分流一次都没执行到（表现为"发送后仍去加载本机不存在的本地模型"）。现在在**那个出口**加 NPU 分支，把 GenieX 的流式 token 接到界面同一条 `BridgeCallback` 链上。
+6. **把所有"把 NPU 用户拖回本地模型"的旁路都跳过**（否则界面报「模型文件不存在」/卡在「准备模型文件」）：
+   - `ensureModelLoaded()` 的本地模型文件存在性检查；
+   - `onCreate` 的"没有本地服务就退出"检查；
+   - `processChatMessageNormal()` 的 `aiService == null` 弹窗 + `modelBridge.isNativeStateValid()` 失败的**自动恢复**（3 处，会触发 `AIService: Failed to locate model file` 并卡死）；
+   - 本地 Agent 分支（依赖 llama.cpp 工具链）；Agent 引擎"等待模型就绪"的每 10 秒告警；
+   - `SmartQuizApplication.preloadAIServiceInternal()` 启动预加载本地 GGUF（NPU 下白占内存）。
+7. **UI 入口**：`ModelSelectorActivity`（对话页「模型」按钮进来的页面，**真正在用的那个**；旧的 `ModelSelectionActivity` 全仓无人调用）新增一行 **「🧠 NPU 引擎（GenieX）」** → 开启/关闭/重载/打开 NPU 推理页，行尾实时显示 `已启用 · local/qwen3-0.6b-q4_0 · 65.7 t/s`。
+8. **`NpuInferActivity`**（独立推理页）：模型下拉改为"本地侧载 0.6B / 1.7B + 镜像拉取 1.7B + qairt 4B + 8B"，并按 runtime 分支（qairt 必须 `ModelConfig(nCtx=0, nGpuLayers=0)` + `chipset=SM8850`，否则 AI Hub 预编译包永远加载失败）；下载进度改为真实字节百分比（原来恒 99%）。
+9. **待办**：① APK 瘦身（`libQnnHtpPrepare.so` 未压缩 83.67MB、`libQnnHtpV79*` ~15MB 对 v81 设备用不到，可 `jniLibs.excludes` 省 35–45MB）；② 把 NPU 状态显示到对话页状态栏；③ qairt（AI Hub 预编译 4B）路径实测。
+
+## [2026-10-03] NPU 接入（第一轮，已被上面 GenieX 方案取代）：Qualcomm QAIRT/QNN + Genie 进 App（真机跑通 device/context，只差 QNN 格式模型）
+
+背景：`D:\qualcomm\qairt\2.43.0.260128` 是 Qualcomm AI Runtime（QAIRT/QNN）2.43.0 完整 SDK（3.5GB）。项目原先那条 Hexagon 路线（llama.cpp `ggml-hexagon`；[build_snapdragon.bat](build_snapdragon.bat) 指向并不存在的 `Hexagon_SDK\6.4.0.2`）从未产出过库，而且零售机加载自编 DSP skel 需要签名；QAIRT 提供的是官方预签名 skel，所以改走 QNN/Genie。
+
+设备实测（Xiaomi 25113PN0EC，`SM8850` / canoe / Android 16 / arm64-v8a）：
+1. `qnn-platform-validator`（shell 域）：DSP/GPU 硬件在位 → **Hexagon Architecture V81** → DSP 单元测试 **Passed**。
+2. App 域（`libnpu-jni.so` + `NpuHelper`）：`libGenie.so` 加载成功（**Genie API 1.15.0**）、QNN provider `HTP_QTI_AISW`、`deviceGetPlatformInfo` 读到 **arch=v81 / socModel=0x57 / signedPD=yes / vtcmMB=8**、`backendCreate rc=0`、**`QnnDevice_create rc=0` → `QnnContext_create rc=0`**（device 连 config 都不用给，NULL 即可）。
+3. **踩坑与真因**（值得记）：一开始 `QnnDevice_create` 对 7 种 config（null / soc / arch / soc+arch / signedpd / +unsignedpd / platform-info）**全部返回 14001 = QNN_DEVICE_ERROR_INVALID_CONFIG**，看起来像"配置永远不对"。真正的原因是两个环境问题，跟 device config 毫无关系：
+   - ① **Android 10+ linker namespace 不暴露 vendor 库**：`libQnnHtpV81Stub.so` 的 DT_NEEDED 里有 `libcdsprpc.so`（fastrpc→DSP 的通路），没在清单里声明时 dlopen 报 `library "libcdsprpc.so" not found ... in namespace clns-10` → stub 加载失败 → QNN 一路笼统报成 14001。
+   - ② **DSP 侧 skel 需要 `ADSP_LIBRARY_PATH`**：App 进程没人替我们设（shell 下测试是我们手设的），不设时 transport 起不来（`QNN_TRANSPORT_CONFIG crc32 failed` / `Failed to load skel`）。
+   - 教训：`backendCreate`/`deviceCreate` 之前一直传 `nullptr` logger，等于把 QNN 的嘴堵上，只剩一个数字。接上 `QnnLog_create`（tag `QnnNative`）与 `GenieLog_create`（tag `GenieNative`）后**一眼就看到真因**。另：`errorGetVerboseMessage` 对这类错误码返回空，没用。
+
+本次改动（App 侧只新增，不动 llama.cpp/Vulkan 老路径）：
+1. **`AndroidManifest.xml`**：`<application>` 下新增 `<uses-native-library android:name="libcdsprpc.so" android:required="false"/>`（与已有的 `libOpenCL.so` 并列）。**只声明 `/vendor/etc/public.libraries.txt` 里真实存在的库** —— 这一行是 QNN 能用起来的前提，也是踩过坑的地方：
+   - 曾顺手加了 `libdmabufheap.so` / `libion.so`，但本机 public.libraries.txt 里**没有**这两个 → 链接器建应用名字空间失败 → **App 启动即 SIGABRT 秒退**，且 Java 层完全无日志（`FATAL EXCEPTION` 都没有，只有 `Zygote: Process xxx exited due to signal 6 (Aborted)`）。已移除，只留 `libcdsprpc.so`。
+2. 随包运行库（`src/main/jniLibs/arm64-v8a/`，约 24MB）：`libGenie.so`、`libQnnHtp.so`、`libQnnHtpV81Stub.so`、`libQnnSystem.so`、**`libQnnHtpV81Skel.so`**（Hexagon skel，DSP 侧需要真实文件路径）；`build.gradle` 的 `keepDebugSymbols` 加 `**/libQnn*.so`、`**/libGenie.so`（skel 带 Qualcomm 签名目录，被 llvm-strip 动过会加载失败）。项目本来就有 `useLegacyPackaging = true` → 运行库解压到 `nativeLibraryDir`，真实路径条件天然满足。
+3. 头文件 vendored 到 `src/main/cpp/qnn/include/{QNN,Genie}`（2MB）；新增 CMake 目标 **`npu-jni`**（`src/main/cpp/npu-jni.cpp`）：运行库全部 `dlopen`（缺库不拖垮 App）；`nativeSetDspLibraryPath()` 在任何 QNN 调用前设 `ADSP_LIBRARY_PATH`；QNN/Genie 日志各自接进 logcat（`QnnNative` / `GenieNative`）。
+4. Java `NpuHelper`（`com.oilquiz.app.ai.jni`）：`isRuntimeAvailable / hasRuntimeFiles / runtimeFilesDetail / ensureDspPath / selfTest / genieProbe / summary`；AI 服务状态详情（本地）新增「**NPU 自检**」按钮 + NPU 信息段（现在如实显示 `Genie API 1.15.0 · HTP v81 · QNN device/context 已通（缺 QNN 格式模型）`）。
+   **启动路径不再碰 NPU**：`MainActivity` 里那段"每次启动后台探测一次"已注释掉（`maybeProbeNpu()` 保留但默认不调用）——QNN/Genie 在原生层偶尔会 abort（signal 6），放在启动路径上就是"一打开就秒退"，而且 Java 层抓不到；自检只在用户点按「NPU 自检」时跑。
+5. **「NPU 自检」按钮把 App 点崩过（已修，值得记）**：早期版本里自检会跑一步"拿占位模型去 `GenieDialog_create`"，QNN/Genie 在**原生层直接 abort（SIGABRT）**——Java 层 try/catch 拦不住，表现就是用户点一下**黑屏/整个 App 消失**（crash buffer 里连 tombstone 都没有）。
+   - 试过的隔离方案（失败，已回退）：把自检页放独立进程 `android:process=":npu"`。结果 `:npu` 进程**连我们的代码都没跑到就死**——本 App 的那堆 ContentProvider/初始化（Chaquopy Python、本地模型预加载…）在第二进程里启动即挂，光靠 `Application.onCreate` 提前 return 也救不回来。
+   - 最终做法：**自检只跑安全的那部分**——随包运行库清单 / Genie 版本 / HTP 架构 / `backend → device → context`（这些在进程内跑过几十次都稳定）；`GenieDialog_create` 探测从自检里摘掉，`NpuHelper#genieProbe()` 保留但**明令禁止接 UI**，等真模型就位并单独隔离验证后再接。
+   - 验证：临时在启动路径打开自检跑一遍（结果正确、进程存活 20s+），随后关闭启动探测并重装。
+6. 现状/下一步：环境已通，**只缺 QNN 格式模型**。`GenieDialog_create` 仍 `ERROR_GENERAL`，Genie 日志走到 `ctx-new` 之后（即解析模型那步）静默失败——探测时目录里只有 1MB 全零占位 bin + `{}` tokenizer。要真跑推理，需要 AI Hub 下载或本地 `qairt-converter` + `qairt-quantizer` + `qnn-context-binary-generator` 转换出 `ctx-bins` + `tokenizer.json`，再接到 App 的本地引擎选择上（llama.cpp 保留）。
+
+
+## [2026-10-03] remote_dsh v5：dsh 客户端升级到 0.2.0-rc.2 后，桥接改走原生 stdio ACP
+
+用户升级 dsh 客户端（`DeepSeek Harness.exe` 0.1.5 → **0.2.0-rc.2**，内置 `dsh` 同步升到 0.2.0-rc.2）后问"远程控制电脑还能用吗"。实测结论：**电脑端 ACP 主通道断了**——启动脚本里那句 `dsh --profile acp serve --host 127.0.0.1 --port 7800 --token xxx` 在新版直接报 `error: unknown option '--host'`；7800 没人监听，桥接 `ACP.alive()` 探到 `WinError 10061 连接被拒绝`，手机端 `run/start/history` 全部失败（只有 `shell` 直连命令还能用）。
+
+根因：
+1. 0.2.0 的 acp profile **只提供 stdio**（`dsh --profile acp --help` → "Serve automation clients over Agent Client Protocol stdio"），HTTP serve 是 0.1.5 时代第三方插件 `dsh-acp-server`（声明依赖 `@deepseek-ai/dsh-* ^0.1.5-rc.2`）提供的；新 acp profile 的 bundle 只有 `dsh-base + dsh-acp-app`，不再装它。
+2. 主 home 里装好插件的 acp profile 也已不在（`~/.workbuddy/dsh-home/profiles` 只剩 `desktop`）。
+
+改法（App 端接口零改动）：**桥接自己 spawn `dsh --profile acp`，用换行分隔 JSON-RPC 讲 ACP v1**——无插件、不占端口、不需要 ACP token。
+1. `tools/dsh_bridge_server.py` 与 `src/main/assets/remote_dsh/dsh_bridge_server.py`（导出源，两份必须一致）重写 ACP 传输层：`initialize / session/new / session/prompt`，流式文本收 `session/update → agent_message_chunk`，并按 `--permission` 自动应答 `session/request_permission`（写文件/跑命令不再挂死）。v5 起 `/status` 增报 `acp_transport=stdio`、`acp_profile`。
+2. 两个真 bug（实测踩到并修）：① **持锁等 initialize 自我死锁**——读线程要靠同一把锁投递响应，`ensure()` 持锁等待导致"等待超时(60s) 且 stderr 为空"；现在只有拉起/清理两小段持锁。② 子进程死亡要立刻报错，不留调用方干等满超时。另清理 `DSH_*` 会话身份变量，避免从 DSH shell 里启动时嵌套 agent 误认为同一次会话。
+3. **嵌套 agent 沙箱修复（关键，否则手机端"跑命令"仍然全废）**：dsh 的沙箱/审批策略读环境变量 `DSH_PERMISSION_MODE`（acp profile 默认 `workspace-write`）。Windows 上 workspace-write 要 materialize 工作目录的 ACL 临时授权，实测失败——手机让它跑 `echo`，电脑端回 `Error: sandbox-local windows-acl temp grant materialization failed`，命令根本没跑。现在桥接显式设 `DSH_PERMISSION_MODE`，新增 `--permission-mode read-only|workspace-write|danger-full-access`，**默认 `danger-full-access`**（远程控制电脑本来就要读写/跑命令，手机侧由桥接 token 把关；收紧可显式改小）。实测改默认后同一任务从"沙箱报错"变成 2 秒回 `perm-ok`。
+4. 启动脚本回归单窗口：`start_dsh_bridge.bat/.sh`（assets 与 tools 两份）、`tools/start_tunnel_bridge.ps1` 不再起 ACP 服务窗口/传 `--acp-token/--acp-base`（这两个参数保留解析但已废弃，老脚本不会报错）；新增 `--no-open` 便于脚本化启动；README 同步（含"报 unknown option '--host' = 用了旧脚本"与"沙箱挡住 = 加 `--permission-mode danger-full-access`"两条排查项）。
+5. App 侧仅文案/注释同步（`RemoteDshTool`、`RemoteDshConnectActivity`、`AgentWorkspace` 工具清单 v4→v5），接口与动作不变；`/status` 增报 `permission_mode`。
+6. 验收：新增 `tools/tests/bridge_stdio_e2e.py`（单元：权限应答 allow/deny/未知请求兜底；A 阶段：/status → start → 两轮 prompt 验多轮续接 → history → /exec → 跑命令真拿到 `perm-ok`；B 阶段：`--permission-mode workspace-write` 下权限请求被自动应答且不挂死）**22/22 通过**；`tools/tests/acp_stdio_probe.mjs` 为纯协议探针；导出脚本用 shim 探针跑通（dsh 版本回显、参数正确、不再出现 7800）。
+7. 注意：新代码包在 APK assets 里，需重新构建安装后从 App「导出电脑端程序」才能拿到；`--permission-mode` 默认不受沙箱限制属安全取舍（README 安全说明已写明）。
+
 ## [2026-10-03] AI 新增 ssh_exec 工具（JSch 纯 Java 版）+ edge-to-edge 全面屏适配
 
 ### ssh_exec 工具（agent 连接任意 SSH 主机）

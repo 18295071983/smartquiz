@@ -50,6 +50,15 @@ public final class AppWallpaperManager {
     public static void setMode(Context context, int mode) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                 .edit().putInt(KEY_MODE, mode).apply();
+        invalidateWallpaperCache();
+    }
+
+    /** 让壁纸位图缓存失效（换壁纸/切模式/换库图后调用，下一次应用时重新解码） */
+    public static void invalidateWallpaperCache() {
+        synchronized (CACHE_LOCK) {
+            cachedBaseBitmap = null;
+            cachedBaseKey = null;
+        }
     }
 
     /** 壁纸库模式选中的壁纸文件路径 */
@@ -61,6 +70,7 @@ public final class AppWallpaperManager {
     public static void setLibraryPath(Context context, String path) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                 .edit().putString(KEY_PATH, path).apply();
+        invalidateWallpaperCache();
     }
 
 
@@ -373,22 +383,42 @@ public final class AppWallpaperManager {
     /** 标记一次壁纸重建（进入冷却） */
     public static void markWallpaperRefreshed() {
         lastWallpaperRefreshMs = android.os.SystemClock.elapsedRealtime();
+        invalidateWallpaperCache();   // 系统壁纸已刷新 → 位图缓存失效，下次重新解码
     }
 
-    /** 当前壁纸 drawable（已叠加暗化遮罩）；模式关闭或获取失败返回 null */
-    public static Drawable getWallpaperDrawable(Context context) {
+    /**
+     * 位图缓存：避免每次应用壁纸都重新解码一张整屏位图。
+     *
+     * <p>为什么需要：`SmartQuizApplication.onActivityResumed` 会在 onResume / +300ms / +1200ms
+     * 各应用一次壁纸（还叠加"根布局 + 窗口"两份），每次解码整屏位图 → 明显卡顿与重复重绘。
+     * 键 = 模式 + 库路径 + 系统壁纸指纹；系统壁纸换了自然失效。
+     */
+    private static volatile Bitmap cachedBaseBitmap;
+    private static volatile String cachedBaseKey;
+    private static final Object CACHE_LOCK = new Object();
+
+    /** 取当前应显示的壁纸位图（带缓存）；失败返回 null */
+    private static Bitmap loadBaseBitmap(Context context) {
         int mode = getMode(context);
-        if (mode == MODE_OFF) {
-            return null;
+        if (mode == MODE_OFF) return null;
+        String key = mode + "|" + getLibraryPath(context);
+        Bitmap cached = cachedBaseBitmap;
+        if (cached != null && key.equals(cachedBaseKey)) {
+            return cached;
         }
-        Drawable base = null;
+        Bitmap bmp = null;
         if (mode == MODE_FOLLOW_SYSTEM) {
-            // 文件直读优先（getWallpaperFile/binder 直连），避免客户端 getDrawable 缓存返回旧壁纸；
-            // 全部失败回退内置默认壁纸（猫和老鼠），保证页面始终有壁纸背景
-            base = readSystemWallpaperDrawable(context);
-            if (base == null) {
-                base = getFallbackDrawable(context);
-                if (base != null) {
+            // 文件直读优先（getWallpaperFile/binder 直连），避免客户端 getDrawable 缓存返回旧壁纸
+            Drawable d = readSystemWallpaperDrawable(context);
+            if (d instanceof BitmapDrawable) {
+                bmp = ((BitmapDrawable) d).getBitmap();
+            }
+            if (bmp == null) {
+                d = getFallbackDrawable(context);
+                if (d instanceof BitmapDrawable) {
+                    bmp = ((BitmapDrawable) d).getBitmap();
+                }
+                if (bmp != null) {
                     android.util.Log.w("WallpaperDebug", "系统壁纸读取失败，已回退内置默认壁纸（猫和老鼠）");
                 }
             }
@@ -397,19 +427,41 @@ public final class AppWallpaperManager {
             if (path != null) {
                 File f = new File(path);
                 if (f.exists()) {
-                    Bitmap bmp = BitmapFactory.decodeFile(path);
-                    if (bmp != null) {
-                        base = new BitmapDrawable(context.getResources(), bmp);
-                    }
+                    bmp = BitmapFactory.decodeFile(path);
                 }
             }
         }
-        if (base == null) {
-            android.util.Log.w("WallpaperDebug", "壁纸 drawable 为 null, mode=" + mode);
+        if (bmp == null) {
+            android.util.Log.w("WallpaperDebug", "壁纸位图为 null, mode=" + mode);
             return null;
         }
-        android.util.Log.i("WallpaperDebug", "壁纸已获取, mode=" + mode);
+        synchronized (CACHE_LOCK) {
+            cachedBaseBitmap = bmp;
+            cachedBaseKey = key;
+        }
+        android.util.Log.i("WallpaperDebug", "壁纸位图已就绪(缓存), mode=" + mode);
+        return bmp;
+    }
+
+    /**
+     * 当前壁纸 drawable（已叠加暗化遮罩）；模式关闭或获取失败返回 null。
+     *
+     * <p><b>每次调用都返回新的独立实例</b>（位图共享缓存）—— 这一点很关键：
+     * 同一个 Drawable 实例不能同时挂到「根布局」和「Window」上，否则两个 owner 尺寸不同，
+     * 每次重绘都会互相重设 bounds，滑动时表现为反复重绘"打架"。
+     */
+    public static Drawable getWallpaperDrawable(Context context) {
+        Bitmap bmp = loadBaseBitmap(context);
+        if (bmp == null) {
+            return null;
+        }
+        Drawable base = new BitmapDrawable(context.getResources(), bmp);
         return new LayerDrawable(new Drawable[]{base, new ColorDrawable(SCRIM_ALPHA << 24)});
+    }
+
+    /** 供 Window 使用：独立实例（与根布局共享位图，但绝不共享 Drawable 状态） */
+    public static Drawable getWallpaperDrawableForWindow(Context context) {
+        return getWallpaperDrawable(context);
     }
 
     /**

@@ -61,6 +61,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private TextView gpuStatus;
     private TextView engineInfo;
     
+    // GenieX NPU 推理入口
+    private TextView npuGeniexStatus;
+    
     // 功能状态指示灯
     private View chatLight;
     private View qaLight;
@@ -183,6 +186,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         gpuLight = findViewById(R.id.gpu_light);
         gpuStatus = findViewById(R.id.gpu_status);
         engineInfo = findViewById(R.id.engine_info);
+        npuGeniexStatus = findViewById(R.id.npu_geniex_status);
 
         // 功能状态指示灯
         chatLight = findViewById(R.id.chat_light);
@@ -449,6 +453,22 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         if (btnPerformance != null) {
             btnPerformance.setOnClickListener(v ->
                     startActivity(new Intent(this, PerformanceActivity.class)));
+        }
+
+        // GenieX NPU 推理入口
+        MaterialButton btnOpenNpuInfer = findViewById(R.id.btn_open_npu_infer);
+        if (btnOpenNpuInfer != null) {
+            btnOpenNpuInfer.setOnClickListener(v ->
+                    startActivity(new Intent(this, com.oilquiz.app.ui.activity.ModelSelectorActivity.class)));
+        }
+        if (npuGeniexStatus != null) {
+            try {
+                npuGeniexStatus.setText("GenieX SDK 已接入 · 状态 "
+                        + com.oilquiz.app.ai.engine.NpuLlmChat.getStateName()
+                        + " · Hexagon NPU（SM8850）");
+            } catch (Throwable t) {
+                npuGeniexStatus.setText("GenieX SDK 已接入 · Hexagon NPU（SM8850）");
+            }
         }
     }
 

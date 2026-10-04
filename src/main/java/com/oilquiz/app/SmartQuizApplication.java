@@ -124,6 +124,9 @@ public class SmartQuizApplication extends Application {
         super.onCreate();
         instance = this;
 
+        // NPU 引擎开关镜像（只读 SharedPreferences + 静态标记，不做任何原生初始化）
+        try { com.oilquiz.app.ai.engine.NpuEngineRouter.init(this); } catch (Throwable ignored) { }
+
         // 服务商配置表挂载（providers.json：地址/服务/思考参数/地址拼装规则统一从此读取）
         try {
             com.oilquiz.app.ai.model.ProviderConfigManager.init(this);
@@ -336,6 +339,9 @@ public class SmartQuizApplication extends Application {
                     com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, root);
                     // 图标自适应: 按状态栏区实际背景亮度设深/浅图标(含 AI 对话等 insets 白名单页)
                     com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(activity, root);
+                    // 导航条固定为 surface 色带（在 syncStatusBarIcons 之后，避免图标深浅被覆盖）：
+                    // 消除滚动时系统对比遮罩与壁纸交替导致的底部闪烁
+                    com.oilquiz.app.theme.EdgeToEdgeHelper.stabilizeNavBar(activity, root);
                     // 多重刷新兜底：换壁纸返回 App 时 onResume 立即读取可能落在系统壁纸服务落盘竞态窗口（旧图），
                     // 300ms/1200ms 延迟再读两次，覆盖广播/颜色回调错过后的最后一次刷新机会
                     if (root != null) {
@@ -344,11 +350,13 @@ public class SmartQuizApplication extends Application {
                             com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot);
                             com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, fRoot);
                             com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(activity, fRoot);
+                            com.oilquiz.app.theme.EdgeToEdgeHelper.stabilizeNavBar(activity, fRoot);
                         }, 300);
                         root.postDelayed(() -> {
                             com.oilquiz.app.theme.AppWallpaperManager.applyTo(activity, fRoot);
                             com.oilquiz.app.theme.EdgeToEdgeHelper.syncWindowBackground(activity, fRoot);
                             com.oilquiz.app.theme.EdgeToEdgeHelper.syncStatusBarIcons(activity, fRoot);
+                            com.oilquiz.app.theme.EdgeToEdgeHelper.stabilizeNavBar(activity, fRoot);
                         }, 1200);
                     }
                 } catch (Throwable ignored) {
@@ -451,6 +459,19 @@ public class SmartQuizApplication extends Application {
      */
     private void preloadAIServiceInternal() {
         try {
+            // NPU（Qualcomm GenieX）引擎已启用时跳过本地 GGUF 预加载：
+            // 那条路用的是自己的侧载模型，预加载 llama.cpp 模型只会白占内存，
+            // 而且模型缺失时还会触发"准备模型文件/自动恢复"的告警循环。
+            try {
+                if (com.oilquiz.app.ai.inference.InferenceRouter
+                        .getInstance(this).isNpuEngineEnabled()) {
+                    com.oilquiz.app.util.AILogger.i(TAG,
+                            "NPU（GenieX）引擎已启用，跳过本地 GGUF 预加载");
+                    return;
+                }
+            } catch (Throwable ignored) {
+            }
+
             // 一键初始化进行中：跳过自动预加载，避免与下载/加载互相冲突
             if (com.oilquiz.app.ai.service.AIServiceInitializer.isInitializing()) {
                 com.oilquiz.app.util.AILogger.i(TAG,

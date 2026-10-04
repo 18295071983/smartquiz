@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-dsh 桥接服务 v3（电脑端）— ACP 官方通道版
+dsh 桥接服务 v5（电脑端）— ACP stdio 通道版
 ============================================
 让手机端"答题宝"App 通过 HTTP 远程调用本机的 DeepSeek dsh（DeepSeek Harness Shell）。
 
-v3 核心变化：后端切换为 **ACP 官方通道**（dsh --profile acp serve，127.0.0.1:7800）：
-    * 原因：dsh 0.1.5 起 web 通道 API 重构（/api/session/* 移除、cookie 鉴权），
-            官方远程标准为 ACP v1（JSON-RPC + SSE），本桥接直接对接。
-    * session/new 创建会话（mcpServers:{}）-> session/prompt（blocks 数组）-> SSE
-      agent_message_chunk 流式聚合 + result.stopReason 判定回合结束
+v5 核心变化：ACP 传输层从 **HTTP+7800（第三方插件）** 换成 **dsh 原生 stdio 子进程**：
+    * 起因：客户端升级到 0.2.0-rc.2 后，`dsh --profile acp serve --host … --port … --token …`
+      直接报 `error: unknown option '--host'` —— 新版 acp profile 只提供 stdio，
+      7800 那条 HTTP 通道来自第三方插件 dsh-acp-server（依赖 @deepseek-ai/dsh-* ^0.1.5-rc.2），
+      新的 acp profile 不再装它。
+    * 现在：桥接自己 spawn `dsh --profile acp`，用换行分隔 JSON-RPC 讲 ACP v1；
+      无插件、不占端口、不需要 ACP token，手机端协议与接口完全不变。
+    * session/new 创建会话（mcpServers:{}）-> session/prompt ->
+      session/update / agent_message_chunk 流式聚合 + result.stopReason 判定回合结束
+    * 写文件/跑命令类工具会发 session/request_permission（服务端→客户端请求），
+      桥接按 --permission 策略自动应答（不应答会永久挂起）
     * 同一 sessionId 连续 prompt = 多轮会话续接（dsh 侧记忆连续）
     * 本地内存记录会话历史（ACP 无 history RPC）
     * 原有 headless /run 保留为 fallback（ACP 不可用时降级）
 
 用法：
     python dsh_bridge_server.py [--port 8218] [--token xxx] [--dsh dsh]
-                                [--dsh-home C:\\...\\dsh-home] [--cwd 默认工作目录]
-                                [--acp-base http://127.0.0.1:7800] [--acp-token acp-test-token]
+                                [--dsh-home C:\\...\\dsh-home] [--dsh-profile acp]
+                                [--cwd 默认工作目录]
 
     --token 必填（安全红线）：App 调用时带 Authorization: Bearer <token>。
-    --acp-token 需与电脑端 `dsh --profile acp serve --token xxx` 一致。
+    --dsh 可指定 dsh 可执行文件/脚本的绝对路径（PATH 里那份不合用时）；默认用 PATH 里的 dsh。
+    --acp-base / --acp-token 是 0.1.5 时代 HTTP 通道的遗留参数，现在解析但不再使用（老脚本不会报错）。
 
 端点（除 /health、/pair 外均需 Bearer token）：
     GET  /health            存活检查（免鉴权）
@@ -29,7 +36,7 @@ v3 核心变化：后端切换为 **ACP 官方通道**（dsh --profile acp serve
     GET  /status            桥接+ACP 通道可用性
     POST /run               执行 dsh headless 任务（v1 保留，fallback）
     POST /exec              直接执行一条本机命令（不经 LLM，快且输出原样；body: cmd/cwd/shell/timeout）
-    POST /session           官方会话通道（v3 = ACP 后端）
+    POST /session           会话通道（ACP stdio 后端）
                              body:
                                {"action":"start"}                                   -> 创建会话，返回 session_id
                                {"action":"prompt","session_id":"...","text":"..."}  -> 同会话续接，返回 reply
@@ -38,12 +45,12 @@ v3 核心变化：后端切换为 **ACP 官方通道**（dsh --profile acp serve
                                {"action":"set_config","key":"cwd","value":"..."}    -> 设置默认工作目录
 
 安全说明：
-    * ACP serve 由电脑端 dsh 提供（--profile acp serve --host 0.0.0.0 --port 7800 --token xxx，
-      bearer 鉴权）；手机只访问本桥接层（token 鉴权），不直接接触 7800。
+    * ACP 子进程只在本机跑（stdio，不监听任何端口）；手机只访问本桥接层（token 鉴权）。
     * 必须带 token 访问 /run、/status、/session；启动日志会打印一次 token。
     * 本服务默认监听 0.0.0.0（同一 Wi-Fi 手机可达）；建议仅内网使用，公网请走 Tailscale/FRP 等隧道。
 """
 import argparse
+import atexit
 import io
 import json
 import os
@@ -68,21 +75,23 @@ BRIDGE_PORT = 8218
 DEFAULT_CWD = None
 RUNNING_JOBS = {}
 SESSION_HISTORY = {}          # sid -> [{role, text}]
-ACP_BASE = "http://127.0.0.1:7800"
-ACP_TOKEN = "acp-test-token"
+# ACP 通道：0.2.0 的 acp profile 只讲 stdio（HTTP serve 是 0.1.5 时代第三方插件的玩法，升级后已移除）
+ACP_PROFILE = "acp"
 # 公网/隧道地址（花生壳 http://xxx.vicp.net:12345、Cloudflare https://xxx.trycloudflare.com、frp 等）：
 # 设置后会作为额外配对候选出现在配对页，手机在任何网络都能扫它配对
 PUBLIC_URL = ""
-# ACP 权限请求策略（2026-09-27 实测新增）：
-#   allow（默认）= 自动回 allow-once；deny = 自动回 reject-once（只读任务可跑，写/执行类被拒）
+# ACP 权限请求策略（2026-09-27 实测新增；2026-10-03 换 stdio 后逻辑不变）：
+#   allow（默认）= 自动回"允许"类选项；deny = 自动回"拒绝"类选项（只读任务可跑，写/执行类被拒）
 # 背景：写文件/跑命令这类工具调用，dsh ACP 会先发 session/request_permission 并**等客户端回答**；
-# 该请求只投递到"会话流"(GET /acp/stream + Acp-Session-Id)，此前桥接只开了连接流、也从不回答，
-# 导致这类任务永久挂起直到超时（手机端只看到"等待回复超时"）。应答记录见 /status 的 permissions。
+# 客户端不答，session/prompt 就永不返回（手机端只看到"等待回复超时"）。应答记录见 /status 的 permissions。
 PERMISSION_POLICY = "allow"
+# 嵌套 dsh agent 的沙箱/审批模式（dsh 读 DSH_PERMISSION_MODE）：
+#   danger-full-access（默认）= 不受沙箱限制、审批 never（"远程控制电脑"本来就该能读写/跑命令；
+#                               手机侧由桥接 token 把关）。read-only / workspace-write 可显式指定，
+#   但 note：Windows 上 workspace-write 需要 materialize ACL 临时授权，实测会失败。
+PERMISSION_MODE = "danger-full-access"
 # 同时在跑的任务上限（headless /run 与直连 /exec 共用），防止手机端猛点把电脑压满
 MAX_CONCURRENT_JOBS = 4
-# 每个会话一条常驻 SSE 流，这里给个上限（超出关最旧的，下次用到会自动重开）
-MAX_SESSION_STREAMS = 6
 
 
 def log(msg):
@@ -90,253 +99,372 @@ def log(msg):
 
 
 # ---------------------------------------------------------------------------
-# ACP 客户端（dsh-acp-server HTTP serve，ACP v1 JSON-RPC + SSE）
+# ACP 客户端（dsh 原生 stdio；ACP v1 JSON-RPC，换行分隔 JSON）
 # ---------------------------------------------------------------------------
 class AcpClient:
+    """直接 spawn `dsh --profile acp` 子进程，用 stdio 讲 ACP v1。
+
+    为什么从 HTTP+7800 改回 stdio（2026-10-03 实测，客户端升级到 0.2.0-rc.2 后）：
+      * `dsh --profile acp serve --host … --port … --token …` 在新版直接报
+        `error: unknown option '--host'`：0.2.0 的 acp profile 只提供 stdio
+        （`dsh --profile acp --help` → "Serve automation clients over ACP stdio"）。
+      * 7800 那条 HTTP 通道来自第三方插件 dsh-acp-server（声明依赖 @deepseek-ai/dsh-* ^0.1.5-rc.2）；
+        新 acp profile 的 bundle 只有 dsh-base + dsh-acp-app，不装它。
+      * stdio 是官方原生通道：无插件、不占端口、不需要 ACP token，子进程生命周期由本桥接管。
+        实测 0.2.0-rc.2：initialize → agentInfo，session/new → sessionId 均正常。
+
+    协议要点：
+      initialize {protocolVersion:1, clientCapabilities:{}} -> agentInfo
+      session/new {cwd, mcpServers:{}}                      -> sessionId
+      session/prompt {sessionId, prompt:[{type:text,text}]} -> result.stopReason
+      流式文本走 session/update 通知（update.sessionUpdate == "agent_message_chunk"）
+      写文件/跑命令类工具会发 session/request_permission（服务端→客户端请求，必须应答，否则挂死）
+    """
+
     def __init__(self):
-        self.base = ACP_BASE
-        self.token = ACP_TOKEN
-        self.conn = None          # acp-connection-id
-        self.events = []
-        self.lock = threading.Lock()
-        self._sse_stop = threading.Event()
-        self._sse_thread = None
-        # 每会话一条 SSE 流：权限请求只会投递到会话流（见 PERMISSION_POLICY 注释）
-        self.session_streams = {}   # sid -> {"stop": Event, "thread": Thread}
-        self.perm_events = []       # 最近的权限应答记录（供 /status 审计）
-        self.agent_info = None      # ACP initialize 自报的 agentInfo（name/version），供 /status 如实展示
+        self.proc = None
+        self.lock = threading.RLock()
+        self.write_lock = threading.Lock()
+        self._start_lock = threading.Lock()   # 串行化"拉起子进程"，且**不能**在等 initialize 时持锁
+        self.pending = {}          # rid -> {"ev","result","error","chunks","method","sid"}
+        self.by_session = {}       # sid -> 当前在跑的 prompt rid
+        self.perm_events = []      # 最近的权限应答记录（供 /status 审计）
+        self.server_requests = []  # 最近收到的服务端→客户端请求（排错用）
+        self.agent_info = None     # initialize 自报的 agentInfo（name/version），供 /status 如实展示
+        self.stderr_tail = []      # dsh 子进程 stderr 末尾若干行（排错用）
+        self.last_probe = None     # 最近一次探测/启动失败原因，供 /status 的 probe_output 展示
+        self._seq = 0
 
-    def _post(self, path, body, headers=None, timeout=30):
-        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(self.base + path, data=data, method="POST")
-        req.add_header("Content-Type", "application/json; charset=utf-8")
-        req.add_header("Authorization", "Bearer " + self.token)
-        if self.conn and headers is None:
-            req.add_header("Acp-Connection-Id", self.conn)
-        if headers:
-            for k, v in headers.items():
-                req.add_header(k, v)
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.status, r.read().decode("utf-8"), dict(r.headers)
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode("utf-8", "replace")[:300], dict(e.headers)
-        except Exception as e:
-            return 0, "request failed: %s" % e, {}
+    # ---------- 子进程 ----------
+    def _argv(self):
+        dsh_path, is_cmd = resolve_dsh_cmd(DSH_CMD)
+        if not dsh_path:
+            return None
+        base = ["cmd", "/c", dsh_path] if is_cmd else [dsh_path]
+        return base + ["--profile", ACP_PROFILE]
 
-    def _on_event(self, ev, label):
-        """收事件：入队 + 处理服务端发来的请求（权限请求必须应答，否则 agent 永久等待）。"""
-        if ev.get("method") == "session/request_permission":
-            self._handle_permission(ev)
+    def _env(self):
+        env = dict(os.environ)
+        # 这些是"当前 DSH 会话"的身份/策略变量：桥接若从某个 DSH shell（开发时）里启动，
+        # 子 agent 会误以为自己是同一次会话。清掉，只保留显式配置的 DSH_HOME。
+        for k in ("DSH_SESSION_ID", "DSH_WEB_URL", "DSH_SHELL", "DSH_PROFILE", "DSH_PROFILE_DIR",
+                  "DSH_APPROVAL_POLICY", "DSH_FILE_POLICY", "DSH_SANDBOX_MODE"):
+            env.pop(k, None)
+        if DSH_HOME:
+            env["DSH_HOME"] = DSH_HOME
+        # 关键：dsh 的沙箱/审批策略读这个环境变量（acp profile 默认 workspace-write）。
+        # Windows 上 workspace-write 会去给工作区materialize ACL 临时授权，实测失败：
+        # "sandbox-local windows-acl temp grant materialization failed" → 跑命令/写文件全废。
+        # 手机已用 token 通过桥接鉴权，这里按 --permission-mode 显式设置（默认 danger-full-access）。
+        if PERMISSION_MODE:
+            env["DSH_PERMISSION_MODE"] = PERMISSION_MODE
+        return env
+
+    def _teardown(self, why=""):
+        """停掉子进程并唤醒所有等待者（子进程死了不能让请求干等）。"""
         with self.lock:
-            self.events.append(ev)
+            proc, self.proc = self.proc, None
+            self.agent_info = None
+            pend, self.pending = self.pending, {}
+            self.by_session = {}
+        suffix = ("：" + why) if why else ""
+        for rec in pend.values():
+            if not rec.get("error"):
+                rec["error"] = {"message": "dsh 子进程已退出%s" % suffix}
+            rec["ev"].set()
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 
-    def _handle_permission(self, ev):
-        """回答 dsh 的 session/request_permission（写文件/跑命令类工具会用到）。
+    def _note(self, text):
+        self.server_requests.append({"time": time.strftime("%H:%M:%S"), "what": text})
+        del self.server_requests[:-20]
 
-        实测（2026-09-27）：该请求**只走会话流**；客户端不回答时 session/prompt 永不 settle，
-        手机端表现为"等待回复超时"，用户看到的是"任务跑不了/ACP 有问题"。
+    def _start(self):
+        """拉起 dsh 子进程并完成 ACP initialize。
+
+        注意（2026-10-03 踩到的真 bug）：**不能在持有 self.lock 时等 initialize 响应**——
+        读线程收到响应后要拿 self.lock 才能把事件交给等待者，持锁等待会自我死锁，
+        现象是"initialize 等待超时(60s)"且 stderr 为空。所以只有 拉起/清理 这两小段持锁。
         """
-        rid = ev.get("id")
-        params = ev.get("params") or {}
-        sid = params.get("sessionId")
+        with self.lock:
+            self._teardown("重启 ACP 通道")
+            argv = self._argv()
+            if not argv:
+                self.last_probe = ("找不到 dsh 命令: %s（装 Node.js 后 npm i -g @deepseek-ai/dsh，"
+                                   "或用 --dsh 指定路径）" % DSH_CMD)
+                log("ACP(stdio): %s" % self.last_probe)
+                return False
+            try:
+                self.proc = subprocess.Popen(
+                    argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1,
+                    env=self._env(), cwd=(DEFAULT_CWD or None),
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except Exception as e:
+                self.proc = None
+                self.last_probe = "启动 dsh 失败: %s" % e
+                log("ACP(stdio): %s" % self.last_probe)
+                return False
+            proc = self.proc
+        threading.Thread(target=self._stdout_loop, args=(proc,), daemon=True).start()
+        threading.Thread(target=self._stderr_loop, args=(proc,), daemon=True).start()
+        # 这段必须在锁外等（读线程要靠 self.lock 投递响应）
+        ok, rec, err = self._request("initialize",
+                                     {"protocolVersion": 1, "clientCapabilities": {}},
+                                     timeout=60)
+        if not ok:
+            self.last_probe = "initialize 失败: %s" % err
+            log("ACP(stdio): %s | dsh stderr 末尾: %s" % (self.last_probe, " | ".join(self.stderr_tail[-3:])))
+            self._teardown("initialize 失败")
+            return False
+        self.agent_info = (rec.get("result") or {}).get("agentInfo") or {}
+        self.last_probe = "ok (stdio)"
+        log("ACP(stdio) 已连接: %s" % json.dumps(self.agent_info, ensure_ascii=False))
+        return True
+
+    def _write(self, obj):
+        proc = self.proc
+        if not proc or proc.poll() is not None or not proc.stdin:
+            return False
+        try:
+            with self.write_lock:
+                proc.stdin.write(json.dumps(obj, ensure_ascii=False) + "\n")
+                proc.stdin.flush()
+            return True
+        except Exception as e:
+            log("ACP 写入失败: %s" % e)
+            return False
+
+    def _stdout_loop(self, proc):
+        try:
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except Exception:
+                    log("ACP 非 JSON 输出（忽略）: %s" % line[:200])
+                    continue
+                try:
+                    self._dispatch(msg)
+                except Exception as e:
+                    log("ACP 消息处理异常: %s" % e)
+        except Exception as e:
+            log("ACP stdout 读取结束: %s" % e)
+        finally:
+            if self.proc is proc:
+                code = proc.poll()
+                log("ACP dsh 子进程已退出（exit=%s）| stderr 末尾: %s"
+                    % (code, " | ".join(self.stderr_tail[-3:])))
+                self._teardown("exit=%s" % code)
+
+    def _stderr_loop(self, proc):
+        try:
+            for line in proc.stderr:
+                line = line.rstrip()
+                if line:
+                    self.stderr_tail.append(line[:300])
+                    del self.stderr_tail[:-20]
+        except Exception:
+            pass
+
+    def _dispatch(self, msg):
+        if not isinstance(msg, dict):
+            return
+        rid = msg.get("id")
+        method = msg.get("method")
+        if method and rid is not None:
+            self._handle_server_request(msg)          # 服务端 → 客户端请求（权限等）
+            return
+        if method:
+            self._handle_notification(msg)            # 通知（流式文本等）
+            return
         if rid is None:
             return
-        option = "reject-once" if str(PERMISSION_POLICY).lower() == "deny" else "allow-once"
-        hdrs = {}
-        if self.conn:
-            hdrs["Acp-Connection-Id"] = self.conn
-        if sid:
-            hdrs["Acp-Session-Id"] = sid
-        st, body, _ = self._post("/acp", {"jsonrpc": "2.0", "id": rid,
-                                          "result": {"outcome": {"outcome": "selected",
-                                                                 "optionId": option}}},
-                                 headers=hdrs)
-        rec = {"time": time.strftime("%H:%M:%S"), "session": sid,
-               "tool": ((params.get("toolCall") or {}).get("toolCallId")),
-               "option": option, "http": st}
-        self.perm_events.append(rec)
-        del self.perm_events[:-20]
-        log("ACP 权限请求 → %s（HTTP %s, session=%s, tool=%s）"
-            % (option, st, sid, rec["tool"]))
+        with self.lock:
+            rec = self.pending.get(rid)
+        if rec is not None:
+            rec["result"] = msg.get("result")
+            rec["error"] = msg.get("error")
+            rec["ev"].set()
+        else:
+            self._note("stray response id=%s" % rid)
 
-    def _sse_loop(self, label="CONN", session_id=None):
-        try:
-            req = urllib.request.Request(self.base + "/acp/stream")
-            req.add_header("Authorization", "Bearer " + self.token)
-            req.add_header("Accept", "text/event-stream")
-            req.add_header("Acp-Connection-Id", self.conn)
-            if session_id:
-                req.add_header("Acp-Session-Id", session_id)
-            stop = self.session_streams.get(session_id, {}).get("stop") if session_id else self._sse_stop
-            with urllib.request.urlopen(req, timeout=600) as r:
-                while not (stop and stop.is_set()):
-                    line = r.readline()
-                    if not line:
+    def _handle_notification(self, msg):
+        method = msg.get("method")
+        params = msg.get("params") or {}
+        if method == "session/update":
+            u = params.get("update") or {}
+            kind = u.get("sessionUpdate")
+            if kind == "agent_message_chunk":
+                ct = u.get("content") or {}
+                if ct.get("type") == "text" and ct.get("text"):
+                    sid = params.get("sessionId")
+                    with self.lock:
+                        pri = self.by_session.get(sid)
+                        rec = self.pending.get(pri) if pri is not None else None
+                    if rec is not None:
+                        rec["chunks"].append(ct["text"])
+            else:
+                self._note("update:%s" % kind)
+            return
+        self._note("notify:%s" % method)
+
+    def _handle_server_request(self, msg):
+        """应答 dsh 发来的请求：权限请求必须回答，否则 session/prompt 永不返回。"""
+        rid, method, params = msg.get("id"), msg.get("method"), (msg.get("params") or {})
+        self._note("request:%s" % method)
+        if method == "session/request_permission":
+            options = [o for o in (params.get("options") or []) if isinstance(o, dict)]
+            want_allow = str(PERMISSION_POLICY).lower() != "deny"
+            prefer = ("allow_once", "allow_always") if want_allow else ("reject_once", "reject_always")
+            chosen = None
+            for want in prefer:                       # 先按策略挑，挑不到再退第一个可用项
+                for o in options:
+                    oid = o.get("optionId") or o.get("id")
+                    if str(o.get("kind") or "") == want and oid:
+                        chosen = oid
                         break
-                    t = line.decode("utf-8", "replace").strip()
-                    if t.startswith("data:"):
-                        raw = t[5:].strip()
-                        if not raw:
-                            continue
-                        try:
-                            ev = json.loads(raw)
-                        except Exception:
-                            continue
-                        self._on_event(ev, label)
-        except Exception as e:
-            with self.lock:
-                self.events.append({"sse_error": str(e), "label": label})
-            if session_id:
-                # 会话流意外断开：标记，下次 prompt 前重开（不回填事件，只保证后续能收到）
-                log("会话流断开(%s): %s" % (session_id, e))
-
-    def open_session_stream(self, sid):
-        """为会话开一条 SSE 流（幂等）。权限请求与 agent 消息都只投递到这条流。"""
-        if not sid:
-            return False
-        cur = self.session_streams.get(sid)
-        if cur and cur.get("thread") and cur["thread"].is_alive():
-            return True
-        # 上限：会话流按会话常驻，长期使用会累积（实测一天测试下来 5 条）。
-        # 超过上限就关掉最久没碰过的那条；该会话下次 prompt 前会自动重开（open_session_stream 幂等），
-        # 期间消息由服务端会话信箱排队，不会丢。
-        while len(self.session_streams) >= MAX_SESSION_STREAMS:
-            oldest = min(self.session_streams.items(), key=lambda kv: kv[1].get("opened", 0))
-            try:
-                oldest[1]["stop"].set()
-            except Exception:
-                pass
-            self.session_streams.pop(oldest[0], None)
-            log("会话流超上限，已关闭最旧的一条: %s" % oldest[0])
-        stop = threading.Event()
-        th = threading.Thread(target=self._sse_loop, args=("SESS", sid), daemon=True)
-        self.session_streams[sid] = {"stop": stop, "thread": th, "opened": time.time()}
-        th.start()
-        log("会话流已建立: %s" % sid)
-        return True
-
-    def ensure(self):
-        if self.conn:
-            return True
-        st, body, hdrs = self._post("/acp", {"jsonrpc": "2.0", "id": "1",
-                                             "method": "initialize",
-                                             "params": {"protocolVersion": 1,
-                                                        "clientCapabilities": {}}})
-        if st != 200:
-            log("ACP initialize 失败: %s %s" % (st, body[:200]))
-            return False
-        # 如实记下 ACP 自报的版本（App 的状态里不再写死 "dsh 0.1.5" 这种会误导的版本号）
-        try:
-            self.agent_info = (json.loads(body) or {}).get("result", {}).get("agentInfo")
-        except Exception:
-            self.agent_info = None
-        conn = hdrs.get("Acp-Connection-Id") or hdrs.get("acp-connection-id")
-        if not conn:
-            # urllib 的 dict(r.headers) 键大小写可能被归一化，兜底遍历
-            for k, v in hdrs.items():
-                if k.lower() == "acp-connection-id":
-                    conn = v
+                if chosen:
                     break
-        if not conn:
-            log("ACP initialize 无连接头（%s）" % json.dumps(hdrs)[:200])
-            return False
-        # 新连接：旧连接的会话流已失效，全部停掉
-        for s in list(self.session_streams.values()):
-            try:
-                s["stop"].set()
-            except Exception:
-                pass
-        self.session_streams.clear()
-        self.conn = conn
-        self._sse_stop = threading.Event()
-        self._sse_thread = threading.Thread(target=self._sse_loop, args=("CONN",), daemon=True)
-        self._sse_thread.start()
-        time.sleep(1)
-        log("ACP 连接建立: %s" % conn)
-        return True
+            if not chosen:
+                for o in options:
+                    if o.get("optionId") or o.get("id"):
+                        chosen = o.get("optionId") or o.get("id")
+                        break
+            if chosen:
+                self._write({"jsonrpc": "2.0", "id": rid,
+                             "result": {"outcome": {"outcome": "selected", "optionId": chosen}}})
+            else:
+                self._write({"jsonrpc": "2.0", "id": rid,
+                             "result": {"outcome": {"outcome": "cancelled"}}})
+            tc = params.get("toolCall") or {}
+            rec = {"time": time.strftime("%H:%M:%S"), "session": params.get("sessionId"),
+                   "tool": tc.get("toolCallId") or tc.get("title"),
+                   "kind": ((params.get("toolCall") or {}).get("kind")),
+                   "option": chosen, "options": [str(o.get("kind")) for o in options]}
+            self.perm_events.append(rec)
+            del self.perm_events[:-20]
+            log("ACP 权限请求 → %s（session=%s, tool=%s, 可选项=%s）"
+                % (chosen, rec["session"], rec["tool"], rec["options"]))
+            return
+        # 未知/不支持的客户端能力请求：明确回错误，别让 dsh 侧干等
+        self._write({"jsonrpc": "2.0", "id": rid,
+                     "error": {"code": -32601, "message": "bridge 不支持 %s" % method}})
+
+    # ---------- 请求/应答 ----------
+    def _next_id(self):
+        with self.lock:
+            self._seq += 1
+            return self._seq
+
+    def _request(self, method, params, timeout=60, sid=None):
+        """发一条 JSON-RPC 请求并等响应，返回 (ok, rec, err)；rec 内含 result / chunks。"""
+        if not self.proc or self.proc.poll() is not None:
+            return False, None, "dsh 子进程未运行"
+        rid = self._next_id()
+        rec = {"ev": threading.Event(), "result": None, "error": None,
+               "chunks": [], "method": method, "sid": sid}
+        with self.lock:
+            self.pending[rid] = rec
+            if sid:
+                self.by_session[sid] = rid
+        if not self._write({"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}}):
+            with self.lock:
+                self.pending.pop(rid, None)
+                if sid and self.by_session.get(sid) == rid:
+                    self.by_session.pop(sid, None)
+            return False, None, "ACP 写入失败（dsh 子进程可能已退出）"
+        # 分片等待：子进程一死就立刻报错，别让调用方干等满超时（实测踩到过"等 60s 才说子进程没了"）
+        deadline = time.time() + max(1, timeout)
+        while not rec["ev"].wait(0.25) and time.time() < deadline:
+            if self.proc is None or self.proc.poll() is not None:
+                break
+        if not rec["ev"].is_set():
+            with self.lock:
+                self.pending.pop(rid, None)
+                if sid and self.by_session.get(sid) == rid:
+                    self.by_session.pop(sid, None)
+            if self.proc is None or self.proc.poll() is not None:
+                tail = " | ".join(self.stderr_tail[-3:])
+                return False, None, "%s 未完成：dsh 子进程已退出%s" % (method, ("（" + tail + "）") if tail else "")
+            return False, None, "%s 等待超时(%ds)" % (method, timeout)
+        with self.lock:
+            self.pending.pop(rid, None)
+            if sid and self.by_session.get(sid) == rid:
+                self.by_session.pop(sid, None)
+        if rec["error"]:
+            err = rec["error"]
+            if isinstance(err, dict):
+                return False, rec, err.get("message") or json.dumps(err, ensure_ascii=False)[:300]
+            return False, rec, str(err)[:300]
+        return True, rec, None
+
+    # ---------- 对外能力 ----------
+    def ensure(self):
+        """保证有一个活的 ACP 子进程（挂了就重拉一个）；并发调用只拉一次。"""
+        with self.lock:
+            if self.proc and self.proc.poll() is None and self.agent_info:
+                return True
+        with self._start_lock:
+            with self.lock:
+                if self.proc and self.proc.poll() is None and self.agent_info:
+                    return True
+            return self._start()
+
+    def alive(self):
+        """ACP 是否可用（供 /status）。首次查询会顺带把连接建起来（后续会话复用）。"""
+        if self.ensure():
+            info = self.agent_info or {}
+            self.last_probe = "ok (stdio acp, agent=%s %s)" % (info.get("name") or "?", info.get("version") or "?")
+            return True
+        return False
 
     def session_new(self, cwd=None):
         if not self.ensure():
-            return None, "ACP 未连接（请确认电脑端 dsh --profile acp serve 已在 7800 运行）"
-        params = {"cwd": cwd or DEFAULT_CWD or ".", "mode": "default",
-                  "mpker": None, "mcpServers": {}, "clientSessionConfig": {}}
-        rid = str(int(time.time() * 1000) % 100000) + "-n"
-        st, body, _ = self._post("/acp", {"jsonrpc": "2.0", "id": rid, "method": "session/new",
-                                          "params": params})
-        if st not in (200, 202):
-            return None, "session/new HTTP %d: %s" % (st, body[:200])
-        t0 = time.time()
-        while time.time() - t0 < 60:
-            with self.lock:
-                for e in self.events:
-                    if e.get("id") == rid and isinstance(e.get("result"), dict):
-                        sid = e["result"].get("sessionId")
-                        if sid:
-                            # 关键：会话流必须在首次 prompt 前建好，否则权限请求/消息无人接收
-                            self.open_session_stream(sid)
-                            return sid, None
-                    if e.get("id") == rid and e.get("error"):
-                        return None, json.dumps(e["error"], ensure_ascii=False)[:300]
-            time.sleep(0.5)
-        return None, "session/new 超时"
+            return None, "ACP(stdio) 未连接：%s" % (self.last_probe or "dsh 子进程未启动")
+        ok, rec, err = self._request(
+            "session/new",
+            {"cwd": cwd or DEFAULT_CWD or os.getcwd(), "mcpServers": {}},
+            timeout=90)
+        if not ok:
+            return None, "session/new 失败: %s" % err
+        res = rec.get("result") or {}
+        sid = res.get("sessionId")
+        if not sid:
+            return None, "session/new 未返回 sessionId: %s" % json.dumps(res, ensure_ascii=False)[:200]
+        return sid, None
 
     def prompt(self, sid, text, timeout=240):
         if not self.ensure():
-            return None, "ACP 未连接"
-        # 会话流可能因网络/超时断过：发 prompt 前确保它在（否则收不到消息与权限请求）
-        self.open_session_stream(sid)
-        rid = str(int(time.time() * 1000) % 100000) + "-p"
-        st, body, _ = self._post("/acp", {"jsonrpc": "2.0", "id": rid, "method": "session/prompt",
-                                          "params": {"sessionId": sid,
-                                                     "prompt": [{"type": "text", "text": text}]}})
-        if st not in (200, 202):
-            return None, "session/prompt HTTP %d: %s" % (st, body[:200])
-        t0 = time.time()
-        chunks = []
-        while time.time() - t0 < timeout:
-            with self.lock:
-                done = [e for e in self.events
-                        if str(e.get("id")) == rid and isinstance(e.get("result"), dict)
-                        and e["result"].get("stopReason")]
-                if done:
-                    for e2 in self.events:
-                        p = e2.get("params") or {}
-                        u = p.get("update") or {}
-                        if u.get("sessionUpdate") == "agent_message_chunk" \
-                                and p.get("sessionId") == sid:
-                            ct = u.get("content") or {}
-                            if ct.get("type") == "text" and ct.get("text"):
-                                chunks.append(ct["text"])
-                    return "".join(chunks), None
-                err = [e for e in self.events
-                       if str(e.get("id")) == rid and e.get("error")]
-                if err:
-                    return None, json.dumps(err[-1]["error"], ensure_ascii=False)[:300]
-            time.sleep(0.8)
-        return None, "等待回复超时(%ds)" % timeout
+            return None, "ACP(stdio) 未连接：%s" % (self.last_probe or "dsh 子进程未启动")
+        ok, rec, err = self._request(
+            "session/prompt",
+            {"sessionId": sid, "prompt": [{"type": "text", "text": text}]},
+            timeout=timeout, sid=sid)
+        if not ok:
+            low = (err or "").lower()
+            if "not found" in low or "unknown" in low or "invalid" in low:
+                return None, "会话已失效（电脑端 ACP 重启过），可重开会话: %s" % err
+            return None, err
+        reply = "".join(rec.get("chunks") or [])
+        if not reply.strip():
+            # 兜底：万一 dsh 只把文本放在 result 里（不同版本形态），也别回空
+            res = rec.get("result") or {}
+            for key in ("text", "content", "message"):
+                v = res.get(key)
+                if isinstance(v, str) and v.strip():
+                    reply = v
+                    break
+        return reply, None
 
-    # 最近一次探测结果（供 /status 的 probe_output 展示，便于排错）
-    last_probe = None
-
-    def alive(self, attempts=2):
-        """ACP 是否可用。失败重试一次：实测偶发瞬时探测失败会让 App 误报"ACP 不可用 ✗"。"""
-        last = None
-        for i in range(max(1, attempts)):
-            try:
-                req = urllib.request.Request(self.base + "/acp/healthz")
-                req.add_header("Authorization", "Bearer " + self.token)
-                with urllib.request.urlopen(req, timeout=5) as r:
-                    if r.status == 200:
-                        self.last_probe = "ok (HTTP 200)"
-                        return True
-                    last = "HTTP %s" % r.status
-            except Exception as e:
-                last = "%s: %s" % (type(e).__name__, e)
-            if i + 1 < max(1, attempts):
-                time.sleep(0.4)
-        self.last_probe = last or "unknown"
-        return False
+    def shutdown(self):
+        self._teardown("桥接退出")
 
 
 ACP = AcpClient()
@@ -655,8 +783,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/health":
-            return self._send_json(200, {"ok": True, "service": "dsh-bridge", "version": 4,
-                                         "backend": "acp"})
+            return self._send_json(200, {"ok": True, "service": "dsh-bridge", "version": 5,
+                                         "backend": "acp-stdio"})
         if path == "/pair":
             if not self._is_loopback():
                 return self._send_json(403, {"ok": False, "error": "pair page is local-only"})
@@ -690,24 +818,23 @@ class Handler(BaseHTTPRequestHandler):
             # 说明：这里以前在 ACP 探测失败时会跑一次 30 秒的 headless 任务来"验证兜底通道"，
             # 结果是"查个状态"要等 30 秒（App 侧 30s 读超时刚好踩线）。改成不主动跑：
             # headless 是 run 时的降级路径，真的要用时再打，状态里只报 ACP 探测结果。
-            if acp_ok and not ACP.agent_info:
-                # 首次查询状态时把连接建起来：既拿到 ACP 自报的版本（App 状态里如实展示），
-                # 也让之后的第一次 prompt 少一次握手（连接会被复用）。
-                try:
-                    ACP.ensure()
-                except Exception as e:
-                    log("状态查询时建立 ACP 连接失败: %s" % e)
+            # ACP 现在是 stdio 子进程：alive() 顺带把连接建起来（第 7800 端口/ACP token 已不需要），
+            # 之后的会话直接复用这条连接。
             items, lerr = (acp_session_list() if acp_ok else (None, None))
+            with ACP.lock:
+                running = [r.get("sid") for r in ACP.pending.values() if r.get("sid")]
             return self._send_json(200, {
-                "ok": True, "version": 4, "backend": "acp",
+                "ok": True, "version": 5, "backend": "acp",
                 "channels": {"session_acp": acp_ok, "headless": headless_ok},
-                "acp_base": ACP_BASE,
+                "acp_transport": "stdio",
+                "acp_profile": ACP_PROFILE,
                 "acp_agent": ACP.agent_info,
                 "sessions_count": (len(items) if items is not None else 0),
                 "probe_output": probe,
                 "active_jobs": len(RUNNING_JOBS),
-                "session_streams": sorted(ACP.session_streams.keys()),
+                "session_streams": sorted([s for s in running if s]),
                 "permission_policy": PERMISSION_POLICY,
+                "permission_mode": PERMISSION_MODE,
                 "permissions": ACP.perm_events[-5:],
             })
         return self._send_json(404, {"ok": False, "error": "not found"})
@@ -835,49 +962,68 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global BRIDGE_PORT, TOKEN, DSH_CMD, DSH_HOME, ACP_BASE, ACP_TOKEN, DEFAULT_CWD, PUBLIC_URL
-    ap = argparse.ArgumentParser(description="答题宝 · dsh 远程桥接 v4 (ACP 后端)")
+    global BRIDGE_PORT, TOKEN, DSH_CMD, DSH_HOME, ACP_PROFILE, DEFAULT_CWD, PUBLIC_URL
+    global PERMISSION_POLICY, PERMISSION_MODE
+    ap = argparse.ArgumentParser(description="答题宝 · dsh 远程桥接 v5 (ACP stdio 后端)")
     ap.add_argument("--port", type=int, default=8218)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--token", default="")
-    ap.add_argument("--dsh", default="dsh")
+    ap.add_argument("--dsh", default="dsh", help="dsh 可执行文件（默认用 PATH 里的 dsh；也可给绝对路径）")
     ap.add_argument("--dsh-home", default=os.environ.get("DSH_HOME", ""))
+    ap.add_argument("--dsh-profile", default=ACP_PROFILE,
+                    help="dsh profile（默认 acp = ACP over stdio；一般不用改）")
     ap.add_argument("--cwd", default="", help="会话默认工作目录（dsh 里跑命令的目录）")
-    ap.add_argument("--acp-base", default="http://127.0.0.1:7800", help="ACP serve 地址")
-    ap.add_argument("--acp-token", default="acp-test-token", help="ACP serve bearer token")
+    ap.add_argument("--acp-base", default="",
+                    help="[已废弃] 0.1.5 时代 HTTP ACP serve 地址，现在解析后忽略（ACP 走 stdio 子进程）")
+    ap.add_argument("--acp-token", default="",
+                    help="[已废弃] 0.1.5 时代 ACP bearer token，现在解析后忽略")
     ap.add_argument("--permission", default="allow", choices=["allow", "deny"],
-                    help="ACP 权限请求自动应答策略：allow=自动允许一次（默认，写文件/跑命令可用）；deny=自动拒绝")
+                    help="ACP 权限请求自动应答策略：allow=自动允许（默认，写文件/跑命令可用）；deny=自动拒绝")
+    ap.add_argument("--permission-mode", default=PERMISSION_MODE,
+                    choices=["read-only", "workspace-write", "danger-full-access"],
+                    help="嵌套 dsh agent 的沙箱模式（环境变量 DSH_PERMISSION_MODE）："
+                         "danger-full-access=默认，不受沙箱限制（远程控制电脑需要）；"
+                         "workspace-write 在 Windows 上实测因 ACL 授权失败会跑不了命令")
     ap.add_argument("--public-url", default="",
                     help="公网/隧道地址（花生壳 http://xxx.vicp.net:12345 / Cloudflare https://xxx.trycloudflare.com 等），"
                          "会作为额外配对候选出现在配对页")
+    ap.add_argument("--no-open", action="store_true",
+                    help="不要自动打开配对页浏览器（脚本/CI 里跑时用）")
     args = ap.parse_args()
-    global PERMISSION_POLICY
     BRIDGE_PORT, TOKEN = args.port, args.token
     PERMISSION_POLICY = args.permission
+    PERMISSION_MODE = args.permission_mode
     DSH_CMD, DSH_HOME = args.dsh, args.dsh_home
-    ACP_BASE, ACP_TOKEN = args.acp_base.rstrip("/"), args.acp_token
+    ACP_PROFILE = (args.dsh_profile or "acp").strip()
     PUBLIC_URL = args.public_url.strip()
     DEFAULT_CWD = args.cwd.strip() or None
     if not TOKEN:
         log("未配置 --token：App 将无法鉴权（拒绝所有请求）。请传 --token xxx")
-    ACP.base, ACP.token = ACP_BASE, ACP_TOKEN
-    log("dsh 桥接服务 v4 (ACP) 启动: http://%s:%d" % (args.host, args.port))
+    if args.acp_base or args.acp_token:
+        log("提示：--acp-base/--acp-token 已废弃（ACP 现在走 dsh 子进程 stdio），已忽略")
+    atexit.register(ACP.shutdown)
+    log("dsh 桥接服务 v5 (ACP stdio) 启动: http://%s:%d" % (args.host, args.port))
     log("访问令牌(请复制到 App 配置): %s" % TOKEN)
-    log("ACP 后端: %s | 默认工作目录: %s" % (ACP_BASE, DEFAULT_CWD or "(未指定)"))
+    log("ACP 通道: `%s --profile %s`（stdio 子进程，无需端口/ACP token）| 默认工作目录: %s"
+        % (DSH_CMD, ACP_PROFILE, DEFAULT_CWD or "(未指定)"))
     log("ACP 权限策略: %s（写文件/跑命令类工具需应答，deny 时这类任务会被拒）" % PERMISSION_POLICY)
+    log("嵌套 agent 沙箱模式: %s（环境变量 DSH_PERMISSION_MODE；改小可用 --permission-mode）" % PERMISSION_MODE)
     log("配对页(本机浏览器): http://127.0.0.1:%d/pair  (手机扫码=一键配对)" % args.port)
     for c in pair_candidates(args.port, TOKEN):
         log("配对候选: %s   (手机手动输入: %s  token=%s)" % (c["ip"], c["base_url"], TOKEN))
     try:
-        webbrowser.open("http://127.0.0.1:%d/pair" % args.port)
+        if not args.no_open:
+            webbrowser.open("http://127.0.0.1:%d/pair" % args.port)
     except Exception:
         pass
     srv = BridgeHTTPServer((args.host, BRIDGE_PORT), Handler)
-    log("桥接 v4 (ACP) 监听 http://%s:%d  token=%s" % (args.host, BRIDGE_PORT, TOKEN))
+    log("桥接 v5 (ACP stdio) 监听 http://%s:%d  token=%s" % (args.host, BRIDGE_PORT, TOKEN))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         log("收到中断, 退出")
+    finally:
+        ACP.shutdown()
 
 
 if __name__ == "__main__":
