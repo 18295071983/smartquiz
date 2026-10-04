@@ -1,5 +1,0 @@
-VLM 图片注入：图片以 VlmContent("image", 路径) 附加到最后一条 user 消息
-
-- injectMediaPathsToConfig() 依赖消息内的媒体项（只放 config 无效）
-- 用后即清 pendingImagePaths，避免污染下一轮生成
-- 至此多模态链路完整：mmproj 加载 → VlmWrapper 模板 → 图片进消息 → 注入 config → 生成

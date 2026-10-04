@@ -284,3 +284,8 @@ fix_*.py
 *.tmp
 shot_*.png
 *.png.bak
+bl*.txt
+vlmm.txt
+gx_prefs.xml
+uh.xml
+ui.xml
