@@ -1340,7 +1340,20 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 }
 
                 if (!npuSvc().isNpuEngineEnabled()) {
-                    modelParamsInfo.setText(paramsStr + " / " + meta.nLayer + getString(R.string.h_13933709) + meta.nCtxTrain);
+                    // HTP 量化兼容性提示（依据张量类型直方图；K-quant 会退 CPU 导致变慢）
+                    // 注意：此处 meta 是 LlamaHelper.ModelMeta，直方图要从 gguf 自身解析（GgufMeta）
+                    String htpNote = "";
+                    try {
+                        java.io.File _mf = bestModelFile();
+                        com.oilquiz.app.ai.model.GgufMeta _gm = (_mf == null)
+                                ? null : com.oilquiz.app.ai.model.GgufMeta.read(_mf);
+                        if (_gm != null) {
+                            htpNote = _gm.htpCompatNote();
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    modelParamsInfo.setText(paramsStr + " / " + meta.nLayer + getString(R.string.h_13933709) + meta.nCtxTrain
+                            + (htpNote.isEmpty() ? "" : "\n" + htpNote));
                 }
             } else {
                 if (!npuSvc().isNpuEngineEnabled()) {

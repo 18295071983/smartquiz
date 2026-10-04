@@ -23,6 +23,8 @@ public final class GgufMeta {
     public long headCountKv = 0;
     public long embeddingLength = 0;
     public long contextLength = 0;
+    /** 张量 ggml 类型直方图：type id -> 张量个数（用于判断 HTP 兼容性）*/
+    public final java.util.Map<Integer, Integer> tensorTypeCounts = new java.util.LinkedHashMap<>();
     public long headLength = 0;          // attention.key_length（KV 头维度）
     public boolean hasLinearAttention = false;   // 混合结构（含 SSM/线性注意力层）
     public long fullAttentionInterval = 0;       // 每 N 层一个全注意力层
@@ -78,7 +80,8 @@ public final class GgufMeta {
             }
 
             // 元数据里没有参数量时，用张量表累加（元素个数即参数量）
-            if (m.parameterCount <= 0 && tensorCount > 0 && tensorCount < 100000) {
+            // 无论 parameter_count 是否缺失都遍历一次张量表：既补参数量，也统计类型（HTP 兼容性提示）
+        if (tensorCount > 0 && tensorCount < 100000) {
                 long total = 0;
                 for (long i = 0; i < tensorCount; i++) {
                     readString(raf);               // tensor name
@@ -90,7 +93,8 @@ public final class GgufMeta {
                             elems *= dim;
                         }
                     }
-                    readInt(raf);                  // ggml type
+                    int ggmlType = readInt(raf);   // ggml type
+                    m.tensorTypeCounts.merge(ggmlType, 1, Integer::sum);
                     readLong(raf);                 // offset
                     total += elems;
                 }
@@ -197,5 +201,50 @@ public final class GgufMeta {
             default:
                 throw new java.io.EOFException("unknown gguf type " + type);
         }
+    }
+
+    /**
+     * HTP（Hexagon NPU）兼容性说明。
+     * 佐证：GenieX/HTP 只对部分量化类型提供 NPU 算子（Q4_0 / Q4_1 / Q8_0 / IQ4_NL / MXFP4 / F16 / F32），
+     * K-quant（Q4_K/Q5_K/Q6_K…）会退到 CPU → 表现为"能跑但明显变慢"。这里据张量直方图给出提示。
+     */
+    public String htpCompatNote() {
+        if (tensorTypeCounts.isEmpty()) {
+            return "";
+        }
+        final java.util.Set<Integer> htpOk = new java.util.HashSet<>(java.util.Arrays.asList(
+                0,   // F32
+                1,   // F16
+                2,   // Q4_0
+                3,   // Q4_1
+                8,   // Q8_0
+                20,  // IQ4_NL
+                39   // MXFP4
+        ));
+        final java.util.Map<Integer, String> names = new java.util.HashMap<>();
+        names.put(0, "F32"); names.put(1, "F16"); names.put(2, "Q4_0"); names.put(3, "Q4_1");
+        names.put(6, "Q5_0"); names.put(7, "Q5_1"); names.put(8, "Q8_0");
+        names.put(10, "Q2_K"); names.put(11, "Q3_K"); names.put(12, "Q4_K"); names.put(13, "Q5_K");
+        names.put(14, "Q6_K"); names.put(16, "IQ2_XXS"); names.put(17, "IQ2_XS"); names.put(18, "IQ3_XXS");
+        names.put(19, "IQ1_S"); names.put(20, "IQ4_NL"); names.put(21, "IQ3_S"); names.put(22, "IQ2_S");
+        names.put(23, "IQ4_XS"); names.put(30, "BF16"); names.put(39, "MXFP4");
+        int bad = 0;
+        int badTensors = 0;
+        StringBuilder sb = new StringBuilder();
+        for (java.util.Map.Entry<Integer, Integer> e : tensorTypeCounts.entrySet()) {
+            if (!htpOk.contains(e.getKey())) {
+                bad++;
+                badTensors += e.getValue();
+                if (sb.length() > 0) {
+                    sb.append("、");
+                }
+                sb.append(names.containsKey(e.getKey()) ? names.get(e.getKey()) : ("type" + e.getKey()))
+                        .append("×").append(e.getValue());
+            }
+        }
+        if (bad == 0) {
+            return "HTP 兼容：全部张量均命中 NPU 算子（Q4_0/Q8_0 等）";
+        }
+        return "⚠️ HTP 部分退 CPU：" + sb + "（共 " + badTensors + " 个张量，速度会下降；建议改用 Q4_0）";
     }
 }
