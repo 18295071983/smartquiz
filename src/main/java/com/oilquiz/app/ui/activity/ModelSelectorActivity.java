@@ -835,7 +835,12 @@ public class ModelSelectorActivity extends AppCompatActivity
     private void reloadNpuModel(TextView tvValue) {
         Toast.makeText(this, "正在重新加载 NPU 模型…", Toast.LENGTH_SHORT).show();
         try {
-            com.oilquiz.app.ai.engine.NpuLlmChat.release();   // 先释放旧权重，避免两份常驻
+            // NPU-SESSION-RESET: 换模型前重置会话上下文（旧模板/旧 KV 不能复用）
+        try {
+            com.oilquiz.app.ai.engine.NpuLlmChat.resetIncrementalSession();
+        } catch (Throwable ignored) {
+        }
+        com.oilquiz.app.ai.engine.NpuLlmChat.release();   // 先释放旧权重，避免两份常驻
         } catch (Throwable ignored) {
         }
         inferenceRouter.enableNpuEngine(new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {

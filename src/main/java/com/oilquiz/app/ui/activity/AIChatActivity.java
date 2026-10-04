@@ -7840,6 +7840,13 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void clearChat() {
+        // NPU-SESSION-RESET: 清空对话时同步重置 NPU 会话（GenieX LlmWrapper.reset()）——
+        // 官方 demo 在新会话时调用（MainActivity.kt:1136）；不调用会让 KV 里残留旧上下文。
+        try {
+            com.oilquiz.app.ai.engine.NpuLlmChat.resetIncrementalSession();
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "NPU 会话重置异常: " + t);
+        }
         try {
             if (isGenerating) {
                 if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();

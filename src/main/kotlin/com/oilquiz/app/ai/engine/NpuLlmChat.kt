@@ -223,10 +223,26 @@ object NpuLlmChat {
     fun isIncrementalMode(): Boolean = incrementalMode
 
     /** 清空会话前缀（新对话 / 换模型 / 换模板时必须调用，否则增量基准错误） */
+    /**
+     * 重置会话上下文：调用 GenieX 的 LlmWrapper.reset()（官方 demo 在"新会话/重载模型"时调用，
+     * MainActivity.kt:1136）。不调用会导致清空对话后 KV 里仍保留旧上下文（浪费 + 可能串味）。
+     */
     @JvmStatic
     fun resetIncrementalSession() {
         lastPrompt = null
-        Log.i(TAG, "NPU 增量会话已重置")
+        val w = llm
+        if (w == null) {
+            Log.i(TAG, "NPU 会话重置: 尚未加载模型，仅清基准")
+            return
+        }
+        scope.launch {
+            try {
+                w.reset()
+                Log.i(TAG, "NPU 会话已重置（GenieX reset 调用成功）")
+            } catch (t: Throwable) {
+                Log.w(TAG, "NPU 会话重置失败: " + t)
+            }
+        }
     }
 
     /** 当前是否有**已登记可用**的本地模型（App 模型库或侧载目录里真有 gguf） */
@@ -245,8 +261,9 @@ object NpuLlmChat {
     @JvmStatic
     fun loadIncrementalPref(context: Context) {
         try {
-            val p = context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
-            setIncrementalMode(p.getBoolean("npu_incremental", false))
+            // 2026-10-05 源码核查后废弃：官方用法是每轮全量 prompt，复用由 SDK 内部做；
+            // "只发后缀"会破坏 prefix reuse，故此开关**永久关闭**（保留 API 仅为兼容）。
+            setIncrementalMode(false)
         } catch (t: Throwable) {
             Log.w(TAG, "loadIncrementalPref 失败: " + t)
         }
@@ -787,20 +804,12 @@ object NpuLlmChat {
                     // 模板预览：与 llama.cpp 侧对比最终喂给模型的文本是否一致（截 200 字符）
                     Log.i(TAG, "prompt模板预览(thinking=$thinking, tools=${toolsJson != null}): "
                             + t.formattedText.take(200).replace("\n", "\\n"))
-                    // NPU-INCREMENTAL：前缀命中则只发增量后缀（否则仍发全量）
-                    var toSend = t.formattedText
-                    if (incrementalMode) {
-                        val prev = lastPrompt
-                        if (prev != null && prev.isNotEmpty() && t.formattedText.startsWith(prev)) {
-                            toSend = t.formattedText.substring(prev.length)
-                        } else if (prev != null && prev.isNotEmpty()) {
-                            Log.w(TAG, "增量模式: 前缀不匹配（换会话/换模板？）→ 本次回退全量")
-                        }
-                    }
-                    lastPrompt = t.formattedText
-                    Log.i(TAG, "prompt发送: 全量 " + t.formattedText.length + " 字符"
-                            + (if (toSend.length != t.formattedText.length)
-                                " → 增量 " + toSend.length + " 字符（NPU-INCREMENTAL）" else "（全量）"))
+                    // 官方语义（geniex_chat_android/MainActivity.kt:752-767）：每轮提交**完整 prompt**，
+                    // KV 前缀复用由 GenieX 内部自动完成（插件日志 prefix reuse: |A|/|G|/increment）。
+                    // 因此这里不做任何"只发增量后缀"的处理 —— 那会触发
+                    // "prefix reuse failed: prompt does not match last generation"。
+                    val toSend = t.formattedText
+                    Log.i(TAG, "prompt发送: " + toSend.length + " 字符（全量，复用交给 SDK）")
                     var tokens = 0
                     val text = StringBuilder()
                     val startMs = System.currentTimeMillis()
