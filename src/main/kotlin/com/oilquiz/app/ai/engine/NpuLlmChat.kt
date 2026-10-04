@@ -167,7 +167,23 @@ object NpuLlmChat {
         if (avail <= 0) return 4096
         val meta = com.oilquiz.app.ai.model.GgufMeta.read(gguf)
         val perToken = kvBytesPerToken(meta)
-        val modelBytes = gguf.length()
+        // 内存规划计入 draft：投机模式下权重 = 主模型 + draft（两者由 GenieX 一起加载）
+        var modelBytes = gguf.length()
+        if (specEnabled) {
+            try {
+                val dn = draftModelFor(currentOrPreferredModelName())
+                val dp = dn?.let { localFiles[it] }
+                if (dp != null) {
+                    val df = File(dp)
+                    if (df.isFile) {
+                        modelBytes += df.length()
+                        Log.i(TAG, "内存规划计入 draft: +" + (df.length() / 1048576) + "MB（" + dn + "）")
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "计入 draft 体积失败: " + t)
+            }
+        }
         val reserve = 400L * 1024 * 1024      // App 自身（实测 PSS ~420MB）
         val margin = 300L * 1024 * 1024       // 安全余量
         val forKv = avail - modelBytes - reserve - margin
