@@ -210,19 +210,24 @@ object NpuLlmChat {
     // 失败时自打印 "speculative decoding setup failed; falling back to plain decoding"（安全）。
     // 设计（按用户要求）：draft 文件**按主模型自动匹配**（同词表才有效），不暴露给用户选择；
     // 切换模型时由上层 reloadNpuModel() 释放并重新加载 → 自动重新匹配。
-    @Volatile private var specEnabled = false
+    // 默认开启：匹配到已下载的同词表 draft 就自动生效（无需用户设置）；
+    // 可用偏好 npu_spec_enabled=false 关闭。GenieX 失败会自动退回普通解码，安全。
+    @Volatile private var specEnabled = true
 
-    /** 主模型 → draft 模型 的自动匹配（必须同词表，否则投机必然无效） */
+    /** 主模型 → draft 模型 的自动匹配（必须同词表，否则投机无效）。
+     *  用**模糊匹配**：模型库里注册名可能是 `applib/Qwen3.5-0.8B-Q4_0`、`Qwen3.5-0.8B-Q4_0` 等多种形式。 */
     private fun draftModelFor(modelName: String?): String? {
         val n = modelName?.lowercase() ?: return null
+        val keys = localFiles.keys
+        fun find(vararg pats: String): String? =
+            keys.firstOrNull { k -> pats.any { p -> k.lowercase().contains(p) } }
         return when {
-            // Qwen3.5 系列 → 用 0.8B 作 draft（同词表）
+            // Qwen3.5 系列 → 0.8B 作 draft（同词表）
             n.contains("qwen3.5") || n.contains("qwen35") ->
-                listOf("qwen3.5-0.8b", "Qwen3.5-0.8B-Q4_0").firstOrNull { localFiles.containsKey(it) }
-            // Qwen3（非 3.5）系列 → 用 0.6B 作 draft（同词表）
+                find("qwen3.5-0.8b", "qwen3.5-08b", "0.8b")
+            // Qwen3（非 VL）系列 → 0.6B 作 draft（同词表）
             (n.contains("qwen3") && !n.contains("vl")) ->
-                listOf("qwen3-0.6b-q4_0-npu", "qwen3-0.6b", "Qwen3-0.6B-Q4_0").firstOrNull { localFiles.containsKey(it) }
-            // VL / 其他系列：同词表 draft 未内置 → 不启用
+                find("qwen3-0.6b", "0.6b")
             else -> null
         }
     }
@@ -240,6 +245,7 @@ object NpuLlmChat {
             Log.i(TAG, "投机未启用：draft 未下载（" + draftName + "）")
             return null
         }
+        Log.i(TAG, "投机 draft 已匹配: 主模型=" + main + " → draft=" + draftName + " @ " + p)
         return p
     }
 
@@ -341,7 +347,7 @@ object NpuLlmChat {
             setIncrementalMode(false)
             // 投机解码开关（默认关；设备上可改 npu_engine_prefs 的 npu_spec_enabled 开启）
             setSpecEnabled(context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
-                    .getBoolean("npu_spec_enabled", false))
+                    .getBoolean("npu_spec_enabled", true))   // 默认开，写了 false 才关
         } catch (t: Throwable) {
             Log.w(TAG, "loadIncrementalPref 失败: " + t)
         }
