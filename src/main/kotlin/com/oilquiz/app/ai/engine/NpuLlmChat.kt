@@ -15,6 +15,10 @@ import com.geniex.sdk.bean.ModelPaths
 import com.geniex.sdk.bean.ModelPullInput
 import com.geniex.sdk.bean.ModelType
 import com.geniex.sdk.bean.ToolCall
+import com.geniex.sdk.bean.VlmCreateInput
+import com.geniex.sdk.bean.VlmContent
+import com.geniex.sdk.bean.VlmChatMessage
+import com.geniex.sdk.VlmWrapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -120,6 +124,9 @@ object NpuLlmChat {
 
 
     /** 当前规划出的上下文长度（由 planNCtx 写入，loadModel 使用） */
+    /** VLM（多模态）会话句柄：mmproj 存在时按 VLM 加载 */
+    @Volatile private var vlm: VlmWrapper? = null
+
     @Volatile private var plannedNCtx = 8192   // 兜底值；真实值由 planNCtx 按内存预算定
 
     /** 可用的系统内存（字节） */
@@ -670,7 +677,49 @@ object NpuLlmChat {
                     } else {
                         ModelConfig(nCtx = plannedNCtx, nGpuLayers = -1)
                     }
-                val result = LlmWrapper.builder()
+                // ==================== VLM（多模态）分支 ====================
+            // 判定依据与官方 demo 一致：ModelPaths.mmproj_path 非空即为 VLM（GGUF 形态下视觉塔独立成文件）。
+            // 官方用法（geniex_chat_android/MainActivity.kt:449-458）：
+            //   VlmWrapper.builder().vlmCreateInput(VlmCreateInput(model_path, mmproj_path, config,
+            //       runtime_id, compute_unit, vit_device_id)).build()
+            if (!paths.mmproj_path.isNullOrEmpty()) {
+                Log.i(TAG, "检测到 mmproj → 按 VLM 加载: " + paths.mmproj_path)
+                val vconf = if (runtime == "qairt") {
+                    ModelConfig(nCtx = 0, nGpuLayers = 0)
+                } else {
+                    ModelConfig(nCtx = plannedNCtx, nGpuLayers = -1)
+                }
+                val vres = VlmWrapper.builder()
+                    .vlmCreateInput(
+                        VlmCreateInput(
+                            model_path = paths.model_path,
+                            mmproj_path = paths.mmproj_path ?: "",
+                            config = vconf,
+                            runtime_id = runtime,
+                            compute_unit = computeUnit
+                        )
+                    )
+                    .build()
+                vres.onSuccess { wrapper ->
+                    try {
+                        vlm?.stopStream()
+                    } catch (t: Throwable) {
+                    }
+                    vlm = wrapper
+                    currentModel = modelName
+                    state = State.READY
+                    Log.i(TAG, "VLM 模型加载完成: " + modelName + " (runtime=" + runtime
+                            + ", mmproj=" + paths.mmproj_path + ")")
+                    listener?.onLoaded(modelName)
+                }.onFailure { e ->
+                    state = State.ERROR
+                    Log.e(TAG, "VLM 模型加载失败", e)
+                    listener?.onError(e.message ?: "VLM 模型加载失败")
+                }
+                return@launch
+            }
+
+            val result = LlmWrapper.builder()
                     .llmCreateInput(
                         // 注意：0.8.0 的 LlmCreateInput 去掉了 model_name（0.3.5 有），只剩 5 个参数
                         LlmCreateInput(
