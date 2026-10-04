@@ -742,9 +742,22 @@ object NpuLlmChat {
                 }
                 // QAIRT 拒绝非零 n_ctx / n_gpu_layers（两者在 AI Hub 包里编译期就固定了）；
                 // llama_cpp 走 NPU 时 nGpuLayers=-1 表示"全部层交给最快设备（Hexagon HTP）"。
+                // 投机解码：draft 按主模型自动匹配（必须同词表）；GenieX 失败会自动 fallback 普通解码
+                val draftPath = specDraftPath()
                 val conf =
                     if (runtime == "qairt") {
                         ModelConfig(nCtx = 0, nGpuLayers = 0)
+                    } else if (draftPath != null) {
+                        Log.i(TAG, "启用投机解码: type=draft, draft=" + draftPath + ", n_max=8")
+                        ModelConfig(
+                            nCtx = plannedNCtx,
+                            nGpuLayers = -1,
+                            spec_type = "draft",
+                            spec_draft_model = draftPath,
+                            spec_n_max = 8,
+                            spec_n_min = 0,
+                            spec_p_min = 0.0f
+                        )
                     } else {
                         ModelConfig(nCtx = plannedNCtx, nGpuLayers = -1)
                     }
