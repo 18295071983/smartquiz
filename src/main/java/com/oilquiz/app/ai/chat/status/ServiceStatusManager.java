@@ -117,9 +117,9 @@ public class ServiceStatusManager {
 
     /** NPU 状态一行摘要（顶部状态栏显示用） */
     private String npuStatusLine() {
-        String st = com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();
+        String st = npuSvc().getNpuStateName();
         String model = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
-        float tps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+        float tps = npuSvc().getNpuLastTps();
         StringBuilder sb = new StringBuilder("NPU（GenieX）· ").append(npuStateName(st));
         if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
         if (tps > 0) sb.append(String.format(java.util.Locale.US, " · %.1f t/s", tps));
@@ -142,13 +142,13 @@ public class ServiceStatusManager {
     /** NPU 状态详情对话框（独立于本地 AIService） */
     private void showNpuStatusDetails() {
         String model = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
-        int tokens = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
+        int tokens = npuSvc().getNpuLastTokens();
         long elapsed = com.oilquiz.app.ai.engine.NpuLlmChat.getLastElapsedMs();
-        float tps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+        float tps = npuSvc().getNpuLastTps();
         StringBuilder sb = new StringBuilder();
         sb.append("引擎: Qualcomm GenieX（llama_cpp 运行时）\n");
         sb.append("算力单元: Hexagon NPU（HTP）\n");
-        sb.append("状态: ").append(npuStateName(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName())).append('\n');
+        sb.append("状态: ").append(npuStateName(npuSvc().getNpuStateName())).append('\n');
         String willUse = npuModelWillUse();
         sb.append("模型: ").append(model == null || model.isEmpty()
                 ? (willUse == null ? "未加载（模型库为空，请先下载 Q4_0）" : willUse + "（待加载）")
@@ -395,7 +395,7 @@ public class ServiceStatusManager {
         } catch (Throwable ignored) {
         }
 
-        if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+        if (!npuSvc().isNpuEngineEnabled()) {
             callback.onAddErrorMessage("AI服务初始化失败", errorMessage, true);
         }
         callback.onShowToast("模型加载失败");
@@ -447,9 +447,9 @@ public class ServiceStatusManager {
 
         if (stage == AIServiceState.ServiceStage.INITIALIZED) {
             // NPU-BANNER-ICON2
-            stageIcon = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled() ? "\uD83E\uDDE0" : "\uD83D\uDCF1";
+            stageIcon = npuSvc().isNpuEngineEnabled() ? "\uD83E\uDDE0" : "\uD83D\uDCF1";
             // NPU-BANNER-FIX
-            displayMessage = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
+            displayMessage = npuSvc().isNpuEngineEnabled()
                     ? (message != null && !message.isEmpty() ? message : npuStatusLine())
                     : "本地推理就绪 · " + (message != null ? message : "AI服务已就绪");
         }
@@ -676,10 +676,10 @@ public class ServiceStatusManager {
         details.append("\n\uD83E\uDDE0 NPU（Qualcomm GenieX）\n");
         details.append("运行时: GenieX SDK（llama_cpp 跑 GGUF / qairt 跑 AI Hub 预编译）\n");
         details.append("算力单元: Hexagon NPU（HTP）· Adreno GPU · CPU\n");
-        details.append("状态: ").append(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName());
+        details.append("状态: ").append(npuSvc().getNpuStateName());
         String npuModel = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
         if (npuModel != null && !npuModel.isEmpty()) details.append(" · ").append(npuModel);
-        float tps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+        float tps = npuSvc().getNpuLastTps();
         if (tps > 0) details.append(" · 上次 ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
         details.append("\n");
         details.append("入口: 本页下方「NPU 推理」（支持 SM8750 / SM8850）\n");
@@ -745,5 +745,10 @@ public class ServiceStatusManager {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    /** UI 单一状态源：NPU 只读值统一走 AIService（聊天页横幅） */
+    private com.oilquiz.app.ai.service.AIService npuSvc() {
+        return com.oilquiz.app.ai.service.AIService.getInstance(activity);
     }
 }

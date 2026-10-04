@@ -4714,4 +4714,15 @@ public class AIService implements ComponentCallbacks2 {
     public float getNpuLastTps() {
         return com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
     }
+
+    /** UI 只读代理：将要使用的 NPU 模型名（未加载时返回首选模型，供状态显示） */
+    public String getNpuPreferredModelName() {
+        String n = com.oilquiz.app.ai.engine.NpuLlmChat.currentOrPreferredModelName();
+        return n == null ? "" : n;
+    }
+
+    /** UI 只读代理：当前规划出的 NPU 上下文长度 */
+    public int getNpuPlannedNCtx() {
+        return com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
+    }
 }

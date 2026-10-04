@@ -28,6 +28,16 @@ public final class TokenStatsTextBuilder {
     /** 构建 Token 统计显示文本（含缓存命中率与上下文用量追加） */
     public static String build(Context context, TokenStatsManager.TokenStats stats,
                                AgentStats agent) {
+        // NPU-TOKEN-BADGE-SVC: 徽标在有 Context 的重载里读服务（单一状态源）
+        com.oilquiz.app.ai.service.AIService npuSvc =
+                com.oilquiz.app.ai.service.AIService.getInstance(context);
+        if (npuSvc != null && npuSvc.isNpuEngineEnabled()) {
+            int npuTokens = npuSvc.getNpuLastTokens();
+            float npuTps = npuSvc.getNpuLastTps();
+            return "\uD83E\uDDE0 " + npuTokens + " tokens"
+                    + (npuTps > 0 ? String.format(java.util.Locale.US, " \u00b7 %.1f t/s", npuTps) : "");
+        }
+
         return build(new ContextStringProvider(context), stats, agent);
     }
 
@@ -37,13 +47,6 @@ public final class TokenStatsTextBuilder {
                                AgentStats agent) {
         // NPU-TOKEN-STATS: NPU 引擎下顶部 token 徽标显示 NPU 的统计
         // （该数据源只反映本地 llama.cpp 会话，NPU 模式会一直是 0 tokens）
-        // 注：本方法无 Context，故仍直连 NpuLlmChat；待其入口带上 Context 后再改读服务。
-        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-            int npuTokens = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
-            float npuTps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
-            return "\uD83E\uDDE0 " + npuTokens + " tokens"
-                    + (npuTps > 0 ? String.format(java.util.Locale.US, " \u00b7 %.1f t/s", npuTps) : "");
-        }
         String text = String.format(strings.get(R.string.h_986cd3e8),
                 stats.requestPromptTokens, stats.requestCompletionTokens);
         if (agent != null) {
