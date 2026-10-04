@@ -363,6 +363,11 @@ public final class NpuEngineRouter {
         boolean routable = msgs != null && msgs.length() > 0
                 && shouldRouteToNpu(thinking, toolsJson != null, false);
         if (!routable || !ensureLoadedBlocking()) {
+            // 未走 NPU：清掉待注入图片，避免污染下一轮 NPU 生成
+            try {
+                NpuLlmChat.setPendingImagePaths(java.util.Collections.emptyList());
+            } catch (Throwable ignored) {
+            }
             Log.w(TAG, "chatJson 未走 NPU: routable=" + routable
                     + ", npuLoaded=" + NpuLlmChat.isLoaded()
                     + ", state=" + NpuLlmChat.getStateName()

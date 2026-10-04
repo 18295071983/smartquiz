@@ -4143,6 +4143,16 @@ public class AIChatActivity extends BaseActivity {
             // 图片预处理：WebP/HEIC 等重编码为 JPEG + 长边降采样，
             // 解决原生 mtmd(stb_image) 不支持 WebP/HEIC、大图全尺寸解码 OOM 两个问题
             final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(this, localFile);
+        // NPU-VLM-IMAGE: 同一张预处理图也交给 NPU 的 VLM 路径
+        // （NpuLlmChat 会在 VLM 分支把它作为 VlmContent("image", path) 挂到最后一条 user 消息，
+        //   再由 injectMediaPathsToConfig 注入 GenerationConfig；非 VLM 模型下该设置无效）
+        try {
+            if (isNpuEngineOn()) {
+                com.oilquiz.app.ai.engine.NpuLlmChat.setPendingImagePaths(
+                        java.util.Collections.singletonList(visionImagePath));
+            }
+        } catch (Throwable ignored) {
+        }
             // 多轮上下文：取当前图片消息之前的 USER/AI 文本消息（图片消息本身不入历史，
             // 其文本离开图片会误导模型）
             final java.util.List<ChatMessage> history = buildVisionHistory(1);
@@ -4303,6 +4313,14 @@ public class AIChatActivity extends BaseActivity {
             if (imageFile == null || !imageFile.exists()) return false;
 
             final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(this, imageFile);
+        // NPU-VLM-IMAGE: 同上（图片追问路径）
+        try {
+            if (isNpuEngineOn()) {
+                com.oilquiz.app.ai.engine.NpuLlmChat.setPendingImagePaths(
+                        java.util.Collections.singletonList(visionImagePath));
+            }
+        } catch (Throwable ignored) {
+        }
             // 历史：图片消息之前的 USER/AI 文本
             final java.util.List<ChatMessage> history = new java.util.ArrayList<>();
             for (int i = 0; i < lastImageIndex; i++) {
