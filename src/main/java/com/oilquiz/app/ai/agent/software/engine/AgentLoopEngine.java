@@ -146,7 +146,11 @@ public class AgentLoopEngine {
      *  （注入当轮 FULL 一次，之后稳定）。
      *  大 schema 的 UI 工程工具（ui_component 等）与系统内部工具不注入。 */
     private static final String[] DEFAULT_CORE_TOOLS = {
-            "time_date", "location", "tool_registry", "file_reader", "workspace"
+            // 2026-10-05：补 ai_weather / smart_research / memory —— 原先只有
+            // time_date/location/tool_registry/file_reader/workspace，而 sessionTools
+            // 只在会话首条消息播种一次 → 模型整轮看不到天气工具（"我无法获取天气信息"）。
+            "time_date", "location", "ai_weather", "smart_research", "memory",
+            "tool_registry", "file_reader", "workspace"
     };
 
     private final AIService aiService;
@@ -1714,7 +1718,14 @@ public class AgentLoopEngine {
         sb.append("1. 常识/知识类问题直接回答；实时/时效类（天气、时间、位置、新闻、价格等）必须调用工具，用工具返回的数据回答，不要用训练数据猜测。\n");
         sb.append("2. 工具返回即事实，直接采纳；总结时只提取与问题相关的关键信息，不要罗列原始数据字段。\n");
         sb.append("3. 用户没给城市时先调 location 定位，再用坐标查天气；查具体时刻调 time_date(action=now)。\n");
-        sb.append("4. 需要其他能力（搜索、天气、记忆、计算、画图、文件、表格、网页、朗读、语音、图表、视频、题库等）时，先用 workspace(action=list) 看工作区文件，再用 workspace(action=read, fileName=核心工具速查.md) 读《核心工具速查.md》查看工具速查（不在工作区根时先 list 找 files/ 下的实际文件名），再按返回的工具名和参数调用；不确定参数格式时用 tool_registry(action=get, tool=工具名) 查看该工具完整参数。不要猜测工具名或参数。\n");
+        // SMALL-MODEL-RULE: 小模型（NPU 引擎）跑不动"先 workspace → 读速查.md →
+        // tool_registry 查参数"的多轮发现流程，而且元工具会挤占工具名额 → 直接按定义调用。
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            sb.append("4. 工具清单与参数已在 tools 定义中给出，直接按定义调用；"
+                    + "不要为了查工具而先调用 workspace / tool_registry 等元工具。\n");
+        } else {
+            sb.append("4. 需要其他能力（搜索、天气、记忆、计算、画图、文件、表格、网页、朗读、语音、图表、视频、题库等）时，先用 workspace(action=list) 看工作区文件，再读《核心工具速查.md》查看工具速查，再按返回的工具名和参数调用；不确定参数格式时用 tool_registry(action=get, tool=工具名) 查看该工具完整参数。不要猜测工具名或参数。\n");
+        }
         sb.append("5. 用中文简洁回答，先结论后细节。\n");
         sb.append("6. 工具失败时按提示修正参数重试一次，仍失败则换工具或直接告知用户，不要重复相同调用。\n\n");
         return sb.toString();

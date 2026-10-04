@@ -68,6 +68,30 @@ Qwen3.5 为**混合注意力**（官方 config 实测：32 层中仅每 4 层为
 - NPU 工具调用**端到端**仍需真机验证（先决条件：设备上需存在**完整**模型；本轮结束时 `files/ai_models` 仅有未完成 `.part`）。
 - `git push` 仍受网络限制（本地已积累多个未推送提交）。
 
+### 9) 续（同日）：打通 NPU Agent 工具闭环 + 聊天页预加载 + 常用工具保底
+
+**四道 NPU 门禁全部撤除**（历史遗留的"NPU 没有工具能力"乐观假设，逐个发现并清除）：
+1. 顶层拦截：`AIChatActivity.processChatMessageNormal` 的 NPU 分支
+2. 桥接层守卫：`ModelExecutionBridge` 在 `!aiService.isInitialized()` 时 `notifyError("AI服务初始化失败")` 并 `return false` → 请求到不了 NPU（同时也是"发送后长时间无响应"的原因）；NPU 模式下改为一律放行
+3. Agent 初始化门禁：`initAgentChatHandler()` 里 `if (isNpuEngineOn()) return;` → handler 永远 null → 每次都"🤖 Agent 引擎未就绪，已降级为普通对话"
+4. 路由门禁：`processChatMessage()` 的 `!npuEngineOn && (在线 || 本地Agent开启)` → NPU 下恒假 → 永远走普通对话（日志表现为 `tools=0字符`、`messages=1`）
+
+**工具结果的结构化传递（关键）**：反编译 GenieX AAR 确认 `ChatMessage` 原生支持 `toolCalls` / `toolCallId` / `toolName`（等价 llama.cpp 的 `common_chat_msg`），`ToolCall(id, name, arguments)`；`LlmWrapper.applyChatTemplate(messages, tools, enableThinking, addGenerationPrompt)`。
+- 原先只传 `ChatMessage(role, content)` → 工具轮压成普通文本 → 模型接不上 → **卡在工具执行之后**
+- 中途我引入过"文本化降级"（`tool` → `user` + `【工具结果】`前缀），方向错误，已撤除
+- 现改为 `sendChatAsync(..., messagesJson)`：原样解析消息并构造带全部 5 个字段的 `ChatMessage`（`toolCalls` 必须传 `emptyList()`，GenieX 声明为非空）
+
+**常用工具保底（对齐在线 Agent 的 `CORE_TOOLS` 设计）**：`DEFAULT_CORE_TOOLS` 由 5 个补到 8 个 —— 新增 `ai_weather`、`smart_research`、`memory`（`tool_registry` 原本就在）。原先 `ai_weather` 不在保底集，而 `sessionTools` 只在会话首条消息播种一次 → 模型整轮看不到天气工具 → **"我无法获取天气信息"的根因**。
+
+**小模型精简规则**：NPU 引擎下规则 4 不再要求"先 workspace(list) → 读《核心工具速查.md》→ tool_registry 查参数"的多轮工具发现，改为"工具清单与参数已在 tools 定义中给出，直接按定义调用"；llama.cpp 路径规则不变。
+
+**聊天页预加载（方案 B）**：`AIChatActivity.onResume` 后台线程 `npu-preload` 触发 `ensureLoadedAsync` —— 只在聊天页、不进启动路径（保留"原生 abort 不致启动秒退"的原始约束）。实测进聊天页约 34s 完成加载（插件 14s + 模型 6s + 初始化），之后首次发送无需等待；常驻 PSS 845MB（含 App 基础 ~424MB）。
+- ⚠️ 首版误放在主线程 → `ensureInit()`（GenieX 插件加载 ~14s，同步）阻塞主线程 → `Input dispatching timed out` ANR；已改后台线程并复验无 ANR。
+
+**事件协议补齐**：`meta`（思考标签）、`thinking` + `reasoning` 双发、`tool_call` 增量下发（按 name+arguments 去重）、轮次诊断日志（正文字符数 / tool_call 数 / 是否含 `<tool_call>` 标签）、历史裁剪预算改为 token 计量（CJK 1.5 字符/token、其它 4 字符/token）并在裁剪前先做内存规划（避免用兜底 8192）。
+
+**nCtx 去硬编码**：兜底值 4096 → 8192；候选档位加入 32768（Qwen3.5 混合架构 KV 仅 32KB/token）；状态页上下文统计改用 `NpuLlmChat.plannedNCtxValue()`（实测规划：权重 1158MB / 可用 4751MB / KV 12288B → nCtx=32768）。
+
 ## [2026-10-04] NPU 引擎与 llama.cpp「无缝切换、功能不降级」+ 预设全面 Q4 化 + 三项渲染修复
 
 本轮把 NPU（GenieX/Hexagon HTP）从"只在对话页可用"做成**本地推理的统一可选后端**，同时保证切换后功能不缩水；并把模型下载/搜索全链路收口到 Q4_0（HTP 原生加速的唯一甜点量化）。

@@ -14,6 +14,7 @@ import com.geniex.sdk.bean.ModelConfig
 import com.geniex.sdk.bean.ModelPaths
 import com.geniex.sdk.bean.ModelPullInput
 import com.geniex.sdk.bean.ModelType
+import com.geniex.sdk.bean.ToolCall
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -175,6 +176,26 @@ object NpuLlmChat {
         Log.w(TAG, "内存规划: 装不下。权重=" + (modelBytes / 1048576) + "MB, 可用=" + (avail / 1048576)
                 + "MB, KV/token=" + perToken + "B")
         return -1
+    }
+
+    /**
+     * 立即为"将要使用的模型"跑一次内存规划并写入 plannedNCtx。
+     * 供适配层在**裁剪历史之前**调用，避免用到过期的兜底值（8192）。
+     */
+    @JvmStatic
+    fun planForCurrentModel(context: Context) {
+        try {
+            registerAppModelLibrary(context)
+            val name = preferredNpuModel() ?: return
+            val f = localFiles[name]?.let { File(it) }
+            val p = planNCtx(context, f)
+            if (p > 0) {
+                plannedNCtx = p
+                Log.i(TAG, "内存规划(裁剪前): $name -> nCtx=$p")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "planForCurrentModel 失败: $t")
+        }
     }
 
     /** 当前规划出的 NPU 上下文长度（内存预算反推，供 Agent 适配层裁剪历史） */
@@ -661,7 +682,8 @@ object NpuLlmChat {
         maxTokens: Int,
         thinking: Boolean,
         listener: GenerateListener?,
-        toolsJson: String? = null
+        toolsJson: String? = null,
+        messagesJson: String? = null
     ) {
         ensureInit()
         val wrapper = llm
@@ -669,7 +691,7 @@ object NpuLlmChat {
             listener?.onError("模型未加载")
             return
         }
-        if (roles.isEmpty() || roles.size != contents.size) {
+        if (messagesJson == null && (roles.isEmpty() || roles.size != contents.size)) {
             listener?.onError("对话历史参数不合法")
             return
         }
@@ -677,8 +699,41 @@ object NpuLlmChat {
         scope.launch {
             try {
                 val chat = ArrayList<ChatMessage>(roles.size)
-                for (i in roles.indices) {
-                    chat.add(ChatMessage(roles[i], contents[i]))
+                if (messagesJson != null) {
+                    // STRUCTURED-MSG：GenieX 的 ChatMessage 原生支持 toolCalls / toolCallId /
+                    // toolName（等价 llama.cpp 的 common_chat_msg）→ 工具轮交给它的模板引擎渲染成
+                    // 标准 tool 消息；此前只传 role+content 会把工具轮压成普通文本，模型接不上
+                    // （表现：卡在工具执行之后）。
+                    val arr = org.json.JSONArray(messagesJson)
+                    for (i in 0 until arr.length()) {
+                        val m = arr.optJSONObject(i) ?: continue
+                        val role = m.optString("role", "user").ifEmpty { "user" }
+                        val content = m.optString("content", "")
+                        var calls: List<ToolCall> = emptyList()
+                        val tcs = m.optJSONArray("tool_calls")
+                        if (tcs != null && tcs.length() > 0) {
+                            val list = ArrayList<ToolCall>()
+                            for (k in 0 until tcs.length()) {
+                                val tc = tcs.optJSONObject(k) ?: continue
+                                val fn = tc.optJSONObject("function")
+                                val id = tc.optString("id", "")
+                                val name = if (fn != null) fn.optString("name", "")
+                                           else tc.optString("name", "")
+                                val args = (if (fn != null) fn.opt("arguments")
+                                            else tc.opt("arguments"))?.toString() ?: "{}"
+                                list.add(ToolCall(id, name, args))
+                            }
+                            if (list.isNotEmpty()) calls = list
+                        }
+                        val toolCallId = m.optString("tool_call_id", "")
+                        val toolName = m.optString("name", "")
+                        chat.add(ChatMessage(role, content, calls, toolCallId, toolName))
+                    }
+                    Log.i(TAG, "结构化消息: " + chat.size + " 条（含 toolCalls/toolCallId/toolName）")
+                } else {
+                    for (i in roles.indices) {
+                        chat.add(ChatMessage(roles[i], contents[i]))
+                    }
                 }
                 // 第 3 个参数 addGenerationPrompt=false（与官方示例一致），
                 // 第 4 个参数 = enable_thinking（我们之前漏传，导致"深度思考"在 NPU 上无效）

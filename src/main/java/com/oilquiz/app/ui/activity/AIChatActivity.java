@@ -4834,17 +4834,60 @@ public class AIChatActivity extends BaseActivity {
         return sb.toString();
     }
 
+    /**
+     * NPU-PRELOAD（方案 B）：进入聊天页时后台预加载 NPU 模型。
+     * 设计要点：只在**聊天页**触发，绝不放进启动路径 —— 原生层（QNN/Genie/GenieX）偶发 abort
+     * 时最多影响本页提示，不会变成"一打开就秒退"。已在加载/已加载/引擎关闭时不重复触发。
+     */
+    private void preloadNpuIfNeeded() {
+        try {
+            if (!isNpuEngineOn()) {
+                return;
+            }
+            if (com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()) {
+                return;
+            }
+            if ("LOADING".equals(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName())) {
+                return;   // 已在加载中
+            }
+            AppLogger.ai(TAG, "NPU 预加载：进入聊天页，开始后台加载模型");
+            // ⚠️ 必须在**后台线程**调用：ensureLoadedAsync 内部先做 ensureInit()（GenieX 插件加载，
+            // 实测 ~14s）且是同步的 —— 在 onResume 主线程直接调会阻塞主线程导致
+            // "Input dispatching timed out" ANR（2026-10-05 实测踩到）。
+            final android.content.Context ctx = getApplicationContext();
+            new Thread(() -> {
+                try {
+                    com.oilquiz.app.ai.engine.NpuLlmChat.ensureLoadedAsync(
+                            ctx, new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
+                                @Override
+                                public void onLoaded(String modelName) {
+                                    AppLogger.ai(TAG, "NPU 预加载完成: " + modelName + "（首次发送无需再等待）");
+                                }
+
+                                @Override
+                                public void onError(String message) {
+                                    AppLogger.aiW(TAG, "NPU 预加载失败（不影响普通对话，发送时会重试）: " + message);
+                                }
+                            });
+                } catch (Throwable t) {
+                    AppLogger.aiW(TAG, "NPU 预加载异常: " + t);
+                }
+            }, "npu-preload").start();
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "NPU 预加载异常: " + t);
+        }
+    }
+
     private void processChatMessage(String message) {
         try {
             // 简化路由：在线模型 → 完整 Agent（工具调用自动）；本地模型 → 普通对话
             // （模式精简为 普通/深度思考 两个，深度思考由普通对话路径注入思考指令+enableThinking）
             // R3-1/R8-2：本地 Agent 实验开关开启时，本地模型也走 Agent
-            // （startAgentLoop 内再分流到 AgentSoftwareLayer，本地可调用工具）
-            // NPU（GenieX）引擎：本地 Agent 那套依赖 llama.cpp 本地模型（工具调用/思考链），
-            // NPU 侧载模型没有工具能力 → 直接走普通对话分支，避免落进本地服务初始化/恢复。
-            boolean npuEngineOn = isNpuEngineOn();
-            if (!npuEngineOn && (shouldUseOnlineModel()
-                    || (aiConfig != null && aiConfig.isLocalAgentEnabled()))) {
+            // 2026-10-05：NPU（GenieX）引擎下**同样**走 Agent —— 原先这里用 !npuEngineOn 直接
+            // 落到普通对话（当时以为 NPU 没有工具能力），导致 NPU 模式永远 tools=0、Agent 永不启动。
+            // 现在 NPU 已能驱动 Agent 循环（NpuEngineRouter.chatJson + 事件协议对齐）→ 放行。
+            if (shouldUseOnlineModel()
+                    || (aiConfig != null && aiConfig.isLocalAgentEnabled())) {
                 showOnlineAgentFriendlyGuide(message);
                 processChatMessageWithAgent(message);
                 return;
@@ -7706,12 +7749,10 @@ public class AIChatActivity extends BaseActivity {
 
         // 检查AI服务是否可用
         boolean useOnlineModel = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
-        // NPU（GenieX）引擎下本地 Agent 引擎永远不初始化（那条路依赖 llama.cpp 工具链）→
-        // 直接静默返回，免得每 10 秒刷一条"等待模型就绪"的告警。
-        if (isNpuEngineOn()) {
-            return;
-        }
-        if (!useOnlineModel && (modelBridge == null || !modelBridge.isModelInitialized())) {
+        // 2026-10-05：原先这里在 NPU 引擎下直接 return（当时认为 NPU 做不了工具调用），
+        // 结果 Agent 永远不初始化 → 每次都降级成"Agent 引擎未就绪，已降级为普通对话"。
+        // 现在 NPU 已能驱动 Agent 循环（NpuEngineRouter.chatJson + 事件协议对齐）→ 不再拦截。
+        if (!useOnlineModel && !isNpuEngineOn() && (modelBridge == null || !modelBridge.isModelInitialized())) {
             // M13：补充原因日志——在线路径无需本地模型；本地路径未就绪时说明是"等待初始化"而非错误，
             // 模型就绪后 modelChangeListener 会再次触发本方法完成初始化
             AppLogger.aiW(TAG, "Agent模式需要AI服务已初始化，当前AI服务未就绪"
@@ -10921,6 +10962,9 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // NPU-PRELOAD: 方案 B —— 只在聊天页后台预加载 NPU 模型（不进启动路径，
+        // 避免原生层 abort 演变成"打开就秒退"；用户打字的时间用来加载）。
+        preloadNpuIfNeeded();
         // 电脑连接状态可能在「远程连接（电脑）」界面被改过：回来自动刷新顶部状态条
         refreshRemoteDshBar();
         // 同步本地Agent开关状态（可能在其他页面切换过）

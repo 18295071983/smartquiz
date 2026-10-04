@@ -351,7 +351,14 @@ public final class NpuEngineRouter {
 
         // NPU-TRIM-HISTORY: NPU 没有 native 的 KV/prefix 复用，每轮都要全量重算；
         // 且超长 prompt 会被截断导致工具轮错乱。这里按内存预算规划出的 nCtx 裁剪历史。
-        msgs = trimMessagesForNCtx(msgs, NpuLlmChat.plannedNCtxValue(), toolsJson == null ? 0 : toolsJson.length());
+        // 裁剪前先让引擎按内存预算规划一次（否则会用兜底 8192，浪费上下文）
+        try {
+            if (appContext != null) {
+                NpuLlmChat.planForCurrentModel(appContext);
+            }
+        } catch (Throwable ignored) {
+        }
+        msgs = trimMessagesForNCtx(msgs, NpuLlmChat.plannedNCtxValue(), toolsJson);
 
         boolean routable = msgs != null && msgs.length() > 0
                 && shouldRouteToNpu(thinking, toolsJson != null, false);
@@ -366,11 +373,26 @@ public final class NpuEngineRouter {
 
         final String[] roles = new String[msgs.length()];
         final String[] contents = new String[msgs.length()];
+        int toolRounds = 0;
         for (int i = 0; i < msgs.length(); i++) {
             org.json.JSONObject m = msgs.optJSONObject(i);
-            roles[i] = (m == null || m.optString("role").isEmpty()) ? "user" : m.optString("role");
-            contents[i] = (m == null) ? "" : m.optString("content", "");
+            String role = (m == null || m.optString("role").isEmpty()) ? "user" : m.optString("role");
+            String content = (m == null) ? "" : m.optString("content", "");
+            // NPU-TOOLMSG: GenieX 的 ChatMessage 只有 role+content，结构化 tool_calls/tool_call_id
+            // 在这一层会丢失 → 第二轮（工具结果回填后）模型接不上"谁调了什么、结果配给谁"，
+            // 表现就是"卡在工具执行后"。这里做文本化降级：
+            //   ① assistant.tool_calls → 追加 <tool_call>{…}</tool_call> 文本，保留调用痕迹
+            //   ② tool 角色 / 带 tool_call_id 的消息 → 转成 user 轮并标注 id，保证能被模板渲染
+            // STRUCTURED-MSG: 不再做"文本化降级"——GenieX 的 ChatMessage 原生支持 toolCalls/
+            // toolCallId/toolName，这里只需保持 role/content 原样，结构化字段由 messagesJson 原样传下去。
+            if (m != null && ("tool".equals(role) || !m.optString("tool_call_id", "").isEmpty()
+                    || m.optJSONArray("tool_calls") != null)) {
+                toolRounds++;
+            }
+            roles[i] = role;
+            contents[i] = content;
         }
+        Log.i(TAG, "chatJson→NPU 消息转换: " + msgs.length() + " 条, 工具结果轮=" + toolRounds);
 
         Log.i(TAG, "chatJson→NPU: messages=" + msgs.length() + ", maxTokens=" + maxTokens
                 + ", thinking=" + thinking + ", tools=" + (toolsJson == null ? 0 : toolsJson.length()) + "字符");
@@ -429,7 +451,7 @@ public final class NpuEngineRouter {
                             emit(callback, "{\"type\":\"error\",\"message\":"
                                     + org.json.JSONObject.quote("NPU 推理失败: " + message) + "}");
                         }
-                    }, toolsJson);
+                    }, toolsJson, msgs.toString());
         } catch (Throwable t) {
             Log.w(TAG, "NPU chatJson 失败，回退 llama.cpp: " + t);
             releaseNpuBeforeFallback();
@@ -691,21 +713,24 @@ public final class NpuEngineRouter {
      * NPU-TRIM-HISTORY：按 nCtx 裁剪历史消息（保留 system 与最近的对话）。
      * 估算：1 token ≈ 3.5 个字符（中英混排的保守值）；为输出留 25% 余量。
      */
-    private static org.json.JSONArray trimMessagesForNCtx(org.json.JSONArray msgs, int nCtx, int toolsChars) {
+    private static org.json.JSONArray trimMessagesForNCtx(org.json.JSONArray msgs, int nCtx, String toolsJson) {
         if (msgs == null || msgs.length() == 0 || nCtx <= 0) {
             return msgs;
         }
         try {
-            // 预算要扣掉工具定义（tools schema 常有几十 KB，之前漏算会导致 prompt 爆掉 nCtx）
-            int budgetChars = (int) (nCtx * 3.5 * 0.75) - Math.max(0, toolsChars);
-            Log.i(TAG, "NPU 预算: nCtx=" + nCtx + " -> 可用约 " + budgetChars
-                    + " 字符（已扣 tools " + toolsChars + " 字符）");
+            // 预算按 token 估：中文 ≈1.5 字符/token、其它 ≈4 字符/token（原先统一按 3.5 字符，
+            // 中文密集时会低估 token 数 → 真会撑爆；JSON/英文又会高估 → 浪费）。
+            int toolsTokens = estTokens(toolsJson);
+            int budgetTokens = (int) (nCtx * 0.75) - toolsTokens;
+            Log.i(TAG, "NPU 预算: nCtx=" + nCtx + " -> 可用约 " + budgetTokens
+                    + " tokens（已扣 tools " + toolsTokens + " tokens / " 
+                    + (toolsJson == null ? 0 : toolsJson.length()) + " 字符）");
             int total = 0;
             for (int i = 0; i < msgs.length(); i++) {
                 org.json.JSONObject m = msgs.optJSONObject(i);
-                total += (m == null) ? 0 : m.optString("content", "").length();
+                total += (m == null) ? 0 : estTokens(m.optString("content", ""));
             }
-            if (total <= budgetChars) {
+            if (total <= budgetTokens) {
                 return msgs;
             }
             java.util.List<org.json.JSONObject> keep = new java.util.ArrayList<>();
@@ -721,8 +746,8 @@ public final class NpuEngineRouter {
                     system = m;   // system 单独保留（放最前）
                     continue;
                 }
-                int len = m.optString("content", "").length();
-                if (used + len > budgetChars && !keep.isEmpty()) {
+                int len = estTokens(m.optString("content", ""));
+                if (used + len > budgetTokens && !keep.isEmpty()) {
                     break;
                 }
                 keep.add(m);
@@ -737,7 +762,7 @@ public final class NpuEngineRouter {
                 out.put(m);
             }
             Log.w(TAG, "NPU 历史裁剪: " + msgs.length() + " -> " + out.length()
-                    + " 条（字符 " + total + " -> " + (used + (system == null ? 0 : system.optString("content").length()))
+                    + " 条（约 " + total + " -> " + (used + (system == null ? 0 : estTokens(system.optString("content"))))
                     + ", nCtx=" + nCtx + "）");
             return out;
         } catch (Throwable t) {
@@ -761,5 +786,24 @@ public final class NpuEngineRouter {
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * 粗略 token 估算：CJK 字符 ≈1.5 字符/token，其它（ASCII/JSON）≈4 字符/token。
+     * 只用于"裁剪预算"这一用途，宁可略保守。
+     */
+    private static int estTokens(String s) {
+        if (s == null || s.isEmpty()) {
+            return 0;
+        }
+        int cjk = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 0x4E00 && c <= 0x9FFF) {
+                cjk++;
+            }
+        }
+        int other = s.length() - cjk;
+        return (int) (cjk / 1.5 + other / 4.0) + 1;
     }
 }

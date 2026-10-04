@@ -282,3 +282,5 @@ build_log_*.txt
 commit_msg*.tmp
 fix_*.py
 *.tmp
+shot_*.png
+*.png.bak
