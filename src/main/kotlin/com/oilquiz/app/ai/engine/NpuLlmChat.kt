@@ -1021,9 +1021,23 @@ object NpuLlmChat {
                 val vw = vlm
                 if (vw != null) {
                     val vmsgs = ArrayList<VlmChatMessage>(roles.size)
+                    val imgPaths = pendingImagePaths
                     for (i in roles.indices) {
-                        vmsgs.add(VlmChatMessage(roles[i], listOf(VlmContent("text", contents[i]))))
+                        val parts = ArrayList<VlmContent>(2)
+                        parts.add(VlmContent("text", contents[i]))
+                        // 图片要作为 VlmContent("image", 路径) 进入消息，
+                        // VlmWrapper.injectMediaPathsToConfig() 才会把它们提取进 GenerationConfig
+                        // （只放 config 而不放消息是无效的）。挂到最后一条 user 消息上。
+                        if (imgPaths.isNotEmpty() && i == roles.indices.last
+                                && roles[i].equals("user", ignoreCase = true)) {
+                            for (p in imgPaths) {
+                                parts.add(VlmContent("image", p))
+                            }
+                            Log.i(TAG, "VLM 图片已附加到最后一条 user 消息: " + imgPaths.size + " 张")
+                        }
+                        vmsgs.add(VlmChatMessage(roles[i], parts))
                     }
+                    pendingImagePaths = emptyList()   // 用后即清，避免污染下一轮
                     Log.i(TAG, "VLM 生成: messages=" + vmsgs.size + ", images=" + pendingImagePaths.size)
                     val vt = vw.applyChatTemplate(vmsgs.toTypedArray(), toolsJson, thinking)
                     vt.onSuccess { t ->
