@@ -92,6 +92,48 @@ Qwen3.5 为**混合注意力**（官方 config 实测：32 层中仅每 4 层为
 
 **nCtx 去硬编码**：兜底值 4096 → 8192；候选档位加入 32768（Qwen3.5 混合架构 KV 仅 32KB/token）；状态页上下文统计改用 `NpuLlmChat.plannedNCtxValue()`（实测规划：权重 1158MB / 可用 4751MB / KV 12288B → nCtx=32768）。
 
+### 10) 续（同日，下半场）：运行时托管 / 源码核查修正 / 多模态与 NPU 原生清单 / P0 生命周期 / 投机解码（实测后关闭）
+
+**① NPU 运行时托管给 AIService + UI 单一状态源**
+- `AIService` 新增：`isNpuLoaded()` / `getNpuStateName()` / `ensureNpuLoadedAsync(InitializeCallback)`（后台单线程 `npu-load`、幂等、180s 超时）/ `releaseNpu()`；以及 UI 只读代理 `isNpuEngineEnabled/getNpuModelName/getNpuPreferredModelName/getNpuLastTokens/getNpuLastTps/getNpuLastElapsedMs/getNpuPlannedNCtx`
+- 三个入口切到服务：`NpuEngineRouter` 首次请求兜底、`InferenceRouter:89` 预加载（保留原 `LoadListener` 签名）、`AIChatActivity` 进聊天页预加载
+- **UI 里 `NpuLlmChat` 直连清零**：`AIServiceStatusActivity`(83 处)、`ServiceStatusManager`(14 处)、`TokenStatsTextBuilder`(3 处，NPU 分支搬到带 Context 的重载)、`MainActivity`(1 处) 全部改读 `AIService`
+- 红线保持：`initialize()/initializeSafe()/preloadModel()` 在 NPU 模式下仍早退 → **不在冷启动路径加载**（原生 abort 会导致"打开秒退"）
+
+**② 源码核查后的三项修正（推翻了本会话早期的错误结论）**
+- 反编译 GenieX AAR + 读官方 demo（`geniex_chat_android`）确认：`applyChatTemplate(chatList)` → `generateStreamFlow(formattedText)` **每轮提交完整 prompt**，**KV 前缀复用由 SDK 内部自动完成**（插件字符串 `prefix reuse: |A|={}, |G|={}, increment={} bytes`）
+  → 因此**撤销**了本会话做过的"只发增量后缀"设计（会触发 `prefix reuse failed: prompt does not match last generation`），`npu_incremental` 偏好永久关闭
+- **接入 GenieX `LlmWrapper.reset()`**：`resetIncrementalSession()` 真实调用 `reset()`，并在**新对话/清空会话**（`AIChatActivity.clearChat`）与**切换模型**（`ModelSelectorActivity.reloadNpuModel`）时调用 —— 官方 demo 有此调用，我们此前全项目 0 处
+- `GenerationConfigSample` 证实官方也只填 maxTokens（sampler 用 bridge 默认）→ 我们原有写法与官方一致
+
+**③ 多模态（GGUF VLM）**
+- 取证：GGUF 形态下视觉塔是**独立的 mmproj 文件**（官方 demo `VlmCreateInput.mmproj_path` + `GgufVisionReader` 读视觉几何；社区 `mmproj-Qwen3VL-4B-Instruct-F16.gguf` 独立存在）
+- `NpuLlmChat.loadModel` 新增 **VLM 加载分支**：`paths.mmproj_path` 非空 → `VlmWrapper.builder().vlmCreateInput(VlmCreateInput(model_path, mmproj_path, config, runtime_id, compute_unit))`（照官方 449-458）
+- 预设：新增 `qwen3-vl-4b-instruct`（`unsloth/Qwen3-VL-4B-Instruct-GGUF`，Q4_0，catalog 原生 `type=vlm`），并补 `mmprojUrl/backupMmprojUrl/mmprojSizeMB`（`ModelPreset` 本就支持这些字段，下载器无需改）
+- **未完成**：生成侧仍只走 `LlmWrapper` → 多模态需要把 `sendChatAsync` 生成块重构为 wrapper 无关（方案 A），再传 `VlmContent("image", 路径)`（图片路径由 `injectMediaPathsToConfig` 注入 config）
+
+**④ 预设与 NPU 原生清单**
+- 删除非 GenieX 原生 3 条：`minicpm-v4.6`（非原生 VLM，GenieX 只认 Qwen3-VL/Qwen2.5-VL）、`glm-edge-1.5b`、`internlm2.5-1.8b`（不在官方 catalog）
+- 新增 **NPU 原生格式（qairt）清单** `assets/models_presets_npu_native.json`（独立文件 + `ModelPresetConfig` 双清单合并，运行时日志 `NPU 原生(qairt)清单已合并: 3 条`）：`Qwen3-4B`、`Qwen3-4B-Instruct-2507`、`Qwen2.5-VL-7B-Instruct`（后者标注本机不适用：7B 超可用内存）
+- `ModelPreset` 扩展 GenieX 目录字段：`geniexModelName/geniexRuntime/geniexType/geniexQuant/hub/chipset/applicable/unapplicableReason/supportsVision/...`
+
+**⑤ P0 生命周期与可观测性**
+- **取消**：`NpuLlmChat.stopGeneration()` → GenieX `stopStream()`（`LlmWrapper`/`VlmWrapper` 均有），接到聊天页「停止」按钮
+- **推理期 WakeLock**：`AIService.acquireInferenceLock()/releaseInferenceLock()`，`NpuEngineRouter` 在 NPU 生成前后持锁/放锁（与 llama.cpp 路径对齐，防灭屏/切后台挂起）
+- **量化提示**：`GgufMeta` 增加张量类型直方图 `tensorTypeCounts` + `htpCompatNote()`（HTP 白名单：F32/F16/Q4_0/Q4_1/Q8_0/IQ4_NL/MXFP4；K-quant 会退 CPU）；张量表遍历改为无条件执行（同时补参数量）；状态页架构卡片展示该提示
+
+**⑥ 投机解码（`spec_*`）：已接入 → 实测崩溃 → 默认关闭**
+- 取证：插件含完整实现 `setup_speculative/teardown_speculative/decode_speculative/build_speculative_params` + `common_speculative_*`；失败会自动 `falling back to plain decoding`
+- 实现：draft 按主模型**自动匹配**（Qwen3.5→0.8B、Qwen3→0.6B，必须同词表；模糊匹配模型库键名），`ModelConfig(spec_type="draft", spec_draft_model=…, spec_n_max=8)`；`needsReloadForSpec()` 在"模型已常驻但库里新出现 draft"时自动 release+重载；`planNCtx` 把 draft 体积计入内存预算
+- **结论：本机实测"主模型 + draft"双模型加载会崩溃** → **默认已关闭**（`specEnabled=false`，偏好 `npu_spec_enabled` 默认 false，设备残留偏好已清除）。代码与自动匹配能力保留但休眠，不再默认启用
+
+**⑦ 本会话自引入并已修复的问题（如实记录）**
+- `BridgeJsonCallback` 的"升级为 Agent"（同一 messageId 二次生成）→ 打乱 ChatAdapter（空白气泡 + 卡"思考中"）→ 已撤回
+- 普通路径注入 59 个工具 schema → prompt 爆长且只吐工具调用 → 已撤回（工具只走 Agent 路径）
+- 预加载误放主线程 → `ensureInit()`（插件加载 ~14s）阻塞 → ANR → 已改后台线程
+- `git checkout` 恢复 `ModelExecutionBridge` 时冲掉 NPU 守卫（`AI服务初始化失败`）→ 已补回
+- 多处正则/缩进导致文件损坏（`NpuEngineRouter`、`AgentLoopEngine` 规则4、`AIServiceStatusActivity` meta 类型）→ 均已按行修复
+
 ## [2026-10-04] NPU 引擎与 llama.cpp「无缝切换、功能不降级」+ 预设全面 Q4 化 + 三项渲染修复
 
 本轮把 NPU（GenieX/Hexagon HTP）从"只在对话页可用"做成**本地推理的统一可选后端**，同时保证切换后功能不缩水；并把模型下载/搜索全链路收口到 Q4_0（HTP 原生加速的唯一甜点量化）。
