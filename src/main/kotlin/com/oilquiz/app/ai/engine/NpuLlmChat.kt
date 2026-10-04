@@ -126,6 +126,16 @@ object NpuLlmChat {
     /** 当前规划出的上下文长度（由 planNCtx 写入，loadModel 使用） */
     /** VLM（多模态）会话句柄：mmproj 存在时按 VLM 加载 */
     @Volatile private var vlm: VlmWrapper? = null
+    /** 待注入的本地图片路径（VLM 多模态）：由调用方 setPendingImagePaths 设置，用后即清 */
+    @Volatile private var pendingImagePaths: List<String> = emptyList()
+
+    /** 设置本次生成要携带的图片（VLM 专用；非 VLM 模型下忽略） */
+    @JvmStatic
+    fun setPendingImagePaths(paths: List<String>?) {
+        pendingImagePaths = paths ?: emptyList()
+        Log.i(TAG, "VLM 待注入图片: " + pendingImagePaths.size + " 张")
+    }
+
 
     @Volatile private var plannedNCtx = 8192   // 兜底值；真实值由 planNCtx 按内存预算定
 
@@ -928,6 +938,37 @@ object NpuLlmChat {
         state = State.GENERATING
         scope.launch {
             try {
+                // ===== 公共流消费（LLM 与 VLM 共用）：统计 token/耗时并转发回调 =====
+                suspend fun consume(flow: kotlinx.coroutines.flow.Flow<LlmStreamResult>) {
+                    var tokens = 0
+                    val text = StringBuilder()
+                    val startMs = System.currentTimeMillis()
+                    flow.collect { result ->
+                        when (result) {
+                            is LlmStreamResult.Token -> {
+                                tokens++
+                                text.append(result.text)
+                                listener?.onToken(result.text)
+                            }
+                            is LlmStreamResult.Completed -> {
+                                val elapsed = System.currentTimeMillis() - startMs
+                                lastTokens = tokens
+                                lastElapsedMs = elapsed
+                                lastTps = if (elapsed > 0) tokens * 1000f / elapsed else 0f
+                                state = State.READY
+                                Log.i(TAG, "生成完成: " + tokens + " tokens / " + elapsed + "ms / "
+                                        + "%.2f".format(lastTps) + " t/s")
+                                listener?.onCompleted(tokens, lastTps, elapsed)
+                            }
+                            is LlmStreamResult.Error -> {
+                                state = State.READY
+                                Log.e(TAG, "生成错误", result.throwable)
+                                listener?.onError(result.throwable.message ?: "生成错误")
+                            }
+                        }
+                    }
+                }
+
                 val chat = ArrayList<ChatMessage>(roles.size)
                 if (messagesJson != null) {
                     // STRUCTURED-MSG：GenieX 的 ChatMessage 原生支持 toolCalls / toolCallId /
@@ -973,6 +1014,31 @@ object NpuLlmChat {
                 //   applyChatTemplate(messages, tools, enableThinking, addGenerationPrompt = true)
                 // 之前两个布尔写反了 → enableThinking 恒为 true（思考模式永远开着，用户开关无效）、
                 // addGenerationPrompt 恒为 false（不给 assistant 前缀，模型不进入回答模式）。2026-10-05 修正。
+                // ==================== VLM（多模态）生成分支 ====================
+                // 加载时若检测到 mmproj，句柄是 vlm（llm 为 null）→ 必须走 VlmWrapper 的模板与生成。
+                // 官方用法（demo MainActivity.kt:715-767）：VlmChatMessage[] → applyChatTemplate(messages, tools, thinking)
+                // → injectMediaPathsToConfig(messages, config)（把图片/音频路径注入 config）→ generateStreamFlow。
+                val vw = vlm
+                if (vw != null) {
+                    val vmsgs = ArrayList<VlmChatMessage>(roles.size)
+                    for (i in roles.indices) {
+                        vmsgs.add(VlmChatMessage(roles[i], listOf(VlmContent("text", contents[i]))))
+                    }
+                    Log.i(TAG, "VLM 生成: messages=" + vmsgs.size + ", images=" + pendingImagePaths.size)
+                    val vt = vw.applyChatTemplate(vmsgs.toTypedArray(), toolsJson, thinking)
+                    vt.onSuccess { t ->
+                        var cfg = GenerationConfig(maxTokens = maxTokens)
+                        // 把图片/音频路径注入 config（无图时不改变配置）
+                        cfg = vw.injectMediaPathsToConfig(vmsgs.toTypedArray(), cfg)
+                        consume(vw.generateStreamFlow(t.formattedText, cfg))
+                    }.onFailure { e ->
+                        state = State.READY
+                        listener?.onError(e.message ?: "VLM chat template 失败")
+                    }
+                    return@launch
+                }
+
+
                 val templated = wrapper.applyChatTemplate(chat.toTypedArray(), toolsJson, thinking, true)
                 templated.onSuccess { t ->
                     // 模板预览：与 llama.cpp 侧对比最终喂给模型的文本是否一致（截 200 字符）
@@ -984,35 +1050,7 @@ object NpuLlmChat {
                     // "prefix reuse failed: prompt does not match last generation"。
                     val toSend = t.formattedText
                     Log.i(TAG, "prompt发送: " + toSend.length + " 字符（全量，复用交给 SDK）")
-                    var tokens = 0
-                    val text = StringBuilder()
-                    val startMs = System.currentTimeMillis()
-                    wrapper.generateStreamFlow(
-                        toSend,
-                        GenerationConfig(maxTokens = maxTokens)
-                    ).collect { result ->
-                        when (result) {
-                            is LlmStreamResult.Token -> {
-                                tokens++
-                                text.append(result.text)
-                                listener?.onToken(result.text)
-                            }
-                            is LlmStreamResult.Completed -> {
-                                val elapsed = System.currentTimeMillis() - startMs
-                                lastTokens = tokens
-                                lastElapsedMs = elapsed
-                                lastTps = if (elapsed > 0) tokens * 1000f / elapsed else 0f
-                                state = State.READY
-                                Log.i(TAG, "生成完成: $tokens tokens / ${elapsed}ms / ${"%.2f".format(lastTps)} t/s")
-                                listener?.onCompleted(tokens, lastTps, elapsed)
-                            }
-                            is LlmStreamResult.Error -> {
-                                state = State.READY
-                                Log.e(TAG, "生成错误", result.throwable)
-                                listener?.onError(result.throwable.message ?: "生成错误")
-                            }
-                        }
-                    }
+                    consume(wrapper.generateStreamFlow(toSend, GenerationConfig(maxTokens = maxTokens)))
                 }.onFailure { e ->
                     state = State.READY
                     listener?.onError(e.message ?: "chat template 失败")
