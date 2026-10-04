@@ -1,0 +1,57 @@
+{
+  "version": "2026-10-05-npu-native-1",
+  "runtime": "qairt",
+  "note": "GenieX NPU 原生格式（qairt = 预编译 QNN context）。与 GGUF 清单的区别：① 自包含单个产物（视觉塔已打进 context，多模态无需 mmproj）；② 由 GenieX ModelManagerWrapper 按官方 catalog 的 modelName 下载（不走上表直链下载器）；③ 性能优于 GGUF+HTP 路径。",
+  "presets": [
+    {
+      "id": "npu-native-qwen3-4b",
+      "name": "Qwen3-4B（NPU 原生 · qairt）",
+      "description": "GenieX 官方 catalog 的 NPU 原生编译版（预编译 QNN context），纯文本。支持工具调用与思考；在本机（SM8850 / Hexagon V81）可直接跑，内存占用与 GGUF 4B 相近。",
+      "geniexModelName": "ai-hub-models/Qwen3-4B",
+      "geniexRuntime": "qairt",
+      "geniexType": "llm",
+      "hub": "HUGGINGFACE",
+      "architecture": "Qwen3",
+      "parameters": "4B",
+      "minRamMB": 5120,
+      "supportsThinking": true,
+      "supportsFC": true,
+      "supportsVision": false,
+      "applicable": true
+    },
+    {
+      "id": "npu-native-qwen3-4b-instruct-2507",
+      "name": "Qwen3-4B-Instruct-2507（NPU 原生 · qairt）",
+      "description": "GenieX 官方 catalog 的 NPU 原生编译版（Qwen3-4B-Instruct-2507）。纯文本，指令遵循更强，适合 Agent 工具循环。",
+      "geniexModelName": "ai-hub-models/Qwen3-4B-Instruct-2507",
+      "geniexRuntime": "qairt",
+      "geniexType": "llm",
+      "hub": "HUGGINGFACE",
+      "architecture": "Qwen3",
+      "parameters": "4B",
+      "minRamMB": 5120,
+      "supportsThinking": true,
+      "supportsFC": true,
+      "supportsVision": false,
+      "applicable": true
+    },
+    {
+      "id": "npu-native-qwen2.5-vl-7b",
+      "name": "Qwen2.5-VL-7B-Instruct（NPU 原生 · 多模态 · 本机不适用）",
+      "description": "GenieX 官方 catalog 的 NPU 原生多模态模型（chipset SM8750，runtime qairt，自包含无需 mmproj）。⚠️ 7B 权重约 4.5GB+，超出本机可用内存（实测 MemAvailable ≈ 4.1-4.7GB），加载会被内存预检拒绝，列出仅供查看/其他机型使用。",
+      "geniexModelName": "ai-hub-models/Qwen2.5-VL-7B-Instruct",
+      "geniexRuntime": "qairt",
+      "geniexType": "vlm",
+      "chipset": "SM8750",
+      "hub": "AUTO",
+      "architecture": "Qwen2.5-VL",
+      "parameters": "7B",
+      "minRamMB": 10240,
+      "supportsThinking": true,
+      "supportsFC": true,
+      "supportsVision": true,
+      "applicable": false,
+      "unapplicableReason": "7B 超出本机可用内存（≈4.1GB）；如需多模态请用 GGUF 版 Qwen3-VL-4B + mmproj"
+    }
+  ]
+}
