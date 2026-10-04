@@ -255,7 +255,54 @@ public class ModelDownloadManager {
             presetInfo.sizeMB * 1024 * 1024, presetInfo.sha256,
             presetInfo.backupUrl, presetInfo.backupSha256
         );
-        String downloadId = download(request, callback);
+        // 下载完成时登记 sidecar 索引（预设 id → 实际文件名 + 字节数），
+        // 这样用户之后改名也能被识别（见 ModelIndexStore）
+        final DownloadCallback userCb = callback;
+        final String presetIdForIndex = modelId;
+        final android.content.Context ctxForIndex = context;
+        DownloadCallback wrappingCb = userCb == null ? null : new DownloadCallback() {
+            @Override
+            public void onProgress(String id, int progress, long downloadedMB, long totalMB) {
+                userCb.onProgress(id, progress, downloadedMB, totalMB);
+            }
+
+            @Override
+            public void onSpeedUpdate(String id, long speedBps, long etaSeconds) {
+                userCb.onSpeedUpdate(id, speedBps, etaSeconds);
+            }
+
+            @Override
+            public void onComplete(String id, String filePath) {
+                try {
+                    if (id == null || !id.endsWith("_mmproj")) {
+                        ModelIndexStore.record(ctxForIndex, presetIdForIndex, new java.io.File(filePath));
+                    }
+                } catch (Throwable ignored) {
+                }
+                userCb.onComplete(id, filePath);
+            }
+
+            @Override
+            public void onError(String id, String error) {
+                userCb.onError(id, error);
+            }
+
+            @Override
+            public void onPaused(String id) {
+                userCb.onPaused(id);
+            }
+
+            @Override
+            public void onCancelled(String id) {
+                userCb.onCancelled(id);
+            }
+
+            @Override
+            public void onResumed(String id) {
+                userCb.onResumed(id);
+            }
+        };
+        String downloadId = download(request, wrappingCb);
 
         // 如果是多模态模型，同时下载 mmproj 投影文件
         if (presetInfo.mmprojUrl != null && !presetInfo.mmprojUrl.isEmpty()) {
@@ -652,6 +699,14 @@ public class ModelDownloadManager {
     }
 
     public boolean isModelDownloaded(String modelPath) {
+        // 改名自愈：期望路径不存在时，按 sidecar 索引（记录的文件名/字节数）找实际文件
+        try {
+            java.io.File healed = ModelIndexStore.resolveHealed(context, new java.io.File(modelPath));
+            if (healed != null) {
+                modelPath = healed.getAbsolutePath();
+            }
+        } catch (Throwable ignored) {
+        }
         File file = new File(modelPath);
         return file.exists() && file.length() > 0;
     }
