@@ -4608,4 +4608,110 @@ public class AIService implements ComponentCallbacks2 {
     public int getPresetModelCount() {
         return getAvailableDomesticModels().size();
     }
+
+    // ==================== NPU 运行时托管（2026-10-05）====================
+    // 设计：把 NPU 当作与"在线 API 路径"同构的一等运行时交给 AIService 管理
+    // —— 在线路径本就不依赖本地 llama.cpp 模型（modelLoaded=false 也能用），NPU 同理。
+    // 红线：**不在冷启动路径自动加载**（原生层 abort 会导致"打开就秒退"）；
+    // initialize()/initializeSafe()/preloadModel() 在 NPU 模式下仍早退，只提供"被显式请求时加载"的入口。
+    private final java.util.concurrent.atomic.AtomicBoolean npuLoading =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private java.util.concurrent.ExecutorService npuExecutor;
+
+    /** NPU 运行时是否已加载 */
+    public boolean isNpuLoaded() {
+        return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
+    }
+
+    /** NPU 当前状态名（IDLE / LOADING / READY / GENERATING / ERROR） */
+    public String getNpuStateName() {
+        return com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();
+    }
+
+    /**
+     * 显式请求加载 NPU 模型：幂等 + 后台单线程 + 结果回调。
+     * 只应在 UI/请求触发时调用（聊天页 onResume、首次发送、用户手动点）。
+     */
+    public void ensureNpuLoadedAsync(InitializeCallback callback) {
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()) {
+            if (callback != null) {
+                callback.onResult(true);
+            }
+            return;
+        }
+        if (!npuLoading.compareAndSet(false, true)) {
+            if (callback != null) {
+                callback.onResult(true);   // 已在加载中，调用方无需重复触发
+            }
+            return;
+        }
+        synchronized (this) {
+            if (npuExecutor == null) {
+                npuExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(
+                        r -> new Thread(r, "npu-load"));
+            }
+        }
+        final android.content.Context ctx = context;   // AIService 单例自持的 app context
+        npuExecutor.execute(() -> {
+            boolean ok = false;
+            try {
+                final java.util.concurrent.CountDownLatch latch =
+                        new java.util.concurrent.CountDownLatch(1);
+                final boolean[] res = {false};
+                com.oilquiz.app.ai.engine.NpuLlmChat.ensureLoadedAsync(ctx,
+                        new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
+                            @Override
+                            public void onLoaded(String modelName) {
+                                res[0] = true;
+                                AILogger.i(TAG, "[NPU] 模型加载完成(服务托管): " + modelName);
+                                latch.countDown();
+                            }
+
+                            @Override
+                            public void onError(String message) {
+                                AILogger.w(TAG, "[NPU] 模型加载失败(服务托管): " + message);
+                                latch.countDown();
+                            }
+                        });
+                latch.await(180, java.util.concurrent.TimeUnit.SECONDS);
+                ok = res[0];
+            } catch (Throwable t) {
+                AILogger.w(TAG, "[NPU] ensureNpuLoadedAsync 异常: " + t);
+            } finally {
+                npuLoading.set(false);
+            }
+            if (callback != null) {
+                callback.onResult(ok);
+            }
+        });
+    }
+
+    /** 释放 NPU 权重（与本地 llama.cpp 互斥时调用） */
+    public void releaseNpu() {
+        try {
+            com.oilquiz.app.ai.engine.NpuLlmChat.release();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** UI 只读代理：NPU 引擎开关（避免 UI 各处直连 NpuLlmChat） */
+    public boolean isNpuEngineEnabled() {
+        return com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled();
+    }
+
+    /** UI 只读代理：当前 NPU 模型名（未加载时返回空串） */
+    public String getNpuModelName() {
+        String n = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+        return n == null ? "" : n;
+    }
+
+    /** UI 只读代理：上次 NPU 生成的 token 数 */
+    public int getNpuLastTokens() {
+        return com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
+    }
+
+    /** UI 只读代理：上次 NPU 生成速度（t/s） */
+    public float getNpuLastTps() {
+        return com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+    }
 }

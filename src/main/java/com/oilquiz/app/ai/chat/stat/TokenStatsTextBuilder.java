@@ -37,6 +37,7 @@ public final class TokenStatsTextBuilder {
                                AgentStats agent) {
         // NPU-TOKEN-STATS: NPU 引擎下顶部 token 徽标显示 NPU 的统计
         // （该数据源只反映本地 llama.cpp 会话，NPU 模式会一直是 0 tokens）
+        // 注：本方法无 Context，故仍直连 NpuLlmChat；待其入口带上 Context 后再改读服务。
         if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
             int npuTokens = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
             float npuTps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();

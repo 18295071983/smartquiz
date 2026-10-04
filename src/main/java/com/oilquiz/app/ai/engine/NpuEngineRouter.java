@@ -657,19 +657,9 @@ public final class NpuEngineRouter {
         final CountDownLatch latch = new CountDownLatch(1);
         final boolean[] ok = {false};
         try {
-            NpuLlmChat.ensureLoadedAsync(ctx, new NpuLlmChat.LoadListener() {
-                @Override
-                public void onLoaded(String modelName) {
-                    ok[0] = true;
-                    Log.i(TAG, "NPU 模型已加载: " + modelName);
-                    latch.countDown();
-                }
-
-                @Override
-                public void onError(String message) {
-                    Log.w(TAG, "NPU 模型加载失败: " + message);
-                    latch.countDown();
-                }
+            com.oilquiz.app.ai.service.AIService.getInstance(ctx).ensureNpuLoadedAsync(loaded -> {
+                ok[0] = loaded;
+                latch.countDown();
             });
             if (!latch.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 Log.w(TAG, "NPU 模型加载超时，回退 llama.cpp");

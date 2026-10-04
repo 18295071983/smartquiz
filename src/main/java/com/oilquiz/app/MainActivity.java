@@ -173,10 +173,14 @@ public class MainActivity extends BaseActivity {
         if (tvAiStatus != null) {
             // NPU-STATUS-CARD: NPU 引擎开启时，主界面状态卡按 NPU 实际状态显示
             // （原先一律走本地 llama.cpp 服务语义 → NPU 模式下永远红字"未加载"）
-            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-                String npuState = com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();
-                String npuModel = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
-                float npuTps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+            // NPU-SINGLE-SOURCE: 状态卡改为只读 AIService（服务是 NPU 运行时的唯一 owner），
+            // 不再直连 NpuLlmChat —— 后续 UI 侧只要读服务状态即可，便于统一与替换。
+            com.oilquiz.app.ai.service.AIService npuSvc =
+                    com.oilquiz.app.ai.service.AIService.getInstance(this);
+            if (npuSvc != null && npuSvc.isNpuEngineEnabled()) {
+                String npuState = npuSvc.getNpuStateName();
+                String npuModel = npuSvc.getNpuModelName();
+                float npuTps = npuSvc.getNpuLastTps();
                 boolean npuReady = "READY".equals(npuState) || "GENERATING".equals(npuState);
                 StringBuilder npuSb = new StringBuilder("NPU ");
                 if (npuReady) {

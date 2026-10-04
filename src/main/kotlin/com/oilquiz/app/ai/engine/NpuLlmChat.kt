@@ -202,6 +202,33 @@ object NpuLlmChat {
     @JvmStatic
     fun plannedNCtxValue(): Int = plannedNCtx
 
+    // ==================== NPU-INCREMENTAL：会话增量喂 prompt ====================
+    // 取证：LlmWrapper 只暴露 generateStreamFlow(String prompt, cfg) + reset()，说明底层上下文持久；
+    // 而实测日志 prefix match: past_prompt_tokens size: 0 → 我们每轮喂全量，从未命中 KV 复用。
+    // 若本次 prompt 以上次 prompt 为前缀，则只发送增量后缀，期望复用已有 KV（Agent 多轮提速）。
+    @Volatile private var lastPrompt: String? = null
+    @Volatile private var incrementalMode = false
+
+    /** 开关增量喂 prompt（默认关；可用偏好 npu_incremental=true 在设备上开启） */
+    @JvmStatic
+    fun setIncrementalMode(enabled: Boolean) {
+        incrementalMode = enabled
+        if (!enabled) {
+            lastPrompt = null
+        }
+        Log.i(TAG, "NPU 增量模式 = " + enabled)
+    }
+
+    @JvmStatic
+    fun isIncrementalMode(): Boolean = incrementalMode
+
+    /** 清空会话前缀（新对话 / 换模型 / 换模板时必须调用，否则增量基准错误） */
+    @JvmStatic
+    fun resetIncrementalSession() {
+        lastPrompt = null
+        Log.i(TAG, "NPU 增量会话已重置")
+    }
+
     /** 当前是否有**已登记可用**的本地模型（App 模型库或侧载目录里真有 gguf） */
     @JvmStatic
     fun hasUsableModel(): Boolean {
@@ -212,6 +239,17 @@ object NpuLlmChat {
             if (scanGguf(File(d)) != null) return true
         }
         return false
+    }
+
+    /** 从偏好读取增量模式开关（设备上改 npu_engine_prefs 即可，无需重编译） */
+    @JvmStatic
+    fun loadIncrementalPref(context: Context) {
+        try {
+            val p = context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
+            setIncrementalMode(p.getBoolean("npu_incremental", false))
+        } catch (t: Throwable) {
+            Log.w(TAG, "loadIncrementalPref 失败: " + t)
+        }
     }
 
     /** 当前是否已加载好一个模型（READY / GENERATING） */
@@ -271,6 +309,7 @@ object NpuLlmChat {
     /** 幂等初始化（可放 Application.onCreate / 每次进入界面时调） */
     @JvmStatic
     fun init(context: Context) {
+        loadIncrementalPref(context)
         try {
             appContext = context.applicationContext
             GenieXSdk.getInstance().init(context.applicationContext)
@@ -748,11 +787,25 @@ object NpuLlmChat {
                     // 模板预览：与 llama.cpp 侧对比最终喂给模型的文本是否一致（截 200 字符）
                     Log.i(TAG, "prompt模板预览(thinking=$thinking, tools=${toolsJson != null}): "
                             + t.formattedText.take(200).replace("\n", "\\n"))
+                    // NPU-INCREMENTAL：前缀命中则只发增量后缀（否则仍发全量）
+                    var toSend = t.formattedText
+                    if (incrementalMode) {
+                        val prev = lastPrompt
+                        if (prev != null && prev.isNotEmpty() && t.formattedText.startsWith(prev)) {
+                            toSend = t.formattedText.substring(prev.length)
+                        } else if (prev != null && prev.isNotEmpty()) {
+                            Log.w(TAG, "增量模式: 前缀不匹配（换会话/换模板？）→ 本次回退全量")
+                        }
+                    }
+                    lastPrompt = t.formattedText
+                    Log.i(TAG, "prompt发送: 全量 " + t.formattedText.length + " 字符"
+                            + (if (toSend.length != t.formattedText.length)
+                                " → 增量 " + toSend.length + " 字符（NPU-INCREMENTAL）" else "（全量）"))
                     var tokens = 0
                     val text = StringBuilder()
                     val startMs = System.currentTimeMillis()
                     wrapper.generateStreamFlow(
-                        t.formattedText,
+                        toSend,
                         GenerationConfig(maxTokens = maxTokens)
                     ).collect { result ->
                         when (result) {

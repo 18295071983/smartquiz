@@ -86,7 +86,13 @@ public class InferenceRouter {
         // 互斥：先释放本地 llama.cpp 的权重再加载 NPU，避免"两份模型同时常驻"
         // （0.6B 0.4GB / 4B 2.4GB，两份就是双倍内存 + 双份 KV cache）
         releaseLocalModelForNpu();
-        NpuLlmChat.ensureLoadedAsync(context, listener);
+        // NPU-SERVICE-OWNED: 加载统一走 AIService（后台线程/幂等/超时），这里把
+        // NpuLlmChat.LoadListener 适配成服务的 InitializeCallback，对外签名不变。
+        com.oilquiz.app.ai.service.AIService.getInstance(context).ensureNpuLoadedAsync(ok -> {
+            if (listener == null) return;
+            if (ok) listener.onLoaded(com.oilquiz.app.ai.service.AIService.getInstance(context).getNpuModelName());
+            else listener.onError("NPU 模型加载失败");
+        });
     }
 
     public void enableNpuEngine() {

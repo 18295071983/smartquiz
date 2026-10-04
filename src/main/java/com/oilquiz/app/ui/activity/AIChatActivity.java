@@ -4850,29 +4850,12 @@ public class AIChatActivity extends BaseActivity {
             if ("LOADING".equals(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName())) {
                 return;   // 已在加载中
             }
-            AppLogger.ai(TAG, "NPU 预加载：进入聊天页，开始后台加载模型");
-            // ⚠️ 必须在**后台线程**调用：ensureLoadedAsync 内部先做 ensureInit()（GenieX 插件加载，
-            // 实测 ~14s）且是同步的 —— 在 onResume 主线程直接调会阻塞主线程导致
-            // "Input dispatching timed out" ANR（2026-10-05 实测踩到）。
-            final android.content.Context ctx = getApplicationContext();
-            new Thread(() -> {
-                try {
-                    com.oilquiz.app.ai.engine.NpuLlmChat.ensureLoadedAsync(
-                            ctx, new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
-                                @Override
-                                public void onLoaded(String modelName) {
-                                    AppLogger.ai(TAG, "NPU 预加载完成: " + modelName + "（首次发送无需再等待）");
-                                }
-
-                                @Override
-                                public void onError(String message) {
-                                    AppLogger.aiW(TAG, "NPU 预加载失败（不影响普通对话，发送时会重试）: " + message);
-                                }
-                            });
-                } catch (Throwable t) {
-                    AppLogger.aiW(TAG, "NPU 预加载异常: " + t);
-                }
-            }, "npu-preload").start();
+            AppLogger.ai(TAG, "NPU 预加载：进入聊天页 → 交给 AIService 托管加载");
+            // NPU-SERVICE-OWNED：加载统一由 AIService 托管（后台单线程 npu-load、幂等、180s 超时），
+            // 这里只表达"用户已进入聊天页"这一**运行时意图** —— 用它区分"用户触发"与"冷启动路径"，
+            // 服务内部因此不需要一刀切地拒绝加载。
+            com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext())
+                    .ensureNpuLoadedAsync(ok -> AppLogger.ai(TAG, "NPU 预加载结果(服务托管): " + ok));
         } catch (Throwable t) {
             AppLogger.aiW(TAG, "NPU 预加载异常: " + t);
         }
