@@ -4633,11 +4633,21 @@ public class AIService implements ComponentCallbacks2 {
      * 只应在 UI/请求触发时调用（聊天页 onResume、首次发送、用户手动点）。
      */
     public void ensureNpuLoadedAsync(InitializeCallback callback) {
+        // 投机解码自动生效：若模型已加载、但用户刚下载了同词表 draft → 先释放再重载
         if (com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()) {
-            if (callback != null) {
-                callback.onResult(true);
+            boolean needReload = false;
+            try {
+                needReload = com.oilquiz.app.ai.engine.NpuLlmChat.needsReloadForSpec();
+            } catch (Throwable ignored) {
             }
-            return;
+            if (!needReload) {
+                if (callback != null) {
+                    callback.onResult(true);
+                }
+                return;
+            }
+            AILogger.i(TAG, "[NPU] 检测到可用的 draft 模型 → 自动重载以启用投机解码");
+            releaseNpu();
         }
         if (!npuLoading.compareAndSet(false, true)) {
             if (callback != null) {

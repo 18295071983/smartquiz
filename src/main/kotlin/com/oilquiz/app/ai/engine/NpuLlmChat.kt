@@ -213,6 +213,8 @@ object NpuLlmChat {
     // 默认开启：匹配到已下载的同词表 draft 就自动生效（无需用户设置）；
     // 可用偏好 npu_spec_enabled=false 关闭。GenieX 失败会自动退回普通解码，安全。
     @Volatile private var specEnabled = true
+    /** 本次加载时实际使用的 draft 路径（null = 未启用投机）；用于判断"新下了 draft 需要重载" */
+    @Volatile private var draftAtLoad: String? = null
 
     /** 主模型 → draft 模型 的自动匹配（必须同词表，否则投机无效）。
      *  用**模糊匹配**：模型库里注册名可能是 `applib/Qwen3.5-0.8B-Q4_0`、`Qwen3.5-0.8B-Q4_0` 等多种形式。 */
@@ -247,6 +249,22 @@ object NpuLlmChat {
         }
         Log.i(TAG, "投机 draft 已匹配: 主模型=" + main + " → draft=" + draftName + " @ " + p)
         return p
+    }
+
+
+    /**
+     * 是否需要"为投机解码而重载"：模型已加载，但模型库里**新出现了**可用的同词表 draft
+     * （典型场景：用户刚下载完 draft，而主模型还常驻在内存里没重新加载）。
+     * 上层在预加载/发消息前调用，返回 true 则先 release 再 load → 投机自动生效。
+     */
+    @JvmStatic
+    fun needsReloadForSpec(): Boolean {
+        if (!isLoaded()) return false
+        val want = specDraftPath() ?: return false
+        val loaded = draftAtLoad
+        if (loaded == want) return false
+        Log.i(TAG, "检测到 draft 变化，需要重载以启用投机: 已加载=" + loaded + " → 现在=" + want)
+        return true
     }
 
     @JvmStatic
@@ -750,6 +768,7 @@ object NpuLlmChat {
                 // llama_cpp 走 NPU 时 nGpuLayers=-1 表示"全部层交给最快设备（Hexagon HTP）"。
                 // 投机解码：draft 按主模型自动匹配（必须同词表）；GenieX 失败会自动 fallback 普通解码
                 val draftPath = specDraftPath()
+                draftAtLoad = draftPath
                 val conf =
                     if (runtime == "qairt") {
                         ModelConfig(nCtx = 0, nGpuLayers = 0)
@@ -1093,6 +1112,7 @@ object NpuLlmChat {
     /** 释放当前模型（切模型前调用） */
     @JvmStatic
     fun release() {
+        draftAtLoad = null
         try {
             runBlocking { llm?.stopStream() }
         } catch (t: Throwable) {
