@@ -4725,4 +4725,9 @@ public class AIService implements ComponentCallbacks2 {
     public int getNpuPlannedNCtx() {
         return com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
     }
+
+    /** UI 只读代理：上次 NPU 生成耗时（毫秒） */
+    public long getNpuLastElapsedMs() {
+        return com.oilquiz.app.ai.engine.NpuLlmChat.getLastElapsedMs();
+    }
 }

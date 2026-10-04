@@ -118,7 +118,7 @@ public class ServiceStatusManager {
     /** NPU 状态一行摘要（顶部状态栏显示用） */
     private String npuStatusLine() {
         String st = npuSvc().getNpuStateName();
-        String model = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+        String model = npuSvc().getNpuModelName();
         float tps = npuSvc().getNpuLastTps();
         StringBuilder sb = new StringBuilder("NPU（GenieX）· ").append(npuStateName(st));
         if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
@@ -141,9 +141,9 @@ public class ServiceStatusManager {
 
     /** NPU 状态详情对话框（独立于本地 AIService） */
     private void showNpuStatusDetails() {
-        String model = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+        String model = npuSvc().getNpuModelName();
         int tokens = npuSvc().getNpuLastTokens();
-        long elapsed = com.oilquiz.app.ai.engine.NpuLlmChat.getLastElapsedMs();
+        long elapsed = npuSvc().getNpuLastElapsedMs();
         float tps = npuSvc().getNpuLastTps();
         StringBuilder sb = new StringBuilder();
         sb.append("引擎: Qualcomm GenieX（llama_cpp 运行时）\n");
@@ -677,7 +677,7 @@ public class ServiceStatusManager {
         details.append("运行时: GenieX SDK（llama_cpp 跑 GGUF / qairt 跑 AI Hub 预编译）\n");
         details.append("算力单元: Hexagon NPU（HTP）· Adreno GPU · CPU\n");
         details.append("状态: ").append(npuSvc().getNpuStateName());
-        String npuModel = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+        String npuModel = npuSvc().getNpuModelName();
         if (npuModel != null && !npuModel.isEmpty()) details.append(" · ").append(npuModel);
         float tps = npuSvc().getNpuLastTps();
         if (tps > 0) details.append(" · 上次 ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
