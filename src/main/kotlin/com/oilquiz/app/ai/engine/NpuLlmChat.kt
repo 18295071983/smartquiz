@@ -226,9 +226,9 @@ object NpuLlmChat {
     // 失败时自打印 "speculative decoding setup failed; falling back to plain decoding"（安全）。
     // 设计（按用户要求）：draft 文件**按主模型自动匹配**（同词表才有效），不暴露给用户选择；
     // 切换模型时由上层 reloadNpuModel() 释放并重新加载 → 自动重新匹配。
-    // 默认开启：匹配到已下载的同词表 draft 就自动生效（无需用户设置）；
-    // 可用偏好 npu_spec_enabled=false 关闭。GenieX 失败会自动退回普通解码，安全。
-    @Volatile private var specEnabled = true
+    // 2026-10-05 关闭（用户实测：主模型 + draft 双模型加载在本机崩溃）。
+    // 保持代码与自动匹配能力，但默认**关闭**；如需实验，可在偏好里显式写 npu_spec_enabled=true。
+    @Volatile private var specEnabled = false
     /** 本次加载时实际使用的 draft 路径（null = 未启用投机）；用于判断"新下了 draft 需要重载" */
     @Volatile private var draftAtLoad: String? = null
 
@@ -381,7 +381,7 @@ object NpuLlmChat {
             setIncrementalMode(false)
             // 投机解码开关（默认关；设备上可改 npu_engine_prefs 的 npu_spec_enabled 开启）
             setSpecEnabled(context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
-                    .getBoolean("npu_spec_enabled", true))   // 默认开，写了 false 才关
+                    .getBoolean("npu_spec_enabled", false))   // 2026-10-05 默认关（双模型加载崩溃）
         } catch (t: Throwable) {
             Log.w(TAG, "loadIncrementalPref 失败: " + t)
         }
