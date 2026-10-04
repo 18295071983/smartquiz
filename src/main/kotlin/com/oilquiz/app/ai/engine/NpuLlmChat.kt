@@ -205,6 +205,53 @@ object NpuLlmChat {
         }
     }
 
+    // ==================== 投机解码（speculative decoding）====================
+    // 依据：GenieX 插件内含 setup_speculative / decode_speculative / build_speculative_params，
+    // 失败时自打印 "speculative decoding setup failed; falling back to plain decoding"（安全）。
+    // 设计（按用户要求）：draft 文件**按主模型自动匹配**（同词表才有效），不暴露给用户选择；
+    // 切换模型时由上层 reloadNpuModel() 释放并重新加载 → 自动重新匹配。
+    @Volatile private var specEnabled = false
+
+    /** 主模型 → draft 模型 的自动匹配（必须同词表，否则投机必然无效） */
+    private fun draftModelFor(modelName: String?): String? {
+        val n = modelName?.lowercase() ?: return null
+        return when {
+            // Qwen3.5 系列 → 用 0.8B 作 draft（同词表）
+            n.contains("qwen3.5") || n.contains("qwen35") ->
+                listOf("qwen3.5-0.8b", "Qwen3.5-0.8B-Q4_0").firstOrNull { localFiles.containsKey(it) }
+            // Qwen3（非 3.5）系列 → 用 0.6B 作 draft（同词表）
+            (n.contains("qwen3") && !n.contains("vl")) ->
+                listOf("qwen3-0.6b-q4_0-npu", "qwen3-0.6b", "Qwen3-0.6B-Q4_0").firstOrNull { localFiles.containsKey(it) }
+            // VL / 其他系列：同词表 draft 未内置 → 不启用
+            else -> null
+        }
+    }
+
+    /** 当前是否可用投机解码（开关开 + 主模型有对应 draft 且已下载） */
+    @JvmStatic
+    fun specDraftPath(): String? {
+        if (!specEnabled) return null
+        val main = currentOrPreferredModelName()
+        val draftName = draftModelFor(main) ?: run {
+            Log.i(TAG, "投机未启用：主模型 " + main + " 无同词表 draft")
+            return null
+        }
+        val p = localFiles[draftName] ?: run {
+            Log.i(TAG, "投机未启用：draft 未下载（" + draftName + "）")
+            return null
+        }
+        return p
+    }
+
+    @JvmStatic
+    fun setSpecEnabled(enabled: Boolean) {
+        specEnabled = enabled
+        Log.i(TAG, "NPU 投机解码开关 = " + enabled)
+    }
+
+    @JvmStatic
+    fun isSpecEnabled(): Boolean = specEnabled
+
     /** 当前规划出的 NPU 上下文长度（内存预算反推，供 Agent 适配层裁剪历史） */
     @JvmStatic
     fun plannedNCtxValue(): Int = plannedNCtx
@@ -292,6 +339,9 @@ object NpuLlmChat {
             // 2026-10-05 源码核查后废弃：官方用法是每轮全量 prompt，复用由 SDK 内部做；
             // "只发后缀"会破坏 prefix reuse，故此开关**永久关闭**（保留 API 仅为兼容）。
             setIncrementalMode(false)
+            // 投机解码开关（默认关；设备上可改 npu_engine_prefs 的 npu_spec_enabled 开启）
+            setSpecEnabled(context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
+                    .getBoolean("npu_spec_enabled", false))
         } catch (t: Throwable) {
             Log.w(TAG, "loadIncrementalPref 失败: " + t)
         }
