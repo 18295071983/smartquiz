@@ -641,15 +641,35 @@ object NpuLlmChat {
         return buildPaths(modelName, gguf)
     }
 
-    private fun buildPaths(modelName: String, gguf: File): ModelPaths = ModelPaths(
-        model_path = gguf.absolutePath,
-        model_dir = gguf.parentFile?.absolutePath ?: "",
-        model_name = modelName,
-        runtime_id = "llama_cpp",
-        model_type = ModelType.LLM,
-        mmproj_path = null,
-        tokenizer_path = ""
-    )
+    /**
+     * 构造 ModelPaths。**关键**：GGUF 形态下 VLM 的视觉塔是独立文件（mmproj），
+     * 原先这里把 `mmproj_path` 硬编码为 null、`model_type` 固定 LLM → 下载来的 VL 模型
+     * （走 app 模型库注册 → buildPaths）**永远不会走 VLM 路径**，看图功能形同虚设。
+     *
+     * 配对策略（对改名容错）：主模型所在目录里**任何名字含 `mmproj` 的 .gguf** 即认为是它的视觉塔。
+     * 因此 mmproj 文件加后缀、重命名（只要保留 mmproj 字样）都仍能配对成功。
+     */
+    private fun buildPaths(modelName: String, gguf: File): ModelPaths {
+        val mmproj = try {
+            gguf.parentFile?.listFiles()?.firstOrNull {
+                it.isFile && it.name.endsWith(".gguf", true) && it.name.contains("mmproj", true)
+            }
+        } catch (t: Throwable) {
+            null
+        }
+        if (mmproj != null) {
+            Log.i(TAG, "视觉塔已配对: " + mmproj.name + "（主模型 " + gguf.name + "）")
+        }
+        return ModelPaths(
+            model_path = gguf.absolutePath,
+            model_dir = gguf.parentFile?.absolutePath ?: "",
+            model_name = modelName,
+            runtime_id = "llama_cpp",
+            model_type = if (mmproj != null) ModelType.VLM else ModelType.LLM,
+            mmproj_path = mmproj?.absolutePath,
+            tokenizer_path = ""
+        )
+    }
 
     /** 已缓存模型清单（"org/repo" 列表） */
     @JvmStatic
