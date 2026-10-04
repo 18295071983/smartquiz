@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.agent.software.thinking;
 
 import com.oilquiz.app.ai.agent.software.thinking.model.*;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
@@ -48,7 +49,7 @@ public class ThinkingAnalyzer {
             }
 
             String prompt = buildAnalyzePrompt(userMessage, session);
-            String response = LlamaHelper.generate(prompt, 200, 0.3f);
+            String response = NpuEngineRouter.generate(prompt, 200, 0.3f, 0.9f, 40);
 
             if (response == null || response.trim().isEmpty()) {
                 return analyzeByKeywords(userMessage, session);

@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.service;
 
 import android.content.ComponentCallbacks2;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -903,6 +904,11 @@ public class AIService implements ComponentCallbacks2 {
      * 在已持有 {@link #modelInitLock} 的前提下执行模型加载。
      */
     private boolean loadModelLocked(String modelName) {
+        // NPU 引擎开启时本地服务本就无模型，不该在这里报"找不到模型文件"（会弹 AI服务初始化失败）
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            AILogger.i(TAG, "NPU 引擎已启用，跳过本地模型定位检查");
+            return false;
+        }
         long totalStartTime = System.currentTimeMillis();
         long phaseStartTime = totalStartTime;
         
@@ -1365,7 +1371,7 @@ public class AIService implements ComponentCallbacks2 {
 
                 // nativeGenerateStream 是同步阻塞调用，回调在当前线程同步触发
                 // 不需要 wait/notify 机制，直接在回调里 post 结果到主线程
-                LlamaHelper.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
+                NpuEngineRouter.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false, new LlamaHelper.TokenCallback() {
                     private StringBuilder fullResponse = new StringBuilder();
 
                     @Override
@@ -1516,8 +1522,7 @@ public class AIService implements ComponentCallbacks2 {
                     mainHandler.post(() -> callback.onError(new IllegalArgumentException("消息列表为空")));
                     return;
                 }
-                LlamaHelper.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false,
-                    buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
+                NpuEngineRouter.generateStream(messages, adjustedMaxTokens, 0.7f, 0.9f, 40, false, buildStreamCallback(completed, watchdogFuture, startTime, prompt, callback));
                 
                 AILogger.i(TAG, "Generation setup completed!");
             } catch (OutOfMemoryError e) {
@@ -1698,7 +1703,7 @@ public class AIService implements ComponentCallbacks2 {
                 AILogger.i(TAG, "调整生成 token 数: 原始 " + maxTokens + ", 调整后 " + adjustedMaxTokens);
                 
                 AILogger.i(TAG, "Calling LlamaHelper.generate with messages (auto chat template)...");
-                String result = LlamaHelper.generate(messages, adjustedMaxTokens, 0.7f);
+                String result = NpuEngineRouter.generate(messages, adjustedMaxTokens, 0.7f, 0.9f, 40);
                 AILogger.i(TAG, "LlamaHelper.generate completed, result length: " + (result != null ? result.length() : 0));
                 
                 // 清理模型输出中的乱码/非法字符
@@ -1786,7 +1791,7 @@ public class AIService implements ComponentCallbacks2 {
             List<PromptBuilder.Message> messages = buildMessagesForModel(prompt, history, null);
             AILogger.i(TAG, "Calling LlamaHelper.generate with messages (auto chat template)...");
 
-            String result = LlamaHelper.generate(messages, adjustedMaxTokens, 0.7f);
+            String result = NpuEngineRouter.generate(messages, adjustedMaxTokens, 0.7f, 0.9f, 40);
 
             // 清理模型输出中的乱码/非法字符
             String cleaned = ToolResultInterpreter.cleanModelOutput(result);
@@ -3273,6 +3278,13 @@ public class AIService implements ComponentCallbacks2 {
      * @return true 如果启动了恢复流程，false 如果模型已在内存中
      */
     public boolean tryHotStart(HotStartCallback callback) {
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            AILogger.i(TAG, "NPU 引擎已启用，跳过 tryHotStart");
+            if (callback != null) {
+                callback.onHotStartComplete(false, "NPU 引擎已启用，跳过本地模型加载");
+            }
+            return false;
+        }
         if (!hotStartEnabled) {
             AILogger.i(TAG, "热启动已禁用");
             return false;
@@ -3353,6 +3365,12 @@ public class AIService implements ComponentCallbacks2 {
      * 检查是否可以热启动
      */
     public boolean canHotStart() {
+        // NPU 引擎开启时绝不热启动本地 llama.cpp 模型：否则启动/回前台就抢先把权重加载进来，
+        // 既占内存又让"当前引擎"变回 llama.cpp（2026-10-05 实测：Agent 进程日志出现 LlamaJNI sched_reserve）。
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            AILogger.i(TAG, "NPU 引擎已启用，canHotStart=false（跳过本地模型热启动）");
+            return false;
+        }
         return hotStartEnabled && currentModelName != null && !isInitialized;
     }
 
@@ -4118,7 +4136,7 @@ public class AIService implements ComponentCallbacks2 {
                     effectiveMaxTokens = maxTokens;
                 }
 
-                LlamaHelper.chatSend(message, effectiveMaxTokens, 0.7f, 0.9f, 40, enableThinking, new LlamaHelper.TokenCallback() {
+                NpuEngineRouter.chatSend(message, effectiveMaxTokens, 0.7f, 0.9f, 40, enableThinking, new LlamaHelper.TokenCallback() {
                     @Override
                     public void onToken(String token) {
                         if (wrappedCallback != null) {

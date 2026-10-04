@@ -756,18 +756,25 @@ public class ModelSelectorActivity extends AppCompatActivity
         String model = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
         float tps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
         StringBuilder sb = new StringBuilder("已启用");
-        if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
+        if (model != null && !model.isEmpty()) {
+            sb.append(" · ").append(model);
+        } else {
+            String pref = com.oilquiz.app.ai.engine.NpuLlmChat.preferredModelName();
+            sb.append(" · ").append(pref == null || pref.isEmpty() ? "自动选模型" : "指定：" + pref);
+        }
         if (!"READY".equals(state)) sb.append(" · ").append(state);
         if (tps > 0) sb.append(String.format(java.util.Locale.US, " · %.1f t/s", tps));
         tv.setText(sb.toString());
     }
 
-    /** NPU 引擎操作菜单：开启 / 关闭 / 去 NPU 推理页（侧载模型、单独测试） */
+    /** NPU 引擎操作菜单：开启 / 关闭 / 选择模型 / 重新加载 / 去下载页 */
     private void showNpuEngineDialog(TextView tvValue) {
         boolean enabled = inferenceRouter != null && inferenceRouter.isNpuEngineEnabled();
         final String[] items = enabled
-                ? new String[]{"关闭 NPU 引擎（回退本地 llama.cpp）", "重新加载 NPU 模型", "打开「模型下载」页（下载 Q4_0 模型）"}
-                : new String[]{"开启 NPU 引擎（Hexagon NPU，模型走 App 模型库）", "打开「模型下载」页（下载 Q4_0 模型）"};
+                ? new String[]{"关闭 NPU 引擎（回退本地 llama.cpp）", "选择 NPU 模型…",
+                               "重新加载 NPU 模型", "打开「模型下载」页（下载 Q4_0 模型）"}
+                : new String[]{"开启 NPU 引擎（Hexagon NPU，模型走 App 模型库）", "选择 NPU 模型…",
+                               "打开「模型下载」页（下载 Q4_0 模型）"};
 
         new AlertDialog.Builder(this)
                 .setTitle("NPU 引擎（Qualcomm GenieX）")
@@ -778,56 +785,111 @@ public class ModelSelectorActivity extends AppCompatActivity
                             Toast.makeText(this, "已关闭 NPU 引擎，回退本地 llama.cpp", Toast.LENGTH_SHORT).show();
                             refreshNpuEngineRow(tvValue);
                         } else if (which == 1) {
-                            Toast.makeText(this, "正在重新加载 NPU 模型…", Toast.LENGTH_SHORT).show();
-                            inferenceRouter.enableNpuEngine(new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
-                                @Override
-                                public void onLoaded(String modelName) {
-                                    runOnUiThread(() -> {
-                                        Toast.makeText(ModelSelectorActivity.this,
-                                                "NPU 模型已加载：" + modelName, Toast.LENGTH_SHORT).show();
-                                        refreshNpuEngineRow(tvValue);
-                                    });
-                                }
-
-                                @Override
-                                public void onError(String message) {
-                                    runOnUiThread(() -> {
-                                        Toast.makeText(ModelSelectorActivity.this,
-                                                "NPU 加载失败：" + message, Toast.LENGTH_LONG).show();
-                                        refreshNpuEngineRow(tvValue);
-                                    });
-                                }
-                            });
+                            showNpuModelDialog(tvValue);
+                        } else if (which == 2) {
+                            reloadNpuModel(tvValue);
                         } else {
                             startActivity(new android.content.Intent(this,
                                     com.oilquiz.app.ui.activity.ModelDownloadActivity.class));
                         }
                     } else {
                         if (which == 0) {
-                            Toast.makeText(this, "正在开启 NPU 引擎（首次会加载模型）…", Toast.LENGTH_SHORT).show();
-                            inferenceRouter.enableNpuEngine(new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
-                                @Override
-                                public void onLoaded(String modelName) {
-                                    runOnUiThread(() -> {
-                                        Toast.makeText(ModelSelectorActivity.this,
-                                                "NPU 引擎已就绪：" + modelName, Toast.LENGTH_LONG).show();
-                                        refreshNpuEngineRow(tvValue);
-                                    });
-                                }
-
-                                @Override
-                                public void onError(String message) {
-                                    runOnUiThread(() -> {
-                                        Toast.makeText(ModelSelectorActivity.this,
-                                                "NPU 不可用：" + message, Toast.LENGTH_LONG).show();
-                                        refreshNpuEngineRow(tvValue);
-                                    });
-                                }
-                            });
+                            enableNpuEngineNow(tvValue);
+                        } else if (which == 1) {
+                            showNpuModelDialog(tvValue);
                         } else {
                             startActivity(new android.content.Intent(this,
                                     com.oilquiz.app.ui.activity.ModelDownloadActivity.class));
                         }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 开启 NPU 引擎（首次会加载模型） */
+    private void enableNpuEngineNow(TextView tvValue) {
+        Toast.makeText(this, "正在开启 NPU 引擎（首次会加载模型）…", Toast.LENGTH_SHORT).show();
+        inferenceRouter.enableNpuEngine(new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
+            @Override
+            public void onLoaded(String modelName) {
+                runOnUiThread(() -> {
+                    Toast.makeText(ModelSelectorActivity.this,
+                            "NPU 引擎已就绪：" + modelName, Toast.LENGTH_LONG).show();
+                    refreshNpuEngineRow(tvValue);
+                });
+            }
+
+            @Override
+            public void onError(String message) {
+                runOnUiThread(() -> {
+                    Toast.makeText(ModelSelectorActivity.this,
+                            "NPU 不可用：" + message, Toast.LENGTH_LONG).show();
+                    refreshNpuEngineRow(tvValue);
+                });
+            }
+        });
+    }
+
+    /** 重新加载 NPU 模型（换模型后立即生效） */
+    private void reloadNpuModel(TextView tvValue) {
+        Toast.makeText(this, "正在重新加载 NPU 模型…", Toast.LENGTH_SHORT).show();
+        try {
+            com.oilquiz.app.ai.engine.NpuLlmChat.release();   // 先释放旧权重，避免两份常驻
+        } catch (Throwable ignored) {
+        }
+        inferenceRouter.enableNpuEngine(new com.oilquiz.app.ai.engine.NpuLlmChat.LoadListener() {
+            @Override
+            public void onLoaded(String modelName) {
+                runOnUiThread(() -> {
+                    Toast.makeText(ModelSelectorActivity.this,
+                            "NPU 模型已加载：" + modelName, Toast.LENGTH_LONG).show();
+                    refreshNpuEngineRow(tvValue);
+                });
+            }
+
+            @Override
+            public void onError(String message) {
+                runOnUiThread(() -> {
+                    Toast.makeText(ModelSelectorActivity.this,
+                            "NPU 加载失败：" + message, Toast.LENGTH_LONG).show();
+                    refreshNpuEngineRow(tvValue);
+                });
+            }
+        });
+    }
+
+    /**
+     * 选择 NPU 用哪个模型：自动（优先 Q4_0 / App 模型库）或显式指定某个 gguf。
+     * 依据：多个同量化同尺寸模型并存时自动打分并列，会出现"挑错模型"。
+     */
+    private void showNpuModelDialog(TextView tvValue) {
+        final java.util.List<String> models = new java.util.ArrayList<>();
+        models.add("自动（推荐：优先 Q4_0、优先 App 模型库）");
+        try {
+            models.addAll(com.oilquiz.app.ai.engine.NpuLlmChat.listAvailableModels(this));
+        } catch (Throwable ignored) {
+        }
+        final String cur = com.oilquiz.app.ai.engine.NpuLlmChat.preferredModelName();
+        int checked = 0;
+        for (int i = 1; i < models.size(); i++) {
+            if (models.get(i).equals(cur)) {
+                checked = i;
+                break;
+            }
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择 NPU 模型（当前：" + (cur == null || cur.isEmpty() ? "自动" : cur) + "）")
+                .setSingleChoiceItems(models.toArray(new String[0]), checked, (d, which) -> {
+                    boolean auto = (which == 0);
+                    String pick = auto ? null : models.get(which);
+                    com.oilquiz.app.ai.engine.NpuLlmChat.setPreferredModelName(pick);
+                    d.dismiss();
+                    if (inferenceRouter != null && inferenceRouter.isNpuEngineEnabled()) {
+                        reloadNpuModel(tvValue);   // 立即按新选择重新加载
+                    } else {
+                        Toast.makeText(this, "已记录：" + (auto ? "自动" : pick), Toast.LENGTH_SHORT).show();
+                        refreshNpuEngineRow(tvValue);
                     }
                 })
                 .setNegativeButton("取消", null)

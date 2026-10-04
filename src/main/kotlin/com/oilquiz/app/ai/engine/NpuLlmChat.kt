@@ -73,6 +73,114 @@ object NpuLlmChat {
     @JvmStatic
     fun isEngineEnabled(): Boolean = engineEnabled
 
+    /** 当前已加载模型名；未加载时给出将要用的首选模型名（用于"模型够大才把工具调用交给 NPU"判断） */
+    @JvmStatic
+    fun currentOrPreferredModelName(): String {
+        val cur = currentModel
+        if (cur.isNotBlank()) return cur
+        return try {
+            preferredNpuModel() ?: ""
+        } catch (t: Throwable) {
+            ""
+        }
+    }
+
+    /** 显式指定的 NPU 模型名（空 = 自动挑最优）；持久化在 npu_engine_prefs/npu_model */
+    @Volatile private var preferredOverride: String = ""
+
+    /** 用户在「模型选择」页指定 NPU 用哪个模型（null/空 = 恢复自动） */
+    @JvmStatic
+    fun setPreferredModelName(name: String?) {
+        preferredOverride = name ?: ""
+        val ctx = appContext
+        if (ctx != null) {
+            ctx.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
+                .edit().putString("npu_model", preferredOverride).apply()
+        }
+        Log.i(TAG, "NPU 指定模型 = " + (if (preferredOverride.isEmpty()) "自动" else preferredOverride))
+    }
+
+    @JvmStatic
+    fun preferredModelName(): String = preferredOverride
+
+    /** 启动时从偏好恢复（由 NpuEngineRouter.init 调用） */
+    @JvmStatic
+    fun loadPreferredModelName(context: Context) {
+        preferredOverride = context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
+            .getString("npu_model", "") ?: ""
+    }
+
+    /** 可选的 NPU 模型列表（App 模型库里的 gguf） */
+    @JvmStatic
+    fun listAvailableModels(context: Context): List<String> {
+        registerAppModelLibrary(context)
+        return ArrayList(localFiles.keys)
+    }
+
+
+    /** 当前规划出的上下文长度（由 planNCtx 写入，loadModel 使用） */
+    @Volatile private var plannedNCtx = 8192   // 兜底值；真实值由 planNCtx 按内存预算定
+
+    /** 可用的系统内存（字节） */
+    private fun availableMemBytes(ctx: Context): Long {
+        return try {
+            val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val mi = android.app.ActivityManager.MemoryInfo()
+            am.getMemoryInfo(mi)
+            mi.availMem
+        } catch (t: Throwable) {
+            -1L
+        }
+    }
+
+    /** 每 token 的 KV 缓存字节数（按 gguf 规格估算；混合注意力只算全注意力层） */
+    private fun kvBytesPerToken(m: com.oilquiz.app.ai.model.GgufMeta?): Long {
+        if (m == null) return 0
+        val layers = if (m.blockCount > 0) m.blockCount else 32
+        val kvHeads = if (m.headCountKv > 0) m.headCountKv else (if (m.headCount > 0) m.headCount else 8)
+        val headDim = if (m.headLength > 0) m.headLength
+                      else if (m.embeddingLength > 0 && m.headCount > 0) m.embeddingLength / m.headCount
+                      else 128
+        val fullLayers = when {
+            m.fullAttentionInterval > 0 -> maxOf(1L, layers / m.fullAttentionInterval)
+            m.hasLinearAttention -> maxOf(1L, layers / 4)   // Qwen3.5 系：每 4 层 1 个全注意力
+            else -> layers
+        }
+        return 2L * fullLayers * kvHeads * headDim * 2L     // K+V，f16
+    }
+
+    /**
+     * 按内存预算规划上下文长度：availMem − 权重 − App 预留 − 安全余量 = 可给 KV，
+     * 再在 {16384, 8192, 4096, 2048} 里取最大的可行档。装不下返回 -1。
+     */
+    private fun planNCtx(ctx: Context, gguf: File?): Int {
+        if (gguf == null || !gguf.isFile) return 4096
+        val avail = availableMemBytes(ctx)
+        if (avail <= 0) return 4096
+        val meta = com.oilquiz.app.ai.model.GgufMeta.read(gguf)
+        val perToken = kvBytesPerToken(meta)
+        val modelBytes = gguf.length()
+        val reserve = 400L * 1024 * 1024      // App 自身（实测 PSS ~420MB）
+        val margin = 300L * 1024 * 1024       // 安全余量
+        val forKv = avail - modelBytes - reserve - margin
+        if (perToken <= 0) return if (forKv > 0) 4096 else -1
+        // Qwen3.5 混合架构 KV 很便宜（32KB/token），允许开到 32768
+        for (c in intArrayOf(32768, 16384, 8192, 4096, 2048)) {
+            if (perToken * c <= forKv) {
+                Log.i(TAG, "内存规划: 权重=" + (modelBytes / 1048576) + "MB, 可用=" + (avail / 1048576)
+                        + "MB, KV/token=" + perToken + "B -> nCtx=" + c)
+                return c
+            }
+        }
+        Log.w(TAG, "内存规划: 装不下。权重=" + (modelBytes / 1048576) + "MB, 可用=" + (avail / 1048576)
+                + "MB, KV/token=" + perToken + "B")
+        return -1
+    }
+
+    /** 当前规划出的 NPU 上下文长度（内存预算反推，供 Agent 适配层裁剪历史） */
+    @JvmStatic
+    fun plannedNCtxValue(): Int = plannedNCtx
+
     /** 当前是否有**已登记可用**的本地模型（App 模型库或侧载目录里真有 gguf） */
     @JvmStatic
     fun hasUsableModel(): Boolean {
@@ -283,6 +391,11 @@ object NpuLlmChat {
      */
     @JvmStatic
     fun preferredNpuModel(): String? {
+        // 用户显式指定的模型优先（模型选择页选定并持久化）
+        if (preferredOverride.isNotBlank()) {
+            val op = localFiles[preferredOverride]
+            if (op != null && File(op).isFile) return preferredOverride
+        }
         if (localFiles.isEmpty()) return null
         fun score(name: String): Int {
             val f = File(localFiles[name] ?: return -10000).name.lowercase()
@@ -478,7 +591,7 @@ object NpuLlmChat {
                     if (runtime == "qairt") {
                         ModelConfig(nCtx = 0, nGpuLayers = 0)
                     } else {
-                        ModelConfig(nCtx = 4096, nGpuLayers = -1)
+                        ModelConfig(nCtx = plannedNCtx, nGpuLayers = -1)
                     }
                 val result = LlmWrapper.builder()
                     .llmCreateInput(
@@ -536,10 +649,8 @@ object NpuLlmChat {
      *
      * @param roles    "system" / "user" / "assistant"
      * @param contents 与 roles 等长的文本
-     * @param thinking 是否启用**思考链**。GenieX 0.8.0 把 `enable_thinking` 放在
-     *                 `applyChatTemplate(messages, tools, addGenerationPrompt, enableThinking)` 的
-     *                 第 4 个参数上（官方示例只传了 3 个 → 默认关闭）。这里透传，深度思考在
-     *                 NPU 上不再失效。
+     * @param thinking 是否启用**思考链**。GenieX 的 `applyChatTemplate(messages, tools, enableThinking, addGenerationPrompt = true)`
+     *                 第 3 个参数就是思考开关（官方源码 LlmWrapper.kt 确认）。这里透传。
      * @param toolsJson 工具/函数定义（JSON 字符串），null 表示不带工具
      */
     @JvmStatic
@@ -571,8 +682,17 @@ object NpuLlmChat {
                 }
                 // 第 3 个参数 addGenerationPrompt=false（与官方示例一致），
                 // 第 4 个参数 = enable_thinking（我们之前漏传，导致"深度思考"在 NPU 上无效）
-                val templated = wrapper.applyChatTemplate(chat.toTypedArray(), toolsJson, false, thinking)
+                // addGenerationPrompt=true：与 llama.cpp 的 llama_chat_apply_template (add_ass=true) 对齐，
+                // 追加 assistant 前缀，避免模型不进入回答模式（复读/格式变差）。
+                // 参数顺序以 GenieX 官方源码 LlmWrapper.kt 为准：
+                //   applyChatTemplate(messages, tools, enableThinking, addGenerationPrompt = true)
+                // 之前两个布尔写反了 → enableThinking 恒为 true（思考模式永远开着，用户开关无效）、
+                // addGenerationPrompt 恒为 false（不给 assistant 前缀，模型不进入回答模式）。2026-10-05 修正。
+                val templated = wrapper.applyChatTemplate(chat.toTypedArray(), toolsJson, thinking, true)
                 templated.onSuccess { t ->
+                    // 模板预览：与 llama.cpp 侧对比最终喂给模型的文本是否一致（截 200 字符）
+                    Log.i(TAG, "prompt模板预览(thinking=$thinking, tools=${toolsJson != null}): "
+                            + t.formattedText.take(200).replace("\n", "\\n"))
                     var tokens = 0
                     val text = StringBuilder()
                     val startMs = System.currentTimeMillis()
@@ -663,8 +783,7 @@ object NpuLlmChat {
      *
      * 模型来源按优先级：
      * ① **App 模型库** `filesDir/ai_models/`（项目原有下载功能的落盘处，含国内镜像/断点续传）；
-     * ② 本地侧载目录 `filesDir/gguf/qwen3-0.6b|1.7b`（排查/离线用）。
-     * 两者统一打分挑最优（Q4_0 优先），都没有则报错提示先下载模型。
+         * 两者统一打分挑最优（Q4_0 优先），都没有则报错提示先下载模型。
      */
     @JvmStatic
     fun ensureLoadedAsync(context: Context, listener: LoadListener?) {
@@ -678,11 +797,24 @@ object NpuLlmChat {
         }
         // ① 复用项目原有下载功能：App 模型库里的 gguf 直接可用
         registerAppModelLibrary(context)
-        // ② 本地侧载目录（不依赖界面是否访问过 NPU 页）
         registerLocalModelInFiles(context, Models.LOCAL_QWEN3_0_6B, "gguf/qwen3-0.6b")
         registerLocalModelInFiles(context, Models.LOCAL_QWEN3_1_7B, "gguf/qwen3-1.7b")
 
         val target = preferredNpuModel()
+
+            // 加载前的内存预算规划：可用内存 − 权重 − App 预留 − 余量 = 可给 KV，反推 nCtx；
+            // 装不下就直接拒绝（好过被系统 LMK 杀掉，用户看到的是"闪退"）。
+            val planFile = localFiles[target]?.let { File(it) }
+                ?: (preferredNpuModel()?.let { localFiles[it] }?.let { File(it) })
+            val planned = planNCtx(context, planFile)
+            if (planned < 0) {
+                val availMb = availableMemBytes(context) / 1048576
+                val needMb = (planFile?.length() ?: 0L) / 1048576
+                Log.w(TAG, "拒绝加载: 可用 ${availMb}MB < 模型 ${needMb}MB (+缓存/余量)")
+                listener?.onError("可用内存不足：可用 ${availMb}MB，该模型约 ${needMb}MB" + "，超出本机预算；建议改用 4B-Q4_0") 
+                return
+            }
+            plannedNCtx = planned
         if (target == null) {
             state = State.ERROR
             listener?.onError("还没有可用的本地模型：请到「模型下载」页下载 NPU 模型（选 Q4_0 那个），或把 GGUF 放进 files/gguf/")
@@ -738,7 +870,6 @@ object NpuLlmChat {
         sb.append('\n')
         // 本地侧载登记（不依赖 SDK 清单）
         if (localDirs.isNotEmpty()) {
-            sb.append("本地侧载: ").append(localDirs.keys.joinToString(", ")).append('\n')
         }
         // 设备 SoC（GenieX 自动识别；NPU 需要 SM8750 / SM8850）
         try {

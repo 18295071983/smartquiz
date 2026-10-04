@@ -91,7 +91,7 @@ public class ChatMessageSender {
                     new MessageRouteDecider.DecisionInput()
                             .message(agentMessage).attachments(attachments)
                             .hasImageAttachment(hasImage).isOnlineModel(isOnlineModel)
-                            .localAgentEnabled(localAgentEnabled).modelLoaded(true)
+                            .localAgentEnabled((localAgentEnabled) || com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()).modelLoaded((true) || com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled())
                             .fileExtractorAvailable(fileExtractorAvailable));
             if (route == MessageRouteDecider.Route.ATTACH_AGENT) {
                 host.onRouteAttachAgent(agentMessage, attachments);

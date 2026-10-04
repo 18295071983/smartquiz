@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.agent;
 
 import android.content.Context;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.service.AgentService;
@@ -699,7 +700,7 @@ public class SmartIntentRecognizer {
         try {
             String prompt = buildLLMPrompt(message);
             // LlamaHelper.generate 内部有推理锁保护，会等待 chatSend 完成
-            String response = LlamaHelper.generate(prompt, LLM_MAX_TOKENS, LLM_TEMPERATURE);
+            String response = NpuEngineRouter.generate(prompt, LLM_MAX_TOKENS, LLM_TEMPERATURE, 0.9f, 40);
             response = ToolResultInterpreter.cleanModelOutput(response);
 
             if (response == null || response.trim().isEmpty()) {

@@ -102,6 +102,12 @@ public class NativeRecoveryHandler {
     }
 
     public void triggerAutoRecovery() {
+        // NPU 引擎开启时绝不触发本地恢复/加载：本地服务在 NPU 模式下本来就是空的，
+        // 一旦恢复就会去找并不存在的本地模型 → 反复弹"AI服务初始化失败"。
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            com.oilquiz.app.util.AILogger.i(TAG, "NPU 引擎已启用，跳过本地恢复");
+            return;
+        }
         if (aiService == null) return;
 
         // 没有模型文件就没什么可"恢复"的：直接跳过（用户要求：先查文件再加载/恢复）。

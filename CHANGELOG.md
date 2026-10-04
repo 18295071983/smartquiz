@@ -1,5 +1,73 @@
 # 变更日志
 
+## [2026-10-05] NPU Agent 引擎（事件协议对齐 + 回调链修复）+ NPU 容量设计（内存预算/nCtx/GGUF 解析）+ UI 引擎感知 + 预设与设备清理
+
+本轮把 NPU 从"能出字"推到"可作为对话与 Agent 的生成后端"，并补上此前一直缺的**容量决策**与**回调/UI 绑定**。过程中修掉了多个**由本会话自身引入的回归**（已在下方逐条标注原因，便于回溯）。
+
+### 1) 真实入口与闸门修复（关键）
+
+- **对话与 Agent 的真实入口是 `LlamaHelper.chatJson`（JSON 事件流），不是 `chatSend`/`generate*`。** 此前把 NPU 接在 `chatSend`/`generate*` 上的工作全部无效（那些入口在流式对话里根本不会被走到）。现已把 `ModelExecutionBridge` 的 3 处 `chatJson` 调用切到 `NpuEngineRouter.chatJson`。
+- **NPU 模式下的本地服务守卫是最后一道闸门**：`ModelExecutionBridge` 在 `!aiService.isInitialized()` 时会 `initializeSafe()` 失败 → `notifyError("AI服务初始化失败")` 并 `return false`。NPU 模式本就跳过本地预加载 → 该守卫必然失败 → **请求永远到不了 NPU**（表现为"AI服务初始化失败" + NPU 状态永远"待加载" + 发送后长时间无响应）。现 NPU 引擎开启时直接放行并记日志：`NPU 引擎已启用，跳过本地服务初始化检查（由 NpuEngineRouter 负责生成）`。
+- 说明：该修复曾在一次 `git checkout -- ModelExecutionBridge.java`（因撤回脚本正则改坏文件而做的恢复）中被意外冲掉，随后已补回；`chatJson` 路由与 import 也已一并重新施加。
+
+### 2) NPU Agent 引擎：与 `AgentLoopEngine` 的事件协议对齐
+
+结论：**不需要另造引擎** —— `AgentLoopEngine`（2625 行）本身即通用工具循环（工具 json 构建、FC 提示词、`<tool_call>` 多形态解析、并行执行、tool 消息回填、轮次控制），且已在调用 `NpuEngineRouter.chatJson`。因此"NPU Agent 引擎" = 本地引擎（复用）+ NPU 生成后端 + 协议对齐 + NPU 特有补齐：
+
+| 事件 | 消费方要求 | 处理 |
+| --- | --- | --- |
+| `meta` | `ThinkingTagConfig.fromJson`：`thinking_start_tag` + `thinking_end_tags[]` | **新增**：按模型选择 ` thinking` / `<think>`（Qwen3.5 用 `<think>`），首个 token 前下发 |
+| `token` | `content` + `is_tool_call` | 已有；思考态由 `ThinkStreamer` 增量拆分 |
+| `thinking` / `reasoning` | `onThinkingUpdate`（`BridgeJsonCallback` 有 `thinkingStreamed` 去重） | **双发**以兼容两种消费方 |
+| `tool_call` | `parseToolCallEvent`：`id` / `name` / `arguments`(**JSON 字符串**) | 形状已对齐；并改为**增量下发**（`emitNewToolCalls`，按 `name+arguments` 去重，避免工具重复执行） |
+| `complete` / `error` | 统计由桥接层本地计算（`tokenCount` + `startTime`），无需额外事件 | 已有 |
+
+- **历史裁剪**：NPU 无 native 的 KV/prefix 复用（每轮全量重算），新增 `trimMessagesForNCtx()`，按内存预算规划出的 nCtx × 3.5 字符/token × 75% 预算裁剪历史，**并在预算中扣减 tools schema 长度**（此前漏算，59 个工具的定义可达上万 token，会把 prompt 顶爆 nCtx）。
+- **轮次诊断**：每轮结束记 `NPU Agent 轮次汇总: 正文 N 字符, tool_call=K, 含<tool_call>标签=…` —— 用于唯一判定"模型没吐工具调用"还是"协议不对齐"。
+
+### 3) 两个由本会话引入的回归（已撤回）
+
+- **普通路径"升级为 Agent"**：曾在 `BridgeJsonCallback` 中，收到 `tool_call` 后用**同一个 messageId/callback** 再次触发 Agent 生成 → 两条流写同一条消息，而 ChatAdapter 按 messageId 绑定单条流式消息 → 表现为**空白助手气泡 + 卡"思考中" + "生成已停止"**。已撤回（普通路径只记录日志，工具执行统一由 Agent 路径负责）。
+- **普通路径注入 59 个工具 schema**：导致 prompt 爆长且模型整轮只吐工具调用、正文为空（渲染空白）。已撤回，工具定义只走 Agent 路径。
+
+### 4) NPU 容量设计（设备实测 + 算账）
+
+设备实测：SM8850（Hexagon V81），`MemTotal = 11.29 GB`（12GB 机型），`MemAvailable ≈ 4.1–4.5 GB`，App `largeHeap=true`，`TOTAL PSS ≈ 424 MB`。速度呈**带宽受限**：4B-Q4_0 实测 18.99 t/s × 2.38 GB ⇒ 有效带宽 ≈ 45 GB/s。
+
+Qwen3.5 为**混合注意力**（官方 config 实测：32 层中仅每 4 层为 `full_attention`，`num_key_value_heads=4`、`head_dim=256`）⇒ KV 仅 **32 KB/token**（经典结构 144 KB/token，便宜 4.5 倍）：4096→131MB、8192→262MB、16384→524MB、32768→1.05GB。
+
+据此实现：
+- **`planNCtx()`**：`availMem − 权重 − App预留(0.4GB) − 安全余量(0.3GB) = 可给 KV`，在 `{32768, 16384, 8192, 4096, 2048}` 取最大可行档；`ModelConfig(nCtx = plannedNCtx, nGpuLayers = -1)`（此前**写死 4096**，为早期保守默认，非硬件限制）。
+- **加载前预检**：规划返回 -1 时**拒绝加载**并提示（如"可用内存不足：可用 xxxMB，该模型约 xxxMB，建议改用 4B-Q4_0"），把"被系统 LMK 杀掉/闪退"变成明确提示。
+- **`GgufMeta`（新增）**：解析 GGUF 头部（v2/v3、13 种值类型、数组跳过）取 `architecture` / `block_count` / `attention.head_count(_kv)` / `attention.key_length` / `embedding_length` / `context_length` / `full_attention_interval`，并识别混合结构（`.ssm.`/`.linear_` 键）；缺 `general.parameter_count` 时**累加张量表**得参数量。
+- **容量结论**：本机安全上限 ≈ 4B-Q4_0（2.38GB，实测通过）；5–6B 吃紧；**9B（5.38GB）超出可用内存 → 预设已删除**。
+
+### 5) UI 引擎感知（全部实测/截图验证）
+
+| 位置 | 改动 |
+| --- | --- |
+| 主界面「状态」卡（`MainActivity.tvAiStatus`） | 新增 NPU 分支：`NPU 待加载/加载中/已就绪/不可用` + 模型名 + t/s，绿色（原先一律走 llama.cpp 语义 → 红字"未加载"） |
+| 聊天页顶部状态栏（`ServiceStatusManager`） | `INITIALIZED` 分支 NPU 化（去掉"本地推理就绪 · "前缀）+ 🧠 图标 |
+| 顶部 token 徽标（`TokenStatsTextBuilder`） | NPU 分支：`🧠 N tokens · x.x t/s`（原数据源只反映本地 llama.cpp 会话，恒为 `0 tokens`） |
+| AI 服务状态页 | 引擎/推理库/当前模型/上下文各行按引擎切换；模型灯按"已加载/有文件/无文件"置绿/黄/红；**GPU 层数与 GPU 后端在 NPU 模式置灰禁用**；架构信息从 gguf 解析（参数量/层数/注意力头/Embedding/训练上下文/内存MB/模型文件/推理速度/Token数/上下文统计）；并给页面自身的 3 个刷新方法（`updateModelArchitectureInfo`/`updateContextStats`/`updateRealtimeMetrics`）加 NPU 早退，消除"待加载↔未加载"来回跳变 |
+| NPU 模型选择（`ModelSelectorActivity`） | NPU 对话框新增「**选择 NPU 模型…**」：自动（Q4_0 优先）或指定模型库中的某个 gguf；持久化 `npu_engine_prefs/npu_model`，切换后自动 release 旧权重并重载；行内显示"指定：xxx / 自动选模型" |
+| 状态详情对话框 | `模型: <将要使用的模型>（待加载）`、`App 模型库: files/ai_models → <模型>`；删除临时侧载目录行 |
+
+### 6) 预设与设备清理
+
+- `models_presets.json`：**9 条，全部 Q4_0**（含 `qwen3.5-0.8b/2b/4b`、`qwen3-0.6b/1.7b/4b`、`glm-edge-1.5b`、`internlm2.5-1.8b`、`minicpm-v4.6`）；期间新增过的 4B/9B NPU 预设与 Q8_0 预设按"只保留 Q4 + 本机可用"原则删除。
+- `AIServiceInitializer.DEFAULT_MODEL_ID` 由已删的 `qwen3.8-4b-distill` 改为 `qwen3.5-4b`。
+- **清理调试脚手架**：`NpuLlmChat` 删除硬编码的 `files/gguf/qwen3-0.6b|1.7b` 侧载登记（App 只认模型库 `files/ai_models`）；设备侧删除 `files/gguf/`（1.4GB）+ 两个孤立 `.part`（711MB + 0.6MB）→ `files` 由 ~2.7GB 降至 ~1.1GB。
+
+### 7) GenieX 对 Qwen3.5 的支持性取证
+
+- GenieX 自带 `libllama.so` 含 `qwen35` / `qwen35moe` 架构名；其 DSP skel `libggml-htp-v81.so` 含 Qwen3.5 混合架构所需算子：`gated_delta` / `delta_net` / `ssm` / `conv` / `cumsum` / `argsort`（与仓库自带 `htp/gated-delta-net-ops.c`、`ssm-conv.c`、`cumsum-ops.c` 同源）⇒ **模型层面被支持**。
+
+### 8) 待验证 / 未完成
+
+- NPU 工具调用**端到端**仍需真机验证（先决条件：设备上需存在**完整**模型；本轮结束时 `files/ai_models` 仅有未完成 `.part`）。
+- `git push` 仍受网络限制（本地已积累多个未推送提交）。
+
 ## [2026-10-04] NPU 引擎与 llama.cpp「无缝切换、功能不降级」+ 预设全面 Q4 化 + 三项渲染修复
 
 本轮把 NPU（GenieX/Hexagon HTP）从"只在对话页可用"做成**本地推理的统一可选后端**，同时保证切换后功能不缩水；并把模型下载/搜索全链路收口到 Q4_0（HTP 原生加速的唯一甜点量化）。

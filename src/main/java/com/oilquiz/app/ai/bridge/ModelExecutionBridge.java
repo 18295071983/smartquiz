@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.bridge;
 
 import android.content.Context;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -169,7 +170,7 @@ public class ModelExecutionBridge {
                     resetGeneration();
                     return;
                 }
-                LlamaHelper.chatJson(requestJson, new BridgeJsonCallback(command.messageId, callback));
+                NpuEngineRouter.chatJson(requestJson, new BridgeJsonCallback(command.messageId, callback));
 
             } catch (Throwable t) {
                 AILogger.e(TAG, "Send message failed", t);
@@ -740,7 +741,7 @@ public class ModelExecutionBridge {
                     resetGeneration();
                     return;
                 }
-                LlamaHelper.chatJson(requestJson, new AgentJsonCallback(command.messageId, callback));
+                NpuEngineRouter.chatJson(requestJson, new AgentJsonCallback(command.messageId, callback));
 
             } catch (Throwable t) {
                 AILogger.e(TAG, "Agent send message failed", t);
@@ -942,6 +943,12 @@ public class ModelExecutionBridge {
             return false;
         }
         if (!aiService.isInitialized()) {
+            // NPU 引擎模式下本地 llama.cpp 服务本来就是"未初始化"的空闲状态（我们主动跳过预加载），
+            // 这里必须放行 —— 否则请求到不了 NPU 路径：表现为"AI服务初始化失败" + NPU 状态永远待加载。
+            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                AILogger.i(TAG, "NPU 引擎已启用，跳过本地服务初始化检查（由 NpuEngineRouter 负责生成）");
+                return true;
+            }
             AILogger.i(TAG, "Model not initialized, attempting safe init...");
             if (!aiService.initializeSafe()) {
                 notifyError(callback, messageId, "AI服务初始化失败");
@@ -1422,7 +1429,7 @@ public class ModelExecutionBridge {
                     completeNativeGeneration(content, messageId, callback);
                     return;
                 }
-                LlamaHelper.chatJson(nextReq, new AgentJsonCallback(messageId, callback));
+                NpuEngineRouter.chatJson(nextReq, new AgentJsonCallback(messageId, callback));
             } catch (Throwable t) {
                 AILogger.e(TAG, "Agent native tool call error", t);
                 completeNativeGeneration(content, messageId, callback);

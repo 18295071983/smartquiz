@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.agent.software.engine;
 
 import android.content.Context;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
 
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
@@ -985,7 +986,7 @@ public class AgentLoopEngine {
             contents[i] = history.get(i).content.getBytes(StandardCharsets.UTF_8);
         }
 
-        LlamaHelper.generateWithTools(roles, contents, toolsJson, maxTokens, temperature,
+        NpuEngineRouter.generateWithTools(roles, contents, toolsJson, maxTokens, temperature,
                 0.9f, 40, thinking, new LlamaHelper.TokenCallback() {
                     @Override
                     public void onToken(String token) {
@@ -1094,7 +1095,7 @@ public class AgentLoopEngine {
         final boolean[] done = {false};   // F10：幂等标志，error/complete 后忽略迟到事件
         final boolean[] thinkingStreamedAgent = {false};   // 思考已实时累积（thinking 事件），reasoning 全文跳过防重复
 
-        LlamaHelper.chatJson(requestJson, new LlamaHelper.JsonCallback() {
+        NpuEngineRouter.chatJson(requestJson, new LlamaHelper.JsonCallback() {
             @Override
             public void onJson(String json) {
                 if (done[0]) return;

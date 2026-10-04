@@ -13,7 +13,7 @@ import java.util.List;
  * <pre>
  * MessageRouteDecider.DecisionInput in = new MessageRouteDecider.DecisionInput()
  *         .message(text).attachments(list).isGenerating(false)
- *         .isOnlineModel(true).localAgentEnabled(false)...
+ *         .isOnlineModel(true).localAgentEnabled((false) || com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled())...
  * MessageRouteDecider.Route route = MessageRouteDecider.decide(in);
  * </pre>
  */
@@ -79,6 +79,16 @@ public class MessageRouteDecider {
      * → 无附件分流（在线或本地Agent→Agent；否则普通）。
      */
     public static Route decide(DecisionInput in) {
+        try {
+            android.util.Log.i("RouteDecider", "decide 入参: online=" + in.isOnlineModel
+                    + ", localAgentEnabled=" + in.localAgentEnabled
+                    + ", modelLoaded=" + in.modelLoaded
+                    + ", hasImage=" + in.hasImageAttachment
+                    + ", generating=" + in.isGenerating
+                    + ", msgLen=" + (in.message == null ? 0 : in.message.length())
+                    + ", attachments=" + (in.attachments == null ? 0 : in.attachments.size()));
+        } catch (Throwable ignored) {
+        }
         if (in.isGenerating) return Route.BLOCKED_GENERATING;
         if (in.isEmptyMessage() && !in.hasAttachments()) return Route.BLOCKED_EMPTY;
 
@@ -98,6 +108,8 @@ public class MessageRouteDecider {
 
     /** 便捷入口：无附件场景判定（由调用方先完成模型加载守卫后调用） */
     public static Route decideNoAttachment(boolean isOnlineModel, boolean localAgentEnabled) {
+        android.util.Log.i("RouteDecider", "decideNoAttachment 入参: online=" + isOnlineModel
+                + ", localAgentEnabled=" + localAgentEnabled);
         if (isOnlineModel || localAgentEnabled) return Route.ONLINE_AGENT;
         return Route.PLAIN;
     }

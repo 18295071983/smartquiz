@@ -171,6 +171,34 @@ public class MainActivity extends BaseActivity {
                                    String stageMessage, int progress, String errorMessage) {
         android.widget.TextView tvAiStatus = findViewById(R.id.tvAiStatus);
         if (tvAiStatus != null) {
+            // NPU-STATUS-CARD: NPU 引擎开启时，主界面状态卡按 NPU 实际状态显示
+            // （原先一律走本地 llama.cpp 服务语义 → NPU 模式下永远红字"未加载"）
+            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                String npuState = com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();
+                String npuModel = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+                float npuTps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+                boolean npuReady = "READY".equals(npuState) || "GENERATING".equals(npuState);
+                StringBuilder npuSb = new StringBuilder("NPU ");
+                if (npuReady) {
+                    npuSb.append("已就绪");
+                } else if ("LOADING".equals(npuState)) {
+                    npuSb.append("加载中");
+                } else if ("ERROR".equals(npuState)) {
+                    npuSb.append("不可用");
+                } else {
+                    npuSb.append("待加载");   // IDLE：首次发送消息时载入
+                }
+                if (npuModel != null && !npuModel.isEmpty()) {
+                    npuSb.append(" · ").append(npuModel);
+                }
+                if (npuTps > 0) {
+                    npuSb.append(String.format(java.util.Locale.US, " · %.1f t/s", npuTps));
+                }
+                tvAiStatus.setText(npuSb.toString());
+                tvAiStatus.setTextColor(getResources().getColor(
+                        "ERROR".equals(npuState) ? R.color.error : R.color.success));
+                return;
+            }
             String statusText;
             int statusColor;
             

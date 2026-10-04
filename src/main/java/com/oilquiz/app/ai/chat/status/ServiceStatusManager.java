@@ -149,13 +149,16 @@ public class ServiceStatusManager {
         sb.append("引擎: Qualcomm GenieX（llama_cpp 运行时）\n");
         sb.append("算力单元: Hexagon NPU（HTP）\n");
         sb.append("状态: ").append(npuStateName(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName())).append('\n');
-        sb.append("模型: ").append(model == null || model.isEmpty() ? "未加载" : model).append('\n');
+        String willUse = npuModelWillUse();
+        sb.append("模型: ").append(model == null || model.isEmpty()
+                ? (willUse == null ? "未加载（模型库为空，请先下载 Q4_0）" : willUse + "（待加载）")
+                : model).append('\n');
         if (tokens > 0) {
             sb.append("上次推理: ").append(tokens).append(" tokens / ")
                     .append(elapsed).append(" ms / ")
                     .append(String.format(java.util.Locale.US, "%.1f t/s", tps)).append('\n');
         }
-        sb.append("本地模型目录: files/gguf/qwen3-0.6b 与 qwen3-1.7b\n");
+        sb.append("App 模型库: files/ai_models → ").append(willUse == null ? "（空）" : willUse).append('\n');
         sb.append("(\u4e0d\u4f9d\u8d56 llama.cpp \u672c\u5730\u670d\u52a1)");
 
         new AlertDialog.Builder(activity)
@@ -392,7 +395,9 @@ public class ServiceStatusManager {
         } catch (Throwable ignored) {
         }
 
-        callback.onAddErrorMessage("AI服务初始化失败", errorMessage, true);
+        if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            callback.onAddErrorMessage("AI服务初始化失败", errorMessage, true);
+        }
         callback.onShowToast("模型加载失败");
     }
 
@@ -441,8 +446,12 @@ public class ServiceStatusManager {
         }
 
         if (stage == AIServiceState.ServiceStage.INITIALIZED) {
-            stageIcon = "\uD83D\uDCF1";
-            displayMessage = "本地推理就绪 · " + (message != null ? message : "AI服务已就绪");
+            // NPU-BANNER-ICON2
+            stageIcon = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled() ? "\uD83E\uDDE0" : "\uD83D\uDCF1";
+            // NPU-BANNER-FIX
+            displayMessage = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
+                    ? (message != null && !message.isEmpty() ? message : npuStatusLine())
+                    : "本地推理就绪 · " + (message != null ? message : "AI服务已就绪");
         }
 
         serviceStatusIcon.setText(stageIcon);
@@ -707,6 +716,34 @@ public class ServiceStatusManager {
             case INITIALIZED: return "已就绪";
             case ERROR: return "错误";
             default: return "处理中";
+        }
+    }
+
+    /** NPU 将要使用的模型（App 模型库 files/ai_models 里 Q4_0 优先、其次体积最大）；没有返回 null */
+    private String npuModelWillUse() {
+        try {
+            java.io.File dir = new java.io.File(activity.getFilesDir(), "ai_models");
+            java.io.File[] files = dir.listFiles((d, n) -> n.toLowerCase().endsWith(".gguf"));
+            if (files == null || files.length == 0) {
+                return null;
+            }
+            java.io.File best = null;
+            for (java.io.File f : files) {
+                if (best == null) {
+                    best = f;
+                    continue;
+                }
+                boolean fq4 = f.getName().toLowerCase().contains("q4_0");
+                boolean bq4 = best.getName().toLowerCase().contains("q4_0");
+                if (fq4 != bq4) {
+                    if (fq4) best = f;
+                } else if (f.length() > best.length()) {
+                    best = f;
+                }
+            }
+            return best == null ? null : best.getName();
+        } catch (Throwable t) {
+            return null;
         }
     }
 }

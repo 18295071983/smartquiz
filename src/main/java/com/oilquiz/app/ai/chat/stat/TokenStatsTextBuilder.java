@@ -35,6 +35,14 @@ public final class TokenStatsTextBuilder {
     public static String build(com.oilquiz.app.ai.spi.StringProvider strings,
                                TokenStatsManager.TokenStats stats,
                                AgentStats agent) {
+        // NPU-TOKEN-STATS: NPU 引擎下顶部 token 徽标显示 NPU 的统计
+        // （该数据源只反映本地 llama.cpp 会话，NPU 模式会一直是 0 tokens）
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            int npuTokens = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
+            float npuTps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+            return "\uD83E\uDDE0 " + npuTokens + " tokens"
+                    + (npuTps > 0 ? String.format(java.util.Locale.US, " \u00b7 %.1f t/s", npuTps) : "");
+        }
         String text = String.format(strings.get(R.string.h_986cd3e8),
                 stats.requestPromptTokens, stats.requestCompletionTokens);
         if (agent != null) {

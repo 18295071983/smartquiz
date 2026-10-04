@@ -365,7 +365,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 // 同步更新功能状态指示灯
                 runOnUiThread(() -> {
                     if (agentLight != null) {
-                        agentLight.setBackgroundResource(isChecked ? R.drawable.circle_green : R.drawable.circle_red);
+                        if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                            agentLight.setBackgroundResource(isChecked ? R.drawable.circle_green : R.drawable.circle_red);
+                        }
                     }
                 });
             });
@@ -632,7 +634,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         if (activeConfig != null && activeConfig.enabled) {
             // API 状态：绿色
             if (onlineApiLight != null) {
-                onlineApiLight.setBackgroundResource(R.drawable.circle_green);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    onlineApiLight.setBackgroundResource(R.drawable.circle_green);
+                }
             }
             if (onlineApiStatus != null) {
                 onlineApiStatus.setText(getString(R.string.h_c5ea9c6a));
@@ -670,7 +674,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         } else {
             // 没有可用的在线模型
             if (onlineApiLight != null) {
-                onlineApiLight.setBackgroundResource(R.drawable.circle_red);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    onlineApiLight.setBackgroundResource(R.drawable.circle_red);
+                }
             }
             if (onlineApiStatus != null) {
                 onlineApiStatus.setText(getString(R.string.h_71dc8feb));
@@ -751,17 +757,23 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             }
             
             if (openclLight != null) {
-                openclLight.setBackgroundResource(openclLoaded ? R.drawable.circle_green : R.drawable.circle_red);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    openclLight.setBackgroundResource(openclLoaded ? R.drawable.circle_green : R.drawable.circle_red);
+                }
             }
             if (openclStatus != null) {
                 String backendPref2 = android.preference.PreferenceManager.getDefaultSharedPreferences(this).getString("gpu_backend", "auto");
                 String backendName2 = "vulkan".equals(backendPref2) ? "Vulkan" : ("opencl".equals(backendPref2) ? "OpenCL" : "自动");
-                openclStatus.setText(backendName2 + (openclLoaded ? " · 已启用" : " · 未启用"));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    openclStatus.setText(backendName2 + (openclLoaded ? " · 已启用" : " · 未启用"));
+                }
                 openclStatus.setTextColor(openclLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
             }
             
             if (gpuLight != null) {
-                gpuLight.setBackgroundResource(gpuWorking ? R.drawable.circle_green : (openclLoaded ? R.drawable.circle_yellow : R.drawable.circle_red));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    gpuLight.setBackgroundResource(gpuWorking ? R.drawable.circle_green : (openclLoaded ? R.drawable.circle_yellow : R.drawable.circle_red));
+                }
             }
             if (gpuStatus != null) {
                 String gpuMode = "";
@@ -782,23 +794,33 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                     gpuColor = getResources().getColor(R.color.error);
                 }
                 
-                gpuStatus.setText(gpuMode);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    gpuStatus.setText(gpuMode);
+                }
                 gpuStatus.setTextColor(gpuColor);
             }
         } else {
             if (openclLight != null) {
-                openclLight.setBackgroundResource(R.drawable.circle_red);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    openclLight.setBackgroundResource(R.drawable.circle_red);
+                }
             }
             if (openclStatus != null) {
-                openclStatus.setText(getString(R.string.h_467b3e03));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    openclStatus.setText(getString(R.string.h_467b3e03));
+                }
                 openclStatus.setTextColor(getResources().getColor(R.color.error));
             }
             
             if (gpuLight != null) {
-                gpuLight.setBackgroundResource(R.drawable.circle_red);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    gpuLight.setBackgroundResource(R.drawable.circle_red);
+                }
             }
             if (gpuStatus != null) {
-                gpuStatus.setText(getString(R.string.h_4637765b));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    gpuStatus.setText(getString(R.string.h_4637765b));
+                }
                 gpuStatus.setTextColor(getResources().getColor(R.color.error));
             }
         }
@@ -811,35 +833,53 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         
         if (statusLight != null) {
             if (modelLoaded) {
-                statusLight.setBackgroundResource(R.drawable.circle_green);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusLight.setBackgroundResource(R.drawable.circle_green);
+                }
             } else if (isInitialized) {
-                statusLight.setBackgroundResource(R.drawable.circle_yellow);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusLight.setBackgroundResource(R.drawable.circle_yellow);
+                }
             } else {
-                statusLight.setBackgroundResource(R.drawable.circle_red);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusLight.setBackgroundResource(R.drawable.circle_red);
+                }
             }
         }
         if (statusText != null) {
             if (modelLoaded) {
-                statusText.setText(getString(R.string.h_d679aea3));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusText.setText(getString(R.string.h_d679aea3));
+                }
                 statusText.setTextColor(successColor);
             } else if (isInitialized) {
-                statusText.setText(getString(R.string.h_2da32f3c));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusText.setText(getString(R.string.h_2da32f3c));
+                }
                 statusText.setTextColor(warningColor);
             } else {
-                statusText.setText(getString(R.string.h_4f8a2f0b));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusText.setText(getString(R.string.h_4f8a2f0b));
+                }
                 statusText.setTextColor(errorColor);
             }
         }
         
         if (statusHint != null) {
             if (modelLoaded) {
-                statusHint.setText(getString(R.string.h_25d14de1));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusHint.setText(getString(R.string.h_25d14de1));
+                }
                 statusHint.setTextColor(successColor);
             } else if (isInitialized) {
-                statusHint.setText(getString(R.string.h_33ed774e));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusHint.setText(getString(R.string.h_33ed774e));
+                }
                 statusHint.setTextColor(warningColor);
             } else {
-                statusHint.setText(getString(R.string.h_6fb79429));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    statusHint.setText(getString(R.string.h_6fb79429));
+                }
                 statusHint.setTextColor(errorColor);
             }
         }
@@ -860,22 +900,32 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             } else {
                 engineDetail += " (库未加载)";
             }
-            engineInfo.setText(engineDetail);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                engineInfo.setText(engineDetail);
+            }
         }
     }
 
     private void updateModelStatus(String currentModel, boolean modelLoaded) {
         if (modelLight != null) {
             if (modelLoaded) {
-                modelLight.setBackgroundResource(R.drawable.circle_green);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelLight.setBackgroundResource(R.drawable.circle_green);
+                }
             } else if (currentModel != null) {
-                modelLight.setBackgroundResource(R.drawable.circle_yellow);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelLight.setBackgroundResource(R.drawable.circle_yellow);
+                }
             } else {
-                modelLight.setBackgroundResource(R.drawable.circle_red);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelLight.setBackgroundResource(R.drawable.circle_red);
+                }
             }
         }
         if (modelName != null) {
-            modelName.setText(currentModel != null ? currentModel : getString(R.string.h_f0409ecf));
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                modelName.setText(currentModel != null ? currentModel : getString(R.string.h_f0409ecf));
+            }
         }
     }
 
@@ -883,10 +933,14 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         boolean isLibraryLoaded = LlamaHelper.isLibraryLoaded();
         
         if (libLight != null) {
-            libLight.setBackgroundResource(isLibraryLoaded ? R.drawable.circle_green : R.drawable.circle_red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                libLight.setBackgroundResource(isLibraryLoaded ? R.drawable.circle_green : R.drawable.circle_red);
+            }
         }
         if (libStatus != null) {
-            libStatus.setText(isLibraryLoaded ? getString(R.string.h_bec33d31) : getString(R.string.h_467b3e03));
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                libStatus.setText(isLibraryLoaded ? getString(R.string.h_bec33d31) : getString(R.string.h_467b3e03));
+            }
             libStatus.setTextColor(isLibraryLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
         }
     }
@@ -895,10 +949,14 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         boolean contextActive = aiService.isChatContextActive();
         
         if (contextLight != null) {
-            contextLight.setBackgroundResource(contextActive ? R.drawable.circle_green : R.drawable.circle_red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                contextLight.setBackgroundResource(contextActive ? R.drawable.circle_green : R.drawable.circle_red);
+            }
         }
         if (contextInfo != null) {
-            contextInfo.setText(contextActive ? getString(R.string.h_f6ebf8f5) : getString(R.string.h_d70e9bdf));
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                contextInfo.setText(contextActive ? getString(R.string.h_f6ebf8f5) : getString(R.string.h_d70e9bdf));
+            }
             contextInfo.setTextColor(contextActive ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
         }
     }
@@ -910,32 +968,53 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         AIConfig aiConfig = new AIConfig(this);
         
         if (chatLight != null) {
-            chatLight.setBackgroundResource(modelLoaded ? green : red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                chatLight.setBackgroundResource(modelLoaded ? green : red);
+            }
         }
         if (qaLight != null) {
-            qaLight.setBackgroundResource(modelLoaded ? green : red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                qaLight.setBackgroundResource(modelLoaded ? green : red);
+            }
         }
         if (deepLight != null) {
-            deepLight.setBackgroundResource(modelLoaded ? green : red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                deepLight.setBackgroundResource(modelLoaded ? green : red);
+            }
         }
         if (creativeLight != null) {
-            creativeLight.setBackgroundResource(modelLoaded ? green : red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                creativeLight.setBackgroundResource(modelLoaded ? green : red);
+            }
         }
         if (agentLight != null) {
-            agentLight.setBackgroundResource(modelLoaded && aiConfig.isAgentEnabled() ? green : red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                agentLight.setBackgroundResource(modelLoaded && aiConfig.isAgentEnabled() ? green : red);
+            }
         }
         if (summarizeLight != null) {
-            summarizeLight.setBackgroundResource(modelLoaded ? green : red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                summarizeLight.setBackgroundResource(modelLoaded ? green : red);
+            }
         }
         if (codeLight != null) {
-            codeLight.setBackgroundResource(modelLoaded ? green : red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                codeLight.setBackgroundResource(modelLoaded ? green : red);
+            }
         }
         if (analysisLight != null) {
-            analysisLight.setBackgroundResource(modelLoaded ? green : red);
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                analysisLight.setBackgroundResource(modelLoaded ? green : red);
+            }
         }
     }
 
     private void updateContextStats() {
+        // NPU 模式：模型架构/上下文/实时指标统一由 refreshEngineRows() 负责，
+        // 这里早退避免两套逻辑互相覆盖（实测会出现"待加载"与"未加载"来回跳变）。2026-10-05
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            return;
+        }
         boolean contextActive = aiService.isChatContextActive();
         
         if (contextActive) {
@@ -945,16 +1024,24 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             float percent = aiService.getContextUsagePercent();
             
             if (contextTotal != null) {
-                contextTotal.setText(String.valueOf(total));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    contextTotal.setText(String.valueOf(total));
+                }
             }
             if (contextUsed != null) {
-                contextUsed.setText(String.valueOf(used));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    contextUsed.setText(String.valueOf(used));
+                }
             }
             if (contextRemaining != null) {
-                contextRemaining.setText(String.valueOf(remaining));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    contextRemaining.setText(String.valueOf(remaining));
+                }
             }
             if (contextPercent != null) {
-                contextPercent.setText(String.format("%d%%", (int) percent));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    contextPercent.setText(String.format("%d%%", (int) percent));
+                }
             }
             if (contextProgress != null) {
                 contextProgress.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
@@ -962,16 +1049,24 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             }
         } else {
             if (contextTotal != null) {
-                contextTotal.setText("0");
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    contextTotal.setText("0");
+                }
             }
             if (contextUsed != null) {
-                contextUsed.setText("0");
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    contextUsed.setText("0");
+                }
             }
             if (contextRemaining != null) {
-                contextRemaining.setText("0");
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    contextRemaining.setText("0");
+                }
             }
             if (contextPercent != null) {
-                contextPercent.setText("0%");
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    contextPercent.setText("0%");
+                }
             }
             if (contextProgress != null) {
                 contextProgress.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
@@ -1134,7 +1229,9 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
 
     @Override
     protected void onResume() {
+        refreshEngineRows();   // 按实际引擎刷新（NPU/llama.cpp）
         super.onResume();
+        startEngineAutoRefresh();
         // 每次返回此页面时刷新状态
         refreshStatus();
         // 启动实时指标定时刷新
@@ -1143,6 +1240,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
 
     @Override
     protected void onPause() {
+        stopEngineAutoRefresh();
         super.onPause();
         // 停止定时刷新
         metricsHandler.removeCallbacks(metricsRunnable);
@@ -1181,6 +1279,11 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     }
 
     private void updateModelArchitectureInfo() {
+        // NPU 模式：模型架构/上下文/实时指标统一由 refreshEngineRows() 负责，
+        // 这里早退避免两套逻辑互相覆盖（实测会出现"待加载"与"未加载"来回跳变）。2026-10-05
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            return;
+        }
         if (modelParams == null) return;
 
         try {
@@ -1190,42 +1293,86 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             if (modelOk && meta != null && meta.valid) {
                 // 格式化参数量（7B/1.8B 等）
                 String paramsStr = formatParams(meta.nParams);
-                modelParams.setText(paramsStr);
-                modelLayers.setText(meta.nLayer > 0 ? String.valueOf(meta.nLayer) : "-");
-                modelHeads.setText(meta.nHead > 0 ? String.valueOf(meta.nHead) : "-");
-                modelEmbd.setText(meta.nEmbd > 0 ? String.valueOf(meta.nEmbd) : "-");
-                modelCtxTrain.setText(meta.nCtxTrain > 0 ? String.valueOf(meta.nCtxTrain) : "-");
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelParams.setText(paramsStr);
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelLayers.setText(meta.nLayer > 0 ? String.valueOf(meta.nLayer) : "-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelHeads.setText(meta.nHead > 0 ? String.valueOf(meta.nHead) : "-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelEmbd.setText(meta.nEmbd > 0 ? String.valueOf(meta.nEmbd) : "-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelCtxTrain.setText(meta.nCtxTrain > 0 ? String.valueOf(meta.nCtxTrain) : "-");
+                }
 
                 // 实时数据
                 float memoryMB = LlamaHelper.getMemoryUsage();
-                modelMemory.setText(memoryMB > 0 ? String.format("%.0f", memoryMB) : "-");
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelMemory.setText(memoryMB > 0 ? String.format("%.0f", memoryMB) : "-");
+                }
                 float speed = LlamaHelper.getInferenceSpeed();
-                modelSpeed.setText(speed > 0 ? String.format("%.1f t/s", speed) : "-");
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelSpeed.setText(speed > 0 ? String.format("%.1f t/s", speed) : "-");
+                }
                 int tokens = LlamaHelper.getTokenCount();
-                modelTokens.setText(tokens > 0 ? String.valueOf(tokens) : "-");
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelTokens.setText(tokens > 0 ? String.valueOf(tokens) : "-");
+                }
 
                 // 模型文件名
                 String modelName = aiService.getCurrentModelName();
                 if (modelName != null && !modelName.isEmpty()) {
-                    modelFilename.setText(modelName);
+                    if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                        modelFilename.setText(modelName);
+                    }
                 } else if (meta.modelName != null && !meta.modelName.isEmpty()) {
-                    modelFilename.setText(meta.modelName);
+                    if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                        modelFilename.setText(meta.modelName);
+                    }
                 } else {
-                    modelFilename.setText("-");
+                    if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                        modelFilename.setText("-");
+                    }
                 }
 
-                modelParamsInfo.setText(paramsStr + " / " + meta.nLayer + getString(R.string.h_13933709) + meta.nCtxTrain);
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelParamsInfo.setText(paramsStr + " / " + meta.nLayer + getString(R.string.h_13933709) + meta.nCtxTrain);
+                }
             } else {
-                modelParams.setText("-");
-                modelLayers.setText("-");
-                modelHeads.setText("-");
-                modelEmbd.setText("-");
-                modelCtxTrain.setText("-");
-                modelMemory.setText("-");
-                modelSpeed.setText("-");
-                modelTokens.setText("-");
-                modelFilename.setText("-");
-                modelParamsInfo.setText(getString(R.string.h_467b3e03));
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelParams.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelLayers.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelHeads.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelEmbd.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelCtxTrain.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelMemory.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelSpeed.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelTokens.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelFilename.setText("-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelParamsInfo.setText(getString(R.string.h_467b3e03));
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "updateModelArchitectureInfo failed: " + e.getMessage());
@@ -1235,6 +1382,11 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     /** 定时刷新实时指标：推理速度、Token计数、内存占用
      *  数据源自动切换：在线模式使用 API 累计统计；本地模式使用 native 统计 */
     private void updateRealtimeMetrics() {
+        // NPU 模式：模型架构/上下文/实时指标统一由 refreshEngineRows() 负责，
+        // 这里早退避免两套逻辑互相覆盖（实测会出现"待加载"与"未加载"来回跳变）。2026-10-05
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            return;
+        }
         if (modelSpeed == null) return;
         try {
             boolean useOnline = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
@@ -1243,23 +1395,35 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 TokenStatsManager.TokenStats stats = TokenStatsManager.getInstance().getCurrentSnapshot();
                 int sessionTotal = (stats != null) ? stats.sessionTotalTokens : 0;
                 int sessionCompletion = (stats != null) ? stats.sessionCompletionTokens : 0;
-                modelSpeed.setText(sessionCompletion > 0
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelSpeed.setText(sessionCompletion > 0
                         ? String.format(getString(R.string.h_cffe3407), sessionCompletion) : "API");
-                modelTokens.setText(sessionTotal > 0 ? String.valueOf(sessionTotal) : "-");
-                modelMemory.setText("-"); // 在线模式不占用本地内存
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelTokens.setText(sessionTotal > 0 ? String.valueOf(sessionTotal) : "-");
+                }
+                if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    modelMemory.setText("-");
+                } // 在线模式不占用本地内存
                 return;
             }
 
             // 本地模式：使用 native 层统计
             if (!LlamaHelper.isModelInitialized()) return;
             float speed = LlamaHelper.getInferenceSpeed();
-            modelSpeed.setText(speed > 0 ? String.format("%.1f t/s", speed) : "-");
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                modelSpeed.setText(speed > 0 ? String.format("%.1f t/s", speed) : "-");
+            }
 
             int tokens = LlamaHelper.getTokenCount();
-            modelTokens.setText(tokens > 0 ? String.valueOf(tokens) : "-");
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                modelTokens.setText(tokens > 0 ? String.valueOf(tokens) : "-");
+            }
 
             float memoryMB = LlamaHelper.getMemoryUsage();
-            modelMemory.setText(memoryMB > 0 ? String.format("%.0f", memoryMB) : "-");
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                modelMemory.setText(memoryMB > 0 ? String.format("%.0f", memoryMB) : "-");
+            }
         } catch (Exception e) {
             Log.w(TAG, "updateRealtimeMetrics failed: " + e.getMessage());
         }
@@ -1278,5 +1442,287 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
             return String.format("%.0fK", k);
         }
         return String.valueOf(nParams);
+    }
+
+    /**
+     * 按**实际引擎**刷新页面：NPU 引擎开启时整页显示 NPU 信息，
+     * 而不是布局里写死的 "Llama CPP"（原先引擎名是 XML 静态文案，切了引擎也不变）。
+     */
+    private void refreshEngineRows() {
+        try {
+            boolean npu = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled();
+            android.widget.TextView engine = findViewById(R.id.engine_info);
+            android.widget.TextView lib = findViewById(R.id.lib_status);
+            android.widget.TextView model = findViewById(R.id.model_name);
+            android.widget.TextView ctx = findViewById(R.id.context_info);
+            android.widget.TextView opencl = findViewById(R.id.opencl_status);
+            android.widget.TextView gpu = findViewById(R.id.gpu_status);
+            android.widget.TextView st = findViewById(R.id.status_text);
+            android.widget.TextView hint = findViewById(R.id.status_hint);
+            if (!npu) {
+                // 关闭 NPU：恢复 llama.cpp 视图，并重新启用 GPU 设置控件
+                setGpuControlsEnabled(true);
+                return;
+            }
+            // NPU 模式下 GPU 层数 / GPU 后端无意义（NPU 引擎不读这些参数）→ 禁用，避免误操作
+            setGpuControlsEnabled(false);
+
+            boolean loaded = com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
+            java.io.File mf = bestModelFile();
+            String scanned = (mf != null) ? (mf.getName() + "\uff08App \u6a21\u578b\u5e93\uff09") : null;
+            boolean hasModel = scanned != null;
+            android.util.Log.i("AIServiceStatus", "refreshEngineRows(NPU): hasModel=" + hasModel
+                    + ", loaded=" + loaded);
+
+            if (engine != null) engine.setText("NPU\uff08GenieX \u00b7 Hexagon HTP\uff09");
+            if (lib != null) lib.setText("GenieX SDK\uff08libggml-hexagon + htp skel\uff09");
+            if (opencl != null) opencl.setText("\u4e0d\u9002\u7528\uff08NPU \u6a21\u5f0f\uff09");
+            if (gpu != null) gpu.setText("\u4e0d\u9002\u7528\uff08NPU \u6a21\u5f0f\uff09");
+            if (st != null) {
+                st.setText(loaded
+                        ? "NPU \u5f15\u64ce\u8fd0\u884c\u4e2d"
+                        : "NPU \u5f15\u64ce\u5df2\u542f\u7528\uff08\u6a21\u578b\u5f85\u52a0\u8f7d\uff09");
+            }
+            if (hint != null) {
+                hint.setText(loaded
+                        ? "\u6a21\u578b\u5df2\u52a0\u8f7d\u5230 Hexagon NPU\uff08HTP0\uff09"
+                        : "\u6a21\u578b\u6309\u9700\u52a0\u8f7d\uff1a\u9996\u6b21\u53d1\u9001\u6d88\u606f\u65f6\u8f7d\u5165\uff0c\u52a0\u8f7d\u5b8c\u6210\u540e\u6b64\u5904\u81ea\u52a8\u663e\u793a\u771f\u5b9e\u4fe1\u606f");
+            }
+
+            if (loaded) {
+                // \u52a0\u8f7d\u5b8c\u6210\u540e\u624d\u663e\u793a\u771f\u5b9e\u503c
+                String name = com.oilquiz.app.ai.engine.NpuLlmChat.currentOrPreferredModelName();
+                if (model != null) {
+                    model.setText((name == null || name.isEmpty()) ? (hasModel ? scanned : "\u2014") : name);
+                }
+                if (ctx != null) {
+                    long sz = npuModelSizeBytes();
+                    ctx.setText("NPU \u5f15\u64ce\uff08HTP0\uff09"
+                            + (sz > 0 ? " \u00b7 \u6743\u91cd "
+                            + String.format(java.util.Locale.US, "%.2f", sz / 1024.0 / 1024 / 1024) + " GB" : ""));
+                }
+                // NPU-STATS-FILLED: 加载完成后显示 NPU 运行统计（NpuLlmChat 暴露的最近一次生成数据）
+                float nTps = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTps();
+                int nTok = com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
+                if (modelSpeed != null) modelSpeed.setText(nTps > 0 ? String.format(java.util.Locale.US, "%.1f t/s", nTps) : "-");
+                if (modelTokens != null) modelTokens.setText(nTok > 0 ? String.valueOf(nTok) : "-");
+                // 用内存预算规划出的真实 nCtx（原来写死 4096，与引擎实际值不一致）
+                int nCtx = com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
+                if (nCtx <= 0) nCtx = 8192;
+                int nUsed = Math.max(0, Math.min(nTok, nCtx));
+                if (contextTotal != null) contextTotal.setText(String.valueOf(nCtx));
+                if (contextUsed != null) contextUsed.setText(String.valueOf(nUsed));
+                if (contextRemaining != null) contextRemaining.setText(String.valueOf(nCtx - nUsed));
+                if (contextPercent != null) contextPercent.setText((nUsed * 100 / nCtx) + "%");
+
+                refreshModelArch();
+            } else {
+                // \u672a\u52a0\u8f7d\uff1a\u53ea\u7ed9\u5360\u4f4d\uff0c\u907f\u514d\u8bef\u62a5\u4e5f\u907f\u514d\u7a7a\u6307\u9488
+                if (model != null) {
+                    model.setText(hasModel ? (mf.getName() + "\uff08\u5f85\u52a0\u8f7d\uff09")
+                            : "\u672a\u4e0b\u8f7d\u6a21\u578b\uff08\u8bf7\u5230\u6a21\u578b\u4e0b\u8f7d\u9875\u9009 Q4_0\uff09");
+                }
+                if (ctx != null) ctx.setText("\u5f85\u52a0\u8f7d\uff08\u9996\u6b21\u53d1\u9001\u6d88\u606f\u65f6\u8f7d\u5165\uff09");
+                if (modelParams != null) modelParams.setText("\u2014");
+                if (modelLayers != null) modelLayers.setText("\u2014");
+                if (modelHeads != null) modelHeads.setText("\u2014");
+                if (modelParamsInfo != null) modelParamsInfo.setText("\u5f85\u52a0\u8f7d");
+            }
+
+            if (statusLight != null) statusLight.setBackgroundResource(R.drawable.circle_green);
+            if (libLight != null) libLight.setBackgroundResource(R.drawable.circle_green);
+            if (modelLight != null) {
+                modelLight.setBackgroundResource(loaded ? R.drawable.circle_green
+                        : (hasModel ? R.drawable.circle_yellow : R.drawable.circle_red));
+            }
+            if (contextLight != null) contextLight.setBackgroundResource(R.drawable.circle_green);
+            if (openclLight != null) openclLight.setBackgroundResource(R.drawable.status_dot_gray);
+            if (gpuLight != null) gpuLight.setBackgroundResource(R.drawable.status_dot_gray);
+            if (st != null) st.setText(loaded ? "NPU 引擎运行中" : "NPU 引擎已启用");
+            if (model != null && !hasModel) {
+                model.setText("未下载模型（请到模型下载页选 Q4_0）");
+            }
+        } catch (Throwable ignored) {
+            // 静默：刷新失败不影响页面
+        }
+    }
+
+    /**
+     * GPU 相关控件（GPU 层数输入 / 应用并重载 / GPU 后端单选）启用状态。
+     *
+     * <p>NPU 引擎模式下这些参数不生效（NPU 走 GenieX + HTP，不读 nGpuLayers/后端选择），
+     * 继续可选会误导用户 → 置灰禁用；关闭 NPU 时恢复（2026-10-05）。
+     */
+    private void setGpuControlsEnabled(boolean enabled) {
+        try {
+            float alpha = enabled ? 1.0f : 0.45f;
+            android.view.View layers = findViewById(R.id.gpu_layers_input);
+            if (layers != null) {
+                layers.setEnabled(enabled);
+                layers.setAlpha(alpha);
+            }
+            android.view.View apply = findViewById(R.id.btn_apply_gpu_layers);
+            if (apply != null) {
+                apply.setEnabled(enabled);
+                apply.setAlpha(alpha);
+            }
+            android.view.View group = findViewById(R.id.gpu_backend_group);
+            if (group != null) {
+                group.setEnabled(enabled);
+                group.setAlpha(alpha);
+                if (group instanceof android.view.ViewGroup) {
+                    android.view.ViewGroup vg = (android.view.ViewGroup) group;
+                    for (int i = 0; i < vg.getChildCount(); i++) {
+                        android.view.View child = vg.getChildAt(i);
+                        child.setEnabled(enabled);
+                        child.setAlpha(alpha);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 扫 App 模型库里的 gguf（Q4_0 优先，其次体积最大），返回展示名；没有返回 null */
+    private String scanNpuModelFile() {
+        try {
+            java.io.File dir = new java.io.File(getFilesDir(), "ai_models");
+            java.io.File[] files = dir.listFiles((d, n) -> n.toLowerCase().endsWith(".gguf"));
+            if (files == null || files.length == 0) {
+                return null;
+            }
+            java.io.File best = null;
+            for (java.io.File f : files) {
+                if (best == null) {
+                    best = f;
+                    continue;
+                }
+                boolean fq4 = f.getName().toLowerCase().contains("q4_0");
+                boolean bq4 = best.getName().toLowerCase().contains("q4_0");
+                if (fq4 != bq4) {
+                    if (fq4) best = f;
+                } else if (f.length() > best.length()) {
+                    best = f;
+                }
+            }
+            return best.getName() + "（App 模型库）";
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** NPU 将使用的模型文件大小（字节）；找不到返回 0 */
+    private long npuModelSizeBytes() {
+        try {
+            java.io.File dir = new java.io.File(getFilesDir(), "ai_models");
+            java.io.File[] files = dir.listFiles((d, n) -> n.toLowerCase().endsWith(".gguf"));
+            if (files == null || files.length == 0) {
+                return 0;
+            }
+            long best = 0;
+            for (java.io.File f : files) {
+                if (f.length() > best) best = f.length();
+            }
+            return best;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** App 模型库里最合适的 gguf（Q4_0 优先，其次体积最大）；没有返回 null */
+    private java.io.File bestModelFile() {
+        try {
+            java.io.File dir = new java.io.File(getFilesDir(), "ai_models");
+            java.io.File[] files = dir.listFiles((d, n) -> n.toLowerCase().endsWith(".gguf"));
+            if (files == null || files.length == 0) {
+                return null;
+            }
+            java.io.File best = null;
+            for (java.io.File f : files) {
+                if (best == null) {
+                    best = f;
+                    continue;
+                }
+                boolean fq4 = f.getName().toLowerCase().contains("q4_0");
+                boolean bq4 = best.getName().toLowerCase().contains("q4_0");
+                if (fq4 != bq4) {
+                    if (fq4) best = f;
+                } else if (f.length() > best.length()) {
+                    best = f;
+                }
+            }
+            return best;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 模型架构信息：**从磁盘上的 gguf 头部解析**（参数量/层数/注意力头/架构/隐藏维度）。
+     *
+     * <p>原先这块只在"本地 llama.cpp 模型已加载"时才有值，NPU 模式永远显示"未加载"；
+     * 现在两种模式都能显示真实架构信息（数据来源与是否加载无关）。
+     */
+    private void refreshModelArch() {
+        try {
+            java.io.File f = bestModelFile();
+            if (f == null) {
+                return;
+            }
+            com.oilquiz.app.ai.model.GgufMeta meta = com.oilquiz.app.ai.model.GgufMeta.read(f);
+            if (meta == null) {
+                return;
+            }
+            if (modelParams != null) modelParams.setText(meta.parameterText());
+            if (modelLayers != null) modelLayers.setText(meta.blockCount > 0 ? String.valueOf(meta.blockCount) : "—");
+            if (modelHeads != null) modelHeads.setText(meta.headText());
+            if (modelParamsInfo != null) {
+                String arch = meta.architecture == null || meta.architecture.isEmpty()
+                        ? "GGUF" : meta.architecture.toUpperCase(java.util.Locale.US);
+                String hidden = meta.embeddingLength > 0 ? " · hidden " + meta.embeddingLength : "";
+                modelParamsInfo.setText(arch + hidden + " · " + f.getName());
+            // NPU-ARCH-FILLED: 以下字段在 NPU 模式下由 gguf 头部提供（原有逻辑已被门禁跳过）
+            if (modelEmbd != null) modelEmbd.setText(meta.embeddingLength > 0 ? String.valueOf(meta.embeddingLength) : "-");
+            if (modelCtxTrain != null) modelCtxTrain.setText(meta.contextLength > 0 ? String.valueOf(meta.contextLength) : "-");
+            if (modelMemory != null) modelMemory.setText(String.valueOf(f.length() / 1024 / 1024));
+            if (modelFilename != null) modelFilename.setText(f.getName());
+            }
+        } catch (Throwable ignored) {
+            // 静默：解析失败保留原显示
+        }
+    }
+
+    /** NPU 模型加载是"首次发送时"触发的，页面需要自动刷新才能显示加载后的真实信息 */
+    private final android.os.Handler engineRefreshHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable engineRefreshTask = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                refreshEngineRows();
+            } catch (Throwable ignored) {
+            }
+            engineRefreshHandler.postDelayed(this, 1500);
+        }
+    };
+
+    private void startEngineAutoRefresh() {
+        engineRefreshHandler.removeCallbacks(engineRefreshTask);
+        engineRefreshHandler.post(engineRefreshTask);
+    }
+
+    private void stopEngineAutoRefresh() {
+        engineRefreshHandler.removeCallbacks(engineRefreshTask);
+    }
+
+    /** 安全设置某个字段文案（view 不存在时静默，避免空指针） */
+    private void setRowText(int viewId, String value) {
+        try {
+            android.widget.TextView tv = findViewById(viewId);
+            if (tv != null) {
+                tv.setText(value);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 }

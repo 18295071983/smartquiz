@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.chat.viewmodel;
 
 import android.app.Application;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -326,7 +327,9 @@ public class AIChatViewModel extends AndroidViewModel {
             } catch (Exception e) {
                 AILogger.e(TAG, "Failed to initialize ViewModel", e);
                 mainHandler.post(() -> {
-                    errorLiveData.setValue("初始化失败: " + e.getMessage());
+                    if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                        errorLiveData.setValue("初始化失败: " + e.getMessage());
+                    }
                     setState(AIState.ERROR);
                     aiErrorLiveData.postValue(new AIError("INIT", "初始化失败: " + e.getMessage(), true));
                 });
@@ -622,7 +625,7 @@ public class AIChatViewModel extends AndroidViewModel {
                     handleGenerationError("构建推理请求失败");
                     return;
                 }
-                LlamaHelper.chatJson(requestJson, new LlamaHelper.JsonCallback() {
+                NpuEngineRouter.chatJson(requestJson, new LlamaHelper.JsonCallback() {
                     @Override
                     public void onJson(String json) {
                         try {

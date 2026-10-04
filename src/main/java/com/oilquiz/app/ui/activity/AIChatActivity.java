@@ -4986,7 +4986,10 @@ public class AIChatActivity extends BaseActivity {
         BridgeCallback bridgeCallback = createBridgeCallback(streamingIndex, streamingId);
         // 能力感知：深度思考（思考链）请求留在 llama.cpp —— NPU 侧载的 Qwen3 是纯对话模型，
         // 走 NPU 会让思考链能力变差（功能不降级）。多模态/工具链本来就不走这条分支。
-        if (isNpuEngineOn()) {
+        // 【已关闭顶层拦截】NPU 不在这一层抢走消息：必须先让 modelBridge → AIService → Agent
+        // 决定"要不要调工具"，需要工具时再由 NpuEngineRouter.generateWithTools 走 NPU。
+        // 否则 NPU 一开，所有消息都被截成普通对话（Agent 永远不启动）——2026-10-05 实测确认。
+        if (false && isNpuEngineOn()) {
             AppLogger.ai(TAG, "NPU（GenieX）引擎：改走 NPU 流式推理，跳过 modelBridge/AIService");
             bridgeCallback.onGenerationStarted(streamingId);
             final long npuStartMs = System.currentTimeMillis();

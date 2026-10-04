@@ -76,6 +76,11 @@ public class ModelPreloadService extends Service {
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // NPU 引擎开启时不做本地模型预加载（服务仍启动，仅跳过权重加载）
+        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+            AILogger.i(TAG, "NPU 引擎已启用，ModelPreloadService 跳过预加载");
+            return START_NOT_STICKY;
+        }
         if (intent != null) {
             String action = intent.getAction();
             if ("PRELOAD_MODEL".equals(action)) {

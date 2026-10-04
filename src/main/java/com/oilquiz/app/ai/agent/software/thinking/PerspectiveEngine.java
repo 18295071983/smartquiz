@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.agent.software.thinking;
 
 import com.oilquiz.app.ai.agent.software.thinking.model.*;
+import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.service.AIService;
 import com.oilquiz.app.util.AILogger;
@@ -43,7 +44,7 @@ public class PerspectiveEngine {
             }
 
             String prompt = buildPerspectivePrompt(session, userQuestion);
-            String response = LlamaHelper.generate(prompt, 300, 0.8f);
+            String response = NpuEngineRouter.generate(prompt, 300, 0.8f, 0.9f, 40);
 
             if (response == null || response.trim().isEmpty()) {
                 return suggestByRules(session, userQuestion);
