@@ -234,6 +234,27 @@ object NpuLlmChat {
      * 重置会话上下文：调用 GenieX 的 LlmWrapper.reset()（官方 demo 在"新会话/重载模型"时调用，
      * MainActivity.kt:1136）。不调用会导致清空对话后 KV 里仍保留旧上下文（浪费 + 可能串味）。
      */
+    /**
+     * 中止当前 NPU 生成（对应聊天页「停止」按钮）。
+     * 官方 LlmWrapper/VlmWrapper 都提供 suspend stopStream()（javap 已核实）。
+     */
+    @JvmStatic
+    fun stopGeneration() {
+        scope.launch {
+            try {
+                llm?.stopStream()
+            } catch (t: Throwable) {
+                Log.w(TAG, "llm.stopStream 失败: " + t)
+            }
+            try {
+                vlm?.stopStream()
+            } catch (t: Throwable) {
+                Log.w(TAG, "vlm.stopStream 失败: " + t)
+            }
+            Log.i(TAG, "NPU 生成已请求中止")
+        }
+    }
+
     @JvmStatic
     fun resetIncrementalSession() {
         lastPrompt = null

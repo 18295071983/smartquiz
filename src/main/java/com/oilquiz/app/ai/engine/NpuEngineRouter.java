@@ -418,6 +418,8 @@ public final class NpuEngineRouter {
                     + org.json.JSONObject.quote(thinkStart) + ",\"thinking_end_tags\":["
                     + org.json.JSONObject.quote(thinkEnd) + "]}");
 
+            // 推理期 WakeLock：NPU 生成同样怕灭屏/切后台（与 llama.cpp 路径一致）
+            acquireLock(appContext);
             NpuLlmChat.sendChatAsync(roles, contents, maxTokens > 0 ? maxTokens : 2048, thinking,
                     new NpuLlmChat.GenerateListener() {
                         @Override
@@ -442,12 +444,14 @@ public final class NpuEngineRouter {
                             String allText = full.toString();
                             Log.i(TAG, "NPU Agent 轮次汇总: 正文 " + allText.length() + " 字符, tool_call="
                                     + allCalls.size() + ", 含<tool_call>标签=" + allText.contains("<tool_call"));
+                            releaseLock(appContext);
                             emit(callback, "{\"type\":\"complete\",\"content\":"
                                     + org.json.JSONObject.quote(full.toString()) + "}");
                         }
 
                         @Override
                         public void onError(String message) {
+                            releaseLock(appContext);
                             emit(callback, "{\"type\":\"error\",\"message\":"
                                     + org.json.JSONObject.quote("NPU 推理失败: " + message) + "}");
                         }
@@ -795,5 +799,24 @@ public final class NpuEngineRouter {
         }
         int other = s.length() - cjk;
         return (int) (cjk / 1.5 + other / 4.0) + 1;
+    }
+
+    /** NPU 推理期 WakeLock（经 AIService，失败静默） */
+    private static void acquireLock(android.content.Context ctx) {
+        try {
+            if (ctx != null) {
+                com.oilquiz.app.ai.service.AIService.getInstance(ctx).acquireInferenceLock();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void releaseLock(android.content.Context ctx) {
+        try {
+            if (ctx != null) {
+                com.oilquiz.app.ai.service.AIService.getInstance(ctx).releaseInferenceLock();
+            }
+        } catch (Throwable ignored) {
+        }
     }
 }

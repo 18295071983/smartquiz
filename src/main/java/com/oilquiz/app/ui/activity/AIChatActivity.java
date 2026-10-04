@@ -8689,6 +8689,15 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void stopGeneration() {
+        // NPU-STOP: NPU 引擎下走 GenieX stopStream()（否则点停止对 NPU 生成无效）
+        try {
+            if (isNpuEngineOn()) {
+                com.oilquiz.app.ai.engine.NpuLlmChat.stopGeneration();
+                AppLogger.ai(TAG, "已请求中止 NPU 生成");
+            }
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "中止 NPU 生成异常: " + t);
+        }
         try {
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
             if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);

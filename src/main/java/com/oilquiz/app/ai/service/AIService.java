@@ -4730,4 +4730,28 @@ public class AIService implements ComponentCallbacks2 {
     public long getNpuLastElapsedMs() {
         return com.oilquiz.app.ai.engine.NpuLlmChat.getLastElapsedMs();
     }
+
+    /** 推理期 WakeLock（供 NPU 生成路径复用，避免灭屏/切后台导致 decode 停顿） */
+    public void acquireInferenceLock() {
+        try {
+            if (inferenceWakeLock != null && !inferenceWakeLock.isHeld()) {
+                inferenceWakeLock.acquire(10 * 60 * 1000L);   // 上限 10 分钟，防泄漏
+                AILogger.i(TAG, "推理 WakeLock 已获取（NPU 路径）");
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "acquireInferenceLock 失败: " + t);
+        }
+    }
+
+    /** 释放推理期 WakeLock */
+    public void releaseInferenceLock() {
+        try {
+            if (inferenceWakeLock != null && inferenceWakeLock.isHeld()) {
+                inferenceWakeLock.release();
+                AILogger.i(TAG, "推理 WakeLock 已释放");
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "releaseInferenceLock 失败: " + t);
+        }
+    }
 }
