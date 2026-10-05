@@ -265,7 +265,23 @@ public class ModelDownloadManager {
                             p.hub == null ? "HUGGINGFACE" : p.hub,
                             p.chipset,
                             null,
-                            null);   // GenieX 侧进度未桥接：完成后模型进入模型库
+                            // 进度桥接：GenieX DownloadListener -> 我们的 DownloadCallback
+                            (callback == null) ? null : new com.oilquiz.app.ai.engine.NpuLlmChat.DownloadListener() {
+                                @Override
+                                public void onProgress(float percent, String modelName) {
+                                    callback.onProgress(modelId, (int) percent, 0L, 0L);
+                                }
+
+                                @Override
+                                public void onCompleted(String modelName) {
+                                    callback.onComplete(modelId, modelName);
+                                }
+
+                                @Override
+                                public void onError(int code, String message) {
+                                    callback.onError(modelId, "[" + code + "] " + message);
+                                }
+                            });
                     return modelId;
                 }
                 AILogger.w(TAG, "该预设无直链且非 GenieX 目录条目，无法下载: " + modelId);
