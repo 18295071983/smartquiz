@@ -680,6 +680,15 @@ object NpuLlmChat {
      * 配对策略（对改名容错）：主模型所在目录里**任何名字含 `mmproj` 的 .gguf** 即认为是它的视觉塔。
      * 因此 mmproj 文件加后缀、重命名（只要保留 mmproj 字样）都仍能配对成功。
      */
+    /** FAMILY-KEY: 取"家族键"（量化标记之前的部分），用于视觉塔精确配对。
+     *  例：Qwen3.5-4B-Q4_0.gguf -> "qwen3.5-4b"；Qwen3-4B-Q4_0.gguf -> "qwen3-4b"（二者不相等 ✓ 不会误配） */
+    private fun familyKey(name: String): String {
+        val lower = name.lowercase()
+        val m = Regex("(q[0-9]|iq[0-9]|f16|f32|bf16|mxfp4|mmproj)").find(lower)
+        val head = if (m != null) lower.substring(0, m.range.first) else lower.substringBeforeLast('.')
+        return head.trim('-', '.', '_', ' ')
+    }
+
     private fun buildPaths(modelName: String, gguf: File): ModelPaths {
         // MMPROJ-PAIRING: 目录里可能有多个视觉塔（多模型共用一个目录），
         // 因此按「主模型名 token 命中数」打分选最优；只有 1 个候选时才允许通用名兜底。
@@ -690,16 +699,13 @@ object NpuLlmChat {
             if (cands.isEmpty()) {
                 null
             } else {
-                val lower = gguf.name.lowercase()
-                val tokens = Regex("[a-z0-9]+").findAll(lower).map { it.value }.filter { it.length >= 2 }.toList()
-                val scored = cands.sortedByDescending { c ->
-                    tokens.count { tk -> c.name.lowercase().contains(tk) }
-                }
-                val best = scored.first()
-                val score = tokens.count { tk -> best.name.lowercase().contains(tk) }
-                if (score > 0) {
-                    Log.i(TAG, "视觉塔按名匹配: " + best.name + "（命中 " + score + " 个主模型 token）")
-                    best
+                // FAMILY-KEY: 用"家族键完全相等"判定，避免 qwen3 命中 qwen3.5 这类子串误配
+                val mainKey = familyKey(gguf.name)
+                val exact = cands.firstOrNull { familyKey(it.name) == mainKey && mainKey.isNotEmpty() }
+                val best = exact ?: cands.first()
+                if (exact != null) {
+                    Log.i(TAG, "视觉塔按家族键精确匹配: " + exact.name + "（key=" + mainKey + "）")
+                    exact
                 } else if (cands.size == 1) {
                     Log.w(TAG, "视觉塔名不含主模型标识，唯一候选兜底: " + best.name + "（主模型 " + gguf.name + "）")
                     best

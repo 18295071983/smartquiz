@@ -17,9 +17,10 @@
       "supportsThinking": true,
       "supportsFC": true,
       "supportsVision": false,
-      "applicable": true,
+      "applicable": false,
       "contextLength": 262144,
-      "sizeBytes": 2400000000
+      "sizeBytes": 2400000000,
+      "unapplicableReason": "AI Hub 无 SM8850 产物（实测 rc=-100015：chipset \"SM8850\" not available；该模型仅发布 SM8750 等机型）"
     },
     {
       "id": "npu-native-qwen3-4b-instruct-2507",
@@ -35,9 +36,10 @@
       "supportsThinking": true,
       "supportsFC": true,
       "supportsVision": false,
-      "applicable": true,
+      "applicable": false,
       "contextLength": 262144,
-      "sizeBytes": 2400000000
+      "sizeBytes": 2400000000,
+      "unapplicableReason": "AI Hub 无 SM8850 产物（实测 rc=-100015：chipset \"SM8850\" not available；该模型仅发布 SM8750 等机型）"
     },
     {
       "id": "npu-native-qwen2.5-vl-7b",
@@ -54,7 +56,7 @@
       "supportsFC": true,
       "supportsVision": true,
       "applicable": false,
-      "unapplicableReason": "7B 超出本机可用内存（≈4.1GB）；如需多模态请用 GGUF 版 Qwen3-VL-4B + mmproj",
+      "unapplicableReason": "AI Hub 无 SM8850 产物（实测 rc=-100015：chipset \"SM8850\" not available；该模型仅发布 SM8750 等机型）",
       "contextLength": 32768,
       "sizeBytes": 4400000000
     }

@@ -255,6 +255,15 @@ public class ModelDownloadManager {
                 java.util.List<ModelPresetConfig.ModelPreset> all =
                         ModelPresetConfig.loadPresets(context);
                 ModelPresetConfig.ModelPreset p = ModelPresetConfig.findPreset(all, modelId);
+                if (p != null && Boolean.FALSE.equals(p.applicable)) {
+                    // QAIRT-UNAVAILABLE: 已知本机不适用的条目不再发起必然失败的 pull
+                    String why = p.unapplicableReason == null ? "本机不适用" : p.unapplicableReason;
+                    AILogger.w(TAG, "跳过下载（" + why + "）: " + modelId);
+                    if (callback != null) {
+                        callback.onError(modelId, why);
+                    }
+                    return modelId;
+                }
                 if (p != null && p.geniexModelName != null && !p.geniexModelName.isEmpty()) {
                     AILogger.i(TAG, "NPU 原生模型走 GenieX 目录下载: " + p.geniexModelName
                             + " (runtime=" + p.geniexRuntime + ", quant=" + p.geniexQuant + ")");
