@@ -180,10 +180,12 @@ object NpuLlmChat {
      * HTP-SESSION-CEILING: 高通官方文档（qualcomm/llama.cpp docs/backend/snapdragon/developer.md）：
      * 单个 Hexagon 会话（Process Domain）内存映射上限约 3.5GB；超过需拆多个设备（HTP0/HTP1/…）。
      * 本机只暴露 1 个设备（日志 resolve_devices: Using 1 device(s): HTP0）→ 上限即 3.5GB。
-     * 另：Q4_0/Q8_0/MXFP4 在 HTP 侧会被 repack，需要额外缓冲 → 估算按权重 ×1.25 计。
+     * 另：Q4_0/Q8_0/MXFP4 在 HTP 侧会被 repack；官方实例显示 model buffer + REPACK ≈ 权重本身，
+     * 故系数取 1.05（仅留少量余量），再叠加图缓冲与 KV。
      */
     private val HTP_SESSION_LIMIT: Long = (3.5 * 1024 * 1024 * 1024).toLong()
-    private val HTP_REPACK_FACTOR = 1.25
+    private val HTP_REPACK_FACTOR = 1.05   // 依据官方实例：model buffer + REPACK ≈ 权重本身
+                                          // （gpt-oss-20b-Q4_0: 1182+26+10021 MiB ≈ 11.2GB ≈ 文件大小）
     private val HTP_GRAPH_BUFFER: Long = 320L * 1024 * 1024
 
     /** 模型文件大小（字节），失败返回 0 */
