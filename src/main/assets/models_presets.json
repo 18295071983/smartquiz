@@ -235,11 +235,11 @@
     {
       "id": "qwen3.8-4b-distill",
       "name": "Qwen3.8-4B-Distill（思考链+FC）",
-      "description": "Qwen3.8蒸馏版，4B参数，思考链+工具调用（Ma7ee7出品）",
+      "description": "Qwen3.8 蒸馏版 4B（架构 qwen3；含思考链 <think> + 工具调用 <tool_calls>）。实测该仓库仅有 3 个量化：Q4_K_M(2.4GB)/Q5_K_M(~2.9GB)/Q8_0(~4.02GB)。⚠️ 没有 Q4_0 → Q4_K_M/Q5_K_M 属 K-quant，部分算子落 CPU（速度慢）；Q8_0 虽在 HTP 白名单内，但 4.0GB 超过单 Hexagon 会话 3.5GB 上限。",
       "downloadUrl": "https://hf-mirror.com/Ma7ee7/Qwen3.8_4B_Distilled_GGUF/resolve/main/qwen3-4b-thinking-2507.Q4_K_M.gguf",
       "sizeBytes": 2400000000,
       "quantization": "Q4_K_M",
-      "contextLength": 32768,
+      "contextLength": 262144,
       "minRamMB": 4096,
       "recommendedGpuLayers": 8,
       "architecture": "Qwen3",
