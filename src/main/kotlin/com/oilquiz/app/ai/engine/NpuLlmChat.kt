@@ -681,9 +681,32 @@ object NpuLlmChat {
      * 因此 mmproj 文件加后缀、重命名（只要保留 mmproj 字样）都仍能配对成功。
      */
     private fun buildPaths(modelName: String, gguf: File): ModelPaths {
+        // MMPROJ-PAIRING: 目录里可能有多个视觉塔（多模型共用一个目录），
+        // 因此按「主模型名 token 命中数」打分选最优；只有 1 个候选时才允许通用名兜底。
         val mmproj = try {
-            gguf.parentFile?.listFiles()?.firstOrNull {
+            val cands = gguf.parentFile?.listFiles()?.filter {
                 it.isFile && it.name.endsWith(".gguf", true) && it.name.contains("mmproj", true)
+            }.orEmpty()
+            if (cands.isEmpty()) {
+                null
+            } else {
+                val lower = gguf.name.lowercase()
+                val tokens = Regex("[a-z0-9]+").findAll(lower).map { it.value }.filter { it.length >= 2 }.toList()
+                val scored = cands.sortedByDescending { c ->
+                    tokens.count { tk -> c.name.lowercase().contains(tk) }
+                }
+                val best = scored.first()
+                val score = tokens.count { tk -> best.name.lowercase().contains(tk) }
+                if (score > 0) {
+                    Log.i(TAG, "视觉塔按名匹配: " + best.name + "（命中 " + score + " 个主模型 token）")
+                    best
+                } else if (cands.size == 1) {
+                    Log.w(TAG, "视觉塔名不含主模型标识，唯一候选兜底: " + best.name + "（主模型 " + gguf.name + "）")
+                    best
+                } else {
+                    Log.w(TAG, "存在多个视觉塔但都无法与主模型名对应 → 不自动配对（避免错配），主模型: " + gguf.name)
+                    null
+                }
             }
         } catch (t: Throwable) {
             null

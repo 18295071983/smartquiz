@@ -355,7 +355,13 @@ public class ModelDownloadManager {
 
         // 如果是多模态模型，同时下载 mmproj 投影文件
         if (presetInfo.mmprojUrl != null && !presetInfo.mmprojUrl.isEmpty()) {
-            String mmprojPath = modelDir + File.separator + getFileNameFromUrl(presetInfo.mmprojUrl);
+            // MMPROJ-NAMING: 视觉塔保存为「主模型基名.mmproj-xxx.gguf」——
+                // 因为多个同系列模型共用一个模型目录时，通用名（mmproj-F16.gguf）会被错配给别的模型
+                // （例：Qwen3.5-2B 加载时误配 Qwen3.5-4B 的视觉塔 → hidden 不匹配）。
+                String _mainFile = getFileNameFromUrl(presetInfo.downloadUrl);
+                String _mainBase = _mainFile.replaceFirst("\\.gguf$", "");
+                String _mmName = getFileNameFromUrl(presetInfo.mmprojUrl);
+                String mmprojPath = modelDir + File.separator + _mainBase + "." + _mmName;
             // P1: mmproj 期望字节数（用预设大小，保证完整性校验准确）
             long mmprojExpected = presetInfo.mmprojSizeMB > 0 ? presetInfo.mmprojSizeMB * 1024L * 1024L : 0L;
             File mmprojFile = new File(mmprojPath);
