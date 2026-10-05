@@ -247,6 +247,39 @@ public class ModelDownloadManager {
     }
 
     public String downloadPresetModel(String modelId, ModelPresetInfo presetInfo, DownloadCallback callback) {
+        // NPU-QAIRT-DOWNLOAD: 无直链的条目（NPU 原生/qairt）→ 走 GenieX ModelManagerWrapper
+        // 按官方 catalog 的 modelName 下载（自包含产物，无需 mmproj）。
+        // 这里按 modelId 回查预设拿 geniex 字段，避免改动 ModelPresetInfo/ModelInfo 两条构造链。
+        if (presetInfo.downloadUrl == null || presetInfo.downloadUrl.isEmpty()) {
+            try {
+                java.util.List<ModelPresetConfig.ModelPreset> all =
+                        ModelPresetConfig.loadPresets(context);
+                ModelPresetConfig.ModelPreset p = ModelPresetConfig.findPreset(all, modelId);
+                if (p != null && p.geniexModelName != null && !p.geniexModelName.isEmpty()) {
+                    AILogger.i(TAG, "NPU 原生模型走 GenieX 目录下载: " + p.geniexModelName
+                            + " (runtime=" + p.geniexRuntime + ", quant=" + p.geniexQuant + ")");
+                    com.oilquiz.app.ai.engine.NpuLlmChat.downloadModel(
+                            context,
+                            p.geniexModelName,
+                            p.geniexQuant == null ? "Q4_0" : p.geniexQuant,
+                            p.hub == null ? "HUGGINGFACE" : p.hub,
+                            p.chipset,
+                            null,
+                            null);   // GenieX 侧进度未桥接：完成后模型进入模型库
+                    return modelId;
+                }
+                AILogger.w(TAG, "该预设无直链且非 GenieX 目录条目，无法下载: " + modelId);
+                if (callback != null) {
+                    callback.onError(modelId, "此模型没有下载地址（既无直链也非 GenieX 目录条目）");
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "GenieX 目录下载失败: " + t);
+                if (callback != null) {
+                    callback.onError(modelId, "GenieX 目录下载失败: " + t.getMessage());
+                }
+            }
+            return modelId;
+        }
         String modelDir = new File(context.getFilesDir(), "ai_models").getAbsolutePath();
         String modelPath = modelDir + File.separator + getFileNameFromUrl(presetInfo.downloadUrl);
 
