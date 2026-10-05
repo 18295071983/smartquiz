@@ -116,6 +116,12 @@ public class ModelDownloadActivity extends BaseActivity {
         btnSearch = findViewById(R.id.btn_search);
         recyclerView = findViewById(R.id.recycler_view);
         tvDownloadStats = findViewById(R.id.tv_download_stats);
+        // MODEL-FILE-MANAGER: 长按"已下载"一行 → 打开模型目录文件管理（查看/删除，用户自己管）
+        tvDownloadStats.setOnLongClickListener(v -> {
+            showModelFileManager();
+            return true;
+        });
+        tvDownloadStats.setText(tvDownloadStats.getText() + "（长按管理模型文件）");
         tvSearchHint = findViewById(R.id.tv_search_hint);
         tvMirrorSource = findViewById(R.id.tv_mirror_source);
         btnSwitchMirror = findViewById(R.id.btn_switch_mirror);
@@ -1505,4 +1511,92 @@ public class ModelDownloadActivity extends BaseActivity {
             }
         }
     }
+
+    // ==================== MODEL-FILE-MANAGER: 模型目录文件管理 ====================
+    /** 模型目录：与 NpuLlmChat/ModelDownloadManager 使用的目录保持一致 */
+    private java.io.File modelDir() {
+        java.io.File d = new java.io.File(getFilesDir(), "ai_models");
+        if (!d.exists()) {
+            d.mkdirs();
+        }
+        return d;
+    }
+
+    private static String humanSize(long bytes) {
+        if (bytes >= 1024L * 1024 * 1024) {
+            return String.format(java.util.Locale.US, "%.2f GB", bytes / 1073741824.0);
+        }
+        if (bytes >= 1024L * 1024) {
+            return String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0);
+        }
+        return (bytes / 1024) + " KB";
+    }
+
+    /** 模型文件管理：列出目录内容 + 可用空间，可勾选删除（含 .part 残留） */
+    private void showModelFileManager() {
+        java.io.File dir = modelDir();
+        java.io.File[] listed = dir.listFiles();
+        // final：lambda（删除回调）需要捕获 —— 之前的 null 兜底赋值破坏了 effectively final
+        final java.io.File[] files = (listed == null) ? new java.io.File[0] : listed;
+        java.util.Arrays.sort(files, (a, b) -> Long.compare(b.length(), a.length()));
+
+        long total = 0;
+        for (java.io.File x : files) {
+            total += x.length();
+        }
+        android.os.StatFs stat = new android.os.StatFs(dir.getAbsolutePath());
+        long free = stat.getAvailableBytes();
+
+        final String[] names = new String[files.length];
+        final boolean[] checked = new boolean[files.length];
+        for (int i = 0; i < files.length; i++) {
+            String tag = files[i].getName().endsWith(".part") ? "  ⚠️未完成" : "";
+            names[i] = files[i].getName() + "\n    " + humanSize(files[i].length()) + tag;
+        }
+
+        String title = "模型文件管理（" + files.length + " 个 / 共 " + humanSize(total)
+                + "，可用 " + humanSize(free) + "）";
+        if (files.length == 0) {
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage("目录为空：" + dir.getAbsolutePath())
+                    .setPositiveButton("知道了", null)
+                    .show();
+            return;
+        }
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMultiChoiceItems(names, checked, (d, which, isChecked) -> checked[which] = isChecked)
+                .setPositiveButton("删除所选", (d, w) -> {
+                    final int[] n = {0};
+                    final long[] freed = {0L};
+                    for (int i = 0; i < files.length; i++) {
+                        if (checked[i] && files[i].delete()) {
+                            n[0]++;
+                            freed[0] += files[i].length();
+                        }
+                    }
+                    AILogger.i("ModelDownloadActivity", "文件管理：删除 " + n[0] + " 个，释放 " + humanSize(freed[0]));
+                    android.widget.Toast.makeText(this, "已删除 " + n[0] + " 个，释放 " + humanSize(freed[0]),
+                            android.widget.Toast.LENGTH_LONG).show();
+                    loadModels();
+                    updateDownloadStats();
+                })
+                .setNeutralButton("全选未完成(.part)", (d, w) -> {
+                    final int[] n = {0};
+                    for (java.io.File x : files) {
+                        if (x.getName().endsWith(".part") && x.delete()) {
+                            n[0]++;
+                        }
+                    }
+                    android.widget.Toast.makeText(this, "已清理 " + n[0] + " 个未完成文件",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    loadModels();
+                    updateDownloadStats();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
 }
