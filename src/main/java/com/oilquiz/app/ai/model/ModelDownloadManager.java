@@ -1296,6 +1296,8 @@ okhttp3.Response response = null;
                     // —— 原先只放行 ①，导致 qairt 条目在下载页完全不可见。
                     boolean hasUrl = p.downloadUrl != null && !p.downloadUrl.isEmpty();
                     boolean geniexCatalog = p.geniexModelName != null && !p.geniexModelName.isEmpty();
+                    // APPLICABLE-GUARD: 标记为本机不适用的条目不进下载列表（避免用户下了用不了）
+                    if (Boolean.FALSE.equals(p.applicable)) continue;
                     if (!hasUrl && !geniexCatalog) continue;
                     ModelPresetInfo info = ModelPresetConfig.toPresetInfo(p);
                     if (info != null) list.add(info);
