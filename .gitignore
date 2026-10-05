@@ -295,5 +295,9 @@ ui.xml
 # 且属于本机凭据性质的数据；入库只会让每次验证都留下噪声 diff。
 tools/dsh-plugin-smartquiz-remote/.devices.json
 tools/dsh-plugin-smartquiz-remote/.sessions.json
+# .token 是主令牌的本机凭据（插件首次运行自动生成 32 位随机值）。2026-10-06 事故：
+# 它曾被提交入库，而该仓库是公开的（github.com/18295071983/smartquiz），等于把令牌公开；
+# 公开的那把已轮换作废，且必须永久停止入库。
+tools/dsh-plugin-smartquiz-remote/.token
 # 沙箱文件权限诊断脚本产出的报告与回滚备份（排查中间产物）
 .dsh-acl-report/
