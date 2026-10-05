@@ -466,7 +466,7 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         if (npuGeniexStatus != null) {
             try {
                 npuGeniexStatus.setText("GenieX SDK 已接入 · 状态 "
-                        + npuSvc().getNpuStateName()
+                        + npuSvc().getNpuStageLabel()
                         + " · Hexagon NPU（SM8850）");
             } catch (Throwable t) {
                 npuGeniexStatus.setText("GenieX SDK 已接入 · Hexagon NPU（SM8850）");

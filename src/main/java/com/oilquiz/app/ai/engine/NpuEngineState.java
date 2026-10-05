@@ -91,6 +91,19 @@ public final class NpuEngineState {
         }
     }
 
+    /**
+     * 带进度的显示标签（UI 直接用，无需自己拼）：如「加载中 15%」「就绪」「生成中」。
+     * 进度只在 LOADING 且 0&lt;progress&lt;100 时显示，避免"就绪 100%"这类冗余。
+     */
+    public String getStageLabel() {
+        String base = getStageName();
+        int p = progressPercent;
+        if (stage == Stage.LOADING && p > 0 && p < 100) {
+            return base + " " + p + "%";
+        }
+        return base;
+    }
+
     public void addListener(Listener l) {
         if (l != null && !listeners.contains(l)) {
             listeners.add(l);

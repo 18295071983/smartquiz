@@ -4623,6 +4623,11 @@ public class AIService implements ComponentCallbacks2 {
         return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
     }
 
+    /** UI 只读代理：NPU 带进度的状态标签（如「加载中 15%」） */
+    public String getNpuStageLabel() {
+        return com.oilquiz.app.ai.engine.NpuEngineState.get().getStageLabel();
+    }
+
     /** NPU 当前状态名（IDLE / LOADING / READY / GENERATING / ERROR） */
     public String getNpuStateName() {
         return com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();

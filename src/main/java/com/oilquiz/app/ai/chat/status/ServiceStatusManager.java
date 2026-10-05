@@ -117,7 +117,7 @@ public class ServiceStatusManager {
 
     /** NPU 状态一行摘要（顶部状态栏显示用） */
     private String npuStatusLine() {
-        String st = npuSvc().getNpuStateName();
+        String st = npuSvc().getNpuStageLabel();
         String model = npuSvc().getNpuModelName();
         float tps = npuSvc().getNpuLastTps();
         StringBuilder sb = new StringBuilder("NPU（GenieX）· ").append(npuStateName(st));
@@ -148,7 +148,7 @@ public class ServiceStatusManager {
         StringBuilder sb = new StringBuilder();
         sb.append("引擎: Qualcomm GenieX（llama_cpp 运行时）\n");
         sb.append("算力单元: Hexagon NPU（HTP）\n");
-        sb.append("状态: ").append(npuStateName(npuSvc().getNpuStateName())).append('\n');
+        sb.append("状态: ").append(npuStateName(npuSvc().getNpuStageLabel())).append('\n');
         String willUse = npuModelWillUse();
         sb.append("模型: ").append(model == null || model.isEmpty()
                 ? (willUse == null ? "未加载（模型库为空，请先下载 Q4_0）" : willUse + "（待加载）")
@@ -676,7 +676,7 @@ public class ServiceStatusManager {
         details.append("\n\uD83E\uDDE0 NPU（Qualcomm GenieX）\n");
         details.append("运行时: GenieX SDK（llama_cpp 跑 GGUF / qairt 跑 AI Hub 预编译）\n");
         details.append("算力单元: Hexagon NPU（HTP）· Adreno GPU · CPU\n");
-        details.append("状态: ").append(npuSvc().getNpuStateName());
+        details.append("状态: ").append(npuSvc().getNpuStageLabel());
         String npuModel = npuSvc().getNpuModelName();
         if (npuModel != null && !npuModel.isEmpty()) details.append(" · ").append(npuModel);
         float tps = npuSvc().getNpuLastTps();
