@@ -428,7 +428,11 @@ public final class NpuEngineRouter {
         acquireLock(appContext);
             // NPU-MAXTOKENS: 上限收敛 —— 官方 demo 用 2048；原先沿用请求里的 16384，模型会一直写
             // （实测 590 token / 3m32s，观感"永远在转"）。思考态给 4096。
-            int npuMaxTokens = Math.min(maxTokens > 0 ? maxTokens : 2048, thinking ? 4096 : 2048);
+            // 分档：Agent（带工具）需要更长输出（工具调用 + 工具结果后的最终回答）；
+            // 普通对话则收敛到 2048（官方 demo 值），避免"一直写"。
+            boolean hasToolsForLimit = toolsJson != null && !toolsJson.isEmpty();
+            int npuCap = hasToolsForLimit ? 8192 : (thinking ? 4096 : 2048);
+            int npuMaxTokens = Math.min(maxTokens > 0 ? maxTokens : npuCap, npuCap);
             Log.i(TAG, "NPU maxTokens=" + npuMaxTokens + "（请求 " + maxTokens + ", thinking=" + thinking + "）");
             NpuLlmChat.sendChatAsync(roles, contents, npuMaxTokens, thinking,
                     new NpuLlmChat.GenerateListener() {

@@ -203,12 +203,15 @@ object NpuLlmChat {
             if (perToken * c <= forKv) {
                 // NPU-NCTX-CAP: 按模型规模收敛上下文档位 —— 小模型给 32768 只增加内存压力/调度负担，
                 // 没有实际收益（官方 demo 也是保守默认值）。
+                // Agent 模式（工具）需要更大上下文：工具定义约 2k token + 多轮工具结果，
+                // 此时**不做规模收敛**，直接用内存预算档位（预算本身已保证装得下）。
                 val sizeCap = when {
+                    npuAgentEnabled -> 32768
                     modelBytes < 1_200_000_000L -> 8192      // ≤1.7B
                     modelBytes < 3_000_000_000L -> 16384     // 2B-4B
                     else -> 32768
                 }
-                val chosen = minOf(c, sizeCap)
+                val chosen = if (npuAgentEnabled) c else minOf(c, sizeCap)
                 Log.i(TAG, "内存规划: 权重=" + (modelBytes / 1048576) + "MB, 可用=" + (avail / 1048576)
                         + "MB, KV/token=" + perToken + "B -> nCtx=" + chosen
                         + "（档位 " + c + ", 规模上限 " + sizeCap + "）")

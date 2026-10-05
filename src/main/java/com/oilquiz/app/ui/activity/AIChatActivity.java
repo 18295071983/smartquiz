@@ -4927,6 +4927,14 @@ public class AIChatActivity extends BaseActivity {
             //   关 → 普通对话（prompt ~240 token，快；实测工具定义占 prompt 72%）
             //   开 → Agent（注入工具，可调天气/时间/位置等，但 prompt 变大、每轮需重新 prefill）
             // 这样 Agent 模式始终可用且由 UI 控制，无需改偏好文件。
+            // 把「智能助手」开关同步给引擎（Agent 模式 = 需要工具、需要更大上下文与更长输出）
+            try {
+                boolean agentOn = aiConfig != null && aiConfig.isLocalAgentEnabled();
+                if (isNpuEngineOn()) {
+                    com.oilquiz.app.ai.engine.NpuLlmChat.setNpuAgentEnabled(agentOn);
+                }
+            } catch (Throwable ignored) {
+            }
             boolean npuFastChat = isNpuEngineOn() && !(aiConfig != null && aiConfig.isLocalAgentEnabled());
             if (npuFastChat) {
                 AppLogger.ai(TAG, "NPU 普通对话模式（智能助手关；不注入工具，prompt 更小）");
