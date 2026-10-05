@@ -176,11 +176,34 @@ object NpuLlmChat {
     private var preferCpuFallback: Boolean = false
     /** Agent 模式所需的最小上下文（工具定义 + 多轮工具结果）；NPU 给不了就转 CPU */
     private val AGENT_MIN_NCTX = 16384
+    /**
+     * HTP-SESSION-CEILING: 高通官方文档（qualcomm/llama.cpp docs/backend/snapdragon/developer.md）：
+     * 单个 Hexagon 会话（Process Domain）内存映射上限约 3.5GB；超过需拆多个设备（HTP0/HTP1/…）。
+     * 本机只暴露 1 个设备（日志 resolve_devices: Using 1 device(s): HTP0）→ 上限即 3.5GB。
+     * 另：Q4_0/Q8_0/MXFP4 在 HTP 侧会被 repack，需要额外缓冲 → 估算按权重 ×1.25 计。
+     */
+    private val HTP_SESSION_LIMIT: Long = (3.5 * 1024 * 1024 * 1024).toLong()
+    private val HTP_REPACK_FACTOR = 1.25
+    private val HTP_GRAPH_BUFFER: Long = 320L * 1024 * 1024
+
+    /** 模型文件大小（字节），失败返回 0 */
+    private fun modelBytesOf(f: File?): Long = try {
+        if (f != null && f.isFile) f.length() else 0L
+    } catch (t: Throwable) {
+        0L
+    }
 
     private fun planNCtx(ctx: Context, gguf: File?): Int {
         if (gguf == null || !gguf.isFile) return 4096
         val avail = availableMemBytes(ctx)
         if (avail <= 0) return 4096
+        // HTP-SESSION-CEILING: 先按官方 3.5GB 单会话上限判断能否走 NPU（不看系统内存）
+        val htpEstimate = (modelBytesOf(gguf) * HTP_REPACK_FACTOR).toLong() + HTP_GRAPH_BUFFER
+        if (htpEstimate > HTP_SESSION_LIMIT) {
+            Log.w(TAG, "HTP 占用估算 " + (htpEstimate / 1048576) + "MB > 单会话上限 3.5GB")
+                    // 仅标记，不 return：上面还要算 CPU 路径下的上下文
+            preferCpuFallback = true
+        }
         val meta = com.oilquiz.app.ai.model.GgufMeta.read(gguf)
         val perToken = kvBytesPerToken(meta)
         // 内存规划计入 draft：投机模式下权重 = 主模型 + draft（两者由 GenieX 一起加载）
