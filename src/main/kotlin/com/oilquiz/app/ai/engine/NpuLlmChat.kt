@@ -238,6 +238,21 @@ object NpuLlmChat {
     // 切换模型时由上层 reloadNpuModel() 释放并重新加载 → 自动重新匹配。
     // 2026-10-05 关闭（用户实测：主模型 + draft 双模型加载在本机崩溃）。
     // 保持代码与自动匹配能力，但默认**关闭**；如需实验，可在偏好里显式写 npu_spec_enabled=true。
+    /** NPU 模式是否走 Agent（带工具 schema）。默认 false = 普通对话：
+     *  工具定义每轮都要重复 prefill（实测 2021 token 占 prompt 72%，SDK 前缀复用不命中），
+     *  关掉后 prompt 从 ~2789 token 降到 ~240 token，首字延迟显著下降。 */
+    @Volatile private var npuAgentEnabled = false
+
+    /** NPU 模式是否启用 Agent（工具调用）；偏好 npu_agent_enabled 可开启 */
+    @JvmStatic
+    fun isNpuAgentEnabled(): Boolean = npuAgentEnabled
+
+    @JvmStatic
+    fun setNpuAgentEnabled(enabled: Boolean) {
+        npuAgentEnabled = enabled
+        Log.i(TAG, "NPU Agent(工具)模式 = " + enabled)
+    }
+
     @Volatile private var specEnabled = false
     /** 本次加载时实际使用的 draft 路径（null = 未启用投机）；用于判断"新下了 draft 需要重载" */
     @Volatile private var draftAtLoad: String? = null
@@ -391,7 +406,10 @@ object NpuLlmChat {
             setIncrementalMode(false)
             // 投机解码开关（默认关；设备上可改 npu_engine_prefs 的 npu_spec_enabled 开启）
             setSpecEnabled(context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
-                    .getBoolean("npu_spec_enabled", false))   // 2026-10-05 默认关（双模型加载崩溃）
+                    .getBoolean("npu_spec_enabled", false))
+            // NPU 模式是否走 Agent（默认关 → 普通对话，prompt 更小更快）
+            setNpuAgentEnabled(context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
+                    .getBoolean("npu_agent_enabled", false))   // 2026-10-05 默认关（双模型加载崩溃）
         } catch (t: Throwable) {
             Log.w(TAG, "loadIncrementalPref 失败: " + t)
         }

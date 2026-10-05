@@ -4887,6 +4887,17 @@ public class AIChatActivity extends BaseActivity {
             // 2026-10-05：NPU（GenieX）引擎下**同样**走 Agent —— 原先这里用 !npuEngineOn 直接
             // 落到普通对话（当时以为 NPU 没有工具能力），导致 NPU 模式永远 tools=0、Agent 永不启动。
             // 现在 NPU 已能驱动 Agent 循环（NpuEngineRouter.chatJson + 事件协议对齐）→ 放行。
+            // NPU-FAST-CHAT: NPU 模式下**默认走普通对话（不注入工具 schema）**。
+            // 依据实测：Agent 路径 prompt=2789 token，其中工具定义 2021 token（72%），
+            // 而 SDK 的 KV 前缀复用不命中（prefix match size=0）→ 每轮都重复 prefill 这 2k token，
+            // 20 token 输出要 5.4 秒。普通对话 prompt 仅 ~240 token，首字延迟大幅下降。
+            // 需要工具调用时把偏好 npu_agent_enabled 设为 true 即可恢复 Agent 路径。
+            if (isNpuEngineOn() && !com.oilquiz.app.ai.engine.NpuLlmChat.isNpuAgentEnabled()) {
+                AppLogger.ai(TAG, "NPU 普通对话模式（不注入工具，减小 prompt）");
+                processChatMessageNormal(message);
+                return;
+            }
+
             if (shouldUseOnlineModel()
                     || (aiConfig != null && aiConfig.isLocalAgentEnabled())) {
                 showOnlineAgentFriendlyGuide(message);
