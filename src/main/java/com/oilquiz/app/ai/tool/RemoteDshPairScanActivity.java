@@ -32,15 +32,45 @@ public class RemoteDshPairScanActivity extends AppCompatActivity {
         @Override
         public void barcodeResult(BarcodeResult result) {
             if (result == null || result.getResult() == null) return;
-            String error = RemoteDshPairBridge.parseAndSave(getApplicationContext(), result.getText());
-            if (error == null) {
-                RemoteDshPairBridge.lastResult = "OK";
-                finish();
-            } else {
+            final String text = result.getText();
+            final String error = RemoteDshPairBridge.parseAndSave(getApplicationContext(), text);
+            if (error != null) {
                 RemoteDshPairBridge.lastResult = null;
-                Log.w(TAG, "无效配对码: " + result.getText());
+                Log.w(TAG, "无效配对码: " + text);
                 Toast.makeText(RemoteDshPairScanActivity.this, error, Toast.LENGTH_LONG).show();
+                return;
             }
+            // ★ 在这里（而不是只在 AI 的 action=pair 里）登记设备：
+            //   2026-10-06 实测踩坑——手机连着、对话正常，但电脑端「已配对设备」恒为 0。
+            //   原因是从界面「扫码配对」按钮进来的这条路只写配置就 return，从不 call /pair/claim；
+            //   只有 AI 调 action=pair 时才会登记。把登记放在扫码结果回调里，任何入口都覆盖。
+            barcodeView.setStatusText("配对成功，正在登记设备…");
+            final android.content.Context app = getApplicationContext();
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    final String claimErr = RemoteDshPairBridge.claimDeviceToken(
+                            app, RemoteDshTool.configValue(app, "base_url"),
+                            RemoteDshTool.configValue(app, RemoteDshTool.KEY_MAIN_TOKEN));
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (claimErr == null) {
+                                RemoteDshPairBridge.lastResult = RemoteDshPairBridge.RESULT_OK;
+                                Toast.makeText(RemoteDshPairScanActivity.this,
+                                        "配对成功：已登记为设备（可在电脑端单独吊销）", Toast.LENGTH_LONG).show();
+                            } else {
+                                RemoteDshPairBridge.lastResult = null;
+                                Log.w(TAG, "登记设备失败: " + claimErr);
+                                Toast.makeText(RemoteDshPairScanActivity.this,
+                                        "配对成功，但设备登记失败：" + claimErr
+                                                + "\n仍可使用（走主令牌）", Toast.LENGTH_LONG).show();
+                            }
+                            finish();
+                        }
+                    });
+                }
+            }, "remote-dsh-claim-scan").start();
         }
 
     };
@@ -50,7 +80,10 @@ public class RemoteDshPairScanActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setTitle("扫描电脑配对二维码");
         barcodeView = new DecoratedBarcodeView(this);
-        barcodeView.setStatusText("对准电脑屏幕上的配对二维码");
+        // 识别失败的反馈（2026-10-06 实测踩过）：相机对焦要一两秒才出预览帧，用户容易以为坏了就按返回，
+        // 而识别不到时页面毫无提示。这里把"要停住几秒""该扫哪张码"直接写在扫码页上。
+        barcodeView.setStatusText("对准电脑屏幕上的二维码，停住 2-3 秒\n"
+                + "（配对页有两张码：手机与电脑不在同一网段时，请扫「公网/隧道」那张）");
         setContentView(barcodeView);
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)

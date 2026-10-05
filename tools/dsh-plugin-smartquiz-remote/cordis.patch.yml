@@ -8,7 +8,9 @@
         model: deepseek-flash         # 电脑上 DSH 实际使用的 model
         pathPrefix: ''
         maxReplyChars: 4000
-        allowExec: true               # /exec 电脑直连执行命令（默认安全起见可改 false）
+        allowExec: false              # /exec 电脑直连执行命令。默认关闭：插件走隧道/公网暴露时，
+                                      # 拿到令牌就等于拿到电脑的命令执行权，风险最重。
+                                      # 确有需要再改成 true（改完重载插件生效）。
         cliMode: true                 # 用 dsh --profile headless 跑任务（含多轮记忆 --session-id）
         cliProfile: headless
         lanEnabled: true              # 自建局域网入口（DSH 自带 webserver 只听 127.0.0.1）

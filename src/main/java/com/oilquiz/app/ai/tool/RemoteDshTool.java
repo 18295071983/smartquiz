@@ -286,7 +286,9 @@ public class RemoteDshTool implements AITool {
         boolean targetChanged = !u.equals(prevUrl) || !t.equals(prevToken);
         android.content.SharedPreferences.Editor ed = prefsOf(c).edit()
                 .putString(KEY_URL, u).putString(KEY_TOKEN, t).putBoolean(KEY_CONNECTED, true);
-        // 手动填的是"主令牌"这类原始凭据：清掉自动换来的设备令牌，否则会被优先使用、手工输入不生效
+        // 手动填的是"主令牌"这类原始凭据：清掉自动换来的设备令牌，否则会被优先使用、手工输入不生效。
+        // 但不能只删不补——删掉后如果登记又失败，这台手机就既没设备令牌、面板也看不到它，
+        // 所以下面立刻在后台重新登记一次设备（失败则继续用主令牌，功能不受影响）。
         if (!t.equals(prefsOf(c).getString(KEY_DEVICE_TOKEN, ""))) {
             ed.remove(KEY_DEVICE_TOKEN).remove(KEY_DEVICE_ID);
         }
@@ -294,7 +296,35 @@ public class RemoteDshTool implements AITool {
             ed.remove(KEY_SESSION);
         }
         ed.apply();
+        // 每次手动保存都登记一次：不要加 targetChanged 条件（2026-10-06 实测踩坑）——
+        // 用户把**同样的地址和令牌**再存一遍时 targetChanged=false，登记就被跳过，
+        // 于是电脑端一直显示"已配对设备 0 台"，而手机明明能正常对话。
+        // 重复登记无副作用：电脑端 /pair/claim 对同名设备会复用旧 id 并替换记录。
+        if (!t.isEmpty()) {
+            registerDeviceInBackground(c, u, t);
+        }
         return null;
+    }
+
+    /**
+     * 后台把给定凭据登记为设备（换取可单独吊销的设备令牌）。
+     * 手动保存配置走这条；扫码配对走 handlePair 里的同步流程（那边本来就在子线程）。
+     * 失败只记日志：主令牌仍可用，只是电脑端面板看不到这台设备。
+     */
+    private static void registerDeviceInBackground(final Context c, final String baseUrl, final String token) {
+        final Context app = c.getApplicationContext();
+        new Thread(() -> {
+            try {
+                String err = RemoteDshPairBridge.claimDeviceToken(app, baseUrl, token);
+                if (err != null) {
+                    Log.w(TAG, "手动保存后登记设备失败: " + err);
+                } else {
+                    Log.i(TAG, "手动保存后登记设备成功: " + prefsOf(app).getString(KEY_DEVICE_ID, ""));
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "手动保存后登记设备异常: " + t);
+            }
+        }, "remote-dsh-claim").start();
     }
 
     // ---------- 电脑端程序导出（新用户拿不到脚本 = 功能没法用） ----------
@@ -665,15 +695,21 @@ public class RemoteDshTool implements AITool {
         if (lanPort != null) sb.append("插件服务端口: ").append(lanPort).append("\n");
         Object devCount = resp.get("devices");
         if (devCount != null) sb.append("已配对设备: ").append(devCount).append(" 台（可在电脑插件面板吊销）\n");
-        // 手机还在用主令牌时 devices 会是 0（主令牌不登记设备记录），必须说清，否则用户会以为"没人连着"
+        // 手机还在用主令牌时 devices 会是 0（主令牌不登记设备记录），必须说清，否则用户会以为"没人连着"。
+        // 但判断要收紧（2026-10-06 实测误报）：只要电脑端已经登记了设备，就不该再提示——
+        // 探测页面时可能刚好落在"扫码成功、设备令牌还没落盘"那一两秒内，之前会打出
+        // "已配对设备 1 台" 和 "当前连接在用主令牌" 两句自相矛盾的话。
+        long devNum = 0;
+        try { devNum = Long.parseLong(String.valueOf(devCount)); } catch (NumberFormatException ignored) { /* 老版本无该字段 */ }
         Object st = resp.get("main_token_last_seen");
         long seen = 0;
         try { seen = Long.parseLong(String.valueOf(st)); } catch (NumberFormatException ignored) { /* 老版本插件没有该字段 */ }
-        if (seen > 0) {
-            long mins = Math.max(0, (System.currentTimeMillis() - seen) / 60000);
+        boolean mainTokenUsedRecently = seen > 0 && (System.currentTimeMillis() - seen) < 5 * 60 * 1000L;
+        if (devNum <= 0 && mainTokenUsedRecently) {
             sb.append("⚠ 当前连接在用主令牌（")
-              .append(mins).append(" 分钟前使用过）；主令牌不登记设备记录，所以上面台数为 0。")
-              .append("\n  如需出现在设备表并能单独吊销：action=register_device")
+              .append(Math.max(0, (System.currentTimeMillis() - seen) / 60000)).append(" 分钟前使用过）")
+              .append("；主令牌不登记设备记录，所以上面台数为 0。")
+              .append("\n  重新扫一次码（或在下面手动保存）会自动登记为设备，之后即可单独吊销。")
               .append("\n");
         }
         return sb.toString();
