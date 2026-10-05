@@ -11044,11 +11044,55 @@ public class AIChatActivity extends BaseActivity {
         remoteDshBar.setVisibility(View.VISIBLE);
     }
 
+    // ==================== NPU-IDLE-RELEASE: 不用就把内存还回去（常驻=快，闲置=省内存） ====================
+    /** 后台闲置多久后释放 NPU 模型（毫秒） */
+    private static final long NPU_IDLE_RELEASE_MS = 120_000L;
+    private final android.os.Handler npuIdleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable npuIdleRelease = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (com.oilquiz.app.ai.engine.NpuEngineState.get().getInferencePhase()
+                        != com.oilquiz.app.ai.engine.NpuEngineState.InferencePhase.IDLE) {
+                    AppLogger.ai(TAG, "NPU 闲置释放：仍在推理 → 2 分钟后再试");
+                    npuIdleHandler.postDelayed(this, NPU_IDLE_RELEASE_MS);
+                    return;
+                }
+                if (!isNpuEngineOn()) {
+                    return;
+                }
+                AppLogger.ai(TAG, "NPU 闲置释放：后台超 2 分钟且空闲 → 卸载模型，内存还给系统");
+                com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext()).releaseNpu();
+            } catch (Throwable t) {
+                AppLogger.aiW(TAG, "NPU 闲置释放失败: " + t.getMessage());
+            }
+        }
+    };
+
+    /** 系统内存紧张 → 主动卸载 NPU 模型 */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            try {
+                AppLogger.ai(TAG, "onTrimMemory(" + level + ") → 内存紧张，卸载 NPU 模型");
+                npuIdleHandler.removeCallbacks(npuIdleRelease);
+                if (isNpuEngineOn()) {
+                    com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext()).releaseNpu();
+                }
+            } catch (Throwable t) {
+                AppLogger.aiW(TAG, "onTrimMemory 释放失败: " + t.getMessage());
+            }
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         // STATUSBAR-POLLING: 回到聊天页恢复状态条轮询
         if (genStatusBar != null) genStatusBar.startPolling();
+        // NPU-IDLE-RELEASE: 回前台 → 取消闲置释放（正在用就保持常驻）
+        npuIdleHandler.removeCallbacks(npuIdleRelease);
         // NPU-PRELOAD: 方案 B —— 只在聊天页后台预加载 NPU 模型（不进启动路径，
         // 避免原生层 abort 演变成"打开就秒退"；用户打字的时间用来加载）。
         preloadNpuIfNeeded();
@@ -11184,6 +11228,13 @@ public class AIChatActivity extends BaseActivity {
 
     @Override
     protected void onDestroy() {
+        try {
+            npuIdleHandler.removeCallbacks(npuIdleRelease);
+            if (isFinishing() && isNpuEngineOn()) {
+                com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext()).releaseNpu();
+            }
+        } catch (Throwable ignored) {
+        }
         super.onDestroy();
         stopStatePolling();
         try {
@@ -11252,6 +11303,11 @@ public class AIChatActivity extends BaseActivity {
         super.onStop();
         // STATUSBAR-POLLING: 离开聊天页停止轮询（原先无 onPause，轮询会一直跑）
         if (genStatusBar != null) genStatusBar.stopPolling();
+        // NPU-IDLE-RELEASE: 进后台 → 2 分钟后若仍空闲则卸载模型
+        npuIdleHandler.removeCallbacks(npuIdleRelease);
+        if (isNpuEngineOn()) {
+            npuIdleHandler.postDelayed(npuIdleRelease, NPU_IDLE_RELEASE_MS);
+        }
         // 停止时保存当前会话到历史（更新当前会话而非重复创建副本；与 saveHistoryAsync 互斥）
         if (chatHistoryManager != null && chatHistory != null && !chatHistory.isEmpty()) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);
