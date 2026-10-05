@@ -480,6 +480,7 @@ object NpuLlmChat {
             Log.i(TAG, "GenieXSdk 已初始化")
         } catch (t: Throwable) {
             state = State.ERROR
+                    NpuEngineState.get().transition(NpuEngineState.Stage.ERROR, "加载失败", 0)
             Log.e(TAG, "GenieXSdk 初始化失败", t)
         }
     }
@@ -819,6 +820,7 @@ object NpuLlmChat {
             return
         }
         state = State.LOADING
+                NpuEngineState.get().transition(NpuEngineState.Stage.LOADING, "加载中", 15)
         scope.launch {
             try {
                 // getPaths 为空时用本地侧载兜底（SDK 只认自己写的 geniex.json 清单）
@@ -909,6 +911,8 @@ object NpuLlmChat {
                     llm = wrapper
                     currentModel = modelName
                     state = State.READY
+                    NpuEngineState.get().setModelName(modelName)
+                    NpuEngineState.get().transition(NpuEngineState.Stage.READY, "就绪", 100)
                     Log.i(TAG, "模型加载完成: $modelName (runtime=$runtime, compute=$computeUnit)")
                     listener?.onLoaded(modelName)
                 }.onFailure { e ->
@@ -974,6 +978,7 @@ object NpuLlmChat {
             return
         }
         state = State.GENERATING
+                NpuEngineState.get().transition(NpuEngineState.Stage.GENERATING, "生成中", 100)
         scope.launch {
             try {
                 // ===== 公共流消费（LLM 与 VLM 共用）：统计 token/耗时并转发回调 =====
@@ -1219,6 +1224,7 @@ object NpuLlmChat {
     @JvmStatic
     fun release() {
         draftAtLoad = null
+        NpuEngineState.get().reset()
         try {
             runBlocking { llm?.stopStream() }
         } catch (t: Throwable) {

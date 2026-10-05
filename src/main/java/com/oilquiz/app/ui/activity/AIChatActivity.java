@@ -4892,8 +4892,13 @@ public class AIChatActivity extends BaseActivity {
             // 而 SDK 的 KV 前缀复用不命中（prefix match size=0）→ 每轮都重复 prefill 这 2k token，
             // 20 token 输出要 5.4 秒。普通对话 prompt 仅 ~240 token，首字延迟大幅下降。
             // 需要工具调用时把偏好 npu_agent_enabled 设为 true 即可恢复 Agent 路径。
-            if (isNpuEngineOn() && !com.oilquiz.app.ai.engine.NpuLlmChat.isNpuAgentEnabled()) {
-                AppLogger.ai(TAG, "NPU 普通对话模式（不注入工具，减小 prompt）");
+            // NPU 下由聊天页「智能助手」开关（aiConfig.isLocalAgentEnabled）决定路径：
+            //   关 → 普通对话（prompt ~240 token，快；实测工具定义占 prompt 72%）
+            //   开 → Agent（注入工具，可调天气/时间/位置等，但 prompt 变大、每轮需重新 prefill）
+            // 这样 Agent 模式始终可用且由 UI 控制，无需改偏好文件。
+            boolean npuFastChat = isNpuEngineOn() && !(aiConfig != null && aiConfig.isLocalAgentEnabled());
+            if (npuFastChat) {
+                AppLogger.ai(TAG, "NPU 普通对话模式（智能助手关；不注入工具，prompt 更小）");
                 processChatMessageNormal(message);
                 return;
             }
