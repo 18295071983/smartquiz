@@ -171,6 +171,10 @@ object NpuLlmChat {
      * 按内存预算规划上下文长度：availMem − 权重 − App 预留 − 安全余量 = 可给 KV，
      * 再在 {16384, 8192, 4096, 2048} 里取最大的可行档。装不下返回 -1。
      */
+    /** MEM-FALLBACK-CPU: 内存连最小上下文都装不下时，标记改用 CPU 推理（CPU 可用普通内存 + swap） */
+    @Volatile
+    private var preferCpuFallback: Boolean = false
+
     private fun planNCtx(ctx: Context, gguf: File?): Int {
         if (gguf == null || !gguf.isFile) return 4096
         val avail = availableMemBytes(ctx)
@@ -219,9 +223,9 @@ object NpuLlmChat {
                 return chosen
             }
         }
-        Log.w(TAG, "内存规划: 装不下。权重=" + (modelBytes / 1048576) + "MB, 可用=" + (avail / 1048576)
-                + "MB, KV/token=" + perToken + "B")
-        return -1
+        // MEM-FALLBACK-CPU: 连最小档都装不下 → 不再拒绝，改为降级 CPU 推理（可吃 swap）
+            preferCpuFallback = true
+            return 512
     }
 
     /**
@@ -868,6 +872,8 @@ object NpuLlmChat {
      */
     @JvmStatic
     fun loadModel(modelName: String, runtimeId: String?, computeUnit: String?, listener: LoadListener?) {
+        // MEM-FALLBACK-CPU: 内存预检要求降级时，改用 CPU 推理（LLM 走 CPU，视觉塔本就是 CPU）
+        val effectiveUnit: String? = if (preferCpuFallback) "cpu" else computeUnit
         ensureInit()
         val runtime = runtimeId?.takeIf { it.isNotBlank() } ?: "llama_cpp"
         if (!isModelDownloaded(modelName)) {
@@ -966,7 +972,7 @@ object NpuLlmChat {
                             tokenizer_path = paths.tokenizer_path,
                             config = conf,
                             runtime_id = runtime,
-                            compute_unit = computeUnit
+                            compute_unit = effectiveUnit
                         )
                     )
                     .build()
