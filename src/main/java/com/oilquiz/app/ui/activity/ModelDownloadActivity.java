@@ -1086,8 +1086,39 @@ public class ModelDownloadActivity extends BaseActivity {
                 }
             }
 
+            /** 从原始预设取 geniex/视觉/适用性字段（ModelPresetInfo 没有这些字段）；失败返回 null */
+            private com.oilquiz.app.ai.model.ModelPresetConfig.ModelPreset findSourcePreset(String id) {
+                try {
+                    return com.oilquiz.app.ai.model.ModelPresetConfig.findPreset(
+                            com.oilquiz.app.ai.model.ModelPresetConfig.loadPresets(tvName.getContext()), id);
+                } catch (Throwable t) {
+                    return null;
+                }
+            }
+
+            /** 名称前缀徽标：NPU 原生 / 看图 / 本机不适用（用户一眼区分模式） */
+            private String badges(com.oilquiz.app.ai.model.ModelPresetConfig.ModelPreset p) {
+                if (p == null) {
+                    return "";
+                }
+                StringBuilder sb = new StringBuilder();
+                if ("qairt".equalsIgnoreCase(p.geniexRuntime)) {
+                    sb.append("【NPU 原生】");
+                }
+                if (Boolean.TRUE.equals(p.supportsVision)
+                        || (p.mmprojUrl != null && !p.mmprojUrl.isEmpty())) {
+                    sb.append("【🖼看图】");
+                }
+                if (Boolean.FALSE.equals(p.applicable)) {
+                    sb.append("【⚠️本机不适用】");
+                }
+                return sb.toString();
+            }
+
             private void bindLLMModel(ModelDownloadManager.ModelPresetInfo preset) {
-                tvName.setText(preset.name);
+                // DOWNLOAD-BADGES: ModelPresetInfo 不含引擎/视觉/适用性字段，这里按 id 回查原始预设
+                com.oilquiz.app.ai.model.ModelPresetConfig.ModelPreset src = findSourcePreset(preset.id);
+                tvName.setText(badges(src) + preset.name);
                 tvDescription.setText(preset.description);
                 tvSize.setText(getString(R.string.h_8e587998) + preset.sizeMB + " MB");
                 
@@ -1095,6 +1126,15 @@ public class ModelDownloadActivity extends BaseActivity {
                 info.append(getString(R.string.h_dd388bb1)).append(preset.quantization)
                     .append(getString(R.string.h_a82c4621)).append(preset.contextLength / 1024).append("K")
                     .append(getString(R.string.h_565866d2)).append(preset.minRamMB).append(" MB");
+                // 引擎标识 + 本机适用性说明
+                if (src != null) {
+                    boolean qairt = "qairt".equalsIgnoreCase(src.geniexRuntime);
+                    info.append("  · 引擎: ").append(qairt ? "NPU 原生(qairt·自包含)" : "GGUF+HTP");
+                    if (Boolean.FALSE.equals(src.applicable)) {
+                        info.append("\n⚠️ ").append(src.unapplicableReason == null
+                                ? "本机不适用（内存不足）" : src.unapplicableReason);
+                    }
+                }
                 
                 // 显示多模态标识
                 if (preset.multimodal) {
