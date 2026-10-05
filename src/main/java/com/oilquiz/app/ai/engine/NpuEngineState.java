@@ -6,23 +6,38 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * NPU 推理引擎状态机（与 llama.cpp 侧的 {@code AIServiceState} 同构，便于 UI 统一读取）。
+ * NPU 推理引擎状态机 —— 与 llama.cpp 侧的 {@link com.oilquiz.app.ai.service.AIServiceState}
+ * **同构**（同样的阶段集合、同样的字段与方法名），因此 UI 可以用同一套代码读两条引擎。
  *
- * <p>状态：IDLE（未加载）→ LOADING（加载中，带进度）→ READY（就绪）→ GENERATING（生成中）
- * → READY；任意状态可进 ERROR；release() 回 IDLE。
+ * <p>阶段（与 AIServiceState.ServiceStage 一一对应，括号内为 NPU 侧的实际含义）：
+ * <pre>
+ *   UNINITIALIZED         未加载
+ *   NATIVE_LIBRARY_LOADING  GenieX 插件加载（libgeniex_plugin_llama_cpp，实测约 14s）
+ *   MODEL_FILE_PREPARING   路径解析 + 内存预算预检（planNCtx / 是否可装下）
+ *   MODEL_LOADING          权重加载（实测约 6s）
+ *   GPU_INITIALIZATION     加速单元初始化（NPU = Hexagon HTP / compute_unit=HTP0）
+ *   CPU_FALLBACK           量化算子退 CPU（K-quant 等非 HTP 类型）
+ *   CHAT_CONTEXT_CREATING  上下文创建（nCtx，实测 32768）
+ *   INITIALIZED            就绪
+ *   ERROR                  失败
+ * </pre>
  *
- * <p>转移规则由 {@link #transition(Stage, String, int)} 强制：
- * <ul>
- *   <li>LOADING 只允许从 IDLE / ERROR / READY 进入（重复 LOADING 忽略）；</li>
- *   <li>GENERATING 必须已 READY（否则忽略并告警，避免未加载就生成）；</li>
- *   <li>ERROR 可从任意状态进入，并记录错误信息；</li>
- *   <li>IDLE 只在 release 时进入，同时清空错误与进度。</li>
- * </ul>
+ * <p>与 llama.cpp 一致的另一点：**生成中**不属于加载阶段，这里沿用
+ * {@code INITIALIZED}，生成状态由界面自身的生成条展示（与本地路径行为一致）。
  */
 public final class NpuEngineState {
 
+    /** 与 AIServiceState.ServiceStage 同名的阶段集合 */
     public enum Stage {
-        IDLE, LOADING, READY, GENERATING, ERROR
+        UNINITIALIZED,
+        NATIVE_LIBRARY_LOADING,
+        MODEL_FILE_PREPARING,
+        MODEL_LOADING,
+        GPU_INITIALIZATION,
+        CPU_FALLBACK,
+        CHAT_CONTEXT_CREATING,
+        INITIALIZED,
+        ERROR
     }
 
     public interface Listener {
@@ -32,12 +47,15 @@ public final class NpuEngineState {
     private static final String TAG = "NpuEngineState";
     private static final NpuEngineState INSTANCE = new NpuEngineState();
 
-    private volatile Stage stage = Stage.IDLE;
-    private volatile String message = "未加载";
-    private volatile String errorMessage = "";
+    // ---- 与 AIServiceState 同名的字段 ----
+    private volatile Stage currentStage = Stage.UNINITIALIZED;
+    private volatile String stageMessage = "";
     private volatile int progressPercent = 0;
-    private volatile String modelName = "";
-    private volatile long lastChangeMs = System.currentTimeMillis();
+    private volatile long startTime = 0;
+    private volatile String currentModelName = null;
+    private volatile String errorMessage = null;
+    private volatile long estimatedTimeMs = 0;
+    private final Object lock = new Object();
     private final List<Listener> listeners = new ArrayList<>();
 
     private NpuEngineState() {
@@ -47,61 +65,139 @@ public final class NpuEngineState {
         return INSTANCE;
     }
 
-    public Stage getStage() {
-        return stage;
+    // ==================== 与 AIServiceState 同名的方法 ====================
+
+    public Stage getCurrentStage() {
+        return currentStage;
     }
 
-    public String getMessage() {
-        return message;
+    public void setCurrentStage(Stage stage, String message) {
+        setCurrentStage(stage, message, progressPercent);
     }
 
-    public String getErrorMessage() {
-        return errorMessage;
+    /** 设置阶段（带进度）；非法转移会被忽略并告警 */
+    public synchronized void setCurrentStage(Stage stage, String message, int progress) {
+        if (stage == null) {
+            return;
+        }
+        Stage cur = currentStage;
+        // 只在"重复设置同一阶段且文案相同"时跳过
+        if (stage == cur && message != null && message.equals(stageMessage)
+                && progress == progressPercent) {
+            return;
+        }
+        // 非法转移：未加载（UNINITIALIZED）不允许直接 INITIALIZED
+        if (stage == Stage.INITIALIZED && cur == Stage.UNINITIALIZED) {
+            Log.w(TAG, "非法转移被忽略: UNINITIALIZED -> INITIALIZED（应先经历加载阶段）");
+            return;
+        }
+        currentStage = stage;
+        stageMessage = (message == null || message.isEmpty()) ? defaultMessage(stage) : message;
+        progressPercent = Math.max(0, Math.min(100, progress));
+        if (stage == Stage.ERROR) {
+            errorMessage = stageMessage;
+        } else if (stage != Stage.UNINITIALIZED) {
+            errorMessage = null;
+        }
+        Log.i(TAG, "阶段: " + cur + " -> " + stage + " (" + progressPercent + "%) " + stageMessage);
+        for (Listener l : new ArrayList<>(listeners)) {
+            try {
+                l.onNpuStateChanged(currentStage, stageMessage, progressPercent);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    public String getStageMessage() {
+        return stageMessage;
     }
 
     public int getProgressPercent() {
         return progressPercent;
     }
 
-    public String getModelName() {
-        return modelName;
+    public void setProgressPercent(int progress) {
+        synchronized (lock) {
+            progressPercent = Math.max(0, Math.min(100, progress));
+        }
     }
 
-    public long getLastChangeMs() {
-        return lastChangeMs;
+    public long getStartTime() {
+        return startTime;
     }
+
+    public void startTiming() {
+        startTime = System.currentTimeMillis();
+    }
+
+    public long getElapsedTimeMs() {
+        return startTime > 0 ? System.currentTimeMillis() - startTime : 0;
+    }
+
+    public void setCurrentModelName(String modelName) {
+        currentModelName = modelName;
+    }
+
+    public String getCurrentModelName() {
+        return currentModelName;
+    }
+
+    public void setError(String error) {
+        errorMessage = error;
+        setCurrentStage(Stage.ERROR, error == null ? "失败" : error, 0);
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
+    public long getEstimatedTimeMs() {
+        return estimatedTimeMs;
+    }
+
+    public void setEstimatedTimeMs(long ms) {
+        estimatedTimeMs = ms;
+    }
+
+    // ==================== NPU 侧便利方法（UI 直接用） ====================
 
     public boolean isReady() {
-        return stage == Stage.READY || stage == Stage.GENERATING;
+        return currentStage == Stage.INITIALIZED;
     }
 
-    /** 中文状态名（供 UI 直接显示，替代各处 switch） */
+    /** 中文短标签（加载阶段带进度）：如「加载中 15%」「就绪」「失败」 */
+    public String getStageLabel() {
+        String base = getStageName();
+        if ((currentStage == Stage.NATIVE_LIBRARY_LOADING || currentStage == Stage.MODEL_FILE_PREPARING
+                || currentStage == Stage.MODEL_LOADING || currentStage == Stage.GPU_INITIALIZATION
+                || currentStage == Stage.CHAT_CONTEXT_CREATING)
+                && progressPercent > 0 && progressPercent < 100) {
+            return base + " " + progressPercent + "%";
+        }
+        return base;
+    }
+
     public String getStageName() {
-        switch (stage) {
-            case LOADING:
-                return "加载中";
-            case READY:
+        switch (currentStage) {
+            case NATIVE_LIBRARY_LOADING:
+                return "加载引擎";
+            case MODEL_FILE_PREPARING:
+                return "准备模型";
+            case MODEL_LOADING:
+                return "加载权重";
+            case GPU_INITIALIZATION:
+                return "初始化 NPU";
+            case CPU_FALLBACK:
+                return "部分算子退 CPU";
+            case CHAT_CONTEXT_CREATING:
+                return "创建上下文";
+            case INITIALIZED:
                 return "就绪";
-            case GENERATING:
-                return "生成中";
             case ERROR:
-                return "不可用";
+                return "失败";
             default:
                 return "待加载";
         }
-    }
-
-    /**
-     * 带进度的显示标签（UI 直接用，无需自己拼）：如「加载中 15%」「就绪」「生成中」。
-     * 进度只在 LOADING 且 0&lt;progress&lt;100 时显示，避免"就绪 100%"这类冗余。
-     */
-    public String getStageLabel() {
-        String base = getStageName();
-        int p = progressPercent;
-        if (stage == Stage.LOADING && p > 0 && p < 100) {
-            return base + " " + p + "%";
-        }
-        return base;
     }
 
     public void addListener(Listener l) {
@@ -114,64 +210,33 @@ public final class NpuEngineState {
         listeners.remove(l);
     }
 
-    /** 状态转移；返回是否真的发生了变化 */
-    public synchronized boolean transition(Stage next, String msg, int progress) {
-        if (next == null) {
-            return false;
-        }
-        Stage cur = stage;
-        if (next == cur && (msg == null || msg.equals(message))) {
-            return false;
-        }
-        // ---- 转移合法性校验 ----
-        if (next == Stage.GENERATING && cur != Stage.READY && cur != Stage.GENERATING) {
-            Log.w(TAG, "非法转移被忽略: " + cur + " -> GENERATING（模型未就绪）");
-            return false;
-        }
-        if (next == Stage.READY && cur == Stage.IDLE) {
-            Log.w(TAG, "非法转移被忽略: IDLE -> READY（应先 LOADING）");
-            return false;
-        }
-        stage = next;
-        message = (msg == null || msg.isEmpty()) ? defaultMessage(next) : msg;
-        progressPercent = Math.max(0, Math.min(100, progress));
-        lastChangeMs = System.currentTimeMillis();
-        if (next == Stage.ERROR) {
-            errorMessage = message;
-        } else if (next != Stage.LOADING) {
-            errorMessage = "";
-        }
-        Log.i(TAG, "状态: " + cur + " -> " + next + " (" + progressPercent + "%) " + message);
-        for (Listener l : new ArrayList<>(listeners)) {
-            try {
-                l.onNpuStateChanged(stage, message, progressPercent);
-            } catch (Throwable ignored) {
-            }
-        }
-        return true;
-    }
-
-    /** 记录当前模型名（加载成功时调用） */
-    public void setModelName(String name) {
-        modelName = name == null ? "" : name;
-    }
-
-    /** 释放/切换模型时回到 IDLE */
+    /** 释放/切换模型：回到 UNINITIALIZED */
     public synchronized void reset() {
-        modelName = "";
-        transition(Stage.IDLE, "未加载", 0);
+        currentModelName = null;
+        startTime = 0;
+        progressPercent = 0;
+        errorMessage = null;
+        setCurrentStage(Stage.UNINITIALIZED, "未加载", 0);
     }
 
     private static String defaultMessage(Stage s) {
         switch (s) {
-            case LOADING:
-                return "加载中";
-            case READY:
+            case NATIVE_LIBRARY_LOADING:
+                return "加载引擎";
+            case MODEL_FILE_PREPARING:
+                return "准备模型";
+            case MODEL_LOADING:
+                return "加载权重";
+            case GPU_INITIALIZATION:
+                return "初始化 NPU";
+            case CPU_FALLBACK:
+                return "部分算子退 CPU";
+            case CHAT_CONTEXT_CREATING:
+                return "创建上下文";
+            case INITIALIZED:
                 return "就绪";
-            case GENERATING:
-                return "生成中";
             case ERROR:
-                return "不可用";
+                return "失败";
             default:
                 return "未加载";
         }

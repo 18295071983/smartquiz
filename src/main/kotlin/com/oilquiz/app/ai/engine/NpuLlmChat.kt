@@ -480,7 +480,7 @@ object NpuLlmChat {
             Log.i(TAG, "GenieXSdk 已初始化")
         } catch (t: Throwable) {
             state = State.ERROR
-                    NpuEngineState.get().transition(NpuEngineState.Stage.ERROR, "加载失败", 0)
+                    NpuEngineState.get().setError("加载失败")
             Log.e(TAG, "GenieXSdk 初始化失败", t)
         }
     }
@@ -820,7 +820,8 @@ object NpuLlmChat {
             return
         }
         state = State.LOADING
-                NpuEngineState.get().transition(NpuEngineState.Stage.LOADING, "加载中", 15)
+                NpuEngineState.get().startTiming()
+                NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.NATIVE_LIBRARY_LOADING, "加载引擎", 10)
         scope.launch {
             try {
                 // getPaths 为空时用本地侧载兜底（SDK 只认自己写的 geniex.json 清单）
@@ -894,6 +895,7 @@ object NpuLlmChat {
                 return@launch
             }
 
+            NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.MODEL_LOADING, "加载权重", 45)
             val result = LlmWrapper.builder()
                     .llmCreateInput(
                         // 注意：0.8.0 的 LlmCreateInput 去掉了 model_name（0.3.5 有），只剩 5 个参数
@@ -911,8 +913,9 @@ object NpuLlmChat {
                     llm = wrapper
                     currentModel = modelName
                     state = State.READY
-                    NpuEngineState.get().setModelName(modelName)
-                    NpuEngineState.get().transition(NpuEngineState.Stage.READY, "就绪", 100)
+                    NpuEngineState.get().setCurrentModelName(modelName)
+                    NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.CHAT_CONTEXT_CREATING, "创建上下文", 85)
+                    NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.INITIALIZED, "就绪", 100)
                     Log.i(TAG, "模型加载完成: $modelName (runtime=$runtime, compute=$computeUnit)")
                     listener?.onLoaded(modelName)
                 }.onFailure { e ->
@@ -978,7 +981,7 @@ object NpuLlmChat {
             return
         }
         state = State.GENERATING
-                NpuEngineState.get().transition(NpuEngineState.Stage.GENERATING, "生成中", 100)
+                NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.INITIALIZED, "生成中", 100)
         scope.launch {
             try {
                 // ===== 公共流消费（LLM 与 VLM 共用）：统计 token/耗时并转发回调 =====

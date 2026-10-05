@@ -4630,7 +4630,7 @@ public class AIService implements ComponentCallbacks2 {
 
     /** NPU 当前状态名（IDLE / LOADING / READY / GENERATING / ERROR） */
     public String getNpuStateName() {
-        return com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();
+        return com.oilquiz.app.ai.engine.NpuEngineState.get().getStageName();
     }
 
     /**
