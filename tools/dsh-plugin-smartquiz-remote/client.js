@@ -13,9 +13,15 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false);
       const [info, setInfo] = React.useState(null);
       const [st, setSt] = React.useState(null);
+      const [bal, setBal] = React.useState(null);
       const [err, setErr] = React.useState('');
       const [note, setNote] = React.useState('');
       const [pubUrl, setPubUrl] = React.useState('');
+
+      const loadBalance = React.useCallback(() => {
+        fetch('/balance').then((r) => (r.ok ? r.json() : null))
+          .then((j) => setBal(j)).catch(() => setBal(null));
+      }, []);
 
       const load = React.useCallback(() => {
         setErr('');
@@ -24,7 +30,8 @@ window.__ModuleLoader__.load({
           .catch((e) => setErr(String(e && e.message ? e.message : e)));
         // /status 走主令牌读取在浏览器里拿不到，改为本地读取一次即可（同源、仅本机）
         fetch('/status').then((r) => (r.ok ? r.json() : null)).then((j) => setSt(j)).catch(() => setSt(null));
-      }, []);
+        loadBalance();
+      }, [loadBalance]);
 
       React.useEffect(() => { if (open) load(); }, [open, load]);
       React.useEffect(() => { if (info) setPubUrl(info.public_url || ''); }, [info]);
@@ -68,6 +75,20 @@ window.__ModuleLoader__.load({
                    border: '1px solid currentColor', minWidth: 260 },
         },
           h('div', null, '状态：', h('b', null, err ? '读取失败' : (info ? '已启用 ✓' : '读取中…'))),
+          // DeepSeek 账户余额（仅本机可查；走插件 /balance → api.deepseek.com/user/balance，缓存 60 秒）
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+            h('span', null, 'DeepSeek 余额：'),
+            !bal && h('span', { style: { opacity: 0.7 } }, '读取中…'),
+            bal && bal.ok && h('b', null,
+              (bal.total_balance || '?') + ' ' + (bal.currency || ''),
+              bal.is_available === false ? '（不可用）' : ''),
+            bal && bal.ok && h('button', {
+              style: { ...chip, padding: '1px 8px', fontSize: 11 },
+              onClick: () => { setBal(null); loadBalance(); },
+              title: '重新查询（结果缓存 60 秒）',
+            }, '刷新'),
+            bal && !bal.ok && h('span', { style: { opacity: 0.8 }, title: String(bal.detail || bal.hint || '') },
+              bal.error === 'no_api_key' ? '未配置 API Key' : '读取失败（' + (bal.error || '?') + '）')),
           info && h('div', null, '局域网：', h('code', null, info.base_url)),
           info && h('div', null, '已配对设备：', h('b', null, String((st && st.devices) || 0) + ' 台')),
           // ★ 远程执行命令开关（2026-10-06 用户要求做成 UI）。仅本机可改：手机端只显示状态。

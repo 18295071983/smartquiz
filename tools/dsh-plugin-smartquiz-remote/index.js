@@ -27,7 +27,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces, homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec, execFile, spawn } from 'node:child_process';
@@ -333,6 +333,24 @@ function lastAssistant(session) {
   return '';
 }
 
+/**
+ * 读取 DeepSeek API Key（用于面板显示账户余额）。
+ *
+ * 来源与 DSH 自己的凭据库一致：$DSH_HOME/.credentials.yaml 的 refs.DEEPSEEK_API_KEY。
+ * 只读不写；读不到就返回空串（面板显示"未配置"而不是报错）。
+ * ★ 这个值只在本机插件进程内使用，转发给 api.deepseek.com（它本来就是这把钥匙的归属方），
+ *   不写日志、不回传给手机端。
+ */
+function readDeepseekApiKey() {
+  const home = process.env.DSH_HOME || join(homedir(), '.workbuddy', 'dsh-home');
+  const file = join(home, '.credentials.yaml');
+  let text = '';
+  try { text = readFileSync(file, 'utf8'); } catch { return ''; }
+  // 只需取 refs 段里 DEEPSEEK_API_KEY 的值，按行扫描比引入 YAML 解析器更省事
+  const m = /^\s*DEEPSEEK_API_KEY\s*:\s*(\S+)\s*$/m.exec(text);
+  return m ? m[1] : '';
+}
+
 export function apply(ctx, config) {
   const DEFAULTS = {
     token: '', provider: 'deepseek-account', model: 'deepseek-flash', pathPrefix: '',   // 显式：插件创建的 agent 需要明确模型路由
@@ -558,6 +576,53 @@ export function apply(ctx, config) {
       note: allowExec
         ? '已允许远程执行命令（手机 /exec 与 shell 动作可用）'
         : '已禁止远程执行命令（手机只能对话，不能在你电脑上跑命令）' });
+  });
+
+  // GET /balance —— 【仅本机】查 DeepSeek 账户余额（面板显示用）。
+  // 走官方 /user/balance，用 DSH 凭据库里的 DEEPSEEK_API_KEY；结果缓存 60 秒，
+  // 避免面板反复展开时频繁打接口。只在本机暴露：余额属于账户信息，没必要给手机或公网。
+  let balanceCache = { at: 0, data: null };
+  route('exact', '/balance', async (req, res) => {
+    if (!isLocal(req)) return sendJson(res, 403, { ok: false, error: 'balance is local-only' });
+    const key = readDeepseekApiKey();
+    if (!key) {
+      return sendJson(res, 200, { ok: false, error: 'no_api_key',
+        hint: '未在凭据库里找到 DEEPSEEK_API_KEY（$DSH_HOME/.credentials.yaml）' });
+    }
+    if (balanceCache.data && Date.now() - balanceCache.at < 60_000) {
+      return sendJson(res, 200, Object.assign({ ok: true, cached: true }, balanceCache.data));
+    }
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 15000);
+      const r = await fetch('https://api.deepseek.com/user/balance', {
+        headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+        signal: ac.signal,
+      });
+      clearTimeout(timer);
+      const text = await r.text();
+      if (!r.ok) {
+        return sendJson(res, 200, { ok: false, error: `HTTP ${r.status}`, detail: text.slice(0, 200) });
+      }
+      let j = {};
+      try { j = JSON.parse(text); } catch { /* 保持空对象 */ }
+      const infos = Array.isArray(j.balance_infos) ? j.balance_infos : [];
+      const usd = infos.find((x) => String(x.currency).toUpperCase() === 'USD');
+      const cny = infos.find((x) => String(x.currency).toUpperCase() === 'CNY');
+      const pick = cny || usd || infos[0] || {};
+      const data = {
+        is_available: j.is_available === true,
+        currency: pick.currency ?? '',
+        total_balance: pick.total_balance ?? '',
+        granted_balance: pick.granted_balance ?? '',
+        topped_up_balance: pick.topped_up_balance ?? '',
+        infos,
+      };
+      balanceCache = { at: Date.now(), data };
+      sendJson(res, 200, Object.assign({ ok: true, cached: false }, data));
+    } catch (e) {
+      sendJson(res, 200, { ok: false, error: 'request_failed', detail: String(e?.message ?? e) });
+    }
   });
 
   // POST /pair/open —— 仅本机：在电脑默认浏览器里打开配对页（Electron 里点链接会被拦 ✗，改由宿主打开 ✓）
