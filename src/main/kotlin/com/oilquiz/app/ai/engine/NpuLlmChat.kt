@@ -800,7 +800,10 @@ object NpuLlmChat {
                 } catch (e: IllegalArgumentException) {
                     HubSource.AUTO
                 }
-                ModelManagerWrapper.pullFlow(
+                // PULL-TRACE: 确认请求真的发起了
+        Log.i(TAG, "pullFlow 发起: model=" + modelName + " precision=" + precision
+                + " hub=" + hub + " chipset=" + effectiveChipset + " local=" + localPath)
+        ModelManagerWrapper.pullFlow(
                     ModelPullInput(
                         model_name = modelName,
                         precision = precision,
@@ -809,6 +812,8 @@ object NpuLlmChat {
                         local_path = localPath
                     )
                 ).collect { event ->
+            // PULL-TRACE: 每个事件都留痕（此前失败事件被静默吞掉，表现为"下载不动"）
+            Log.i(TAG, "pullFlow 事件: " + event)
                     when (event) {
                         is ModelManagerWrapper.PullEvent.Progress -> {
                             // 真实字节进度：对 event.files 的 total_bytes / downloaded_bytes 求和
