@@ -11029,6 +11029,8 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // STATUSBAR-POLLING: 回到聊天页恢复状态条轮询
+        if (genStatusBar != null) genStatusBar.startPolling();
         // NPU-PRELOAD: 方案 B —— 只在聊天页后台预加载 NPU 模型（不进启动路径，
         // 避免原生层 abort 演变成"打开就秒退"；用户打字的时间用来加载）。
         preloadNpuIfNeeded();
@@ -11230,6 +11232,8 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        // STATUSBAR-POLLING: 离开聊天页停止轮询（原先无 onPause，轮询会一直跑）
+        if (genStatusBar != null) genStatusBar.stopPolling();
         // 停止时保存当前会话到历史（更新当前会话而非重复创建副本；与 saveHistoryAsync 互斥）
         if (chatHistoryManager != null && chatHistory != null && !chatHistory.isEmpty()) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);
