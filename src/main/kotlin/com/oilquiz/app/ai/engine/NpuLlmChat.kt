@@ -174,6 +174,8 @@ object NpuLlmChat {
     /** MEM-FALLBACK-CPU: 内存连最小上下文都装不下时，标记改用 CPU 推理（CPU 可用普通内存 + swap） */
     @Volatile
     private var preferCpuFallback: Boolean = false
+    /** Agent 模式所需的最小上下文（工具定义 + 多轮工具结果）；NPU 给不了就转 CPU */
+    private val AGENT_MIN_NCTX = 16384
 
     private fun planNCtx(ctx: Context, gguf: File?): Int {
         if (gguf == null || !gguf.isFile) return 4096
@@ -217,6 +219,15 @@ object NpuLlmChat {
                     else -> 32768
                 }
                 val chosen = if (npuAgentEnabled) c else minOf(c, sizeCap)
+                // AGENT-NCTX-CPU: Agent 模式需要足够上下文（工具定义约 2k token + 多轮工具结果）。
+                // NPU(HTP) 内存给不了这个量时，不再勉强用小板 nCtx，而是把 LLM 降级到 CPU ——
+                // CPU 走普通内存 + swap，能给足上下文（代价是慢，但 Agent 多轮能正常跑完）。
+                if (npuAgentEnabled && chosen < AGENT_MIN_NCTX) {
+                    Log.w(TAG, "Agent 需要 nCtx>=" + AGENT_MIN_NCTX + "，但 NPU 只能给 " + chosen
+                            + " → 降级 CPU 推理并使用 " + AGENT_MIN_NCTX + " 上下文")
+                    preferCpuFallback = true
+                    return AGENT_MIN_NCTX
+                }
                 Log.i(TAG, "内存规划: 权重=" + (modelBytes / 1048576) + "MB, 可用=" + (avail / 1048576)
                         + "MB, KV/token=" + perToken + "B -> nCtx=" + chosen
                         + "（档位 " + c + ", 规模上限 " + sizeCap + "）")
@@ -225,7 +236,8 @@ object NpuLlmChat {
         }
         // MEM-FALLBACK-CPU: 连最小档都装不下 → 不再拒绝，改为降级 CPU 推理（可吃 swap）
             preferCpuFallback = true
-            return 512
+            // AGENT-NCTX-CPU: Agent 模式下 CPU 也要给足上下文，否则工具轮次会挤爆上下文
+            return if (npuAgentEnabled) AGENT_MIN_NCTX else 512
     }
 
     /**
