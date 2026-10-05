@@ -258,13 +258,21 @@ public class ModelDownloadManager {
                 if (p != null && p.geniexModelName != null && !p.geniexModelName.isEmpty()) {
                     AILogger.i(TAG, "NPU 原生模型走 GenieX 目录下载: " + p.geniexModelName
                             + " (runtime=" + p.geniexRuntime + ", quant=" + p.geniexQuant + ")");
+                    // qairt（NPU 原生）产物在 Qualcomm AI Hub，不是 HF；
+                    // 官方 catalog 里 qairt 条目 hub=AUTO 且无 quant 字段 → 这里同样不传 quant/chipset，
+                    // 让 GenieX 自行解析（之前传 HUGGINGFACE + Q4_0 会导致找不到产物、下载不动）。
+                    boolean qairtRuntime = "qairt".equalsIgnoreCase(p.geniexRuntime);
+                    AILogger.i(TAG, "GenieX 目录下载参数: model=" + p.geniexModelName
+                            + " runtime=" + p.geniexRuntime
+                            + " hub=" + (p.hub == null ? "AUTO" : p.hub)
+                            + " quant=" + (qairtRuntime ? "(null)" : p.geniexQuant));
                     com.oilquiz.app.ai.engine.NpuLlmChat.downloadModel(
                             context,
                             p.geniexModelName,
-                            p.geniexQuant == null ? "Q4_0" : p.geniexQuant,
-                            p.hub == null ? "HUGGINGFACE" : p.hub,
-                            p.chipset,
-                            null,
+                            qairtRuntime ? null : (p.geniexQuant == null ? "Q4_0" : p.geniexQuant),
+                            p.hub == null ? "AUTO" : p.hub,
+                            null,    // chipset：qairt 不指定，交给 SDK 按当前设备解析
+                            null,    // localPath：null = 走 SDK 目录下载（非本地侧载）
                             // 进度桥接：GenieX DownloadListener -> 我们的 DownloadCallback
                             (callback == null) ? null : new com.oilquiz.app.ai.engine.NpuLlmChat.DownloadListener() {
                                 @Override
