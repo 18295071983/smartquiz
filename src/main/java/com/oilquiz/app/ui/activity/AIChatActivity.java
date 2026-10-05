@@ -8509,7 +8509,9 @@ public class AIChatActivity extends BaseActivity {
             }
             // 状态机栏：仅推理进行中显示；空闲/完成/无数据一律隐藏
             if (tvGenPhase != null) {
-                String j = LlamaHelper.getGenPhase();
+                String j = (isNpuEngineOn()   // NPU-GENPHASE: NPU 模式改读引擎状态机（阶段名与 llama.cpp 一致）
+            ? com.oilquiz.app.ai.service.AIService.getInstance(this).getNpuGenPhase()
+            : LlamaHelper.getGenPhase());
                 boolean show = false;
                 if (j != null && !j.isEmpty()) {
                     org.json.JSONObject o = new org.json.JSONObject(j);
@@ -8526,7 +8528,10 @@ public class AIChatActivity extends BaseActivity {
                             }
                         } else if ("PREPROCESS".equals(phase)) {
                             // prefill 阶段：显示进度 + 吞吐（native 分块 decode 逐块统计）
-                            String pp = LlamaHelper.getPrefillProgress();
+                            String pp = (isNpuEngineOn()
+            ? ("{\"progress\":" + com.oilquiz.app.ai.engine.NpuEngineState.get().getPrefillPercent()
+                + ",\"tokens\":" + com.oilquiz.app.ai.engine.NpuEngineState.get().getGeneratedTokens() + "}")
+            : LlamaHelper.getPrefillProgress());
                             if (pp != null && !pp.isEmpty()) {
                                 try {
                                     org.json.JSONObject po = new org.json.JSONObject(pp);
@@ -8584,7 +8589,9 @@ public class AIChatActivity extends BaseActivity {
             // 与统计条「📊 上下文占用」（在线 token 估算）口径不同，并存会造成数据不一致
             if (tvKvStats != null) {
                 boolean runningNow = false;
-                String gp = LlamaHelper.getGenPhase();
+                String gp = (isNpuEngineOn()   // NPU-GENPHASE: NPU 模式改读引擎状态机（阶段名与 llama.cpp 一致）
+            ? com.oilquiz.app.ai.service.AIService.getInstance(this).getNpuGenPhase()
+            : LlamaHelper.getGenPhase());
                 if (gp != null && !gp.isEmpty()) {
                     try {
                         runningNow = new org.json.JSONObject(gp).optBoolean("running", false);
@@ -8593,7 +8600,7 @@ public class AIChatActivity extends BaseActivity {
                 if (runningNow || shouldUseOnlineModel()) {
                     tvKvStats.setVisibility(View.GONE);
                 } else {
-                    String j = LlamaHelper.getKvCacheStats();
+                    String j = (isNpuEngineOn() ? null : LlamaHelper.getKvCacheStats());
                     boolean show = false;
                     if (j != null && !j.isEmpty()) {
                         org.json.JSONObject o = new org.json.JSONObject(j);
@@ -8696,7 +8703,9 @@ public class AIChatActivity extends BaseActivity {
                 sourceTag = "⚡"; // 本地 native
                 // 阶段标签：THINKING 思考段用 🧠，GENERATING 正文用 ⚡
                 try {
-                    String pj = LlamaHelper.getGenPhase();
+                    String pj = (isNpuEngineOn()   // NPU-GENPHASE: NPU 模式改读引擎状态机（阶段名与 llama.cpp 一致）
+            ? com.oilquiz.app.ai.service.AIService.getInstance(this).getNpuGenPhase()
+            : LlamaHelper.getGenPhase());
                     if (pj != null && !pj.isEmpty()) {
                         String ph = new org.json.JSONObject(pj).optString("phase", "");
                         if ("THINKING".equals(ph)) sourceTag = "🧠";
