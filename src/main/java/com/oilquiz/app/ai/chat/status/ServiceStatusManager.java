@@ -179,6 +179,22 @@ public class ServiceStatusManager {
     public void updateInitialStatus() {
         if (isNpuEngineOn()) {
             updateStatusDisplay(AIServiceState.ServiceStage.INITIALIZED, npuStatusLine(), 100, 0);
+            // NPU-STATUS-OBSERVER: 订阅 NPU 状态机 —— 聊天页横幅原先没有任何刷新触发，
+            // 引擎已 READY/GENERATING 时横幅仍停在初始的"待加载"。
+            if (!npuObserverRegistered) {
+                npuObserverRegistered = true;
+                try {
+                    com.oilquiz.app.ai.engine.NpuEngineState.get().addListener(
+                            (stage, msg, percent) -> {
+                                try {
+                                    activity.runOnUiThread(() -> updateStatusDisplay(
+                                            AIServiceState.ServiceStage.INITIALIZED, npuStatusLine(), 100, 0));
+                                } catch (Throwable ignored) {
+                                }
+                            });
+                } catch (Throwable ignored) {
+                }
+            }
             return;
         }
         if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
@@ -748,6 +764,9 @@ public class ServiceStatusManager {
     }
 
     /** UI 单一状态源：NPU 只读值统一走 AIService（聊天页横幅） */
+    /** NPU-STATUS-OBSERVER：是否已订阅 NPU 状态机（避免重复注册） */
+    private boolean npuObserverRegistered = false;
+
     private com.oilquiz.app.ai.service.AIService npuSvc() {
         return com.oilquiz.app.ai.service.AIService.getInstance(activity);
     }
