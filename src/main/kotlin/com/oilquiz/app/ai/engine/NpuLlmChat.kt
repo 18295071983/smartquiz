@@ -910,6 +910,17 @@ object NpuLlmChat {
     @JvmStatic
     fun loadModel(modelName: String, runtimeId: String?, computeUnit: String?, listener: LoadListener?) {
         // MEM-FALLBACK-CPU: 内存预检要求降级时，改用 CPU 推理（LLM 走 CPU，视觉塔本就是 CPU）
+        // FORCE-CPU-APPLY: 用户在设置里强制 CPU → 直接走 CPU（无视内存与 HTP 上限判断）
+        try {
+            val forceCpu = appContext?.getSharedPreferences("ai_config", Context.MODE_PRIVATE)
+                    ?.getBoolean("npu_force_cpu", false) ?: false
+            if (forceCpu) {
+                preferCpuFallback = true
+                Log.i(TAG, "已按用户设置强制 CPU 推理（npu_force_cpu=true）")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "读取强制 CPU 设置失败: " + t.message)
+        }
         val effectiveUnit: String? = if (preferCpuFallback) "cpu" else computeUnit
         ensureInit()
         val runtime = runtimeId?.takeIf { it.isNotBlank() } ?: "llama_cpp"

@@ -4623,6 +4623,30 @@ public class AIService implements ComponentCallbacks2 {
         return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
     }
 
+    // ==================== FORCE-CPU-PREF: 用户手动强制 CPU 推理 ====================
+    private static final String PREF_NPU_FORCE_CPU = "npu_force_cpu";
+
+    /** 是否强制 CPU 推理（true = 不用 Hexagon NPU，全部算子走 CPU） */
+    public boolean isNpuForceCpu() {
+        try {
+            return context.getSharedPreferences("ai_config", android.content.Context.MODE_PRIVATE)
+                    .getBoolean(PREF_NPU_FORCE_CPU, false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 设置强制 CPU 推理（下次加载模型生效） */
+    public void setNpuForceCpu(boolean force) {
+        try {
+            context.getSharedPreferences("ai_config", android.content.Context.MODE_PRIVATE)
+                    .edit().putBoolean(PREF_NPU_FORCE_CPU, force).apply();
+            AILogger.i(TAG, "[NPU] 强制 CPU 推理 = " + force + "（下次加载生效）");
+        } catch (Throwable t) {
+            AILogger.w(TAG, "设置强制 CPU 失败: " + t.getMessage());
+        }
+    }
+
     /** UI 只读代理：NPU 推理状态机 JSON（字段与 llama.cpp 的 getGenPhase 对齐） */
     public String getNpuGenPhase() {
         return com.oilquiz.app.ai.engine.NpuEngineState.get().getInferenceJson();

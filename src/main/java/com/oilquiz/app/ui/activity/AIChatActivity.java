@@ -560,6 +560,25 @@ public class AIChatActivity extends BaseActivity {
             serviceStatusProgress = findViewById(R.id.service_status_progress);
             serviceStatusElapsed = findViewById(R.id.service_status_elapsed);
             tvGenPhase = findViewById(R.id.tv_gen_phase);
+        // FORCE-CPU-TOGGLE: 长按顶部阶段文字 → 切换"强制 CPU 推理"（内存紧张时锁定 CPU）
+        if (tvGenPhase != null) {
+            tvGenPhase.setOnLongClickListener(v -> {
+                try {
+                    com.oilquiz.app.ai.service.AIService svc =
+                            com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext());
+                    boolean now = !svc.isNpuForceCpu();
+                    svc.setNpuForceCpu(now);
+                    String msg = now
+                            ? "已开启「强制 CPU 推理」（下次加载生效；占用普通内存，可用更长上下文）"
+                            : "已关闭「强制 CPU 推理」（回到 NPU 优先）";
+                    android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show();
+                    AppLogger.ai(TAG, "强制 CPU 推理切换为: " + now);
+                } catch (Throwable t) {
+                    AppLogger.aiW(TAG, "切换强制 CPU 失败: " + t.getMessage());
+                }
+                return true;
+            });
+        }
             tvKvStats = findViewById(R.id.tv_kv_stats);
             // GENERATION-STATUS-BAR: 顶部状态条交给统一渲染器（与 demo 的 NativeSource 注入一致）
             // —— phase/prefill/KV/tokens 由它按 1s 轮询渲染；thinking roller 由 onThinkingSegment 驱动。
