@@ -201,9 +201,18 @@ object NpuLlmChat {
         // Qwen3.5 混合架构 KV 很便宜（32KB/token），允许开到 32768
         for (c in intArrayOf(32768, 16384, 8192, 4096, 2048)) {
             if (perToken * c <= forKv) {
+                // NPU-NCTX-CAP: 按模型规模收敛上下文档位 —— 小模型给 32768 只增加内存压力/调度负担，
+                // 没有实际收益（官方 demo 也是保守默认值）。
+                val sizeCap = when {
+                    modelBytes < 1_200_000_000L -> 8192      // ≤1.7B
+                    modelBytes < 3_000_000_000L -> 16384     // 2B-4B
+                    else -> 32768
+                }
+                val chosen = minOf(c, sizeCap)
                 Log.i(TAG, "内存规划: 权重=" + (modelBytes / 1048576) + "MB, 可用=" + (avail / 1048576)
-                        + "MB, KV/token=" + perToken + "B -> nCtx=" + c)
-                return c
+                        + "MB, KV/token=" + perToken + "B -> nCtx=" + chosen
+                        + "（档位 " + c + ", 规模上限 " + sizeCap + "）")
+                return chosen
             }
         }
         Log.w(TAG, "内存规划: 装不下。权重=" + (modelBytes / 1048576) + "MB, 可用=" + (avail / 1048576)

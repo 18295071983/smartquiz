@@ -426,7 +426,11 @@ public final class NpuEngineRouter {
             // 推理期 WakeLock：NPU 生成同样怕灭屏/切后台（与 llama.cpp 路径一致）
             com.oilquiz.app.ai.engine.NpuEngineState.get().beginInference();
         acquireLock(appContext);
-            NpuLlmChat.sendChatAsync(roles, contents, maxTokens > 0 ? maxTokens : 2048, thinking,
+            // NPU-MAXTOKENS: 上限收敛 —— 官方 demo 用 2048；原先沿用请求里的 16384，模型会一直写
+            // （实测 590 token / 3m32s，观感"永远在转"）。思考态给 4096。
+            int npuMaxTokens = Math.min(maxTokens > 0 ? maxTokens : 2048, thinking ? 4096 : 2048);
+            Log.i(TAG, "NPU maxTokens=" + npuMaxTokens + "（请求 " + maxTokens + ", thinking=" + thinking + "）");
+            NpuLlmChat.sendChatAsync(roles, contents, npuMaxTokens, thinking,
                     new NpuLlmChat.GenerateListener() {
                         @Override
                         public void onToken(String text) {
