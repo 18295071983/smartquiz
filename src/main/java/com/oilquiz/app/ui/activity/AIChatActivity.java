@@ -137,6 +137,8 @@ public class AIChatActivity extends BaseActivity {
     private android.widget.ProgressBar serviceStatusProgress;
     private TextView serviceStatusElapsed;
     private TextView tvGenPhase;
+    /** GENERATION-STATUS-BAR：统一渲染器（phase/prefill/KV/tokens 一排 + thinking roller） */
+    private com.oilquiz.app.ai.chat.ui.GenerationStatusBar genStatusBar;
     private TextView tvKvStats;
     // 顶部单行滚动切换：思考内容按行切段，轮播/跟随最新段显示
     private java.util.List<String> thinkingSegments = new java.util.ArrayList<>();
@@ -364,7 +366,12 @@ public class AIChatActivity extends BaseActivity {
                         && msg.thinkingContent != null && !msg.thinkingContent.isEmpty()) {
                     String disp = "💭 " + buildThinkingSegment(msg.thinkingContent);
                     if (!disp.equals(lastThinkShown)) {
-                        tvGenPhase.setText(disp);
+                        if (genStatusBar != null) {
+                    // 思考滚动动画（demo 的 thinking roller）
+                    genStatusBar.onThinkingSegment(disp, 1);
+                } else {
+                    tvGenPhase.setText(disp);
+                }
                         lastThinkShown = disp;
                         int lineCount = countThinkingLines(msg.thinkingContent);
                         if (lineCount != lastThinkLineCount) {
@@ -554,6 +561,15 @@ public class AIChatActivity extends BaseActivity {
             serviceStatusElapsed = findViewById(R.id.service_status_elapsed);
             tvGenPhase = findViewById(R.id.tv_gen_phase);
             tvKvStats = findViewById(R.id.tv_kv_stats);
+            // GENERATION-STATUS-BAR: 顶部状态条交给统一渲染器（与 demo 的 NativeSource 注入一致）
+            // —— phase/prefill/KV/tokens 由它按 1s 轮询渲染；thinking roller 由 onThinkingSegment 驱动。
+            try {
+                genStatusBar = new com.oilquiz.app.ai.chat.ui.GenerationStatusBar(
+                        this, tvGenPhase, tvKvStats, appNativeSource());
+                genStatusBar.startPolling();
+            } catch (Throwable t) {
+                AppLogger.aiW(TAG, "GenerationStatusBar 初始化失败: " + t);
+            }
             
             if (serviceStatusBar != null) {
                 serviceStatusBar.setOnClickListener(v -> showServiceStatusDetails());
@@ -1007,7 +1023,12 @@ public class AIChatActivity extends BaseActivity {
                 String disp = "💭 " + buildThinkingSegment(full);
                 if (!disp.equals(lastThinkShown) && tvGenPhase != null) {
                     tvGenPhase.setVisibility(View.VISIBLE);
+                    if (genStatusBar != null) {
+                    // 思考滚动动画（demo 的 thinking roller）
+                    genStatusBar.onThinkingSegment(disp, 1);
+                } else {
                     tvGenPhase.setText(disp);
+                }
                     lastThinkShown = disp;
                     int lc = countThinkingLines(full);
                     if (lc != lastThinkLineCount) {
@@ -7041,6 +7062,9 @@ public class AIChatActivity extends BaseActivity {
          */
         private long lastThinkingPreviewUiTime = 0;
         private void updateThinkingStatusBarPreview() {
+        if (genStatusBar != null) {
+            genStatusBar.resetThinkingTrack();   // 新一轮思考：重置滚动轨道
+        }
             long now = System.currentTimeMillis();
             if (now - lastThinkingPreviewUiTime < 200) return;
             lastThinkingPreviewUiTime = now;
