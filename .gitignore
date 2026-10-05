@@ -299,5 +299,8 @@ tools/dsh-plugin-smartquiz-remote/.sessions.json
 # 它曾被提交入库，而该仓库是公开的（github.com/18295071983/smartquiz），等于把令牌公开；
 # 公开的那把已轮换作废，且必须永久停止入库。
 tools/dsh-plugin-smartquiz-remote/.token
+# .allow-exec 是"允许手机在电脑上执行命令"开关的面板落盘值（true/false）：
+# 属于本机运行偏好，换台电脑该各管各的，不入库。
+tools/dsh-plugin-smartquiz-remote/.allow-exec
 # 沙箱文件权限诊断脚本产出的报告与回滚备份（排查中间产物）
 .dsh-acl-report/

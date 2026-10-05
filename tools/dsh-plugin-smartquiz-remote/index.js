@@ -378,6 +378,24 @@ export function apply(ctx, config) {
   const PAIR_TTL_MS = 5 * 60 * 1000;                 // 一次性配对码 5 分钟
   const deviceByToken = (t) => devices.devices.find((d) => d.token === t);
 
+  // ---- 远程执行命令开关（allowExec）：面板可切换、落盘、下次启动仍生效 ----
+  // 优先级：面板写入的 .allow-exec 文件 > 插件配置 allowExec。
+  // 为什么要有文件：配置文件是"随包分发"的默认值，用户在面板上的选择不该被一次重载抹掉，
+  // 也不该要求用户去手改 YAML。
+  const ALLOW_EXEC_FILE = join(PLUGIN_DIR, '.allow-exec');
+  const readAllowExecFile = () => {
+    try {
+      const v = readFileSync(ALLOW_EXEC_FILE, 'utf8').trim();
+      if (v === 'true') return true;
+      if (v === 'false') return false;
+    } catch { /* 没写过 */ }
+    return null;
+  };
+  let allowExec = (() => { const f = readAllowExecFile(); return f !== null ? f : cfg.allowExec === true; })();
+  const writeAllowExec = (v) => {
+    try { writeFileSync(ALLOW_EXEC_FILE, v ? 'true' : 'false', 'utf8'); return true; } catch { return false; }
+  };
+
   /**
    * 主令牌**惰性读取**（启动时不再写死进闭包）。
    *
@@ -486,9 +504,9 @@ export function apply(ctx, config) {
     service: 'dsh-plugin-remote',
     version: 5,
     bridge: 'dsh-plugin',
-    channels: { session_acp: true, exec: cfg.allowExec === true },
+    channels: { session_acp: true, exec: allowExec === true },
     acp_agent: { provider: cfg.provider || '(none)', model: cfg.model || '(none)', preset: lastPreset, transport: 'in-process' },
-    permission_policy: cfg.allowExec === true ? 'workspace-write' : 'read-only',
+    permission_policy: allowExec === true ? 'workspace-write' : 'read-only',
     session_streams: handles.size,
     sessions_count: handles.size,
     active_jobs: activeJobs,
@@ -518,6 +536,28 @@ export function apply(ctx, config) {
       .replace(/__ITEMS__/g, () => JSON.stringify(items));
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(html);
+  });
+
+  // POST /config —— 【仅本机】切换"允许远程执行命令"（allowExec），并落盘到 .allow-exec。
+  //
+  // 为什么坚持仅本机（不接受 device token）：这是"拿到令牌能干什么"的开关本身。
+  // 若手机也能改，一台被吊销/丢失的设备就能把执行能力重新打开；反过来手机误关之后
+  // 也没法自己开回来（/exec 已被拒）——必须由人在电脑上决定。手机端只在状态里显示当前值。
+  route('exact', '/config', async (req, res) => {
+    if (!isLocal(req)) return sendJson(res, 403, { ok: false, error: 'config is local-only' });
+    let body = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
+    if (typeof body.allowExec !== 'boolean') {
+      return sendJson(res, 400, { ok: false, error: 'allowExec must be boolean',
+        current: { allowExec, persisted: readAllowExecFile() } });
+    }
+    allowExec = body.allowExec;
+    const persisted = writeAllowExec(allowExec);
+    sendJson(res, 200, { ok: true, allowExec,
+      permission_policy: allowExec ? 'workspace-write' : 'read-only', persisted,
+      note: allowExec
+        ? '已允许远程执行命令（手机 /exec 与 shell 动作可用）'
+        : '已禁止远程执行命令（手机只能对话，不能在你电脑上跑命令）' });
   });
 
   // POST /pair/open —— 仅本机：在电脑默认浏览器里打开配对页（Electron 里点链接会被拦 ✗，改由宿主打开 ✓）
@@ -682,7 +722,7 @@ export function apply(ctx, config) {
   // POST /exec —— 电脑上直接执行命令（默认关闭；与旧桥 action=shell 对应）
   route('exact', '/exec', async (req, res) => {
     if (!authOk(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-    if (cfg.allowExec !== true) {
+    if (allowExec !== true) {
       return sendJson(res, 403, { ok: false, error: 'exec_disabled',
         hint: '在插件 config 里设 allowExec: true 才允许远程执行命令（安全默认关闭）' });
     }
@@ -825,6 +865,6 @@ export function apply(ctx, config) {
     handles.clear(); local.clear();
   });
 
-  ctx.logger?.info?.(`[smartquiz-remote] 挂载: /health /pair /pair.json /status /session /run /exec /reset `
-    + `(port=${ctx.webServer.port}, model=${cfg.provider}/${cfg.model}, exec=${cfg.allowExec === true})`);
+  ctx.logger?.info?.(`[smartquiz-remote] 挂载: /health /pair /pair.json /status /config /session /run /exec /reset `
+    + `(port=${ctx.webServer.port}, model=${cfg.provider}/${cfg.model}, exec=${allowExec === true})`);
 }
