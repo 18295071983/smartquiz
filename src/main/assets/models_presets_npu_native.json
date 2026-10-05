@@ -17,7 +17,10 @@
       "supportsThinking": true,
       "supportsFC": true,
       "supportsVision": false,
-      "applicable": true
+      "applicable": true,
+      "quantization": "Q4_0",
+      "contextLength": 262144,
+      "sizeBytes": 2400000000
     },
     {
       "id": "npu-native-qwen3-4b-instruct-2507",
@@ -33,7 +36,10 @@
       "supportsThinking": true,
       "supportsFC": true,
       "supportsVision": false,
-      "applicable": true
+      "applicable": true,
+      "quantization": "Q4_0",
+      "contextLength": 262144,
+      "sizeBytes": 2400000000
     },
     {
       "id": "npu-native-qwen2.5-vl-7b",
@@ -51,7 +57,10 @@
       "supportsFC": true,
       "supportsVision": true,
       "applicable": false,
-      "unapplicableReason": "7B 超出本机可用内存（≈4.1GB）；如需多模态请用 GGUF 版 Qwen3-VL-4B + mmproj"
+      "unapplicableReason": "7B 超出本机可用内存（≈4.1GB）；如需多模态请用 GGUF 版 Qwen3-VL-4B + mmproj",
+      "quantization": "Q4_0",
+      "contextLength": 32768,
+      "sizeBytes": 4400000000
     }
   ]
 }
