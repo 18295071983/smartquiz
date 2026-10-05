@@ -231,6 +231,25 @@
       "geniexModelName": "unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
       "geniexRuntime": "llama_cpp",
       "geniexQuant": "Q4_0"
+    },
+    {
+      "id": "qwen3.8-4b-distill",
+      "name": "Qwen3.8-4B-Distill（思考链+FC）",
+      "description": "Qwen3.8蒸馏版，4B参数，思考链+工具调用（Ma7ee7出品）",
+      "downloadUrl": "https://hf-mirror.com/Ma7ee7/Qwen3.8_4B_Distilled_GGUF/resolve/main/qwen3-4b-thinking-2507.Q4_K_M.gguf",
+      "sizeBytes": 2400000000,
+      "quantization": "Q4_K_M",
+      "contextLength": 32768,
+      "minRamMB": 4096,
+      "recommendedGpuLayers": 8,
+      "architecture": "Qwen3",
+      "parameters": "4B",
+      "memory": "4GB",
+      "useCases": "深度推理、Agent工具调用、中文对话",
+      "supportsThinking": true,
+      "supportsFC": true,
+      "sha256": "",
+      "backupUrl": ""
     }
   ],
   "note": "模型单一权威来源：10个国产端侧模型，含思考链标识（supportsThinking）和工具调用标识（supportsFC）。Qwen3.5系列原生支持深度思考模式，DeepSeek-R1系列自带思考链。"
