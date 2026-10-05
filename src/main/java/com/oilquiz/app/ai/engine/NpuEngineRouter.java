@@ -621,11 +621,19 @@ public final class NpuEngineRouter {
     }
 
     /** 回退到 llama.cpp 前释放 NPU 权重，避免两套模型同时常驻 */
+    /**
+     * 回退 llama.cpp 时的处理。
+     *
+     * <p><b>2026-10-05 行为变更</b>：原先这里会 {@code NpuLlmChat.release()} 释放 NPU 权重，
+     * 结果是"任何一次瞬态失败（超时/一次异常）都会把已加载的模型丢掉"，下一条消息又要
+     * 重新加载（实测约 29 秒）—— 这正是"反应很慢"的主因之一。
+     *
+     * <p>现改为**保持常驻**（与官方 demo 的策略一致：模型只在换模型/换引擎时释放）：
+     * 释放只发生在用户显式操作处 —— {@code ModelSelectorActivity.reloadNpuModel()}（换 NPU 模型）
+     * 与 {@code InferenceRouter.disableNpuEngine()}（切回 llama.cpp 引擎）。
+     */
     private static void releaseNpuBeforeFallback() {
-        try {
-            NpuLlmChat.release();
-        } catch (Throwable ignored) {
-        }
+        Log.i(TAG, "NPU 回退 llama.cpp（保持 NPU 权重常驻，不释放，避免下条消息重新加载）");
     }
 
     private static void streamNpu(String[] roles, String[] contents, int maxTokens,
