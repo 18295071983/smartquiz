@@ -434,7 +434,13 @@ public class ModelDownloadActivity extends BaseActivity {
 
         // 只保留 Q4 量化：HTP 只原生加速 Q4_0/Q4_1/IQ4_NL/Q8_0，K-quant 会掉 CPU；
         // 产品策略是"下载页只提供 Q4"，避免用户下了却跑不到 NPU。
-        models.removeIf(m -> m == null || m.quantization == null || !m.quantization.startsWith("Q4"));
+        // 放行所有 HTP 友好量化（Q4_0/Q4_1/Q8_0/IQ4_NL/MXFP4/F16），不只是 Q4
+                models.removeIf(m -> {
+                    if (m == null || m.quantization == null) return true;
+                    String q = m.quantization.toUpperCase();
+                    return !(q.startsWith("Q4") || q.startsWith("Q8") || q.startsWith("IQ4")
+                            || q.startsWith("MXFP4") || q.startsWith("F16"));
+                });
         return models;
     }
 

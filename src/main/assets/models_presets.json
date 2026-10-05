@@ -213,10 +213,10 @@
     {
       "id": "deepseek-r1-distill-qwen-1.5b",
       "name": "DeepSeek-R1-Distill-Qwen-1.5B（推理型 · Q4_0）",
-      "description": "DeepSeek-R1 蒸馏到 Qwen2.5-1.5B 的推理模型（架构 qwen2，GenieX libllama 原生支持）。擅长数学/逻辑/推理链；体积小、内存友好。Q4_0 量化命中 HTP 算子白名单（可跑在 Hexagon NPU）。",
-      "downloadUrl": "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_0.gguf",
-      "sizeBytes": 0,
-      "quantization": "Q4_0",
+      "description": "DeepSeek-R1 蒸馏到 Qwen2.5-1.5B 的推理模型（架构 qwen2，GenieX libllama 原生支持）。擅长数学/逻辑/推理链；体积小、内存友好。Q4_0 量化命中 HTP 算子白名单（可跑在 Hexagon NPU）。 [实测该仓库无 Q4_0，改用 Q8_0（HTP 白名单内，约 1.7GB）]",
+      "downloadUrl": "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q8_0.gguf",
+      "sizeBytes": 1777088000,
+      "quantization": "Q8_0",
       "contextLength": 131072,
       "minRamMB": 3072,
       "recommendedGpuLayers": 8,
@@ -227,7 +227,7 @@
       "supportsThinking": true,
       "supportsFC": false,
       "sha256": "",
-      "backupUrl": "https://modelscope.cn/models/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/master/DeepSeek-R1-Distill-Qwen-1.5B-Q4_0.gguf",
+      "backupUrl": "https://modelscope.cn/models/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/master/DeepSeek-R1-Distill-Qwen-1.5B-Q8_0.gguf",
       "geniexModelName": "unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
       "geniexRuntime": "llama_cpp",
       "geniexQuant": "Q4_0"
