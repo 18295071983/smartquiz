@@ -521,6 +521,7 @@ public class AIChatActivity extends BaseActivity {
         remoteDshText = findViewById(R.id.remote_dsh_text);
         remoteDshAction = findViewById(R.id.remote_dsh_action);
         if (remoteDshBar != null) {
+            remoteDshBar.setOnLongClickListener(v -> { toggleRemoteDirectMode(); return true; });
             remoteDshBar.setOnClickListener(v ->
                     startActivity(new Intent(AIChatActivity.this,
                             com.oilquiz.app.ai.tool.RemoteDshConnectActivity.class)));
@@ -3530,6 +3531,43 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void sendMessage() {
+        // ==== 方案3：直连电脑模式（点/长按聊天页顶部电脑横条切换）====
+        // 消息直接交给 remote_dsh 执行，不经过手机端模型，因此不再受"模型是否愿意调用/是否支持 function calling"影响
+        if (remoteDirectMode) {
+            String directText = inputMessage.getText().toString().trim();
+            if (directText.isEmpty()) { showToast(getString(R.string.h_b922f77a)); return; }
+            if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)
+                    || !com.oilquiz.app.ai.tool.RemoteDshTool.isConnected(this)) {
+                showToast("电脑未连接：请先在「远程连接（电脑）」里配对并连接");
+                return;
+            }
+            addUserMessage(directText);
+            inputMessage.setText("");
+            final String directTask = directText;
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    String outText;
+                    try {
+                        java.util.Map<String, Object> p = new java.util.HashMap<String, Object>();
+                        p.put("action", "run");
+                        p.put("task", directTask);
+                        com.oilquiz.app.ai.tool.AIToolResult r =
+                                com.oilquiz.app.ai.tool.AIToolManager.getInstance(AIChatActivity.this)
+                                        .executeTool("remote_dsh", p);
+                        outText = (r != null && r.isSuccess())
+                                ? String.valueOf(r.getResult())
+                                : ("电脑执行失败：" + (r != null ? r.getErrorMessage() : "未知错误"));
+                    } catch (Throwable t) {
+                        outText = "电脑执行异常：" + t.getMessage();
+                    }
+                    final String fOut = outText;
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { addAIMessage("💻 " + fOut); }
+                    });
+                }
+            }, "remote-dsh-direct").start();
+            return;
+        }
         AppLogger.ai(TAG, "[sendMessage] 入口: isGenerating=" + isGenerating
                 + ", inputLen=" + (inputMessage != null ? inputMessage.getText().length() : 0));
         if (isGenerating) {
@@ -11029,6 +11067,20 @@ public class AIChatActivity extends BaseActivity {
      * （用户反馈 2026-09-27："AI 对话界面没有任何 UI 提示，只能在对话流中显示"）。
      * 三种状态：未配对（红）/ 已连接（绿）/ 已断开（黄），点一下进「远程连接（电脑）」。
      */
+    /** 方案3：直连电脑模式 —— 每条消息直接发到电脑执行，不经过手机端模型 */
+    private boolean remoteDirectMode = false;
+
+    private void toggleRemoteDirectMode() {
+        if (!com.oilquiz.app.ai.tool.RemoteDshTool.isConfigured(this)) {
+            showToast("还没配对电脑：请先扫码配对");
+            return;
+        }
+        remoteDirectMode = !remoteDirectMode;
+        showToast(remoteDirectMode
+                ? "已进入「直连电脑模式」：每条消息直接发到电脑执行 💻"
+                : "已退出直连电脑模式：恢复由 AI 决定是否调用电脑");
+        refreshRemoteDshBar();
+    }
     private void refreshRemoteDshBar() {
         if (remoteDshBar == null) {
             return;
@@ -11060,6 +11112,16 @@ public class AIChatActivity extends BaseActivity {
         remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dotRes));
         remoteDshText.setText(text);
         remoteDshAction.setText(action);
+        if (remoteDirectMode && configured && connected) {
+            dotRes = R.drawable.circle_green;
+            text = "💻 直连电脑模式：每条消息直接发到电脑（点一下退出）";
+            action = "退出 ›";
+            remoteDshDot.setBackground(androidx.core.content.ContextCompat.getDrawable(this, dotRes));
+            remoteDshText.setText(text);
+            remoteDshAction.setText(action);
+            remoteDshBar.setVisibility(View.VISIBLE);
+            return;
+        }
         remoteDshBar.setVisibility(View.VISIBLE);
     }
 

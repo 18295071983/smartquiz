@@ -1,0 +1,20 @@
+{
+  "name": "@local/smartquiz-remote",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.js", "./client": "./client.js", "./package.json": "./package.json" },
+  "icon": "./icon.svg",
+  "meta": {
+    "title": "SmartQuiz Remote",
+    "description": "答题宝手机端远程接入：局域网 HTTP 端点 + 设备令牌鉴权 + 配对二维码 + CLI 任务执行"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}

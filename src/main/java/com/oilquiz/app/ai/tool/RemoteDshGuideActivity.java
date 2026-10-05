@@ -61,9 +61,9 @@ public class RemoteDshGuideActivity extends AppCompatActivity {
                 String dir = RemoteDshTool.exportBridgeFiles(getApplicationContext());
                 ok = true;
                 msg = "已导出到：\n" + dir
-                        + "\n\n里面 6 个文件（start_dsh_bridge.bat / .sh、dsh_bridge_server.py、pair_page.html、"
+                        + "\n\n里面是 DSH 原生插件（plugin 文件夹里的 package.json / index.js / client.js / cordis.patch.yml / icon.svg / pair_page.html、"
                         + "qrcodegen.js、README.md）\n"
-                        + "请整个文件夹拷到电脑上，双击 start_dsh_bridge.bat 启动（文件缺一不可）。";
+                        + "请把 plugin 文件夹整个拷到电脑上，按里面的「安装说明.txt」装进 DSH（插件管理器 → 从文件夹安装 → 重启 DSH）。";
             } catch (Exception e) {
                 ok = false;
                 msg = "导出失败：" + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())

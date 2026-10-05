@@ -241,7 +241,7 @@ public class RemoteDshConnectActivity extends AppCompatActivity {
                 String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 text = "不可达: " + msg
                         + "\n地址: " + RemoteDshTool.configValue(this, "base_url")
-                        + "\n排查：① 电脑端已双击 tools\\start_dsh_bridge.bat（桥接会自动拉起 dsh ACP 子进程）"
+                        + "\n排查：① 电脑端已安装 DSH 插件（插件管理器 → 从文件夹安装 plugin 文件夹 → 重启 DSH）"
                         + " ② 手机与电脑同网/隧道可用 ③ 令牌是否与桥接一致";
                 ok = false;
             }

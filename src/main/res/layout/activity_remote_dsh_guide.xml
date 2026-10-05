@@ -109,7 +109,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/space_8"
                     android:lineSpacingExtra="4dp"
-                    android:text="5) 在电脑上双击 start_dsh_bridge.bat（macOS/Linux 用 bash start_dsh_bridge.sh）\n   · 只会弹一个窗口：桥接服务（8218）。桥接会自己在后台拉起 dsh 的 ACP 会话（stdio），不再需要单独的「ACP 服务」窗口，也不占用 7800 端口、不需要 ACP 令牌\n   · 窗口会显示「访问令牌」和电脑上的 dsh 版本，并自动打开配对页 http://127.0.0.1:8218/pair"
+                    android:text="5) 打开 DSH → 插件管理器 → 「从文件夹安装」→ 选 plugin 文件夹 → 重启 DSH\n   · 只会弹一个窗口：桥接服务（8218）。桥接会自己在后台拉起 dsh 的 ACP 会话（stdio），不再需要单独的「ACP 服务」窗口，也不占用 7800 端口、不需要 ACP 令牌\n   · 窗口会显示「访问令牌」和电脑上的 dsh 版本，并自动打开配对页 http://127.0.0.1:8218/pair"
                     android:textSize="@dimen/text_13"
                     android:textColor="?attr/colorControlTextSecondary"/>
             </LinearLayout>

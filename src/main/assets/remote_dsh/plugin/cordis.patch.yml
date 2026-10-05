@@ -1,0 +1,21 @@
+# SmartQuiz Remote bundle
+- insert:
+    - id: smartquiz-remote
+      name: '@local/smartquiz-remote'
+      config:
+        token: ''                    # 空 → 环境变量或插件目录 .token（自动生成并持久化）
+        provider: deepseek-account    # 电脑上 DSH 实际使用的 provider（留空=用 profile 默认）
+        model: deepseek-flash         # 电脑上 DSH 实际使用的 model
+        pathPrefix: ''
+        maxReplyChars: 4000
+        allowExec: true               # /exec 电脑直连执行命令（默认安全起见可改 false）
+        cliMode: true                 # 用 dsh --profile headless 跑任务（含多轮记忆 --session-id）
+        cliProfile: headless
+        lanEnabled: true              # 自建局域网入口（DSH 自带 webserver 只听 127.0.0.1）
+        lanPort: 8218
+        extraLanPorts: '80'           # 附加监听端口（花生壳默认转发到本机 80 时有用）
+        # ★ 隧道/公网域名：**每个用户填自己的**（留空则只出局域网二维码）
+        #   也可以不改这里，改为在插件目录建一个 .public-url 文件写一行域名，或设环境变量
+        #   SMARTQUIZ_REMOTE_PUBLIC_URL。三者优先级：本配置 > 环境变量 > .public-url 文件
+        #   例：publicUrl: 'https://xxxx.vicp.fun'
+        publicUrl: ''

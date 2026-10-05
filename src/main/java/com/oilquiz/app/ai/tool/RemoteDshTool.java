@@ -22,9 +22,9 @@ import java.util.Map;
  * 远程 dsh 工具 v5：通过电脑端 dsh 桥接服务（tools/dsh_bridge_server.py v5）远程调用
  * DeepSeek dsh（DeepSeek Harness Shell），让 AI 远程操作电脑。
  *
- * 通道：**ACP 官方通道（stdio）**——桥接自己拉起 `dsh --profile acp` 子进程，
+ * 通道：**原生插件通道**——由 DSH 宿主直接提供 HTTP 端点（webServer），
  * session/new + session/prompt + session/update 流式；手机端协议/接口自 v3 起未变。
- * 同一 session_id 连续调用 = 多轮会话续接（电脑端 dsh 记忆连续）。桥接版本/ACP 版本一律由 /status 如实上报，
+ * 同一 session_id 连续调用 = 多轮会话续接（电脑端 dsh 记忆连续）。插件版本/模型/预设一律由 /status 如实上报，
  * 代码里不写死版本号（写死过 "dsh 0.1.5"，手机端 AI 据此误判"版本不兼容"）。
  *
  * v5 要点（2026-10-03，客户端升级到 0.2.0-rc.2 后实测驱动）：
@@ -37,28 +37,28 @@ import java.util.Map;
  *   * 新增 shell 动作：把 task 当命令经 bridge /exec 直连执行（不经电脑端 LLM，毫秒级、输出原样）。
  *
  * 架构：
- *   手机 App → HTTP(Bearer token) → 电脑端 dsh_bridge_server v5 → ACP stdio 子进程(dsh --profile acp)
+ *   手机 App → HTTP(Bearer token) → 电脑端 DSH 原生插件 smartquiz-remote（HTTP + 设备令牌鉴权）
  *                                                             ├→ /exec 直连命令（shell 动作）
- *                                                             └→ headless(仅 ACP 不可用时 fallback)
+ *                                                             └→ 任务执行：dsh --profile headless（含多轮记忆 --session-id）
  *
  * 动作：
  *   run(默认)  执行任务并自动续接会话：配置里已有 session_id 则直接续接，没有则先自动创建；
  *              task=自然语言任务描述；返回 AI 的回复。
  *   start      显式新建会话（重置电脑端 dsh 记忆），返回新的 session_id。
  *   history    读当前会话最近 N 条历史（文本摘要），检查 dsh 侧记忆。
- *   get_status 检查桥接服务与 dsh ACP 通道状态。
+ *   get_status 检查插件服务与 dsh 通道状态。
  *   set_config 配置 base_url / token / session_id（session_id 通常自动维护，一般无需手填）。
  *
  * 安全红线：
  *   * 桥接服务必须带 token 鉴权（Authorization: Bearer），未配置时不执行任何任务；
  *   * base_url 必须是 http:// 或 https:// 开头，禁止其他协议；
- *   * ACP 子进程只在本机 stdio 上跑（不监听端口），手机永远只访问带 token 的桥接层(8218)。
+ *   * 插件只在 8218 上暴露自己的接口（Bearer 令牌鉴权），不会把 DSH 的 Web 界面暴露到局域网。
  */
 @Tool(
         value = "remote_dsh",
         description = "远程控制电脑（DeepSeek dsh 官方会话通道）：调用电脑上安装的 dsh（DeepSeek Harness Shell）执行任务，"
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接（电脑端 dsh 记忆连续）。"
-                + "前提：电脑端已启动 tools/dsh_bridge_server.py（ACP 官方通道 + /exec 直连）桥接服务，并在本工具配置好电脑地址(base_url)与访问令牌(token)。"
+                + "前提：电脑端已安装 DSH 原生插件 smartquiz-remote（HTTP 端点 + /exec 直连），并在本工具配置好电脑地址(base_url)与访问令牌(token)。"
                 + "动作：① action=run（默认）在电脑上执行任务并自动续接会话：task 用自然语言，如\"看看D盘有哪些项目文件夹\"；"
                 + "② action=shell 直接把 task 当一条命令执行（bridge 直连，不经电脑端 LLM，毫秒级、输出原样）：凡是要\"跑这条命令并把原始输出贴回来\"就用它，如 task=\"git status\"；"
                 + "③ action=pair 扫码一键配对（推荐）：扫电脑端配对页二维码，自动保存地址与令牌；"
@@ -125,7 +125,7 @@ public class RemoteDshTool implements AITool {
     public String getDescription() {
         return "远程控制电脑（DeepSeek dsh 官方会话通道）：调用电脑上的 dsh（DeepSeek Harness Shell）执行任务，"
                 + "让 AI 远程操作电脑——读文件/跑命令/查信息/让 DeepSeek agent 干活，支持多轮会话续接。"
-                + "前提：电脑端已启动 tools/dsh_bridge_server.py(ACP 官方通道 + /exec 直连) 桥接服务，并配置好 base_url 与 token。"
+                + "前提：电脑端已安装 DSH 原生插件 smartquiz-remote(HTTP 端点 + /exec 直连)，并配置好 base_url 与 token。"
                 + "动作：run(执行任务+自动续接，自然语言) / shell(把 task 当命令直接跑，不经 LLM、输出原样) / "
                 + "connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码一键配对) / "
                 + "start(新建会话) / history(读会话历史) / get_status(检查状态) / set_config(配置)。"
@@ -247,8 +247,17 @@ public class RemoteDshTool implements AITool {
         while (u.endsWith("/")) {
             u = u.substring(0, u.length() - 1);
         }
-        prefsOf(c).edit().putString(KEY_URL, u).putString(KEY_TOKEN, t)
-                .putBoolean(KEY_CONNECTED, true).remove(KEY_SESSION).apply();
+        // 只在"换了电脑地址或令牌"时才清会话记忆；重复扫同一张二维码/重复保存配置不再冲掉多轮记忆
+        // （此前无条件 remove(KEY_SESSION)：每次扫码或保存配置都会把电脑端会话记忆重置 ✗）
+        String prevUrl = prefsOf(c).getString(KEY_URL, "");
+        String prevToken = prefsOf(c).getString(KEY_TOKEN, "");
+        boolean targetChanged = !u.equals(prevUrl) || !t.equals(prevToken);
+        android.content.SharedPreferences.Editor ed = prefsOf(c).edit()
+                .putString(KEY_URL, u).putString(KEY_TOKEN, t).putBoolean(KEY_CONNECTED, true);
+        if (targetChanged) {
+            ed.remove(KEY_SESSION);
+        }
+        ed.apply();
         return null;
     }
 
@@ -257,6 +266,11 @@ public class RemoteDshTool implements AITool {
     /** 电脑端程序在 assets 里的目录 */
     private static final String ASSET_DIR = "remote_dsh";
     /** 导出给用户的电脑端文件（放到同一个文件夹即可启动） */
+    /** DSH 插件文件（新方案：作为 DSH 宿主插件运行，不再需要 Python 桥；导出到 remote_dsh/plugin/） */
+    private static final String[] PLUGIN_FILES = {
+            "package.json", "index.js", "client.js", "cordis.patch.yml", "icon.svg",
+            "pair_page.html", "qrcodegen.js", "安装说明.txt",
+    };
     private static final String[] BRIDGE_FILES = {
             "start_dsh_bridge.bat", "start_dsh_bridge.sh",
             "dsh_bridge_server.py", "pair_page.html", "qrcodegen.js", "README.md"
@@ -278,6 +292,19 @@ public class RemoteDshTool implements AITool {
                         com.oilquiz.app.util.PublicStorageWriter.guessMime(name), in);
                 if (rel == null) {
                     throw new java.io.IOException("无法导出 " + name + "（公共目录不可写）");
+                }
+                int idx = rel.lastIndexOf('/');
+                dirDesc = idx > 0 ? rel.substring(0, idx) : rel;
+            }
+        }
+        // 新方案：同时导出 DSH 插件（smartquiz-remote）到 remote_dsh/plugin/ 子目录
+        for (String name : PLUGIN_FILES) {
+            try (java.io.InputStream in = c.getAssets().open(ASSET_DIR + "/plugin/" + name)) {
+                String rel = com.oilquiz.app.util.PublicStorageWriter.writeStream(
+                        c, "remote_dsh/plugin", name,
+                        com.oilquiz.app.util.PublicStorageWriter.guessMime(name), in);
+                if (rel == null) {
+                    throw new java.io.IOException("无法导出 plugin/" + name + "（公共目录不可写）");
                 }
                 int idx = rel.lastIndexOf('/');
                 dirDesc = idx > 0 ? rel.substring(0, idx) : rel;
@@ -542,6 +569,17 @@ public class RemoteDshTool implements AITool {
         if (cnt != null) sb.append("电脑端 dsh 会话数: ").append(cnt).append("\n");
         Object jobs = resp.get("active_jobs");
         if (jobs != null) sb.append("电脑端在跑任务: ").append(jobs).append("\n");
+        // 插件（smartquiz-remote）信息：隧道域名 / 服务端口 / 已配对设备数（来自 /status ✓）
+        Object pubUrl = resp.get("public_url");
+        if (pubUrl != null && !String.valueOf(pubUrl).trim().isEmpty()) {
+            sb.append("隧道域名: ").append(pubUrl).append("（配对页会多出一张公网二维码）\n");
+        } else {
+            sb.append("隧道域名: 未设置（只有局域网二维码；可在电脑 DSH 的「手机远程」面板里填写）\n");
+        }
+        Object lanPort = resp.get("lan_port");
+        if (lanPort != null) sb.append("插件服务端口: ").append(lanPort).append("\n");
+        Object devCount = resp.get("devices");
+        if (devCount != null) sb.append("已配对设备: ").append(devCount).append(" 台（可在电脑插件面板吊销）\n");
         return sb.toString();
     }
 
@@ -579,7 +617,7 @@ public class RemoteDshTool implements AITool {
             setConnected(context, false);
             return AIToolResult.fail("连接失败：" + e.getMessage()
                     + "\n地址: " + getBaseUrl()
-                    + "\n排查：① 电脑端启动了 start_dsh_bridge.bat（桥接会自动拉起 dsh ACP 子进程）且窗口还开着"
+                    + "\n排查：① 电脑端已安装 DSH 插件且 DSH 正在运行"
                     + " ② 手机与电脑同网或隧道可用 ③ token 是否与电脑端打印的一致"
                     + "\n第一次配电脑端？看教程：工具集 → 设置与系统环境 → 远程连接（电脑）→「怎么用 / 电脑端怎么配」");
         }
@@ -881,7 +919,9 @@ public class RemoteDshTool implements AITool {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setConnectTimeout(10000);
+            // 公网/隧道（花生壳、Cloudflare 等）首包握手 + TLS 在蜂窝网络下常超过 10s（实测 10000ms 超时 → 探测失败 ✗）
+            // 局域网仍很快，这里放大只是给隧道留余量，不影响本机连接的手感
+            conn.setConnectTimeout(30000);
             conn.setReadTimeout(timeoutSec * 1000);
             conn.setRequestMethod(method);
             conn.setRequestProperty("Accept", "application/json");

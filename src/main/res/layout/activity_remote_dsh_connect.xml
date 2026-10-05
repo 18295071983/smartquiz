@@ -390,7 +390,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="电脑端准备：先在上面「导出电脑端程序」→ 整个文件夹拷到电脑上 → 双击 start_dsh_bridge.bat。\n新版只弹一个窗口：桥接（8218）会自己在后台拉起 dsh 的 ACP 会话（stdio），不再需要单独的 ACP 服务窗口，也不占 7800 端口。\n断开只影响手机这边：AI 会被拒绝执行，电脑端桥接与会话不受影响，配置保留。"
+            android:text="电脑端准备：先在上面「导出电脑端程序」→ 把 plugin 文件夹拷到电脑上 → 装进 DSH（插件管理器 → 从文件夹安装 → 重启）。\n新版只弹一个窗口：桥接（8218）会自己在后台拉起 dsh 的 ACP 会话（stdio），不再需要单独的 ACP 服务窗口，也不占 7800 端口。\n断开只影响手机这边：AI 会被拒绝执行，电脑端桥接与会话不受影响，配置保留。"
             android:textSize="@dimen/text_12"
             android:lineSpacingExtra="3dp"
             android:textColor="?attr/colorControlTextHint"/>
