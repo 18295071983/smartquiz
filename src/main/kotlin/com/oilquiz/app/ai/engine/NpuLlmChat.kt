@@ -754,6 +754,18 @@ object NpuLlmChat {
         localPath: String?,
         listener: DownloadListener?
     ) {
+        // chipset: qairt (ai-hub-models precompiled) artifacts REQUIRE a chipset;
+        // if the caller did not pass one, use the SDK self-detect (SM8750 / SM8850).
+        val effectiveChipset: String? = chipset ?: try {
+            runBlocking { ModelManagerWrapper.detectChipset() }
+        } catch (t: Throwable) {
+            Log.w(TAG, "chipset detect failed, treating as unspecified: " + t.message)
+            null
+        }
+        if (chipset == null && effectiveChipset != null) {
+            Log.i(TAG, "chipset not provided, using SDK detect: " + effectiveChipset)
+        }
+
         // ① 本地侧载：登记即就绪（不依赖 SDK 清单，也不需要网络）
         if (!localPath.isNullOrBlank()) {
             val gguf = registerLocalModel(modelName, localPath)
@@ -793,7 +805,7 @@ object NpuLlmChat {
                         model_name = modelName,
                         precision = precision,
                         hub = hub,
-                        chipset = chipset,
+                        chipset = effectiveChipset,
                         local_path = localPath
                     )
                 ).collect { event ->
