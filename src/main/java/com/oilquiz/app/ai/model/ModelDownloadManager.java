@@ -1268,7 +1268,12 @@ okhttp3.Response response = null;
             List<ModelPresetConfig.ModelPreset> presets = ModelPresetConfig.loadPresets(context);
             if (presets != null) {
                 for (ModelPresetConfig.ModelPreset p : presets) {
-                    if (p == null || p.downloadUrl == null || p.downloadUrl.isEmpty()) continue;
+                    if (p == null) continue;
+                    // 放行两类：① 有直链的 GGUF；② 无直链但属于 GenieX 官方目录（NPU 原生/qairt）
+                    // —— 原先只放行 ①，导致 qairt 条目在下载页完全不可见。
+                    boolean hasUrl = p.downloadUrl != null && !p.downloadUrl.isEmpty();
+                    boolean geniexCatalog = p.geniexModelName != null && !p.geniexModelName.isEmpty();
+                    if (!hasUrl && !geniexCatalog) continue;
                     ModelPresetInfo info = ModelPresetConfig.toPresetInfo(p);
                     if (info != null) list.add(info);
                 }
