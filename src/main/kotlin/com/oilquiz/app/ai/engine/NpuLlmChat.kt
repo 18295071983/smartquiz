@@ -930,7 +930,10 @@ object NpuLlmChat {
                             mmproj_path = paths.mmproj_path ?: "",
                             config = vconf,
                             runtime_id = runtime,
-                            compute_unit = computeUnit
+                            compute_unit = computeUnit,
+                            // VIT-DEVICE: 视觉塔显式跑 CPU —— 实测日志 resolve_vision_device: No spare HTP session for mmproj
+                            // （LLM 已占满 HTP 会话，mmproj 分不到会话 → VLM 加载失败）；CPU 慢些但只在带图时用
+                            vit_device_id = "CPU",
                         )
                     )
                     .build()
