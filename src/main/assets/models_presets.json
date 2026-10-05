@@ -57,7 +57,7 @@
     {
       "id": "qwen3.5-0.8b",
       "name": "Qwen3.5-0.8B（支持思考）",
-      "description": "阿里最新0.8B，原生多模态（Early Fusion），Gated DeltaNet架构；官方支持深度思考+工具调用，但0.8B级别工具调用可靠性低，建议用于纯对话/轻量问答 [已换 Q4_0/IQ4_NL：NPU 与 llama.cpp 通用]",
+      "description": "阿里最新0.8B，原生多模态（Early Fusion），Gated DeltaNet架构；官方支持深度思考+工具调用，但0.8B级别工具调用可靠性低，建议用于纯对话/轻量问答 [已换 Q4_0/IQ4_NL：NPU 与 llama.cpp 通用] [实测含 mmproj-F16.gguf → 支持看图问答]",
       "downloadUrl": "https://hf-mirror.com/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_0.gguf",
       "sizeBytes": 507154688,
       "quantization": "Q4_0",
@@ -70,12 +70,16 @@
       "useCases": "超轻量对话、端侧多模态、低资源设备",
       "supportsThinking": true,
       "sha256": "",
-      "backupUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-0.8B-GGUF/resolve/master/Qwen3.5-0.8B-Q4_0.gguf"
+      "backupUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-0.8B-GGUF/resolve/master/Qwen3.5-0.8B-Q4_0.gguf",
+      "mmprojUrl": "https://hf-mirror.com/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/mmproj-F16.gguf",
+      "backupMmprojUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-0.8B-GGUF/resolve/master/mmproj-F16.gguf",
+      "mmprojSizeMB": 0,
+      "supportsVision": true
     },
     {
       "id": "qwen3.5-2b",
       "name": "Qwen3.5-2B（支持思考）",
-      "description": "阿里最新2B，原生多模态，性能超越上一代4B；官方支持深度思考+原生工具调用，但Qwen3.5新模板与项目Agent解析格式需适配（实测Agent暂不可用） [已换 Q4_0/IQ4_NL：NPU 与 llama.cpp 通用]",
+      "description": "阿里最新2B，原生多模态，性能超越上一代4B；官方支持深度思考+原生工具调用，但Qwen3.5新模板与项目Agent解析格式需适配（实测Agent暂不可用） [已换 Q4_0/IQ4_NL：NPU 与 llama.cpp 通用] [实测含 mmproj-F16.gguf → 支持看图问答]",
       "downloadUrl": "https://hf-mirror.com/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_0.gguf",
       "sizeBytes": 1214873856,
       "quantization": "Q4_0",
@@ -88,7 +92,11 @@
       "useCases": "均衡对话、端侧多模态、Agent工具调用",
       "supportsThinking": true,
       "sha256": "",
-      "backupUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/Qwen3.5-2B-Q4_0.gguf"
+      "backupUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/Qwen3.5-2B-Q4_0.gguf",
+      "mmprojUrl": "https://hf-mirror.com/unsloth/Qwen3.5-2B-GGUF/resolve/main/mmproj-F16.gguf",
+      "backupMmprojUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/mmproj-F16.gguf",
+      "mmprojSizeMB": 0,
+      "supportsVision": true
     },
     {
       "id": "qwen3-vl-4b-instruct",
@@ -149,7 +157,7 @@
     {
       "id": "qwen3.5-4b",
       "name": "Qwen3.5-4B（支持思考，推荐）",
-      "description": "阿里最新4B，原生多模态，9B级别性能；官方强化工具调用（Excels in tool calling），适合Agent；文件较大，12GB内存机型使用需留意内存占用 [已换 Q4_0/IQ4_NL：NPU 与 llama.cpp 通用]",
+      "description": "阿里最新4B，原生多模态，9B级别性能；官方强化工具调用（Excels in tool calling），适合Agent；文件较大，12GB内存机型使用需留意内存占用 [已换 Q4_0/IQ4_NL：NPU 与 llama.cpp 通用] [实测含 mmproj-F16.gguf → 支持看图问答]",
       "downloadUrl": "https://hf-mirror.com/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_0.gguf",
       "sizeBytes": 2583221408,
       "quantization": "Q4_0",
@@ -163,7 +171,66 @@
       "supportsThinking": true,
       "supportsFC": true,
       "sha256": "",
-      "backupUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-4B-GGUF/resolve/master/Qwen3.5-4B-Q4_0.gguf"
+      "backupUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-4B-GGUF/resolve/master/Qwen3.5-4B-Q4_0.gguf",
+      "mmprojUrl": "https://hf-mirror.com/unsloth/Qwen3.5-4B-GGUF/resolve/main/mmproj-F16.gguf",
+      "backupMmprojUrl": "https://modelscope.cn/models/unsloth/Qwen3.5-4B-GGUF/resolve/master/mmproj-F16.gguf",
+      "mmprojSizeMB": 0,
+      "supportsVision": true
+    },
+    {
+      "id": "glm-edge-1.5b",
+      "name": "GLM-Edge-1.5B",
+      "description": "智谱端侧对话模型，中文对话/翻译/问答优化；无原生工具调用，不适合本地Agent [已换 Q4_0/IQ4_NL：NPU 与 llama.cpp 通用] [GenieX 原生支持：架构 glm4]",
+      "downloadUrl": "https://hf-mirror.com/zai-org/glm-edge-1.5b-chat-gguf/resolve/main/ggml-model-Q4_0.gguf",
+      "sizeBytes": 931268992,
+      "quantization": "Q4_0",
+      "contextLength": 32768,
+      "minRamMB": 2048,
+      "recommendedGpuLayers": 4,
+      "architecture": "GLM-Edge",
+      "parameters": "1.5B",
+      "memory": "2GB",
+      "useCases": "中文对话、日常问答",
+      "backupUrl": "https://modelscope.cn/models/zai-org/glm-edge-1.5b-chat-gguf/resolve/master/ggml-model-Q4_0.gguf"
+    },
+    {
+      "id": "internlm2.5-1.8b",
+      "name": "InternLM2.5-1.8B",
+      "description": "上海AI实验室书生浦语，中文对话；官方支持工具调用（OpenAI tool_calls格式），与项目Qwen3格式不同需适配验证 [已换 Q4_0/IQ4_NL：NPU 与 llama.cpp 通用] [GenieX 原生支持：架构 internlm2]",
+      "downloadUrl": "https://hf-mirror.com/internlm/internlm2_5-1_8b-chat-gguf/resolve/main/internlm2_5-1_8b-chat-q4_0.gguf",
+      "sizeBytes": 1113971456,
+      "quantization": "Q4_0",
+      "contextLength": 32768,
+      "minRamMB": 2048,
+      "recommendedGpuLayers": 4,
+      "architecture": "InternLM2.5",
+      "parameters": "1.8B",
+      "memory": "2GB",
+      "useCases": "中文对话、轻量问答",
+      "sha256": "",
+      "backupUrl": "https://modelscope.cn/models/internlm/internlm2_5-1_8b-chat-gguf/resolve/master/internlm2_5-1_8b-chat-q4_0.gguf"
+    },
+    {
+      "id": "deepseek-r1-distill-qwen-1.5b",
+      "name": "DeepSeek-R1-Distill-Qwen-1.5B（推理型 · Q4_0）",
+      "description": "DeepSeek-R1 蒸馏到 Qwen2.5-1.5B 的推理模型（架构 qwen2，GenieX libllama 原生支持）。擅长数学/逻辑/推理链；体积小、内存友好。Q4_0 量化命中 HTP 算子白名单（可跑在 Hexagon NPU）。",
+      "downloadUrl": "https://hf-mirror.com/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_0.gguf",
+      "sizeBytes": 0,
+      "quantization": "Q4_0",
+      "contextLength": 131072,
+      "minRamMB": 3072,
+      "recommendedGpuLayers": 8,
+      "architecture": "Qwen2",
+      "parameters": "1.5B",
+      "memory": "2-3GB",
+      "useCases": "数学推理、逻辑分析、代码片段、链式思考",
+      "supportsThinking": true,
+      "supportsFC": false,
+      "sha256": "",
+      "backupUrl": "https://modelscope.cn/models/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/master/DeepSeek-R1-Distill-Qwen-1.5B-Q4_0.gguf",
+      "geniexModelName": "unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
+      "geniexRuntime": "llama_cpp",
+      "geniexQuant": "Q4_0"
     }
   ],
   "note": "模型单一权威来源：10个国产端侧模型，含思考链标识（supportsThinking）和工具调用标识（supportsFC）。Qwen3.5系列原生支持深度思考模式，DeepSeek-R1系列自带思考链。"
