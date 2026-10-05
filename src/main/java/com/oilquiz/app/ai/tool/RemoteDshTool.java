@@ -86,7 +86,7 @@ import java.util.Map;
                 @Action(name = "set_config", description = "配置电脑地址(base_url)与访问令牌(token)")
         },
         params = {
-                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码配对) / start / history / get_status / set_config", required = false),
+                @Param(name = "action", type = "string", description = "操作: run(默认，自然语言任务) / shell(直接跑命令) / connect(连接电脑) / disconnect(临时停用，保留配置) / clear_config(清空配置) / pair(扫码配对) / register_device(把主令牌换成可单独吊销的设备令牌，补登记用) / start / history / get_status / set_config", required = false),
                 @Param(name = "task", type = "string", description = "run=任务描述（自然语言）；shell=要执行的命令原文", required = false),
                 @Param(name = "shell", type = "string", description = "shell 动作的执行器: auto(默认，优先 pwsh 回退 powershell) / cmd / bash", required = false),
                 @Param(name = "max", type = "integer", description = "history 读取条数（默认 10，范围 1~200）", required = false),
@@ -101,6 +101,15 @@ public class RemoteDshTool implements AITool {
     private static final String PREF = "remote_dsh_config";
     private static final String KEY_URL = "base_url";
     private static final String KEY_TOKEN = "token";
+    /**
+     * 设备令牌（2026-10-06）：配对时用二维码里的主令牌 POST /pair/claim 换来的**可单独吊销**凭据，
+     * 优先级高于主令牌。有它才能在电脑端面板看到"这台设备"，并能只吊销这一台。
+     */
+    public static final String KEY_DEVICE_TOKEN = "device_token";
+    /** 设备 id（dev-xxxx，吊销时用） */
+    public static final String KEY_DEVICE_ID = "device_id";
+    /** 主令牌：二维码里带的原值。设备令牌换不到或被吊销时退回它，也是重新登记设备的凭据 */
+    public static final String KEY_MAIN_TOKEN = "main_token";
     private static final String KEY_SESSION = "session_id";
     /** 连接开关：false = 用户主动断开（配置保留，但工具一律拒绝执行，直到重新连接） */
     private static final String KEY_CONNECTED = "connected";
@@ -156,8 +165,31 @@ public class RemoteDshTool implements AITool {
         return getPrefs().getString(KEY_URL, "");
     }
 
+    /**
+     * 当前使用的令牌：**优先设备令牌**（可单独吊销），没有才用主令牌。
+     * 兼容老配置：只存过 KEY_TOKEN 的手机走 device_token 为空 → 返回 KEY_TOKEN（原来的行为不变）。
+     */
     private String getToken() {
-        return getPrefs().getString(KEY_TOKEN, "");
+        SharedPreferences p = getPrefs();
+        String dt = p.getString(KEY_DEVICE_TOKEN, "");
+        if (dt != null && !dt.trim().isEmpty()) return dt.trim();
+        String mt = p.getString(KEY_MAIN_TOKEN, "");
+        if (mt != null && !mt.trim().isEmpty()) return mt.trim();
+        return p.getString(KEY_TOKEN, "");
+    }
+
+    /** 主令牌（放弃设备令牌时用） */
+    private String getMainToken() {
+        SharedPreferences p = getPrefs();
+        String mt = p.getString(KEY_MAIN_TOKEN, "");
+        if (mt != null && !mt.trim().isEmpty()) return mt.trim();
+        return p.getString(KEY_TOKEN, "");
+    }
+
+    /** 是否在用设备令牌（面板上区分"这台设备已登记"与"还在用主令牌"） */
+    public static boolean isUsingDeviceToken(Context c) {
+        String dt = prefsOf(c).getString(KEY_DEVICE_TOKEN, "");
+        return dt != null && !dt.trim().isEmpty();
     }
 
     private String getSessionId() {
@@ -254,6 +286,10 @@ public class RemoteDshTool implements AITool {
         boolean targetChanged = !u.equals(prevUrl) || !t.equals(prevToken);
         android.content.SharedPreferences.Editor ed = prefsOf(c).edit()
                 .putString(KEY_URL, u).putString(KEY_TOKEN, t).putBoolean(KEY_CONNECTED, true);
+        // 手动填的是"主令牌"这类原始凭据：清掉自动换来的设备令牌，否则会被优先使用、手工输入不生效
+        if (!t.equals(prefsOf(c).getString(KEY_DEVICE_TOKEN, ""))) {
+            ed.remove(KEY_DEVICE_TOKEN).remove(KEY_DEVICE_ID);
+        }
         if (targetChanged) {
             ed.remove(KEY_SESSION);
         }
@@ -372,6 +408,8 @@ public class RemoteDshTool implements AITool {
             switch (action) {
                 case "pair":
                     return handlePair();
+                case "register_device":
+                    return handleRegisterDevice();
                 case "set_config":
                     return handleSetConfig(parameters);
                 case "clear_config":
@@ -433,6 +471,7 @@ public class RemoteDshTool implements AITool {
             return AIToolResult.success(
                     "当前 remote_dsh 配置：\nbase_url=" + (cur.isEmpty() ? "(未配置)" : cur)
                             + "\ntoken=" + (tok.isEmpty() ? "(未配置)" : tok.substring(0, Math.min(4, tok.length())) + "***")
+                            + "\n凭据类型=" + (isUsingDeviceToken(context) ? "设备令牌（可在电脑端单独吊销）" : "主令牌（未登记为设备）")
                             + "\nsession_id=" + (sid.isEmpty() ? "(未创建)" : sid)
                             + "\n连接状态=" + (cur.isEmpty() ? "(未配置)" : (isConnected(context) ? "已连接" : "已断开"))
                             + "\n\n可视化操作：工具集 → 设置与系统环境 → 远程连接（电脑）（连接/断开/清除配置/扫码）"
@@ -468,6 +507,35 @@ public class RemoteDshTool implements AITool {
                 + "\nsession_id=" + (sessionId.isEmpty() ? "(保持原值)" : sessionId));
     }
 
+    /**
+     * action=register_device：把当前配置里的**主令牌**拿去换设备令牌（补登记）。
+     *
+     * 用途：老配置（扫码时电脑端插件还不支持凭主令牌 claim，或当时网络失败）只有主令牌，
+     * 电脑端面板看不到这台设备。电脑端插件更新后跑一次本动作即可补上，手机无需重新扫码。
+     */
+    private AIToolResult handleRegisterDevice() {
+        String baseUrl = getBaseUrl();
+        if (baseUrl.isEmpty()) {
+            return AIToolResult.fail("还没配对过电脑：先用 action=pair 扫码");
+        }
+        String mainToken = getMainToken();
+        if (mainToken.isEmpty()) {
+            return AIToolResult.fail("配置里没有主令牌：请重新扫码配对（二维码里带主令牌）");
+        }
+        // 先清掉可能已失效的旧设备令牌，避免 claim 失败后仍继续用一把废令牌
+        getPrefs().edit().remove(KEY_DEVICE_TOKEN).remove(KEY_DEVICE_ID).apply();
+        String err = RemoteDshPairBridge.claimDeviceToken(context, baseUrl, mainToken);
+        if (err != null) {
+            return AIToolResult.fail("设备登记失败：" + err
+                    + "\n（功能仍可用：已退回使用主令牌；请确认电脑端插件已更新并重载）");
+        }
+        String did = getPrefs().getString(KEY_DEVICE_ID, "");
+        return AIToolResult.success("设备登记成功 ✓ 现在电脑端「已配对设备」会显示这台手机"
+                + (did.isEmpty() ? "" : "（" + did + "）")
+                + "\n之后只带设备令牌访问，电脑端可单独吊销这一台而不影响其他设备。"
+                + "\n用 action=get_status 可在电脑端 /devices 里看到它。");
+    }
+
     private AIToolResult handlePair() {
         RemoteDshPairBridge.lastResult = null;
         try {
@@ -499,8 +567,25 @@ public class RemoteDshTool implements AITool {
             return AIToolResult.fail("扫码完成但配置未生效（base_url/token 为空），请重试或手动 set_config");
         }
         setConnected(context, true);   // 扫码配对 = 连接
+
+        // ---- 换取设备令牌（新）：让电脑端面板能真实显示这台设备、并能单独吊销 ----
+        // 本方法跑在工具执行线程（非 UI 线程），可以直接做这一次 HTTP。
+        // 失败不影响可用性：退回主令牌继续工作，只是电脑端看不到设备记录。
+        String mainToken = getMainToken();
+        String claimErr = RemoteDshPairBridge.claimDeviceToken(context, baseUrl, mainToken);
+        String tokNow = getToken();
+        String tokenKind = isUsingDeviceToken(context)
+                ? "设备令牌（可单独吊销）"
+                : "主令牌（未登记为设备）";
+        String tail = "\n\n设备凭据: " + tokenKind
+                + "\n令牌=" + tokNow.substring(0, Math.min(4, tokNow.length())) + "***";
+        if (claimErr != null) {
+            tail += "\n⚠ 设备登记未完成：" + claimErr
+                    + "\n  已退回主令牌，功能正常，但电脑端「已配对设备」不会显示这台手机。"
+                    + "\n  电脑端插件更新后，执行一次 action=register_device 即可补登记。";
+        }
         return AIToolResult.success("扫码配对成功 ✓（已连接）\nbase_url=" + baseUrl
-                + "\ntoken=" + tok.substring(0, Math.min(4, tok.length())) + "***"
+                + tail
                 + "\n\n现在可以对 AI 说：远程控制电脑 / 在电脑上执行..."
                 + "\n也可以到「工具集 → 设置与系统环境 → 远程连接（电脑）」手动连接/断开/清除配置");
     }
@@ -580,6 +665,17 @@ public class RemoteDshTool implements AITool {
         if (lanPort != null) sb.append("插件服务端口: ").append(lanPort).append("\n");
         Object devCount = resp.get("devices");
         if (devCount != null) sb.append("已配对设备: ").append(devCount).append(" 台（可在电脑插件面板吊销）\n");
+        // 手机还在用主令牌时 devices 会是 0（主令牌不登记设备记录），必须说清，否则用户会以为"没人连着"
+        Object st = resp.get("main_token_last_seen");
+        long seen = 0;
+        try { seen = Long.parseLong(String.valueOf(st)); } catch (NumberFormatException ignored) { /* 老版本插件没有该字段 */ }
+        if (seen > 0) {
+            long mins = Math.max(0, (System.currentTimeMillis() - seen) / 60000);
+            sb.append("⚠ 当前连接在用主令牌（")
+              .append(mins).append(" 分钟前使用过）；主令牌不登记设备记录，所以上面台数为 0。")
+              .append("\n  如需出现在设备表并能单独吊销：action=register_device")
+              .append("\n");
+        }
         return sb.toString();
     }
 

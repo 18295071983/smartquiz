@@ -388,6 +388,8 @@ export function apply(ctx, config) {
    * 下次启动 resolveToken 会自动生成新的随机令牌并持久化 → 轮换在重启后自然生效。
    */
   let mainTokenCache = '';
+  /** 主令牌最近一次被成功使用的时间（内存态，只用于面板显示"当前有连接在用主令牌"） */
+  let mainTokenLastSeen = 0;
   const mainToken = () => {
     if (mainTokenCache) return mainTokenCache;
     mainTokenCache = resolveToken(ctx, cfg);
@@ -399,7 +401,7 @@ export function apply(ctx, config) {
     const m = /^Bearer\s+(.+)$/i.exec((req.headers['authorization'] ?? '').trim());
     if (m === null) return false;
     const t = m[1];
-    if (t === mainToken()) return true;
+    if (t === mainToken()) { mainTokenLastSeen = Date.now(); return true; }
     const d = deviceByToken(t);
     if (d === undefined) return false;
     d.last_seen = Date.now();
@@ -491,6 +493,9 @@ export function apply(ctx, config) {
     sessions_count: handles.size,
     active_jobs: activeJobs,
     devices: devices.devices.length,
+    // 主令牌最近一次被使用的时间：手机端只有在"还没换成设备令牌"或"用设备令牌失败退回主令牌"时才走主令牌，
+    // 有值就说明当前有连接在用主令牌（面板据此提示，避免把"设备数 0"误读成"没人连着"）
+    main_token_last_seen: mainTokenLastSeen,
     pairing_codes_pending: pairingCodes.size,
     prompts: promptCount,
     port: ctx.webServer.port,
@@ -710,24 +715,47 @@ export function apply(ctx, config) {
                          hint: '手机上输入此 6 位码换取设备令牌（或用 /pair 页面二维码）' });
   });
 
-  // POST /pair/claim —— 手机：用一次性码换取长期设备令牌（无需主令牌）
+  // POST /pair/claim —— 手机换取长期设备令牌。两条信道都支持：
+  //   ① body.code         一次性配对码（5 分钟、一次性、可在手机上输入）
+  //   ② Authorization     已持有主令牌（配对页二维码里就带着它）→ 直接登记为可信设备
+  // 为什么要加 ②（2026-10-06）：手机端扫码只是把**主令牌**存进配置（见 Android
+  // RemoteDshPairBridge），从不调用本接口，于是 /status 的 devices 恒为 0 ——
+  // 面板上"没有设备"却在正常对话，主人既看不到谁连着、也无法单独吊销某台设备。
+  // 让手机用二维码里的令牌换一张**设备令牌**（权限更小、可单独吊销、能看到 last_seen），
+  // 手机侧改为优先使用设备令牌。注意：主令牌本来就能做一切（含 /exec），
+  // 所以"凭主令牌可登记设备"并未扩大权限面。
   route('exact', '/pair/claim', async (req, res) => {
     let body = {};
     try { body = JSON.parse((await readBody(req)) || '{}'); } catch { /* 允许空体 */ }
     const code = String(body.code ?? '').trim();
-    const exp = pairingCodes.get(code);
-    if (exp === undefined) return sendJson(res, 400, { ok: false, error: 'invalid_code' });
-    if (exp <= Date.now()) { pairingCodes.delete(code); return sendJson(res, 410, { ok: false, error: 'code_expired' }); }
-    pairingCodes.delete(code);                       // 一次性
+    let via = '';
+    if (code) {
+      const exp = pairingCodes.get(code);
+      if (exp === undefined) return sendJson(res, 400, { ok: false, error: 'invalid_code' });
+      if (exp <= Date.now()) { pairingCodes.delete(code); return sendJson(res, 410, { ok: false, error: 'code_expired' }); }
+      pairingCodes.delete(code);                     // 一次性
+      via = 'code';
+    } else if (authOk(req)) {
+      via = 'main_token';
+    } else {
+      return sendJson(res, 401, { ok: false, error: 'need_code_or_token' });
+    }
+    const rawName = String(body.device_name ?? '手机').trim().slice(0, 60);
+    const name = rawName || '手机';
+    // 同名设备视为"同一台重新登记"：复用并替换旧记录，而不是无限追加。
+    // （手机端每次配对/补登记都会 claim；不去重的话设备表会像以前那样堆出一串同名条目）
+    const sameName = devices.devices.find((d) => String(d.name ?? '').trim().toLowerCase() === name.toLowerCase());
     const device = {
-      id: `dev-${randomBytes(4).toString('hex')}`,
-      name: String(body.device_name ?? '手机').slice(0, 60),
+      id: sameName ? sameName.id : `dev-${randomBytes(4).toString('hex')}`,
+      name,
       token: randomBytes(24).toString('hex'),
-      created_at: Date.now(), last_seen: Date.now(),
+      created_at: sameName ? sameName.created_at : Date.now(),
+      last_seen: Date.now(),
     };
+    if (sameName) devices.devices = devices.devices.filter((d) => d !== sameName);
     devices.devices.push(device);
     const ok = saveDevices(DEVICE_FILE, devices);
-    sendJson(res, 200, { ok: true, device_id: device.id, device_token: device.token, persisted: ok,
+    sendJson(res, 200, { ok: true, via, device_id: device.id, device_token: device.token, persisted: ok,
                          base_url: `http://${lanIpv4()}:${ctx.webServer.port}` });
   });
 
