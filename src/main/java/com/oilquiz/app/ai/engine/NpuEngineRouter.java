@@ -424,7 +424,8 @@ public final class NpuEngineRouter {
                     + org.json.JSONObject.quote(thinkEnd) + "]}");
 
             // 推理期 WakeLock：NPU 生成同样怕灭屏/切后台（与 llama.cpp 路径一致）
-            acquireLock(appContext);
+            com.oilquiz.app.ai.engine.NpuEngineState.get().beginInference();
+        acquireLock(appContext);
             NpuLlmChat.sendChatAsync(roles, contents, maxTokens > 0 ? maxTokens : 2048, thinking,
                     new NpuLlmChat.GenerateListener() {
                         @Override
@@ -432,6 +433,7 @@ public final class NpuEngineRouter {
                             full.append(text);
                             // 边生成边分流发出：思考段走 thinking 事件、正文走 token 事件。
                             streamer.feed(text);
+                            com.oilquiz.app.ai.engine.NpuEngineState.get().onToken();
                             // NPU-TOOLCALL-STREAM: 与 native 一致地"边生成边下发"结构化 tool_call，
                             // 不依赖轮末一次性事件（Agent 的流式去重逻辑按 name+arguments 判重）。
                             emitNewToolCalls(callback, full.toString(), emittedCalls);
@@ -440,6 +442,8 @@ public final class NpuEngineRouter {
                         @Override
                         public void onCompleted(int tokens, float tps, long elapsedMs) {
                             streamer.flush();
+                            com.oilquiz.app.ai.engine.NpuEngineState.get().endInference(
+                                    tokens, tps);
                             java.util.List<String> allCalls = toolCallEvents(full.toString());
                             for (int i = emittedCalls[0]; i < allCalls.size(); i++) {
                                 emit(callback, allCalls.get(i));
@@ -457,6 +461,7 @@ public final class NpuEngineRouter {
                         @Override
                         public void onError(String message) {
                             releaseLock(appContext);
+                            com.oilquiz.app.ai.engine.NpuEngineState.get().endInference(0, 0f);
                             emit(callback, "{\"type\":\"error\",\"message\":"
                                     + org.json.JSONObject.quote("NPU 推理失败: " + message) + "}");
                         }
@@ -575,6 +580,7 @@ public final class NpuEngineRouter {
         }
 
         private void emitThinking(String s) {
+            com.oilquiz.app.ai.engine.NpuEngineState.get().onThinkingStarted();
             if (!s.isEmpty()) {
                 emit(cb, thinkingEvent(s));
                 // 兼容消费方：部分路径认 reasoning 事件（native 两种都会发）

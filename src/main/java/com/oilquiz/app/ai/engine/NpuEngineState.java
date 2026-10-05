@@ -40,6 +40,15 @@ public final class NpuEngineState {
         ERROR
     }
 
+    /**
+     * 推理（生成）阶段 —— 与 llama.cpp 的 {@code LlamaHelper.getGenPhase()} 同名同义：
+     * IDLE / PREPROCESS（prefill）/ THINKING（思考链）/ GENERATING（正文）。
+     * 加载阶段（Stage）描述"引擎是否可用"，推理阶段描述"当前这条消息在做什么"，两者正交。
+     */
+    public enum InferencePhase {
+        IDLE, PREPROCESS, THINKING, GENERATING
+    }
+
     public interface Listener {
         void onNpuStateChanged(Stage stage, String message, int progressPercent);
     }
@@ -56,6 +65,12 @@ public final class NpuEngineState {
     private volatile String errorMessage = null;
     private volatile long estimatedTimeMs = 0;
     private final Object lock = new Object();
+    // ---- 推理状态机（对齐 llama.cpp GenPhase）----
+    private volatile InferencePhase inferencePhase = InferencePhase.IDLE;
+    private volatile int prefillPercent = 0;
+    private volatile int generatedTokens = 0;
+    private volatile float lastTps = 0f;
+    private volatile long inferenceStartMs = 0;
     private final List<Listener> listeners = new ArrayList<>();
 
     private NpuEngineState() {
@@ -157,6 +172,118 @@ public final class NpuEngineState {
 
     public void setEstimatedTimeMs(long ms) {
         estimatedTimeMs = ms;
+    }
+
+    // ==================== 推理状态机（对齐 llama.cpp GenPhase） ====================
+
+    public InferencePhase getInferencePhase() {
+        return inferencePhase;
+    }
+
+    /** 阶段名（与 llama.cpp 的 phase 字段完全一致：IDLE/PREPROCESS/THINKING/GENERATING） */
+    public String getInferencePhaseName() {
+        return inferencePhase.name();
+    }
+
+    /** 中文标签（UI 用） */
+    public String getInferencePhaseLabel() {
+        switch (inferencePhase) {
+            case PREPROCESS:
+                return "处理提示" + (prefillPercent > 0 && prefillPercent < 100 ? " " + prefillPercent + "%" : "");
+            case THINKING:
+                return "思考中";
+            case GENERATING:
+                return "生成中";
+            default:
+                return "空闲";
+        }
+    }
+
+    /** 开始一轮推理：PREPROCESS（prefill 阶段，进度未知时先给 0） */
+    public synchronized void beginInference() {
+        inferencePhase = InferencePhase.PREPROCESS;
+        prefillPercent = 0;
+        generatedTokens = 0;
+        lastTps = 0f;
+        inferenceStartMs = System.currentTimeMillis();
+        Log.i(TAG, "推理阶段: -> PREPROCESS");
+        notifyListeners();
+    }
+
+    /** 首个思考 token：PREPROCESS -> THINKING */
+    public synchronized void onThinkingStarted() {
+        if (inferencePhase != InferencePhase.THINKING) {
+            prefillPercent = 100;
+            inferencePhase = InferencePhase.THINKING;
+            Log.i(TAG, "推理阶段: -> THINKING");
+            notifyListeners();
+        }
+    }
+
+    /** 首个正文 token：PREPROCESS/THINKING -> GENERATING */
+    public synchronized void onGeneratingStarted() {
+        if (inferencePhase != InferencePhase.GENERATING) {
+            prefillPercent = 100;
+            inferencePhase = InferencePhase.GENERATING;
+            Log.i(TAG, "推理阶段: -> GENERATING");
+            notifyListeners();
+        }
+    }
+
+    /** 每收到一个 token 调用（累计计数，供状态条显示） */
+    public void onToken() {
+        generatedTokens++;
+    }
+
+    /** 一轮推理结束（正常/取消/失败都回 IDLE，并记录 tokens/tps） */
+    public synchronized void endInference(int tokens, float tps) {
+        generatedTokens = tokens > 0 ? tokens : generatedTokens;
+        lastTps = tps;
+        prefillPercent = 0;
+        inferencePhase = InferencePhase.IDLE;
+        Log.i(TAG, "推理阶段: -> IDLE (" + generatedTokens + " tokens, "
+                + String.format(java.util.Locale.US, "%.2f", lastTps) + " t/s)");
+        notifyListeners();
+    }
+
+    public int getPrefillPercent() {
+        return prefillPercent;
+    }
+
+    public int getGeneratedTokens() {
+        return generatedTokens;
+    }
+
+    public float getLastTps() {
+        return lastTps;
+    }
+
+    public long getInferenceElapsedMs() {
+        return inferenceStartMs > 0 ? System.currentTimeMillis() - inferenceStartMs : 0;
+    }
+
+    private void notifyListeners() {
+        for (Listener l : new ArrayList<>(listeners)) {
+            try {
+                l.onNpuStateChanged(currentStage, stageMessage, progressPercent);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** 供状态条读取的 JSON（字段与 llama.cpp 的 getGenPhase 对齐） */
+    public String getInferenceJson() {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("phase", getInferencePhaseName());
+            o.put("running", inferencePhase != InferencePhase.IDLE);
+            o.put("prefill", prefillPercent);
+            o.put("tokens", generatedTokens);
+            o.put("tps", lastTps);
+            return o.toString();
+        } catch (Throwable t) {
+            return "{\"phase\":\"IDLE\"}";
+        }
     }
 
     // ==================== NPU 侧便利方法（UI 直接用） ====================

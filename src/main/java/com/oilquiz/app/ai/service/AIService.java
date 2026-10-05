@@ -4623,6 +4623,16 @@ public class AIService implements ComponentCallbacks2 {
         return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
     }
 
+    /** UI 只读代理：NPU 推理状态机 JSON（字段与 llama.cpp 的 getGenPhase 对齐） */
+    public String getNpuGenPhase() {
+        return com.oilquiz.app.ai.engine.NpuEngineState.get().getInferenceJson();
+    }
+
+    /** UI 只读代理：NPU 推理阶段中文标签（空闲/处理提示/思考中/生成中） */
+    public String getNpuInferenceLabel() {
+        return com.oilquiz.app.ai.engine.NpuEngineState.get().getInferencePhaseLabel();
+    }
+
     /** UI 只读代理：NPU 带进度的状态标签（如「加载中 15%」） */
     public String getNpuStageLabel() {
         return com.oilquiz.app.ai.engine.NpuEngineState.get().getStageLabel();
