@@ -4880,6 +4880,16 @@ public class AIChatActivity extends BaseActivity {
      */
     private void preloadNpuIfNeeded() {
         try {
+            // ONLINE-MODEL-GUARD: 当前选的是在线模型 → 完全不加载本地(NPU)模型
+            // （省内存/省电，避免在线与本地两套引擎争资源；判定写法与聊天页既有 getActiveModel 一致）
+            try {
+                if (onlineModelManager != null && onlineModelManager.getActiveModel() != null) {
+                    AppLogger.ai(TAG, "在线模型已激活 → 跳过 NPU 预加载（不加载本地模型）");
+                    return;
+                }
+            } catch (Throwable t) {
+                AppLogger.aiW(TAG, "在线模型判定失败（按本地处理）: " + t.getMessage());
+            }
             if (!isNpuEngineOn()) {
                 return;
             }
