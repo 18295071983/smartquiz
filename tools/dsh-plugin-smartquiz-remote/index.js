@@ -352,7 +352,7 @@ export function apply(ctx, config) {
     try { return String(readFileSync(join(PLUGIN_DIR, '.public-url'), 'utf8')).trim(); } catch { return ''; }
   })();
   cfg.publicUrl = effectivePublicUrl;
-  const token = resolveToken(ctx, cfg);
+  // 注意：主令牌不再在此处取一次就固定（见下方 mainToken()：惰性读取，便于轮换）
   const startedAt = Date.now();
   const handles = new Map();     // session_id -> agent handle
   const local = new Map();       // session_id -> [{role,text}]（兜底历史）
@@ -378,20 +378,67 @@ export function apply(ctx, config) {
   const PAIR_TTL_MS = 5 * 60 * 1000;                 // 一次性配对码 5 分钟
   const deviceByToken = (t) => devices.devices.find((d) => d.token === t);
 
+  /**
+   * 主令牌**惰性读取**（启动时不再写死进闭包）。
+   *
+   * 原因：以前 `const token = resolveToken(...)` 在 apply 时取一次就固定了，
+   * 于是"想轮换令牌"只能改文件 + 重启宿主——改了文件也会被下次保存原样写回，
+   * 等于轮换不掉。改成每次鉴权时读一次并缓存：删掉 .token 文件后，
+   * 本次进程内仍然认旧令牌（不会立刻把在用的手机会话踢掉），
+   * 下次启动 resolveToken 会自动生成新的随机令牌并持久化 → 轮换在重启后自然生效。
+   */
+  let mainTokenCache = '';
+  const mainToken = () => {
+    if (mainTokenCache) return mainTokenCache;
+    mainTokenCache = resolveToken(ctx, cfg);
+    return mainTokenCache;
+  };
+
   /** 鉴权：主令牌 或 任一未吊销的设备令牌 */
   const authOk = (req) => {
     const m = /^Bearer\s+(.+)$/i.exec((req.headers['authorization'] ?? '').trim());
     if (m === null) return false;
     const t = m[1];
-    if (t === token) return true;
+    if (t === mainToken()) return true;
     const d = deviceByToken(t);
     if (d === undefined) return false;
     d.last_seen = Date.now();
     return true;
   };
-  const isLocal = (req) => {
+  /** 回环地址：只看 socket 源地址（隧道/反代转发进来的请求也满足 ✗ 不能单独作为信任依据） */
+  const isLoopback = (req) => {
     const a = req.socket?.remoteAddress ?? '';
     return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+  };
+  /**
+   * 真正的"电脑本机"判定 —— 仅本机路由一律用它，**不要**用 isLoopback。
+   *
+   * 漏洞背景（2026-10-06 实测）：花生壳等隧道把公网请求转发到 127.0.0.1:8218，
+   * 于是每个公网请求的 remoteAddress 都是 127.0.0.1，只看源地址的 isLocal() 恒为真 ——
+   * 实测公网可直接 GET /pair.json 拿到主令牌、POST /pair/code 签发配对码、
+   * POST /pair/claim 换取设备令牌，并凭令牌 POST /exec 在电脑上执行任意命令
+   * （allowExec 开启时）。
+   *
+   * 因此改成白名单：Host 必须正好是回环主机 + DSH 主 webServer 端口（默认 127.0.0.1:19387），
+   * 或经局域网服务器（8218）进来的请求一律不算本机。
+   * 注意：不能只判断"主机名是回环、端口等于主端口"——`127.0.0.1:8218` 这种形态
+   * （隧道改写 Host、或从 8218 转发过来）必须拒绝，自测脚本 guard_selftest.js 已覆盖这些场景。
+   */
+  const isLocal = (req) => {
+    if (req.__viaLanServer === true) return false;        // 局域网服务器（0.0.0.0:8218）永不信任
+    if (!isLoopback(req)) return false;                  // 源地址必须回环
+    const mainPort = Number(ctx.webServer?.port ?? 0);
+    const host = String(req.headers?.host ?? '').trim().toLowerCase();
+    if (host === '') return false;
+    const allowed = mainPort > 0
+      ? [`127.0.0.1:${mainPort}`, `localhost:${mainPort}`, `[::1]:${mainPort}`]
+      : ['127.0.0.1', 'localhost', '[::1]'];
+    return allowed.includes(host);
+  };
+  /** 本机 或 已鉴权：给那些"手机也可能合法调用"的路由用（如 /pair/open 的兼容分支） */
+  const isLocalOrAuth = (req) => {
+    if (isLocal(req)) return true;
+    try { return authOk(req) === true; } catch { return false; }
   };
   /** 仅当显式配置了 provider+model 时才传 agentOptions；否则继承 profile 默认（本机为 deepseek-account/deepseek-flash） */
   void loadSelectionInstaller().then((fn) => { installSelectionFn = fn; });
@@ -458,7 +505,7 @@ export function apply(ctx, config) {
     const tpl = readAsset('pair_page.html');
     if (!tpl) { sendJson(res, 500, { ok: false, error: 'pair_page.html 缺失' }); return; }
     const lanOrLocal = cfg.lanEnabled === false ? ctx.webServer.port : Number(cfg.lanPort ?? 8218);
-    const items = pairCandidates(lanOrLocal, token, cfg);
+    const items = pairCandidates(lanOrLocal, mainToken(), cfg);
     const qrjs = readAsset('qrcodegen.js');
     // 全局替换：模板注释里也有同名占位符，单次 replace 会替换到注释上（实测二维码不出来）
     const html = tpl
@@ -470,7 +517,7 @@ export function apply(ctx, config) {
 
   // POST /pair/open —— 仅本机：在电脑默认浏览器里打开配对页（Electron 里点链接会被拦 ✗，改由宿主打开 ✓）
   route('exact', '/pair/open', (req, res) => {
-    if (!isLocal(req) && !authOk(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
+    if (!isLocalOrAuth(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
     const url = 'http://127.0.0.1:' + ctx.webServer.port + prefix + '/pair';
     try {
       const c = exec('start "" "' + url + '"', { windowsHide: true, shell: true }, () => { /* 忽略 */ });
@@ -480,7 +527,7 @@ export function apply(ctx, config) {
   });
   // POST /pair/public-url —— 仅本机：设置/清除"隧道/公网域名"（用户在插件界面直接填，无需改配置 ✓）
   route('exact', '/pair/public-url', (req, res) => {
-    if (!isLocal(req) && !authOk(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
+    if (!isLocalOrAuth(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
     let raw = '';
     req.on('data', (b) => { raw += b.toString('utf8'); });
     req.on('end', () => {
@@ -499,10 +546,10 @@ export function apply(ctx, config) {
   });
   route('exact', '/pair.json', (req, res) => {
     if (!isLocal(req)) return sendJson(res, 403, { ok: false, error: 'pair info is local-only' });
-    const all = pairCandidates(cfg.lanEnabled === false ? ctx.webServer.port : Number(cfg.lanPort ?? 8218), token, cfg);
+    const all = pairCandidates(cfg.lanEnabled === false ? ctx.webServer.port : Number(cfg.lanPort ?? 8218), mainToken(), cfg);
     const c = all[0];
     sendJson(res, 200, { ok: true, qr_text: c.qr_text, base_url: c.base_url, items: all, count: all.length, public_url: cfg.publicUrl || '',
-      token, port: ctx.webServer.port, service: 'dsh-plugin-remote' });
+      token: mainToken(), port: ctx.webServer.port, service: 'dsh-plugin-remote' });
   });
 
   route('exact', '/status', (req, res) => {
@@ -654,7 +701,7 @@ export function apply(ctx, config) {
   // ---- 鉴权升级路由 ----
   // POST /pair/code —— 仅本机：主人在电脑上生成一次性配对码（5 分钟、一次性）
   route('exact', '/pair/code', (req, res) => {
-    if (!isLocal(req) && !authOk(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
+    if (!isLocalOrAuth(req)) return sendJson(res, 403, { ok: false, error: 'local-only or device token required' });
     const now = Date.now();
     for (const [c, exp] of pairingCodes) if (exp <= now) pairingCodes.delete(c);
     const code = String(Math.floor(100000 + Math.random() * 900000));
@@ -726,7 +773,7 @@ export function apply(ctx, config) {
       lanServer = createServer((req, res) => {
         let p = '/'; try { p = new URL(req.url ?? '/', 'http://x').pathname; } catch { /* 忽略 */ }
         const h = localRoutes.get(p);
-        if (h) { try { h(req, res); } catch (e) { try { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); } catch { /* 忽略 */ } } }
+        if (h) { try { req.__viaLanServer = true; h(req, res); } catch (e) { try { sendJson(res, 500, { ok: false, error: String(e?.message ?? e) }); } catch { /* 忽略 */ } } }
         else { res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); }
       });
       lanServer.on('error', (e) => ctx.logger?.warn?.(`[smartquiz-remote] LAN 服务器错误: ${String(e?.message ?? e)}`));

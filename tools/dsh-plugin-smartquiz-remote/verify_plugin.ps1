@@ -1,6 +1,10 @@
 ﻿# verify_plugin.ps1 —— SmartQuiz Remote 插件一键端到端验证
 # 用法：pwsh -File verify_plugin.ps1    （powershell.exe 5.1 也能跑：文件带 UTF-8 BOM，
 #        且请求体已显式按 UTF-8 编码，不会出现中文乱码）
+# 可选参数 -PublicUrl：隧道域名（不给则读插件目录 .public-url），用于第 10.5 步的加固回归
+param(
+  [string]$PublicUrl = ''
+)
 #
 # 自清理说明：第 4 步 /pair/claim 会在插件端无条件新增一条设备记录（不做同名去重、不会过期）。
 # 历史上一跑就留一条，手机端「已配对设备」越跑越多（实测遗留 7 条 verify-script）。
@@ -14,6 +18,7 @@ $newDevices = @()
 $kid = ''
 $dev = ''
 $sid = ''
+$tunnelFail = $false
 
 function Show($t) { Write-Host ""; Write-Host "=== $t ===" -ForegroundColor Cyan }
 
@@ -170,6 +175,41 @@ try {
     $cut = [Math]::Min(500, $g.body.Length)
     Write-Host "HTTP $($g.code) : $($g.body.Substring(0, $cut))"
   }
+
+  # ---- 10.5) 隧道加固回归：仅本机路由必须挡住隧道/公网（2026-10-06 漏洞）----
+  # 背景：花生壳等隧道把公网请求转发到 127.0.0.1:8218，源地址是回环，旧的 isLocal() 只看源地址
+  # → 公网可 GET /pair.json 拿主令牌、POST /pair/code 签发配对码、换取设备令牌后远程执行命令。
+  # 修复后这些路由只认「回环主机 + DSH 主端口」。此项需要配置了隧道域名才有意义。
+  $pubUrl = $PublicUrl
+  if (-not $pubUrl) {
+    $pubFile = Join-Path $dir '.public-url'
+    if (Test-Path $pubFile) { $pubUrl = (Get-Content $pubFile -Raw).Trim() }
+  }
+  Show '10.5) 隧道加固回归（仅本机路由应返回 403）'
+  if (-not $pubUrl) {
+    Write-Host "未配置隧道域名（.public-url 为空），跳过此项" -ForegroundColor Yellow
+  } else {
+    $probes = @(
+      @{ name = 'GET  /pair.json'; url = "$pubUrl/pair.json"; method = 'GET'; body = $null },
+      @{ name = 'GET  /pair'; url = "$pubUrl/pair"; method = 'GET'; body = $null },
+      @{ name = 'POST /pair/code'; url = "$pubUrl/pair/code"; method = 'POST'; body = '{}' }
+    )
+    $bad = @()
+    foreach ($probe in $probes) {
+      $pr = Req $probe.url $probe.method $probe.body $null 30
+      $leaked = $pr.body -match '[0-9a-f]{32}'
+      $state = if ($pr.code -eq 403) { '已拒绝 ✓' } elseif ($pr.code -eq 200) { '⚠ 仍然放行' } else { "HTTP $($pr.code)" }
+      Write-Host ("  {0} → {1}" -f $probe.name, $state)
+      if ($pr.code -eq 200 -or $leaked) { $bad += $probe.name }
+    }
+    if ($bad.Count -gt 0) {
+      Write-Host ("✗ 隧道加固回归失败：{0} 仍可从公网访问（主令牌可能直接泄露）" -f ($bad -join ', ')) -ForegroundColor Red
+      Write-Host "  → 确认插件已重载（改代码后需重启 DSH 或用插件管理器重载），并检查 isLocal 守卫" -ForegroundColor Yellow
+      $tunnelFail = $true
+    } else {
+      Write-Host "✓ 三个仅本机路由均已挡住隧道" -ForegroundColor Green
+    }
+  }
 } finally {
   # 11/12) 收尾清理：无论上面成败都吊销本次新增的设备记录
   Show '11/12) cleanup：吊销本次新增设备（避免「已配对设备」数量累积）'
@@ -190,4 +230,5 @@ try {
   }
   Write-Host "✓ 设备表已复原（当前 $($final.Count) 台）" -ForegroundColor Green
   if (-not $sid) { exit 1 }
+  if ($tunnelFail) { exit 1 }
 }
