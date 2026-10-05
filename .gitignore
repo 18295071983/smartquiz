@@ -289,3 +289,11 @@ vlmm.txt
 gx_prefs.xml
 uh.xml
 ui.xml
+
+# ============ DSH 插件运行态（不入库） ============
+# .devices.json 含设备令牌、.sessions.json 含手机会话映射：插件运行时读写、每次跑都会变脏，
+# 且属于本机凭据性质的数据；入库只会让每次验证都留下噪声 diff。
+tools/dsh-plugin-smartquiz-remote/.devices.json
+tools/dsh-plugin-smartquiz-remote/.sessions.json
+# 沙箱文件权限诊断脚本产出的报告与回滚备份（排查中间产物）
+.dsh-acl-report/
