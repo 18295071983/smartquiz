@@ -395,10 +395,6 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name=".ui.activity.LogViewerActivity"
-            android:exported="false" />
-
-        <activity
             android:name=".ui.activity.AgentManagerActivity"
             android:exported="false" />
 
@@ -442,11 +438,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- AI Processing Service -->
-        <service
-            android:name=".ai.service.AIProcessingService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse|dataSync" />
         <!-- 屏幕共享前台服务（Android 14 MediaProjection 强制要求） -->
         <service
             android:name=".ai.tool.MediaProjectionService"

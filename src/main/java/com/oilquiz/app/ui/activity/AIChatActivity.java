@@ -28,7 +28,6 @@ import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.util.QWeatherIconMapper;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModel;
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.component.QuickToolChipModule;
@@ -46,7 +45,6 @@ import com.oilquiz.app.ai.service.AgentService;
 import com.oilquiz.app.ai.chat.AgentChatHandler;
 import com.oilquiz.app.ai.chat.ChatIdDispatcher;
 import com.oilquiz.app.ai.chat.StreamingUpdateManager;
-import com.oilquiz.app.ai.service.AIProcessingService;
 import com.oilquiz.app.ai.tool.AITool;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.tool.AIToolResult;
@@ -127,7 +125,6 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnHistory;
     private MaterialButton btnClearChat;
     private MaterialButton btnStopGeneration;
-    private MaterialButton btnLogViewer;
     private View serviceStatusBar;
     private TextView serviceStatusIcon;
     private TextView serviceStatusText;
@@ -256,9 +253,6 @@ public class AIChatActivity extends BaseActivity {
     private com.google.android.material.chip.Chip chipWebSearch;
     private CacheManager cacheManager;
     private OnlineModelManager onlineModelManager;
-    private LocalBroadcastManager localBroadcastManager;
-    private AIResultReceiver aiResultReceiver;
-    private AITokenReceiver aiTokenReceiver;
 
     private volatile boolean isGenerating = false;
     private volatile boolean isDirectStreaming = false;
@@ -474,8 +468,7 @@ public class AIChatActivity extends BaseActivity {
             btnHistory = findViewById(R.id.btn_history);
             btnClearChat = findViewById(R.id.btn_clear_chat);
             btnStopGeneration = findViewById(R.id.btn_stop_generation);
-            btnLogViewer = findViewById(R.id.btn_log_viewer);
-            messageList = findViewById(R.id.message_list);
+                messageList = findViewById(R.id.message_list);
             sessionStatsBar = findViewById(R.id.session_stats_bar);
             attachmentList = findViewById(R.id.attachment_list);
             historyList = findViewById(R.id.history_list);
@@ -685,10 +678,9 @@ public class AIChatActivity extends BaseActivity {
                     return insets;
                 });
             }
-
-            if (btnLogViewer != null) {
-                btnLogViewer.setOnClickListener(v -> startActivity(new Intent(AIChatActivity.this, LogViewerActivity.class)));
-            }
+            // 说明（2026-10-07）：原「📄 处理日志」按钮（btnLogViewer → LogViewerActivity）
+            // 与其页面已整体删除。日志改由 AILogger 落盘，需要时用文件查看器打开即可；
+            // 该页面依赖的日志广播链路（AIService 广播 → 页面接收）也随之移除。
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error initializing view: " + e.getMessage());
             showToast(getString(R.string.h_d8bd0728) + e.getMessage());
@@ -798,13 +790,15 @@ public class AIChatActivity extends BaseActivity {
             // 更新模式按钮显示
             updateModeButtonText();
 
-            localBroadcastManager = LocalBroadcastManager.getInstance(this);
-            aiResultReceiver = new AIResultReceiver();
-            localBroadcastManager.registerReceiver(aiResultReceiver, new IntentFilter(AIProcessingService.ACTION_AI_TASK_COMPLETED));
-            aiTokenReceiver = new AITokenReceiver();
-            localBroadcastManager.registerReceiver(aiTokenReceiver, new IntentFilter(AIProcessingService.ACTION_AI_TOKEN_UPDATE));
+            // 说明（2026-10-07 清理）：这里原先注册了两个广播接收器，接收 AI 服务发来的
+            // token / 任务完成广播。该链路已废弃：
+            //   · AI 服务无人启动（上层启动调用是注释掉的），从不发广播；
+            //   · 两个接收器的守卫都是 `if (isDirectStreaming || ...) return`，
+            //     而 beginGeneration() 每次推理开始就置 isDirectStreaming = true → 恒短路。
+            // 当前生成走 direct streaming（AgentChatHandler → ModelExecutionBridge → OutputRouter）。
+            // 死机制留着最误导排查，故连同两个接收器一并删除。
 
-            // 2. 异步加载聊天历史 - 避免主线程 I/O
+        // 2. 异步加载聊天历史 - 避免主线程 I/O
             new Thread(() -> {
                 try {
                     if (chatHistoryManager != null) {
@@ -11044,78 +11038,6 @@ public class AIChatActivity extends BaseActivity {
         return 0;
     }
 
-    // ===================== Broadcast Receivers =====================
-
-    private class AITokenReceiver extends android.content.BroadcastReceiver {
-        @Override
-        public void onReceive(android.content.Context context, android.content.Intent intent) {
-            if (isDirectStreaming || !AIProcessingService.ACTION_AI_TOKEN_UPDATE.equals(intent.getAction())) return;
-            String token = intent.getStringExtra(AIProcessingService.EXTRA_TOKEN);
-            if (token != null) {
-                if (currentStreamingContent == null) {
-                    currentStreamingContent = new StringBuilder();
-                    resetStreamingTts();
-                }
-                currentStreamingContent.append(token);
-                feedStreamingTts(token);
-                tokenCountSinceLastUpdate++;
-                long now = System.currentTimeMillis();
-                if (tokenCountSinceLastUpdate >= BATCH_TOKEN_COUNT || now - lastUpdateTime >= BATCH_INTERVAL_MS || !isUpdateScheduled) {
-                    updateReceiverUI();
-                } else if (!isUpdateScheduled) {
-                    isUpdateScheduled = true;
-                    uiHandler.postDelayed(() -> { if (isUpdateScheduled) updateReceiverUI(); }, BATCH_INTERVAL_MS - (now - lastUpdateTime));
-                }
-            }
-        }
-        private void updateReceiverUI() {
-            final int idx = resolveStreamingIndex();
-            if (idx < 0 || chatHistory == null || currentStreamingContent == null) return;
-            ChatMessage msg = chatHistory.get(idx);
-            msg.content = currentStreamingContent.toString();
-            msg.status = ChatMessage.MessageStatus.GENERATING;
-            if (chatAdapter != null) chatAdapter.updateAIMessageContent(idx, currentStreamingContent.toString());
-            scrollToBottom();
-            tokenCountSinceLastUpdate = 0; lastUpdateTime = System.currentTimeMillis(); isUpdateScheduled = false;
-        }
-    }
-
-    private class AIResultReceiver extends android.content.BroadcastReceiver {
-        @Override
-        public void onReceive(android.content.Context context, android.content.Intent intent) {
-            if (isDirectStreaming || !AIProcessingService.ACTION_AI_TASK_COMPLETED.equals(intent.getAction())) return;
-            String result = intent.getStringExtra(AIProcessingService.EXTRA_RESULT);
-            String error = intent.getStringExtra(AIProcessingService.EXTRA_ERROR);
-            endGeneration();
-            uiHandler.removeCallbacksAndMessages(null);
-            final int idx = resolveStreamingIndex();
-            if (error != null) {
-                if (currentStreamingContent != null && currentStreamingContent.length() > 0 && idx >= 0) {
-                    ChatMessage msg = chatHistory.get(idx);
-                    msg.content = currentStreamingContent.toString();
-                    msg.status = ChatMessage.MessageStatus.COMPLETED;
-                    if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
-                    saveHistoryAsync(); addSystemMessage("生成中断: " + error);
-                } else if (idx >= 0 && currentStreamingMessageId != null) {
-                    // 批量修改 + 一次批量通知，避免 insert+remove 混合 op 触发 Inconsistency
-                    chatHistory.remove(idx);
-                    if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
-                    addSystemMessage(error);
-                }
-            } else if (result != null) {
-                if (currentStreamingContent != null && idx >= 0) {
-                    ChatMessage msg = chatHistory.get(idx);
-                    msg.content = result;
-                    msg.status = ChatMessage.MessageStatus.COMPLETED;
-                    if (chatAdapter != null) chatAdapter.notifyItemChanged(idx);
-                    saveHistoryAsync();
-                    // 自动语音合成：后台服务返回结果后自动朗读（流式已朗读则冲刷收尾）
-                    finishAutoSpeak(msg);
-                } else addAIMessage(result);
-            }
-            currentStreamingContent = null; currentStreamingMessageIndex = -1; currentStreamingMessageId = null;
-        }
-    }
 
     @Override
     protected void onDestroy() {
@@ -11178,8 +11100,6 @@ public class AIChatActivity extends BaseActivity {
             unregisterModelChangeListener();
             unregisterComponentCallbacks(memoryCallback);
             TokenStatsManager.getInstance().unregisterCallback(tokenStatsCallback);
-            if (localBroadcastManager != null && aiResultReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiResultReceiver); } catch (Exception e) {} }
-            if (localBroadcastManager != null && aiTokenReceiver != null) { try { localBroadcastManager.unregisterReceiver(aiTokenReceiver); } catch (Exception e) {} }
             // 不再执行 stopGeneration：生成在桥/服务层继续（界面退出不中断模型工作）
             historyPollHandler.removeCallbacksAndMessages(null);
             // 标记 UI 已分离：此后生成回调只落盘、不再更新界面

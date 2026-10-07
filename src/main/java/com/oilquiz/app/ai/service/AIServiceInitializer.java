@@ -180,7 +180,6 @@ public final class AIServiceInitializer {
         }
 
         // 取消进行中的模型预加载，避免与一键下载/加载抢同一模型槽（一边下载一边加载）。
-        // 说明：AIProcessingService 是推理通道（非自动初始化源，onCreate 不加载模型），此处不停止它；
         // App 启动自动预加载（preloadAIServiceInternal）已通过 isInitializing() 检查在初始化期间跳过。
         // 注意：只发 CANCEL_PRELOAD 指令，不做 stopService+重建——ModelPreloadService 的 native
         // initModel 是阻塞调用，shutdownNow 无法真正中断；stopService 重建反而引入并发初始化风险。

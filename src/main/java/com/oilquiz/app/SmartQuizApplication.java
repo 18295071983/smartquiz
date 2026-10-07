@@ -265,12 +265,9 @@ public class SmartQuizApplication extends Application {
                         runAgentDebugTestIfRequested();
                     }
 
-                    // 不再无条件启动 AI 处理服务（2026-09-14）：
-                    // 当前 AI 对话/Agent 生成走 direct streaming 链路（AgentChatHandler → ModelExecutionBridge），
-                    // 不使用 AIProcessingService；无条件启动会在通知栏常驻"AI 处理服务 正在处理 AI 任务..."，
-                    // 用户退出 AI 对话界面后仍显示，造成"生成还在通知"的打扰。
-                    // 若未来旧链路（ACTION_PROCESS_AI_TASK 广播）需要，再按需 startForegroundService。
-                    // startAIProcessingService();
+                    // 说明（2026-10-07）：AIProcessingService 及其广播链路（含日志查看页）
+                    // 已整体删除 —— 当前 AI 对话/Agent 生成走 direct streaming
+                    // （AgentChatHandler → ModelExecutionBridge → OutputRouter），不经服务。
 
                     // 存活超过阈值后重置崩溃计数
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
@@ -755,50 +752,7 @@ public class SmartQuizApplication extends Application {
         // 应用终止时刷新日志
         com.oilquiz.app.infra.AppLogger.flushLogs();
         
-        // 停止AI处理服务
-        stopAIProcessingService();
-        
         super.onTerminate();
-    }
-    
-    /**
-     * 启动AI处理服务作为前台服务
-     */
-    private void startAIProcessingService() {
-        try {
-            com.oilquiz.app.util.AILogger.i(TAG, "启动AI处理服务...");
-            
-            // 启动AI处理服务
-            Intent intent = new Intent(this, com.oilquiz.app.ai.service.AIProcessingService.class);
-            
-            // 适配 Android 14 的前台服务启动方式
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForegroundService(intent);
-            } else {
-                startService(intent);
-            }
-            
-            com.oilquiz.app.util.AILogger.i(TAG, "AI处理服务启动成功");
-        } catch (Exception e) {
-            com.oilquiz.app.util.AILogger.e(TAG, "启动AI处理服务失败: " + e.getMessage(), e);
-        }
-    }
-    
-    /**
-     * 停止AI处理服务
-     */
-    private void stopAIProcessingService() {
-        try {
-            com.oilquiz.app.util.AILogger.i(TAG, "停止AI处理服务...");
-            
-            // 停止AI处理服务
-            Intent intent = new Intent(this, com.oilquiz.app.ai.service.AIProcessingService.class);
-            stopService(intent);
-            
-            com.oilquiz.app.util.AILogger.i(TAG, "AI处理服务停止成功");
-        } catch (Exception e) {
-            com.oilquiz.app.util.AILogger.e(TAG, "停止AI处理服务失败: " + e.getMessage(), e);
-        }
     }
     
     @Override

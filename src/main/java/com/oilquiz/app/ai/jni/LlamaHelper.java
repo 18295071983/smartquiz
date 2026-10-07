@@ -752,6 +752,18 @@ public class LlamaHelper {
     private static native boolean nativeKvMemRestore(long handle, byte[] data);
     private static native String nativeKvMemAsk(long handle, String question, int maxTokens, float temperature);
 
+    /**
+     * 读取 GGUF 头部元数据（架构信息卡片 + NPU 上下文预算规划用）。
+     *
+     * <p>实现走 ggml/llama.cpp 自带的官方 GGUF API（{@code gguf_init_from_file}，no_alloc），
+     * 不再由 Java 手写解析器读取 —— 手写解析器出过"位置漂移 → EOFException → 静默返回 null"，
+     * 导致 NPU 的 KV 估算拿不到模型规格、上下文规划走 4096 兜底、Agent 工具结果被裁掉。</p>
+     *
+     * <p>返回值为字段数组；未找到的键为 -1。失败返回 null。字段顺序见
+     * {@code com.oilquiz.app.ai.model.GgufMeta} 中的 IDX_* 常量。</p>
+     */
+    public static native long[] nativeReadGgufMeta(String path);
+
     // 生成文本（流式）- 使用ChatRequest批量传递参数，解决中文编码问题
     public static void generateStream(ChatRequest request, TokenCallback callback) {
         String threadName = Thread.currentThread().getName();

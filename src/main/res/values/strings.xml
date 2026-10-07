@@ -375,24 +375,6 @@
     <string name="seconds">秒</string>
     <string name="ai_assistance_title">AI助手</string>
 
-    <!-- LogViewerActivity -->
-    <string name="ai_service_log">AI 服务日志</string>
-    <string name="log_viewer_started">日志查看器已启动</string>
-    <string name="log_viewer_initialized">日志查看器初始化完成，准备接收日志</string>
-    <string name="waiting_for_logs">等待接收日志…</string>
-    <string name="system_ready">系统已准备就绪，等待AI服务日志</string>
-    <string name="initialization_failed">初始化失败</string>
-    <string name="user_input">用户输入</string>
-    <string name="user_submitted_message">用户提交了新消息</string>
-    <string name="sending_to_ai_service">发送消息到AI服务</string>
-    <string name="message_sent_to_ai">消息已发送到AI处理服务，等待处理结果</string>
-    <string name="logs_cleared">日志已清空</string>
-    <string name="all_logs_cleared">所有日志已清空，等待接收新日志</string>
-    <string name="log_exported">日志已导出</string>
-    <string name="log_export_path">日志已导出到</string>
-    <string name="log_export_failed">导出日志失败</string>
-    <string name="loading_history_logs">加载历史日志</string>
-    <string name="history_log_truncated">历史日志已截断</string>
     <string name="history_log_ended">=== 历史日志结束 ===</string>
     <string name="history_log_load_failed">加载历史日志失败</string>
     <string name="history_log_load_error">加载历史日志时发生错误</string>

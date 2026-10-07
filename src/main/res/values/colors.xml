@@ -163,11 +163,7 @@
     <color name="text_primary_dark_theme">#FFFFFF</color>
     <color name="text_secondary_dark_theme">#B0B0B0</color>
 
-    <color name="log_info">#10B981</color>
     <color name="log_warn">#F59E0B</color>
-    <color name="log_error">#EF4444</color>
-    <color name="log_success">#10B981</color>
-    <color name="log_model">#8B5CF6</color>
 
     <color name="on_primary">#FFFFFF</color>
     <color name="on_secondary">#FFFFFF</color>

@@ -309,20 +309,5 @@
                 android:minWidth="@dimen/min_0"/>
         </LinearLayout>
 
-        <!-- 日志查看 -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_log_viewer"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/size_40"
-            android:text="📄 处理日志"
-            android:textSize="@dimen/text_12"
-            android:textColor="?attr/colorOnSecondaryContainer"
-            app:backgroundTint="?attr/colorSecondaryContainer"
-            app:cornerRadius="@dimen/radius_12"
-            android:textAllCaps="false"
-            android:gravity="start|center_vertical"
-            android:paddingHorizontal="12dp"
-            android:minWidth="@dimen/min_0"/>
-
     </LinearLayout>
 </ScrollView>

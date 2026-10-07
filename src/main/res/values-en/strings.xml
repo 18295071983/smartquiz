@@ -274,24 +274,6 @@
     <string name="minutes">Minutes</string>
     <string name="seconds">Seconds</string>
 
-    <!-- LogViewerActivity -->
-    <string name="ai_service_log">AI Service Log</string>
-    <string name="log_viewer_started">Log Viewer Started</string>
-    <string name="log_viewer_initialized">Log viewer initialized, ready to receive logs</string>
-    <string name="waiting_for_logs">Waiting for logs…</string>
-    <string name="system_ready">System ready, waiting for AI service logs</string>
-    <string name="initialization_failed">Initialization Failed</string>
-    <string name="user_input">User Input</string>
-    <string name="user_submitted_message">User submitted a new message</string>
-    <string name="sending_to_ai_service">Sending message to AI service</string>
-    <string name="message_sent_to_ai">Message sent to AI processing service, waiting for result</string>
-    <string name="logs_cleared">Logs Cleared</string>
-    <string name="all_logs_cleared">All logs cleared, waiting for new logs</string>
-    <string name="log_exported">Log Exported</string>
-    <string name="log_export_path">Log exported to</string>
-    <string name="log_export_failed">Failed to export log</string>
-    <string name="loading_history_logs">Loading historical logs</string>
-    <string name="history_log_truncated">Historical logs truncated</string>
     <string name="history_log_ended">=== History Log End ===</string>
     <string name="history_log_load_failed">Failed to load historical logs</string>
     <string name="history_log_load_error">Error loading historical logs</string>

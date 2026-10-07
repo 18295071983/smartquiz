@@ -252,9 +252,7 @@
     <!-- 日志区域背景 - 暗色模式 -->
     <color name="log_background">#000000</color>
     <color name="log_text">#F9FAFB</color>
-    <color name="log_info">#6EE7B7</color>
     <color name="log_warn">#FBBF24</color>
-    <color name="log_error">#F87171</color>
 
     <!-- 边框和分割线 - 暗色模式 -->
     <color name="border">#3A3157</color>

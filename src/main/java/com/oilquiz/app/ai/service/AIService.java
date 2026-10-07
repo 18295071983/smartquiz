@@ -10,7 +10,6 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.util.Log;
 import android.widget.Toast;
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import com.oilquiz.app.util.AILogger;
 
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
@@ -233,16 +232,8 @@ public class AIService implements ComponentCallbacks2 {
         LlamaHelper.setNativeLogCallback(new LlamaHelper.NativeLogCallback() {
             @Override
             public void onLog(int level, String tag, String message) {
-                String logLevel;
-                switch (level) {
-                    case 3: logLevel = AIProcessingService.LOG_LEVEL_INFO; break;
-                    case 4: logLevel = AIProcessingService.LOG_LEVEL_INFO; break;
-                    case 5: logLevel = AIProcessingService.LOG_LEVEL_WARN; break;
-                    case 6: logLevel = AIProcessingService.LOG_LEVEL_ERROR; break;
-                    default: logLevel = AIProcessingService.LOG_LEVEL_INFO;
-                }
-                
-                // 保存到 AILogger
+                // 只落盘（AILogger）。原先还会把 WARN/ERROR 通过 LocalBroadcastManager
+                // 广播给日志查看页；该页面与整条广播链路已删除（2026-10-07），故移除。
                 switch (level) {
                     case 3:
                     case 4:
@@ -254,26 +245,13 @@ public class AIService implements ComponentCallbacks2 {
                     case 6:
                         AILogger.e(tag, message);
                         break;
-                }
-                
-                // 高频 INFO 日志不再广播到 UI，避免初始化/推理时拖垮主线程
-                if (level >= 5) {
-                    Intent logIntent = new Intent(AIProcessingService.ACTION_AI_LOG_UPDATE);
-                    logIntent.putExtra(AIProcessingService.EXTRA_LOG_LEVEL, logLevel);
-                    logIntent.putExtra(AIProcessingService.EXTRA_LOG_MESSAGE, "[" + tag + "] " + message);
-                    LocalBroadcastManager.getInstance(context).sendBroadcast(logIntent);
+                    default:
+                        break;
                 }
             }
         });
     }
-    
-    private void sendLogBroadcast(String level, String message) {
-        Intent logIntent = new Intent(AIProcessingService.ACTION_AI_LOG_UPDATE);
-        logIntent.putExtra(AIProcessingService.EXTRA_LOG_LEVEL, level);
-        logIntent.putExtra(AIProcessingService.EXTRA_LOG_MESSAGE, message);
-        LocalBroadcastManager.getInstance(context).sendBroadcast(logIntent);
-    }
-    
+
     /**
      * 从SharedPreferences加载保存的模型名称
      */
@@ -1513,31 +1491,26 @@ public class AIService implements ComponentCallbacks2 {
         updateLastUsedTime();
         
         AILogger.i(TAG, "generateStream called!");
-        sendLogBroadcast("INFO", "[AIService] 开始流式生成: prompt长度=" + (prompt != null ? prompt.length() : 0) + ", maxTokens=" + maxTokens);
         
         if (isLoading) {
             AILogger.e(TAG, "AI service is loading, returning error");
-            sendLogBroadcast("ERROR", "[AIService] 服务正在加载，请等待");
             callback.onError(new IllegalStateException("AI service is loading, please wait"));
             return;
         }
         
         if (!isInitialized) {
             AILogger.e(TAG, "AI service not initialized, returning error");
-            sendLogBroadcast("ERROR", "[AIService] 服务未初始化");
             callback.onError(new IllegalStateException("AI service not initialized"));
             return;
         }
         
         if (!LlamaHelper.isModelInitialized()) {
             AILogger.e(TAG, "AI model not initialized, returning error");
-            sendLogBroadcast("ERROR", "[AIService] 模型正在加载，请等待");
             callback.onError(new IllegalStateException("AI model is still loading, please wait"));
             return;
         }
         
         AILogger.i(TAG, "Pre-checks passed, preparing generation...");
-        sendLogBroadcast("INFO", "[AIService] 预检查通过");
 
         final java.util.concurrent.Future<?>[] taskFuture = new java.util.concurrent.Future<?>[1];
         
@@ -1550,7 +1523,6 @@ public class AIService implements ComponentCallbacks2 {
 
                 int adjustedMaxTokens = Math.max(1, maxTokens - 64);
                 AILogger.i(TAG, "调整生成 token 数: 原始 " + maxTokens + ", 调整后 " + adjustedMaxTokens);
-                sendLogBroadcast("INFO", "[AIService] 使用聊天上下文进行流式生成");
                 
                 final long startTime = System.currentTimeMillis();
                 final long timeoutMs = 600000;
@@ -1595,7 +1567,6 @@ public class AIService implements ComponentCallbacks2 {
                 AILogger.i(TAG, "Generation setup completed!");
             } catch (OutOfMemoryError e) {
                 AILogger.e(TAG, "OutOfMemoryError in generateStream task: " + e.getMessage(), e);
-                sendLogBroadcast("ERROR", "[AIService] 内存溢出: " + e.getMessage());
                 try {
                     LlamaHelper.stopGeneration();
                 } catch (Exception ex) {
@@ -1604,11 +1575,9 @@ public class AIService implements ComponentCallbacks2 {
                 mainHandler.post(() -> callback.onError(new Exception("内存溢出，请尝试减小模型大小或清理内存")));
             } catch (Exception e) {
                 AILogger.e(TAG, "Exception in generateStream task: " + e.getMessage(), e);
-                sendLogBroadcast("ERROR", "[AIService] 生成异常: " + e.getMessage());
                 mainHandler.post(() -> callback.onError(e));
             } catch (Throwable t) {
                 AILogger.e(TAG, "Throwable in generateStream task: " + t.getMessage(), t);
-                sendLogBroadcast("ERROR", "[AIService] 生成异常: " + t.getMessage());
                 mainHandler.post(() -> callback.onError(new Exception(t)));
             } finally {
                 // 组1.3 止血补丁：本轮推理结束立刻释放 KV 缓存，不等下一轮才清
@@ -4314,8 +4283,6 @@ public class AIService implements ComponentCallbacks2 {
 
                 AILogger.i(TAG, "LlamaHelper.generateStream: onComplete called, fullText length: " + (fullText != null ? fullText.length() : 0) + ", elapsed: " + elapsed + "ms");
                 AILogger.i(TAG, "Performance metrics - Speed: " + String.format("%.2f", inferenceSpeed) + " t/s, Tokens: " + tokenCount);
-                sendLogBroadcast("INFO", "[AIService] 生成完成: 完整文本长度=" + (fullText != null ? fullText.length() : 0) + ", 耗时=" + elapsed + "ms");
-                sendLogBroadcast("INFO", "[AIService] 性能监控: 推理速度=" + String.format("%.2f", inferenceSpeed) + " tokens/s, token数=" + tokenCount);
 
                 // 清理模型输出中的乱码/非法字符
                 String outputText = fullText;
@@ -4344,7 +4311,6 @@ public class AIService implements ComponentCallbacks2 {
                 completed.set(true);
                 watchdogFuture.cancel(false);
                 AILogger.e(TAG, "LlamaHelper.generateStream: onError called, error: " + error);
-                sendLogBroadcast("ERROR", "[AIService] 生成错误: " + error);
                 mainHandler.post(() -> callback.onError(new Exception(error)));
             }
         };

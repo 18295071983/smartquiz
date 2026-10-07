@@ -16,6 +16,10 @@
 #include <sys/system_properties.h>
 #include "llama.h"
 #include "ggml-backend.h"
+// gguf.h：官方 GGUF 读取 API（gguf_init_from_file / gguf_find_key / gguf_get_val_* 等）。
+// 已在 libllama-jni.so 中导出，用于 nativeReadGgufMeta（替代 Java 侧手写解析器）。
+#include "gguf.h"
+#include <cctype>
 #include "chat.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
@@ -8812,6 +8816,211 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeRunInferenceOnce(
     int result = s_helperContext->runPureInference(
         promptContent, (int)contextSize, (int)maxTokens, callback, env);
     return (jint)result;
+}
+
+// ============================================================================
+// GGUF 元数据读取（架构信息卡片 + NPU 上下文预算规划用）
+// ============================================================================
+//
+// 背景（2026-10-07）：这些字段原先由 Java 侧**手写解析器**（GgufMeta.java）从 GGUF
+// 头部读。手写解析器出过"读取位置漂移 → EOFException → read() 返回 null"的问题，
+// 而 read() 的 catch 又静默吞异常，最终表现为 NPU 的 KV 估算拿不到模型规格、
+// 上下文规划走 4096 兜底、Agent 每轮工具结果被裁掉。
+//
+// 这里改用 **ggml/llama.cpp 自带、且已导出在 libllama-jni.so 里的官方 GGUF 读取 API**
+// （gguf_init_from_file 等，见 ggml/include/gguf.h），不再自己维护解析逻辑：
+//   · no_alloc=true 且 ctx=nullptr —— 只读头部元数据，**不加载/不分配权重数据**；
+//   · 格式兼容性与 GGUF 规范同步（跟着库一起升级）。
+// 一次 JNI 调用返回全部所需字段，避免多次打开文件。
+//
+// 返回值（jlongArray；未找到的键为 -1，调用方据此区分"缺失"与"值为 0"）：
+//   [0]  api 版本（1）        [1]  blockCount         [2]  headCount
+//   [3]  headCountKv          [4]  embeddingLength    [5]  contextLength
+//   [6]  attentionKeyLength   [7]  fullAttentionInterval
+//   [8]  hasLinearAttention（0/1）  [9]  parameterCount   [10] tensorCount
+// 返回 null 表示文件不存在 / 非 GGUF / 打开失败。
+JNIEXPORT jlongArray JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeReadGgufMeta(
+    JNIEnv* env, jclass /* clazz */, jstring path) {
+    const char* cpath = env->GetStringUTFChars(path, nullptr);
+    if (cpath == nullptr) {
+        return nullptr;
+    }
+    std::string filePath(cpath);
+    env->ReleaseStringUTFChars(path, cpath);
+
+    gguf_init_params params;
+    params.no_alloc = true;      // 只读元数据，不分配张量数据
+    params.ctx      = nullptr;   // 不需要 ggml_context
+
+    gguf_context* ctx = gguf_init_from_file(filePath.c_str(), params);
+    if (ctx == nullptr) {
+        LOGW("nativeReadGgufMeta: 无法读取 %s（非 GGUF 或文件不可读）", filePath.c_str());
+        return nullptr;
+    }
+
+    // GGUF 规范：元数据键一律小写。为兼容不规范的导出器，精确查不到时再试小写。
+    auto findKey = [&](const char* key) -> int64_t {
+        int64_t id = gguf_find_key(ctx, key);
+        if (id >= 0) {
+            return id;
+        }
+        std::string lower(key);
+        for (size_t i = 0; i < lower.size(); i++) {
+            lower[i] = (char) ::tolower((unsigned char) lower[i]);
+        }
+        return gguf_find_key(ctx, lower.c_str());
+    };
+
+    auto readInt = [&](const char* key) -> jlong {
+        int64_t id = findKey(key);
+        if (id < 0) {
+            return -1;
+        }
+        switch (gguf_get_kv_type(ctx, id)) {
+            case GGUF_TYPE_UINT8:  return (jlong) gguf_get_val_u8(ctx, id);
+            case GGUF_TYPE_INT8:   return (jlong) gguf_get_val_i8(ctx, id);
+            case GGUF_TYPE_UINT16: return (jlong) gguf_get_val_u16(ctx, id);
+            case GGUF_TYPE_INT16:  return (jlong) gguf_get_val_i16(ctx, id);
+            case GGUF_TYPE_UINT32: return (jlong) gguf_get_val_u32(ctx, id);
+            case GGUF_TYPE_INT32:  return (jlong) gguf_get_val_i32(ctx, id);
+            case GGUF_TYPE_UINT64: return (jlong) gguf_get_val_u64(ctx, id);
+            case GGUF_TYPE_INT64:  return (jlong) gguf_get_val_i64(ctx, id);
+            case GGUF_TYPE_FLOAT32:return (jlong) gguf_get_val_f32(ctx, id);
+            case GGUF_TYPE_FLOAT64:return (jlong) gguf_get_val_f64(ctx, id);
+            default:               return -1;
+        }
+    };
+
+    // 架构名：用于把 "<arch>.xxx" 补全（llama.cpp 的键名模板就是 %s.xxx）
+    std::string arch;
+    {
+        int64_t id = findKey("general.architecture");
+        if (id >= 0 && gguf_get_kv_type(ctx, id) == GGUF_TYPE_STRING) {
+            const char* s = gguf_get_val_str(ctx, id);
+            if (s != nullptr) {
+                arch = s;
+            }
+        }
+    }
+
+    auto suffixed = [&](const char* suffix, jlong fallback) -> jlong {
+        if (!arch.empty()) {
+            std::string key = arch + suffix;
+            jlong v = readInt(key.c_str());
+            if (v >= 0) {
+                return v;
+            }
+        }
+        return fallback;
+    };
+
+    jlong out[11];
+    for (int i = 0; i < 11; i++) {
+        out[i] = -1;
+    }
+    out[0] = 1;
+    // 张量类型直方图（HTP 兼容性提示用）：追加在 11 个固定字段之后，成对 [type, count]
+    int histTypes[64];
+    int histCounts[64];
+    int nHist = 0;
+
+    out[1] = suffixed(".block_count", readInt("block_count"));
+    out[2] = suffixed(".attention.head_count", readInt("attention.head_count"));
+    out[3] = suffixed(".attention.head_count_kv", readInt("attention.head_count_kv"));
+    out[4] = suffixed(".embedding_length", -1);
+    out[5] = suffixed(".context_length", -1);
+    out[6] = suffixed(".attention.key_length", -1);
+    out[7] = suffixed(".full_attention_interval", -1);
+
+    // 线性注意力 / SSM 层：沿用原 Java 侧判据（键名含 .ssm. 或 .linear_）
+    {
+        bool hasLinear = false;
+        const int64_t nkv = gguf_get_n_kv(ctx);
+        for (int64_t i = 0; i < nkv; i++) {
+            const char* k = gguf_get_key(ctx, i);
+            if (k == nullptr) {
+                continue;
+            }
+            std::string key(k);
+            if (key.find(".ssm.") != std::string::npos
+                    || key.find(".linear_") != std::string::npos) {
+                hasLinear = true;
+                break;
+            }
+        }
+        out[8] = hasLinear ? 1 : 0;
+    }
+
+    // 参数量：优先元数据 general.parameter_count，缺失则用张量元素数累加。
+    // 同时统计张量类型直方图（HTP 兼容性提示用；ggml type id 取值 0..47）。
+    {
+        int64_t paramId = findKey("general.parameter_count");
+        const int64_t nt = gguf_get_n_tensors(ctx);
+        out[10] = nt;
+        if (paramId >= 0) {
+            out[9] = readInt("general.parameter_count");
+        }
+        int typeHist[64];
+        for (int i = 0; i < 64; i++) {
+            typeHist[i] = 0;
+        }
+        long double total = 0;
+        for (int64_t i = 0; i < nt; i++) {
+            if (paramId < 0) {
+                const int64_t* ne = gguf_get_tensor_ne(ctx, i);
+                if (ne != nullptr) {
+                    long double elems = 1;
+                    for (int d = 0; d < 4; d++) {
+                        if (ne[d] > 0) {
+                            elems *= (long double) ne[d];
+                        }
+                    }
+                    total += elems;
+                }
+            }
+            int t = (int) gguf_get_tensor_type(ctx, i);
+            if (t >= 0 && t < 64) {
+                typeHist[t]++;
+            }
+        }
+        if (paramId < 0) {
+            out[9] = (jlong) total;
+        }
+        nHist = 0;
+        for (int t = 0; t < 64; t++) {
+            if (typeHist[t] > 0) {
+                histTypes[nHist] = t;
+                histCounts[nHist] = typeHist[t];
+                nHist++;
+            }
+        }
+    }
+
+    gguf_free(ctx);
+
+    const jsize totalLen = (jsize) (11 + nHist * 2);
+    jlongArray arr = env->NewLongArray(totalLen);
+    if (arr == nullptr) {
+        return nullptr;
+    }
+    jlong* buf = new jlong[totalLen];
+    for (int i = 0; i < 11; i++) {
+        buf[i] = out[i];
+    }
+    for (int i = 0; i < nHist; i++) {
+        buf[11 + i * 2]     = histTypes[i];
+        buf[11 + i * 2 + 1] = histCounts[i];
+    }
+    env->SetLongArrayRegion(arr, 0, totalLen, buf);
+    delete[] buf;
+
+    LOGI("nativeReadGgufMeta: %s -> block=%lld head=%lld headKv=%lld emb=%lld ctx=%lld keyLen=%lld fai=%lld linear=%lld params=%lld tensors=%lld types=%d",
+         filePath.c_str(),
+         (long long) out[1], (long long) out[2], (long long) out[3], (long long) out[4],
+         (long long) out[5], (long long) out[6], (long long) out[7], (long long) out[8],
+         (long long) out[9], (long long) out[10], nHist);
+    return arr;
 }
 
 }
