@@ -231,25 +231,6 @@
       "geniexModelName": "unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
       "geniexRuntime": "llama_cpp",
       "geniexQuant": "Q4_0"
-    },
-    {
-      "id": "qwen3.8-4b-distill",
-      "name": "Qwen3.8-4B-Distill（思考链+FC）",
-      "description": "Qwen3.8 蒸馏版 4B（架构 qwen3；含思考链 <think> + 工具调用 <tool_calls>）。实测该仓库仅有 3 个量化：Q4_K_M(2.4GB)/Q5_K_M(~2.9GB)/Q8_0(~4.02GB)。⚠️ 没有 Q4_0 → Q4_K_M/Q5_K_M 属 K-quant，部分算子落 CPU（速度慢）；Q8_0 虽在 HTP 白名单内，但 4.0GB 超过单 Hexagon 会话 3.5GB 上限。",
-      "downloadUrl": "https://hf-mirror.com/Ma7ee7/Qwen3.8_4B_Distilled_GGUF/resolve/main/qwen3-4b-thinking-2507.Q4_K_M.gguf",
-      "sizeBytes": 2400000000,
-      "quantization": "Q4_K_M",
-      "contextLength": 262144,
-      "minRamMB": 4096,
-      "recommendedGpuLayers": 8,
-      "architecture": "Qwen3",
-      "parameters": "4B",
-      "memory": "4GB",
-      "useCases": "深度推理、Agent工具调用、中文对话",
-      "supportsThinking": true,
-      "supportsFC": true,
-      "sha256": "",
-      "backupUrl": ""
     }
   ],
   "note": "模型单一权威来源：10个国产端侧模型，含思考链标识（supportsThinking）和工具调用标识（supportsFC）。Qwen3.5系列原生支持深度思考模式，DeepSeek-R1系列自带思考链。"
