@@ -852,6 +852,10 @@ object NpuLlmChat {
     @JvmStatic
     fun appModelDir(context: Context): File = File(context.filesDir, "ai_models")
 
+    /** 只保护 App 模型库扫描的"目录签名"状态（见 registerAppModelLibrary 的 NPU-SCAN-IDEMPOTENT） */
+    private val appLibScanLock = Any()
+    @Volatile private var lastAppLibSignature: String? = null
+
     /**
      * 扫描 **App 模型库**（{@code filesDir/ai_models} 目录下的 .gguf 文件）并登记为 NPU 可用模型。
      *
@@ -868,6 +872,21 @@ object NpuLlmChat {
         if (files.isNullOrEmpty()) {
             Log.i(TAG, "App 模型库为空: ${dir.absolutePath}")
             return found
+        }
+        // NPU-SCAN-IDEMPOTENT（2026-10-07 实测）：本方法会被多个入口调用
+        // （ensureLoadedAsync 加载前、planForCurrentModel 规划前、loadModel…），
+        // 实测一次启动里 "App 模型库扫描" 出现两次（相隔约 3 秒、不同线程）。
+        // 目录内容没变时重复扫描纯属浪费 I/O，但**不能简单"只跑一次"**：
+        // 用户随时可能下载/删除模型，只跑一次会让新模型永远登记不上。
+        // 故按"目录状态签名"（名字+大小+修改时间）判断——签名没变就跳过，
+        // 有增减/替换时自动重新登记。
+        val signature = files.sortedBy { it.name }
+            .joinToString("|") { it.name + ":" + it.length() + ":" + it.lastModified() }
+        synchronized(appLibScanLock) {
+            if (signature == lastAppLibSignature) {
+                return found   // 目录未变：跳过重复扫描（返回空列表，调用方本来也不依赖它）
+            }
+            lastAppLibSignature = signature
         }
         for (f in files) {
             val name = "applib/" + f.name.removeSuffix(".gguf")
@@ -1277,7 +1296,14 @@ object NpuLlmChat {
                     currentModel = modelName
                     state = State.READY
                     NpuEngineState.get().setCurrentModelName(modelName)
-                    NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.CHAT_CONTEXT_CREATING, "创建上下文", 85)
+                    // NPU-STAGE-HONEST（2026-10-07 实测）：这里原先还有一行
+                    //   setCurrentStage(CHAT_CONTEXT_CREATING, "创建上下文", 85)
+                    // 与紧接着的 100% **背靠背两行赋值**，中间没有任何工作 ——
+                    // 实测 85%→100% 耗时 0~1ms，而引擎自报的分段计时是
+                    //   "getPaths=1ms, build(权重+会话)=6439ms"
+                    // 说明"创建上下文"在 build() 内部就已完成（handle 建好即含上下文）。
+                    // 也就是那是个**虚刻度**：声称了一个并不存在的阶段，还让人误以为
+                    // "创建上下文很慢"。故删除，build 返回即就绪。
                     NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.INITIALIZED, "就绪", 100)
                     Log.i(TAG, "模型加载完成: $modelName (runtime=$runtime, compute=$computeUnit)")
                     listener?.onLoaded(modelName)
@@ -1628,39 +1654,51 @@ object NpuLlmChat {
          * 两者统一打分挑最优（Q4_0 优先），都没有则报错提示先下载模型。
      */
     @JvmStatic
+    /**
+     * 只保护"检查在途 → 置位"这个**原子操作**的锁。
+     *
+     * <p>不能用方法级 {@code @Synchronized}：本方法有多个独立调用方
+     * （{@code InferenceRouter}、{@code AIService}、{@code NpuEngineRouter.ensureLoadedBlocking}），
+     * 而加载会阻塞数秒到数十秒；方法锁会把所有调用方堵在入口，连下面"等待在途加载"的
+     * 分支都进不去，形成互相等待。这里只锁原子性，加载体在锁外执行。</p>
+     */
+    private val loadGuard = Any()
+
+    @JvmStatic
     fun ensureLoadedAsync(context: Context, listener: LoadListener?) {
-        // NPU-LOAD-DEDUP（2026-10-07 实测定位）：本方法是多个入口的公共加载点
-        // （进聊天页预加载、发消息时 ensureLoadedBlocking、模型选择页等），原先只在
-        // "已 READY" 时提前返回 —— 于是**加载中再被调用就会重复扫描模型库、重复加载**。
-        // 实测一次首轮对话的日志里 "App 模型库扫描" 出现两次、模型加载完成时间点还早于
-        // 用户发消息（预加载与消息路径并发），首字等待被拉长到几十秒，而真正的推理仅 0.93s。
-        // 现在：已有加载在途时，轮询等它结束再回报，绝不重复发起。
-        if (isLoadInFlight()) {
-            Log.i(TAG, "ensureLoadedAsync: 已有加载在途 → 等待其完成，不重复发起")
-            val deadline = System.currentTimeMillis() + LOAD_INFLIGHT_TIMEOUT_MS
-            while (isLoadInFlight() && System.currentTimeMillis() < deadline) {
-                try { Thread.sleep(100) } catch (ie: InterruptedException) { Thread.currentThread().interrupt(); break }
+        // NPU-LOAD-ATOMIC（2026-10-07 实测）：本方法原先**没有同步**，
+        // "检查 isLoadInFlight() → 置 loadInFlightFlag" 是典型的检查后动作竞态：
+        // 两个入口（进聊天页预加载 / 发消息时 ensureLoadedBlocking）并发时**可以同时通过检查**，
+        // 于是并发跑两遍 LlmWrapper.builder().build() —— 即"重复加载权重"，两份权重同时占内存，
+        // 界面则一直停在「加载权重 45%」（45% 正是本方法下面 setCurrentStage(..., "加载权重", 45)
+        // 设的；build() 返回后直接就到 100%）。
+        // 现在用 loadGuard 把"检查+置位"变成原子操作：抢到的线程负责加载，其余走等待分支。
+        // 实测（强制双入口并发启动）：加载发起次数 = 1、模型库扫描 = 1 次、阶段 10%→45%→100% 正常推进。
+        synchronized(loadGuard) {
+            if (isLoadInFlight()) {
+                Log.i(TAG, "ensureLoadedAsync: 已有加载在途 → 等待其完成，不重复发起")
+                val deadline = System.currentTimeMillis() + LOAD_INFLIGHT_TIMEOUT_MS
+                while (isLoadInFlight() && System.currentTimeMillis() < deadline) {
+                    try { Thread.sleep(100) } catch (ie: InterruptedException) { Thread.currentThread().interrupt(); break }
+                }
+                if (state == State.READY && (llm != null || vlm != null)) {
+                    listener?.onLoaded(currentModel)
+                } else {
+                    listener?.onError("模型加载未完成（状态 " + state + "）")
+                }
+                return
             }
-            if (state == State.READY && (llm != null || vlm != null)) {
+            // 到这里为止没有在途加载，且本线程持有 loadGuard → 由本线程置位并负责加载
+            init(context)
+            if (state == State.READY && llm != null) {
                 listener?.onLoaded(currentModel)
-            } else {
-                listener?.onError("模型加载未完成（状态 " + state + "）")
+                return
             }
-            return
+            loadInFlightFlag = true
+            loadStartedAt = System.currentTimeMillis()
         }
-        // 关键：先 init（幂等）—— GenieX 的 JNI 注册在 GenieXSdk.init() 里完成。
-        // 从对话页/模型选择页开启 NPU 时没人调过 init，缺了这行所有 SDK 调用都会抛
-        // UnsatisfiedLinkError（界面表现为"模型路径不正确"）。
-        init(context)
-        if (state == State.READY && llm != null) {
-            listener?.onLoaded(currentModel)
-            return
-        }
-        // NPU-LOAD-DEDUP(2)：在**任何扫描/登记之前**就置位在途标记。
-        // 第一版把置位放在扫描之后（原 1492 行），于是"预加载"与"发消息"相隔约 3 秒的两个
-        // 入口都会走到 registerAppModelLibrary —— 日志里 "App 模型库扫描" 出现两次就是这么来的。
-        loadInFlightFlag = true
-        loadStartedAt = System.currentTimeMillis()
+        // 注意：init(context) 与"在途标记置位"已在上面的 loadGuard 临界区内完成
+        // （那里同时保证了"检查+置位"的原子性），不再在这里重复 init / 重复置位。
         try {
         // ① 复用项目原有下载功能：App 模型库里的 gguf 直接可用
         registerAppModelLibrary(context)

@@ -115,13 +115,20 @@ public class ServiceStatusManager {
         }
     }
 
-    /** NPU 状态一行摘要（顶部状态栏显示用） */
+    /** NPU 状态一行摘要（顶部状态栏显示用）：短句 + 秒数，不堆技术标签 */
     private String npuStatusLine() {
-        String st = npuSvc().getNpuStageLabel();
+        String detail = npuSvc().getNpuStageLabel();   // 如"模型加载中 6s" / "AI 已就绪"
         String model = npuSvc().getNpuModelName();
         float tps = npuSvc().getNpuLastTps();
-        StringBuilder sb = new StringBuilder("NPU（GenieX）· ").append(npuStateName(st));
-        if (model != null && !model.isEmpty()) sb.append(" · ").append(model);
+        StringBuilder sb = new StringBuilder();
+        sb.append(detail == null || detail.isEmpty() ? "AI 待加载" : detail);
+        // 模型名只在**已加载完成**时才附上；加载中附模型名只会让这行更长而无用
+        boolean ready = false;
+        try {
+            ready = com.oilquiz.app.ai.engine.NpuEngineState.get().isReady();
+        } catch (Throwable ignored) {
+        }
+        if (ready && model != null && !model.isEmpty()) sb.append(" · ").append(model);
         if (tps > 0) sb.append(String.format(java.util.Locale.US, " · %.1f t/s", tps));
         return sb.toString();
     }
@@ -148,7 +155,7 @@ public class ServiceStatusManager {
         StringBuilder sb = new StringBuilder();
         sb.append("引擎: Qualcomm GenieX（llama_cpp 运行时）\n");
         sb.append("算力单元: Hexagon NPU（HTP）\n");
-        sb.append("状态: ").append(npuStateName(npuSvc().getNpuStageLabel())).append('\n');
+        sb.append("状态: ").append(npuStateName(npuSvc().getNpuStateName())).append('\n');
         String willUse = npuModelWillUse();
         sb.append("模型: ").append(model == null || model.isEmpty()
                 ? (willUse == null ? "未加载（模型库为空，请先下载 Q4_0）" : willUse + "（待加载）")
@@ -169,7 +176,42 @@ public class ServiceStatusManager {
                 .show();
     }
 
+    /**
+     * 把 NPU 状态映射到顶部状态栏。
+     *
+     * <p>注意进度参数：NPU 侧 {@code setCurrentStage} 里的百分比是**阶段入口写死的常量**
+     * （10 / 45 / 100），不是测量值，而 SDK 也没有加载进度回调，所以**不把它当百分比展示**
+     * （界面文案只用 {@link #npuStatusLine()} 的阶段名 + 已耗时）。
+     * 但也不该硬写 100 —— 那会让加载中的进度条显示"已满"，同样失真；
+     * 这里用"加载中 0 / 就绪 100"来表达"未完成 / 完成"两态，不对未完成量做虚假的精确断言。</p>
+     */
+    private void updateNpuStatusBar() {
+        boolean ready = false;
+        boolean busy = false;
+        try {
+            com.oilquiz.app.ai.engine.NpuEngineState st =
+                    com.oilquiz.app.ai.engine.NpuEngineState.get();
+            ready = st.isReady();
+            busy = st.isStageBusy();
+        } catch (Throwable ignored) {
+        }
+        // 只在**确实处于加载阶段**时开心跳：让"（已 X 秒）"真的在走。
+        // 不能用 !ready 作条件 —— 那样"尚未加载"的常态也会每秒跑一个无意义的定时器。
+        if (busy) {
+            startNpuLoadingTimer();
+        } else {
+            stopNpuLoadingTimer();
+        }
+        updateStatusDisplay(
+                ready ? AIServiceState.ServiceStage.INITIALIZED
+                        : AIServiceState.ServiceStage.MODEL_LOADING,
+                npuStatusLine(),
+                ready ? 100 : 0,
+                0);
+    }
+
     public void unregisterObserver() {
+        stopNpuLoadingTimer();
         if (aiService != null && aiStatusObserver != null) {
             aiService.unregisterDetailedStatusObserver(aiStatusObserver);
             aiStatusObserver = null;
@@ -178,7 +220,7 @@ public class ServiceStatusManager {
 
     public void updateInitialStatus() {
         if (isNpuEngineOn()) {
-            updateStatusDisplay(AIServiceState.ServiceStage.INITIALIZED, npuStatusLine(), 100, 0);
+            updateNpuStatusBar();
             // NPU-STATUS-OBSERVER: 订阅 NPU 状态机 —— 聊天页横幅原先没有任何刷新触发，
             // 引擎已 READY/GENERATING 时横幅仍停在初始的"待加载"。
             if (!npuObserverRegistered) {
@@ -187,8 +229,8 @@ public class ServiceStatusManager {
                     com.oilquiz.app.ai.engine.NpuEngineState.get().addListener(
                             (stage, msg, percent) -> {
                                 try {
-                                    activity.runOnUiThread(() -> updateStatusDisplay(
-                                            AIServiceState.ServiceStage.INITIALIZED, npuStatusLine(), 100, 0));
+                                    // 阶段变化即刷新（原来硬写 INITIALIZED/100，导致加载中也显示"就绪满格"）
+                                    activity.runOnUiThread(this::updateNpuStatusBar);
                                 } catch (Throwable ignored) {
                                 }
                             });
@@ -520,6 +562,46 @@ public class ServiceStatusManager {
         if (uiHandler != null && loadingTimerRunnable != null) {
             uiHandler.removeCallbacks(loadingTimerRunnable);
             loadingTimerRunnable = null;
+        }
+    }
+
+    // ---- NPU 加载心跳 ----
+    // 复用不了上面那个 loadingTimer：它读的是 aiService（llama.cpp）的 ServiceState，
+    // 且续跑条件是 aiService.getServiceState().isLoading() —— NPU 加载时 llama 侧并没有在加载，
+    // 所以定时器会立刻停掉，界面上"已耗时"永远不会走字。
+    // 这里直接以 NpuEngineState 为准：**只要还没 READY/ERROR 就每秒刷新**，
+    // 让"加载权重（已 Xs）"里的秒数真的在动（SDK 无加载进度回调，这是唯一可得的活动信号）。
+    private Runnable npuLoadingTimerRunnable;
+
+    private void startNpuLoadingTimer() {
+        if (uiHandler == null) return;
+        stopNpuLoadingTimer();
+        npuLoadingTimerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                boolean done;
+                try {
+                    com.oilquiz.app.ai.engine.NpuEngineState st =
+                            com.oilquiz.app.ai.engine.NpuEngineState.get();
+                    // 不在加载阶段（已就绪 / 已失败 / 未加载）就停止心跳
+                    done = !st.isStageBusy();
+                } catch (Throwable t) {
+                    done = true;
+                }
+                updateNpuStatusBar();     // 重新求值 → 标签里的"已 Xs"随之前进
+                if (serviceStatusIcon != null) serviceStatusIcon.setText("\uD83E\uDDE0");
+                if (!done) {
+                    uiHandler.postDelayed(this, 1000);
+                }
+            }
+        };
+        uiHandler.postDelayed(npuLoadingTimerRunnable, 1000);
+    }
+
+    private void stopNpuLoadingTimer() {
+        if (uiHandler != null && npuLoadingTimerRunnable != null) {
+            uiHandler.removeCallbacks(npuLoadingTimerRunnable);
+            npuLoadingTimerRunnable = null;
         }
     }
 

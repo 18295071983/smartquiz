@@ -125,6 +125,8 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnHistory;
     private MaterialButton btnClearChat;
     private MaterialButton btnStopGeneration;
+    /** 「📄 系统日志」按钮 → LogsActivity（统一日志中心） */
+    private MaterialButton btnLogViewer;
     private View serviceStatusBar;
     private TextView serviceStatusIcon;
     private TextView serviceStatusText;
@@ -468,6 +470,7 @@ public class AIChatActivity extends BaseActivity {
             btnHistory = findViewById(R.id.btn_history);
             btnClearChat = findViewById(R.id.btn_clear_chat);
             btnStopGeneration = findViewById(R.id.btn_stop_generation);
+        btnLogViewer = findViewById(R.id.btn_log_viewer);
                 messageList = findViewById(R.id.message_list);
             sessionStatsBar = findViewById(R.id.session_stats_bar);
             attachmentList = findViewById(R.id.attachment_list);
@@ -678,9 +681,15 @@ public class AIChatActivity extends BaseActivity {
                     return insets;
                 });
             }
-            // 说明（2026-10-07）：原「📄 处理日志」按钮（btnLogViewer → LogViewerActivity）
-            // 与其页面已整体删除。日志改由 AILogger 落盘，需要时用文件查看器打开即可；
-            // 该页面依赖的日志广播链路（AIService 广播 → 页面接收）也随之移除。
+            // 「📄 系统日志」→ 统一日志中心（LogsActivity）。
+            // 说明（2026-10-07）：原先这里跳的是 LogViewerActivity，已删除 —— 它只靠一条
+            // **永不触发**的广播（发送方服务无人启动、接收方守卫恒短路）取日志，实际打开是空的。
+            // 现改为 LogsActivity：它合并 AppLogger / AILogger / 崩溃报告 / 操作记录，
+            // 用进程内监听直读，另有实时流、关键字搜索、级别过滤与导出。
+            if (btnLogViewer != null) {
+                btnLogViewer.setOnClickListener(v -> startActivity(
+                        new android.content.Intent(AIChatActivity.this, LogsActivity.class)));
+            }
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error initializing view: " + e.getMessage());
             showToast(getString(R.string.h_d8bd0728) + e.getMessage());

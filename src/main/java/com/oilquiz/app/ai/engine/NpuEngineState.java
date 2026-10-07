@@ -17,7 +17,8 @@ import java.util.List;
  *   MODEL_LOADING          权重加载（实测约 6s）
  *   GPU_INITIALIZATION     加速单元初始化（NPU = Hexagon HTP / compute_unit=HTP0）
  *   CPU_FALLBACK           量化算子退 CPU（K-quant 等非 HTP 类型）
- *   CHAT_CONTEXT_CREATING  上下文创建（nCtx，实测 32768）
+ *   CHAT_CONTEXT_CREATING  上下文创建（注：NPU 侧实际上在 create() 内部完成，
+ *                          不再单独上报该阶段——它没有独立耗时可报）
  *   INITIALIZED            就绪
  *   ERROR                  失败
  * </pre>
@@ -64,6 +65,16 @@ public final class NpuEngineState {
     private volatile String currentModelName = null;
     private volatile String errorMessage = null;
     private volatile long estimatedTimeMs = 0;
+    /**
+     * 进入当前阶段的时刻（用于 {@link #getStageLabel()} 显示"已耗时 X 秒"）。
+     *
+     * <p>WHY（2026-10-07 实测）：NPU 加载权重那一段（{@code LlmWrapper.builder().build()}）
+     * 是**一次阻塞调用**，实测 6~10 秒，且 SDK 三层（Java / JNI / native）都**没有加载进度回调**，
+     * 所以这段时间界面上只有一行不动的"加载权重 45%"，观感与死机无异。
+     * 既然拿不到真进度，就让标签**带上正在走的秒数**：{@code getStageLabel()} 是被轮询调用的，
+     * 动态算耗时天然就是心跳，不需要额外起定时器。</p>
+     */
+    private volatile long stageStartedAt = 0;
     private final Object lock = new Object();
     // ---- 推理状态机（对齐 llama.cpp GenPhase）----
     private volatile InferencePhase inferencePhase = InferencePhase.IDLE;
@@ -109,12 +120,13 @@ public final class NpuEngineState {
         currentStage = stage;
         stageMessage = (message == null || message.isEmpty()) ? defaultMessage(stage) : message;
         progressPercent = Math.max(0, Math.min(100, progress));
+        stageStartedAt = System.currentTimeMillis();
         if (stage == Stage.ERROR) {
             errorMessage = stageMessage;
         } else if (stage != Stage.UNINITIALIZED) {
             errorMessage = null;
         }
-        Log.i(TAG, "阶段: " + cur + " -> " + stage + " (" + progressPercent + "%) " + stageMessage);
+        Log.i(TAG, "阶段: " + cur + " -> " + stage + " " + stageMessage);
         for (Listener l : new ArrayList<>(listeners)) {
             try {
                 l.onNpuStateChanged(currentStage, stageMessage, progressPercent);
@@ -292,16 +304,66 @@ public final class NpuEngineState {
         return currentStage == Stage.INITIALIZED;
     }
 
-    /** 中文短标签（加载阶段带进度）：如「加载中 15%」「就绪」「失败」 */
+    /**
+     * 状态栏文案：**短句 + 实时秒数**，如「模型加载中 6s」「AI 已就绪」。
+     *
+     * <p><b>为什么不用百分比</b>（2026-10-07 实测）：那些 10/45/100 都是各阶段入口写死的常量，
+     * 不是测量值；而最耗时的"加载权重"是 {@code LlmWrapper.builder().build()} 一次阻塞调用
+     * （实测 5.7~9.8 秒），SDK 三层（Java / JNI / native）都没有加载进度回调。
+     * 把常量显示成百分比等于**把常量伪装成进度**，只会让人误以为"卡在 45%"。
+     * 故只说清在做什么，配一个**真实可得**的秒数（调用方每秒刷新，秒数会走 → 表明没死）。</p>
+     *
+     * <p>文案刻意保持极短：状态栏一行还要放模型名等信息，过长会被截断。</p>
+     */
     public String getStageLabel() {
-        String base = getStageName();
-        if ((currentStage == Stage.NATIVE_LIBRARY_LOADING || currentStage == Stage.MODEL_FILE_PREPARING
-                || currentStage == Stage.MODEL_LOADING || currentStage == Stage.GPU_INITIALIZATION
-                || currentStage == Stage.CHAT_CONTEXT_CREATING)
-                && progressPercent > 0 && progressPercent < 100) {
-            return base + " " + progressPercent + "%";
+        String doing;
+        switch (currentStage) {
+            case NATIVE_LIBRARY_LOADING:
+                doing = "引擎启动中";
+                break;
+            case MODEL_FILE_PREPARING:
+                doing = "准备模型中";
+                break;
+            case MODEL_LOADING:
+                doing = "模型加载中";
+                break;
+            case GPU_INITIALIZATION:
+            case CPU_FALLBACK:
+                doing = "初始化中";
+                break;
+            case CHAT_CONTEXT_CREATING:
+                doing = "准备上下文中";
+                break;
+            case INITIALIZED:
+                return "AI 已就绪";
+            case ERROR:
+                return "AI 不可用";
+            default:
+                return "AI 待加载";
         }
-        return base;
+        long startedAt = stageStartedAt;
+        if (startedAt > 0) {
+            long sec = (System.currentTimeMillis() - startedAt) / 1000L;
+            if (sec >= 1) {
+                return doing + " " + sec + "s";
+            }
+        }
+        return doing;
+    }
+
+    /** 当前是否处于加载/初始化阶段（供 UI 决定是否需要每秒刷新心跳） */
+    public boolean isStageBusy() {
+        switch (currentStage) {
+            case NATIVE_LIBRARY_LOADING:
+            case MODEL_FILE_PREPARING:
+            case MODEL_LOADING:
+            case GPU_INITIALIZATION:
+            case CPU_FALLBACK:
+            case CHAT_CONTEXT_CREATING:
+                return true;
+            default:
+                return false;
+        }
     }
 
     public String getStageName() {
