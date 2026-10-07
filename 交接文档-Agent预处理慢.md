@@ -331,3 +331,27 @@ src/main/java/com/oilquiz/app/ai/agent/software/engine/AgentLoopEngine.java
 ### 上设备验收
 - 本地 Agent 自我介绍/行为符合"答题宝App中的AI聊天助手，是App内AI对话功能模块的助手（Agent模式）"身份，与在线一致。
 - KV-STATS 命中率不受影响（system 段变化仅影响首轮 FULL，跨轮前缀稳定性依赖 sessionMessages 逐字节回放，不受本段影响）。
+## 十二、AI 消息流式渲染闪烁修复（2026-10-07 五交）
+
+用户报告：流式渲染 AI 消息时画面闪烁严重。
+
+### 根因（ChatAdapter 流式更新路径）
+1. **宿主模式（含组件标记消息）**：`bindMessageContent` / `renderMermaidMath` 每次流式更新**无条件 `contentHost.removeAllViews()`** + 文本段**每帧新建 TextView**（createSegmentTextView）——组件 View 虽有指纹复用，但 remove+add 整行重建布局 → 闪烁。
+2. **纯文本模式**：每次流式更新全量 `setRenderedText`（异步池但每帧 Markdown 解析 + setText + 高度波动）。
+3. **思考区**：默认折叠仍每帧 `post + setRenderedText` 全量渲染。
+
+### 修复（ChatAdapter.java）
+1. holder 新增 `segmentStructureFingerprint`（T=文本段 / C:type|props=组件段结构指纹，不编码文本内容）。
+2. `bindMessageContent` 宿主分支：**结构未变 → 复用容器，只增量刷新文本段**（不 removeAllViews/新建）；结构变化才重建（组件 View 仍按原指纹复用）。
+3. `renderMermaidMath` 同样结构复用。
+4. **纯文本模式流式轻量**：GENERATING/IN_PROGRESS 时 `setText` 普通文本（内容未变跳过），生成完成由 `completeGeneration` 的 `notifyItemChanged` 完整 rebind 自动切回 Markdown 富文本。
+5. **思考区降载**：折叠（默认）跳过渲染；流式展开时轻量 setText；完成时完整渲染。
+
+### 验证
+`.\gradlew.bat :assembleDebug` → **BUILD SUCCESSFUL**（30s，10 任务执行）。
+
+### 上设备验收
+- 长回答流式输出画面不再闪烁/跳动（纯文本模式）。
+- 组件消息（表格/图表/WebView）流式期间组件不重建（结构稳定时零重建）。
+- 思考区默认折叠不渲染，展开时可见实时思考且不闪。
+- 生成完成后 Markdown 富文本（代码高亮/表格）正常恢复。

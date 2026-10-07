@@ -1201,14 +1201,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return;
             }
 
-            // 设置思考内容：全量 Markdown 渲染（恢复简单直接渲染）
-            holder.thinkingContent.post(() -> {
-                int width = holder.itemView.getWidth()
-                    - holder.itemView.getPaddingLeft()
-                    - holder.itemView.getPaddingRight()
-                    - dpToPx(2, holder.itemView.getContext());
-                setRenderedText(holder.thinkingContent, cleanedContent, width);
-            });
+            // STREAM-FLICKER(2026-10-07)：思考区渲染降载——
+            // · 折叠时（默认）跳过渲染：流式期间不再每帧 post + 全量 Markdown 解析（闪烁主因之一）；
+            //   点击展开由 thinkingExpanded=true 触发本方法，展开即渲染。
+            // · 流式且展开时轻量 setText（普通文本）；生成完成由完整 rebind 切回 Markdown 富文本。
+            if (message.thinkingExpanded) {
+                if (isStreaming) {
+                    if (!cleanedContent.equals(holder.thinkingContent.getText().toString())) {
+                        holder.thinkingContent.setText(cleanedContent);
+                    }
+                } else {
+                    holder.thinkingContent.post(() -> {
+                        int width = holder.itemView.getWidth()
+                            - holder.itemView.getPaddingLeft()
+                            - holder.itemView.getPaddingRight()
+                            - dpToPx(2, holder.itemView.getContext());
+                        setRenderedText(holder.thinkingContent, cleanedContent, width);
+                    });
+                }
+            }
             holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
 
             // 展开状态完全由 thinkingExpanded 控制：思考中/思考完毕均默认折叠，
@@ -1598,13 +1609,45 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         List<com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment> segs =
                 com.oilquiz.app.ai.chat.component.MermaidMathSplitter.split(message.content, isDark);
         StringBuilder fp = new StringBuilder();
+        int renderableSegs = 0;
         for (com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment seg : segs) {
             if (seg.isComponent && seg.component != null && seg.component.props != null) {
-                fp.append(seg.component.type).append('|')
+                fp.append('C').append(seg.component.type).append('|')
                         .append(seg.component.props.toString().hashCode()).append(';');
+            } else {
+                fp.append('T').append(';');
             }
+            renderableSegs++;
         }
         String newFp = fp.toString();
+        boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+
+        // STREAM-FLICKER(2026-10-07)：结构未变 → 复用容器，只增量刷新文本段（不 removeAllViews/新建）
+        if (newFp.equals(holder.segmentStructureFingerprint)
+                && holder.contentHost.getChildCount() == renderableSegs) {
+            int childIdx = 0;
+            for (com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment seg : segs) {
+                if (seg.isComponent) {
+                    if (seg.component == null || seg.component.props == null) continue;
+                    childIdx++;
+                    continue;
+                }
+                View v = holder.contentHost.getChildAt(childIdx);
+                if (v instanceof TextView) {
+                    TextView tv = (TextView) v;
+                    if (streaming) {
+                        if (!seg.text.equals(tv.getText().toString())) tv.setText(seg.text);
+                    } else {
+                        setRenderedText(tv, seg.text, availableWidth);
+                        tv.setMovementMethod(LinkMovementMethod.getInstance());
+                    }
+                }
+                childIdx++;
+            }
+            return;
+        }
+
         boolean canReuse = newFp.equals(holder.componentSegmentsFingerprint)
                 && holder.componentSegmentViews != null;
         List<View> oldCache = canReuse ? holder.componentSegmentViews
@@ -1631,13 +1674,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 compIdx++;
             } else {
                 TextView tv = createSegmentTextView(ctx, holder.messageText);
-                setRenderedText(tv, seg.text, availableWidth);
-                tv.setMovementMethod(LinkMovementMethod.getInstance());
+                if (streaming) {
+                    tv.setText(seg.text);
+                } else {
+                    setRenderedText(tv, seg.text, availableWidth);
+                    tv.setMovementMethod(LinkMovementMethod.getInstance());
+                }
                 holder.contentHost.addView(tv);
             }
         }
         holder.componentSegmentsFingerprint = newFp;
         holder.componentSegmentViews = newCache;
+        holder.segmentStructureFingerprint = newFp;
     }
 
     private void handleLongContent(AIMessageViewHolder holder, ChatMessage message) {
@@ -1982,7 +2030,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     holder.contentHost.removeAllViews();
                     holder.contentHost.addView(holder.messageText);
                 }
-                setRenderedText(holder.messageText, message.content, availableWidth);
+                // STREAM-FLICKER(2026-10-07)：流式期间轻量 setText（普通文本），避免每帧
+                // 全量 Markdown 解析 + Spannable 重建造成的画面闪烁；生成完成由
+                // completeGeneration 的 notifyItemChanged 完整 rebind 切回 Markdown 富文本。
+                boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                        || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+                if (streaming) {
+                    if (!message.content.equals(holder.messageText.getText().toString())) {
+                        holder.messageText.setText(message.content);
+                    }
+                } else {
+                    setRenderedText(holder.messageText, message.content, availableWidth);
+                }
             }
             bindComponents(holder, message);
             return;
@@ -1992,17 +2051,56 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 消息级组件（Agent 执行中的工具卡片等）统一由 component_container 显示，与纯文本模式一致
         if (holder.contentHost != null) {
             List<ComponentContentSplitter.Segment> segs = ComponentContentSplitter.split(message.content);
-            // 组件段指纹：type|props 序列（空 props 段不渲染也不计入，保证与缓存索引对齐）。
-            // 流式期间组件 JSON 稳定时复用已渲染 View，避免每次 token 更新都销毁重建
-            // WebView/图表/图片（闪烁 + 性能损耗）
+            // 段结构指纹：T=文本段 / C:type|props=组件段（只编码交替结构，不含文本内容）。
+            // STREAM-FLICKER(2026-10-07)：结构未变时复用容器（不 removeAllViews、不新建 View），
+            // 只增量刷新文本段内容 → 消除流式更新每帧重建布局导致的画面闪烁。
+            // 组件段 props 为 null 的不渲染不计入，保证与容器子 View 顺序对齐。
             StringBuilder fp = new StringBuilder();
+            int renderableSegs = 0;
             for (ComponentContentSplitter.Segment seg : segs) {
-                if (seg.isComponent && seg.component != null && seg.component.props != null) {
-                    fp.append(seg.component.type).append('|')
+                if (seg.isComponent) {
+                    if (seg.component == null || seg.component.props == null) continue;
+                    fp.append('C').append(seg.component.type).append('|')
                             .append(seg.component.props.toString()).append(';');
+                } else {
+                    fp.append('T').append(';');
                 }
+                renderableSegs++;
             }
             String newFp = fp.toString();
+            boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                    || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+
+            // ---- 结构未变：增量更新（复用已挂载 View，不重建容器） ----
+            if (newFp.equals(holder.segmentStructureFingerprint)
+                    && holder.contentHost.getChildCount() == renderableSegs) {
+                int childIdx = 0;
+                for (ComponentContentSplitter.Segment seg : segs) {
+                    if (seg.isComponent) {
+                        if (seg.component == null || seg.component.props == null) continue;
+                        childIdx++;   // 组件 View 已在容器中，跳过
+                        continue;
+                    }
+                    View v = holder.contentHost.getChildAt(childIdx);
+                    if (v instanceof TextView) {
+                        TextView tv = (TextView) v;
+                        // 流式轻量 setText；非流式走完整 Markdown 渲染
+                        if (streaming) {
+                            if (!seg.text.equals(tv.getText().toString())) {
+                                tv.setText(seg.text);
+                            }
+                        } else {
+                            setRenderedText(tv, seg.text, availableWidth);
+                            tv.setMovementMethod(LinkMovementMethod.getInstance());
+                        }
+                    }
+                    childIdx++;
+                }
+                bindComponents(holder, message);
+                return;
+            }
+
+            // ---- 结构变化：重建（组件 View 仍按指纹复用，避免 WebView/图表/图片重建） ----
             boolean canReuse = newFp.equals(holder.componentSegmentsFingerprint)
                     && holder.componentSegmentViews != null;
             List<View> oldCache = canReuse ? holder.componentSegmentViews
@@ -2037,14 +2135,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 } else {
                     TextView tv = createSegmentTextView(ctx, holder.messageText);
                     // 宿主模式文本段较短，直接渲染（组件段已增量复用）
-                    setRenderedText(tv, seg.text, availableWidth);
-                    tv.setMovementMethod(LinkMovementMethod.getInstance());
+                    if (streaming) {
+                        tv.setText(seg.text);
+                    } else {
+                        setRenderedText(tv, seg.text, availableWidth);
+                        tv.setMovementMethod(LinkMovementMethod.getInstance());
+                    }
                     holder.contentHost.addView(tv);
                 }
             }
             // 更新缓存：本次实际渲染的组件段 View（与指纹一一对应，供下次流式更新复用）
             holder.componentSegmentsFingerprint = newFp;
             holder.componentSegmentViews = newCache;
+            holder.segmentStructureFingerprint = newFp;
         }
         // 消息级组件（Agent 工具卡片、工具 withComponent 组件）渲染到 component_container，
         // 执行中与完成后的渲染路径保持一致
@@ -3359,6 +3462,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         List<View> componentSegmentViews;
         /** 组件段指纹（type|props 序列）：与缓存 View 对应，指纹不变则复用 */
         String componentSegmentsFingerprint;
+        /** 宿主模式段结构指纹（T=文本段 / C:type|props=组件段，只编码交替结构不编码文本内容）：
+         *  结构未变时流式更新只刷文本段内容、不重建容器（2026-10-07 流式闪烁修复） */
+        String segmentStructureFingerprint;
         /** 思考区展开/折叠动画：点击切换时先取消旧动画，防止连续点击/流式更新时动画竞争 */
         android.animation.ValueAnimator thinkingAnimator;
         TextView thinkingLabel;
