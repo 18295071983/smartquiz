@@ -949,7 +949,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         java.util.List<Integer> bounds = message.contentRoundBounds;
         java.util.List<String> thinks = message.thinkingRounds;
         java.util.List<ComponentData> comps = message.components;
-        holder.contentHost.removeAllViews();
         // 折叠机制：thinkingLabel 作为折叠开关（始终可见，流式中显示实时思考预览），
         // 思考块仅在 thinkingExpanded 时内嵌到轮次中显示；折叠时只显示正文段+工具卡片
         boolean expanded = message.thinkingExpanded;
@@ -965,9 +964,92 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         });
 
-        int start = 0;
+        // 轮次结构指纹（2026-10-07 本地 Agent 闪烁修复）：
+        // E/F=展开态 + K=思考块 + T=正文段 + C:type|props=工具卡片；不编码正文文本内容。
+        // 流式期间轮次结构稳定时只增量刷新正文段，不 removeAllViews、不重建工具卡片。
+        StringBuilder fp = new StringBuilder();
+        fp.append(expanded ? 'E' : 'F');
+        int expect = 0;
         int thinkIdx = 0;
         int compIdx = 0;
+        int start = 0;
+        for (int i = 0; i <= bounds.size(); i++) {
+            int end = (i < bounds.size()) ? bounds.get(i) : content.length();
+            if (end > content.length()) end = content.length();
+            if (expanded && thinks != null && thinkIdx < thinks.size()) {
+                String t = thinks.get(thinkIdx);
+                if (t != null && !t.trim().isEmpty()) { fp.append('K'); expect++; }
+                thinkIdx++;
+            }
+            String seg = start < content.length() ? content.substring(start, end) : "";
+            if (seg != null && !seg.trim().isEmpty()) { fp.append('T'); expect++; }
+            start = end;
+            if (i < bounds.size() && comps != null && compIdx < comps.size()) {
+                ComponentData comp = comps.get(compIdx);
+                compIdx++;
+                if (comp != null && comp.props != null) {
+                    fp.append('C').append(comp.type).append('|').append(comp.props.toString()).append(';');
+                } else {
+                    fp.append("Cnull;");
+                }
+                expect++;
+            }
+        }
+        // 最终轮思考（流式中或未落库的当前轮思考，未进 thinkingRounds 时补一块；仅展开时显示）
+        String curThink = message.thinkingContent != null ? message.thinkingContent.trim() : "";
+        String lastThink = (thinks != null && !thinks.isEmpty()) ? thinks.get(thinks.size() - 1).trim() : "";
+        if (expanded && !curThink.isEmpty() && !curThink.equals(lastThink)) { fp.append('K'); expect++; }
+        String newFp = fp.toString();
+
+        boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+
+        // ---- 结构未变：增量更新（复用已挂载 View，不重建容器与工具卡片） ----
+        if (newFp.equals(holder.roundStructureFingerprint)
+                && holder.contentHost.getChildCount() == expect) {
+            int childIdx = 0;
+            thinkIdx = 0;
+            compIdx = 0;
+            start = 0;
+            for (int i = 0; i <= bounds.size(); i++) {
+                int end = (i < bounds.size()) ? bounds.get(i) : content.length();
+                if (end > content.length()) end = content.length();
+                if (expanded && thinks != null && thinkIdx < thinks.size()) {
+                    String t = thinks.get(thinkIdx);
+                    if (t != null && !t.trim().isEmpty()) childIdx++;  // 思考块已挂载，跳过
+                    thinkIdx++;
+                }
+                String seg = start < content.length() ? content.substring(start, end) : "";
+                if (seg != null && !seg.trim().isEmpty()) {
+                    View v = holder.contentHost.getChildAt(childIdx);
+                    if (v instanceof TextView) {
+                        TextView tv = (TextView) v;
+                        // 流式轻量 setText（普通文本）；非流式走完整 Markdown 渲染
+                        if (streaming) {
+                            if (!seg.equals(tv.getText().toString())) {
+                                tv.setText(seg);
+                            }
+                        } else {
+                            setRenderedText(tv, seg, availableWidth);
+                            tv.setMovementMethod(LinkMovementMethod.getInstance());
+                        }
+                    }
+                    childIdx++;
+                }
+                start = end;
+                if (i < bounds.size() && comps != null && compIdx < comps.size()) {
+                    compIdx++;
+                    childIdx++;  // 工具卡片已挂载，跳过
+                }
+            }
+            return;
+        }
+
+        // ---- 结构变化：重建（原逻辑） ----
+        holder.contentHost.removeAllViews();
+        start = 0;
+        thinkIdx = 0;
+        compIdx = 0;
         java.util.List<String> thinkIds = message.thinkingRoundIds;
         for (int i = 0; i <= bounds.size(); i++) {
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
@@ -1012,13 +1094,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         // 最终轮思考（流式中或未落库的当前轮思考，未进 thinkingRounds 时补一块；仅展开时显示）
-        String curThink = message.thinkingContent != null ? message.thinkingContent.trim() : "";
-        String lastThink = (thinks != null && !thinks.isEmpty()) ? thinks.get(thinks.size() - 1).trim() : "";
         if (expanded && !curThink.isEmpty() && !curThink.equals(lastThink)) {
             // 最终轮 id：优先取 thinkingRoundIds 末位（进行中的轮次 id），无则 null（无锚点，仅展示）
             String lastId = (thinkIds != null && !thinkIds.isEmpty()) ? thinkIds.get(thinkIds.size() - 1) : null;
             addRoundThinkingBlock(holder, ctx, thinkIdx + 1, lastId, curThink, availableWidth);
         }
+        holder.roundStructureFingerprint = newFp;
+        holder.roundRenderedChildren = expect;
     }
 
     /**
@@ -1201,14 +1283,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return;
             }
 
-            // 设置思考内容：全量 Markdown 渲染（恢复简单直接渲染）
-            holder.thinkingContent.post(() -> {
-                int width = holder.itemView.getWidth()
-                    - holder.itemView.getPaddingLeft()
-                    - holder.itemView.getPaddingRight()
-                    - dpToPx(2, holder.itemView.getContext());
-                setRenderedText(holder.thinkingContent, cleanedContent, width);
-            });
+            // 设置思考内容：全量 Markdown 渲染（恢复简单直接渲染）。
+            // STREAM-FLICKER(2026-10-07 本地 Agent)：思考区默认折叠（thinkingContent GONE），
+            // 折叠时跳过每帧 post + 全量 Markdown 解析渲染（本地模型流式闪烁源之一）；
+            // 用户点击展开（thinkingExpanded=true）时本方法再走渲染，展开即显示。
+            if (message.thinkingExpanded) {
+                holder.thinkingContent.post(() -> {
+                    int width = holder.itemView.getWidth()
+                        - holder.itemView.getPaddingLeft()
+                        - holder.itemView.getPaddingRight()
+                        - dpToPx(2, holder.itemView.getContext());
+                    setRenderedText(holder.thinkingContent, cleanedContent, width);
+                });
+            }
             holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
 
             // 展开状态完全由 thinkingExpanded 控制：思考中/思考完毕均默认折叠，
@@ -3359,6 +3446,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         List<View> componentSegmentViews;
         /** 组件段指纹（type|props 序列）：与缓存 View 对应，指纹不变则复用 */
         String componentSegmentsFingerprint;
+        /** 轮次组装（contentRoundBounds 工具轮次消息）结构指纹：E/F 展开态 + K/T/C(含组件props) 序列，
+         *  结构未变时流式更新只刷正文段、不重建容器与工具卡片（2026-10-07 本地 Agent 闪烁修复） */
+        String roundStructureFingerprint;
+        /** 与 roundStructureFingerprint 对应的已挂载子 View 数（增量路径校验用） */
+        int roundRenderedChildren;
         /** 思考区展开/折叠动画：点击切换时先取消旧动画，防止连续点击/流式更新时动画竞争 */
         android.animation.ValueAnimator thinkingAnimator;
         TextView thinkingLabel;

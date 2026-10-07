@@ -331,3 +331,36 @@ src/main/java/com/oilquiz/app/ai/agent/software/engine/AgentLoopEngine.java
 ### 上设备验收
 - 本地 Agent 自我介绍/行为符合"答题宝App中的AI聊天助手，是App内AI对话功能模块的助手（Agent模式）"身份，与在线一致。
 - KV-STATS 命中率不受影响（system 段变化仅影响首轮 FULL，跨轮前缀稳定性依赖 sessionMessages 逐字节回放，不受本段影响）。
+
+## 十二、本地 Agent 流式渲染闪烁修复（2026-10-07 轮次增量版）
+
+> 前置：前版修复（45e502bc，纯文本流式轻量 + 宿主复用）导致完成后正文变纯文本块，已整体回退（8a4c01be）。
+> 本次定位到**本地模型特有**的闪烁源，修复不触碰正文纯文本/宿主 Markdown 渲染路径。
+
+### 关键线索（用户实测）
+在线模型正常，本地模型闪烁 → 差异在消息结构：本地 Agent 消息带工具轮次（contentRoundBounds）走 `renderRoundAssembled`，在线普通消息走纯文本分支。
+
+### 根因（ChatAdapter.renderRoundAssembled）
+每帧流式更新（50/200ms 批量）**无条件 `contentHost.removeAllViews()`** + 全部重建：
+- 正文段每帧新建 TextView + 全量 Markdown
+- 思考块每帧重建
+- 工具卡片每帧 `ComponentRegistry.render()` 重新生成
+
+另：`updateThinkingContent` 思考区默认折叠仍每帧 `post + setRenderedText` 全量渲染。
+
+### 修复（ChatAdapter.java）
+1. holder 新增 `roundStructureFingerprint` / `roundRenderedChildren`。
+2. `renderRoundAssembled` 双路径：
+   - **结构指纹** = E/F 展开态 + K(思考块)/T(正文段)/C:type|props(工具卡片) 序列，不编码正文文本。
+   - 结构未变（且子 View 数一致）→ **增量**：不 removeAllViews，正文段复用原地刷新（流式轻量 setText、非流式完整 Markdown），工具卡片不动。
+   - 结构变化（新轮次/卡片状态切换）→ 重建（低频，必要）。
+3. `updateThinkingContent`：**折叠时跳过渲染**，`thinkingExpanded=true` 时渲染（展开即显示）。
+
+### 验证
+`.\gradlew.bat :assembleDebug` → BUILD SUCCESSFUL（39s）→ adb install → 启动（pid 28661）。
+
+### 上设备验收
+- 本地 Agent 消息（工具轮次）流式期间不重建容器，正文平滑增长不闪。
+- 生成完成后 Markdown 富文本正常（代码块/表格）。
+- 思考区折叠不渲染，点击展开可见完整思考。
+- 在线模型消息不受影响（路径未变）。
