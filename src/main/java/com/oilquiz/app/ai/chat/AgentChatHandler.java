@@ -370,11 +370,24 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
             thinkingRouter.setThinkingTags(null);
         }
 
-        // 路由分支（R3-1/R8-1）：本地模型且 localAgentEnabled → 本地软件层；否则在线引擎
-        boolean useLocalAgent = aiConfig != null && aiConfig.isLocalAgentEnabled()
-                && !engine.isOnlineModelActive();
+        // 路由分支（R3-1/R8-1）：本地模型且 localAgentEnabled → 本地软件层；否则在线引擎。
+        //
+        // AGENT-DEADEND-FIX（2026-10-07 实测）：必须**先确认在线分支真的可用**，否则会出现
+        // "本地模型 + Agent 模式" 被路由到在线引擎、而在线引擎因没有可用在线模型静默跳过
+        // → 界面永久卡在「⏳ 模型处理中」（用户报障）。这里把判据从
+        // "是否本地 Agent" 改成 "**优先本地 Agent；在线分支不可用时也回落到本地 Agent**"：
+        //   · 本地 Agent 且引擎在用 → 本地软件层（NPU / llama.cpp 都支持）；
+        //   · 否则若在线模型不可用 → 仍走本地软件层（有本地模型时这是唯一能跑的路径）；
+        //   · 其余情况才交给在线引擎。
+        boolean localModelActive = engine != null && !engine.isOnlineModelActive();
+        boolean onlineAvailable = engine != null && engine.isOnlineModelAvailable();
+        boolean localAgentEnabledNow = aiConfig != null && aiConfig.isLocalAgentEnabled();
+        boolean useLocalAgent = localModelActive && (localAgentEnabledNow || !onlineAvailable);
+        if (localModelActive && !localAgentEnabledNow && !onlineAvailable) {
+            AILogger.w(TAG, "本地模型 + 在线模型不可用 → 回落本地 Agent（避免路由到死路卡住界面）");
+        }
         if (useLocalAgent) {
-            AILogger.i(TAG, "Local model + localAgentEnabled → AgentSoftwareLayer (JSON 协议)"
+            AILogger.i(TAG, "Local model → AgentSoftwareLayer (JSON 协议)"
                     + ", history: " + (history != null ? history.size() : 0));
             softwareLayer.processMessage(message, enableThinking, history);
         } else {

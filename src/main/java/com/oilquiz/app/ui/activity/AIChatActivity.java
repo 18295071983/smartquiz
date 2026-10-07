@@ -1415,6 +1415,9 @@ public class AIChatActivity extends BaseActivity {
                             chatAdapter.notifyItemChanged(idx);
                         }
                     }
+                    // AGENT-STATUS-RESET：出错也必须结束本轮 —— 否则 isGenerating 仍为 true、
+                    // 状态栏/停止按钮残留"处理中"，用户看到卡死且无法再次发送。
+                    endGeneration();
                 });
             }
 
@@ -7235,6 +7238,13 @@ public class AIChatActivity extends BaseActivity {
         cancelThinkingRefresh();
 
         hideLoadingUI();
+        // AGENT-STATUS-RESET（2026-10-07 实测）：Agent 路径会先把顶部状态栏置为
+        // 「⏳ 模型处理中…」(busy=true)，但原先**没有任何地方清除它** —— endGeneration /
+        // hideLoadingUI 只处理 loading 指示器与停止按钮，不碰 serviceStatusText /
+        // serviceStatusProgress。于是生成已结束（含出错结束）后文本仍残留"模型处理中"，
+        // 用户看到的就是"一直卡在模型处理中"。这里在生成结束时统一定位回空闲态，
+        // 保证任何结束路径（完成 / 出错 / 取消）都不残留。
+        clearAgentStatusBar();
 
         // 显示最终 Token 统计（由 tokenStatsCallback 更新为 "🔵 X tokens" 格式）
         showTokenStats(true);
@@ -9762,6 +9772,30 @@ public class AIChatActivity extends BaseActivity {
         if (serviceStatusProgress != null) {
             serviceStatusProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
             if (busy) serviceStatusProgress.setIndeterminate(true);
+        }
+    }
+
+    /**
+     * 生成结束后把顶部状态栏复位到空闲态（清除"模型处理中"这类残留文本与转圈）。
+     *
+     * <p>为什么需要（2026-10-07 实测）：Agent 路径在起跑前把状态栏设成
+     * {@code updateAgentStatusBar("⏳ 模型处理中...", true)}，而**原先没有任何地方撤销它**。
+     * {@code endGeneration()}/{@code hideLoadingUI()} 只管 loading 指示器与停止按钮，
+     * 不碰 {@code serviceStatusText}/{@code serviceStatusProgress}。因此只要这一轮不是走
+     * "完整成功"的那条路（例如路由不可用直接返回、或中途出错），状态栏就会永远停在
+     * "模型处理中"——这正是用户报障"agent 一直在模型处理中"的第二个成因。</p>
+     */
+    private void clearAgentStatusBar() {
+        try {
+            if (serviceStatusProgress != null) {
+                serviceStatusProgress.setVisibility(View.GONE);
+            }
+            // 文本复位为空闲态；不置空字符串，避免状态栏出现一段空白造成视觉跳变
+            if (serviceStatusText != null) {
+                serviceStatusText.setText("就绪");
+            }
+        } catch (Throwable ignored) {
+            // 状态栏清理失败不影响主流程
         }
     }
 

@@ -138,7 +138,20 @@ object NpuLlmChat {
     }
 
 
-    @Volatile private var plannedNCtx = 8192   // 兜底值；真实值由 planNCtx 按内存预算定
+    /**
+     * 内存预算规划出的上下文长度。
+     *
+     * <p><b>0 表示"尚未规划"</b>（而不是某个猜测值）。这一点很重要（2026-10-07 实测）：
+     * 旧实现用 8192 当"兜底默认"，于是调用方**分不清"已规划出 8192"还是"还没算过"**；
+     * 更糟的是多处兜底路径直接给 4096，导致 Agent 模式下窗口被压到 4096
+     * （tools schema 占 2021 tokens，只剩约 1051 可用，多轮工具结果必被裁掉，
+     * 表现为"工具调用了但结果像没回传"）。
+     * 现在未规划就是 0，由 {@link plannedNCtxValue()} 对外报 -1（未知），
+     * 调用方据此显式触发 {@link planForCurrentModel} 或明确降级，而不是拿到一个假数字。</p>
+     */
+    @Volatile private var plannedNCtx = 0
+    /** 当前 plannedNCtx 是为哪个模型算的；换模型后旧值失效，需重新规划 */
+    @Volatile private var plannedNCtxModel: String? = null
 
     /** 可用的系统内存（字节） */
     private fun availableMemBytes(ctx: Context): Long {
@@ -154,7 +167,12 @@ object NpuLlmChat {
 
     /** 每 token 的 KV 缓存字节数（按 gguf 规格估算；混合注意力只算全注意力层） */
     private fun kvBytesPerToken(m: com.oilquiz.app.ai.model.GgufMeta?): Long {
-        if (m == null) return 0
+        if (m == null) {
+            // KV-EST-DIAG：这里返回 0 会让 planNCtx 走"估算不可用"兜底（历史上给 4096），
+            // 把上下文压到装不下工具定义。必须能看出**为什么**读不到规格。
+            Log.w(TAG, "kvBytesPerToken: GgufMeta 为 null（模型元数据解析失败或未登记）")
+            return 0
+        }
         val layers = if (m.blockCount > 0) m.blockCount else 32
         val kvHeads = if (m.headCountKv > 0) m.headCountKv else (if (m.headCount > 0) m.headCount else 8)
         val headDim = if (m.headLength > 0) m.headLength
@@ -165,7 +183,18 @@ object NpuLlmChat {
             m.hasLinearAttention -> maxOf(1L, layers / 4)   // Qwen3.5 系：每 4 层 1 个全注意力
             else -> layers
         }
-        return 2L * fullLayers * kvHeads * headDim * 2L     // K+V，f16
+        val bytes = 2L * fullLayers * kvHeads * headDim * 2L     // K+V，f16
+        // KV-EST-DIAG：等于 0 会让 planNCtx 走兜底，把上下文压到装不下工具定义。
+        // 这里把参与计算的元数据字段一并打出来，直接看出是哪个字段没读到。
+        if (bytes <= 0) {
+            Log.w(TAG, "kvBytesPerToken=0: blockCount=" + m.blockCount + ", headCount=" + m.headCount
+                    + ", headCountKv=" + m.headCountKv + ", embeddingLength=" + m.embeddingLength
+                    + ", headLength=" + m.headLength + ", fullAttentionInterval=" + m.fullAttentionInterval
+                    + ", hasLinearAttention=" + m.hasLinearAttention
+                    + " -> layers=" + layers + ", kvHeads=" + kvHeads + ", headDim=" + headDim
+                    + ", fullLayers=" + fullLayers)
+        }
+        return bytes
     }
 
     /**
@@ -203,10 +232,36 @@ object NpuLlmChat {
         0L
     }
 
+    /**
+     * 无法估算 KV 时的上下文档位。
+     *
+     * <p>WHY（2026-10-07 实测）：原先这几处直接 {@code return 4096}。但本方法下方有两条
+     * 明确得多的策略 ——「Agent 模式需要足够上下文（工具定义约 2k token + 多轮工具结果）」与
+     * 「NPU 给不了就降级 CPU 也要给足上下文」。硬编码 4096 与它们**自相矛盾**：
+     * 一旦 {@code GgufMeta.read()} 失败或 perToken 算不出来（返回 0），就会绕过那两条策略，
+     * 把 Agent 的上下文压到 4096；tools schema 一吃（实测 2021 tokens）只剩约 1051 可用，
+     * 多轮工具结果必然被裁剪，表现为"工具调用了但结果像是没回传"。</p>
+     *
+     * <p>现在统一走同一判据：Agent 模式给 {@link #AGENT_MIN_NCTX} 并标记 CPU 回退
+     * （CPU 可吃 swap，能真正撑起这个上下文）；普通对话给保守的 4096。</p>
+     *
+     * <p><b>注意</b>：返回的是"兜底值"，不代表已成功规划。调用方不应把它当成真实窗口
+     * 长期使用（{@link planForCurrentModel} 会在真正拿到模型文件后重算并标记）。</p>
+     */
+    private fun fallbackNCtxWhenUnknown(why: String): Int {
+        if (npuAgentEnabled) {
+            Log.w(TAG, "KV 估算不可用($why) + Agent 模式 → 用 $AGENT_MIN_NCTX 上下文并降级 CPU（保证多轮工具轮跑得下）")
+            preferCpuFallback = true
+            return AGENT_MIN_NCTX
+        }
+        Log.w(TAG, "KV 估算不可用($why) → 用保守上下文 4096")
+        return 4096
+    }
+
     private fun planNCtx(ctx: Context, gguf: File?): Int {
-        if (gguf == null || !gguf.isFile) return 4096
+        if (gguf == null || !gguf.isFile) return fallbackNCtxWhenUnknown("模型文件未就绪")
         val avail = availableMemBytes(ctx)
-        if (avail <= 0) return 4096
+        if (avail <= 0) return fallbackNCtxWhenUnknown("可用内存读取失败")
         // HTP-SESSION-CEILING: 先按官方 3.5GB 单会话上限判断能否走 NPU（不看系统内存）
         val htpEstimate = (modelBytesOf(gguf) * HTP_REPACK_FACTOR).toLong() + HTP_GRAPH_BUFFER
         if (htpEstimate > HTP_SESSION_LIMIT) {
@@ -236,7 +291,7 @@ object NpuLlmChat {
         val reserve = 400L * 1024 * 1024      // App 自身（实测 PSS ~420MB）
         val margin = 300L * 1024 * 1024       // 安全余量
         val forKv = avail - modelBytes - reserve - margin
-        if (perToken <= 0) return if (forKv > 0) 4096 else -1
+        if (perToken <= 0) return if (forKv > 0) fallbackNCtxWhenUnknown("perToken=0") else -1
         // Qwen3.5 混合架构 KV 很便宜（32KB/token），允许开到 32768
         // NCTX-LADDER: 档位下限 2048（不低于此，否则对话无实用价值）—— 装不下则转 CPU 推理
         for (c in intArrayOf(32768, 16384, 8192, 4096, 2048)) {
@@ -275,17 +330,36 @@ object NpuLlmChat {
 
     /**
      * 立即为"将要使用的模型"跑一次内存规划并写入 plannedNCtx。
-     * 供适配层在**裁剪历史之前**调用，避免用到过期的兜底值（8192）。
+     * 供适配层在**裁剪历史之前**调用，避免用到过期/未规划的值。
+     *
+     * <p><b>为什么必须"按模型"判断而不是只看有无值</b>（2026-10-07 实测）：
+     * 加载期也会算一次并写 plannedNCtx，但那次可能拿到的是**兜底值**（例如登记表还没就绪，
+     * {@code preferredNpuModel()} 返回 null → 兜底 4096）。若这里简单地"有值就跳过"，
+     * Agent 就会一直读到那个 4096；而 Agent 实际需要 16384（tools schema 占 2021 tokens）。
+     * 所以：**兜底值不算"已规划"**，必须先真正拿到模型文件重算一次。</p>
      */
     @JvmStatic
     fun planForCurrentModel(context: Context) {
         try {
             registerAppModelLibrary(context)
-            val name = preferredNpuModel() ?: return
+            val name = preferredNpuModel()
+            if (name == null) {
+                Log.w(TAG, "planForCurrentModel: 尚无可用模型可规划（登记表为空）")
+                return
+            }
+            // 同模型已真正规划过 → 直接复用，避免每次请求都重解析 GGUF
+            if (name == plannedNCtxModel && plannedNCtx > 0) {
+                return
+            }
             val f = localFiles[name]?.let { File(it) }
+            if (f == null || !f.isFile) {
+                Log.w(TAG, "planForCurrentModel: 模型文件不可用 -> $name")
+                return
+            }
             val p = planNCtx(context, f)
             if (p > 0) {
                 plannedNCtx = p
+                plannedNCtxModel = name
                 Log.i(TAG, "内存规划(裁剪前): $name -> nCtx=$p")
             }
         } catch (t: Throwable) {
@@ -379,9 +453,21 @@ object NpuLlmChat {
     @JvmStatic
     fun isSpecEnabled(): Boolean = specEnabled
 
-    /** 当前规划出的 NPU 上下文长度（内存预算反推，供 Agent 适配层裁剪历史） */
+    /**
+     * 当前规划出的 NPU 上下文长度（内存预算反推，供 Agent 适配层裁剪历史）。
+     *
+     * @return 已规划的长度；**尚未规划时返回 -1（未知）**。
+     *         <p>用 -1 而不是某个默认值，是为了让调用方**必须显式处理"未知"**：
+     *         可以调用 {@link planForCurrentModel} 触发规划，或明确走自己的降级策略。
+     *         这样就不会再出现"把猜测值当成真实窗口"导致 Agent 上下文被压低的问题
+     *         （旧实现默认 8192，且多处兜底给 4096，而 Agent 实际需要 16384）。</p>
+     */
     @JvmStatic
-    fun plannedNCtxValue(): Int = plannedNCtx
+    fun plannedNCtxValue(): Int = if (plannedNCtx > 0) plannedNCtx else -1
+
+    /** 是否已为当前模型完成内存规划 */
+    @JvmStatic
+    fun isNCtxPlanned(): Boolean = plannedNCtx > 0
 
     // ==================== NPU-CTX-USAGE：上下文占用统计 ====================
     // 背景（2026-10-07）：对话页的"上下文仪表"原先只读 llama.cpp 的
@@ -1597,6 +1683,13 @@ object NpuLlmChat {
                 return
             }
             plannedNCtx = planned
+            // 只有真正拿到模型文件算出来的值才标记"已为某模型规划"。
+            // 兜底值（planFile 为 null 时）不标记，这样后续 planForCurrentModel 会重算，
+            // 不会让调用方一直读到那个兜底值（实测 Agent 因此被压到 4096）。
+            plannedNCtxModel = if (planFile != null && planFile.isFile) target else null
+            if (plannedNCtxModel == null) {
+                Log.w(TAG, "加载期规划用的是兜底值 $planned（模型文件未就绪）→ 不标记已规划，后续会重算")
+            }
         if (target == null) {
             state = State.ERROR
             listener?.onError("还没有可用的本地模型：请到「模型下载」页下载 NPU 模型（选 Q4_0 那个），或把 GGUF 放进 files/gguf/")

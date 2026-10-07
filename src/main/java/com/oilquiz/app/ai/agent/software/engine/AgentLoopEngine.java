@@ -1580,9 +1580,19 @@ public class AgentLoopEngine {
         // 走 NpuAwareText 按引擎取，并用同一份日志保留原有的可观测性。
         int real = 0;
         try {
-            real = com.oilquiz.app.ai.engine.NpuAwareText.isNpu()
-                    ? com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue()
-                    : LlamaHelper.getContextSize();
+            if (com.oilquiz.app.ai.engine.NpuAwareText.isNpu()) {
+                // NPU-CONTRACT：plannedNCtxValue() 未规划时返回 -1（未知），**不再给猜测值**。
+                // 未知时在这里显式触发一次内存规划（幂等，同模型不重复解析 GGUF），
+                // 这样拿到的就是真实窗口，而不是把 4096/8192 这类兜底值当成窗口用
+                // —— 那会把 Agent 的预算压到装不下工具定义+多轮结果。
+                real = com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
+                if (real <= 0 && appContext != null) {
+                    com.oilquiz.app.ai.engine.NpuLlmChat.planForCurrentModel(appContext);
+                    real = com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
+                }
+            } else {
+                real = LlamaHelper.getContextSize();
+            }
         } catch (Throwable t) {
             AILogger.w(TAG, "getContextSize failed: " + t.getMessage());
         }
@@ -1590,9 +1600,9 @@ public class AgentLoopEngine {
         if (ctxSize <= 0) {
             ctxSize = 8192; // 兜底
         }
-        if (real > 0 && preset > 0 && preset != real) {
-            AILogger.i(TAG, "Effective context: preset=" + preset + ", native=" + real + ", using " + ctxSize);
-        }
+        AILogger.i(TAG, "Effective context: preset=" + preset + ", native=" + real + ", using " + ctxSize
+                + " [isNpu=" + com.oilquiz.app.ai.engine.NpuAwareText.isNpu()
+                + ", npuPlanned=" + com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue() + "]");
         return ctxSize;
     }
 

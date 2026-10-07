@@ -72,12 +72,32 @@ public class AgentRouter {
      */
     public void execute(String message, int maxTokens, boolean enableThinking) {
         if (!isOnlineModelActive()) {
-            AILogger.w(TAG, "Agent execute skipped: no online model active");
+            // AGENT-DEADEND-FIX（2026-10-07 实测）：原先这里只打日志就 return —— **不回调任何终态**。
+            // 而调用方（AIChatActivity.processChatMessageWithAgent）在进来之前已把状态栏置为
+            // 「⏳ 模型处理中…」，且没有任何超时清除逻辑，于是界面**永久卡在"模型处理中"**
+            // （用户报障："agent有问题，一直在模型处理中"）。实测日志只有一行
+            // "Agent execute skipped: no online model active" 之后再无输出。
+            // 路由不可用**必须给出结论**，否则 UI 无从得知该结束等待。
+            AILogger.w(TAG, "Agent execute skipped: no online model active → 回调 onError 以免界面卡死");
+            if (callback != null) {
+                callback.onError("当前没有可用的在线模型，Agent 已取消。"
+                        + "请在设置里启用在线模型，或改用本地模型（本地 Agent 路径）。");
+            }
             return;
         }
         AILogger.i(TAG, "Online model → OnlineAgentEngine" + (enableThinking ? " (深度思考)" : ""));
         ensureOnlineEngineCreated();
         onlineEngine.execute(message, maxTokens, enableThinking);
+    }
+
+    /**
+     * 当前是否有可用的在线模型。
+     *
+     * <p>供上层做**路由决策**用：选定分支之前先问一句，避免把一个本地模型请求送进在线分支，
+     * 结果被本类静默跳过、界面卡在"模型处理中"（见 {@link #execute} 的说明）。</p>
+     */
+    public boolean isOnlineModelAvailable() {
+        return isOnlineModelActive();
     }
 
     // ==================== 生命周期方法 ====================

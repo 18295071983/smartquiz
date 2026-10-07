@@ -369,7 +369,9 @@ public final class NpuEngineRouter {
 
         // NPU-TRIM-HISTORY: NPU 没有 native 的 KV/prefix 复用，每轮都要全量重算；
         // 且超长 prompt 会被截断导致工具轮错乱。这里按内存预算规划出的 nCtx 裁剪历史。
-        // 裁剪前先让引擎按内存预算规划一次（否则会用兜底 8192，浪费上下文）
+        // 裁剪前先让引擎按内存预算规划一次（幂等）。注意 plannedNCtxValue() 在**未规划**时
+        // 返回 -1 而不是猜测值，而 trimMessagesForNCtx 对 nCtx<=0 是"不裁剪"，
+        // 因此必须确保这里真的规划过，否则会失去超长保护。
         try {
             if (appContext != null) {
                 NpuLlmChat.planForCurrentModel(appContext);
@@ -851,35 +853,161 @@ public final class NpuEngineRouter {
         }
     }
 
-    /** 从模型输出里解析 <tool_call>{"name":…,"arguments":{…}}</tool_call>，按 native 协议 emit */
+    // ==================== 工具调用文本解析 ====================
+    // 模型可能输出两种形态，必须都认（TOOLCALL-XML-FIX，2026-10-07 实测）：
+    //   ① Qwen3 的 JSON 形态：<tool_call>{"name":"ai_weather","arguments":{"city":"北京"}}</tool_call>
+    //   ② Qwen3.5 的 XML 形态：<tool_call><function=location><parameter=action>get_coordinates
+    //      </parameter></function></tool_call>
+    // 旧实现只认 ①，而本机 Qwen3.5 走的是 ②，于是日志出现
+    // "NPU Agent 轮次汇总: tool_call=0, 含<tool_call>标签=true" —— 模型确实调了工具，
+    // 但结构化 tool_call 事件一个都没发出，工具结果也就无法按协议回传。
+    // 正则与 AgentLoopEngine（Java 兜底）保持同款，避免两套实现漂移。
+
+    /** <tool_call>...</tool_call> 块（用于取内层 JSON 或 XML） */
+    private static final java.util.regex.Pattern TC_BLOCK =
+            java.util.regex.Pattern.compile("<tool_call>(.*?)</tool_call>",
+                    java.util.regex.Pattern.DOTALL);
+    /** Qwen3.5 XML：tool_call 块内 function=工具名 + parameter=参数名 */
+    private static final java.util.regex.Pattern TC_QWEN35_BLOCK =
+            java.util.regex.Pattern.compile(
+                    "<tool_call>\\s*<function=([^>\\n]+)>\\s*([\\s\\S]*?)\\s*\\s*</tool_call>",
+                    java.util.regex.Pattern.DOTALL);
+    /** 兜底：<function=...> 无 tool_call 包裹或未闭合（截断时闭合标签丢失） */
+    private static final java.util.regex.Pattern TC_QWEN35_BARE =
+            java.util.regex.Pattern.compile(
+                    "<function=([^>\\n]+)>\\s*([\\s\\S]*?)\\s*(?:" + "</" + "function>|\\z)",
+                    java.util.regex.Pattern.DOTALL);
+    /** XML 参数：值取到 parameter 闭合、下一个 parameter 或 function 闭合为止（截断不丢参数） */
+    private static final java.util.regex.Pattern TC_QWEN35_PARAM =
+            java.util.regex.Pattern.compile(
+                    "<parameter=([^>\\n]+)>\\s*([\\s\\S]*?)(?=<parameter=|" + "</" + "parameter>|<"
+                            + "/function>|\\z)",
+                    java.util.regex.Pattern.DOTALL);
+
+    /**
+     * 从模型输出里解析工具调用，按 native 协议产出 {@code {"type":"tool_call",...}} 事件。
+     * 两种形态并存时按"能解析出内容为准"自适应：先试 JSON 块，再试 Qwen3.5 XML，最后试裸 JSON。
+     */
     private static java.util.List<String> toolCallEvents(String text) {
         java.util.List<String> out = new java.util.ArrayList<>();
         if (text == null || text.isEmpty()) {
             return out;
         }
         try {
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("<tool_call>\\s*(\\{.*?\\})\\s*</tool_call>", java.util.regex.Pattern.DOTALL)
-                    .matcher(text);
             int idx = 0;
-            while (m.find()) {
-                org.json.JSONObject call = new org.json.JSONObject(m.group(1));
-                String name = call.optString("name", "");
-                if (name.isEmpty()) {
-                    continue;
+            // ① JSON 形态：<tool_call>{...}</tool_call>
+            java.util.regex.Matcher tm = TC_BLOCK.matcher(text);
+            while (tm.find()) {
+                String inner = tm.group(1) == null ? "" : tm.group(1).trim();
+                if (!inner.startsWith("{")) {
+                    continue;   // XML 形态交给 ②
                 }
-                org.json.JSONObject ev = new org.json.JSONObject();
-                ev.put("type", "tool_call");
-                ev.put("id", "npu_call_" + (idx++));
-                ev.put("name", name);
-                Object args = call.opt("arguments");
-                ev.put("arguments", args == null ? "{}" : args.toString());
-                out.add(ev.toString());
+                try {
+                    org.json.JSONObject call = new org.json.JSONObject(inner);
+                    String name = call.optString("name", "");
+                    if (name.isEmpty()) {
+                        continue;
+                    }
+                    Object args = call.opt("arguments");
+                    out.add(buildToolCallEvent(idx++, name, args == null ? "{}" : args.toString()));
+                } catch (Throwable ignored) {
+                    // 非合法 JSON，继续尝试其它形态
+                }
+            }
+            if (!out.isEmpty()) {
+                return out;
+            }
+
+            // ② Qwen3.5 XML 形态
+            java.util.regex.Matcher xm = TC_QWEN35_BLOCK.matcher(text);
+            while (xm.find()) {
+                String ev = buildXmlToolCallEvent(idx, xm.group(1), xm.group(2));
+                if (ev != null) {
+                    out.add(ev);
+                    idx++;
+                }
+            }
+            if (out.isEmpty()) {
+                java.util.regex.Matcher bare = TC_QWEN35_BARE.matcher(text);
+                while (bare.find()) {
+                    String ev = buildXmlToolCallEvent(idx, bare.group(1), bare.group(2));
+                    if (ev != null) {
+                        out.add(ev);
+                        idx++;
+                    }
+                }
             }
         } catch (Throwable t) {
             Log.w(TAG, "tool_call 解析失败: " + t);
         }
         return out;
+    }
+
+    /** 构造一条 tool_call 事件 JSON */
+    private static String buildToolCallEvent(int idx, String name, String argumentsJson) {
+        org.json.JSONObject ev = new org.json.JSONObject();
+        try {
+            ev.put("type", "tool_call");
+            ev.put("id", "npu_call_" + idx);
+            ev.put("name", name);
+            ev.put("arguments", argumentsJson == null ? "{}" : argumentsJson);
+        } catch (Throwable ignored) {
+        }
+        return ev.toString();
+    }
+
+    /**
+     * 由 Qwen3.5 XML 的工具名 + 参数体构造 tool_call 事件。
+     *
+     * <p>工具名**不做模糊归一**：NPU 路由层拿不到 toolManager（那是 Agent 层的依赖），
+     * 而 Agent 侧本就有同名解析与归一（AgentLoopEngine），两条路都发同一份事件时
+     * 由 Agent 统一归一即可，避免这里再引一套名字映射。</p>
+     */
+    private static String buildXmlToolCallEvent(int idx, String rawName, String body) {
+        if (rawName == null || rawName.trim().isEmpty()) {
+            return null;
+        }
+        org.json.JSONObject args = new org.json.JSONObject();
+        try {
+            java.util.regex.Matcher pm = TC_QWEN35_PARAM.matcher(body == null ? "" : body);
+            while (pm.find()) {
+                String pn = pm.group(1) == null ? "" : pm.group(1).trim();
+                String pv = pm.group(2) == null ? "" : pm.group(2).trim();
+                if (pn.isEmpty()) {
+                    continue;
+                }
+                args.put(pn, parseXmlParamValue(pv));
+            }
+        } catch (Throwable ignored) {
+            // 参数解析失败也要把工具名发出去（参数缺失由工具侧报错，好过整条丢弃）
+        }
+        return buildToolCallEvent(idx, rawName.trim(), args.toString());
+    }
+
+    /** XML 参数值：对象/数组按 JSON 解析，标量走 JSONTokener，失败保留原文 */
+    private static Object parseXmlParamValue(String raw) {
+        String v = raw == null ? "" : raw.trim();
+        if (v.isEmpty()) {
+            return "";
+        }
+        if (v.startsWith("{")) {
+            try {
+                return new org.json.JSONObject(v);
+            } catch (Throwable ignored) {
+                // 非 JSON 对象，按文本
+            }
+        } else if (v.startsWith("[")) {
+            try {
+                return new org.json.JSONArray(v);
+            } catch (Throwable ignored) {
+                // 非 JSON 数组，按文本
+            }
+        }
+        try {
+            return new org.json.JSONTokener(v).nextValue();
+        } catch (Throwable ignored) {
+            return v;
+        }
     }
 
     /** 回退到 llama.cpp 前释放 NPU 权重，避免两套模型同时常驻 */
