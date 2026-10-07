@@ -318,7 +318,7 @@ src/main/java/com/oilquiz/app/ui/activity/AIChatActivity.java
 1. "（在线Agent模式）"→"（Agent模式）"——本地不能自称在线；
 2. "结构化信息用UI组件展示"→"清晰的分段与列表"——本地 ui_component 大 schema 不注入（DEFAULT_CORE_TOOLS 注释），照搬会诱导模型调用不存在的工具。
 
-本地【规则】段（工具调用规则 1-6）保留——本地小模型需要显式工具规则，在线模型走原生 function calling 不需要，此为引擎差异而非提示词身份差异。
+【规则】段（工具调用规则 1-6）随后一并删除（2026-10-07 四交补）：关键约束已被 persona 覆盖（规则1 实时必须调工具 ≈ 方式行「实时/动态信息必须用工具获取」；规则5 中文简洁先结论 ≈ 风格行），本地 Qwen3.5 原生 FC + tools schema description 引导，prompt 更小（首轮 FULL 更小、KV 更省），与在线最小提示词完全同构。若实测小模型编造实时数据，恢复「实时/时效类必须调用工具，不要用训练数据猜测」一行即可。
 
 ### 改动文件
 ```
