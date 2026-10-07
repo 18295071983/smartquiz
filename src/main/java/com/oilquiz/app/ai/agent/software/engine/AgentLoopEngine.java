@@ -72,14 +72,24 @@ public class AgentLoopEngine {
      *  优雅降级，但回答完整性打折）。用户已确认"速度可以慢、功能正常优先"，
      *  故放宽到 5 分钟；思考链冗长问题由规则 1 强约束抑制。 */
     private static final long TOTAL_TIME_BUDGET_MS = 300000;
-    /** 单次推理的 prompt token 预算系数（占上下文容量的比例，下限 0.15） */
-    private static final double PROMPT_BUDGET_RATIO = 0.8;
+    /** 单次推理的 prompt token 预算系数（占上下文容量的比例，下限 0.15）
+     *  ⚠ 2026-10-07 已废弃：固定比例只约束 prompt，把生成空间压到 < maxTokens，
+     *  长回答必然触发 native ctx_full 硬截断。预算改由 computePromptBudget 的
+     *  「n_ctx − FINAL_RESPONSE_MAX_TOKENS − NATIVE_GENERATION_RESERVE」公式计算 */
+    private static final double PROMPT_BUDGET_RATIO = 0.8; // 保留引用说明，勿再使用
     /** 工具结果最大字符数（超长时截断，节省上下文；放宽到 6000：天气/搜索等
      *  结果不再因 1200 截断丢失关键数值——上一轮天气问题的根因。trim 阶段会把
      *  更早的工具结果压缩到 2500，最近的保持完整，平衡信息完整性与上下文占用） */
     private static final int MAX_TOOL_RESULT_LENGTH = 6000;
-    /** 最终回复最大生成 token：放宽到 4000，长回答/长篇输出不被截断 */
+    /** 最终回复最大生成 token：放宽到 4000，长回答/长篇输出不被截断。
+     *  注意：生成空间 = n_ctx − prompt 预算，必须由 computePromptBudget / buildRequestJson
+     *  联动保证（P1/P0，2026-10-07），否则 4000 会超出实际空间触发 native ctx_full 硬截断 */
     private static final int FINAL_RESPONSE_MAX_TOKENS = 4000;
+    /** native 生成预留（native-lib.cpp GENERATION_RESERVE=512）：prompt 上限 n_ctx−512 的最后防线 */
+    private static final int NATIVE_GENERATION_RESERVE = 512;
+    /** 模板渲染 overhead 预留：Java token 计数基于简化文本（serializeHistory），
+     *  实际模板含 <|im_start|> 等特殊 token 与工具格式包装，需预留余量防低估 */
+    private static final int TEMPLATE_OVERHEAD_RESERVE = 512;
     /** 普通对话（意图未命中）最大生成 token：放宽到 2000 */
     private static final int PLAIN_CHAT_MAX_TOKENS = 2000;
     /** 工具执行超时（毫秒） */
@@ -187,6 +197,11 @@ public class AgentLoopEngine {
      *  否则 system 漂移 → KV 前缀失配 → 全量 prefill。 */
     private final java.util.Set<String> sessionTools = new java.util.LinkedHashSet<>();
 
+    /** P2(2026-10-07)：历史裁剪要点缓存。trimHistoryToFit 超预算时一次性生成，
+     *  之后同一次 agent 运行内逐字节复用，保证"已入历史的消息永不改写"的
+     *  前缀稳定性质（要点文本若每轮重生成，位置 1 的 token 序列每轮都变）。 */
+    private String compactionSummary = null;
+
     public interface LoopCallback {
         void onIterationStart(int iteration, String promptSummary);
         void onIterationEnd(int iteration, String response);
@@ -202,6 +217,8 @@ public class AgentLoopEngine {
         void onComplete(String finalText);
         void onError(String error);
         void onInferenceProgress(int tokenCount, float tokensPerSecond);
+        /** 可选：本轮生成被上下文上限截断（native stop_reason=ctx_full），UI 可提示"回答不完整" */
+        default void onTruncated(String detail) {}
     }
 
     public AgentLoopEngine(Context context, AIService aiService) {
@@ -303,6 +320,8 @@ public class AgentLoopEngine {
         // 单次推理的 prompt token 预算（结合配置上下文容量）
         final int promptBudget = computePromptBudget();
         AILogger.i(TAG, "Prompt budget: " + promptBudget + " tokens");
+        // P2：每次 agent 运行重置历史要点缓存（跨用户消息不复用旧要点）
+        compactionSummary = null;
 
         // FC 模式（local_fc_enabled）：system 提示词带 Qwen 原生工具调用规则（<tool_call> 格式）
         boolean modelFcMode = aiConfig != null && aiConfig.isFcEnabled();
@@ -524,6 +543,14 @@ public class AgentLoopEngine {
                 float tps = elapsed > 0 ? (iterTokens * 1000.0f) / elapsed : 0;
                 callback.onInferenceProgress(totalTokens, tps);
                 callback.onIterationEnd(iteration, response);
+            }
+
+            // P0：native 上下文满截断信号（stop_reason=ctx_full）→ 记录日志并通知 UI。
+            // 截断回复不再被当作完整回答静默交付（原实现仅 native 日志可见）。
+            if (genResult.stopReason != null && "ctx_full".equals(genResult.stopReason)) {
+                AILogger.w(TAG, "iter " + iteration + " generation truncated by context full, "
+                        + "response=" + (response != null ? response.length() : 0) + " chars");
+                if (callback != null) callback.onTruncated("第 " + iteration + " 轮回答因上下文已满被截断");
             }
 
             // 提取思考过程（C++ 层通过 onReasoning / onJson reasoning 事件传递；
@@ -1093,6 +1120,7 @@ public class AgentLoopEngine {
         final StringBuilder fullContentBuf = new StringBuilder();  // 收集所有 token，兜底解析工具调用
         final String[] contentHolder = {null};
         final String[] errorHolder = {null};
+        final String[] stopReasonHolder = {"normal"};   // P0：complete 事件回传的 native 停止原因
         // Java 侧流式 tool_call 兜底状态：C++ is_tool_call 对 <tool_call> 标签格式失效时，
         // 用跨 token 缓冲识别并吞掉标签片段（避免 tool_call JSON 流式透传到 UI）
         final StringBuilder streamFilterBuf = new StringBuilder();
@@ -1174,6 +1202,7 @@ public class AgentLoopEngine {
                             break;
                         case "complete":
                             contentHolder[0] = event.optString("content", "");
+                            stopReasonHolder[0] = event.optString("stop_reason", "normal");
                             done[0] = true;
                             latch.countDown();
                             break;
@@ -1236,9 +1265,10 @@ public class AgentLoopEngine {
         AILogger.i(TAG, "generateWithChatJsonSync result: contentLen=" + content.length()
                 + " reasoningLen=" + reasoningBuf.length()
                 + " toolCalls=" + toolCallsHolder.size()
+                + " stopReason=" + stopReasonHolder[0]
                 + " fullContentLen=" + fullContentBuf.length());
 
-        return new GenerateResult(content, reasoningBuf.toString(), toolCallsHolder);
+        return new GenerateResult(content, reasoningBuf.toString(), toolCallsHolder, stopReasonHolder[0]);
     }
 
     /**
@@ -1455,7 +1485,17 @@ public class AgentLoopEngine {
             }
             req.put("tool_choice", toolChoice);
             req.put("enable_thinking", enableThinking);   // R8-1：调用方传入（Agent 模式默认 false）
-            req.put("max_tokens", maxTokens);
+            // P0(2026-10-07)：max_tokens 按上下文钳制——生成空间 = n_ctx − prompt实际token − native guard − 模板overhead。
+            // 原实现恒发 FINAL_RESPONSE_MAX_TOKENS=4000，而旧 80% 预算下生成空间仅 2454，
+            // 长回答必然触发 native "Context full, stopping generation"（native-lib.cpp:3115）
+            // 且上层无感知（截断回复被当完整回答交付）。钳制后生成在 max_tokens 处自然停止，
+            // 永不撞 ctx_full；即使 Java token 计数低估模板开销，256 下限也能给出短回答而非硬截断。
+            int promptTokens = countTokensSafe(serializeHistory(history))
+                    + countTokensSafe(toolsJson != null ? toolsJson : "")
+                    + TEMPLATE_OVERHEAD_RESERVE;
+            int safeMax = getEffectiveContextSize() - promptTokens - NATIVE_GENERATION_RESERVE;
+            int clamped = Math.max(256, Math.min(maxTokens, safeMax));
+            req.put("max_tokens", clamped);
             req.put("temperature", 0.7f);   // R8-2：本地 Agent 统一 0.7（Qwen3 官方默认）。过低(0.6)会让 2B 在工具调用时过度保守，只敢用默认 action/参数；过高则破坏 chatJson 结构化输出稳定性
             req.put("top_p", 0.9f);
             req.put("top_k", 40);
@@ -1521,10 +1561,15 @@ public class AgentLoopEngine {
         final String content;
         final String reasoning;
         final List<ToolCall> toolCalls;
+        final String stopReason;   // P0：native 停止原因（normal/eos/ctx_full/...），chatJson complete 事件回传
         GenerateResult(String content, String reasoning, List<ToolCall> toolCalls) {
+            this(content, reasoning, toolCalls, "normal");
+        }
+        GenerateResult(String content, String reasoning, List<ToolCall> toolCalls, String stopReason) {
             this.content = content;
             this.reasoning = reasoning;
             this.toolCalls = toolCalls;
+            this.stopReason = stopReason != null ? stopReason : "normal";
         }
     }
 
@@ -1542,7 +1587,13 @@ public class AgentLoopEngine {
         try {
             int ctxSize = getEffectiveContextSize();
             if (ctxSize > 0) {
-                return (int) (ctxSize * PROMPT_BUDGET_RATIO);
+                // P1(2026-10-07)：预算 = n_ctx − 输出预留 − native guard。
+                // 原固定 80% 比例只约束 prompt，把生成空间压到 2454（n_ctx=12288 时）
+                // < FINAL_RESPONSE_MAX_TOKENS=4000 → 长回答必然触发 native
+                // "Context full, stopping generation"（native-lib.cpp:3115）且无上层信号。
+                // 输出预留按真实最大生成上限计：n_ctx=12288 → 预算 7776，生成空间 4512 ≥ 4000。
+                int budget = ctxSize - FINAL_RESPONSE_MAX_TOKENS - NATIVE_GENERATION_RESERVE;
+                if (budget > 0) return budget;
             }
         } catch (Throwable t) {
             AILogger.w(TAG, "computePromptBudget failed: " + t.getMessage());
@@ -1660,25 +1711,39 @@ public class AgentLoopEngine {
             total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
         }
         if (!evicted.isEmpty()) {
-            // 生成历史要点：只取最接近当前的多轮对话（最新优先，最多 4 条非工具），
-            // 每条截断 90 字符，作为一条 user 消息插入 system 之后，保留指代上下文
-            StringBuilder summary = new StringBuilder("【历史对话要点】(较早对话已压缩)");
-            int kept = 0;
-            for (int i = evicted.size() - 1; i >= 0 && kept < 4; i--) {
-                ChatMessage m = evicted.get(i);
-                if ("tool".equals(m.role) || m.content == null || m.content.trim().isEmpty()) continue;
-                String c = truncate(m.content, 90);
-                summary.append("\n").append("user".equals(m.role) ? "用户" : "助手").append(": ").append(c);
-                kept++;
+            // P2(2026-10-07)：要点一次性生成后缓存复用（compactionSummary 字段，run() 开头重置）。
+            // 原实现每轮 trim 都基于当前 evicted 集合重生成要点 → 同一批被裁历史的要点文本
+            // 每轮不同（且要点在 index 1 被 remove(1) 删掉后会被递归压缩）→ 前缀稳定性质被破坏。
+            // 缓存后：同一批被裁历史逐字节稳定，后续轮次 trim 直接复用同一要点文本。
+            if (compactionSummary == null) {
+                compactionSummary = buildCompactionSummary(evicted);
             }
-            if (kept > 0) {
-                trimmed.add(1, new ChatMessage("user", summary.toString()));
+            if (compactionSummary != null) {
+                trimmed.add(1, new ChatMessage("user", compactionSummary));
                 total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
             }
         }
 
         AILogger.i(TAG, "History trimmed to " + trimmed.size() + " messages, " + total + " tokens");
         return trimmed;
+    }
+
+    /**
+     * P2(2026-10-07)：从被裁消息生成"历史要点"（最新优先，最多 4 条非工具，每条 90 字符）。
+     * 结果由 trimHistoryToFit 缓存复用，保证同一批被裁历史的要点文本逐字节稳定。
+     * 全是工具/空消息时返回 null（无可压缩的对话内容，调用方不插入）。
+     */
+    private String buildCompactionSummary(List<ChatMessage> evicted) {
+        StringBuilder summary = new StringBuilder("【历史对话要点】(较早对话已压缩)");
+        int kept = 0;
+        for (int i = evicted.size() - 1; i >= 0 && kept < 4; i--) {
+            ChatMessage m = evicted.get(i);
+            if ("tool".equals(m.role) || m.content == null || m.content.trim().isEmpty()) continue;
+            String c = truncate(m.content, 90);
+            summary.append("\n").append("user".equals(m.role) ? "用户" : "助手").append(": ").append(c);
+            kept++;
+        }
+        return kept > 0 ? summary.toString() : null;
     }
 
     // ==================== Prompt 构建 ====================

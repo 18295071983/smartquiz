@@ -3,7 +3,7 @@
 > 交接对象：豆包
 > 项目：答题宝（`com.oilquiz.app`）· 本地推理引擎 llama.cpp / GenieX NPU / 在线 HTTP 三分支
 > 交接日期：2026-10-07
-> 当前状态：**已修复并实测通过，代码未提交**
+> 当前状态：**已修复并实测通过，代码已提交（含后续 P0/P1/P2 上下文满截断修复，见第九节）**
 
 ---
 
@@ -207,6 +207,7 @@ FULL EVAL reason: seq_pos_mismatch           ← KV位置与记账不一致
 ## 七、Git 状态
 
 ```
+f26554da  修 Agent 多轮「预处理越来越慢」：工具 schema 顺序不稳定 + 每轮改写历史   ← 已推送
 b3b4e9b0  llama.cpp 全量卸载到 GPU（消除残留 CPU 层）；状态栏文案统一为短句+秒数   ← 已推送
 c7a9adbd  NPU 加载去伪进度（改短句+秒数心跳）；日志按钮接统一日志中心；修重复加载
 bb6daa78  GGUF 元数据改走 llama.cpp 官方 API；删除日志查看页及废弃广播链路
@@ -215,13 +216,7 @@ bb6daa78  GGUF 元数据改走 llama.cpp 官方 API；删除日志查看页及�
 
 **远端**：`origin` = gitee（正常）、`github` = https（偶发 `Connection was reset`，重试即可）。
 
-**⚠️ 本次第四节的改动（工具 schema 稳定性 + 删工具结果渐进压缩）尚未提交。**
-
-改动文件：
-```
-src/main/java/com/oilquiz/app/ai/agent/software/engine/AgentLoopEngine.java
-src/main/java/com/oilquiz/app/ai/tool/AIToolManager.java
-```
+**⚠️ 第九节的 P0/P1/P2 修复已提交推送（见第九节末）。**
 
 ---
 
@@ -230,3 +225,52 @@ src/main/java/com/oilquiz/app/ai/tool/AIToolManager.java
 1. **先看 `hash=` 日志再动手。** 这个问题的所有判断都应该基于"跨轮 schema 指纹是否恒定"和"`KV-STATS` 命中率"，不要凭代码直觉猜。我凭直觉猜错过两次（浮点精度、tool_call id），都在第六节记录了。
 2. **不要试图开启 `n_rs_seq`。** 已实测定量否定：128 档就 1.2GB，必然 OOM。
 3. **改 prompt 组装相关代码时，牢记唯一原则：「已进入历史的消息，内容永不改写」。** 只允许"追加"和"从头部丢弃"。任何"原地压缩/截断/规范化"都是在破坏 KV 前缀。
+
+---
+
+## 九、后续修复（2026-10-07 二交：上下文满截断 P0/P1/P2，已提交推送）
+
+**背景**：第一次修复后缓存命中健康（KV-STATS hit=90%），但排查发现另一类用户可见 bug —— **长回答被"上下文满"硬截断且完全静默**：截断回复被当成完整回答交付，用户感知"回答突然没了/变短"。
+
+### 根因（预算矛盾）
+
+| 项 | 修复前 | 修复后 |
+|---|---|---|
+| prompt 预算 | `n_ctx × 0.8` = 9830（固定比例） | `n_ctx − 4000 − 512` = **7776** |
+| 生成空间 | 12288 − 9830 = **2454** | 12288 − 7776 − 512 ≈ **4000** |
+| maxTokens | 4000（`FINAL_RESPONSE_MAX_TOKENS`，恒发） | `min(4000, n_ctx − 实际prompt − 512 − 512)` |
+| 长回答 | 生成 2455 token 即 `Context full, stopping generation`（native-lib.cpp:3115）硬截断 | 在 max_tokens 处自然停止，**永不 ctx_full** |
+
+### P0a · max_tokens 钳制（治本）
+`AgentLoopEngine.buildRequestJson()`：原 `req.put("max_tokens", maxTokens)` 恒发 4000，注释声称"按上下文钳制"但实现没有。现按 `n_ctx − 实际 prompt token（countTokensSafe 真实分词 + 512 模板 overhead）− 512 native guard` 钳制，下限 256。
+
+### P0b · 截断可观测（兜底信号）
+- native：`InferenceContext` 新增 `lastStopReason_`，`generateStreamIncremental` / `generateStream` 末尾赋值；chatJson 三个 complete 事件（正常 / degraded / fallback）均带 `stop_reason` 字段。
+- Java：`GenerateResult.stopReason`；onJson complete 分支读取；主循环检测 `ctx_full` → `AILogger.w` + `LoopCallback.onTruncated` → `AgentSoftwareLayer.onTruncated`（两层都是 default 方法，UI 未实现不影响编译）。
+- **验收**：`adb logcat -d | Select-String 'truncated by context full'` 出现即表示发生过截断。
+
+### P1 · 预算公式
+`computePromptBudget()`：`n_ctx − FINAL_RESPONSE_MAX_TOKENS − NATIVE_GENERATION_RESERVE(512)`。旧 `PROMPT_BUDGET_RATIO=0.8` 已标记废弃（保留常量防外部引用，勿再使用）。NPU 模式（nCtx=8192）→ 预算 3680，生成空间 4512 ≥ 4000，同样成立。
+
+### P2 · 历史要点稳定化
+`trimHistoryToFit()`：要点由每轮基于 evicted 重生成改为**一次性生成后缓存**（新增 `compactionSummary` 字段，`run()` 开头重置），要点生成逻辑提取为 `buildCompactionSummary()`。同一批被裁历史逐字节稳定，不再每轮重生成/递归压缩。
+
+### 改动文件
+```
+src/main/cpp/native-lib.cpp
+src/main/java/com/oilquiz/app/ai/agent/software/AgentSoftwareLayer.java
+src/main/java/com/oilquiz/app/ai/agent/software/engine/AgentLoopEngine.java
+```
+
+### 验证
+`.\gradlew.bat :assembleDebug` → **BUILD SUCCESSFUL**（唯一编译错误：chatJson fallback lambda 未捕获 `this` 访问 `lastStopReason_`，已加 `this` 到捕获列表）。APK 975MB 正常产出。
+
+### 上设备验收清单
+1. 日志 `Prompt budget:` 应显示 **7776**（原 9830）。
+2. 长回答轮（>2450 token 输出）不再出现 `Context full, stopping generation`。
+3. `KV-STATS` 命中率应保持 90% 不变（增量路径未动）。
+4. 若出现截断（兜底场景），Java 日志出现 `generation truncated by context full` + UI 可经 `onTruncated` 提示。
+
+### 遗留说明
+- max_tokens 钳制的 token 计数基于 Java 简化文本（serializeHistory）+ 512 模板 overhead 预留；若未来模板 overhead 更大（新增大量特殊 token），预留需同步增大。
+- `onTruncated` 目前 UI 层（AIChatActivity 等）未接默认空实现；如需用户可见提示，实现 `AgentCallback.onTruncated` 即可（default 方法，不破坏现有实现）。

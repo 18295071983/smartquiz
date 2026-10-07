@@ -1150,6 +1150,11 @@ private:
     // 记账/判定/失效逻辑全部收敛在该类，避免散落成员导致"记账与实际KV脱节"类 bug。
     AgentKvCache kvCache;
 
+    // 最近一次生成的停止原因（normal/eos/ctx_full/timeout/max_tokens/...）。
+    // 生成循环结束前赋值，chatJson 的 complete 事件回传给 Java，
+    // 供上层感知"上下文满截断"（stop_reason=ctx_full）等非正常终止。
+    std::string lastStopReason_ = "normal";
+
     // ===== 思考标签（来自 chat template，统一标签源，不硬编码）=====
     // 由 generateWithTools / chatJson 在 common_chat_templates_apply 后设置；
     // 空时表示模板未提供思考标签，调用方回退旧行为（不剥离思考段）。
@@ -2856,6 +2861,7 @@ public:
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
         LOGI("=== STREAM GENERATE END ===");
         LOGI("Generated %d tokens in %lld s", n_decode, elapsed);
+        lastStopReason_ = stopReason;   // 供 chatJson fallback complete 事件回传（P0：截断可观测）
         
         return true;
         } catch (const std::exception& e) {
@@ -3312,6 +3318,7 @@ public:
         LOGI("=== STREAM GENERATE INCREMENTAL END ===");
         LOGI("Generated %d tokens in %lld s (stop=%s, incremental=%d, phase=%s)", n_decode, elapsedTotal, stopReason.c_str(), (int)kvCache.isIncremental(), phaseName(phase));
         setPhase(GenPhase::COMPLETE, "incr:end");
+        lastStopReason_ = stopReason;   // 供 chatJson complete 事件回传（P0：截断可观测）
 
         return true;
         } catch (const std::exception& e) {
@@ -3671,7 +3678,7 @@ public:
                 flat.push_back({m.role, content});
             }
             bool fbOk = generateStreamFromMessages(flat, maxTokens, temperature, topP, topK, false,
-                [&jsonCallback, &eventSent](const std::string& text, bool isDone, const std::string& error) {
+                [&jsonCallback, &eventSent, this](const std::string& text, bool isDone, const std::string& error) {
                     if (!isDone) {
                         if (error.empty() && !text.empty()) {
                             nlohmann::ordered_json j = {{"type", "token"}, {"content", text}, {"is_tool_call", false}};
@@ -3686,7 +3693,7 @@ public:
                         }
                     } else {
                         if (!eventSent.exchange(true)) {
-                            nlohmann::ordered_json j = {{"type", "complete"}, {"content", text}};
+                            nlohmann::ordered_json j = {{"type", "complete"}, {"content", text}, {"stop_reason", lastStopReason_}};
                             jsonCallback(j.dump());
                         } else {
                             LOGW("chatJson: fallback duplicate complete suppressed");
@@ -4051,7 +4058,7 @@ public:
                 if (finalContent.empty() && !collectedText.empty()) {
                     finalContent = stripThinkTags(collectedText, mThinkStartTag, mThinkEndTags);
                 }
-                nlohmann::ordered_json j = {{"type", "complete"}, {"content", finalContent}};
+                nlohmann::ordered_json j = {{"type", "complete"}, {"content", finalContent}, {"stop_reason", lastStopReason_}};
                 jsonCallback(j.dump());
                 LOGI("chatJson: complete, content=%zu chars, tool_calls=%zu", finalContent.size(), parsed.tool_calls.size());
             } else {
@@ -4060,7 +4067,7 @@ public:
         } else {
             // R5-2：parse 失败 → complete(collectedText)；空输出 → complete("")（A5 由构造保证只发一次）
             if (!eventSent.exchange(true)) {
-                nlohmann::ordered_json j = {{"type", "complete"}, {"content", collectedText}};
+                nlohmann::ordered_json j = {{"type", "complete"}, {"content", collectedText}, {"stop_reason", lastStopReason_}};
                 jsonCallback(j.dump());
                 LOGI("chatJson: complete (degraded), content=%zu chars", collectedText.size());
             } else {

@@ -52,6 +52,8 @@ public class AgentSoftwareLayer {
         void onInferenceProgress(int tokenCount, float tokensPerSecond);
         /** 工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。card 为 null 表示无声明。 */
         default void onToolPresent(String toolName, Map<String, Object> card) {}
+        /** 可选：本轮生成被上下文上限截断（stop_reason=ctx_full），UI 可提示"回答不完整" */
+        default void onTruncated(String detail) {}
     }
     
     private AgentCallback callback;
@@ -113,6 +115,13 @@ public class AgentSoftwareLayer {
             public void onToolPresent(String toolName, Map<String, Object> card) {
                 if (callback != null) {
                     callback.onToolPresent(toolName, card);
+                }
+            }
+
+            @Override
+            public void onTruncated(String detail) {
+                if (callback != null) {
+                    callback.onTruncated(detail);
                 }
             }
 
