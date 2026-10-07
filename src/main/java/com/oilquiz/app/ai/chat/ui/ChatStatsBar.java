@@ -92,10 +92,18 @@ public class ChatStatsBar extends LinearLayout {
 
     /** 上下文占用 pill（2026-09-23）：低占用（<1%）显示实际 token 数更直观
      *  （如 deepseek 1M 窗口下 0% 无信息量）；used<=0 显示 "—" */
-    public void setContextPercent(int percent, long usedTokens) {
+    /**
+     * 上下文仪表 pill：占用百分比 + 用量/窗口（如 "📊 41% · 5.0k/12.3k"）。
+     * windowTokens > 0 时同时显示大小和使用量（2026-10-07，本地 Agent 模式为 KV 真实占用）；
+     * 无窗口信息时回退旧行为（纯百分比 / 低占用时 token 数）。
+     */
+    public void setContextPercent(int percent, long usedTokens, long windowTokens) {
         pillContext.setVisibility(VISIBLE);
         if (percent < 0 || usedTokens <= 0) {
             pillContext.setText("📊 --");
+        } else if (windowTokens > 0) {
+            pillContext.setText("📊 " + Math.min(100, percent) + "% · "
+                    + formatTokens(usedTokens) + "/" + formatTokens(windowTokens));
         } else if (percent < 1) {
             pillContext.setText("📊 " + formatTokens(usedTokens));
         } else {

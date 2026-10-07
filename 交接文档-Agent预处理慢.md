@@ -3,7 +3,7 @@
 > 交接对象：豆包
 > 项目：答题宝（`com.oilquiz.app`）· 本地推理引擎 llama.cpp / GenieX NPU / 在线 HTTP 三分支
 > 交接日期：2026-10-07
-> 当前状态：**已修复并实测通过，代码已提交（含后续 P0/P1/P2 上下文满截断修复，见第九节）**
+> 当前状态：**已修复并实测通过，代码已提交（含后续 P0/P1/P2 上下文满截断修复见第九节；对话页上下文大小/使用量暴露见第十节）**
 
 ---
 
@@ -274,3 +274,32 @@ src/main/java/com/oilquiz/app/ai/agent/software/engine/AgentLoopEngine.java
 ### 遗留说明
 - max_tokens 钳制的 token 计数基于 Java 简化文本（serializeHistory）+ 512 模板 overhead 预留；若未来模板 overhead 更大（新增大量特殊 token），预留需同步增大。
 - `onTruncated` 目前 UI 层（AIChatActivity 等）未接默认空实现；如需用户可见提示，实现 `AgentCallback.onTruncated` 即可（default 方法，不破坏现有实现）。
+## 十、对话页上下文大小/使用量暴露（2026-10-07 三交）
+
+用户要求：对话页面显示上下文**大小**和**使用量**（本地 Agent 模式）。
+
+### 问题
+- 对话页上下文仪表（pill 📊）与明细弹窗早已存在，但本地 Agent 模式数据源接错：
+  `LlamaSignalAdapter.contextUsage()` 读 `LlamaHelper.getContextUsedTokens()`（`NativeChatContext` 的 chat handle 记账），Agent 走 `InferenceContext`（AgentKvCache），该 handle 恒 0 → pill 显示 `📊 --` 或 0%，明细显示字符估算值。
+- pill 只显示百分比，看不到"窗口多大、用了多少"。
+
+### 修复
+1. **数据源（治本）**：`LlamaSignalAdapter.contextUsage()` 优先解析 `LlamaHelper.getKvCacheStats()`（= native `nativeGetKvCacheStats`，即 AgentKvCache 记账）的 `cached_npast`（KV 真实 decode token 数：prompt + 生成输出）与 `ctx_size`（n_ctx 窗口）。Agent 记账未建立（ctx_size=0，普通对话路径）时回退原 chat handle 路径。
+2. **pill 显示（大小+用量）**：`ChatStatsBar.setContextPercent(int percent, long usedTokens, long windowTokens)` 加 window 参数，文本改 `📊 {pct}% · {used}/{window}`（如 `📊 41% · 5.0k/12.3k`），`window<=0` 时回退旧行为。
+3. **明细弹窗**：`showContextMeterDialog()` 本地分支改读 `GenSignalSource.contextUsage()`（引擎无关契约，KV 真实占用），标注 `（KV 实际占用）` 而非 `（估算）`。
+
+### 改动文件
+```
+src/main/java/com/oilquiz/app/ai/engine/contract/LlamaSignalAdapter.java
+src/main/java/com/oilquiz/app/ai/chat/ui/ChatStatsBar.java
+src/main/java/com/oilquiz/app/ui/activity/AIChatActivity.java
+```
+
+### 验证
+`.\gradlew.bat :assembleDebug` → **BUILD SUCCESSFUL**（41s，10 任务执行）。APK 975265731 B（18:37:14）。
+
+### 上设备验收清单
+1. 本地 Agent 对话页 pill 显示 `📊 {pct}% · {used}/{window}`，used 与 KV-STATS 日志 `cached_npast` 一致（非 0 / 非估算）。
+2. 点击 pill：明细显示 `used / window tokens（KV 实际占用）`，窗口 = 12288（BALANCED）。
+3. 普通对话（非 Agent）路径仍显示 chat handle 记账，不回退错误。
+4. 未加载模型时显示 `📊 --`（window 未知），不显示故障态。

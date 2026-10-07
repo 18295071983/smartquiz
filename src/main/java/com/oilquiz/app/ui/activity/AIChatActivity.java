@@ -9123,12 +9123,12 @@ public class AIChatActivity extends BaseActivity {
             AppLogger.i(TAG, "ContextMeter refresh: used=" + used + " window=" + window
                     + " chatHistory=" + (chatHistory != null ? chatHistory.size() : -1)
                     + " online=" + shouldUseOnlineModel());
-            if (window <= 0) { sessionStatsBar.setContextPercent(-1, 0); return; }
+            if (window <= 0) { sessionStatsBar.setContextPercent(-1, 0, 0); return; }
             int percent = (int) Math.min(100, used * 100 / window);
-            sessionStatsBar.setContextPercent(percent, used);
+            sessionStatsBar.setContextPercent(percent, used, window);
         } catch (Throwable t) {
             AppLogger.aiW(TAG, "refreshContextMeter failed: " + t.getMessage());
-            sessionStatsBar.setContextPercent(-1, 0);
+            sessionStatsBar.setContextPercent(-1, 0, 0);
         }
     }
 
@@ -9139,6 +9139,8 @@ public class AIChatActivity extends BaseActivity {
             boolean online = shouldUseOnlineModel();
             int apiCacheHit = -1;   // API 返回的缓存命中量（在线模型）
             long apiUsed = -1;      // API 返回的真实输入 token
+            long localUsed = -1;    // AGENT-KV：本地引擎 KV 真实占用（Agent=AgentKvCache，普通对话=NativeChatContext）
+            boolean localReal = false;
             if (online && agentChatHandler != null) {
                 // 2026-09-23：与 pill 统一口径——用 API 真实 usage（引擎最近一次请求
                 // prompt_tokens），不再字符估算；缓存命中量取 API 返回的 cache hit tokens
@@ -9153,9 +9155,19 @@ public class AIChatActivity extends BaseActivity {
             } else if (online) {
                 window = resolveOnlineContextWindow();
             } else {
-                long b = getChatContextBuilder().getContextBudgetTokens(); window = b > 0 ? b : 0;
+                // AGENT-KV(2026-10-07)：本地模式用引擎无关契约的 KV 真实占用
+                // （Agent 模式 = AgentKvCache 记账 cached_npast/ctx_size；普通对话 = NativeChatContext），
+                // 替代"预算估算 + 字符估算"旧口径（旧口径在 Agent 模式下 used 恒 0/不准）
+                com.oilquiz.app.ai.engine.contract.ContextUsage cu =
+                        com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage();
+                long b = getChatContextBuilder().getContextBudgetTokens();
+                window = cu.window > 0 ? cu.window : (b > 0 ? b : 0);
+                if (cu.used >= 0 && cu.used != com.oilquiz.app.ai.engine.contract.ContextUsage.UNKNOWN) {
+                    localUsed = cu.used;
+                    localReal = true;
+                }
             }
-            long used = apiUsed >= 0 ? apiUsed : estimateHistoryTokens();
+            long used = apiUsed >= 0 ? apiUsed : (localUsed >= 0 ? localUsed : estimateHistoryTokens());
             if (window <= 0) { showToast("上下文窗口未知"); return; }
             int percent = (int) Math.min(100, used * 100 / window);
             android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
@@ -9169,7 +9181,7 @@ public class AIChatActivity extends BaseActivity {
             panel.addView(header);
             android.widget.TextView figures = new android.widget.TextView(this);
             figures.setText((apiUsed >= 0 ? "" : "~") + used + " / " + window + " tokens"
-                    + (apiUsed >= 0 ? "（API 真实输入）" : "（估算）"));
+                    + (apiUsed >= 0 ? "（API 真实输入）" : (localReal ? "（KV 实际占用）" : "（估算）")));
             figures.setTextSize(12f);
             figures.setPadding(0, (int)(4 * getResources().getDisplayMetrics().density), 0, (int)(8 * getResources().getDisplayMetrics().density));
             figures.setTextColor(ThemeColors.attr(this, R.attr.colorControlTextSecondary));

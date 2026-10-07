@@ -108,9 +108,25 @@ public final class LlamaSignalAdapter {
      * 上下文占用：llama.cpp 取 native 的 KV 上下文实际占用与容量。
      * native 未就绪（或 NPU 模式下）两者为 0 → 报 {@link ContextUsage#UNKNOWN}，
      * 由 UI 决定降级（如回退字符估算），而不是显示假数据。
+     *
+     * <p><b>AGENT-KV(2026-10-07)</b>：本地 Agent 模式优先取 AgentKvCache 记账
+     * （{@code nativeGetKvCacheStats} 的 {@code cached_npast} / {@code ctx_size}）——
+     * 那是 KV 里真实 decode 的 token 数（prompt + 生成输出）。旧实现读
+     * {@code getContextUsedTokens()}（{@code NativeChatContext}），对 Agent 的
+     * {@code InferenceContext} 恒为 0 → 对话页上下文仪表在 Agent 模式显示 0 / "--"。
+     * Agent 记账未建立（ctx_size=0，普通对话路径）时回退 chat handle。
      */
     public static ContextUsage contextUsage() {
         try {
+            String stats = LlamaHelper.getKvCacheStats();
+            if (stats != null && !stats.isEmpty()) {
+                JSONObject o = new JSONObject(stats);
+                int ctxSize = o.optInt("ctx_size", 0);
+                int cachedNpast = o.optInt("cached_npast", 0);
+                if (ctxSize > 0) {
+                    return new ContextUsage(ctxSize, Math.max(0, cachedNpast), ENGINE);
+                }
+            }
             long used = LlamaHelper.getContextUsedTokens();
             long size = LlamaHelper.getContextSize();
             return new ContextUsage(
