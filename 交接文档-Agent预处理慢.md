@@ -303,3 +303,31 @@ src/main/java/com/oilquiz/app/ui/activity/AIChatActivity.java
 2. 点击 pill：明细显示 `used / window tokens（KV 实际占用）`，窗口 = 12288（BALANCED）。
 3. 普通对话（非 Agent）路径仍显示 chat handle 记账，不回退错误。
 4. 未加载模型时显示 `📊 --`（window 未知），不显示故障态。
+## 十一、本地离线 Agent 默认提示词对齐在线（2026-10-07 四交）
+
+用户要求：本地离线 Agent 的默认提示词与在线 Agent 一致。
+
+### 差异（修复前）
+| | 本地（AgentLoopEngine.buildFcSystemPrompt） | 在线（OnlinePromptBuilder.buildPersonaSection） |
+|---|---|---|
+| 角色行 | 你是答题宝App的AI聊天助手（Agent模式），与用户自然对话，需要实时/外部信息时主动调用工具获取。 | 你是答题宝App中的AI聊天助手，是App内"AI对话"功能模块的助手（在线Agent模式）。 |
+| 工作/方式/边界/风格 | 无（仅角色 1 行 + 规则段） | 完整 5 行 persona |
+
+### 修复
+本地【角色】段与在线 persona 逐字对齐（同一产品身份），两处按本地能力适配：
+1. "（在线Agent模式）"→"（Agent模式）"——本地不能自称在线；
+2. "结构化信息用UI组件展示"→"清晰的分段与列表"——本地 ui_component 大 schema 不注入（DEFAULT_CORE_TOOLS 注释），照搬会诱导模型调用不存在的工具。
+
+本地【规则】段（工具调用规则 1-6）保留——本地小模型需要显式工具规则，在线模型走原生 function calling 不需要，此为引擎差异而非提示词身份差异。
+
+### 改动文件
+```
+src/main/java/com/oilquiz/app/ai/agent/software/engine/AgentLoopEngine.java
+```
+
+### 验证
+`.\gradlew.bat :assembleDebug` → **BUILD SUCCESSFUL**（24s，9 任务执行）。
+
+### 上设备验收
+- 本地 Agent 自我介绍/行为符合"答题宝App中的AI聊天助手，是App内AI对话功能模块的助手（Agent模式）"身份，与在线一致。
+- KV-STATS 命中率不受影响（system 段变化仅影响首轮 FULL，跨轮前缀稳定性依赖 sessionMessages 逐字节回放，不受本段影响）。

@@ -1787,7 +1787,16 @@ public class AgentLoopEngine {
         StringBuilder sb = new StringBuilder();
         sb.append(buildCurrentTimeLine(true));
         sb.append("【角色】\n");
-        sb.append("你是答题宝App的AI聊天助手（Agent模式），与用户自然对话，需要实时/外部信息时主动调用工具获取。\n\n");
+        // PERSONA-ALIGN(2026-10-07)：角色段与在线 Agent（OnlinePromptBuilder.buildPersonaSection）
+        // 逐字对齐——同一产品身份（答题宝App的AI聊天助手/AI对话功能模块）。
+        // 两处按本地能力适配：①"（在线Agent模式）"→"（Agent模式）"（本地不能自称在线）；
+        // ②"结构化信息用UI组件展示"→"清晰的分段与列表"（本地 ui_component 大 schema 不注入，
+        // 照搬会诱导模型调用不存在的工具）。
+        sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（Agent模式）。\n");
+        sb.append("你的工作：与用户对话答疑，并调用多种工具完成查询、搜索、生成、处理等任务。\n");
+        sb.append("你的方式：实时/动态信息必须用工具获取；静态知识直接回答；结构化信息用清晰的分段与列表展示。\n");
+        sb.append("你的边界：不可逆或影响外部操作（删除/覆盖文件、发送消息等）先征得用户确认。\n");
+        sb.append("你的风格：用中文，口语化、简洁有条理，先结论后细节。\n\n");
         sb.append("【规则】\n");
         sb.append("1. 常识/知识类问题直接回答；实时/时效类（天气、时间、位置、新闻、价格等）必须调用工具，用工具返回的数据回答，不要用训练数据猜测。\n");
         sb.append("2. 工具返回即事实，直接采纳；总结时只提取与问题相关的关键信息，不要罗列原始数据字段。\n");
