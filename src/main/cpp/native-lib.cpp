@@ -1056,6 +1056,65 @@ static int s_defaultMemoryPoolSize = 1024;
 static int s_defaultBatchSize = 512;
 static std::string s_defaultChatTemplate = "";
 
+
+
+    /**
+     * 取模型自带的 chat template，并修补 Qwen 系模板的 KV 复用缺陷。
+     *
+     * <p><b>缺陷</b>（Qwen3 / Qwen3.5 模板共有，上游 issue：QwenLM/Qwen3#1826
+     * "Chat template breaks KV-cache reuse when enable_thinking=false"）：
+     * assistant 消息按"是否最后一条"分两支渲染——</p>
+     * <pre>
+     *   {%- if loop.index0 &gt; ns.last_query_index %}
+     *       ...assistant\n&lt;think&gt;\n + reasoning_content + \n&lt;/think&gt;\n\n + content
+     *   {%- else %}
+     *       ...assistant\n + content                 &lt;-- 历史分支：不写 think 标记
+     *   {%- endif %}
+     * </pre>
+     * <p>而 generation prompt 在 enable_thinking=false 时会补一对空标记
+     * {@code '<think>\n\n</think>\n\n'}（4 个 token）。于是**同一条 assistant 回复**
+     * 在第 N 轮是"最后一条"（带标记），到第 N+1 轮变成"历史"（不带标记）——
+     * 同一段历史两轮渲染出的 token 序列不同 → KV 前缀失配 → 每轮全量重算 prefill。</p>
+     *
+     * <p><b>本机实测证据</b>：Agent(enable_thinking=false) 增量缓存日志
+     * {@code DIVERGE at 2821 ...}，新旧序列正好差 {@code <think>\n\n</think>\n\n} 这 4 个 token；
+     * 于是 PARTIAL 失败 → {@code Prefill: 3822 tokens in 11.971s}，而所需增量只有 270 token。</p>
+     *
+     * <p><b>修法</b>：给历史分支补一条 enable_thinking=false 的路径，让它也写空标记，
+     * 与 generation prompt 一致（即上游 issue 给出的修法）。不改模型文件——
+     * 通过 {@code common_chat_templates_init(model, override)} 的覆盖参数传入修补后的模板。
+     * 用特征串定位分支（不依赖缩进/空格），模板不含该缺陷时原样返回。</p>
+     */
+    std::string chatTemplateForKvReuse(const struct llama_model * mdl) {
+        const char * tplRaw = llama_model_chat_template(mdl, nullptr);
+        if (tplRaw == nullptr) {
+            return std::string();   // 无模板 → 交给 llama.cpp 默认逻辑
+        }
+        std::string tpl(tplRaw);
+
+        // 在 assistant 块"历史分支"之前插入一个 elif —— **复用原文已有的 else**。
+        // 注意：不能再插 else，否则结构变成 if/elif/else/else/endif，Jinja 直接 abort
+        // （实测：进程 SIGABRT signal 6，模型加载失败）。
+        const std::string ifTag    = "{%- if loop.index0 > ns.last_query_index %}";
+        const std::string histLine = "{{- '<|im_start|>' + message.role + '\\n' + content }}";
+        size_t ifAt = tpl.find(ifTag);
+        if (ifAt == std::string::npos) {
+            return tpl;   // 模板无此分支（非 Qwen 系）→ 不动
+        }
+        // 该 if 之后第一个 {%- else %} 即历史分支的 else
+        size_t elseAt = tpl.find("{%- else %}", ifAt);
+        if (elseAt == std::string::npos || tpl.find(histLine, ifAt) == std::string::npos) {
+            return tpl;   // 结构与预期不符 → 不动，避免破坏模板
+        }
+        const std::string inserted =
+                "{%- elif enable_thinking is defined and enable_thinking is false %}\n"
+                "            {{- '<|im_start|>' + message.role + '\\n<think>\\n\\n</think>\\n\\n' + content }}\n"
+                "        ";
+        tpl.insert(elseAt, inserted);
+        LOGI("chatTemplate: patched Qwen history branch for KV reuse (enable_thinking=false)");
+        return tpl;
+    }
+
 class InferenceContext {
 private:
     llama_model *model;
@@ -1180,12 +1239,13 @@ public:
      *
      * 失败时保持原缓存不变，不影响推理（调用方按"无标签"处理）。
      */
+
     bool refreshThinkingTags() {
         if (model == nullptr) {
             LOGW("refreshThinkingTags: model not loaded");
             return false;
         }
-        auto tmpl = common_chat_templates_init(model, "");
+        auto tmpl = common_chat_templates_init(model, chatTemplateForKvReuse(model));
         if (!tmpl) {
             LOGW("refreshThinkingTags: failed to init chat templates");
             return false;
@@ -1642,6 +1702,16 @@ public:
         // 同时为 KV 记忆引擎（独立 seq 1，长文档 KV 持久化）提供多 seq 能力。
         ctx_params.kv_unified = true;
         LOGI("KV cache unified seq management enabled (kv_unified=true)");
+
+        // n_rs_seq 保持默认 0（不预留 recurrent-state 回滚快照）。
+        //
+        // 曾尝试设 256 来让 AgentKvCache 的 PARTIAL 路径（部分前缀匹配后截断增量 eval）成立，
+        // 因为混合架构（attention + recurrent/SSM）的 recurrent state 无法任意位置截断，
+        // 默认 0 时 llama_memory_recurrent::seq_rm 对部分回滚必然返回 false、每轮退化成全量 prefill。
+        // 但该参数按 (1 + n_rs_seq) 线性放大 recurrent state 张量
+        // （llama-memory-recurrent.h:73 "tensors are widened to (1 + n_rs_seq) groups"），
+        // 本机实测设 256 后系统内存枯竭、lowmemorykiller 连续杀掉多个应用进程（含本进程）。
+        // 结论：用内存换"少一次全量 prefill"不划算，保持 0。
 
         // KV cache 量化：Q8_0 减半 KV 内存（8B@6144ctx：约0.9GB→0.45GB），精度损失极小
         // 默认 F16（kvCacheType=1）；Java 侧大模型/低内存时设为 0（Q8_0）或 2（Q4_0，极低内存场景）
@@ -2978,6 +3048,9 @@ public:
 
         int ret = 0;
         prefillTotalTokens = (int)evalTokens.size();
+        // PREFILL-PERF：prefill 吞吐是"首 token 等待"的主要成分，但原先只记了
+        // "First token ... total entry->first"（混了排队/编码/KV 等），看不出 prompt 解码本身多快。
+        auto prefillStart = std::chrono::steady_clock::now();
         for (size_t offset = 0; offset < evalTokens.size(); offset += batchSize) {
             size_t nTokens = std::min((size_t)batchSize, evalTokens.size() - offset);
             prefillDoneTokens += (int)nTokens;   // PREPROCESS：逐块累积已处理 prompt token
@@ -2994,6 +3067,15 @@ public:
             setLastError(error);
             callback("", true, error);
             return false;
+        }
+
+        // PREFILL-PERF：prompt(prefill) 解码吞吐
+        {
+            double ps = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - prefillStart).count();
+            double tps = ps > 0 ? (double) prefillTotalTokens / ps : 0.0;
+            LOGI("[PERF] Prefill: %d tokens in %.3fs (%.1f tok/s, n_batch=%d)",
+                 prefillTotalTokens, ps, tps, batchSize);
         }
 
         // 记账统一在生成结束后由 kvCache.record() 完成（prompt + 输出），
@@ -3319,7 +3401,7 @@ public:
         }
 
         // 初始化 chat templates（使用模型内置模板）
-        auto chat_templates = common_chat_templates_init(model, "");
+        auto chat_templates = common_chat_templates_init(model, chatTemplateForKvReuse(model));
         if (!chat_templates) {
             LOGW("Failed to init chat templates, falling back to basic generateStreamFromMessages");
             return generateStreamFromMessages(messages, maxTokens, temperature, topP, topK, enableThinking, callback);
@@ -3529,7 +3611,7 @@ public:
              toolChoiceStr.c_str(), (int)enableThinking, maxTokens, temperature, topP, topK);
 
         // step 5：构建模板输入
-        auto chat_templates = common_chat_templates_init(model, "");
+        auto chat_templates = common_chat_templates_init(model, chatTemplateForKvReuse(model));
         if (!chat_templates) {
             LOGW("chatJson: Failed to init chat templates");
             sendError("Failed to init chat templates");
@@ -3553,6 +3635,7 @@ public:
             chat_params = common_chat_templates_apply(chat_templates.get(), inputs);
             LOGI("chatJson: template applied, prompt length: %zu, format: %s",
                  chat_params.prompt.size(), common_chat_format_name(chat_params.format));
+
             // 提取模板思考标签（统一标签源），供流式思考段剥离
             mThinkStartTag = chat_params.thinking_start_tag;
             mThinkEndTags = chat_params.thinking_end_tags;
@@ -4514,6 +4597,12 @@ static std::string utf8SafeTruncate(const std::string& s, size_t maxBytes) {
 // NativeChatContext - Native层独立管理上下文、KV缓存、多轮对话
 // ============================================================
 
+// NativeChatContext 位于 llama_jni 命名空间之外，而模板修补函数定义在其内；
+// 这里做一层全局转发，避免它重复实现同一段修补逻辑。
+static std::string chatTemplateForKvReuseGlobal(const struct llama_model * mdl) {
+    return llama_jni::chatTemplateForKvReuse(mdl);
+}
+
 class NativeChatContext {
 private:
     std::mutex mtx;
@@ -4622,7 +4711,7 @@ private:
      */
     std::string applyChatTemplateWithThinking(bool addAssistantStart) {
         if (!model || chatMessages.empty()) return "";
-        auto chat_templates = common_chat_templates_init(model, "");
+        auto chat_templates = common_chat_templates_init(model, chatTemplateForKvReuseGlobal(model));
         if (!chat_templates) {
             LOGW("applyChatTemplateWithThinking: template init failed, fallback");
             return applyChatTemplate(addAssistantStart);

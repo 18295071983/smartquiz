@@ -47,9 +47,21 @@ public class AIToolManager {
     private static final String TAG = "AIToolManager";
     private static AIToolManager instance;
     private final Context context;
+    /**
+     * 工具工厂表。
+     *
+     * <p><b>TOOL-SCHEMA-STABLE（2026-10-07）：必须是 LinkedHashMap，不能是 HashMap。</b>
+     * {@link #getOpenAIToolDefinitions()} 按本表的 key 顺序生成 tools 数组，而该数组会被
+     * 渲染进 prompt 的**最前面**（system 之前/之后、所有消息之前）。HashMap 的迭代顺序取决于
+     * 哈希值与容量：一旦中途注册新工具（本类有惰性初始化与 create_dynamic_tool 动态工具）
+     * 触发 rehash，已有条目的遍历顺序就会整体改变 → tools schema 重排 → prompt 从最前面就变
+     * → 增量 KV 缓存前缀全部作废 → **每轮全量 prefill**（实测症状：只差 33 个 token 却要
+     * 重算 3236 个 token、9.58s）。LinkedHashMap 保证按注册顺序稳定输出。</p>
+     */
     private final Map<String, ToolFactory> toolFactories;
     private final Map<String, Class<? extends AITool>> toolClasses;
     private final Map<String, AITool> initializedTools;
+    /** 动态工具表：保持 ConcurrentHashMap（并发安全优先）；其输出顺序由 getOpenAIToolDefinitions 内部排序保证 */
     private final Map<String, AITool> dynamicTools;
     private final Map<String, Long> toolLastUseTime;
     private long idleTimeoutMs = 5 * 60 * 1000;
@@ -68,8 +80,11 @@ public class AIToolManager {
             appContext = context;
         }
         this.context = appContext;
-        this.toolFactories = new HashMap<>();
-        this.toolClasses = new HashMap<>();
+        // TOOL-SCHEMA-STABLE：LinkedHashMap 保证工具定义渲染顺序稳定（见字段注释）。
+        // 用 HashMap 时，中途注册新工具触发 rehash 会重排已有条目 → tools schema 变 →
+        // prompt 前缀作废 → 每轮全量 prefill。
+        this.toolFactories = new java.util.LinkedHashMap<>();
+        this.toolClasses = new java.util.LinkedHashMap<>();
         this.initializedTools = new ConcurrentHashMap<>();
         this.dynamicTools = new ConcurrentHashMap<>();
         this.toolLastUseTime = new ConcurrentHashMap<>();
@@ -572,11 +587,21 @@ public class AIToolManager {
      * 用于在线模型原生工具调用，格式：[{"type":"function","function":{"name","description","parameters":{...}}}]
      * 包含：内置工具工厂 + 用户动态工具（修复：此前只遍历工厂，在线模型看不到动态工具）。
      */
+    /**
+     * 生成 OpenAI 格式的工具定义数组（供 prompt 渲染）。
+     *
+     * <p><b>TOOL-SCHEMA-STABLE（2026-10-07）：输出必须逐字节稳定。</b>
+     * 该数组被渲染进 prompt 最前面，一旦顺序或内容变了，增量 KV 缓存的前缀全部作废。
+     * 故：① 内置工具按名字排序；② 动态工具按名字排序。排序比依赖容器迭代顺序更可靠——
+     * HashMap/ConcurrentHashMap 的顺序都可能因 rehash 或并发插入而变化。</p>
+     */
     public String getOpenAIToolDefinitions() {
         JSONArray tools = new JSONArray();
         java.util.Set<String> added = new java.util.HashSet<>();
-        // 内置工具工厂
-        for (String toolName : toolFactories.keySet()) {
+        // 内置工具工厂：按工具名排序，保证每轮渲染完全一致
+        java.util.List<String> names = new java.util.ArrayList<>(toolFactories.keySet());
+        java.util.Collections.sort(names);
+        for (String toolName : names) {
             ToolDefinition def = getToolDefinition(toolName);
             if (def == null) continue;
             try {
@@ -586,8 +611,11 @@ public class AIToolManager {
                 Log.w(TAG, "Failed to build OpenAI tool definition for " + toolName + ": " + e.getMessage());
             }
         }
-        // 动态工具（create_dynamic_tool / ai_create_tool 创建，含 java 与 python 两类）
-        for (AITool tool : dynamicTools.values()) {
+        // 动态工具（create_dynamic_tool / ai_create_tool 创建，含 java 与 python 两类）：同样按名排序
+        java.util.List<String> dynNames = new java.util.ArrayList<>(dynamicTools.keySet());
+        java.util.Collections.sort(dynNames);
+        for (String dynName : dynNames) {
+            AITool tool = dynamicTools.get(dynName);
             if (tool == null || added.contains(tool.getName())) continue;
             ToolDefinition def = createToolDefinitionFromAITool(tool);
             if (def == null) continue;
@@ -598,8 +626,11 @@ public class AIToolManager {
                         + tool.getName() + ": " + e.getMessage());
             }
         }
-        Log.i(TAG, "Returning " + tools.length() + " OpenAI tool definitions");
-        return tools.toString();
+        String json = tools.toString();
+        // 打印长度与内容指纹：若后续仍出现"前缀失配"，可直接比对每轮的 schema 是否一致
+        Log.i(TAG, "Returning " + tools.length() + " OpenAI tool definitions, len=" + json.length()
+                + ", hash=" + Integer.toHexString(json.hashCode()));
+        return json;
     }
     
     /**
@@ -1106,25 +1137,35 @@ public class AIToolManager {
     
     /**
      * 获取所有工具的 OpenAI 标准格式描述
+     *
+     * <p><b>TOOL-SCHEMA-STABLE（2026-10-07）：与 {@link #getOpenAIToolDefinitions()} 同理，
+     * 必须按工具名排序输出。</b>该数组会被渲染进 prompt 前缀；顺序一变，增量 KV 前缀即作废，
+     * 退化成每轮全量 prefill。绝不能依赖 HashMap / ConcurrentHashMap 的迭代顺序。</p>
+     *
      * @return JSONArray 包含所有工具的 OpenAI function calling 格式定义
      */
     public JSONArray getToolsAsOpenAIFormat() throws JSONException {
         JSONArray toolsArray = new JSONArray();
-        
-        for (String toolName : toolFactories.keySet()) {
+
+        java.util.List<String> names = new java.util.ArrayList<>(toolFactories.keySet());
+        java.util.Collections.sort(names);
+        for (String toolName : names) {
             ToolDefinition definition = getToolDefinition(toolName);
             if (definition != null) {
                 toolsArray.put(definition.toOpenAIFormat());
             }
         }
-        
-        for (AITool tool : dynamicTools.values()) {
-            ToolDefinition definition = createToolDefinitionFromAITool(tool);
+
+        java.util.List<String> dynNames = new java.util.ArrayList<>(dynamicTools.keySet());
+        java.util.Collections.sort(dynNames);
+        for (String dynName : dynNames) {
+            AITool tool = dynamicTools.get(dynName);
+            ToolDefinition definition = tool == null ? null : createToolDefinitionFromAITool(tool);
             if (definition != null) {
                 toolsArray.put(definition.toOpenAIFormat());
             }
         }
-        
+
         Log.i(TAG, "Returning " + toolsArray.length() + " tools in OpenAI format");
         return toolsArray;
     }

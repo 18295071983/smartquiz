@@ -462,6 +462,9 @@ public class AgentLoopEngine {
             // 初始集外的工具经 tool_registry 查询后由模型调用时自动注入。
             toolsJson = buildToolsJson(new ArrayList<>(activeTools));
             toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
+            // schema 指纹：跨轮比对即可确认 tools 前缀是否稳定（不稳定则 KV 前缀必失配）
+            AILogger.i(TAG, "Round tools schema: " + activeTools.size() + " tools, len=" + toolsJson.length()
+                    + ", hash=" + Integer.toHexString(toolsJson.hashCode()));
 
             // 每轮推理前裁剪历史，确保单次推理 prompt 不超预算（防截断/decode崩溃）
             history = trimHistoryToFit(history, toolsJson, promptBudget);
@@ -1621,8 +1624,21 @@ public class AgentLoopEngine {
     }
 
     /**
-     * 每轮推理前裁剪历史，使 历史+schema 的 token 总量不超过预算：
-     * 1) 从早到晚压缩工具结果；2) 仍超则从头部截断最旧的消息，保留 system+最新 N 轮。
+     * 每轮推理前裁剪历史，使 历史+schema 的 token 总量不超过预算。
+     *
+     * <p><b>KV-CACHE-STABLE（2026-10-07 实测修复）：本方法必须保持"只增不改"性质。</b>
+     * 增量 KV 缓存的前提是"新 prompt 是上一轮 token 序列的前缀超集"——逐 token 比较，
+     * 一旦某个位置变了，该位置之后的全部 token 作废（本机 Qwen3.5 属混合架构 SSM，
+     * 部分前缀截断 seq_rm 必然失败 → 直接退化成全量重算）。
+     *
+     * <p>原先这里还有一步"渐进压缩工具结果"：每轮按预算压力把同一条工具结果重裁成
+     * 4000/2500/1200。实测后果：同一条旧工具结果随对话增长被反复改短 → 文本变 → token 序列变 →
+     * 前缀每轮都断 → <b>每轮全量 prefill</b>，日志表现为
+     * {@code Prefill: 4729 tokens in 16.249s}，越聊越慢。
+     * 工具结果在入库时已由 {@code MAX_TOOL_RESULT_LENGTH} 一次性定稿，故该步已移除。
+     *
+     * <p>现在超预算时**只从头部丢弃最旧消息**（丢弃让窗口滑动，剩下的序列仍然稳定且连续），
+     * 绝不原地改写已进入历史的消息。
      */
     private List<ChatMessage> trimHistoryToFit(List<ChatMessage> history, String toolsJson, int budgetTokens) {
         int schemaTokens = countTokensSafe(toolsJson);
@@ -1632,33 +1648,11 @@ public class AgentLoopEngine {
         AILogger.w(TAG, "Trimming history: " + total + " > " + budgetTokens + " tokens");
         List<ChatMessage> trimmed = new ArrayList<>(history);
 
-        // 1) 压缩工具结果（最占空间），保留最近完整，旧结果按新旧渐进收缩：
-        //    最近一条工具结果在注入时已是完整 6000，这里只压更早的旧结果；
-        //    较新的压到 4000、再旧 2500、最旧 1200——避免一刀切 2500 把较新结果
-        //    也砍残（工具结果被截断 → 模型追问数据细节时答不上来）
-        java.util.List<Integer> toolIdx = new java.util.ArrayList<>();
-        for (int i = 0; i < trimmed.size(); i++) {
-            ChatMessage m = trimmed.get(i);
-            if ("tool".equals(m.role) && m.content != null && m.content.length() > 1200) {
-                toolIdx.add(i);
-            }
-        }
-        int toolTier = 0;
-        for (int idx = toolIdx.size() - 1; idx >= 0 && total > budgetTokens; idx--) {
-            int cap = toolTier == 0 ? 4000 : (toolTier == 1 ? 2500 : 1200);
-            toolTier++;
-            ChatMessage m = trimmed.get(toolIdx.get(idx));
-            if (m.content.length() > cap) {
-                trimmed.set(toolIdx.get(idx), new ChatMessage(m.role, truncate(m.content, cap)));
-                total = countTokensSafe(serializeHistory(trimmed)) + schemaTokens;
-            }
-        }
-
-        // 2) 仍超：从最旧消息开始，把要丢弃的非工具对话压缩成一条"历史要点"
-        //    （保留多轮指代上下文，如"那明天呢/多少钱"），而非直接丢弃丢光——
-        //    在线引擎用模型摘要历史，本地用轻量要点拼接兜底，保留关键事实。
-        //    保留 system + 最新 N 轮（注意不能用 remove(size-2)：那会从中间删，
-        //    留下"最旧+最新"两条、丢掉中间较新的上下文）
+        // 超预算：从最旧消息开始，把要丢弃的非工具对话压缩成一条"历史要点"
+        // （保留多轮指代上下文，如"那明天呢/多少钱"），而非直接丢弃丢光——
+        // 在线引擎用模型摘要历史，本地用轻量要点拼接兜底，保留关键事实。
+        // 保留 system + 最新 N 轮（注意不能用 remove(size-2)：那会从中间删，
+        // 留下"最旧+最新"两条、丢掉中间较新的上下文）
         List<ChatMessage> evicted = new ArrayList<>();
         while (trimmed.size() > 4 && total > budgetTokens) {
             ChatMessage old = trimmed.remove(1);
@@ -1858,10 +1852,21 @@ public class AgentLoopEngine {
         return loc;
     }
 
+    /**
+     * 按工具名构建 tools schema（喂给模型，渲染在 prompt 前缀）。
+     *
+     * <p><b>TOOL-SCHEMA-STABLE（2026-10-07）：工具名必须先排序再构建。</b>
+     * 该 JSON 渲染在 prompt 前缀（见本类"tools 渲染在 system 前缀，跨轮集合一致 → system
+     * 字节稳定 → KV 前缀可增量"的设计约定）。只要顺序变了，前缀即失效，增量 KV 退化成全量
+     * prefill。上游 {@code selectedTools} / {@code activeTools} 来自意图识别、工具选择与
+     * 动态注入，顺序没有契约保证，故在此显式排序兜底——排序后无论上游如何重排，输出一致。</p>
+     */
     private String buildToolsJson(List<String> toolNames) {
         JSONArray tools = new JSONArray();
         int schemaTokens = 0;
-        for (String name : toolNames) {
+        java.util.List<String> ordered = new java.util.ArrayList<>(toolNames);
+        java.util.Collections.sort(ordered);
+        for (String name : ordered) {
             // resolveToolDefinition 支持静态定义 + 动态工具反射生成
             ToolDefinition def = toolManager.resolveToolDefinition(name);
             if (def == null) continue;
