@@ -1778,10 +1778,11 @@ public class AgentLoopEngine {
     }
 
     /**
-     * FC 模式的 system 提示词（最小版 2026-09-24）。
+     * FC 模式的 system 提示词（最小版 2026-10-07）。
      * 设计目标：prompt 尽可能小（首轮 FULL 更小、KV 更省），
      * 工具使用信息以 schema 为准（buildToolsJson 注入完整 description + enum），
-     * system 只保留角色与 5 条最短规则；工具发现交给 tool_registry 动态注入。
+     * system 只保留与在线 Agent 对齐的 persona 角色段，无规则段（原生 FC + schema 引导，
+     * 见方法内 RULES-REMOVED 注释）；工具发现交给 tool_registry 动态注入。
      */
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
@@ -1797,20 +1798,13 @@ public class AgentLoopEngine {
         sb.append("你的方式：实时/动态信息必须用工具获取；静态知识直接回答；结构化信息用清晰的分段与列表展示。\n");
         sb.append("你的边界：不可逆或影响外部操作（删除/覆盖文件、发送消息等）先征得用户确认。\n");
         sb.append("你的风格：用中文，口语化、简洁有条理，先结论后细节。\n\n");
-        sb.append("【规则】\n");
-        sb.append("1. 常识/知识类问题直接回答；实时/时效类（天气、时间、位置、新闻、价格等）必须调用工具，用工具返回的数据回答，不要用训练数据猜测。\n");
-        sb.append("2. 工具返回即事实，直接采纳；总结时只提取与问题相关的关键信息，不要罗列原始数据字段。\n");
-        sb.append("3. 用户没给城市时先调 location 定位，再用坐标查天气；查具体时刻调 time_date(action=now)。\n");
-        // SMALL-MODEL-RULE: 小模型（NPU 引擎）跑不动"先 workspace → 读速查.md →
-        // tool_registry 查参数"的多轮发现流程，而且元工具会挤占工具名额 → 直接按定义调用。
-        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
-            sb.append("4. 工具清单与参数已在 tools 定义中给出，直接按定义调用；"
-                    + "不要为了查工具而先调用 workspace / tool_registry 等元工具。\n");
-        } else {
-            sb.append("4. 需要其他能力（搜索、天气、记忆、计算、画图、文件、表格、网页、朗读、语音、图表、视频、题库等）时，先用 workspace(action=list) 看工作区文件，再读《核心工具速查.md》查看工具速查，再按返回的工具名和参数调用；不确定参数格式时用 tool_registry(action=get, tool=工具名) 查看该工具完整参数。不要猜测工具名或参数。\n");
-        }
-        sb.append("5. 用中文简洁回答，先结论后细节。\n");
-        sb.append("6. 工具失败时按提示修正参数重试一次，仍失败则换工具或直接告知用户，不要重复相同调用。\n\n");
+        // RULES-REMOVED(2026-10-07)：原【规则】段（工具调用规则 1-6）删除。
+        // 理由：① 与在线 Agent 的最小提示词保持一致（在线无规则段，靠原生 function calling +
+        // tools schema description 引导）；② 本地 Qwen3.5 走原生 FC，tools 定义自带完整描述；
+        // ③ 规则段的关键约束已被 persona 覆盖——规则1(实时必须调工具)≈方式行
+        // "实时/动态信息必须用工具获取；静态知识直接回答"；规则5(中文简洁先结论)≈风格行。
+        // ④ prompt 更小：首轮 FULL 更小、KV 更省。若实测小模型编造实时数据，回退策略=恢复
+        // "实时/时效类必须调用工具，不要用训练数据猜测"一行即可。
         return sb.toString();
     }
 
