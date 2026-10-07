@@ -14,6 +14,7 @@ import com.geniex.sdk.bean.ModelConfig
 import com.geniex.sdk.bean.ModelPaths
 import com.geniex.sdk.bean.ModelPullInput
 import com.geniex.sdk.bean.ModelType
+import com.geniex.sdk.bean.SamplerConfig
 import com.geniex.sdk.bean.ToolCall
 import com.geniex.sdk.bean.VlmCreateInput
 import com.geniex.sdk.bean.VlmContent
@@ -174,6 +175,13 @@ object NpuLlmChat {
     /** MEM-FALLBACK-CPU: 内存连最小上下文都装不下时，标记改用 CPU 推理（CPU 可用普通内存 + swap） */
     @Volatile
     private var preferCpuFallback: Boolean = false
+    /**
+     * NPU 功耗档的出厂默认值。取 `high_performance` 是为了解掉"NPU 比 llama.cpp 还慢"的观感：
+     * SDK 默认（空串 → burst）是保守档，而本机是 SM8850（Hexagon HTP）。
+     * 若实测发热/降频明显，把设备偏好 `npu_engine_prefs.npu_power_mode` 改成
+     * `balanced` 或 `burst`，或写空串完全交回 SDK 默认。
+     */
+    private const val DEFAULT_POWER_MODE = "high_performance"
     /** Agent 模式所需的最小上下文（工具定义 + 多轮工具结果）；NPU 给不了就转 CPU */
     private val AGENT_MIN_NCTX = 16384
     /**
@@ -375,6 +383,33 @@ object NpuLlmChat {
     @JvmStatic
     fun plannedNCtxValue(): Int = plannedNCtx
 
+    // ==================== NPU-CTX-USAGE：上下文占用统计 ====================
+    // 背景（2026-10-07）：对话页的"上下文仪表"原先只读 llama.cpp 的
+    // LlamaHelper.getContextUsedTokens()/getContextSize()。NPU 模式下这两个恒为 0 →
+    // 仪表走 window<=0 分支显示"故障/无效"，用户看到的就是"上下文故障"。
+    // NPU 侧因此需要自己报出用量：喂进去的 prompt token 数（本轮真实占用）+ 生成 token 数。
+    @Volatile private var lastPromptTokens = 0
+    @Volatile private var lastCtxUsed = 0
+
+    /** 上一轮喂进 NPU 的 prompt token 数（估算，按中英文字符加权） */
+    @JvmStatic
+    fun getLastPromptTokens(): Int = lastPromptTokens
+
+    /** 当前上下文的近似占用量（prompt + 生成），供上下文仪表显示 */
+    @JvmStatic
+    fun getLastCtxUsed(): Int = lastCtxUsed
+
+    /** 与 NpuEngineRouter.estimatePromptTokens 同口径：CJK 按 1.5 字符/token，其余按 4 字符/token */
+    private fun estimateTokens(s: String?): Int {
+        if (s.isNullOrEmpty()) return 0
+        var cjk = 0
+        for (c in s) {
+            if (c >= '\u4E00' && c <= '\u9FFF') cjk++
+        }
+        val other = s.length - cjk
+        return (cjk / 1.5 + other / 4.0).toInt() + 1
+    }
+
     // ==================== NPU-INCREMENTAL：会话增量喂 prompt ====================
     // 取证：LlmWrapper 只暴露 generateStreamFlow(String prompt, cfg) + reset()，说明底层上下文持久；
     // 而实测日志 prefix match: past_prompt_tokens size: 0 → 我们每轮喂全量，从未命中 KV 复用。
@@ -439,6 +474,87 @@ object NpuLlmChat {
         }
     }
 
+    // ==================== NPU 功耗档（power_mode）====================
+    /**
+     * HTP 功耗档，决定推理速度与发热的取舍。
+     *
+     * <p>SDK 事实（javap + native 字符串双向核实）：`ModelConfig.power_mode` 默认**空串**，
+     * 含义是"不调用 set_power_mode"，底层回退到 `burst`；合法值共 8 个：
+     * `burst / balanced / high_performance / sustained_high_performance /
+     * high_power_saver / low_balanced / low_power_saver / power_saver`。
+     * native 另有两句关键约束：
+     * ① `"power_mode is only meaningful on the NPU device; ignoring on this device"`
+     *    —— 只在 NPU/HTP 路线生效，CPU/GPU 上被忽略；所以只给 llama_cpp + npu 传（qairt 分支不传）。
+     * ② `"HTP sessions already in use by another loaded model; power mode change applies to
+     *    sessions created from now on only"` —— 必须在 create **之前**定好，运行中改无效。</p>
+     *
+     * <p>取 `high_performance`（而非 `sustained_high_performance`）：前者允许短时冲高频，
+     * 后者偏向长时间保持，发热更明显。想省电/降热可在设备偏好里改
+     * `npu_engine_prefs` 的 `npu_power_mode`（写成 `burst`/`balanced`/`power_saver` 等），
+     * 写空串即恢复 SDK 默认。</p>
+     */
+    @Volatile private var npuPowerMode: String = DEFAULT_POWER_MODE
+
+    private fun npuPowerMode(): String = npuPowerMode
+
+    @JvmStatic
+    fun setNpuPowerMode(mode: String?) {
+        npuPowerMode = mode ?: ""
+        Log.i(TAG, "NPU 功耗档 = " + npuPowerMode.ifEmpty { "(空串=SDK 默认 burst)" })
+    }
+
+    @JvmStatic
+    fun getNpuPowerMode(): String = npuPowerMode
+
+    /**
+     * NPU 是否按 VLM（多模态）加载模型。
+     *
+     * 默认 false：即使模型目录里有 mmproj 也只加载纯文本 LLM。
+     * 依据见 loadModel 里 VLM 分支的说明——NPU 的 VlmWrapper 目前没有调用方
+     * （图片走 llama.cpp mtmd），而视觉塔被钉在 CPU，纯文本对话白背开销。
+     * 需要时用偏好 npu_engine_prefs.npu_vision_enabled=true 打开。
+     */
+    @Volatile private var npuVisionEnabled = false
+
+    // NPU-LOAD-DEDUP: timestamp of the last load start (0 = none in flight).
+    // Use timestamp + state instead of a boolean cleared in callbacks: the load has many
+    // exit paths (ok / fail / reject / throw) and a missed clear would block all later loads.
+    @Volatile private var loadStartedAt = 0L
+    /** 显式在途标记：进入加载前置位，加载结束（成功/失败）清位 */
+    @Volatile private var loadInFlightFlag = false
+    private const val LOAD_INFLIGHT_TIMEOUT_MS = 120_000L
+
+    /**
+     * 是否有一次模型加载正在进行。
+     *
+     * NPU-LOAD-DEDUP(2)：第一版只靠 `loadStartedAt` + 排除 READY/ERROR 判断，实测**漏判**——
+     * 冷启动时"进聊天页预加载"与"发消息"两个入口相隔约 3 秒先后进入，第二次仍会重新扫描
+     * 模型库（日志里 "App 模型库扫描" 出现两次），因为那一刻 state 的取值不满足排除条件。
+     * 现在改为**显式的生命周期标记** `loadInFlightFlag`：进入加载前置位、加载结束（成功/失败）
+     * 清位，不再从 state 反推。时间戳只作为兜底，防止标记因异常路径漏清而永久阻塞。
+     */
+    private fun isLoadInFlight(): Boolean {
+        if (loadInFlightFlag) return true
+        if (loadStartedAt <= 0L) return false
+        if (state == State.READY || state == State.ERROR) return false
+        return System.currentTimeMillis() - loadStartedAt <= LOAD_INFLIGHT_TIMEOUT_MS
+    }
+
+    /** 加载结束（成功或失败）时清除在途标记 */
+    private fun clearLoadInFlight() {
+        loadInFlightFlag = false
+        loadStartedAt = 0L
+    }
+
+    @JvmStatic
+    fun isNpuVisionEnabled(): Boolean = npuVisionEnabled
+
+    @JvmStatic
+    fun setNpuVisionEnabled(enabled: Boolean) {
+        npuVisionEnabled = enabled
+        Log.i(TAG, "NPU VLM（多模态）加载 = " + enabled)
+    }
+
     /** 当前是否有**已登记可用**的本地模型（App 模型库或侧载目录里真有 gguf） */
     @JvmStatic
     fun hasUsableModel(): Boolean {
@@ -464,6 +580,15 @@ object NpuLlmChat {
             // NPU 模式是否走 Agent（默认关 → 普通对话，prompt 更小更快）
             setNpuAgentEnabled(context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
                     .getBoolean("npu_agent_enabled", false))   // 2026-10-05 默认关（双模型加载崩溃）
+            // NPU 功耗档：默认 high_performance（见 DEFAULT_POWER_MODE 的说明）。
+            // 设备上写 npu_power_mode="" 可恢复 SDK 默认（burst），或改 balanced / power_saver 等降热。
+            val pmPrefs = context.getSharedPreferences("npu_engine_prefs", Context.MODE_PRIVATE)
+            val pm = if (pmPrefs.contains("npu_power_mode"))
+                pmPrefs.getString("npu_power_mode", DEFAULT_POWER_MODE) ?: DEFAULT_POWER_MODE
+            else DEFAULT_POWER_MODE
+            setNpuPowerMode(pm)
+            // NPU 是否按 VLM 加载（默认 false：模型目录有 mmproj 也只载纯文本，见 loadModel 说明）
+            setNpuVisionEnabled(pmPrefs.getBoolean("npu_vision_enabled", false))
         } catch (t: Throwable) {
             Log.w(TAG, "loadIncrementalPref 失败: " + t)
         }
@@ -529,9 +654,13 @@ object NpuLlmChat {
         loadIncrementalPref(context)
         try {
             appContext = context.applicationContext
+            // NPU-PROFILE: 单独给 SDK 初始化打点。native 侧 init 会从 nativeLibraryDir 依次
+            // registerPlugin(llama_cpp) 与 registerPlugin(qairt)，其中 libQnnHtpPrepare.so 单文件约 87MB，
+            // .so 装载 + QNN 初始化往往是"首帧慢"的大头，却一直混在总耗时里看不出来。
+            val t0 = System.currentTimeMillis()
             GenieXSdk.getInstance().init(context.applicationContext)
             initialized = true
-            Log.i(TAG, "GenieXSdk 已初始化")
+            Log.i(TAG, "GenieXSdk 已初始化，耗时 " + (System.currentTimeMillis() - t0) + "ms")
         } catch (t: Throwable) {
             state = State.ERROR
                     NpuEngineState.get().setError("加载失败")
@@ -936,9 +1065,16 @@ object NpuLlmChat {
                 NpuEngineState.get().startTiming()
                 NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.NATIVE_LIBRARY_LOADING, "加载引擎", 10)
         scope.launch {
+            // NPU-PROFILE: 加载分阶段打点（总耗时 = getPaths + build）。build 里才是
+            // 真正的权重装载 + HTP 会话创建，是最可能的大头，必须与 getPaths 分开看。
+            val loadT0 = System.currentTimeMillis()
+            var pathsMs = 0L
+            var buildMs = 0L
             try {
                 // getPaths 为空时用本地侧载兜底（SDK 只认自己写的 geniex.json 清单）
+                val tPaths = System.currentTimeMillis()
                 val paths = ModelManagerWrapper.getPaths(modelName) ?: localPathsFallback(modelName)
+                pathsMs = System.currentTimeMillis() - tPaths
                 if (paths == null) {
                     state = State.ERROR
                     listener?.onError("模型路径解析失败（既没下载、也没登记本地侧载目录）")
@@ -957,6 +1093,8 @@ object NpuLlmChat {
                         ModelConfig(
                             nCtx = plannedNCtx,
                             nGpuLayers = -1,
+                            // NPU-POWER: 见 npuPowerMode() 的说明；官方默认空串=底层 burst
+                            power_mode = npuPowerMode(),
                             spec_type = "draft",
                             spec_draft_model = draftPath,
                             spec_n_max = 8,
@@ -964,14 +1102,34 @@ object NpuLlmChat {
                             spec_p_min = 0.0f
                         )
                     } else {
-                        ModelConfig(nCtx = plannedNCtx, nGpuLayers = -1)
+                        ModelConfig(
+                            nCtx = plannedNCtx,
+                            nGpuLayers = -1,
+                            power_mode = npuPowerMode()
+                        )
                     }
                 // ==================== VLM（多模态）分支 ====================
             // 判定依据与官方 demo 一致：ModelPaths.mmproj_path 非空即为 VLM（GGUF 形态下视觉塔独立成文件）。
             // 官方用法（geniex_chat_android/MainActivity.kt:449-458）：
             //   VlmWrapper.builder().vlmCreateInput(VlmCreateInput(model_path, mmproj_path, config,
             //       runtime_id, compute_unit, vit_device_id)).build()
-            if (!paths.mmproj_path.isNullOrEmpty()) {
+            //
+            // NPU-VLM-OPT-IN（2026-10-07）：**默认不再因为目录里有 mmproj 就走 VLM**。
+            // 原因（源码取证）：
+            //   ① 图片推理实际不在 NPU 侧——AIChatActivity.startLocalVisionGeneration 最终调
+            //      LlamaHelper.generateWithImage（llama.cpp mtmd），且 NpuEngineRouter.shouldRouteToNpu
+            //      对 needsVision 直接返回 false。也就是说 NPU 的 VlmWrapper 目前没有任何调用方。
+            //   ② 而 VlmWrapper 的视觉塔被显式钉在 CPU（见下方 VIT-DEVICE 注释：LLM 已占满 HTP
+            //      session，mmproj 分不到会话），于是纯文本对话也要白背一份视觉塔的开销与内存。
+            //   ③ Qwen3.5-0.8B 等预置自带 mmprojUrl → 文件必然下载 → 必然触发上述开销。
+            // 想要 NPU 多模态（或未来把它接进图片链路）时，把偏好
+            //   npu_engine_prefs.npu_vision_enabled 设为 true 即可恢复原行为。
+            val wantVlm = npuVisionEnabled && !paths.mmproj_path.isNullOrEmpty()
+            if (!paths.mmproj_path.isNullOrEmpty() && !npuVisionEnabled) {
+                Log.i(TAG, "检测到 mmproj 但 npu_vision_enabled=false → 按纯文本 LLM 加载（省内存、"
+                        + "避免视觉塔占 CPU）。位置: " + paths.mmproj_path)
+            }
+            if (wantVlm) {
                 Log.i(TAG, "检测到 mmproj → 按 VLM 加载: " + paths.mmproj_path)
                 val vconf = if (runtime == "qairt") {
                     ModelConfig(nCtx = 0, nGpuLayers = 0)
@@ -1006,12 +1164,14 @@ object NpuLlmChat {
                 }.onFailure { e ->
                     state = State.ERROR
                     Log.e(TAG, "VLM 模型加载失败", e)
+                    clearLoadInFlight()
                     listener?.onError(e.message ?: "VLM 模型加载失败")
                 }
                 return@launch
             }
 
             NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.MODEL_LOADING, "加载权重", 45)
+            val tBuild = System.currentTimeMillis()
             val result = LlmWrapper.builder()
                     .llmCreateInput(
                         // 注意：0.8.0 的 LlmCreateInput 去掉了 model_name（0.3.5 有），只剩 5 个参数
@@ -1024,6 +1184,7 @@ object NpuLlmChat {
                         )
                     )
                     .build()
+            buildMs = System.currentTimeMillis() - tBuild
                 result.onSuccess { wrapper ->
                     llm?.stopStream()
                     llm = wrapper
@@ -1034,14 +1195,19 @@ object NpuLlmChat {
                     NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.INITIALIZED, "就绪", 100)
                     Log.i(TAG, "模型加载完成: $modelName (runtime=$runtime, compute=$computeUnit)")
                     listener?.onLoaded(modelName)
+                    Log.i(TAG, "NPU-PROFILE 加载: getPaths=" + pathsMs + "ms, build(权重+会话)="
+                            + buildMs + "ms, 合计=" + (System.currentTimeMillis() - loadT0) + "ms")
+                    clearLoadInFlight()
                 }.onFailure { e ->
                     state = State.ERROR
                     Log.e(TAG, "模型加载失败", e)
+                    clearLoadInFlight()
                     listener?.onError(e.message ?: "模型加载失败")
                 }
             } catch (t: Throwable) {
                 state = State.ERROR
                 Log.e(TAG, "加载异常", t)
+                clearLoadInFlight()
                 listener?.onError(t.message ?: "加载异常")
             }
         }
@@ -1084,7 +1250,10 @@ object NpuLlmChat {
         thinking: Boolean,
         listener: GenerateListener?,
         toolsJson: String? = null,
-        messagesJson: String? = null
+        messagesJson: String? = null,
+        temperature: Float = -1f,
+        topP: Float = -1f,
+        topK: Int = -1
     ) {
         ensureInit()
         val wrapper = llm
@@ -1096,6 +1265,25 @@ object NpuLlmChat {
             listener?.onError("对话历史参数不合法")
             return
         }
+        // NPU-SAMPLER: 显式构造采样配置。
+        // 起因（2026-10-07）：App 侧一直有 temperature/top_p/top_k（AgentLoopEngine 0.7/0.9/40、
+        // AIChatViewModel 0.6/0.9/40 等 4 处），但 NPU 路径只把 maxTokens 传给了 SDK ——
+        // 这几项被整条丢掉。而 GenieX 的 SamplerConfig **所有字段默认都是 0**、且
+        // GenerationConfig.samplerConfig 默认为 null ⇒ 采样行为完全由 native 兜底，
+        // 换机型/换版本可能就变样，且无法与 llama.cpp 路径对齐。
+        // 这里按 App 传入值构造；传 -1（默认）时回落到与 llama.cpp 路径一致的 0.6/0.9/40。
+        val sampler = SamplerConfig(
+            temperature = if (temperature >= 0f) temperature else 0.6f,
+            topP = if (topP >= 0f) topP else 0.9f,
+            topK = if (topK > 0) topK else 40,
+            minP = 0.0f,
+            repetitionPenalty = 1.0f,
+            presencePenalty = 0.0f,
+            frequencyPenalty = 0.0f,
+            seed = 0
+        )
+        Log.i(TAG, "NPU 采样参数: temperature=" + sampler.temperature + ", topP=" + sampler.topP
+                + ", topK=" + sampler.topK + "（传入 " + temperature + "/" + topP + "/" + topK + "）")
         state = State.GENERATING
                 NpuEngineState.get().setCurrentStage(NpuEngineState.Stage.INITIALIZED, "生成中", 100)
         scope.launch {
@@ -1105,9 +1293,12 @@ object NpuLlmChat {
                     var tokens = 0
                     val text = StringBuilder()
                     val startMs = System.currentTimeMillis()
+                    // NPU-PROFILE: 首 token 延迟（TTFT）自己也算一份，SDK 的 ttftMs 若为 0 可用它兜底
+                    var firstTokenMs = -1L
                     flow.collect { result ->
                         when (result) {
                             is LlmStreamResult.Token -> {
+                                if (firstTokenMs < 0) firstTokenMs = System.currentTimeMillis() - startMs
                                 tokens++
                                 text.append(result.text)
                                 listener?.onToken(result.text)
@@ -1117,9 +1308,51 @@ object NpuLlmChat {
                                 lastTokens = tokens
                                 lastElapsedMs = elapsed
                                 lastTps = if (elapsed > 0) tokens * 1000f / elapsed else 0f
+                                // NPU-CTX-USAGE：上下文占用 = 本轮 prompt + 已生成
+                                lastCtxUsed = lastPromptTokens + tokens
                                 state = State.READY
-                                Log.i(TAG, "生成完成: " + tokens + " tokens / " + elapsed + "ms / "
-                                        + "%.2f".format(lastTps) + " t/s")
+                                // NPU-PROFILE: 把 SDK 自带的分阶段计时打出来。
+                                // 原先只有一句"tokens/总耗时"，无法判断慢在加载、prefill 还是 decode
+                                // （实测踩过：只看到 "590 token / 3m32s"，查不出瓶颈在哪一段）。
+                                // SDK 的 ProfilingData 提供 ttft/promptTime/decodeTime/prefillSpeed/
+                                // decodingSpeed，以及推测解码命中数（draftNAccepted/draftNTotal），
+                                // 这正是判断"该调 nBatch 还是该开投机解码"的依据。
+                                val p = result.profile
+                                if (p != null) {
+                                    val acceptRate = if (p.draftNTotal > 0)
+                                        "%.1f%%".format(p.draftNAccepted * 100.0 / p.draftNTotal) else "n/a"
+                                    Log.i(TAG, "生成完成[profile]: " + tokens + " tokens / " + elapsed + "ms / "
+                                            + "%.2f".format(lastTps) + " t/s"
+                                            + " | TTFT=" + "%.0f".format(p.ttftMs) + "ms"
+                                            + " (自测 " + firstTokenMs + "ms)"
+                                            + " | prompt=" + "%.0f".format(p.promptTimeMs) + "ms/"
+                                            + p.promptTokens + "tok"
+                                            + " (" + "%.1f".format(p.prefillSpeed) + " tok/s)"
+                                            + " | decode=" + "%.0f".format(p.decodeTimeMs) + "ms/"
+                                            + p.generatedTokens + "tok"
+                                            + " (" + "%.1f".format(p.decodingSpeed) + " tok/s)"
+                                            + " | draft=" + p.draftNAccepted + "/" + p.draftNTotal
+                                            + " (" + acceptRate + ")"
+                                            + " | stop=" + p.stopReason)
+                                } else {
+                                    Log.i(TAG, "生成完成: " + tokens + " tokens / " + elapsed + "ms / "
+                                            + "%.2f".format(lastTps) + " t/s"
+                                            + " | TTFT(自测)=" + firstTokenMs + "ms（SDK 未回传 profile）")
+                                }
+                                // NPU-THINK-DIAG（2026-10-07）：把**原始输出**记下来（截断），用于判断
+                                // 思考段分流为何失效。路由层的 ThinkStreamer 只按字面 `<think` / `</think`
+                                // 切分，若模型实际不输出这些标签（或换了标签），思考内容就会整段落进正文。
+                                // 只有看到真实输出才能定论是用哪种标签。
+                                try {
+                                    val raw = text.toString()
+                                    val hasThink = raw.contains("<think", true)
+                                    val hasSlashThink = raw.contains("</think", true)
+                                    Log.i(TAG, "NPU 原始输出(前600字符, 含think标签=" + hasThink
+                                            + ", 含/think=" + hasSlashThink + "): "
+                                            + raw.take(600).replace("\n", "\\n"))
+                                } catch (t: Throwable) {
+                                    Log.w(TAG, "NPU 原始输出记录失败: " + t.message)
+                                }
                                 listener?.onCompleted(tokens, lastTps, elapsed)
                             }
                             is LlmStreamResult.Error -> {
@@ -1203,7 +1436,7 @@ object NpuLlmChat {
                     Log.i(TAG, "VLM 生成: messages=" + vmsgs.size + ", images=" + pendingImagePaths.size)
                     val vt = vw.applyChatTemplate(vmsgs.toTypedArray(), toolsJson, thinking)
                     vt.onSuccess { t ->
-                        var cfg = GenerationConfig(maxTokens = maxTokens)
+                        var cfg = GenerationConfig(maxTokens = maxTokens, samplerConfig = sampler)
                         // 把图片/音频路径注入 config（无图时不改变配置）
                         cfg = vw.injectMediaPathsToConfig(vmsgs.toTypedArray(), cfg)
                         consume(vw.generateStreamFlow(t.formattedText, cfg))
@@ -1220,13 +1453,31 @@ object NpuLlmChat {
                     // 模板预览：与 llama.cpp 侧对比最终喂给模型的文本是否一致（截 200 字符）
                     Log.i(TAG, "prompt模板预览(thinking=$thinking, tools=${toolsJson != null}): "
                             + t.formattedText.take(200).replace("\n", "\\n"))
+                    // NPU-THINK-DIAG：思考段分流失效的排查依据 ——
+                    // ① 模板尾部是否已给出空的 `<think></think>`（若已给出，模型只该填内容，
+                    //    不该再输出标签，于是按标签切分的分流器永远不触发）；
+                    // ② 我们传下去的 thinking 是否为 true。
+                    // 这两点决定了该"按标签切分"还是"按模板位置切分"。
+                    try {
+                        val ft = t.formattedText
+                        val tail = ft.takeLast(120).replace("\n", "\\n")
+                        Log.i(TAG, "NPU-THINK-DIAG: thinking=$thinking, 模板尾部=$tail, "
+                                + "模板内含<think=" + ft.contains("<think")
+                                + ", 含</think=" + ft.contains("</think>"))
+                    } catch (t2: Throwable) {
+                        Log.w(TAG, "NPU-THINK-DIAG 失败: " + t2.message)
+                    }
                     // 官方语义（geniex_chat_android/MainActivity.kt:752-767）：每轮提交**完整 prompt**，
                     // KV 前缀复用由 GenieX 内部自动完成（插件日志 prefix reuse: |A|/|G|/increment）。
                     // 因此这里不做任何"只发增量后缀"的处理 —— 那会触发
                     // "prefix reuse failed: prompt does not match last generation"。
                     val toSend = t.formattedText
                     Log.i(TAG, "prompt发送: " + toSend.length + " 字符（全量，复用交给 SDK）")
-                    consume(wrapper.generateStreamFlow(toSend, GenerationConfig(maxTokens = maxTokens)))
+                    // NPU-CTX-USAGE：记录本轮 prompt 的 token 估算，供上下文仪表显示
+                    // （prompt 全量喂入，所以它就是本轮真实上下文占用）
+                    lastPromptTokens = estimateTokens(toSend)
+                    lastCtxUsed = lastPromptTokens
+                    consume(wrapper.generateStreamFlow(toSend, GenerationConfig(maxTokens = maxTokens, samplerConfig = sampler)))
                 }.onFailure { e ->
                     state = State.READY
                     listener?.onError(e.message ?: "chat template 失败")
@@ -1292,6 +1543,25 @@ object NpuLlmChat {
      */
     @JvmStatic
     fun ensureLoadedAsync(context: Context, listener: LoadListener?) {
+        // NPU-LOAD-DEDUP（2026-10-07 实测定位）：本方法是多个入口的公共加载点
+        // （进聊天页预加载、发消息时 ensureLoadedBlocking、模型选择页等），原先只在
+        // "已 READY" 时提前返回 —— 于是**加载中再被调用就会重复扫描模型库、重复加载**。
+        // 实测一次首轮对话的日志里 "App 模型库扫描" 出现两次、模型加载完成时间点还早于
+        // 用户发消息（预加载与消息路径并发），首字等待被拉长到几十秒，而真正的推理仅 0.93s。
+        // 现在：已有加载在途时，轮询等它结束再回报，绝不重复发起。
+        if (isLoadInFlight()) {
+            Log.i(TAG, "ensureLoadedAsync: 已有加载在途 → 等待其完成，不重复发起")
+            val deadline = System.currentTimeMillis() + LOAD_INFLIGHT_TIMEOUT_MS
+            while (isLoadInFlight() && System.currentTimeMillis() < deadline) {
+                try { Thread.sleep(100) } catch (ie: InterruptedException) { Thread.currentThread().interrupt(); break }
+            }
+            if (state == State.READY && (llm != null || vlm != null)) {
+                listener?.onLoaded(currentModel)
+            } else {
+                listener?.onError("模型加载未完成（状态 " + state + "）")
+            }
+            return
+        }
         // 关键：先 init（幂等）—— GenieX 的 JNI 注册在 GenieXSdk.init() 里完成。
         // 从对话页/模型选择页开启 NPU 时没人调过 init，缺了这行所有 SDK 调用都会抛
         // UnsatisfiedLinkError（界面表现为"模型路径不正确"）。
@@ -1300,6 +1570,12 @@ object NpuLlmChat {
             listener?.onLoaded(currentModel)
             return
         }
+        // NPU-LOAD-DEDUP(2)：在**任何扫描/登记之前**就置位在途标记。
+        // 第一版把置位放在扫描之后（原 1492 行），于是"预加载"与"发消息"相隔约 3 秒的两个
+        // 入口都会走到 registerAppModelLibrary —— 日志里 "App 模型库扫描" 出现两次就是这么来的。
+        loadInFlightFlag = true
+        loadStartedAt = System.currentTimeMillis()
+        try {
         // ① 复用项目原有下载功能：App 模型库里的 gguf 直接可用
         registerAppModelLibrary(context)
         registerLocalModelInFiles(context, Models.LOCAL_QWEN3_0_6B, "gguf/qwen3-0.6b")
@@ -1317,16 +1593,24 @@ object NpuLlmChat {
                 val needMb = (planFile?.length() ?: 0L) / 1048576
                 Log.w(TAG, "拒绝加载: 可用 ${availMb}MB < 模型 ${needMb}MB (+缓存/余量)")
                 listener?.onError("可用内存不足：可用 ${availMb}MB，该模型约 ${needMb}MB" + "，超出本机预算；建议改用 4B-Q4_0") 
+                clearLoadInFlight()
                 return
             }
             plannedNCtx = planned
         if (target == null) {
             state = State.ERROR
             listener?.onError("还没有可用的本地模型：请到「模型下载」页下载 NPU 模型（选 Q4_0 那个），或把 GGUF 放进 files/gguf/")
+            clearLoadInFlight()
             return
         }
         Log.i(TAG, "NPU 选用模型: $target -> ${localFiles[target]}")
         loadModel(target, "llama_cpp", "npu", listener)
+        } catch (t: Throwable) {
+            // 任何意外异常都不能把在途标记留下，否则后续所有加载都会被误判为"在途"而永久等待
+            Log.e(TAG, "ensureLoadedAsync 加载流程异常，清除在途标记: $t")
+            clearLoadInFlight()
+            listener?.onError("加载异常: " + t.message)
+        }
     }
 
     /** 停止当前生成（配合界面的停止按钮） */

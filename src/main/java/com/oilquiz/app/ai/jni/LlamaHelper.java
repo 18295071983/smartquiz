@@ -154,9 +154,17 @@ public class LlamaHelper {
     private static native int nativeInitModel(String modelPath, int nCtx, int nThreads);
 
     // ========== GPU 后端开关（OpenCL / Vulkan / auto）==========
-    // 设置项 key: gpu_backend（默认 auto = 全部可用 GPU 设备，旧行为）
-    // 指定 opencl/vulkan 时 native 只 offload 到对应后端，另一个后端不参与权重放置
-    private static String sBackendPreference = "auto";
+    // 设置项 key: gpu_backend
+    // 默认从 "auto" 改为 "opencl"（2026-10-07）：
+    //   · CMakeLists 明确记录本工程打包的 Vulkan 走的是**基础路径**——NDK 的 glslc 不支持
+    //     cooperativeMatrix / bfloat16 扩展，注释原话"正确但较慢"；而 OpenCL 侧用了
+    //     Adreno 专用 kernel（GGML_OPENCL_USE_ADRENO_KERNELS=ON）+ FA c8/NSG2 变体。
+    //   · ggml_probe 实测本机后端枚举：Vulkan0(Adreno 840, type=ACCEL) 与
+    //     GPUOpenCL(Adreno 840, type=GPU) **同时存在**；auto 会把两个后端都放进
+    //     model_params.devices 一起参与权重放置，多一个慢后端反而拖慢。
+    //   · 指定 opencl 后 native 只把 OpenCL 设备放进 devices（另一后端不参与）。
+    // 想换回：设置项写 vulkan / auto 即可（运行时生效，无需重新编译）。
+    private static String sBackendPreference = "opencl";
 
     public static void setBackend(String backend) {
         if (backend == null) return;
@@ -176,7 +184,7 @@ public class LlamaHelper {
             Context ctx = AppServices.appContext();
             if (ctx != null) {
                 String saved = PreferenceManager.getDefaultSharedPreferences(ctx)
-                    .getString("gpu_backend", "auto");
+                    .getString("gpu_backend", "opencl");   // 默认值同步为 opencl，见上方说明
                 if (saved != null && !saved.isEmpty()) {
                     sBackendPreference = saved.trim().toLowerCase();
                 }
@@ -1391,6 +1399,18 @@ public class LlamaHelper {
             try {
                 cachedModelInitialized = nativeIsModelInitialized();
                 lastModelInitCheckTime = now;
+                // NPU-DIAG: 在 NPU 引擎开启时，这个 native 调用必然返回 false（llama.cpp 上下文
+                // 故意不创建）。若它出现在消息路径上，调用方就会误判"没就绪"并进入等待。
+                // 这里打印调用线程与堆栈，用于定位到底是谁在轮询它（实测每 2.4s 一次、共 7 次）。
+                if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                    StackTraceElement[] st = Thread.currentThread().getStackTrace();
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 2; i < Math.min(st.length, 9); i++) {
+                        sb.append("\n    at ").append(st[i]);
+                    }
+                    AILogger.w(TAG, "[NPU-DIAG] nativeIsModelInitialized 被调用（线程 "
+                            + Thread.currentThread().getName() + "，NPU 模式下必为 false）" + sb);
+                }
             } catch (UnsatisfiedLinkError e) {
                 AILogger.e(TAG, "Error checking if model is initialized: " + e.getMessage(), e);
                 cachedModelInitialized = false;
@@ -1402,6 +1422,30 @@ public class LlamaHelper {
     }
 
     private static native boolean nativeIsModelInitialized();
+
+    /**
+     * 推理引擎是否"有模型可用"——**NPU 感知**的替代判定。
+     *
+     * <p>背景（2026-10-07 实测定位）：NPU 引擎开启时 llama.cpp 上下文**故意不创建**，
+     * 于是 {@link #isModelInitialized()} 永远返回 false（native 日志刷屏
+     * {@code s_helperContext is nullptr, returning false}）。而不少上层逻辑把
+     * "llama 模型没就绪"当成"引擎没好"→ 进入等待/轮询，白等一轮超时后才继续。
+     * 实测一次首轮对话因此多花约 16 秒（8 次 x 2.4s，等于 isModelInitialized 的缓存周期），
+     * 而真正的推理只用了 0.93 秒。</p>
+     *
+     * <p>所以判断"能否推理"时应当用它：NPU 开着就看 NPU 是否就绪，否则再看 llama。</p>
+     */
+    public static boolean isEngineReady() {
+        try {
+            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                // NPU 路径：模型已加载（READY/GENERATING）即视为就绪
+                return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
+            }
+        } catch (Throwable t) {
+            // NpuLlmChat 不可用时退回 llama 判定，保持行为不变
+        }
+        return isModelInitialized();
+    }
 
     /**
      * 检查 Native 层状态是否有效（比 isModelInitialized 更严格）

@@ -3502,13 +3502,21 @@ public class OnlineInferenceService {
         // 构建 final 结果
         String fullContent = contentBuf.toString();
         String reasoningContent = reasoningBuf.toString();
-        // 深度思考模型（DeepSeek-R1/Qwen3 等）可能只返回 reasoning_content 而无 content：
-        // content 为空时回退使用 reasoning_content，避免"未返回 response"空白回复
+        // THINK-SPLIT-UNIFY（2026-10-07 审计定位）：三处"思考兜底并进正文"的口径原先不一致
+        // （本处与单次请求处无条件并入，普通流式处仅非思考模式并入），导致同一模型在不同路径下
+        // 表现不同：思考内容有时出现在思考区、有时又重复出现在正文里。
+        // 统一判据：**reasoning 是否已经送给思考区**（本方法通过 onReasoningToken 实时下发）。
+        //   · 已送达思考区 → 正文为空时也不回填（否则同一内容出现两份，即用户看到的"没分开"）；
+        //   · 未送达（模型只给 reasoning 不给 content 且回调未承载）→ 回填，避免空白回复。
+        boolean reasoningAlreadyShown = reasoningContent != null && !reasoningContent.trim().isEmpty();
         if ((fullContent == null || fullContent.trim().isEmpty())
                 && reasoningContent != null && !reasoningContent.trim().isEmpty()) {
-            AILogger.w(TAG, "content为空，回退使用reasoning_content作为回复(长度" + reasoningContent.length() + ")");
-            fullContent = reasoningContent;
-            reasoningContent = "";
+            if (reasoningAlreadyShown) {
+                AILogger.w(TAG, "content为空：reasoning 已在思考区展示，不回填正文（避免思考/正文重复）");
+            } else {
+                AILogger.w(TAG, "content为空，回退使用reasoning_content作为回复(长度" + reasoningContent.length() + ")");
+                fullContent = reasoningContent;
+            }
         }
         // 清理模型输出中的乱码/非法字符
         String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(fullContent);

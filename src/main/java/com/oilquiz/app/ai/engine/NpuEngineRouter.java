@@ -299,8 +299,15 @@ public final class NpuEngineRouter {
                         maxTokens == 0 ? 2048 : maxTokens, callback);
                 return;
             } catch (Throwable t) {
-                Log.w(TAG, "NPU chatSend 失败，回退 llama.cpp: " + t);
+                Log.w(TAG, "NPU chatSend 失败: " + t);
                 releaseNpuBeforeFallback();
+                if (!canFallbackToLlama()) {
+                    Log.w(TAG, "NPU chatSend 失败但引擎开启中 → 不回退 llama.cpp（它不可用）");
+                    if (callback != null) {
+                        callback.onError("NPU 推理失败: " + t.getMessage());
+                    }
+                    return;
+                }
             }
         }
         LlamaHelper.chatSend(message, maxTokens, temperature, topP, topK, enableThinking, callback);
@@ -336,6 +343,14 @@ public final class NpuEngineRouter {
         int maxTokens = 0;
         boolean thinking = false;
         String toolsJson = null;
+        // NPU-SAMPLER: 采样参数此前整条丢失（App 侧组了 temperature/top_p/top_k，NPU 路径没读），
+        // 导致生成完全依赖 GenieX native 默认（SamplerConfig 各字段默认 0）。
+        // 这里读出来透传给 sendChatAsync；缺省 -1 由 Kotlin 侧回落到 0.6/0.9/40 与 llama.cpp 对齐。
+        float temperature = -1f;
+        float topP = -1f;
+        int topK = -1;
+        final long entryMs = System.currentTimeMillis();
+        Log.i(TAG, "NPU-PROFILE 入口: chatJson 收到请求（线程 " + Thread.currentThread().getName() + "）");
         try {
             org.json.JSONObject req = new org.json.JSONObject(requestJson);
             msgs = req.optJSONArray("messages");
@@ -345,6 +360,9 @@ public final class NpuEngineRouter {
             if (tools != null && tools.length() > 0) {
                 toolsJson = tools.toString();
             }
+            if (req.has("temperature")) temperature = (float) req.optDouble("temperature", -1);
+            if (req.has("top_p")) topP = (float) req.optDouble("top_p", -1);
+            if (req.has("top_k")) topK = req.optInt("top_k", -1);
         } catch (Throwable t) {
             Log.w(TAG, "chatJson 请求解析失败，回退 llama.cpp: " + t);
         }
@@ -360,21 +378,48 @@ public final class NpuEngineRouter {
         }
         msgs = trimMessagesForNCtx(msgs, NpuLlmChat.plannedNCtxValue(), toolsJson);
 
+        // NPU-PROFILE-SEG: 分段计时。实测"模型已就绪后仍有一段无日志的空等"（数秒到十几秒），
+        // 需要确定它落在哪一段：planForCurrentModel（读 GGUF 头）/ ensureLoadedBlocking（加载或等在途）
+        // / 消息转换 / 真正的 sendChatAsync。没有这三个数字就只能靠猜。
+        final long segT0 = System.currentTimeMillis();
+        Log.i(TAG, "NPU-PROFILE 入口→规划前耗时: " + (segT0 - entryMs) + "ms");
         boolean routable = msgs != null && msgs.length() > 0
                 && shouldRouteToNpu(thinking, toolsJson != null, false);
-        if (!routable || !ensureLoadedBlocking()) {
+        final long segTPlan = System.currentTimeMillis();
+        final boolean loaded = routable && ensureLoadedBlocking();
+        final long segTLoad = System.currentTimeMillis();
+        if (!routable || !loaded) {
             // 未走 NPU：清掉待注入图片，避免污染下一轮 NPU 生成
             try {
                 NpuLlmChat.setPendingImagePaths(java.util.Collections.emptyList());
             } catch (Throwable ignored) {
             }
+            // NPU-FALLBACK-GUARD：回退 llama.cpp 只在**确实应该**的时候做。
+            // 若 NPU 引擎处于开启状态，llama.cpp 侧的模型/上下文根本不存在（NPU 模式下故意不建），
+            // 此时回退等于把请求送进死路，且会让上层误以为是 llama 的问题。
+            // 只有"NPU 没开"或"NPU 明确 ERROR"才回退；"在途/未就绪"返回明确错误。
+            final boolean npuOn = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled();
+            final String npuState = com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();
+            if (npuOn && !"ERROR".equals(npuState)) {
+                Log.w(TAG, "chatJson NPU 尚未就绪（state=" + npuState + ", routable=" + routable
+                        + "）→ 不回退 llama.cpp（NPU 模式下它不可用）");
+                try {
+                    if (callback != null) {
+                        callback.onError("NPU 模型尚未就绪（state=" + npuState + "），请稍候重试");
+                    }
+                } catch (Throwable ignored) {
+                }
+                return;
+            }
             Log.w(TAG, "chatJson 未走 NPU: routable=" + routable
                     + ", npuLoaded=" + NpuLlmChat.isLoaded()
-                    + ", state=" + NpuLlmChat.getStateName()
-                    + " -> 回退 llama.cpp（NPU 模式下本地模型可能未加载，会表现为长时间无响应）");
+                    + ", state=" + npuState + ", npuOn=" + npuOn
+                    + " -> 回退 llama.cpp");
             LlamaHelper.chatJson(requestJson, callback);
             return;
         }
+        Log.i(TAG, "NPU-PROFILE 分段: 预算规划=" + (segTPlan - segT0) + "ms, 确保加载="
+                + (segTLoad - segTPlan) + "ms（合计 " + (segTLoad - segT0) + "ms）");
 
         final String[] roles = new String[msgs.length()];
         final String[] contents = new String[msgs.length()];
@@ -403,7 +448,6 @@ public final class NpuEngineRouter {
                 + ", thinking=" + thinking + ", tools=" + (toolsJson == null ? 0 : toolsJson.length()) + "字符");
 
         final StringBuilder full = new StringBuilder();
-        final ThinkStreamer streamer = new ThinkStreamer(callback);
         final int[] emittedCalls = new int[]{0};   // 已下发的 tool_call 条数（增量去重）
         try {
             // NPU-META-EVENT: 与 native 协议对齐 —— 首个 token 前下发 meta（思考标签）。
@@ -422,6 +466,10 @@ public final class NpuEngineRouter {
             emit(callback, "{\"type\":\"meta\",\"thinking_start_tag\":"
                     + org.json.JSONObject.quote(thinkStart) + ",\"thinking_end_tags\":["
                     + org.json.JSONObject.quote(thinkEnd) + "]}");
+
+            // NPU-THINK-SPLIT：分流器用**同一份**标签配置，并以 enable_thinking 作为
+            // "标记前内容归属"的判据 —— 不再依赖"模型是否会输出标签"这种不可控假设。
+            final ThinkStreamer streamer = new ThinkStreamer(callback, thinkStart, thinkEnd, thinking);
 
             // 推理期 WakeLock：NPU 生成同样怕灭屏/切后台（与 llama.cpp 路径一致）
             com.oilquiz.app.ai.engine.NpuEngineState.get().beginInference();
@@ -462,8 +510,11 @@ public final class NpuEngineRouter {
                             Log.i(TAG, "NPU Agent 轮次汇总: 正文 " + allText.length() + " 字符, tool_call="
                                     + allCalls.size() + ", 含<tool_call>标签=" + allText.contains("<tool_call"));
                             releaseLock(appContext);
+                            // THINK-SPLIT：complete 下发**剥离后的干净正文**（与流式中途一致），
+                            // 否则思考段会被当作正文覆盖进主消息（审计定位的"思考/正文混在一起"）。
+                            String finalBody = streamer.getCleanBody();
                             emit(callback, "{\"type\":\"complete\",\"content\":"
-                                    + org.json.JSONObject.quote(full.toString()) + "}");
+                                    + org.json.JSONObject.quote(finalBody) + "}");
                         }
 
                         @Override
@@ -473,11 +524,38 @@ public final class NpuEngineRouter {
                             emit(callback, "{\"type\":\"error\",\"message\":"
                                     + org.json.JSONObject.quote("NPU 推理失败: " + message) + "}");
                         }
-                    }, toolsJson, msgs.toString());
+                    }, toolsJson, msgs.toString(), temperature, topP, topK);
         } catch (Throwable t) {
-            Log.w(TAG, "NPU chatJson 失败，回退 llama.cpp: " + t);
+            Log.w(TAG, "NPU chatJson 失败: " + t);
             releaseNpuBeforeFallback();
+            if (!canFallbackToLlama()) {
+                Log.w(TAG, "NPU chatJson 失败但引擎开启中 → 不回退 llama.cpp（它不可用）");
+                emit(callback, "{\"type\":\"error\",\"message\":"
+                        + org.json.JSONObject.quote("NPU 推理失败: " + t.getMessage()) + "}");
+                return;
+            }
+            Log.w(TAG, "NPU chatJson 失败，回退 llama.cpp");
             LlamaHelper.chatJson(requestJson, callback);
+        }
+    }
+
+    /**
+     * NPU-FALLBACK-GUARD：当前是否**允许**回退到 llama.cpp。
+     *
+     * <p>NPU 引擎开启时，llama.cpp 的模型与聊天上下文根本不存在（NPU 模式下故意不创建），
+     * 回退过去等于把请求送进死路，还会让上层误判成 llama 的问题。只有两种情况值得回退：
+     * ① NPU 引擎没开（本来就走 llama）；② NPU 状态明确为 ERROR（真的坏了）。</p>
+     *
+     * <p>注意"在途/未就绪"不属于回退理由——那只是还没加载完，应当让调用方等待或重试。</p>
+     */
+    private static boolean canFallbackToLlama() {
+        try {
+            if (!com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                return true;
+            }
+            return "ERROR".equals(com.oilquiz.app.ai.engine.NpuLlmChat.getStateName());
+        } catch (Throwable t) {
+            return true;   // NPU 不可用时保持原回退行为
         }
     }
 
@@ -498,19 +576,89 @@ public final class NpuEngineRouter {
     }
 
     /**
-     * 思考段/正文的**增量分流器**：把模型输出按 think 标记拆成 thinking / token 事件实时发出。
+     * 思考段/正文的**增量分流器**：把模型原始输出拆成 thinking / token 事件，实时发出。
      *
-     * <p>为什么需要：思考模式下若等整段生成完再发，界面只能停在"思考中…"没有任何反馈
-     * （4B 在 NPU 上约 19 t/s，长回答会像卡死）。这里保留少量尾部字符以处理标记跨 token
-     * 的情况，其余立刻发出，实现真正的逐段流式。
+     * <p><b>为什么需要</b>：思考模式下若等整段生成完再发，界面只能停在「思考中…」没有反馈
+     * （NPU 上长回答会像卡死）。所以要按增量边解析边发。</p>
+     *
+     * <p><b>为什么重写（2026-10-07）</b>：旧实现只按字面 {@code "<think"} / {@code "</think"}
+     * 切分，且有若干实现缺陷，导致思考内容与正文分不开、一起渲染进主消息：
+     * <ol>
+     *   <li><b>只认开场标签</b>：Qwen3.5 的 chat template 尾部已写成
+     *       {@code <|im_start|>assistant\n<think>\n\n</think>\n\n} —— 即**模板里已带标签**，
+     *       模型只需往中间填内容，输出里往往**没有开场标签、只有结尾标签**（甚至两个都没有）。
+     *       旧实现的 {@code inThink} 因此永远为 false，思考内容整段被当成正文。</li>
+     *   <li><b>查找 "&gt;" 的位置是全局的</b>（{@code carry.indexOf(">")}）而不是从标签起点往后找，
+     *       标签后若先出现别的 {@code >} 会把标签尾部切错，残留碎片漏进正文。</li>
+     *   <li><b>保留长度写死为魔法数</b>（6 / 8），与真实标签长度无关，标签较长时会误切。</li>
+     *   <li><b>进入思考后不再检测开场标签</b>，多段/重复标签无法处理。</li>
+     * </ol>
+     *
+     * <p><b>新设计的语义</b>：思考内容**必然排在正文之前**，因此标签只是"思考/正文的分界标记"，
+     * 不要求成对出现：
+     * <ul>
+     *   <li>见到<b>开场标签</b> → 其后内容为思考段；</li>
+     *   <li>见到<b>结尾标签</b> → 其前内容为思考段、其后为正文（**这条覆盖模板已给开场的形态**）；</li>
+     *   <li>两个标签<b>都没有</b> → 全部为正文；</li>
+     *   <li>只有开场、没有结尾（模型被截断）→ 其后内容全部为思考段。</li>
+     * </ul>
+     * 标签匹配大小写不敏感、允许标签内空白；跨 chunk 的半个标签会被保留到下一块再判，
+     * 不会把标签碎片漏进正文。
      */
-    private static final class ThinkStreamer {
+    static final class ThinkStreamer {
+
+        /** 分流位置 */
+        private enum Mode {
+            /** 标记出现前：此时尚不知道标记前的内容属于哪一段 */
+            BEFORE_MARK,
+            /** 已越过分界：正文段 */
+            AFTER_MARK
+        }
+
         private final LlamaHelper.JsonCallback cb;
+        /** 开场标签（小写） */
+        private final String thinkStart;
+        /** 结尾标签（小写） */
+        private final String thinkEnd;
+        /**
+         * 本轮是否请求了思考（来自 {@code enable_thinking}）。
+         *
+         * <p>这是"标记前内容归属"的判据，让实现**不依赖猜测或模型是否输出标签**：
+         * <ul>
+         *   <li>请求了思考（true）：标记前的内容是思考段 → 发 thinking 事件（它必然在正文之前）；</li>
+         *   <li>未请求思考（false）：本轮不该有思考段 → 标记前的内容直接当正文发，
+         *       标签（若模型画蛇添足输出）只是被吃掉，不影响正文。</li>
+         * </ul>
+         * 两种情况下"越过标记之后一律为正文"，所以纯正文模型也不会被误判。</p>
+         */
+        private final boolean expectThinking;
+
+        /** 尚未定论、等待更多输入的缓冲 */
         private final StringBuilder carry = new StringBuilder();
-        private boolean inThink = false;
+        /**
+         * 已下发的**干净正文**（不含思考段、不含标签）。
+         *
+         * <p>WHY（2026-10-07 审计定位）：轮末的 {@code complete} 事件原先直接下发模型原始输出，
+         * 其中**包含思考段全文与 &lt;think&gt; 标签**；而流式期间正文是剥离过的。于是"流式中途"
+         * 与"终态正文"不一致 —— 收尾时会把思考内容覆盖进主消息。这里累积剥离后的正文供 complete 使用。
+         * 注意：工具调用解析仍应使用**原始全文**（标签可能参与解析），所以两者分开保存。</p>
+         */
+        private final StringBuilder cleanBody = new StringBuilder();
+        private Mode mode = Mode.BEFORE_MARK;
 
         ThinkStreamer(LlamaHelper.JsonCallback cb) {
+            this(cb, "<think>", "</think>", true);
+        }
+
+        ThinkStreamer(LlamaHelper.JsonCallback cb, String thinkStart, String thinkEnd,
+                      boolean expectThinking) {
             this.cb = cb;
+            // 统一小写做匹配；空值回退默认，避免调用方传空导致永不分流
+            this.thinkStart = (thinkStart == null || thinkStart.isEmpty())
+                    ? "<think>" : thinkStart.toLowerCase(java.util.Locale.US);
+            this.thinkEnd = (thinkEnd == null || thinkEnd.isEmpty())
+                    ? "</think>" : thinkEnd.toLowerCase(java.util.Locale.US);
+            this.expectThinking = expectThinking;
         }
 
         void feed(String text) {
@@ -525,75 +673,181 @@ public final class NpuEngineRouter {
             drain(true);
         }
 
+        /** 已下发的干净正文（不含思考段与标签），供轮末 complete 事件使用 */
+        String getCleanBody() {
+            return cleanBody.toString();
+        }
+
+        /**
+         * 主循环：反复处理缓冲，直到剩余内容必须等待更多输入为止。
+         *
+         * <p>把实现写成"先判定分界、再决定下发"的直线逻辑，避免把"标签识别"和
+         * "半个标签保留"混在一处（旧实现正是因此把 {@code </thi} 当内容发出去）。</p>
+         */
         private void drain(boolean end) {
-            while (carry.length() > 0) {
-                if (!inThink) {
-                    int i = carry.indexOf("<think");
-                    if (i >= 0) {
-                        if (i > 0) {
-                            emitToken(carry.substring(0, i));
-                            carry.delete(0, i);
-                        }
-                        int gt = carry.indexOf(">");
-                        if (gt < 0) {
-                            if (end) {
-                                emitToken(carry.toString());
-                                carry.setLength(0);
-                            }
-                            return;
-                        }
-                        carry.delete(0, gt + 1);
-                        inThink = true;
-                        continue;
+            while (true) {
+                if (mode == Mode.AFTER_MARK) {
+                    // 正文段：不再识别标签（正文里出现 "<" 不该被误判）
+                    String all = takeAll(end);
+                    emitToken(all);
+                    return;
+                }
+
+                // BEFORE_MARK：找分界标签中更靠前的那个
+                int si = indexOfTag(thinkStart);
+                int ei = indexOfTag(thinkEnd);
+                int cut;
+                boolean isEndTag;
+                if (si >= 0 && (ei < 0 || si < ei)) {
+                    cut = si;
+                    isEndTag = false;
+                } else if (ei >= 0) {
+                    cut = ei;
+                    isEndTag = true;
+                } else {
+                    // 没有完整标签：只下发"确定不含半个标签"的前缀，其余留待后续
+                    String safe = takeSafe(end);
+                    if (expectThinking) {
+                        emitThinking(safe);
+                    } else {
+                        emitToken(safe);
                     }
-                    int keep = end ? 0 : 6;
-                    if (carry.length() > keep) {
-                        int cut = carry.length() - keep;
-                        emitToken(carry.substring(0, cut));
+                    return;
+                }
+
+                int gt = carry.indexOf(">", cut);
+                if (gt < 0) {
+                    // 标签本身还没收全（如 "<think"）：等下一块。
+                    // 分界之前的内容归属已确定，可先下发。
+                    if (cut > 0) {
+                        String before = carry.substring(0, cut);
+                        if (expectThinking && isEndTag) {
+                            emitThinking(before);
+                        } else {
+                            emitToken(before);
+                        }
                         carry.delete(0, cut);
                     }
                     return;
                 }
-                int i = carry.indexOf("</think");
-                if (i >= 0) {
-                    if (i > 0) {
-                        emitThinking(carry.substring(0, i));
-                        carry.delete(0, i);
+
+                // 分界之前的内容
+                if (cut > 0) {
+                    String before = carry.substring(0, cut);
+                    if (expectThinking && isEndTag) {
+                        emitThinking(before);
+                    } else {
+                        emitToken(before);
                     }
-                    int gt = carry.indexOf(">");
-                    if (gt < 0) {
-                        if (end) {
-                            carry.setLength(0);
-                        }
-                        return;
-                    }
-                    carry.delete(0, gt + 1);
-                    inThink = false;
-                    continue;
                 }
-                int keep = end ? 0 : 8;
-                if (carry.length() > keep) {
-                    int cut = carry.length() - keep;
-                    emitThinking(carry.substring(0, cut));
-                    carry.delete(0, cut);
+                carry.delete(0, gt + 1);   // 连标签一起丢弃（标签不下发）
+
+                if (isEndTag) {
+                    // 结尾标签之后一律是正文
+                    mode = Mode.AFTER_MARK;
+                } else if (!expectThinking) {
+                    // 开场标签但本轮没请求思考：模型多输出了标签，其后按正文处理
+                    mode = Mode.AFTER_MARK;
                 }
-                return;
+                // 开场标签 + 请求了思考：保持 BEFORE_MARK，继续等结尾标签
+                continue;
             }
+        }
+
+        /** 未定段时：取出确定安全的前缀（末尾若有"半个标签"则保留） */
+        private String takeSafe(boolean end) {
+            if (carry.length() == 0) {
+                return "";
+            }
+            if (end) {
+                return takeAll(true);
+            }
+            // 从最长可能的后缀开始检查，找最长的一个"是某个标签前缀"的后缀并保留
+            int maxKeep = Math.min(carry.length(), Math.max(thinkStart.length(), thinkEnd.length()) - 1);
+            for (int keep = maxKeep; keep > 0; keep--) {
+                String suffix = carry.substring(carry.length() - keep)
+                        .toLowerCase(java.util.Locale.US);
+                if (isPrefixOfEitherTag(suffix)) {
+                    int cut = carry.length() - keep;
+                    if (cut <= 0) {
+                        return "";   // 整个缓冲都可能是半个标签，继续等
+                    }
+                    String out = carry.substring(0, cut);
+                    carry.delete(0, cut);
+                    return out;
+                }
+            }
+            return takeAll(false);
+        }
+
+        /** 取出并清空缓冲 */
+        private String takeAll(boolean end) {
+            if (carry.length() == 0) {
+                return "";
+            }
+            String out = carry.toString();
+            carry.setLength(0);
+            return out;
+        }
+
+        /**
+         * suffix 是否为某个标签的**前缀**（本身可以比标签短，也可以更长）。
+         *
+         * <p>这是修复"半个标签被当成内容发出去"的关键函数。旧实现用
+         * {@code tag.startsWith(suffix)} 判断，当 suffix 比 tag **短**时（如 {@code "</thi"}
+         * 对 {@code "</think>"}）比较方向正确，但当 suffix 比 tag **长**时就会漏判；
+         * 更早的版本则完全没做这个判断。这里统一成"逐字符比到较短者结束"。</p>
+         */
+        private boolean isPrefixOfEitherTag(String suffix) {
+            return isPrefix(suffix, thinkStart) || isPrefix(suffix, thinkEnd);
+        }
+
+        /** 两个字符串中较短者是较长者的前缀（含相等） */
+        private static boolean isPrefix(String a, String b) {
+            if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
+                return false;
+            }
+            int n = Math.min(a.length(), b.length());
+            for (int i = 0; i < n; i++) {
+                if (a.charAt(i) != b.charAt(i)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /** 查找标签位置（大小写不敏感；-1 表示当前缓冲里没有完整标签） */
+        private int indexOfTag(String tag) {
+            if (tag.isEmpty() || carry.length() < tag.length()) {
+                return -1;
+            }
+            String lower = carry.toString().toLowerCase(java.util.Locale.US);
+            return lower.indexOf(tag);
         }
 
         private void emitToken(String s) {
             if (!s.isEmpty()) {
+                // 累积干净正文，供轮末 complete 事件使用（避免把思考段/标签带进终态正文）
+                cleanBody.append(s);
+                // NPU-PHASE-FIX（2026-10-07 实测定位）：正文 token 到达时必须把状态机推进到
+                // GENERATING，否则阶段永远停在 PREPROCESS → 状态栏一直显示「⏳ 处理提示」
+                // （用户实测现象："正文已经在出了，状态栏还写着处理提示"）。
+                // 根因：NpuEngineState.onGeneratingStarted() **此前全项目零调用**
+                // （只有 emitThinking() 调了 onThinkingStarted()），所以 GENERATING 分支
+                // 永远进不去，连解码速度也就永远没机会显示。
+                com.oilquiz.app.ai.engine.NpuEngineState.get().onGeneratingStarted();
                 emit(cb, tokenEvent(s));
             }
         }
 
         private void emitThinking(String s) {
-            com.oilquiz.app.ai.engine.NpuEngineState.get().onThinkingStarted();
-            if (!s.isEmpty()) {
-                emit(cb, thinkingEvent(s));
-                // 兼容消费方：部分路径认 reasoning 事件（native 两种都会发）
-                emit(cb, "{\"type\":\"reasoning\",\"content\":" + org.json.JSONObject.quote(s) + "}");
+            if (s.isEmpty()) {
+                return;
             }
+            com.oilquiz.app.ai.engine.NpuEngineState.get().onThinkingStarted();
+            emit(cb, thinkingEvent(s));
+            // 兼容消费方：部分路径认 reasoning 事件（native 两种都会发）
+            emit(cb, "{\"type\":\"reasoning\",\"content\":" + org.json.JSONObject.quote(s) + "}");
         }
     }
 
@@ -650,6 +904,9 @@ public final class NpuEngineRouter {
         NpuLlmChat.sendChatAsync(roles, contents, maxTokens, new NpuLlmChat.GenerateListener() {
             @Override
             public void onToken(String text) {
+                // NPU-PHASE-FIX：这条路径与 chatJson 的 ThinkStreamer 一样，收到正文 token 时
+                // 必须把状态机推进到 GENERATING（否则状态栏永远停在 PREPROCESS 的「处理提示」）
+                com.oilquiz.app.ai.engine.NpuEngineState.get().onGeneratingStarted();
                 full.append(text);
                 if (callback != null) {
                     callback.onToken(text);
@@ -687,23 +944,42 @@ public final class NpuEngineRouter {
         }
         final CountDownLatch latch = new CountDownLatch(1);
         final boolean[] ok = {false};
+        final String[] err = {null};
         try {
             com.oilquiz.app.ai.service.AIService.getInstance(ctx).ensureNpuLoadedAsync(loaded -> {
                 ok[0] = loaded;
                 latch.countDown();
             });
             if (!latch.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                Log.w(TAG, "NPU 模型加载超时，回退 llama.cpp");
-                return false;
+                // NPU-LOAD-WAIT：超时不再当作失败回退。在途加载仍在继续（AIService 侧有排队机制），
+                // 此时回落 llama.cpp 在 NPU 模式下必然不可用（llama 上下文不存在），
+                // 只会把请求送进一条死路。这里继续轮询到 isLoaded() 或状态明确为 ERROR。
+                Log.w(TAG, "NPU 模型加载超时(" + LOAD_TIMEOUT_MS + "ms)，继续等待状态而非立即回退");
+                err[0] = "timeout";
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
         } catch (Throwable t) {
-            Log.w(TAG, "NPU 模型加载异常，回退 llama.cpp: " + t);
+            Log.w(TAG, "NPU 模型加载异常: " + t);
+            err[0] = String.valueOf(t);
+        }
+
+        // 状态感知收尾：以 NpuLlmChat 的真实状态为准，而不是靠回调布尔值。
+        // 只有明确 ERROR 才值得回退；其余情况（在途/就绪）都继续走 NPU。
+        if (NpuLlmChat.isLoaded()) {
+            return true;
+        }
+        if (ok[0] && NpuLlmChat.isLoaded()) {
+            return true;
+        }
+        String st = NpuLlmChat.getStateName();
+        if ("ERROR".equals(st)) {
+            Log.w(TAG, "NPU 状态明确为 ERROR → 回退 llama.cpp" + (err[0] != null ? "（" + err[0] + "）" : ""));
             return false;
         }
-        return ok[0] && NpuLlmChat.isLoaded();
+        Log.w(TAG, "NPU 尚未就绪（state=" + st + ", ok=" + ok[0] + "）→ 本次不回退 llama.cpp");
+        return false;
     }
 
     private static String[] roles(List<PromptBuilder.Message> messages) {

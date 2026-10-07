@@ -352,8 +352,10 @@ public class ModelExecutionBridge {
     private int getLocalContextBudgetTokens() {
         int ctx = 0;
         try {
-            int actual = LlamaHelper.getContextSize();
-            if (actual > 0) ctx = actual;
+            // CONTEXT-CONTRACT：改走引擎无关契约（NPU 模式下 llama.cpp 的 getContextSize()
+            // 恒为 0 → 预算会一路回退到写死的 8192，与 NPU 实际的 nCtx 不符）
+            long w = com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage().window;
+            if (w > 0) ctx = (int) w;
         } catch (Throwable ignored) {}
         if (ctx <= 0 && aiConfig != null) {
             try { ctx = aiConfig.getContextSize(); } catch (Throwable ignored) {}
@@ -638,6 +640,14 @@ public class ModelExecutionBridge {
                     case "token": {
                         String token = event.optString("content", "");
                         if (!token.isEmpty()) {
+                            // TOOLCALL-TOKEN-GUARD（2026-10-07 审计定位）：native 在**工具调用期**
+                            // 也会发 token 事件，并用 is_tool_call=true 标记。本回调原先不看该字段，
+                            // 于是工具调用的原始文本（如 <tool_call>{...}</tool_call>）被当正文追加进
+                            // 主消息；只有 AgentLoopEngine 检查了这个字段。这里统一遵守标记：
+                            // 工具调用期的 token 不计入正文（结构化 tool_call 事件另行下发）。
+                            if (event.optBoolean("is_tool_call", false)) {
+                                break;
+                            }
                             bodyBuf.append(token);
                             tokenCount++;
                             mainHandler.post(() -> {
@@ -822,7 +832,19 @@ public class ModelExecutionBridge {
             try {
                 boolean success = false;
                 String modelName = "";
-                if (aiService != null) {
+                // NPU-SHORTCUT: NPU 模式下 llama.cpp 侧永远初始化不了，走 initializeSafe() 只会
+                // 白等一轮（实测消息路径因此固定多花 16 秒）。NPU 模型已就绪就直接回报成功。
+                boolean npuReady = false;
+                try {
+                    npuReady = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
+                            && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
+                } catch (Throwable ignored) {
+                }
+                if (npuReady) {
+                    AILogger.i(TAG, "executeInitModel: NPU 模型已就绪 → 跳过 llama.cpp 初始化");
+                    success = true;
+                    modelName = com.oilquiz.app.ai.engine.NpuLlmChat.getCurrentModel();
+                } else if (aiService != null) {
                     if (!aiService.isInitialized()) {
                         success = aiService.initializeSafe();
                     } else {
@@ -1045,7 +1067,23 @@ public class ModelExecutionBridge {
     // ========== 状态查询方法（供UI直接调用，不经过命令） ==========
 
     public boolean isGenerating() { return isGenerating.get(); }
+    /**
+     * 引擎是否已初始化（可供推理）。
+     *
+     * <p>原本只看 {@code aiService.isInitialized()}，在 NPU 模式下恒为 false —— 于是消息路径
+     * 的就绪守卫（AIChatActivity「初始化AI服务...」那一段）**每条消息都会去跑一遍 llama.cpp 的
+     * initModel**，白等一轮超时。实测该等待稳定为 16 秒（主线程每 2.4s 轮询一次共 7 次），
+     * 而真正的 NPU 推理只要 0.9 秒。NPU 开着时改为看 NPU 是否就绪。</p>
+     */
     public boolean isModelInitialized() {
+        try {
+            if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+                return com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded()
+                        || (aiService != null && aiService.isInitialized());
+            }
+        } catch (Throwable ignored) {
+            // NpuLlmChat 不可用时按原逻辑判定
+        }
         return aiService != null && aiService.isInitialized();
     }
     public boolean isChatContextActive() {
@@ -1055,8 +1093,15 @@ public class ModelExecutionBridge {
     public boolean isNativeStateValid() {
         return safeIsNativeStateValid();
     }
+    /**
+     * 模型是否已驻留内存。
+     *
+     * <p>同上：NPU 模式下 llama.cpp 上下文故意不创建，{@code LlamaHelper.isModelInitialized()}
+     * 永远 false → 消息路径误判"模型没加载"→ 触发一次无用的 initModel 并白等。
+     * 这里改用 NPU 感知的 {@link LlamaHelper#isEngineReady()}。</p>
+     */
     public boolean isModelInMemory() {
-        try { return LlamaHelper.isModelInitialized(); }
+        try { return LlamaHelper.isEngineReady(); }
         catch (Throwable t) { return false; }
     }
     public String getCurrentModelName() {
@@ -1291,6 +1336,8 @@ public class ModelExecutionBridge {
         private final List<com.oilquiz.app.ai.service.OnlineInferenceService.ToolCallInfo> toolCalls =
                 new java.util.ArrayList<>();
         private boolean toolCallsHandled = false;
+        /** 是否已收到过 `thinking` 增量事件（用于忽略随后的 `reasoning` 全文，避免思考区重复） */
+        private boolean thinkingStreamed = false;
 
         AgentJsonCallback(String messageId, BridgeCallback callback) {
             this.messageId = messageId;
@@ -1307,6 +1354,11 @@ public class ModelExecutionBridge {
                     case "token": {
                         String token = event.optString("content", "");
                         if (!token.isEmpty()) {
+                            // TOOLCALL-TOKEN-GUARD（2026-10-07 审计定位）：工具调用期的 token
+                            // 由 is_tool_call=true 标记，不应计入正文（结构化 tool_call 事件另行下发）。
+                            if (event.optBoolean("is_tool_call", false)) {
+                                break;
+                            }
                             bodyBuf.append(token);
                             tokenCount++;
                             mainHandler.post(() -> {
@@ -1317,8 +1369,18 @@ public class ModelExecutionBridge {
                     }
                     case "thinking":
                     case "reasoning": {
+                        // THINK-DEDUP（2026-10-07 审计定位）：上游对**同一段思考内容**会发两个事件
+                        // —— `thinking`（增量）与 `reasoning`（全文）。普通对话路径有 thinkingStreamed
+                        // 去重，但 Agent 路径（本回调）没有，于是同一段思考被追加两遍，思考区里内容重复。
+                        // 这里加与普通对话同等的去重：一旦收到过 thinking 增量，就忽略后续 reasoning 全文。
                         String tk = event.optString("content", "");
                         if (!tk.isEmpty()) {
+                            if ("reasoning".equals(type) && thinkingStreamed) {
+                                break;   // 已有增量，全文事件忽略（避免重复追加）
+                            }
+                            if ("thinking".equals(type)) {
+                                thinkingStreamed = true;
+                            }
                             mainHandler.post(() -> {
                                 if (callback != null) {
                                     callback.onThinkingUpdate(messageId, 1, "thinking", "思考", tk, 0);

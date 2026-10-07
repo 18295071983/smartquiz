@@ -93,8 +93,6 @@ import com.oilquiz.app.ai.chat.recovery.NativeRecoveryHandler;
 import com.oilquiz.app.ai.chat.input.ChatInputBar;
 import com.oilquiz.app.ai.chat.input.ChatInputManager;
 import com.oilquiz.app.ai.chat.input.AttachmentProcessor;
-import com.oilquiz.app.ai.chat.lifecycle.GenerationLifecycleManager;
-import com.oilquiz.app.ai.chat.streaming.StreamingTokenPipeline;
 import com.oilquiz.app.ai.chat.parser.OutputRouter;
 import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 import com.oilquiz.app.ui.base.BaseActivity;
@@ -144,7 +142,6 @@ public class AIChatActivity extends BaseActivity {
     private java.util.List<String> thinkingSegments = new java.util.ArrayList<>();
     private int thinkingSegmentIndex = 0;
     private String lastThinkShown;
-    private int lastThinkLineCount = 0;   // 已动画的思考行数：换新行才触发滑入，同段增长仅实时更新
     private final StringBuilder onlineThinkBuffer = new StringBuilder();  // 在线思考累积（顶部单行）
 
     // 状态条独立轮询：思考段不走 token 流式回调，需定时刷新 native 状态机 + KV
@@ -360,24 +357,19 @@ public class AIChatActivity extends BaseActivity {
                 ChatMessage msg = chatHistory.get(idx);
                 chatAdapter.updateMessageThinkingContent(idx, msg.thinkingContent);
                 // 顶部单行：thinking 事件驱动（120ms 节流），无 800ms 轮询限制。
-                // 连续性策略：同段内容增长只实时更新文本（不重启动画，自然连续）；
-                // 出现新行（换段）才刮刀式滑入动画，避免频繁重启造成的断续抖动。
+                // 动画时机由 GenerationStatusBar 内部按"思考文本是否换段"判断（2026-10-06 修闪烁）：
+                // 此前这里传常量 1 并在下面又调一次 startThinkingRollerAnim()，导致每个片段都重启
+                // 刮刀动画（alpha 打回 0.3、位移打回 -0.6）——就是用户看到的闪烁。
                 if (isInThinking && tvGenPhase != null && tvGenPhase.getVisibility() == View.VISIBLE
                         && msg.thinkingContent != null && !msg.thinkingContent.isEmpty()) {
                     String disp = "💭 " + buildThinkingSegment(msg.thinkingContent);
                     if (!disp.equals(lastThinkShown)) {
                         if (genStatusBar != null) {
-                    // 思考滚动动画（demo 的 thinking roller）
-                    genStatusBar.onThinkingSegment(disp, 1);
-                } else {
-                    tvGenPhase.setText(disp);
-                }
-                        lastThinkShown = disp;
-                        int lineCount = countThinkingLines(msg.thinkingContent);
-                        if (lineCount != lastThinkLineCount) {
-                            lastThinkLineCount = lineCount;
-                            startThinkingRollerAnim();
+                            genStatusBar.onThinkingSegment(disp, 1);
+                        } else {
+                            tvGenPhase.setText(disp);
                         }
+                        lastThinkShown = disp;
                     }
                 }
             } catch (IndexOutOfBoundsException e) {
@@ -443,9 +435,7 @@ public class AIChatActivity extends BaseActivity {
     private NativeRecoveryHandler recoveryHandler;
     private ChatInputManager inputManager;
     private AttachmentProcessor attachmentProcessor;
-    private GenerationLifecycleManager lifecycleManager;
     private com.oilquiz.app.ai.chat.parser.OutputRouter outputRouter;
-    private StreamingTokenPipeline streamingPipeline;
 
     private final android.content.ComponentCallbacks2 memoryCallback = new android.content.ComponentCallbacks2() {
         @Override
@@ -1034,27 +1024,22 @@ public class AIChatActivity extends BaseActivity {
                 if (s == null) {
                     onlineThinkBuffer.setLength(0);
                     lastThinkShown = null;
-                    lastThinkLineCount = 0;
                     if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
                     return;
                 }
                 onlineThinkBuffer.append(s);
                 String full = onlineThinkBuffer.toString();
                 String disp = "💭 " + buildThinkingSegment(full);
+                // 与本地一路保持一致：动画时机交给 GenerationStatusBar（按是否换段判断），
+                // 不在这里再调一次 startThinkingRollerAnim（旧代码同帧双重启 → 闪烁）
                 if (!disp.equals(lastThinkShown) && tvGenPhase != null) {
-                    tvGenPhase.setVisibility(View.VISIBLE);
                     if (genStatusBar != null) {
-                    // 思考滚动动画（demo 的 thinking roller）
-                    genStatusBar.onThinkingSegment(disp, 1);
-                } else {
-                    tvGenPhase.setText(disp);
-                }
-                    lastThinkShown = disp;
-                    int lc = countThinkingLines(full);
-                    if (lc != lastThinkLineCount) {
-                        lastThinkLineCount = lc;
-                        startThinkingRollerAnim();
+                        genStatusBar.onThinkingSegment(disp, 1);
+                    } else {
+                        tvGenPhase.setVisibility(View.VISIBLE);
+                        tvGenPhase.setText(disp);
                     }
+                    lastThinkShown = disp;
                 }
             } catch (Exception ignored) {}
         });
@@ -1233,6 +1218,53 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 初始化输出路由器
      */
+    /**
+     * 新一轮生成前配置 {@code OutputRouter} —— **三条推理路径共用同一套规则**。
+     *
+     * <p><b>为什么需要统一（2026-10-07 审计定位）</b>：本项目三条路径（llama.cpp / NPU / 在线）
+     * 各自用不同机制分离思考段与正文：
+     * <ul>
+     *   <li>llama.cpp：**native C++** 按模板标签分流，事件已是分开的（{@code thinking}/{@code token}）；</li>
+     *   <li>NPU：路由层 {@code NpuEngineRouter.ThinkStreamer} 按标签分流，事件同样已分开；</li>
+     *   <li>在线：SSE 解析层按字段（{@code reasoning_content}）分流，走强类型回调。</li>
+     * </ul>
+     * 也就是说**上游已经把思考和正文分开了**。但这里原先还会 {@code setThinkingEnabled(true)}，
+     * 而 {@code OutputRouter} 在"没有标签可匹配"时会把**首个 token 之后的全部 token 判为思考**
+     * ——于是已被上游剥干净的正文被二次判成思考，先写进思考区；收尾时
+     * {@code onStreamComplete} 又把全文写进主消息 → **同一段文字在思考区和正文各出现一份**。
+     * 这正是用户看到的"思考段与正文没分开"。</p>
+     *
+     * <p><b>统一规则</b>：
+     * <ol>
+     *   <li>不再用 {@code setThinkingEnabled(true)} 让 router 猜分段 —— 分段的权威是上游；
+     *       只有在线路径（不经 router 分流、也不喂分好的 tag 事件）才保留该兜底。</li>
+     *   <li>思考标签仍要注入：上游若因任何原因漏发了标签（例如标签确实出现在正文流里），
+     *       router 还能按标签补救，避免标签文本被当正文显示。</li>
+     *   <li>不硬编码任何引擎的标签：由 {@link LlamaHelper#getThinkingTags()} 统一提供；
+     *       NPU 侧其 chat template 不在 native 上下文里，取不到时用默认 Qwen 标签兜底
+     *       （与 {@code NpuEngineRouter} 发给 UI 的 meta 事件保持一致）。</li>
+     * </ol>
+     */
+    private void configureOutputRouterForNewTurn(boolean enableThinking) {
+        if (outputRouter == null) {
+            return;
+        }
+        outputRouter.reset();
+
+        // ① 思考标签：统一来源（全局唯一工厂，与 Agent 路径同一套）
+        com.oilquiz.app.ai.chat.parser.ThinkingTagConfig tags =
+                com.oilquiz.app.ai.chat.parser.ThinkingTagConfig.forCurrentEngine();
+        outputRouter.setThinkingTags(tags);
+        legacyThinkingTags = tags;
+
+        // ② 是否允许 router 自己"猜"分段：仅在线路径需要（它不喂 tag 事件、也不经 router 分流）
+        boolean onlineRoute = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
+        outputRouter.setThinkingEnabled(onlineRoute && enableThinking);
+        AppLogger.ai(TAG, "OutputRouter 配置: 标签=" + (tags != null && tags.isAvailable() ? "有" : "无")
+                + ", 由 router 猜分段=" + (onlineRoute && enableThinking)
+                + "（本地路径分段权威在上游：" + (isNpuEngineOn() ? "NPU" : "llama.cpp") + "）");
+    }
+
     private void initOutputRouter() {
         outputRouter = new OutputRouter(new OutputRouter.OutputHandler() {
             @Override
@@ -1520,28 +1552,12 @@ public class AIChatActivity extends BaseActivity {
             }
         });
 
-        // 8. GenerationLifecycleManager - 生成生命周期管理
-        lifecycleManager = new GenerationLifecycleManager(this, uiHandler, new GenerationLifecycleManager.Callback() {
-            @Override public void onShowThinkingIndicator() { showLoading("正在思考...", null); }
-            @Override public void onHideThinkingIndicator() { hideLoading(); }
-            @Override public void onShowStopButton() { toggleStopButton(true); }
-            @Override public void onHideStopButton() { toggleStopButton(false); }
-            @Override public void onUpdateMessageContent(int index, String content) { if (chatAdapter != null && index >= 0 && index < chatHistory.size()) { chatHistory.get(index).content = content; chatAdapter.notifyItemChanged(index, ChatAdapter.PAYLOAD_CONTENT_UPDATE); } }
-            @Override public void onUpdateMessageThinking(int index, String thinkingContent) { if (chatAdapter != null && index >= 0 && index < chatHistory.size()) { chatAdapter.updateMessageThinkingContent(index, thinkingContent); } }
-            @Override public void onAddAIMessage(ChatMessage message) { chatHistory.add(message); if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1); scrollToBottom(true); refreshSessionStats(); }
-            @Override public void onAddSystemMessage(String message) { addSystemMessage(message); }
-            @Override public void onScrollToBottom() { scrollToBottom(); }
-            @Override public void onSaveHistoryAsync() { saveHistoryAsync(); }
-            @Override public void onShowToast(String message) { showToast(message); }
-        });
-
-        // 9. StreamingTokenPipeline - 流式Token处理管道
-        streamingPipeline = new StreamingTokenPipeline(new StreamingTokenPipeline.TokenListener() {
-            @Override public void onContentToken(String token) { lifecycleManager.handleToken(token); }
-            @Override public void onThinkingToken(String token) { lifecycleManager.handleThinkingToken(token); }
-            @Override public void onToolCall(String toolCallData) {}
-            @Override public void onGenerationComplete(String fullContent) {}
-        });
+        // 说明（2026-10-07 审计清理）：这里原先还构造了 GenerationLifecycleManager 与
+        // StreamingTokenPipeline —— 两者互相回调形成闭环，但**没有任何代码调用
+        // streamingPipeline.processToken()**，即整块从未参与真实分流；它们却各自持有一份
+        // "思考标签"配置，属于"影子分流"，会让人误以为分段逻辑在那里。
+        // 分段职责现已统一到上游（native / NpuEngineRouter.ThinkStreamer / 在线字段解析）
+        // 与 OutputRouter（唯一渲染入口），故整块删除。
     }
 
     @Override
@@ -5123,12 +5139,7 @@ public class AIChatActivity extends BaseActivity {
 
         int actualMaxTokens = aiConfig.getMaxTokens();
         boolean enableThinking = ChatModeManager.getInstance(AIChatActivity.this).isDeepThinkingEnabled();
-        if (outputRouter != null) {
-            outputRouter.reset();
-            outputRouter.setThinkingEnabled(enableThinking);
-            outputRouter.setThinkingTags(LlamaHelper.getThinkingTags());
-            legacyThinkingTags = LlamaHelper.getThinkingTags();
-        }
+        configureOutputRouterForNewTurn(enableThinking);
         isInThinking = enableThinking;
 
         AppLogger.ai(TAG, "Bridge sendMessage: promptLen=" + prompt.length() + ", maxTokens=" + actualMaxTokens + ", thinking=" + enableThinking);
@@ -5415,8 +5426,13 @@ public class AIChatActivity extends BaseActivity {
                     new com.oilquiz.app.ai.chat.context.ChatContextBuilder.Config() {
                         @Override public boolean isOnlineModel() { return shouldUseOnlineModel(); }
                         @Override public int getNativeContextSize() {
-                            try { int a = LlamaHelper.getContextSize(); return a > 0 ? a : 0; }
-                            catch (Throwable t) { return 0; }
+                            // CONTEXT-CONTRACT：走引擎无关契约（原先直连 llama.cpp，
+                            // NPU 模式下恒为 0 → 整个上下文预算按兜底值估算）
+                            try {
+                                long w = com.oilquiz.app.ai.engine.contract.GenSignalSource
+                                        .contextUsage().window;
+                                return w > 0 ? (int) w : 0;
+                            } catch (Throwable t) { return 0; }
                         }
                         @Override public int getSafeContextReference(int ctx) {
                             try { return LlamaHelper.getSafeContextReference(ctx); }
@@ -5786,12 +5802,7 @@ public class AIChatActivity extends BaseActivity {
             boolean localAgentRoute = !useOnlineModel && localAgentEnabled;
             boolean enableThinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled()
                     && !localAgentRoute;
-            if (outputRouter != null) {
-                outputRouter.reset();
-                outputRouter.setThinkingEnabled(enableThinking);
-                outputRouter.setThinkingTags(LlamaHelper.getThinkingTags());
-                legacyThinkingTags = LlamaHelper.getThinkingTags();
-            }
+            configureOutputRouterForNewTurn(enableThinking);
             isInThinking = enableThinking;
             // 每轮新执行前重置回调完成标志（AgentChatHandler 复用，防止上一轮的 completed=true
             // 导致本轮 onComplete 被幂等保护跳过 → 回复不处理、UI 卡"处理中"）
@@ -5820,204 +5831,6 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    private void processChatMessageWithOnlineModel(String message) {
-        try {
-            synchronized (streamingLock) {
-                if (isGenerating) {
-                    AppLogger.aiW(TAG, "processChatMessageWithOnlineModel skipped, already generating");
-                    showToast(getString(R.string.h_05582e8e));
-                    return;
-                }
-            }
-
-            synchronized (streamingLock) {
-                currentStreamingContent = new StringBuilder();
-                currentStreamingMessageId = java.util.UUID.randomUUID().toString();
-                resetStreamingTts();
-
-                ChatMessage initialMessage = ChatMessage.createAIMessage(currentStreamingMessageId, "", System.currentTimeMillis(), null, 0, 0);
-                initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
-                initialMessage.status = ChatMessage.MessageStatus.GENERATING;
-                initialMessage.turnId = currentTurnId; // 消息对绑定
-                chatHistory.add(initialMessage);
-                currentStreamingMessageIndex = chatHistory.size() - 1;
-                if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
-                scrollToBottom();
-            }
-
-            beginGeneration();
-
-            final String prompt = message;
-            final int streamingIndex = currentStreamingMessageIndex;
-            final String streamingId = currentStreamingMessageId;
-            final long chatStartTime = System.currentTimeMillis();
-
-            new Thread(() -> {
-                try {
-                    runOnUiThread(() -> updateInferencePhase(resolveStreamingIndex(), ChatMessage.InferencePhase.ENCODING, "正在连接云端模型..."));
-
-                    AIInferenceCore.InferenceConfig config = new AIInferenceCore.InferenceConfig();
-                    config.maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 8192;
-                    config.temperature = 0.7f;
-                    
-                    List<ChatMessage> historyForOnline = new ArrayList<>();
-                    for (ChatMessage msg : chatHistory) {
-                        if (msg.type == ChatMessage.MessageType.USER || msg.type == ChatMessage.MessageType.AI) {
-                            if (msg != chatHistory.get(chatHistory.size() - 1)) {
-                                historyForOnline.add(msg);
-                            }
-                        }
-                    }
-                    if (historyForOnline.size() > 20) {
-                        historyForOnline = historyForOnline.subList(historyForOnline.size() - 20, historyForOnline.size());
-                    }
-                    config.history = historyForOnline;
-
-                    AppLogger.ai(TAG, "Calling online inference: promptLen=" + prompt.length() + ", maxTokens=" + config.maxTokens);
-                    
-                    inferenceRouter.generateStream(prompt, config, new StreamCallback() {
-                        private int onlineTokenCount = 0;
-                        private boolean onlineUpdateScheduled = false;
-                        private final Runnable onlineUpdateRunnable = () -> {
-                            onlineUpdateScheduled = false;
-                            final int idx = resolveStreamingIndex();
-                            if (chatAdapter != null && idx >= 0) {
-                                ChatMessage msg = chatHistory.get(idx);
-                                if (currentStreamingContent != null) {
-                                    msg.content = currentStreamingContent.toString();
-                                }
-                                msg.status = ChatMessage.MessageStatus.GENERATING;
-                                chatAdapter.updateAIMessageContent(idx, msg.content);
-                                scrollToBottom();
-                            }
-                        };
-
-                        @Override
-                        public void onStart() {
-                            // 重置在线统计字段
-                            onlinePromptTokens = 0;
-                            onlineCompletionTokens = 0;
-                            onlineStatsReceiveTime = 0L;
-                            runOnUiThread(() -> updateInferencePhase(resolveStreamingIndex(), ChatMessage.InferencePhase.ENCODING, "云端模型正在思考..."));
-                        }
-
-                        @Override
-                        public void onTokenStats(int promptTokens, int completionTokens) {
-                            // 接收在线模型 API 返回的 Token 统计
-                            // 实现"自动数据源切换"：API 数据优先于本地估算
-                            onlinePromptTokens = promptTokens;
-                            onlineCompletionTokens = completionTokens;
-                            onlineStatsReceiveTime = System.currentTimeMillis();
-                            AppLogger.ai(TAG, "Online API token stats: prompt=" + promptTokens
-                                    + ", completion=" + completionTokens);
-                            runOnUiThread(() -> {
-                                // 优先使用 API 返回的 completion tokens，并基于耗时计算速度
-                                long elapsedMs = System.currentTimeMillis() - chatStartTime;
-                                float apiTps = (elapsedMs > 0 && completionTokens > 0)
-                                        ? (completionTokens * 1000.0f) / elapsedMs : 0f;
-                                updateStreamingTokenStats(completionTokens, apiTps);
-                            });
-                        }
-
-                        @Override
-                        public void onToken(String token) {
-                            synchronized (streamingLock) {
-                                if (currentStreamingContent != null) {
-                                    currentStreamingContent.append(token);
-                                }
-                            }
-                            feedStreamingTts(token);
-                            onlineTokenCount++;
-                            // 每 5 个 token 或每 80ms 更新一次 UI，避免刷屏
-                            if (onlineTokenCount % 5 == 0) {
-                                runOnUiThread(onlineUpdateRunnable);
-                            } else if (!onlineUpdateScheduled) {
-                                onlineUpdateScheduled = true;
-                                uiHandler.postDelayed(onlineUpdateRunnable, 80);
-                            }
-                        }
-
-                        @Override
-                        public void onComplete(String fullText) {
-                            runOnUiThread(() -> {
-                                uiHandler.removeCallbacks(onlineUpdateRunnable);
-                                onlineUpdateScheduled = false;
-                                endGeneration();
-                                final int idx = resolveStreamingIndex();
-                                if (idx >= 0) {
-                                    ChatMessage msg = chatHistory.get(idx);
-                                    msg.content = fullText != null ? fullText : "";
-                                    msg.status = ChatMessage.MessageStatus.COMPLETED;
-                                    msg.inferenceProgress = null;
-
-                                    long elapsedMs = System.currentTimeMillis() - chatStartTime;
-                                    // 数据源自动切换：API 统计优先
-                                    int finalCompletionTokens = onlineCompletionTokens > 0
-                                            ? onlineCompletionTokens
-                                            : (fullText != null ? fullText.length() / 4 : 0);
-                                    int finalPromptTokens = onlinePromptTokens > 0
-                                            ? onlinePromptTokens
-                                            : (prompt != null ? prompt.length() / 4 : 0);
-
-                                    if (finalCompletionTokens > 0) {
-                                        msg.tokensGenerated = finalCompletionTokens;
-                                    }
-                                    if (elapsedMs > 0) {
-                                        msg.generationTimeMs = elapsedMs;
-                                    }
-
-                                    if (chatAdapter != null) {
-                                        chatAdapter.notifyItemChanged(idx);
-                                        if (finalCompletionTokens > 0 && elapsedMs > 0) {
-                                            chatAdapter.updateMessageGenerationStats(
-                                                    idx, finalCompletionTokens, elapsedMs);
-                                        }
-                                    }
-                                    saveHistoryAsync();
-                                    scrollToBottom();
-
-                                    // 自动语音合成：在线回复完成后自动朗读（流式已朗读则冲刷收尾）
-                                    finishAutoSpeak(msg);
-
-                                    // 在线模式直接使用 API 返回的 token 统计累加到 session
-                                    if (finalCompletionTokens > 0 || finalPromptTokens > 0) {
-                                        TokenStatsManager.getInstance()
-                                                .updateRequestStats(finalPromptTokens, finalCompletionTokens);
-                                        AppLogger.ai(TAG, "Online token stats accumulated: prompt="
-                                                + finalPromptTokens + ", completion=" + finalCompletionTokens);
-                                    }
-
-                                    // 更新底部 token 统计显示
-                                    float finalTps = (elapsedMs > 0 && finalCompletionTokens > 0)
-                                            ? (finalCompletionTokens * 1000.0f) / elapsedMs : 0f;
-                                    updateStreamingTokenStats(finalCompletionTokens, finalTps);
-
-                                    AppLogger.ai(TAG, "Online inference completed: elapsed=" + elapsedMs
-                                            + "ms, completionTokens=" + finalCompletionTokens
-                                            + ", promptTokens=" + finalPromptTokens);
-                                }
-                            });
-                        }
-
-                        @Override
-                        public void onError(String error) {
-                            runOnUiThread(() -> {
-                                endGeneration();
-                                handleGenerationError("云端模型推理失败: " + error);
-                            });
-                        }
-                    });
-                } catch (Exception e) {
-                    AppLogger.aiE(TAG, "Error in online chat: " + e.getMessage());
-                    runOnUiThread(() -> handleGenerationError("云端模型推理失败: " + e.getMessage()));
-                }
-            }).start();
-        } catch (Exception e) {
-            AppLogger.aiE(TAG, "Error in processChatMessageWithOnlineModel: " + e.getMessage());
-            endGeneration();
-            addSystemMessage("处理消息时出错: " + e.getMessage());
-        }
-    }
 
     private void updateInferencePhase(int messageIndex, ChatMessage.InferencePhase phase, String additionalInfo) {
         if (messageIndex < 0 || messageIndex >= chatHistory.size()) return;
@@ -8484,14 +8297,18 @@ public class AIChatActivity extends BaseActivity {
     };
     
     /**
-     * 更新 Token 统计 UI（来自 TokenStatsManager 回调）
+     * 更新 Token 统计 UI（来自 TokenStatsManager 回调）。
+     *
+     * <p>注意：本方法由 TokenStatsManager 在**每个流式 token** 回调（updateRequestStreamingStats），
+     * 因此三处写入都必须"值没变就不写"（2026-10-06 修闪烁）：setText/setVisibility 即使值相同
+     * 也会触发 requestLayout + 重绘，每 token 一次就会让整条统计栏持续抖动。</p>
      */
     private void updateTokenStatsUI(TokenStatsManager.TokenStats stats) {
         refreshNativeStateUI();
         TextView tvTokenStats = findViewById(R.id.tv_token_stats);
         if (tvTokenStats != null && stats != null) {
             if (stats.requestTotalTokens > 0) {
-                tvTokenStats.setVisibility(View.VISIBLE);
+                if (tvTokenStats.getVisibility() != View.VISIBLE) tvTokenStats.setVisibility(View.VISIBLE);
                 // 输入/输出分开统计：请求级（本轮）输入 prompt + 输出 completion
                 String text = String.format(getString(R.string.h_986cd3e8),
                         stats.requestPromptTokens, stats.requestCompletionTokens);
@@ -8522,9 +8339,12 @@ public class AIChatActivity extends BaseActivity {
                 if (stats.sessionTotalTokens > 0) {
                     text += String.format(getString(R.string.h_b557980d), stats.sessionTotalTokens);
                 }
-                tvTokenStats.setText(text);
+                CharSequence cur = tvTokenStats.getText();
+                if (cur == null || !cur.toString().contentEquals(text)) {
+                    tvTokenStats.setText(text);
+                }
             } else {
-                tvTokenStats.setVisibility(View.GONE);
+                if (tvTokenStats.getVisibility() != View.GONE) tvTokenStats.setVisibility(View.GONE);
             }
         }
     }
@@ -8565,35 +8385,11 @@ public class AIChatActivity extends BaseActivity {
         return seg;
     }
 
-    /** 思考文本按 \n 计行数（用于判断是否出现新段） */
-    private int countThinkingLines(String content) {
-        if (content == null) return 0;
-        int n = 1;
-        for (int i = 0; i < content.length(); i++) {
-            if (content.charAt(i) == '\n') n++;
-        }
-        return n;
-    }
-
-    /** 单行段落切换动画：新内容从左往右刮刀式滑入 + 柔和淡入（非跑马灯/打字机） */
-    private void startThinkingRollerAnim() {
-        try {
-            if (tvGenPhase == null) return;
-            android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(true);
-            android.view.animation.TranslateAnimation ta = new android.view.animation.TranslateAnimation(
-                    android.view.animation.Animation.RELATIVE_TO_SELF, -0.6f,
-                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f,
-                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f,
-                    android.view.animation.Animation.RELATIVE_TO_SELF, 0f);
-            ta.setDuration(320);
-            ta.setInterpolator(new android.view.animation.DecelerateInterpolator());
-            android.view.animation.AlphaAnimation aa = new android.view.animation.AlphaAnimation(0.3f, 1f);
-            aa.setDuration(320);
-            set.addAnimation(ta);
-            set.addAnimation(aa);
-            tvGenPhase.startAnimation(set);
-        } catch (Exception ignored) {}
-    }
+    // 注（2026-10-06 修闪烁）：原先这里还有 countThinkingLines() 与 startThinkingRollerAnim()
+    // 两个私有方法，用于"按行数判断换段 + 自己播放滑入动画"。但它们与 GenerationStatusBar 里的
+    // 同名逻辑重复，且动画会被每个 token 回调打断重启（alpha 打回 0.3）→ 闪烁。
+    // 现在动画时机与播放统一由 GenerationStatusBar 负责（按思考文本换行数判断换段），
+    // 这两个方法已无调用方，故删除，避免以后再有人误用。
 
     /** 状态机阶段英文 → 中文显示 */
     private String phaseToCn(String phase) {
@@ -8608,115 +8404,88 @@ public class AIChatActivity extends BaseActivity {
 
     private void refreshNativeStateUI() {
         try {
+            // 统一到 GenerationStatusBar（2026-10-06 修闪烁）：
+            // 本方法与 GenerationStatusBar.refresh() 是**同一套逻辑的两份复制**，而两者都在写
+            // tvGenPhase / tvKvStats —— 旧的这份还会被每个 token 回调（updateTokenStatsUI）触发，
+            // 于是同一帧里两处各自 setText/setVisibility、并打断正在播放的思考滑入动画
+            // （alpha 被打回 0.3、位移打回 -0.6）→ 用户看到的持续闪烁。
+            // GenerationStatusBar 内部已做"值没变就不写"，因此这里统一委托，保证单一写入者。
+            if (genStatusBar != null) {
+                genStatusBar.refresh();
+                return;
+            }
+            refreshNativeStateUILegacy();
+        } catch (Throwable t) {
+            if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
+            if (tvKvStats != null) tvKvStats.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 旧的内联刷新逻辑：仅在 GenerationStatusBar 未初始化时兜底
+     * （正常路径永远不会走到这里，见 refreshNativeStateUI 的说明）。
+     */
+    /**
+     * 旧的内联刷新逻辑：仅在 GenerationStatusBar 未初始化时兜底。
+     *
+     * <p><b>契约重构（2026-10-07）</b>：本方法原先又抄了一份"解析 llama.cpp JSON + 判引擎"的
+     * 渲染逻辑（与 GenerationStatusBar 重复），不但容易与新实现走偏，NPU 模式下还会重现
+     * "显示 llama.cpp 术语「预处理」"的问题。现在改为**复用同一套契约与文案映射**
+     * （{@code GenSignalSource} + {@code GenSignalTextMapper}），只保留本类特有的
+     * 在线模型守卫与可见性处理。</p>
+     */
+    private void refreshNativeStateUILegacy() {
+        try {
             // 在线模型：native 状态机不适用，隐藏
-            boolean useOnline = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
-            if (useOnline) {
+            if (inferenceRouter != null && inferenceRouter.isUsingOnlineModel()) {
                 if (tvKvStats != null) tvKvStats.setVisibility(View.GONE);
                 // tvGenPhase 在线由 onlineThinkingStream observe 实时驱动（思考时显示/结束后隐藏），
                 // 此处不强制 GONE，避免 800ms 轮询与实时 observe 互相覆盖闪烁；在线无 native 状态机/速度
                 return;
             }
+
+            final com.oilquiz.app.ai.engine.contract.GenSignal signal =
+                    com.oilquiz.app.ai.engine.contract.GenSignalSource.current();
+            final boolean active = signal != null && signal.isActive();
+
             // 状态机栏：仅推理进行中显示；空闲/完成/无数据一律隐藏
             if (tvGenPhase != null) {
-                String j = appNativeSource().getGenPhase();
-                boolean show = false;
-                if (j != null && !j.isEmpty()) {
-                    org.json.JSONObject o = new org.json.JSONObject(j);
-                    String phase = o.optString("phase", "IDLE");
-                    boolean running = o.optBoolean("running", false);
-                    if (running) {
-                        // 正文生成阶段附上纯 decode 速度（思考段不计，native getDecodeSpeed）
-                        if ("GENERATING".equals(phase)) {
-                            float ds = LlamaHelper.getDecodeSpeed();
-                            if (ds > 0) {
-                                tvGenPhase.setText(String.format(getString(R.string.h_743faf7e), ds));
-                            } else {
-                                tvGenPhase.setText(getString(R.string.h_ad0acdc5));
-                            }
-                        } else if ("PREPROCESS".equals(phase)) {
-                            // prefill 阶段：显示进度 + 吞吐（native 分块 decode 逐块统计）
-                            String pp = appNativeSource().getPrefillProgress();
-                            if (pp != null && !pp.isEmpty()) {
-                                try {
-                                    org.json.JSONObject po = new org.json.JSONObject(pp);
-                                    int done = po.optInt("done", 0);
-                                    int total = po.optInt("total", 0);
-                                    int pct = po.optInt("pct", 0);
-                                    int prompt = po.optInt("prompt", 0);
-                                    if (total > 0) {
-                                        float ps = LlamaHelper.getPhaseSpeed();
-                                        if (ps > 0) {
-                                            if (prompt > 0) {
-                                                tvGenPhase.setText(String.format(getString(R.string.h_2a8f9dc2), prompt, pct, ps));
-                                            } else {
-                                                tvGenPhase.setText(String.format(getString(R.string.h_f8a477f6), pct, ps));
-                                            }
-                                        } else {
-                                            if (prompt > 0) {
-                                                tvGenPhase.setText(String.format(getString(R.string.h_e3ad3e92), prompt, pct));
-                                            } else {
-                                                tvGenPhase.setText(String.format(getString(R.string.h_2dcef5d6), pct));
-                                            }
-                                        }
-                                    } else {
-                                        tvGenPhase.setText(getString(R.string.h_803f889b));
-                                    }
-                                } catch (Exception ignored) {
-                                    tvGenPhase.setText(getString(R.string.h_803f889b));
-                                }
-                            } else {
-                                tvGenPhase.setText(getString(R.string.h_803f889b));
-                            }
-                            lastThinkShown = null;   // 非思考阶段重置，下次思考重新开始
-                            lastThinkLineCount = 0;
-                        } else if ("THINKING".equals(phase)) {
-                            // 顶部单行由 thinking 事件驱动（120ms 节流，无 800ms 轮询限制）：
-                            // 这里只负责首次进入思考时初始化显示，内容段落切换/动画交给 thinkingRefreshRunnable
-                            if (lastThinkShown == null) {
-                                tvGenPhase.setText("💭 ");
-                                lastThinkShown = "💭 ";
-                            }
-                        } else {
-                            tvGenPhase.setText("⏳ " + phaseToCn(phase));
-                            lastThinkShown = null;   // 非思考阶段重置，下次思考重新开始
-                            lastThinkLineCount = 0;
-                        }
-                        tvGenPhase.setVisibility(View.VISIBLE);
-                        show = true;
+                if (active) {
+                    String text = com.oilquiz.app.ai.engine.contract.GenSignalTextMapper.toStatusText(
+                            signal, AIChatActivity.this::getString);
+                    if (text != null) {
+                        tvGenPhase.setText(text);
                     }
+                    if (signal.phase == com.oilquiz.app.ai.engine.contract.GenSignal.Phase.THINKING) {
+                        // 顶部单行由 thinking 事件驱动（120ms 节流）：这里只负责首次进入时初始化
+                        if (lastThinkShown == null) {
+                            tvGenPhase.setText("💭 ");
+                            lastThinkShown = "💭 ";
+                        }
+                    } else {
+                        lastThinkShown = null;   // 非思考阶段重置，下次思考重新开始
+                    }
+                    tvGenPhase.setVisibility(View.VISIBLE);
+                } else {
+                    tvGenPhase.setVisibility(View.GONE);
                 }
-                if (!show) tvGenPhase.setVisibility(View.GONE);
             }
-            // KV 缓存栏：思考/生成（推理中）隐藏——位置留给思考内容/生成状态显示；
-            // 空闲时显示缓存状态（监控用，性能面板亦有完整卡片）。
-            // 2026-09-23：在线模型下隐藏——KV cache 是本地 Llama 引擎的上下文统计，
-            // 与统计条「📊 上下文占用」（在线 token 估算）口径不同，并存会造成数据不一致
+
+            // KV 缓存栏：推理中隐藏（位置留给思考内容/生成状态显示）；空闲时显示缓存状态。
+            // KV 统计是**可选能力**：引擎不具备时 getKvStats() 返回 null → 隐藏。
             if (tvKvStats != null) {
-                boolean runningNow = false;
-                String gp = appNativeSource().getGenPhase();
-                if (gp != null && !gp.isEmpty()) {
-                    try {
-                        runningNow = new org.json.JSONObject(gp).optBoolean("running", false);
-                    } catch (Exception ignored) {}
-                }
-                if (runningNow || shouldUseOnlineModel()) {
+                if (active || shouldUseOnlineModel()) {
                     tvKvStats.setVisibility(View.GONE);
                 } else {
-                    String j = appNativeSource().getKvCacheStats();
-                    boolean show = false;
-                    if (j != null && !j.isEmpty()) {
-                        org.json.JSONObject o = new org.json.JSONObject(j);
-                        double hit = o.optDouble("hit_rate_pct", -1);
-                        double usage = o.optDouble("ctx_usage_pct", -1);
-                        int plans = o.optInt("plans", 0);
-                        if (hit >= 0 && plans > 0) {
-                            tvKvStats.setText(String.format(getString(R.string.h_3e238a20),
-                                    hit, usage >= 0 ? usage : 0));
-                            tvKvStats.setVisibility(View.VISIBLE);
-                            show = true;
-                        }
+                    com.oilquiz.app.ai.engine.contract.GenSignal.KvStats kv =
+                            com.oilquiz.app.ai.engine.contract.GenSignalSource.kvStats();
+                    if (kv != null && kv.isDisplayable()) {
+                        tvKvStats.setText(String.format(getString(R.string.h_3e238a20),
+                                kv.hitRatePercent, kv.ctxUsagePercent >= 0 ? kv.ctxUsagePercent : 0));
+                        tvKvStats.setVisibility(View.VISIBLE);
+                    } else {
+                        tvKvStats.setVisibility(View.GONE);
                     }
-                    if (!show) tvKvStats.setVisibility(View.GONE);
                 }
             }
         } catch (Throwable t) {
@@ -9309,6 +9078,7 @@ public class AIChatActivity extends BaseActivity {
             long window;
             long used;
             if (shouldUseOnlineModel() && agentChatHandler != null) {
+                // 在线模型：路由决策不属于生成状态契约，仍在此判断
                 int[] ctx = agentChatHandler.getContextWindowInfo();
                 if (ctx != null && ctx.length == 3 && ctx[0] > 0) {
                     window = ctx[0];
@@ -9318,22 +9088,20 @@ public class AIChatActivity extends BaseActivity {
                     used = estimateHistoryTokens();
                 }
             } else {
-                // 本地模型：优先本地引擎 KV 上下文真实 token（推理缓存实际占用），
-                // 未加载/不可用时回退预算+字符估算
-                long nativeUsed = 0;
-                long nativeSize = 0;
-                try {
-                    nativeUsed = LlamaHelper.getContextUsedTokens();
-                    nativeSize = LlamaHelper.getContextSize();
-                } catch (Throwable ignored) {}
-                if (nativeUsed > 0) {
-                    used = nativeUsed;
-                    window = nativeSize > 0 ? nativeSize : 0;
-                    if (window <= 0) {
-                        long budget = getChatContextBuilder().getContextBudgetTokens();
-                        window = budget > 0 ? budget : 0;
-                    }
-                } else {
+                // CONTEXT-CONTRACT（2026-10-07）：本地引擎（llama.cpp / NPU）的上下文用量
+                // 改由引擎无关契约提供。原先这里手写 if (isNpuEngineOn()) 分支：
+                //   · 引擎判断散落在 UI，每加一个引擎都要改这里；
+                //   · 且曾因直接读 llama.cpp 的 getContextSize()（NPU 下为 0）
+                //     把仪表打成故障态（用户看到的"上下文故障"）。
+                // 现在 UI 不认识任何引擎，只读 ContextUsage。
+                com.oilquiz.app.ai.engine.contract.ContextUsage cu =
+                        com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage();
+                window = cu.window;
+                used = Math.max(0, cu.used == com.oilquiz.app.ai.engine.contract.ContextUsage.UNKNOWN
+                        ? 0 : cu.used);
+                if (!cu.hasWindow()) {
+                    // 引擎还没规划出窗口（模型未加载）：退回预算估算，仍给一个合理窗口，
+                    // 避免显示故障态；占用用历史估算兜底
                     long budget = getChatContextBuilder().getContextBudgetTokens();
                     window = budget > 0 ? budget : resolveOnlineContextWindow();
                     used = estimateHistoryTokens();
@@ -11126,8 +10894,16 @@ public class AIChatActivity extends BaseActivity {
     }
 
     // ==================== NPU-IDLE-RELEASE: 不用就把内存还回去（常驻=快，闲置=省内存） ====================
-    /** 后台闲置多久后释放 NPU 模型（毫秒） */
-    private static final long NPU_IDLE_RELEASE_MS = 120_000L;
+    /**
+     * 后台闲置多久后释放 NPU 模型（毫秒）。
+     *
+     * <p>2026-10-07 调整：从 2 分钟放宽到 15 分钟。原值 2 分钟对"加载慢"的贡献极大——
+     * 实测日志显示 12 分钟内卸载过 3 次（12:25:39 / 12:26:51 / 12:38:44），而模型 484MB、
+     * 重载要十几秒：用户切出去看一眼消息再回来，第一句话必然是冷启动。
+     * NPU 引擎开着时人本来就在连续对话，2 分钟太短；真要省内存，系统 LMK 与
+     * onTrimMemory 的紧急释放（见下方）仍然会在真正紧张时出手。</p>
+     */
+    private static final long NPU_IDLE_RELEASE_MS = 15 * 60 * 1000L;
     private final android.os.Handler npuIdleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable npuIdleRelease = new Runnable() {
         @Override
@@ -11135,14 +10911,14 @@ public class AIChatActivity extends BaseActivity {
             try {
                 if (com.oilquiz.app.ai.engine.NpuEngineState.get().getInferencePhase()
                         != com.oilquiz.app.ai.engine.NpuEngineState.InferencePhase.IDLE) {
-                    AppLogger.ai(TAG, "NPU 闲置释放：仍在推理 → 2 分钟后再试");
+                    AppLogger.ai(TAG, "NPU 闲置释放：仍在推理 → " + (NPU_IDLE_RELEASE_MS / 60000) + " 分钟后再试");
                     npuIdleHandler.postDelayed(this, NPU_IDLE_RELEASE_MS);
                     return;
                 }
                 if (!isNpuEngineOn()) {
                     return;
                 }
-                AppLogger.ai(TAG, "NPU 闲置释放：后台超 2 分钟且空闲 → 卸载模型，内存还给系统");
+                AppLogger.ai(TAG, "NPU 闲置释放：后台超 " + (NPU_IDLE_RELEASE_MS / 60000) + " 分钟且空闲 → 卸载模型，内存还给系统");
                 com.oilquiz.app.ai.service.AIService.getInstance(getApplicationContext()).releaseNpu();
             } catch (Throwable t) {
                 AppLogger.aiW(TAG, "NPU 闲置释放失败: " + t.getMessage());
@@ -11384,7 +11160,7 @@ public class AIChatActivity extends BaseActivity {
         super.onStop();
         // STATUSBAR-POLLING: 离开聊天页停止轮询（原先无 onPause，轮询会一直跑）
         if (genStatusBar != null) genStatusBar.stopPolling();
-        // NPU-IDLE-RELEASE: 进后台 → 2 分钟后若仍空闲则卸载模型
+        // NPU-IDLE-RELEASE: 进后台 → 闲置超时后若仍空闲则卸载模型（见 NPU_IDLE_RELEASE_MS 的取值说明）
         npuIdleHandler.removeCallbacks(npuIdleRelease);
         if (isNpuEngineOn()) {
             npuIdleHandler.postDelayed(npuIdleRelease, NPU_IDLE_RELEASE_MS);

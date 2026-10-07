@@ -637,6 +637,15 @@ public class ServiceStatusManager {
 
     private String buildFullDetailsText() {
         StringBuilder details = new StringBuilder();
+        // NPU-AWARE(2026-10-07)：本方法整段是 llama.cpp 的本地运行信息（Native库/显存/速度/
+        // token/模型信息）。NPU 模式下这些全无意义（对应 native 调用恒为 0/空）。
+        // 目前唯一调用点在已做 NPU 早退的本地详情路径里，这里加防御性守卫，
+        // 避免将来被其它入口调用时又泄出一堆 llama.cpp 内容。
+        if (isNpuEngineOn()) {
+            details.append("\uD83E\uDD16 NPU（GenieX）引擎\n\n");
+            details.append(npuStatusLine()).append("\n");
+            return details.toString();
+        }
         details.append("\uD83E\uDD16 AI服务状态详情\n\n");
 
         AIServiceState state = aiService.getServiceState();

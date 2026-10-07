@@ -1575,9 +1575,14 @@ public class AgentLoopEngine {
      */
     private int getEffectiveContextSize() {
         int preset = aiConfig != null ? aiConfig.getContextSize() : 0;
+        // NPU-AWARE(2026-10-07)：原实现只读 LlamaHelper.getContextSize()，NPU 模式下恒为 0
+        // → 回退预设或写死的 8192，而 NPU 实际规划出的 nCtx（实测 8192）才是真窗口。
+        // 走 NpuAwareText 按引擎取，并用同一份日志保留原有的可观测性。
         int real = 0;
         try {
-            real = LlamaHelper.getContextSize();
+            real = com.oilquiz.app.ai.engine.NpuAwareText.isNpu()
+                    ? com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue()
+                    : LlamaHelper.getContextSize();
         } catch (Throwable t) {
             AILogger.w(TAG, "getContextSize failed: " + t.getMessage());
         }
@@ -2592,10 +2597,9 @@ public class AgentLoopEngine {
 
     private int countTokensSafe(String text) {
         if (text == null || text.isEmpty()) return 0;
-        try {
-            int n = LlamaHelper.countTokens(text);
-            return n > 0 ? n : Math.max(1, text.length() / 4);
-        } catch (Exception e) { return Math.max(1, text.length() / 4); }
+        // NPU-AWARE：NPU 模式下 llama.cpp tokenizer 未加载，countTokens 恒 0 →
+        // Agent 的单轮 prompt 预算与历史裁剪会全部失真。按引擎选数据源。
+        return com.oilquiz.app.ai.engine.NpuAwareText.countTokens(text);
     }
 
     private String truncate(String s, int maxLen) {

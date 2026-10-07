@@ -580,6 +580,22 @@ static void setupGGMLBackendPath() {
         } else {
             LOGI("OpenCL: flash attention cluster-parallel disabled");
         }
+
+        // ===== Vulkan 加速变体的逐项开关 =====
+        // 背景：NDK 26.1 自带 glslc 2026.1，它**支持** bfloat16 / e4m3 / integer_dot / coopmat，
+        // 因此 ggml-vulkan 的 CMake 特性测试会把这些变体全部编进 shader 集。而本项目此前实测：
+        //   MSYS2 shaderc 2026.1 生成的 bfloat16/e4m3/dot 变体在 Adreno 驱动上输出乱码，
+        //   当时只能整体放弃加速变体，退回"基础路径（正确但较慢）"。
+        // 现在 ggml-vulkan 已提供**运行时**逐项禁用开关（ggml-vulkan.cpp 里
+        // "VK_KHR_shader_bfloat16" ... && !getenv("GGML_VK_DISABLE_BFLOAT16") 之类的判定），
+        // 所以不必再整体放弃：**保留 coopmat**（Gen6 Adreno 的矩阵核心，才是真正的加速来源），
+        // 只关掉已知会出乱码的三个变体。这样 Vulkan 既能提速又保持正确。
+        // 想验证/放开某一项：把对应 disable 删掉或设 0，真机验证输出是否正确后再保留。
+        // 注：e2m1/e4m3 两项上游没有 disable 开关，只能靠编译期特性测试控制（glslc 支持就编进来）。
+        setenv("GGML_VK_DISABLE_BFLOAT16", "1", 0);
+        setenv("GGML_VK_DISABLE_INTEGER_DOT_PRODUCT", "1", 0);
+        setenv("GGML_VK_DISABLE_DOT2", "1", 0);
+        LOGI("Vulkan: coopmat 保留；已禁用 bfloat16 / integer_dot / dot2 变体（Adreno 实测乱码）");
         
         const char* openclBackends[] = {
             "libggml-opencl.so",

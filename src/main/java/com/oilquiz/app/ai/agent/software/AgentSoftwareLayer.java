@@ -216,8 +216,9 @@ public class AgentSoftwareLayer {
                             response.stats.thinkingSteps));
         }
 
-        // 上下文预警
-        float usagePercent = LlamaHelper.getContextUsagePercent();
+        // 上下文预警（CONTEXT-CONTRACT：统一走引擎无关契约，原先直连 llama.cpp 的
+        // getContextUsagePercent()，NPU 模式下恒为 0 → 预警永不触发）
+        float usagePercent = com.oilquiz.app.ai.engine.NpuAwareText.contextUsagePercent();
         if (usagePercent >= 80.0f && usagePercent < 100.0f) {
             AILogger.w(TAG, String.format("Context usage warning: %.1f%%", usagePercent));
             if (callback != null) {
@@ -234,12 +235,9 @@ public class AgentSoftwareLayer {
      */
     private int countTokensSafe(String text) {
         if (text == null || text.isEmpty()) return 0;
-        try {
-            int n = LlamaHelper.countTokens(text);
-            return n > 0 ? n : Math.max(1, text.length() / 4);
-        } catch (Exception e) {
-            return Math.max(1, text.length() / 4);
-        }
+        // NPU-AWARE：NPU 模式下 llama.cpp tokenizer 未加载，countTokens 恒 0 → 预算估算全废。
+        // NpuAwareText.countTokens 会按当前引擎选数据源（NPU 用字符估算）。
+        return com.oilquiz.app.ai.engine.NpuAwareText.countTokens(text);
     }
 
     /**
@@ -254,6 +252,16 @@ public class AgentSoftwareLayer {
      * 取消当前处理（R3-2：先打断 native 生成，再置状态）
      */
     public void cancel() {
+        // NPU-AWARE(2026-10-07)：原实现只调 LlamaHelper.stopGeneration()，而 NPU 模式下
+        // 那条 native 路径根本没有在跑的生成 —— 表现为"Agent 跑起来后取消按钮停不掉"。
+        // 这里按引擎分别打断。
+        try {
+            if (com.oilquiz.app.ai.engine.NpuAwareText.isNpu()) {
+                com.oilquiz.app.ai.engine.NpuLlmChat.stopGenerate();
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "NPU stopGenerate failed: " + t.getMessage());
+        }
         try {
             LlamaHelper.stopGeneration();   // native shouldStop 置位，打断阻塞中的 chatJson/generateStream
         } catch (Throwable t) {

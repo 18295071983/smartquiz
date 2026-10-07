@@ -301,6 +301,34 @@ public class ResourceConfig {
         // 确保不超过上限和模型总层数
         int finalLayers = Math.max(MIN_GPU_LAYERS, Math.min(Math.min(MAX_GPU_LAYERS, totalLayers), gpuLayers));
 
+        // GPU-OFFLOAD-ALL: 小模型能全量就全量（2026-10-07）。
+        // 依据：半吊子卸载是 decode 慢的主因——留在 CPU 的那几层会让每个 token 都做一次
+        // CPU↔GPU 张量搬运 + 同步，代价远大于多卸载那点显存的收益（手机 GPU 与 CPU 共享内存，
+        // 权重本就常驻，全量 offload 并不额外增加内存总量）。
+        // 旧逻辑在这里只按 "可用显存 × 60% / 每层大小" 取整，且上游 AIService 还有一组
+        // 写死的档位（14/22/30 层）——那些数字是给 4B/36 层模型定的绝对值，对 0.8B/24 层
+        // 这种小模型毫无意义，会把本可全量的模型卡在 22/24，白留 2 层在 CPU 上拖慢每个 token。
+        // 现在：只有当"模型全部层 + 预留 KV"确实超出可用显存时才削减，否则直接全量。
+        boolean fullOffloadFits = false;
+        if (usableGpuMemoryMB > 0 && actualLayerSizeMB > 0 && totalLayers > 0) {
+            long needAllMB = actualLayerSizeMB * totalLayers;
+            // 预留 KV：按 contextSize 粗估（不同架构差异大，取经验值 ~0.5MB/层/1K上下文，
+            // 上限不超过可用显存的 35%），避免全量 offload 后 KV 无处安放反而 OOM。
+            long kvReserveMB = Math.min((long) (usableGpuMemoryMB * 0.35),
+                    Math.max(64L, (long) actualLayerSizeMB * Math.max(1, contextSize / 4096)));
+            fullOffloadFits = (needAllMB + kvReserveMB) <= usableGpuMemoryMB;
+            if (fullOffloadFits && finalLayers < totalLayers) {
+                AILogger.i(TAG, "GPU-OFFLOAD-ALL: 全量卸载可行（需 " + needAllMB + "MB + KV预留 "
+                        + kvReserveMB + "MB ≤ 可用 " + usableGpuMemoryMB + "MB）→ "
+                        + finalLayers + "/" + totalLayers + " 提升为全量 " + totalLayers + " 层，"
+                        + "消除 CPU-GPU 每 token 交替");
+                finalLayers = totalLayers;
+            }
+            AILogger.i(TAG, "Decision: finalLayers=" + finalLayers + "/" + totalLayers
+                    + ", needAll=" + needAllMB + "MB, kvReserve=" + kvReserveMB
+                    + "MB, usableGpu=" + usableGpuMemoryMB + "MB, fullOffloadFits=" + fullOffloadFits);
+        }
+
         // 小模型全量 offload：Adreno 8xx 等 SoC GPU 带宽充足，全量 GPU 消除 CPU-GPU 交替
         // 瓶颈（每 token 跨端同步是 decode 慢的主因）。显存支撑能力已由 usableGpuMemoryMB
         // 在上文钳制（Calculated layers → clamp totalLayers），不再额外砍 80% 层数。

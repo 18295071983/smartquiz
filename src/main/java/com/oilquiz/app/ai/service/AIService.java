@@ -470,6 +470,28 @@ public class AIService implements ComponentCallbacks2 {
             instance = new AIService(context);
         }
 
+        // ==================== 入口检测分支：NPU 运行时 ====================
+        // NPU-BRANCH（2026-10-07）：NPU 是后加的"一等运行时"，它与在线 API 路径同构——
+        // 不依赖 llama.cpp 模型。但本类下方那段"热启动探测"是**纯 llama.cpp 语义**
+        // （判断 llama 模型是否在内存），NPU 模式下 llama.cpp 上下文故意不创建 →
+        // LlamaHelper.isModelInitialized() 恒为 false → 会把 isInitialized 反复重置为 false。
+        //
+        // 危害不是"慢"而是**状态污染**：getInstance() 是 static synchronized 的高频入口
+        // （状态栏每 800ms 经 AppNativeSource.npu() 调一次），而全项目 30+ 处用
+        // AIService.isInitialized() 判定"服务是否可用"——于是 NPU 正常工作时界面仍报
+        // "上下文/服务异常"，并反复触发本地模型加载流程。
+        //
+        // 所以这里在**入口就分支**：NPU 运行时直接走 NPU 语义，完全不进入 llama.cpp 那套逻辑。
+        if (instance.isNpuRuntimeActive()) {
+            // NPU 引擎已开启：服务可用性由 NPU 自己回答，绝不问 llama.cpp。
+            // 注意是"引擎已开启"而非"模型已加载"——加载中/失败也属于 NPU 运行时的管辖范围，
+            // 由 NpuEngineState 对外表达进度与错误，不应让 llama 状态把服务标记为未初始化。
+            if (!instance.isInitialized) {
+                instance.isInitialized = true;
+            }
+            return instance;
+        }
+
         if (!instance.hotStartEnabled) {
             return instance;
         }
@@ -495,6 +517,35 @@ public class AIService implements ComponentCallbacks2 {
         }
 
         return instance;
+    }
+
+    /**
+     * 当前是否处于 **NPU 运行时**（引擎开关已打开）。
+     *
+     * <p>这是本类所有"该不该碰 llama.cpp"判断的**唯一依据**：NPU 运行时下，
+     * llama.cpp 的模型/上下文状态没有任何参考意义，凡是以它为准的门禁、状态同步、
+     * 资源释放都应跳过。</p>
+     *
+     * <p>判据用"引擎已开启"而不是"模型已加载"：加载中、加载失败同样属于 NPU 运行时的
+     * 管辖范围，其进度与错误由 {@code NpuEngineState} 对外表达；若此时回落去信 llama 状态，
+     * 又会把服务误标为不可用。</p>
+     */
+    public boolean isNpuRuntimeActive() {
+        try {
+            return com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** NPU 运行时下模型是否已就绪（供状态栏/门禁使用） */
+    public boolean isNpuRuntimeReady() {
+        try {
+            return com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()
+                    && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /**
@@ -905,7 +956,7 @@ public class AIService implements ComponentCallbacks2 {
      */
     private boolean loadModelLocked(String modelName) {
         // NPU 引擎开启时本地服务本就无模型，不该在这里报"找不到模型文件"（会弹 AI服务初始化失败）
-        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+        if (isNpuRuntimeActive()) {
             AILogger.i(TAG, "NPU 引擎已启用，跳过本地模型定位检查");
             return false;
         }
@@ -1055,7 +1106,24 @@ public class AIService implements ComponentCallbacks2 {
             boolean bigModel = modelSizeMB > 1800;
             if (gpuLayers > 0 && availMemMB > 0) {
                 int originalGpuLayers = gpuLayers;
-                if (availMemMB < 800) {
+                // GPU-SMALL-MODEL-FULL：模型总层数很小时（如 Qwen3.5-0.8B 只有 24 层），
+                // 这些按可用内存递减的**绝对值档位**会把它卡在 22/24，白留 2 层在 CPU ——
+                // 于是每个 token 都要做一次 CPU↔GPU 搬运+同步，decode 明显变慢。
+                // 小模型权重只有几百 MB，手机 GPU 与 CPU 共享内存，全量 offload 不增内存总量，
+                // 因此对"总层数 ≤32 且权重 <1GB"的模型不再套用档位，直接全量。
+                int totalLayersNow = 0;
+                try {
+                    com.oilquiz.app.ai.jni.LlamaHelper.ModelMeta meta = LlamaHelper.getModelMeta();
+                    if (meta != null) totalLayersNow = meta.nLayer;
+                } catch (Throwable ignored) {
+                }
+                boolean smallModelFullOffload = totalLayersNow > 0 && totalLayersNow <= 32 && modelSizeMB < 1000;
+                if (smallModelFullOffload && gpuLayers < totalLayersNow) {
+                    AILogger.i(TAG, "GPU-SMALL-MODEL-FULL: 小模型(" + totalLayersNow + " 层, "
+                            + modelSizeMB + "MB) 跳过内存档位限制，从 " + gpuLayers
+                            + " 提升为全量 " + totalLayersNow + " 层");
+                    gpuLayers = totalLayersNow;
+                } else if (availMemMB < 800) {
                     // 可用内存极低：大模型降 context 后仍不足 → 保留较少 GPU 层，优先保证系统稳定
                     gpuLayers = Math.min(gpuLayers, bigModel ? 14 : 10);
                     AILogger.w(TAG, "Low available memory (" + availMemMB + "MB), reducing GPU layers to " + gpuLayers);
@@ -3278,7 +3346,7 @@ public class AIService implements ComponentCallbacks2 {
      * @return true 如果启动了恢复流程，false 如果模型已在内存中
      */
     public boolean tryHotStart(HotStartCallback callback) {
-        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+        if (isNpuRuntimeActive()) {
             AILogger.i(TAG, "NPU 引擎已启用，跳过 tryHotStart");
             if (callback != null) {
                 callback.onHotStartComplete(false, "NPU 引擎已启用，跳过本地模型加载");
@@ -3367,7 +3435,7 @@ public class AIService implements ComponentCallbacks2 {
     public boolean canHotStart() {
         // NPU 引擎开启时绝不热启动本地 llama.cpp 模型：否则启动/回前台就抢先把权重加载进来，
         // 既占内存又让"当前引擎"变回 llama.cpp（2026-10-05 实测：Agent 进程日志出现 LlamaJNI sched_reserve）。
-        if (com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled()) {
+        if (isNpuRuntimeActive()) {
             AILogger.i(TAG, "NPU 引擎已启用，canHotStart=false（跳过本地模型热启动）");
             return false;
         }
@@ -3461,8 +3529,18 @@ public class AIService implements ComponentCallbacks2 {
         }
         
         // 检查模型是否在内存中
-        boolean modelInMemory = LlamaHelper.isModelInitialized();
-        AILogger.i(TAG, "模型在内存中: " + modelInMemory + ", Java状态: " + isInitialized);
+        // NPU-CTXSTATE(2)：这里同样是纯 llama.cpp 语义。NPU 模式下 llama.cpp 上下文不存在，
+        // isModelInitialized() 恒为 false → 会把 isInitialized 重置为 false 并 notifyStatusChange()，
+        // 界面随即显示"服务/上下文异常"。NPU 就绪时直接认定可用。
+        boolean npuReadyFg = false;
+        try {
+            npuReadyFg = isNpuRuntimeActive()
+                    && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
+        } catch (Throwable ignored) {
+        }
+        boolean modelInMemory = npuReadyFg || LlamaHelper.isModelInitialized();
+        AILogger.i(TAG, "模型在内存中: " + modelInMemory + " (NPU=" + npuReadyFg
+                + "), Java状态: " + isInitialized);
         
         // 如果模型不在内存但Java状态显示已初始化，同步状态
         if (isInitialized && !modelInMemory) {
@@ -3576,6 +3654,27 @@ public class AIService implements ComponentCallbacks2 {
      */
     private void unloadModelForMemoryPressure(String reason) {
         try {
+            // NPU-CTXSTATE(3)：NPU 模式下必须**区分后端**再决定是否抹状态。
+            // 本函数原本无条件释放 llama.cpp 资源并 isInitialized=false / currentModelName=null，
+            // 最后还向所有 UI 观察者广播 onStatusChanged(false, null)。但 NPU 的常驻模型
+            // （NpuLlmChat 持有的 GenieX 句柄）根本不在这里释放——于是 NPU 好好地在内存里，
+            // App 却对外宣告"模型已卸载、服务未初始化" → 界面显示上下文/服务异常。
+            // 现在：NPU 就绪时只做"停推理 + 广播仍在就绪"，不动 NPU 也不抹状态。
+            boolean npuReadyMp = false;
+            try {
+                npuReadyMp = isNpuRuntimeActive()
+                        && com.oilquiz.app.ai.engine.NpuLlmChat.isLoaded();
+            } catch (Throwable ignored) {
+            }
+            if (npuReadyMp) {
+                AILogger.w(TAG, "内存压力(" + reason + ")：NPU 模型仍在内存 → 保留服务状态，不释放 NPU");
+                try {
+                    com.oilquiz.app.ai.engine.NpuLlmChat.stopGenerate();
+                } catch (Throwable ignored) {
+                }
+                return;
+            }
+
             // 停掉推理（如果有）
             try {
                 LlamaHelper.stopGeneration();
@@ -4306,20 +4405,34 @@ public class AIService implements ComponentCallbacks2 {
         return LlamaHelper.chatGetInfo();
     }
     
+    /**
+     * 上下文窗口容量 —— **引擎无关契约**。
+     *
+     * <p>原先直连 {@code LlamaHelper.getContextSize()}：NPU 模式下 llama.cpp 没有上下文，
+     * 恒返回 0，于是所有据此判断"上下文还剩多少"的调用方（Agent 预算、工具结果解读、
+     * 上下文仪表）在 NPU 下全部失真。现在统一走契约层，由引擎适配器给出正确数字。</p>
+     */
     public int getContextSize() {
-        return LlamaHelper.getContextSize();
+        long w = com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage().window;
+        return w > 0 ? (int) w : 0;
     }
-    
+
     public int getContextUsedTokens() {
-        return LlamaHelper.getContextUsedTokens();
+        long u = com.oilquiz.app.ai.engine.contract.GenSignalSource.contextUsage().used;
+        return u > 0 ? (int) u : 0;
     }
-    
+
     public int getContextRemainingTokens() {
+        // NPU 侧没有"剩余"概念（每轮全量喂 prompt，KV 不复用），用 窗口-已用 表达
+        int win = getContextSize();
+        if (win > 0) {
+            return Math.max(0, win - getContextUsedTokens());
+        }
         return LlamaHelper.getContextRemainingTokens();
     }
-    
+
     public float getContextUsagePercent() {
-        return LlamaHelper.getContextUsagePercent();
+        return com.oilquiz.app.ai.engine.NpuAwareText.contextUsagePercent();
     }
     
     public void logContextStats() {
@@ -4617,6 +4730,9 @@ public class AIService implements ComponentCallbacks2 {
     private final java.util.concurrent.atomic.AtomicBoolean npuLoading =
             new java.util.concurrent.atomic.AtomicBoolean(false);
     private java.util.concurrent.ExecutorService npuExecutor;
+    /** NPU 加载在途时排队的等待者；本轮加载结束后一并回调**真实结果** */
+    private final java.util.List<InitializeCallback> npuPendingCallbacks =
+            java.util.Collections.synchronizedList(new java.util.ArrayList<>());
 
     /** NPU 运行时是否已加载 */
     public boolean isNpuLoaded() {
@@ -4689,9 +4805,15 @@ public class AIService implements ComponentCallbacks2 {
             releaseNpu();
         }
         if (!npuLoading.compareAndSet(false, true)) {
-            if (callback != null) {
-                callback.onResult(true);   // 已在加载中，调用方无需重复触发
+            // NPU-LOAD-WAIT（2026-10-07）：原先这里直接 callback.onResult(true)，语义是错的——
+            // true 只表示"已在加载中、你不必重复触发"，却被下游当成"模型可用"。
+            // 后果：NpuEngineRouter.ensureLoadedBlocking 拿到 true 但二次校验 isLoaded()==false
+            // → 整条消息被判为"未走 NPU"并**回退 llama.cpp**（NPU 模式下那条路根本不可用）。
+            // 现在改为排队：等本轮加载真正结束，再把真实结果回调给所有等待者。
+            synchronized (npuPendingCallbacks) {
+                npuPendingCallbacks.add(callback);
             }
+            AILogger.i(TAG, "[NPU] 已有加载在途 → 本次调用排队等待真实结果（不误报 true）");
             return;
         }
         synchronized (this) {
@@ -4732,6 +4854,24 @@ public class AIService implements ComponentCallbacks2 {
             if (callback != null) {
                 callback.onResult(ok);
             }
+            // 把真实结果回给所有"在途排队"的调用方（它们原会被误报 true）
+            java.util.List<InitializeCallback> waiters;
+            synchronized (npuPendingCallbacks) {
+                waiters = new java.util.ArrayList<>(npuPendingCallbacks);
+                npuPendingCallbacks.clear();
+            }
+            if (!waiters.isEmpty()) {
+                AILogger.i(TAG, "[NPU] 加载结束(ok=" + ok + ")，回调 " + waiters.size() + " 个排队等待者");
+            }
+            for (InitializeCallback w : waiters) {
+                if (w != null) {
+                    try {
+                        w.onResult(ok);
+                    } catch (Throwable t) {
+                        AILogger.w(TAG, "[NPU] 排队回调异常: " + t.getMessage());
+                    }
+                }
+            }
         });
     }
 
@@ -4757,6 +4897,29 @@ public class AIService implements ComponentCallbacks2 {
     /** UI 只读代理：上次 NPU 生成的 token 数 */
     public int getNpuLastTokens() {
         return com.oilquiz.app.ai.engine.NpuLlmChat.getLastTokens();
+    }
+
+    /**
+     * UI 只读代理：NPU 规划出的上下文长度。
+     *
+     * <p>对话页的"上下文仪表"原本只读 {@code LlamaHelper.getContextSize()}，NPU 模式下为 0 →
+     * 仪表走 {@code window<=0} 分支显示故障态，用户看到"上下文故障"。这里给 NPU 提供 window。</p>
+     */
+    public int getNpuContextSize() {
+        try {
+            return com.oilquiz.app.ai.engine.NpuLlmChat.plannedNCtxValue();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** UI 只读代理：NPU 当前上下文占用量（本轮 prompt + 已生成） */
+    public int getNpuContextUsed() {
+        try {
+            return com.oilquiz.app.ai.engine.NpuLlmChat.getLastCtxUsed();
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     /** UI 只读代理：上次 NPU 生成速度（t/s） */

@@ -151,7 +151,7 @@ public class AgentChatHandler {
                 if (isValid() && token != null) {
                     // 本地 Agent 流式中 native 不分离思考（reasoning 恒空，思考混在正文 token），
                     // 用模板标签在 Java 侧拆分：思考→onThinkingToken，正文→onToken。
-                    thinkingRouter.setThinkingTags(com.oilquiz.app.ai.jni.LlamaHelper.getThinkingTags());
+                    // 标签在 startAgentLoop 里已设一次（此处不再 per-token 重设，见那里的说明）。
                     thinkingRouter.processToken(token);
                 }
             }
@@ -357,6 +357,18 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         AILogger.i(TAG, "startAgentLoop: mode=" + currentInferenceMode + ", msg_len=" + message.length());
         // 新一轮开始前重置思考拆分器状态（防止上一轮未闭合的思考段串到本轮）
         thinkingRouter.reset();
+        // NPU-AWARE(2026-10-07)：思考标签是**每轮不变**的配置，只在开始本轮时设一次。
+        // 原先它被放在 onToken 回调里 —— 那是**每个 token 都调一次**
+        // LlamaHelper.getThinkingTags()，而 NPU 模式下该调用必然返回空、实现里失败还**不写缓存**
+        // → 每生成一个 token 就打一次无用 JNI。移到此处。
+        // 标签来源统一走 ThinkingTagConfig.forCurrentEngine()（与 AIChatActivity 同一套），
+        // 不再各处自己写 null/硬编码，避免"上游下游标签不一致"导致的分流行为漂移。
+        try {
+            thinkingRouter.setThinkingTags(
+                    com.oilquiz.app.ai.chat.parser.ThinkingTagConfig.forCurrentEngine());
+        } catch (Throwable t) {
+            thinkingRouter.setThinkingTags(null);
+        }
 
         // 路由分支（R3-1/R8-1）：本地模型且 localAgentEnabled → 本地软件层；否则在线引擎
         boolean useLocalAgent = aiConfig != null && aiConfig.isLocalAgentEnabled()
