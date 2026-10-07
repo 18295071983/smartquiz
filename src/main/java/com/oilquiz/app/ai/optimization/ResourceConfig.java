@@ -30,8 +30,14 @@ public class ResourceConfig {
     private static final float THREAD_CORE_RATIO = 0.5f;
 
     // ========== GPU 层数限制 ==========
-    /** GPU 层数上限（Qwen3-4B 共 36 层，全量上 GPU 避免混合推理的 CPU 瓶颈） */
-    private static final int MAX_GPU_LAYERS = 36;
+    /**
+     * GPU 层数上限（护栏）。
+     *
+     * <p>不是"显存能装多少"的判据 —— 那由 {@code fullOffloadFits}（每层大小 x 层数 + KV 预留
+     * <= 可用显存）决定。这里只是防止异常输入。原值 36 参照"Qwen3-4B 共 36 层"，但 36 是
+     * **重复层数**，而 n_gpu_layers 语义含输出层，4B 全量需要 37，被 36 卡住仍留 1 层在 CPU。</p>
+     */
+    private static final int MAX_GPU_LAYERS = 64;
     /** GPU 层数下限 */
     private static final int MIN_GPU_LAYERS = 0;
     /** 单层模型权重估算大小（MB）- 7B模型约 400MB/层 */
@@ -205,11 +211,13 @@ public class ResourceConfig {
      * @param maxMemAllocSizeMB GPU 单次最大分配大小（MB），0 表示未知
      * @param contextSize 上下文大小（用于估算 KV 缓存）
      * @param modelSizeMB 模型文件大小（MB），0 表示未知
-     * @param modelPath 模型路径（用于推断量化类型）
+     * @param modelPath 模型**文件名**（用于按名字推断量化类型；不要传绝对路径影响既有推断）
+     * @param modelFilePath 模型**绝对路径**（用于直接读 GGUF 头部拿真实层数）；可为空
      * @return 推荐 GPU 层数
      */
     public int getOptimalGpuLayers(boolean hasGpuSupport, long gpuMemoryMB, long maxMemAllocSizeMB,
-                                   int contextSize, long modelSizeMB, String modelPath) {
+                                   int contextSize, long modelSizeMB, String modelPath,
+                                   String modelFilePath) {
         AILogger.i(TAG, "========== GPU LAYERS CALCULATION ==========");
         AILogger.i(TAG, "Input params:");
         AILogger.i(TAG, "  hasGpuSupport=" + hasGpuSupport);
@@ -224,19 +232,46 @@ public class ResourceConfig {
             return 0;
         }
 
-        // 估算模型参数：优先用实际加载模型的层数（Qwen3-4B=36），未加载时按大小估算
+        // 估算模型参数：优先用**当前要加载的那个 GGUF 的真实层数**，未加载时按大小估算
+        //
+        // LAYERS-FROM-GGUF（2026-10-07 实测修复）：这一步原先只问 LlamaHelper.getModelMeta()，
+        // 而那是**上一次已经加载过的模型**的元数据 —— 本方法在加载**之前**调用，此时它要么是空的、
+        // 要么是旧模型的。实测后果：0.8B 模型（文件 483MB）落到 estimateTotalLayers() 的
+        // "if (modelSizeMB < 500) return 22"，于是 totalLayers 被当成 **22**，而模型实际是 **24** 层。
+        // "GPU-OFFLOAD-ALL" 随后判定 fullOffloadFits=true 并把 22/22 抬成"全量 22 层" ——
+        // 全量了个寂寞：真实只卸载 22/24，llama.cpp 侧日志为 "offloaded 22/25 layers"
+        // （25 = 24 块 + 1 输出层），剩下 3 层留在 CPU，**每个 token 都要付一次跨端同步**。
+        // 现在直接读 GGUF 头部拿 blockCount（就是 n_layer），与 llama_model_n_layer 同源。
         int totalLayers = 0;
         try {
-            com.oilquiz.app.ai.jni.LlamaHelper.ModelMeta meta =
-                    com.oilquiz.app.ai.jni.LlamaHelper.getModelMeta();
-            if (meta != null && meta.nLayer > 0) {
-                totalLayers = meta.nLayer;
-                AILogger.i(TAG, "Using real model layers: " + totalLayers);
+            if (modelFilePath != null && !modelFilePath.isEmpty()) {
+                java.io.File mf = new java.io.File(modelFilePath);
+                if (mf.isFile()) {
+                    com.oilquiz.app.ai.model.GgufMeta gm = com.oilquiz.app.ai.model.GgufMeta.read(mf);
+                    if (gm != null && gm.blockCount > 0) {
+                        totalLayers = (int) gm.blockCount;
+                        AILogger.i(TAG, "Using real model layers from GGUF: " + totalLayers);
+                    }
+                }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            AILogger.w(TAG, "读取 GGUF 层数失败，回退元数据估算: " + t.getMessage());
+        }
+        if (totalLayers <= 0) {
+            try {
+                com.oilquiz.app.ai.jni.LlamaHelper.ModelMeta meta =
+                        com.oilquiz.app.ai.jni.LlamaHelper.getModelMeta();
+                if (meta != null && meta.nLayer > 0) {
+                    totalLayers = meta.nLayer;
+                    AILogger.i(TAG, "Using real model layers (already loaded): " + totalLayers);
+                }
+            } catch (Throwable ignored) {
+            }
         }
         if (totalLayers <= 0) {
             totalLayers = estimateTotalLayers(modelSizeMB);
+            AILogger.w(TAG, "层数仍未知，按文件大小估算: " + totalLayers
+                    + "（可能导致残留 CPU 层，建议模型已下载到本地）");
         }
         double quantFactor = getQuantizationFactor(modelPath);
         long layerSizeMB = estimateLayerSizeMB(modelSizeMB, totalLayers);
@@ -298,8 +333,11 @@ public class ResourceConfig {
             }
         }
 
-        // 确保不超过上限和模型总层数
-        int finalLayers = Math.max(MIN_GPU_LAYERS, Math.min(Math.min(MAX_GPU_LAYERS, totalLayers), gpuLayers));
+        // 确保不超过上限和模型总层数。
+        // 注意：这里的 totalLayers 是**重复层（transformer block）数**，而 llama.cpp 的
+        // n_gpu_layers 语义把"输出层"也算一份（见下方 GPU-OFFLOAD-ALL 的说明），
+        // 所以"全量"要么由下面的分支显式补 1，要么这里不设成硬上限。
+        int finalLayers = Math.max(MIN_GPU_LAYERS, Math.min(MAX_GPU_LAYERS, gpuLayers));
 
         // GPU-OFFLOAD-ALL: 小模型能全量就全量（2026-10-07）。
         // 依据：半吊子卸载是 decode 慢的主因——留在 CPU 的那几层会让每个 token 都做一次
@@ -309,6 +347,16 @@ public class ResourceConfig {
         // 写死的档位（14/22/30 层）——那些数字是给 4B/36 层模型定的绝对值，对 0.8B/24 层
         // 这种小模型毫无意义，会把本可全量的模型卡在 22/24，白留 2 层在 CPU 上拖慢每个 token。
         // 现在：只有当"模型全部层 + 预留 KV"确实超出可用显存时才削减，否则直接全量。
+        //
+        // OFFLOAD-OUTPUT-LAYER（2026-10-07 二次实测修复）：llama.cpp 的 n_gpu_layers 并非
+        // "重复层数"，而是**含输出层在内**的额度。见 src/llama-model.cpp：
+        //     n_gpu = min(n_gpu_layers, n_layer_all);
+        //     n_repeating = n_gpu;  if (n_repeating > 0) n_repeating--;   // 先扣 1 给输出层
+        //     max_backend_supported_layers = n_layer_all + 1;
+        // 所以 n_gpu_layers = n_layer 时只剩 n_layer-1 给真实块 —— **永远差 1 块**。
+        // 实测日志 "offloaded 22/25"（25 = 24 块 + 1 输出层）+ "layer 0/1/2 assigned to CPU"
+        // 正是这个语义边界叠加下面那条层数估算错误的结果。
+        // 故"全量"必须写成 totalLayers + 1，一次把输出层也带上。
         boolean fullOffloadFits = false;
         if (usableGpuMemoryMB > 0 && actualLayerSizeMB > 0 && totalLayers > 0) {
             long needAllMB = actualLayerSizeMB * totalLayers;
@@ -317,15 +365,18 @@ public class ResourceConfig {
             long kvReserveMB = Math.min((long) (usableGpuMemoryMB * 0.35),
                     Math.max(64L, (long) actualLayerSizeMB * Math.max(1, contextSize / 4096)));
             fullOffloadFits = (needAllMB + kvReserveMB) <= usableGpuMemoryMB;
-            if (fullOffloadFits && finalLayers < totalLayers) {
-                AILogger.i(TAG, "GPU-OFFLOAD-ALL: 全量卸载可行（需 " + needAllMB + "MB + KV预留 "
-                        + kvReserveMB + "MB ≤ 可用 " + usableGpuMemoryMB + "MB）→ "
-                        + finalLayers + "/" + totalLayers + " 提升为全量 " + totalLayers + " 层，"
-                        + "消除 CPU-GPU 每 token 交替");
-                finalLayers = totalLayers;
+            if (fullOffloadFits) {
+                int all = totalLayers + 1;   // +1 = 输出层（llama.cpp 语义）
+                if (finalLayers < all) {
+                    AILogger.i(TAG, "GPU-OFFLOAD-ALL: 全量卸载可行（需 " + needAllMB + "MB + KV预留 "
+                            + kvReserveMB + "MB <= 可用 " + usableGpuMemoryMB + "MB）→ "
+                            + finalLayers + " 提升为全量 " + all + " = " + totalLayers
+                            + " 重复层 + 1 输出层，消除 CPU-GPU 每 token 交替");
+                }
+                finalLayers = all;
             }
             AILogger.i(TAG, "Decision: finalLayers=" + finalLayers + "/" + totalLayers
-                    + ", needAll=" + needAllMB + "MB, kvReserve=" + kvReserveMB
+                    + "(+1 输出层), needAll=" + needAllMB + "MB, kvReserve=" + kvReserveMB
                     + "MB, usableGpu=" + usableGpuMemoryMB + "MB, fullOffloadFits=" + fullOffloadFits);
         }
 
@@ -344,9 +395,21 @@ public class ResourceConfig {
     }
 
     /**
+     * 兼容旧接口：不带模型绝对路径，无法直读 GGUF 层数（会退回按文件大小估算）。
+     *
+     * @deprecated 使用 {@link #getOptimalGpuLayers(boolean, long, long, int, long, String, String)} 代替
+     */
+    @Deprecated
+    public int getOptimalGpuLayers(boolean hasGpuSupport, long gpuMemoryMB, long maxMemAllocSizeMB,
+                                   int contextSize, long modelSizeMB, String modelPath) {
+        return getOptimalGpuLayers(hasGpuSupport, gpuMemoryMB, maxMemAllocSizeMB,
+                contextSize, modelSizeMB, modelPath, null);
+    }
+
+    /**
      * 兼容旧接口的计算最优 GPU 层数
      *
-     * @deprecated 使用 {@link #getOptimalGpuLayers(boolean, long, long, int, long, String)} 代替
+     * @deprecated 使用 {@link #getOptimalGpuLayers(boolean, long, long, int, long, String, String)} 代替
      */
     @Deprecated
     public int getOptimalGpuLayers(boolean hasGpuSupport, long gpuMemoryMB, long maxMemAllocSizeMB, int contextSize) {
@@ -356,7 +419,7 @@ public class ResourceConfig {
     /**
      * 兼容旧接口的计算最优 GPU 层数
      *
-     * @deprecated 使用 {@link #getOptimalGpuLayers(boolean, long, long, int, long, String)} 代替
+     * @deprecated 使用 {@link #getOptimalGpuLayers(boolean, long, long, int, long, String, String)} 代替
      */
     @Deprecated
     public int getOptimalGpuLayers(boolean hasGpuSupport, long gpuMemoryMB) {

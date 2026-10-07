@@ -1291,9 +1291,14 @@ public:
             this->threadCount = MIN_THREADS;
         }
         
-        // 限制 GPU 层数：Qwen3-4B 共 36 层，全量上 GPU（30 层+6 层 CPU 混合推理
-        // 每 token 需跨 GPU/CPU 同步，CPU 层成为生成瓶颈，实测 1.6 t/s 过慢）
-        const int MAX_GPU_LAYERS = 36;
+        // GPU 层数上限：仅作合理性护栏，显存是否够由 Java 侧 ResourceConfig 判断
+        // （它按"每层大小 x 层数 + KV 预留 <= 可用显存"决定是否全量卸载）。
+        // 原值 36 来自"Qwen3-4B 共 36 层"这个当时的参考模型，但 36 是**重复层数**，
+        // 而 n_gpu_layers 语义含输出层（见 src/llama-model.cpp: n_repeating = n_gpu; n_repeating--），
+        // 于是 4B 想要全量需要 36+1=37，被这个上限卡回 36 -> 仍然留 1 层在 CPU，
+        // 每个 token 都要付一次跨端同步。故放宽到 64：对当前会跑的手机端模型足够，
+        // 且不会掩盖显存不足（那种情况 Java 侧根本不会给出全量）。
+        const int MAX_GPU_LAYERS = 64;
         if (this->gpuLayers > MAX_GPU_LAYERS) {
             LOGW("GPU layers %d exceeds max %d, clamping", this->gpuLayers, MAX_GPU_LAYERS);
             this->gpuLayers = MAX_GPU_LAYERS;

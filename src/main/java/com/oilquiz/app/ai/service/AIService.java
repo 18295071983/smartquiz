@@ -1056,7 +1056,12 @@ public class AIService implements ComponentCallbacks2 {
             // 检查 GPU 是否支持（使用 gpuMemoryMB > 0 判断，而不是 getGPULayers()）
             boolean hasGpuSupport = gpuMemoryMB > 0 || LlamaHelper.getGPULayers() > 0;
             int gpuLayers = resourceConfig.getOptimalGpuLayers(
-                    hasGpuSupport, gpuMemoryMB, maxMemAllocSizeMB, contextSize, modelSizeMB, modelFile.getName());
+                    hasGpuSupport, gpuMemoryMB, maxMemAllocSizeMB, contextSize, modelSizeMB,
+                    modelFile.getName(),
+                    // LAYERS-FROM-GGUF：必须传**绝对路径** —— getOptimalGpuLayers 会直读 GGUF 头部拿真实层数。
+                    // 只传 getName() 时 File.isFile() 为 false，会退回"按文件大小估算"（0.8B 被算成 22 层，
+                    // 真实 24 层），于是"全量卸载"只卸载它以为的 22 层，白留几层在 CPU 上拖慢每个 token。
+                    modelFile.getAbsolutePath());
 
             // 根据系统剩余可用内存动态调整 GPU 层数，防止内存不足导致卡顿或 OOM
             long availMemMB = memoryInfo.availableMemoryMB;

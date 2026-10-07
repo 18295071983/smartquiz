@@ -115,21 +115,58 @@ public class ServiceStatusManager {
         }
     }
 
-    /** NPU 状态一行摘要（顶部状态栏显示用）：短句 + 秒数，不堆技术标签 */
+    /**
+     * NPU 状态一行摘要（顶部状态栏显示用）。
+     *
+     * <p>结构：{@code AI · <中间随状态变化的词> [· 补充]}，例如：</p>
+     * <pre>
+     *   AI · 模型加载中 6s              加载期（秒数每秒递增）
+     *   AI · 空闲 · Qwen3.5-2B-Q4_0     已就绪且无任务 → 顺便把模型名放这儿，不占额外一行
+     *   AI · 处理提示                   正在 prefill
+     *   AI · 思考中                     思考链
+     *   AI · 生成中 · 12.3 t/s          出正文，带速度
+     *   AI · 不可用                     出错
+     * </pre>
+     *
+     * <p>WHY（2026-10-07）：原先中间是固定的"已就绪"，只有加载完成那一刻才动一下；
+     * 而 NpuEngineState 本就维护着与加载正交的**推理阶段**（IDLE/PREPROCESS/THINKING/GENERATING），
+     * 状态栏却没消费它。改成让中间段随真实状态变化，一行就能表达"AI 现在在干什么"。</p>
+     */
     private String npuStatusLine() {
-        String detail = npuSvc().getNpuStageLabel();   // 如"模型加载中 6s" / "AI 已就绪"
-        String model = npuSvc().getNpuModelName();
-        float tps = npuSvc().getNpuLastTps();
-        StringBuilder sb = new StringBuilder();
-        sb.append(detail == null || detail.isEmpty() ? "AI 待加载" : detail);
-        // 模型名只在**已加载完成**时才附上；加载中附模型名只会让这行更长而无用
+        // 加载/出错：阶段标签本身就是"现在在做什么"（如"模型加载中 6s"、"AI 不可用"）
+        String stageLabel = npuSvc().getNpuStageLabel();
         boolean ready = false;
         try {
             ready = com.oilquiz.app.ai.engine.NpuEngineState.get().isReady();
         } catch (Throwable ignored) {
         }
-        if (ready && model != null && !model.isEmpty()) sb.append(" · ").append(model);
-        if (tps > 0) sb.append(String.format(java.util.Locale.US, " · %.1f t/s", tps));
+        if (!ready) {
+            return (stageLabel == null || stageLabel.isEmpty()) ? "AI · 待加载" : ("AI · " + stageLabel);
+        }
+
+        // 已就绪：用推理阶段作为中间段
+        String phase = null;
+        try {
+            phase = com.oilquiz.app.ai.engine.NpuEngineState.get().getInferencePhaseLabel();
+        } catch (Throwable ignored) {
+        }
+        if (phase == null || phase.isEmpty()) {
+            phase = "空闲";
+        }
+
+        StringBuilder sb = new StringBuilder("AI · ").append(phase);
+        if ("空闲".equals(phase)) {
+            // 空闲时把模型名放在这里（比固定多一行更省），并保留已加载的时长含义
+            String model = npuSvc().getNpuModelName();
+            if (model != null && !model.isEmpty()) {
+                sb.append(" · ").append(model);
+            }
+        } else {
+            float tps = npuSvc().getNpuLastTps();
+            if (tps > 0) {
+                sb.append(" · ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
+            }
+        }
         return sb.toString();
     }
 
@@ -481,7 +518,19 @@ public class ServiceStatusManager {
 
         String stageIcon = getStageIcon(stage);
         String stageName = getStageDisplayName(stage);
-        String displayMessage = message != null ? message : stageName;
+        // 文案统一走"短句 + 秒数"（与 NPU 侧同一套）：原实现优先用 stageMessage，
+        // 而那是各调用点手写的中文长句（如"加载模型到内存中..."），与 NPU 侧风格不一致。
+        // 这里让 AIServiceState.getStageLabel() 作为唯一来源；它取不到时再退回 stageMessage。
+        String humanLabel = null;
+        try {
+            if (aiService != null && aiService.getServiceState() != null) {
+                humanLabel = aiService.getServiceState().getStageLabel();
+            }
+        } catch (Throwable ignored) {
+        }
+        String displayMessage = (humanLabel != null && !humanLabel.isEmpty())
+                ? humanLabel
+                : (message != null ? message : stageName);
 
         boolean isLoading = stage == AIServiceState.ServiceStage.NATIVE_LIBRARY_LOADING
             || stage == AIServiceState.ServiceStage.MODEL_FILE_PREPARING
@@ -507,9 +556,12 @@ public class ServiceStatusManager {
             // NPU-BANNER-ICON2
             stageIcon = npuSvc().isNpuEngineEnabled() ? "\uD83E\uDDE0" : "\uD83D\uDCF1";
             // NPU-BANNER-FIX
+            // 注意：init 分支原先硬拼 "本地推理就绪 · " + message，而后面的 message 是
+            // AIService 写入的 stageMessage（"AI服务已就绪"）—— 两段同义，读起来是重复的
+            // （实测显示为"本地推理就绪 · AI服务已就绪"）。统一只保留一处人话即可。
             displayMessage = npuSvc().isNpuEngineEnabled()
                     ? (message != null && !message.isEmpty() ? message : npuStatusLine())
-                    : "本地推理就绪 · " + (message != null ? message : "AI服务已就绪");
+                    : "本地推理就绪";
         }
 
         serviceStatusIcon.setText(stageIcon);
@@ -533,17 +585,22 @@ public class ServiceStatusManager {
         stopLoadingTimer();
 
         final String stageIcon = getStageIcon(stage);
-        final String baseMessage = message != null ? message : getStageDisplayName(stage);
 
         loadingTimerRunnable = new Runnable() {
             @Override
             public void run() {
                 if (aiService == null || aiService.getServiceState() == null) return;
 
-                long currentElapsed = aiService.getServiceState().getElapsedTimeMs();
-                String displayMessage = baseMessage;
-                if (currentElapsed > 0) {
-                    displayMessage = String.format("%s (已耗时: %.1fs)", baseMessage, currentElapsed / 1000.0);
+                // 文案统一交给 AIServiceState.getStageLabel()（短句 + 秒数，与 NPU 侧一致）。
+                // 原先这里自己拼 "%s (已耗时: %.1fs)"：既与 NPU 侧风格不一，
+                // 又会把 updateStatusDisplay 刚写好的文案覆盖掉。取不到才退回 message。
+                String displayMessage = null;
+                try {
+                    displayMessage = aiService.getServiceState().getStageLabel();
+                } catch (Throwable ignored) {
+                }
+                if (displayMessage == null || displayMessage.isEmpty()) {
+                    displayMessage = message != null ? message : getStageDisplayName(stage);
                 }
 
                 if (serviceStatusIcon != null) serviceStatusIcon.setText(stageIcon);

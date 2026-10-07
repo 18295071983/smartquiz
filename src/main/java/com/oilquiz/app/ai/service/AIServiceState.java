@@ -21,6 +21,8 @@ public class AIServiceState {
     private volatile String currentModelName = null;
     private volatile String errorMessage = null;
     private volatile long estimatedTimeMs = 0;
+    /** 进入当前阶段的时刻（用于 {@link #getStageLabel()} 的实时秒数），与 NPU 侧同一套做法 */
+    private volatile long stageStartedAt = 0;
     
     private final Object lock = new Object();
     
@@ -33,6 +35,7 @@ public class AIServiceState {
             this.currentStage = stage;
             this.stageMessage = message != null ? message : getDefaultMessageForStage(stage);
             this.progressPercent = getDefaultProgressForStage(stage);
+            this.stageStartedAt = System.currentTimeMillis();
         }
     }
     
@@ -41,7 +44,54 @@ public class AIServiceState {
             this.currentStage = stage;
             this.stageMessage = message != null ? message : getDefaultMessageForStage(stage);
             this.progressPercent = progress;
+            this.stageStartedAt = System.currentTimeMillis();
         }
+    }
+
+    /**
+     * 状态栏文案：**短句 + 实时秒数**，如「模型加载中 6s」「本地推理就绪」。
+     *
+     * <p>与 NPU 侧（{@code NpuEngineState.getStageLabel()}）保持一致的做法与理由：
+     * {@code progressPercent} 是各阶段入口写死的常量（5/15/40/70/90…），**不是测量值**，
+     * 把它显示成百分比等于把常量伪装成进度。故文案只用"在做什么"+ 已耗时（调用方每秒刷新，
+     * 秒数会走）。百分比仍保留在字段里，仅供进度条这类"未完成/完成"两态表达使用。</p>
+     */
+    public String getStageLabel() {
+        String doing;
+        switch (currentStage) {
+            case NATIVE_LIBRARY_LOADING:
+                doing = "引擎启动中";
+                break;
+            case MODEL_FILE_PREPARING:
+                doing = "准备模型中";
+                break;
+            case MODEL_LOADING:
+                doing = "模型加载中";
+                break;
+            case GPU_INITIALIZATION:
+                doing = "初始化 GPU";
+                break;
+            case CPU_FALLBACK:
+                doing = "改用 CPU 推理";
+                break;
+            case CHAT_CONTEXT_CREATING:
+                doing = "准备上下文中";
+                break;
+            case INITIALIZED:
+                return "本地推理就绪";
+            case ERROR:
+                return "AI 不可用";
+            default:
+                return "AI 待加载";
+        }
+        long startedAt = stageStartedAt;
+        if (startedAt > 0) {
+            long sec = (System.currentTimeMillis() - startedAt) / 1000L;
+            if (sec >= 1) {
+                return doing + " " + sec + "s";
+            }
+        }
+        return doing;
     }
     
     public String getStageMessage() {
