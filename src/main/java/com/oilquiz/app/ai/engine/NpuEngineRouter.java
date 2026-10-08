@@ -38,6 +38,37 @@ public final class NpuEngineRouter {
 
     private static volatile Context appContext;
 
+    // ===== 真实执行路径记录（ACTUAL-ENGINE，2026-10-08）=====
+    // 「用户开了 NPU 开关」不等于「这一轮真的跑在 NPU 上」：多模态（needsVision）会留 llama.cpp、
+    // NPU 加载失败/未就绪也会回退。状态栏此前只能表达"选择"，无法表达"实际"。
+    // 这里在**每个真实决策点**记录本轮实际使用的引擎，供 UI 读取真实路径。
+    // 取值：{@link #ENGINE_NPU} / {@link #ENGINE_LLAMA}；null 表示尚未有任何一轮推理。
+    public static final String ENGINE_NPU = "npu-geniex";
+    public static final String ENGINE_LLAMA = "llama-cpp";
+
+    private static volatile String actualEngine = null;
+    private static volatile String actualEngineReason = "";
+
+    /**
+     * 本轮实际使用的推理引擎（供状态栏显示真实路径）。
+     *
+     * @return {@link #ENGINE_NPU} / {@link #ENGINE_LLAMA}；null = 尚无推理记录
+     */
+    public static String getActualEngine() {
+        return actualEngine;
+    }
+
+    /** 最近一次选择该引擎的原因（诊断/详情页用） */
+    public static String getActualEngineReason() {
+        return actualEngineReason;
+    }
+
+    private static void recordActualEngine(String engine, String reason) {
+        actualEngine = engine;
+        actualEngineReason = reason;
+        Log.i(TAG, "实际推理引擎 = " + engine + "（" + reason + "）");
+    }
+
     private NpuEngineRouter() {
     }
 
@@ -94,12 +125,17 @@ public final class NpuEngineRouter {
         if (shouldRouteToNpu(false, false, false)) {
             try {
                 if (ensureLoadedBlocking()) {
+                    recordActualEngine(ENGINE_NPU, "generate: NPU 可用");
                     return NpuLlmChat.generateBlocking(roles(messages), contents(messages),
                             maxTokens == 0 ? 2048 : maxTokens, 10 * 60 * 1000L, false);
                 }
+                recordActualEngine(ENGINE_LLAMA, "generate: NPU 未就绪");
             } catch (Throwable t) {
                 Log.w(TAG, "NPU 阻塞生成失败，回退 llama.cpp: " + t);
+                recordActualEngine(ENGINE_LLAMA, "generate: NPU 异常回退");
             }
+        } else {
+            recordActualEngine(ENGINE_LLAMA, "generate: 未路由到 NPU");
         }
         return LlamaHelper.generate(messages, maxTokens, temperature, topP, topK);
     }
@@ -109,12 +145,17 @@ public final class NpuEngineRouter {
         if (shouldRouteToNpu(false, false, false)) {
             try {
                 if (ensureLoadedBlocking()) {
+                    recordActualEngine(ENGINE_NPU, "generate(prompt): NPU 可用");
                     return NpuLlmChat.generateBlocking(new String[]{"user"}, new String[]{prompt},
                             maxTokens == 0 ? 2048 : maxTokens, 10 * 60 * 1000L);
                 }
+                recordActualEngine(ENGINE_LLAMA, "generate(prompt): NPU 未就绪");
             } catch (Throwable t) {
                 Log.w(TAG, "NPU 阻塞生成失败，回退 llama.cpp: " + t);
+                recordActualEngine(ENGINE_LLAMA, "generate(prompt): NPU 异常回退");
             }
+        } else {
+            recordActualEngine(ENGINE_LLAMA, "generate(prompt): 未路由到 NPU");
         }
         return LlamaHelper.generate(prompt, maxTokens, temperature, topP, topK);
     }
@@ -126,13 +167,17 @@ public final class NpuEngineRouter {
                                       boolean enableThinking, LlamaHelper.TokenCallback callback) {
         if (shouldRouteToNpu(enableThinking, false, false) && ensureLoadedBlocking()) {
             try {
+                recordActualEngine(ENGINE_NPU, "generateStream(messages): NPU 可用");
                 streamNpu(roles(messages), contents(messages),
                         maxTokens == 0 ? 2048 : maxTokens, callback);
                 return;
             } catch (Throwable t) {
                 Log.w(TAG, "NPU 流式生成失败，回退 llama.cpp: " + t);
                 releaseNpuBeforeFallback();
+                recordActualEngine(ENGINE_LLAMA, "generateStream(messages): NPU 异常回退");
             }
+        } else {
+            recordActualEngine(ENGINE_LLAMA, "generateStream(messages): 未路由到 NPU");
         }
         LlamaHelper.generateStream(messages, maxTokens, temperature, topP, topK, enableThinking, callback);
     }
@@ -142,13 +187,17 @@ public final class NpuEngineRouter {
                                       boolean enableThinking, LlamaHelper.TokenCallback callback) {
         if (shouldRouteToNpu(enableThinking, false, false) && ensureLoadedBlocking()) {
             try {
+                recordActualEngine(ENGINE_NPU, "generateStream(prompt): NPU 可用");
                 streamNpu(new String[]{"user"}, new String[]{prompt},
                         maxTokens == 0 ? 2048 : maxTokens, callback);
                 return;
             } catch (Throwable t) {
                 Log.w(TAG, "NPU 流式生成失败，回退 llama.cpp: " + t);
                 releaseNpuBeforeFallback();
+                recordActualEngine(ENGINE_LLAMA, "generateStream(prompt): NPU 异常回退");
             }
+        } else {
+            recordActualEngine(ENGINE_LLAMA, "generateStream(prompt): 未路由到 NPU");
         }
         LlamaHelper.generateStream(prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
     }
@@ -190,6 +239,7 @@ public final class NpuEngineRouter {
                 // App 的 buildToolsJson() 若给的是简化形状（{name,description,parameters} 平铺），
                 // 这里归一化后再交给 GenieX，否则模板的 tools 变量注入不进去 → 模型只会普通对话。
                 tools = normalizeToolsJson(tools);
+                recordActualEngine(ENGINE_NPU, "generateWithTools: NPU 可用");
                 Log.i(TAG, "工具调用→NPU: messages=" + (roles == null ? 0 : roles.length)
                         + ", toolsJson=" + (tools == null ? 0 : tools.length()) + " 字符, 预览="
                         + (tools == null ? "null" : tools.substring(0, Math.min(220, tools.length()))));
@@ -218,8 +268,10 @@ public final class NpuEngineRouter {
             } catch (Throwable t) {
                 Log.w(TAG, "NPU 工具调用失败，回退 llama.cpp: " + t);
                 releaseNpuBeforeFallback();
+                recordActualEngine(ENGINE_LLAMA, "generateWithTools: NPU 异常回退");
             }
         }
+        recordActualEngine(ENGINE_LLAMA, "generateWithTools: 未路由到 NPU");
         LlamaHelper.generateWithTools(roles, contents, toolsJson, maxTokens, temperature, topP, topK,
                 enableThinking, callback);
     }
@@ -295,6 +347,7 @@ public final class NpuEngineRouter {
                                 boolean enableThinking, LlamaHelper.TokenCallback callback) {
         if (shouldRouteToNpu(enableThinking, false, false) && ensureLoadedBlocking()) {
             try {
+                recordActualEngine(ENGINE_NPU, "chatSend: NPU 可用");
                 streamNpu(new String[]{"user"}, new String[]{message},
                         maxTokens == 0 ? 2048 : maxTokens, callback);
                 return;
@@ -303,12 +356,16 @@ public final class NpuEngineRouter {
                 releaseNpuBeforeFallback();
                 if (!canFallbackToLlama()) {
                     Log.w(TAG, "NPU chatSend 失败但引擎开启中 → 不回退 llama.cpp（它不可用）");
+                    recordActualEngine(ENGINE_NPU, "chatSend: NPU 失败且不回退（直接报错）");
                     if (callback != null) {
                         callback.onError("NPU 推理失败: " + t.getMessage());
                     }
                     return;
                 }
+                recordActualEngine(ENGINE_LLAMA, "chatSend: NPU 异常回退");
             }
+        } else {
+            recordActualEngine(ENGINE_LLAMA, "chatSend: 未路由到 NPU");
         }
         LlamaHelper.chatSend(message, maxTokens, temperature, topP, topK, enableThinking, callback);
     }
@@ -403,6 +460,7 @@ public final class NpuEngineRouter {
             final boolean npuOn = com.oilquiz.app.ai.engine.NpuLlmChat.isEngineEnabled();
             final String npuState = com.oilquiz.app.ai.engine.NpuLlmChat.getStateName();
             if (npuOn && !"ERROR".equals(npuState)) {
+                recordActualEngine(ENGINE_NPU, "chatJson: NPU 未就绪但引擎开启，不回退（直接报错）");
                 Log.w(TAG, "chatJson NPU 尚未就绪（state=" + npuState + ", routable=" + routable
                         + "）→ 不回退 llama.cpp（NPU 模式下它不可用）");
                 try {
@@ -413,6 +471,7 @@ public final class NpuEngineRouter {
                 }
                 return;
             }
+            recordActualEngine(ENGINE_LLAMA, "chatJson: 未路由到 NPU，回退 llama.cpp");
             Log.w(TAG, "chatJson 未走 NPU: routable=" + routable
                     + ", npuLoaded=" + NpuLlmChat.isLoaded()
                     + ", state=" + npuState + ", npuOn=" + npuOn
@@ -484,6 +543,7 @@ public final class NpuEngineRouter {
             int npuCap = hasToolsForLimit ? 8192 : (thinking ? 4096 : 2048);
             int npuMaxTokens = Math.min(maxTokens > 0 ? maxTokens : npuCap, npuCap);
             Log.i(TAG, "NPU maxTokens=" + npuMaxTokens + "（请求 " + maxTokens + ", thinking=" + thinking + "）");
+            recordActualEngine(ENGINE_NPU, "chatJson: NPU 可用");
             NpuLlmChat.sendChatAsync(roles, contents, npuMaxTokens, thinking,
                     new NpuLlmChat.GenerateListener() {
                         @Override

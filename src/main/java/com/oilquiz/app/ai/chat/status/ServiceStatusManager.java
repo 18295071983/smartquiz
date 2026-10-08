@@ -150,22 +150,16 @@ public class ServiceStatusManager {
             phase = com.oilquiz.app.ai.engine.NpuEngineState.get().getInferencePhaseLabel();
         } catch (Throwable ignored) {
         }
-        if (phase == null || phase.isEmpty()) {
-            phase = "空闲";
+        boolean idle = (phase == null || phase.isEmpty());
+        if (idle) {
+            // 空闲：统一走「引擎 · 模型 · 就绪」，与本地/在线两条路径措辞一致
+            return engineStatusLine("就绪");
         }
 
         StringBuilder sb = new StringBuilder("AI · ").append(phase);
-        if ("空闲".equals(phase)) {
-            // 空闲时把模型名放在这里（比固定多一行更省），并保留已加载的时长含义
-            String model = npuSvc().getNpuModelName();
-            if (model != null && !model.isEmpty()) {
-                sb.append(" · ").append(model);
-            }
-        } else {
-            float tps = npuSvc().getNpuLastTps();
-            if (tps > 0) {
-                sb.append(" · ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
-            }
+        float tps = npuSvc().getNpuLastTps();
+        if (tps > 0) {
+            sb.append(" · ").append(String.format(java.util.Locale.US, "%.1f t/s", tps));
         }
         return sb.toString();
     }
@@ -559,13 +553,84 @@ public class ServiceStatusManager {
             // 注意：init 分支原先硬拼 "本地推理就绪 · " + message，而后面的 message 是
             // AIService 写入的 stageMessage（"AI服务已就绪"）—— 两段同义，读起来是重复的
             // （实测显示为"本地推理就绪 · AI服务已就绪"）。统一只保留一处人话即可。
+            // 统一文案：NPU 用其阶段行，其余（llama.cpp/在线）用「引擎 · 模型 · 就绪」。
+            // 原先本地分支写死"本地推理就绪"，既缺引擎也缺模型名。
             displayMessage = npuSvc().isNpuEngineEnabled()
                     ? (message != null && !message.isEmpty() ? message : npuStatusLine())
-                    : "本地推理就绪";
+                    : engineStatusLine("就绪");
         }
 
         serviceStatusIcon.setText(stageIcon);
         serviceStatusText.setText(displayMessage);
+    }
+
+    /**
+     * 状态栏统一文案：「引擎 · 模型 · 状态」。
+     *
+     * <p>存在理由：原先本地路径写死 {@code "本地推理就绪"}（不含引擎与模型名）、在线路径写
+     * {@code "云端推理就绪 · 模型名"}、NPU 路径写 {@code "AI · 空闲 · 模型名"} —— 三种措辞并存，
+     * 且本地/NPU 两条都用 {@code "本地模型"} 字样，用户无法从状态栏区分当前到底跑在
+     * llama.cpp 还是 GenieX NPU 上。</p>
+     *
+     * <p>引擎与模型名一律取自 {@code InferenceRouter}（全项目路由权威，优先级 NPU &gt; 在线 &gt; 本地），
+     * 本方法不自行判断引擎，避免"开了 NPU 开关就当成在用 NPU"这类误报。</p>
+     *
+     * <p>可见性：{@code public} 供 {@code AIChatActivity} 在 Agent 执行结束后把第 1 行复位成
+     * 「引擎 · 模型」（阶段文案只走第 3 行，不再覆盖第 1 行）。</p>
+     *
+     * @param state 状态词，如「就绪」「处理中」；为空则只显示引擎与模型
+     * @return 如 {@code "本地模型 · MiniCPM5-2B-Q4_K_M.gguf · 就绪"}；
+     *         引擎信息不可用时退回 {@code state}
+     */
+    public String engineStatusLine(String state) {
+        try {
+            if (inferenceRouter != null) {
+                com.oilquiz.app.ai.model.InferenceType type = inferenceRouter.getCurrentInferenceType();
+                String engine = type != null ? type.getDisplayName() : null;
+
+                // ACTUAL-ENGINE(2026-10-08)：优先显示**本轮实际执行**的引擎，
+                // 而不是"用户选了哪个"。因为开了 NPU 开关也可能实际跑在 llama.cpp 上：
+                //   - 多模态请求（needsVision=true 时 shouldRouteToNpu 直接返回 false）
+                //   - NPU 加载失败/异常 → 无条件回退 llama.cpp
+                // 记录点在 NpuEngineRouter 的每个真实决策分支。
+                String actual = null;
+                try {
+                    actual = com.oilquiz.app.ai.engine.NpuEngineRouter.getActualEngine();
+                } catch (Throwable ignored) {
+                }
+                boolean actualNpu = com.oilquiz.app.ai.engine.NpuEngineRouter.ENGINE_NPU.equals(actual);
+                boolean actualLlama = com.oilquiz.app.ai.engine.NpuEngineRouter.ENGINE_LLAMA.equals(actual);
+
+                if (actualLlama) {
+                    engine = "本地模型";
+                } else if (actualNpu) {
+                    engine = "NPU（GenieX）";
+                } else if (type == com.oilquiz.app.ai.model.InferenceType.NPU) {
+                    // 尚无推理记录：只能按配置显示
+                    engine = "NPU（GenieX）";
+                }
+
+                if (engine != null && !engine.isEmpty()) {
+                    String model = inferenceRouter.getCurrentModelName();
+                    // NPU 模型名自带「（NPU）」后缀，与引擎名重复，去掉避免
+                    // "NPU（GenieX） · Qwen3（NPU）" 这类同义重复
+                    if (model != null && model.contains("（NPU）")) {
+                        model = model.replace("（NPU）", "").trim();
+                    }
+                    StringBuilder sb = new StringBuilder(engine);
+                    if (model != null && !model.isEmpty()) {
+                        sb.append(" · ").append(model);
+                    }
+                    if (state != null && !state.isEmpty()) {
+                        sb.append(" · ").append(state);
+                    }
+                    return sb.toString();
+                }
+            }
+        } catch (Throwable ignored) {
+            // 引擎信息取不到就退回状态词，不影响原有行为
+        }
+        return state != null ? state : "";
     }
 
     private void updateOnlineModelStatus() {
@@ -577,7 +642,10 @@ public class ServiceStatusManager {
         String modelName = inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
         String displayName = modelName != null && !modelName.isEmpty() ? modelName : "在线模型";
         if (serviceStatusIcon != null) serviceStatusIcon.setText("\u2601\uFE0F");
-        if (serviceStatusText != null) serviceStatusText.setText("云端推理就绪 · " + displayName);
+        // 统一文案：在线模型 · 模型名 · 就绪（原先只有"云端推理就绪 · 模型名"）
+        if (serviceStatusText != null) {
+            serviceStatusText.setText(engineStatusLine(displayName + " 就绪"));
+        }
     }
 
     private void startLoadingTimer(AIServiceState.ServiceStage stage, String message, int progress) {

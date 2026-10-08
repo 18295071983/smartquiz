@@ -6187,8 +6187,8 @@ public class AIChatActivity extends BaseActivity {
         if (chatAdapter != null) {
             chatAdapter.notifyItemChanged(idx);
         }
-        // 顶部状态机恢复（思考预览清除，后续工具/完成状态会继续覆盖）
-        if (serviceStatusText != null) serviceStatusText.setText("✅ 思考完成");
+        // 顶部状态机恢复：第 1 行复位为「引擎 · 模型」（思考内容在气泡内可展开，无需在此展示）
+        restoreEngineStatusLine();
         if (serviceStatusProgress != null) serviceStatusProgress.setVisibility(View.GONE);
     }
 
@@ -6968,7 +6968,7 @@ public class AIChatActivity extends BaseActivity {
             }
             if (content.isEmpty()) return;
             String preview = content.length() > 80 ? "…" + content.substring(content.length() - 80) : content;
-            if (serviceStatusText != null) serviceStatusText.setText("🧠 思考中：" + preview);
+            // 第 1 行不再显示思考预览（那是「引擎 · 模型」的位置）；思考内容在聊天气泡内实时可见。
             if (serviceStatusProgress != null) {
                 serviceStatusProgress.setVisibility(View.VISIBLE);
                 serviceStatusProgress.setIndeterminate(true);
@@ -8425,12 +8425,39 @@ public class AIChatActivity extends BaseActivity {
             // GenerationStatusBar 内部已做"值没变就不写"，因此这里统一委托，保证单一写入者。
             if (genStatusBar != null) {
                 genStatusBar.refresh();
+                refreshEngineLineIfEngineChanged();
                 return;
             }
             refreshNativeStateUILegacy();
+            refreshEngineLineIfEngineChanged();
         } catch (Throwable t) {
             if (tvGenPhase != null) tvGenPhase.setVisibility(View.GONE);
             if (tvKvStats != null) tvKvStats.setVisibility(View.GONE);
+        }
+    }
+
+    /** 上次已渲染到第 1 行的"实际引擎"（变化检测用，避免覆盖加载阶段文案） */
+    private volatile String lastRenderedActualEngine = null;
+
+    /**
+     * 实际推理引擎变化时刷新第 1 行（ACTUAL-ENGINE，2026-10-08）。
+     *
+     * <p>为什么需要：引擎是在**本轮推理开始时**才确定的（可能从 NPU 回退到 llama.cpp），
+     * 而第 1 行平时不会自动重算，状态栏就会长期停留在"用户的选择"而不是"实际路径"。</p>
+     *
+     * <p>为什么做变化检测：{@code updateStatusDisplay()} / {@code startLoadingTimer()} 会持续往
+     * 第 1 行写加载阶段文案（「模型加载中 5s」等），无条件刷新会把它们覆盖掉。
+     * 只在 {@code NpuEngineRouter.getActualEngine()} 真的变化时改写，两者互不干扰。</p>
+     */
+    private void refreshEngineLineIfEngineChanged() {
+        try {
+            String actual = com.oilquiz.app.ai.engine.NpuEngineRouter.getActualEngine();
+            if (actual == null) return;                       // 尚无推理记录：保持原有文案
+            if (actual.equals(lastRenderedActualEngine)) return;
+            lastRenderedActualEngine = actual;
+            restoreEngineStatusLine();
+        } catch (Throwable ignored) {
+            // 引擎信息取不到不影响主流程
         }
     }
 
@@ -9777,13 +9804,43 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 只在文本真正变化时写 setText（800ms 轮询/节流刷新下避免无谓重绘与视觉抖动）。
+     */
+    private void setStatusTextIfChanged(String text) {
+        if (serviceStatusText == null || text == null) return;
+        CharSequence cur = serviceStatusText.getText();
+        if (cur != null && text.contentEquals(cur)) return;
+        serviceStatusText.setText(text);
+    }
+
+    /**
+     * 把顶部第 1 行复位为「引擎 · 模型」（阶段文案只走第 3 行，不再占用第 1 行）。
+     *
+     * <p>2026-10-08 调整：原先 Agent 执行期间第 1 行被
+     * {@code "⏳ 模型处理中..." / "🧠 思考中：..." / "✅ 思考完成"} 反复覆盖，导致
+     * 「当前引擎与模型」这行信息在执行中完全看不到；而阶段信息在第 3 行
+     * （{@code tv_gen_phase}）本就有，属重复。现在第 1 行只表达引擎与模型。</p>
+     */
+    private void restoreEngineStatusLine() {
+        try {
+            if (serviceStatusManager != null) {
+                setStatusTextIfChanged(serviceStatusManager.engineStatusLine("就绪"));
+            }
+        } catch (Throwable ignored) {
+            // 取不到引擎信息时不影响主流程
+        }
+    }
+
+    /**
      * 更新状态栏：Agent 执行状态（工具调用/思考）实时反映，busy=true 显示不确定进度。
      * Agent 执行中服务状态不变，ServiceStatusManager 不会覆盖。
      */
     private void updateAgentStatusBar(String text, boolean busy) {
-        if (serviceStatusText != null && text != null) {
-            serviceStatusText.setText(text);
-        }
+        // BUSY-ONLY(2026-10-08)：本方法原先把 text 写到第 1 行
+        // （"⏳ 模型处理中..." / "🔧 调用 X..." / "🧠 思考中：..." / "✅ 思考完成"），
+        // 会把「引擎 · 模型」这行常驻信息顶掉；而这些阶段信息在第 3 行（tv_gen_phase）
+        // 与工具卡片/聊天气泡里都已表达，属重复。现在只保留"执行中"的转圈进度，
+        // 文本一律交给 ServiceStatusManager（引擎 · 模型）。
         if (serviceStatusProgress != null) {
             serviceStatusProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
             if (busy) serviceStatusProgress.setIndeterminate(true);
@@ -9805,10 +9862,8 @@ public class AIChatActivity extends BaseActivity {
             if (serviceStatusProgress != null) {
                 serviceStatusProgress.setVisibility(View.GONE);
             }
-            // 文本复位为空闲态；不置空字符串，避免状态栏出现一段空白造成视觉跳变
-            if (serviceStatusText != null) {
-                serviceStatusText.setText("就绪");
-            }
+            // 文本复位为「引擎 · 模型」空闲态；不置空字符串，避免状态栏出现一段空白造成视觉跳变
+            restoreEngineStatusLine();
         } catch (Throwable ignored) {
             // 状态栏清理失败不影响主流程
         }
