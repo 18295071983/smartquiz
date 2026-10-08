@@ -738,6 +738,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     });
                     updateThinkingContent(aiHolder, message);
                     handleLongContent(aiHolder, message);
+                    // STEP-STATUS-PAYLOAD(2026-10-09)：气泡内「步骤状态」行（思考中/调用工具/
+                    // 执行完成）此前只由 PAYLOAD_STATUS_UPDATE 刷新，而流式 token 走的是
+                    // PAYLOAD_CONTENT_UPDATE 分支。两者都从同一个 message.agentStepStatus 取值，
+                    // 若状态只在字符串未变时被写入（如"✅ 执行完成"写两次），全量/状态分支可能
+                    // 都不触发，导致该行停留在旧文案（表现为"一直显示思考中"）。
+                    // 这里一并刷新，使两条刷新路径的可见状态一致。纯 setText+setVisibility，无副作用。
+                    bindAgentStepStatus(aiHolder, message);
+                    // COMPONENT-PAYLOAD-REFRESH(2026-10-09)：bindMessageContent 在「有轮次边界」
+                    // 时走 renderRoundAssembled 并提前 return，那条路径**不会**调用
+                    // bindComponents；而工具卡片状态更新（running→success）正是通过这个 payload
+                    // 送达的。缺这一步时，消息级组件容器（折叠行 / 非 tool_call 组件）会停在旧状态，
+                    // 直到下一次全量绑定。bindComponents 内部有内容指纹早退，重复调用不会重建。
+                    bindComponents(aiHolder, message);
                 } else if (holder instanceof UserMessageViewHolder) {
                     ((UserMessageViewHolder) holder).messageText.setText(message.content);
                 } else if (holder instanceof ThinkingMessageViewHolder) {
@@ -745,6 +758,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             } else if (PAYLOAD_STATUS_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
+                    // 状态与步骤状态同源，一并刷新，避免二者不同步
+                    bindAgentStepStatus((AIMessageViewHolder) holder, message);
                     updateMessageStatus((AIMessageViewHolder) holder, message);
                 }
             } else if (PAYLOAD_INFERENCE_PROGRESS.equals(payload)) {
@@ -1945,10 +1960,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void bindComponents(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.componentContainer == null) return;
-        // 同一组件列表引用不重复重建（内容未变）
-        if (holder.boundComponents == message.components) return;
+        // COMPONENT-CACHE-KEY(2026-10-09)：缓存键不能用列表**引用**。生产方会就地把新组件
+        // append 进同一个 List（AIChatActivity 在工具完成时对 finalMsg.components 做 addAll，
+        // 不重新赋值），此时引用不变、内容已变，早退会导致工具产出的 list_card/image_grid
+        // 等卡片永远不显示（除非 holder 被回收后重新绑定）。改为按内容指纹判断。
+        int fp = 17;
+        if (message.components != null) {
+            for (ComponentData c : message.components) {
+                fp = fp * 31 + (c == null ? 0
+                        : (c.type == null ? 0 : c.type.hashCode()) * 31
+                          + (c.props == null ? 0 : c.props.toString().hashCode()));
+            }
+            fp = fp * 31 + message.components.size();
+        }
+        if (holder.boundComponents == message.components && holder.boundComponentsFingerprint == fp) {
+            return;
+        }
         holder.componentContainer.removeAllViews();
         holder.boundComponents = message.components;
+        holder.boundComponentsFingerprint = fp;
 
         if (message.components == null || message.components.isEmpty()) {
             holder.componentContainer.setVisibility(View.GONE);
@@ -3141,6 +3171,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 androidx.recyclerview.widget.LinearLayoutManager linearLayout =
                     new androidx.recyclerview.widget.LinearLayoutManager(holder.itemView.getContext());
                 holder.attachmentsRecycler.setLayoutManager(linearLayout);
+            } else if (holder.attachmentsRecycler.getLayoutManager() == null) {
+                // ATTACH-LM-FALLBACK(2026-10-09)：AI 气泡的 attachmentsRecycler 是代码创建的，
+                // 没有 XML 里配置的 layoutManager。上述两个分支只在"需要切换类型"时设置，
+                // 单张图片或非全图片的附件集合两个条件都不满足 → 一直无 LayoutManager，
+                // RecyclerView 不会布局任何子项，附件区空白。
+                // 用户消息侧的同名方法本就有这一兜底（见 bindUserAttachments），此处补齐。
+                androidx.recyclerview.widget.LinearLayoutManager linearLayout =
+                    new androidx.recyclerview.widget.LinearLayoutManager(holder.itemView.getContext());
+                holder.attachmentsRecycler.setLayoutManager(linearLayout);
             }
 
             MessageAttachmentAdapter attachmentAdapter = null;
@@ -3471,8 +3510,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         LinearLayout componentContainer;
         /** 当前绑定的消息（2026-09-14：思考轮独立折叠状态读写 / 轮次组件 id 锚点） */
         ChatMessage holderMessage;
-        /** 已绑定的组件列表引用：同一引用跳过重建（避免流式/重复刷新闪烁） */
+        /** 已绑定的组件列表引用：与下面的内容指纹一起判断是否需要重建 */
         List<ComponentData> boundComponents;
+        /** 已绑定组件列表的内容指纹。仅比较列表引用不够：生产方会就地 append 组件
+         *  （引用不变、内容已变），只比引用会导致新组件永不显示。 */
+        int boundComponentsFingerprint;
         /** 宿主模式（插入式组件）组件段 View 缓存：流式更新时复用，避免 WebView/图表/图片反复重建闪烁 */
         List<View> componentSegmentViews;
         /** 组件段指纹（type|props 序列）：与缓存 View 对应，指纹不变则复用 */
