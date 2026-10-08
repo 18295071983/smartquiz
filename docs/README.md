@@ -43,13 +43,16 @@ docs/
 
 - `CHANGELOG.md`（变更日志，最新：2026-10-09）
 - `SETUP_GUIDE.md` / `DEVELOPMENT_GUIDE.md`（环境搭建 / 开发指南）
-- `CosyVoice-TTS-测试指南.md`（CosyVoice TTS 专项测试记录）
 - `TERMUX一键准备_用户配合设计.md`（一键准备交互设计）
 - `git-ops-guide.md`（Git 操作规范，含 `src/main/cpp/llama.cpp` 嵌套仓库注意事项）
 - `DEBUG_AGENT_BRIDGE.md`（`AgentDebugBridge` 外部注入调试通道）
 - `README.md` / `ROADMAP.md` / `使用速查表.md` / `工具创建指南.md` / `HTML_DESIGN_RULES.md` / `APK_SOURCE_GUIDE.md`（壳 HTML/APK 导出）
-- `AI_FIX_ROADMAP.md` / `OilQuiz_综合迭代文档.md` / `AI_USAGE_CONFIG_README.md` / `douyin_downloader_工具文档.md`（**历史快照**，文首已标注日期与现状差异）
-- `js_execute_*.md` / `fullscreen_playbook.md` / `patch_fullscreen_bridge_*.md` / `mock_v8_test_checklist.md` / `apk_payload_verify_0915.md`（**非本项目代码/架构**，一次性导出产出物的历史记录，文首已标注）
+
+> 已清理：历史快照类（`AI_FIX_ROADMAP.md`、`OilQuiz_综合迭代文档.md`、
+> `AI_USAGE_CONFIG_README.md`、`douyin_downloader_工具文档.md`）、一次性导出产出物记录
+> （`js_execute_*`、`fullscreen_playbook.md`、`patch_fullscreen_bridge_*`、
+> `mock_v8_test_checklist.md`、`apk_payload_verify_0915.md`）、
+> 以及 `CosyVoice-TTS-测试指南.md`。需要时用 `git log --diff-filter=D -- <path>` 取回。
 
 ## 文档导航
 
