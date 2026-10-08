@@ -1,5 +1,16 @@
 # Mock v8 预演 · 装机核对单（v5 · 59 桥）
 
+> [!IMPORTANT]
+> **本文件不是本项目代码/架构的一部分。**
+>
+> 它是一次性产出物的历史记录 —— 「极光时钟」HTML 经壳 APK 导出时的
+> 调试、补丁与验收材料（2026-09-14/15/19）。保留仅供追溯，
+> **不随项目维护，也不会被更新**。
+>
+> 壳能力的**现行权威文档**是 `APK_SOURCE_GUIDE.md`（壳源码指南）与
+> `HTML_DESIGN_RULES.md`（HTML 生成规则），当前壳版本 v8.1。
+
+---
 **包**：`apk_export/aurora_clock_v5_mocktest.apk`（待导出）
 应用名「极光时钟预演 v5」　壳版本 **v8**（bridge_api 4，59 桥）
 与正式页 `aurora_clock_v5.html` 口径一致；mock 面板预演 v8 壳全量桥。

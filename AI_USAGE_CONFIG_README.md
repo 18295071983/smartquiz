@@ -1,5 +1,10 @@
 # AI 用量配置说明
 
+> [!NOTE]
+> **历史快照（2026-08-11）** —— 本文档记录的是该时间点的状态，不随代码演进更新。
+> 描述 `assets/ai_usage_config_default.json` 的字段格式。字段本身稳定，但**未随配置演进同步核对**。
+> 当前实现请以源码与 `CHANGELOG.md` 为准。
+
 > 配置文件路径: `assets/ai_usage_config_default.json`  
 > 远程地址: `https://gitee.com/xiaocongcong495863994/smartquiz/raw/main/ai-usage-config.json`
 

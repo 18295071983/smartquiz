@@ -1,5 +1,9 @@
 # CosyVoice WebSocket TTS 真机测试指南
 
+> [!NOTE]
+> 本文是 **CosyVoice TTS 专项**测试记录，不是项目通用测试指南
+> （原文件名 `TESTING_GUIDE.md` 已因名不副实而更正）。
+
 ## ✅ 完成情况总结
 
 ### ws4 - StreamingTtsSpeaker 适配（已完成）

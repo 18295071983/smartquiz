@@ -25,18 +25,31 @@ docs/
 │   ├── 11-edge-model-deployment.md        # 端侧大模型部署设计（四后端）
 │   ├── 12-llama-cpp.md                    # llama.cpp 功能设计（四后端）
 │   ├── 13-inference-engine.md             # 推理库与推理引擎设计
-│   ├── 14-cmake-build.md                  # CMake 构建设计（Vulkan ON）
+│   ├── 14-cmake-build.md                  # CMake 构建设计（四后端 / NPU）
 │   ├── 15-question-import.md              # 题库文件导入功能设计
+│   ├── 15-question-import-review.md       # 题库导入复评
 │   └── 16-ai-coding-conventions.md        # AI 工具编码约定
 ├── database/
 │   └── database_structure.md              # 数据库结构（保留参考）
+├── research/
+│   └── README.md                          # 调研笔记去向说明
 └── system/
     ├── api_design.md                      # API 设计
     ├── deployment_guide.md                # 部署指南
     └── system_architecture.md             # 系统架构
 ```
 
-根目录另有：`CHANGELOG.md`（变更日志，含 2026-09/10 最新）、`TERMUX一键准备_用户配合设计.md`（一键准备交互设计）、`SETUP_GUIDE.md` / `DEVELOPMENT_GUIDE.md` / `TESTING_GUIDE.md`（开发指南）。
+根目录另有：
+
+- `CHANGELOG.md`（变更日志，最新：2026-10-09）
+- `SETUP_GUIDE.md` / `DEVELOPMENT_GUIDE.md`（环境搭建 / 开发指南）
+- `CosyVoice-TTS-测试指南.md`（CosyVoice TTS 专项测试记录）
+- `TERMUX一键准备_用户配合设计.md`（一键准备交互设计）
+- `git-ops-guide.md`（Git 操作规范，含 `src/main/cpp/llama.cpp` 嵌套仓库注意事项）
+- `DEBUG_AGENT_BRIDGE.md`（`AgentDebugBridge` 外部注入调试通道）
+- `README.md` / `ROADMAP.md` / `使用速查表.md` / `工具创建指南.md` / `HTML_DESIGN_RULES.md` / `APK_SOURCE_GUIDE.md`（壳 HTML/APK 导出）
+- `AI_FIX_ROADMAP.md` / `OilQuiz_综合迭代文档.md` / `AI_USAGE_CONFIG_README.md` / `douyin_downloader_工具文档.md`（**历史快照**，文首已标注日期与现状差异）
+- `js_execute_*.md` / `fullscreen_playbook.md` / `patch_fullscreen_bridge_*.md` / `mock_v8_test_checklist.md` / `apk_payload_verify_0915.md`（**非本项目代码/架构**，一次性导出产出物的历史记录，文首已标注）
 
 ## 文档导航
 
@@ -50,9 +63,11 @@ docs/
 
 ### 最近变更与工具
 
-1. **变更日志** → [../CHANGELOG.md](../CHANGELOG.md)（最新：2026-10-03 ssh_exec/edge-to-edge）
+1. **变更日志** → [../CHANGELOG.md](../CHANGELOG.md)（最新：2026-10-09）
 2. **AI 工具清单** → [AI工具功能清单.md](AI工具功能清单.md)
 3. **Termux 一键准备设计** → [../TERMUX一键准备_用户配合设计.md](../TERMUX一键准备_用户配合设计.md)
+4. **Git 操作规范** → [../git-ops-guide.md](../git-ops-guide.md)
+5. **Agent 调试通道** → [../DEBUG_AGENT_BRIDGE.md](../DEBUG_AGENT_BRIDGE.md)
 
 ### AI 功能开发
 
