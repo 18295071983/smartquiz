@@ -445,7 +445,7 @@ Agent 多轮迭代用 `AgentKvCache` 增量缓存。**不要清空 context 重�
 
 ### 14.5 GPU/上下文
 
-- GPU 全量 36 层（`gpu_layers_manual=` 预置会被忽略）。
+- 加速层数上限 `MAX_GPU_LAYERS = 64`；真机 2B 模型为 43/43 层（目标 HTP0/NPU）。
 - 上下文由 `AIConfig.OptimizationMode` 决定（BALANCED=12288 默认）。
 - **不要硬编码上下文大小**。
 

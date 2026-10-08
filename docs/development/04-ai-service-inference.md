@@ -103,15 +103,17 @@ UNINITIALIZED → INITIALIZING → LOADING → READY → INFERRING → (ERROR/UN
 | 类 | 职责 |
 |-----|------|
 | `GpuAdaptiveTuner` | GPU 运行时调优 |
-| `GpuCapabilityDetector` | GPU 能力评估（OpenCL/Vulkan） |
+| `GpuCapabilityDetector` | 加速能力评估（OpenCL/Vulkan/NPU 枚举） |
 | `GpuConfig` | GPU 配置 |
 | `GpuDatabase` | 设备基准数据 |
 | `MemoryMonitor` | 内存监控 |
 
 当前设备（Snapdragon 8 Elite Gen 2）：
-- OpenCL: ON，Vulkan: ON（双后端，2026-10 起；AI 服务界面可切换，不再硬编码）
+- 四后端：**Hexagon(NPU) 默认** > OpenCL > Vulkan > CPU；AI 服务界面可切换，不再硬编码。
+- 本机实测 prefill：NPU ~1500 tok/s，OpenCL ~205 tok/s（见 `14-cmake-build.md`）。
 - Adreno 专用 Kernel: ON
-- GPU 全量 36 层（`gpu_layers_manual=` 预置会被忽略，以 auto=36 为准）
+- 加速层数上限 `MAX_GPU_LAYERS = 64`（native 与 `ResourceConfig` 同为 64）；
+  实际按模型层数与内存预算算出，真机 2B 模型为 **43/43 层全量卸载到 HTP0**。
 
 ## 七、优化项（已实现）
 

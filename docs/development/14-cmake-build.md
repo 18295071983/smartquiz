@@ -23,17 +23,21 @@ src/main/jniLibs/<abi>/llama-jni.so
 externalNativeBuild {
     cmake {
         cppFlags "-std=c++17 -O3 -DNDEBUG -fno-finite-math-only"
-        arguments "-DANDROID_STL=c++_shared"
-                "-GNinja"
-                "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe"
-                "-DGGML_OPENCL=ON"
-                "-DGGML_VULKAN=OFF"
+        arguments "-DANDROID_STL=c++_shared",
+                  "-GNinja",
+                  "-DCMAKE_MAKE_PROGRAM=<sdk>/cmake/3.22.1/bin/ninja.exe",
+                  "-DHEXAGON_SDK_ROOT=${hexSdk}",      // 来自 System.getenv，用于开启 NPU
+                  "-DHEXAGON_TOOLS_ROOT=${hexTools}"
     }
 }
 ndk {
-    abiFilters "arm64-v8a", "x86_64"
+    abiFilters "arm64-v8a"                                  // 仅 arm64（LibreOffice viewer 只有 arm64）
 }
 ```
+
+> 后端开关**不通过 `arguments` 传**，而是由 `src/main/cpp/CMakeLists.txt` 内部 `FORCE` 设定
+> （见 3.2）。`HEXAGON_*` 必须走 CMake 变量：ggml-hexagon 只读 CMake 变量，不读环境变量；
+> 若只设环境变量，后端会在配置阶段中止。
 
 ### 关键构建参数
 
@@ -44,9 +48,12 @@ ndk {
 | 优化 | -O3 -DNDEBUG | 无 `-ffast-math` |
 | STL | c++_shared | ANDROID_STL |
 | 生成器 | Ninja | `-GNinja` |
-| ABI | arm64-v8a, x86_64 | `abiFilters` |
-| GGML_OPENCL | ON | 唯一 GPU backend（Adreno 优化 kernel） |
-| GGML_VULKAN | OFF | 降为备用 |
+| ABI | arm64-v8a | `abiFilters` |
+| GGML_OPENCL | ON | Adreno 优化 kernel（`GGML_OPENCL_USE_ADRENO_KERNELS`） |
+| GGML_VULKAN | ON | 第二 GPU 后端（NDK glslc 不支持 coopmat/bfloat16，走基础路径） |
+| GGML_HEXAGON | 由 SDK 是否存在决定 | NPU 后端；`HEXAGON_SDK_ROOT` 有效即 `ON` |
+| BUILD_SHARED_LIBS | OFF | 四个后端**静态编入** `libllama-jni.so` |
+| GGML_BACKEND_DL | OFF | 不做动态后端加载 |
 
 ## 三、CMakeLists.txt 设计
 
@@ -73,17 +80,36 @@ add_compile_options(-I${CMAKE_SOURCE_DIR}/spirv-headers/include)
 
 ```cmake
 option(GGML_OPENCL "Enable OpenCL backend" ON)
-option(GGML_VULKAN "Enable Vulkan backend" ON)   # 2026-10 起双后端都开，设备支持哪个用哪个
+option(GGML_VULKAN "Enable Vulkan backend for GPU acceleration" ON)
 option(GGML_CUDA "Enable CUDA backend" OFF)
 option(GGML_BACKEND_DL "Enable dynamic backend loading" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 ```
 
-**选型决策（Adreno 双后端：OpenCL 主、Vulkan 备）**：
-- Qualcomm 专有 OpenCL 驱动 + `GGML_OPENCL_USE_ADRENO_KERNELS`（Adreno 专属 kernel）——主路径。
-- llama.cpp OpenCL 后端在 Adreno 830 实测 663 t/s prefill。
-- Vulkan 已启用为第二后端（coopmat/bfloat16/dot 等高级特性驱动支持有限，走 F16 基础路径兜底）；
-  native 侧按设备能力探测，Java 侧 AI 服务界面/设备信息页可切换，不再硬编码单后端。
+**选型决策（2026-10：四后端，NPU 为默认）**：
+
+本机（SM8850 / Hexagon v81）实测：
+
+| 后端 | prefill | decode | 备注 |
+|---|---|---|---|
+| **Hexagon (HTP)** | ~1500 tok/s | 29-34 tok/s | **默认**，43/43 层全量卸载 |
+| OpenCL | ~205 tok/s | ~15.6 tok/s | Adreno 专用 kernel |
+| Vulkan | 较慢 | - | NDK glslc 不支持 coopmat/bfloat16，走基础路径 |
+
+- **NPU 优先**：`LlamaHelper.DEFAULT_BACKEND = "hexagon"`；`auto` 亦按
+  `Hexagon > OpenCL > Vulkan` 解析出**单个**设备。
+- Hexagon 开启条件：`HEXAGON_SDK_ROOT` 指向有效目录（`CMakeLists.txt` 内 `FORCE` 设
+  `GGML_HEXAGON`）。未设置则跳过该后端并打印 `NPU: GGML_HEXAGON=OFF`。
+- **后端一律只放一个设备**进 `model_params.devices`。曾把多个 GPU 类型设备一起传入，
+  模型加载时在 `ggml_backend_dev_get_props` 触发 SIGSEGV。
+- 四个后端全部**静态编入** `libllama-jni.so`（`BUILD_SHARED_LIBS=OFF` +
+  `GGML_BACKEND_DL=OFF`），因此**没有** `libggml-vulkan.so` / `-opencl.so` / `-hexagon.so`。
+  ELF `DT_NEEDED` 可证：`libllama-jni.so` 无任何 ggml/llama 动态依赖，只用系统的
+  `libvulkan.so` 与 `libOpenCL.so`。
+
+> 常见误判：APK 里的 `libggml-opencl.so`、`libggml-hexagon.so`、`libggml-base.so`、
+> `libggml-cpu.so` 来自 **GenieX AAR**（`libs/geniex-android-0.8.0.aar`），不是本工程的产物，
+> 本工程的 so 不依赖它们。
 
 ### 3.3 多模态支持
 

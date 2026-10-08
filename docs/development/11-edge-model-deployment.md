@@ -14,7 +14,7 @@
     ↓
 推理配置（上下文/线程/GPU/量化）
     ↓
-GPU 加速（OpenCL/Adreno）
+加速后端：NPU（Hexagon/HTP，默认）/ OpenCL / Vulkan / CPU
     ↓
 KV 缓存（增量缓存优化）
     ↓
@@ -119,7 +119,7 @@ void release();
 | 类 | 职责 |
 |-----|------|
 | `GpuConfig` | GPU 配置（backend/layers） |
-| `GpuCapabilityDetector` | GPU 能力评估（OpenCL/Vulkan） |
+| `GpuCapabilityDetector` | 加速能力评估（OpenCL/Vulkan/NPU 枚举） |
 | `GpuAdaptiveTuner` | 运行时自适应调优 |
 | `GpuDatabase` | 设备基准数据 |
 | `MemoryMonitor` | GPU 内存监控 |
@@ -129,9 +129,10 @@ void release();
 | 后端 | 状态 |
 |------|------|
 | OpenCL | **ON** |
-| Vulkan | **ON**（2026-10 起双后端） |
+| Hexagon (HTP/NPU) | **ON**（需 Hexagon SDK）；**默认后端** |
+| Vulkan | **ON**（2026-10 起第二 GPU 后端） |
 | Adreno 专用 Kernel | ON |
-| GPU 层数 | **全量 36 层**（`gpu_layers_manual=` 预置被忽略，以 auto=36 为准） |
+| 加速层数 | 上限 `MAX_GPU_LAYERS = 64`；真机 2B 实测 **43/43 层**（目标 HTP0） |
 
 ### 6.3 Flash Attention
 

@@ -10,7 +10,7 @@
 | 类 | 职责 |
 |-----|------|
 | `GpuAdaptiveTuner` | 运行时自适应调优 |
-| `GpuCapabilityDetector` | GPU 能力评估（OpenCL/Vulkan） |
+| `GpuCapabilityDetector` | 加速能力评估（OpenCL/Vulkan/NPU 枚举） |
 | `GpuConfig` | GPU 配置（backend/layers） |
 | `GpuDatabase` | 设备基准数据 |
 | `GpuInfo` / `GpuProfile` | GPU 信息/档案 |
@@ -20,12 +20,14 @@
 
 | 后端 | 状态 | 说明 |
 |------|------|------|
-| OpenCL | **ON** | 跨平台，兼容性好（Adreno 830 实测 663 t/s prefill） |
-| Vulkan | **ON** | 双后端（2026-10 启用），设备支持即可切换 |
+| **Hexagon (HTP/NPU)** | **ON**（需 Hexagon SDK） | **默认后端**；真机 prefill ~1500 tok/s、decode 29-34 tok/s |
+| OpenCL | **ON** | Adreno 优化 kernel；真机 prefill ~205 tok/s、decode ~15.6 tok/s |
+| Vulkan | **ON** | 第二 GPU 后端（2026-10 启用）；NDK glslc 不支持 coopmat/bfloat16，走基础路径 |
 
 **当前设备**（Snapdragon 8 Elite Gen 2 / Adreno 840v2）：
 - Adreno 专用 Kernel: ON
-- GPU 全量 **36 层**（`gpu_layers_manual=` 预置会被忽略，以 auto=36 为准）
+- 加速层数上限 **`MAX_GPU_LAYERS = 64`**；实际由模型层数与内存预算算出，
+  真机 2B 模型实测 **43/43 层**全部卸载（目标设备 HTP0）
 
 ## 二、上下文管理
 

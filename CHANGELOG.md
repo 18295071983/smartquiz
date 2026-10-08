@@ -1,5 +1,106 @@
 # 变更日志
 
+## [2026-10-09] Hexagon NPU 后端打通 + 工具调用泄漏修复 + Agent UI 状态修复 + 设备信息页重做
+
+本轮让**本工程自己的 llama.cpp 真正跑在 Hexagon NPU 上**（此前 NPU 能力只在 GenieX AAR 里），
+并修掉三个由解析/状态匹配缺陷导致的 UI 故障，最后重做了设备信息页。
+
+### 1) Hexagon NPU 后端打通（f914ffae, a809b47）
+
+- **上游 vendored llama.cpp 改动**（`ggml/src/ggml-hexagon/`）：
+  - `PREBUILT_LIB_DIR` 给非空默认值 —— SDK 的 `hexagon_fun.cmake` 里
+    `string(FIND ${PREBUILT_LIB_DIR} "toolv81" ...)` 在变量为空时退化成参数不足直接报错。
+  - `add_dependencies(${TARGET_NAME} ${HTP_PROJECTS})` —— Gradle 的 externalNativeBuild 调用的是
+    `ninja <target>` 而非 `ninja all`，HTP skel 的 ExternalProject 从不在构建图里，表现为
+    `Error copying file ... libggml-htp-v73.so`。
+  - 允许 HTP 子工程使用更新的 CMake —— 它要求 3.22.2，而 Android SDK 随附 3.22.1。
+  - `setenv("ADSP_LIBRARY_PATH", lib_dir, 1)`（由 `GGML_HEXAGON_LIB_DIR` 传入）——
+    cdsprpcd（`vendor_cdsprpcd`）读不了应用私目录，上游的相对 URI
+    `file:///libggml-htp-vNN.so` 无法解析。
+- **工程侧**：
+  - `HEXAGON_SDK_ROOT` / `HEXAGON_TOOLS_ROOT` 必须作为 **CMake 变量**传入（ggml-hexagon 读变量不读环境变量）。
+  - 删除 `setenv("GGML_BACKEND_PATH", libDir)` —— 该变量语义是单个 out-of-tree 后端 .so 的路径，
+    不是目录，导致每次启动打印 `load_backend: failed to load ...: Is a directory`。
+  - 仅在 `BUILD_SHARED_LIBS OR GGML_BACKEND_DL` 时才拷贝 `libggml-hexagon.so`；本工程两者皆 OFF，
+    该后端是静态库、已链入 `libllama-jni.so`，旧写法把 7MB 的 `.a` 改名成 `.so` 塞进包体。
+- **结果**：`HTP0` 成为第 4 个 ggml 设备，`offloaded 43/43 layers to HTP0`，
+  prefill ~1500 tok/s、decode 29-34 tok/s（OpenCL 为 ~205 / ~15.6）。
+
+### 2) 后端选择与默认值（f914ffae, e9d1b212）
+
+- 默认后端 `DEFAULT_BACKEND = "hexagon"`；两处读取统一用该常量
+  （`DeviceInfoActivity` 原来自行读偏好且把默认值写死成 `"auto"`，会与 AI 服务页显示不一致）。
+- **`auto` 改为解析出单个设备**，优先级 `Hexagon > OpenCL > Vulkan`。旧实现把
+  `Vulkan0` 与 `GPUOpenCL` 一起放进 `model_params.devices`，模型加载时
+  **SIGSEGV**（`signal 11` → `ggml_backend_dev_get_props` → `llama_model_load_from_file`）。
+- 显式后端找不到时**回退单个设备**，不再留空 `devices`（留空等于让 llama.cpp 枚举全部设备，同一风险）。
+- 新增 `nativeGetResolvedBackend()`：native 在选设备时记录**实际选中**的后端并回传，
+  于是界面在偏好为 `auto` 时也能显示 `NPU 43层`。写入点加独立互斥锁
+  （推理线程写、UI 读，`std::string` 并发读写会撕裂）。
+
+### 3) 工具调用原文泄漏进主回复（f914ffae）
+
+- **根因**：llama.cpp **刻意**把 `<tool_call>` 登记进 `thinking_end_tags`
+  （`common/parsers/qwen3-coder.cpp`），而 `classifyToolCallTags` 把"在思考标签表里"
+  当作"不是工具标签"的判据 → 开标签集为空 → `stripToolCallChunk()` 首行
+  `if (empty) return chunk;` 直接返回 → **剥离整个是 no-op** → `function=location>` 等裸片进正文。
+  修法：新增 `isKnownToolMarker()`，只在标记确实不是工具调用标记时才按思考标签排除。
+- **流式解析改走 PEG 解析器**：`chatSend` 原先靠枚举模型特定标记判定工具调用，
+  漏掉了 Qwen 的 `<tool_call><function=...>` 形态；现用
+  `common_chat_parse(fullResponse, /*is_partial=*/true, makeChatParserParams(...))`。
+- **连续特殊 token 卡死**：`OutputRouter` 先判开标签就 `return`，同一 chunk 里的闭标签
+  永远轮不到 → `isInToolCall` 永久 `true` → 后续正文全被吞。改为先处理闭标签。
+- **去掉硬编码包裹**：`OutputRouter` 的工具调用标签改由 `ToolCallTagConfig` 提供；
+  思考标签统一走 `ThinkingTagConfig`（`AgentLoopEngine` / `AgentSoftwareLayer` /
+  `GenerationStreamController` / `NpuEngineRouter`，最后一个原先按模型名猜标签）。
+
+### 4) Agent 与 UI 状态卡死（e9d1b212）
+
+- **工具卡片永久"执行中"**：`AgentChatHandler` 对 start 与 complete **各生成一个不同的合成 id**
+  （`"software_" + System.nanoTime()`），而 `appendAgentToolCall` 以 id 精确匹配 running 卡片
+  → 永远匹配不到 → **新建第二张卡片**，第一张停在 running。修法：不再伪造 id，
+  并改为**两遍匹配**（先按 id，再按工具名回退）。
+- **气泡内步骤状态永久"思考中"**：`onComplete` 在 `completeGeneration` **之后**才写
+  "✅ 执行完成"，而此时 `currentStreamingMessageId` 已被清空 →
+  `resolveStreamingIndex()` 返回 -1 → 写入被静默丢弃。修法：在 `completeGeneration`
+  之前捕获索引，并给 `setAgentStepStatus` 加显式索引重载。
+- **思考开关对本地 Agent 无效**：`enableThinking && !localAgentRoute` 强制关闭，
+  而普通对话路径（同模型同模板）实测 `enable_thinking=1` 完全正常。已去掉该强制。
+
+### 5) 设备信息页重做（e9d1b212）
+
+- **`GPU 型号` 显示的是主板代号**（`ro.product.board` 在本机是 `canoe`）。
+  `DeviceDetector.getGPUModel()` 改为优先驱动查询，再退系统属性；连带修好
+  `isAdrenoGPU()` 与「GPU 系列」行（原为 `UNKNOWN`，现为 `A8XX`）。
+- **「加速设备检测」列出全部 ggml 设备**（backend / name / type / desc + 已注册后端集合）。
+  原实现只查 OpenCL —— 因为那段直接用 `clGetDeviceInfo`。
+- 后端行改用 `getResolvedBackend()` 并标注「偏好 X，需重载生效」。
+- 「浮点支持」改为紧凑表格：原先用只有左括号的片段 `" (向量宽度: "` 拼接，每项各占一行且错位。
+- 刷新按钮复位移入 `refreshDone`，避免工作线程在 post 之前抛异常导致按钮永久禁用。
+- `onCreate` + `onResume` 不再重复跑检测（`loading` 标志去重）。
+- 新增「推理运行时」区块；**按归属分组**显示 —— `nativeGetContextSize/UsedTokens` 读的是
+  `NativeChatContext`，而 `nativeGetKvCacheStats` 读的是 `s_helperContext`，
+  两者混在一处显示会自相矛盾。
+- `nativeGetDeviceCount()` 原为 `return 0` 的桩实现，现返回真实数量。
+- 「GPU 后端」单选标签改为 `OpenCL`（它选的就是 OpenCL）。
+
+### 6) API 服务页
+
+- 新增 NPU（Hexagon）单选；状态行显示**实际载入**的后端并提示「需重载」。
+- 后端显示名映射集中到 `LlamaHelper.backendLabel()`，供 AI 服务页与设备信息页共用
+  （此前两页各写一份三元链，设备信息页那份还带错了默认值）。
+
+### 7) 遗留（未解决）
+
+- `ggml_backend_dev_get_props()` 在本机触发 SIGSEGV，API 用法已核实无误，崩溃位于某个后端的
+  `iface.get_props` 实现内。**未启用**，故设备信息页暂不展示显存与能力位。
+  已排除的可能：API 签名与 C 层实现无误、`props` 已零初始化、`host_buffer_type` 的 C 包装自带
+  NULL 防护、`GGML_VIRTGPU` 默认 OFF（该后端未编入，与本次崩溃无关）。
+  下一步方向：线程上下文（调用发生在后台线程，设备上下文在加载线程创建）、逐设备隔离定位、
+  带符号调试（Release `-O2` 已剥离符号，需 `RelWithDebInfo` 或保留 `.symtab`）。
+  当前 `nativeGetDeviceCaps` 只使用已验证可用的接口
+  （`ggml_backend_dev_count / _get / _name / _description / _type / _backend_reg`）。
+
 ## [2026-10-05] NPU Agent 引擎（事件协议对齐 + 回调链修复）+ NPU 容量设计（内存预算/nCtx/GGUF 解析）+ UI 引擎感知 + 预设与设备清理
 
 本轮把 NPU 从"能出字"推到"可作为对话与 Agent 的生成后端"，并补上此前一直缺的**容量决策**与**回调/UI 绑定**。过程中修掉了多个**由本会话自身引入的回归**（已在下方逐条标注原因，便于回溯）。

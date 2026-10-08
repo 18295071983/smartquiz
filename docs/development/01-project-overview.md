@@ -21,7 +21,7 @@
 | 注入 | Dagger Hilt |
 | 异步 | LiveData / ViewModel / ExecutorService / CompletableFuture |
 | 本地 LLM | llama.cpp (JNI) + GGUF 模型 |
-| GPU | OpenCL + Vulkan 双后端（Adreno）、batch warmup、flash attention |
+| 加速 | NPU(Hexagon/HTP，默认) + OpenCL + Vulkan 四后端、batch warmup、flash attention |
 | 数据库 | Room（题库/用量）+ SQLite |
 | 网络 | Retrofit/OkHttp（在线 API） |
 | JSON | org.json / Gson |

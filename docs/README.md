@@ -15,15 +15,15 @@ docs/
 │   ├── 01-project-overview.md             # 项目架构总览
 │   ├── 02-ai-agent-architecture.md        # AI Agent 架构设计
 │   ├── 03-ai-chat-ui.md                   # AI 对话界面设计
-│   ├── 04-ai-service-inference.md         # AI 服务与推理设计（含双后端）
+│   ├── 04-ai-service-inference.md         # AI 服务与推理设计（含四后端/NPU）
 │   ├── 05-tool-system.md                  # 工具系统设计（含 ssh_exec）
 │   ├── 06-data-layer.md                   # 数据层设计
-│   ├── 07-hardware-performance.md         # 硬件与性能（Vulkan 双后端）
+│   ├── 07-hardware-performance.md         # 硬件与性能（NPU/OpenCL/Vulkan）
 │   ├── 08-module-inventory.md             # 模块清单
 │   ├── 09-development-guide.md            # 开发规范
 │   ├── 10-database-design.md              # 数据库设计
-│   ├── 11-edge-model-deployment.md        # 端侧大模型部署设计（双后端）
-│   ├── 12-llama-cpp.md                    # llama.cpp 功能设计（双后端）
+│   ├── 11-edge-model-deployment.md        # 端侧大模型部署设计（四后端）
+│   ├── 12-llama-cpp.md                    # llama.cpp 功能设计（四后端）
 │   ├── 13-inference-engine.md             # 推理库与推理引擎设计
 │   ├── 14-cmake-build.md                  # CMake 构建设计（Vulkan ON）
 │   ├── 15-question-import.md              # 题库文件导入功能设计

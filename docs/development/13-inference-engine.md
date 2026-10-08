@@ -22,7 +22,7 @@
 │  ├─ 聊天上下文（common_chat_templates_apply）                                  │
 │  ├─ 工具调用（<tool_call> FC） + 思考链解析                                    │
 │  ├─ AgentKvCache（KV 增量缓存）                                                │
-│  └─ GPU 加速（OpenCL + flash attention）                                       │
+│  └─ 加速后端（NPU/OpenCL/Vulkan + flash attention）                                       │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -187,7 +187,10 @@ InferenceRouter.generateStream(...)
 ## 2026-09/10 更新
 
 - **llama.cpp 升级（10/01）**：合并官方最新 master（处理探针提交/GBK 修补），重新全量编译。
-- **GPU 双后端（10/01）**：CMake 同时启用 GGML_OPENCL + GGML_VULKAN；native 侧 backend 开关按设备能力探测；Java 侧 AI 服务界面/设备信息页可切换（不再硬编码 OpenCL）。
+- **四后端 + NPU 默认（10/09）**：CMake 启用 GGML_OPENCL + GGML_VULKAN + GGML_HEXAGON；
+  默认 `hexagon`，`auto` 按 `Hexagon > OpenCL > Vulkan` 解析出**单个**设备；
+  AI 服务界面/设备信息页可切换（不再硬编码）。多设备曾导致模型加载在
+  `ggml_backend_dev_get_props` 崩溃。
 - **Vulkan 编译适配**：Adreno 840 需用与厂商驱动一致的兼容 SPIR-V 工具链编译（替换过时 glslc）；coopmat/bfloat16/dot 等高级特性受驱动限制走 F16 基础路径兜底。
 
 ## 相关文档

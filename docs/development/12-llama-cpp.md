@@ -15,7 +15,7 @@ C++ 层 (native-lib.cpp)
 ├── llama.cpp 核心（模型加载/推理）
 ├── 聊天上下文（llama_chat_apply_template）
 ├── AgentKvCache（KV 增量缓存）
-└── GPU 后端（OpenCL/Vulkan）
+└── 加速后端（Hexagon NPU / OpenCL / Vulkan / CPU）
 ```
 
 ## 二、JNI 接口清单（按功能分类）
@@ -141,8 +141,10 @@ setenv("GGML_OPENCL_FA_C8", "1", 0);
 // 条件：GGML_OPENCL_FA_C8=1 且 n_kv >= 2048
 ```
 
-- OpenCL ON / Vulkan ON（双后端，2026-10 起；设备支持哪个用哪个，AI 服务界面可切换）。
-- GPU 全量 36 层。
+- 四后端：**Hexagon(NPU) 默认** > OpenCL > Vulkan > CPU；AI 服务界面可切换。
+- 四后端**静态编入** `libllama-jni.so`（没有独立 `libggml-*.so`）；HTP 另需
+  `libggml-htp-vNN.so`（DSP skel，由 FastRPC 经 `ADSP_LIBRARY_PATH` 加载）。
+- 加速层数上限 `MAX_GPU_LAYERS = 64`；真机 2B 模型为 43/43 层。
 - batch warmup（1 + 256 token）。
 
 ### 3.6 崩溃恢复
