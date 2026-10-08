@@ -2405,12 +2405,27 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         // 正常系统消息
         holder.itemView.setOnClickListener(null);
+        // SYSTEM-CONTENT-NULL(2026-10-09)：createSystemMessage 系三个工厂方法都不校验 content，
+        // 而这里（以及下面每一处 indexOf）都直接解引用 message.content，
+        // new SpannableStringBuilder(null) 会抛 NPE。AI 消息路径一直有判空，这里补齐。
+        if (message.content == null) {
+            holder.messageText.setText("");
+            return;
+        }
         SpannableStringBuilder spannable = new SpannableStringBuilder(message.content);
+
+        // SPAN-LEN(2026-10-09)：下面三处可点击 span 的长度此前写死为 2 / 2 / 4，
+        // 那是按中文资源「帮助」「教程」「帮助图标」的字符数硬编码的，换语言即错位
+        // （span 覆盖不到词尾或越界）。改为按实际匹配串的长度计算。
+        final String helpKey = SmartQuizApplication.getAppContext().getString(R.string.h_92e3a830);
+        final String guideKey = SmartQuizApplication.getAppContext().getString(R.string.h_b7824d5c);
+        final String helpIconKey = SmartQuizApplication.getAppContext().getString(R.string.h_267bf2f9);
+
         
         // 查找并设置可点击的"帮助"文本
-        int helpIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_92e3a830));
+        int helpIndex = message.content.indexOf(helpKey);
         while (helpIndex >= 0) {
-            int endIndex = helpIndex + 2;
+            int endIndex = helpIndex + helpKey.length();
             if (endIndex <= message.content.length()) {
                 spannable.setSpan(new android.text.style.ClickableSpan() {
                     @Override
@@ -2428,13 +2443,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     }
                 }, helpIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
-            helpIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_92e3a830), endIndex);
+            helpIndex = message.content.indexOf(helpKey, endIndex);
         }
         
         // 查找并设置可点击的"教程"文本
-        int guideIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_b7824d5c));
+        int guideIndex = message.content.indexOf(guideKey);
         while (guideIndex >= 0) {
-            int endIndex = guideIndex + 2;
+            int endIndex = guideIndex + guideKey.length();
             if (endIndex <= message.content.length()) {
                 spannable.setSpan(new android.text.style.ClickableSpan() {
                     @Override
@@ -2452,13 +2467,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     }
                 }, guideIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
-            guideIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_b7824d5c), endIndex);
+            guideIndex = message.content.indexOf(guideKey, endIndex);
         }
         
         // 查找并设置可点击的帮助图标提示
-        int iconIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_267bf2f9));
+        int iconIndex = message.content.indexOf(helpIconKey);
         while (iconIndex >= 0) {
-            int endIndex = iconIndex + 4;
+            int endIndex = iconIndex + helpIconKey.length();
             if (endIndex <= message.content.length()) {
                 spannable.setSpan(new android.text.style.ClickableSpan() {
                     @Override
@@ -2476,7 +2491,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     }
                 }, iconIndex, endIndex, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
-            iconIndex = message.content.indexOf(SmartQuizApplication.getAppContext().getString(R.string.h_267bf2f9), endIndex);
+            iconIndex = message.content.indexOf(helpIconKey, endIndex);
         }
         
         // 查找并设置可点击的"🚀 强行使用本地Agent"文本（本地Agent拦截引导消息）
