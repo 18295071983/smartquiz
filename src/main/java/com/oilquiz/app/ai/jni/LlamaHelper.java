@@ -170,7 +170,10 @@ public class LlamaHelper {
     public static void setBackend(String backend) {
         if (backend == null) return;
         String b = backend.trim().toLowerCase();
-        if ("opencl".equals(b) || "vulkan".equals(b) || "auto".equals(b)) {
+        // NPU-SELECT(2026-10-09)：新增 "hexagon" —— Hexagon/HTP NPU 后端。
+        // 与 opencl/vulkan 同为"限制 offload 目标设备"的语义：native 侧只把
+        // 类型为 ACCEL、注册名为 "HTP" 的设备放进 model_params.devices。
+        if ("opencl".equals(b) || "vulkan".equals(b) || "auto".equals(b) || "hexagon".equals(b)) {
             sBackendPreference = b;
             AILogger.i(TAG, "GPU backend preference set to: " + b);
         } else {
@@ -179,6 +182,87 @@ public class LlamaHelper {
     }
 
     public static String getBackend() { return sBackendPreference; }
+
+    /**
+     * BACKEND-INIT-EARLY(2026-10-09)：在**进程启动时**读取并下发 GPU 后端偏好。
+     *
+     * <p>为什么必须在 Application.onCreate 调：模型加载由后台线程在 App 启动时就发起，
+     * 远早于任何 Activity 的 onCreate。此前 {@code applyBackendPreference()} 只在
+     * {@code initModel()} 内调用，读到的是 {@link #sBackendPreference} 的**静态默认值**
+     * （"opencl"），于是出现"设置里存的是 hexagon、模型却按 opencl 加载"的不一致：</p>
+     * <pre>
+     * 03:26:58  initModel() 下发 opencl -> Backend switch: offload restricted to opencl
+     * 03:27:04  Activity.onCreate 才读到 hexagon（已经晚了 6 秒）
+     * </pre>
+     *
+     * @param context 任意 Context（Application 即可）
+     * @return 生效的后端键
+     */
+    public static String initBackendPreference(Context context) {
+        // DSP skel 目录：Hexagon 后端据此构造绝对 FastRPC URI（见 nativeSetDspLibDir）
+        try {
+            if (context != null) {
+                String libDir = context.getApplicationInfo().nativeLibraryDir;
+                if (libDir != null && !libDir.isEmpty()) {
+                    nativeSetDspLibDir(libDir);
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "initBackendPreference: set dsp lib dir failed: " + t.getMessage());
+        }
+        try {
+            if (context != null) {
+                String saved = PreferenceManager.getDefaultSharedPreferences(context)
+                        .getString("gpu_backend", "opencl");
+                if (saved != null && !saved.isEmpty()) {
+                    sBackendPreference = saved.trim().toLowerCase();
+                }
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "initBackendPreference read failed: " + t.getMessage());
+        }
+        try {
+            nativeSetBackend(sBackendPreference);
+            AILogger.i(TAG, "GPU backend initialized early: " + sBackendPreference);
+        } catch (UnsatisfiedLinkError e) {
+            // native 库尚未加载也无妨：initModel() 时会再下发一次
+            AILogger.w(TAG, "initBackendPreference: native not ready yet (" + e.getMessage() + ")");
+        }
+        return sBackendPreference;
+    }
+
+    /**
+     * 最近一次**成功加载模型时真正下发给 native** 的后端；null = 本进程尚未加载过模型。
+     *
+     * <p>BACKEND-LOADED-STATE(2026-10-09)：存在的意义是不要把"偏好"当成"已生效"。
+     * 后端偏好是在 {@code initModel()} 里下发的，改设置后必须重载模型才生效；
+     * 若 UI 直接显示偏好值，就会出现"顶部说 NPU 已启用、实际 25 层还在 OpenCL 上"的假信息。</p>
+     */
+    private static String sLoadedBackend = null;
+
+    /**
+     * 返回"当前实际在用的后端"，未加载过模型时返回 null。
+     * 与 {@link #getEffectiveBackend()}（下次加载将使用的偏好）区分开。
+     */
+    public static String getLoadedBackend() { return sLoadedBackend; }
+
+    /**
+     * BACKEND-SINGLE-SOURCE(2026-10-09)：返回**实际生效**的后端偏好。
+     *
+     * <p>存在理由：此前 UI 与 native 各自读 SharedPreferences 且**默认值不一致** ——
+     * UI 用 {@code getString("gpu_backend", "auto")}、native 用 {@code ..., "opencl")}。
+     * 首次安装未选任何后端时，就会出现"UI 显示自动、native 实际跑 opencl"的自相矛盾
+     * （AI 服务页顶部状态行即由此显示成"自动"）。</p>
+     *
+     * <p>现在统一以 {@link #sBackendPreference}（native 真正下发的那个值）为准：
+     * 先确保偏好已从设置读出并应用到 native，再返回它。</p>
+     *
+     * @return 实际生效的后端："opencl" / "vulkan" / "hexagon" / "auto"
+     */
+    public static String getEffectiveBackend() {
+        applyBackendPreference();
+        return sBackendPreference;
+    }
 
     private static void applyBackendPreference() {
         try {
@@ -195,6 +279,9 @@ public class LlamaHelper {
         }
         try {
             nativeSetBackend(sBackendPreference);
+            // BACKEND-LOADED-STATE：本方法是在 initModel() 里、nativeInitModel() 之前调用的，
+            // 因此这里成功下发即等于"该后端将用于本次模型加载"，记为已生效。
+            sLoadedBackend = sBackendPreference;
             AILogger.i(TAG, "GPU backend preference applied to native: " + sBackendPreference);
         } catch (UnsatisfiedLinkError e) {
             AILogger.w(TAG, "nativeSetBackend unavailable: " + e.getMessage());
@@ -202,6 +289,16 @@ public class LlamaHelper {
     }
 
     private static native void nativeSetBackend(String backend);
+
+    /**
+     * DSP-LIB-DIR(2026-10-09)：把应用 native 库目录告诉 native 侧。
+     *
+     * <p>Hexagon 后端默认构造的 FastRPC 模块 URI 是 {@code file:///libggml-htp-vNN.so}
+     * （相对形式）。FastRPC 不会搜索应用 nativeLibraryDir，于是 cdsprpcd 报
+     * {@code apps_std_fopen_with_env failed ... No such file or directory}，
+     * 上下文初始化失败、服务初始化返回 -1。传入绝对目录后改为绝对 URI 即可。</p>
+     */
+    private static native void nativeSetDspLibDir(String dir);
 
     // ========== 推理锁方法 ==========
     

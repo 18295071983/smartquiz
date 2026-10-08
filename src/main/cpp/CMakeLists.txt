@@ -261,11 +261,20 @@ if(GGML_HEXAGON)
                     "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libggml-htp-${_htp_v}.so"
             COMMENT "NPU: copying libggml-htp-${_htp_v}.so to jniLibs")
     endforeach()
-    add_custom_command(TARGET llama-jni POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:ggml-hexagon>"
-                "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libggml-hexagon.so"
-        COMMENT "NPU: copying libggml-hexagon.so to jniLibs")
+    # HEXAGON-SHARED-ONLY(2026-10-09)：仅当 ggml-hexagon 是共享库时才拷进 jniLibs。
+    # 本项目 BUILD_SHARED_LIBS=OFF、GGML_BACKEND_DL=OFF，故 ggml-hexagon 是【静态库】，
+    # 已由上面的 target_link_libraries 静态链入 libllama-jni.so（后端静态注册即生效）。
+    # 旧写法直接用 $<TARGET_FILE:ggml-hexagon>（= libggml-hexagon.a）拷成 .so，
+    # 会往 jniLibs 塞一个名为 .so 的 7MB 静态归档：不是动态库、无法 dlopen，还白占包体。
+    if(BUILD_SHARED_LIBS OR GGML_BACKEND_DL)
+        add_custom_command(TARGET llama-jni POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:ggml-hexagon>"
+                    "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libggml-hexagon.so"
+            COMMENT "NPU: copying shared libggml-hexagon.so to jniLibs")
+    else()
+        message(STATUS "NPU: ggml-hexagon is static; linked into libllama-jni.so (no separate .so copied)")
+    endif()
 endif()
 
 if(GGML_OPENCL)

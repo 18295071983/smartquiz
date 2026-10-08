@@ -77,13 +77,21 @@ public class AgentSoftwareLayer {
             public void onIterationEnd(int iteration, String response) {
                 if (callback != null && response != null) {
                     // 清理模板前缀/思考标签后再显示（模型偶尔输出 <|im_start|>assistant 等）
+                    // THINKING-TEMPLATE-ONLY(2026-10-09)：思考段按 chat template 的标签
+                    // 剥离，不再硬编码 <think>/<thought>。
                     String clean = response
                             .replaceAll("<\\|im_start\\|>\\s*assistant", "")
                             .replaceAll("<\\|im_start\\|>", "")
-                            .replaceAll("<\\|im_end\\|>", "")
-                            .replaceAll("(?s)<think>.*?</think>", "")
-                            .replaceAll("(?s)<thought>.*?</thought>", "")
-                            .trim();
+                            .replaceAll("<\\|im_end\\|>", "");
+                    com.oilquiz.app.ai.chat.parser.ThinkingTagConfig tcfg =
+                            com.oilquiz.app.ai.chat.parser.ThinkingTagConfig.forCurrentEngine();
+                    if (tcfg.isAvailable()) {
+                        for (String end : tcfg.getEndTags()) {
+                            clean = clean.replaceAll("(?s)" + java.util.regex.Pattern.quote(tcfg.getStartTag())
+                                    + ".*?" + java.util.regex.Pattern.quote(end), "");
+                        }
+                    }
+                    clean = clean.trim();
                     // 第 N 轮结束仅作状态栏进度提示（onStepUpdate），不再把正文摘要当思考更新：
                     // 思考区只接收 onThinkingUpdate 的真实 reasoning 事件，避免正文污染思考气泡
                     callback.onStepUpdate("第 " + iteration + " 轮", truncate(clean, 40));

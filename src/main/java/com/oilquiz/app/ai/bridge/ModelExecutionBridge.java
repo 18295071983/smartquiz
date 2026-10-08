@@ -1308,7 +1308,13 @@ public class ModelExecutionBridge {
             int finalCount = tokenCount;
             long finalElapsed = elapsed;
             float finalTps = tps;
-            String finalContent = content;
+            // TOOL-SYNTAX-STRIP(2026-10-09): Agent mode lets the model emit tool-call
+            // markup with no <tool_call> wrapper (e.g. bare <function=...>). The stream
+            // path already swallows such tokens, but this text still reaches the UI and
+            // the saved history verbatim. Tags come from the chat template
+            // (LlamaHelper.getToolCallTags()), never hardcoded here.
+            String finalContent = com.oilquiz.app.ai.chat.parser.OutputRouter
+                    .stripToolCallSyntax(content, LlamaHelper.getToolCallTags());
 
             mainHandler.post(() -> {
                 if (callback != null) {

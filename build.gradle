@@ -44,7 +44,17 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O3 -DNDEBUG -fno-finite-math-only"
-                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=ON", "-DGGML_VULKAN=ON"
+                // HEXAGON-ENV-TO-VAR(2026-10-09)：Hexagon 后端需要的是 **CMake 变量**
+                // HEXAGON_SDK_ROOT / HEXAGON_TOOLS_ROOT（见 ggml-hexagon/CMakeLists.txt:1-2
+                // 的 file(TO_CMAKE_PATH ...)），而 src/main/cpp/CMakeLists.txt 只检查了
+                // **环境变量**来开关 GGML_HEXAGON —— 两者是不同的命名空间，
+                // 所以必须在这里显式把环境变量转成 -D 参数传进去，否则后端会因
+                // IS_DIRECTORY("") 为假而 FATAL_ERROR。
+                // 未设置环境变量时传空值，ggml-hexagon 不会被 add（GGML_HEXAGON=OFF），无副作用。
+                def hexSdk   = System.getenv("HEXAGON_SDK_ROOT")   ?: ""
+                def hexTools = System.getenv("HEXAGON_TOOLS_ROOT") ?: ""
+                arguments "-DANDROID_STL=c++_shared", "-GNinja", "-DCMAKE_MAKE_PROGRAM=D:\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe", "-DGGML_OPENCL=ON", "-DGGML_VULKAN=ON",
+                          "-DHEXAGON_SDK_ROOT=${hexSdk}", "-DHEXAGON_TOOLS_ROOT=${hexTools}"
             }
         }
         ndk {

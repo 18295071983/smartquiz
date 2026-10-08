@@ -82,6 +82,12 @@ public class OutputRouter {
      * &lt;|channel|&gt;analysis&lt;|message|&gt;…），因此绝不在 Java 侧写死。
      */
     private ThinkingTagConfig tagConfig = ThinkingTagConfig.empty();
+    /**
+     * 模板工具调用标签：来自 chat template（native meta 事件 / LlamaHelper.getToolCallTags()）。
+     * 各模型写法不同（Qwen3.5 用 &lt;function=...&gt;/&lt;parameter=...&gt;、Qwen2.5 用
+     * &lt;tool_call&gt;、其他用各自标记），因此与思考标签同理，绝不在 Java 侧写死。
+     */
+    private ToolCallTagConfig toolTagConfig = ToolCallTagConfig.empty();
     /** 跨 token 标签边界缓冲：标签可能被 tokenizer 拆开，凑齐后再判定，避免漏检 */
     private final StringBuilder tagLookahead = new StringBuilder();
 
@@ -118,6 +124,14 @@ public class OutputRouter {
      */
     public void setThinkingTags(ThinkingTagConfig config) {
         this.tagConfig = config != null ? config : ThinkingTagConfig.empty();
+    }
+
+    /**
+     * 设置工具调用标签（来自 chat template，不硬编码）。
+     * 传 null 等同于清空（按"该模型无工具调用语法"处理，此时不做任何吞除）。
+     */
+    public void setToolCallTags(ToolCallTagConfig config) {
+        this.toolTagConfig = config != null ? config : ToolCallTagConfig.empty();
     }
 
     /**
@@ -199,35 +213,33 @@ public class OutputRouter {
             return;
         }
 
-        // 检查是否是工具调用标签
-        if (token.contains("<tool_call>")) {
-            isInToolCall = true;
-            return;
-        }
-
-        if (token.contains("</tool_call>")) {
-            isInToolCall = false;
-            // 解析工具调用（自适应：JSON 形态 / Qwen3.5 XML 参数形态）
-            String jsonContent = extractBetweenTags(fullContentBuffer.toString(), "<tool_call>", "</tool_call>");
-            if (jsonContent != null) {
-                if (jsonContent.contains("<function=")) {
-                    JSONObject parsedXml = parseQwen35XmlToolCall(jsonContent);
-                    if (parsedXml != null) {
-                        handler.onToolCall(parsedXml.optString("name", "unknown"),
-                                parsedXml.optJSONObject("parameters"));
-                        return;
-                    }
+        // TOOLCALL-TEMPLATE-DRIVEN(2026-10-09)：工具调用标签一律取自 chat template
+        // （ToolCallTagConfig，由 native 从 preserved_tokens 推导），不再在 Java 侧
+        // 写死 "<tool_call>" / "<function="。模板未声明工具语法时不吞任何内容。
+        //
+        // CONSECUTIVE-SPECIAL-TOKENS(2026-10-09)：同一个 token 里可能同时带开标签和
+        // 闭标签（连续特殊 token，如 "<tool_call>...</tool_call>" 一次到达）。
+        // 旧实现先判开标签并直接 return，闭标签永远轮不到 -> isInToolCall 卡死在 true
+        // -> 之后所有正文被永久吞掉。因此必须：先处理闭标签（它是"退出抑制"的更强信号），
+        // 再处理开标签，最后按"本 token 是否还残留工具语法"决定要不要继续抑制。
+        if (toolTagConfig.isAvailable()) {
+            final boolean hasOpen = toolTagConfig.containsOpenTag(token);
+            final boolean hasClose = toolTagConfig.containsCloseTag(token);
+            if (hasClose) {
+                // 无论此前是否在工具调用中，闭标签都意味着该段工具调用结束
+                isInToolCall = false;
+                emitToolCallFromBuffer();
+                // 同一 token 里若还有新的开标签（连续工具调用），下面重新进入抑制
+                if (!hasOpen) {
+                    return;
                 }
-                try {
-                    JSONObject jsonData = new JSONObject(jsonContent);
-                    String toolName = jsonData.optString("name", "unknown");
-                    JSONObject params = jsonData.optJSONObject("parameters");
-                    handler.onToolCall(toolName, params);
-                } catch (Exception e) {
-                    AILogger.w(TAG, "Failed to parse tool call: " + e.getMessage());
-                }
+                isInToolCall = true;
+                return;
             }
-            return;
+            if (hasOpen) {
+                isInToolCall = true;
+                return;
+            }
         }
 
         // 如果在工具调用中，跳过内容（已在完整内容中）
@@ -263,9 +275,90 @@ public class OutputRouter {
             return;
         }
 
+        // TOOL-SYNTAX-SUPPRESS(2026-10-09)：兜底吞除。
+        // 上面的模板分支只处理"本 token 含开/闭标签"的情形；当标签跨 token 到达、
+        // 或 token 落在工具调用段内部（既无开标签也无闭标签）时，仍可能漏到正文，
+        // 表现为 "function=location>function=ai_weather>parameter今天银川..."。
+        // 这里用同一份模板标签做兜底：命中开标签就进入抑制状态。
+        // 标签一律取自 chat template，不硬编码模型写法。
+        if (toolTagConfig.isAvailable() && toolTagConfig.containsOpenTag(token)) {
+            isInToolCall = true;
+            return;
+        }
+        if (isInToolCall) {
+            return;
+        }
+
         // 普通文本
         textBuffer.append(token);
         handler.onTextOutput(token, false);
+    }
+
+    /**
+     * 按模板剥离工具调用段（防御性，供终稿与下游使用）。
+     *
+     * TOOL-SYNTAX-STRIP(2026-10-09)：只删标记与包裹本身，不删裸露的参数值 ——
+     * 参数值往往是 native 工具执行实际用到的内容，一并删掉有误伤正文的风险。
+     * 标签取自 {@link ToolCallTagConfig}（chat template），不硬编码模型写法。
+     */
+    public static String stripToolCallSyntax(String text, ToolCallTagConfig cfg) {
+        if (text == null || text.isEmpty() || cfg == null || !cfg.isAvailable()) return text;
+
+        String out = text;
+        for (String open : cfg.getOpenTags()) {
+            int guard = 0;
+            while (guard++ < 64) {
+                int i = out.indexOf(open);
+                if (i < 0) break;
+                int end = -1;
+                int best = Integer.MAX_VALUE;
+                for (String close : cfg.getCloseTags()) {
+                    int j = out.indexOf(close, i + open.length());
+                    if (j >= 0 && j < best) {
+                        best = j;
+                        end = j + close.length();
+                    }
+                }
+                if (end < 0) {
+                    // 无闭标签（开标签可能落在本次文本窗口之前）：从开标签处截断，
+                    // 之后的内容属于工具调用负荷，不应作为正文。
+                    out = out.substring(0, i);
+                    break;
+                }
+                out = out.substring(0, i) + out.substring(end);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 从完整缓冲里取出工具调用段并下发 onToolCall。
+     * 标签全部取自模板；同时兼容 JSON 形态与 XML 参数形态。
+     */
+    private void emitToolCallFromBuffer() {
+        String full = fullContentBuffer.toString();
+        JSONObject parsed = null;
+        for (String open : toolTagConfig.getOpenTags()) {
+            for (String close : toolTagConfig.getCloseTags()) {
+                String block = extractBetweenTags(full, open, close);
+                if (block == null || block.isEmpty()) continue;
+                if (block.indexOf("<function=") >= 0 || block.indexOf("<parameter=") >= 0) {
+                    parsed = parseQwen35XmlToolCall(block);
+                } else {
+                    try {
+                        parsed = new JSONObject(block);
+                    } catch (Exception e) {
+                        AILogger.w(TAG, "tool call block is not JSON: " + e.getMessage());
+                    }
+                }
+                if (parsed != null) break;
+            }
+            if (parsed != null) break;
+        }
+        if (parsed != null) {
+            handler.onToolCall(parsed.optString("name", "unknown"),
+                    parsed.optJSONObject("parameters"));
+        }
     }
 
     /**
@@ -279,8 +372,8 @@ public class OutputRouter {
             isInThinking = false;
             handler.onThinkingEnd();
         }
-        handler.onTextOutput(textBuffer.toString(), true);
-        handler.onStreamComplete(fullContentBuffer.toString());
+        handler.onTextOutput(stripToolCallSyntax(textBuffer.toString(), toolTagConfig), true);
+        handler.onStreamComplete(stripToolCallSyntax(fullContentBuffer.toString(), toolTagConfig));
         reset();
     }
 

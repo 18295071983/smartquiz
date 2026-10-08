@@ -358,6 +358,14 @@
                                 android:layout_height="wrap_content"
                                 android:text="Vulkan"
                                 android:textSize="@dimen/text_13"/>
+                            <!-- NPU-SELECT(2026-10-09)：Hexagon/HTP NPU 后端（llama.cpp 第 4 个 ggml 设备） -->
+                            <RadioButton
+                                android:id="@+id/backend_hexagon"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="NPU"
+                                android:textSize="@dimen/text_13"/>
                         </RadioGroup>
                         <TextView
                             android:layout_width="match_parent"

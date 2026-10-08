@@ -186,7 +186,10 @@ public class DeviceInfoActivity extends AppCompatActivity {
                             
                             openclSummary.append(getString(R.string.h_cecbcbbb));
                             String backendPref = android.preference.PreferenceManager.getDefaultSharedPreferences(DeviceInfoActivity.this).getString("gpu_backend", "auto");
-                            String backendName = "vulkan".equals(backendPref) ? "Vulkan" : ("opencl".equals(backendPref) ? "OpenCL" : "自动");
+                            // NPU-SELECT(2026-10-09)：补 hexagon 分支
+                            String backendName = "vulkan".equals(backendPref) ? "Vulkan"
+                                    : ("opencl".equals(backendPref) ? "OpenCL"
+                                    : ("hexagon".equals(backendPref) ? "NPU (Hexagon)" : "自动"));
                             openclSummary.append("   后端: ").append(backendName).append(" · OpenCL: ").append(openclLoaded ? getString(R.string.h_bec33d31) : getString(R.string.h_467b3e03));
                             if (!openclVersion.isEmpty() && !openclVersion.equals("Unknown")) {
                                 openclSummary.append(" (v").append(openclVersion).append(")");

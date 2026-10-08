@@ -1584,16 +1584,15 @@ public class AgentLoopEngine {
 
         // 优先用模板标签（native meta 事件下发），换模型无需改代码；
         // 未收到 meta 事件（老路径）时回退到 <think> 字面量
+        // THINKING-TEMPLATE-ONLY(2026-10-09)：思考标签只认 chat template
+        // （ThinkingTagConfig，native 从模板推导）。模板未声明思考段时不做切分，
+        // 而不是回退到 <think> 这类模型特有字面量 - 那会让换模型时漏检或误切。
         ThinkingTagConfig tags = thinkingTags;
-        final String startTag;
-        final List<String> endTags;
-        if (tags.isAvailable()) {
-            startTag = tags.getStartTag();
-            endTags = tags.getEndTags();
-        } else {
-            startTag = "<think>";
-            endTags = java.util.Collections.singletonList("</think>");
+        if (!tags.isAvailable()) {
+            return new String[]{fullText, ""};
         }
+        final String startTag = tags.getStartTag();
+        final List<String> endTags = tags.getEndTags();
 
         String thinking = "";
         String content = fullText;
@@ -2085,10 +2084,10 @@ public class AgentLoopEngine {
 
     private String cleanResponse(String response) {
         if (response == null) return "";
+        // 思考段已由 stripThinkingSections 按模板标签剥离，此处不再按
+        // <think>/<thought> 字面量二次清理（标签一律取自模板）。
         String cleaned = stripThinkingSections(response);
         cleaned = cleaned
-                .replaceAll("(?s)<thought>.*?</thought>", "")
-                .replaceAll("(?s)<think>.*?</think>", "")
                 .replaceAll("(?s)<tool_response>.*?</tool_response>", "")
                 // ① 剥闭合的 tool_call / tool_calls 标签（含内容）
                 .replaceAll("(?s)<tool_calls?>.*?</tool_calls?[^>]*>", "")
@@ -2142,26 +2141,13 @@ public class AgentLoopEngine {
 
     // ==================== 思考提取 ====================
 
-    /** 同时匹配 <think>（Qwen3等）和 <thought>（通用）两种思考标签 */
-    private static final Pattern THOUGHT_PATTERN =
-            Pattern.compile("(?:<think>(.*?)</think>|<thought>(.*?)</thought>)", Pattern.DOTALL);
-
     private String extractThought(String response) {
         if (response == null) return null;
-        // 优先用模板标签（native meta 事件下发）：换模型/换模板无需改 Java 代码
+        // THINKING-TEMPLATE-ONLY(2026-10-09)：只认 chat template 的思考标签。
+        // 模板未声明思考段 -> 认为模型无思考段，返回 null（不回退到 <think>/<thought>）。
         ThinkingTagConfig tags = thinkingTags;
-        if (tags.isAvailable()) {
-            String thought = extractBetweenTags(response, tags.getStartTag(), tags.getEndTags());
-            if (thought != null) return thought;
-        }
-        // 回退：未收到 meta 事件（老路径 generateWithToolsSync）时沿用旧正则
-        Matcher m = THOUGHT_PATTERN.matcher(response);
-        if (m.find()) {
-            // 优先取 <think> 内容（group 1），其次取 <thought> 内容（group 2）
-            String think = m.group(1);
-            return think != null ? think.trim() : (m.group(2) != null ? m.group(2).trim() : null);
-        }
-        return null;
+        if (!tags.isAvailable()) return null;
+        return extractBetweenTags(response, tags.getStartTag(), tags.getEndTags());
     }
 
     /**

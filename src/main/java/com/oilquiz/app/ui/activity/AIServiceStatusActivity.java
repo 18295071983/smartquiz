@@ -126,6 +126,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private android.widget.RadioButton backendAuto;
     private android.widget.RadioButton backendOpencl;
     private android.widget.RadioButton backendVulkan;
+    /** NPU-SELECT(2026-10-09)：Hexagon/HTP NPU 后端选项 */
+    private android.widget.RadioButton backendHexagon;
     private android.widget.EditText gpuLayersInput;
     private SwitchMaterial aiEnableSwitch;
     private AppCompatSpinner optimizationModeSpinner;
@@ -280,17 +282,20 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
         backendAuto = findViewById(R.id.backend_auto);
         backendOpencl = findViewById(R.id.backend_opencl);
         backendVulkan = findViewById(R.id.backend_vulkan);
+        // NPU-SELECT(2026-10-09)：第 4 个后端选项 —— Hexagon/HTP NPU。
+        backendHexagon = findViewById(R.id.backend_hexagon);
         if (gpuBackendGroup != null) {
-            // restore last choice
-            String savedBackend = android.preference.PreferenceManager.getDefaultSharedPreferences(this)
-                    .getString("gpu_backend", "auto");
+            // restore last choice —— 用 LlamaHelper 的实际生效值，避免与 native 默认值不一致
+            String savedBackend = com.oilquiz.app.ai.jni.LlamaHelper.getEffectiveBackend();
             if ("opencl".equals(savedBackend)) backendOpencl.setChecked(true);
             else if ("vulkan".equals(savedBackend)) backendVulkan.setChecked(true);
+            else if ("hexagon".equals(savedBackend)) backendHexagon.setChecked(true);
             else backendAuto.setChecked(true);
             gpuBackendGroup.setOnCheckedChangeListener((group, checkedId) -> {
                 String choice = "auto";
                 if (checkedId == R.id.backend_opencl) choice = "opencl";
                 else if (checkedId == R.id.backend_vulkan) choice = "vulkan";
+                else if (checkedId == R.id.backend_hexagon) choice = "hexagon";
                 android.preference.PreferenceManager.getDefaultSharedPreferences(this)
                         .edit().putString("gpu_backend", choice).apply();
                 LlamaHelper.setBackend(choice);
@@ -312,6 +317,18 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private boolean isGpuLayersManual() {
         return getSharedPreferences("model_state_cache", MODE_PRIVATE)
                 .contains("gpu_layers_manual");
+    }
+
+    /**
+     * 后端偏好键 -> 界面显示名。
+     * NPU-SELECT(2026-10-09)：集中一处，避免多处三元链各漏 hexagon 分支
+     * （此前 AIServiceStatusActivity 与 DeviceInfoActivity 都因此把 hexagon 显示成"自动"）。
+     */
+    private static String backendLabel(String backend) {
+        if ("opencl".equals(backend)) return "OpenCL";
+        if ("vulkan".equals(backend)) return "Vulkan";
+        if ("hexagon".equals(backend)) return "NPU (Hexagon)";
+        return "自动";
     }
 
     private void setButtonListeners() {
@@ -762,10 +779,24 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 }
             }
             if (openclStatus != null) {
-                String backendPref2 = android.preference.PreferenceManager.getDefaultSharedPreferences(this).getString("gpu_backend", "auto");
-                String backendName2 = "vulkan".equals(backendPref2) ? "Vulkan" : ("opencl".equals(backendPref2) ? "OpenCL" : "自动");
+                // BACKEND-LOADED-STATE(2026-10-09)：这一行表示**当前实际在用的后端**，
+                // 必须取"上次加载模型时下发的那个值"，不能取偏好 —— 否则改了设置但没重载时，
+                // 会显示"NPU 已启用"而实际 25 层仍在 OpenCL 上（假信息）。
+                final String loaded = com.oilquiz.app.ai.jni.LlamaHelper.getLoadedBackend();
+                final String pending = com.oilquiz.app.ai.jni.LlamaHelper.getEffectiveBackend();
+                String shown = (loaded != null) ? loaded : pending;   // 尚未加载过模型时退回偏好值
+                // NPU-SELECT(2026-10-09)：补 hexagon 分支，否则会落到 else 显示"自动"
+                String backendName2 = "vulkan".equals(shown) ? "Vulkan"
+                        : ("opencl".equals(shown) ? "OpenCL"
+                        : ("hexagon".equals(shown) ? "NPU (Hexagon)" : "自动"));
+                // 偏好与已生效不一致 -> 明确提示需要重载，不再谎报"已启用"
+                boolean needsReload = (loaded != null) && !loaded.equals(pending);
                 if (!npuSvc().isNpuEngineEnabled()) {
-                    openclStatus.setText(backendName2 + (openclLoaded ? " · 已启用" : " · 未启用"));
+                    if (needsReload) {
+                        openclStatus.setText(backendName2 + " · 已启用（已切至 " + backendLabel(pending) + "，需重载）");
+                    } else {
+                        openclStatus.setText(backendName2 + (openclLoaded ? " · 已启用" : " · 未启用"));
+                    }
                 }
                 openclStatus.setTextColor(openclLoaded ? getResources().getColor(R.color.success) : getResources().getColor(R.color.error));
             }

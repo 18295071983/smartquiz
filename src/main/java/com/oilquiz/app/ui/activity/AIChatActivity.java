@@ -1260,10 +1260,19 @@ public class AIChatActivity extends BaseActivity {
         outputRouter.setThinkingTags(tags);
         legacyThinkingTags = tags;
 
+        // ①b 工具调用标签：同样来自 chat template（native 从 preserved_tokens 推导）。
+        // 此前只设了思考标签、没设工具调用标签，导致流式阶段无法按模板判断哪些 token
+        // 属于工具调用语法，裸 <function=...>/<parameter=...> 会漏进主回复正文。
+        // 模板未声明时返回 isAvailable()==false，此时 router 不做任何吞除。
+        com.oilquiz.app.ai.chat.parser.ToolCallTagConfig toolTags =
+                com.oilquiz.app.ai.jni.LlamaHelper.getToolCallTags();
+        outputRouter.setToolCallTags(toolTags);
+
         // ② 是否允许 router 自己"猜"分段：仅在线路径需要（它不喂 tag 事件、也不经 router 分流）
         boolean onlineRoute = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
         outputRouter.setThinkingEnabled(onlineRoute && enableThinking);
-        AppLogger.ai(TAG, "OutputRouter 配置: 标签=" + (tags != null && tags.isAvailable() ? "有" : "无")
+        AppLogger.ai(TAG, "OutputRouter 配置: 思考标签=" + (tags != null && tags.isAvailable() ? "有" : "无")
+                + ", 工具调用标签=" + (toolTags != null && toolTags.isAvailable() ? toolTags.toString() : "无")
                 + ", 由 router 猜分段=" + (onlineRoute && enableThinking)
                 + "（本地路径分段权威在上游：" + (isNpuEngineOn() ? "NPU" : "llama.cpp") + "）");
     }
@@ -5805,9 +5814,14 @@ public class AIChatActivity extends BaseActivity {
             // 非思考 FC 模式工具调用更稳定；在线 Agent 保留深度思考
             //（OnlineAgentEngine 有门控+reasoning_content 规范化，切换安全）。
             // 深度思考完整体验由普通对话路径承载。
-            boolean localAgentRoute = !useOnlineModel && localAgentEnabled;
-            boolean enableThinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled()
-                    && !localAgentRoute;
+            // AGENT-RESPECT-THINKING(2026-10-09)：本地 Agent 也尊重用户的思考开关。
+            // 旧实现 `&& !localAgentRoute` 把本地 Agent 的思考**强制关闭**，理由是
+            // "非思考 FC 模式工具调用更稳定"；但实测普通对话路径（同一模型、同一模板）
+            // enable_thinking=1 完全正常：模板注入 <think> -> init_think 进入 THINKING
+            // -> think_end 收束，无异常。因此该强制关闭没有技术必要性，却造成
+            // "开关显示 ON、思考布局却始终为空且无任何提示"的体验缺陷。
+            // 若后续发现 2B 模型在思考态下工具调用退化，再回退为"仅首轮关思考"。
+            boolean enableThinking = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
             configureOutputRouterForNewTurn(enableThinking);
             isInThinking = enableThinking;
             // 每轮新执行前重置回调完成标志（AgentChatHandler 复用，防止上一轮的 completed=true

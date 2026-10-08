@@ -226,11 +226,18 @@ public class GenerationStreamController {
     /** 标签缓冲解析：按配置切换思考状态（模板未提供标签时不误判） */
     public void processTagBuffer(String tagContent) {
         if (tagContent == null) return;
-        // 简版判定：think 起止标签（宿主可传自定义配置）
-        if (tagContent.contains("<think>")) {
-            isInThinking = true;
-        } else if (tagContent.contains("</think>")) {
-            isInThinking = false;
+        // THINKING-TEMPLATE-ONLY(2026-10-09)：标签取自 chat template。
+        // 此前硬编码 "<think>"，模板未声明时也会误判；现在无配置则直接跳过。
+        com.oilquiz.app.ai.chat.parser.ThinkingTagConfig cfg =
+                com.oilquiz.app.ai.chat.parser.ThinkingTagConfig.forCurrentEngine();
+        if (cfg.isAvailable()) {
+            if (tagContent.contains(cfg.getStartTag())) {
+                isInThinking = true;
+            } else {
+                for (String end : cfg.getEndTags()) {
+                    if (tagContent.contains(end)) { isInThinking = false; break; }
+                }
+            }
         }
         if (tagBuffer != null) tagBuffer.setLength(0);
         isInTag = false;

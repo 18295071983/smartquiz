@@ -559,8 +559,13 @@ static void setupGGMLBackendPath() {
     
     std::string libDir = getNativeLibraryDir();
     if (!libDir.empty()) {
-        LOGI("Setting GGML_BACKEND_PATH to: %s", libDir.c_str());
-        setenv("GGML_BACKEND_PATH", libDir.c_str(), 1);
+        // GGML_BACKEND_PATH is NOT set here on purpose: ggml reads it as a single
+        // out-of-tree backend .so ("load an out-of-tree backend",
+        // ggml-backend-reg.cpp), not as a search directory. Pointing it at the
+        // native library dir made it dlopen a directory and log
+        // "load_backend: failed to load ...: Is a directory" on every start.
+        // All backends here are static (BUILD_SHARED_LIBS=OFF, GGML_BACKEND_DL=OFF),
+        // so no dynamic backend dir is needed.
 
         // ===== OpenCL kernel 编译缓存 =====
         // llama.cpp ggml-opencl 在 Android 上 default_cache_dir() 依赖 TMPDIR，
@@ -995,6 +1000,15 @@ static void native_log(int level, const char* tag, const char* format, ...) {
 // 使用std命名空间
 using namespace std;
 
+// PARSER-AUTHORITATIVE(2026-10-09)：最近一次 chat template 应用得到的完整参数。
+// 工具调用/思考的判定以 llama.cpp 的 PEG 解析器为准（common_chat_parser_params），
+// 不再靠 preserved_tokens 猜标签 —— 实测该推导会把 <tool_call> 误判为思考标签
+// （0 open/1 close），使正文剥离失效、工具调用原文泄漏进主回复。
+// 置于全局作用域：使用方 applyChatTemplateWithThinking / chatSend 定义在全局作用域
+// （非 InferenceContext 成员、也不在 llama_jni 内），够不到类内或命名空间内状态。
+static common_chat_params g_lastChatParams;
+static bool               g_lastChatParamsValid = false;
+
 // 采样默认参数：按模型覆盖。官方对 MiniCPM5 有明确建议，见 OpenBMB llama_cpp 部署文档：
 //   "In llama.cpp, the default min_p=0.05 can lead to repetitive output: it filters out
 //    tokens whose probability is below 5% of the highest-probability token, potentially
@@ -1040,6 +1054,7 @@ static ModelSampling samplingForModelType(const std::string & type) {
 
 namespace llama_jni {
 
+
 // 从 chat template 的 preserved_tokens 推导**工具调用标签**（开/闭）。
 //
 // 为什么用 preserved_tokens：它本身就是模板推导出的"需要豁免控制抑制"的标记集合，
@@ -1048,6 +1063,21 @@ namespace llama_jni {
 //
 // 规则：闭合项（形如 "</xxx>"）与其对应的开头项（去掉末尾 '>'）成对收集；
 // 其余以 '<' 开头的项视为纯开标签。思考标签由 thinking_* 字段单独下发，此处剥离。
+// 判断某标记是否明确是工具调用标记。
+// 用途：<tool_call> 同时被 llama.cpp 登记进 thinking_end_tags（见 qwen3-coder.cpp:28），
+// 需要据此把"双重身份"的标记按工具调用处理，而不是当思考标签丢掉。
+static bool isKnownToolMarker(const std::string& t) {
+    static const char* kMarkers[] = {
+        "<tool_call>", "<tool_call", "</tool_call>", "</tool_call",
+        "<function=",  "<function",  "</function>", "</function",
+        "<parameter=", "<parameter", "</parameter>", "</parameter",
+    };
+    for (const char* m : kMarkers) {
+        if (t == m) return true;
+    }
+    return false;
+}
+
 static void classifyToolCallTags(const std::vector<std::string>& preservedTokens,
                                  const std::string& thinkStartTag,
                                  const std::vector<std::string>& thinkEndTags,
@@ -1057,9 +1087,33 @@ static void classifyToolCallTags(const std::vector<std::string>& preservedTokens
     outClose.clear();
     for (const auto& t : preservedTokens) {
         if (t.empty() || t[0] != '<') continue;
-        bool isThinkTag = (t == thinkStartTag);
-        for (const auto& e : thinkEndTags) {
-            if (t == e) { isThinkTag = true; break; }
+        // QWEN-DUAL-ROLE(2026-10-09)：同一个标记可能既是"思考结束"又是"工具调用开始"。
+        // llama.cpp 官方就把它登记进了 thinking_end_tags：
+        //   common/parsers/qwen3-coder.cpp:28
+        //     data.thinking_end_tags = { "\n</think>", "</think>", "<tool_call>" };
+        // （注释：非思考型的 Qwen3-Coder 直接吐 <tool_call> 即视为思考结束）
+        // 因此这里的排除必须只作用于**真正的思考标签**，不能误杀工具调用标记，
+        // 否则 outOpen 为空 -> stripToolCallChunk 首行直接 return -> 工具调用原文
+        // 泄漏进主回复（实测 0 open / 1 close）。
+        //
+        // 判据：思考开标签是模型模板里的 thinkStartTag，它不是 "<...>" 形态的工具标记；
+        // 故：- 等于 thinkStartTag 的项，只有在它并非工具调用开标签时才排除
+        //     - 仅"纯闭合形态"的思考标签（如 </think>）可以排除
+        const bool isThinkStart = (t == thinkStartTag);
+        const bool isCloseForm   = (t.size() >= 3 && t[1] == '/' && t.back() == '>');
+        bool isThinkTag = false;
+        if (isThinkStart) {
+            // 思考开标签通常不是工具标记；但若它恰是工具开标签（无配对闭合）则保留
+            isThinkTag = !isCloseForm;
+        } else {
+            for (const auto& e : thinkEndTags) {
+                if (t == e) {
+                    // 仅在"该标记确实不是工具调用标记"时按思考标签排除。
+                    // <tool_call> 这类双重身份标记：它是工具开标签，必须保留。
+                    isThinkTag = !isKnownToolMarker(t);
+                    break;
+                }
+            }
         }
         if (isThinkTag) continue;
         // 闭合项形如 "</xxx>"，其配对开标签由去掉末尾 '>' 得到（"</function>" -> "</function"）。
@@ -1823,17 +1877,30 @@ public:
         // 指定 opencl/vulkan 时，只将目标后端的 GPU device 放入 devices 数组，
         // 强制 llama offload 到该后端（另一后端不参与权重放置）。
         std::vector<ggml_backend_dev_t> selectedDevices;
-        if (backendChoice == "opencl" || backendChoice == "vulkan") {
+        if (backendChoice == "opencl" || backendChoice == "vulkan" || backendChoice == "hexagon") {
+            const bool wantNpu = (backendChoice == "hexagon");
             for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
                 ggml_backend_dev_t dev = ggml_backend_dev_get(i);
                 if (!dev) continue;
                 enum ggml_backend_dev_type dType = ggml_backend_dev_type(dev);
-                if (dType != GGML_BACKEND_DEVICE_TYPE_GPU && dType != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
+                // NPU-SELECT(2026-10-09)：实机日志显示 HTP 设备报的是 type=GPU
+                //   "ggml Device 2: name=HTP0, type=GPU, desc=Hexagon"
+                // 与上游语义一致（"Hexagon NPU behaves as a GPU device for -ngl"），
+                // 所以不能只认 ACCEL；用注册名 "HTP" 区分后端即可。
+                const bool typeOk = wantNpu
+                    ? (dType == GGML_BACKEND_DEVICE_TYPE_GPU ||
+                       dType == GGML_BACKEND_DEVICE_TYPE_IGPU ||
+                       dType == GGML_BACKEND_DEVICE_TYPE_ACCEL)
+                    : (dType == GGML_BACKEND_DEVICE_TYPE_GPU || dType == GGML_BACKEND_DEVICE_TYPE_IGPU);
+                if (!typeOk) continue;
                 ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
                 const char* regName = reg ? ggml_backend_reg_name(reg) : "";
-                bool isTarget = (backendChoice == "vulkan")
-                    ? (strstr(regName, "Vulkan") != nullptr)
-                    : (strstr(regName, "OpenCL") != nullptr);
+                // 注意：Hexagon 后端的注册名是 "HTP"（见 ggml-hexagon.cpp 的 reg_get_name）
+                bool isTarget = wantNpu
+                    ? (strstr(regName, "HTP") != nullptr || strstr(regName, "Hexagon") != nullptr)
+                    : ((backendChoice == "vulkan")
+                        ? (strstr(regName, "Vulkan") != nullptr)
+                        : (strstr(regName, "OpenCL") != nullptr));
                 if (isTarget) {
                     selectedDevices.push_back(dev);
                     LOGI("Backend switch: selected device %zu (backend=%s, name=%s)",
@@ -1843,12 +1910,44 @@ public:
             if (!selectedDevices.empty()) {
                 selectedDevices.push_back(nullptr); // NULL-terminated
                 model_params.devices = selectedDevices.data();
+                // 说明：无需额外开关 —— llama_model_params 只有 devices + n_gpu_layers
+                // 控制卸载（llama.h:319-327）。把 ACCEL 设备放进 devices 且 n_gpu_layers>0 即可。
                 LOGI("Backend switch: offload restricted to %s (%zu device(s))", backendChoice.c_str(), selectedDevices.size() - 1);
             } else {
                 LOGW("Backend switch: no %s device found, using all available devices", backendChoice.c_str());
             }
         } else {
-            LOGI("Backend switch: auto mode, using all available GPU devices");
+            // NPU-AUTO-EXCLUDE(2026-10-09)：auto 模式下**排除 HTP/Hexagon 设备**。
+            // 理由：Hexagon 后端是静态注册的，只要编进来就会出现在设备枚举里（真机日志：
+            //   "ggml Device 2: name=HTP0, type=GPU, desc=Hexagon"）。
+            // 而 auto 会把所有 GPU 类型设备一起放进 model_params.devices 参与权重放置 ——
+            // 这跟此前 Vulkan 同时参与反而拖慢是同一类问题（见 LlamaHelper 里把默认从
+            // auto 改成 opencl 的记录）。NPU 只在用户显式选 "hexagon" 时启用，
+            // 与其 npu_enabled 开关的哲学一致。
+            std::vector<ggml_backend_dev_t> autoDevices;
+            for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+                ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+                if (!dev) continue;
+                enum ggml_backend_dev_type dType = ggml_backend_dev_type(dev);
+                if (dType != GGML_BACKEND_DEVICE_TYPE_GPU && dType != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
+                ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+                const char* regName = reg ? ggml_backend_reg_name(reg) : "";
+                if (strstr(regName, "HTP") != nullptr || strstr(regName, "Hexagon") != nullptr) {
+                    LOGI("Backend switch: auto mode excluded NPU device %zu (backend=%s, name=%s)",
+                         i, regName, ggml_backend_dev_name(dev) ? ggml_backend_dev_name(dev) : "null");
+                    continue;
+                }
+                autoDevices.push_back(dev);
+                LOGI("Backend switch: auto mode kept device %zu (backend=%s, name=%s)",
+                     i, regName, ggml_backend_dev_name(dev) ? ggml_backend_dev_name(dev) : "null");
+            }
+            if (!autoDevices.empty() && autoDevices.size() < ggml_backend_dev_count()) {
+                autoDevices.push_back(nullptr); // NULL-terminated
+                model_params.devices = autoDevices.data();
+                LOGI("Backend switch: auto mode restricted to %zu non-NPU device(s)", autoDevices.size() - 1);
+            } else {
+                LOGI("Backend switch: auto mode, using all available GPU devices");
+            }
         }
         
         if (this->gpuLayers > 0) {
@@ -2867,7 +2966,8 @@ public:
      */
     std::string stripToolCallChunk(const std::string& chunk, bool& inToolCall) {
         if (chunk.empty()) return "";
-        if (mToolCallOpenTags.empty()) return chunk;   // 模板未声明工具语法：不吞除
+        // 无标签集时不做任何吞除（纯正文模型 / 标签推导失败的向后兼容路径）。
+        if (mToolCallOpenTags.empty() && mToolCallCloseTags.empty()) return chunk;
         static const size_t kMaxHold = 8192;           // 超长保护
         std::string out;
         out.reserve(chunk.size());
@@ -3872,7 +3972,7 @@ public:
         // 同时按模板思考标签剥离思考段：思考内容不流式发给 UI（reasoning 由 common_chat_parse 提取）。
         std::string collectedText;
         bool thinkActive = false;      // 跨 chunk 思考状态（模板标签式，非 generateStream 思考分支）
-        bool toolCallActive = false;   // 跨 chunk 工具调用状态（MiniCPM5 <function> 块）
+        bool toolCallActive = false;   // 跨 chunk 工具调用状态
         auto wrappedCallback = [this, &callback, &collectedText, &thinkActive, &toolCallActive](
                 const std::string& text, bool isComplete, const std::string& error) {
             if (!isComplete && !error.empty()) {
@@ -3886,7 +3986,6 @@ public:
             }
             if (!isComplete) {
                 std::string stripped = stripThinkingChunk(text, thinkActive);
-                // 再剥工具调用块：MiniCPM5 的 <function ...> 原文既不进 UI 也不进 TTS
                 stripped = stripToolCallChunk(stripped, toolCallActive);
                 if (!stripped.empty()) {
                     callback(stripped, false, "");
@@ -4667,7 +4766,10 @@ public:
     void setGPULayers(int layers) { gpuLayers = layers; }
 
     void setBackendChoice(const std::string& choice) {
-        if (choice == "opencl" || choice == "vulkan" || choice == "auto") {
+        // NPU-SELECT(2026-10-09)：新增 "hexagon"（Hexagon/HTP NPU 后端）。
+        // llama.cpp 的 Hexagon 后端注册名为 "HTP"，设备类型是 ACCEL（非 GPU），
+        // 故设备过滤处单独处理（见 loadModel 内的 backendChoice 分支）。
+        if (choice == "opencl" || choice == "vulkan" || choice == "auto" || choice == "hexagon") {
             backendChoice = choice;
             LOGI("Backend choice set to: %s", choice.c_str());
         } else {
@@ -5314,6 +5416,12 @@ private:
                 LOGW("applyChatTemplateWithThinking: empty prompt, fallback");
                 return applyChatTemplate(addAssistantStart);
             }
+            // PARSER-AUTHORITATIVE：缓存本次模板参数，供 chatSend 构造 PEG 解析器。
+            // 只在模板声明的 parser 非空时标记有效，避免纯内容模板下误用。
+            if (!params.parser.empty()) {
+                g_lastChatParams = params;
+                g_lastChatParamsValid = true;
+            }
             return params.prompt;
         } catch (const std::exception& e) {
             LOGW("applyChatTemplateWithThinking failed: %s, fallback", e.what());
@@ -5948,6 +6056,24 @@ public:
 
         const int TOOL_CALL_DETECT_THRESHOLD = 10;
         bool possibleToolCall = false;
+
+        // PARSER-AUTHORITATIVE(2026-10-09)：工具调用判定改用 llama.cpp 的 PEG 解析器。
+        // 旧实现列举模型专有标记（<|tool_call_begin|> / "tool_call_begin"），
+        // 完全漏掉 <tool_call><function=...> 形态 —— isToolCall 永远 false，
+        // 于是工具调用原文被逐 token 当正文推给 UI（实测"function=location>..."泄漏进主回复）。
+        // 解析器由模板自带 grammar 构造，是权威判据，换模型无需改代码。
+        common_chat_parser_params chatParserParams;
+        bool useParser = false;
+        if (g_lastChatParamsValid && !g_lastChatParams.parser.empty()) {
+            chatParserParams = llama_jni::makeChatParserParams(g_lastChatParams);
+            chatParserParams.parse_tool_calls = true;
+            useParser = true;
+            LOGI("chatSend: PEG parser enabled for tool-call detection");
+        } else {
+            LOGW("chatSend: no PEG parser available, tool-call detection falls back to markers");
+        }
+        size_t toolCallAt = std::string::npos;   // 工具调用语法起始偏移（模型原文内）
+        size_t sentSafeLen = 0;                  // fullResponse 中已确认下发为正文的长度
         const std::string qwenToolBegin = std::string("\xe2\x96\x85") + "tool" + std::string("\xe2\x96\x81") + "call" + std::string("\xe2\x96\x81") + "begin" + std::string("\xe2\x96\x85");
 
         stepStartTime = std::chrono::steady_clock::now();
@@ -6039,23 +6165,58 @@ public:
                         }
                     }
                     
-                    if (possibleToolCall) {
-                        bool isToolCall = false;
-                        if (fullResponse.find("<|tool_call_begin|>") != std::string::npos) {
-                            isToolCall = true;
+                    if (useParser) {
+                        // 解析器判定：模型仍在生成中，is_partial=true 允许语法未闭合。
+                        // 只要解析出 tool_calls 即认定该轮是工具调用轮 —— 不再依赖
+                        // 模型专有标记，<tool_call>/<function=/tool_call_begin 一视同仁。
+                        try {
+                            common_chat_msg pm = common_chat_parse(fullResponse, true, chatParserParams);
+                            if (!pm.tool_calls.empty()) {
+                                toolCallAt = 0;
+                            } else {
+                                // 未进入工具调用：按解析器给出的正文增量下发
+                                const std::string& c = pm.content;
+                                if (c.size() > sentSafeLen) {
+                                    std::string delta = c.substr(sentSafeLen);
+                                    sentSafeLen = c.size();
+                                    if (!delta.empty()) callback(delta, false, "");
+                                }
+                            }
+                        } catch (const std::exception& e) {
+                            LOGW("chatSend: partial parse failed: %s", e.what());
+                            callback(token_str, false, "");
                         }
-                        if (!isToolCall && fullResponse.find(qwenToolBegin) != std::string::npos) {
-                            isToolCall = true;
+                    } else {
+                        // 无解析器可用的兜底：沿用旧标记检测（纯内容模板 / 模板无语法）
+                        if (!possibleToolCall && n_decode > TOOL_CALL_DETECT_THRESHOLD) {
+                            if (token_str.find("tool") != std::string::npos ||
+                                token_str.find("<|tool") != std::string::npos) {
+                                possibleToolCall = true;
+                            }
                         }
-                        if (!isToolCall && fullResponse.find("tool_call_begin") != std::string::npos) {
-                            isToolCall = true;
+                        if (possibleToolCall) {
+                            bool isToolCall = false;
+                            if (fullResponse.find("<|tool_call_begin|>") != std::string::npos) {
+                                isToolCall = true;
+                            }
+                            if (!isToolCall && fullResponse.find(qwenToolBegin) != std::string::npos) {
+                                isToolCall = true;
+                            }
+                            if (!isToolCall && fullResponse.find("tool_call_begin") != std::string::npos) {
+                                isToolCall = true;
+                            }
+                            if (isToolCall) {
+                                toolCallAt = 0;
+                            }
                         }
-                        if (isToolCall) {
-                            callback("[TOOL_CALL]", false, "");
-                            break;
+                        if (toolCallAt == std::string::npos) {
+                            callback(token_str, false, "");
                         }
                     }
-                    callback(token_str, false, "");
+                    if (toolCallAt != std::string::npos) {
+                        callback("[TOOL_CALL]", false, "");
+                        break;
+                    }
                 }
             }
 
@@ -6318,6 +6479,13 @@ static llama_jni::InferenceContext* s_helperContext = nullptr;
 static std::string s_backendChoiceOverride = "auto";
 static std::mutex s_globalMutex;
 
+// PARSER-AUTHORITATIVE(2026-10-09)：最近一次 chat template 应用得到的完整参数。
+// applyChatTemplateWithThinking / chatSend 是 llama_jni 命名空间下的自由函数
+// （定义时没有 InferenceContext:: 前缀），拿不到 InferenceContext 的成员，
+// 因此用文件级状态缓存，供它们构造 llama.cpp 的 PEG 解析器（common_chat_parser_params）。
+// 工具调用/思考的判定一律以解析器结果为准，不再靠 preserved_tokens 猜标签 ——
+// 实测标签推导会把 <tool_call> 误判为思考标签（0 open/1 close），导致正文剥离失效。
+
 static NativeChatContext* g_chatContext = nullptr;
 
 // 清理Native层消息内容
@@ -6366,6 +6534,33 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetBackend(
     if (s_helperContext != nullptr) {
         s_helperContext->setBackendChoice(choice);
     }
+}
+
+// DSP-LIB-DIR(2026-10-09): the Hexagon backend builds the FastRPC module URI as
+//     file:///libggml-htp-vNN.so
+// FastRPC treats that as a path relative to the DSP loader search list, which does
+// not contain the app native library dir. cdsprpcd then fails with
+//     apps_std_fopen_with_env failed ... (No such file or directory)
+// and the context fails to init. Passing the absolute native library dir lets the
+// backend build an absolute URI instead.
+static std::string s_dspLibDir;
+
+JNIEXPORT void JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetDspLibDir(
+    JNIEnv* env, jclass, jstring dir) {
+    if (dir == nullptr) {
+        LOGW("nativeSetDspLibDir: null dir, ignoring");
+        return;
+    }
+    const char* cstr = env->GetStringUTFChars(dir, nullptr);
+    if (cstr == nullptr) return;
+    std::string value(cstr);
+    env->ReleaseStringUTFChars(dir, cstr);
+    std::lock_guard<std::mutex> lock(s_globalMutex);
+    s_dspLibDir = value;
+    // ggml-hexagon reads this via getenv() when it builds the FastRPC module URI.
+    setenv("GGML_HEXAGON_LIB_DIR", s_dspLibDir.c_str(), 1);
+    LOGI("nativeSetDspLibDir: %s", s_dspLibDir.c_str());
 }
 
 JNIEXPORT jlong JNICALL

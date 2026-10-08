@@ -514,13 +514,19 @@ public final class NpuEngineRouter {
             // NPU-META-EVENT: 与 native 协议对齐 —— 首个 token 前下发 meta（思考标签）。
             // AgentLoopEngine 用 ThinkingTagConfig.fromJson(event) 读 thinking_start_tag /
             // thinking_end_tags 来做思考剥离与流式；缺这个事件会让工具轮的输出解析错乱。
-            String thinkStart = " thinking";
-            String thinkEnd = " response";
+            // THINKING-TEMPLATE-ONLY(2026-10-09)：思考标签一律取自 chat template
+            // （native 从模板推导，LlamaHelper.getThinkingTags()）。此前按模型名
+            // 猜 "<think>" / " thinking" 只在少数模型上对，换个模型就漏检。
+            // 模板未声明思考段时下发空标签，由 ThinkStreamer 按"无思考段"处理。
+            String thinkStart = "";
+            String thinkEnd = "";
             try {
-                String mn = NpuLlmChat.currentOrPreferredModelName().toLowerCase();
-                if (mn.contains("qwen3.5") || mn.contains("qwen35")) {
-                    thinkStart = "<think>";
-                    thinkEnd = "</think>";
+                com.oilquiz.app.ai.chat.parser.ThinkingTagConfig tcfg =
+                        com.oilquiz.app.ai.chat.parser.ThinkingTagConfig.forCurrentEngine();
+                if (tcfg.isAvailable()) {
+                    thinkStart = tcfg.getStartTag();
+                    java.util.List<String> ends = tcfg.getEndTags();
+                    if (ends != null && !ends.isEmpty()) thinkEnd = ends.get(0);
                 }
             } catch (Throwable ignored) {
             }
@@ -708,18 +714,13 @@ public final class NpuEngineRouter {
         private final StringBuilder cleanBody = new StringBuilder();
         private Mode mode = Mode.BEFORE_MARK;
 
-        ThinkStreamer(LlamaHelper.JsonCallback cb) {
-            this(cb, "<think>", "</think>", true);
-        }
-
         ThinkStreamer(LlamaHelper.JsonCallback cb, String thinkStart, String thinkEnd,
                       boolean expectThinking) {
             this.cb = cb;
-            // 统一小写做匹配；空值回退默认，避免调用方传空导致永不分流
-            this.thinkStart = (thinkStart == null || thinkStart.isEmpty())
-                    ? "<think>" : thinkStart.toLowerCase(java.util.Locale.US);
-            this.thinkEnd = (thinkEnd == null || thinkEnd.isEmpty())
-                    ? "</think>" : thinkEnd.toLowerCase(java.util.Locale.US);
+            // THINKING-TEMPLATE-ONLY(2026-10-09)：不做 "<think>" 硬编码回退。
+            // 空标签是合法状态（模板未声明思考段），drain() 会据此跳过全部分流。
+            this.thinkStart = thinkStart == null ? "" : thinkStart.toLowerCase(java.util.Locale.US);
+            this.thinkEnd = thinkEnd == null ? "" : thinkEnd.toLowerCase(java.util.Locale.US);
             this.expectThinking = expectThinking;
         }
 
@@ -747,6 +748,17 @@ public final class NpuEngineRouter {
          * "半个标签保留"混在一处（旧实现正是因此把 {@code </thi} 当内容发出去）。</p>
          */
         private void drain(boolean end) {
+            // THINKING-TEMPLATE-ONLY(2026-10-09)：模板未声明思考段时不做任何分流。
+            // 此时 thinkStart/thinkEnd 为空，而 indexOfTag("") 恒返回 0 会被误判为
+            // "命中分界标签"，导致正文被切碎；所以必须在此整体跳过。
+            if (thinkStart.isEmpty() || thinkEnd.isEmpty()) {
+                if (mode == Mode.BEFORE_MARK) {
+                    mode = Mode.AFTER_MARK;
+                }
+                String all = takeAll(end);
+                emitToken(all);
+                return;
+            }
             while (true) {
                 if (mode == Mode.AFTER_MARK) {
                     // 正文段：不再识别标签（正文里出现 "<" 不该被误判）
