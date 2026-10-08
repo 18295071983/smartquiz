@@ -123,7 +123,14 @@ public class AgentChatHandler {
             @Override
             public void onToolCallStart(String toolName, String args) {
                 if (isValid()) {
-                    callback.onToolCallStart("software_" + System.nanoTime(), toolName, args);
+                    // TOOLCALL-ID-MATCH(2026-10-09)：此前 start 与 complete 各自生成
+                    // "software_" + System.nanoTime()，两次拿到的是**不同**的假 id。
+                    // UI 侧 appendAgentToolCall 以 toolCallId 精确匹配 running 卡片，
+                    // 于是完成时永远匹配不到开始那张 -> 新建第二张 success 卡片，
+                    // 旧卡片永久停在"⏳ 执行中"。
+                    // 本地 Agent 的工具回调本身不携带 id（AgentLoopEngine.LoopCallback
+                    // 只有 toolName），因此这里不再伪造 id，交给 UI 按工具名匹配。
+                    callback.onToolCallStart("", toolName, args);
                     callback.onToolCallUI(toolName, args, -1);
                 }
             }
@@ -141,7 +148,8 @@ public class AgentChatHandler {
                     OnlineToolResult toolResult = success
                         ? OnlineToolResult.success(null, toolName, result, 0)
                         : OnlineToolResult.failure(null, toolName, result, 0);
-                    callback.onToolCallComplete("software_" + System.nanoTime(), toolName, toolResult);
+                    // 同上：保持与 onToolCallStart 一致的（空）id，避免合成 id 造成匹配失败
+                    callback.onToolCallComplete("", toolName, toolResult);
                     callback.onToolCallResultUI(-1, success, result);
                 }
             }

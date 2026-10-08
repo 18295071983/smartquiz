@@ -129,15 +129,34 @@ public class DeviceDetector {
         if (cachedGPU != null) {
             return cachedGPU;
         }
+
+        // GPU-RENDERER-FIRST(2026-10-09)：优先用 GPU 驱动查询真名，再退到系统属性。
+        // 原因：真机（25113PN0EC / SM8850）上 ro.vendor.gpu.renderer 与 gpu.renderer
+        // 都是空，只有 ro.hardware.egl=adreno；而原实现把 ro.product.board 排首位，
+        // 那是**主板代号**（本机 "canoe"），于是"GPU 型号"一直显示设备代号，
+        // 连带 isAdrenoGPU()/getAdrenoSeries() 判断失败（"GPU 系列"显示 UNKNOWN）。
+        // 驱动查询走 OpenCL/Vulkan，本机返回 "QUALCOMM Adreno(TM) 840"。
+        try {
+            String driverName = com.oilquiz.app.ai.jni.LlamaHelper.getGPUNameFromDriver();
+            if (driverName != null && !driverName.isEmpty() && !"Unknown".equals(driverName)) {
+                cachedGPU = driverName;
+                return cachedGPU;
+            }
+        } catch (Throwable t) {
+            // 驱动不可用（库未加载/无 GPU）：继续走属性回退
+            AILogger.w(TAG, "getGPUModel: driver query failed, falling back to props: " + t.getMessage());
+        }
         
         try {
-            // 尝试多种方式获取GPU信息
+            // 属性回退顺序：renderer 类优先，主板/硬件代号放最后（它们不是 GPU 名）
             String[] gpuProps = {
+                "ro.vendor.gpu.renderer",
+                "gpu.renderer",
+                "ro.hardware.egl",
+                "ro.vendor.product.board",
+                "ro.board.platform",
                 "ro.product.board",
                 "ro.hardware",
-                "gpu.renderer",
-                "ro.vendor.gpu.renderer",
-                "ro.vendor.product.board",
                 "ro.vendor.hardware"
             };
             

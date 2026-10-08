@@ -1564,7 +1564,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 String statusStr = String.format(context.getString(R.string.h_4f54d8ba),
                     message.tokensGenerated, seconds, speed);
                 if (message.usingGPU && message.gpuLayers > 0) {
-                    statusStr += " · GPU " + message.gpuLayers + "层";
+                    // ACCEL-LABEL(2026-10-09)：GPU 层数实际可能卸载到 Hexagon NPU
+                    // （它作为 GPU 类型设备参与 -ngl），故按**实际生效的后端**取词，
+                    // 不再一律写 "GPU"。
+                    statusStr += " · " + accelLabel() + " " + message.gpuLayers + "层";
                 }
                 holder.statusText.setText(statusStr);
                 holder.statusText.setVisibility(View.VISIBLE);
@@ -1605,6 +1608,34 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
             holder.statusIcon.setVisibility(View.GONE);
             holder.statusText.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 加速后端显示名。层数由 -ngl 决定，而目标设备可能是 Hexagon NPU
+     * （它作为 GPU 类型设备参与卸载），故按实际生效后端取词。
+     *
+     * <p>优先用 native 回传的**解析结果**：偏好为 "auto" 时它才说明最终落到
+     * 哪个设备（真机上 auto 会解析成 HTP/NPU）。解析结果为空（尚未加载模型或
+     * 纯 CPU）时退回偏好值。</p>
+     */
+    private String accelLabel() {
+        String b = null;
+        try {
+            b = com.oilquiz.app.ai.jni.LlamaHelper.getResolvedBackend();
+            if (b == null || b.isEmpty()) {
+                b = com.oilquiz.app.ai.jni.LlamaHelper.getLoadedBackend();
+            }
+        } catch (Throwable ignored) {
+            // 取不到时退回通用词，不影响渲染
+        }
+        if (b == null || b.isEmpty()) return "GPU";
+        switch (b) {
+            case "hexagon": return "NPU";
+            case "opencl":  return "OpenCL";
+            case "vulkan":  return "Vulkan";
+            case "auto":    return "自动";
+            default:        return "GPU";
         }
     }
 

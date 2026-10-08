@@ -1009,6 +1009,15 @@ using namespace std;
 static common_chat_params g_lastChatParams;
 static bool               g_lastChatParamsValid = false;
 
+// RESOLVED-BACKEND(2026-10-09)：模型加载时**实际选中**的加速后端。
+// 与 Java 侧的偏好值区分开：偏好 "auto" 在真机上会解析成 HTP(NPU) 或 OpenCL，
+// 界面需要显示解析结果（"NPU 43层"）而不是偏好词（"自动 43层"）。
+// 取值由 loadModel 里设备选择的三条路径写入："hexagon" / "opencl" / "vulkan" / "cpu"。
+// 用独立小锁保护：loadModel 在推理线程执行，而界面可能同时读取；std::string 的
+// 并发读写会撕裂。不复用 s_globalMutex（那把锁范围大得多，没必要在这里争用）。
+static std::string g_resolvedBackend;
+static std::mutex  g_resolvedBackendMutex;
+
 // 采样默认参数：按模型覆盖。官方对 MiniCPM5 有明确建议，见 OpenBMB llama_cpp 部署文档：
 //   "In llama.cpp, the default min_p=0.05 can lead to repetitive output: it filters out
 //    tokens whose probability is below 5% of the highest-probability token, potentially
@@ -1221,7 +1230,6 @@ static std::mutex s_mtmdMutex;
 static int s_defaultMemoryPoolSize = 1024;
 static int s_defaultBatchSize = 512;
 static std::string s_defaultChatTemplate = "";
-
 
 
     /**
@@ -1910,43 +1918,110 @@ public:
             if (!selectedDevices.empty()) {
                 selectedDevices.push_back(nullptr); // NULL-terminated
                 model_params.devices = selectedDevices.data();
+                {
+                    std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+                    g_resolvedBackend = backendChoice;   // 显式后端：请求值即解析值
+                }
                 // 说明：无需额外开关 —— llama_model_params 只有 devices + n_gpu_layers
                 // 控制卸载（llama.h:319-327）。把 ACCEL 设备放进 devices 且 n_gpu_layers>0 即可。
                 LOGI("Backend switch: offload restricted to %s (%zu device(s))", backendChoice.c_str(), selectedDevices.size() - 1);
             } else {
-                LOGW("Backend switch: no %s device found, using all available devices", backendChoice.c_str());
+                // FALLBACK-SINGLE-DEVICE(2026-10-09)：请求的后端不存在时，不要留空
+                // devices —— 留空等于让 llama.cpp 自行枚举全部设备，而多设备会把
+                // 权重分片落到未预期的后端上并导致模型加载 segfault
+                // （signal 11 -> ggml_backend_dev_get_props）。改为只挑一个。
+                ggml_backend_dev_t fbNpu = nullptr, fbOpenCL = nullptr, fbVulkan = nullptr;
+                for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+                    ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+                    if (!dev) continue;
+                    ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+                    const char* regName = reg ? ggml_backend_reg_name(reg) : "";
+                    if (strstr(regName, "HTP") != nullptr || strstr(regName, "Hexagon") != nullptr) {
+                        if (!fbNpu) fbNpu = dev;
+                        continue;
+                    }
+                    enum ggml_backend_dev_type dType = ggml_backend_dev_type(dev);
+                    if (dType != GGML_BACKEND_DEVICE_TYPE_GPU && dType != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
+                    if (!fbOpenCL && strstr(regName, "OpenCL") != nullptr) fbOpenCL = dev;
+                    else if (!fbVulkan && strstr(regName, "Vulkan") != nullptr) fbVulkan = dev;
+                }
+                ggml_backend_dev_t fb = fbNpu ? fbNpu : (fbOpenCL ? fbOpenCL : fbVulkan);
+                if (fb != nullptr) {
+                    selectedDevices.push_back(fb);
+                    selectedDevices.push_back(nullptr);
+                    model_params.devices = selectedDevices.data();
+                    ggml_backend_reg_t fbReg = ggml_backend_dev_backend_reg(fb);
+                    // 回退后实际用的是 fb 对应的后端，不是请求值
+                    const char* fbName = fbReg ? ggml_backend_reg_name(fbReg) : "";
+                    {
+                        std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+                        g_resolvedBackend = (fb == fbNpu) ? "hexagon"
+                                          : (strstr(fbName, "OpenCL") ? "opencl" : "vulkan");
+                    }
+                    LOGW("Backend switch: no %s device found, falling back to single device (backend=%s, name=%s)",
+                         backendChoice.c_str(), fbName,
+                         ggml_backend_dev_name(fb) ? ggml_backend_dev_name(fb) : "null");
+                } else {
+                    LOGW("Backend switch: no %s device found and no fallback device, using all available devices",
+                         backendChoice.c_str());
+                }
             }
         } else {
-            // NPU-AUTO-EXCLUDE(2026-10-09)：auto 模式下**排除 HTP/Hexagon 设备**。
-            // 理由：Hexagon 后端是静态注册的，只要编进来就会出现在设备枚举里（真机日志：
-            //   "ggml Device 2: name=HTP0, type=GPU, desc=Hexagon"）。
-            // 而 auto 会把所有 GPU 类型设备一起放进 model_params.devices 参与权重放置 ——
-            // 这跟此前 Vulkan 同时参与反而拖慢是同一类问题（见 LlamaHelper 里把默认从
-            // auto 改成 opencl 的记录）。NPU 只在用户显式选 "hexagon" 时启用，
-            // 与其 npu_enabled 开关的哲学一致。
-            std::vector<ggml_backend_dev_t> autoDevices;
+            // AUTO-PICK(2026-10-09)：auto = 自动挑**一个**后端，优先 NPU。
+            //
+            // 优先级：Hexagon/HTP(NPU) > OpenCL > Vulkan。
+            //   - NPU 优先：实测本机 prefill 约 1500 tok/s、decode 29~34 tok/s，
+            //     明显优于 OpenCL（prefill 约 205、decode 约 15.6）。
+            //   - OpenCL 优于 Vulkan：CMakeLists 记录本工程 Vulkan 走基础路径
+            //     （NDK glslc 不支持 cooperativeMatrix/bfloat16），而 OpenCL 用了
+            //     Adreno 专用 kernel。两者都可用时选 OpenCL。
+            //
+            // 只放一个设备（AUTO-SINGLE-DEVICE）：此前 auto 会把 Vulkan0 与
+            // GPUOpenCL 一起放进 model_params.devices，模型加载时 segfault
+            // （signal 11 -> ggml_backend_dev_get_props -> llama_model_load_from_file）。
+            // 传多个异构设备会让权重分片落到未预期的后端上。
+            ggml_backend_dev_t pickedNpu = nullptr;
+            ggml_backend_dev_t pickedOpenCL = nullptr;
+            ggml_backend_dev_t pickedVulkan = nullptr;
             for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
                 ggml_backend_dev_t dev = ggml_backend_dev_get(i);
                 if (!dev) continue;
-                enum ggml_backend_dev_type dType = ggml_backend_dev_type(dev);
-                if (dType != GGML_BACKEND_DEVICE_TYPE_GPU && dType != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
                 ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
                 const char* regName = reg ? ggml_backend_reg_name(reg) : "";
-                if (strstr(regName, "HTP") != nullptr || strstr(regName, "Hexagon") != nullptr) {
-                    LOGI("Backend switch: auto mode excluded NPU device %zu (backend=%s, name=%s)",
-                         i, regName, ggml_backend_dev_name(dev) ? ggml_backend_dev_name(dev) : "null");
+                const bool isNpu = strstr(regName, "HTP") != nullptr || strstr(regName, "Hexagon") != nullptr;
+                if (isNpu) {
+                    // NPU 实测报 type=GPU 而非 ACCEL，故不按 type 过滤
+                    if (pickedNpu == nullptr) pickedNpu = dev;
                     continue;
                 }
-                autoDevices.push_back(dev);
-                LOGI("Backend switch: auto mode kept device %zu (backend=%s, name=%s)",
-                     i, regName, ggml_backend_dev_name(dev) ? ggml_backend_dev_name(dev) : "null");
+                enum ggml_backend_dev_type dType = ggml_backend_dev_type(dev);
+                if (dType != GGML_BACKEND_DEVICE_TYPE_GPU && dType != GGML_BACKEND_DEVICE_TYPE_IGPU) continue;
+                if (pickedOpenCL == nullptr && strstr(regName, "OpenCL") != nullptr) {
+                    pickedOpenCL = dev;
+                } else if (pickedVulkan == nullptr && strstr(regName, "Vulkan") != nullptr) {
+                    pickedVulkan = dev;
+                }
             }
-            if (!autoDevices.empty() && autoDevices.size() < ggml_backend_dev_count()) {
-                autoDevices.push_back(nullptr); // NULL-terminated
-                model_params.devices = autoDevices.data();
-                LOGI("Backend switch: auto mode restricted to %zu non-NPU device(s)", autoDevices.size() - 1);
+            ggml_backend_dev_t picked = pickedNpu ? pickedNpu
+                                     : (pickedOpenCL ? pickedOpenCL : pickedVulkan);
+            if (picked != nullptr) {
+                selectedDevices.clear();
+                selectedDevices.push_back(picked);
+                selectedDevices.push_back(nullptr); // NULL-terminated
+                model_params.devices = selectedDevices.data();
+                ggml_backend_reg_t pickedReg = ggml_backend_dev_backend_reg(picked);
+                const char* pickedRegName = pickedReg ? ggml_backend_reg_name(pickedReg) : "";
+                // auto 的解析结果：优先级与上面选设备的顺序一致
+                {
+                    std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+                    g_resolvedBackend = (picked == pickedNpu) ? "hexagon"
+                                      : (picked == pickedOpenCL ? "opencl" : "vulkan");
+                }
+                LOGI("Backend switch: auto mode picked single device (backend=%s, name=%s)",
+                     pickedRegName,
+                     ggml_backend_dev_name(picked) ? ggml_backend_dev_name(picked) : "null");
             } else {
-                LOGI("Backend switch: auto mode, using all available GPU devices");
+                LOGW("Backend switch: auto mode found no usable device, using all available devices");
             }
         }
         
@@ -6563,6 +6638,20 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeSetDspLibDir(
     LOGI("nativeSetDspLibDir: %s", s_dspLibDir.c_str());
 }
 
+// RESOLVED-BACKEND(2026-10-09)：返回模型加载时实际选中的加速后端。
+// 供界面显示"NPU 43层"这类文案：偏好为 "auto" 时也需要知道解析到了哪个设备。
+// 返回 "hexagon" / "opencl" / "vulkan"；未选择任何加速设备时返回空串（纯 CPU）。
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetResolvedBackend(
+    JNIEnv* env, jclass) {
+    std::string snapshot;
+    {
+        std::lock_guard<std::mutex> rbLock(g_resolvedBackendMutex);
+        snapshot = g_resolvedBackend;
+    }
+    return env->NewStringUTF(snapshot.c_str());
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeChatCreate(
     JNIEnv* env, jclass, jstring modelPath, jint ctxSize, jint nThreads, jstring globalPrompt, jstring systemPrompt, jstring normalPrompt) {
@@ -9129,7 +9218,48 @@ JNIEXPORT jint JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetDeviceCount(
     JNIEnv* env,
     jclass /* clazz */) {
-    return 0;
+    // ACCEL-DEVICES(2026-10-09)：此前是 return 0 的桩实现，Java 侧 getDeviceCount()
+    // 永远得到 0，设备信息页因此无法展示设备数量。改为返回 ggml 实际枚举数。
+    return (jint) ggml_backend_dev_count();
+}
+
+
+// ACCEL-CAPS(2026-10-09)：返回全部 ggml 设备的能力（设备信息页展示）。
+//
+// 只用已被验证可用的接口：ggml_backend_dev_name / _description / _type / _backend_reg。
+// 显存与能力位（ggml_backend_dev_get_props 等）在本机实测会触发 SIGSEGV，
+// 未定位到原因前不启用，界面也不再展示这两类字段。
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetDeviceCaps(
+    JNIEnv* env,
+    jclass /* clazz */) {
+    nlohmann::ordered_json arr = nlohmann::ordered_json::array();
+    const size_t n = ggml_backend_dev_count();
+    for (size_t i = 0; i < n; i++) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (dev == nullptr) continue;
+
+        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+        const char* regName = reg ? ggml_backend_reg_name(reg) : "";
+        const char* devName = ggml_backend_dev_name(dev);
+        const char* devDesc = ggml_backend_dev_description(dev);
+
+        const char* typeStr = "Unknown";
+        switch (ggml_backend_dev_type(dev)) {
+            case GGML_BACKEND_DEVICE_TYPE_CPU:  typeStr = "CPU";  break;
+            case GGML_BACKEND_DEVICE_TYPE_GPU:  typeStr = "GPU";  break;
+            case GGML_BACKEND_DEVICE_TYPE_IGPU: typeStr = "IGPU"; break;
+            case GGML_BACKEND_DEVICE_TYPE_ACCEL:typeStr = "ACCEL";break;
+        }
+
+        nlohmann::ordered_json d;
+        d["backend"] = regName ? regName : "";
+        d["name"]    = devName ? devName : "";
+        d["desc"]    = devDesc ? devDesc : "";
+        d["type"]    = typeStr;
+        arr.push_back(d);
+    }
+    return utf8StringToJstring(env, arr.dump());
 }
 
 JNIEXPORT jlong JNICALL

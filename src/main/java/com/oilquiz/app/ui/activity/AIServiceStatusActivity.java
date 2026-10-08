@@ -319,17 +319,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 .contains("gpu_layers_manual");
     }
 
-    /**
-     * 后端偏好键 -> 界面显示名。
-     * NPU-SELECT(2026-10-09)：集中一处，避免多处三元链各漏 hexagon 分支
-     * （此前 AIServiceStatusActivity 与 DeviceInfoActivity 都因此把 hexagon 显示成"自动"）。
-     */
-    private static String backendLabel(String backend) {
-        if ("opencl".equals(backend)) return "OpenCL";
-        if ("vulkan".equals(backend)) return "Vulkan";
-        if ("hexagon".equals(backend)) return "NPU (Hexagon)";
-        return "自动";
-    }
+    // 后端偏好键 -> 界面显示名的映射已集中到 LlamaHelper.backendLabel()，
+    // 与设备信息页共用同一份，避免两页各自漏 hexagon 分支或默认值不一致。
 
     private void setButtonListeners() {
         if (btnSelectModel != null) {
@@ -785,15 +776,14 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
                 final String loaded = com.oilquiz.app.ai.jni.LlamaHelper.getLoadedBackend();
                 final String pending = com.oilquiz.app.ai.jni.LlamaHelper.getEffectiveBackend();
                 String shown = (loaded != null) ? loaded : pending;   // 尚未加载过模型时退回偏好值
-                // NPU-SELECT(2026-10-09)：补 hexagon 分支，否则会落到 else 显示"自动"
-                String backendName2 = "vulkan".equals(shown) ? "Vulkan"
-                        : ("opencl".equals(shown) ? "OpenCL"
-                        : ("hexagon".equals(shown) ? "NPU (Hexagon)" : "自动"));
+                // 显示名走单一映射（见 LlamaHelper.backendLabel），不再本地写三元链
+                String backendName2 = com.oilquiz.app.ai.jni.LlamaHelper.backendLabel(shown);
                 // 偏好与已生效不一致 -> 明确提示需要重载，不再谎报"已启用"
                 boolean needsReload = (loaded != null) && !loaded.equals(pending);
                 if (!npuSvc().isNpuEngineEnabled()) {
                     if (needsReload) {
-                        openclStatus.setText(backendName2 + " · 已启用（已切至 " + backendLabel(pending) + "，需重载）");
+                        openclStatus.setText(backendName2 + " · 已启用（已切至 "
+                                + com.oilquiz.app.ai.jni.LlamaHelper.backendLabel(pending) + "，需重载）");
                     } else {
                         openclStatus.setText(backendName2 + (openclLoaded ? " · 已启用" : " · 未启用"));
                     }

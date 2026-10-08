@@ -89,7 +89,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="GPU 设备检测"
+                    android:text="加速设备检测"
                     android:textSize="@dimen/text_18"
                     android:textStyle="bold"
                     android:textColor="?attr/colorControlText"/>
@@ -105,6 +105,38 @@
                     android:fontFamily="monospace"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_16"
+            app:cardElevation="4dp"
+            app:cardCornerRadius="16dp"
+            app:cardBackgroundColor="?attr/colorCardBackground">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/space_16">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="推理运行时"
+                    android:textSize="@dimen/text_18"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorControlText"/>
+                <TextView
+                    android:id="@+id/runtime_info_text_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_12"
+                    android:text="加载中..."
+                    android:textSize="@dimen/text_13"
+                    android:textColor="?attr/colorControlTextSecondary"
+                    android:lineSpacingExtra="5dp"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_refresh"

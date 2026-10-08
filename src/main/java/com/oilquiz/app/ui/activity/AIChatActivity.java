@@ -6144,8 +6144,22 @@ public class AIChatActivity extends BaseActivity {
      * 更新 AI 消息气泡内的 Agent 执行步骤状态行。
      */
     private void setAgentStepStatus(String status) {
+        setAgentStepStatus(resolveStreamingIndex(), status);
+    }
+
+    /**
+     * AGENT-STATUS-INDEX(2026-10-09)：按**显式索引**写入气泡内步骤状态。
+     *
+     * <p>存在理由：{@link #resolveStreamingIndex()} 在生成结束后返回 -1
+     * （currentStreamingMessageId 被 endGeneration 清空），而 Agent 完成回调
+     * 是先 completeGeneration 再写"✅ 执行完成"。旧实现只接受字符串、内部再解析索引，
+     * 于是那次写入被 idx &lt; 0 静默丢弃，气泡内状态永久停在
+     * "🔍 思考中...（第N轮）" —— 即"思考没有完成态"。</p>
+     *
+     * <p>调用方可在 completeGeneration 之前捕获索引，随后用本重载写入。</p>
+     */
+    private void setAgentStepStatus(int idx, String status) {
         if (status == null || status.isEmpty()) return;
-        final int idx = resolveStreamingIndex();
         if (idx < 0 || idx >= chatHistory.size()) return;
         ChatMessage msg = chatHistory.get(idx);
         msg.agentStepStatus = status;
@@ -7017,6 +7031,11 @@ public class AIChatActivity extends BaseActivity {
                     lastAgentUserMessage = null;
                 }
             }
+            // AGENT-STATUS-INDEX(2026-10-09)：必须在 completeGeneration 之前捕获消息索引。
+            // completeGeneration -> endGeneration 会清空 currentStreamingMessageId，
+            // 之后 resolveStreamingIndex() 恒为 -1，导致下面那次"✅ 执行完成"写入被丢弃，
+            // 气泡内步骤状态永久停在"🔍 思考中...（第N轮）"（用户报的"思考没有完成态"）。
+            final int doneIdx = resolveStreamingIndex();
             completeGeneration(fullText);
             // 清理组ID（执行完成，不插入系统消息）
             runOnUiThread(() -> {
@@ -7024,7 +7043,7 @@ public class AIChatActivity extends BaseActivity {
                 // 状态栏恢复（执行完成）
                 updateAgentStatusBar("✅ 执行完成", false);
                 // 气泡内步骤状态（汇总文本已在 completeGeneration 中写入 agentSummary）
-                setAgentStepStatus("✅ 执行完成");
+                setAgentStepStatus(doneIdx, "✅ 执行完成");
                 if (currentAgentGroupId != null && chatAdapter != null) {
                     chatAdapter.updateAgentGroupCounts(currentAgentGroupId, agentGroupStepCount, agentGroupToolCount);
                 }
@@ -9759,20 +9778,34 @@ public class AIChatActivity extends BaseActivity {
             java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> comps =
                     msg.components != null ? new java.util.ArrayList<>(msg.components) : new java.util.ArrayList<>();
 
-            // 工具完成：按 toolCallId 精确匹配对应卡片（无 id 时兼容回退：匹配同工具名最后一张 running）
+            // 工具完成：把某张 running 卡片更新为 success/failed。
+            //
+            // TOOLCALL-MATCH-2PASS(2026-10-09)：先按 id 精确匹配；**找不到再按工具名回退**。
+            // 旧实现在"有 id 但匹配失败"时直接放弃匹配并新建第二张卡片，导致开始那张
+            // 永久停在"⏳ 执行中"。本地 Agent 的回调不携带真实 id（曾用每次不同的合成 id，
+            // 已改为空串），所以按名回退是必需路径，不能只在 id 为空时才走。
             if ("success".equals(status) || "failed".equals(status)) {
-                for (int i = comps.size() - 1; i >= 0; i--) {
-                    com.oilquiz.app.ai.chat.component.ComponentData c = comps.get(i);
-                    if (c == null || !"tool_call".equals(c.type)) continue;
-                    String cardStatus = c.props != null ? c.props.optString("status", "") : "";
-                    if (!"running".equals(cardStatus)) continue;
-                    String cardCallId = c.props != null ? c.props.optString("toolCallId", "") : "";
-                    // 优先按 id 匹配；id 缺失时按工具名匹配（兼容旧回调）
-                    if (toolCallId != null && !toolCallId.isEmpty()) {
-                        if (!toolCallId.equals(cardCallId)) continue;
-                    } else if (toolName != null && !toolName.isEmpty()) {
-                        if (!toolName.equals(c.props.optString("toolName", ""))) continue;
+                int match = -1;
+                // 第 1 遍：按 id 精确匹配（仅当本次有非空 id）
+                if (toolCallId != null && !toolCallId.isEmpty()) {
+                    for (int i = comps.size() - 1; i >= 0; i--) {
+                        com.oilquiz.app.ai.chat.component.ComponentData c = comps.get(i);
+                        if (c == null || !"tool_call".equals(c.type) || c.props == null) continue;
+                        if (!"running".equals(c.props.optString("status", ""))) continue;
+                        if (toolCallId.equals(c.props.optString("toolCallId", ""))) { match = i; break; }
                     }
+                }
+                // 第 2 遍：按工具名回退（取最后一张同名的 running 卡片）
+                if (match < 0 && toolName != null && !toolName.isEmpty()) {
+                    for (int i = comps.size() - 1; i >= 0; i--) {
+                        com.oilquiz.app.ai.chat.component.ComponentData c = comps.get(i);
+                        if (c == null || !"tool_call".equals(c.type) || c.props == null) continue;
+                        if (!"running".equals(c.props.optString("status", ""))) continue;
+                        if (toolName.equals(c.props.optString("toolName", ""))) { match = i; break; }
+                    }
+                }
+                if (match >= 0) {
+                    com.oilquiz.app.ai.chat.component.ComponentData c = comps.get(match);
                     if (c.props == null) c.props = new org.json.JSONObject();
                     c.props.put("status", status);
                     if (result != null) c.props.put("result", result);
@@ -9792,6 +9825,7 @@ public class AIChatActivity extends BaseActivity {
                     scrollToBottom();
                     return;
                 }
+                // 没有可更新的 running 卡片（回调乱序/卡片已丢失）：落到下方新建，保证结果可见
             }
 
             // 新工具调用：追加 running 卡片（携带 toolCallId 供完成时精确匹配）

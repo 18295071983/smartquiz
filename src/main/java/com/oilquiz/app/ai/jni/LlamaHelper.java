@@ -154,18 +154,23 @@ public class LlamaHelper {
 
     private static native int nativeInitModel(String modelPath, int nCtx, int nThreads);
 
-    // ========== GPU 后端开关（OpenCL / Vulkan / auto）==========
+    // ========== GPU 后端开关（hexagon / opencl / vulkan / auto）==========
     // 设置项 key: gpu_backend
-    // 默认从 "auto" 改为 "opencl"（2026-10-07）：
-    //   · CMakeLists 明确记录本工程打包的 Vulkan 走的是**基础路径**——NDK 的 glslc 不支持
-    //     cooperativeMatrix / bfloat16 扩展，注释原话"正确但较慢"；而 OpenCL 侧用了
-    //     Adreno 专用 kernel（GGML_OPENCL_USE_ADRENO_KERNELS=ON）+ FA c8/NSG2 变体。
-    //   · ggml_probe 实测本机后端枚举：Vulkan0(Adreno 840, type=ACCEL) 与
-    //     GPUOpenCL(Adreno 840, type=GPU) **同时存在**；auto 会把两个后端都放进
-    //     model_params.devices 一起参与权重放置，多一个慢后端反而拖慢。
-    //   · 指定 opencl 后 native 只把 OpenCL 设备放进 devices（另一后端不参与）。
-    // 想换回：设置项写 vulkan / auto 即可（运行时生效，无需重新编译）。
-    private static String sBackendPreference = "opencl";
+    // 默认值 DEFAULT_BACKEND = "hexagon"（2026-10-09）：
+    //   · 实测本机 SM8850 的 Hexagon/HTP NPU：prefill 约 1500 tok/s、decode 29~34 tok/s；
+    //     同一模型走 OpenCL 只有 prefill ~205、decode ~15.6 tok/s。故选 NPU 为默认。
+    //   · 前提是 Hexagon 后端已编入（GGML_HEXAGON=ON）且设备枚举出 HTP 设备；
+    //     不满足时 native 侧 "no hexagon device found" 会自动回退到全部可用设备，
+    //     不会因为默认值而拒绝加载。
+    //   · 设为 opencl 的历史理由（2026-10-07）：Vulkan 走基础路径较慢，而 auto 会把
+    //     Vulkan 与 OpenCL 一起放进 devices 互相拖慢。该理由只否定了旧的 auto 行为，
+    //     不构成选 opencl 优于 NPU 的依据。
+    //   · auto 现在的行为（2026-10-09）与默认值一致：只挑一个设备，优先 NPU，
+    //     再退 OpenCL / Vulkan。旧 auto 传入多个设备会导致模型加载 segfault
+    //     （signal 11 -> ggml_backend_dev_get_props），已修。
+    // 想换回：设置项写 opencl / vulkan / auto 即可（运行时生效，无需重新编译）。
+    public static final String DEFAULT_BACKEND = "hexagon";
+    private static String sBackendPreference = DEFAULT_BACKEND;
 
     public static void setBackend(String backend) {
         if (backend == null) return;
@@ -212,8 +217,12 @@ public class LlamaHelper {
         }
         try {
             if (context != null) {
+                // DEFAULT-NPU(2026-10-09)：默认后端改为 hexagon（NPU）。
+                // 实测本机 SM8850：NPU prefill 约 1500 tok/s、decode 29~34 tok/s，
+                // 明显优于 OpenCL（prefill ~205、decode ~15.6）。未安装 Hexagon 后端
+                // 或设备不支持时，native 侧找不到 HTP 设备会自动回退全部设备。
                 String saved = PreferenceManager.getDefaultSharedPreferences(context)
-                        .getString("gpu_backend", "opencl");
+                        .getString("gpu_backend", DEFAULT_BACKEND);
                 if (saved != null && !saved.isEmpty()) {
                     sBackendPreference = saved.trim().toLowerCase();
                 }
@@ -247,6 +256,22 @@ public class LlamaHelper {
     public static String getLoadedBackend() { return sLoadedBackend; }
 
     /**
+     * 后端偏好键 -> 界面显示名。
+     *
+     * <p>集中在本类（后端状态的唯一真相源），避免各 Activity 各写一份三元链／switch
+     * 而漏掉分支或默认值不一致。此前 AIServiceStatusActivity 与 DeviceInfoActivity
+     * 就各自实现过一次，且后者把默认值写死成 "auto"，与 {@link #DEFAULT_BACKEND} 脱节。</p>
+     *
+     * @param backend "hexagon" / "opencl" / "vulkan" / "auto"；其它值按"自动"处理
+     */
+    public static String backendLabel(String backend) {
+        if ("opencl".equals(backend)) return "OpenCL";
+        if ("vulkan".equals(backend)) return "Vulkan";
+        if ("hexagon".equals(backend)) return "NPU (Hexagon)";
+        return "自动";
+    }
+
+    /**
      * BACKEND-SINGLE-SOURCE(2026-10-09)：返回**实际生效**的后端偏好。
      *
      * <p>存在理由：此前 UI 与 native 各自读 SharedPreferences 且**默认值不一致** ——
@@ -254,10 +279,10 @@ public class LlamaHelper {
      * 首次安装未选任何后端时，就会出现"UI 显示自动、native 实际跑 opencl"的自相矛盾
      * （AI 服务页顶部状态行即由此显示成"自动"）。</p>
      *
-     * <p>现在统一以 {@link #sBackendPreference}（native 真正下发的那个值）为准：
-     * 先确保偏好已从设置读出并应用到 native，再返回它。</p>
+     * <p>现在两边都走 {@link #DEFAULT_BACKEND} 与 {@link #sBackendPreference}
+     * （native 真正下发的那个值）：先确保偏好已从设置读出并应用到 native，再返回它。</p>
      *
-     * @return 实际生效的后端："opencl" / "vulkan" / "hexagon" / "auto"
+     * @return 实际生效的后端："hexagon" / "opencl" / "vulkan" / "auto"
      */
     public static String getEffectiveBackend() {
         applyBackendPreference();
@@ -269,7 +294,7 @@ public class LlamaHelper {
             Context ctx = AppServices.appContext();
             if (ctx != null) {
                 String saved = PreferenceManager.getDefaultSharedPreferences(ctx)
-                    .getString("gpu_backend", "opencl");   // 默认值同步为 opencl，见上方说明
+                    .getString("gpu_backend", DEFAULT_BACKEND);   // 与 DEFAULT_BACKEND 保持同源
                 if (saved != null && !saved.isEmpty()) {
                     sBackendPreference = saved.trim().toLowerCase();
                 }
@@ -299,6 +324,28 @@ public class LlamaHelper {
      * 上下文初始化失败、服务初始化返回 -1。传入绝对目录后改为绝对 URI 即可。</p>
      */
     private static native void nativeSetDspLibDir(String dir);
+
+    /**
+     * RESOLVED-BACKEND(2026-10-09)：返回模型加载时**实际选中**的加速后端。
+     *
+     * <p>与 {@link #getLoadedBackend()} 的区别：后者返回的是**偏好值**，偏好为
+     * {@code "auto"} 时无法说明最终落到了哪个设备。界面要显示"NPU 43层"就必须知道
+     * 解析结果，故由 native 在选设备时记下并回传。</p>
+     *
+     * @return "hexagon" / "opencl" / "vulkan"；未选任何加速设备（纯 CPU）时为空串
+     */
+    public static String getResolvedBackend() {
+        try {
+            String v = nativeGetResolvedBackend();
+            return v != null ? v : "";
+        } catch (Throwable t) {
+            // 老 so 或未加载：视为未知，调用方回退到偏好值取词
+            AILogger.w(TAG, "getResolvedBackend unavailable: " + t.getMessage());
+            return "";
+        }
+    }
+
+    private static native String nativeGetResolvedBackend();
 
     // ========== 推理锁方法 ==========
     
@@ -1689,6 +1736,77 @@ public class LlamaHelper {
     }
     
     private static native int nativeGetDeviceCount();
+
+    /**
+     * ACCEL-CAPS(2026-10-09)：返回**全部** ggml 设备的能力 JSON。
+     *
+     * <p>每项含：backend / name / desc / type / memory_free_mb / memory_total_mb /
+     * mem_type / mem_align / caps_async / caps_host_buffer / caps_from_host /
+     * caps_events / caps_mmap / device_id / host_buft。</p>
+     *
+     * <p>走 ggml 的**设备无关**接口，所以 Vulkan、OpenCL、Hexagon(NPU)、CPU 都能报出
+     * 显存与能力位。此前设备信息页只查 OpenCL（它直接调 clGetDeviceInfo），
+     * 其他设备的能力项缺失。注意 Hexagon NPU 实测报 type=GPU（它作为 GPU 类型设备
+     * 参与 -ngl），判断是否 NPU 要看 backend 名（"HTP"）。</p>
+     *
+     * @return JSON 数组字符串；库未加载或调用失败时返回空数组 "[]"
+     */
+    public static String getDeviceCaps() {
+        if (!libraryLoaded) return "[]";
+        try {
+            String v = nativeGetDeviceCaps();
+            return (v != null && !v.isEmpty()) ? v : "[]";
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "getDeviceCaps unavailable: " + e.getMessage());
+            return "[]";
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getDeviceCaps failed: " + t.getMessage());
+            return "[]";
+        }
+    }
+
+    private static native String nativeGetDeviceCaps();
+
+    /**
+     * ACCEL-DEVICES(2026-10-09)：从 GPU 驱动查询中取出 GPU 名称。
+     *
+     * <p>系统属性法拿不到真名（真机 ro.vendor.gpu.renderer / gpu.renderer 均为空，
+     * ro.product.board 是主板代号 "canoe"），而驱动查询可返回
+     * "QUALCOMM Adreno(TM) 840"。结果由调用方（DeviceDetector）缓存。</p>
+     *
+     * @return GPU 名称；查询失败或为空时返回空串
+     */
+    public static String getGPUNameFromDriver() {
+        try {
+            String json = detectGPUInfo();
+            if (json == null || json.isEmpty() || "{}".equals(json)) return "";
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            String name = o.optString("name", "");
+            return "Unknown".equals(name) ? "" : name;
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getGPUNameFromDriver failed: " + t.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * ACCEL-CAPS(2026-10-09)：本机是否存在 Hexagon/HTP NPU 设备。
+     * 设备信息页据此显示 NPU 行；判断依据是后端注册名而非 type（见 getDeviceCaps）。
+     */
+    public static boolean hasNpuDevice() {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(getDeviceCaps());
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject d = arr.optJSONObject(i);
+                if (d == null) continue;
+                String backend = d.optString("backend", "");
+                if (backend.contains("HTP") || backend.contains("Hexagon")) return true;
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "hasNpuDevice failed: " + t.getMessage());
+        }
+        return false;
+    }
     
     // 获取空闲设备内存
     public static long getFreeDeviceMemory() {
