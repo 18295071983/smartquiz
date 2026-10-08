@@ -1,0 +1,19 @@
+{
+  "name": "@local/dsh-progress",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.js", "./client": "./client.js", "./package.json": "./package.json" },
+  "meta": {
+    "title": "Progress Bar",
+    "description": "任务进度条：宿主侧注册 /dsh-progress/* 端点，客户端轮询并在输入框活动区渲染进度"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}

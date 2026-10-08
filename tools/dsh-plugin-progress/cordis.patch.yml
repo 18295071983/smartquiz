@@ -1,0 +1,14 @@
+# Progress Bar bundle
+#
+# 本文件的 insert 条目 = 把插件注册进 loader 树（bundle 机制的正常用法，
+# 与 tools/dsh-plugin-smartquiz-remote/cordis.patch.yml 保持同一形式）。
+#
+# 更正说明：此前本文件被写成空数组 []，理由是"怕与 profile 的 patch 重复注册"。
+# 该判断是错的 —— 对照可正常工作的 smartquiz-remote，bundle patch 正是 insert 形式，
+# 而 profile 的同 id 条目用于按 profile 覆盖 config。这是 DSH 的既有模式。
+- insert:
+    - id: dsh-progress
+      name: '@local/dsh-progress'
+      config:
+        pollIntervalMs: 500
+        ttlSeconds: 300
