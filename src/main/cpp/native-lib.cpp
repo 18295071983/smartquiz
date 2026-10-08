@@ -2047,13 +2047,14 @@ public:
                 int maxCtxByBudget = (int) (kvBudgetBytes / kvPerTokenBytes);
                 if (contextSize > maxCtxByBudget) {
                     LOGI("Memory pool budget (%dMB) limits n_ctx: %d -> %d (KV=%lld B/token, %d/%d layers have KV)",
-                         this->memoryPoolSize, contextSize, maxCtxByBudget, kvPerTokenBytes, kvLayers, nLayer);
+                         this->memoryPoolSize, contextSize, maxCtxByBudget,
+                         (long long) kvPerTokenBytes, kvLayers, nLayer);
                     contextSize = maxCtxByBudget;
                     ctx_params.n_ctx = contextSize;
                 } else {
                     LOGI("Memory pool budget (%dMB) OK for n_ctx=%d (KV=%lld B/token, %d/%d layers have KV, peak=%lldMB)",
-                         this->memoryPoolSize, contextSize, kvPerTokenBytes, kvLayers, nLayer,
-                         (kvPerTokenBytes * contextSize) / (1024 * 1024));
+                         this->memoryPoolSize, contextSize, (long long) kvPerTokenBytes, kvLayers, nLayer,
+                         (long long) ((kvPerTokenBytes * contextSize) / (1024 * 1024)));
                 }
             }
         }
@@ -3815,10 +3816,17 @@ public:
         common_chat_templates_inputs inputs;
         inputs.messages = chat_msgs;
         inputs.tools = tools;
-        // 工具场景强制 REQUIRED：generateWithTools 仅 Agent 阶段1（已判定涉及工具）使用，
-        // 强制模型输出 tool_call（llama.cpp 对 Qwen3 支持 REQUIRED），
-        // 避免模型"空输出/直接回答不调工具"导致工具调用失败
-        inputs.tool_choice = tools.empty() ? COMMON_CHAT_TOOL_CHOICE_NONE : COMMON_CHAT_TOOL_CHOICE_REQUIRED;
+        // TOOL-CHOICE-AUTO(2026-10-09)：统一用 auto，不再按阶段强制 required。
+        //
+        // 此前这里对"有工具"一律强制 REQUIRED，理由写在旧注释里（该函数只在已判定
+        // 涉及工具的阶段1使用，强制输出 tool_call 以免空输出）。实测该强制有害：
+        //   · required 剥夺了模型"这题不需要工具 / 我没有合适工具"的表达能力，
+        //     模型只能硬挑一个最接近的工具 —— "查油价错派给天气工具"即由此而来；
+        //   · 与 OpenAI 语义不一致（OpenAI 默认 auto，由模型决定）；
+        //   · 阶段2（generateWithChatJson）本来就是 auto，两阶段行为不一致、难推理。
+        // 改 auto 后由模型自行判断是否调用；persona 已写"实时/动态信息必须用工具获取"，
+        // 足够引导。副作用是阶段1偶尔可能不出工具调用，属预期（那本就该由模型决定）。
+        inputs.tool_choice = tools.empty() ? COMMON_CHAT_TOOL_CHOICE_NONE : COMMON_CHAT_TOOL_CHOICE_AUTO;
         inputs.parallel_tool_calls = true;
         inputs.add_generation_prompt = true;
         inputs.use_jinja = true;
@@ -4114,8 +4122,9 @@ public:
         std::string collectedText;          // 完整输出（原始字节，供 parse）
         std::string utf8Buffer;             // R9-1：token 级 UTF-8 完整性缓冲
         std::string genError;               // 生成失败信息（R7-1）
-        // §5.2 第一阶段：required → 所有 token 标记 is_tool_call=true；auto/none → false
-        bool isInToolCall = (toolChoice == COMMON_CHAT_TOOL_CHOICE_REQUIRED);
+        // §5.2 工具调用标记：不再有"强制模式"（tool_choice 已统一为 auto），
+        // 初始为 false，由下方 generatingStage 依据模板下发的工具标签增量锁定。
+        bool isInToolCall = false;
         // 思考态识别：模板 enable_thinking=true 时模型会输出  thinking... response，
         // 生成循环 thinking=0（思考交给模板），故流式阶段需自行识别思考段——
         // 思考 token 标记 is_thinking=true（UI 折叠显示、不朗读），标签本身剥离
@@ -4251,8 +4260,8 @@ public:
         // 增量检测 tool_call 起始并锁定 is_tool_call 标记；剥离后的正文发流式 token。
         auto generatingStage = [&](const std::string& filtered) -> void {
             if (filtered.empty()) return;
-            // 增量检测：仅 auto/none 且尚未进入 tool_call 时启用
-            if (!isInToolCall && toolChoice != COMMON_CHAT_TOOL_CHOICE_REQUIRED) {
+            // 增量检测：未锁定 tool_call 时启用（tool_choice 统一 auto 后无强制模式）
+            if (!isInToolCall) {
                 // 快速路径：collectedText 出现工具调用标签特征立即锁定，
                 // 不等 PARTIAL_PARSE_INTERVAL——否则前几个 token 会以
                 // is_tool_call=false 泄漏到 UI/TTS（实测 TTS 朗读 "<toolcall"）。
