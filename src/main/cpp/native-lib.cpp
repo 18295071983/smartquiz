@@ -21,6 +21,12 @@
 #include "gguf.h"
 #include <cctype>
 #include "chat.h"
+// COMMON-SAMPLER(2026-10-08)：引入上游 common_sampler 封装。
+// 必须用它而非自己拼 llama_sampler 链，因为"思考段内抑制 lazy grammar"的修复
+// （上游 PR #20970，已合入本 checkout 的 common/sampling.cpp:452-465）只存在于
+// common_sampler 的 accept/apply 里。我们此前自己拼链 → 绕过该保护 → grammar
+// 在思考块内被触发 → "Unexpected empty grammar stack" / SIGABRT。
+#include "sampling.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
 #include "agent_kv_cache.h"
@@ -989,7 +995,113 @@ static void native_log(int level, const char* tag, const char* format, ...) {
 // 使用std命名空间
 using namespace std;
 
+// 采样默认参数：按模型覆盖。官方对 MiniCPM5 有明确建议，见 OpenBMB llama_cpp 部署文档：
+//   "In llama.cpp, the default min_p=0.05 can lead to repetitive output: it filters out
+//    tokens whose probability is below 5% of the highest-probability token, potentially
+//    discarding the exact tokens needed to break out of a repetition loop. To prevent
+//    this, we set min_p=0.0."
+// 因此 min_p 对所有模型统一取 0（这是官方点名的防退化循环设置），其余参数按模型覆盖；
+// 未列出的模型（Qwen 系等）保持项目原有默认，避免动到已验证正常的路径。
+struct ModelSampling {
+    float temp;     // <=0 表示沿用调用方传入的 temperature
+    float topP;     // <=0 表示沿用调用方传入的 topP
+    float minP;
+    float repPen;   // 1.0 表示不使用重复惩罚
+    int   repLastN;
+    bool  forceNoThink;   // 该模型建议关闭思考
+    bool  forceThink;     // 该模型建议开启思考
+};
+
+// 项目原有默认（Qwen 系沿用，勿动）
+static const ModelSampling kSamplingDefault = { 0.0f, 0.0f, 0.0f, 1.3f, 64, false, false };
+// MiniCPM5-2B：温度/top_p 取官方推荐（1.0 / 0.95），min_p 取官方 0.0。
+// 但 repeat penalty 必须保留项目默认的 1.3/64：实测把 min_p=0.0 与"关掉惩罚"叠加后，
+// 该模型会在畸形工具调用标签上无限重复（缺 '>' 导致流式一直判为工具调用、Java 侧
+// 丢弃全部 token），表现为 CPU 满载但 UI 零输出、complete 永不返回的假死。
+// 官方文档只针对正常输出调参，不适用于本模型的实际输出形态。
+static const ModelSampling kSamplingMiniCpm5_2B = { 1.0f, 0.95f, 0.0f, 1.3f, 64, false, true };
+// MiniCPM5-1B：Think 0.9 / No-think 0.7，top_p 均 0.95（惩罚同样保留）
+static const ModelSampling kSamplingMiniCpm5_1B = { 0.9f, 0.95f, 0.0f, 1.3f, 64, false, true };
+
+// 按模型名匹配参数档（大小写不敏感）。名字来自 GGUF general.name，日志里形如 "MiniCPM5 2.6B"。
+static ModelSampling samplingForModelType(const std::string & type) {
+    std::string t;
+    t.reserve(type.size());
+    for (char c : type) t.push_back((char) std::tolower((unsigned char) c));
+    if (t.find("minicpm5") == std::string::npos) {
+        return kSamplingDefault;
+    }
+    // 先判 1B，再判 2B（"minicpm5-1b" 与 "minicpm5 2.6b" 都可能出现）
+    if (t.find("1b") != std::string::npos || t.find("0.9b") != std::string::npos) {
+        return kSamplingMiniCpm5_1B;
+    }
+    return kSamplingMiniCpm5_2B;
+}
+
 namespace llama_jni {
+
+// 从 chat template 的 preserved_tokens 推导**工具调用标签**（开/闭）。
+//
+// 为什么用 preserved_tokens：它本身就是模板推导出的"需要豁免控制抑制"的标记集合，
+// 已包含各模型自己的工具调用语法标记（MiniCPM5 的 <function/<param，
+// Qwen 系的 <tool_call 等），因此无需在 Java/C++ 侧硬编码模型名单。
+//
+// 规则：闭合项（形如 "</xxx>"）与其对应的开头项（去掉末尾 '>'）成对收集；
+// 其余以 '<' 开头的项视为纯开标签。思考标签由 thinking_* 字段单独下发，此处剥离。
+static void classifyToolCallTags(const std::vector<std::string>& preservedTokens,
+                                 const std::string& thinkStartTag,
+                                 const std::vector<std::string>& thinkEndTags,
+                                 std::vector<std::string>& outOpen,
+                                 std::vector<std::string>& outClose) {
+    outOpen.clear();
+    outClose.clear();
+    for (const auto& t : preservedTokens) {
+        if (t.empty() || t[0] != '<') continue;
+        bool isThinkTag = (t == thinkStartTag);
+        for (const auto& e : thinkEndTags) {
+            if (t == e) { isThinkTag = true; break; }
+        }
+        if (isThinkTag) continue;
+        // 闭合项形如 "</xxx>"，其配对开标签由去掉末尾 '>' 得到（"</function>" -> "</function"）。
+        // 但并非所有闭合项都能推出开标签：如 Qwen 的 "<tool_call>" 只有开标签被列入
+        // preserved_tokens，其闭合项 "</tool_call>" 去掉 '>' 后仍是 "</tool_call"（不是开标签）。
+        // 若不加判定就会把 "</tool_call" 当成开标签，导致快速路径无法识别真正出现的 "<tool_call>"。
+        // 因此仅在推导结果确实以 '<' 开头且第二个字符不是 '/' 时才视为配对开标签。
+        if (t.size() >= 3 && t[1] == '/' && t.back() == '>') {
+            const std::string derivedOpen = t.substr(0, t.size() - 1);
+            if (derivedOpen.size() >= 2 && derivedOpen[1] != '/') {
+                outClose.push_back(t);
+                outOpen.push_back(derivedOpen);
+            } else {
+                outClose.push_back(t);
+            }
+        } else {
+            outOpen.push_back(t);
+        }
+    }
+}
+
+// 构造解析参数时必须带上模板生成的 PEG 语法：common_chat_parser_params 的那个
+// 构造函数只拷 format + generation_prompt，不拷 parser。parser 为空时
+// common_chat_peg_parse 会退化成"整段都是正文"的兜底语法（chat.cpp 里那条
+// "No parser definition detected, assuming pure content parser"），
+// 于是模型输出的工具调用语法（如 MiniCPM5 的 <function name=".."><param name="..">
+// </param></function>）一个也解析不出来：C++ 不下发 tool_call 事件，标签被当正文
+// 推到 UI 并被 TTS 朗读。上游 tools/server 的用法是显式把 chat_params.parser
+// 交给解析侧（server-common.cpp 存 chat_parser，server-schema.cpp 回填），这里对齐。
+static common_chat_parser_params makeChatParserParams(const common_chat_params & chat_params) {
+    common_chat_parser_params parser_params(chat_params);
+    // chat_params.parser 是 PEG 语法的序列化串（parser.save()），用 load() 反序列化
+    // 回 arena：common_peg_arena 禁用了拷贝赋值，只能走这条路。
+    if (!chat_params.parser.empty()) {
+        parser_params.parser.load(chat_params.parser);
+    } else {
+        // 纯内容模板（无工具语法）属于正常情况，只记调试日志
+        LOGD("chat parse: no PEG parser in template, content-only parsing");
+    }
+    return parser_params;
+}
+
 
 // 禁止模型输出 control/suppress token（防止把模板前缀 <|im_start|> 等当内容生成）。
 // 优先用 GGUF 的 tokenizer.ggml.suppress_tokens，未定义则遍历 vocab 的 control token；
@@ -1126,6 +1238,8 @@ private:
     int memoryPoolSize;
     int batchSize;
     int kvCacheType;   // KV cache 量化：0=Q8_0(省一半内存) 1=F16(默认,精度更高)
+    // KV-REAL-LAYERS：真正存 KV 的层数缓存。-1 = 未探测；0 = 探测失败（回退按全部层数算）
+    int kvRealLayers_ = -1;
     std::string modelPath;
     std::atomic<bool> shouldStop;
     std::atomic<bool> isGenerating;
@@ -1144,6 +1258,167 @@ private:
     std::string thinkingBuffer_;                            // 实时思考内容监控：当前推理思考段累积
     std::string modelType;
     std::string chatTemplate;
+
+    // ===== 采样参数档（按模型覆盖，见文件头 ModelSampling 注释）=====
+    // 载入模型后用 detectModelType 的结果刷新一次；7 处采样链构造点统一读这里，
+    // 不再各自硬编码，避免"改一处、其余路径跟着漂移"。
+    ModelSampling sampling_ = kSamplingDefault;
+
+    void refreshSamplingParams() {
+        sampling_ = samplingForModelType(modelType);
+        LOGI("sampling: model='%s' -> temp=%s topP=%s minP=%.2f repPen=%.2f repLastN=%d",
+             modelType.c_str(),
+             sampling_.temp > 0 ? std::to_string(sampling_.temp).c_str() : "caller",
+             sampling_.topP > 0 ? std::to_string(sampling_.topP).c_str() : "caller",
+             sampling_.minP, sampling_.repPen, sampling_.repLastN);
+    }
+
+    /**
+     * 统一的采样链构造。所有生成本路径都必须走这里，避免参数分散。
+     * @param temperature/topP/topK 调用方值；采样档里 <=0 的字段表示沿用调用方
+     * @param preservedIds  需要豁免控制抑制的 token（模板 preserved_tokens）
+     * @param minimal      仅温度采样（保留特定路径原有语义，如 KV 记忆问答）
+     */
+    /**
+     * 构造采样链。
+     *
+     * <p><b>GRAMMAR-ATTACH(2026-10-08)</b>：此前 grammar 只在日志里被打印
+     * （"chatJson: params util -> grammar=set(5737B)..."），**从未挂到采样器上**
+     * —— 全项目没有任何 {@code llama_sampler_init_grammar*} 调用。于是模板生成的
+     * 标准语法对采样毫无约束，模型可以自由输出畸形工具调用标签
+     * （实测 MiniCPM5 吐出 {@code <function name="location"<param name=...}，缺 '>'），
+     * 进而拖长生成（163 token / 35s）并把标签泄漏到 UI/TTS。
+     * 现在把 grammar 挂进链首：grammar 必须排在所有扰动采样的 sampler 之前，
+     * 这样它在"全部 token 合法集合"上计算，裁剪后才轮到 top_k/top_p/temp/dist。</p>
+     */
+
+    // COMMON-SAMPLER(2026-10-08)：把模板推导出的 chat_params 映射成上游采样参数，
+    // 交给 common_sampler_init 构造采样器。这是获得"思考段内抑制 lazy grammar"的
+    // 唯一途径 —— 该抑制逻辑位于 common/sampling.cpp 的 common_sampler_accept/apply，
+    // 条件是 grammar 与 reasoning-budget 两个采样器同时存在（上游 PR #20970，已合入）。
+    //
+    // 映射要点（对照 common/sampling.cpp:222-320 与 tools/server/server-common.cpp:1394-1424）：
+    //   1. grammar 必须标为 TOOL_CALLS 类型，否则 common_grammar_needs_prefill() 为假，
+    //      生成提示词不会被预填充进 grammar，语法起点就会错位。
+    //   2. reasoning_budget_start/end 用模板的思考标签 token 化填入；budget 传 -1（不限），
+    //      仅为启用"思考段内抑制 grammar"。注意上游仅在 start 与 end 都非空时才建该采样器。
+    //   3. preserved_tokens 转为 std::set<llama_token>，供上游豁免控制抑制。
+    //   4. generation_prompt 传入，用于把 grammar 推进到"模型即将输出"的位置。
+    common_params_sampling buildCommonSamplingParams(const common_chat_params * chatParams,
+                                                     float temperature, float topP, int topK) {
+        common_params_sampling sp;
+
+        // --- 温度/采样（沿用本项目的模型档位 ModelSampling，未设则用调用方参数）---
+        const float effTemp = sampling_.temp > 0 ? sampling_.temp : temperature;
+        const float effTopP = sampling_.topP > 0 ? sampling_.topP : topP;
+        sp.temp       = effTemp;
+        sp.top_k      = topK > 0 ? topK : 40;
+        sp.top_p      = effTopP > 0 ? effTopP : 0.9f;
+        sp.min_p      = sampling_.minP > 0 ? sampling_.minP : 0.0f;
+        sp.penalty_last_n  = (sampling_.repPen > 1.0f && sampling_.repLastN > 0) ? sampling_.repLastN : 0;
+        sp.penalty_repeat  = sampling_.repPen > 0 ? sampling_.repPen : 1.0f;
+        sp.penalty_freq    = 0.0f;
+        sp.penalty_present = 0.0f;
+
+        // 采样器顺序与次序保持与原手拼链等价（top_k -> top_p -> min_p -> penalties -> temp）。
+        // 不保留 DRY / XTC / typical 等默认项，避免改变既有输出行为。
+        sp.samplers = {
+            COMMON_SAMPLER_TYPE_TOP_K,
+            COMMON_SAMPLER_TYPE_TOP_P,
+            COMMON_SAMPLER_TYPE_MIN_P,
+            COMMON_SAMPLER_TYPE_PENALTIES,
+            COMMON_SAMPLER_TYPE_TEMPERATURE,
+        };
+
+        if (chatParams == nullptr) return sp;   // 无模板信息：纯采样，不涉及 grammar
+
+        // --- grammar（模板工具语法）---
+        if (!chatParams->grammar.empty()) {
+            sp.grammar      = common_grammar(COMMON_GRAMMAR_TYPE_TOOL_CALLS, chatParams->grammar);
+            sp.grammar_lazy = chatParams->grammar_lazy;
+            sp.grammar_triggers = chatParams->grammar_triggers;
+            sp.generation_prompt = chatParams->generation_prompt;
+            LOGI("grammar(via common_sampler): type=TOOL_CALLS, lazy=%d, triggers=%zu, %zu bytes, genPrompt=%zu bytes",
+                 (int)sp.grammar_lazy, sp.grammar_triggers.size(),
+                 chatParams->grammar.size(), sp.generation_prompt.size());
+        }
+
+        // --- preserved_tokens：豁免控制抑制（模板差分出的工具/思考标记）---
+        auto tokIds = [&](const std::string & s) {
+            std::vector<llama_token> ids;
+            if (s.empty()) return ids;
+            int n = -llama_tokenize(vocab, s.c_str(), s.size(), NULL, 0, true, false);
+            if (n <= 0) return ids;
+            ids.resize(n);
+            if (llama_tokenize(vocab, s.c_str(), s.size(), ids.data(), ids.size(), true, false) < 0) ids.clear();
+            return ids;
+        };
+        for (const auto & t : chatParams->preserved_tokens) {
+            for (auto id : tokIds(t)) sp.preserved_tokens.insert(id);
+        }
+
+        // --- reasoning budget：仅用于启用"思考段内抑制 lazy grammar" ---
+        // 仅当 start 与 end 都非空时上游才会创建该采样器；budget=-1 → INT_MAX（不限额度）。
+        auto startIds = tokIds(chatParams->thinking_start_tag);
+        if (!startIds.empty()) {
+            std::vector<std::vector<llama_token>> endSeqs;
+            for (const auto & tag : chatParams->thinking_end_tags) {
+                auto ids = tokIds(tag);
+                if (!ids.empty()) endSeqs.push_back(std::move(ids));
+            }
+            if (!endSeqs.empty()) {
+                sp.reasoning_budget_tokens = -1;      // 不限预算，只为抑制 grammar
+                sp.reasoning_budget_start  = std::move(startIds);
+                sp.reasoning_budget_end    = std::move(endSeqs);
+                LOGI("reasoning-budget(via common_sampler): start=%zu ids, %zu end seq(s), budget=unlimited (grammar inhibition only)",
+                     sp.reasoning_budget_start.size(), sp.reasoning_budget_end.size());
+            } else {
+                LOGW("reasoning-budget: thinking_end_tags produced no tokens, grammar inhibition unavailable");
+            }
+        } else {
+            LOGW("reasoning-budget: thinking_start_tag produced no tokens, grammar inhibition unavailable");
+        }
+
+        return sp;
+    }
+
+    llama_sampler * buildSampler(float temperature, float topP, int topK,
+                                 const std::vector<llama_token> & preservedIds,
+                                 bool minimal = false) {
+        auto sparams = llama_sampler_chain_default_params();
+        llama_sampler * smpl = llama_sampler_chain_init(sparams);
+
+        const float effTemp = sampling_.temp > 0 ? sampling_.temp : temperature;
+        const float effTopP = sampling_.topP > 0 ? sampling_.topP : topP;
+
+        // GRAMMAR 已移交上游 common_sampler（见 buildCommonSamplingParams + common_sampler_init）：
+        // 本函数不再自己挂 grammar。原因：模板 grammar 必须与 reasoning-budget 采样器配对，
+        // 才能获得"思考段内不喂 token 给 grammar"的抑制（PR #20970）。单独挂 grammar
+        // 会因 root 可匹配空而在思考块内提前完成 → 栈变空 → 崩溃。
+
+        if (effTemp <= 0) {
+            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+            return smpl;
+        }
+        addControlTokenSuppression(smpl, vocab, preservedIds);
+        if (minimal) {
+            llama_sampler_chain_add(smpl, llama_sampler_init_temp(effTemp));
+            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+            return smpl;
+        }
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(effTopP > 0 ? effTopP : 0.9f, 1));
+        if (sampling_.minP > 0) {
+            llama_sampler_chain_add(smpl, llama_sampler_init_min_p(sampling_.minP, 1));
+        }
+        if (sampling_.repPen > 1.0f && sampling_.repLastN > 0) {
+            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+                    llama_vocab_n_tokens(vocab), sampling_.repLastN, sampling_.repPen, 0.0f, 0.0f));
+        }
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(effTemp));
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+        return smpl;
+    }
     
     // ===== KV cache 增量解码状态（P0-2 / §5.6）=====
     // generateStreamIncremental 专用：Agent 增量缓存独立封装于 agent_kv_cache.h，
@@ -1160,6 +1435,8 @@ private:
     // 空时表示模板未提供思考标签，调用方回退旧行为（不剥离思考段）。
     std::string mThinkStartTag;
     std::vector<std::string> mThinkEndTags;
+    std::vector<std::string> mToolCallOpenTags;    // 如 {"<function", "<param", "<tool_call"}
+    std::vector<std::string> mToolCallCloseTags;   // 如 {"</function>", "</param>", "</tool_call>"}
     std::string backendChoice = "auto";  // GPU 后端：auto=全部 / opencl / vulkan（设置项控制，加载时按 devices 过滤）
 
     // ===== 生成流程状态机（native）=====
@@ -1232,7 +1509,8 @@ public:
     const std::string& getThinkingContent() const { return thinkingBuffer_; }
 
     // 函数前向声明
-    std::string applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart);
+    std::string applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart,
+                                             bool enableThinking = false);
 
     /**
      * 从模型内置 chat template 提取思考标签，缓存到 mThinkStartTag / mThinkEndTags。
@@ -1266,8 +1544,11 @@ public:
             common_chat_params params = common_chat_templates_apply(tmpl.get(), inputs);
             mThinkStartTag = params.thinking_start_tag;
             mThinkEndTags = params.thinking_end_tags;
-            LOGI("refreshThinkingTags: start='%s', %zu end tag(s)",
-                 mThinkStartTag.c_str(), mThinkEndTags.size());
+            classifyToolCallTags(params.preserved_tokens, mThinkStartTag, mThinkEndTags,
+                                 mToolCallOpenTags, mToolCallCloseTags);
+            LOGI("refreshThinkingTags: start='%s', %zu end tag(s); tool-call tags %zu open/%zu close",
+                 mThinkStartTag.c_str(), mThinkEndTags.size(),
+                 mToolCallOpenTags.size(), mToolCallCloseTags.size());
             return true;
         } catch (const std::exception& e) {
             LOGW("refreshThinkingTags: template apply failed: %s", e.what());
@@ -1278,6 +1559,12 @@ public:
     /** 当前缓存的模板思考标签（未提取到时为空，表示"该模型无思考段"） */
     std::string getThinkStartTag() const { return mThinkStartTag; }
     std::vector<std::string> getThinkEndTags() const { return mThinkEndTags; }
+
+    // ===== 工具调用标签（来自 chat template preserved_tokens，统一标签源，不硬编码）=====
+    // 由 generateWithTools / chatJson 在 common_chat_templates_apply 后设置，
+    // refreshThinkingTags() 亦会填充；空时表示模板未声明工具语法，调用方**不得吞除**。
+    std::vector<std::string> getToolCallOpenTags() const { return mToolCallOpenTags; }
+    std::vector<std::string> getToolCallCloseTags() const { return mToolCallCloseTags; }
 
     InferenceContext() : model(nullptr), ctx(nullptr), vocab(nullptr), 
                          contextSize(0), threadCount(0), gpuLayers(0), 
@@ -1736,26 +2023,36 @@ public:
 
         // memoryPoolSize 作为 KV cache 内存预算（真正利用该配置）：
         // 按模型参数估算每 token KV 字节，超预算时钳制 n_ctx，防止 KV 撑爆可用内存。
-        // KV/Token = 2(K+V) × n_layer × n_head_kv × head_dim × 元素字节
+        //
+        // KV-REAL-LAYERS(2026-10-09)：层数必须用**真正存 KV 的层数**，而不是全部层数。
+        // 混合注意力模型（Qwen3.5-2B：full_attention_interval=4，24 层里只有 6 层是全注意力层，
+        // 其余 18 层是 SSM/GDN 循环层、只维护固定尺寸状态、不存 KV）按全层数会**高估 4 倍**，
+        // 导致 memoryPool 过早钳制 n_ctx（日志实测：报 49152 B/token，实际只有 12288）。
+        //   KV/Token = 2(K+V) x kvLayers x n_head_kv x head_dim x 元素字节
         if (this->memoryPoolSize > 0 && model != nullptr) {
-            int nLayer = llama_model_n_layer(model);
-            int nHeadKv = llama_model_n_head_kv(model);
-            int nEmbd = llama_model_n_embd(model);
-            int nHead = llama_model_n_head(model);
-            int headDim = (nHead > 0 && nEmbd > 0) ? (nEmbd / nHead) : 128;
-            int kvElemBytes = (this->kvCacheType == 0) ? 1 : 2; // Q8_0=1字节, F16=2字节
-            long kvPerTokenBytes = 2L * nLayer * nHeadKv * headDim * kvElemBytes;
-            long kvBudgetBytes = (long) this->memoryPoolSize * 1024 * 1024;
+            const int nLayer = llama_model_n_layer(model);
+            const int nHeadKv = llama_model_n_head_kv(model);
+            const int nEmbd = llama_model_n_embd(model);
+            const int nHead = llama_model_n_head(model);
+            const int headDim = (nHead > 0 && nEmbd > 0) ? (nEmbd / nHead) : 128;
+            const int kvElemBytes = (this->kvCacheType == 0) ? 1 : 2; // Q8_0=1字节, F16=2字节
+            // 探测失败（返回 0）时回退为全部层数：宁可高估而保守，也不要低估导致 KV 撑爆内存
+            int kvLayers = countKvLayers();
+            if (kvLayers < 1) {
+                kvLayers = nLayer;
+            }
+            const long kvPerTokenBytes = 2L * kvLayers * nHeadKv * headDim * kvElemBytes;
+            const long kvBudgetBytes = (long) this->memoryPoolSize * 1024 * 1024;
             if (kvPerTokenBytes > 0 && kvBudgetBytes > 0) {
                 int maxCtxByBudget = (int) (kvBudgetBytes / kvPerTokenBytes);
                 if (contextSize > maxCtxByBudget) {
-                    LOGI("Memory pool budget (%dMB) limits n_ctx: %d -> %d (KV=%lld B/token)",
-                         this->memoryPoolSize, contextSize, maxCtxByBudget, kvPerTokenBytes);
+                    LOGI("Memory pool budget (%dMB) limits n_ctx: %d -> %d (KV=%lld B/token, %d/%d layers have KV)",
+                         this->memoryPoolSize, contextSize, maxCtxByBudget, kvPerTokenBytes, kvLayers, nLayer);
                     contextSize = maxCtxByBudget;
                     ctx_params.n_ctx = contextSize;
                 } else {
-                    LOGI("Memory pool budget (%dMB) OK for n_ctx=%d (KV=%lld B/token, peak=%lldMB)",
-                         this->memoryPoolSize, contextSize, kvPerTokenBytes,
+                    LOGI("Memory pool budget (%dMB) OK for n_ctx=%d (KV=%lld B/token, %d/%d layers have KV, peak=%lldMB)",
+                         this->memoryPoolSize, contextSize, kvPerTokenBytes, kvLayers, nLayer,
                          (kvPerTokenBytes * contextSize) / (1024 * 1024));
                 }
             }
@@ -1979,6 +2276,7 @@ public:
         LOG_MEM("after_llama_init_from_model");
         
         detectModelType();
+        refreshSamplingParams();
         getChatTemplate();
         
         LOGI("Context created successfully in %llds", elapsed);
@@ -2057,19 +2355,8 @@ public:
             return false;
         }
         
-        // 创建 sampler chain
-        auto sparams = llama_sampler_chain_default_params();
-        struct llama_sampler * smpl = llama_sampler_chain_init(sparams);
-        if (temperature <= 0) {
-            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
-        } else {
-            addControlTokenSuppression(smpl, vocab);
-            llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
-            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
-            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
-            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
-            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-        }
+        // 创建 sampler chain（统一走 buildSampler，参数按模型档位）
+        struct llama_sampler * smpl = buildSampler(temperature, topP, topK, {});
         
         LOGI("Context is valid, starting generation");
         
@@ -2561,7 +2848,93 @@ public:
         }
         return out;
     }
-    
+
+    /**
+     * 工具调用块剥离（流式）：把整块工具调用语法挡在 UI/TTS 之外。
+     *
+     * <p>工具调用由 complete 后的 common_chat_parse 解析并走 tool_call 事件，
+     * 界面另以工具卡片展示，原文没有展示价值（实测 TTS 会逐字朗读标签原文）。</p>
+     *
+     * <p><b>标签来源动态化（2026-10-08）</b>：原先硬编码 MiniCPM5 的
+     * {@code <function}/{@code </function>}，对 Qwen 的 {@code <tool_call>} 无效。
+     * 现读取模板推导的 {@link #mToolCallOpenTags} / {@link #mToolCallCloseTags}
+     * （native 从 preserved_tokens 得到），换模型无需改本函数。
+     * 标签集为空时原样返回（纯正文模型不做吞除）。</p>
+     *
+     * <p>inToolCall 为跨 chunk 状态（调用方维护，初始 false）。
+     * 缓冲上限兜底：模型漏输出闭标签时强制放行，避免整段正文被吞。</p>
+     */
+    std::string stripToolCallChunk(const std::string& chunk, bool& inToolCall) {
+        if (chunk.empty()) return "";
+        if (mToolCallOpenTags.empty()) return chunk;   // 模板未声明工具语法：不吞除
+        static const size_t kMaxHold = 8192;           // 超长保护
+        std::string out;
+        out.reserve(chunk.size());
+        size_t pos = 0;
+        while (pos < chunk.size()) {
+            if (inToolCall) {
+                // 找最早出现的任一闭标签
+                size_t close = std::string::npos;
+                size_t closeLen = 0;
+                for (const auto& tag : mToolCallCloseTags) {
+                    if (tag.empty()) continue;
+                    size_t p = chunk.find(tag, pos);
+                    if (p != std::string::npos && (close == std::string::npos || p < close)) {
+                        close = p;
+                        closeLen = tag.size();
+                    }
+                }
+                if (close == std::string::npos) {
+                    // 本 chunk 内未闭合：丢弃；已吞过多轮仍未闭合则交给上限兜底
+                    if (chunk.size() - pos > kMaxHold) {
+                        inToolCall = false;
+                        out.append(chunk, pos, std::string::npos);
+                    }
+                    break;
+                }
+                pos = close + closeLen;
+                inToolCall = false;
+            } else {
+                // 找最早出现的任一开标签（同时记录其长度，避免用错标签长度推进 pos）
+                size_t open = std::string::npos;
+                size_t openLen = 0;
+                for (const auto& tag : mToolCallOpenTags) {
+                    if (tag.empty()) continue;
+                    size_t p = chunk.find(tag, pos);
+                    if (p != std::string::npos && (open == std::string::npos || p < open)) {
+                        open = p;
+                        openLen = tag.size();
+                    }
+                }
+                if (open == std::string::npos) {
+                    // 没有完整开标签：检查末尾是否为跨 chunk 的开标签前缀
+                    size_t lt = chunk.rfind('<', chunk.size() - 1);
+                    if (lt != std::string::npos && lt >= pos) {
+                        std::string suffix = chunk.substr(lt);
+                        bool isPrefix = false;
+                        for (const auto& tag : mToolCallOpenTags) {
+                            if (tag.compare(0, suffix.size(), suffix) == 0 && suffix.size() < tag.size()) {
+                                isPrefix = true;
+                                break;
+                            }
+                        }
+                        if (isPrefix) {
+                            out.append(chunk, pos, lt - pos);   // 前缀之前的内容照常输出
+                            break;
+                        }
+                    }
+                    out.append(chunk, pos, std::string::npos);
+                    break;
+                }
+                out.append(chunk, pos, open - pos);
+                inToolCall = true;
+                pos = open + openLen;
+                // 注意：pos 只推进到"该开标签之后"，属性/'>' 尚未到达也继续吞
+            }
+        }
+        return out;
+    }
+
     bool generateStream(const std::string& prompt, int maxTokens, float temperature, float topP, int topK, bool enableThinking, TokenCallback callback) {
         if (isGenerating.exchange(true)) {
             LOGE("generateStream: already generating, rejecting concurrent call");
@@ -2592,17 +2965,8 @@ public:
         
         // 创建 sampler chain
         auto sparams = llama_sampler_chain_default_params();
-        struct llama_sampler * smpl = llama_sampler_chain_init(sparams);
-        if (temperature <= 0) {
-            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
-        } else {
-            addControlTokenSuppression(smpl, vocab);
-            llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
-            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
-            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
-            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
-            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-        }
+        // 采样链统一构造（参数按模型档位，见 buildSampler）
+        struct llama_sampler * smpl = buildSampler(temperature, topP, topK, {});
         
         try {
         std::string promptToUse = prompt;
@@ -2928,11 +3292,10 @@ public:
         // 首 token 总延迟计时：函数入口（tokenize 前）→ 首个正文/思考 token 回调
         auto entryTime = std::chrono::steady_clock::now();
 
-        // 创建 sampler chain（与 generateStream 一致）
-        auto sparams = llama_sampler_chain_default_params();
-        struct llama_sampler * smpl = llama_sampler_chain_init(sparams);
-        // §6.1 官方 preserved_tokens：模板差分出的标记（<tool_call>、thinking 标记等）转 token id，
-        // 参与 control suppression 时跳过，防止工具调用结构被采样器禁掉
+        // 采样链统一构造（参数按模型档位，见 buildSampler）
+        // §6.1 官方 preserved_tokens：模板差分出的标记（MiniCPM5 的 <function/<param、
+        // thinking 标记等）转 token id，参与 control suppression 时跳过，
+        // 防止工具调用结构被采样器以 -INFINITY 禁掉。
         std::vector<llama_token> preservedIds;
         if (chatParams != nullptr) {
             for (const auto& s : chatParams->preserved_tokens) {
@@ -2949,23 +3312,32 @@ public:
             }
             LOGI("grammar: preserved tokens -> %zu ids", preservedIds.size());
         }
-        if (temperature <= 0) {
-            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
-        } else {
-            addControlTokenSuppression(smpl, vocab, preservedIds);
-            llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
-            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
-            // §6.3 官方 min_p 采样（llama.cpp 默认 0.05）：过滤低于 max_prob*min_p 的低概率
-            // token，小模型输出更干净、减少乱码与低质量续写（对工具调用 JSON 生成尤其有用）
-            llama_sampler_chain_add(smpl, llama_sampler_init_min_p(0.05f, 1));
-            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
-            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
-            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+        // COMMON-SAMPLER(2026-10-08)：改用上游 common_sampler 构造采样器。
+        //
+        // 为什么必须这样（而非自己拼 llama_sampler 链）：
+        //   "思考段内抑制 lazy grammar" 的修复只存在于 common_sampler 的 accept/apply
+        //   （common/sampling.cpp:452-465，上游 PR #20970 已合入本 checkout）。该抑制的
+        //   条件是 grammar 与 reasoning-budget 两个采样器同时存在。我们此前自己拼链，
+        //   绕过了这一层保护，导致模板 grammar 在思考块（生成提示词里的
+        //   <think>\n\n</think>\n\n）内就被触发/提前完成 → grammar.stacks 变空 →
+        //   随后 accept_token 抛 "Unexpected empty grammar stack" 或 GGML_ABORT
+        //   （实测 MiniCPM5-2B 与 Qwen3.5-2B 均复现，Agent 引擎每轮失败）。
+        //
+        // chatParams 为空（模板异常回退等）时退回原 llama_sampler 链：那条路径没有
+        // grammar 参与，无需 common_sampler 的保护。
+        llama_sampler * smpl = nullptr;
+        common_sampler * gsmpl = nullptr;
+        if (chatParams != nullptr) {
+            common_params_sampling sp = buildCommonSamplingParams(chatParams, temperature, topP, topK);
+            gsmpl = common_sampler_init(llama_get_model(ctx), sp);
+            if (gsmpl == nullptr) {
+                LOGE("common_sampler_init failed, falling back to plain sampler chain");
+            }
         }
-        // §6.1 官方 grammar 挂载已移除：autoparser 对 Qwen3-VL 模板的工具格式推断
-        // （XML 参数格式）与模型实际输出（JSON-in-tags）不一致，lazy 触发后遇 '{' 崩溃
-        // （Unexpected empty grammar stack）。保留官方 preserved_tokens 与 additional_stops，
-        // 工具参数完整性由流式 common_chat_parse 的 JSON 补全兜底。
+        if (gsmpl == nullptr) {
+            smpl = buildSampler(temperature, topP, topK, preservedIds);
+            LOGI("sampler: using plain llama_sampler chain (no chat params)");
+        }
 
         try {
         std::string promptToUse = prompt;
@@ -3135,8 +3507,15 @@ public:
                 break;
             }
 
-            llama_token new_token_id = llama_sampler_sample(smpl, ctx, -1);
-            llama_sampler_accept(smpl, new_token_id);
+            // COMMON-SAMPLER：走封装版（含 grammar 与 reasoning-budget 抑制、grammar-first 重采样）
+            llama_token new_token_id = gsmpl != nullptr
+                    ? common_sampler_sample(gsmpl, ctx, -1)
+                    : llama_sampler_sample(smpl, ctx, -1);
+            if (gsmpl != nullptr) {
+                common_sampler_accept(gsmpl, new_token_id, true);
+            } else {
+                llama_sampler_accept(smpl, new_token_id);
+            }
 
             if (llama_vocab_is_eog(vocab, new_token_id)) {
                 LOGI("EOS token detected, stopping generation");
@@ -3278,7 +3657,7 @@ public:
             if (!inThinking) decodeTokenCount++;  // 纯 decode 速度：仅正文生成阶段计数
         }
 
-        llama_sampler_free(smpl);
+        if (gsmpl != nullptr) common_sampler_free(gsmpl); else llama_sampler_free(smpl);
 
         // 首次 token 时间日志（诊断首轮 prefill 预热效果）
         if (firstTokenLogged) {
@@ -3325,14 +3704,14 @@ public:
             LOGE("Exception in generateStreamIncremental: %s", e.what());
             setPhase(GenPhase::ERROR, "incr:exception");
             setStop(StopCause::ERROR, "incr:exception");
-            llama_sampler_free(smpl);
+            if (gsmpl != nullptr) common_sampler_free(gsmpl); else llama_sampler_free(smpl);
             std::string error = std::string("Generation exception: ") + e.what();
             setLastError(error);
             callback("", true, error);
             return false;
         } catch (...) {
             LOGE("Unknown exception in generateStreamIncremental");
-            llama_sampler_free(smpl);
+            if (gsmpl != nullptr) common_sampler_free(gsmpl); else llama_sampler_free(smpl);
             std::string error = "Unknown generation error";
             setLastError(error);
             callback("", true, error);
@@ -3349,20 +3728,17 @@ public:
         LOGI("Messages count: %zu, maxTokens: %d, thinking=%d", messages.size(), maxTokens, (int)enableThinking);
 
         // 用 chat template 格式化消息（addAssistantStart=true，末尾加 assistant 开始标记）
-        std::string prompt = applyChatTemplateForMessages(messages, true);
+        // TEMPLATE-THINKING：把 enableThinking 交给模板，由模板自己写 think 标签
+        // （此前这里手写 prompt += "<think>\n"，既硬编码标签、又忽略模板差异）
+        std::string prompt = applyChatTemplateForMessages(messages, true, enableThinking);
         if (prompt.empty()) {
             std::string error = "Failed to apply chat template for messages";
             setLastError(error);
             callback("", true, error);
             return false;
         }
-        LOGI("Formatted prompt length: %zu", prompt.size());
-
-        // 思考链：在 assistant 开始标记后加 <think>
-        if (enableThinking) {
-            prompt += "<think>\n";
-            LOGI("generateStreamFromMessages: enableThinking=true, appended <think>\\n");
-        }
+        LOGI("Formatted prompt length: %zu, enableThinking=%d (think tag from template)",
+             prompt.size(), (int)enableThinking);
 
         // 复用 generateStream 的核心生成逻辑
         return generateStream(prompt, maxTokens, temperature, topP, topK, enableThinking, callback);
@@ -3461,6 +3837,8 @@ public:
             // 提取模板思考标签（统一标签源），供流式思考段剥离
             mThinkStartTag = chat_params.thinking_start_tag;
             mThinkEndTags = chat_params.thinking_end_tags;
+            classifyToolCallTags(chat_params.preserved_tokens, mThinkStartTag, mThinkEndTags,
+                                 mToolCallOpenTags, mToolCallCloseTags);
             LOGI("Thinking tags from template: start='%s', %zu end tag(s)",
                  mThinkStartTag.c_str(), mThinkEndTags.size());
         } catch (const std::exception& e) {
@@ -3485,8 +3863,10 @@ public:
         // 用包装回调收集 fullText，拦截 onComplete 以便在 common_chat_parse 解析后再发送。
         // 同时按模板思考标签剥离思考段：思考内容不流式发给 UI（reasoning 由 common_chat_parse 提取）。
         std::string collectedText;
-        bool thinkActive = false;   // 跨 chunk 思考状态（模板标签式，非 generateStream 思考分支）
-        auto wrappedCallback = [this, &callback, &collectedText, &thinkActive](const std::string& text, bool isComplete, const std::string& error) {
+        bool thinkActive = false;      // 跨 chunk 思考状态（模板标签式，非 generateStream 思考分支）
+        bool toolCallActive = false;   // 跨 chunk 工具调用状态（MiniCPM5 <function> 块）
+        auto wrappedCallback = [this, &callback, &collectedText, &thinkActive, &toolCallActive](
+                const std::string& text, bool isComplete, const std::string& error) {
             if (!isComplete && !error.empty()) {
                 callback(text, isComplete, error);
                 return;
@@ -3498,20 +3878,31 @@ public:
             }
             if (!isComplete) {
                 std::string stripped = stripThinkingChunk(text, thinkActive);
+                // 再剥工具调用块：MiniCPM5 的 <function ...> 原文既不进 UI 也不进 TTS
+                stripped = stripToolCallChunk(stripped, toolCallActive);
                 if (!stripped.empty()) {
                     callback(stripped, false, "");
                 }
             }
         };
 
-        bool genOk = generateStream(chat_params.prompt, maxTokens, temperature, topP, topK, false, wrappedCallback);
+        // 方案 B（2026-10-08）：改用 generateStreamIncremental 而不是 generateStream。
+        // 原因：generateStream 的签名里没有 chat_params，模板算出的 preserved_tokens
+        // （MiniCPM5 的 <function / <param / </param> / </function> 等）到不了采样器，
+        // 其中部分是 GGUF 词表里的 control token，会被 addControlTokenSuppression
+        // 以 -INFINITY 禁掉 —— 模型根本无法输出工具调用标记，只能输出纯文字
+        // （实测："需要调用 location 工具…" 却没有任何 <function> 输出）。
+        // generateStreamIncremental 收 chat_params 并已实现 preserved_tokens 透传，
+        // 与 chatJson 路径行为一致；同时启用 KV 增量（Agent 多轮省 prefill）。
+        bool genOk = generateStreamIncremental(chat_params.prompt, maxTokens, temperature, topP, topK,
+                                               false, wrappedCallback, &chat_params);
 
         // 生成完成后，用 common_chat_parse 解析模型输出
         // 解析结果存到 outParseResult，由 JNI 层直接调用 Java 的 onToolCalls/onReasoning 回调
         // 与在线 Agent 使用相同的 ToolCallInfo 格式，工具调用互通，无需中间层
         if (genOk && !collectedText.empty()) {
             try {
-                common_chat_parser_params parser_params(chat_params);
+                common_chat_parser_params parser_params = makeChatParserParams(chat_params);
                 parser_params.parse_tool_calls = true;
                 common_chat_msg parsed = common_chat_parse(collectedText, false, parser_params);
 
@@ -3646,6 +4037,8 @@ public:
             // 提取模板思考标签（统一标签源），供流式思考段剥离
             mThinkStartTag = chat_params.thinking_start_tag;
             mThinkEndTags = chat_params.thinking_end_tags;
+            classifyToolCallTags(chat_params.preserved_tokens, mThinkStartTag, mThinkEndTags,
+                                 mToolCallOpenTags, mToolCallCloseTags);
             LOGI("chatJson: thinking tags from template: start='%s', %zu end tag(s)",
                  mThinkStartTag.c_str(), mThinkEndTags.size());
             // 调试：打印模板 prompt 开头与末尾，排查"模型输出模板前缀/双前缀"问题
@@ -3860,19 +4253,28 @@ public:
             if (filtered.empty()) return;
             // 增量检测：仅 auto/none 且尚未进入 tool_call 时启用
             if (!isInToolCall && toolChoice != COMMON_CHAT_TOOL_CHOICE_REQUIRED) {
-                // 快速路径：collectedText 出现 tool_call 标签特征立即锁定，
-                // 不等 PARTIAL_PARSE_INTERVAL——避免 `<tool_call>` 前几个 token
-                // 以 is_tool_call=false 泄漏到 UI/TTS（实测 TTS 朗读 "<toolcall"）
-                if (collectedText.find("<tool_call>") != std::string::npos
-                        || collectedText.find("<tool_call") != std::string::npos
-                        || collectedText.find("<toolcall") != std::string::npos
-                        || collectedText.find("tool_call") != std::string::npos) {
+                // 快速路径：collectedText 出现工具调用标签特征立即锁定，
+                // 不等 PARTIAL_PARSE_INTERVAL——否则前几个 token 会以
+                // is_tool_call=false 泄漏到 UI/TTS（实测 TTS 朗读 "<toolcall"）。
+                //
+                // TOOLCALL-TAGS(2026-10-08)：标签集取自模板（mToolCallOpenTags，
+                // 由 preserved_tokens 推导）。原先只硬编码 Qwen 的 <tool_call>，
+                // 于是 MiniCPM5 的 <function/<param 不触发锁定 → 标签泄漏到 TTS。
+                bool fastPathHit = false;
+                for (const auto& tag : mToolCallOpenTags) {
+                    if (!tag.empty() && collectedText.find(tag) != std::string::npos) {
+                        fastPathHit = true;
+                        break;
+                    }
+                }
+                if (fastPathHit) {
                     isInToolCall = true;
-                    LOGI("chatJson: fast-path detected tool_call output");
+                    LOGI("chatJson: fast-path detected tool-call output (template tags, %zu open)",
+                         mToolCallOpenTags.size());
                 } else if (++partialParseCounter >= PARTIAL_PARSE_INTERVAL) {
                     partialParseCounter = 0;
                     try {
-                        common_chat_parser_params pp(chat_params);
+                        common_chat_parser_params pp = makeChatParserParams(chat_params);
                         pp.parse_tool_calls = true;
                         common_chat_msg partial = common_chat_parse(collectedText, true, pp);
                         if (!partial.tool_calls.empty()) {
@@ -3919,14 +4321,29 @@ public:
         // 把 chat template 推导出的思考标签交给 Java，Java 侧据此识别/剥离思考段，
         // 不再硬编码 <think>/</think>。模板未提供标签时下发空串 + 空数组，
         // Java 侧据此判定"该模型无思考段"，跳过剥离。
+        //
+        // TOOLCALL-TAGS(2026-10-08)：同时下发**工具调用标签**。
+        // 动机：Java 侧 filterStreamToken 原先只硬编码识别 Qwen 的 <tool_call>，
+        // 而 MiniCPM5 用 <function name=".."><param name="..">，
+        // 于是 MiniCPM5 的标签在流式阶段被判为"普通正文"推给 UI 并被 TTS 朗读。
+        // 来源用 preserved_tokens（它本身就是模板推导出的、需要豁免控制抑制的标记），
+        // 剥掉思考标签后的剩余项即工具调用语法的开/闭标签，换模型无需改 Java。
         {
             nlohmann::ordered_json meta;
             meta["type"] = "meta";
             meta["thinking_start_tag"] = mThinkStartTag;
             meta["thinking_end_tags"] = mThinkEndTags;
+
+            std::vector<std::string> openTags;
+            std::vector<std::string> closeTags;
+            classifyToolCallTags(chat_params.preserved_tokens, mThinkStartTag, mThinkEndTags,
+                                 openTags, closeTags);
+            meta["tool_call_open_tags"] = openTags;
+            meta["tool_call_close_tags"] = closeTags;
             jsonCallback(meta.dump());
-            LOGI("chatJson: meta event sent, thinking_start_tag='%s', %zu end tag(s)",
-                 mThinkStartTag.c_str(), mThinkEndTags.size());
+            LOGI("chatJson: meta event sent, thinking_start_tag='%s', %zu end tag(s), "
+                 "tool_call tags: %zu open / %zu close",
+                 mThinkStartTag.c_str(), mThinkEndTags.size(), openTags.size(), closeTags.size());
         }
 
         bool genOk = false;
@@ -3969,7 +4386,7 @@ public:
         common_chat_msg parsed;
         bool parseOk = false;
         try {
-            common_chat_parser_params parser_params(chat_params);
+            common_chat_parser_params parser_params = makeChatParserParams(chat_params);
             parser_params.parse_tool_calls = true;
             parsed = common_chat_parse(collectedText, false, parser_params);
             parseOk = true;
@@ -4128,6 +4545,110 @@ public:
     int getContextSize() const { return contextSize; }
     const std::string& getModelPath() const { return modelPath; }
     llama_context* getLlamaContext() { return ctx; }
+
+    /**
+     * KV-REAL-LAYERS(2026-10-09)：探测**真正会存 KV cache 的层数**。
+     *
+     * 混合注意力模型并非每层都存 KV：循环层（SSM/GDN 线性注意力）只维护固定尺寸状态，
+     * KV cache 只建在非循环层上。llama.cpp 的权威判定是
+     * llama-memory-hybrid-iswa.cpp 里给 KV cache 的过滤条件 `!hparams.is_recr(il)`。
+     *
+     * 层模式来自 GGUF（与 src/models/qwen35.cpp 的 load_hparams 同源）：
+     *   - `<arch>.attention.recurrent_layers` 明确数组 -> 循环层数 = 数组里非 0 的个数
+     *   - 否则用 `<arch>.full_attention_interval`，循环层 = (i+1) % interval != 0
+     *     （注意：llama.cpp 对该键的默认值是 4，不是 0，必须一致）
+     *
+     * 为什么必须折算：按全部层数估 KV 会高估数倍。Qwen3.5-2B 44.1 层里只有 6 层存 KV，
+     * 高估 4 倍会让 memoryPool 过早钳制 n_ctx。MiniCPM5（纯 LLaMA）42 层全存，按全层算才对。
+     *
+     * @return 存 KV 的层数；探测失败返回 0（由调用方回退为全部层数）
+     */
+    int countKvLayers() {
+        if (kvRealLayers_ >= 0) {
+            return kvRealLayers_;
+        }
+        kvRealLayers_ = 0;
+        if (modelPath.empty()) {
+            return 0;
+        }
+        gguf_init_params params;
+        params.no_alloc = true;      // 只读元数据，不分配张量
+        params.ctx      = nullptr;
+        gguf_context* gctx = gguf_init_from_file(modelPath.c_str(), params);
+        if (gctx == nullptr) {
+            LOGW("KV-REAL-LAYERS: 无法读取 GGUF 头部，回退按全部层数估算");
+            return 0;
+        }
+        std::string arch;
+        {
+            int64_t id = gguf_find_key(gctx, "general.architecture");
+            if (id >= 0 && gguf_get_kv_type(gctx, id) == GGUF_TYPE_STRING) {
+                const char* s = gguf_get_val_str(gctx, id);
+                if (s != nullptr) arch = s;
+            }
+        }
+        int nLayer = llama_model_n_layer(model);
+        int recrLayers = -1;
+        int interval = -1;
+        if (!arch.empty()) {
+            // 优先：显式循环层数组
+            {
+                std::string key = arch + ".attention.recurrent_layers";
+                int64_t id = gguf_find_key(gctx, key.c_str());
+                if (id >= 0 && gguf_get_kv_type(gctx, id) == GGUF_TYPE_ARRAY) {
+                    const gguf_type et = gguf_get_arr_type(gctx, id);
+                    const size_t    n  = gguf_get_arr_n(gctx, id);
+                    const void*     d  = gguf_get_arr_data(gctx, id);
+                    bool ok = (d != nullptr) &&
+                              (et == GGUF_TYPE_INT32 || et == GGUF_TYPE_UINT32);
+                    if (ok) {
+                        int cnt = 0;
+                        for (size_t i = 0; i < n; i++) {
+                            const int32_t v = (et == GGUF_TYPE_INT32)
+                                    ? ((const int32_t*) d)[i]
+                                    : (int32_t) ((const uint32_t*) d)[i];
+                            if (v != 0) cnt++;
+                        }
+                        recrLayers = cnt;
+                    }
+                }
+            }
+            if (recrLayers < 0) {
+                std::string key = arch + ".full_attention_interval";
+                int64_t id = gguf_find_key(gctx, key.c_str());
+                if (id >= 0) {
+                    switch (gguf_get_kv_type(gctx, id)) {
+                        case GGUF_TYPE_UINT32: interval = (int) gguf_get_val_u32(gctx, id); break;
+                        case GGUF_TYPE_INT32:  interval = (int) gguf_get_val_i32(gctx, id); break;
+                        case GGUF_TYPE_UINT64: interval = (int) gguf_get_val_u64(gctx, id); break;
+                        case GGUF_TYPE_INT64:  interval = (int) gguf_get_val_i64(gctx, id); break;
+                        default: break;
+                    }
+                }
+            }
+        }
+        gguf_free(gctx);
+
+        int kvLayers = nLayer;
+        if (recrLayers >= 0) {
+            kvLayers = nLayer - recrLayers;
+            LOGI("KV-REAL-LAYERS: 显式循环层数组 -> 循环 %d 层, 存 KV %d/%d 层",
+                 recrLayers, kvLayers, nLayer);
+        } else if (interval > 0) {
+            int recr = 0;
+            for (int i = 0; i < nLayer; i++) {
+                if ((i + 1) % interval != 0) recr++;
+            }
+            kvLayers = nLayer - recr;
+            LOGI("KV-REAL-LAYERS: full_attention_interval=%d -> 循环 %d 层, 存 KV %d/%d 层",
+                 interval, recr, kvLayers, nLayer);
+        } else {
+            LOGI("KV-REAL-LAYERS: 无混合注意力键, 全部 %d 层都存 KV", nLayer);
+        }
+        if (kvLayers < 1) kvLayers = nLayer;
+        kvRealLayers_ = kvLayers;
+        return kvRealLayers_;
+    }
 
     // 崩溃恢复：siglongjmp 会跳过 generateStream 内的 RAII guard，
     // 导致 isGenerating 永久卡在 true，需要在 JNI 层检测并强制复位
@@ -4484,17 +5005,8 @@ public:
                                        bool enableThinking, TokenCallback callback) {
         // 创建采样器
         auto sparams = llama_sampler_chain_default_params();
-        struct llama_sampler* smpl = llama_sampler_chain_init(sparams);
-        if (temperature <= 0) {
-            llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
-        } else {
-            addControlTokenSuppression(smpl, vocab);
-            llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
-            llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP > 0 ? topP : 0.9f, 1));
-            llama_sampler_chain_add(smpl, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.3f, 0.0f, 0.0f));
-            llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
-            llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
-        }
+        // 采样链统一构造（参数按模型档位，见 buildSampler）
+        struct llama_sampler * smpl = buildSampler(temperature, topP, topK, {});
 
         int n_remain = maxTokens;
         std::string fullText;
@@ -4546,9 +5058,58 @@ public:
 // InferenceContext::applyChatTemplateForMessages 的类外定义
 // 独立版本：对任意消息列表应用 chat template，不依赖成员 chatMessages
 // 用于单次生成路径（generateStreamFromMessages），避免污染多轮对话状态
-std::string InferenceContext::applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart) {
+std::string InferenceContext::applyChatTemplateForMessages(const std::vector<std::pair<std::string, std::string>>& messages, bool addAssistantStart,
+                                                             bool enableThinking) {
     if (!model || messages.empty()) return "";
 
+    // TEMPLATE-THINKING(2026-10-08)：优先走 common_chat_templates_apply，让**模板自己**产出
+    // thinking 标签（MiniCPM5/Qwen3 的 {%% if enable_thinking %%} 分支就在模板里）。
+    // 旧 API llama_chat_apply_template 没有 enable_thinking 入参 → 模板不会写 think 标签
+    // → 调用方只能在 prompt 末尾手写 "<think>\n"，那既硬编码了标签、又与模板重复。
+    {
+        auto tmpl = common_chat_templates_init(model, chatTemplateForKvReuse(model));
+        if (tmpl) {
+            try {
+                std::vector<common_chat_msg> cmsgs;
+                cmsgs.reserve(messages.size());
+                for (const auto& m : messages) {
+                    common_chat_msg cm;
+                    cm.role = m.first;
+                    cm.content = m.second;
+                    cmsgs.push_back(std::move(cm));
+                }
+
+                // 与 generateWithTools 同一套护栏：仅在模板声明支持时才打开 thinking，
+                // 否则模板引擎内部会 abort（SIGABRT）
+                bool supports_thinking = common_chat_templates_support_enable_thinking(tmpl.get());
+
+                common_chat_templates_inputs inputs;
+                inputs.messages = cmsgs;
+                inputs.add_generation_prompt = addAssistantStart;
+                inputs.use_jinja = true;
+                inputs.enable_thinking = enableThinking && supports_thinking;
+
+                common_chat_params params = common_chat_templates_apply(tmpl.get(), inputs);
+                if (!params.prompt.empty()) {
+                    // 与 generateWithTools 一致：同步缓存模板标签，供流式思考剥离使用
+                    if (!params.thinking_start_tag.empty()) {
+                        mThinkStartTag = params.thinking_start_tag;
+                        mThinkEndTags = params.thinking_end_tags;
+                    }
+                    LOGI("applyChatTemplateForMessages: template=%zu bytes, thinking=%d (requested=%d, supports=%d), startTag='%s'",
+                         params.prompt.size(), (int)inputs.enable_thinking, (int)enableThinking,
+                         (int)supports_thinking, mThinkStartTag.c_str());
+                    return params.prompt;
+                }
+                LOGW("applyChatTemplateForMessages: template produced empty prompt, falling back to legacy API");
+            } catch (const std::exception& e) {
+                LOGW("applyChatTemplateForMessages: new template API failed: %s, falling back", e.what());
+            }
+        }
+    }
+
+    // ===== 兜底：旧 API（无 enable_thinking，模板不会产 think 标签）=====
+    // 保留原行为，避免新 API 不可用时彻底拿不到 prompt。
     const char* tmpl = llama_model_chat_template(model, nullptr);
     if (!tmpl) {
         LOGW("No chat template found in model, falling back to ChatML format");
@@ -5347,7 +5908,7 @@ public:
 
         stepStartTime = std::chrono::steady_clock::now();
         auto sparams = llama_sampler_chain_default_params();
-        struct llama_sampler *smpl = llama_sampler_chain_init(sparams);
+        struct llama_sampler * smpl = llama_sampler_chain_init(sparams);
         if (temperature <= 0) {
             llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
         } else {
@@ -6550,6 +7111,25 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetThinkingTags(JNIEnv* env, jclas
     nlohmann::ordered_json j;
     j["thinking_start_tag"] = start;
     j["thinking_end_tags"] = ends;
+    return utf8StringToJstring(env, j.dump());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetToolCallTags(JNIEnv* env, jclass /* clazz */) {
+    // 返回 {"tool_call_open_tags":["<function","<param"],"tool_call_close_tags":["</function>","</param>"]}
+    // 模板未声明工具语法时返回空数组，Java 侧据此**不做吞除**（按纯正文处理）。
+    // 标签来自模板 preserved_tokens，换模型无需改 Java。
+    std::vector<std::string> openTags;
+    std::vector<std::string> closeTags;
+    if (s_helperContext != nullptr) {
+        openTags = s_helperContext->getToolCallOpenTags();
+        closeTags = s_helperContext->getToolCallCloseTags();
+    } else {
+        LOGW("nativeGetToolCallTags: helper context not initialized");
+    }
+    nlohmann::ordered_json j;
+    j["tool_call_open_tags"] = openTags;
+    j["tool_call_close_tags"] = closeTags;
     return utf8StringToJstring(env, j.dump());
 }
 
@@ -8006,15 +8586,26 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGenerateWithTools(
             LOGE("Exception in JNI callback");
         }
 
-        if (isDone) {
-            env->DeleteGlobalRef(globalCallback);
-            env->DeleteGlobalRef(globalCallbackClass);
-        }
+        // 全局引用不在这里释放：本函数收尾还要用 globalCallback 发 onToolCalls/onReasoning/
+        // onComplete，提前 DeleteGlobalRef 会让后续 CallVoidMethodV 命中已删除引用
+        // （实测 JNI abort：jobject is an invalid global reference ... in call to CallVoidMethodV）。
+        // 统一交给函数出口的 RAII 守卫释放。
 
         if (didAttach) {
             jvm->DetachCurrentThread();
         }
     };
+
+    // 统一释放本函数的两个全局引用（覆盖任何返回路径）
+    struct CallbackRefGuard {
+        JNIEnv* env;
+        jobject cb;
+        jclass cbCls;
+        ~CallbackRefGuard() {
+            if (cb != nullptr) env->DeleteGlobalRef(cb);
+            if (cbCls != nullptr) env->DeleteGlobalRef(cbCls);
+        }
+    } callbackRefGuard{env, globalCallback, globalCallbackClass};
 
     // 调用 generateWithTools，获取 common_chat_parse 解析结果
     llama_jni::InferenceContext::ChatParseResult parseResult;
