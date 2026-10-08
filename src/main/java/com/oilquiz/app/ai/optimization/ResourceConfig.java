@@ -218,6 +218,27 @@ public class ResourceConfig {
     public int getOptimalGpuLayers(boolean hasGpuSupport, long gpuMemoryMB, long maxMemAllocSizeMB,
                                    int contextSize, long modelSizeMB, String modelPath,
                                    String modelFilePath) {
+        return getOptimalGpuLayers(hasGpuSupport, gpuMemoryMB, maxMemAllocSizeMB, contextSize,
+                modelSizeMB, modelPath, modelFilePath, null);
+    }
+
+    /**
+     * ARCH-ONCE(2026-10-09)：接收**调用方已读好**的 GGUF 架构信息，避免重复解析。
+     *
+     * <p>背景：模型架构（层数、KV 头数、头维度等）此前由 AIService 与 ResourceConfig 各自
+     * 从 GGUF 头部读一遍，读取时机还晚于层数计算 —— 于是层数只能靠
+     * {@code modelSizeMB / totalLayers} 估算每层大小（当前按 35MB 估），
+     * 而真实的每层大小、KV 每 token 代价都要到 native 建 context 时才可见。</p>
+     *
+     * <p>现在由调用方**在加载前一次性读取**（{@code nativeReadGgufMeta} 走 gguf_init_from_file，
+     * 只读元数据、不占显存），再喂给这里和各处决策，使"层数 / 上下文 / KV"三者基于同一份真实数据。</p>
+     *
+     * @param arch 已读好的架构信息；为 null 时本方法自行按 {@code modelFilePath} 读取（保持旧行为）
+     */
+    public int getOptimalGpuLayers(boolean hasGpuSupport, long gpuMemoryMB, long maxMemAllocSizeMB,
+                                   int contextSize, long modelSizeMB, String modelPath,
+                                   String modelFilePath,
+                                   com.oilquiz.app.ai.model.GgufMeta arch) {
         AILogger.i(TAG, "========== GPU LAYERS CALCULATION ==========");
         AILogger.i(TAG, "Input params:");
         AILogger.i(TAG, "  hasGpuSupport=" + hasGpuSupport);
@@ -244,15 +265,18 @@ public class ResourceConfig {
         // 现在直接读 GGUF 头部拿 blockCount（就是 n_layer），与 llama_model_n_layer 同源。
         int totalLayers = 0;
         try {
-            if (modelFilePath != null && !modelFilePath.isEmpty()) {
+            // ARCH-ONCE：优先用调用方已读好的架构（同一次加载内不再重复解析 GGUF）
+            com.oilquiz.app.ai.model.GgufMeta gm = arch;
+            if (gm == null && modelFilePath != null && !modelFilePath.isEmpty()) {
                 java.io.File mf = new java.io.File(modelFilePath);
                 if (mf.isFile()) {
-                    com.oilquiz.app.ai.model.GgufMeta gm = com.oilquiz.app.ai.model.GgufMeta.read(mf);
-                    if (gm != null && gm.blockCount > 0) {
-                        totalLayers = (int) gm.blockCount;
-                        AILogger.i(TAG, "Using real model layers from GGUF: " + totalLayers);
-                    }
+                    gm = com.oilquiz.app.ai.model.GgufMeta.read(mf);
                 }
+            }
+            if (gm != null && gm.blockCount > 0) {
+                totalLayers = (int) gm.blockCount;
+                AILogger.i(TAG, "Using real model layers from GGUF: " + totalLayers
+                        + (arch != null ? " (reused pre-read arch)" : ""));
             }
         } catch (Throwable t) {
             AILogger.w(TAG, "读取 GGUF 层数失败，回退元数据估算: " + t.getMessage());

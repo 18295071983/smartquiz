@@ -199,6 +199,52 @@ public final class GgufMeta {
     }
 
     /**
+     * KV-REAL-LAYERS(2026-10-09)：**真正会存 KV cache 的层数**。
+     *
+     * <p>背景（实测）：混合注意力模型并非每层都存 KV。Qwen3.5-2B 的 GGUF 里
+     * {@code qwen35.full_attention_interval = 4}，即每 4 层只有 1 层是全注意力层，
+     * 其余 3 层是 SSM/GDN 线性层（{@code qwen35.ssm.*}，固定尺寸状态、不随 token 增长）。
+     * 佐证：llama.cpp 日志对 Qwen3.5-2B 打印
+     * {@code llama_kv_cache: size = 96.00 MiB (8192 cells, 6 layers)} —— 24 层里只有 6 层有 KV。</p>
+     *
+     * <p>为什么必须折算：按"全部层数"估算 KV 会**高估 4 倍**（Qwen3.5-2B：49,152 → 真实 12,288 B/token），
+     * 后果是上下文预算被过早收紧、内存池过早钳制 n_ctx。
+     * 而 MiniCPM5-2B（纯 LLaMA 架构，无该键）42 层全部存 KV，按全层数算才正确。</p>
+     *
+     * <p>对齐 llama.cpp 的判定：{@code llama_hparams::has_kv(il)} 用
+     * {@code n_layer_kv_from_start}（非负时只算前 N 层）。此处按 interval 折算层数，
+     * 与日志实测的 6 层一致（{@code ceil(24/4) = 6}）。</p>
+     *
+     * @return 存 KV 的层数；无法判断时返回 blockCount（保守：按全部层数算）
+     */
+    public long kvLayerCount() {
+        if (blockCount <= 0) {
+            return 0;
+        }
+        if (fullAttentionInterval > 1) {
+            // 每 fullAttentionInterval 层一个全注意力层（向上取整，避免少算）
+            long n = (blockCount + fullAttentionInterval - 1) / fullAttentionInterval;
+            return Math.max(1, Math.min(blockCount, n));
+        }
+        return blockCount;
+    }
+
+    /**
+     * KV-REAL-LAYERS：每 token 的 KV cache 字节数（F16，每元素 2 字节）。
+     *
+     * <p>{@code KV/token = 2(K+V) × kvLayerCount × n_head_kv × head_dim × 2}</p>
+     *
+     * @return 字节数；信息不足时返回 0
+     */
+    public long kvBytesPerToken() {
+        long layers = kvLayerCount();
+        if (layers <= 0 || headCountKv <= 0 || headLength <= 0) {
+            return 0;
+        }
+        return 2L * layers * headCountKv * headLength * 2L;
+    }
+
+    /**
      * HTP（Hexagon NPU）兼容性说明。
      * 佐证：GenieX/HTP 只对部分量化类型提供 NPU 算子（Q4_0 / Q4_1 / Q8_0 / IQ4_NL / MXFP4 / F16 / F32），
      * K-quant（Q4_K/Q5_K/Q6_K…）会退到 CPU → 表现为"能跑但明显变慢"。这里据张量直方图给出提示。

@@ -6,6 +6,7 @@ import com.oilquiz.app.ai.engine.NpuEngineRouter;
 import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
 import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
+import com.oilquiz.app.ai.chat.parser.ToolCallTagConfig;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
@@ -159,7 +160,13 @@ public class AgentLoopEngine {
             // 2026-10-05：补 ai_weather / smart_research / memory —— 原先只有
             // time_date/location/tool_registry/file_reader/workspace，而 sessionTools
             // 只在会话首条消息播种一次 → 模型整轮看不到天气工具（"我无法获取天气信息"）。
-            "time_date", "location", "ai_weather", "smart_research", "memory",
+            //
+            // 2026-10-09：补 network_search —— 实测"查油价"这类**非天气的实时查询**被错派给
+            // ai_weather。原因是核心工具里唯一带"实时查询"语义的就是 ai_weather：
+            // smart_research 是"智能研究"语义、指向不明确，而通用联网搜索 network_search
+            // 当时不在核心集（模型只能经 tool_registry 自行发现，小模型很少主动这么做）。
+            // 补上后，实时类问题有了语义正确的落点。
+            "time_date", "location", "ai_weather", "network_search", "smart_research", "memory",
             "tool_registry", "file_reader", "workspace"
     };
 
@@ -177,6 +184,12 @@ public class AgentLoopEngine {
      * 未收到 meta 时为 empty，此时思考提取回退到旧的正则/字面量路径。
      */
     private volatile ThinkingTagConfig thinkingTags = ThinkingTagConfig.empty();
+
+    /**
+     * 工具调用标签（模板下发）—— 流式阶段据此判断 token 是正文还是工具调用语法。
+     * 空配置表示模板未声明工具语法，此时**不做任何吞除**（按纯正文处理）。
+     */
+    private volatile ToolCallTagConfig toolCallTags = ToolCallTagConfig.empty();
 
     /** 最近一次用户消息原文：供 ai_weather 缺城市参数时提取城市名兜底（如"五台县的天气"→city=五台县） */
     private volatile String lastUserMessage = "";
@@ -563,14 +576,15 @@ public class AgentLoopEngine {
                 callback.onThinkingUpdate("第 " + iteration + " 轮思考: " + truncate(reasoning, 120));
             }
 
-            // 工具调用解析：优先 C++ 层 common_chat_parse（原生 JSON tool_call）；
-            // 实测 Qwen3-4B 输出的是 <tool_call>{...}</tool_call> 标签格式（FcTest 实证），
-            // common_chat_parse 解析不出，需回退标签解析才能拿到工具调用
+            // 工具调用解析：**唯一权威来源是 native 层**。
+            // native 用模板的 PEG parser（common_chat_parse）解析并下发 tool_call 事件，
+            // 标签/语法全部由模板动态推导，不需要 Java 侧再猜格式。
+            // LOCAL-REGEX-REMOVED(2026-10-09)：原先此处有"native 解析不出就回退正则"的兜底，
+            // 那是 makeChatParserParams 未传 parser 那个 bug 的产物 —— 该 bug 已修，
+            // 正则兜底会让 native 的退化被静默掩盖（宽松正则能把畸形输出"猜"成工具调用）。
+            // 现在改为：native 没给出工具调用，就是真的没有，直接进入无工具分支。
             List<ToolCall> toolCalls = genResult.toolCalls != null
                     ? genResult.toolCalls : new ArrayList<>();
-            if (toolCalls.isEmpty() && response != null) {
-                toolCalls = parseToolCallsTag(response);
-            }
 
             // 按需动态注入：模型本轮调用/检索到的工具加入注入集，下轮起注入其 schema
             // （tool_registry 查到的工具由模型实际调用后自动注入，无需手动全量）
@@ -1130,6 +1144,18 @@ public class AgentLoopEngine {
         final boolean[] done = {false};   // F10：幂等标志，error/complete 后忽略迟到事件
         final boolean[] thinkingStreamedAgent = {false};   // 思考已实时累积（thinking 事件），reasoning 全文跳过防重复
 
+        // 工具调用标签兜底：正常由 meta 事件覆盖；若本轮没收到 meta（旧路径/异常），
+        // 这里主动向引擎要一次模板标签，避免退化成"不吞除"而泄漏标签。
+        // LlamaHelper.getToolCallTags() 内部有缓存，重复调用开销可忽略。
+        try {
+            if (!toolCallTags.isAvailable()) {
+                ToolCallTagConfig fromEngine = ToolCallTagConfig.forCurrentEngine();
+                if (fromEngine.isAvailable()) toolCallTags = fromEngine;
+            }
+        } catch (Throwable ignored) {
+            // 取不到就保持空配置（按纯正文处理，不吞除）
+        }
+
         NpuEngineRouter.chatJson(requestJson, new LlamaHelper.JsonCallback() {
             @Override
             public void onJson(String json) {
@@ -1142,6 +1168,7 @@ public class AgentLoopEngine {
                             // 思考标签由 native 从 chat template 推导后下发，首个 token 前到达。
                             // 每次生成都会覆盖，换模型/换模板时自动更新，无需 Java 侧硬编码。
                             thinkingTags = ThinkingTagConfig.fromJson(event);
+                            toolCallTags = ToolCallTagConfig.fromJson(event);
                             break;
                         case "token":
                             // is_tool_call=true 的 token（tool_call JSON 片段）吞掉不渲染（§5.2）
@@ -1245,22 +1272,13 @@ public class AgentLoopEngine {
 
         String content = contentHolder[0] != null ? contentHolder[0].trim() : "";
 
-        // 兜底：C++ 层未下发 tool_call 事件时，从完整流式内容中解析 <tool_call> 标签
-        if (toolCallsHolder.isEmpty() && fullContentBuf.length() > 0) {
-            List<ToolCall> fallback = parseToolCallsTag(fullContentBuf.toString());
-            if (!fallback.isEmpty()) {
-                AILogger.i(TAG, "Fallback: parsed " + fallback.size() + " tool calls from stream content");
-                toolCallsHolder.addAll(fallback);
-            }
-        }
-        // complete 事件的 content 也可能包含工具调用（C++ is_tool_call 失效时）
-        if (toolCallsHolder.isEmpty() && !content.isEmpty()) {
-            List<ToolCall> fallback = parseToolCallsTag(content);
-            if (!fallback.isEmpty()) {
-                AILogger.i(TAG, "Fallback: parsed " + fallback.size() + " tool calls from complete content");
-                toolCallsHolder.addAll(fallback);
-            }
-        }
+        // LOCAL-REGEX-REMOVED(2026-10-09)：此处原有两个正则兜底
+        // （native 未下发 tool_call 时，从流式全文/complete 正文里用正则捞工具调用）。
+        // 它们与 AgentService 的 11 套正则重复，且会把 native 的解析退化静默掩盖。
+        // native 现在通过模板 PEG parser 解析并下发 tool_call 事件，是唯一权威来源；
+        // 若确实没有下发，那就是该轮没有工具调用，交由后续无工具分支处理。
+        // 说明：在线路径不经过本函数（它走 OpenAI 原生 tool_calls → ToolCallInfo），
+        // 因此删除本地兜底不影响在线模型。
 
         AILogger.i(TAG, "generateWithChatJsonSync result: contentLen=" + content.length()
                 + " reasoningLen=" + reasoningBuf.length()
@@ -1272,9 +1290,15 @@ public class AgentLoopEngine {
     }
 
     /**
-     * 流式过滤 tool_call 标签片段（Java 侧兜底）。
-     * C++ 层 common_chat_parse 对 Qwen 的 tool_call 标签格式解析不出，
-     * is_tool_call 标志失效，标签会当普通正文 token 推到 UI；这里用状态机：
+     * 流式过滤工具调用标签片段（Java 侧兜底）。
+     *
+     * <p><b>标签来源动态化（2026-10-08）</b>：本方法原先只硬编码识别 Qwen 的
+     * {@code <tool_call>}，导致 MiniCPM5 的 {@code <function name=".."><param name="..">}
+     * 被判为普通正文推给 UI 并被 TTS 朗读。现改为读取模板下发的
+     * {@link ToolCallTagConfig}（native 从 {@code preserved_tokens} 推导），
+     * 换模型无需改本方法。标签集为空时**直接原样输出**，不做任何吞除。</p>
+     *
+     * <p>状态机：
      * - 开标签跨 token 拆分时（如 tool 与 _call）前缀滞留探测，识别后进入吞状态；
      * - 吞状态下持续累积直到闭合标签；若模型漏输出闭合标签，则内容 {} 配平后进入
      *   "观望"状态：继续吞可选的闭合标签残留（含跨 token 拆分），一旦收到非
@@ -1293,18 +1317,17 @@ public class AgentLoopEngine {
                 buf.setLength(0);
                 return filterStreamToken(token, buf, swallowing, jsonDone, closeBuf);
             }
-            // 正在吞 tool_call：持续累积（闭合标签可能跨 token 拆分）
+            // 正在吞工具调用：持续累积（闭合标签可能跨 token 拆分）
             buf.append(token);
             String acc = buf.toString();
-            int close = acc.indexOf("</tool_call");
+            int[] closeLen = new int[1];
+            int close = findCloseTag(acc, closeLen);
             if (close >= 0) {
-                // 有闭合标签 → 正常结束
+                // 有闭合标签 → 正常结束；闭标签长度按模板标签取（不再假设单字符 '>'）
                 swallowing[0] = false;
                 jsonDone[0] = false;
-                String tail = acc.substring(close + "</tool_call".length());
+                String tail = acc.substring(close + closeLen[0]);
                 buf.setLength(0);
-                int gt = tail.indexOf('>');
-                if (gt >= 0) tail = tail.substring(gt + 1);
                 if (!tail.isEmpty()) return filterStreamToken(tail, buf, swallowing, jsonDone, closeBuf);
                 return "";
             }
@@ -1312,20 +1335,19 @@ public class AgentLoopEngine {
                 // 观望：JSON 已配平，吞掉可选的闭合标签残留
                 closeBuf.append(token);
                 String cb = closeBuf.toString();
-                if (cb.indexOf("</tool_call") >= 0) {
+                int[] cbLen = new int[1];
+                int cClose = findCloseTag(cb, cbLen);
+                if (cClose >= 0) {
                     // 闭合标签补全（含跨 token 拆分）→ 结束，处理其后的正文
                     swallowing[0] = false;
                     jsonDone[0] = false;
                     closeBuf.setLength(0);
                     buf.setLength(0);
-                    int c = cb.indexOf("</tool_call");
-                    String tail = cb.substring(c + "</tool_call".length());
-                    int gt = tail.indexOf('>');
-                    if (gt >= 0) tail = tail.substring(gt + 1);
+                    String tail = cb.substring(cClose + cbLen[0]);
                     if (!tail.isEmpty()) return filterStreamToken(tail, buf, swallowing, jsonDone, closeBuf);
                     return "";
                 }
-                if ("</tool_call".startsWith(cb)) {
+                if (isClosingTagIncomplete(cb)) {
                     // 闭合标签前缀（跨 token 拆分中）→ 继续吞
                     return "";
                 }
@@ -1347,20 +1369,20 @@ public class AgentLoopEngine {
         buf.append(token);
         String probe = buf.toString();
 
-        // 查找完整开标签 <tool_call>（<tool_calls 亦命中）
-        int open = probe.indexOf("<tool_call");
+        // 查找工具调用开标签（标签集来自模板：MiniCPM5 的 <function/<param、
+        // Qwen 的 <tool_call 都在其中，不再硬编码单一写法）
+        int open = findOpenTag(probe);
         if (open >= 0) {
             String before = probe.substring(0, open);
             buf.setLength(0);
             buf.append(probe.substring(open));
             String after = buf.toString();
-            if (after.indexOf("</tool_call") >= 0) {
+            int[] aLen = new int[1];
+            int aClose = findCloseTag(after, aLen);
+            if (aClose >= 0) {
                 // 同一缓冲内已闭合：处理闭合标签之后的正文
                 buf.setLength(0);
-                int c = after.indexOf("</tool_call");
-                String tail = after.substring(c + "</tool_call".length());
-                int gt = tail.indexOf('>');
-                if (gt >= 0) tail = tail.substring(gt + 1);
+                String tail = after.substring(aClose + aLen[0]);
                 if (!tail.isEmpty()) return before + filterStreamToken(tail, buf, swallowing, jsonDone, closeBuf);
                 return before;
             }
@@ -1382,23 +1404,19 @@ public class AgentLoopEngine {
             return before;
         }
 
-        // 无完整开标签：末尾跨 token 拆分的开标签前缀滞留
-        int lastLt = probe.lastIndexOf('<');
+        // 无完整开标签：末尾是否存在跨 token 拆分的开标签前缀（如 "<fun" / "<tool_c"）
+        int lastLt = findIncomingOpenTagPrefix(probe);
         if (lastLt >= 0) {
             String suffix = probe.substring(lastLt);
-            if ("<tool_call".startsWith(suffix) && suffix.length() < "<tool_call".length()) {
-                String head = probe.substring(0, lastLt);
-                buf.setLength(0);
-                buf.append(suffix);
-                return head;
-            }
-            if ("<tool_call".equals(suffix)) {
-                buf.setLength(0);
-                buf.append(suffix);
+            String head = probe.substring(0, lastLt);
+            buf.setLength(0);
+            buf.append(suffix);
+            // 恰好等于某个完整开标签 → 直接进入吞状态
+            if (toolCallTags.getOpenTags().contains(suffix)) {
                 closeBuf.setLength(0);
                 swallowing[0] = true;
-                return probe.substring(0, lastLt);
             }
+            return head;
         }
         // 无任何可疑前缀 → 缓冲全部输出
         buf.setLength(0);
@@ -1418,12 +1436,63 @@ public class AgentLoopEngine {
         }
     }
 
-    /** 判断 s 末尾是否存在正在跨 token 流入的闭合标签前缀（如 </ / </t / </tool_c），用于避免提前补壳 */
+    /**
+     * 判断 s 末尾是否存在正在跨 token 流入的**闭合标签前缀**（如 {@code </} / {@code </f}），
+     * 用于避免提前补壳。闭合标签取自模板（{@link ToolCallTagConfig}），不再硬编码。
+     */
     private boolean isClosingTagIncomplete(String s) {
         int lt = s.lastIndexOf('<');
         if (lt < 0) return false;
         String suffix = s.substring(lt);
-        return "</tool_call".startsWith(suffix) && suffix.length() < "</tool_call".length();
+        for (String close : toolCallTags.getCloseTags()) {
+            if (close.startsWith(suffix) && suffix.length() < close.length()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 在当前缓冲末尾找出"正在跨 token 流入的开标签前缀"，返回其起始下标；无则返回 -1。
+     * 开标签取自模板，因此 MiniCPM5 的 {@code <function}/{@code <param} 与
+     * Qwen 的 {@code <tool_call} 都走同一套逻辑。
+     */
+    private int findIncomingOpenTagPrefix(String s) {
+        int lt = s.lastIndexOf('<');
+        if (lt < 0) return -1;
+        String suffix = s.substring(lt);
+        for (String open : toolCallTags.getOpenTags()) {
+            if (open.startsWith(suffix) && suffix.length() < open.length()) return lt;
+        }
+        return -1;
+    }
+
+    /**
+     * 在当前缓冲中查找任一工具调用开标签，返回最早出现的位置；无则返回 -1。
+     */
+    private int findOpenTag(String s) {
+        int best = -1;
+        for (String open : toolCallTags.getOpenTags()) {
+            int p = s.indexOf(open);
+            if (p >= 0 && (best < 0 || p < best)) best = p;
+        }
+        return best;
+    }
+
+    /**
+     * 在当前缓冲中查找任一工具调用闭标签，返回最早出现的位置与其长度；无则返回 -1。
+     * 长度通过长度为 1 的 int[] 回传。
+     */
+    private int findCloseTag(String s, int[] lenOut) {
+        int best = -1;
+        int bestLen = 0;
+        for (String close : toolCallTags.getCloseTags()) {
+            int p = s.indexOf(close);
+            if (p >= 0 && (best < 0 || p < best)) {
+                best = p;
+                bestLen = close.length();
+            }
+        }
+        if (lenOut != null && lenOut.length > 0) lenOut[0] = bestLen;
+        return best;
     }
 
     /** 解析 tool_call 事件（§4.2）：id/name/arguments(JSON 字符串) */
@@ -1796,6 +1865,13 @@ public class AgentLoopEngine {
         sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（Agent模式）。\n");
         sb.append("你的工作：与用户对话答疑，并调用多种工具完成查询、搜索、生成、处理等任务。\n");
         sb.append("你的方式：实时/动态信息必须用工具获取；静态知识直接回答；结构化信息用清晰的分段与列表展示。\n");
+        // TOOL-SELECTION(2026-10-09)：补一行工具选用规则。
+        // 原因：实测"查油价"这类非天气的实时查询被错派给 ai_weather —— 当时核心工具里唯一带
+        // "实时查询"语义的就是 ai_weather，且 prompt 无任何选用规则（AIToolUsageGuide 虽定义了
+        // 规则却从未被注入）。注：本行是**静态文本**，同一天内 system 前缀字节不变，
+        // 不破坏 buildCurrentTimeLine 所述的 KV 前缀复用设计。
+        sb.append("工具选择：天气用 ai_weather（先 location 定位）；其他实时/最新信息（油价、股价、"
+                + "新闻、赛事等）用 network_search 或 smart_research，不要用天气工具回答非天气问题。\n");
         sb.append("你的边界：不可逆或影响外部操作（删除/覆盖文件、发送消息等）先征得用户确认。\n");
         sb.append("你的风格：用中文，口语化、简洁有条理，先结论后细节。\n\n");
         // RULES-REMOVED(2026-10-07)：原【规则】段（工具调用规则 1-6）删除。
@@ -2127,214 +2203,20 @@ public class AgentLoopEngine {
         }
     }
 
-    // ==================== 工具调用标签解析 ====================
+    // ==================== 工具调用解析（已移交 native） ====================
+    //
+    // LOCAL-REGEX-REMOVED(2026-10-09)：本段原先是一整套「从模型文本里用正则猜工具调用」的
+    // 解析器（4 套形态：<tool_call>{JSON}、<function=X>+<parameter=Y>、裸 JSON、思考标签），
+    // 与 AgentService 的 11 套正则功能重复。
+    //
+    // 为什么删除：它是 makeChatParserParams 未把模板 PEG parser 传给 common_chat_parse
+    // 那个 bug 的产物 —— native 当时解析不出任何工具调用，才必须在 Java 侧用正则补救。
+    // 该 bug 已修，native 现在按各模型自己的模板语法解析并下发 tool_call 事件，是唯一权威来源。
+    // 保留宽松正则兜底的害处：native 一旦退化，兜底会把畸形输出「猜」成工具调用，静默掩盖故障。
+    //
+    // 在线模型不经过本类（走 OpenAI 原生 tool_calls → OnlineInferenceService.ToolCallInfo），
+    // 故本段删除不影响在线路径。
 
-    /** 模型输出的 <tool_call> 标签（Qwen3 实测输出此格式，common_chat_parse 不识别） */
-    private static final Pattern TOOL_CALL_TAG =
-            Pattern.compile("<tool_call>(.*?)</tool_call>", Pattern.DOTALL);
-    // Qwen3.5 XML 形态（与 AgentService 一致）：tool_call 块内 function=工具名 + parameter=参数名 标签
-    private static final Pattern QWEN35_TOOL_CALL_BLOCK = Pattern.compile(
-            "<tool_call>\\s*<function=([^>\\n]+)>\\s*([\\s\\S]*?)\\s*\\s*</tool_call>",
-            Pattern.DOTALL);
-    // 兜底：<tool_call> 包裹缺失或未闭合（Qwen3-Coder 习惯直接输出 <function=，截断时 </tool_call> 丢失）
-    private static final Pattern QWEN35_FUNCTION_BARE_BLOCK = Pattern.compile(
-            "<function=([^>\\n]+)>\\s*([\\s\\S]*?)\\s*(?:" + "</" + "function>|\\z)",
-            Pattern.DOTALL);
-    // 参数：值捕获到 parameter 闭合标签、下一个 parameter 标签或 function 闭合标签为止（vLLM 同款容错，截断不丢参数）
-    private static final Pattern QWEN35_PARAM_BLOCK = Pattern.compile(
-            "<parameter=([^>\\n]+)>\\s*([\\s\\S]*?)(?=<parameter=|" + "</" + "parameter>|<" + "/function>|\\z)",
-            Pattern.DOTALL);
-
-    /**
-     * 从回复文本解析 <tool_call> 标签包裹的 JSON 工具调用（Qwen 原生格式，与 Qwen-Agent fncall 约定一致）。
-     * 实测 Qwen3-4B 输出：<tool_call>{"name":"ai_weather","arguments":{"city":"北京"}}</tool_call>
-     * 支持一轮多个工具调用（并行）：循环匹配全部标签并展开。
-     */
-    private List<ToolCall> parseToolCallsTag(String response) {
-        List<ToolCall> calls = new ArrayList<>();
-        if (response == null) return calls;
-        Matcher tagMatcher = TOOL_CALL_TAG.matcher(response);
-        while (tagMatcher.find()) {
-            calls.addAll(parseToolCallJson(tagMatcher.group(1).trim()));
-        }
-        // Qwen3.5 XML 参数形态：tool_call 块内 function= 工具名 + parameter= 参数名 值对
-        // （与 Qwen3 的 JSON 形态并存，按形态自适应；C++ 解析失败时 Java 兜底也能接住）
-        if (calls.isEmpty()) {
-            calls = parseQwen35XmlToolCalls(response);
-        }
-        // 兜底：无任何包裹的裸 JSON（模型把 {"name":..,"arguments":{..}} 或
-        // {"tool_calls":[...]} 直接当正文输出时），按括号配平提取候选并解析——
-        // 模型输出什么格式就解码什么格式，不硬限制
-        if (calls.isEmpty()) {
-            List<ToolCall> bare = parseBareJsonToolCalls(response);
-            if (!bare.isEmpty()) calls.addAll(bare);
-        }
-        return calls;
-    }
-
-    /**
-     * 无标签裸 JSON 工具调用解析（自适应兜底）：扫描文本中括号配平的 {...} 块，
-     * 逐个尝试按工具调用 JSON 解析（name+arguments / tool_calls 数组），
-     * 非工具调用块解析失败自然忽略。覆盖模型跳过 <tool_call> 包裹直接输出
-     * 原生 JSON 的形态（常见于切换模型/模板后输出形态漂移）。
-     */
-    private List<ToolCall> parseBareJsonToolCalls(String response) {
-        List<ToolCall> calls = new ArrayList<>();
-        if (response == null || response.isEmpty()) return calls;
-        int i = 0;
-        int n = response.length();
-        while (i < n) {
-            int start = response.indexOf('{', i);
-            if (start < 0) break;
-            // 括号配平：找到与 start 配对的 }
-            int depth = 0;
-            int end = -1;
-            boolean inStr = false;
-            boolean esc = false;
-            for (int j = start; j < n; j++) {
-                char c = response.charAt(j);
-                if (inStr) {
-                    if (esc) { esc = false; }
-                    else if (c == '\\') { esc = true; }
-                    else if (c == '"') { inStr = false; }
-                    continue;
-                }
-                if (c == '"') { inStr = true; }
-                else if (c == '{') { depth++; }
-                else if (c == '}') {
-                    depth--;
-                    if (depth == 0) { end = j; break; }
-                }
-            }
-            if (end < 0) break;
-            String candidate = response.substring(start, end + 1);
-            List<ToolCall> parsed = parseToolCallJson(candidate);
-            if (!parsed.isEmpty()) calls.addAll(parsed);
-            i = end + 1;
-        }
-        return calls;
-    }
-
-    /**
-     * 解析单个 <tool_call> 标签内 JSON，兼容多种形态：
-     * 1. 单条：{"name":"ai_weather","arguments":{"city":"北京"}}
-     * 2. 数组包裹（一轮并行）：{"tool_calls":[{"name":..,"arguments":{..}}, ...]}，展开为 0..n 条
-     * 3. arguments/parameters/args 三种参数名；arguments 可为 JSON 对象或 JSON 字符串
-     * 4. 工具名别名 name/tool/function.name；可选 id（call_xx，R4-1 需要时由上层补齐）
-     */
-    private List<ToolCall> parseToolCallJson(String jsonStr) {
-        List<ToolCall> calls = new ArrayList<>();
-        if (jsonStr == null || jsonStr.isEmpty()) return calls;
-        try {
-            JSONObject json = new JSONObject(jsonStr);
-            // 数组包裹形态：一轮多个工具调用
-            JSONArray array = json.optJSONArray("tool_calls");
-            if (array != null) {
-                for (int i = 0; i < array.length(); i++) {
-                    JSONObject item = array.optJSONObject(i);
-                    if (item == null) continue;
-                    ToolCall tc = buildToolCallFromJson(item);
-                    if (tc != null) calls.add(tc);
-                }
-                return calls;
-            }
-            ToolCall tc = buildToolCallFromJson(json);
-            if (tc != null) calls.add(tc);
-        } catch (Exception e) {
-            AILogger.w(TAG, "Parse tool call tag failed: " + truncate(jsonStr, 80));
-        }
-        return calls;
-    }
-
-    /**
-     * 解析 Qwen3.5 原生 XML 参数形态工具调用（与 AgentService 一致）。
-     * 官方模板格式（参考 Qwen/Qwen3.5 tokenizer_config.json）：
-     * tool_call 块内嵌套 function=工具名 与多个 parameter=参数名 值对，
-     * 参数值可为纯文本或 JSON（对象/数组/数字/布尔/null）。
-     * 与 Qwen3 的 JSON 形态（tool_call 块内 {"name":..., "arguments":{...}}）并存，
-     * 由 parseToolCallsTag 按输出形态自适应分发。
-     */
-    private List<ToolCall> parseQwen35XmlToolCalls(String response) {
-        List<ToolCall> calls = new ArrayList<>();
-        if (response == null) return calls;
-        Matcher block = QWEN35_TOOL_CALL_BLOCK.matcher(response);
-        while (block.find()) {
-            ToolCall call = buildQwen35XmlToolCall(block.group(1), block.group(2));
-            if (call != null) calls.add(call);
-        }
-        if (calls.isEmpty()) {
-            // 兜底：tool_call 包裹缺失或未闭合（Qwen3-Coder 直接输出 function=，截断丢闭合标签）
-            Matcher bare = QWEN35_FUNCTION_BARE_BLOCK.matcher(response);
-            while (bare.find()) {
-                ToolCall call = buildQwen35XmlToolCall(bare.group(1), bare.group(2));
-                if (call != null) calls.add(call);
-            }
-        }
-        return calls;
-    }
-
-    /** 构建单个 Qwen3.5 XML 工具调用：函数名模糊归一 + 参数提取为 JSON arguments */
-    private ToolCall buildQwen35XmlToolCall(String rawName, String body) {
-        if (rawName == null || rawName.trim().isEmpty()) return null;
-        String resolved = toolManager.resolveToolNameFuzzy(rawName.trim());
-        if (resolved == null) {
-            AILogger.w(TAG, "Unrecognized tool name in Qwen3.5 XML output: " + rawName);
-            return null;
-        }
-        JSONObject args = new JSONObject();
-        Matcher pm = QWEN35_PARAM_BLOCK.matcher(body != null ? body : "");
-        while (pm.find()) {
-            String paramName = pm.group(1).trim();
-            String paramValue = pm.group(2).trim();
-            if (paramName.isEmpty()) continue;
-            try {
-                args.put(paramName, tryParseXmlParamValue(paramValue));
-            } catch (JSONException ignored) {
-                // 参数名非法键，跳过
-            }
-        }
-        return new ToolCall(resolved, args);
-    }
-
-    /** Qwen3.5 XML 参数值解析：对象/数组按 JSON 解析（含嵌套），标量走 nextValue，失败保留为字符串 */
-    private static Object tryParseXmlParamValue(String raw) {
-        String v = raw.trim();
-        if (v.isEmpty()) return "";
-        if (v.startsWith("{")) {
-            try {
-                return new JSONObject(v);
-            } catch (JSONException ignored) {
-                // 非 JSON 对象，按普通文本处理
-            }
-        } else if (v.startsWith("[")) {
-            try {
-                return new JSONArray(v);
-            } catch (JSONException ignored) {
-                // 非 JSON 数组，按普通文本处理
-            }
-        }
-        try {
-            return new JSONTokener(v).nextValue();
-        } catch (JSONException e) {
-            return v;
-        }
-    }
-
-    /** 从单条工具调用 JSON 构建 ToolCall（名称/参数/ID 多别名兼容） */
-    private ToolCall buildToolCallFromJson(JSONObject json) {
-        try {
-            String name = json.optString("name", "");
-            if (name.isEmpty()) name = json.optString("tool", "");
-            if (name.isEmpty()) {
-                JSONObject fn = json.optJSONObject("function");
-                if (fn != null) name = fn.optString("name", "");
-            }
-            if (name.isEmpty()) return null;
-            return new ToolCall(resolveCallId(json), name, resolveArgsObject(json));
-        } catch (Exception e) {
-            return null;
-        }
-    }
 
     /** 工具调用 id（可能缺失，缺失时上层执行前补齐 R4-1） */
     private String resolveCallId(JSONObject json) {

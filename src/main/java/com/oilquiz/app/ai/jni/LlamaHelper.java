@@ -9,6 +9,7 @@ import com.oilquiz.app.ai.util.PromptBuilder;
 import com.oilquiz.app.ai.callback.StreamCallback;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
+import com.oilquiz.app.ai.chat.parser.ToolCallTagConfig;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -2172,6 +2173,7 @@ public class LlamaHelper {
     private static native void nativeClearContextForInference(long handle);
     private static native void nativeCleanupCallback();
     private static native String nativeGetThinkingTags();
+    private static native String nativeGetToolCallTags();
     private static native String nativeGetKvCacheStats();
     private static native String nativeGetGenPhase();
 
@@ -2193,6 +2195,9 @@ public class LlamaHelper {
 
     /** 模板思考标签缓存：模型固定后标签不变，避免渲染/逐 token 重复走 JNI */
     private static volatile ThinkingTagConfig cachedThinkingTags = null;
+
+    /** 工具调用标签缓存（与 cachedThinkingTags 同策略：仅缓存"已就绪"结果） */
+    private static volatile ToolCallTagConfig cachedToolCallTags = null;
 
     /**
      * 获取当前模型 chat template 声明的思考标签 —— 标签来自模板，不硬编码。
@@ -2220,6 +2225,36 @@ public class LlamaHelper {
         } catch (Throwable t) {
             AILogger.w(TAG, "getThinkingTags failed: " + t.getMessage());
             return ThinkingTagConfig.empty();
+        }
+    }
+
+    /**
+     * 获取当前模型 chat template 声明的**工具调用标签** —— 标签来自模板，不硬编码。
+     *
+     * <p>native 在模型加载时从模板的 {@code preserved_tokens} 推导并缓存，覆盖
+     * MiniCPM5（{@code <function}/{@code </function>}、{@code <param}）、
+     * Qwen（{@code <tool_call>}）等各自不同的写法。</p>
+     *
+     * <p>用途：流式阶段判断 token 是正文还是工具调用语法，避免标签泄漏到 UI/TTS。</p>
+     *
+     * @return 模板标签配置；模型未加载或模板未声明工具语法时返回 isAvailable()==false
+     *         的配置，调用方**必须据此跳过吞除**，而不是回退到硬编码
+     */
+    public static ToolCallTagConfig getToolCallTags() {
+        if (!libraryLoaded) return ToolCallTagConfig.empty();
+        if (cachedToolCallTags != null) return cachedToolCallTags;
+        try {
+            String json = nativeGetToolCallTags();
+            ToolCallTagConfig cfg = json == null ? ToolCallTagConfig.empty()
+                    : ToolCallTagConfig.fromJson(json);
+            if (cfg.isAvailable()) cachedToolCallTags = cfg;
+            return cfg;
+        } catch (UnsatisfiedLinkError e) {
+            AILogger.w(TAG, "nativeGetToolCallTags unavailable: " + e.getMessage());
+            return ToolCallTagConfig.empty();
+        } catch (Throwable t) {
+            AILogger.w(TAG, "getToolCallTags failed: " + t.getMessage());
+            return ToolCallTagConfig.empty();
         }
     }
 
@@ -2275,6 +2310,7 @@ public class LlamaHelper {
      */
     public static void invalidateThinkingTagsCache() {
         cachedThinkingTags = null;
+        cachedToolCallTags = null;
     }
 
     public static int handleMemoryPressure(int level) {

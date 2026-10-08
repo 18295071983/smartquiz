@@ -1035,6 +1035,35 @@ public class AIService implements ComponentCallbacks2 {
             // 获取模型文件大小用于估算层数与上下文（大模型需降低上下文减少 KV 内存）
             long modelSizeMB = modelFile.length() / (1024 * 1024);
 
+            // ARCH-ONCE(2026-10-09)：**加载前一次性读取模型架构**，后续所有决策复用这一份。
+            //
+            // 设计动机（用户提出）：原先架构信息被分散读取、且读取时机偏晚 ——
+            //   · ResourceConfig 层数计算时自己读一遍（拿 blockCount）
+            //   · KV 代价探测又读一遍
+            //   · 状态页展示再读一遍
+            // 而"先读架构、再定参数、最后完整加载"才是正确顺序：GGUF 头部解析走
+            // gguf_init_from_file，**只读元数据、不加载权重、不占显存**（实测约 0.5s，
+            // 主要成本是十万级词表），却能让"层数 / 上下文 / KV"三者基于同一份真实数据，
+            // 而不是像过去那样用 modelSizeMB/totalLayers 估算每层大小。
+            // 读取失败（非 GGUF / 文件不可读）返回 null，各决策点自动退回原有估算路径。
+            com.oilquiz.app.ai.model.GgufMeta arch = null;
+            try {
+                if (modelFile.isFile()) {
+                    arch = com.oilquiz.app.ai.model.GgufMeta.read(modelFile);
+                    if (arch != null) {
+                        AILogger.i(TAG, "ARCH-ONCE: read model architecture before load -> block=" + arch.blockCount
+                                + " head=" + arch.headCount + " headKv=" + arch.headCountKv
+                                + " emb=" + arch.embeddingLength + " keyLen=" + arch.headLength
+                                + " ctxTrain=" + arch.contextLength
+                                + (arch.hasLinearAttention ? " hasLinearAttention=true" : ""));
+                    } else {
+                        AILogger.w(TAG, "ARCH-ONCE: GGUF meta unavailable, falling back to estimation paths");
+                    }
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "ARCH-ONCE: read failed (" + t.getMessage() + "), falling back to estimation paths");
+            }
+
             // 获取上下文大小用于计算 KV 缓存（模型尺寸感知：8B 级大模型自动降档）
             int contextSize = calculateOptimalContextSize(memoryInfo.totalMemoryMB, memoryInfo.availableMemoryMB, gpuMemoryMB > 0, modelSizeMB);
 
@@ -1053,6 +1082,55 @@ public class AIService implements ComponentCallbacks2 {
                 AILogger.w(TAG, "context manual override failed: " + e.getMessage());
             }
 
+            // CONTEXT-DYNAMIC(2026-10-09)：用**真实架构**动态算 context，而不是静态分档。
+            //
+            // 原问题：calculateOptimalContextSize 只按"显存档位 / 模型大小"给固定值
+            // （MiniCPM5 与 Qwen3.5-2B 都拿到 12288），完全没看模型自己的 KV 代价 ——
+            // 而两者 KV 相差 3.5 倍（43008 vs 12288 B/token）：
+            //   12288 ctx × 43008 B/token ≈ 504MB（MiniCPM5）vs ≈ 144MB（Qwen3.5-2B）
+            // 于是同一档位对前者严重超配 → 内存被榨干 → 屏幕雪花。
+            //
+            // 现在：KV/token 已知（ARCH-ONCE 精确读取），可用内存已知 → 直接解出能容纳的
+            // 最大 context，再夹到 [下限, 静态档位值]。取 min 保证"动态值不会比原来更激进"，
+            // 只在能省内存的方向上收紧。
+            long kvBytesPerToken = 0;
+            if (arch != null) {
+                // KV-REAL-LAYERS：按**真正存 KV 的层数**算，而不是全部层数。
+                // 混合注意力模型（如 Qwen3.5-2B，full_attention_interval=4，24 层里只有 6 层
+                // 是全注意力层、其余是 SSM/GDN 线性层）按全层数会高估 4 倍。
+                // GgufMeta.kvBytesPerToken() 内部已按 kvLayerCount() 折算。
+                kvBytesPerToken = arch.kvBytesPerToken();
+                if (kvBytesPerToken > 0) {
+                    AILogger.i(TAG, "KV model: block=" + arch.blockCount
+                            + ", kvLayers=" + arch.kvLayerCount()
+                            + (arch.fullAttentionInterval > 1
+                               ? " (fullAttentionInterval=" + arch.fullAttentionInterval + ")" : " (all layers)")
+                            + ", headKv=" + arch.headCountKv + ", headDim=" + arch.headLength
+                            + " => " + kvBytesPerToken + " B/token");
+                }
+            }
+            if (kvBytesPerToken > 0) {
+                // 预算 = 可用内存 × 80%（留 20% 给系统与显示合成 —— 雪花就是显示被饿死导致的），
+                // 再扣除权重常驻与计算缓冲（经验取权重的 25%）
+                long ctxBufMB = Math.max(64, modelSizeMB / 4);
+                long ctxBudgetMB = (long) (memoryInfo.availableMemoryMB * 0.80);
+                long kvBudgetForCtxMB = Math.max(0, ctxBudgetMB - modelSizeMB - ctxBufMB);
+                int maxCtxByMem = (int) ((kvBudgetForCtxMB * 1024L * 1024L) / kvBytesPerToken);
+                maxCtxByMem = (maxCtxByMem / 512) * 512;                 // 对齐 512
+                int ctxFloor = 4096;                                     // Agent 场景底线
+                int ctxCap   = contextSize;                              // 不超过静态档位值
+                int dynCtx = Math.max(ctxFloor, Math.min(ctxCap, maxCtxByMem));
+                AILogger.i(TAG, "CONTEXT-DYNAMIC: kv=" + kvBytesPerToken + " B/token, budget=" + ctxBudgetMB
+                        + "MB, kvBudget=" + kvBudgetForCtxMB + "MB -> maxCtxByMem=" + maxCtxByMem
+                        + ", static=" + ctxCap + ", floor=" + ctxFloor + " => ctx=" + dynCtx);
+                if (dynCtx < contextSize) {
+                    AILogger.w(TAG, "CONTEXT-DYNAMIC: context " + contextSize + " -> " + dynCtx
+                            + " (KV " + ((kvBytesPerToken * contextSize) / (1024 * 1024)) + "MB -> "
+                            + ((kvBytesPerToken * dynCtx) / (1024 * 1024)) + "MB) to keep memory safe");
+                    contextSize = dynCtx;
+                }
+            }
+
             // 检查 GPU 是否支持（使用 gpuMemoryMB > 0 判断，而不是 getGPULayers()）
             boolean hasGpuSupport = gpuMemoryMB > 0 || LlamaHelper.getGPULayers() > 0;
             int gpuLayers = resourceConfig.getOptimalGpuLayers(
@@ -1061,7 +1139,9 @@ public class AIService implements ComponentCallbacks2 {
                     // LAYERS-FROM-GGUF：必须传**绝对路径** —— getOptimalGpuLayers 会直读 GGUF 头部拿真实层数。
                     // 只传 getName() 时 File.isFile() 为 false，会退回"按文件大小估算"（0.8B 被算成 22 层，
                     // 真实 24 层），于是"全量卸载"只卸载它以为的 22 层，白留几层在 CPU 上拖慢每个 token。
-                    modelFile.getAbsolutePath());
+                    modelFile.getAbsolutePath(),
+                    // ARCH-ONCE：复用上面已读好的架构，避免同一次加载内重复解析 GGUF 头部
+                    arch);
 
             // 根据系统剩余可用内存动态调整 GPU 层数，防止内存不足导致卡顿或 OOM
             long availMemMB = memoryInfo.availableMemoryMB;
@@ -1118,8 +1198,88 @@ public class AIService implements ComponentCallbacks2 {
                     gpuLayers = Math.min(gpuLayers, bigModel ? 30 : 28);
                     AILogger.i(TAG, "Moderate available memory (" + availMemMB + "MB), limiting GPU layers to " + gpuLayers);
                 }
+
+                // KV-COST-CAP(2026-10-09)：按"每 token KV 代价"再收一层。
+                //
+                // 背景（实测雪花）：层数档位只按"模型大小 + 可用内存"分档，忽略了**KV 占用因模型而异**。
+                // 同样 8192 上下文，MiniCPM5 的 KV = 43008 B/token（336 MiB），
+                // 而 Qwen3.5-2B 只有 49152 B/token 但在 25 层档位下仅 96 MiB —— 前者是后者的 3.5 倍。
+                // MiniCPM5 被分到 43 层后，权重 42×35MB≈1470MB + KV 336MB ≈ 1.8GB，
+                // 而设备可用内存只有约 1.9GB → MemFree 掉到 221MB → lowmemorykiller 杀后台
+                // → 显示合成被饿死 → **屏幕雪花**。
+                //
+                // 为什么按"每 token 代价"而不是直接看 KV 总量：层数决策发生在本函数，
+                // 而实际 n_ctx 要到 native 建 context 时才定；用 B/token 与上下文无关，最稳。
+                // 数据来自 GGUF 头部（精确值，非估算）：
+                //   KV/token = 2(K+V) × blockCount × headCountKv × headLength × 元素字节(F16=2)
+                // kvBytesPerToken 已在上面 CONTEXT-DYNAMIC 段算好（ARCH-ONCE 精确值），此处复用。
+                //
+                // LAYERS-FIRST(2026-10-09)：**优先保层数，用 context 换内存**。
+                //
+                // 修正前一版的设计错误：那一版是"KV 代价大 → 砍层数"（43→28），方向反了。理由：
+                //   · 砍层数把权重推回 CPU 是**有代价**的 —— 每个 token 多一次 CPU↔GPU 同步，
+                //     日志注释里实测"半吊子卸载仅 8-11 tok/s 且不稳"；
+                //   · 而被推走的权重在共享内存手机上**并不省内存**（权重本来就常驻，全量 offload
+                //     不增加内存总量）；
+                //   · 真正该砍的是 context —— KV ∝ context，砍了是实打实省内存。
+                // 所以正确顺序是：先把层数保到内存能容纳的最大值，再用 context 去适配。
+                //
+                // 安全线：GPU 侧实际新增占用 ≈ KV + 计算/权重缓冲（经验取权重的 25%）。
+                // 手机 GPU 与系统共享物理内存，故还要与 availMem 挂钩，不能只信"GPU 总显存×60%"。
+                if (kvBytesPerToken > 0 && arch != null && arch.blockCount > 0) {
+                    long weightsFullMB = modelSizeMB;                       // 全量权重（任一方案下都常驻）
+                    long kvFullMB = (kvBytesPerToken * contextSize) / (1024 * 1024);
+                    long gpuBufMB = Math.max(64, weightsFullMB / 4);        // 计算/权重缓冲经验值
+                    long gpuSideMB = kvFullMB + gpuBufMB;                   // GPU 侧真正新增
+                    // 预算：可用内存留 20% 给系统与显示合成（雪花就是显示被饿死导致的）
+                    long budgetMB = (long) (availMemMB * 0.80);
+                    AILogger.i(TAG, "LAYERS-FIRST: keep gpuLayers=" + gpuLayers + "/" + arch.blockCount
+                            + ", KV=" + kvFullMB + "MB + buf=" + gpuBufMB + "MB => gpuSide=" + gpuSideMB
+                            + "MB, budget=" + budgetMB + "MB (availMem=" + availMemMB + "MB, 80%)");
+
+                    if (gpuSideMB > budgetMB) {
+                        // 超预算 → 先砍 context（保层数）
+                        long maxAffordableKvMB = Math.max(0, budgetMB - gpuBufMB);
+                        long maxCtx = (maxAffordableKvMB * 1024L * 1024L) / kvBytesPerToken;
+                        // 对齐 512，并夹到 [4096, 当前值]（4096 是 Agent 场景底线）
+                        maxCtx = (maxCtx / 512) * 512;
+                        maxCtx = Math.max(4096, Math.min(contextSize, maxCtx));
+                        if (maxCtx < contextSize) {
+                            AILogger.w(TAG, "LAYERS-FIRST: context " + contextSize + " -> " + maxCtx
+                                    + " to preserve all " + gpuLayers + " GPU layers (KV "
+                                    + kvFullMB + "MB -> " + ((kvBytesPerToken * maxCtx) / (1024 * 1024)) + "MB)");
+                            contextSize = (int) maxCtx;
+                        }
+                        // 砍到 4096 仍不够 → 才反过来砍层数（最后手段：优先保系统不出雪花）
+                        if (gpuSideMB > budgetMB && contextSize <= 4096) {
+                            long overMB = gpuSideMB - budgetMB;
+                            long layerMB = Math.max(1, weightsFullMB / arch.blockCount);
+                            int cut = (int) (overMB / layerMB) + 1;
+                            int newLayers = Math.max(8, gpuLayers - cut);
+                            if (newLayers < gpuLayers) {
+                                AILogger.w(TAG, "LAYERS-FIRST: still over budget even at ctx=4096 ("
+                                        + gpuSideMB + "MB > " + budgetMB + "MB), cutting GPU layers "
+                                        + gpuLayers + " -> " + newLayers + " as last resort");
+                                gpuLayers = newLayers;
+                            }
+                        }
+                    }
+                }
+
                 if (gpuLayers != originalGpuLayers) {
                     AILogger.i(TAG, "GPU layers adjusted: " + originalGpuLayers + " -> " + gpuLayers + " (available memory: " + availMemMB + "MB)");
+                }
+
+                // ARCH-ONCE 观测：用真实架构对账"估算 vs 实际"，为是否重写 ResourceConfig 的
+                // 每层大小估算提供依据（当前它按 modelSizeMB/totalLayers 估算，MiniCPM5 实测 35MB/层）。
+                if (arch != null && arch.blockCount > 0 && gpuLayers > 0) {
+                    long realLayerMB = modelSizeMB / arch.blockCount;                    // 权重近似每层
+                    long kvTotalMB = kvBytesPerToken > 0 ? (kvBytesPerToken * contextSize) / (1024 * 1024) : 0;
+                    AILogger.i(TAG, "ARCH-ONCE budget: layers=" + gpuLayers + "/" + arch.blockCount
+                            + " weights~" + (realLayerMB * gpuLayers) + "MB"
+                            + " + KV " + kvTotalMB + "MB (ctx=" + contextSize + ", " + kvBytesPerToken + " B/token)"
+                            + " => GPU footprint ~" + (realLayerMB * gpuLayers + kvTotalMB) + "MB"
+                            + " | availMem=" + availMemMB + "MB");
                 }
             }
 
