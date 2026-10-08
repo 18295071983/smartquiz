@@ -373,8 +373,8 @@ jobs:
 ## 相关文档
 
 - [系统架构设计](docs/system/system_architecture.md)
-- [Agent 架构设计](docs/AGENT_ARCHITECTURE.md)
+- [Agent 架构设计](docs/development/02-ai-agent-architecture.md)
 - [开发指南](DEVELOPMENT_GUIDE.md)
 - [环境搭建指南](SETUP_GUIDE.md)
-- [开发标准](docs/development/development_standards.md)
+- [开发规范](docs/development/09-development-guide.md)
 - [变更日志](CHANGELOG.md)

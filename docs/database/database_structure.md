@@ -248,5 +248,5 @@ question ───────────────────────�
 ## 相关文档
 
 - [系统架构设计](../system/system_architecture.md)
-- [技术栈详情](../development/tech_stack.md)
-- [模块功能设计](../development/module_function_design.md)
+- [技术栈详情](../development/01-project-overview.md)
+- [模块功能设计](../development/08-module-inventory.md)

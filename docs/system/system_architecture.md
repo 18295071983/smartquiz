@@ -322,7 +322,7 @@ LLM 工具调用
    └── 控件树增强：嵌套注册类型 / 现场定义 / use 模板；连续输入多轮表单
 ```
 
-详见 [AI_COMPONENT_LAYOUT_DESIGN.md](../development/AI_COMPONENT_LAYOUT_DESIGN.md)。
+详见 [02-ai-agent-architecture.md](../development/02-ai-agent-architecture.md)。
 
 ### 4.11 AI 对话渲染管线（2026-08-25 落地）
 
@@ -426,9 +426,9 @@ QuizActivity → QuizViewModel
 
 ## 相关文档
 
-- [Agent 架构设计](../AGENT_ARCHITECTURE.md)
-- [AI 功能设计](../development/ai_feature_design.md)
+- [Agent 架构设计](../development/02-ai-agent-architecture.md)
+- [AI 服务与推理设计](../development/04-ai-service-inference.md)
 - [数据库结构设计](../database/database_structure.md)
-- [技术栈详情](../development/tech_stack.md)
-- [模块功能设计](../development/module_function_design.md)
-- [开发标准规范](../development/development_standards.md)
+- [项目架构总览](../development/01-project-overview.md)
+- [模块清单](../development/08-module-inventory.md)
+- [开发规范](../development/09-development-guide.md)

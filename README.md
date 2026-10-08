@@ -32,7 +32,7 @@
 | 热启动恢复 | 重新加载 | 即时可用 | **即时** |
 | 中文编码处理 | Modified UTF-8 (有问题) | 标准 UTF-8 | **修复** |
 
-**详细优化内容请参阅** [CHANGELOG.md](CHANGELOG.md) 和 [LLM服务设计文档](docs/development/ai_modules/llm_service_design.md)。
+**详细优化内容请参阅** [CHANGELOG.md](CHANGELOG.md) 和 [AI 服务与推理设计](docs/development/04-ai-service-inference.md)。
 
 ## 功能概览
 
@@ -243,12 +243,12 @@ bash build_llama_jni_msys2.sh
 详细文档请参阅 [docs/](docs/) 目录：
 
 - [系统架构设计](docs/system/system_architecture.md)
-- [Agent 架构设计](docs/AGENT_ARCHITECTURE.md)
+- [Agent 架构设计](docs/development/02-ai-agent-architecture.md)
 - [数据库结构设计](docs/database/database_structure.md)
-- [AI 功能设计](docs/development/ai_feature_design.md)
-- [开发标准规范](docs/development/development_standards.md)
-- [技术栈文档](docs/development/tech_stack.md)
-- [测试策略](docs/development/testing_strategy.md)
+- [AI 服务与推理设计](docs/development/04-ai-service-inference.md)
+- [开发规范](docs/development/09-development-guide.md)
+- [项目架构总览](docs/development/01-project-overview.md)
+- [模块清单](docs/development/08-module-inventory.md)
 - [路线图](ROADMAP.md)
 
 ## 许可证
