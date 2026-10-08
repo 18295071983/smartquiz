@@ -1,0 +1,6 @@
+# Patch base for 0001-android-app-compat.patch
+# Apply with: git apply patches/0001-android-app-compat.patch
+#
+base_commit   = 81ff93ea1d48c0482508d30e75b814df99c25bf0
+base_subject  = llama: properly handle KV on training (#28520)
+local_head    = a809b4773f2cbbf73d61afde7b91993f2e7fa34b

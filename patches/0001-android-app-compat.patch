@@ -1,0 +1,137 @@
+diff --git a/ggml/src/ggml-hexagon/CMakeLists.txt b/ggml/src/ggml-hexagon/CMakeLists.txt
+index 5cb178a..0635982 100644
+--- a/ggml/src/ggml-hexagon/CMakeLists.txt
++++ b/ggml/src/ggml-hexagon/CMakeLists.txt
+@@ -1,6 +1,21 @@
+ file(TO_CMAKE_PATH "${HEXAGON_SDK_ROOT}"   HEXAGON_SDK_ROOT)
+ file(TO_CMAKE_PATH "${HEXAGON_TOOLS_ROOT}" HEXAGON_TOOLS_ROOT)
+ 
++# HEXAGON-COMPAT(2026-10-09): 本工程在主构建与 HTP 子构建两种场景下都会 include
++# SDK 的 hexagon_fun.cmake，而 PREBUILT_LIB_DIR 不总是有人设置（下面 ExternalProject
++# 的 -DPREBUILT_LIB_DIR=... 只作用于子构建）。SDK 该文件里
++#   string(FIND ${PREBUILT_LIB_DIR} "toolv81" ...)
++# 在变量为空时会退化成 string(FIND "toolv81" ...)，参数不足直接报错
++# （"string sub-command FIND requires 3 or 4 parameters"）。
++# 这里给它一个非空默认值，使主构建也能通过。
++#
++# 取值说明：SDK 6.6.0.0 的 ipc/fastrpc/*/ship 下是平台名（android / android_aarch64 /
++# UbuntuARM...），而非旧版的 toolvNN_vXX。这些路径仅被拼进 include/link 列表，对 HTP skel
++# 构建不是必需，取一个真实存在的名字即可。
++if (NOT PREBUILT_LIB_DIR)
++    set(PREBUILT_LIB_DIR "android_aarch64")
++endif()
++
+ if (NOT IS_DIRECTORY "${HEXAGON_SDK_ROOT}")
+     message(FATAL_ERROR "Make sure HEXAGON_SDK_ROOT point to the correct Hexagon SDK installation.")
+ endif()
+@@ -58,12 +73,32 @@ ggml_add_backend_library(${TARGET_NAME}
+ target_link_libraries(${TARGET_NAME} PRIVATE htp_iface)
+ target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/htp ${CMAKE_CURRENT_BINARY_DIR})
+ 
++# HEXAGON-CMAKE-VER(2026-10-09): HTP 子工程要求 cmake_minimum_required(VERSION 3.22.2)，
++# 而 Android SDK 随附的是 3.22.1，ExternalProject 默认沿用宿主 cmake 会直接失败
++#   "CMake 3.22.2 or higher is required. You are running version 3.22.1-..."
++# 若 PATH 或已知位置有更新的 cmake，显式传给子构建（找不到则保持默认行为）。
++if (NOT DEFINED GGML_HEXAGON_HTP_CMAKE_COMMAND)
++    foreach(_cand "C:/Program Files/CMake/bin/cmake.exe")
++        if (EXISTS "${_cand}")
++            set(GGML_HEXAGON_HTP_CMAKE_COMMAND "${_cand}")
++            break()
++        endif()
++    endforeach()
++endif()
++
+ # Build HTP skels
+ set(HTP_SKELS)
++set(HTP_PROJECTS)
+ function(build_htp_skel V)
++    if (GGML_HEXAGON_HTP_CMAKE_COMMAND)
++        set(_cmake_cmd_arg CMAKE_COMMAND "${GGML_HEXAGON_HTP_CMAKE_COMMAND}")
++    else()
++        set(_cmake_cmd_arg "")
++    endif()
+     ExternalProject_Add(htp-${V}
+         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/htp BUILD_ALWAYS ON
+         BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libggml-htp-${V}.so
++        ${_cmake_cmd_arg}
+         CMAKE_ARGS
+             -DCMAKE_BUILD_TYPE=${GGML_HEXAGON_HTP_BUILD_TYPE}
+             -DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_SOURCE_DIR}/htp/cmake-toolchain.cmake
+@@ -74,7 +109,9 @@ function(build_htp_skel V)
+             -DDSP_VERSION=${V}
+             -DPREBUILT_LIB_DIR="toolv19_${V}")
+     list(APPEND HTP_SKELS ${CMAKE_CURRENT_BINARY_DIR}/libggml-htp-${V}.so)
++    list(APPEND HTP_PROJECTS htp-${V})
+     set(HTP_SKELS ${HTP_SKELS} PARENT_SCOPE)
++    set(HTP_PROJECTS ${HTP_PROJECTS} PARENT_SCOPE)
+ endfunction()
+ 
+ build_htp_skel(v73)
+@@ -82,6 +119,16 @@ build_htp_skel(v75)
+ build_htp_skel(v79)
+ build_htp_skel(v81)
+ 
++# HEXAGON-DEPS(2026-10-09): 让 HTP skel（libggml-htp-v*.so）随本后端一起构建。
++#
++# 上游只在 Windows+证书分支里用 ${HTP_PROJECTS} 建依赖（见下方 if），Android 构建下
++# 这些 ExternalProject 目标不进入默认构建图；而 Gradle 的 externalNativeBuild 调用的是
++# `ninja <target>...`（非 `ninja all`），因此 htp-v* 从不被触发 —— 表现为
++# libggml-htp-v*.so 不存在，进而 POST_BUILD 的拷贝步骤报
++# "Error copying file ... libggml-htp-v73.so"。
++# 显式声明依赖即可让 ninja 在构建 ggml-hexagon 时先构建这些 skel。
++add_dependencies(${TARGET_NAME} ${HTP_PROJECTS})
++
+ # Install Hexagon skels required at runtime
+ install(FILES ${HTP_SKELS} TYPE LIB)
+ 
+diff --git a/ggml/src/ggml-hexagon/ggml-hexagon.cpp b/ggml/src/ggml-hexagon/ggml-hexagon.cpp
+index 4b91394..1829180 100644
+--- a/ggml/src/ggml-hexagon/ggml-hexagon.cpp
++++ b/ggml/src/ggml-hexagon/ggml-hexagon.cpp
+@@ -4107,7 +4107,17 @@ void ggml_hexagon_session::allocate(const ggml_hexagon_device_config & config) n
+ 
+     char session_uri[256];
+     {
+-        char htp_uri[256];
++        char htp_uri[512];
++        // APP-SKEL-SEARCH(2026-10-09): the DSP skel ships inside the APK, but
++        // cdsprpcd (vendor_cdsprpcd) cannot read the app-private dir it lands in.
++        // Point FastRPC's search path at that dir so the upstream relative URI
++        // file:///libggml-htp-vNN.so resolves. GenieX ships the same relative URI
++        // inside its AAR and works, so this is the same lookup path it relies on.
++        const char * lib_dir = getenv("GGML_HEXAGON_LIB_DIR");
++        if (lib_dir != nullptr && lib_dir[0] != '\0') {
++            setenv("ADSP_LIBRARY_PATH", lib_dir, 1);
++            GGML_LOG_INFO("ggml-hex: ADSP_LIBRARY_PATH set to %s\n", lib_dir);
++        }
+         snprintf(htp_uri, sizeof(htp_uri), "file:///libggml-htp-v%u.so?htp_iface_skel_handle_invoke&_modver=1.0", opt_arch);
+ 
+         struct remote_rpc_get_uri u = {};
+diff --git a/ggml/src/ggml-opencl/kernels/embed_kernel.py b/ggml/src/ggml-opencl/kernels/embed_kernel.py
+index b5d1d72..2435720 100644
+--- a/ggml/src/ggml-opencl/kernels/embed_kernel.py
++++ b/ggml/src/ggml-opencl/kernels/embed_kernel.py
+@@ -12,8 +12,8 @@ def main():
+         logger.info("Usage: python embed_kernel.py <input_file> <output_file>")
+         sys.exit(1)
+ 
+-    ifile = open(sys.argv[1], "r")
+-    ofile = open(sys.argv[2], "w")
++    ifile = open(sys.argv[1], "r", encoding="utf-8")
++    ofile = open(sys.argv[2], "w", encoding="utf-8")
+ 
+     for i in ifile:
+         ofile.write('R"({})"\n'.format(i))
+diff --git a/src/llama-grammar.cpp b/src/llama-grammar.cpp
+index 0a8a61e..9c4e906 100644
+--- a/src/llama-grammar.cpp
++++ b/src/llama-grammar.cpp
+@@ -717,7 +717,7 @@ bool llama_grammar_parser::parse(const char * src) {
+             }
+         }
+     } catch (const std::exception & err) {
+-        fprintf(stderr, "%s: error parsing grammar: %s\n\n%s\n", __func__, err.what(), src);
++        LLAMA_LOG_ERROR("%s: error parsing grammar: %s\n\n%s\n", __func__, err.what(), src);
+         rules.clear();
+         return false;
+     }
