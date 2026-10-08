@@ -1200,6 +1200,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /**
      * 按思考轮 id 定位并更新单个思考轮内容（不重建整条消息）。
+     *
+     * <p>NO-HOT-UPDATE-OK(2026-10-09)：本方法目前**没有调用者**，这是**正确的**，不是遗漏。
+     * 原因：轮次文本在被 {@code ChatMessage.addThinkingRound} 追加进 {@code thinkingRounds}
+     * 时即已定稿（该方法只 append，且全仓库没有"按索引替换轮次文本"的 API），此后不再变化；
+     * 正在流式的当前轮走 {@code message.thinkingContent} + {@link #updateThinkingContent}，
+     * 与这里渲染的已定稿轮次不重叠。因此 {@code renderRoundAssembled} 的增量路径跳过思考块、
+     * 不更新其文本是安全的。</p>
+     *
+     * <p>保留本方法作为备用通路：若将来需要"进行中的轮次也就地热更新"（而不是等轮次终结
+     * 再落库），可直接接线到 {@code PAYLOAD_THINKING_UPDATE} 分支。</p>
+     *
      * @param roundId 该轮 THINKING 子 id（thinkingRoundIds 元素）
      * @param newContent 该轮新内容
      * @return 是否找到并更新成功
@@ -1316,15 +1327,26 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 展开状态完全由 thinkingExpanded 控制：思考中/思考完毕均默认折叠，
             // 用户点击标签展开（思考中展开可实时看到思考过程，思考后保留展开直到再次点击）。
             // 状态未变化时不重复 setVisibility/height，避免流式 token 更新打断点击展开/折叠动画
+            //
+            // THINK-OWNER(2026-10-09)：多轮按轮次组装时（contentRoundBounds 非空），思考渲染
+            // 归 renderRoundAssembled 所有 —— 它把每一轮的思考块内嵌到 contentHost，并**强制**
+            // 隐藏下面这个合并块（见 renderRoundAssembled 里对 thinkingContent 的 GONE）。
+            // 而本方法在展开态会把它设为 VISIBLE，于是同一个视图被两条路径争夺：
+            // 全量绑定（先本方法后 renderRoundAssembled）最终隐藏，payload 流式路径
+            // （先 renderRoundAssembled 后本方法）最终显示 —— 用户展开思考区时每个 token
+            // 都抖动一次，且展开态下同一段思考被渲染两份（合并块 + 逐轮块）。
+            // 因此轮次模式下本方法只负责标签文案与分隔线，不碰合并块的显隐。
+            final boolean roundAssembled = message.contentRoundBounds != null
+                    && !message.contentRoundBounds.isEmpty();
             boolean wasExpanded = holder.thinkingContent.getVisibility() == View.VISIBLE;
             if (message.thinkingExpanded) {
-                if (!wasExpanded) {
+                if (!wasExpanded && !roundAssembled) {
                     cancelThinkingAnimator(holder);
                     holder.thinkingContent.setVisibility(View.VISIBLE);
                     holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
                 }
                 updateThinkingLabel(holder, true, isStreaming, message);
-                showDivider = true;
+                showDivider = !roundAssembled;
             } else {
                 if (wasExpanded) {
                     cancelThinkingAnimator(holder);
@@ -1557,8 +1579,40 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             inferenceStateManager.getCurrentState(message.id);
         InferenceStateManager.StateDetails stateDetails = 
             inferenceStateManager.getStateDetails(message.id);
-        
-        if (message.isCompleted() || currentState == InferenceStateManager.InferenceState.COMPLETED) {
+
+        // STATUS-SINGLE-CRITERION(2026-10-09)：完成判定只认 message.status。
+        // 此前这里是双判据（message.isCompleted() **或** InferenceStateManager 已 COMPLETED），
+        // 而思考标签/推理进度只看 message.status。当推理状态先到 COMPLETED、消息状态还是
+        // GENERATING 时，同一条气泡会同时显示"✅ N tokens"和"🧠 思考中：…"。
+        // 推理状态属于"推理任务"，消息状态属于"这条消息"，两者语义不同，以消息状态为准。
+        if (message.status == ChatMessage.MessageStatus.FAILED) {
+            // FAIL-SURFACE(2026-10-09)：此前 FAILED 落到最后的 else，把 statusIcon 和
+            // statusText 双双隐藏，失败消息看上去和"成功的空消息"一样，用户拿不到任何
+            // 失败信号（而 failMessage 其实已经把原因存进了 message.errorDetail）。
+            if (holder.inferenceProgressView != null) {
+                holder.inferenceProgressView.hide();
+            }
+            if (holder.agentExecutionView != null) {
+                holder.agentExecutionView.hide();
+            }
+            holder.statusIcon.setVisibility(View.VISIBLE);
+            holder.statusIcon.setImageResource(R.drawable.ic_error);
+            holder.statusIcon.setColorFilter(context.getColor(R.color.error));
+            String failText = context.getString(R.string.h_1f21bef7);
+            if (message.errorDetail != null && !message.errorDetail.trim().isEmpty()) {
+                failText += " · " + message.errorDetail.trim();
+            }
+            holder.statusText.setText(failText);
+            holder.statusText.setVisibility(View.VISIBLE);
+            holder.statusText.setTextColor(context.getColor(R.color.error));
+            return;
+        }
+
+        // 非失败态：恢复状态行的常规配色（失败分支可能改过）
+        holder.statusText.setTextColor(ThemeColors.attr(context, R.attr.colorOnSurfaceVariant));
+        holder.statusIcon.clearColorFilter();
+
+        if (message.status == ChatMessage.MessageStatus.COMPLETED) {
             // 隐藏推理进度视图
             if (holder.inferenceProgressView != null) {
                 holder.inferenceProgressView.hide();
@@ -4137,7 +4191,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int position = findMessagePosition(messageId);
         if (position < 0 || position >= messages.size()) return;
         ChatMessage message = messages.get(position);
-        message.status = ChatMessage.MessageStatus.COMPLETED;
+        // CANCEL-NOT-SUCCESS(2026-10-09)：取消此前被标成 COMPLETED，于是被取消的生成
+        // 显示"✅ 已完成"和 token 统计 —— 把用户主动中止说成了成功完成。
+        // MessageStatus 里没有 CANCELLED，且该枚举被 SessionLogPlugin 以 name() 持久化、
+        // 全仓库引用 130+ 处，新增取值的风险不划算；改标 FAILED 并通过 errorDetail 说明
+        // 真实原因（FAILED 在 updateMessageStatus 里有专门的失败展示，不会再显示成空消息）。
+        message.status = ChatMessage.MessageStatus.FAILED;
+        message.errorDetail = SmartQuizApplication.getAppContext().getString(R.string.h_2111ccbb);
         notifyItemChanged(position);
     }
 
