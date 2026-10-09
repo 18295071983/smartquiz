@@ -739,6 +739,32 @@ public class ProviderConfigManager {
         return names;
     }
 
+    /**
+     * 预置模型的**显示名**（models[] 对象形态的 {@code displayName}），未声明返回 null。
+     *
+     * <p>用于离线/兜底场景：API 拉取失败时模型列表由配置预置，若不带 displayName，
+     * UI 只能显示 id（如 {@code deepseek-flash}），用户看不到版本信息
+     * （官方名称为 {@code DeepSeek-V4.1-Flash}）。API 可用时以 API 的 {@code name} 为准。</p>
+     */
+    public String getPredefinedModelDisplayName(String apiUrl, String modelName) {
+        if (modelName == null) return null;
+        Provider p = matchByUrl(apiUrl);
+        if (p == null || p.models == null) return null;
+        for (JsonElement e : p.models) {
+            if (e == null || !e.isJsonObject()) continue;
+            JsonObject o = e.getAsJsonObject();
+            if (!o.has("name") || o.get("name").isJsonNull()) continue;
+            if (!modelName.equals(o.get("name").getAsString())) continue;
+            if (o.has("displayName") && !o.get("displayName").isJsonNull()
+                    && o.get("displayName").isJsonPrimitive()) {
+                String dn = o.get("displayName").getAsString();
+                if (dn != null && !dn.trim().isEmpty()) return dn.trim();
+            }
+            return null;
+        }
+        return null;
+    }
+
     /** 模型级能力列表（models[] 对象形态的 capabilities），无模型级声明返回 null */
     public List<String> getModelCapabilities(String apiUrl, String modelName) {
         if (modelName == null) return null;
