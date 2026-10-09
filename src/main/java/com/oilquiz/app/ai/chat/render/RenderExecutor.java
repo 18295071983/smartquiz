@@ -91,8 +91,12 @@ public class RenderExecutor {
         registerRenderer(ContentType.HTML_BLOCK, new HtmlContentRenderer());
 
         // 标准 Markdown（兜底）
+        // 说明（2026-10-09）：不再单独注册 PLAIN_TEXT —— ContentTypeDetector 只在**空内容**时
+        // 产出 PLAIN_TEXT（detect() 的空串分支），而空内容在 execute() 里已被
+        // `rendered.length() > 0` 过滤，那条注册从未被用到。
+        // 万一日后真有 PLAIN_TEXT 片段，它仍会走 fallbackRenderer（MarkdownContentRenderer），
+        // 行为与原来一致。
         registerRenderer(ContentType.MARKDOWN, new MarkdownContentRenderer());
-        registerRenderer(ContentType.PLAIN_TEXT, new MarkdownContentRenderer());
     }
 
     /** 注册渲染器到指定内容类型 */
