@@ -1,7 +1,7 @@
 plugins {
     id "com.android.application" version "8.9.2"
     id "com.google.dagger.hilt.android" version "2.48"
-    id "com.chaquo.python" version "16.1.0"
+    id "com.chaquo.python" version "17.0.0"
     id "org.jetbrains.kotlin.android" version "1.9.22"
 }
 
@@ -70,62 +70,83 @@ android {
             // 即 buildPython 只能是 3.10(或 3.9)。3.12/3.14 的字节码 3.10 无法加载,
             // 会导致 .pyc 预编译失败(Chaquopy 警告,首次启动变慢)。
             // 故显式指定 3.10,修复 .pyc 预编译警告。
+            // 2026-10-09: 改用项目内 _build_python 副本(已内置 chaquopy 定制 pip 20.1,
+            // 支持 android_2x_arm64_v8a wheel 标签);原 Python310 的 pip 23.0.1 不识别
+            // chaquopy Android wheel,交叉安装时死循环/失败。
+            // 2026-10-09(17.0.0 升级): Chaquopy 17 自带 pip 25.3 处理 wheel 安装,
+            // buildPython 回归系统 Python310(解包/预编译用,不再承担交叉安装)。
             buildPython "C:\\Users\\xiaocong\\AppData\\Local\\Programs\\Python\\Python310\\python.exe"
             pip {
-                // 纯Python包从本地wheel/sdist安装，无需联网
+                // ===== 全部依赖本地化（2026-10-09）=====
+                // 说明: install 全部用 python-wheels/ 下的文件路径, 不用名字 req,
+                // 避免 pip 大批量名字解析/平台 tag 匹配触发死循环; 配合 --no-deps 零联网。
+                // 传递依赖已全部显式列出, 缺一不可。
                 install "python-wheels/requests-2.34.2-py3-none-any.whl"
                 install "python-wheels/beautifulsoup4-4.15.0-py3-none-any.whl"
                 install "python-wheels/jieba-0.42.1.tar.gz"
+                install "python-wheels/python_docx-1.2.0-py3-none-any.whl"
+                install "python-wheels/python_pptx-1.0.2-py3-none-any.whl"
+                install "python-wheels/pypdf-6.19.0-py3-none-any.whl"
+                install "python-wheels/xlsxwriter-3.2.9-py3-none-any.whl"
+                install "python-wheels/html5lib-1.1-py2.py3-none-any.whl"
+                install "python-wheels/webencodings-0.6.1-py3-none-any.whl"
+                install "python-wheels/simplejson-4.1.2-py3-none-any.whl"
+                install "python-wheels/pyopenssl-25.1.0-py3-none-any.whl"
+                install "python-wheels/arabic_reshaper-3.0.1-py3-none-any.whl"
+                install "python-wheels/python_bidi-0.4.2-py2.py3-none-any.whl"
+                // native / 平台 wheel（Chaquopy Android 预编译）
+                install "python-wheels/regex-2023.10.3-0-cp310-cp310-android_21_arm64_v8a.whl"
+                install "python-wheels/pillow-11.0.0-0-cp310-cp310-android_24_arm64_v8a.whl"
+                install "python-wheels/numpy-1.26.2-0-cp310-cp310-android_21_arm64_v8a.whl"
+                install "python-wheels/lxml-5.3.0-0-cp310-cp310-android_24_arm64_v8a.whl"
+                install "python-wheels/cryptography-42.0.8-0-cp310-cp310-android_24_arm64_v8a.whl"
+                install "python-wheels/openpyxl-3.1.5-py2.py3-none-any.whl"
+                install "python-wheels/et_xmlfile-2.0.0-py3-none-any.whl"
+                install "python-wheels/jdcal-1.4.1-py2.py3-none-any.whl"
+                install "python-wheels/pyyaml-6.0.3-0-cp310-cp310-android_24_arm64_v8a.whl"
+                install "python-wheels/tabulate-0.10.0-py3-none-any.whl"
+                install "python-wheels/python_dateutil-2.9.0.post0-py2.py3-none-any.whl"
+                install "python-wheels/six-1.17.0-py2.py3-none-any.whl"
+                install "python-wheels/chardet-7.6.0-py3-none-any.whl"
+                install "python-wheels/xlrd-2.0.2-py2.py3-none-any.whl"
+                install "python-wheels/reportlab-5.0.1-py3-none-any.whl"
+                install "python-wheels/matplotlib-3.6.0-0-cp310-cp310-android_21_arm64_v8a.whl"
+                install "python-wheels/pandas-2.1.3-1-cp310-cp310-android_24_arm64_v8a.whl"
+                install "python-wheels/pytz-2026.5-py2.py3-none-any.whl"
+                install "python-wheels/tzdata-2026.5-py2.py3-none-any.whl"
+                // 传递依赖
+                install "python-wheels/certifi-2026.7.22-py3-none-any.whl"
+                install "python-wheels/idna-3.20-py3-none-any.whl"
+                install "python-wheels/urllib3-2.8.0-py3-none-any.whl"
+                install "python-wheels/charset_normalizer-3.5.2-py3-none-any.whl"
+                install "python-wheels/soupsieve-2.10-py3-none-any.whl"
+                install "python-wheels/typing_extensions-4.16.0-py3-none-any.whl"
+                install "python-wheels/cffi-1.17.1-1-cp310-cp310-android_24_arm64_v8a.whl"
+                install "python-wheels/pycparser-3.1-py3-none-any.whl"
+                install "python-wheels/contourpy-1.0.5-0-cp310-cp310-android_21_arm64_v8a.whl"
+                install "python-wheels/cycler-0.12.1-py3-none-any.whl"
+                install "python-wheels/fonttools-4.65.0-py3-none-any.whl"
+                install "python-wheels/kiwisolver-1.4.5-0-cp310-cp310-android_21_arm64_v8a.whl"
+                install "python-wheels/packaging-26.3-py3-none-any.whl"
+                install "python-wheels/pyparsing-3.3.3-py3-none-any.whl"
+                // chaquopy 系统库（native 依赖）
+                install "python-wheels/chaquopy_libjpeg-1.5.3-1-py3-none-android_21_arm64_v8a.whl"
+                install "python-wheels/chaquopy_freetype-2.9.1-2-py3-none-android_21_arm64_v8a.whl"
+                install "python-wheels/chaquopy_libpng-1.6.34-1-py3-none-android_21_arm64_v8a.whl"
+                install "python-wheels/chaquopy_libxml2-2.9.8-2-py3-none-android_21_arm64_v8a.whl"
+                install "python-wheels/chaquopy_libxslt-1.1.32-2-py3-none-android_21_arm64_v8a.whl"
+                install "python-wheels/chaquopy_libyaml-0.2.5-0-py3-none-android_24_arm64_v8a.whl"
+                install "python-wheels/chaquopy_libcxx-180000-0-py3-none-android_24_arm64_v8a.whl"
+                install "python-wheels/chaquopy_openblas-0.2.20-5-py3-none-android_21_arm64_v8a.whl"
+                install "python-wheels/chaquopy_libgfortran-4.9-0-py3-none-android_21_arm64_v8a.whl"
 
-                // ===== 文档读写（纯Python本地wheel；原生依赖 lxml/Pillow 见下方 install；typing-extensions 已随 bs4 自动装）=====
-                install "python-wheels/python_docx-1.2.0-py3-none-any.whl"          // Word .docx 读写        → import docx
-                install "python-wheels/python_pptx-1.0.2-py3-none-any.whl"          // PowerPoint .pptx 读写 → import pptx
-                install "python-wheels/pypdf-6.19.0-py3-none-any.whl"               // PDF 读取/合并/拆分     → import pypdf
-                install "python-wheels/xlsxwriter-3.2.9-py3-none-any.whl"           // python-pptx 依赖       → import xlsxwriter
-
-                // ===== 文档/网络可选依赖（纯Python本地wheel；cryptography 为 native，见下方 install）=====
-                install "python-wheels/html5lib-1.1-py2.py3-none-any.whl"            // bs4 可选解析器（容错解析）  → import html5lib
-                install "python-wheels/webencodings-0.6.1-py3-none-any.whl"          // html5lib 依赖              → import webencodings
-                install "python-wheels/simplejson-4.1.2-py3-none-any.whl"            // requests 可选 JSON 加速    → import simplejson
-                install "python-wheels/pyopenssl-25.1.0-py3-none-any.whl"            // requests 可选 TLS 后端     → import OpenSSL（需 cryptography，25.1.0 兼容 42.0.8）
-                install "python-wheels/arabic_reshaper-3.0.1-py3-none-any.whl"       // pypdf RTL 排版             → import arabic_reshaper
-                install "python-wheels/python_bidi-0.4.2-py2.py3-none-any.whl"       // pypdf RTL 依赖             → import bidi
-                
-                // native包从Chaquopy源获取Android预编译wheel
-                // 国内镜像源作为额外源加速下载
-                options "--extra-index-url", "https://pypi.tuna.tsinghua.edu.cn/simple/"
-                options "--trusted-host", "pypi.tuna.tsinghua.edu.cn"
-                options "--extra-index-url", "https://mirrors.aliyun.com/pypi/simple/"
-                options "--trusted-host", "mirrors.aliyun.com"
-                
-                // 已预装 native 包
-                install "regex"
-                install "Pillow"
-                install "numpy"
-                install "lxml"
-                // pypdf 读加密 PDF(AES) + pyOpenSSL 的依赖；Chaquopy 提供 cp310/android_24/arm64 轮子（42.0.8，满足 pypdf>=36）
-                install "cryptography"
-                
-                // ===== Agent 实用第三方库 =====
-                // 纯Python包 - 直接从PyPI/镜像安装（依赖Chaquopy源获取native轮子）
-                install "openpyxl"          // Excel .xlsx 读写（依赖：et_xmlfile, jdcal）
-                install "et_xmlfile"        // openpyxl 依赖
-                install "jdcal"             // openpyxl 依赖（日期计算）
-                install "pyyaml"            // YAML 解析
-                install "tabulate"          // 数据表格美观输出
-                install "python-dateutil"   // 灵活日期解析（依赖six）
-                install "six"               // python-dateutil 依赖
-                install "chardet"           // 文件编码自动检测
-                install "xlrd"              // 旧版 .xls Excel 读取
-                install "reportlab"          // PDF 生成（支持中文）
-                // 图表绘制（依赖：contourpy, kiwisolver, fonttools, cycler, pyparsing, packaging）
-                // contourpy / kiwisolver 由 Chaquopy 源提供 Android 预编译轮子
-                install "matplotlib"
-                
-                // Android 预编译 native 包 - Chaquopy 自动从 PyPI 获取 Android wheel
-                install "pandas"            // 数据分析（依赖：numpy, python-dateutil, pytz, tzdata）
-                install "pytz"              // pandas 依赖（时区处理）
-                install "tzdata"            // pandas 依赖（Windows 时区支持）
+                // 2026-10-09：本地 wheel 兜底 + 全文件路径, pip 零联网零名字解析;
+                // --no-deps 跳过依赖解析器（大批量解析是 pip 死循环根因）。
+                // 2026-10-09(17.0.0): jieba(sdist) 构建 wheel 需写 %LOCALAPPDATA%\pip\cache
+                // 但该目录创建被拒(WinError 5)导致 pip 25.3 终止; --no-cache-dir 跳过缓存写入。
+                options "--no-deps"
+                options "--no-cache-dir"
+                options "--find-links", "file:///D:/qzq/smartquiz/python-wheels"
             }
         }
     }
@@ -506,30 +527,82 @@ def dshPatchChaquopyPipInstall = { File envDir ->
         return
     }
     def text = f.getText("UTF-8")
-    if (text.contains("DSH-PATCH")) {
-        return  // 已打过补丁
+    def dirty = false
+
+    // 补丁1: remove() 容错 (原有)
+    if (!text.contains("DSH-PATCH")) {
+        def oldCall = "    (rmtree if isdir(path) else os.remove)(path)"
+        def idx = text.indexOf(oldCall)
+        if (idx < 0) {
+            logger.warn("[DSH] 未在 pip_install.py 中找到预期的 remove() 代码, 跳过 Chaquopy 补丁")
+        } else {
+            def end = idx + oldCall.length()
+            if (text.startsWith("\r\n", end)) {
+                end += 2
+            } else if (text.startsWith("\n", end)) {
+                end += 1
+            }
+            text = text.substring(0, idx) +
+                    "    try:  # DSH-PATCH: 父目录已被 os.removedirs 删除时不应中断构建\n" +
+                    "        (rmtree if isdir(path) else os.remove)(path)\n" +
+                    "    except FileNotFoundError:\n" +
+                    "        pass\n" +
+                    text.substring(end)
+            dirty = true
+        }
     }
-    def oldCall = "    (rmtree if isdir(path) else os.remove)(path)"
-    def idx = text.indexOf(oldCall)
-    if (idx < 0) {
-        logger.warn("[DSH] 未在 pip_install.py 中找到预期的 remove() 代码, 跳过 Chaquopy 补丁")
-        return
+
+    // 补丁2 (2026-10-09): pip 子进程固定为 env python(自带 pip 20.1, 旧 resolver 正常),
+    // 避开 buildPython(Python310 pip 23.0.1) 新 resolver 在 --platform 交叉安装时的死循环。
+    if (!text.contains("DSH-PATCH2")) {
+        def oldCall2 = "cmdline = ([sys.executable,"
+        def idx2 = text.indexOf(oldCall2)
+        if (idx2 < 0) {
+            logger.warn("[DSH] 未在 pip_install.py 中找到 cmdline sys.executable, 跳过 pip 子进程补丁")
+        } else {
+            def envPy = new File(envDir, "Scripts/python.exe").absolutePath.replace('\\', '/')
+            text = text.substring(0, idx2) +
+                    "cmdline = ([r\"${envPy}\",  # DSH-PATCH2: 固定用 env pip 20.1, 避开 pip 23 resolver 死循环\n" +
+                    text.substring(idx2 + oldCall2.length())
+            dirty = true
+        }
     }
-    // 兼容 LF / CRLF 两种行尾
-    def end = idx + oldCall.length()
-    if (text.startsWith("\r\n", end)) {
-        end += 2
-    } else if (text.startsWith("\n", end)) {
-        end += 1
+
+    // 补丁3 (2026-10-09): 大批量 reqs 一次性传给 pip 时, pip(20.1/23.0.1) 都容易
+    // 在收集/解析阶段死循环或长时间无响应; 改为按 BATCH=8 分批调用, 每批独立 pip 进程,
+    // 装到同一 target 目录, 结果等价但稳定。
+    if (!text.contains("DSH-PATCH3")) {
+        def oldTail = "           self.pip_options + reqs)"
+        def idx3 = text.indexOf(oldTail)
+        if (idx3 < 0) {
+            logger.warn("[DSH] 未在 pip_install.py 中找到 pip_options + reqs 拼接, 跳过分批补丁")
+        } else {
+            def head = text.substring(0, idx3)
+            def tail = text.substring(idx3 + oldTail.length())
+            // 1) cmdline 去掉 reqs(改为逐批追加)
+            def replaced = head + "           self.pip_options)"
+            // 2) check_call 改为分批循环
+            def oldCall3 = "            logger.debug(\"Running {}\".format(cmdline))\n            subprocess.check_call(cmdline)"
+            def idx4 = replaced.indexOf(oldCall3)
+            if (idx4 < 0) {
+                logger.warn("[DSH] 未在 pip_install.py 中找到 check_call(cmdline), 跳过分批循环补丁")
+            } else {
+                replaced = replaced.substring(0, idx4) +
+                        "            logger.debug(\"Running {}\".format(cmdline))\n" +
+                        "            _BATCH = 8  # DSH-PATCH3: 分批安装, 避免大批量 reqs 触发 pip 异常\n" +
+                        "            for _i in range(0, len(reqs), _BATCH):\n" +
+                        "                subprocess.check_call(cmdline + list(reqs[_i:_i + _BATCH]))\n" +
+                        replaced.substring(idx4 + oldCall3.length())
+                text = replaced + tail
+                dirty = true
+            }
+        }
     }
-    text = text.substring(0, idx) +
-            "    try:  # DSH-PATCH: 父目录已被 os.removedirs 删除时不应中断构建\n" +
-            "        (rmtree if isdir(path) else os.remove)(path)\n" +
-            "    except FileNotFoundError:\n" +
-            "        pass\n" +
-            text.substring(end)
-    f.setText(text, "UTF-8")
-    logger.lifecycle("[DSH] 已应用 Chaquopy pip_install.py remove() 容错补丁: ${f}")
+
+    if (dirty) {
+        f.setText(text, "UTF-8")
+        logger.lifecycle("[DSH] 已应用 Chaquopy pip_install.py 补丁(remove 容错 + pip 子进程固定 env + 分批安装): ${f}")
+    }
 }
 
 tasks.matching { it.name.startsWith("generate") && it.name.endsWith("PythonRequirements") }

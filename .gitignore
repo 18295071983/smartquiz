@@ -307,3 +307,17 @@ tools/dsh-plugin-smartquiz-remote/.token
 tools/dsh-plugin-smartquiz-remote/.allow-exec
 # 沙箱文件权限诊断脚本产出的报告与回滚备份（排查中间产物）
 .dsh-acl-report/
+
+# ============ Chaquopy pip 临时目录（卡死构建残留，勿提交） ============
+pip-install-*/
+pip-pip-egg-info-*/
+pip-req-build-*/
+pip-req-tracker-*/
+pip-target-*/
+pip-ephem-wheel-cache-*/
+# ============ 构建辅助（副本可脚本重建 / 测试临时物） ============
+_build_python/
+_test_*/
+_shots/
+_netdiag.py
+build_run.pid
