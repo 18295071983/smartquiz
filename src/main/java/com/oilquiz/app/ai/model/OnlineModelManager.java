@@ -411,6 +411,11 @@ public class OnlineModelManager {
      * 按模型名返回思考指令（注入 system prompt，强化思考质量）。
      * 指令文本来自 ProviderConfigManager 配置表（各服务商 thinking.instruction）；未知模型返回通用指令。
      */
+    /** 思考指令（按实际服务商 apiUrl 优先，避免同名模型命中别家关键词） */
+    public static String getThinkingInstruction(String apiUrl, String modelName) {
+        return ProviderConfigManager.get().getThinkingInstruction(apiUrl, modelName);
+    }
+
     public static String getThinkingInstruction(String modelName) {
         return ProviderConfigManager.get().getThinkingInstruction(modelName);
     }
@@ -419,6 +424,16 @@ public class OnlineModelManager {
      * 按模型名返回 thinking 参数规范（请求体参数名 + 是否用 chat_template_kwargs 双位置）。
      * 返回配置表服务商 thinking.param（默认 "enable_thinking"，OpenAI o 系 "reasoning_effort"）。
      */
+    /**
+     * thinking 参数规范 —— **按实际服务商 apiUrl 取**，其次按模型名回落。
+     *
+     * <p>必须带 apiUrl：模型名会跨服务商撞关键词（如 {@code deepseek-v4-flash} 同时命中
+     * dashscope/siliconflow/deepseek 等多家），只按名字取会拿到"配置里先出现那家"的形态。</p>
+     */
+    public static String getThinkingParamName(String apiUrl, String modelName) {
+        return ProviderConfigManager.get().getThinkingParamName(apiUrl, modelName);
+    }
+
     public static String getThinkingParamName(String modelName) {
         return ProviderConfigManager.get().getThinkingParamName(modelName);
     }

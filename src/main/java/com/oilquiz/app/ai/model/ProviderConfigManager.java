@@ -279,8 +279,30 @@ public class ProviderConfigManager {
     }
 
     /**
-     * 思考参数名：命中服务商的 thinking.param；未命中默认 enable_thinking。
-     * 保持旧行为：OpenAI o 系 → reasoning_effort，其余 → enable_thinking。
+     * 思考参数名 —— **按实际服务商**取，其次按模型名回落。
+     *
+     * <p><b>为什么必须带 apiUrl</b>：此前只按模型名在所有服务商里找"第一个命中关键词"的，
+     * 于是同一个模型名会被**先出现的服务商**决定参数形态。实测 bug：请求发往官方
+     * DeepSeek，模型名 {@code deepseek-v4-flash}，但 providers.json 里 dashscope /
+     * xfyun / siliconflow 等更早声明了 {@code deepseek-v4} 关键词 → 取到
+     * {@code enable_thinking}，而 DeepSeek 要的是 {@code thinking.type}
+     * （嵌套 {@code {"thinking":{"type":"enabled"}}}）→ 思考参数形态发错。</p>
+     *
+     * @param apiUrl    服务商地址（用于定位实际服务商）；为 null 时退回旧的全局匹配
+     * @param modelName 模型名
+     */
+    public String getThinkingParamName(String apiUrl, String modelName) {
+        Provider provider = matchByUrl(apiUrl);
+        if (provider != null && provider.thinking != null
+                && provider.thinking.param != null && !provider.thinking.param.isEmpty()) {
+            return provider.thinking.param;
+        }
+        return getThinkingParamName(modelName);
+    }
+
+    /**
+     * 思考参数名（仅按模型名）—— 全局匹配，**仅在无法识别服务商时使用**。
+     * 注意其局限：同一模型名可能命中多个服务商的关键词，结果取决于配置顺序。
      */
     public String getThinkingParamName(String modelName) {
         if (modelName != null) {
@@ -299,7 +321,17 @@ public class ProviderConfigManager {
         return "enable_thinking";
     }
 
-    /** 思考指令：命中服务商的 thinking.instruction；未命中返回通用指令 */
+    /** 思考指令（按实际服务商优先，其次按模型名） */
+    public String getThinkingInstruction(String apiUrl, String modelName) {
+        Provider provider = matchByUrl(apiUrl);
+        if (provider != null && provider.thinking != null
+                && provider.thinking.instruction != null && !provider.thinking.instruction.isEmpty()) {
+            return provider.thinking.instruction;
+        }
+        return getThinkingInstruction(modelName);
+    }
+
+    /** 思考指令（仅按模型名）：命中服务商的 thinking.instruction；未命中返回通用指令 */
     public String getThinkingInstruction(String modelName) {
         if (modelName != null) {
             String m = modelName.toLowerCase();

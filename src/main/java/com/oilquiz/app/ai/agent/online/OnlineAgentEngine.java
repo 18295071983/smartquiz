@@ -457,7 +457,10 @@ public class OnlineAgentEngine {
             // API thinking 参数触发 reasoning_content，此指令强化思考质量）
             String thinkingInstruction = null;
             if (enableThinking) {
+                // 带 apiUrl：同名模型可能命中别家服务商的关键词（如 deepseek-v4-flash
+                // 同时出现在 dashscope/siliconflow/deepseek 的关键词里），必须按实际服务商取
                 thinkingInstruction = com.oilquiz.app.ai.model.OnlineModelManager.getThinkingInstruction(
+                        cfg != null ? cfg.apiUrl : null,
                         cfg != null ? cfg.modelName : null);
             }
             // 注入工作区路径：Agent 生成的文件默认在工作区，明确告知路径与访问方式

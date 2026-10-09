@@ -2116,7 +2116,7 @@ public class OnlineInferenceService {
      * <p>强度档位取自用户偏好的唯一事实源（{@link com.oilquiz.app.ai.chat.ChatModeManager}）。</p>
      */
     private void injectThinkingParams(JsonObject requestBody, String modelName, String apiUrl) {
-        String param = OnlineModelManager.getThinkingParamName(modelName);
+        String param = OnlineModelManager.getThinkingParamName(apiUrl, modelName);
         if (param == null || param.isEmpty()) param = "enable_thinking";
         // 档位在"需要时才解析"：none 表示关闭思考，与下面各"开启"分支语义矛盾，
         // 因此单独过滤掉，绝不把 none 下发给任何服务商
@@ -3413,7 +3413,7 @@ public class OnlineInferenceService {
                     // 在 **Agent（带 tools）路径** 上思考开关同样无效。
                     injectThinkingParams(requestBody, modelName, apiUrl);
                     AILogger.i(TAG, "Deep thinking enabled (param="
-                            + com.oilquiz.app.ai.model.OnlineModelManager.getThinkingParamName(modelName)
+                            + com.oilquiz.app.ai.model.OnlineModelManager.getThinkingParamName(apiUrl, modelName)
                             + " for " + modelName + ")");
                 } catch (Exception ignored) {}
             } else {
