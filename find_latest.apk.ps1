@@ -1,1 +1,0 @@
-Get-ChildItem -Path @("d:\qzq\smartquiz\smartquiz-debug.apk", "d:\qzq\smartquiz\答题宝-debug-2.0.apk") | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | ForEach-Object { Write-Host $_.FullName }

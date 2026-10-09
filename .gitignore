@@ -321,3 +321,5 @@ _test_*/
 _shots/
 _netdiag.py
 build_run.pid
+# ============ 本地归档（整理时移入, 不入库） ============
+_archive/

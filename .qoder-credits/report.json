@@ -1,0 +1,616 @@
+{
+  "schemaVersion": 3.2,
+  "generatedAt": "2026-10-09T05:19:51.118Z",
+  "source": "desktop-rich",
+  "usageSource": "transcript-ratio",
+  "availability": {
+    "credits": "measured",
+    "roundTrips": "measured",
+    "contextRatio": "measured",
+    "tokens": "derived",
+    "outputTokens": "unavailable",
+    "cachedTokens": "unavailable",
+    "categoryShare": "derived",
+    "toolShare": "derived",
+    "fileShare": "derived",
+    "systemPrompt": "derived",
+    "contextWindow": "measured",
+    "compactions": "measured",
+    "compactionCost": "measured",
+    "model": "measured",
+    "title": "measured",
+    "toolCalls": "measured",
+    "fileReads": "measured",
+    "userTurns": "measured",
+    "userContextLimit": "fallback"
+  },
+  "session": {
+    "id": "c79188a6-3ec6-4a17-a319-97f0f44fb8e0",
+    "title": "构建apk",
+    "titleSource": "first-user",
+    "model": "auto",
+    "modelSource": "runtime-config",
+    "cwd": "D:\\qzq\\smartquiz",
+    "turns": 1,
+    "roundTrips": 10,
+    "compactions": 0,
+    "startedAt": "2026-10-09T05:08:18.705Z",
+    "endedAt": "2026-10-09T05:19:30.429Z"
+  },
+  "context": {
+    "contextWindow": 200000,
+    "contextWindowSource": "runtime-config",
+    "systemPromptTokens": 26800,
+    "netContextTokens": 42808,
+    "peakContextTokens": 42808,
+    "peakContextRatio": 0.21404,
+    "peakSessionTokens": 42808,
+    "peakSessionRatio": 0.21404,
+    "peakSessionNotable": false,
+    "peakAdvice": {
+      "level": "low",
+      "tone": "info",
+      "text": "低于盈亏线（39%）。此时压缩在 token 上是亏的：省下的还不够付摘要输出加压缩后重读，别压"
+    },
+    "userContextLimit": 200000,
+    "userContextLimitSource": "default",
+    "peakUserRatio": 0.21404,
+    "peakUserAdvice": {
+      "level": "low",
+      "tone": "info",
+      "text": "低于盈亏线（39%）。此时压缩在 token 上是亏的：省下的还不够付摘要输出加压缩后重读，别压"
+    },
+    "currentContextTokens": 42808,
+    "netUserRatio": 0.21404,
+    "netUserAdvice": {
+      "level": "low",
+      "tone": "info",
+      "text": "低于盈亏线（39%）。此时压缩在 token 上是亏的：省下的还不够付摘要输出加压缩后重读，别压"
+    },
+    "netWindowRatio": 0.21404,
+    "observedAutoCompactions": 0,
+    "observedAutoTriggerTokens": null,
+    "autoTriggerRatio": null,
+    "thresholdNotEnforced": false
+  },
+  "totals": {
+    "billedInputTokens": 388813,
+    "netContextTokens": 42808,
+    "peakContextTokens": 42808,
+    "amplification": 9.08,
+    "attributedTokens": 388813,
+    "coverage": 1,
+    "credits": 6.332,
+    "originalCredits": 6.332,
+    "outputTokens": 0,
+    "cachedTokens": 0,
+    "cachedTrips": 0,
+    "cachedShare": 0,
+    "toolCalls": 11,
+    "fileReads": 4
+  },
+  "creditsCoverage": {
+    "trips": 10,
+    "roundTrips": 10,
+    "tokens": 388813,
+    "tokenShare": 1,
+    "full": true
+  },
+  "compactionCost": {
+    "count": 0,
+    "items": [],
+    "totals": {
+      "preTokens": 0,
+      "postTokens": 0,
+      "savedTokens": 0,
+      "measured": 0
+    }
+  },
+  "proxy": {
+    "matched": 0,
+    "requests": 10,
+    "breakdown": {
+      "proxy": 0,
+      "transcriptTokens": 0,
+      "transcriptRatio": 10
+    },
+    "logPath": "C:\\Users\\xiaocong\\.qoder-credits-proxy\\usage.jsonl",
+    "logExists": false,
+    "logRecords": 0,
+    "configured": false,
+    "enabled": true,
+    "port": 49787,
+    "lastRecordAt": null,
+    "dormant": false,
+    "status": null,
+    "statusSuperseded": false
+  },
+  "byCategory": [
+    {
+      "key": "tool_result",
+      "label": "工具返回",
+      "tokens": 99777,
+      "share": 0.256620737859712
+    },
+    {
+      "key": "system",
+      "label": "系统提示词",
+      "tokens": 268000,
+      "share": 0.689277364697168
+    },
+    {
+      "key": "assistant_thinking",
+      "label": "模型思考",
+      "tokens": 3014,
+      "share": 0.0077518872858922
+    },
+    {
+      "key": "assistant_tool_use",
+      "label": "工具调用",
+      "tokens": 1485,
+      "share": 0.00381972113135206
+    },
+    {
+      "key": "assistant_text",
+      "label": "模型回复",
+      "tokens": 857,
+      "share": 0.0022050300177738303
+    },
+    {
+      "key": "user_input",
+      "label": "用户输入",
+      "tokens": 34,
+      "share": 0.0000861949775365992
+    },
+    {
+      "key": "attachment",
+      "label": "附件/技能",
+      "tokens": 15645,
+      "share": 0.04023906403056515
+    }
+  ],
+  "byCategoryDetail": [
+    {
+      "key": "tool_result",
+      "label": "工具返回",
+      "tokens": 99777,
+      "share": 0.256620737859712,
+      "children": [
+        {
+          "tool": "Read",
+          "label": "build.gradle",
+          "kind": "read",
+          "tokens": 83153,
+          "share": 0.2138638616273509,
+          "catShare": 0.8333849532622917,
+          "trips": 8
+        },
+        {
+          "tool": "Bash",
+          "label": "（无路径）",
+          "kind": "shell",
+          "tokens": 15374,
+          "share": 0.03954083192702974,
+          "catShare": 0.15408276141987287,
+          "trips": 28
+        },
+        {
+          "tool": "Glob",
+          "label": "D:/qzq/smartquiz",
+          "kind": "search",
+          "tokens": 813,
+          "share": 0.002091175970647575,
+          "catShare": 0.008148897038051413,
+          "trips": 8
+        },
+        {
+          "tool": "Glob",
+          "label": "D:/qzq-smartquiz",
+          "kind": "search",
+          "tokens": 224,
+          "share": 0.0005755140316987261,
+          "catShare": 0.002242663771052458,
+          "trips": 9
+        },
+        {
+          "tool": "Read",
+          "label": "D:/qzq-smartquiz/build.gradle",
+          "kind": "read",
+          "tokens": 214,
+          "share": 0.0005493543029851477,
+          "catShare": 0.0021407245087318918,
+          "trips": 9
+        }
+      ]
+    },
+    {
+      "key": "system",
+      "label": "系统提示词",
+      "tokens": 268000,
+      "share": 0.689277364697168,
+      "children": []
+    },
+    {
+      "key": "assistant_thinking",
+      "label": "模型思考",
+      "tokens": 3014,
+      "share": 0.0077518872858922,
+      "children": []
+    },
+    {
+      "key": "assistant_tool_use",
+      "label": "工具调用",
+      "tokens": 1485,
+      "share": 0.00381972113135206,
+      "children": [
+        {
+          "tool": "Bash",
+          "label": "（无路径）",
+          "kind": "shell",
+          "tokens": 1013,
+          "share": 0.0026044786617071946,
+          "catShare": 0.6818504734101601,
+          "trips": 28
+        },
+        {
+          "tool": "Read",
+          "label": "D:/qzq-smartquiz/build.gradle",
+          "kind": "read",
+          "tokens": 122,
+          "share": 0.0003139167445629415,
+          "catShare": 0.08218315781912199,
+          "trips": 9
+        },
+        {
+          "tool": "Glob",
+          "label": "D:/qzq-smartquiz",
+          "kind": "search",
+          "tokens": 122,
+          "share": 0.0003139167445629415,
+          "catShare": 0.08218315781912199,
+          "trips": 9
+        },
+        {
+          "tool": "Glob",
+          "label": "D:/qzq/smartquiz",
+          "kind": "search",
+          "tokens": 119,
+          "share": 0.00030545266986987057,
+          "catShare": 0.0799672696948298,
+          "trips": 8
+        },
+        {
+          "tool": "Read",
+          "label": "build.gradle",
+          "kind": "read",
+          "tokens": 110,
+          "share": 0.00028195631064911123,
+          "catShare": 0.07381594125676595,
+          "trips": 8
+        }
+      ]
+    },
+    {
+      "key": "assistant_text",
+      "label": "模型回复",
+      "tokens": 857,
+      "share": 0.0022050300177738303,
+      "children": []
+    },
+    {
+      "key": "user_input",
+      "label": "用户输入",
+      "tokens": 34,
+      "share": 0.0000861949775365992,
+      "children": []
+    },
+    {
+      "key": "attachment",
+      "label": "附件/技能",
+      "tokens": 15645,
+      "share": 0.04023906403056515,
+      "children": []
+    }
+  ],
+  "byTool": [
+    {
+      "tool": "Read",
+      "tokens": 83598,
+      "calls": 2,
+      "perCall": 41799,
+      "share": 0.2150090889855481
+    },
+    {
+      "tool": "Bash",
+      "tokens": 16387,
+      "calls": 7,
+      "perCall": 2341,
+      "share": 0.042145310588736946
+    },
+    {
+      "tool": "Glob",
+      "tokens": 1278,
+      "calls": 2,
+      "perCall": 639,
+      "share": 0.0032860594167791134
+    }
+  ],
+  "byFile": [
+    {
+      "attr": "file:D:\\qzq\\smartquiz\\build.gradle",
+      "label": "build.gradle",
+      "kind": "read",
+      "tool": "Read",
+      "selfTokens": 9114,
+      "reads": 1,
+      "trips": 16,
+      "billed": 83263,
+      "perRead": 83263,
+      "share": 0.21414581793799997
+    },
+    {
+      "attr": "file:D:\\qzq\\smartquiz",
+      "label": "D:/qzq/smartquiz",
+      "kind": "search",
+      "tool": "Glob",
+      "selfTokens": 102,
+      "reads": 1,
+      "trips": 16,
+      "billed": 932,
+      "perRead": 932,
+      "share": 0.002396628640517446
+    },
+    {
+      "attr": "file:D:\\qzq-smartquiz",
+      "label": "D:/qzq-smartquiz",
+      "kind": "search",
+      "tool": "Glob",
+      "selfTokens": 34,
+      "reads": 1,
+      "trips": 18,
+      "billed": 346,
+      "perRead": 346,
+      "share": 0.0008894307762616678
+    },
+    {
+      "attr": "file:D:\\qzq-smartquiz\\build.gradle",
+      "label": "D:/qzq-smartquiz/build.gradle",
+      "kind": "read",
+      "tool": "Read",
+      "selfTokens": 33,
+      "reads": 1,
+      "trips": 18,
+      "billed": 336,
+      "perRead": 336,
+      "share": 0.000863271047548089
+    }
+  ],
+  "byAttr": [
+    {
+      "attr": "system",
+      "tokens": 268000,
+      "share": 0.689277364697168
+    },
+    {
+      "attr": "tool_result|Read",
+      "tokens": 83367,
+      "share": 0.21441321593033605
+    },
+    {
+      "attr": "attachment",
+      "tokens": 15645,
+      "share": 0.04023906403056515
+    },
+    {
+      "attr": "tool_result|Bash",
+      "tokens": 15374,
+      "share": 0.03954083192702974
+    },
+    {
+      "attr": "assistant_thinking",
+      "tokens": 3014,
+      "share": 0.0077518872858922
+    },
+    {
+      "attr": "tool_result|Glob",
+      "tokens": 1037,
+      "share": 0.0026666900023463013
+    },
+    {
+      "attr": "tool_use|Bash",
+      "tokens": 1013,
+      "share": 0.0026044786617071946
+    },
+    {
+      "attr": "assistant_text",
+      "tokens": 857,
+      "share": 0.0022050300177738303
+    },
+    {
+      "attr": "tool_use|Glob",
+      "tokens": 241,
+      "share": 0.000619369414432812
+    },
+    {
+      "attr": "tool_use|Read",
+      "tokens": 232,
+      "share": 0.0005958730552120529
+    },
+    {
+      "attr": "user_input",
+      "tokens": 34,
+      "share": 0.0000861949775365992
+    }
+  ],
+  "byRequest": [
+    {
+      "index": 1,
+      "time": "13:08",
+      "ratio": 0.141015,
+      "inputTokens": 28203,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 1.591,
+      "originalCredits": 1.591,
+      "afterCompact": false
+    },
+    {
+      "index": 2,
+      "time": "13:08",
+      "ratio": 0.14201,
+      "inputTokens": 28402,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 0.156,
+      "originalCredits": 0.156,
+      "afterCompact": false
+    },
+    {
+      "index": 3,
+      "time": "13:08",
+      "ratio": 0.19511,
+      "inputTokens": 39022,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 0.743,
+      "originalCredits": 0.743,
+      "afterCompact": false
+    },
+    {
+      "index": 4,
+      "time": "13:08",
+      "ratio": 0.202275,
+      "inputTokens": 40455,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 0.278,
+      "originalCredits": 0.278,
+      "afterCompact": false
+    },
+    {
+      "index": 5,
+      "time": "13:08",
+      "ratio": 0.203435,
+      "inputTokens": 40687,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 0.226,
+      "originalCredits": 0.226,
+      "afterCompact": false
+    },
+    {
+      "index": 6,
+      "time": "13:09",
+      "ratio": 0.209775,
+      "inputTokens": 41955,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 0.275,
+      "originalCredits": 0.275,
+      "afterCompact": false
+    },
+    {
+      "index": 7,
+      "time": "13:09",
+      "ratio": 0.211065,
+      "inputTokens": 42213,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 0.226,
+      "originalCredits": 0.226,
+      "afterCompact": false
+    },
+    {
+      "index": 8,
+      "time": "13:09",
+      "ratio": 0.21228,
+      "inputTokens": 42456,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 0.225,
+      "originalCredits": 0.225,
+      "afterCompact": false
+    },
+    {
+      "index": 9,
+      "time": "13:09",
+      "ratio": 0.21306,
+      "inputTokens": 42612,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 0.214,
+      "originalCredits": 0.214,
+      "afterCompact": false
+    },
+    {
+      "index": 10,
+      "time": "13:19",
+      "ratio": 0.21404,
+      "inputTokens": 42808,
+      "outputTokens": null,
+      "usageSource": "transcript-ratio",
+      "credits": 2.398,
+      "originalCredits": 2.398,
+      "afterCompact": false
+    }
+  ],
+  "identity": {
+    "sumAttributed": 388813,
+    "billedInputTokens": 388813,
+    "absDiff": 0,
+    "ok": true
+  },
+  "pluginVersion": "2.7.4",
+  "selfCmd": "\"C:\\Users\\xiaocong\\.qoder-cn\\plugins\\cache\\qoder-marketplace\\qoder-credits-inspector\\2.7.4\\bin\\credits-inspector.cmd\" cli",
+  "linkHealth": {
+    "matched": 0,
+    "requests": 10,
+    "coverage": 0,
+    "usageSource": "transcript-ratio",
+    "breakdown": {
+      "proxy": 0,
+      "transcriptTokens": 0,
+      "transcriptRatio": 10
+    },
+    "logRecords": 0,
+    "lastRecordAt": null,
+    "recentRequests": 0,
+    "proxyErrors": null,
+    "clientAbort": null,
+    "clientAbortMaxMs": null,
+    "upstreamRejected": null,
+    "aborted": null,
+    "truncated": null,
+    "noUsage": null,
+    "slowestMs": null,
+    "supersededFailure": null
+  },
+  "subagents": {
+    "scanned": false,
+    "dir": null,
+    "probedPaths": [
+      "C:\\Users\\xiaocong\\.qoder-cn\\projects\\d--qzq-smartquiz\\798aaad3-7a2b-4289-9fb8-9dc5a321ece2\\subagents",
+      "C:\\Users\\xiaocong\\.qoder-cn\\projects\\798aaad3-7a2b-4289-9fb8-9dc5a321ece2\\subagents"
+    ],
+    "reason": "no-dir",
+    "count": 0,
+    "items": [],
+    "totals": {
+      "roundTrips": 0,
+      "billedInputTokens": 0,
+      "credits": 0,
+      "originalCredits": 0
+    },
+    "combined": {
+      "roundTrips": 10,
+      "billedInputTokens": 388813,
+      "credits": 6.332,
+      "originalCredits": 6.332
+    }
+  },
+  "manual": null,
+  "artifacts": {
+    "report": "report.json",
+    "canvas": "构建apk__c79188a6.canvas.tsx"
+  }
+}
