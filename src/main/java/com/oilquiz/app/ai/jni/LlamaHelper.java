@@ -2389,6 +2389,30 @@ public class LlamaHelper {
     private static native void nativeCleanupCallback();
     private static native String nativeGetThinkingTags();
     private static native String nativeGetToolCallTags();
+
+    /**
+     * 本轮生成是否由**模板 PEG 解析器**接管正文与工具调用的分离。
+     *
+     * <p>判据与 native 侧 chatSend 内部一致：模板声明了 parser 才为真。为真时
+     * {@code common_chat_parse} 已经给出干净正文与结构化 {@code tool_calls}，
+     * Java 侧**不应再按文本标签剥一遍**（那是双协议，文本匹配会误伤正常内容 ——
+     * 实测模型输出的 HTML 大量丢 {@code <}）。</p>
+     */
+    private static native boolean nativeIsChatParserActive();
+
+    /**
+     * 查询解析器是否生效；native 不可用或未加载模型时返回 false（调用方保持旧行为）。
+     */
+    public static boolean isChatParserActive() {
+        if (!libraryLoaded) return false;
+        try {
+            return nativeIsChatParserActive();
+        } catch (UnsatisfiedLinkError e) {
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
     private static native String nativeGetKvCacheStats();
     private static native String nativeGetGenPhase();
 

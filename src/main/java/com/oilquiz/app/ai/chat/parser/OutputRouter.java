@@ -99,6 +99,19 @@ public class OutputRouter {
     // native 层启用思考时，不发开始标记，首个 token 到达即自动进入思考模式
     // native 层通过 [THINK_END] 标记结束思考
     private boolean thinkingEnabled = false;
+    /**
+     * 解析器路径下本轮是否**启用思考**。
+     *
+     * <p>为什么不能复用 {@link #thinkingEnabled}：那个字段的语义是"允许 router 在**在线**路径
+     * 自己猜分段"（见 AIChatActivity.configureOutputRouterForNewTurn 的统一规则），
+     * 本地路径恒为 false。解析器路径需要的是"本轮生成有没有思考段"，语义不同，必须分开。</p>
+     *
+     * <p>置位条件：native 解析器生效 **且** 本轮启用思考。为真时首个 token 起进入思考段，
+     * 直到 native 下发 {@code [THINK_END]} 切回正文。</p>
+     */
+    private boolean parserThinkingActive = false;
+    /** 工具调用标记：native 检出工具调用后下发，需与 [THINK_END] 一样按协议处理 */
+    private static final String TOOL_CALL_MARKER = "[TOOL_CALL]";
     private boolean thinkingStarted = false;
 
     public OutputRouter(OutputHandler handler) {
@@ -115,6 +128,28 @@ public class OutputRouter {
     public void setThinkingEnabled(boolean enabled) {
         this.thinkingEnabled = enabled;
         this.thinkingStarted = false;
+    }
+
+    /**
+     * 设置**解析器路径**下本轮是否启用思考。
+     *
+     * <p>解析器生效时（native 模板声明了 parser），本文本标签匹配全部关闭，思考段与正文的
+     * 切换只能靠 native 的 {@code [THINK_END]} 标记。为让"标记之前的 token 归思考段"成立，
+     * 必须显式告知本轮是否真的启用思考 —— 语义不同于 {@link #setThinkingEnabled}
+     * （后者专指"在线路径让 router 自己猜分段"）。</p>
+     *
+     * @param active native 解析器生效且本轮启用思考时为 true
+     */
+    public void setParserThinkingActive(boolean active) {
+        this.parserThinkingActive = active;
+        if (!active) {
+            this.thinkingStarted = false;
+        }
+    }
+
+    /** 解析器生效时的思考分段是否已启用（供配置侧打印/断言） */
+    public boolean isParserThinkingActive() {
+        return parserThinkingActive;
     }
 
     /**
@@ -152,6 +187,63 @@ public class OutputRouter {
         // 记录完整内容（排除内部控制标记）
         fullContentBuffer.append(token);
 
+        // PARSER-AUTHORITATIVE(2026-10-09)：解析器生效时，native 下发的已经是
+        // common_chat_parse 给出的**干净正文/思考**，这里**绝不再做任何标签匹配**。
+        //
+        // 为什么必须这样：下面的文本匹配路径有三处会**吞掉正常文本**（尤其破坏 HTML）：
+        //   ① possibleTagPrefix() 命中即扣住 token 不下发
+        //   ② toolTagConfig.containsOpenTag() 是 text.contains(子串) 匹配，HTML 标签名
+        //      一旦撞上工具标签名，整段被当工具调用丢弃
+        //   ③ isInToolCall 期间所有 token 被丢弃
+        // 解析器已经把"正文 / 思考 / 工具调用"结构化分开，再用文本猜一遍属于双协议，
+        // 且实测模型输出的 HTML 因此大量丢 "<"。
+        //
+        // 状态机（native 只提供两种显式标记，其余 token 按当前段归属）：
+        //   parserActive 且未收到 [THINK_END] → 这些 token 是思考段
+        //   收到 [THINK_END] 之后            → 正文
+        //   [TOOL_CALL]                      → 工具调用轮，正文不再下发
+        if (isParserActive()) {
+            processTokenWithParser(token);
+            return;
+        }
+
+        processTokenWithTagMatching(token);
+    }
+
+    /**
+     * 解析器路径：native 已结构化分离，本方法只做**段归属**，不做标签匹配。
+     */
+    private void processTokenWithParser(String token) {
+        if (TOOL_CALL_MARKER.equals(token)) {
+            isInToolCall = true;
+            handler.onToolCall("", new JSONObject());
+            return;
+        }
+        if (isInToolCall) return;
+
+        // 解析器路径下【没有标签可扫】，思考状态由显式标志决定：
+        // 本轮启用思考 → 首个 token 起即进入思考段，直到收到 [THINK_END] 切回正文。
+        // （原文本匹配路径靠 tagConfig/thinkingEnabled 在标签处切换，这里不能沿用。）
+        if (parserThinkingActive && !thinkingStarted && !isInThinking) {
+            thinkingStarted = true;
+            isInThinking = true;
+            handler.onThinkingStart();
+        }
+
+        if (isInThinking) {
+            thinkingBuffer.append(token);
+            handler.onThinkingContent(token);
+            return;
+        }
+        textBuffer.append(token);
+        handler.onTextOutput(token, false);
+    }
+
+    /**
+     * 文本匹配路径：**仅**在没有解析器可用时使用（纯内容模板 / 模板未声明 parser）。
+     * 保留原有行为作为兜底，不得在解析器生效时进入。
+     */
+    private void processTokenWithTagMatching(String token) {
         // 思考标签可能跨 token 到达（如 <|thinking_start|> 被 tokenizer 拆开），
         // 先合并到 tagLookahead 缓冲；若尾部是某标签的前缀则等后续 token 凑齐，避免漏检。
         tagLookahead.append(token);
@@ -320,12 +412,15 @@ public class OutputRouter {
                     }
                 }
                 if (end < 0) {
-                    // 无闭标签（开标签可能落在本次文本窗口之前）：从开标签处截断，
-                    // 之后的内容属于工具调用负荷，不应作为正文。
-                    out = out.substring(0, i);
-                    break;
+                    // NO-TRUNCATE(2026-10-09)：此处原先 `out = out.substring(0, i)` —— 即"只要
+                    // 出现一个未配对的工具开标签，它**之后的所有正文整段丢弃**"。HTML 内容里 `<`
+                    // 密集，极易命中，一旦命中就会成片吞掉正文（实测模型输出的 HTML 丢了几十个
+                    // `<`，与这类文本匹配式删改高度相关）。改为**只删掉这个开标签本身**，
+                    // 其后内容按原样保留：宁可让残留的少量标记出现在正文里，也不能静默删正文。
+                    out = out.substring(0, i) + out.substring(i + open.length());
+                } else {
+                    out = out.substring(0, i) + out.substring(end);
                 }
-                out = out.substring(0, i) + out.substring(end);
             }
         }
         return out;
@@ -372,8 +467,21 @@ public class OutputRouter {
             isInThinking = false;
             handler.onThinkingEnd();
         }
-        handler.onTextOutput(stripToolCallSyntax(textBuffer.toString(), toolTagConfig), true);
-        handler.onStreamComplete(stripToolCallSyntax(fullContentBuffer.toString(), toolTagConfig));
+        // PARSER-AUTHORITATIVE(2026-10-09)：解析器生效时，native 侧 common_chat_parse 已经把
+        // 正文与 tool_calls 结构化分离（下发的就是干净正文），这里**不再按文本标签剥第二遍**。
+        // 文本匹配式剥离会误伤正常内容（未配对开标签会吞掉其后正文；实测模型输出的 HTML
+        // 因此大量丢 `<`），且与解析器构成"双协议"。仅当没有解析器可用时，才保留文本兜底。
+        final String text;
+        final String full;
+        if (com.oilquiz.app.ai.jni.LlamaHelper.isChatParserActive()) {
+            text = textBuffer.toString();
+            full = fullContentBuffer.toString();
+        } else {
+            text = stripToolCallSyntax(textBuffer.toString(), toolTagConfig);
+            full = stripToolCallSyntax(fullContentBuffer.toString(), toolTagConfig);
+        }
+        handler.onTextOutput(text, true);
+        handler.onStreamComplete(full);
         reset();
     }
 
@@ -414,6 +522,30 @@ public class OutputRouter {
     }
 
     // ========== 辅助方法 ==========
+
+    /**
+     * 解析器是否生效（缓存）：native 侧模板声明了 parser 即为真。
+     *
+     * <p>为真时 native 的 common_chat_parse 已把正文/思考/工具调用结构化分离，
+     * 本类**只做段归属**，不再做任何文本标签匹配（那会吞掉正常内容）。</p>
+     *
+     * <p>缓存原因：每次 processToken 都跨 JNI 查询代价过高。生成开始前模型已加载、
+     * 模板参数已确定，因此单轮生成内该值稳定；{@link #reset()} 不清理该缓存。</p>
+     */
+    private Boolean parserActiveCache = null;
+
+    private boolean isParserActive() {
+        if (parserActiveCache == null) {
+            boolean active = false;
+            try {
+                active = com.oilquiz.app.ai.jni.LlamaHelper.isChatParserActive();
+            } catch (Throwable ignored) {
+                active = false;
+            }
+            parserActiveCache = active;
+        }
+        return parserActiveCache;
+    }
 
     /** 返回 text 中最早出现的思考结束标签，无则返回 null（多个结束标签取最早） */
     private String firstEndTagIn(String text) {

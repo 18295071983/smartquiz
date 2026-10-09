@@ -1271,9 +1271,23 @@ public class AIChatActivity extends BaseActivity {
         // ② 是否允许 router 自己"猜"分段：仅在线路径需要（它不喂 tag 事件、也不经 router 分流）
         boolean onlineRoute = inferenceRouter != null && inferenceRouter.isUsingOnlineModel();
         outputRouter.setThinkingEnabled(onlineRoute && enableThinking);
+
+        // ③ PARSER-AUTHORITATIVE(2026-10-09)：本地 llama.cpp 若模板声明了 PEG 解析器，
+        // native 下发的已是 common_chat_parse 给出的干净正文/思考，router 不再做任何标签匹配
+        // （文本匹配会吞正常内容，实测模型输出的 HTML 因此大量丢 "<"）。
+        // 此时思考段与正文的界由 native 的 [THINK_END] 标记给定，因此需要显式告知
+        // "本轮是否启用思考" —— 否则思考段会被当成正文漏进主气泡。
+        boolean parserActive = false;
+        try {
+            parserActive = com.oilquiz.app.ai.jni.LlamaHelper.isChatParserActive();
+        } catch (Throwable ignored) {
+        }
+        outputRouter.setParserThinkingActive(parserActive && !onlineRoute && enableThinking);
+
         AppLogger.ai(TAG, "OutputRouter 配置: 思考标签=" + (tags != null && tags.isAvailable() ? "有" : "无")
                 + ", 工具调用标签=" + (toolTags != null && toolTags.isAvailable() ? toolTags.toString() : "无")
                 + ", 由 router 猜分段=" + (onlineRoute && enableThinking)
+                + ", 解析器权威=" + parserActive
                 + "（本地路径分段权威在上游：" + (isNpuEngineOn() ? "NPU" : "llama.cpp") + "）");
     }
 

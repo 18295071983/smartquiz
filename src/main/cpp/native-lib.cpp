@@ -2652,8 +2652,11 @@ public:
                     s.find("</s>") != std::string::npos ||
                     s.find("<|endoftext|") != std::string::npos ||
                     s.find("<end_of_solution|") != std::string::npos ||
-                    s.find("<|im_sep|") != std::string::npos ||
-                    s.find("assistant:") != std::string::npos) {
+                    s.find("<|im_sep|") != std::string::npos) {
+                    // NO-CONTENT-STOP(2026-10-09)：此处原先还判断 s.find("assistant:")，
+                    // 那会**截断任何正文里出现 "assistant:" 的正常回答**（例如在讲提示词、
+                    // 讲对话格式、或输出含该词的示例代码时）。已移除。
+                    // 其余项是各模型真实的会话特殊 token，保留。
                     LOGI("Stop word detected in token: '%s', stopping generation", s.c_str());
                     break;
                 }
@@ -3783,8 +3786,14 @@ public:
                 callback(token, false, "");
             }
 
-            // §6.2 官方 additional_stops：跨 token 尾部缓冲匹配（支持停止词被拆分成多个 token），
-            // 命中即停止，并把已累积输出中的停止词尾部裁掉（官方 server 同款语义）
+            // §6.2 additional_stops：跨 token 尾部缓冲匹配（支持停止词被拆分成多个 token）。
+            //
+            // NO-ERASE(2026-10-09)：命中后**不再从 thinkingPending / fullText 里删掉这段文本**。
+            // 原实现照搬了官方 server 的"把已累积输出里的停止词尾部裁掉"语义，但那是为**服务端
+            // 一次性返回**设计的；本工程是端侧流式、文本已经逐个 token 回调给 UI 并落库，
+            // 事后 erase 只会让**成文与 UI 不一致**，并且任何与模板停止词相同的内容都会被静默
+            // 删除（实测模型输出的 HTML 标签大量丢 `<`，与这类文本匹配式删改高度相关）。
+            // 保留"命中即停止"这一必要行为，只去掉"删字符"。
             {
                 stopBuf += token;
                 if (stopBuf.size() > 128) stopBuf.erase(0, stopBuf.size() - 128);
@@ -3800,14 +3809,8 @@ public:
                     }
                     if (swMatchLen > 0) {
                         const std::string swText = stopBuf.substr(stopBuf.size() - swMatchLen);
-                        if (!thinkingEnded && thinkingPending.size() >= swMatchLen
-                                && thinkingPending.compare(thinkingPending.size() - swMatchLen, swMatchLen, swText) == 0) {
-                            thinkingPending.erase(thinkingPending.size() - swMatchLen);
-                        } else if (fullText.size() >= swMatchLen
-                                && fullText.compare(fullText.size() - swMatchLen, swMatchLen, swText) == 0) {
-                            fullText.erase(fullText.size() - swMatchLen);
-                        }
-                        LOGI("Stop word matched (cross-token): '%s' len=%zu, stopping generation", swText.c_str(), swMatchLen);
+                        LOGI("Stop word matched (cross-token): '%s' len=%zu, stopping generation (text kept)",
+                             swText.c_str(), swMatchLen);
                         setStop(StopCause::STOP_WORD, "incr:add_stop");
                         setPhase(GenPhase::COMPLETE, "incr:add_stop");
                         stopReason = "stop_word";
@@ -6234,8 +6237,13 @@ public:
                     fullResponse += token_str;
                     
                     if (!possibleToolCall && n_decode > TOOL_CALL_DETECT_THRESHOLD) {
-                        if (token_str.find("tool") != std::string::npos || 
-                            token_str.find("<|tool") != std::string::npos) {
+                        // NO-BARE-TOOL-MATCH(2026-10-09)：此处原先判断 token_str.find("tool")，
+                        // 即**只要正文出现英文单词 "tool" 就进入"疑似工具调用"状态**。在无解析器
+                        // 兜底分支里，这个状态一旦置位且没检出真正的工具标记，就会走
+                        // `if (toolCallAt == npos) callback(...)` 之外的路径 —— 表现为正文被抑制。
+                        // 检测工具调用应当依赖模板标记（<|tool_call_begin|> / <function= 等），
+                        // 而不是普通英文词。仅保留带 "<|" 前缀的形态。
+                        if (token_str.find("<|tool") != std::string::npos) {
                             possibleToolCall = true;
                         }
                     }
@@ -6263,9 +6271,9 @@ public:
                         }
                     } else {
                         // 无解析器可用的兜底：沿用旧标记检测（纯内容模板 / 模板无语法）
+                        // NO-BARE-TOOL-MATCH：同上，去掉裸 "tool" 子串判定
                         if (!possibleToolCall && n_decode > TOOL_CALL_DETECT_THRESHOLD) {
-                            if (token_str.find("tool") != std::string::npos ||
-                                token_str.find("<|tool") != std::string::npos) {
+                            if (token_str.find("<|tool") != std::string::npos) {
                                 possibleToolCall = true;
                             }
                         }
@@ -6329,9 +6337,11 @@ public:
             thinkingEnded = true;
         }
 
+        // NO-LOOSE-TOOL-HEURISTIC(2026-10-09)：原第三项是 (含 "tool" && 含 "call" && 含 "begin")
+        // 的散词启发式 —— 只要正文里分别出现这三个词就会被判为工具调用轮。标记形态
+        // "tool_call_begin" 已由前两项覆盖，故该项仅会增加误判，已移除。
         bool isToolCallResponse = (fullResponse.find("<|tool_call_begin|>") != std::string::npos ||
-            fullResponse.find("tool_call_begin") != std::string::npos ||
-            (fullResponse.find("tool") != std::string::npos && fullResponse.find("call") != std::string::npos && fullResponse.find("begin") != std::string::npos));
+            fullResponse.find("tool_call_begin") != std::string::npos);
 
         if (!fullResponse.empty()) {
             Turn assistantTurn;
@@ -7388,6 +7398,19 @@ Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeInitModel(
 // Forward decl: utf8StringToJstring defined later in this file.
 // nativeGetThinkingTags uses it before its definition; C++ needs the declaration first.
 static jstring utf8StringToJstring(JNIEnv* env, const std::string& utf8Str);
+
+JNIEXPORT jboolean JNICALL
+Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeIsChatParserActive(JNIEnv* /* env */, jclass /* clazz */) {
+    // PARSER-AUTHORITATIVE(2026-10-09)：告知 Java 侧"本轮生成由模板 PEG 解析器接管正文/工具调用"。
+    //
+    // 判据与 chatSend 内部完全一致（L6145 的 `g_lastChatParamsValid && !parser.empty()`）：
+    // 只有模板声明了 parser 时才为真，纯内容模板返回 false。
+    //
+    // 为什么需要暴露：解析器可用时，native 已经把正文与 tool_calls **结构化分离**
+    // （pm.content 是干净正文），Java 侧再按文本标签剥一遍属于**双协议**——而文本匹配会
+    // 误伤正常内容（实测模型输出的 HTML 大量丢 `<`）。Java 侧据此跳过文本剥离，只走解析结果。
+    return (g_lastChatParamsValid && !g_lastChatParams.parser.empty()) ? JNI_TRUE : JNI_FALSE;
+}
 
 JNIEXPORT jstring JNICALL
 Java_com_oilquiz_app_ai_jni_LlamaHelper_nativeGetThinkingTags(JNIEnv* env, jclass /* clazz */) {
