@@ -116,6 +116,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.attachedRecyclerView = null;
     }
 
+    /** 视图被回收：摘除尚未触发的布局监听，避免过期回调写入被复用的视图 */
+    @Override
+    public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
+        super.onViewRecycled(holder);
+        if (holder instanceof AIMessageViewHolder) {
+            removePendingLayoutListener((AIMessageViewHolder) holder);
+            ((AIMessageViewHolder) holder).holderMessage = null;
+        }
+    }
+
     /** 获取屏幕宽度（像素） */
     private int getScreenWidth(Context context) {
         DisplayMetrics metrics = context.getResources().getDisplayMetrics();
@@ -778,12 +788,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     updateThinkingContent((AIMessageViewHolder) holder, message);
                 } else if (holder instanceof ThinkingMessageViewHolder) {
                     ((ThinkingMessageViewHolder) holder).bind(message);
-                }
-            } else if (payload instanceof String) {
-                // 处理 "selection_change" 等自定义 String payload
-                // 仅更新选中状态视觉反馈，不修改消息内容
-                if (holder instanceof AIMessageViewHolder) {
-                    handleLongContent((AIMessageViewHolder) holder, message);
                 }
             }
         }
@@ -1573,12 +1577,22 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void updateMessageStatus(AIMessageViewHolder holder, ChatMessage message) {
         Context context = holder.itemView.getContext();
-        
+
         // 获取推理状态
         InferenceStateManager.InferenceState currentState = 
             inferenceStateManager.getCurrentState(message.id);
         InferenceStateManager.StateDetails stateDetails = 
             inferenceStateManager.getStateDetails(message.id);
+
+        // STATUS-LASTAI-GATE(2026-10-09)：统计行（tokens/耗时/速度）只应显示在**最后一条**
+        // AI 消息上。这个门控原先只写在全量绑定里（bindAIMessage 的 `if (!lastAi && ...)`），
+        // 而 updateMessageStatus 会在每次 PAYLOAD_STATUS_UPDATE / PAYLOAD_INFERENCE_PROGRESS
+        // 时把 statusIcon/statusText 重新设为 VISIBLE —— 于是任何一次后续刷新都会把中间轮次的
+        // 统计行"复活"，而只有下一次全量绑定才会再隐藏它。
+        // 收敛到这里：所有调用路径都会经过结尾的 return，门控只写一处，不会再各自漂移。
+        final int gatePos = holder.getBindingAdapterPosition();
+        final boolean showStatusRow = gatePos == RecyclerView.NO_POSITION
+                || isLastAiMessage(gatePos);
 
         // STATUS-SINGLE-CRITERION(2026-10-09)：完成判定只认 message.status。
         // 此前这里是双判据（message.isCompleted() **或** InferenceStateManager 已 COMPLETED），
@@ -1677,6 +1691,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
             holder.statusIcon.setVisibility(View.GONE);
             holder.statusText.setVisibility(View.GONE);
+        }
+
+        // STATUS-LASTAI-GATE：非最终轮不显示统计行（上面各分支可能刚把它设为 VISIBLE）。
+        // 门控写在这一处，所有 return 之外的分支都会经过，不会再被后续 payload 刷新复活。
+        if (!showStatusRow) {
+            if (holder.statusIcon != null) holder.statusIcon.setVisibility(View.GONE);
+            if (holder.statusText != null) holder.statusText.setVisibility(View.GONE);
         }
     }
 
@@ -1787,8 +1808,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         StringBuilder fp = new StringBuilder();
         for (com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment seg : segs) {
             if (seg.isComponent && seg.component != null && seg.component.props != null) {
+                // CACHE-KEY-CONSISTENT(2026-10-09)：这里原先用 props.toString().hashCode()，
+                // 而下方"组件标记"路径（ComponentContentSplitter 分支）用的是完整 props 字符串，
+                // 两条路径却共用 holder.componentSegmentsFingerprint / componentSegmentViews。
+                // 后果：① 同一份 props 在两条路径下算出不同指纹，切换路径时缓存必然失效；
+                // ② 32 位哈希可碰撞（例：latex "Aa" 与 "BB" 的 props 哈希相同），
+                //    一旦碰撞就会复用**错误的** WebView，显示成另一个公式/图表。
+                // 改为与另一条路径完全一致的完整字符串指纹。
                 fp.append(seg.component.type).append('|')
-                        .append(seg.component.props.toString().hashCode()).append(';');
+                        .append(seg.component.props.toString()).append(';');
             }
         }
         String newFp = fp.toString();
@@ -1858,7 +1886,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             bindMessageContent(holder, message, availableWidth);
             return;
         }
-        holder.messageText.getViewTreeObserver().addOnGlobalLayoutListener(
+        // LAYOUT-LISTENER-LIFETIME(2026-10-09)：这个一次性布局监听此前只在自身回调里移除，
+        // 且闭包持有 holder + message 强引用。若布局发生前该项被重绑/回收，监听器仍会执行
+        // bindMessageContent(holder, 旧 message, …) —— 把旧内容渲染进已被复用的视图；
+        // 同一 holder 多次进入本方法还会叠加多个监听器。
+        // 处理：① 注册前先摘掉上一个；② 回调里校验 holder 仍绑定同一消息；③ 记录到 holder，
+        // 由 onViewRecycled 兜底摘除。
+        removePendingLayoutListener(holder);
+        final android.view.ViewTreeObserver.OnGlobalLayoutListener listener =
             new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
                 private boolean ran = false;
                 @Override
@@ -1868,13 +1903,32 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (holder.messageText.getViewTreeObserver().isAlive()) {
                         holder.messageText.getViewTreeObserver().removeOnGlobalLayoutListener(this);
                     }
+                    holder.pendingLayoutListener = null;
+                    // holder 已被重绑到别的消息：这次回调属于过期渲染，丢弃
+                    if (holder.holderMessage != message) return;
                     int w = holder.itemView.getWidth();
                     int availableWidth = w - holder.itemView.getPaddingLeft()
                         - holder.itemView.getPaddingRight() - dpToPx(2, holder.itemView.getContext());
                     if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
                     bindMessageContent(holder, message, availableWidth);
                 }
-            });
+            };
+        holder.pendingLayoutListener = listener;
+        holder.messageText.getViewTreeObserver().addOnGlobalLayoutListener(listener);
+    }
+
+    /** 摘除该 holder 上尚未触发的布局监听（存在则移除并清空引用） */
+    private void removePendingLayoutListener(AIMessageViewHolder holder) {
+        android.view.ViewTreeObserver.OnGlobalLayoutListener old = holder.pendingLayoutListener;
+        if (old == null) return;
+        holder.pendingLayoutListener = null;
+        try {
+            android.view.ViewTreeObserver vto = holder.messageText.getViewTreeObserver();
+            if (vto.isAlive()) {
+                vto.removeOnGlobalLayoutListener(old);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private Spanned formatMessageContent(String content, int availableWidth) {
@@ -3579,6 +3633,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         LinearLayout componentContainer;
         /** 当前绑定的消息（2026-09-14：思考轮独立折叠状态读写 / 轮次组件 id 锚点） */
         ChatMessage holderMessage;
+        /** 尚未触发的"等布局完成再按真实宽度渲染"监听器。持有它才能在重绑/回收时摘除，
+         *  避免过期回调把旧消息渲染进已被复用的视图。 */
+        android.view.ViewTreeObserver.OnGlobalLayoutListener pendingLayoutListener;
         /** 已绑定的组件列表引用：与下面的内容指纹一起判断是否需要重建 */
         List<ComponentData> boundComponents;
         /** 已绑定组件列表的内容指纹。仅比较列表引用不够：生产方会就地 append 组件
@@ -4365,16 +4422,20 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /**
      * 切换消息选择状态
+     *
+     * <p>SELECT-NO-RENDER(2026-10-09)：选中态目前**没有任何 binder 渲染**（没有选中背景/
+     * 勾选框），而且本方法在项目内尚无调用方 —— 这是一条已实现但未接线的通路。
+     * 因此这里不再发 notifyItemChanged：
+     * ① payload 分支已删除，通知不会产生任何视觉变化；
+     * ② 它原先还会调用 handleLongContent，那里会把展开按钮设为 GONE —— 一个声称"仅更新
+     *    选中视觉"的通知却改动了折叠控件，属于副作用与文档不符。
+     * 仍需保证：将来接上选中态渲染时，必须在这里重新触发 item 刷新。</p>
      */
     public void toggleSelection(String messageId) {
         if (selectedMessageIds.contains(messageId)) {
             selectedMessageIds.remove(messageId);
         } else {
             selectedMessageIds.add(messageId);
-        }
-        int position = findMessagePosition(messageId);
-        if (position != -1) {
-            notifyItemChanged(position, "selection_change");
         }
         if (selectionChangeListener != null) {
             selectionChangeListener.onSelectionChanged(selectedMessageIds.size());
