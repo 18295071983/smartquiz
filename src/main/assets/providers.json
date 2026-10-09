@@ -198,7 +198,9 @@
           "glm-5.1",
           "glm-5.2",
           "glm-5.3"
-        ],
+        ],        "alwaysThinkingKeywords": ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"],
+        "alwaysThinkingNote": "官方「深度思考」文档：GLM-5.3 / GLM-5.3-FLASH / GLM-5.3-FLASHX 不再支持关闭思考，API 请求中 thinking.type 传 disabled 将报错，必须保持开启。GLM-5.2 及以下仍可关闭，故此处仅列不可关闭的型号。",
+
         "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理，再给出最终答案。\n思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n最终回答：结论先行，简洁明确，只保留关键论据。"
       },
       "models": [

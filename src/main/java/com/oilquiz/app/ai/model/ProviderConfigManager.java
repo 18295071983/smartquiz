@@ -263,8 +263,19 @@ public class ProviderConfigManager {
     public boolean isAlwaysThinkingModel(String modelName) {
         if (modelName == null) return false;
         String m = modelName.trim().toLowerCase();
-        // glm-5 / glm-5-turbo / glm-5.1 / glm-5.2 / glm-5.3 / glm-5.3-flash ...
-        return m.startsWith("glm-5");
+        // **仅按配置声明的型号关键词判定**（providers.json → thinking.alwaysThinkingKeywords）。
+        // 同服务商内不同型号能力不同：智谱 GLM-5.3 / 5.3-FLASH / 5.3-FLASHX 不可关闭思考
+        // （传 disabled 会被服务端拒绝），而 GLM-5.2 及以下**可以**关闭。
+        // 因此不能再按 "glm-5" 前缀一刀切 —— 那会把可关闭的 GLM-5/5.1/5.2 也误锁成常开。
+        for (Provider p : getProviders()) {
+            if (p.thinking == null || p.thinking.alwaysThinkingKeywords == null) continue;
+            for (String kw : p.thinking.alwaysThinkingKeywords) {
+                if (kw != null && !kw.isEmpty() && m.contains(kw.toLowerCase())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -882,6 +893,8 @@ public class ProviderConfigManager {
         public String param;                // enable_thinking / reasoning_effort
         public Boolean defaultEnabled;      // 默认是否开启思考
         public List<String> modelKeywords;  // 命中即视为思考模型
+        /** 命中即"不可关闭思考"的模型（传禁用会被服务端拒绝，如智谱 GLM-5.3 报错 1210） */
+        public List<String> alwaysThinkingKeywords;
         public String instruction;          // 思考指令（注入 system prompt）
     }
 

@@ -7732,6 +7732,17 @@ public class AIChatActivity extends BaseActivity {
                     updateModeButtonText();
                     updateApiBalanceDisplay();
                     updateWebSearchChip();
+                    // 深度思考芯片也要随模型刷新：不同模型能力不同 ——
+                    // "始终思考"模型（如 GLM-5.3）需置为不可关闭，切回其它模型要恢复可点。
+                    // 缺这一步会出现"在一个模型上被置灰后，切换模型仍无法恢复"。
+                    com.google.android.material.chip.Chip dt =
+                            findViewById(R.id.chip_deep_think);
+                    if (dt != null) {
+                        dt.setEnabled(true);
+                        dt.setChecked(ChatModeManager.getInstance(AIChatActivity.this)
+                                .isDeepThinkingEnabled());
+                        updateDeepThinkChip(dt);
+                    }
                 });
             }
         };
@@ -8316,6 +8327,23 @@ public class AIChatActivity extends BaseActivity {
     /** 深度思考开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
     private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {
         if (chip == null) return;
+        // 该模型是否"始终思考"（不可关闭，如智谱 GLM-5.3）：此类模型传禁用会被服务端拒绝，
+        // 因此芯片置为开启且不可点击，档位选择里也不提供"关闭"。
+        boolean alwaysThinking = false;
+        try {
+            alwaysThinking = com.oilquiz.app.ai.model.OnlineModelManager
+                    .isAlwaysThinkingModel(currentModelName());
+        } catch (Throwable ignored) {
+        }
+        if (alwaysThinking) {
+            chip.setEnabled(false);
+            chip.setChecked(true);
+            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
+                    ThemeColors.attr(this, R.attr.colorPrimary)));
+            chip.setTextColor(getColor(R.color.white));
+            chip.setText(getString(R.string.h_931c3c94));
+            return;
+        }
         ChatModeManager modeManager = ChatModeManager.getInstance(this);
         ChatModeManager.ThinkingEffort effort = modeManager.getThinkingEffort();
         boolean on = effort.isEnabled();
@@ -8368,12 +8396,25 @@ public class AIChatActivity extends BaseActivity {
             showToast("该模型未声明思考强度档位，仅支持开/关");
             return;
         }
-        // 只展示服务商声明支持的档位（顺序沿用 API 返回的推荐顺序），外加"关闭"
+        // 只展示服务商声明支持的档位（顺序沿用 API 返回的推荐顺序）。
+        // "始终思考"模型（不可关闭，如 GLM-5.3）不提供"关闭"选项 —— 传禁用会被服务端拒绝。
+        boolean alwaysThinking = false;
+        try {
+            alwaysThinking = com.oilquiz.app.ai.model.OnlineModelManager
+                    .isAlwaysThinkingModel(currentModelName());
+        } catch (Throwable ignored) {
+        }
         java.util.List<ChatModeManager.ThinkingEffort> options = new java.util.ArrayList<>();
-        options.add(ChatModeManager.ThinkingEffort.NONE);
+        if (!alwaysThinking) {
+            options.add(ChatModeManager.ThinkingEffort.NONE);
+        }
         for (String lv : declared) {
             ChatModeManager.ThinkingEffort e = ChatModeManager.ThinkingEffort.fromWire(lv);
             if (e != ChatModeManager.ThinkingEffort.NONE && !options.contains(e)) options.add(e);
+        }
+        if (options.isEmpty()) {
+            showToast("该模型未声明思考强度档位");
+            return;
         }
         final ChatModeManager.ThinkingEffort[] values =
                 options.toArray(new ChatModeManager.ThinkingEffort[0]);
