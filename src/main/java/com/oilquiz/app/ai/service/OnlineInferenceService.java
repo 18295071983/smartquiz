@@ -2112,8 +2112,12 @@ public class OnlineInferenceService {
         }
         switch (param) {
             case "reasoning_effort":
-                // OpenAI o 系 / groq / stepfun / sensenova：该参数本身就是强度
-                requestBody.addProperty("reasoning_effort", effort);
+                // OpenAI o 系 / groq / stepfun / sensenova：该参数本身就是强度。
+                // 同样只在服务商声明了该模型的档位时才下发 —— 这些厂商也有"只有开关"的模型
+                // （如 gpt-oss 系列部分部署），未声明即不传，交由服务端默认。
+                if (isEffortLevelSupported(apiUrl, modelName, effort)) {
+                    requestBody.addProperty("reasoning_effort", effort);
+                }
                 break;
             case "thinking.type": {
                 // 嵌套对象形态：DeepSeek / 智谱 官方均为 {"thinking":{"type":"enabled"}}
@@ -2133,10 +2137,13 @@ public class OnlineInferenceService {
                 requestBody.addProperty("thinking_budget", DEFAULT_THINKING_BUDGET);
                 break;
             case "thinking_config.thinking_level": {
-                // 两层嵌套形态（Gemini OpenAI 兼容层）
-                JsonObject cfg = new JsonObject();
-                cfg.addProperty("thinking_level", effort);
-                requestBody.add("thinking_config", cfg);
+                // 两层嵌套形态（Gemini OpenAI 兼容层）。
+                // Gemini 也有"只有开关、没有档位"的模型，故同样按声明下发。
+                if (isEffortLevelSupported(apiUrl, modelName, effort)) {
+                    JsonObject cfg = new JsonObject();
+                    cfg.addProperty("thinking_level", effort);
+                    requestBody.add("thinking_config", cfg);
+                }
                 break;
             }
             case "enable_thinking":
