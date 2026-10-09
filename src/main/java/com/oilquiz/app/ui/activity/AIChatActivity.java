@@ -1275,14 +1275,20 @@ public class AIChatActivity extends BaseActivity {
         // ③ PARSER-AUTHORITATIVE(2026-10-09)：本地 llama.cpp 若模板声明了 PEG 解析器，
         // native 下发的已是 common_chat_parse 给出的干净正文/思考，router 不再做任何标签匹配
         // （文本匹配会吞正常内容，实测模型输出的 HTML 因此大量丢 "<"）。
-        // 此时思考段与正文的界由 native 的 [THINK_END] 标记给定，因此需要显式告知
-        // "本轮是否启用思考" —— 否则思考段会被当成正文漏进主气泡。
+        // 权威性在这里**按"本地 && 解析器可用"显式注入**，而不是让 router 自己去查 native：
+        // native 的标志反映"已加载的本地模型模板有没有 parser"，本地模型加载过就长期为真，
+        // 而在线轮次也会经过同一个 router —— 那样会把在线轮次误判为权威。
         boolean parserActive = false;
-        try {
-            parserActive = com.oilquiz.app.ai.jni.LlamaHelper.isChatParserActive();
-        } catch (Throwable ignored) {
+        if (!onlineRoute) {
+            try {
+                parserActive = com.oilquiz.app.ai.jni.LlamaHelper.isChatParserActive();
+            } catch (Throwable ignored) {
+            }
         }
-        outputRouter.setParserThinkingActive(parserActive && !onlineRoute && enableThinking);
+        outputRouter.setParserAuthority(parserActive);
+        // 解析器路径下思考段与正文的界由 native 的 [THINK_END] 标记给定，因此需要显式告知
+        // "本轮是否启用思考" —— 否则思考段会被当成正文漏进主气泡。
+        outputRouter.setParserThinkingActive(parserActive && enableThinking);
 
         AppLogger.ai(TAG, "OutputRouter 配置: 思考标签=" + (tags != null && tags.isAvailable() ? "有" : "无")
                 + ", 工具调用标签=" + (toolTags != null && toolTags.isAvailable() ? toolTags.toString() : "无")

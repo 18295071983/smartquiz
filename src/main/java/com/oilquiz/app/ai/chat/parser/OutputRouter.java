@@ -100,6 +100,17 @@ public class OutputRouter {
     // native 层通过 [THINK_END] 标记结束思考
     private boolean thinkingEnabled = false;
     /**
+     * 本轮是否由**模板解析器**接管分流（native 已结构化分离正文/思考/工具调用）。
+     *
+     * <p><b>必须由配置侧显式设置，不能在本类里查 native 全局标志。</b>
+     * 原因：native 的 {@code parser 非空} 判据反映的是"当前加载的本地模型模板有没有 PEG 语法"，
+     * 一旦本地模型加载过它就长期为真 —— 而**在线 API 轮次也会经过本类**。
+     * 若在此处直接查 native，在线轮次会误判为"解析器权威"而跳过在线路径需要的文本清理。
+     * 因此权威性由 {@code AIChatActivity.configureOutputRouterForNewTurn} 按
+     * "本地 && 解析器可用" 计算后注入。</p>
+     */
+    private boolean parserAuthority = false;
+    /**
      * 解析器路径下本轮是否**启用思考**。
      *
      * <p>为什么不能复用 {@link #thinkingEnabled}：那个字段的语义是"允许 router 在**在线**路径
@@ -128,6 +139,29 @@ public class OutputRouter {
     public void setThinkingEnabled(boolean enabled) {
         this.thinkingEnabled = enabled;
         this.thinkingStarted = false;
+    }
+
+    /**
+     * 设置本轮是否由**模板解析器**接管分流。
+     *
+     * <p>由配置侧（{@code AIChatActivity.configureOutputRouterForNewTurn}）按
+     * "本地引擎 && native 模板声明了 parser" 计算后注入。</p>
+     *
+     * <p><b>为什么必须显式注入、不在本类查 native</b>：native 的判据反映"当前已加载的本地模型
+     * 模板有没有 PEG 语法"，本地模型一旦加载过就长期为真，而在线 API 轮次也会经过本类 ——
+     * 直接查 native 会把在线轮次误判为解析器权威，从而跳过在线路径需要的文本清理。</p>
+     */
+    public void setParserAuthority(boolean authority) {
+        this.parserAuthority = authority;
+        if (!authority) {
+            this.parserThinkingActive = false;
+            this.thinkingStarted = false;
+        }
+    }
+
+    /** 本轮是否由模板解析器接管（供配置侧打印/断言） */
+    public boolean isParserAuthority() {
+        return parserAuthority;
     }
 
     /**
@@ -202,7 +236,7 @@ public class OutputRouter {
         //   parserActive 且未收到 [THINK_END] → 这些 token 是思考段
         //   收到 [THINK_END] 之后            → 正文
         //   [TOOL_CALL]                      → 工具调用轮，正文不再下发
-        if (isParserActive()) {
+        if (parserAuthority) {
             processTokenWithParser(token);
             return;
         }
@@ -471,9 +505,13 @@ public class OutputRouter {
         // 正文与 tool_calls 结构化分离（下发的就是干净正文），这里**不再按文本标签剥第二遍**。
         // 文本匹配式剥离会误伤正常内容（未配对开标签会吞掉其后正文；实测模型输出的 HTML
         // 因此大量丢 `<`），且与解析器构成"双协议"。仅当没有解析器可用时，才保留文本兜底。
+        //
+        // 注意判据用本类的 parserAuthority（由配置侧按"本地 && 解析器可用"注入），
+        // **不能**在这里查 native 全局标志 —— 在线轮次也走本方法，而本地模型加载后
+        // 那个标志长期为真，会导致在线路径被误判而跳过它需要的清理。
         final String text;
         final String full;
-        if (com.oilquiz.app.ai.jni.LlamaHelper.isChatParserActive()) {
+        if (parserAuthority) {
             text = textBuffer.toString();
             full = fullContentBuffer.toString();
         } else {
@@ -522,30 +560,6 @@ public class OutputRouter {
     }
 
     // ========== 辅助方法 ==========
-
-    /**
-     * 解析器是否生效（缓存）：native 侧模板声明了 parser 即为真。
-     *
-     * <p>为真时 native 的 common_chat_parse 已把正文/思考/工具调用结构化分离，
-     * 本类**只做段归属**，不再做任何文本标签匹配（那会吞掉正常内容）。</p>
-     *
-     * <p>缓存原因：每次 processToken 都跨 JNI 查询代价过高。生成开始前模型已加载、
-     * 模板参数已确定，因此单轮生成内该值稳定；{@link #reset()} 不清理该缓存。</p>
-     */
-    private Boolean parserActiveCache = null;
-
-    private boolean isParserActive() {
-        if (parserActiveCache == null) {
-            boolean active = false;
-            try {
-                active = com.oilquiz.app.ai.jni.LlamaHelper.isChatParserActive();
-            } catch (Throwable ignored) {
-                active = false;
-            }
-            parserActiveCache = active;
-        }
-        return parserActiveCache;
-    }
 
     /** 返回 text 中最早出现的思考结束标签，无则返回 null（多个结束标签取最早） */
     private String firstEndTagIn(String text) {
