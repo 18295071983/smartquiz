@@ -9448,7 +9448,7 @@ public class AIChatActivity extends BaseActivity {
         // 防抖：已有滚动任务在队列中时不再重复 post，避免高频 token 刷新堆积大量滚动任务卡住主线程
         if (!force && scrollPending) return;
         scrollPending = true;
-        int lastPosition = chatAdapter.getItemCount() - 1;
+        final int lastPosition = chatAdapter.getItemCount() - 1;
         messageList.post(() -> {
             scrollPending = false;
             boolean isStreaming;
@@ -9456,12 +9456,53 @@ public class AIChatActivity extends BaseActivity {
                 isStreaming = isInThinking || (currentStreamingContent != null && currentStreamingContent.length() > 0);
             }
             if (force || isStreaming) {
-                // force（重进页面/加载完成定位）与流式中：直接定位（立即生效，不依赖平滑滚动动画）
-                messageList.scrollToPosition(lastPosition);
+                // SCROLL-BOTTOM-PIN(2026-10-09)：这里原先用 scrollToPosition(lastPosition)。
+                // 它只保证"该项可见"，**不保证该 item 的底部对齐屏幕底部**。流式期间最后一条
+                // AI 消息在持续变高（表格逐行增长尤其明显），而 post 排队时拿到的是**旧高度**：
+                // 内容随后又长高，列表仍按旧高度定位 → 底部被顶出可视区 → 下一次刷新又抢着定位，
+                // 表现为"强行显示最新"与内容增长**互相争抢、屏幕来回跳**。
+                // 改为把该 item 的**底部**对齐 viewport 底部：offset = 可视高度 - item高度。
+                scrollBottomPinned(lastPosition);
             } else {
                 messageList.smoothScrollToPosition(lastPosition);
             }
         });
+    }
+
+    /**
+     * 让 position 处的 item **底部**贴住列表可视区底部（真正的"贴底"，而非"可见"）。
+     *
+     * <p>用 {@link androidx.recyclerview.widget.LinearLayoutManager#scrollToPositionWithOffset}
+     * 传负偏移实现：偏移为 {@code 可视高度 - item 高度}，即让 item 底边落在 viewport 底边。
+     * item 高度在**调用时**由 LayoutManager 取真实测量值，避免"按旧高度定位"。</p>
+     */
+    private void scrollBottomPinned(int position) {
+        if (messageList == null) return;
+        androidx.recyclerview.widget.RecyclerView.LayoutManager lm = messageList.getLayoutManager();
+        if (!(lm instanceof androidx.recyclerview.widget.LinearLayoutManager)) {
+            messageList.scrollToPosition(position);
+            return;
+        }
+        androidx.recyclerview.widget.LinearLayoutManager llm =
+                (androidx.recyclerview.widget.LinearLayoutManager) lm;
+        android.view.View item = llm.findViewByPosition(position);
+        if (item == null) {
+            // 该项尚未布局（新插入/被回收）：先定位，下一次布局后再贴底
+            llm.scrollToPositionWithOffset(position, 0);
+            return;
+        }
+        int itemHeight = item.getHeight();
+        int viewport = messageList.getHeight() - messageList.getPaddingTop()
+                - messageList.getPaddingBottom();
+        if (itemHeight <= 0 || viewport <= 0) {
+            llm.scrollToPositionWithOffset(position, 0);
+            return;
+        }
+        // 让 item 底边落在 viewport 底边：
+        //   item 比屏幕矮 → 正偏移（把列表往上推，露出底边）
+        //   item 比屏幕高 → 负偏移（露出它的最后一段）
+        // 两种情况是同一个式子 viewport - itemHeight，无需分别处理。
+        llm.scrollToPositionWithOffset(position, viewport - itemHeight);
     }
 
     private boolean isUserAtBottom() {

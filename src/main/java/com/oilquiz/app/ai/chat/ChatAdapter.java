@@ -116,13 +116,35 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.attachedRecyclerView = null;
     }
 
-    /** 视图被回收：摘除尚未触发的布局监听，避免过期回调写入被复用的视图 */
+    /** 视图被回收：摘除布局监听并清理渲染记录，避免过期回调/陈旧记录落到被复用的视图上 */
     @Override
     public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewRecycled(holder);
         if (holder instanceof AIMessageViewHolder) {
-            removePendingLayoutListener((AIMessageViewHolder) holder);
-            ((AIMessageViewHolder) holder).holderMessage = null;
+            AIMessageViewHolder h = (AIMessageViewHolder) holder;
+            removePendingLayoutListener(h);
+            h.holderMessage = null;
+            clearRenderRecords(h.itemView);
+        }
+    }
+
+    /**
+     * 清理视图子树里所有 TextView 的"上次已渲染源文本"记录。
+     *
+     * <p>两个原因：① {@link #LAST_RENDERED_SOURCE} 是静态 map，持有 TextView 强引用会阻碍
+     * 回收；② 视图被复用给另一条消息时，若保留旧记录，首次渲染会被误判成"内容未变"而跳过，
+     * 导致新消息显示旧内容。</p>
+     */
+    private static void clearRenderRecords(View view) {
+        if (view instanceof TextView) {
+            LAST_RENDERED_SOURCE.remove(view);
+            return;
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) view;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                clearRenderRecords(g.getChildAt(i));
+            }
         }
     }
 
@@ -451,6 +473,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // --- 附件 RecyclerView ---
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler = new androidx.recyclerview.widget.RecyclerView(ctx);
         attachmentsRecycler.setClipToPadding(false);
+        // NESTED-RV(2026-10-09)：本 RecyclerView 嵌在**外层聊天列表**的每个 item 里。
+        // 三点嵌套适配此前都缺，导致（a）有附件时内层抢走竖向滚动手势、外层列表滑不动，
+        // （b）多一次无谓测量，（c）附件刷新时跑 item 动画 —— 表现为闪烁。
+        attachmentsRecycler.setNestedScrollingEnabled(false);  // 滚动交给外层列表
+        attachmentsRecycler.setHasFixedSize(true);             // 自身尺寸不随内容变化，省一次测量
+        attachmentsRecycler.setItemAnimator(null);             // 附件行不需要增删动画
         attachmentsRecycler.setVisibility(View.GONE);
         LinearLayout.LayoutParams arLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1041,12 +1069,30 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (v instanceof TextView) {
                         TextView tv = (TextView) v;
                         // 流式轻量 setText（普通文本）；非流式走完整 Markdown 渲染
-                        if (streaming) {
+                        // STREAM-BLOCK-MD(2026-10-09)：但"纯文本"对**块级结构**是错的 ——
+                        // 表格（| a | b | / |---|---|）、围栏代码块、标题、引用在纯文本下会
+                        // 原样露出源码，而生成结束转非流式后同一段又变成真渲染 ——
+                        // 用户看到的就是"流式没有表格，历史重建后正常"。
+                        // 这里只对含块级结构的段走真渲染，普通散文段保持廉价 setText，
+                        // 以保留当初"流式不走全量 Markdown"的防闪烁/省性能意图。
+                        //
+                        // TABLE-SETTLE(2026-10-09)：但**表格还在追加行时不能重建**。
+                        // Markwon 表格是跨帧有状态的 ReplacementSpan，流式期间实测被整体重建
+                        // 64 次（节流 50~200ms + 每个 token 都在改动表格），导致行按旧高度定位、
+                        // 新内容按新行数绘制 —— 表格内文字互相覆盖、越生成越糊。
+                        // 表格未封闭（后面还没出现空行）时先按原文显示，封闭后由下一帧渲染一次。
+                        boolean tableStillOpen = streaming && hasUnclosedTable(seg);
+                        if (streaming && (!needsBlockMarkdown(seg) || tableStillOpen)) {
                             if (!seg.equals(tv.getText().toString())) {
                                 tv.setText(seg);
                             }
+                            // 按原文显示：记录来源，但**不**把"已渲染"标记为有效渲染，
+                            // 这样结束后第一次真渲染不会被防闪烁短路挡掉
+                            LAST_RENDERED_SOURCE.remove(tv);
                         } else {
-                            setRenderedText(tv, seg, availableWidth);
+                            // 非流式（或无需按原文）：走强制入口 —— 从"流式原文"切到"真渲染"
+                            // 时内容字符串可能没变，但不能因此跳过渲染
+                            setRenderedTextForced(tv, seg, availableWidth);
                             tv.setMovementMethod(LinkMovementMethod.getInstance());
                         }
                     }
@@ -1948,6 +1994,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         renderInto(textView, content, availableWidth);
     }
 
+    /** 同上，但忽略"内容未变"短路（用于流式原文 → 非流式真渲染的模式切换） */
+    private void setRenderedTextForced(TextView textView, String content, int availableWidth) {
+        renderIntoForced(textView, content, availableWidth);
+    }
+
     /** 后台渲染请求（防抖合并的最小单位） */
     private static final class RenderRequest {
         final TextView textView;
@@ -1984,16 +2035,49 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** 是否已有排队的批量渲染任务 */
     private static final AtomicBoolean DRAIN_SCHEDULED = new AtomicBoolean();
 
+    /**
+     * 每个 TextView 最近一次**成功应用**的源文本。
+     *
+     * <p>用来跳过"内容其实没变"的重复渲染。此前只有流式的纯文本分支做了
+     * {@code seg.equals(tv.getText())} 短路，而真渲染分支每次都照做一遍
+     * {@code setText} —— 即使 {@link RenderExecutor} 的 LRU 命中了相同的 Spanned，
+     * {@code applyRenderedText} 仍会新建 SpannableStringBuilder 并整体替换文本，
+     * 表现为**每个 payload（50~200ms）都重绘一次，屏幕闪烁**。
+     * 对表格/代码块这类块级段尤其明显（它们必须走真渲染）。</p>
+     */
+    private static final ConcurrentHashMap<TextView, String> LAST_RENDERED_SOURCE = new ConcurrentHashMap<>();
+
     /** 提交异步渲染：同视图最新内容合并 + 代次守卫 */
     static void renderInto(TextView textView, String content, int availableWidth) {
         if (textView == null) return;
         if (content == null) content = "";
+        // 内容与上次已应用的一致 → 不需要重新解析与重绘（防闪烁的关键一步）
+        String last = LAST_RENDERED_SOURCE.get(textView);
+        if (last != null && last.equals(content)) {
+            return;
+        }
         long token = RENDER_SEQ.incrementAndGet();
         RENDER_TOKENS.put(textView, token);
         PENDING_RENDERS.put(textView, new RenderRequest(textView, content, availableWidth, token));
         if (DRAIN_SCHEDULED.compareAndSet(false, true)) {
             RENDER_POOL.execute(ChatAdapter::drainPendingRenders);
         }
+    }
+
+    /**
+     * 强制提交一次渲染，忽略"内容未变"的短路。
+     *
+     * <p>为什么需要：流式期间表格未封闭时该段是**按原文**显示的（见 renderRoundAssembled 里
+     * 的 hasUnclosedTable 分支），此时 {@link #LAST_RENDERED_SOURCE} 记录的是同一份文本。
+     * 生成结束后必须把它**渲染成真表格**，但内容字符串并没有变 —— 上面那条防闪烁短路会
+     * 直接 return，导致表格永远渲染不出来（"结束后仍是一坨原文"）。</p>
+     *
+     * <p>因此凡是"渲染模式发生变化"（流式→非流式）的调用点，都要走这个入口。</p>
+     */
+    static void renderIntoForced(TextView textView, String content, int availableWidth) {
+        if (textView == null) return;
+        LAST_RENDERED_SOURCE.remove(textView);
+        renderInto(textView, content, availableWidth);
     }
 
     /** 批量消费待渲染请求（在渲染线程执行） */
@@ -2027,16 +2111,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             RENDER_MAIN_HANDLER.post(() -> applyFallbackText(req));
             return;
         }
-        RENDER_MAIN_HANDLER.post(() -> applyRenderedText(req.textView, rendered, req.token));
+        RENDER_MAIN_HANDLER.post(() -> applyRenderedText(req, rendered));
     }
 
     /** 主线程应用渲染结果（代次校验通过才 setText） */
-    private static void applyRenderedText(TextView textView, Spanned rendered, long token) {
-        if (!isRenderCurrent(textView, token)) return;
+    private static void applyRenderedText(RenderRequest req, Spanned rendered) {
+        TextView textView = req.textView;
+        if (!isRenderCurrent(textView, req.token)) return;
         try {
             Spannable spannable = new SpannableStringBuilder(rendered);
             TextViewSpan.applyTo(spannable, textView);
             textView.setText(spannable);
+            // 只有真正应用成功才记录：相同内容后续可直接跳过（防每 payload 重绘闪烁）
+            LAST_RENDERED_SOURCE.put(textView, req.content);
         } catch (Throwable ignored) {
             // 应用失败（视图已分离等）：静默丢弃，等待下次渲染
         }
@@ -2334,6 +2421,83 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             tv.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE);
             tv.setHyphenationFrequency(android.graphics.text.LineBreaker.HYPHENATION_FREQUENCY_NONE);
         }
+    }
+
+    /**
+     * 该段文本是否含**必须经 Markdown 解析才能正确显示**的块级结构。
+     *
+     * <p>用于流式期间的取舍：纯散文段继续走廉价的 {@code TextView.setText}（当初为防闪烁、
+     * 省每 token 全量解析而做的优化），但一旦出现下列结构就必须走真渲染，否则会露出源码
+     * —— 典型是表格：{@code | a | b |} 与 {@code |---|---|} 在纯文本下原样显示，
+     * 而生成结束后转非流式渲染又变成表格，用户观感就是"流式不出表格、历史重建才正常"。</p>
+     *
+     * <p>只做行级前缀判断，不引入正则开销（流式每帧都会调用）。</p>
+     */
+    private static boolean needsBlockMarkdown(String seg) {
+        if (seg == null || seg.isEmpty()) return false;
+        boolean inFence = false;
+        int start = 0;
+        while (start <= seg.length()) {
+            int nl = seg.indexOf('\n', start);
+            String line = (nl < 0) ? seg.substring(start) : seg.substring(start, nl);
+            String t = line.trim();
+            // 围栏代码块：进出都算（内部内容需要等宽样式，不能当普通文本）
+            if (t.startsWith("```")) {
+                inFence = !inFence;
+                return true;
+            }
+            if (inFence) return true;
+            if (t.startsWith("|")) return true;                      // 表格行（含分隔行）
+            if (t.startsWith("#")) return true;                      // 标题
+            if (t.startsWith(">")) return true;                      // 引用
+            if (t.startsWith("- ") || t.startsWith("* ") || t.startsWith("+ ")) return true;  // 无序列表
+            if (t.length() > 1 && Character.isDigit(t.charAt(0))) {  // 有序列表 "1. " / "1) "
+                int j = 0;
+                while (j < t.length() && Character.isDigit(t.charAt(j))) j++;
+                if (j < t.length() && (t.charAt(j) == '.' || t.charAt(j) == ')')
+                        && j + 1 < t.length() && t.charAt(j + 1) == ' ') {
+                    return true;
+                }
+            }
+            if (nl < 0) break;
+            start = nl + 1;
+        }
+        return false;
+    }
+
+    /**
+     * 该文本里是否有**尚未封闭**的 Markdown 表格块。
+     *
+     * <p>用于流式期间避免反复整体重建表格。Markdown 表格的结束语义是**空行**（或文档结束），
+     * 因此在表格仍被追加行时（后面还没出现空行）判定为"未封闭"。</p>
+     *
+     * <p>为什么需要它：流式每 50~200ms 就会刷新一次（实测一条回复刷了 64 次），而
+     * Markwon 的表格是自管理、跨帧有状态的 ReplacementSpan（宽度在上次 draw 测得、
+     * 高度在上次 getSize 得出）。把它整体重建 60+ 次、同时内容还在变，
+     * 会让行按旧高度定位、新内容按新行数绘制 —— 表现为**表格内文字互相覆盖、越生成越糊**。
+     * 表格只在封闭后渲染一次即可彻底避免。</p>
+     */
+    private static boolean hasUnclosedTable(String seg) {
+        if (seg == null || seg.isEmpty()) return false;
+        boolean inTable = false;
+        int start = 0;
+        while (start <= seg.length()) {
+            int nl = seg.indexOf('\n', start);
+            String line = (nl < 0) ? seg.substring(start) : seg.substring(start, nl);
+            String t = line.trim();
+            if (t.startsWith("|")) {
+                inTable = true;
+            } else if (t.isEmpty()) {
+                // 注意：**结尾换行**也会切出一个空串，它不是"空行"，不能用来封闭表格。
+                // 只有该空行后面**还有内容**（start < seg.length()）时，才是真正的空行 → 封闭。
+                if (start < seg.length()) {
+                    inTable = false;
+                }
+            }
+            if (nl < 0) break;
+            start = nl + 1;
+        }
+        return inTable;
     }
 
     private TextView createSegmentTextView(Context ctx, TextView template) {
