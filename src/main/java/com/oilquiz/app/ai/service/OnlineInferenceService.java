@@ -55,6 +55,8 @@ public class OnlineInferenceService {
      * 与 Agent 引擎的 120s idle 保护矛盾（底层先断）。提升到与 imageGen/ASR 一致。
      */
     private static final int CHAT_READ_TIMEOUT_MS = 120_000;
+    /** 深度思考预算（针对以 thinking_budget 整数形式声明的服务商，如百度千帆） */
+    private static final int DEFAULT_THINKING_BUDGET = 4096;
     private static final int DEFAULT_MAX_TOKENS = 16384;
     private static final float DEFAULT_TEMPERATURE = 0.7f;
 
@@ -1393,22 +1395,34 @@ public class OnlineInferenceService {
 
                 mainHandler.post(callback::onStart);
 
-                if (isAnthropicAPI(apiUrl)) {
-                    // Anthropic 思考块（content[] 内 thinking）暂不扩展，保持现有正文流式
-                    callAnthropicAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true, callback);
-                } else if (com.oilquiz.app.ai.model.ProviderConfigManager.PROTOCOL_OLLAMA
-                        .equals(com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatProtocol(apiUrl))) {
-                    // Ollama 原生 /api/chat：ndjson 流（非 SSE），thinking 为独立字段
-                    callOllamaChatStream(apiUrl, apiKey, modelName, prompt, history, maxTokens,
-                            enableThinking, callback);
-                } else if (shouldUseResponsesAPI(config)) {
-                    // Agent/Responses 接口：服务商配置表声明 agent 且端点 /responses 兼容
-                    // （OpenAI Responses API 流式，reasoning 走思考区）
-                    callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
-                            config.supportsWebSearch, callback);
-                } else {
-                    callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
-                            enableThinking, config.supportsWebSearch, callback);
+                // 协议分发：判据全部来自 ChatProtocol（配置驱动）。
+                // 新增实现（新协议 / 某家改用官方 SDK）只需在此加一个 case，调用方无需改动。
+                switch (ChatProtocol.of(apiUrl)) {
+                    case ANTHROPIC_MESSAGES:
+                        // Anthropic 思考块（content[] 内 thinking）暂不扩展，保持现有正文流式
+                        callAnthropicAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true, callback);
+                        break;
+                    case OLLAMA_NATIVE:
+                        // Ollama 原生 /api/chat：ndjson 流（非 SSE），thinking 为独立字段
+                        callOllamaChatStream(apiUrl, apiKey, modelName, prompt, history, maxTokens,
+                                enableThinking, callback);
+                        break;
+                    case OPENAI_RESPONSES:
+                        // 仅在服务商声明 agent 且端点 /responses 兼容、且用户勾选 Agent 时启用；
+                        // 否则回落 OpenAI 兼容（保持旧行为）
+                        if (shouldUseResponsesAPI(config)) {
+                            callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
+                                    config.supportsWebSearch, callback);
+                        } else {
+                            callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
+                                    enableThinking, config.supportsWebSearch, callback);
+                        }
+                        break;
+                    case OPENAI_COMPAT:
+                    default:
+                        callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
+                                enableThinking, config.supportsWebSearch, callback);
+                        break;
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "Stream generate failed: " + e.getMessage(), e);
@@ -1418,10 +1432,13 @@ public class OnlineInferenceService {
     }
 
     /**
-     * 判断是否为 Anthropic API
+     * 判断是否为 Anthropic API。
+     *
+     * <p>判据已收敛到 {@link ChatProtocol#of(String)}（配置表 {@code services.chat.endpoint}
+     * 形态优先，域名兜底），本方法仅为兼容既有调用点保留。</p>
      */
     private boolean isAnthropicAPI(String apiUrl) {
-        return apiUrl != null && apiUrl.toLowerCase().contains("anthropic");
+        return ChatProtocol.isAnthropic(apiUrl);
     }
 
     /**
@@ -1965,20 +1982,74 @@ public class OnlineInferenceService {
     /**
      * 向请求体注入深度思考参数（文本与多模态路径共用）。
      * - 仅当 enableThinking 且模型名判定支持思考时注入，未知模型保守不传避免 400；
-     * - OpenAI o 系用 reasoning_effort；DeepSeek/Qwen/GLM/Kimi/豆包用 enable_thinking，
-     *   同时放 chat_template_kwargs 双位置下发（vLLM/llama.cpp 类服务端参数在嵌套位置）。
+     * - **按服务商配置声明的 thinking.param 形态分发**，不再只覆盖两种形态。
      */
     private void applyThinkingParams(JsonObject requestBody, String modelName, boolean enableThinking) {
         if (!enableThinking) return;
         if (!OnlineModelManager.isThinkingModelName(modelName)) return;
-        String thinkingParam = OnlineModelManager.getThinkingParamName(modelName);
-        if ("reasoning_effort".equals(thinkingParam)) {
-            requestBody.addProperty("reasoning_effort", "medium");
-        } else {
-            requestBody.addProperty("enable_thinking", true);
-            JsonObject chatTemplateKwargs = new JsonObject();
-            chatTemplateKwargs.addProperty("enable_thinking", true);
-            requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+        // reasoning_effort 是强度档位，单独用 high（与 tools 路径保持一致）
+        injectThinkingParams(requestBody, modelName, "high");
+    }
+
+    /**
+     * 按配置声明的 {@code thinking.param} 形态注入思考参数。
+     *
+     * <p>providers.json 声明了 <b>5 种</b>形态，此前代码只实现 2 种，导致凡声明
+     * {@code thinking.type} 的服务商（智谱 / 火山方舟 / MiniMax / Moonshot / DeepSeek）
+     * 都被错误地发成扁平的 {@code enable_thinking}，而它们要求嵌套对象
+     * —— 即"深度思考开关对这些服务商实际无效"。</p>
+     *
+     * <table>
+     *   <tr><th>配置值</th><th>实际请求体形态</th><th>服务商</th></tr>
+     *   <tr><td>{@code reasoning_effort}</td><td>{@code reasoning_effort: "high"}</td>
+     *       <td>OpenAI o 系、groq、stepfun、sensenova</td></tr>
+     *   <tr><td>{@code thinking.type}</td><td>{@code thinking: {"type": "enabled"}}</td>
+     *       <td>智谱、火山方舟、MiniMax、Moonshot、DeepSeek</td></tr>
+     *   <tr><td>{@code enable_thinking}</td><td>{@code enable_thinking: true}
+     *       （同时放 {@code chat_template_kwargs}，兼容 vLLM/llama.cpp 的嵌套位置）</td>
+     *       <td>DashScope、混元、讯飞、硅基流动、百川、Together…</td></tr>
+     *   <tr><td>{@code thinking_budget}</td><td>{@code thinking_budget: &lt;int&gt;}</td>
+     *       <td>百度千帆</td></tr>
+     *   <tr><td>{@code thinking_config.thinking_level}</td>
+     *       <td>{@code thinking_config: {"thinking_level": "high"}}</td>
+     *       <td>Gemini（OpenAI 兼容层）</td></tr>
+     * </table>
+     *
+     * @param effort reasoning_effort 与 thinking_level 用的档位（如 "high"/"medium"）
+     */
+    private void injectThinkingParams(JsonObject requestBody, String modelName, String effort) {
+        String param = OnlineModelManager.getThinkingParamName(modelName);
+        if (param == null || param.isEmpty()) param = "enable_thinking";
+        switch (param) {
+            case "reasoning_effort":
+                requestBody.addProperty("reasoning_effort", effort == null ? "medium" : effort);
+                break;
+            case "thinking.type": {
+                // 嵌套对象形态：DeepSeek 官方为 {"thinking":{"type":"enabled"}}
+                JsonObject thinking = new JsonObject();
+                thinking.addProperty("type", "enabled");
+                requestBody.add("thinking", thinking);
+                break;
+            }
+            case "thinking_budget":
+                // 扁平整数预算（百度千帆）
+                requestBody.addProperty("thinking_budget", DEFAULT_THINKING_BUDGET);
+                break;
+            case "thinking_config.thinking_level": {
+                // 两层嵌套形态（Gemini OpenAI 兼容层）
+                JsonObject cfg = new JsonObject();
+                cfg.addProperty("thinking_level", effort == null ? "high" : effort);
+                requestBody.add("thinking_config", cfg);
+                break;
+            }
+            case "enable_thinking":
+            default:
+                // 扁平布尔 + 嵌套双位置（vLLM/llama.cpp 类服务端参数在嵌套位置）
+                requestBody.addProperty("enable_thinking", true);
+                JsonObject chatTemplateKwargs = new JsonObject();
+                chatTemplateKwargs.addProperty("enable_thinking", true);
+                requestBody.add("chat_template_kwargs", chatTemplateKwargs);
+                break;
         }
     }
 
@@ -3176,18 +3247,16 @@ public class OnlineInferenceService {
                     .isThinkingModelName(modelName);
             if (thinkingSupported && enableThinking) {
                 try {
-                    String paramName = com.oilquiz.app.ai.model.OnlineModelManager
-                            .getThinkingParamName(modelName);
-                    if ("reasoning_effort".equals(paramName)) {
-                        requestBody.addProperty("reasoning_effort", "high");
-                        AILogger.i(TAG, "Deep thinking enabled (reasoning_effort=high for o-series)");
-                    } else {
-                        requestBody.addProperty("enable_thinking", true);
-                        JsonObject chatTemplateKwargs = new JsonObject();
-                        chatTemplateKwargs.addProperty("enable_thinking", true);
-                        requestBody.add("chat_template_kwargs", chatTemplateKwargs);
-                        AILogger.i(TAG, "Deep thinking enabled (enable_thinking=true for " + modelName + ")");
-                    }
+                    // 与文本/多模态路径共用同一分发：按 providers.json 声明的 thinking.param
+                    // 形态注入（reasoning_effort / thinking.type / enable_thinking /
+                    // thinking_budget / thinking_config.thinking_level）。
+                    // 此前这里只认 reasoning_effort，其余一律发 enable_thinking ——
+                    // 于是声明 thinking.type 的服务商（智谱/火山/MiniMax/Moonshot/DeepSeek）
+                    // 在 **Agent（带 tools）路径** 上思考开关同样无效。
+                    injectThinkingParams(requestBody, modelName, "high");
+                    AILogger.i(TAG, "Deep thinking enabled (param="
+                            + com.oilquiz.app.ai.model.OnlineModelManager.getThinkingParamName(modelName)
+                            + " for " + modelName + ")");
                 } catch (Exception ignored) {}
             } else {
                 AILogger.d(TAG, "Thinking param not sent for model " + modelName
