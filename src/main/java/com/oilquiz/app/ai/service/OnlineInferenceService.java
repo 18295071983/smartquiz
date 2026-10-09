@@ -1664,13 +1664,13 @@ public class OnlineInferenceService {
                         // 思考字段独立：走思考区，不混入正文
                         if (msg.has("thinking") && !msg.get("thinking").isJsonNull()) {
                             String think = msg.get("thinking").getAsString();
-                            if (!think.isEmpty()) callback.onThinkingToken(think);
+                            if (!think.isEmpty() && callback != null) callback.onThinkingToken(think);
                         }
                         if (msg.has("content") && !msg.get("content").isJsonNull()) {
                             String token = msg.get("content").getAsString();
                             if (!token.isEmpty()) {
                                 fullText.append(token);
-                                callback.onToken(token);
+                                if (callback != null) callback.onToken(token);
                             }
                         }
                     }
@@ -1680,7 +1680,7 @@ public class OnlineInferenceService {
                     }
                 }
             }
-            callback.onComplete(fullText.toString());
+            if (callback != null) callback.onComplete(fullText.toString());
         } finally {
             connection.disconnect();
         }
