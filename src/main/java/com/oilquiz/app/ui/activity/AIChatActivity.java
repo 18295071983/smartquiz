@@ -1766,6 +1766,11 @@ public class AIChatActivity extends BaseActivity {
                 updateModeButtonText();
                 showToast(next ? getString(R.string.h_72bc1b1d) : getString(R.string.h_814eed44));
             });
+            // 长按选择思考强度（关/低/高/最高）。单击仍是开↔关，不改变原有操作习惯。
+            chipDeepThink.setOnLongClickListener(v -> {
+                showThinkingEffortDialog(chipDeepThink);
+                return true;
+            });
         }
 
         // 空状态快捷操作
@@ -8309,15 +8314,21 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /** 深度思考开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
-    private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {        if (chip == null) return;
-        boolean on = ChatModeManager.getInstance(this).isDeepThinkingEnabled();
+    private void updateDeepThinkChip(com.google.android.material.chip.Chip chip) {
+        if (chip == null) return;
+        ChatModeManager modeManager = ChatModeManager.getInstance(this);
+        ChatModeManager.ThinkingEffort effort = modeManager.getThinkingEffort();
+        boolean on = effort.isEnabled();
         if (on) {
             chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
                     ThemeColors.attr(this, R.attr.colorPrimary)));
             chip.setTextColor(getColor(R.color.white));
             chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
                     ThemeColors.attr(this, R.attr.colorPrimary)));
-            chip.setText(getString(R.string.h_931c3c94));
+            // 开启时把强度档位带在标签上（长按可切换），让"当前强度"一眼可见
+            String base = getString(R.string.h_931c3c94);
+            chip.setText(effort == ChatModeManager.ThinkingEffort.HIGH
+                    ? base : base + " · " + effort.displayName);
         } else {
             chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
                     getColor(R.color.chip_gray_bg)));
@@ -8326,6 +8337,51 @@ public class AIChatActivity extends BaseActivity {
                     getColor(R.color.chip_gray_stroke)));
             chip.setText(getString(R.string.h_89093f20));
         }
+    }
+
+    /**
+     * 思考强度选择器（深度思考芯片**长按**触发）。
+     *
+     * <p>档位取值与 DeepSeek 官方 {@code reasoning_effort} 一致（关/低/高/最高 →
+     * {@code none/low/high/max}），选择后持久化并即时生效；当前档位被标记。</p>
+     */
+    private void showThinkingEffortDialog(com.google.android.material.chip.Chip chip) {
+        if (isGenerating) {
+            showToast(getString(R.string.h_15261c3c));
+            return;
+        }
+        ChatModeManager manager = ChatModeManager.getInstance(this);
+        final ChatModeManager.ThinkingEffort[] values = ChatModeManager.ThinkingEffort.values();
+        final String[] labels = new String[values.length];
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            labels[i] = values[i] == ChatModeManager.ThinkingEffort.NONE
+                    ? values[i].displayName
+                    : values[i].displayName + "（" + values[i].wireValue + "）";
+            if (values[i] == manager.getThinkingEffort()) checked = i;
+        }
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("思考强度")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    ChatModeManager.ThinkingEffort target = values[which];
+                    // 仅在"开/关"边界变化时注入模式切换指令（与单击开关、toggleMode 一致）：
+                    // 关→开需告知模型进入思考模式；开→关需取消该指令；
+                    // 仅强度档位变化（低→高）不改变提示词，无需注入。
+                    ChatModeManager.ChatMode oldMode = manager.getCurrentMode();
+                    if (manager.setThinkingEffort(target)) {
+                        ChatModeManager.ChatMode newMode = manager.getCurrentMode();
+                        if (oldMode != newMode) {
+                            injectModeSwitchInstruction(oldMode, newMode);
+                        }
+                        AppLogger.ai(TAG, "Thinking effort -> " + target.wireValue);
+                    }
+                    updateDeepThinkChip(chip);
+                    updateModeButtonText();
+                    dialog.dismiss();
+                    showToast("思考强度：" + target.displayName);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     /**

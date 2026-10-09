@@ -1987,8 +1987,23 @@ public class OnlineInferenceService {
     private void applyThinkingParams(JsonObject requestBody, String modelName, boolean enableThinking) {
         if (!enableThinking) return;
         if (!OnlineModelManager.isThinkingModelName(modelName)) return;
-        // reasoning_effort 是强度档位，单独用 high（与 tools 路径保持一致）
-        injectThinkingParams(requestBody, modelName, "high");
+        injectThinkingParams(requestBody, modelName);
+    }
+
+    /**
+     * 取当前思考强度档位（用户偏好的唯一事实源）。
+     *
+     * <p>强度是**用户级偏好**（对话页"深度思考"芯片的档位），与请求内容无关，
+     * 因此从 {@link com.oilquiz.app.ai.chat.ChatModeManager} 单例读取，不必逐层改方法签名。
+     * 读取失败时回落 {@code "high"}（DeepSeek 官方默认强度）。</p>
+     */
+    private String currentThinkingEffort() {
+        try {
+            return com.oilquiz.app.ai.chat.ChatModeManager.getInstance(context)
+                    .getThinkingEffort().wireValue;
+        } catch (Throwable t) {
+            return "high";
+        }
     }
 
     /**
@@ -2015,20 +2030,28 @@ public class OnlineInferenceService {
      *       <td>Gemini（OpenAI 兼容层）</td></tr>
      * </table>
      *
-     * @param effort reasoning_effort 与 thinking_level 用的档位（如 "high"/"medium"）
+     * <p>强度档位取自用户偏好的唯一事实源（{@link com.oilquiz.app.ai.chat.ChatModeManager}），
+     * 取值与 DeepSeek 官方 {@code reasoning_effort} 一致（{@code low/high/max}）。</p>
      */
-    private void injectThinkingParams(JsonObject requestBody, String modelName, String effort) {
+    private void injectThinkingParams(JsonObject requestBody, String modelName) {
+        String effort = currentThinkingEffort();
         String param = OnlineModelManager.getThinkingParamName(modelName);
         if (param == null || param.isEmpty()) param = "enable_thinking";
         switch (param) {
             case "reasoning_effort":
-                requestBody.addProperty("reasoning_effort", effort == null ? "medium" : effort);
+                // OpenAI o 系 / groq / stepfun / sensenova：该参数本身就是强度
+                requestBody.addProperty("reasoning_effort", effort);
                 break;
             case "thinking.type": {
                 // 嵌套对象形态：DeepSeek 官方为 {"thinking":{"type":"enabled"}}
                 JsonObject thinking = new JsonObject();
                 thinking.addProperty("type", "enabled");
                 requestBody.add("thinking", thinking);
+                // DeepSeek 的思考**强度**由独立的 reasoning_effort 控制，thinking.type 只管开关。
+                // 官方文档：reasoning_effort 取值 none/low/high/max，默认 high；
+                // 且 max 会把思考模式输出上限从 64K 提到 128K。
+                // 显式下发，避免"用户选了档位但服务端仍按默认 high"。
+                requestBody.addProperty("reasoning_effort", effort);
                 break;
             }
             case "thinking_budget":
@@ -2038,7 +2061,7 @@ public class OnlineInferenceService {
             case "thinking_config.thinking_level": {
                 // 两层嵌套形态（Gemini OpenAI 兼容层）
                 JsonObject cfg = new JsonObject();
-                cfg.addProperty("thinking_level", effort == null ? "high" : effort);
+                cfg.addProperty("thinking_level", effort);
                 requestBody.add("thinking_config", cfg);
                 break;
             }
@@ -3253,7 +3276,7 @@ public class OnlineInferenceService {
                     // 此前这里只认 reasoning_effort，其余一律发 enable_thinking ——
                     // 于是声明 thinking.type 的服务商（智谱/火山/MiniMax/Moonshot/DeepSeek）
                     // 在 **Agent（带 tools）路径** 上思考开关同样无效。
-                    injectThinkingParams(requestBody, modelName, "high");
+                    injectThinkingParams(requestBody, modelName);
                     AILogger.i(TAG, "Deep thinking enabled (param="
                             + com.oilquiz.app.ai.model.OnlineModelManager.getThinkingParamName(modelName)
                             + " for " + modelName + ")");

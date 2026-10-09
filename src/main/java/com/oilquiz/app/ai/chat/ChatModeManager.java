@@ -20,6 +20,51 @@ public class ChatModeManager {
 
     private static final String TAG = "ChatModeManager";
     private static final String PREF_DEEP_THINKING = "chat_deep_thinking_enabled";
+    /** 思考强度档位（与 DeepSeek 官方 reasoning_effort 取值一致：none/low/high/max） */
+    private static final String PREF_THINKING_EFFORT = "chat_thinking_effort";
+
+    /**
+     * 思考强度档位 —— 取代原来"只有开/关"的布尔。
+     *
+     * <p>取值与 DeepSeek 官方 {@code reasoning_effort} 的 <b>Possible values</b> 完全一致
+     * （{@code none/low/high/max}），因此可直接下发给该参数，无需再做映射。
+     * 其余服务商按各自思考参数形态消费该档位（如 Gemini 的 {@code thinking_level}、
+     * OpenAI o 系的 {@code reasoning_effort}）。</p>
+     *
+     * <p>官方原文（api-docs.deepseek.com/zh-cn/api/create-chat-completion）：
+     * "控制思考模式开关与思考强度。{@code none} 关闭思考模式；{@code low}/{@code high}/{@code max}
+     * 开启思考模式。默认强度为 {@code high}。"</p>
+     */
+    public enum ThinkingEffort {
+        NONE("关闭", "none"),
+        LOW("低", "low"),
+        HIGH("高", "high"),
+        MAX("最高", "max");
+
+        /** 中文显示名（UI 用） */
+        public final String displayName;
+        /** 下发给 API 的取值（与官方取值一致） */
+        public final String wireValue;
+
+        ThinkingEffort(String displayName, String wireValue) {
+            this.displayName = displayName;
+            this.wireValue = wireValue;
+        }
+
+        public boolean isEnabled() {
+            return this != NONE;
+        }
+
+        /** 解析持久化值；非法/为空回落到 HIGH（官方默认强度） */
+        public static ThinkingEffort fromWire(String wire) {
+            if (wire != null) {
+                for (ThinkingEffort e : values()) {
+                    if (e.wireValue.equalsIgnoreCase(wire.trim())) return e;
+                }
+            }
+            return HIGH;
+        }
+    }
 
     /** 兼容旧 API 的枚举（NORMAL=开关关，DEEP_THINKING=开关开） */
     public enum ChatMode {
@@ -49,7 +94,12 @@ public class ChatModeManager {
 
     private static ChatModeManager instance;
     private final Context context;
-    private volatile boolean deepThinkingEnabled = false;
+    /**
+     * 当前思考强度档位 —— **唯一事实源**。
+     * "深度思考是否开启"由它派生（{@code effort.isEnabled()}），不再单独维护布尔字段，
+     * 避免两处状态不一致。
+     */
+    private volatile ThinkingEffort thinkingEffort = ThinkingEffort.HIGH;
 
     private ChatModeManager(Context context) {
         if (context == null) {
@@ -61,12 +111,23 @@ public class ChatModeManager {
 
     private void loadPreferences() {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        deepThinkingEnabled = prefs.getBoolean(PREF_DEEP_THINKING, false);
+        boolean legacyEnabled = prefs.getBoolean(PREF_DEEP_THINKING, false);
+        // 强度优先；未写入过强度时按旧布尔偏好回落（关→NONE，开→官方默认 high）
+        String storedEffort = prefs.getString(PREF_THINKING_EFFORT, null);
+        if (storedEffort == null || storedEffort.isEmpty()) {
+            thinkingEffort = legacyEnabled ? ThinkingEffort.HIGH : ThinkingEffort.NONE;
+        } else {
+            thinkingEffort = ThinkingEffort.fromWire(storedEffort);
+            if (!legacyEnabled) thinkingEffort = ThinkingEffort.NONE;
+        }
     }
 
-    private void saveDeepThinking(boolean enabled) {
+    private void saveThinkingEffort(ThinkingEffort effort) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        prefs.edit().putBoolean(PREF_DEEP_THINKING, enabled).apply();
+        prefs.edit()
+                .putString(PREF_THINKING_EFFORT, effort.wireValue)
+                .putBoolean(PREF_DEEP_THINKING, effort.isEnabled())
+                .apply();
     }
 
     public static ChatModeManager getInstance(Context context) {
@@ -80,18 +141,53 @@ public class ChatModeManager {
         return instance;
     }
 
-    // ==================== 深度思考开关（新主 API） ====================
+    // ==================== 思考强度（主 API，取代"只有开关"） ====================
 
-    /** 深度思考是否开启 */
-    public boolean isDeepThinkingEnabled() {
-        return deepThinkingEnabled;
+    /** 当前思考强度档位（{@link ThinkingEffort#NONE} 表示关闭） */
+    public ThinkingEffort getThinkingEffort() {
+        return thinkingEffort;
     }
 
-    /** 开关深度思考（持久化）。返回切换前后的状态变化。 */
+    /**
+     * 设置思考强度档位（持久化）。返回与设置前相比是否发生变化。
+     *
+     * <p>这是"深度思考"的**唯一事实源**：{@code NONE} 即关闭，其余即开启并指定强度。
+     * 旧的布尔开关 API 由它派生，保证两套调用方看到同一状态。</p>
+     */
+    public boolean setThinkingEffort(ThinkingEffort effort) {
+        if (effort == null) effort = ThinkingEffort.HIGH;
+        if (effort == thinkingEffort) return false;
+        ThinkingEffort previous = thinkingEffort;
+        thinkingEffort = effort;
+        saveThinkingEffort(effort);
+        AppLogger.aiD(TAG, "Thinking effort " + previous.wireValue + " -> " + effort.wireValue);
+        return true;
+    }
+
+    // ==================== 深度思考开关（派生自强度档位） ====================
+
+    /** 深度思考是否开启（等价于强度档位 != NONE） */
+    public boolean isDeepThinkingEnabled() {
+        return thinkingEffort.isEnabled();
+    }
+
+    /**
+     * 开关深度思考（持久化）。返回状态是否发生变化。
+     *
+     * <p>关闭 → 档位置为 {@link ThinkingEffort#NONE}；开启 → 恢复到上次的强度档位
+     * （旧偏好只记录布尔时，恢复到官方默认 {@code high}）。</p>
+     */
     public boolean setDeepThinkingEnabled(boolean enabled) {
-        if (enabled == deepThinkingEnabled) return false;
-        deepThinkingEnabled = enabled;
-        saveDeepThinking(enabled);
+        boolean current = isDeepThinkingEnabled();
+        if (enabled == current) return false;
+        if (!enabled) {
+            setThinkingEffort(ThinkingEffort.NONE);
+        } else {
+            // 从 NONE 恢复：沿用当前档位（若已是 NONE 则取 HIGH），历史只有布尔偏好时即为 HIGH
+            ThinkingEffort target = thinkingEffort == ThinkingEffort.NONE
+                    ? ThinkingEffort.HIGH : thinkingEffort;
+            setThinkingEffort(target);
+        }
         AppLogger.aiD(TAG, "Deep thinking " + (enabled ? "ENABLED" : "DISABLED"));
         return true;
     }
@@ -100,7 +196,7 @@ public class ChatModeManager {
 
     /** 兼容：当前模式（NORMAL=关，DEEP_THINKING=开） */
     public ChatMode getCurrentMode() {
-        return deepThinkingEnabled ? ChatMode.DEEP_THINKING : ChatMode.NORMAL;
+        return isDeepThinkingEnabled() ? ChatMode.DEEP_THINKING : ChatMode.NORMAL;
     }
 
     /** 兼容：手动切换模式（映射到开关状态） */
