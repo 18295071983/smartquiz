@@ -1919,7 +1919,7 @@ public class OnlineInferenceService {
             requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             // 深度思考：与文本路径共用注入逻辑（多模态思考模型如 Qwen3-VL 生效）
-            applyThinkingParams(requestBody, modelName, enableThinking);
+            applyThinkingParams(requestBody, modelName, enableThinking, apiUrl);
             // 网络搜索：自有工具已接管时跳过官方注入
             if (!ownSearchUsed) {
                 applyWebSearch(requestBody, apiUrl, webSearch);
@@ -1990,10 +1990,11 @@ public class OnlineInferenceService {
      * - 仅当 enableThinking 且模型名判定支持思考时注入，未知模型保守不传避免 400；
      * - **按服务商配置声明的 thinking.param 形态分发**，不再只覆盖两种形态。
      */
-    private void applyThinkingParams(JsonObject requestBody, String modelName, boolean enableThinking) {
+    private void applyThinkingParams(JsonObject requestBody, String modelName, boolean enableThinking,
+                                     String apiUrl) {
         if (!enableThinking) return;
         if (!OnlineModelManager.isThinkingModelName(modelName)) return;
-        injectThinkingParams(requestBody, modelName);
+        injectThinkingParams(requestBody, modelName, apiUrl);
     }
 
     /**
@@ -2041,6 +2042,38 @@ public class OnlineInferenceService {
     }
 
     /**
+     * 该模型（服务商 API 声明的档位里）是否支持当前强度档位。
+     *
+     * <p>数据源：{@code GET /models} 的 {@code effort.supported_levels}
+     * （官方 schema 字段，配置时缓存进 {@code OnlineModelConfig.cachedModelsJson}）。</p>
+     *
+     * <p><b>为什么必须查 API 而不是硬编码</b>：档位是"每家甚至每个模型"各不相同的
+     * 能力声明 —— DeepSeek 为 {@code none/low/high/max}，智谱 GLM-5.3 <b>仅</b>
+     * {@code max/high/low}（其余输入直接报错），GLM-5.2 另有
+     * {@code xhigh/medium/minimal/none}；而许多服务商只有开关、没有档位。
+     * 硬编码一张全局档位表就会出现"用户随便点 → 给某模型传入不支持的取值 → 报错"。</p>
+     *
+     * <p>返回 false 时调用方**不下发强度参数**（保持"只有开关"的语义）。</p>
+     */
+    private boolean isEffortLevelSupported(String apiUrl, String modelName, String effort) {
+        if (effort == null || effort.isEmpty()) return false;
+        try {
+            // 档位来自配置保存时缓存的 GET /models 响应（effort.supported_levels）
+            String cachedJson = com.oilquiz.app.ai.model.OnlineModelManager.getInstance(context)
+                    .getCachedModelsFor(apiUrl, modelName);
+            java.util.List<String> levels =
+                    com.oilquiz.app.ai.model.OnlineModelManager.getThinkingEffortLevels(cachedJson, modelName);
+            if (levels == null || levels.isEmpty()) return false;
+            for (String lv : levels) {
+                if (effort.equalsIgnoreCase(lv)) return true;
+            }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
      * 按配置声明的 {@code thinking.param} 形态注入思考参数。
      *
      * <p>providers.json 声明了 <b>5 种</b>形态，此前代码只实现 2 种，导致凡声明
@@ -2064,28 +2097,35 @@ public class OnlineInferenceService {
      *       <td>Gemini（OpenAI 兼容层）</td></tr>
      * </table>
      *
-     * <p>强度档位取自用户偏好的唯一事实源（{@link com.oilquiz.app.ai.chat.ChatModeManager}），
-     * 取值与 DeepSeek 官方 {@code reasoning_effort} 一致（{@code low/high/max}）。</p>
+     * <p>强度档位取自用户偏好的唯一事实源（{@link com.oilquiz.app.ai.chat.ChatModeManager}）。</p>
      */
-    private void injectThinkingParams(JsonObject requestBody, String modelName) {
-        String effort = currentThinkingEffort();
+    private void injectThinkingParams(JsonObject requestBody, String modelName, String apiUrl) {
         String param = OnlineModelManager.getThinkingParamName(modelName);
         if (param == null || param.isEmpty()) param = "enable_thinking";
+        // 档位在"需要时才解析"：none 表示关闭思考，与下面各"开启"分支语义矛盾，
+        // 因此单独过滤掉，绝不把 none 下发给任何服务商
+        // （智谱 GLM-5.3 收到未支持的取值会直接报错）。
+        final String effort;
+        {
+            String e = currentThinkingEffort();
+            effort = "none".equalsIgnoreCase(e) ? "high" : e;
+        }
         switch (param) {
             case "reasoning_effort":
                 // OpenAI o 系 / groq / stepfun / sensenova：该参数本身就是强度
                 requestBody.addProperty("reasoning_effort", effort);
                 break;
             case "thinking.type": {
-                // 嵌套对象形态：DeepSeek 官方为 {"thinking":{"type":"enabled"}}
+                // 嵌套对象形态：DeepSeek / 智谱 官方均为 {"thinking":{"type":"enabled"}}
                 JsonObject thinking = new JsonObject();
                 thinking.addProperty("type", "enabled");
                 requestBody.add("thinking", thinking);
-                // DeepSeek 的思考**强度**由独立的 reasoning_effort 控制，thinking.type 只管开关。
-                // 官方文档：reasoning_effort 取值 none/low/high/max，默认 high；
-                // 且 max 会把思考模式输出上限从 64K 提到 128K。
-                // 显式下发，避免"用户选了档位但服务端仍按默认 high"。
-                requestBody.addProperty("reasoning_effort", effort);
+                // 强度只在**服务商 API 声明了该模型支持的档位**时才下发。
+                // 档位来自 GET /models 的 effort.supported_levels（配置时已缓存）。
+                // 未声明 → 该模型只有开关，不下发强度参数，避免"给别的模型传入错误值"。
+                if (isEffortLevelSupported(apiUrl, modelName, effort)) {
+                    requestBody.addProperty("reasoning_effort", effort);
+                }
                 break;
             }
             case "thinking_budget":
@@ -2330,7 +2370,7 @@ public class OnlineInferenceService {
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
 
             // 深度思考：模型支持时按参数名规范传 thinking 开关（与多模态路径共用同一注入逻辑）
-            applyThinkingParams(requestBody, modelName, enableThinking);
+            applyThinkingParams(requestBody, modelName, enableThinking, apiUrl);
             // 网络搜索：自有工具已接管时跳过官方注入，否则按服务商配置表注入 web_search/google_search
             if (!ownSearchUsed) {
                 applyWebSearch(requestBody, apiUrl, webSearch);
@@ -3316,7 +3356,7 @@ public class OnlineInferenceService {
                     // 此前这里只认 reasoning_effort，其余一律发 enable_thinking ——
                     // 于是声明 thinking.type 的服务商（智谱/火山/MiniMax/Moonshot/DeepSeek）
                     // 在 **Agent（带 tools）路径** 上思考开关同样无效。
-                    injectThinkingParams(requestBody, modelName);
+                    injectThinkingParams(requestBody, modelName, apiUrl);
                     AILogger.i(TAG, "Deep thinking enabled (param="
                             + com.oilquiz.app.ai.model.OnlineModelManager.getThinkingParamName(modelName)
                             + " for " + modelName + ")");

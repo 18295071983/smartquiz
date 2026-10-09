@@ -675,6 +675,19 @@ public class OnlineModelManager {
         return null;
     }
 
+    /**
+     * 取某配置**保存时缓存的模型列表 JSON**（含服务商 API 返回的模型级能力，
+     * 如 {@code thinkingEffortLevels}）。未命中返回 null。
+     */
+    public String getCachedModelsFor(String apiUrl, String modelName) {
+        try {
+            OnlineModelConfig c = findConfig(apiUrl, modelName);
+            return c != null ? c.cachedModelsJson : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     // ========== 功能专用模型通用框架 ==========
     
     /**
@@ -1135,6 +1148,52 @@ public class OnlineModelManager {
         return config != null ? config.cachedModelsJson : null;
     }
 
+    /**
+     * 取某模型**由服务商声明**的思考强度档位
+     * （{@code GET /models} 的 {@code effort.supported_levels}）。
+     *
+     * <p>返回空列表表示服务商**未声明档位能力** —— 该模型只有思考开关。
+     * 调用方据此决定：UI 不展示档位选择器、请求不下发强度参数，
+     * 从而不会出现"用户随便点一个档位 → 给不支持该取值的模型传参 → 报错"。</p>
+     *
+     * <p>纯静态（不依赖实例状态），便于服务层在请求构造时直接调用。</p>
+     *
+     * @param cachedModelsJson 配置保存时缓存的模型列表 JSON（{@code OnlineModelConfig.cachedModelsJson}）
+     * @param modelName        模型名
+     */
+    public static java.util.List<String> getThinkingEffortLevels(String cachedModelsJson, String modelName) {
+        return parseThinkingEffortLevels(cachedModelsJson, modelName);
+    }
+
+    /**
+     * 从缓存的模型列表 JSON 中解析指定模型的档位列表。
+     * 该 JSON 是配置时由 {@code OnlineModelConfigDialog} 从 {@code ApiModel} 写入的
+     * （见 {@code thinkingEffortLevels} 字段），因此数据源始终是服务商 API。
+     */
+    public static java.util.List<String> parseThinkingEffortLevels(String cachedModelsJson, String modelName) {
+        java.util.List<String> empty = java.util.Collections.emptyList();
+        if (cachedModelsJson == null || cachedModelsJson.isEmpty() || modelName == null) return empty;
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(cachedModelsJson);
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                if (!modelName.equals(o.optString("id"))) continue;
+                org.json.JSONArray lv = o.optJSONArray("thinkingEffortLevels");
+                if (lv == null || lv.length() == 0) return empty;
+                java.util.List<String> out = new java.util.ArrayList<>(lv.length());
+                for (int j = 0; j < lv.length(); j++) {
+                    String s = lv.optString(j, null);
+                    if (s != null && !s.isEmpty()) out.add(s);
+                }
+                return out;
+            }
+        } catch (Throwable ignored) {
+        }
+        return empty;
+    }
+
+    /** 按 API 地址 + 模型名定位配置（模型名为空时取该地址下第一个启用的配置） */
     /**
      * 检查缓存是否过期（超过6小时）
      * @param modelId 模型ID

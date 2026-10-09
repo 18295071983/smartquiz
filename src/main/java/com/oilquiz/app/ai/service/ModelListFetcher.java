@@ -348,6 +348,11 @@ public class ModelListFetcher {
                         model.contextLength = realLen;
                         model.contextLengthFromApi = true;
                     }
+                    // 思考强度档位：官方 schema 的 effort.supported_levels / effort.default_level。
+                    // 这是"每个模型各自不同"的能力声明，必须取 API，不能硬编码全局档位表
+                    // —— 否则会给不支持的模型传入越界取值而报错（详见 ApiModel 字段注释）。
+                    // 服务商未声明时保持为空：UI 不展示档位、请求也不下发强度参数。
+                    parseThinkingEffort(modelObj, model);
                     models.add(model);
                 }
             }
@@ -355,6 +360,49 @@ public class ModelListFetcher {
 
         AILogger.i(TAG, "Fetched " + models.size() + " OpenAI models");
         return models;
+    }
+
+    /**
+     * 解析模型级"思考强度档位"能力声明（官方 {@code GET /models} schema）。
+     *
+     * <pre>
+     * "effort": { "supported_levels": ["low","high","max"], "default_level": "high" },
+     * "max_output_tokens": 393216
+     * </pre>
+     *
+     * <p>这两个字段都是**可选**的：服务商未声明时留空，调用方据此判定
+     * "该模型只有思考开关、没有强度档位"，从而不在 UI 展示档位选择器、
+     * 也不在请求里下发强度参数 —— 避免把不支持的取值传给模型。</p>
+     */
+    private void parseThinkingEffort(com.google.gson.JsonObject modelObj, ApiModel model) {
+        if (modelObj == null || model == null) return;
+        try {
+            if (modelObj.has("effort") && modelObj.get("effort").isJsonObject()) {
+                com.google.gson.JsonObject effort = modelObj.getAsJsonObject("effort");
+                if (effort.has("supported_levels") && effort.get("supported_levels").isJsonArray()) {
+                    com.google.gson.JsonArray arr = effort.getAsJsonArray("supported_levels");
+                    java.util.List<String> levels = new java.util.ArrayList<>();
+                    for (int i = 0; i < arr.size(); i++) {
+                        if (arr.get(i).isJsonPrimitive()) {
+                            String lv = arr.get(i).getAsString();
+                            if (lv != null && !lv.isEmpty()) levels.add(lv);
+                        }
+                    }
+                    if (!levels.isEmpty()) {
+                        model.thinkingEffortLevels = levels;
+                        if (effort.has("default_level") && effort.get("default_level").isJsonPrimitive()) {
+                            model.thinkingEffortDefault = effort.get("default_level").getAsString();
+                        }
+                    }
+                }
+            }
+            if (modelObj.has("max_output_tokens") && modelObj.get("max_output_tokens").isJsonPrimitive()) {
+                model.maxOutputTokens = modelObj.get("max_output_tokens").getAsInt();
+            }
+        } catch (Exception e) {
+            // 能力字段解析失败不影响模型列表本身（保持"未声明"语义）
+            AILogger.d(TAG, "parseThinkingEffort skipped for " + model.id + ": " + e.getMessage());
+        }
     }
 
     /**

@@ -655,6 +655,21 @@ public class OnlineModelConfigDialog {
                         obj.put("contextLength", model.contextLength); // 保留配置时检测到的真实窗口
                         obj.put("contextLengthFromApi", model.contextLengthFromApi);
                     }
+                    // 思考强度档位：服务商 GET /models 的 effort.supported_levels。
+                    // 必须持久化 —— 它是"每个模型各自不同"的能力声明：UI 据此决定是否展示
+                    // 档位选择器，请求据此决定是否下发 reasoning_effort。
+                    // 未声明的模型不写该字段（读取侧视为"只有开关、没有档位"）。
+                    if (model.hasThinkingEffortLevels()) {
+                        org.json.JSONArray lv = new org.json.JSONArray();
+                        for (String level : model.thinkingEffortLevels) lv.put(level);
+                        obj.put("thinkingEffortLevels", lv);
+                        if (model.thinkingEffortDefault != null) {
+                            obj.put("thinkingEffortDefault", model.thinkingEffortDefault);
+                        }
+                    }
+                    if (model.maxOutputTokens > 0) {
+                        obj.put("maxOutputTokens", model.maxOutputTokens);
+                    }
                     arr.put(obj);
                 }
                 cachedModelsJson = arr.toString();

@@ -52,6 +52,34 @@ public class ApiModel implements Serializable {
      * 模型能力列表（TTS, ASR, Realtime-Text-to-Speech 等）
      */
     public java.util.List<String> capabilities;
+
+    /**
+     * 思考模式支持的**强度档位** —— 来自服务商 {@code GET /models} 的
+     * {@code effort.supported_levels}（DeepSeek 官方 schema 字段）。
+     *
+     * <p>官方说明：该数组是"模型在思考模式下支持的强度档位，按推荐显示顺序，
+     * 即 {@code reasoning_effort} 参数接受的取值"，且**不含** {@code none}
+     * （{@code none} 表示关闭思考模式）。</p>
+     *
+     * <p><b>为什么必须取 API、不能硬编码</b>：档位是"每家甚至每个模型"各不相同的能力声明
+     * —— GLM-5.3 只接受 {@code max/high/low}，GLM-5.2 另有 {@code xhigh/medium/minimal/none}，
+     * 而不少服务商只有开关没有档位。硬编码一张全局档位表，就会出现
+     * "用户随便点一个档位 → 给某模型传入它不支持的取值 → 直接报错"。
+     * 本字段为空即表示**服务商未声明档位能力**：此时 UI 不展示档位选择、
+     * 请求也不下发强度参数（只保留开关）。</p>
+     */
+    public java.util.List<String> thinkingEffortLevels;
+
+    /** 服务端默认强度档位（{@code effort.default_level}，未声明为 null） */
+    public String thinkingEffortDefault;
+
+    /** 服务端允许的最大输出 token 数（{@code max_output_tokens}，0 表示未声明） */
+    public int maxOutputTokens;
+
+    /** 该模型是否声明了思考强度档位（UI 与请求注入据此决定是否处理"强度"） */
+    public boolean hasThinkingEffortLevels() {
+        return thinkingEffortLevels != null && !thinkingEffortLevels.isEmpty();
+    }
     
     public ApiModel() {}
     

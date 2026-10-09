@@ -8351,7 +8351,32 @@ public class AIChatActivity extends BaseActivity {
             return;
         }
         ChatModeManager manager = ChatModeManager.getInstance(this);
-        final ChatModeManager.ThinkingEffort[] values = ChatModeManager.ThinkingEffort.values();
+        // 档位列表来自服务商 API（GET /models 的 effort.supported_levels，配置时已缓存）：
+        // 未声明档位的模型**不展示档位选择**，只保留开/关 —— 避免"用户随便点一个档位，
+        // 结果给该模型传了它不支持的取值而报错"。
+        java.util.List<String> declared = java.util.Collections.emptyList();
+        try {
+            com.oilquiz.app.ai.model.OnlineModelManager mgr =
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this);
+            String url = currentModelApiUrl();
+            String name = currentModelName();
+            declared = com.oilquiz.app.ai.model.OnlineModelManager.getThinkingEffortLevels(
+                    mgr.getCachedModelsFor(url, name), name);
+        } catch (Throwable ignored) {
+        }
+        if (declared == null || declared.isEmpty()) {
+            showToast("该模型未声明思考强度档位，仅支持开/关");
+            return;
+        }
+        // 只展示服务商声明支持的档位（顺序沿用 API 返回的推荐顺序），外加"关闭"
+        java.util.List<ChatModeManager.ThinkingEffort> options = new java.util.ArrayList<>();
+        options.add(ChatModeManager.ThinkingEffort.NONE);
+        for (String lv : declared) {
+            ChatModeManager.ThinkingEffort e = ChatModeManager.ThinkingEffort.fromWire(lv);
+            if (e != ChatModeManager.ThinkingEffort.NONE && !options.contains(e)) options.add(e);
+        }
+        final ChatModeManager.ThinkingEffort[] values =
+                options.toArray(new ChatModeManager.ThinkingEffort[0]);
         final String[] labels = new String[values.length];
         int checked = 0;
         for (int i = 0; i < values.length; i++) {
@@ -8382,6 +8407,30 @@ public class AIChatActivity extends BaseActivity {
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+    }
+
+    /** 当前配置的 API 地址（服务层判定档位用） */
+    private String currentModelApiUrl() {
+        try {
+            if (aiConfig != null) {
+                com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig c =
+                        com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this).getActiveModel();
+                if (c != null) return c.apiUrl;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /** 当前配置的模型名 */
+    private String currentModelName() {
+        try {
+            com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig c =
+                    com.oilquiz.app.ai.model.OnlineModelManager.getInstance(this).getActiveModel();
+            if (c != null) return c.selectedModel != null ? c.selectedModel : c.modelName;
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     /**
