@@ -472,10 +472,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         messageText.setTextSize(14f);
         messageText.setLineSpacing(0f, 1.3f);
         messageText.setTextIsSelectable(true);
-        if (android.os.Build.VERSION.SDK_INT >= 23) {
-            messageText.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY);
-            messageText.setHyphenationFrequency(android.graphics.text.LineBreaker.HYPHENATION_FREQUENCY_NORMAL);
-        }
+        applyMarkdownTextPerf(messageText);
         messageText.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         contentHost.addView(messageText);
@@ -2308,6 +2305,37 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /** 按 messageText 模板创建段落 TextView（样式一致） */
+    /**
+     * Markdown 正文 TextView 的两项排版/跨度优化。
+     *
+     * <p>来源：Markwon 官方 issue #150「Table rendering and ANRs」。维护者定位到
+     * <b>ANR 发生在 {@code textView.setText} 时</b>（不在解析阶段），并给出三件套，
+     * 其中这两项对"span 多、排版贵"的**表格**收益最大（提问者反馈改完"bloody fast"）：</p>
+     * <ol>
+     *   <li>{@code setSpannableFactory(NoCopySpannableFactory)} —— 贴文本时不再复制 span。</li>
+     *   <li>{@code breakStrategy=simple} + {@code hyphenationFrequency=none} —— 降低每次换行的
+     *       排版成本。此前这里显式设的是 <b>HIGH_QUALITY + NORMAL</b>，是所有策略里最贵的。</li>
+     * </ol>
+     *
+     * <p>代价（用户已确认接受）：英文断行质量略降、连字符断词关闭。中文为主的内容基本无感。</p>
+     *
+     * <p>注意：{@link #createSegmentTextView} 会从这个模板拷贝 breakStrategy/hyphenation，
+     * 所以在这里设一次即可传播到所有段落 TextView；但 spannableFactory **不会**被拷贝，
+     * 那里需要单独调本方法。</p>
+     */
+    private static void applyMarkdownTextPerf(TextView tv) {
+        if (tv == null) return;
+        try {
+            tv.setSpannableFactory(io.noties.markwon.utils.NoCopySpannableFactory.getInstance());
+        } catch (Throwable t) {
+            // 该优化非必需：失败不影响渲染正确性
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            tv.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE);
+            tv.setHyphenationFrequency(android.graphics.text.LineBreaker.HYPHENATION_FREQUENCY_NONE);
+        }
+    }
+
     private TextView createSegmentTextView(Context ctx, TextView template) {
         TextView tv = new TextView(ctx);
         tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, template.getTextSize());
@@ -2320,6 +2348,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (android.os.Build.VERSION.SDK_INT >= 23) {
             tv.setBreakStrategy(template.getBreakStrategy());
             tv.setHyphenationFrequency(template.getHyphenationFrequency());
+        }
+        // 上面两项随模板拷贝，但 spannableFactory 不会被拷贝：段落 TextView 各自设置，
+        // 避免"模板有 NoCopy、段落没有"造成同一消息内两种 span 拷贝行为
+        try {
+            tv.setSpannableFactory(io.noties.markwon.utils.NoCopySpannableFactory.getInstance());
+        } catch (Throwable ignored) {
         }
         return tv;
     }
