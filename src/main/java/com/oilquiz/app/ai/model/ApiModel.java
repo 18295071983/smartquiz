@@ -68,7 +68,7 @@ public class ApiModel implements Serializable {
      * 本字段为空即表示**服务商未声明档位能力**：此时 UI 不展示档位选择、
      * 请求也不下发强度参数（只保留开关）。</p>
      */
-    public java.util.List<String> thinkingEffortLevels;
+    public java.util.List<String> thinkingEffortLevels = new java.util.ArrayList<>();
 
     /** 服务端默认强度档位（{@code effort.default_level}，未声明为 null） */
     public String thinkingEffortDefault;

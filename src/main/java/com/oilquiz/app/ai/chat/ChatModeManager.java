@@ -143,9 +143,9 @@ public class ChatModeManager {
 
     // ==================== 思考强度（主 API，取代"只有开关"） ====================
 
-    /** 当前思考强度档位（{@link ThinkingEffort#NONE} 表示关闭） */
+    /** 当前思考强度档位（{@link ThinkingEffort#NONE} 表示关闭；永不为 null） */
     public ThinkingEffort getThinkingEffort() {
-        return thinkingEffort;
+        return currentEffort();
     }
 
     /**
@@ -166,9 +166,16 @@ public class ChatModeManager {
 
     // ==================== 深度思考开关（派生自强度档位） ====================
 
-    /** 深度思考是否开启（等价于强度档位 != NONE） */
+    /** 档位读取（永不为 null）：异常/未初始化时回落官方默认 HIGH */
+    private ThinkingEffort currentEffort() {
+        ThinkingEffort e = thinkingEffort;
+        return e != null ? e : ThinkingEffort.HIGH;
+    }
+
+    /** 深度思考是否开启（等价于强度档位 != NONE；档位为空按未开启处理，避免 NPE） */
     public boolean isDeepThinkingEnabled() {
-        return thinkingEffort.isEnabled();
+        ThinkingEffort e = thinkingEffort;
+        return e != null && e.isEnabled();
     }
 
     /**
@@ -183,9 +190,11 @@ public class ChatModeManager {
         if (!enabled) {
             setThinkingEffort(ThinkingEffort.NONE);
         } else {
-            // 从 NONE 恢复：沿用当前档位（若已是 NONE 则取 HIGH），历史只有布尔偏好时即为 HIGH
-            ThinkingEffort target = thinkingEffort == ThinkingEffort.NONE
-                    ? ThinkingEffort.HIGH : thinkingEffort;
+            // 从 NONE 恢复：沿用当前档位（若已是 NONE/未初始化则取 HIGH），
+            // 历史只有布尔偏好时即为 HIGH（官方默认强度）
+            ThinkingEffort cur = thinkingEffort;
+            ThinkingEffort target = (cur == null || cur == ThinkingEffort.NONE)
+                    ? ThinkingEffort.HIGH : cur;
             setThinkingEffort(target);
         }
         AppLogger.aiD(TAG, "Deep thinking " + (enabled ? "ENABLED" : "DISABLED"));

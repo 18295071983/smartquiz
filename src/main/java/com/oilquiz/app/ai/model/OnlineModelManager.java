@@ -1171,7 +1171,10 @@ public class OnlineModelManager {
      * （见 {@code thinkingEffortLevels} 字段），因此数据源始终是服务商 API。
      */
     public static java.util.List<String> parseThinkingEffortLevels(String cachedModelsJson, String modelName) {
-        java.util.List<String> empty = java.util.Collections.emptyList();
+        // 注意：返回**可变空列表**而非 Collections.emptyList() —— 后者不可变，
+        // 调用方若往里 add 会抛 UnsupportedOperationException。方法契约是"返回列表"，
+        // 不应对调用方施加不可变约束。
+        java.util.List<String> empty = new java.util.ArrayList<>();
         if (cachedModelsJson == null || cachedModelsJson.isEmpty() || modelName == null) return empty;
         try {
             org.json.JSONArray arr = new org.json.JSONArray(cachedModelsJson);
