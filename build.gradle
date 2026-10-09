@@ -385,22 +385,6 @@ dependencies {
     
     // Guava 库，提供工具类
     implementation 'com.google.guava:guava:32.1.2-android'
-    // ============ Markdown：两套库并存是**刻意的**，不是重复引入 ============
-    // 两者的输出目标不同，服务两条互不相干的管线：
-    //
-    // ① Markwon（下面 8 个模块）→ 输出 Spanned，用于**聊天气泡内联渲染**
-    //    聊天要的是行内样式化的 Spanned + 流式续写（未闭合代码围栏由
-    //    MarkdownRenderer.closeUnclosedCodeFence 兜底），Markwon 的插件体系
-    //    （表格/删除线/任务列表/语法高亮/图片/链接化）正对这个场景。
-    //    消费方：ai/chat/render/{RenderExecutor, MarkdownContentRenderer, MarkdownRenderer}
-    //
-    // ② flexmark-all → 输出 HTML，仅用于**文件预览**
-    //    （util/render/MarkdownRenderEngine 把整个 .md 转成 HTML 交给 WebView 显示）。
-    //    整文件转换不需要 Spanned，用成熟的 flexmark 解析器保证标准 Markdown 正确性。
-    //    消费方：util/render/MarkdownRenderEngine
-    //
-    // 因此：新增聊天内 Markdown 能力应优先扩 Markwon 插件；不要为了"统一"
-    // 把 flexmark 塞进聊天渲染，也不要用 Markwon 去重写整文件预览。
     implementation "io.noties.markwon:core:4.6.2"
     implementation "io.noties.markwon:image:4.6.2"
     implementation "io.noties.markwon:image-glide:4.6.2"
@@ -420,9 +404,7 @@ dependencies {
     implementation "androidx.work:work-runtime:2.9.0"
     implementation "net.dongliu:apk-parser:2.6.10"
     implementation "org.jsoup:jsoup:1.17.2"
-    // Markdown → HTML（flexmark 成熟库：标题/列表/表格/代码块/转义/图片标准渲染）。
-    // 只服务于"文件预览"这条支线，与上面 Markwon（聊天气泡 Spanned）不是重复引入 ——
-    // 分叉理由见 Markwon 依赖处的说明。
+    // Markdown → HTML（flexmark 成熟库：标题/列表/表格/代码块/转义/图片标准渲染）
     implementation "com.vladsch.flexmark:flexmark-all:0.64.8"
 
     // ExoPlayer (Media3)：聊天流原生视频/音频播放（支持流媒体/倍速/自适应，替代 VideoView）

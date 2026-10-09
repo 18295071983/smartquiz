@@ -467,17 +467,6 @@ public class AIChatViewModel extends AndroidViewModel {
      */
     public void clearChatHistory() {
         chatMessages.clear();
-        // RENDER-CACHE-CLEAR(2026-10-09)：RenderExecutor 的渲染结果缓存是**纯内容寻址**
-        // （key = 内容 + 宽度），本身不会返回过期结果；但流式对话会为同一条消息的每个
-        // 中间状态各留一个条目（"a"、"ab"、"abc"…），很快把 300 条 LRU 填满、挤掉历史
-        // 消息的已渲染结果。清空会话时这些条目全部失去意义，主动释放可让缓存留给接下来的
-        // 新对话，也能立刻回收它们持有的 Spanned（含 span 与图片 drawable 引用）。
-        // 这是本项目里 clearCache() 目前唯一的调用点。
-        try {
-            com.oilquiz.app.ai.chat.render.RenderExecutor.getInstance().clearCache();
-        } catch (Throwable t) {
-            AILogger.w(TAG, "清空渲染缓存失败: " + t.getMessage());
-        }
         if (chatHistoryManager != null) {
             try {
                 executor.execute(() -> chatHistoryManager.clearAIChatHistory());

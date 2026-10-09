@@ -64,15 +64,25 @@ public class MarkdownRenderer {
                     RequestBuilder<Drawable> builder = Glide.with(appContext)
                             .asDrawable()
                             .load(drawable.getDestination());
-                    // 尺寸策略抽到独立方法（原本内联在这个匿名类里，魔数与调用点耦合）
-                    ImageSize size = drawable.hasKnownDimensions() ? drawable.getImageSize() : null;
-                    int[] target = chatImageDecodeSize(size, maxImageWidth, maxImageHeight);
-                    if (target == null) {
-                        // 已指定 px 尺寸且在限内：原样返回 builder，不覆盖解码尺寸
-                        // （此处**不加** centerInside —— 与原实现逐分支一致）
-                        return builder;
+                    // Markdown 里已指定尺寸（![](... =WxH)）→ 超限则按比例缩放
+                    if (drawable.hasKnownDimensions()) {
+                        ImageSize size = drawable.getImageSize();
+                        boolean pxUnit = (size.width.unit == null || "px".equals(size.width.unit))
+                                && (size.height.unit == null || "px".equals(size.height.unit));
+                        if (pxUnit) {
+                            int w = (int) size.width.value;
+                            int h = (int) size.height.value;
+                            if (w > 0 && h > 0) {
+                                if (w <= maxImageWidth && h <= maxImageHeight) {
+                                    return builder;
+                                }
+                                float scale = Math.min((float) maxImageWidth / w, (float) maxImageHeight / h);
+                                return builder.override((int) (w * scale), (int) (h * scale));
+                            }
+                        }
                     }
-                    return builder.override(target[0], target[1]).centerInside();
+                    // 未指定尺寸 → 限制在最大范围内，保持宽高比
+                    return builder.override(maxImageWidth, maxImageHeight).centerInside();
                 }
 
                 @Override
@@ -107,60 +117,9 @@ public class MarkdownRenderer {
                     .usePlugin(TaskListPlugin.create(appContext))
                     .usePlugin(LinkifyPlugin.create())
                     .usePlugin(io.noties.markwon.syntax.SyntaxHighlightPlugin.create(prism4j, prismTheme))
-                    // 原文预处理改挂官方 processMarkdown 阶段（原来是在 render() 里手工调）。
-                    // 这正是 Markwon 为"解析前改写原始 markdown"提供的扩展点：
-                    // https://noties.io/Markwon/docs/v4/core/plugins.html#process-markdown
-                    // 附带好处：该职责从 render() 的多个重载里收拢到插件一处，
-                    // render() 只剩"解析 + 后处理"。
-                    .usePlugin(new io.noties.markwon.AbstractMarkwonPlugin() {
-                        @NonNull
-                        @Override
-                        public String processMarkdown(@NonNull String markdown) {
-                            return closeUnclosedCodeFence(markdown);
-                        }
-                    })
                     .build();
             initialized = true;
         }
-    }
-
-    /**
-     * 聊天图片的解码尺寸策略（从 {@code GlideStore.load} 的匿名闭包里抽出，便于单测）。
-     *
-     * <p>返回值是调用方要执行的 {@code override(w,h)} 参数；返回 {@code null} 表示
-     * **不覆盖**解码尺寸（只做 centerInside 由调用方决定）。逐分支与抽出前一致：</p>
-     * <ul>
-     *   <li>未指定尺寸（{@code imageSize == null}）→ {@code [maxW, maxH]}；</li>
-     *   <li>指定了尺寸但**非 px 单位**（如 {@code 50%}/{@code 2em}）→ **落到最大范围兜底**
-     *       {@code [maxW, maxH]}（原来就是在 if 之后 fall through 到这一行，不能丢掉）；</li>
-     *   <li>指定了 px 尺寸且在限内 → {@code null}（不放大、不覆盖）；</li>
-     *   <li>指定了 px 尺寸且超限 → 按 {@code min(maxW/w, maxH/h)} 等比缩小。</li>
-     * </ul>
-     *
-     * <p>注意：这里约束的是 **Glide 解码尺寸**（省内存、防大图撑爆气泡）。
-     * Markwon 的 {@code ImageSizeResolver} 只决定**显示矩形**、不控制解码，
-     * 两者不是同一个职责，所以尺寸策略留在这里，而不是搬去 resolver。</p>
-     *
-     * @return {@code [width, height]}；{@code null} 表示不覆盖解码尺寸
-     */
-    private static int[] chatImageDecodeSize(ImageSize size, int maxImageWidth, int maxImageHeight) {
-        if (size != null && size.width != null && size.height != null) {
-            boolean pxUnit = (size.width.unit == null || "px".equals(size.width.unit))
-                    && (size.height.unit == null || "px".equals(size.height.unit));
-            if (pxUnit) {
-                int w = (int) size.width.value;
-                int h = (int) size.height.value;
-                if (w > 0 && h > 0) {
-                    if (w <= maxImageWidth && h <= maxImageHeight) {
-                        return null;   // 已指定且在限内：不覆盖
-                    }
-                    float scale = Math.min((float) maxImageWidth / w, (float) maxImageHeight / h);
-                    return new int[]{(int) (w * scale), (int) (h * scale)};
-                }
-            }
-        }
-        // 未指定尺寸，或指定了非 px 单位 / 非法值：限制在最大范围内（与抽出前一致）
-        return new int[]{maxImageWidth, maxImageHeight};
     }
 
     /** 确保 Markwon 已初始化，未初始化时用传入的 context 兜底 */
@@ -168,6 +127,16 @@ public class MarkdownRenderer {
         if (!initialized && context != null) {
             init(context);
         }
+    }
+
+    /**
+     * 渲染 Markdown 文本为 Spanned（供 TextView.setText 使用）
+     * 注意：调用方需确保已 init，否则回退到纯文本。
+     * @param markdown Markdown内容
+     * @param availableWidth 实际可用宽度（像素），当前保留用于兼容调用方
+     */
+    public static Spanned render(String markdown, int availableWidth) {
+        return render(markdown, (Context) null, availableWidth);
     }
 
     /**
@@ -187,11 +156,8 @@ public class MarkdownRenderer {
 
     /**
      * 带上下文 + 可用宽度的渲染（确保已初始化）。
-     *
-     * <p>原文预处理（流式未闭合代码围栏补闭合）已移到 {@link #init} 注册的
-     * {@code processMarkdown} 插件里，走 Markwon 官方扩展点；此处只负责解析与后处理。
-     * 注意**不要**在这里再调一次 {@link #closeUnclosedCodeFence} —— 插件阶段已经处理过，
-     * 重复调用会把已闭合的围栏再次判定为奇数（补出来的那个 ``` 本身也计入统计）而多补一个。</p>
+     * 流式生成期间自动闭合未完成的代码围栏（``` 奇数个时补 ```），
+     * 避免 Markwon 把围栏之后的正文整段当作代码块渲染（生成中样式错乱/闪烁）。
      */
     public static Spanned render(String markdown, Context context, int availableWidth) {
         if (markdown == null || markdown.isEmpty()) {
@@ -201,7 +167,8 @@ public class MarkdownRenderer {
         if (!initialized) {
             return new android.text.SpannableStringBuilder(markdown);
         }
-        Spanned result = markwon.toMarkdown(markdown);
+        String safeMarkdown = closeUnclosedCodeFence(markdown);
+        Spanned result = markwon.toMarkdown(safeMarkdown);
         // 替换 URLSpan 为自定义 Span，支持 content:// URI 点击
         return replaceUrlSpans(result);
     }
@@ -395,6 +362,92 @@ public class MarkdownRenderer {
     /** 应用内图片预览（统一全屏流：ImagePreviewUtil——PhotoView 双指缩放，本地系统解码/网络原生下载） */
     private static void showImagePreview(Context context, String url) {
         com.oilquiz.app.ai.chat.component.ImagePreviewUtil.show(context, url);
+        return;
+        /*
+        try {
+            if (!(context instanceof android.app.Activity)) return;
+            android.app.Dialog dialog = new android.app.Dialog(context);
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+
+            android.widget.FrameLayout root = new android.widget.FrameLayout(context);
+            root.setBackgroundColor(android.graphics.Color.BLACK);
+
+            com.github.chrisbanes.photoview.PhotoView photoView = new com.github.chrisbanes.photoview.PhotoView(context);
+            photoView.setBackgroundColor(android.graphics.Color.BLACK);
+            root.addView(photoView, new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+
+            android.widget.ProgressBar loading = new android.widget.ProgressBar(context);
+            android.widget.FrameLayout.LayoutParams loadingLp = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.CENTER);
+            root.addView(loading, loadingLp);
+
+            dialog.setContentView(root, new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            photoView.setOnClickListener(v -> dialog.dismiss());
+            dialog.show();
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
+            }
+
+            // show 之后再加载（View 已 attach），loading 占位 + 失败提示
+            // 本地文件优先 BitmapFactory 直接解码（避免 Glide file:// 不回调转圈）
+            boolean decoded = false;
+            if (url != null && (url.startsWith("file://") || url.startsWith("/"))) {
+                try {
+                    java.io.File localFile = url.startsWith("file://")
+                            ? new java.io.File(android.net.Uri.parse(url).getPath())
+                            : new java.io.File(url);
+                    if (localFile.exists()) {
+                        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                        opts.inJustDecodeBounds = true;
+                        android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                        int sample = 1;
+                        while (opts.outWidth / sample > 2048 || opts.outHeight / sample > 2048) {
+                            sample *= 2;
+                        }
+                        opts.inJustDecodeBounds = false;
+                        opts.inSampleSize = sample;
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(localFile.getAbsolutePath(), opts);
+                        if (bmp != null) {
+                            photoView.setImageBitmap(bmp);
+                            loading.setVisibility(View.GONE);
+                            decoded = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    android.util.Log.w("MarkdownRenderer", "bitmap decode failed: " + e.getMessage());
+                }
+            }
+            if (!decoded) {
+                com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> listener =
+                        new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                            @Override
+                            public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                                loading.setVisibility(View.GONE);
+                                android.widget.Toast.makeText(context, "图片加载失败", android.widget.Toast.LENGTH_SHORT).show();
+                                return false;
+                            }
+
+                            @Override
+                            public boolean onResourceReady(android.graphics.drawable.Drawable resource,
+                                                           Object model,
+                                                           com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                                                           com.bumptech.glide.load.DataSource dataSource,
+                                                           boolean isFirstResource) {
+                                loading.setVisibility(View.GONE);
+                                return false;
+                            }
+                        };
+                com.bumptech.glide.Glide.with(context).load(url).timeout(15000).listener(listener).into(photoView);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("MarkdownRenderer", "Image preview failed: " + e.getMessage());
+        }
+        */
     }
 
     /**

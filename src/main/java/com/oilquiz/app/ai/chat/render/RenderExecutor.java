@@ -91,12 +91,8 @@ public class RenderExecutor {
         registerRenderer(ContentType.HTML_BLOCK, new HtmlContentRenderer());
 
         // 标准 Markdown（兜底）
-        // 说明（2026-10-09）：不再单独注册 PLAIN_TEXT —— ContentTypeDetector 只在**空内容**时
-        // 产出 PLAIN_TEXT（detect() 的空串分支），而空内容在 execute() 里已被
-        // `rendered.length() > 0` 过滤，那条注册从未被用到。
-        // 万一日后真有 PLAIN_TEXT 片段，它仍会走 fallbackRenderer（MarkdownContentRenderer），
-        // 行为与原来一致。
         registerRenderer(ContentType.MARKDOWN, new MarkdownContentRenderer());
+        registerRenderer(ContentType.PLAIN_TEXT, new MarkdownContentRenderer());
     }
 
     /** 注册渲染器到指定内容类型 */
@@ -130,7 +126,7 @@ public class RenderExecutor {
             return new SpannableStringBuilder("");
         }
 
-        // 1. 检查整条消息缓存（快速路径）
+        // 1. 检查缓存（包含宽度作为缓存key的一部分）
         String cacheKey = content + "_w" + availableWidth;
         Spanned cached = renderCache.get(cacheKey);
         if (cached != null) {
@@ -141,31 +137,9 @@ public class RenderExecutor {
         List<ContentSegment> segments = ContentTypeDetector.detect(content);
 
         // 3. 分段渲染并拼接
-        // SEGMENT-MEMO(2026-10-09)：**已定型的段直接复用渲染结果，不再重算**。
-        //
-        // 为什么需要：流式对话每 50~200ms 刷新一次（实测一条回复刷了 64 次），而上面那条
-        // 整条消息缓存 key 里含完整正文 —— 只要有新 token 就必然 miss，于是**前面所有已定型的
-        // 段落每 150ms 被重新解析、span 全部重建**。表格是最大的受害者：它一个段就含几十个
-        // TableRowSpan，而 TableRowSpan 是**跨帧有状态**的 ReplacementSpan（宽度在上次 draw
-        // 测得、高度在上次 getSize 得出），被整体重建 60+ 次且内容还在变 → 行按旧高度定位、
-        // 新内容按新行数绘制 → **表格内文字互相覆盖、越生成越糊**。
-        //
-        // 按段缓存后：流式追加只改变最后一个段，其余段全部命中缓存；
-        // 表格一旦定型就永不重建。计算量从 O(全文×刷新次数) 降到 O(新增)+O(刷新次数)。
         SpannableStringBuilder result = new SpannableStringBuilder();
-        for (int si = 0; si < segments.size(); si++) {
-            ContentSegment segment = segments.get(si);
-            // 最后一个段不缓存：流式追加改的就是它，若把它的每个中间态都写进缓存，
-            // 会迅速挤爆 segmentCache，把"已定型段"的条目淘汰掉 —— 反而更慢。
-            // 表格这类重结构一旦定型就成了前面的段，稳定命中。
-            boolean cacheable = si < segments.size() - 1;
-            Spanned rendered = cacheable ? cachedSegment(segment, context, availableWidth) : null;
-            if (rendered == null) {
-                rendered = renderSegment(segment, context, availableWidth);
-                if (cacheable && rendered != null && rendered.length() > 0) {
-                    segmentCache.put(segmentCacheKey(segment, availableWidth), rendered);
-                }
-            }
+        for (ContentSegment segment : segments) {
+            Spanned rendered = renderSegment(segment, context, availableWidth);
             if (rendered != null && rendered.length() > 0) {
                 result.append(rendered);
             }
@@ -175,29 +149,6 @@ public class RenderExecutor {
         renderCache.put(cacheKey, result);
 
         return result;
-    }
-
-    /** 渲染结果按段缓存（定型段复用；表格/代码块/公式等重结构受益最大） */
-    private static final int SEGMENT_CACHE_SIZE = 600;
-    private final LruCache<String, Spanned> segmentCache = new LruCache<>(SEGMENT_CACHE_SIZE);
-
-    /** 段缓存 key：类型 + 段文本 + 宽度。宽度并入 key 是必要的 —— Mermaid/公式渲染可能按宽度生成 */
-    private static String segmentCacheKey(ContentSegment segment, int availableWidth) {
-        return segment.type + "\u0000" + availableWidth + "\u0000"
-                + (segment.text == null ? "" : segment.text);
-    }
-
-    /** 取已缓存的段渲染结果；未命中返回 null */
-    private Spanned cachedSegment(ContentSegment segment, Context context, int availableWidth) {
-        if (segment == null || segment.text == null || segment.text.isEmpty()) {
-            return null;
-        }
-        return segmentCache.get(segmentCacheKey(segment, availableWidth));
-    }
-
-    /** 清空段缓存（与整条缓存一起清） */
-    private void clearSegmentCache() {
-        segmentCache.evictAll();
     }
 
     /**
@@ -240,7 +191,6 @@ public class RenderExecutor {
     /** 清空渲染缓存（在消息被删除或会话切换时调用） */
     public void clearCache() {
         renderCache.evictAll();
-        clearSegmentCache();
     }
 
     /**
