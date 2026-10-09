@@ -121,10 +121,78 @@ public class ModelListFetcher {
 
                 return models;
             } catch (Exception e) {
-                AILogger.e(TAG, "Fetch models failed: " + e.getMessage(), e);
+                AILogger.e(TAG, "Fetch models failed for " + apiUrl + ": " + e, e);
                 throw new RuntimeException(e);
             }
         }, executor);
+    }
+
+    /**
+     * 把 {@link ApiModel} 序列化为**缓存用** JSON（写入 {@code cachedModelsJson}）。
+     *
+     * <p><b>为什么必须是单一事实源</b>：缓存是思考档位、真实上下文窗口等能力数据的
+     * 唯一持久化载体，读取侧（档位选择器、请求注入、max_tokens 上限）全部依赖它。
+     * 此前"配置对话框"与"AI 中心自动获取"各写一份，后者漏了
+     * {@code thinkingEffortLevels} / {@code maxOutputTokens}，于是**自动获取后档位丢失**，
+     * 用户看到"思考强度没有获取到"。改为共用本方法，杜绝再次不同步。</p>
+     */
+    public static org.json.JSONObject modelToCacheJson(ApiModel model) {
+        org.json.JSONObject obj = new org.json.JSONObject();
+        try {
+            obj.put("id", model.id);
+            obj.put("name", model.getName());
+            if (model.contextLength > 0) {
+                obj.put("contextLength", model.contextLength);
+                obj.put("contextLengthFromApi", model.contextLengthFromApi);
+            }
+            // 思考强度档位（GET /models 的 effort.supported_levels）：
+            // UI 据此决定是否展示档位选择器，请求据此决定是否下发 reasoning_effort。
+            if (model.hasThinkingEffortLevels()) {
+                org.json.JSONArray lv = new org.json.JSONArray();
+                for (String level : model.thinkingEffortLevels) lv.put(level);
+                obj.put("thinkingEffortLevels", lv);
+                if (model.thinkingEffortDefault != null) {
+                    obj.put("thinkingEffortDefault", model.thinkingEffortDefault);
+                }
+            }
+            // 服务端允许的最大输出 token（决定 max_tokens 上限）
+            if (model.maxOutputTokens > 0) {
+                obj.put("maxOutputTokens", model.maxOutputTokens);
+            }
+            // 输入模态：判断"支持图片"的权威依据（供能力判定与 UI 显示）
+            if (model.inputModalities != null && !model.inputModalities.isEmpty()) {
+                org.json.JSONArray mods = new org.json.JSONArray();
+                for (String m : model.inputModalities) mods.put(m);
+                obj.put("inputModalities", mods);
+            }
+        } catch (org.json.JSONException e) {
+            AILogger.w(TAG, "modelToCacheJson failed for " + model.id + ": " + e.getMessage());
+        }
+        return obj;
+    }
+
+    /**
+     * 从持久化的模型缓存（{@code cachedModelsJson}）里按 id 取**展示名**；未命中返回 null。
+     *
+     * <p>用于界面回显：官方 {@code GET /models} 的 {@code name} 是展示名
+     * （{@code deepseek-flash} ↔ {@code DeepSeek-V4.1-Flash}），而请求必须用 id。
+     * 二者同时可见才不会让人误以为选错了模型。</p>
+     */
+    public static String findDisplayNameInCache(String cachedModelsJson, String modelId) {
+        if (cachedModelsJson == null || cachedModelsJson.isEmpty() || modelId == null) return null;
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(cachedModelsJson);
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                if (!modelId.equals(o.optString("id"))) continue;
+                String n = o.optString("name", null);
+                if (n != null && !n.isEmpty() && !n.equals(modelId)) return n;
+                return null;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     /**
@@ -151,7 +219,10 @@ public class ModelListFetcher {
             for (ApiModel m : models) existing.add(m.id);
             for (String name : presetNames) {
                 if (existing.contains(name)) continue; // API 已有不覆盖
-                ApiModel pm = new ApiModel(name);
+                // 预置显示名（配置表 models[] 的 displayName）；未声明时回落为 id
+                String presetDisplay = pcm.getPredefinedModelDisplayName(apiUrl, name);
+                ApiModel pm = presetDisplay != null
+                        ? new ApiModel(name, presetDisplay) : new ApiModel(name);
                 pm.source = "preset";
                 pm.contextLength = 0;
                 List<String> caps = pcm.getModelCapabilities(apiUrl, name);
@@ -230,6 +301,7 @@ public class ModelListFetcher {
             connection.setRequestProperty("Content-Type", "application/json");
 
             int responseCode = connection.getResponseCode();
+            AILogger.i(TAG, "GET " + fullUrl + " -> HTTP " + responseCode);
             if (responseCode != 200) {
                 String errorBody = readErrorStream(connection);
                 throw new Exception("获取模型列表失败: HTTP " + responseCode + " - " + errorBody);
@@ -328,19 +400,35 @@ public class ModelListFetcher {
         List<ApiModel> models = new ArrayList<>();
         JsonObject json = JsonParser.parseString(response.toString()).getAsJsonObject();
         JsonArray data = json.getAsJsonArray("data");
+        AILogger.i(TAG, "models response: " + response.length() + " bytes, data="
+                + (data == null ? "null" : String.valueOf(data.size())));
 
         if (data != null) {
             for (int i = 0; i < data.size(); i++) {
                 JsonObject modelObj = data.get(i).getAsJsonObject();
-                String id = modelObj.get("id").getAsString();
+                String id = modelObj.has("id") && !modelObj.get("id").isJsonNull()
+                        ? modelObj.get("id").getAsString() : null;
+                if (id == null || id.isEmpty()) {
+                    AILogger.w(TAG, "models[" + i + "] has no id, skipped; keys=" + modelObj.keySet());
+                    continue;
+                }
                 String ownedBy = modelObj.has("owned_by") ? modelObj.get("owned_by").getAsString() : "";
                 long created = modelObj.has("created") ? modelObj.get("created").getAsLong() : 0;
+                // 官方规范的显示名（"for use in model pickers"）：与 id 不同，
+                // 例如 id=deepseek-flash → name=DeepSeek-V4.1-Flash。
+                // 不读它，UI 就只显示 id，用户看不到 v4.1 这类版本信息。
+                String displayName = null;
+                if (modelObj.has("name") && !modelObj.get("name").isJsonNull()
+                        && modelObj.get("name").isJsonPrimitive()) {
+                    String n = modelObj.get("name").getAsString();
+                    if (n != null && !n.trim().isEmpty()) displayName = n.trim();
+                }
 
                 // 过滤掉嵌入模型和其他非对话模型
                 if (!id.contains("embedding") && !id.contains("ada") && !id.contains("babbage") &&
                     !id.contains("curie") && !id.contains("davinci") && !id.contains("text-") &&
                     !id.contains("-search") && !id.contains("-similarity") && !id.contains("-bison")) {
-                    ApiModel model = ApiModel.fromOpenAI(id, ownedBy, created);
+                    ApiModel model = ApiModel.fromOpenAI(id, displayName, ownedBy, created);
                     // 配置时直接提取服务商返回的真实上下文字段（如 context_length / max_model_len），
                     // 命中则覆盖名称推断值，并标记为真实值（配置保存时优先采用）
                     Integer realLen = OnlineInferenceService.extractContextWindow(modelObj);
@@ -358,6 +446,17 @@ public class ModelListFetcher {
             }
         }
 
+        // 解析成功时只记汇总；**解析不到模型是异常情况**，此时输出明细以便定位
+        // （此前该场景静默失败，只看到"未获取到可用模型"，无从判断是请求问题还是解析问题）
+        if (models.isEmpty() && data != null && data.size() > 0) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < data.size(); i++) {
+                if (!data.get(i).isJsonObject()) continue;
+                JsonObject o = data.get(i).getAsJsonObject();
+                sb.append(o.has("id") ? o.get("id").getAsString() : "?").append(' ');
+            }
+            AILogger.w(TAG, "所有 " + data.size() + " 个模型都被过滤/无 id，原始 id: " + sb);
+        }
         AILogger.i(TAG, "Fetched " + models.size() + " OpenAI models");
         return models;
     }
@@ -398,6 +497,19 @@ public class ModelListFetcher {
             }
             if (modelObj.has("max_output_tokens") && modelObj.get("max_output_tokens").isJsonPrimitive()) {
                 model.maxOutputTokens = modelObj.get("max_output_tokens").getAsInt();
+            }
+            // 输入模态（官方 input_modalities）：判断多模态（图片输入）的权威依据。
+            // 不解析它就只能靠模型名关键词猜，会漏掉像 deepseek-flash 这种
+            // "名字里没有 vision/vl 但官方支持图像理解"的模型。
+            if (modelObj.has("input_modalities") && modelObj.get("input_modalities").isJsonArray()) {
+                com.google.gson.JsonArray mods = modelObj.getAsJsonArray("input_modalities");
+                java.util.List<String> out = new java.util.ArrayList<>();
+                for (int i = 0; i < mods.size(); i++) {
+                    if (!mods.get(i).isJsonPrimitive()) continue;
+                    String s = mods.get(i).getAsString();
+                    if (s != null && !s.isEmpty()) out.add(s);
+                }
+                model.inputModalities = out;
             }
         } catch (Exception e) {
             // 能力字段解析失败不影响模型列表本身（保持"未声明"语义）

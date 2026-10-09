@@ -76,6 +76,29 @@ public class ApiModel implements Serializable {
     /** 服务端允许的最大输出 token 数（{@code max_output_tokens}，0 表示未声明） */
     public int maxOutputTokens;
 
+    /**
+     * 服务商声明的**输入模态**（{@code GET /models} 的 {@code input_modalities}）。
+     *
+     * <p>官方定义："模型接受的输入类型"，取值 {@code text} / {@code image}。
+     * 这是判断**多模态（图片输入）**的权威依据 —— 例如 DeepSeek 的
+     * {@code deepseek-flash} 为 {@code ["text","image"]}（支持图像理解），
+     * 而 {@code deepseek-v4-pro} 仅有 {@code ["text"]}。</p>
+     *
+     * <p><b>为什么不能用模型名猜</b>：此前靠 {@code contains("vl"/"vision"/"4o"/"omni")}
+     * 之类的关键词推断，{@code deepseek-flash} 一个都不含 → 被判为"不支持图片"，
+     * 于是官方明确支持图像理解的模型在应用里用不了图。</p>
+     */
+    public java.util.List<String> inputModalities = new java.util.ArrayList<>();
+
+    /** 是否支持图片输入（依据服务商声明的 input_modalities，未声明则 false） */
+    public boolean supportsImageInput() {
+        if (inputModalities == null) return false;
+        for (String m : inputModalities) {
+            if ("image".equalsIgnoreCase(m)) return true;
+        }
+        return false;
+    }
+
     /** 该模型是否声明了思考强度档位（UI 与请求注入据此决定是否处理"强度"） */
     public boolean hasThinkingEffortLevels() {
         return thinkingEffortLevels != null && !thinkingEffortLevels.isEmpty();
@@ -101,9 +124,23 @@ public class ApiModel implements Serializable {
      * 创建 OpenAI 格式的模型
      */
     public static ApiModel fromOpenAI(String id, String ownedBy, long createdAt) {
+        return fromOpenAI(id, null, ownedBy, createdAt);
+    }
+
+    /**
+     * 创建 OpenAI 格式的模型（带服务商提供的**显示名**）。
+     *
+     * <p>官方 {@code GET /models} 的 {@code name} 是"用于模型选择器的显示名"，
+     * 且**与 id 不同**：例如 {@code id=deepseek-flash} 而
+     * {@code name=DeepSeek-V4.1-Flash}。若忽略该字段，UI 就只会显示 id，
+     * 用户看不到 v4.1 这类版本信息。</p>
+     *
+     * @param displayName 服务商返回的 name；为空时回落到 id
+     */
+    public static ApiModel fromOpenAI(String id, String displayName, String ownedBy, long createdAt) {
         ApiModel model = new ApiModel();
         model.id = id;
-        model.displayName = id;
+        model.displayName = (displayName != null && !displayName.isEmpty()) ? displayName : id;
         model.ownedBy = ownedBy;
         model.createdAt = createdAt;
         model.source = "openai";

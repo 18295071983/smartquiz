@@ -355,14 +355,52 @@ public class OnlineModelManager {
 
     /**
      * 刷新所有模型的 supportsVision 标记。
-     * 按模型名关键词推断（vl/vision/4o/omni/gemini/glm-4v），
-     * 使在线模型配置的视觉能力字段有真实值（此前恒为 false 的死字段），
-     * 发图时优先用该字段判断，模型名兜底。
+     *
+     * <p><b>优先级</b>：
+     * <ol>
+     *   <li>服务商 API 声明的 {@code input_modalities}（权威、按模型，
+     *       如 {@code deepseek-flash} → {@code ["text","image"]} 支持图像理解，
+     *       而 {@code deepseek-v4-pro} → {@code ["text"]} 不支持）；</li>
+     *   <li>未声明该字段时，才回落到模型名关键词推断
+     *       （vl/vision/4o/omni/gemini/glm-4v）。</li>
+     * </ol>
+     * 此前只做第 2 步，导致名字里不含 vision/vl 的多模态模型（如 deepseek-flash）
+     * 被判为"不支持图片"，发图能力被错误禁用。</p>
      */
     private void refreshAllSupportsVision() {
         for (OnlineModelConfig config : modelList) {
-            config.supportsVision = isVisionModelName(config.modelName);
+            Boolean fromApi = readVisionFromCachedModalities(config);
+            config.supportsVision = (fromApi != null)
+                    ? fromApi
+                    : isVisionModelName(config.modelName);
         }
+    }
+
+    /**
+     * 从持久化模型缓存读该模型的 {@code inputModalities}，判断是否支持图片。
+     *
+     * @return 服务商有声明 → true/false；**未声明 → null**（调用方回落到名字推断）
+     */
+    private Boolean readVisionFromCachedModalities(OnlineModelConfig config) {
+        try {
+            if (config == null || config.cachedModelsJson == null) return null;
+            String modelName = config.modelName != null && !config.modelName.isEmpty()
+                    ? config.modelName : config.selectedModel;
+            if (modelName == null || modelName.isEmpty()) return null;
+            org.json.JSONArray arr = new org.json.JSONArray(config.cachedModelsJson);
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject o = arr.optJSONObject(i);
+                if (o == null || !modelName.equals(o.optString("id"))) continue;
+                org.json.JSONArray mods = o.optJSONArray("inputModalities");
+                if (mods == null) return null; // 服务商未声明 → 交由名字推断兜底
+                for (int j = 0; j < mods.length(); j++) {
+                    if ("image".equalsIgnoreCase(mods.optString(j, ""))) return Boolean.TRUE;
+                }
+                return Boolean.FALSE; // 明确声明了模态但不含 image
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     /** 按模型名关键词判断是否支持视觉（llama 无关，纯在线模型名推断） */
