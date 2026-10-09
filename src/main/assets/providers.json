@@ -999,9 +999,7 @@
       },
       "models": [
         "deepseek-flash",
-        "deepseek-v4-pro",
-        "deepseek-reasoner",
-        "deepseek-v4-flash"
+        "deepseek-v4-pro"
       ],
       "embeddingModel": "",
       "rerankModel": "",
@@ -1019,7 +1017,7 @@
         },
         "vision": {
           "enabled": true,
-          "note": "deepseek-v4-flash-vision 等支持视觉"
+          "note": "deepseek-flash 支持图像理解（官方已将图像理解并入 Flash；旧名 deepseek-v4-flash-vision-exp 已下线，请求由最新 Flash 承接）"
         },
         "webSearch": {
           "enabled": true,
