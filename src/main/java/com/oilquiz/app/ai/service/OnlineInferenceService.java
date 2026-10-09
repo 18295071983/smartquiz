@@ -58,6 +58,12 @@ public class OnlineInferenceService {
     /** 深度思考预算（针对以 thinking_budget 整数形式声明的服务商，如百度千帆） */
     private static final int DEFAULT_THINKING_BUDGET = 4096;
     private static final int DEFAULT_MAX_TOKENS = 16384;
+    /**
+     * 思考模式输出上限（DeepSeek 官方默认）：思考模式 64K；{@code reasoning_effort=max} 时 128K。
+     * 见 {@link #resolveMaxTokensForThinking}。
+     */
+    private static final int THINKING_MAX_TOKENS = 65536;
+    private static final int THINKING_MAX_TOKENS_MAX_EFFORT = 131072;
     private static final float DEFAULT_TEMPERATURE = 0.7f;
 
     private static volatile OnlineInferenceService INSTANCE;
@@ -1991,6 +1997,34 @@ public class OnlineInferenceService {
     }
 
     /**
+     * 思考模式输出上限联动（DeepSeek 官方语义）。
+     *
+     * <p>官方文档（api-docs.deepseek.com/zh-cn/api/create-chat-completion）："未设置时，
+     * 非思考模式默认 8K，<b>思考模式默认 64K</b>（{@code reasoning_effort} 为 {@code max} 时为
+     * <b>128K</b>）"。而本工程 {@link #DEFAULT_MAX_TOKENS} 只有 16K，
+     * 若照旧下发就把服务端 64K/128K 的能力压掉了 —— 表现为"选了最高档也拿不到更长输出"。</p>
+     *
+     * <p>因此：思考开启且模型支持思考时，输出上限取
+     * <b>max(配置值, 档位对应上限)</b>；{@code max} 档取 128K，其余档取 64K。
+     * 关闭思考或模型不支持时按原值（不受影响）。</p>
+     *
+     * @param maxTokens 调用方给定的上限（{@code <=0} 时用默认值）
+     */
+    private int resolveMaxTokensForThinking(int maxTokens, String modelName, boolean enableThinking) {
+        int base = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
+        if (!enableThinking) return base;
+        try {
+            if (!OnlineModelManager.isThinkingModelName(modelName)) return base;
+            boolean maxEffort = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(context)
+                    .getThinkingEffort() == com.oilquiz.app.ai.chat.ChatModeManager.ThinkingEffort.MAX;
+            int ceiling = maxEffort ? THINKING_MAX_TOKENS_MAX_EFFORT : THINKING_MAX_TOKENS;
+            return Math.max(base, ceiling);
+        } catch (Throwable t) {
+            return base;
+        }
+    }
+
+    /**
      * 取当前思考强度档位（用户偏好的唯一事实源）。
      *
      * <p>强度是**用户级偏好**（对话页"深度思考"芯片的档位），与请求内容无关，
@@ -2289,7 +2323,10 @@ public class OnlineInferenceService {
             messages.add(userMessage);
             
             requestBody.add("messages", messages);
-            requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            // 思考联动：思考模式下放宽输出上限（DeepSeek 思考默认 64K / max 档 128K），
+            // 否则 app 的 16K 默认会把服务端能力压掉
+            requestBody.addProperty("max_tokens",
+                    resolveMaxTokensForThinking(maxTokens, modelName, enableThinking));
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
 
             // 深度思考：模型支持时按参数名规范传 thinking 开关（与多模态路径共用同一注入逻辑）
@@ -3255,7 +3292,10 @@ public class OnlineInferenceService {
             JsonObject requestBody = new JsonObject();
             requestBody.addProperty("model", modelName);
             requestBody.add("messages", messages);
-            requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            // 思考联动：思考模式下放宽输出上限（DeepSeek 思考默认 64K / max 档 128K），
+            // 否则 app 的 16K 默认会把服务端能力压掉
+            requestBody.addProperty("max_tokens",
+                    resolveMaxTokensForThinking(maxTokens, modelName, enableThinking));
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             requestBody.addProperty("stream", true);
             // 深度思考：按模型名选择 thinking 参数。
