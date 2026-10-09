@@ -1396,6 +1396,11 @@ public class OnlineInferenceService {
                 if (isAnthropicAPI(apiUrl)) {
                     // Anthropic 思考块（content[] 内 thinking）暂不扩展，保持现有正文流式
                     callAnthropicAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true, callback);
+                } else if (com.oilquiz.app.ai.model.ProviderConfigManager.PROTOCOL_OLLAMA
+                        .equals(com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatProtocol(apiUrl))) {
+                    // Ollama 原生 /api/chat：ndjson 流（非 SSE），thinking 为独立字段
+                    callOllamaChatStream(apiUrl, apiKey, modelName, prompt, history, maxTokens,
+                            enableThinking, callback);
                 } else if (shouldUseResponsesAPI(config)) {
                     // Agent/Responses 接口：服务商配置表声明 agent 且端点 /responses 兼容
                     // （OpenAI Responses API 流式，reasoning 走思考区）
@@ -1528,6 +1533,131 @@ public class OnlineInferenceService {
                 return readResponsesStream(connection, callback);
             }
             return readResponsesFull(connection);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /**
+     * 调用 **Ollama 原生** {@code /api/chat}（ndjson 流，与 OpenAI 兼容层不同）。
+     *
+     * <p>为什么单独一条：配置表里 Ollama 的 baseUrl 是 {@code http://host:11434/v1}（OpenAI 兼容层），
+     * 但原生端点是 {@code /api/chat}，协议差异有三处：</p>
+     * <ul>
+     *   <li>流式是 <b>application/x-ndjson</b> —— 每行一个完整 JSON，**没有 {@code data:} 前缀**</li>
+     *   <li>正文在 {@code message.content}，思考在 {@code message.thinking}（**独立字段**，不会被混进正文）</li>
+     *   <li>结束由 {@code done:true} 标志，而非 {@code [DONE]} 哨兵</li>
+     * </ul>
+     *
+     * <p>参考：{@code https://docs.ollama.com/api/chat}（ChatStreamEvent / ChatResponse）。</p>
+     */
+    private void callOllamaChatStream(String apiUrl, String apiKey, String modelName,
+                                      String prompt, List<ChatMessage> history, int maxTokens,
+                                      boolean enableThinking, StreamCallback callback) throws Exception {
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String endpoint = pcm.getServiceEndpoint(apiUrl, "chat");
+        if (endpoint == null || endpoint.isEmpty() || !endpoint.contains("/api/")) {
+            endpoint = "/api/chat";
+        }
+        String fullUrl = pcm.buildChatUrl(apiUrl, endpoint);
+        fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
+
+        URL url = new URL(fullUrl);
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        if (pcm.needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
+        try {
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(CHAT_READ_TIMEOUT_MS);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Accept", "application/x-ndjson");
+            applyAuth(pcm, connection, fullUrl, apiKey, modelName);
+
+            JsonObject body = new JsonObject();
+            body.addProperty("model", modelName);
+            body.addProperty("stream", true);
+
+            JsonArray messages = new JsonArray();
+            // system 提示并入首条 system 消息
+            if (prompt != null && !prompt.isEmpty()) {
+                JsonObject sys = new JsonObject();
+                sys.addProperty("role", "system");
+                sys.addProperty("content", prompt);
+                messages.add(sys);
+            }
+            if (history != null) {
+                for (ChatMessage m : history) {
+                    if (m == null || m.content == null || m.content.isEmpty()) continue;
+                    JsonObject msg = new JsonObject();
+                    msg.addProperty("role", m.isUserMessage() ? "user" : "assistant");
+                    msg.addProperty("content", m.content);
+                    messages.add(msg);
+                }
+            }
+            body.add("messages", messages);
+
+            // 思考：Ollama 的 think 是 boolean | string | null（如 "low"），与其余 5 种参数形态都不同
+            if (enableThinking && com.oilquiz.app.ai.model.OnlineModelManager
+                    .isThinkingModelName(modelName)) {
+                body.addProperty("think", true);
+            }
+            JsonObject options = new JsonObject();
+            options.addProperty("num_predict", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            options.addProperty("temperature", DEFAULT_TEMPERATURE);
+            body.add("options", options);
+
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                throw new Exception("API 请求失败: HTTP " + responseCode + " - " + readErrorStream(connection));
+            }
+            // ndjson：逐行解析，无 data: 前缀
+            StringBuilder fullText = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.isEmpty()) continue;
+                    JsonObject json;
+                    try {
+                        json = gson.fromJson(line, JsonObject.class);
+                    } catch (Exception ignore) {
+                        continue;   // 非 JSON 行（心跳等）跳过
+                    }
+                    if (json == null) continue;
+                    if (json.has("error") && !json.get("error").isJsonNull()) {
+                        throw new Exception("Ollama 返回错误: " + json.get("error").getAsString());
+                    }
+                    if (json.has("message") && json.get("message").isJsonObject()) {
+                        JsonObject msg = json.getAsJsonObject("message");
+                        // 思考字段独立：走思考区，不混入正文
+                        if (msg.has("thinking") && !msg.get("thinking").isJsonNull()) {
+                            String think = msg.get("thinking").getAsString();
+                            if (!think.isEmpty()) callback.onThinkingToken(think);
+                        }
+                        if (msg.has("content") && !msg.get("content").isJsonNull()) {
+                            String token = msg.get("content").getAsString();
+                            if (!token.isEmpty()) {
+                                fullText.append(token);
+                                callback.onToken(token);
+                            }
+                        }
+                    }
+                    if (json.has("done") && !json.get("done").isJsonNull()
+                            && json.get("done").getAsBoolean()) {
+                        break;
+                    }
+                }
+            }
+            callback.onComplete(fullText.toString());
         } finally {
             connection.disconnect();
         }

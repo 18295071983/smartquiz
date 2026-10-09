@@ -349,6 +349,36 @@ public class ProviderConfigManager {
                 ? t.chatEndpoint : "/chat/completions";
     }
 
+    /**
+     * 按**协议**构造 chat URL —— 与 {@link #buildUrl} 的差别只在 Ollama 原生端点。
+     *
+     * <p>{@code buildUrl} 会给没有 {@code /vN} 的 baseUrl 补 {@code /v1}，这对
+     * OpenAI 兼容端点是正确的；但 Ollama 原生端点是 {@code /api/chat}，官方 base 是
+     * {@code http://host:11434}，**不能带 /v1**（{@code /v1/api/chat} 是 404）。
+     * 而本工程 Ollama 的 baseUrl 配的是 {@code http://localhost:11434/v1}（兼容层用法），
+     * 所以走原生协议时必须把末尾的 {@code /v1} 去掉。</p>
+     */
+    public String buildChatUrl(String apiUrl, String endpoint) {
+        if (endpoint == null || endpoint.isEmpty()) return buildUrl(apiUrl, endpoint);
+        if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) return endpoint;
+        if (PROTOCOL_OLLAMA.equals(getChatProtocolFromEndpoint(endpoint))) {
+            String base = apiUrl == null ? "" : apiUrl;
+            base = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+            // 去掉兼容层的 /v1 尾巴，避免拼成 /v1/api/chat
+            if (base.matches(".*/v\\d+$")) base = base.substring(0, base.lastIndexOf('/'));
+            return base + endpoint;
+        }
+        return buildUrl(apiUrl, endpoint);
+    }
+
+    /** 仅按端点字符串判定协议（{@link #getChatProtocol} 的内部复用） */
+    private static String getChatProtocolFromEndpoint(String endpoint) {
+        if (endpoint.endsWith("/api/chat") || endpoint.endsWith("/api/generate")) return PROTOCOL_OLLAMA;
+        if (endpoint.endsWith("/messages")) return PROTOCOL_ANTHROPIC;
+        if (endpoint.endsWith("/responses")) return PROTOCOL_RESPONSES;
+        return PROTOCOL_OPENAI;
+    }
+
     /** 服务商级 models 端点（缺省用全局配置表 modelsEndpoint） */
     public String getModelsEndpoint(String apiUrl) {
         Provider p = matchByUrl(apiUrl);
@@ -579,6 +609,40 @@ public class ProviderConfigManager {
             case "agent": return "/responses";
             default: return null; // chat/vision/webSearch/tts/asr 等走 chat 端点或独立 wss
         }
+    }
+
+    /** chat 协议族：按 chat 端点形态判定，新增服务商只改配置表，不改调用方 */
+    public static final String PROTOCOL_OPENAI = "openai";        // /chat/completions（含各家 OpenAI 兼容层）
+    public static final String PROTOCOL_ANTHROPIC = "anthropic";  // /v1/messages
+    public static final String PROTOCOL_RESPONSES = "responses";  // /responses
+    public static final String PROTOCOL_OLLAMA = "ollama";        // 原生 /api/chat（ndjson）
+
+    /**
+     * 当前服务商 chat 走哪套协议 —— **由配置表的 chat 端点决定**。
+     *
+     * <p>为什么要有它：服务商协议差异此前散落在调用方的 {@code endsWith("/responses")}、
+     * {@code isAnthropicAPI(url)} 这类字符串判断里，每加一家就要改一次调用代码。
+     * 集中到配置驱动后，补一家只改 providers.json。</p>
+     *
+     * <p>判定顺序（端点形态优先，URL 形态兜底）：</p>
+     * <ol>
+     *   <li>{@code /api/chat} 或 {@code /api/generate} → Ollama 原生（ndjson，非 SSE）</li>
+     *   <li>{@code /messages} → Anthropic Messages</li>
+     *   <li>{@code /responses} → OpenAI Responses</li>
+     *   <li>其余 → OpenAI 兼容（含 DashScope/Gemini 等官方兼容层）</li>
+     * </ol>
+     */
+    public String getChatProtocol(String apiUrl) {
+        String ep = getServiceEndpoint(apiUrl, "chat");
+        String url = apiUrl == null ? "" : apiUrl;
+        if (ep != null) {
+            if (ep.endsWith("/api/chat") || ep.endsWith("/api/generate")) return PROTOCOL_OLLAMA;
+            if (ep.endsWith("/messages")) return PROTOCOL_ANTHROPIC;
+            if (ep.endsWith("/responses")) return PROTOCOL_RESPONSES;
+        }
+        // 端点未声明时按地址兜底（Anthropic 的 baseUrl 无 /v1 后缀，靠域名识别）
+        if (url.contains("anthropic.com")) return PROTOCOL_ANTHROPIC;
+        return PROTOCOL_OPENAI;
     }
 
     /** 服务预置模型名（embedding/imageGen/rerank/tts/asr），配置表未声明返回 null */
