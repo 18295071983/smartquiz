@@ -232,6 +232,9 @@ ui_check.png
 
 # ============ 超限大文件/构建产物/日志（不入库，本地保留） ============
 src/main/assets/asr/*.onnx
+# 例外：Silero VAD 只有 1.8MB，必须入库 —— 没有它 SenseVoice 就没有语音分段
+# （大模型 model.int8.onnx 仍按上面的规则不入库）
+!src/main/assets/asr/silero_vad.onnx
 src/main/cpp/build-*/
 logcat*.txt
 viewer/src/main/jniLibs/**/liblo-native-code.so

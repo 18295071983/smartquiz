@@ -42,6 +42,7 @@ public class SenseVoiceAsr {
 
     private static final String MODEL_ASSET = "asr/model.int8.onnx";
     private static final String TOKENS_ASSET = "asr/tokens.txt";
+    private static final String VAD_ASSET = "asr/silero_vad.onnx";
 
     // 音频参数
     public static final int SAMPLE_RATE = 16000;
@@ -52,6 +53,21 @@ public class SenseVoiceAsr {
     private static final float PREEMPH = 0.97f;
     private static final float LOW_FREQ = 20.0f;
     private static final float LOG_FLOOR = 1.0e-10f;
+
+    // ==================== VAD（Silero VAD v5，消除静音 + 长音频分段） ====================
+    // SenseVoice 是**非流式**模型，按"一段话"设计（sherpa-onnx 参考管线同样先过 VAD）。
+    // 不做分段时，录音里所有静音帧都会被算进一次推理：既浪费算力，长录音的识别质量也会下降
+    // （超出模型训练时长分布）。这里对齐 sherpa-onnx 的做法，用 Silero VAD 先切出语音段。
+    private static final int VAD_CONTEXT = 64;                       // v5：每窗前置的上下文采样数
+    private static final int VAD_WINDOW_16K = 512;                   // v5 @16k：每窗采样数
+    private static final int VAD_WINDOW = VAD_WINDOW_16K;            // 本类只处理 16k
+    private static final float VAD_THRESHOLD = 0.5f;                 // 语音概率阈值
+    private static final int VAD_MIN_SPEECH_SAMPLES = SAMPLE_RATE / 4;   // 250ms：短于此不算一段话
+    private static final int VAD_MIN_SILENCE_SAMPLES = SAMPLE_RATE / 10; // 100ms：静音持续这么久才断句
+    private static final int VAD_PAD_SAMPLES = SAMPLE_RATE / 5;          // 200ms：段首尾各留一点，避免切掉字头字尾
+    private static final int VAD_MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 30; // 30s 强制切分，防单段过长
+    /** 整段短于此时不做 VAD，直接整段识别（省一次模型推理） */
+    private static final int VAD_SKIP_BELOW_SAMPLES = SAMPLE_RATE * 2;
 
     private static volatile SenseVoiceAsr INSTANCE;
 
@@ -96,6 +112,14 @@ public class SenseVoiceAsr {
                     INSTANCE.session.close();
                 } catch (Exception ignored) {
                 }
+                // VAD 会话一并释放：它是懒加载的，不关就会在空闲卸载后仍常驻
+                try {
+                    if (INSTANCE.vadSession != null) {
+                        INSTANCE.vadSession.close();
+                        INSTANCE.vadSession = null;
+                    }
+                } catch (Exception ignored) {
+                }
                 INSTANCE = null;
                 AILogger.i(TAG, "本地 ASR 模型空闲超时已卸载，释放内存（下次识别时重新初始化）");
             }
@@ -136,6 +160,10 @@ public class SenseVoiceAsr {
     private final OrtEnvironment env;
     private final OrtSession session;
 
+    /** Silero VAD 会话。懒加载：短音频不需要它，省一次模型加载与常驻内存。 */
+    private OrtSession vadSession;
+    private Context appContext;
+
     // 模型 metadata 参数
     private final int blankId;
     private final int lfrWindowSize;
@@ -153,6 +181,7 @@ public class SenseVoiceAsr {
     private final float[][] melFilters;
 
     private SenseVoiceAsr(Context context) throws Exception {
+        appContext = context.getApplicationContext() != null ? context.getApplicationContext() : context;
         File modelFile = extractAssetIfNeeded(context, MODEL_ASSET, "model.int8.onnx");
         File tokensFile = extractAssetIfNeeded(context, TOKENS_ASSET, "tokens.txt");
 
@@ -254,6 +283,9 @@ public class SenseVoiceAsr {
     /**
      * 识别 16kHz 单声道 float PCM（范围 [-1,1]）
      *
+     * <p>先用 Silero VAD 切出语音段（丢静音、长录音分段），再逐段跑 SenseVoice，
+     * 最后按顺序拼接。VAD 不可用或音频很短时退化为整段识别，保证行为与以前一致。</p>
+     *
      * @return 识别文本；无有效内容返回空串
      */
     public String recognize(float[] pcm, int nSamples) throws Exception {
@@ -262,8 +294,38 @@ public class SenseVoiceAsr {
         }
         long t0 = System.currentTimeMillis();
 
+        // 0. VAD 分段（省静音算力 / 控制单段长度）
+        List<int[]> segments = vadSegments(pcm, nSamples);
+        if (segments.isEmpty()) {
+            AILogger.d(TAG, "VAD 未检测到语音: " + (nSamples / (float) SAMPLE_RATE) + "s");
+            return "";
+        }
+
+        StringBuilder merged = new StringBuilder();
+        int speechSamples = 0;
+        for (int[] seg : segments) {
+            int start = seg[0];
+            int len = seg[1];
+            if (len <= 0) continue;
+            speechSamples += len;
+            String part = recognizeRange(pcm, start, len);
+            if (part == null || part.isEmpty()) continue;
+            if (merged.length() > 0) merged.append(' ');
+            merged.append(part);
+        }
+        long ms = System.currentTimeMillis() - t0;
+        AILogger.d(TAG, "识别耗时: " + ms + "ms, 段数=" + segments.size()
+                + ", 语音=" + (speechSamples / (float) SAMPLE_RATE) + "s"
+                + ", 总=" + (nSamples / (float) SAMPLE_RATE) + "s");
+        return merged.toString().trim();
+    }
+
+    /**
+     * 识别 PCM 的一个区间（单段话）：fbank → LFR → CMVN → ONNX → CTC → token 拼接。
+     */
+    private String recognizeRange(float[] pcm, int offset, int length) throws Exception {
         // 1. fbank
-        float[] fbank = computeFbank(pcm, nSamples);
+        float[] fbank = computeFbank(pcm, offset, length);
         int nFrames = fbank.length / NUM_BINS;
         if (nFrames <= 0) {
             return "";
@@ -272,6 +334,9 @@ public class SenseVoiceAsr {
         // 2. LFR
         float[] lfr = applyLfr(fbank, nFrames, NUM_BINS);
         int lfrFrames = lfr.length / (NUM_BINS * lfrWindowSize);
+        if (lfrFrames <= 0) {
+            return "";
+        }
 
         // 3. CMVN
         applyCmvn(lfr);
@@ -292,8 +357,6 @@ public class SenseVoiceAsr {
             try (OrtSession.Result result = session.run(inputs)) {
                 OnnxTensor logitsTensor = (OnnxTensor) result.get(0);
                 float[][][] logits = (float[][][]) logitsTensor.getValue();
-                long ms = System.currentTimeMillis() - t0;
-                AILogger.d(TAG, "识别耗时: " + ms + "ms, frames=" + nFrames + " audio=" + nSamples / (float) SAMPLE_RATE + "s");
 
                 // 5. CTC greedy 解码
                 List<Integer> tokens = ctcGreedy(logits[0]);
@@ -307,17 +370,28 @@ public class SenseVoiceAsr {
     // ==================== fbank（kaldi 风格） ====================
 
     private float[] computeFbank(float[] x, int n) {
+        return computeFbank(x, 0, n);
+    }
+
+    /**
+     * 计算 [offset, offset+length) 区间的 fbank 特征（kaldi 风格）。
+     *
+     * <p>范围参数供 VAD 分段后逐段识别使用；均值归一化与预加重都在段内独立计算，
+     * 与 sherpa-onnx 对"一段话"的处理一致（每段是独立输入）。</p>
+     */
+    private float[] computeFbank(float[] x, int offset, int length) {
         // normalize_samples=false -> 样本 x32768（kaldi 范围）
         float scale = normalizeSamples ? 1.0f : 32768.0f;
 
-        // remove dc offset + 预加重
+        // remove dc offset + 预加重（段内独立）
         float mean = 0;
-        for (int i = 0; i < n; i++) mean += x[i];
-        mean /= n;
+        for (int i = 0; i < length; i++) mean += x[offset + i];
+        mean /= length;
+        int n = length;
         float[] w = new float[n];
         for (int i = 0; i < n; i++) {
-            float v = (x[i] - mean) * scale;
-            w[i] = (i == 0) ? v : v - PREEMPH * ((x[i - 1] - mean) * scale);
+            float v = (x[offset + i] - mean) * scale;
+            w[i] = (i == 0) ? v : v - PREEMPH * ((x[offset + i - 1] - mean) * scale);
         }
 
         // 分帧（snip_edges=true）
@@ -557,6 +631,240 @@ public class SenseVoiceAsr {
         }
         AILogger.i(TAG, "模型释放到应用目录: " + out.getName() + " (" + out.length() / 1048576 + "MB)");
         return out;
+    }
+
+    // ==================== VAD（Silero VAD v5） ====================
+
+    /**
+     * 懒加载 VAD 会话。短音频不需要它，因此不放进构造函数，
+     * 避免每次加载识别模型都多付一次 VAD 模型加载与常驻内存。
+     */
+    private synchronized OrtSession vadSession() throws Exception {
+        if (vadSession == null) {
+            File f = extractAssetIfNeeded(appContext, VAD_ASSET, "silero_vad.onnx");
+            OrtSession.SessionOptions o = new OrtSession.SessionOptions();
+            o.setIntraOpNumThreads(1);                 // VAD 很小，单线程足够
+            o.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL);
+            vadSession = env.createSession(f.getAbsolutePath(), o);
+            AILogger.i(TAG, "VAD 加载完成: " + f.length() / 1024 + "KB");
+        }
+        return vadSession;
+    }
+
+    /**
+     * 对 16k PCM 做静音检测，返回语音段 {@code [startSample, lengthSamples]} 列表（按时间序、互不重叠）。
+     *
+     * <p>规则对齐 sherpa-onnx 的 silero-vad 用法：512 采样/窗 + 64 采样上下文，
+     * 状态张量 h/c 逐窗传递；连续静音超过 100ms 才断句，语音短于 250ms 丢弃，
+     * 段首尾各留 200ms 余量防切字。</p>
+     */
+    private List<int[]> vadSegments(float[] pcm, int nSamples) throws Exception {
+        if (nSamples < VAD_SKIP_BELOW_SAMPLES) {
+            // 太短，不值得为它加载 VAD：整段当一段话（与未接 VAD 时行为一致）
+            List<int[]> one = new ArrayList<>();
+            one.add(new int[]{0, nSamples});
+            return one;
+        }
+
+        OrtSession vad;
+        try {
+            vad = vadSession();
+        } catch (Throwable t) {
+            // VAD 加载失败不能让识别整体失败：退化为整段识别
+            AILogger.w(TAG, "VAD 不可用，退化为整段识别: " + t.getMessage());
+            List<int[]> one = new ArrayList<>();
+            one.add(new int[]{0, nSamples});
+            return one;
+        }
+
+        long[] stateShape = {2, 1, 64};
+        java.nio.FloatBuffer hBuf = java.nio.FloatBuffer.wrap(new float[2 * 64]);
+        java.nio.FloatBuffer cBuf = java.nio.FloatBuffer.wrap(new float[2 * 64]);
+
+        List<int[]> segs = new ArrayList<>();
+        boolean inSpeech = false;
+        int speechStart = 0;
+        int silenceRun = 0;
+        int segMaxEnd = 0;   // 本段因超长被强制切分时的终点
+
+        final int stride = VAD_WINDOW;
+        for (int pos = 0; pos < nSamples; pos += stride) {
+            int take = Math.min(stride, nSamples - pos);
+            if (take < VAD_WINDOW) {
+                // 尾部不足一窗：丢弃不足 100ms 的残料，其余静音补零，与 sherpa 的 tail 处理一致
+                if (take < SAMPLE_RATE / 10) break;
+            }
+
+            float[] chunk = new float[VAD_CONTEXT + VAD_WINDOW];
+            // 滚动上下文：窗口 i 的输入是 [i*WINDOW-CONTEXT, i*WINDOW+WINDOW)。
+            // v5 要求每窗前置**上一窗的真实尾 64 采样**（不是零填充），起始窗左补零即可。
+            // 这里此前把 context 段整段留 0，等于丢掉了滚动上下文 —— 概率会失真。
+            int ctxStart = pos - VAD_CONTEXT;
+            for (int i = 0; i < VAD_CONTEXT; i++) {
+                int idx = ctxStart + i;
+                chunk[i] = (idx >= 0 && idx < nSamples) ? pcm[idx] : 0f;
+            }
+            int copy = Math.min(VAD_WINDOW, nSamples - pos);
+            if (copy > 0) {
+                System.arraycopy(pcm, pos, chunk, VAD_CONTEXT, copy);
+            }
+
+            float prob = vadProb(vad, chunk, stateShape, hBuf, cBuf);
+
+            if (prob >= VAD_THRESHOLD) {
+                if (!inSpeech) {
+                    inSpeech = true;
+                    speechStart = pos;
+                    segMaxEnd = pos + VAD_MAX_SEGMENT_SAMPLES;
+                }
+                silenceRun = 0;
+            } else if (inSpeech) {
+                silenceRun += take;
+                if (silenceRun >= VAD_MIN_SILENCE_SAMPLES) {
+                    addSegment(segs, speechStart, pos + take, nSamples);
+                    inSpeech = false;
+                    silenceRun = 0;
+                }
+            }
+
+            // 单段过长：强制在此断开，避免超出模型训练时长分布
+            if (inSpeech && pos + take >= segMaxEnd) {
+                addSegment(segs, speechStart, pos + take, nSamples);
+                speechStart = pos + take;
+                segMaxEnd = speechStart + VAD_MAX_SEGMENT_SAMPLES;
+                silenceRun = 0;
+            }
+        }
+
+        if (inSpeech) {
+            addSegment(segs, speechStart, nSamples, nSamples);
+        }
+
+        // 丢弃过短段（咳嗽、键盘声等），并合并相交/相邻段
+        List<int[]> kept = new ArrayList<>();
+        for (int[] s : segs) {
+            if (s[1] >= VAD_MIN_SPEECH_SAMPLES) kept.add(s);
+        }
+        if (kept.isEmpty() && !segs.isEmpty()) {
+            // 有语音但都很短：保留最长的一段，避免"有说话却识别为空"
+            int[] best = segs.get(0);
+            for (int[] s : segs) {
+                if (s[1] > best[1]) best = s;
+            }
+            kept.add(best);
+        }
+        kept = mergeOverlapping(kept);
+        return kept;
+    }
+
+    /**
+     * 合并相交或紧邻的语音段。
+     *
+     * <p>正常情况下 VAD 产出的段互不重叠，但 200ms 余量扩边可能让相邻段相接甚至相交；
+     * 若不去重，同一段音频会被识别两次，拼接后文本重复。这里按起点排序后合并。</p>
+     */
+    private static List<int[]> mergeOverlapping(List<int[]> segs) {
+        if (segs.size() <= 1) return segs;
+        List<int[]> sorted = new ArrayList<>(segs);
+        sorted.sort((a, b) -> Integer.compare(a[0], b[0]));
+        List<int[]> out = new ArrayList<>();
+        int[] cur = new int[]{sorted.get(0)[0], sorted.get(0)[1]};
+        for (int i = 1; i < sorted.size(); i++) {
+            int[] s = sorted.get(i);
+            int curEnd = cur[0] + cur[1];
+            if (s[0] <= curEnd) {
+                int newEnd = Math.max(curEnd, s[0] + s[1]);
+                cur[1] = newEnd - cur[0];
+            } else {
+                out.add(cur);
+                cur = new int[]{s[0], s[1]};
+            }
+        }
+        out.add(cur);
+        return out;
+    }
+
+    /** 把 [start,end) 按 200ms 余量扩边后加入结果集（限幅到音频范围） */
+    private static void addSegment(List<int[]> out, int start, int end, int nSamples) {
+        int s = Math.max(0, start - VAD_PAD_SAMPLES);
+        int e = Math.min(nSamples, end + VAD_PAD_SAMPLES);
+        if (e <= s) return;
+        out.add(new int[]{s, e - s});
+    }
+
+    /**
+     * 单窗 VAD 推理：输入 [1, 512+64]，返回语音概率。
+     * 状态张量 h/c 通过缓冲区就地更新（逐窗传递，等价于流式调用）。
+     */
+    private float vadProb(OrtSession vad, float[] chunk, long[] stateShape,
+                          java.nio.FloatBuffer hBuf, java.nio.FloatBuffer cBuf) throws Exception {
+        long[] inputShape = {1, chunk.length};
+        long[] srShape = {};
+        // 显式 rewind：不依赖 OnnxTensor.createTensor 是"读当前位置"还是"从 0 读"，
+        // 两种语义下都从头读满。
+        hBuf.rewind();
+        cBuf.rewind();
+        try (OnnxTensor in = OnnxTensor.createTensor(env, java.nio.FloatBuffer.wrap(chunk), inputShape);
+             OnnxTensor sr = OnnxTensor.createTensor(env, java.nio.LongBuffer.wrap(new long[]{SAMPLE_RATE}), srShape);
+             OnnxTensor h = OnnxTensor.createTensor(env, hBuf, stateShape);
+             OnnxTensor c = OnnxTensor.createTensor(env, cBuf, stateShape)) {
+            Map<String, OnnxTensor> inputs = new HashMap<>();
+            inputs.put("input", in);
+            inputs.put("sr", sr);
+            inputs.put("h", h);
+            inputs.put("c", c);
+            try (OrtSession.Result r = vad.run(inputs)) {
+                OnnxTensor out = (OnnxTensor) r.get(0);
+                float[][] p = (float[][]) out.getValue();
+                // hn/cn 的 Java 视图是 [2,1,64]（float[][][]），**不能**直接当 float[] 取
+                // （真机首测即 ClassCastException: float[][][] cannot be cast to float[]）。
+                // 这里按实际形状展平回 128 个 float 再写回缓冲区供下一窗使用。
+                OnnxTensor hn = (OnnxTensor) r.get(1);
+                OnnxTensor cn = (OnnxTensor) r.get(2);
+                hBuf.rewind();
+                hBuf.put(flattenToFloatArray(hn.getValue(), 2 * 64, "hn"));
+                hBuf.rewind();
+                cBuf.rewind();
+                cBuf.put(flattenToFloatArray(cn.getValue(), 2 * 64, "cn"));
+                cBuf.rewind();
+                return (p != null && p.length > 0 && p[0] != null && p[0].length > 0) ? p[0][0] : 0f;
+            }
+        }
+    }
+
+    /**
+     * 把 ONNX 输出的嵌套数组展平为长度 {@code expect} 的 float[]。
+     *
+     * <p>同一张量在不同 ONNX Runtime 版本/形状下可能返回 float[]、float[][] 或
+     * float[][][]，因此按类型逐层展开，而不是硬转某一种形状。</p>
+     */
+    private static float[] flattenToFloatArray(Object v, int expect, String what) {
+        float[] out = new float[expect];
+        int[] idx = {0};
+        fillFloats(v, out, idx);
+        if (idx[0] != expect) {
+            // 形状不符时不能让状态静默错位：宁可抛错暴露问题
+            throw new IllegalStateException(
+                    "VAD 状态张量 " + what + " 展平后长度=" + idx[0] + "，期望 " + expect);
+        }
+        return out;
+    }
+
+    private static void fillFloats(Object v, float[] out, int[] idx) {
+        if (v instanceof float[]) {
+            for (float f : (float[]) v) {
+                if (idx[0] < out.length) out[idx[0]++] = f;
+            }
+        } else if (v instanceof Object[]) {
+            for (Object o : (Object[]) v) {
+                fillFloats(o, out, idx);
+            }
+        } else if (v instanceof Number) {
+            if (idx[0] < out.length) out[idx[0]++] = ((Number) v).floatValue();
+        } else {
+            throw new IllegalStateException("VAD 状态张量元素类型未知: "
+                    + (v == null ? "null" : v.getClass().getName()));
+        }
     }
 
     private void loadTokens(File file) throws Exception {
