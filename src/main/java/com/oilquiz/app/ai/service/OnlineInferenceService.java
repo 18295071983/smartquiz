@@ -2708,7 +2708,9 @@ public class OnlineInferenceService {
                                     reasoningText.append(rc);
                                     if (!rc.isEmpty()) {
                                         final String rct = rc;
-                                        mainHandler.post(() -> callback.onThinkingToken(rct));
+                                        mainHandler.post(() -> {
+                                            if (callback != null) callback.onThinkingToken(rct);
+                                        });
                                     }
                                 }
                                 if (delta.has("content") && !delta.get("content").isJsonNull()) {
@@ -2720,7 +2722,9 @@ public class OnlineInferenceService {
                                     }
                                     fullText.append(content);
                                     final String token = content;
-                                    mainHandler.post(() -> callback.onToken(token));
+                                    mainHandler.post(() -> {
+                                        if (callback != null) callback.onToken(token);
+                                    });
                                 }
                             }
                         }
@@ -2756,7 +2760,9 @@ public class OnlineInferenceService {
         String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
         final String outputResult = cleaned != null ? cleaned : 
             (result != null ? com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(result) : result);
-        mainHandler.post(() -> callback.onComplete(outputResult));
+        mainHandler.post(() -> {
+            if (callback != null) callback.onComplete(outputResult);
+        });
         // 注意：流式响应结束后无法获取 usage 统计信息
         return outputResult;
     }
@@ -2867,7 +2873,9 @@ public class OnlineInferenceService {
                                     String content = delta.get("text").getAsString();
                                     fullText.append(content);
                                     final String token = content;
-                                    mainHandler.post(() -> callback.onToken(token));
+                                    mainHandler.post(() -> {
+                                        if (callback != null) callback.onToken(token);
+                                    });
                                 }
                             }
                         }
@@ -2885,7 +2893,9 @@ public class OnlineInferenceService {
         String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(result);
         final String outputResult = cleaned != null ? cleaned : 
             (result != null ? com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(result) : result);
-        mainHandler.post(() -> callback.onComplete(outputResult));
+        mainHandler.post(() -> {
+            if (callback != null) callback.onComplete(outputResult);
+        });
         return outputResult;
     }
 
@@ -2977,7 +2987,13 @@ public class OnlineInferenceService {
      * 在主线程回调错误
      */
     private void postError(StreamCallback callback, String error) {
-        mainHandler.post(() -> callback.onError(error));
+        // 统一错误上报出口（全类 10 处调用都经此）。callback 可能为 null
+        // （例如只做探测/预取、不关心回调的场景），不判空会在主线程抛 NPE，
+        // 反而掩盖真正的错误信息，因此在此统一守护。
+        if (callback == null) return;
+        mainHandler.post(() -> {
+            if (callback != null) callback.onError(error);
+        });
     }
 
     /**
@@ -3226,6 +3242,12 @@ public class OnlineInferenceService {
                                          List<ChatMessage> history, int maxTokens,
                                          String toolsJson,
                                          NativeToolStreamCallback callback) {
+        // 统一入口守卫：本方法内多处直接 callback.onError(...)，callback 为 null 时
+        // 会在主线程抛 NPE，反而掩盖真正的参数/网络错误。仅提示调用方误用，不再继续。
+        if (callback == null) {
+            AILogger.w(TAG, "generateStreamWithTools: callback == null, skip");
+            return;
+        }
         executor.execute(() -> {
             try {
                 String apiUrl = config.apiUrl;
@@ -3233,15 +3255,15 @@ public class OnlineInferenceService {
                 String apiKey = config.apiKey;
 
                 if (apiUrl == null || apiUrl.isEmpty()) {
-                    callback.onError("API URL 不能为空");
+                    if (callback != null) callback.onError("API URL 不能为空");
                     return;
                 }
                 if (modelName == null || modelName.isEmpty()) {
-                    callback.onError("模型名称不能为空");
+                    if (callback != null) callback.onError("模型名称不能为空");
                     return;
                 }
                 if (apiKey == null || apiKey.isEmpty()) {
-                    callback.onError("API Key 不能为空");
+                    if (callback != null) callback.onError("API Key 不能为空");
                     return;
                 }
 
@@ -3256,7 +3278,9 @@ public class OnlineInferenceService {
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "Stream with tools failed: " + e.getMessage(), e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
+                mainHandler.post(() -> {
+                    if (callback != null) callback.onError(e.getMessage());
+                });
             }
         });
     }
@@ -3277,6 +3301,12 @@ public class OnlineInferenceService {
                                             int maxTokens, String toolsJson,
                                             boolean enableThinking,
                                             NativeToolStreamCallback callback) {
+        // 统一入口守卫（同 generateStreamWithTools）：本方法内多处直接 callback.onError(...)，
+        // callback 为 null 时会在主线程抛 NPE，掩盖真正的参数/网络错误。
+        if (callback == null) {
+            AILogger.w(TAG, "generateStreamWithToolsV2: callback == null, skip");
+            return;
+        }
         executor.execute(() -> {
             try {
                 String apiUrl = config.apiUrl;
@@ -3284,15 +3314,15 @@ public class OnlineInferenceService {
                 String apiKey = config.apiKey;
 
                 if (apiUrl == null || apiUrl.isEmpty()) {
-                    callback.onError("API URL 不能为空");
+                    if (callback != null) callback.onError("API URL 不能为空");
                     return;
                 }
                 if (modelName == null || modelName.isEmpty()) {
-                    callback.onError("模型名称不能为空");
+                    if (callback != null) callback.onError("模型名称不能为空");
                     return;
                 }
                 if (apiKey == null || apiKey.isEmpty()) {
-                    callback.onError("API Key 不能为空");
+                    if (callback != null) callback.onError("API Key 不能为空");
                     return;
                 }
 
@@ -3309,7 +3339,9 @@ public class OnlineInferenceService {
                 }
             } catch (Exception e) {
                 AILogger.e(TAG, "StreamV2 with tools failed: " + e.getMessage(), e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
+                mainHandler.post(() -> {
+                    if (callback != null) callback.onError(e.getMessage());
+                });
             }
         });
     }
@@ -3446,7 +3478,9 @@ public class OnlineInferenceService {
                     return;
                 }
                 String errorMsg = buildHttpErrorMessage(responseCode, errorBody);
-                mainHandler.post(() -> callback.onError(errorMsg));
+                mainHandler.post(() -> {
+                    if (callback != null) callback.onError(errorMsg);
+                });
                 return;
             }
 
@@ -3558,12 +3592,16 @@ public class OnlineInferenceService {
 
             @Override
             public void onComplete(String fullText) {
-                mainHandler.post(() -> callback.onComplete(fullText, "", null, "stop"));
+                mainHandler.post(() -> {
+                    if (callback != null) callback.onComplete(fullText, "", null, "stop");
+                });
             }
 
             @Override
             public void onError(String error) {
-                mainHandler.post(() -> callback.onError(error));
+                mainHandler.post(() -> {
+                    if (callback != null) callback.onError(error);
+                });
             }
         });
     }
@@ -3869,6 +3907,8 @@ public class OnlineInferenceService {
             mainHandler.post(() -> callback.onToolCallsReady(finalToolCalls));
         }
         final String fr = finishReasonHolder[0];
-        mainHandler.post(() -> callback.onComplete(fc, rc, finalToolCalls, fr));
+        mainHandler.post(() -> {
+            if (callback != null) callback.onComplete(fc, rc, finalToolCalls, fr);
+        });
     }
 }
