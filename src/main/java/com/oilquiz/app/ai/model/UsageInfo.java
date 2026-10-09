@@ -61,6 +61,16 @@ public class UsageInfo implements Serializable {
      * 错误信息（如果查询失败）
      */
     public String errorMessage;
+
+    /**
+     * 附加说明文本（可选）—— 用于承载**非"已用/总量"语义**的额度信息。
+     *
+     * <p>典型：DeepSeek 官方（{@code GET /user/balance}）。它没有 OpenAI 式 usage 端点，
+     * 其"用量"实际就是账户余额，因此由本字段承载余额文本直接展示，
+     * 而不是硬塞进 totalQuota/usedQuota 造成语义错乱。</p>
+     */
+    public String note;
+
     
     public UsageInfo() {
         this.quotaType = "tokens";

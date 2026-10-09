@@ -93,6 +93,32 @@ public class UsageTracker {
                 }
 
                 String lowerUrl = apiUrl.toLowerCase();
+                // 用量即账户余额的服务商（DeepSeek 官方、小米 MiMo）：它们**没有** OpenAI 式的
+                // usage 端点，若落到下面的 fetchOpenAIUsage 就会 404（此前配置对话框显示的
+                // "使用量 API 不可用 (HTTP 404)" 即由此而来；对话页因直接用 ApiBalanceChecker 而正常）。
+                // 统一委托 ApiBalanceChecker，确保全应用同一数据源。
+                if (com.oilquiz.app.ai.util.ApiBalanceChecker.supportsBalanceQuery(apiUrl)) {
+                    try {
+                        com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig cfg =
+                                new com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig();
+                        cfg.apiUrl = apiUrl;
+                        cfg.apiKey = apiKey;
+                        String balanceText = com.oilquiz.app.ai.util.ApiBalanceChecker.queryBalanceText(cfg);
+                        UsageInfo info = new UsageInfo();
+                        info.supported = true;
+                        info.errorMessage = null;
+                        // 余额语义（DeepSeek 用量即账户余额，非"已用/总量"）：
+                        // 用 note 承载原始文本，由 updateUsageDisplay 直接展示
+                        info.note = balanceText;
+                        info.lastUpdated = System.currentTimeMillis();
+                        return info;
+                    } catch (Exception e) {
+                        UsageInfo info = new UsageInfo();
+                        info.supported = false;
+                        info.errorMessage = e.getMessage();
+                        return info;
+                    }
+                }
                 if (lowerUrl.contains("anthropic")) {
                     return fetchAnthropicUsage(apiUrl, apiKey, period);
                 } else if (lowerUrl.contains("dashscope") || lowerUrl.contains("aliyun")

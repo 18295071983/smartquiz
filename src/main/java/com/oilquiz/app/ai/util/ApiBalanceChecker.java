@@ -51,6 +51,35 @@ public class ApiBalanceChecker {
     }
 
     /**
+     * 查询余额（同步公开入口）—— 供配置界面等复用，避免各处自行拼端点。
+     *
+     * <p><b>为什么要暴露它</b>：配置对话框原先走 {@code UsageTracker.fetchOpenAIUsage}，
+     * 用 OpenAI 的 usage 端点；而 DeepSeek 并无该端点（其用量即账户余额，
+     * 只有 {@code GET /user/balance}），于是显示"使用量 API 不可用 (HTTP 404)"，
+     * 而同一应用内的对话页因用了本类而能正常显示余额。统一到本入口即可消除分歧。</p>
+     *
+     * @return 格式化余额文本；不支持/失败抛异常
+     */
+    public static String queryBalanceText(OnlineModelManager.OnlineModelConfig config) throws IOException {
+        if (config == null || config.apiUrl == null) {
+            throw new IOException("未配置 API");
+        }
+        return queryBalance(config);
+    }
+
+    /**
+     * 该服务商是否支持本类的余额查询（当前：DeepSeek 官方、小米 MiMo）。
+     * 调用方据此决定"用余额展示"还是"走各自的用量接口"。
+     */
+    public static boolean supportsBalanceQuery(String apiUrl) {
+        if (apiUrl == null) return false;
+        String u = apiUrl.trim().toLowerCase();
+        return u.contains("deepseek.com")
+                || u.contains("mimo.mi.com")
+                || (u.contains("mi.com") && u.contains("mimo"));
+    }
+
+    /**
      * 查询余额（同步）。
      *
      * @return 格式化余额文本；不支持/失败抛异常
