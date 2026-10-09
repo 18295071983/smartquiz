@@ -662,14 +662,8 @@ public class AICenterActivity extends AppCompatActivity
                     try {
                         JSONArray modelsJson = new JSONArray();
                         for (ApiModel model : models) {
-                            JSONObject obj = new JSONObject();
-                            obj.put("id", model.id);
-                            obj.put("name", model.getName());
-                            if (model.contextLength > 0) {
-                                obj.put("contextLength", model.contextLength);
-                                obj.put("contextLengthFromApi", model.contextLengthFromApi);
-                            }
-                            modelsJson.put(obj);
+                            modelsJson.put(
+                                com.oilquiz.app.ai.service.ModelListFetcher.modelToCacheJson(model));
                         }
                         onlineModelManager.saveCachedModels(targetConfigId, modelsJson.toString());
                         Toast.makeText(this, getString(R.string.h_96daed33) + models.size() + getString(R.string.h_44850b04), Toast.LENGTH_SHORT).show();

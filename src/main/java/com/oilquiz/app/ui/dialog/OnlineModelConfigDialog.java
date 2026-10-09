@@ -93,6 +93,8 @@ public class OnlineModelConfigDialog {
     
     private String selectedModelId;
     private List<ApiModel> fetchedModels = new ArrayList<>();
+    /** 编辑已有配置时带入的持久化模型缓存（用于取展示名，无需重新拉取） */
+    private String cachedDisplaySource;
     
     /** 正在编辑的已有配置（null 表示新建） */
     private OnlineModelManager.OnlineModelConfig editingConfig;
@@ -127,6 +129,9 @@ public class OnlineModelConfigDialog {
             if (selectedModelInput != null && selectedModelId != null) {
                 selectedModelInput.setText(selectedModelId);
             }
+            // 编辑已有配置时同样标出展示名（取缓存里的 name，无需重新拉取）
+            this.cachedDisplaySource = config.cachedModelsJson;
+            updateSelectedModelLabel(selectedModelId);
         }
         return this;
     }
@@ -282,13 +287,54 @@ public class OnlineModelConfigDialog {
         modelsAdapter = new ModelListAdapter(context, new ArrayList<>(), selectedModelId, 
             model -> {
                 selectedModelId = model.id;
-                // 点选列表项时回填手动输入框（用户仍可修改为任意模型名）
+                // 点选列表项时回填**实际发给 API 的模型 id**（用户仍可改成任意模型名）。
+                // 注意 id 与列表展示名不同：官方 GET /models 的 name 是展示名
+                // （deepseek-flash → "DeepSeek-V4.1-Flash"），而 API 只接受 id。
+                // 因此输入框写 id、标签同时标出展示名，避免"点了展示名却看到 id"的困惑。
                 if (selectedModelInput != null) {
                     selectedModelInput.setText(model.id);
                 }
+                updateSelectedModelLabel(model.id);
             });
         modelsRecycler.setLayoutManager(new LinearLayoutManager(context));
         modelsRecycler.setAdapter(modelsAdapter);
+    }
+
+    /**
+     * 在"可用模型"标题处标出**已选模型的展示名与实际 id**，使两者同时可见。
+     *
+     * <p>背景：官方 {@code GET /models} 的 {@code name} 是展示名，与 id 不同
+     * （{@code deepseek-flash} ↔ {@code DeepSeek-V4.1-Flash}），而请求必须用 id。
+     * 只显示其一都会让人以为"选错了模型"。</p>
+     */
+    private void updateSelectedModelLabel(String modelId) {
+        if (modelsTitle == null || modelId == null) return;
+        String display = findDisplayNameInFetched(modelId);
+        if (display != null && !display.equals(modelId)) {
+            modelsTitle.setText("可用模型 —— 已选：" + display + "（" + modelId + "）");
+        } else {
+            modelsTitle.setText("可用模型 —— 已选：" + modelId);
+        }
+    }
+
+    /** 从已获取的模型列表里按 id 取展示名；取不到返回 null */
+    private String findDisplayNameInFetched(String modelId) {
+        try {
+            for (ApiModel m : fetchedModels) {
+                if (m != null && modelId.equals(m.id)) {
+                    String n = m.getName();
+                    return n != null && !n.isEmpty() ? n : null;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // 编辑已有配置时 fetchedModels 为空：回落到持久化缓存里的 name
+        try {
+            return com.oilquiz.app.ai.service.ModelListFetcher
+                    .findDisplayNameInCache(cachedDisplaySource, modelId);
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     private void setupListeners() {
@@ -546,7 +592,11 @@ public class OnlineModelConfigDialog {
                     fetchedModels = models;
                     modelsAdapter.updateData(models, selectedModelId);
                     modelsSection.setVisibility(View.VISIBLE);
-                    modelsTitle.setText("可用模型 (" + models.size() + ")");
+                    // 标题同时反映"数量 + 已选模型的展示名与 id"，避免只显示 id 让人误判
+                    updateSelectedModelLabel(selectedModelId);
+                    if (selectedModelId == null || selectedModelId.isEmpty()) {
+                        modelsTitle.setText("可用模型 (" + models.size() + ")");
+                    }
                     Toast.makeText(context, "获取到 " + models.size() + " 个模型", Toast.LENGTH_SHORT).show();
                     
                     // 同时获取使用量
@@ -580,7 +630,15 @@ public class OnlineModelConfigDialog {
         }
         
         usageSection.setVisibility(View.VISIBLE);
-        
+
+        // 非"已用/总量"语义的额度（如 DeepSeek 余额）：直显文本，不套用百分比进度
+        if (info.supported && info.note != null && !info.note.isEmpty()) {
+            usageProgress.setProgress(0);
+            usagePercentText.setText("-");
+            usageText.setText(info.note);
+            return;
+        }
+
         if (info.supported) {
             int percentage = info.getUsagePercentage();
             usageProgress.setProgress(Math.min(percentage, 100));
@@ -648,29 +706,9 @@ public class OnlineModelConfigDialog {
             try {
                 org.json.JSONArray arr = new org.json.JSONArray();
                 for (ApiModel model : fetchedModels) {
-                    org.json.JSONObject obj = new org.json.JSONObject();
-                    obj.put("id", model.id);
-                    obj.put("name", model.getName());
-                    if (model.contextLength > 0) {
-                        obj.put("contextLength", model.contextLength); // 保留配置时检测到的真实窗口
-                        obj.put("contextLengthFromApi", model.contextLengthFromApi);
-                    }
-                    // 思考强度档位：服务商 GET /models 的 effort.supported_levels。
-                    // 必须持久化 —— 它是"每个模型各自不同"的能力声明：UI 据此决定是否展示
-                    // 档位选择器，请求据此决定是否下发 reasoning_effort。
-                    // 未声明的模型不写该字段（读取侧视为"只有开关、没有档位"）。
-                    if (model.hasThinkingEffortLevels()) {
-                        org.json.JSONArray lv = new org.json.JSONArray();
-                        for (String level : model.thinkingEffortLevels) lv.put(level);
-                        obj.put("thinkingEffortLevels", lv);
-                        if (model.thinkingEffortDefault != null) {
-                            obj.put("thinkingEffortDefault", model.thinkingEffortDefault);
-                        }
-                    }
-                    if (model.maxOutputTokens > 0) {
-                        obj.put("maxOutputTokens", model.maxOutputTokens);
-                    }
-                    arr.put(obj);
+                    // 与"AI 中心自动获取"共用同一序列化（含思考档位/max_output_tokens），
+                    // 避免两处各写一份、其中一处漏字段导致档位丢失
+                    arr.put(ModelListFetcher.modelToCacheJson(model));
                 }
                 cachedModelsJson = arr.toString();
             } catch (Exception e) {

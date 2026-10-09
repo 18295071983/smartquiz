@@ -598,14 +598,10 @@ public class ModelSelectorActivity extends AppCompatActivity
                     try {
                         JSONArray modelsJson = new JSONArray();
                         for (ApiModel model : models) {
-                            JSONObject obj = new JSONObject();
-                            obj.put("id", model.id);
-                            obj.put("name", model.getName());
-                            if (model.contextLength > 0) {
-                                obj.put("contextLength", model.contextLength); // 保留配置时检测到的真实窗口
-                                obj.put("contextLengthFromApi", model.contextLengthFromApi);
-                            }
-                            modelsJson.put(obj);
+                            // 共用序列化（含 thinkingEffortLevels / maxOutputTokens），
+                            // 避免各入口各写一份、漏字段导致档位丢失
+                            modelsJson.put(
+                                com.oilquiz.app.ai.service.ModelListFetcher.modelToCacheJson(model));
                         }
                         onlineModelManager.saveCachedModels(targetConfigId, modelsJson.toString());
                         Toast.makeText(this, getString(R.string.h_96daed33) + models.size() + getString(R.string.h_44850b04), Toast.LENGTH_SHORT).show();
