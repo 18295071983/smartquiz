@@ -2013,13 +2013,29 @@ public class OnlineInferenceService {
      */
     private int resolveMaxTokensForThinking(int maxTokens, String modelName, boolean enableThinking) {
         int base = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
-        if (!enableThinking) return base;
         try {
-            if (!OnlineModelManager.isThinkingModelName(modelName)) return base;
+            // 服务端声明的允许上限（GET /models 的 max_output_tokens）：作为硬上限参与取小，
+            // 防止我们算出的值超出服务端允许范围。未声明(0)则不约束。
+            int apiMax = 0;
+            try {
+                String cachedJson = com.oilquiz.app.ai.model.OnlineModelManager.getInstance(context)
+                        .getCachedModelsFor(null, modelName);
+                apiMax = com.oilquiz.app.ai.model.OnlineModelManager
+                        .parseMaxOutputTokens(cachedJson, modelName);
+            } catch (Throwable ignored) {
+            }
+
+            if (!enableThinking || !OnlineModelManager.isThinkingModelName(modelName)) {
+                return apiMax > 0 ? Math.min(base, apiMax) : base;
+            }
             boolean maxEffort = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(context)
                     .getThinkingEffort() == com.oilquiz.app.ai.chat.ChatModeManager.ThinkingEffort.MAX;
+            // 档位对应上限：官方文档"未设置时思考模式默认 64K，reasoning_effort=max 时 128K"
             int ceiling = maxEffort ? THINKING_MAX_TOKENS_MAX_EFFORT : THINKING_MAX_TOKENS;
-            return Math.max(base, ceiling);
+            int resolved = Math.max(base, ceiling);
+            // min(档位对应值, 服务端上限) —— 两个都用，防御越界
+            if (apiMax > 0) resolved = Math.min(resolved, apiMax);
+            return resolved;
         } catch (Throwable t) {
             return base;
         }

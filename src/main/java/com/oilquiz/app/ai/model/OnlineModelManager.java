@@ -1193,6 +1193,29 @@ public class OnlineModelManager {
         return empty;
     }
 
+    /**
+     * 从缓存的模型列表 JSON 中解析该模型**服务端允许的最大输出 token 数**
+     * （{@code GET /models} 的 {@code max_output_tokens}，未声明返回 0）。
+     *
+     * <p>用途：作为 {@code max_tokens} 的**上限**参与取小运算，
+     * 避免我们算出的档位上限超过服务端允许值而报错。</p>
+     */
+    public static int parseMaxOutputTokens(String cachedModelsJson, String modelName) {
+        if (cachedModelsJson == null || cachedModelsJson.isEmpty() || modelName == null) return 0;
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(cachedModelsJson);
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                if (!modelName.equals(o.optString("id"))) continue;
+                int v = o.optInt("maxOutputTokens", 0);
+                return v > 0 ? v : 0;
+            }
+        } catch (Throwable ignored) {
+        }
+        return 0;
+    }
+
     /** 按 API 地址 + 模型名定位配置（模型名为空时取该地址下第一个启用的配置） */
     /**
      * 检查缓存是否过期（超过6小时）
