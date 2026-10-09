@@ -988,19 +988,17 @@
         "param": "thinking.type",
         "defaultEnabled": true,
         "modelKeywords": [
-          "deepseek-reasoner",
-          "deepseek-r1",
-          "deepseek-v3",
-          "deepseek-v4",
           "deepseek-flash",
-          "deepseek-chat"
+          "deepseek-v4",
+          "deepseek-reasoner",
+          "deepseek-r1"
         ],
         "instruction": "你处于深度思考模式。对于复杂问题，请先进行系统性的分析推理（输出在 reasoning_content 思考链中），再给出最终答案。\n思考阶段：拆解问题→多角度分析→逐步推理验证逻辑链条。\n最终回答：结论先行，简洁明确，只保留关键论据。"
       },
       "models": [
-        "deepseek-chat",
-        "deepseek-reasoner",
+        "deepseek-flash",
         "deepseek-v4-pro",
+        "deepseek-reasoner",
         "deepseek-v4-flash"
       ],
       "embeddingModel": "",
