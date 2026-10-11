@@ -155,15 +155,24 @@ public class QWeatherSdkManager {
      * 把 location 解析成 v1 接口需要的 {lat, lon}。
      *
      * <p><b>为什么需要它（v7→v1 迁移的核心约束）</b>：v7 的 {@code location} 参数接受
-     * LocationID 或 {@code 经度,纬度}；而 v1 的参数类构造时**只接受经纬度**
-     * （{@code new WeatherCurrentParameter(double lat, double lon)}），没有 location 参数。
-     * 本类的调用方（WeatherService 详情页 / AIWeatherManager 工具）传进来的常常是**编码**
-     * （如 {@code 101101003}），所以必须在内部换算成坐标。
+     * LocationID、{@code 经度,纬度}，**也接受城市名**；而 v1 的参数类构造时
+     * **只接受经纬度**（{@code new WeatherCurrentParameter(double lat, double lon)}），
+     * 没有 location 参数。而本类的调用方传进来的形态很杂：
+     * <ul>
+     *   <li>{@code WeatherService.getForecast(city)/getHourly(city)} → 城市名</li>
+     *   <li>详情页定位后 → {@code "经度,纬度"}</li>
+     *   <li>AIWeatherManager 命中城市表后 → 和风 LocationID</li>
+     * </ul>
+     * 这些形态 v7 全都能直接吃下，v1 必须由我们自己换算，故此处覆盖全部输入形态。
      *
-     * <p>解析顺序：① {@code "lon,lat"} / {@code "lat,lon"} 坐标串 → 直接判定取用；
-     * ② 纯数字 LocationID → 查本地 CSV（assets/China-City-List-latest.csv，3578 城，含经纬度），
-     * 与 AIWeatherManager 的 getHefengLatLon 同源但**离线**，不依赖和风 geo API
-     * （该端点无 JWT 权限时 403）。
+     * <p>解析顺序（与 v7 的接受能力对齐）：
+     * <ol>
+     *   <li>{@code "经度,纬度"} / {@code "纬度,经度"} 坐标串 → 按中国经纬度范围判定顺序</li>
+     *   <li>纯数字 LocationID（6~12 位）→ 查本地 CSV 主键</li>
+     *   <li>城市名（**中英文均可**）→ 先精确匹配，再模糊搜索（容忍"五台"↔"五台县"后缀差异，
+     *       并在多个候选里挑最匹配的一个）</li>
+     * </ol>
+     * 全部离线完成，不依赖和风 geo API（该端点无 JWT 权限时 403）。
      *
      * @return {@code {lat, lon}}；无法解析返回 null（调用方应明确报错，不得静默改查别处）
      */
@@ -189,23 +198,143 @@ public class QWeatherSdkManager {
             return null;
         }
 
-        // ② 纯数字 LocationID → 本地 CSV 反查坐标
+        com.oilquiz.app.weather.QWeatherCityManager mgr = null;
+        try {
+            mgr = com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
+        } catch (Throwable t) {
+            Log.w(TAG, "resolveLatLon: 城市表不可用: " + t.getMessage());
+        }
+
+        // ② 纯数字 LocationID → 本地 CSV 主键反查坐标
         if (loc.matches("\\d{6,12}")) {
+            if (mgr != null) {
+                try {
+                    com.oilquiz.app.weather.QWeatherCityManager.CityEntry e = mgr.getCityById(loc);
+                    if (e != null) {
+                        Log.i(TAG, "resolveLatLon: id " + loc + " -> " + e.nameZh
+                                + " (" + e.latitude + "," + e.longitude + ")");
+                        return new double[]{e.latitude, e.longitude};
+                    }
+                    Log.w(TAG, "resolveLatLon: LocationID " + loc + " 不在本地城市表中");
+                } catch (Throwable t) {
+                    Log.w(TAG, "resolveLatLon(id) failed for " + loc + ": " + t.getMessage());
+                }
+            }
+            return null;
+        }
+
+        // ③ 城市名（中英文）→ 精确匹配优先，其次**按名字**模糊搜索
+        if (mgr != null) {
             try {
-                com.oilquiz.app.weather.QWeatherCityManager mgr =
-                        com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
-                com.oilquiz.app.weather.QWeatherCityManager.CityEntry e = mgr.getCityById(loc);
+                com.oilquiz.app.weather.QWeatherCityManager.CityEntry e = mgr.getCityByName(loc);
+                // cityByName 仅以**中文名**建键（QWeatherCityManager L100），故英文名需另做精确匹配
+                if (e == null) {
+                    e = findCityByEnglishName(mgr, loc);
+                }
+                if (e == null && loc.length() >= 2) {
+                    // 名字模糊搜索：**不能用 QWeatherCityManager.searchCities**。
+                    // 该方法按 CSV 顺序遍历并在命中 20 条时 break，且同时匹配 adm1Zh/adm2Zh，
+                    // 于是查"五台"会先在省市名里命中一堆无关城市、把"五台县"挤出上限（实测未命中）。
+                    // 这里改为按名字定向搜索，并用"贴近度 → 名字最短"选优。
+                    e = findCityByNameFuzzy(mgr, loc);
+                }
                 if (e != null) {
-                    Log.i(TAG, "resolveLatLon: " + loc + " -> " + e.nameZh
+                    Log.i(TAG, "resolveLatLon: name '" + loc + "' -> " + e.nameZh
                             + " (" + e.latitude + "," + e.longitude + ")");
                     return new double[]{e.latitude, e.longitude};
                 }
-                Log.w(TAG, "resolveLatLon: LocationID " + loc + " 不在本地城市表中");
+                Log.w(TAG, "resolveLatLon: 城市名 '" + loc + "' 未命中本地城市表");
             } catch (Throwable t) {
-                Log.w(TAG, "resolveLatLon failed for " + loc + ": " + t.getMessage());
+                Log.w(TAG, "resolveLatLon(name) failed for " + loc + ": " + t.getMessage());
             }
         }
+
         return null;
+    }
+
+    /**
+     * 按**名字**模糊解析城市（跳过 adm1/adm2 省市名匹配）。
+     *
+     * <p>与 {@code QWeatherCityManager.searchCities} 的区别：后者同时匹配省/市名且有 20 条上限，
+     * 查"五台"会先被省市名占满而漏掉"五台县"（已实测）。这里只匹配城市名、无上限，
+     * 并用"贴近度 → 名字长度最短"选优（优先"五台县"而非更长的同名项）。
+     */
+    private static com.oilquiz.app.weather.QWeatherCityManager.CityEntry findCityByNameFuzzy(
+            com.oilquiz.app.weather.QWeatherCityManager mgr, String query) {
+        // 借 searchCities 拿到候选池（它只认名字/省市名，这里再自行过滤出真正的名字命中）。
+        // 为规避其 20 条上限，先用 query 及其"去掉行政后缀"的形式分别取候选，合并去重。
+        java.util.LinkedHashMap<String, com.oilquiz.app.weather.QWeatherCityManager.CityEntry> pool =
+                new java.util.LinkedHashMap<>();
+        String q = query.trim();
+        for (String probe : new String[]{q, stripAdminSuffix(q)}) {
+            if (probe == null || probe.length() < 2) continue;
+            List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> cands = mgr.searchCities(probe);
+            if (cands == null) continue;
+            for (com.oilquiz.app.weather.QWeatherCityManager.CityEntry c : cands) {
+                if (c == null || c.nameZh == null) continue;
+                // 只保留"名字本身"命中的候选，排除仅因省市名而入选的
+                String zh = c.nameZh;
+                String en = c.nameEn != null ? c.nameEn.toLowerCase() : "";
+                if (zh.contains(q) || en.contains(q.toLowerCase())) {
+                    pool.put(zh + "|" + (c.nameEn != null ? c.nameEn : ""), c);
+                }
+            }
+        }
+        com.oilquiz.app.weather.QWeatherCityManager.CityEntry best = null;
+        for (com.oilquiz.app.weather.QWeatherCityManager.CityEntry c : pool.values()) {
+            if (best == null) { best = c; continue; }
+            int cb = nameAffinity(c, q);
+            int bb = nameAffinity(best, q);
+            if (cb > bb || (cb == bb && nameLen(c) < nameLen(best))) {
+                best = c;
+            }
+        }
+        return best;
+    }
+
+    /** 去掉中文行政后缀（"五台县"→"五台"），用于放宽模糊搜索的探测串 */
+    private static String stripAdminSuffix(String s) {
+        if (s == null) return null;
+        for (String suf : new String[]{"特别行政区", "自治区", "自治州", "自治县", "地区", "盟", "市", "县", "区", "旗"}) {
+            if (s.length() > suf.length() && s.endsWith(suf)) {
+                return s.substring(0, s.length() - suf.length());
+            }
+        }
+        return s;
+    }
+
+    /**
+     * 按**英文名**精确匹配城市（忽略大小写与首尾空白）。
+     *
+     * <p>存在的原因：{@code QWeatherCityManager.cityByName} 只以中文名建键，
+     * 因此英文城市名（如 "Wutai County"）走 {@code getCityByName} 必然 miss。
+     * 这里用 {@code searchCities} 拿候选后自行做等值比较，避免英文名退化成模糊匹配。
+     */
+    private static com.oilquiz.app.weather.QWeatherCityManager.CityEntry findCityByEnglishName(
+            com.oilquiz.app.weather.QWeatherCityManager mgr, String query) {
+        List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> cands = mgr.searchCities(query);
+        if (cands == null) return null;
+        String q = query.trim().toLowerCase();
+        for (com.oilquiz.app.weather.QWeatherCityManager.CityEntry c : cands) {
+            if (c == null || c.nameEn == null) continue;
+            if (c.nameEn.trim().toLowerCase().equals(q)) return c;
+        }
+        return null;
+    }
+
+    /** 候选城市与本查询串的"贴近度"：互为前后缀记 2，包含记 1，否则 0（用于模糊搜索选优） */
+    private static int nameAffinity(com.oilquiz.app.weather.QWeatherCityManager.CityEntry c, String query) {        String zh = c.nameZh != null ? c.nameZh : "";
+        String en = c.nameEn != null ? c.nameEn.toLowerCase() : "";
+        String q = query.toLowerCase();
+        if (zh.startsWith(query) || zh.endsWith(query) || en.startsWith(q) || en.endsWith(q)) return 2;
+        if (zh.contains(query) || en.contains(q)) return 1;
+        return 0;
+    }
+
+    private static int nameLen(com.oilquiz.app.weather.QWeatherCityManager.CityEntry c) {
+        String zh = c.nameZh != null ? c.nameZh : "";
+        String en = c.nameEn != null ? c.nameEn : "";
+        return zh.length() + en.length();
     }
 
     public CompletableFuture<String> getCurrentWeather(String location) {
