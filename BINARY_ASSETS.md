@@ -42,18 +42,25 @@ GitHub 远端**，而 GitHub Release 附件单文件上限 **2 GB** —— 足�
 
 做法：
 
-1. 在 GitHub 仓库创建 Release，打一个语义化 tag（如 `binary-assets-v1`）
-2. 把 `liblo-native-code.so`、`model.int8.onnx`、`tokens.txt` **拖入 Release 附件**
-   （**不要**提交进 Git —— 那会污染仓库且触发 100MB 硬限）
-3. 把附件直链写入本文档对应小节 → Gitee 侧的用户照文档即可下载
+**当前状态：已发布** —— tag `binary-assets-v1`，内含 `liblo-native-code.so`（171.3 MB）。
 
-> ⚠️ 附件直链形如
-> `https://github.com/<owner>/<repo>/releases/download/<tag>/<filename>`，
-> 国内访问 GitHub 可能不稳定；若需要更稳的国内分发，可另择对象存储/网盘，
-> 并在本文档按同样格式补充链接。
->
-> 注意：`fetch-asr-model.ps1` 目前直接从 **sherpa-onnx 官方 release** 取模型（已实测可用），
-> 因此 **ASR 模型其实不必自行托管** —— 只有 LO 的 `.so` 需要找地方放。
+| 项 | 内容 |
+| --- | --- |
+| Release 页 | <https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1> |
+| 附件直链 | <https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so> |
+
+**为什么只放了 LO 的 `.so`**：`fetch-asr-model.ps1` 已能从 **sherpa-onnx 官方 release**
+直接取到 ASR 模型（实测可用），无需自行托管；真正"无处可取"的只有 LO 引擎这一个文件。
+
+**为什么走附件而不是提交进 Git**：Gitee 单文件限 50 MB、仓库总量上限 500 MB（已用约 315 MB），
+提交必然失败或立刻顶格；GitHub 附件单文件上限 2 GB，足够容纳。Gitee 侧用户照本文档直链下载即可。
+
+**后续若需更新**（例如换新版 LO 引擎）：新建一个 tag 的 Release 上传新附件，
+并在本文档更新直链与体积；**不要**覆盖旧 tag 的附件（旧提交可能仍引用它）。
+
+> ⚠️ 附件实际由 `release-assets.githubusercontent.com` 提供（下载时会重定向过去），
+> 国内访问可能不稳定。若需更稳的国内分发，可另择对象存储/网盘，
+> 并在本文档按同样格式补充镜像链接。
 
 
 ## 快速自查
@@ -95,22 +102,37 @@ LibreOffice 官方**不发布**该 `.so` 的预编译包（Android Viewer 的 na
 
 ### 获取途径
 
-1. **从 GitHub Release 附件下载**（**推荐**，见上文「推荐做法」）
-   - 若维护者已按该做法发布，本文档此处理应给出直链，例如：
-     `https://github.com/<owner>/<repo>/releases/download/<tag>/liblo-native-code.so`
-   - 下载后放到 `viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so`
-   - 校验：文件应约 **171.3 MB**（可先比对体积，避免下到残缺文件）
-   > 当前状态：**该附件尚未发布**。若你是维护者且手上有此文件，按上文步骤上传后，
-   > 请把直链补到这里，并删掉这段提示。
+1. **从 GitHub Release 附件下载**（**推荐**，已发布）
+
+   | 项 | 内容 |
+   | --- | --- |
+   | 直链 | <https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so> |
+   | Release 页 | <https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1> |
+   | 体积 | 171.3 MB（已核对：`HTTP 200`，`Content-Length` 一致） |
+   | 落位 | `viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so` |
+
+   ```powershell
+   # 一条命令下载（PowerShell）
+   Invoke-WebRequest -Uri 'https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so' `
+                     -OutFile 'viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so'
+   ```
+
+   下载后**先比对体积**（应约 171.3 MB），避免拿到残缺文件。
+
+   > ⚠️ **国内访问 GitHub 附件可能不稳定**。附件实际由
+   > `release-assets.githubusercontent.com` 提供（下载时会重定向过去），
+   > 该域名与 `github.com` 不同，有时其中一条通、另一条不通。若下载失败可：
+   > 换网络/代理重试，或改走下面第 2、3 条途径。
 2. **从 LibreOffice 官方源码编译**（正统做法，无需依赖他人）
    - 源码：<https://cgit.freedesktop.org/libreoffice/core/>（`android/` 目录）
    - 架构说明：<https://blog.documentfoundation.org/wp-content/uploads/2018/09/loandroid_droidcon.pdf>
    - 建议 checkout 与 `versionrc` 的 buildid 或 25.2 分支一致的版本
    - 代价：**编译成本很高**（需要完整 LO 构建环境、NDK 与大量时间，以小时计）
-3. **向本仓库维护者索取**该预编译文件（体积大，不适合走 Git，也不要提交进仓库）
+3. **向本仓库维护者索取**该预编译文件
 
 > 无论走哪条路，**都不要把这个 `.so` 提交进 Git**：Gitee 单文件限 50 MB、仓库总量
-> 上限 500 MB（当前已用约 315 MB），提交必然失败或立刻顶格。
+> 上限 500 MB（当前已用约 315 MB），提交必然失败或立刻顶格。这是它只能作为
+> **Release 附件**（而非仓库文件）分发的原因。
 
 ### 注意：这个模块的其余部分**都在库里**
 
