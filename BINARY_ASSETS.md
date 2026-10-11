@@ -7,8 +7,54 @@
 > 「从版本控制移除超 Gitee 100MB 限制的大文件（本地 SenseVoice asr 模型 239MB /
 > LibreOffice native 库 179MB）及日志、构建产物；.gitignore 防再入库」
 >
-> 平台限制：**Gitee 单文件 100 MB**；GitHub 同样 **100 MB 硬限**（50 MB 起警告）。
 > 这不是"忘了提交"，靠补提交解决不了。Git LFS 也不适用 —— 需远端支持且配额通常装不下 400 MB+。
+
+## 平台配额实测（2026-10-11 核对官方文档）
+
+> **更正**：上面 `acd989e3` 的原始描述写的是"Gitee 100MB 限制"，**不够准确** ——
+> 100 MB 是 Gitee **企业版·标准版**的单文件上限；**社区版（个人）实际是 50 MB**。
+
+| 平台 / 通道 | 单文件上限 | 单仓库上限 |
+| --- | --- | --- |
+| **Gitee 社区版 · Git 仓库** | **50 MB** | **500 MB** |
+| **Gitee 社区版 · 附件（Release 等）** | **100 MB** | 附件总量 1 GB |
+| **GitHub · Git 仓库** | 100 MB（50 MB 起警告） | 建议 ≤ 1–5 GB |
+| **GitHub · Release 附件** | **2 GB** | — |
+
+来源：[Gitee 产品配额说明](https://help.gitee.com/questions/Gitee%E4%BA%A7%E5%93%81%E9%85%8D%E9%A2%9D%E8%AF%B4%E6%98%8E)、
+[Gitee 创建 Release](https://help.gitee.com/repository/release/create)。
+
+**对照本仓库的实际体积**：
+
+| 资源 | 体积 | Gitee Git | Gitee 附件 | GitHub 附件 |
+| --- | --- | --- | --- | --- |
+| `liblo-native-code.so` | 171 MB | ❌ | ❌ (>100MB) | ✅ |
+| `asr/model.int8.onnx` | 228 MB | ❌ | ❌ (>100MB) | ✅ |
+| `libs/geniex-android` | — | 已改 Maven 坐标，无需分发 | — | — |
+
+另注：本仓库 Git 体积约 **315 MB**，Gitee 社区版上限 500 MB → **仅剩约 185 MB 余量**，
+即便单文件限制放宽也几乎放不下第二个大文件。
+
+## 推荐做法：用 GitHub Release 附件当作"大文件存放处"
+
+Gitee 的 Git（50MB）与附件（100MB）**都放不下** LO 引擎与 ASR 模型，但本仓库**已有
+GitHub 远端**，而 GitHub Release 附件单文件上限 **2 GB** —— 足以容纳这两个文件。
+
+做法：
+
+1. 在 GitHub 仓库创建 Release，打一个语义化 tag（如 `binary-assets-v1`）
+2. 把 `liblo-native-code.so`、`model.int8.onnx`、`tokens.txt` **拖入 Release 附件**
+   （**不要**提交进 Git —— 那会污染仓库且触发 100MB 硬限）
+3. 把附件直链写入本文档对应小节 → Gitee 侧的用户照文档即可下载
+
+> ⚠️ 附件直链形如
+> `https://github.com/<owner>/<repo>/releases/download/<tag>/<filename>`，
+> 国内访问 GitHub 可能不稳定；若需要更稳的国内分发，可另择对象存储/网盘，
+> 并在本文档按同样格式补充链接。
+>
+> 注意：`fetch-asr-model.ps1` 目前直接从 **sherpa-onnx 官方 release** 取模型（已实测可用），
+> 因此 **ASR 模型其实不必自行托管** —— 只有 LO 的 `.so` 需要找地方放。
+
 
 ## 快速自查
 
@@ -49,12 +95,22 @@ LibreOffice 官方**不发布**该 `.so` 的预编译包（Android Viewer 的 na
 
 ### 获取途径
 
-1. **从 LibreOffice 官方源码编译**（正统做法）
+1. **从 GitHub Release 附件下载**（**推荐**，见上文「推荐做法」）
+   - 若维护者已按该做法发布，本文档此处理应给出直链，例如：
+     `https://github.com/<owner>/<repo>/releases/download/<tag>/liblo-native-code.so`
+   - 下载后放到 `viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so`
+   - 校验：文件应约 **171.3 MB**（可先比对体积，避免下到残缺文件）
+   > 当前状态：**该附件尚未发布**。若你是维护者且手上有此文件，按上文步骤上传后，
+   > 请把直链补到这里，并删掉这段提示。
+2. **从 LibreOffice 官方源码编译**（正统做法，无需依赖他人）
    - 源码：<https://cgit.freedesktop.org/libreoffice/core/>（`android/` 目录）
    - 架构说明：<https://blog.documentfoundation.org/wp-content/uploads/2018/09/loandroid_droidcon.pdf>
    - 建议 checkout 与 `versionrc` 的 buildid 或 25.2 分支一致的版本
-   - 代价：**编译成本很高**（需要完整 LO 构建环境、NDK 与大量时间）
-2. **向本仓库维护者索取**该预编译文件（体积大，不适合走 Git）
+   - 代价：**编译成本很高**（需要完整 LO 构建环境、NDK 与大量时间，以小时计）
+3. **向本仓库维护者索取**该预编译文件（体积大，不适合走 Git，也不要提交进仓库）
+
+> 无论走哪条路，**都不要把这个 `.so` 提交进 Git**：Gitee 单文件限 50 MB、仓库总量
+> 上限 500 MB（当前已用约 315 MB），提交必然失败或立刻顶格。
 
 ### 注意：这个模块的其余部分**都在库里**
 
