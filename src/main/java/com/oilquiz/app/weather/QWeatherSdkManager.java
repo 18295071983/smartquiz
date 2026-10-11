@@ -15,10 +15,15 @@ import com.qweather.sdk.parameter.astronomy.AstronomySunParameter;
 import com.qweather.sdk.basic.Indices;
 import com.qweather.sdk.parameter.indices.IndicesParameter;
 import com.qweather.sdk.parameter.minutely.MinutelyParameter;
-import com.qweather.sdk.parameter.weather.WeatherParameter;
+import com.qweather.sdk.parameter.weather.WeatherCurrentParameter;
+import com.qweather.sdk.response.weather.WeatherCurrentResponse;
 import com.qweather.sdk.parameter.weather.WeatherHourlyParameter;
 import com.qweather.sdk.response.weather.WeatherForecastHourly;
 import com.qweather.sdk.response.weather.WeatherForecastHourlyResponse;
+import com.qweather.sdk.parameter.weather.WeatherDailyParameter;
+import com.qweather.sdk.response.weather.WeatherForecastDaily;
+import com.qweather.sdk.response.weather.WeatherForecastDailyResponse;
+import com.qweather.sdk.response.weather.WeatherPeriodForecast;
 import com.qweather.sdk.response.ValueUnit;
 import com.qweather.sdk.response.air.v1.AirDaily;
 import com.qweather.sdk.response.air.v1.AirIndex;
@@ -39,10 +44,7 @@ import com.qweather.sdk.response.indices.IndicesDaily;
 import com.qweather.sdk.response.indices.IndicesDailyResponse;
 import com.qweather.sdk.response.minutely.Minutely;
 import com.qweather.sdk.response.minutely.MinutelyResponse;
-import com.qweather.sdk.response.weather.WeatherDaily;
-import com.qweather.sdk.response.weather.WeatherDailyResponse;
-import com.qweather.sdk.response.weather.WeatherNow;
-import com.qweather.sdk.response.weather.WeatherNowResponse;
+import com.qweather.sdk.response.weather.WeatherCurrentResponse;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -210,17 +212,22 @@ public class QWeatherSdkManager {
             return CompletableFuture.completedFuture("天气SDK未初始化");
         }
 
+        // V1-MIGRATION：v7 weatherNow → v1 weatherCurrent（v1 只接受经纬度）
+        final double[] ll = resolveLatLon(location);
+        if (ll == null) {
+            return CompletableFuture.completedFuture("天气查询失败: 无法把 '" + location + "' 解析成经纬度");
+        }
+
         CompletableFuture<String> future = new CompletableFuture<>();
         CountDownLatch latch = new CountDownLatch(1);
 
         try {
-            WeatherParameter parameter = new WeatherParameter(location)
-                    .lang(Lang.ZH_HANS)
-                    .unit(Unit.METRIC);
+            WeatherCurrentParameter parameter = new WeatherCurrentParameter(ll[0], ll[1])
+                    .lang(Lang.ZH_HANS);
 
-            QWeather.getInstance(context, apiHost).weatherNow(parameter, new Callback<WeatherNowResponse>() {
+            QWeather.getInstance(context, apiHost).weatherCurrent(parameter, new Callback<WeatherCurrentResponse>() {
                 @Override
-                public void onSuccess(WeatherNowResponse response) {
+                public void onSuccess(WeatherCurrentResponse response) {
                     try {
                         future.complete(parseWeatherNow(response, cityName));
                     } finally {
@@ -324,17 +331,23 @@ public class QWeatherSdkManager {
             return CompletableFuture.completedFuture("天气预报SDK未初始化");
         }
 
+        // V1-MIGRATION：v7 weather7d → v1 weatherForecastDaily（同 hourly：v1 只接受经纬度）
+        final double[] ll = resolveLatLon(location);
+        if (ll == null) {
+            return CompletableFuture.completedFuture("天气预报查询失败: 无法把 '" + location + "' 解析成经纬度");
+        }
+
         CompletableFuture<String> future = new CompletableFuture<>();
         CountDownLatch latch = new CountDownLatch(1);
 
         try {
-            WeatherParameter parameter = new WeatherParameter(location)
+            WeatherDailyParameter parameter = new WeatherDailyParameter(ll[0], ll[1])
                     .lang(Lang.ZH_HANS)
-                    .unit(Unit.METRIC);
+                    .days(7);
 
-            QWeather.getInstance(context, apiHost).weather7d(parameter, new Callback<WeatherDailyResponse>() {
+            QWeather.getInstance(context, apiHost).weatherForecastDaily(parameter, new Callback<WeatherForecastDailyResponse>() {
                 @Override
-                public void onSuccess(WeatherDailyResponse response) {
+                public void onSuccess(WeatherForecastDailyResponse response) {
                     try {
                         future.complete(parseDaily(response));
                     } finally {
@@ -830,7 +843,24 @@ public class QWeatherSdkManager {
         return errorResponse.toString();
     }
 
-    private String parseWeatherNow(WeatherNowResponse response, String cityName) {
+    /**
+     * 解析 v1 实时天气（{@code weatherCurrent}）。
+     *
+     * <p>V1-MIGRATION 逐字段差异（对照 javap 实测 WeatherCurrentResponse）：
+     * <ul>
+     *   <li>天气现象：{@code getText()/getIcon()} → {@code getCondition().getText()/.getCode()}</li>
+     *   <li>温度/体感/气压/能见度/露点：String → {@code ValueUnit}，取 {@code getValue()}
+     *       （能见度 v1 单位为 m、v7 为 km；此处按接口返回的 unit 输出，不写死）</li>
+     *   <li>湿度/云量：v1 是 <b>0~1 小数</b> → ×100 还原百分比</li>
+     *   <li>风：v7 {@code getWindDir()/getWind360()/getWindScale()/getWindSpeed()}
+     *       → v1 {@code getWind().getDirection().getCompass()/.getDegree()} +
+     *       {@code getWind().getScale()} + {@code getWind().getSpeed()}（v1 风速为 m/s）</li>
+     *   <li>降水：{@code getPrecip()} → {@code getPrecipitation().getIntensity()}（ValueUnit）</li>
+     *   <li><b>无观测时间/更新时间/fxLink</b>（v7 有 obsTime/updateTime/fxLink；
+     *       v1 只有 metadata.tag/sources，均已在 v7 版保留？否——故这三行不再输出）</li>
+     * </ul>
+     */
+    private String parseWeatherNow(WeatherCurrentResponse response, String cityName) {
         StringBuilder sb = new StringBuilder();
         sb.append("天气信息:\n");
 
@@ -838,45 +868,67 @@ public class QWeatherSdkManager {
             sb.append("城市: ").append(cityName).append("\n");
         }
 
-        String fxLink = response.getFxLink();
-        if (fxLink != null && !fxLink.isEmpty()) {
-            sb.append("链接: ").append(fxLink).append("\n");
-        }
-
-        WeatherNow now = response.getNow();
-        if (now != null) {
-            if (now.getObsTime() != null && !now.getObsTime().isEmpty()) {
-                sb.append("观测时间: ").append(now.getObsTime()).append("\n");
+        if (response.getCondition() != null) {
+            String text = response.getCondition().getText();
+            if (text != null && !text.isEmpty()) {
+                sb.append("天气: ").append(text).append("\n");
             }
-            sb.append("天气: ").append(now.getText()).append("\n");
-            if (now.getIcon() != null && !now.getIcon().isEmpty()) {
-                sb.append("图标: ").append(now.getIcon()).append("\n");
-            }
-            sb.append("温度: ").append(now.getTemp()).append("°C\n");
-            sb.append("体感温度: ").append(now.getFeelsLike()).append("°C\n");
-            sb.append("湿度: ").append(now.getHumidity()).append("%\n");
-            if (now.getPrecip() != null && !now.getPrecip().isEmpty()) {
-                sb.append("降水量: ").append(now.getPrecip()).append("mm\n");
-            }
-            sb.append("风向: ").append(now.getWindDir()).append("\n");
-            if (now.getWind360() != null && !now.getWind360().isEmpty()) {
-                sb.append("风向角度: ").append(now.getWind360()).append("°\n");
-            }
-            sb.append("风力: ").append(now.getWindScale()).append("级\n");
-            sb.append("风速: ").append(now.getWindSpeed()).append("km/h\n");
-            sb.append("能见度: ").append(now.getVis()).append("km\n");
-            sb.append("气压: ").append(now.getPressure()).append("hPa\n");
-            if (now.getCloud() != null && !now.getCloud().isEmpty()) {
-                sb.append("云量: ").append(now.getCloud()).append("%\n");
-            }
-            if (now.getDew() != null && !now.getDew().isEmpty()) {
-                sb.append("露点温度: ").append(now.getDew()).append("°C\n");
+            String code = response.getCondition().getCode();
+            if (code != null && !code.isEmpty()) {
+                sb.append("图标: ").append(code).append("\n");
             }
         }
 
-        String updateTime = response.getUpdateTime();
-        if (updateTime != null && !updateTime.isEmpty()) {
-            sb.append("更新时间: ").append(updateTime).append("\n");
+        if (response.getTemperature() != null && response.getTemperature().getValue() != null) {
+            sb.append("温度: ").append(valueOf(response.getTemperature()))
+              .append(response.getTemperature().getUnit() != null ? response.getTemperature().getUnit() : "°C").append("\n");
+        }
+        if (response.getFeelsLike() != null && response.getFeelsLike().getValue() != null) {
+            sb.append("体感温度: ").append(valueOf(response.getFeelsLike()))
+              .append(response.getFeelsLike().getUnit() != null ? response.getFeelsLike().getUnit() : "°C").append("\n");
+        }
+        if (response.getHumidity() != null) {
+            sb.append("湿度: ").append(pct(response.getHumidity())).append("%\n");
+        }
+        if (response.getPrecipitation() != null && response.getPrecipitation().getIntensity() != null) {
+            sb.append("降水量: ").append(valueOf(response.getPrecipitation().getIntensity()))
+              .append(response.getPrecipitation().getIntensity().getUnit() != null
+                      ? response.getPrecipitation().getIntensity().getUnit() : "mm").append("\n");
+        }
+        if (response.getWind() != null) {
+            if (response.getWind().getDirection() != null) {
+                String compass = response.getWind().getDirection().getCompass();
+                if (compass != null && !compass.isEmpty()) {
+                    sb.append("风向: ").append(compass).append("\n");
+                }
+                Integer degree = response.getWind().getDirection().getDegree();
+                if (degree != null) {
+                    sb.append("风向角度: ").append(degree).append("°\n");
+                }
+            }
+            if (response.getWind().getScale() != null) {
+                sb.append("风力: ").append(response.getWind().getScale()).append("级\n");
+            }
+            if (response.getWind().getSpeed() != null && response.getWind().getSpeed().getValue() != null) {
+                sb.append("风速: ").append(valueOf(response.getWind().getSpeed()))
+                  .append(response.getWind().getSpeed().getUnit() != null
+                          ? response.getWind().getSpeed().getUnit() : "m/s").append("\n");
+            }
+        }
+        if (response.getVisibility() != null && response.getVisibility().getValue() != null) {
+            sb.append("能见度: ").append(valueOf(response.getVisibility()))
+              .append(response.getVisibility().getUnit() != null ? response.getVisibility().getUnit() : "m").append("\n");
+        }
+        if (response.getPressure() != null && response.getPressure().getValue() != null) {
+            sb.append("气压: ").append(valueOf(response.getPressure()))
+              .append(response.getPressure().getUnit() != null ? response.getPressure().getUnit() : "hPa").append("\n");
+        }
+        if (response.getCloudCover() != null) {
+            sb.append("云量: ").append(pct(response.getCloudCover())).append("%\n");
+        }
+        if (response.getDewPoint() != null && response.getDewPoint().getValue() != null) {
+            sb.append("露点温度: ").append(valueOf(response.getDewPoint()))
+              .append(response.getDewPoint().getUnit() != null ? response.getDewPoint().getUnit() : "°C").append("\n");
         }
 
         return sb.toString();
@@ -943,24 +995,95 @@ public class QWeatherSdkManager {
         sb.append(num).append(unit);
     }
 
-    private String parseDaily(WeatherDailyResponse response) {
+    /** 把 v1 的 0~1 小数量（湿度/云量/降水概率）还原成 v7 的百分比字符串 */
+    private static String pct(Double v) {
+        return v == null ? null : String.valueOf(Math.round(v * 100.0));
+    }
+
+    /** 取 v1 的 ValueUnit 数值（整数不带小数，避免 "24.0" 噪声）；null 时返回 null */
+    private static String valueOf(com.qweather.sdk.response.ValueUnit v) {
+        if (v == null || v.getValue() == null) return null;
+        double val = v.getValue();
+        return (val == Math.floor(val)) ? String.valueOf((long) val) : String.valueOf(val);
+    }
+
+    /** 取一天白/夜时段（v1 把 condition/temperature/wind/humidity 放在 WeatherPeriodForecast 里） */
+    private static WeatherPeriodForecast periodOf(WeatherForecastDaily d, boolean day) {
+        if (d == null) return null;
+        return day ? d.getDaytime() : d.getNighttime();
+    }
+
+    private static String periodStr(WeatherForecastDaily d, boolean day, boolean wantText,
+                                    boolean wantTemp, boolean wantWind, boolean wantHumidity) {
+        WeatherPeriodForecast p = periodOf(d, day);
+        if (p == null) return "-";
+        if (wantText) {
+            return (p.getCondition() != null && p.getCondition().getText() != null)
+                    ? p.getCondition().getText() : "-";
+        }
+        if (wantTemp) {
+            String v = valueOf(p.getTemperatureMax());
+            return v != null ? v : "-";
+        }
+        if (wantWind) {
+            StringBuilder w = new StringBuilder();
+            w.append(p.getWind() != null && p.getWind().getDirection() != null
+                    && p.getWind().getDirection().getCompass() != null
+                    ? p.getWind().getDirection().getCompass() : "-");
+            w.append(" ");
+            w.append(p.getWind() != null && p.getWind().getScale() != null
+                    ? p.getWind().getScale() : "-");
+            w.append("级");
+            return w.toString();
+        }
+        if (wantHumidity) {
+            String v = pct(p.getHumidity());
+            return v != null ? v : "-";
+        }
+        return "-";
+    }
+
+    /**
+     * 解析 v1 日预报（{@code weatherForecastDaily}）。
+     *
+     * <p>V1-MIGRATION 字段差异（对照 javap 实测）：
+     * <ul>
+     *   <li>外层：v7 {@code getDaily()} + fxLink → v1 {@code getDays()}，无 fxLink</li>
+     *   <li>日期：{@code getFxDate()} → {@code getForecastStartTime()}（ISO8601，取前 10 位）</li>
+     *   <li><b>湿度和云量在时段对象里</b>，不在日顶层：
+     *       {@code getDaytime()/getNighttime()} 返回 {@code WeatherPeriodForecast}，
+     *       其内含 condition/temperature/wind/precipitation/cloudCover/humidity</li>
+     *   <li>温度：顶层 {@code getTemperatureMax()/Min()}（ValueUnit）与时段内同名方法两套，展示用顶层</li>
+     *   <li>日出日落：{@code getSunrise()/getSunset()} → {@code getAstro().getSunrise()/.getSunset()}</li>
+     *   <li>紫外线：{@code getUvIndex()} → {@code getUvIndexMax()}（Integer）</li>
+     *   <li>湿度：v1 是 0~1 小数 → ×100</li>
+     * </ul>
+     */
+    private String parseDaily(WeatherForecastDailyResponse response) {
         StringBuilder sb = new StringBuilder();
         sb.append("天气预报:\n");
 
-        String fxLink = response.getFxLink();
-        if (fxLink != null && !fxLink.isEmpty()) {
-            sb.append("链接: ").append(fxLink).append("\n");
-        }
-
-        List<WeatherDaily> dailyList = response.getDaily();
+        List<WeatherForecastDaily> dailyList = response.getDays();
         if (dailyList != null) {
-            for (WeatherDaily daily : dailyList) {
-                sb.append(daily.getFxDate()).append("\n");
-                sb.append("  白天: ").append(daily.getTextDay()).append(" ").append(daily.getTempMax()).append("°C\n");
-                sb.append("  夜间: ").append(daily.getTextNight()).append(" ").append(daily.getTempMin()).append("°C\n");
-                sb.append("  日出: ").append(daily.getSunrise()).append("  日落: ").append(daily.getSunset()).append("\n");
-                sb.append("  风向: ").append(daily.getWindDirDay()).append(" ").append(daily.getWindScaleDay()).append("级\n");
-                sb.append("  湿度: ").append(daily.getHumidity()).append("%  紫外线: ").append(daily.getUvIndex()).append("\n");
+            for (WeatherForecastDaily daily : dailyList) {
+                String start = daily.getForecastStartTime();
+                String date = (start != null && start.length() >= 10) ? start.substring(0, 10) : String.valueOf(start);
+                sb.append(date).append("\n");
+
+                String tempMax = valueOf(daily.getTemperatureMax());
+                String tempMin = valueOf(daily.getTemperatureMin());
+                sb.append("  白天: ").append(periodStr(daily, true, true, false, false, false))
+                  .append(" ").append(tempMax != null ? tempMax : "-").append("°C\n");
+                sb.append("  夜间: ").append(periodStr(daily, false, true, false, false, false))
+                  .append(" ").append(tempMin != null ? tempMin : "-").append("°C\n");
+
+                com.qweather.sdk.response.Astro astro = daily.getAstro();
+                sb.append("  日出: ").append(astro != null ? astro.getSunrise() : "-")
+                  .append("  日落: ").append(astro != null ? astro.getSunset() : "-").append("\n");
+
+                sb.append("  风向: ").append(periodStr(daily, true, false, false, true, false)).append("\n");
+                sb.append("  湿度: ").append(periodStr(daily, true, false, false, false, true)).append("%")
+                  .append("  紫外线: ").append(daily.getUvIndexMax() != null ? daily.getUvIndexMax() : "-").append("\n");
                 sb.append("\n");
             }
         }
