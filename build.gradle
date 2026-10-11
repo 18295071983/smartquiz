@@ -270,6 +270,13 @@ android {
 }
 
 dependencies {
+    // ============================================================
+    // ⚠ 本地依赖（libs/）——新克隆的仓库请先读 libs/README.md
+    //   libs/QWeather_Public_Android_V5.2.2.jar  0.12MB  已入库  官方 SDK，从源码归档取（归档内附 jar）
+    //   libs/apksig-8.0.2.jar                    0.46MB  已入库  Maven: com.android.tools.build:apksig:8.0.2
+    //   libs/geniex-android-0.8.0.aar            78MB    未入库  被 .gitignore 的 *.aar 排除，需另行获取（来源见 README）
+    //   缺失时 Gradle 会在本行报「找不到文件」，不会静默降级。
+    // ============================================================
     // 和风天气 Android SDK
     implementation files('libs/QWeather_Public_Android_V5.2.2.jar')
     // APK 签名库（App 内导出 APK 用：v1+v2+v3 签名，签名时自动对齐 STORED 条目）
