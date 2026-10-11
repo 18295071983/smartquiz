@@ -897,9 +897,10 @@ public class QWeatherSdkManager {
         }
         if (response.getWind() != null) {
             if (response.getWind().getDirection() != null) {
-                String compass = response.getWind().getDirection().getCompass();
-                if (compass != null && !compass.isEmpty()) {
-                    sb.append("风向: ").append(compass).append("\n");
+                // 方位代码 → 中文风名（下游按 v7 文本格式解析/渲染，见 compassToChinese 说明）
+                String dirZh = compassToChinese(response.getWind().getDirection().getCompass());
+                if (dirZh != null && !dirZh.isEmpty()) {
+                    sb.append("风向: ").append(dirZh).append("\n");
                 }
                 Integer degree = response.getWind().getDirection().getDegree();
                 if (degree != null) {
@@ -910,9 +911,13 @@ public class QWeatherSdkManager {
                 sb.append("风力: ").append(response.getWind().getScale()).append("级\n");
             }
             if (response.getWind().getSpeed() != null && response.getWind().getSpeed().getValue() != null) {
-                sb.append("风速: ").append(valueOf(response.getWind().getSpeed()))
-                  .append(response.getWind().getSpeed().getUnit() != null
-                          ? response.getWind().getSpeed().getUnit() : "m/s").append("\n");
+                // v1 风速单位是 m/s，而全 App（含 HTTP 回退路径与详情页解析）统一按 km/h 呈现，
+                // 故在此换算为 km/h，保证两种数据源输出一致。
+                double speed = response.getWind().getSpeed().getValue();
+                String unit = response.getWind().getSpeed().getUnit();
+                double kmh = (unit != null && unit.contains("m/s")) ? speed * 3.6 : speed;
+                String num = (kmh == Math.floor(kmh)) ? String.valueOf((long) kmh) : String.format(java.util.Locale.US, "%.1f", kmh);
+                sb.append("风速: ").append(num).append("km/h\n");
             }
         }
         if (response.getVisibility() != null && response.getVisibility().getValue() != null) {
@@ -995,7 +1000,45 @@ public class QWeatherSdkManager {
         sb.append(num).append(unit);
     }
 
-    /** 把 v1 的 0~1 小数量（湿度/云量/降水概率）还原成 v7 的百分比字符串 */
+    /**
+     * v1 风向方位代码 → v7 中文风名（含"风"字）。
+     *
+     * <p><b>为什么必须映射</b>：官方文档明确 —— v7 的 {@code windDir} 在中文语言下返回中文
+     * （"东南风"）；而 v1 的 {@code direction.compass} 返回**方位代码且为小写英文**
+     * （{@code n}/{@code nne}/…/{@code se}/…，见 dev.qweather.com/docs/api/weather/wind-guide/）。
+     * 下游（WeatherDetailActivity 等）按 v7 文本格式解析并渲染：
+     * {@code windDir.endsWith("风") ? windDir : windDir + " 风"}，
+     * 若直接透传代码会显示成 <b>"se 风"</b>。此处统一映射回中文，保持输出契约不变。
+     *
+     * <p>特殊值：{@code none}（无持续风向）、{@code vrb}（风向变化不定）——v7 对应
+     * "无持续风向"/"旋转风"，此处按中文语义输出且**不带"风"字**（避免"无持续风向 风"）。
+     */
+    private static String compassToChinese(String compass) {
+        if (compass == null) return null;
+        switch (compass.trim().toLowerCase()) {
+            case "n":   return "北风";
+            case "nne": return "东北偏北风";
+            case "ne":  return "东北风";
+            case "ene": return "东北偏东风";
+            case "e":   return "东风";
+            case "ese": return "东南偏东风";
+            case "se":  return "东南风";
+            case "sse": return "东南偏南风";
+            case "s":   return "南风";
+            case "ssw": return "西南偏南风";
+            case "sw":  return "西南风";
+            case "wsw": return "西南偏西风";
+            case "w":   return "西风";
+            case "wnw": return "西北偏西风";
+            case "nw":  return "西北风";
+            case "nnw": return "西北偏北风";
+            case "none": return "无持续风向";
+            case "vrb":  return "风向变化不定";
+            default: return compass; // 未知值原样输出，避免丢信息
+        }
+    }
+
+    /** v1 的 0~1 小数量（湿度/云量/降水概率）还原成 v7 的百分比字符串 */
     private static String pct(Double v) {
         return v == null ? null : String.valueOf(Math.round(v * 100.0));
     }
@@ -1027,9 +1070,10 @@ public class QWeatherSdkManager {
         }
         if (wantWind) {
             StringBuilder w = new StringBuilder();
-            w.append(p.getWind() != null && p.getWind().getDirection() != null
-                    && p.getWind().getDirection().getCompass() != null
-                    ? p.getWind().getDirection().getCompass() : "-");
+            // 同样要把 v1 的方位代码映射成中文风名（见 compassToChinese 说明）
+            String dirZh = (p.getWind() != null && p.getWind().getDirection() != null)
+                    ? compassToChinese(p.getWind().getDirection().getCompass()) : null;
+            w.append(dirZh != null && !dirZh.isEmpty() ? dirZh : "-");
             w.append(" ");
             w.append(p.getWind() != null && p.getWind().getScale() != null
                     ? p.getWind().getScale() : "-");
