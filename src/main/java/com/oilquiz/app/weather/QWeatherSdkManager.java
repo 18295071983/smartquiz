@@ -16,6 +16,10 @@ import com.qweather.sdk.basic.Indices;
 import com.qweather.sdk.parameter.indices.IndicesParameter;
 import com.qweather.sdk.parameter.minutely.MinutelyParameter;
 import com.qweather.sdk.parameter.weather.WeatherParameter;
+import com.qweather.sdk.parameter.weather.WeatherHourlyParameter;
+import com.qweather.sdk.response.weather.WeatherForecastHourly;
+import com.qweather.sdk.response.weather.WeatherForecastHourlyResponse;
+import com.qweather.sdk.response.ValueUnit;
 import com.qweather.sdk.response.air.v1.AirDaily;
 import com.qweather.sdk.response.air.v1.AirIndex;
 import com.qweather.sdk.response.air.v1.AirV1CurrentResponse;
@@ -37,8 +41,6 @@ import com.qweather.sdk.response.minutely.Minutely;
 import com.qweather.sdk.response.minutely.MinutelyResponse;
 import com.qweather.sdk.response.weather.WeatherDaily;
 import com.qweather.sdk.response.weather.WeatherDailyResponse;
-import com.qweather.sdk.response.weather.WeatherHourly;
-import com.qweather.sdk.response.weather.WeatherHourlyResponse;
 import com.qweather.sdk.response.weather.WeatherNow;
 import com.qweather.sdk.response.weather.WeatherNowResponse;
 
@@ -142,6 +144,63 @@ public class QWeatherSdkManager {
         return initialized;
     }
 
+    /**
+     * 把 location 解析成 v1 接口需要的 {lat, lon}。
+     *
+     * <p><b>为什么需要它（v7→v1 迁移的核心约束）</b>：v7 的 {@code location} 参数接受
+     * LocationID 或 {@code 经度,纬度}；而 v1 的参数类构造时**只接受经纬度**
+     * （{@code new WeatherCurrentParameter(double lat, double lon)}），没有 location 参数。
+     * 本类的调用方（WeatherService 详情页 / AIWeatherManager 工具）传进来的常常是**编码**
+     * （如 {@code 101101003}），所以必须在内部换算成坐标。
+     *
+     * <p>解析顺序：① {@code "lon,lat"} / {@code "lat,lon"} 坐标串 → 直接判定取用；
+     * ② 纯数字 LocationID → 查本地 CSV（assets/China-City-List-latest.csv，3578 城，含经纬度），
+     * 与 AIWeatherManager 的 getHefengLatLon 同源但**离线**，不依赖和风 geo API
+     * （该端点无 JWT 权限时 403）。
+     *
+     * @return {@code {lat, lon}}；无法解析返回 null（调用方应明确报错，不得静默改查别处）
+     */
+    private double[] resolveLatLon(String location) {
+        if (location == null || location.trim().isEmpty()) return null;
+        String loc = location.trim();
+
+        // ① 坐标串：按"中国境内"判定经度在前
+        if (loc.contains(",")) {
+            String[] parts = loc.split(",");
+            if (parts.length == 2) {
+                try {
+                    double a = Double.parseDouble(parts[0].trim());
+                    double b = Double.parseDouble(parts[1].trim());
+                    // 中国经度约 73~135、纬度约 3~54；据此判定顺序（避免把 lat,lon 当 lon,lat）
+                    boolean aIsLon = a >= 73 && a <= 136;
+                    double lon = aIsLon ? a : b;
+                    double lat = aIsLon ? b : a;
+                    return new double[]{lat, lon};
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            return null;
+        }
+
+        // ② 纯数字 LocationID → 本地 CSV 反查坐标
+        if (loc.matches("\\d{6,12}")) {
+            try {
+                com.oilquiz.app.weather.QWeatherCityManager mgr =
+                        com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
+                com.oilquiz.app.weather.QWeatherCityManager.CityEntry e = mgr.getCityById(loc);
+                if (e != null) {
+                    Log.i(TAG, "resolveLatLon: " + loc + " -> " + e.nameZh
+                            + " (" + e.latitude + "," + e.longitude + ")");
+                    return new double[]{e.latitude, e.longitude};
+                }
+                Log.w(TAG, "resolveLatLon: LocationID " + loc + " 不在本地城市表中");
+            } catch (Throwable t) {
+                Log.w(TAG, "resolveLatLon failed for " + loc + ": " + t.getMessage());
+            }
+        }
+        return null;
+    }
+
     public CompletableFuture<String> getCurrentWeather(String location) {
         return getCurrentWeather(location, null);
     }
@@ -204,17 +263,25 @@ public class QWeatherSdkManager {
             return CompletableFuture.completedFuture("小时预报SDK未初始化");
         }
 
+        // V1-MIGRATION(2026-10-11)：v7 weather24h → v1 weatherForecastHourly。
+        // v1 参数类构造时只接受经纬度（无 location 参数），故先把 location 换算成坐标；
+        // 换算不出就明确报错，不静默改查别处（避免返回错误城市的数据）。
+        final double[] ll = resolveLatLon(location);
+        if (ll == null) {
+            return CompletableFuture.completedFuture("小时预报查询失败: 无法把 '" + location + "' 解析成经纬度");
+        }
+
         CompletableFuture<String> future = new CompletableFuture<>();
         CountDownLatch latch = new CountDownLatch(1);
 
         try {
-            WeatherParameter parameter = new WeatherParameter(location)
+            WeatherHourlyParameter parameter = new WeatherHourlyParameter(ll[0], ll[1])
                     .lang(Lang.ZH_HANS)
-                    .unit(Unit.METRIC);
+                    .hours(24);
 
-            QWeather.getInstance(context, apiHost).weather24h(parameter, new Callback<WeatherHourlyResponse>() {
+            QWeather.getInstance(context, apiHost).weatherForecastHourly(parameter, new Callback<WeatherForecastHourlyResponse>() {
                 @Override
-                public void onSuccess(WeatherHourlyResponse response) {
+                public void onSuccess(WeatherForecastHourlyResponse response) {
                     try {
                         future.complete(parseHourly(response));
                     } finally {
@@ -244,7 +311,7 @@ public class QWeatherSdkManager {
             startTimeoutThread(latch, future, "小时预报查询超时");
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to call weather24h", e);
+            Log.e(TAG, "Failed to call weatherForecastHourly", e);
             future.complete("小时预报查询失败: " + e.getMessage());
             latch.countDown();
         }
@@ -815,38 +882,65 @@ public class QWeatherSdkManager {
         return sb.toString();
     }
 
-    private String parseHourly(WeatherHourlyResponse response) {
+    /**
+     * 解析 v1 小时预报（{@code weatherForecastHourly}）。
+     *
+     * <p>V1-MIGRATION：v1 与 v7 的结构差异远大于"换类型名"，必须逐字段改写：
+     * <ul>
+     *   <li>外层：v7 {@code getHourly()} + {@code getFxLink()} → v1 {@code getHours()}，
+     *       且**无 fxLink**（改为 metadata.tag，对用户无意义，故不再输出"链接"行）</li>
+     *   <li>时间：v7 {@code getFxTime()} → v1 {@code getForecastTime()}</li>
+     *   <li>温度/体感/气压/能见度/露点：{@code String} → {@code ValueUnit}，取 {@code getValue()}
+     *       （单位以 {@code getUnit()} 为准，避免写死 °C/hPa/km）</li>
+     *   <li>天气现象：{@code getText()/getIcon()} → {@code getCondition().getText()/.getCode()}，
+     *       且 v1 的图标字段名是 <b>code</b> 非 icon</li>
+     *   <li>湿度/云量：v1 是 <b>0~1 小数</b>，需 ×100 才是百分比</li>
+     *   <li>风速：v1 是 <b>m/s</b>（v7 为 km/h），需换算后标注</li>
+     *   <li>降水概率：v7 {@code getPop()} → v1 {@code PrecipitationHourly}（此处保留其展示文案）</li>
+     * </ul>
+     * 输出保持与 v7 版本相同的行内格式（"HH:mm 温度°C 天气 图标:x 降水x%"），上层无需改动。
+     */
+    private String parseHourly(WeatherForecastHourlyResponse response) {
         StringBuilder sb = new StringBuilder();
         sb.append("24小时预报:\n");
 
-        String fxLink = response.getFxLink();
-        if (fxLink != null && !fxLink.isEmpty()) {
-            sb.append("链接: ").append(fxLink).append("\n");
-        }
-
-        List<WeatherHourly> hourlyList = response.getHourly();
+        List<WeatherForecastHourly> hourlyList = response.getHours();
         if (hourlyList != null) {
-            for (WeatherHourly hourly : hourlyList) {
-                if (hourly.getFxTime() != null) {
-                    String time = hourly.getFxTime();
-                    if (time.length() >= 16) {
-                        sb.append(time.substring(11, 16)).append(" ");
+            for (WeatherForecastHourly hourly : hourlyList) {
+                String time = hourly.getForecastTime();
+                if (time != null && time.length() >= 16) {
+                    sb.append(time.substring(11, 16)).append(" ");
+                }
+                appendValueUnit(sb, hourly.getTemperature(), "°C", true);
+                sb.append(" ");
+                if (hourly.getCondition() != null && hourly.getCondition().getText() != null) {
+                    sb.append(hourly.getCondition().getText()).append(" ");
+                    String code = hourly.getCondition().getCode();
+                    if (code != null && !code.isEmpty()) {
+                        sb.append("图标:").append(code).append(" ");
                     }
                 }
-                sb.append(hourly.getTemp()).append("°C ");
-                sb.append(hourly.getText()).append(" ");
-                String icon = hourly.getIcon();
-                if (icon != null && !icon.isEmpty()) {
-                    sb.append("图标:").append(icon).append(" ");
-                }
-                if (hourly.getPop() != null) {
-                    sb.append("降水").append(hourly.getPop()).append("%");
+                // 降水概率：v1 是 0~1 小数，×100 还原成 v7 的百分比文案
+                if (hourly.getPrecipitation() != null
+                        && hourly.getPrecipitation().getProbability() != null) {
+                    double pop = hourly.getPrecipitation().getProbability() * 100.0;
+                    sb.append("降水").append(Math.round(pop)).append("%");
                 }
                 sb.append("\n");
             }
         }
 
         return sb.toString();
+    }
+
+    /** 输出 v1 的 ValueUnit（{@code value + unit}）；label 为期望单位，unitIsFixed=true 时用 label 而非接口 unit */
+    private void appendValueUnit(StringBuilder sb, com.qweather.sdk.response.ValueUnit v, String label, boolean unitIsFixed) {
+        if (v == null || v.getValue() == null) return;
+        double val = v.getValue();
+        // 整数则不带小数，避免 "24.0°C" 这类噪声
+        String num = (val == Math.floor(val)) ? String.valueOf((long) val) : String.valueOf(val);
+        String unit = (unitIsFixed || v.getUnit() == null || v.getUnit().isEmpty()) ? label : v.getUnit();
+        sb.append(num).append(unit);
     }
 
     private String parseDaily(WeatherDailyResponse response) {
