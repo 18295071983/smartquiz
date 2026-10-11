@@ -392,6 +392,48 @@ public class APIKeyManager {
             result.startTime = System.currentTimeMillis();
 
             try {
+                // METASO-TEST(2026-10-11)：秘塔搜索必须走专用校验，不能走下面的通用 GET 流程。
+                // 原因（已联网核实）：秘塔只提供 POST /api/v1/search 这类业务端点，
+                // 没有账号/余额/校验类的轻量 GET 端点，而通用流程是"GET 后看 200" → 必然误判
+                // （实测该端点对 GET 直接返回 405 Method Not Allowed，连鉴权都没走到）。
+                // 专用校验复用 NetworkSearchTool.testApiKey（与运行时同一套协议与错误解析，
+                // 避免"测试通过但实际不能用"）。代价：秘塔按次计费，一次测试消耗一次额度。
+                if (APIConfig.ServiceType.METASO_SEARCH.equals(config.getServiceType())
+                        || APIConfig.ServiceType.BING_SEARCH.equals(config.getServiceType())) {
+                    try {
+                        com.oilquiz.app.ai.tool.NetworkSearchTool metaso =
+                                new com.oilquiz.app.ai.tool.NetworkSearchTool(context);
+                        String r = metaso.testApiKey(config.getApiKey());
+                        result.latency = System.currentTimeMillis() - result.startTime;
+                        if (r != null && r.startsWith("OK|")) {
+                            result.success = true;
+                            result.responseCode = 200;
+                            try {
+                                result.latency = Long.parseLong(r.substring(3));
+                            } catch (NumberFormatException ignored) {
+                            }
+                            result.message = "API连接测试成功（已消耗 1 次搜索额度）";
+                            config.setStatus(APIConfig.Status.VALID);
+                        } else {
+                            result.success = false;
+                            String reason = r != null && r.startsWith("FAIL|") ? r.substring(5) : "未知错误";
+                            result.message = reason;
+                            config.setStatus(reason.contains("限流")
+                                    ? APIConfig.Status.RATE_LIMITED : APIConfig.Status.INVALID);
+                        }
+                        saveAPIConfig(config);
+                        return result;
+                    } catch (Throwable t) {
+                        // 进入专用分支后任何异常都直接返回，避免落到下面的通用 GET 流程误报
+                        Log.e(TAG, "Metaso key test failed: " + t.getMessage(), t);
+                        result.success = false;
+                        result.message = "秘塔搜索测试失败: " + t.getMessage();
+                        result.latency = System.currentTimeMillis() - result.startTime;
+                        saveAPIConfig(config);
+                        return result;
+                    }
+                }
+
                 String testUrl = getTestUrl(config);
                 if (testUrl == null) {
                     result.success = false;

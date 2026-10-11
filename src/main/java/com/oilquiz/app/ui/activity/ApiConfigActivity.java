@@ -85,15 +85,24 @@ public class ApiConfigActivity extends BaseActivity {
     private List<APIConfig> allConfigs;
     private List<APIConfig> filteredConfigs;
 
+    // METASO-SEARCH(2026-10-11)：新增"秘塔搜索"选项 —— 它才是 network_search 工具的实际数据源
+    // （NetworkSearchTool 四个调用点都打 metaso.cn）。此前下拉里只有 "Bing Search"，
+    // 而 NetworkSearchTool 读的是 APIKeyManager 的扁平键、UI 写的是 APIConfig 结构化配置，
+    // 两套存储互不相通 → 用户即便填了 key 也读不到，永远走内置共享 key。
+    // 现在工具侧已按 METASO_SEARCH / BING_SEARCH 两种 serviceType 解析（见 resolveApiKey）。
+    // ⚠ serviceTypes 与 serviceTypeValues 必须**逐位对应**且长度相同：
+    // 渲染用前者、取值用 serviceTypeValues[spinner.getSelectedItemPosition()]（见保存处）。
+    // 任何一处增删都要同步改另一处，否则会存错 serviceType。
     private final String[] serviceTypes = {
         "OpenAI", "Anthropic", "Google",
-        "和风天气", "Bing Search", "Google Maps", "自定义"
+        "和风天气", "秘塔搜索", "Bing Search", "Google Maps", "自定义"
     };
-    
+
     private final String[] serviceTypeValues = {
         APIConfig.ServiceType.OPENAI, APIConfig.ServiceType.ANTHROPIC,
         APIConfig.ServiceType.GOOGLE,
-        APIConfig.ServiceType.HEFENG_WEATHER, APIConfig.ServiceType.BING_SEARCH,
+        APIConfig.ServiceType.HEFENG_WEATHER, APIConfig.ServiceType.METASO_SEARCH,
+        APIConfig.ServiceType.BING_SEARCH,
         APIConfig.ServiceType.GOOGLE_MAPS, APIConfig.ServiceType.CUSTOM
     };
 
@@ -353,6 +362,21 @@ public class ApiConfigActivity extends BaseActivity {
             }
         }
         return "自定义";
+    }
+
+    /** 是否为"搜索服务"类目下的服务类型（用于自动归入 Category.SEARCH，见 onItemSelected 的 CATEGORY-AUTOSET 注释） */
+    private boolean isSearchServiceType(String serviceType) {
+        if (serviceType == null) return false;
+        return APIConfig.ServiceType.METASO_SEARCH.equals(serviceType)
+                || APIConfig.ServiceType.BING_SEARCH.equals(serviceType);
+    }
+
+    /** categoryValues 中某分类的下标；找不到返回 -1（下标与 categories 逐位对应） */
+    private int indexOfCategory(String category) {
+        for (int i = 0; i < categoryValues.length; i++) {
+            if (categoryValues[i].equals(category)) return i;
+        }
+        return -1;
     }
 
     private String getStatusDisplay(String status) {
@@ -616,6 +640,20 @@ public class ApiConfigActivity extends BaseActivity {
                 @Override
                 public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
                     String serviceType = serviceTypeValues[position];
+                    // CATEGORY-AUTOSET(2026-10-11)：选中搜索类服务时自动把分类切到"搜索服务"。
+                    // 原因：分类下拉默认停在 index 0 = "AI服务"（categories/categoryValues），
+                    // 而 AI 分类的配置会被 OnlineModelManager 当作在线模型纳入列表
+                    // （OnlineModelManager 按 category==AI 判定），该列表的启用/停用开关会写
+                    // APIConfig.setActive(false)（ModelSelectorActivity/AICenterActivity），
+                    // 于是 getAPIConfigByServiceType 的 `config.isActive()` 判断失败 → 返回 null
+                    // → 用户明明填了搜索 key 却读不到。这里在选类型时强制归到"搜索服务"，堵住该路径。
+                    // （旧的 Bing Search 配置同样受益，无需迁移。）
+                    if (spinnerCategory != null && isSearchServiceType(serviceType)) {
+                        int idx = indexOfCategory(APIConfig.Category.SEARCH);
+                        if (idx >= 0 && spinnerCategory.getSelectedItemPosition() != idx) {
+                            spinnerCategory.setSelection(idx);
+                        }
+                    }
                     // 只有AI服务类型显示模型选择
                     if (llModelSection == null) return;
                     if (APIConfig.ServiceType.OPENAI.equals(serviceType) ||

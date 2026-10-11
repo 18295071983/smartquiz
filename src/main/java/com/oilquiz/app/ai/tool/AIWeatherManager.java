@@ -146,12 +146,14 @@ public class AIWeatherManager implements AITool {
             return String.format(java.util.Locale.US, "%.2f,%.2f", lon, lat);
         } else if (city != null && !city.isEmpty()) {
             try {
-                String locationId = getHefengLocationId(city);
-                if (locationId != null && !locationId.isEmpty()) {
-                    return locationId;
+                // 注意：返回值可能是 LocationID，也可能是 "lon,lat" 坐标串 ——
+                // 两者都是和风 location 参数接受的形式（见 resolveHefengLocationParam 说明）
+                String location = resolveHefengLocationParam(city);
+                if (location != null && !location.isEmpty()) {
+                    return location;
                 }
             } catch (Exception e) {
-                Log.w(TAG, "Failed to get location ID for city: " + city, e);
+                Log.w(TAG, "Failed to resolve location param for city: " + city, e);
             }
             return city;
         }
@@ -475,12 +477,12 @@ public class AIWeatherManager implements AITool {
     private CompletableFuture<String> getHefengCurrentWeather(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String locationId = getHefengLocationId(city);
-                if (locationId == null || locationId.isEmpty()) {
-                    return "天气信息:\n查询失败（无法获取城市位置ID）";
+                String location = resolveHefengLocationParam(city);
+                if (location == null || location.isEmpty()) {
+                    return "天气信息:\n查询失败（无法获取城市位置）";
                 }
 
-                String urlString = getWeatherUrl() + "?location=" + locationId;
+                String urlString = getWeatherUrl() + "?location=" + location;
                 String response = httpGet(urlString);
                 return parseHefengWeatherResponse(response, city);
             } catch (Exception e) {
@@ -504,412 +506,48 @@ public class AIWeatherManager implements AITool {
         });
     }
 
-    // 获取和风天气城市ID（基于和风天气LocationList，覆盖全国主要城市）
-    private static final java.util.Map<String, String> DEFAULT_CITY_IDS = new java.util.HashMap<String, String>() {{
-        // 直辖市
-        put("北京", "101010100");
-        put("上海", "101020100");
-        put("天津", "101030100");
-        put("重庆", "101040100");
-
-        // 省会城市
-        put("哈尔滨", "101050101");
-        put("长春", "101060101");
-        put("沈阳", "101070101");
-        put("呼和浩特", "101080101");
-        put("乌鲁木齐", "101130101");
-        put("拉萨", "101140101");
-        put("银川", "101170101");
-        put("西宁", "101150101");
-        put("兰州", "101160101");
-        put("西安", "101110101");
-        put("太原", "101100101");
-        put("石家庄", "101090101");
-        put("济南", "101120101");
-        put("郑州", "101180101");
-        put("合肥", "101220101");
-        put("南京", "101190101");
-        put("成都", "101270101");
-        put("贵阳", "101260101");
-        put("昆明", "101290101");
-        put("长沙", "101250101");
-        put("武汉", "101200101");
-        put("南昌", "101240101");
-        put("杭州", "101210101");
-        put("福州", "101230101");
-        put("广州", "101280101");
-        put("南宁", "101300101");
-        put("海口", "101310101");
-
-        // 主要城市
-        put("深圳", "101280601");
-        put("珠海", "101280701");
-        put("汕头", "101280501");
-        put("佛山", "101280800");
-        put("东莞", "101281601");
-        put("中山", "101281701");
-        put("惠州", "101281301");
-        put("江门", "101281101");
-        put("湛江", "101310201");
-        put("茂名", "101310301");
-        put("肇庆", "101280901");
-        put("揭阳", "101281901");
-        put("梅州", "101281401");
-        put("汕尾", "101282101");
-        put("河源", "101281201");
-        put("潮州", "101282001");
-        put("阳江", "101281801");
-        put("清远", "101281001");
-        put("韶关", "101280201");
-
-        put("苏州", "101190401");
-        put("无锡", "101190201");
-        put("常州", "101191101");
-        put("南京", "101190101");
-        put("镇江", "101191101");
-        put("扬州", "101190601");
-        put("泰州", "101191201");
-        put("南通", "101190501");
-        put("徐州", "101190801");
-        put("盐城", "101190701");
-        put("淮安", "101190901");
-        put("连云港", "101191001");
-        put("宿迁", "101191301");
-
-        put("宁波", "101210401");
-        put("温州", "101210701");
-        put("嘉兴", "101210301");
-        put("湖州", "101210201");
-        put("绍兴", "101210501");
-        put("金华", "101210801");
-        put("台州", "101210601");
-        put("衢州", "101211001");
-        put("丽水", "101210901");
-        put("舟山", "101211101");
-
-        put("青岛", "101120201");
-        put("济南", "101120101");
-        put("烟台", "101120501");
-        put("潍坊", "101120601");
-        put("临沂", "101120901");
-        put("淄博", "101120301");
-        put("济宁", "101120701");
-        put("泰安", "101120801");
-        put("聊城", "101121201");
-        put("德州", "101120401");
-        put("威海", "101121301");
-        put("枣庄", "101121401");
-        put("日照", "101121501");
-        put("菏泽", "101121001");
-        put("滨州", "101121101");
-        put("东营", "101121601");
-
-        put("大连", "101070201");
-        put("沈阳", "101070101");
-        put("鞍山", "101070301");
-        put("抚顺", "101070401");
-        put("本溪", "101070501");
-        put("丹东", "101070601");
-        put("锦州", "101070701");
-        put("营口", "101070801");
-        put("阜新", "101070901");
-        put("辽阳", "101071001");
-        put("盘锦", "101071101");
-        put("铁岭", "101071201");
-        put("朝阳", "101071301");
-        put("葫芦岛", "101071401");
-
-        put("长春", "101060101");
-        put("吉林", "101060201");
-        put("四平", "101060301");
-        put("辽源", "101060401");
-        put("通化", "101060501");
-        put("白山", "101060601");
-        put("松原", "101060701");
-        put("白城", "101060801");
-
-        put("哈尔滨", "101050101");
-        put("齐齐哈尔", "101050201");
-        put("牡丹江", "101050301");
-        put("佳木斯", "101050401");
-        put("绥化", "101050501");
-        put("黑河", "101050601");
-        put("大庆", "101050801");
-        put("伊春", "101050901");
-        put("鸡西", "101051001");
-        put("鹤岗", "101051101");
-        put("双鸭山", "101051201");
-        put("七台河", "101051301");
-
-        put("呼和浩特", "101080101");
-        put("包头", "101080201");
-        put("鄂尔多斯", "101080301");
-        put("赤峰", "101080601");
-        put("通辽", "101080501");
-        put("呼伦贝尔", "101080801");
-        put("巴彦淖尔", "101081001");
-        put("乌兰察布", "101080901");
-        put("乌海", "101080401");
-
-        put("太原", "101100101");
-        put("大同", "101100201");
-        put("阳泉", "101100301");
-        put("长治", "101100401");
-        put("晋城", "101100501");
-        put("朔州", "101100601");
-        put("晋中", "101100701");
-        put("运城", "101100801");
-        put("忻州", "101100901");
-        put("临汾", "101101001");
-        put("吕梁", "101101101");
-
-        put("石家庄", "101090101");
-        put("唐山", "101090201");
-        put("秦皇岛", "101090301");
-        put("邯郸", "101090401");
-        put("邢台", "101090501");
-        put("保定", "101090601");
-        put("张家口", "101090701");
-        put("承德", "101090801");
-        put("沧州", "101090901");
-        put("廊坊", "101091001");
-        put("衡水", "101091101");
-
-        put("郑州", "101180101");
-        put("开封", "101180201");
-        put("洛阳", "101180301");
-        put("平顶山", "101180401");
-        put("安阳", "101180501");
-        put("新乡", "101180601");
-        put("焦作", "101180701");
-        put("濮阳", "101180801");
-        put("许昌", "101180901");
-        put("漯河", "101181001");
-        put("三门峡", "101181101");
-        put("南阳", "101181201");
-        put("商丘", "101181301");
-        put("信阳", "101181401");
-        put("周口", "101181501");
-        put("驻马店", "101181601");
-        put("鹤壁", "101181701");
-
-        put("合肥", "101220101");
-        put("芜湖", "101220201");
-        put("蚌埠", "101220301");
-        put("淮南", "101220401");
-        put("马鞍山", "101220501");
-        put("淮北", "101220601");
-        put("铜陵", "101220701");
-        put("安庆", "101220801");
-        put("黄山", "101220901");
-        put("滁州", "101221001");
-        put("阜阳", "101221101");
-        put("宿州", "101221201");
-        put("六安", "101221301");
-        put("亳州", "101221401");
-        put("池州", "101221501");
-        put("宣城", "101221601");
-
-        put("武汉", "101200101");
-        put("黄石", "101200201");
-        put("十堰", "101200301");
-        put("宜昌", "101200401");
-        put("襄阳", "101200501");
-        put("鄂州", "101200601");
-        put("荆门", "101200701");
-        put("孝感", "101200801");
-        put("荆州", "101200901");
-        put("黄冈", "101201001");
-        put("咸宁", "101201101");
-        put("随州", "101201201");
-        put("襄阳", "101200501");
-
-        put("长沙", "101250101");
-        put("株洲", "101250201");
-        put("湘潭", "101250301");
-        put("衡阳", "101250401");
-        put("邵阳", "101250501");
-        put("岳阳", "101250601");
-        put("常德", "101250701");
-        put("张家界", "101250801");
-        put("益阳", "101250901");
-        put("郴州", "101251001");
-        put("永州", "101251101");
-        put("怀化", "101251201");
-        put("娄底", "101251301");
-        put("湘西", "101251401");
-
-        put("成都", "101270101");
-        put("绵阳", "101270201");
-        put("德阳", "101270301");
-        put("宜宾", "101270401");
-        put("南充", "101270501");
-        put("达州", "101270601");
-        put("遂宁", "101270701");
-        put("广安", "101270801");
-        put("自贡", "101270901");
-        put("攀枝花", "101271001");
-        put("泸州", "101271101");
-        put("乐山", "101271201");
-        put("内江", "101271301");
-        put("眉山", "101271401");
-        put("广元", "101271501");
-        put("资阳", "101271601");
-        put("雅安", "101271701");
-        put("巴中", "101271801");
-        put("凉山", "101271901");
-
-        put("贵阳", "101260101");
-        put("遵义", "101260201");
-        put("六盘水", "101260301");
-        put("安顺", "101260401");
-        put("铜仁", "101260501");
-        put("毕节", "101260601");
-        put("黔东南", "101260701");
-        put("黔南", "101260801");
-        put("黔西南", "101260901");
-
-        put("昆明", "101290101");
-        put("曲靖", "101290201");
-        put("玉溪", "101290301");
-        put("保山", "101290401");
-        put("昭通", "101290501");
-        put("丽江", "101290601");
-        put("普洱", "101290701");
-        put("临沧", "101290801");
-        put("楚雄", "101290901");
-        put("红河", "101291001");
-        put("文山", "101291101");
-        put("西双版纳", "101291201");
-        put("大理", "101291301");
-        put("德宏", "101291401");
-        put("怒江", "101291501");
-        put("迪庆", "101291601");
-
-        put("南宁", "101300101");
-        put("柳州", "101300201");
-        put("桂林", "101300301");
-        put("梧州", "101300401");
-        put("北海", "101300501");
-        put("防城港", "101300601");
-        put("钦州", "101300701");
-        put("贵港", "101300801");
-        put("玉林", "101300901");
-        put("百色", "101301001");
-        put("贺州", "101301101");
-        put("河池", "101301201");
-        put("来宾", "101301301");
-        put("崇左", "101301401");
-
-        put("海口", "101310101");
-        put("三亚", "101310201");
-        put("三沙", "101310301");
-        put("儋州", "101310401");
-
-        put("拉萨", "101140101");
-        put("日喀则", "101140201");
-        put("昌都", "101140301");
-        put("林芝", "101140401");
-        put("山南", "101140501");
-        put("那曲", "101140601");
-        put("阿里", "101140701");
-
-        put("西宁", "101150101");
-        put("海东", "101150201");
-        put("海北", "101150301");
-        put("黄南", "101150401");
-        put("海南州", "101150501");
-        put("果洛", "101150601");
-        put("玉树", "101150701");
-        put("海西", "101150801");
-
-        put("银川", "101170101");
-        put("石嘴山", "101170201");
-        put("吴忠", "101170301");
-        put("固原", "101170401");
-        put("中卫", "101170501");
-
-        put("兰州", "101160101");
-        put("嘉峪关", "101160201");
-        put("金昌", "101160301");
-        put("白银", "101160401");
-        put("天水", "101160501");
-        put("武威", "101160601");
-        put("张掖", "101160701");
-        put("平凉", "101160801");
-        put("酒泉", "101160901");
-        put("庆阳", "101161001");
-        put("定西", "101161101");
-        put("陇南", "101161201");
-        put("临夏", "101161301");
-        put("甘南", "101161401");
-
-        put("乌鲁木齐", "101130101");
-        put("克拉玛依", "101130201");
-        put("吐鲁番", "101130301");
-        put("哈密", "101130401");
-        put("昌吉", "101130501");
-        put("博尔塔拉", "101130601");
-        put("巴音郭楞", "101130701");
-        put("阿克苏", "101130801");
-        put("克孜勒苏", "101130901");
-        put("喀什", "101131001");
-        put("和田", "101131101");
-        put("伊犁", "101131201");
-        put("塔城", "101131301");
-        put("阿勒泰", "101131401");
-
-        put("台北", "101340101");
-        put("高雄", "101340201");
-        put("台中", "101340401");
-        put("台南", "101340301");
-        put("新竹", "101340501");
-        put("嘉义", "101340601");
-
-        put("香港", "101320101");
-        put("澳门", "101330101");
-    }};
-
-    /** 内置常用城市名列表（供天气意图提取兜底，覆盖 CSV 可能缺失的港澳台等） */
-    public static java.util.List<String> getDefaultCityNames() {
-        return new java.util.ArrayList<>(DEFAULT_CITY_IDS.keySet());
-    }
-
-    /** 内置常用城市表查询：城市名 → 和风城市编码；无则 null */
-    public static String getDefaultCityId(String name) {
-        return name == null ? null : DEFAULT_CITY_IDS.get(name);
-    }
-
-    private String getHefengLocationId(String city) throws Exception {
-        // 0. 已是和风城市编码（纯数字 ID）→ 直接返回，不绕查询链路
-        if (city != null && city.matches("\\d{6,12}")) {
-            return city;
-        }
-
-        // 1. 内置常用城市表
-        String defaultId = DEFAULT_CITY_IDS.get(city);
-        if (defaultId != null) {
-            return defaultId;
-        }
-
-        // 2. 本地城市 CSV（与天气详情界面同源，免费离线，无需网络）：
-        //    天气详情界面用 QWeatherCityManager 从 assets CSV 查城市 ID，从不调 geo API
-        //    ——这就是详情界面正常而 Agent 403 的原因。这里对齐详情界面。
-        //    注意：模型可能传"银川市/五台县"，CSV 是"银川/五台县"，需去行政后缀模糊匹配。
+    /**
+     * 把城市入参统一解析成 CSV 城市条目（CITY-RESOLVE-UNIFY, 2026-10-11）。
+     *
+     * <p><b>为什么抽出来</b>：{@link #resolveHefengLocationParam(String)} 与
+     * {@link #getHefengLatLon(String)} 原本各自维护一份完全相同的解析链
+     * （数字 ID 特判 + CSV 精确匹配 + 去行政后缀 + 关键词搜索）。两处只修一处就会出 bug ——
+     * COORD-CODE-FIX 那次的教训正是：编码特判只加在了前者，后者拿编码去查名字索引必然 miss，
+     * 导致 air_quality/alerts 这类**必须坐标**的 action 直接失败。现在共享本方法，
+     * 两者不再可能漂移。</p>
+     *
+     * <p>入参两种形态都能解析：<b>纯数字编码</b>（走主键 {@code getCityById}）与
+     * <b>城市名</b>（精确 → 去后缀 → 关键词搜索）。</p>
+     *
+     * @return 命中的城市条目；CSV 无此城市时返回 null（由调用方决定各自回退）
+     */
+    private com.oilquiz.app.weather.QWeatherCityManager.CityEntry resolveCityEntry(String city) {
+        if (city == null || city.trim().isEmpty()) return null;
         try {
             com.oilquiz.app.weather.QWeatherCityManager cityMgr =
                     com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
-            // 1) 精确匹配
+
+            // 0. 纯数字 → 按和风城市编码（主键）反查
+            if (city.matches("\\d{6,12}")) {
+                com.oilquiz.app.weather.QWeatherCityManager.CityEntry byId = cityMgr.getCityById(city);
+                if (byId != null) {
+                    Log.i(TAG, "City code lookup hit: " + city + " -> " + byId.nameZh
+                            + " (" + byId.latitude + "," + byId.longitude + ")");
+                }
+                return byId;
+            }
+
+            // 1. 精确匹配
             com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
                     cityMgr.getCityByName(city);
-            // 2) 去后缀匹配（市/县/区/旗/盟/州/地区/自治州）
+            // 2. 去后缀匹配（市/县/区/旗/盟/州/地区/自治州）：模型可能传"银川市/五台县"
             if (entry == null) {
                 String stripped = city.replaceAll("(自治州|地区|市|县|区|旗|盟|州)$", "");
                 if (!stripped.isEmpty() && !stripped.equals(city)) {
                     entry = cityMgr.getCityByName(stripped);
                 }
             }
-            // 3) 关键词搜索（含"五台"匹配"五台县"）
+            // 3. 关键词搜索（含"五台"匹配"五台县"）
             if (entry == null) {
                 java.util.List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> matches =
                         cityMgr.searchCities(city);
@@ -917,18 +555,54 @@ public class AIWeatherManager implements AITool {
                     entry = matches.get(0);
                 }
             }
-            if (entry != null && entry.locationId != null) {
-                Log.i(TAG, "Local city lookup hit: " + city + " -> " + entry.locationId
-                        + " (" + entry.nameZh + ")");
-                return entry.locationId;
+            if (entry != null) {
+                Log.i(TAG, "Local city lookup hit: " + city + " -> " + entry.nameZh
+                        + " (" + entry.locationId + ")");
             }
+            return entry;
         } catch (Throwable t) {
-            Log.w(TAG, "Local city lookup failed for " + city + ": " + t.getMessage());
+            Log.w(TAG, "resolveCityEntry failed for " + city + ": " + t.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 把城市入参解析成**可直接作为和风 `location` 参数使用**的值。
+     *
+     * <p><b>⚠ 返回值不是单一形态 —— 这是本方法最容易被误读的地方</b>
+     * （原名 {@code getHefengLocationId} 就是被这个名称坑过：见下）：</p>
+     *
+     * <ul>
+     *   <li>CSV 命中 → <b>LocationID</b>，如 {@code "101280101"}</li>
+     *   <li>CSV 未命中、设备 Geocoder 命中 → <b>坐标串</b>，如 {@code "116.4053,39.9050"}（经度,纬度）</li>
+     *   <li>都未命中、geo API 命中 → <b>LocationID</b></li>
+     * </ul>
+     *
+     * <p>之所以能这样混用，是因为和风的 {@code location} 参数**原生接受** LocationID 与
+     * {@code 经度,纬度} 两种形式（见各处 {@code "?location=" + location} 拼接）。所以本方法返回的是
+     * "参数值"而不是"ID" —— 原方法名 {@code getHefengLocationId} 名实不符，</p>
+     *
+     * <p><b>命名教训（COORD-CODE-FIX，2026-10-11）</b>：正因原名暗示"这是取 ID 的"，
+     * {@link #getHefengLatLon(String)} 的作者没有跟着加"纯数字编码"特判，
+     * 导致模型传 LocationID（如 {@code city=101280101}）时坐标解析 miss，
+     * {@code air_quality}/{@code alerts}/{@code indices}/{@code minutely} 这类
+     * **URL 路径必须坐标**的 action 直接失败（而 {@code current}/{@code forecast} 用 location 参数
+     * 恰好接受编码，所以默认查询正常、只有空气质量/预警/生活指数会炸，不易发现）。</p>
+     *
+     * @throws Exception 本地表、系统 Geocoder、geo API 全部无法解析该城市时
+     */
+    private String resolveHefengLocationParam(String city) throws Exception {
+        // 0/1. 本地城市 CSV（数字编码 → 城市名），离线可用且不依赖 geo API：
+        //      天气详情界面用 QWeatherCityManager 从 assets CSV 查城市 ID，从不调 geo API
+        //      ——这就是详情界面正常而 Agent 403 的原因。这里对齐详情界面。
+        com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry = resolveCityEntry(city);
+        if (entry != null && entry.locationId != null && !entry.locationId.isEmpty()) {
+            return entry.locationId;
         }
 
-        // Android 系统 Geocoder 正地理编码（地名→坐标）：完全本地系统服务，
-        // 不依赖和风 geo API（该端点 JWT 403）。返回 "经度,纬度" 格式——
-        // 和风 v7 的 location 参数原生支持该格式，调用方无需区分 ID/坐标。
+        // 2. Android 系统 Geocoder 正地理编码（地名→坐标）：完全本地系统服务，
+        //    不依赖和风 geo API（该端点 JWT 403）。返回 "经度,纬度" 格式——
+        //    和风 v7 的 location 参数原生支持该格式，调用方无需区分 ID/坐标。
         try {
             if (android.location.Geocoder.isPresent()) {
                 android.location.Geocoder geocoder =
@@ -949,7 +623,7 @@ public class AIWeatherManager implements AITool {
             Log.w(TAG, "System Geocoder lookup failed for " + city + ": " + t.getMessage());
         }
 
-        // 3. geo API 兜底（仅在本地 CSV 无此城市时；JWT 认证）
+        // 3. geo API 兜底（仅在本地 CSV / 系统 Geocoder 都未命中时；JWT 认证）
         try {
             String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
             String urlString = getGeocodeUrl() + "?location=" + encodedCity;
@@ -964,34 +638,48 @@ public class AIWeatherManager implements AITool {
         throw new Exception("无法定位城市: " + city + "（本地城市表与 geo 查询均无结果）");
     }
 
+    /**
+     * 把位置解析成 **"经度,纬度"** 串，供只接受经纬度的 v1 类接口使用
+     * （和风 v1：空气质量 {@code airquality/v1}、天气预警 {@code weatheralert/v1}）。
+     * 这些接口**不支持 LocationID**，SDK 侧会直接返回"v1 API需要经纬度坐标"。
+     *
+     * <p>COORD-ONLY-V1(2026-10-11)：此前 {@code getAirQualityAITool} / {@code getAlertsAITool} /
+     * {@code getIndicesAITool} 的 SDK 分支传的是 {@code buildSdkLocation(city,...)}，
+     * 而后者对"有编码的城市"返回的正是**编码本身** → 这两个 action 在 SDK 路径上必然失败。
+     * 实测现象：问"五台县的空气质量"→ {@code 空气质量: v1 API需要经纬度坐标}；
+     * 而同一城市的 {@code current} 正常（weather/now 接受编码）。</p>
+     *
+     * <p>解析顺序：① 显式 lat/lon（模型直接给了坐标，优先级最高）
+     * → ② {@link #getHefengLatLon(String)}（本地 CSV / 系统 Geocoder / geo API，支持编码与城市名）。
+     * 都拿不到返回 null，由调用方回退到按城市的 HTTP 实现（那些实现会自行解析）。</p>
+     *
+     * @return {@code "经度,纬度"}，顺序与和风 location 参数一致（先经度后纬度）
+     */
+    private String resolveLatLonString(Double lat, Double lon, String city) {
+        double[] ll = null;
+        if (lat != null && lon != null) {
+            ll = new double[]{lat, lon};
+        } else if (city != null && !city.trim().isEmpty()) {
+            try {
+                // getHefengLatLon 返回 {lat, lon}；其第 0 步已支持纯数字编码主键反查
+                ll = getHefengLatLon(city);
+            } catch (Exception e) {
+                Log.w(TAG, "resolveLatLonString failed for " + city + ": " + e.getMessage());
+            }
+        }
+        if (ll == null || ll.length < 2) return null;
+        return String.format(java.util.Locale.US, "%.4f,%.4f", ll[1], ll[0]); // 经度,纬度
+    }
+
     private double[] getHefengLatLon(String city) throws Exception {
-        // 本地 CSV 优先：与 getHefengLocationId 一致，离线可用且不依赖 geo API
-        try {
-            com.oilquiz.app.weather.QWeatherCityManager cityMgr =
-                    com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
-            com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry =
-                    cityMgr.getCityByName(city);
-            if (entry == null) {
-                String stripped = city.replaceAll("(自治州|地区|市|县|区|旗|盟|州)$", "");
-                if (!stripped.isEmpty() && !stripped.equals(city)) {
-                    entry = cityMgr.getCityByName(stripped);
-                }
-            }
-            if (entry == null) {
-                java.util.List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> matches =
-                        cityMgr.searchCities(city);
-                if (matches != null && !matches.isEmpty()) {
-                    entry = matches.get(0);
-                }
-            }
-            if (entry != null) {
-                return new double[]{entry.latitude, entry.longitude};
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "Local city lookup failed for " + city + ": " + t.getMessage());
+        // 1. 本地城市 CSV（数字编码 → 城市名）；与 resolveHefengLocationParam 共用 resolveCityEntry，
+        //    两者不再可能各自漂移（见该方法注释里的 COORD-CODE-FIX 教训）。
+        com.oilquiz.app.weather.QWeatherCityManager.CityEntry entry = resolveCityEntry(city);
+        if (entry != null) {
+            return new double[]{entry.latitude, entry.longitude};
         }
 
-        // Android 系统 Geocoder 正地理编码（地名→坐标）：完全本地系统服务，
+        // 2. Android 系统 Geocoder 正地理编码（地名→坐标）：完全本地系统服务，
         // 不依赖和风 geo API（该端点 JWT 403）。CSV 未覆盖的生僻地名也常能解析。
         try {
             if (android.location.Geocoder.isPresent()) {
@@ -1013,6 +701,7 @@ public class AIWeatherManager implements AITool {
             Log.w(TAG, "System Geocoder lookup failed for " + city + ": " + t.getMessage());
         }
 
+        // 3. geo API 兜底（仅在本地 CSV 与系统 Geocoder 都未命中时）
         try {
             String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
             String urlString = getGeocodeUrl() + "?location=" + encodedCity;
@@ -1314,12 +1003,12 @@ public class AIWeatherManager implements AITool {
     public CompletableFuture<String> getHefengForecast(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String locationId = getHefengLocationId(city);
-                if (locationId == null || locationId.isEmpty()) {
-                    return "天气预报:\n查询失败（无法获取城市位置ID）";
+                String location = resolveHefengLocationParam(city);
+                if (location == null || location.isEmpty()) {
+                    return "天气预报:\n查询失败（无法获取城市位置）";
                 }
 
-                String urlString = getForecastUrl() + "?location=" + locationId;
+                String urlString = getForecastUrl() + "?location=" + location;
                 String response = httpGet(urlString);
                 return parseHefengForecastResponse(response);
             } catch (Exception e) {
@@ -1427,12 +1116,12 @@ public class AIWeatherManager implements AITool {
     public CompletableFuture<String> getHefengHourly(String city) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String locationId = getHefengLocationId(city);
-                if (locationId == null || locationId.isEmpty()) {
-                    return "24小时预报:\n查询失败（无法获取城市位置ID）";
+                String location = resolveHefengLocationParam(city);
+                if (location == null || location.isEmpty()) {
+                    return "24小时预报:\n查询失败（无法获取城市位置）";
                 }
 
-                String urlString = getHourlyUrl() + "?location=" + locationId;
+                String urlString = getHourlyUrl() + "?location=" + location;
                 String response = httpGet(urlString);
                 return parseHefengHourlyResponse(response);
             } catch (Exception e) {
@@ -1913,7 +1602,7 @@ public class AIWeatherManager implements AITool {
     }
 
     private double[] getCoordinatesFromLocationId(String locationId) {
-        // 本地 CSV 优先（与 getHefengLocationId 一致，离线可用）
+        // 本地 CSV 优先（与 resolveHefengLocationParam 一致，离线可用）
         try {
             com.oilquiz.app.weather.QWeatherCityManager cityMgr =
                     com.oilquiz.app.weather.QWeatherCityManager.getInstance(context);
@@ -2403,6 +2092,33 @@ public class AIWeatherManager implements AITool {
                 return "24小时预报:\n查询失败: " + e.getMessage();
             }
         });
+    }
+
+    /**
+     * 把城市名解析成经纬度（air_quality/alerts/indices/minutely 走 URL 路径必须坐标，
+     * 但模型通常只给 city）。
+     *
+     * <p><b>COORD-FORCE-LOCAL(2026-10-11)</b>：此前这几个 action 在「有 city、无坐标」时直接调
+     * {@code getHefengAirQuality(city)} 等「按城市」实现，而那些实现内部又调
+     * {@link #getHefengLatLon(String)} 解析 —— 若本地 CSV 与系统 Geocoder 都未命中，
+     * 会落到和风 geo API（该端点无 JWT 权限时 403）而失败。这里改为**先走本地链路**拿到坐标，
+     * 拿到就用 {@code *ByLocation} 实现直接打坐标 URL，与 coordinates 分支走同一条可靠路径。
+     *
+     * <p><b>为什么不直接用设备定位坐标</b>：用户问的是"北京天气"，用设备坐标会返回错误城市的
+     * 数据（{@code buildSdkLocation} 坐标优先、{@code *ByLocation} 根本不收 city 参数）
+     * —— 那比查询失败更糟。所以本方法只接受 city→坐标的**忠实换算**，换算不出就返回 null，
+     * 由调用方回退到原「按城市」实现（那里失败会返回"无法获取城市位置信息"，属如实告知）。
+     *
+     * @return 与 API 一致的 {@code {lat, lon}}；解析不出返回 null
+     */
+    private double[] resolveHefengLatLonForCity(String city) {
+        if (city == null || city.trim().isEmpty()) return null;
+        try {
+            return getHefengLatLon(city);
+        } catch (Throwable t) {
+            Log.w(TAG, "resolveHefengLatLonForCity failed for " + city + ": " + t.getMessage());
+            return null;
+        }
     }
 
     public CompletableFuture<String> getHefengAirQualityByLocation(double lat, double lon) {
@@ -2987,7 +2703,9 @@ public class AIWeatherManager implements AITool {
 
             if (sdkManager != null && sdkManager.isInitialized()) {
                 try {
-                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    // COORD-ONLY-V1：空气质量走 v1 接口，SDK 只接受经纬度（不支持 LocationID），
+                    // 故不能像 current/forecast 那样传 buildSdkLocation 的编码，必须先解析成坐标串
+                    String location = resolveLatLonString(lat, lon, city);
                     if (location != null) {
                         result = sdkManager.getAirQuality(location).get(15, TimeUnit.SECONDS);
                         if (!isSdkResultValid(result)) {
@@ -3005,7 +2723,12 @@ public class AIWeatherManager implements AITool {
                 if (useLocation) {
                     result = getHefengAirQualityByLocation(lat, lon).get();
                 } else if (city != null && !city.isEmpty()) {
-                    result = getHefengAirQuality(city).get();
+                    // COORD-FORCE-LOCAL：先本地换坐标（见 resolveHefengLatLonForCity 说明），
+                    // 换不出再退回「按城市」实现（其内部最终可能落 geo API）
+                    double[] ll = resolveHefengLatLonForCity(city);
+                    result = (ll != null && ll.length >= 2)
+                            ? getHefengAirQualityByLocation(ll[0], ll[1]).get()
+                            : getHefengAirQuality(city).get();
                 } else {
                     return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
                 }
@@ -3025,7 +2748,8 @@ public class AIWeatherManager implements AITool {
 
             if (sdkManager != null && sdkManager.isInitialized()) {
                 try {
-                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    // COORD-ONLY-V1：天气预警走 weatheralert/v1，SDK 只接受经纬度
+                    String location = resolveLatLonString(lat, lon, city);
                     if (location != null) {
                         result = sdkManager.getWeatherAlerts(location).get(15, TimeUnit.SECONDS);
                         if (!isSdkResultValid(result)) {
@@ -3043,7 +2767,12 @@ public class AIWeatherManager implements AITool {
                 if (useLocation) {
                     result = getHefengAlertsByLocation(lat, lon).get();
                 } else if (city != null && !city.isEmpty()) {
-                    result = getHefengAlerts(city).get();
+                    // COORD-FORCE-LOCAL：同 getAirQualityAITool；alerts 尤重——
+                    // 其 URL（getAlertUrl）把经纬度拼在路径里，没有坐标就完全无法请求
+                    double[] ll = resolveHefengLatLonForCity(city);
+                    result = (ll != null && ll.length >= 2)
+                            ? getHefengAlertsByLocation(ll[0], ll[1]).get()
+                            : getHefengAlerts(city).get();
                 } else {
                     return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
                 }
@@ -3063,7 +2792,9 @@ public class AIWeatherManager implements AITool {
 
             if (sdkManager != null && sdkManager.isInitialized()) {
                 try {
-                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    // COORD-ONLY-V1：生活指数（v7 indices）同样以经纬度作为 location 参数最稳；
+                    // 原本传 buildSdkLocation 的编码会在 SDK 侧再解析一次（可能落 geo API）
+                    String location = resolveLatLonString(lat, lon, city);
                     if (location != null) {
                         result = sdkManager.getIndices(location).get(15, TimeUnit.SECONDS);
                         if (!isSdkResultValid(result)) {
@@ -3081,7 +2812,11 @@ public class AIWeatherManager implements AITool {
                 if (useLocation) {
                     result = getHefengIndicesByLocation(lat, lon).get();
                 } else if (city != null && !city.isEmpty()) {
-                    result = getHefengIndices(city).get();
+                    // COORD-FORCE-LOCAL：indices 的 URL（getIndicesUrl）同样把坐标拼进 location 参数
+                    double[] ll = resolveHefengLatLonForCity(city);
+                    result = (ll != null && ll.length >= 2)
+                            ? getHefengIndicesByLocation(ll[0], ll[1]).get()
+                            : getHefengIndices(city).get();
                 } else {
                     return new AIToolResult("请提供城市名称或经纬度", new HashMap<>());
                 }
@@ -3101,7 +2836,11 @@ public class AIWeatherManager implements AITool {
 
             if (sdkManager != null && sdkManager.isInitialized()) {
                 try {
-                    String location = buildSdkLocation(city, lat, lon, useLocation);
+                    // COORD-ONLY(2026-10-11)：SDK 的 getMinutely 用 split(",") 解析 location，
+                    // 拿不到坐标时**静默回退北京 (116.41,39.92)** —— 与"错误数据冒充正确数据"同源，
+                    // 故必须先解析出坐标串。注：minutely 当前未暴露为 ai_weather 的 action（不可达），
+                    // 此处修正为将来暴露时不再踩坑。
+                    String location = resolveLatLonString(lat, lon, city);
                     if (location != null) {
                         result = sdkManager.getMinutelyByLocation(location).get(15, TimeUnit.SECONDS);
                         if (!isSdkResultValid(result)) {
@@ -3141,6 +2880,10 @@ public class AIWeatherManager implements AITool {
 
             String sdkLocation = (sdkManager != null && sdkManager.isInitialized())
                 ? buildSdkLocation(city, lat, lon, useLocation) : null;
+            // COORD-ONLY-V1：air_quality / alerts 走 v1 接口，只接受经纬度，
+            // 不能复用上面的 sdkLocation（它可能是 LocationID）—— 否则 action=all 里这两项恒失败
+            String sdkCoordLocation = (sdkManager != null && sdkManager.isInitialized())
+                ? resolveLatLonString(lat, lon, city) : null;
 
             CompletableFuture<String> currentFuture, forecastFuture, hourlyFuture, airFuture, alertsFuture, indicesFuture;
 
@@ -3149,8 +2892,15 @@ public class AIWeatherManager implements AITool {
                 currentFuture = sdkManager.getCurrentWeather(sdkLocation, city).exceptionally(e -> "查询失败: " + e.getMessage());
                 forecastFuture = sdkManager.getDailyForecast(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
                 hourlyFuture = sdkManager.getHourlyForecast(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
-                airFuture = sdkManager.getAirQuality(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
-                alertsFuture = sdkManager.getWeatherAlerts(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
+                // v1 类接口用坐标串；拿不到坐标就给出明确失败（交给下面合并展示，不再报"需要经纬度坐标"）
+                airFuture = (sdkCoordLocation != null
+                        ? sdkManager.getAirQuality(sdkCoordLocation)
+                        : CompletableFuture.completedFuture("查询失败: 无法解析该城市的经纬度"))
+                    .exceptionally(e -> "查询失败: " + e.getMessage());
+                alertsFuture = (sdkCoordLocation != null
+                        ? sdkManager.getWeatherAlerts(sdkCoordLocation)
+                        : CompletableFuture.completedFuture("查询失败: 无法解析该城市的经纬度"))
+                    .exceptionally(e -> "查询失败: " + e.getMessage());
                 indicesFuture = sdkManager.getIndices(sdkLocation).exceptionally(e -> "查询失败: " + e.getMessage());
             } else {
                 // HTTP回退路径

@@ -1,5 +1,523 @@
 # 变更日志
 
+## [2026-10-11] 本地 Agent 核心工具定为 4 个（产品范围决策）
+
+### 1) 改动
+
+`AgentLoopEngine.DEFAULT_CORE_TOOLS` 由 9 个收窄到 **4 个**，并定为本地 Agent 的产品范围
+（本地推理**只做这四个工具调用**）：
+
+```
+收窄前：time_date, location, ai_weather, network_search, smart_research, memory,
+        tool_registry, file_reader, workspace
+收窄后：time_date, location, ai_weather, network_search
+```
+
+移出 5 个：`tool_registry`、`smart_research`、`memory`、`file_reader`、`workspace`。
+
+### 2) 关键结论：这四个就是能力上限（**纠正了本条目初稿的错误判断**）
+
+native 的 PEG 语法按本次请求的 tools 数组**逐字枚举**工具名：
+
+```cpp
+// llama.cpp/common/chat-peg-parser.cpp: standard_json_tools
+for (const auto & tool_def : tools) {
+    std::string name = function.at("name");
+    auto tool_name_ = ... atomic(literal("\"") + tool_name(literal(name)) + literal("\""));
+    auto tool_args_ = ... tool_args(schema(json(), "tool-" + name + "-schema", params));
+}
+```
+
+名字是 `atomic(literal(...))` 精确匹配，参数按该工具自己的 schema 约束。**未注入 schema 的
+工具名，模型根本生成不出来** —— 解析失败后整段 tool_call 退化成正文。
+
+因此以下两条**在本工程内已被证伪**（初稿曾据此认为能力只是"变难"）：
+
+- ❌ 靠 `resolveToolNameFuzzy` "猜名调用"救回 4 个之外的 55 个工具：不成立。
+  它只能归一化**已在 tools 数组里的名字**（如别名 `ui_control` → `ui_component`）。
+- ❌ 在 system prompt 里列一份"能力清单"让模型照着调：不成立。模型看得到名字，
+  但 generate 不出那个工具名。
+- ❌ 现状的"动态注入"能补回来：不成立。它要求工具**先被成功调用**才加入 `activeTools`，
+  而没 schema 就调不动 → 死锁。
+
+**与在线路径的本质差异**：在线走 OpenAI tools 协议，模型可自由点名工具（服务端不枚举），
+所以在线那套"零预判、模型自主发现（`tool_registry`）"的策略在**它自己的协议下成立**；
+本地路径照搬该策略则不可行。将来若要恢复 4 个之外的能力，唯一出路是新增一条
+**引擎侧注入通道**（意图匹配注入，或发现工具返回工具名后由 Java 加入 `activeTools`），
+改 prompt 或让模型猜名字均无效。
+
+### 3) 连带修正（否则 prompt 会点名不可达的工具）
+
+- **system prompt 精确化（TOOL-SELECTION-EXACT）**：工具集收到 4 个后把选用规则钉死到每一步，
+  并按实测痛点重写。改前 6 行中有 2 行重复列举工具名（"你的工作"与"工具选择"），已合并。
+  全部用**确定句**（必须/一律/直接/禁止），不用"可以/建议"这类可选语气 —— 4B 模型对可选语气
+  倾向于忽略。四条硬约束：
+  1. **只准这四个** —— 未注入 schema 的工具名 native 根本生成不出来（PEG 逐字枚举），
+     模型凭训练记忆乱点名会让整轮 tool_call 退化成正文；
+  2. **天气位置参数的写法**（见下方"审查修正"）；
+  3. **静态知识别调工具** —— 原"实时/动态信息必须用工具获取"边界太粗，把可直答的静态知识
+     也推去调工具，浪费轮次；
+  4. **办不到要如实说 + 不许拿别的工具凑** —— 4 个工具覆盖不了生成文件/读文件/画图/跑代码，
+     不写这条模型会硬用 `network_search` / `ai_weather` 去凑无关答案。
+- **审查修正（2026-10-11 第二轮）**：上一轮写的"用户没说城市时必须先调 location 取经纬度"
+  **是错的**，与 `executeToolSafely` 的实际行为冲突 ——
+  ```java
+  if ("ai_weather".equals(toolName) && !params.containsKey("city")
+          && !params.containsKey("lat") && !params.containsKey("lon")) {
+      fillWeatherLocation(params);   // 只在模型完全没给位置参数时才自动补手机定位经纬度
+  }
+  ```
+  该兜底**只在模型完全没给** `city`/`lat`/`lon` 时触发（模型给了 `city` 不会被覆盖），且
+  `fillWeatherLocation` 内部已按"经纬度缓存 → 用户消息城市 → 当前位置"降级。所以正确写法是
+  **不带任何位置参数**让系统自动补，而不是先调一次 `location`（多烧一轮推理，拿到的经纬度
+  模型还得自己填回去）。据此同步改了三处，使提示词与代码行为一致：
+  - system prompt"工具选择"行；
+  - `ai_weather.whenToUse` + `description` + `city`/`lat` 参数说明；
+  - `getAlternativeTool("ai_weather"/"network_search"/"location")`。
+
+  同时按领域事实补上降级路径：**城市名查询不可靠**（和风 geo/city lookup 端点无 JWT 权限时 403，
+  见 `AgentLoopEngine` 位置缓存注释），故明确"城市名查不到就去掉 city 重调、改用手机定位城市"，
+  以及"查外地城市禁止用手机定位结果代替、禁止编造"。
+
+- **清理 `TOOL_LABELS`**：原先 30 条覆盖全量注册表，四工具限定后其中 26 条永远查不到 ——
+  留着会让后来者误判"本引擎支持这些工具"。已精简到可达的 4 条。
+- **修正过期注释**：`buildFcSystemPrompt` 的 javadoc 原写"最小版…无规则段"，与现有 4 行规则矛盾；
+  文末 `RULES-REMOVED(2026-10-07)` 改为记录"该决策已被 CORE-TOOLS-4 部分回退"及其理由，
+  并注明将来再删规则段必须先保证"只准这四个"与"能力边界外怎么说"两条约束有别的落点。
+
+- **system prompt"你的工作"行**：原文案"调用多种工具完成查询、搜索、生成、处理等任务"
+  与能力不符（模型会承诺做不到的事）→ 改为显式声明能力边界。
+- **`getAlternativeTool`**：原映射的备选多数在 4 个之外（`file_reader`/`python_*`/`excel_tool`/
+  `image_gen`/`smart_research` 等）。建议一个调不动的工具，结果是模型把工具调用写成正文、
+  整轮退化 —— 比不给建议更糟。故备选**收紧到核心 4 个之内**，其余 case 删除，
+  并补上 `time_date` 的备选。
+- **`run()` 的动态注入段**：注释明确标注为**休眠路径**（`!contains` 分支恒不成立），
+  保留仅为将来恢复发现通道时复用，不承担实际功能。
+- 注释中"核心5工具""核心6工具""其余 60 个"等过期表述一并订正。
+
+**未改动**：`network_search.whenToUse` 经核对与新 prompt 一致（"常识与知识类问题直接用自身知识
+回答，不要搜索"），无需改。
+
+### 6) 四个工具 schema 语义审查（2026-10-11 第三轮）
+
+逐个核对"模型实际看到的定义"是否与 `execute()` 真实行为一致。关键前提：四个工具走**两条不同的
+定义路径** —— `ai_weather` / `network_search` 命中 `AIToolManager.getToolDefinition` 的 switch
+定义（参数类型正确、有 enum）；`time_date` / `location` **没有 switch case**，落到
+`createToolDefinitionFromAITool` 注解路径（`getDescription()` + `getParameterDescriptions()`，
+该路径把参数一律当 `string` + `required=false`）。
+
+发现并修复：
+
+- **`time_date` 与 `location` 的 `action` 没有 enum**（主要缺口）。注解路径不产生枚举，小模型只能
+  从描述文本里猜 action —— 正是 `PARAM_ENUM_OVERRIDES` 当初要解决的问题（"2B 只敢用第一个值"）。
+  已在 `PARAM_ENUM_OVERRIDES` 补上两个工具的真实 action 枚举：
+  `time_date` 7 个、`location` 3 个，**与各自 `execute()` 的 switch 分支逐字一致**。
+- **`TimeDateTool` 自身注解与描述不一致**：`@Tool.description` 只列 4 个 action、
+  `@Action` 列了 6 个、而 `getParameterDescriptions()` 与 `execute()` 都有 7 个
+  （漏了 `time` / `weekday`）。模型看的是 description 那串，故未造成误导，但会让维护者误判
+  能力边界。已把三处统一为 7 个。
+
+**审查结论**：`network_search`（10 个 action 全覆盖，参数别名 `query`/`keyword`、
+`limit`/`num_results` 已标注）与 `ai_weather`（7 个 action 枚举齐全）**无语义误导**；
+`location` 的 3 个 action 语义清楚（`get_current` 完整位置 / `get_city` 城市 /
+`get_coordinates` 坐标），且其 `@ToolDependencies` 会在缺权限时自动走 `permission_manager`
+请求，不需要提示词提及。`time_date` 的 7 个 action 经逐分支核对**全部真实实现**，
+不存在"推荐了会报错的操作"。
+
+**已知残留（未修，属系统性限制）**：走注解路径的工具，其参数类型一律是 `string`、
+`required` 一律 `false`、无 `default`（`timestamp` 实际是 integer、`date_to_timestamp` 的 `date`
+实际必填）。类型只存在于文本描述里（"秒级时间戳"，字段说明已补"必填"）。要根治需给 `AITool`
+增加结构化参数接口（如 `StructuredParamTool`），改动面较大，本次未做。
+
+**新增可观测性**：启动时打印实际下发的 system prompt 与 tools schema（截断），便于真机核对
+"模型到底看到了什么" —— 局部失败很难判断是提示词问题还是 schema 问题：
+
+```
+adb logcat -s AgentLoopEngine | grep -E "system prompt dump|tools schema dump"
+```
+
+### 7) `network_search` 实现审查（2026-10-11 第四轮）
+
+上一轮只审了它的 schema 语义，这次审实现，发现两个真问题 + 一个待决策项。
+该工具是本地 4 工具里**唯一的信息入口**，它静默失败等于实时信息能力整体失效。
+
+- **问题 1（严重，已修）：搜索失败被包装成"正常结果"**。
+  `search()` / `searchAndRead()` 在无结果时返回 `new AIToolResult("未找到与 '…' 相关的搜索结果。")`
+  —— 即 `success=true`；而 `AgentLoopEngine.isToolSuccess` 的 `containsToolFailure` 关键词表
+  （`查询失败/无法定位/超时/无结果/…`）**不含"未找到"**，于是"API key 失效 / 被限流 / 网络异常"
+  只要走到无结果分支，都会被上层判为**成功**：不触发失败提示、不触发重试，模型据此告诉用户
+  "没有找到相关信息"。已改为 `AIToolResult.fail("搜索无结果（未返回任何条目，可能是关键词过窄、
+  配额用尽或网络异常）: …")`（文案含"无结果"以被现有关键词表命中）。
+- **问题 2（我方引入的回归，已修）**：问题 1 改成 fail 之后会进入
+  `executeToolSafely` 末尾的 `MAX_RETRIES` 重试循环 —— 同一 query 被**重复执行最多 3 次 HTTP
+  请求**（白烧 2 轮推理，还可能触发服务端限流）。已给该循环加 `NO-RETRY-TOOLS` 豁免：
+  `network_search` 不重试。"无结果"是确定性结果，重跑无意义；真实瞬时故障由模型换关键词重搜
+  比引擎原样重跑更有效（`getAlternativeTool("network_search")` 已相应改为"换更具体的关键词重搜"，
+  不再建议重试同一工具）。
+- **清理**：`switch` 里的 `get_weather` 分支与 `getWeather()` 方法已删除。它只返回一句
+  "天气查询功能请使用 get_weather 工具"，而 `get_weather` **并不在工具注册表里**（天气工具名是
+  `ai_weather`），属会误导模型的陈旧文案；且 action 枚举不含它、模型选不中，保留只会让人误以为
+  `network_search` 管天气（与 system prompt"禁止用天气工具回答非天气问题"的方向相反）。
+
+- **待决策（未动）：硬编码的秘塔 API key 兜底**。
+  ```java
+  private static final String DEFAULT_METASO_API_KEY = "mk-3B07FA8984EE0A485E5BB237C2B7D517";
+  // 未配置用户 key 时兜底
+  String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
+  if (apiKey == null || apiKey.isEmpty()) { apiKey = DEFAULT_METASO_API_KEY; }
+  ```
+  而 `APIKeyManager.Service.METASO_SEARCH`（`APIKeyManager:963`）**全仓没有任何写入点**，
+  即"用户配置 key"这条路径从未接上，永远走硬编码值。影响：① 这是打进 APK 的固定凭据，
+  可被提取滥用，且用量/费用挂在 key 所有者名下；② 该 key 一旦过期、限流或配额用尽，
+  **本地 Agent 的实时信息能力整体失效** —— 过去因为问题 1 被静默成"没有找到相关信息"，
+  现在会明确报错（这是本次修复的附带收益）。**需要产品决策**：是接上用户 key 配置入口，
+  还是移除兜底、改为未配置时明确提示用户去配置。
+
+### 8) 接上用户可配置的搜索 Key（方案 A，2026-10-11 第五轮）
+
+承第 7 节"待决策"项，选择**方案 A：接上配置入口，硬编码 key 保留为兜底**。排查中发现根因比
+"没人写 key"更具体：**存在两套互不相通的存储**。
+
+- **根因**：`ApiConfigActivity` 保存用户输入走 `apiKeyManager.saveAPIConfig(config)`
+  → 存成 **`APIConfig` 结构化对象**（按 `serviceType` 检索）；而 `NetworkSearchTool` 四个调用点读的是
+  `apiKeyManager.getAPIKey(Service.METASO_SEARCH)` → **扁平键**。UI 从不写扁平键，
+  于是"用户填了搜索 key 也读不到"，永远落到内置共享 key。
+  （`Service.METASO_SEARCH` 的唯一写入方是调试用的 `DebugKeyReceiver`/`DebugKeyInjectActivity`。）
+
+- **改动**：
+  1. `APIConfig.ServiceType` 新增 `METASO_SEARCH = "metaso_search"`（秘塔才是
+     `network_search` 的真实数据源，四个调用点全打 `metaso.cn`；此前下拉只有 "Bing Search"，
+     名字与后端不符）。
+  2. `ApiConfigActivity` 下拉新增"秘塔搜索"（`serviceTypes` 与 `serviceTypeValues` 保持逐位对应，
+     各 8 项）。
+  3. `NetworkSearchTool` 新增 `resolveApiKey(APIKeyManager)`，把原先**四处重复**的
+     key 读取收敛为单一解析链（顺序即优先级）：
+     扁平键 → `APIConfig[metaso_search]` → `APIConfig[bing_search]`（兼容历史配置）
+     → `Category.SEARCH` 下 `apiHost` 含 metaso 的配置 → 内置共享 key。
+     该顺序与项目既有惯例一致（对照 `AIWeatherManager.getQWeatherApiKey`：扁平键 →
+     `getAPIConfigByServiceType`）。
+  4. **CATEGORY-AUTOSET**：选中搜索类服务时自动把"分类"切到"搜索服务"。原因是一个隐蔽陷阱 ——
+     分类下拉默认停在 index 0「AI服务」，而 AI 分类的配置会被 `OnlineModelManager` 当作在线模型
+     纳入列表，该列表的启用/停用开关会写 `APIConfig.setActive(false)`
+     （`ModelSelectorActivity` / `AICenterActivity`），而 `getAPIConfigByServiceType` 只返回
+     `isActive()==true` 的配置（`APIKeyManager:250`）→ 用户填了 key 也会读不到。
+  5. 新增 key **来源**日志（只记来源不记 key 值，避免凭据进 logcat），排障时一眼看出
+     是否读到了用户配置：
+     ```
+     adb logcat -s NetworkSearchTool | grep "Metaso API key 来源"
+     ```
+
+- **已知限制（本轮已解决，见下节）**：`APIKeyManager.getTestUrl` 没有 `METASO_SEARCH` 分支，
+  所以"测试连接"按钮会落到 CUSTOM 分支、需要填 `apiHost`，否则报"无法确定测试URL"。
+  保存与读取不受影响，故本次未动（要正确实现需确认秘塔的鉴权探测端点，属独立小任务）。
+
+### 9) 补上「测试连接」：秘塔没有免费校验端点，改为最小真实搜索（2026-10-11 第六轮）
+
+联网核实（官方 SDK 与官方 MCP 的 schema 反查）后的结论：
+
+1. **秘塔没有可用的轻量校验端点**。官方只暴露 `POST /api/v1/search`（搜索）、`/api/v1/reader`
+   （读网页）、`/api/open/search/v2`（问答）这类业务端点，**没有**账号/余额/校验类 GET 端点。
+   第三方资料还显示该 API **按次计费** —— 也就是说"免费试探 Key 是否有效"这条路不存在。
+2. **现有通用测试对秘塔根本无效**：`testAPIConnection` 的通用流程是
+   "`getTestUrl` → **GET** → HTTP 200 即成功"，而搜索端点是 **POST + JSON body**，
+   GET 会被拒；此前 `getTestUrl` 又没有 `METASO_SEARCH` 分支 → 落到 CUSTOM 分支
+   → 需要手填 `apiHost`，否则直接报"无法确定测试URL"。
+3. 顺带**交叉验证了现有调用形状是正确的**：官方 MCP 服务器的 `metaso_search` schema 为
+   `q`(必填) / `size`(默认10) / `scope`(默认 webpage) / `includeSummary` / `includeRawContent`，
+   与 `NetworkSearchTool.metasoSearch` 的请求体逐字一致。
+
+**改动**（不新造探测逻辑，复用真实协议）：
+
+- `NetworkSearchTool` 新增 `public String testApiKey(String apiKey)`：发一次
+  **最小真实搜索**（`q` 固定为 "秘塔AI搜索"、`size=1`、`includeSummary/RawContent=false`），
+  复用运行时同一套判定 —— HTTP 401/403 → Key 无效；429 → 限流；非 2xx → `parseMetasoError`
+  解析 body；**HTTP 2xx 仍需解析 body 的 `code`**（秘塔把余额/鉴权类问题放在 body 的 code 字段，
+  这是代码里已有的实测结论）；`webpages` 为空**不算失败**（鉴权已通过，只是该查询无结果）。
+  返回 `"OK|延迟ms"` 或 `"FAIL|原因"`。
+- `APIKeyManager.testAPIConnection` 增加前置分支：`serviceType` 为 `METASO_SEARCH` /
+  `BING_SEARCH` 时走上述专用校验，**并直接 return** —— 避免任何情况下回落到通用 GET 流程导致误判。
+  成功文案明写"已消耗 1 次搜索额度"，把计费代价告知用户。
+  用 `catch (Throwable)` 包裹（含 `NoClassDefFoundError`），保证即便工具类不可用也返回明确失败
+  而非静默回落。
+
+**代价（已在 UI 文案与代码注释中说明）**：秘塔按次计费，点一次"测试连接"会真实消耗一次额度。
+这是"验证鉴权"与"不消耗额度"之间的取舍 —— 在不存在校验端点的前提下无法两全。
+
+### 10) 天气位置规则改为按 action 语义核定（2026-10-11 第七轮）
+
+起因：system prompt 把天气位置规则写成"天气整体"一句话，没有按 action 逐个核定，
+遗漏了"某些 action 必须用定位"这一层。逐个核对 `AIWeatherManager` 后，事实如下：
+
+- **七个 action 全部必须有位置**：`current`/`forecast`/`hourly`/`air_quality`/`alerts`/`indices`/`all`
+  在缺位置时统一返回"请提供城市名称或经纬度"（`AIWeatherManager:2894/2933/…/3435` 共 14 处），
+  且**已确认不再静默回退"北京"**（`AIWeatherManager:2820`、`:3160` 注释：旧逻辑 6 处硬编码
+  导致"查天气"返回北京天气，已移除）。
+- **但两种给法在实现上有实质差别**（这才是要写进提示词的点）：
+  1. **不带任何位置参数** → `fillWeatherLocation` 自动补手机定位的**精确经纬度**，走
+     `useLocation=true` 的坐标分支，最准、零解析开销；
+  2. **传 `city`** → `air_quality`/`alerts`/`indices`/`minutely` 这类端点的 URL 把经纬度拼进
+     **路径**（`getAirUrl(lat,lon)` / `getAlertUrl(lat,lon)`），所以内部必须再经
+     `getHefengLatLon(city)` 把城市名转坐标 —— 多一步解析。该换算链为
+     **本地 CSV（中文字典）→ 去行政后缀 → 关键词搜索 → Android Geocoder → geo API 兜底**，
+     前两层离线可用，因此**中文城市名是可靠的**（上一轮"城市名查不到"的说法过于笼统，此处更正）；
+     但**非中文地名**可能落到 geo API（该端点无 JWT 权限时 403）而解析失败，
+     届时返回"无法获取城市位置信息"。
+  3. 补充事实：`getHefengLatLon(city)` **不依赖** geo API（本地 CSV + 系统 Geocoder），
+     比 `getHefengLocationId(city)` 更稳 —— 后者最后才落 geo API。
+
+**改动**：system prompt 的"工具选择"行改为按 action 语义分两种给法显式说明
+（用户所在城市 → 不带参数走自动定位；指定城市 → 传 city，工具内部自行换算；
+城市换算失败 → 如实告知查不到，**不要拿别的城市顶上**）。同时订正注入的 `【本次任务】`
+城市分支文案 —— 原文写"工具返回的城市与用户原意不符时按用户原话重查"，
+与"不要用别的城市顶上"相冲突，已统一。
+
+### 11) 坐标 action 改走本地换算 + 修城市表加载竞态（2026-10-11 第八轮）
+
+**背景**：`air_quality` / `alerts` / `indices` / `minutely` 的 URL 把经纬度拼进**路径**，
+所以模型只给 `city` 时，`AIWeatherManager` 内部还得再把城市名转成坐标
+（`getHefengAirQuality(city)` → `getHefengLatLon(city)`）。
+
+- **改动 1（COORD-FORCE-LOCAL）**：新增 `resolveHefengLatLonForCity(city)`，这四个 action
+  在「有 city、无坐标」时**先用本地链路换坐标**（本地城市表 + 系统 Geocoder），换到就直接调用
+  `*ByLocation` 实现打坐标 URL（与 coordinates 分支同一条可靠路径）；换不到才回退原「按城市」实现。
+  **关键取舍**：绝不用**设备定位坐标**顶替 —— `buildSdkLocation` 坐标优先、`*ByLocation` 根本不收
+  `city` 参数，用设备坐标回答"北京天气"会返回**错误城市的数据**，比查询失败更糟。
+
+- **改动 2（LOAD-RACE，本轮查出的真 bug）**：`QWeatherCityManager` 的城市表由**后台线程**加载
+  （`China-City-List-latest.csv`，461KB / **3579 个城市**，含经纬度与 AD code），
+  但 `getCityById` / `getCityByName` / `getHotCities` **既不检查 `initialized` 也不等待**，
+  `searchCities` / `findCityNamesInMessage` 则静默返回空。于是在加载完成前发起的天气查询查不到城市，
+  沿 `AIWeatherManager.getHefengLocationId` 一路回落到和风 geo API（该端点无 JWT 权限时 **403**）
+  —— 这就是"天气详情页正常、Agent 却 403"的置信根因。
+  修复：新增 `CountDownLatch loadLatch` + `ensureLoaded()`（上限 `LOAD_WAIT_MS = 3000`，
+  实测加载远快于此），所有查表方法读取前等待；加载线程无论成败都在 `finally` 中 `countDown()`；
+  `allCities` 的写入与快照读取统一 `synchronized (allCities)`（原先读线程裸迭代，边加载边迭代有风险）。
+  副作用：`CitySearchDialog.performSearch`（UI 线程）首次使用会阻塞约 100ms
+  换取正确结果 —— 此前是**返回空列表**，属净改善。
+
+- **顺带说明**：本轮确认 `DEFAULT_CITY_IDS`（硬编码直辖市/省会/主要城市表）是**同步可用**的兜底，
+  与 3579 城市 CSV 互补；`*Smart` 系列（`getAirQualitySmart` 等 + `executeQuery`）是
+  **全仓无调用点的死代码**，本轮未动。另发现 `DEFAULT_CITY_IDS` 内有一处数据错误
+  （`常州` 与 `镇江` 同值 `101191101`），因该表已退居二线且 CSV 覆盖完整，未一并修改。
+
+### 12) 删除 `DEFAULT_CITY_IDS` 硬编码城市表（2026-10-11 第九轮）
+
+**决定**：整表删除，城市解析统一以 `China-City-List-latest.csv` 为唯一数据源。
+
+**依据**（删除前逐项核实）：
+
+1. **表本身有错编码，会返回错误城市的数据**。按 CSV 主键反查确认至少 4 处：
+   `镇江 → 101191101`（该码实为**常州**）、`襄阳 → 101200501`（非襄阳）、
+   `湛江 → 101310201`（该码实为**三亚**）、`茂名 → 101310301`（该码实为**三沙**）。
+   即"查镇江天气"会返回常州数据 —— 比查询失败更糟（用户无法察觉）。
+2. **它自称的兜底前提已不成立**。原注释写"覆盖 CSV 可能缺失的港澳台等"，但实测该 CSV
+   **已含**香港（`101320101`）、澳门（`101330101`）与台湾地区条目 **363 条**（台北/高雄/新竹
+   等，且编码与旧表一致）。CSV 共 3578 个城市，解析器仅丢弃表头 1 行。
+3. **它的唯一独特价值被本轮前置修复抵消**。旧表的真正价值是"CSV 异步加载期间同步可用"，
+   而 `LOAD-RACE` 修复后 `ensureLoaded()` 已保证 CSV 加载的确定性，该价值不再必要。
+
+**改动**：
+
+- `AIWeatherManager`：删除 `DEFAULT_CITY_IDS` 定义（约 365 行）、
+  `getDefaultCityNames()`、`getDefaultCityId()`，以及 `getHefengLocationId()` 内的
+  "1. 内置常用城市表"分支；剩余步骤注释重新编号为 `0. 数字 ID → 1. 本地 CSV → 2. geo API 兜底`。
+- `AgentLoopEngine`：`extractCityFromMessage()` 删掉"② 内置常用城市表兜底"循环；
+  `getCityLocationId()` 删掉表查询兜底（CSV 未命中即返回 null，调用方退回直接传城市名，
+  工具内部仍有本地 CSV + Geocoder 两层）。
+- 全仓已无 `DEFAULT_CITY_IDS` / `getDefaultCityId` / `getDefaultCityNames` 引用（仅注释中的文字说明）。
+
+**回退方案**：若将来发现某城市 CSV 确实缺失，正确做法是补进 CSV，而不是恢复硬编码表
+（CSV 是官方单一来源，且含经纬度，可同时服务 locationId 与坐标两条路径）。
+
+**过程备注**：本次用脚本按行号删除，中途自检产生误判（去掉 376 行后行号位移被我误读为"删错"，
+且字符串字面量内的括号使朴素括号计数失衡）。最终以**编译器为准**：`AIWeatherManager`
+一次编译通过、仅 `AgentLoopEngine` 报 2 处预期内的"找不到符号"，证明删除范围精确。
+
+### 13) 修：传城市**编码**时坐标类 action 必然失败（2026-10-11 第十轮）
+
+**问题（本轮查出，触发条件明确）**：`getHefengLatLon(city)` 的入口是
+`cityMgr.getCityByName(city)` —— 用**编码**去查**名字索引**必然 miss；随后的去行政后缀、
+关键词搜索、Android Geocoder 对纯数字串也都无效；最终落到 geo API（无 JWT 权限时 403）
+→ 返回 `"无法获取城市位置信息"`。
+
+而触发这条路径的是 `AgentLoopEngine` 自己：`run()` 构造 `【本次任务】` 时
+`String locParam = cityId != null ? cityId : city;` 注入 `city=<编码>`（有编码时刻意用编码，
+更精确）。于是：
+
+```
+用户问"广州空气质量"
+  → 注入 city=101280101（编码）
+  → 模型照传 → getHefengAirQuality("101280101")
+  → getHefengLatLon("101280101") → 全链 miss → 403 / 查不到
+```
+
+影响 `air_quality` / `alerts` / `indices` / `minutely` 这四个**必须坐标**的 action
+（它们的 URL 把经纬度拼进路径，无法直接用编码）。
+
+**修复**：给 `getHefengLatLon` 加第 0 步短路 —— 入参匹配 `\d{6,12}` 时按主键
+`getCityById(city)` 反查坐标，与 `getHefengLocationId` 的第 0 步对称。剩余步骤注释重新编号为
+`0. 城市编码反查 → 1. 本地 CSV → 2. Android Geocoder → 3. geo API`。
+
+**修复后两条入参都能落到坐标**：
+- `city=101280101`（编码）→ 第 0 步 `getCityById` 命中 → `(23.1x, 113.2x)`
+- `city=广州`（城市名）→ 第 1 步 CSV → 命中间接坐标
+
+（`getCityById` 在本轮前置的 `LOAD-RACE` 修复中已纳入 `ensureLoaded()` 保护，
+故编码反查不会因表未加载而 miss。）
+
+### 14) 消除城市解析链重复（CITY-RESOLVE-UNIFY，2026-10-11 第十一轮）
+
+**动机**：上一节那个 bug 的**结构性根因**是两个函数各自维护一份相同的解析链 ——
+`getHefengLocationId` 加了"数字编码特判"而 `getHefengLatLon` 没加。
+"两处只修一处"这类漂移无法靠注释避免，只能靠消除重复。
+
+**改动**：新增私有方法 `resolveCityEntry(String city)`，承载两者原本重复的**共享前缀**：
+
+```
+0. 纯数字 → getCityById（主键反查）
+1. CSV 精确匹配 → 2. 去行政后缀 → 3. 关键词搜索
+```
+
+`getHefengLocationId` / `getHefengLatLon` 改为调用它，各自只保留**有意的差异回退**：
+
+| | `getHefengLocationId`（返回编码或 `"lon,lat"`） | `getHefengLatLon`（返回 `{lat,lon}`） |
+| --- | --- | --- |
+| 共享 | `resolveCityEntry(city)` | `resolveCityEntry(city)` |
+| 差异回退 | 设备 Geocoder → `"lon,lat"` 字符串 | 设备 Geocoder → `double[]` |
+| 最终回退 | geo API（取 locationId） | geo API（取坐标） |
+
+**行为保持不变**：重构只合并重复，未改任何回退顺序或语义；`resolveCityEntry` 内只多了一条
+命中日志。改动后全仓 `getCityByName` / `searchCities` 在城市解析路径中**只剩 `resolveCityEntry`
+一处**（已 grep 核实），两个函数不再可能各自漂移。
+
+`AIWeatherManager` 本轮累计净减约 330 行（相比原始版本 `-433/+103`）。
+
+### 15) 删除"城市查不到就用设备定位顶替"的引擎重试（NO-CITY-SUBSTITUTE，2026-10-11 第十二轮）
+
+写文档时核对代码，发现 `executeToolSafely` 里还留着一段**与新 prompt 直接冲突**的引擎行为：
+
+```java
+// 失败感知重试（已删除）
+if ("ai_weather".equals(toolName) && params.containsKey("city")
+        && !params.containsKey("lat") && !params.containsKey("lon")) {
+    if (containsToolFailure(extractResultText(result))) {
+        String badCity = String.valueOf(params.remove("city"));   // 丢弃用户指定的城市
+        fillWeatherLocation(params);                              // 换成设备定位
+        result = executeWithTimeout(toolName, params);             // 重试
+```
+
+**为什么必须删**：用户明确问"镇江天气"而该城市解析失败时，它会**静默返回设备所在城市**的天气 ——
+"错误数据冒充正确数据"，用户无法察觉，比查询失败更糟；且与本轮 system prompt 新增的
+"（2）用户已指定城市…若城市名换算不出位置，如实告知查不到，**不要用别的城市顶上**"直接矛盾。
+（这是本次会话**第二次**发现"两处天气逻辑打架"：前一次是 prompt 说"不要带位置参数"而
+`【本次任务】` 注入说"用 location 的 lat/lon"。）
+
+**保留的正确区分**（三处必须一致：引擎 / system prompt 的 ACTION-LOCATION 段 / 注入的 `【本次任务】`）：
+
+- 用户**未指定城市** → 不带参数 → `fillWeatherLocation` 补设备经纬度（**正确**，问的就是用户所在地）
+- 用户**已指定城市** → 解析失败即如实报错，**不再替换为设备所在城市**
+
+原注释担心的"模型把非城市词当 city 传入"（实测"查询下今天的天气"→`city=今天`）仍会发生，
+但现在会明确报"无法定位城市: 今天"，模型可据此改带正确城市名或改用 `network_search` 搜索 ——
+比悄悄换成别的城市更可诊断。
+
+**文档**：[AgentLoop编排能力差异清单.md](AgentLoop编排能力差异清单.md) 新增**第七节「城市解析链现状」**
+（唯一数据源、加载竞态、共用前缀、两条路径语义区分、核对手段），并修正 6.4 中已被本轮改掉的
+"查不到会丢弃该 city 改走位置兜底重试一次"表述。
+
+### 16) 方法改名 `getHefengLocationId` → `resolveHefengLocationParam`（2026-10-11 第十三轮）
+
+**名实不符**：原方法有三条返回路径，**只有两条真的返回 LocationID**：
+
+| 分支 | 返回 | 是 ID 吗 |
+| --- | --- | --- |
+| `resolveCityEntry` → CSV 命中 | `"101280101"` | ✅ |
+| CSV 未命中 → 设备 Geocoder | `"116.4053,39.9050"`（经度,纬度） | ❌ **坐标串** |
+| 都未命中 → geo API | LocationID | ✅ |
+
+核实全部 4 个调用点，返回值**一律**拼进和风的 `location` 参数
+（`"?location=" + location`），而和风的 `location` **原生接受** LocationID 与
+`经度,纬度` 两种形式 —— 所以它返回的是"参数值"，不是"ID"。
+
+**为什么这不是洁癖**：正是这个偏窄的名字**诱发过真实 bug** ——
+`getHefengLatLon` 的作者看到"这是取 ID 的函数"，便没跟着加"纯数字编码"特判，
+导致 `air_quality`/`alerts`/`indices`/`minutely` 这类必须坐标的 action 失败
+（见第 13 节 COORD-CODE-FIX）。命名误导 → 认知偏差 → 漏改，链条完整。
+
+**改动**：方法名改为 `resolveHefengLocationParam`（5 个调用点 + 定义）；
+4 处局部变量 `locationId` → `location`；3 处注释引用同步；
+`buildSdkLocation` 的日志文案 `Failed to get location ID` → `Failed to resolve location param`。
+另补 javadoc **显式说明返回值不是单一形态**，并记录该命名教训 ——
+把坑写进文档，而不是只靠改名。
+
+顺带修正两处引用旧名的地方：`QWeatherCityManager.ensureLoaded()` 的 javadoc、
+`AgentLoop编排能力差异清单.md` 7.3 表格。全仓旧名残留仅剩
+**有意保留的历史说明**（`AIWeatherManager` 的命名教训 javadoc 2 处、
+文档 7.3 的"（当时名为 …）"1 处）。
+
+### 4) 顺带修的隐患：`time_date` 的注册位置
+
+`time_date` / `memory` / `calculator` 等 25 个工具注册在 `AIToolManager.registerToolFactories()`
+的 **`try` 块内**（Chaquopy Python 环境初始化失败时全部消失），而 `buildToolsJson` 对
+`definition == null` 是静默 `continue`。即 Python 环境异常时，核心 4 个里的 `time_date`
+会无声消失。本次新增启动日志一行，便于定位：
+
+```
+AgentLoopEngine: Core tools: [time_date, location, ai_weather, network_search] (active initial: [...])
+```
+
+（未改变注册结构，仅加可观测性。）
+
+### 5) 已知未修（本次未动）
+
+`SmartIntentRecognizer` 的 LLM 意图识别阶段会调用 `NpuEngineRouter.generate`，而该路由在
+NPU 未就绪时**回退 `LlamaHelper.generate`**；native 侧 `g_chatContext` 与 `s_helperContext`
+**共用同一个 `llama_context`**（`initFromExistingContext`：`ownsContext=false`，
+且 init 时 `llama_memory_clear`），因此该调用会清空 Agent 正在使用的 KV cache ——
+即 `SmartIntentRecognizer.java:598` 注释预告的 SIGSEGV 路径仍然存在。
+根因是"同一份 KV 被两个消费者争抢"，彻底修法需要给意图识别独立的 `llama_context`。
+
+## [2026-10-11] 本地 Agent 温度可配置 + 决策轮/回答轮两段分离
+
+### 1) 问题：本地 Agent 温度被硬编码，用户改设置无效
+
+`AgentLoopEngine.buildRequestJson` 恒发 `temperature=0.7f`；`ModelExecutionBridge` 另有
+两处硬编码 0.6f。而"参数面板持久化"类 `UserModelParamsManager.setTemperature()` **全仓零调用**，
+唯一读它的 `AIInferenceCore.applyUserTemperature` 只作用于两条非 Agent 生成路径 ——
+结论：本地 Agent 的温度用户完全调不了，只能改代码重编。
+
+### 2) 改动：温度从"拍死一个值"变成"决策轮/回答轮分别可配"
+
+两段分离的依据是本文件 R8-2 的实测结论：Agent 循环里两段生成的容错要求相反 ——
+**决策轮**产出 `tool_call`，要结构化稳定（0.6 实测会让 2B 过度保守、只敢填默认 action/参数）；
+**回答轮**（`tool_choice=none`）是纯自然语言，放宽反而更自然。
+
+- `UserModelParamsManager`：
+  - 新增 `KEY_TEMP_DECISION` / `KEY_TEMP_ANSWER` 两段持久化键 + `getDecisionTemperature()` /
+    `getAnswerTemperature()`；`setTemperature()` 保留为"同时写两段"的兼容单值 API。
+  - 新增 per-run 内存覆盖 `setRunTemperature(decision, answer)` + 静态便捷入口
+    `applyRunTemperature(ctx, decision, answer)`（不落盘、不改自动标志，进程重启失效）。
+  - 新增 `clampTemperature()`：钳制到 **[0.1, 1.5]**（高于 1.5 结构化输出开始崩）。
+  - 新增 `describeEffectiveTemperature()`：输出生效值与来源（`run-override`/`manual`/`auto`）。
+  - `setAuto(true)` 现在会一并清除两段温度覆盖；`resetAll()` 一并清 per-run 覆盖。
+- `AgentLoopEngine`：
+  - `buildRequestJson(...)` 增加 `float temperature` 形参（原先内部硬编码 0.7f）。
+  - 三处调用点分流：迭代轮（决策）传 `resolveDecisionTemperature()`，
+    `generateFinalAnswer` / `generatePlainChat`（回答）传 `resolveAnswerTemperature()`。
+  - 三处 `generateWithToolsSync(..., 0.7f, ...)` 回退路径改用同一个 `iterTemperature` 变量，
+    消除"JSON 路径与旧路径温度不一致"的隐性分叉。
+  - 进入循环前打一条 `effective temperature: ...` 日志，便于 `adb logcat` 核对用户参数是否生效。
+
+### 3) 行为保证
+
+默认值与拆分前**完全一致**（决策轮 0.7、回答轮 0.7），未配置时行为零回归；
+温度不进 KV 前缀缓存，**运行期调整无需重载模型、可随时回退**。
+
+### 4) 待办
+
+设置页 UI 未做（本轮只打通配置与生效链路），当前可用 `applyRunTemperature` 或直接写
+`user_model_params` SharedPreferences 调试。
+
 ## [2026-10-09] Hexagon NPU 后端打通 + 工具调用泄漏修复 + Agent UI 状态修复 + 设备信息页重做
 
 本轮让**本工程自己的 llama.cpp 真正跑在 Hexagon NPU 上**（此前 NPU 能力只在 GenieX AAR 里），

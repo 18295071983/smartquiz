@@ -129,6 +129,11 @@ public class APIConfig implements Serializable {
         public static final String ANTHROPIC = "anthropic";
         public static final String GOOGLE = "google";
         public static final String HEFENG_WEATHER = "hefeng_weather";
+        /** 秘塔搜索：network_search 工具的实际数据源（见 NetworkSearchTool）。
+         *  METASO-SEARCH(2026-10-11)：此前该工具只读 APIKeyManager 的扁平键
+         *  （Service.METASO_SEARCH），而 UI 走的是 APIConfig 结构化配置 —— 两套存储互不相通，
+         *  导致"用户在 UI 里填了搜索 key 也读不到"。此处补服务类型，让 UI 与工具对上。 */
+        public static final String METASO_SEARCH = "metaso_search";
         public static final String BING_SEARCH = "bing_search";
         public static final String GOOGLE_MAPS = "google_maps";
         public static final String CUSTOM = "custom";

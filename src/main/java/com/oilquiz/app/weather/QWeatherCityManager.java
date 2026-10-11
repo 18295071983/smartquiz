@@ -10,10 +10,15 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class QWeatherCityManager {
 
     private static final String TAG = "QWeatherCityManager";
+    /** CSV 加载完成信号。CSV 约 460KB / 3500+ 城市，实测加载远快于该上限。
+     *  LOAD-RACE(2026-10-11)：见 ensureLoaded 说明。 */
+    private static final long LOAD_WAIT_MS = 3000;
     private static final String CITY_CSV_PATH = "China-City-List-latest.csv";
 
     private static QWeatherCityManager sInstance;
@@ -21,7 +26,9 @@ public class QWeatherCityManager {
     private final List<CityEntry> allCities = new ArrayList<>();
     private final Map<String, CityEntry> cityById = new HashMap<>();
     private final Map<String, CityEntry> cityByName = new HashMap<>();
-    private boolean initialized = false;
+    private volatile boolean initialized = false;
+    /** CSV 加载完成信号；读取方用 ensureLoaded() 等待，避免"未加载完就查表 → 空结果" */
+    private CountDownLatch loadLatch;
 
     public static class CityEntry {
         public String locationId;
@@ -66,6 +73,7 @@ public class QWeatherCityManager {
 
     private void init(Context context) {
         if (initialized) return;
+        loadLatch = new CountDownLatch(1);
 
         new Thread(() -> {
             try {
@@ -86,20 +94,48 @@ public class QWeatherCityManager {
 
                     CityEntry entry = parseCsvLine(line);
                     if (entry != null && entry.locationId != null) {
-                        allCities.add(entry);
-                        cityById.put(entry.locationId, entry);
-                        cityByName.put(entry.nameZh, entry);
+                        synchronized (allCities) {
+                            allCities.add(entry);
+                            cityById.put(entry.locationId, entry);
+                            cityByName.put(entry.nameZh, entry);
+                        }
                         count++;
                     }
                 }
                 reader.close();
-                initialized = true;
                 Log.i(TAG, "Loaded " + count + " cities from CSV");
             } catch (Exception e) {
                 Log.w(TAG, "Failed to load city list: " + e.getMessage());
+            } finally {
+                // 无论成功失败都必须放行，否则等待方会白等到超时
                 initialized = true;
+                CountDownLatch latch = loadLatch;
+                if (latch != null) latch.countDown();
             }
         }).start();
+    }
+
+    /**
+     * 等待 CSV 加载完成（最多 {@link #LOAD_WAIT_MS}），供所有查表方法在读取前调用。
+     *
+     * <p><b>LOAD-RACE(2026-10-11) 修复的 bug</b>：CSV 由后台线程加载，而
+     * {@code getCityById} / {@code getCityByName} / {@code getHotCities} 原先直接读 map、
+     * 既不检查 {@code initialized} 也不等待；{@code searchCities} / {@code findCityNamesInMessage}
+     * 则静默返回空列表。于是在加载完成前发起的天气查询会查不到城市，
+     * 沿 {@code AIWeatherManager.resolveHefengLocationParam} 一路回落到和风 geo API
+     * （该端点无 JWT 权限时 403）→ 表现为"天气详情页正常、Agent 偶尔查不到"。
+     * 本方法让"查表"具备确定性：要么拿到完整表，要么明确超时（日志可见）。
+     */
+    private void ensureLoaded() {
+        CountDownLatch latch = loadLatch;
+        if (latch == null || initialized) return;
+        try {
+            if (!latch.await(LOAD_WAIT_MS, TimeUnit.MILLISECONDS)) {
+                Log.w(TAG, "City list not loaded within " + LOAD_WAIT_MS + "ms, lookups may miss");
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private CityEntry parseCsvLine(String line) {
@@ -138,20 +174,28 @@ public class QWeatherCityManager {
 
     public CityEntry getCityById(String locationId) {
         if (locationId == null) return null;
+        ensureLoaded();
         return cityById.get(locationId);
     }
 
     public CityEntry getCityByName(String cityName) {
         if (cityName == null) return null;
+        ensureLoaded();
         return cityByName.get(cityName);
     }
 
     public List<CityEntry> searchCities(String keyword) {
         List<CityEntry> result = new ArrayList<>();
         if (keyword == null || keyword.isEmpty()) return result;
+        ensureLoaded();
 
         String lower = keyword.toLowerCase();
-        for (CityEntry city : allCities) {
+        // 快照：与加载线程的写入解耦，避免边加载边迭代
+        List<CityEntry> snapshot;
+        synchronized (allCities) {
+            snapshot = new ArrayList<>(allCities);
+        }
+        for (CityEntry city : snapshot) {
             if (city.nameZh.contains(keyword) ||
                 city.nameEn.toLowerCase().contains(lower) ||
                 city.adm1Zh.contains(keyword) ||
@@ -170,8 +214,15 @@ public class QWeatherCityManager {
      */
     public List<String> findCityNamesInMessage(String message) {
         List<String> result = new ArrayList<>();
-        if (message == null || message.isEmpty() || !initialized) return result;
-        for (CityEntry city : allCities) {
+        if (message == null || message.isEmpty()) return result;
+        // 原实现检查 !initialized 后静默返回空 → 加载期间"用户明说了城市"也会被漏掉，
+        // 进而回落到位置兜底查了**用户所在城市**。改为等加载完成（LOAD-RACE 修复）。
+        ensureLoaded();
+        List<CityEntry> snapshot;
+        synchronized (allCities) {
+            snapshot = new ArrayList<>(allCities);
+        }
+        for (CityEntry city : snapshot) {
             String name = city.nameZh;
             if (name != null && name.length() >= 2 && message.contains(name)) {
                 result.add(name);
@@ -185,6 +236,7 @@ public class QWeatherCityManager {
         String[] hotCityNames = {"北京", "上海", "广州", "深圳", "杭州", "成都", "武汉", "西安",
                 "南京", "重庆", "天津", "苏州", "长沙", "郑州", "青岛", "大连"};
         List<CityEntry> result = new ArrayList<>();
+        ensureLoaded();
         for (String name : hotCityNames) {
             CityEntry city = cityByName.get(name);
             if (city != null) result.add(city);

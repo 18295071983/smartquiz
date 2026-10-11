@@ -1195,15 +1195,27 @@ public class AIToolManager {
                         + "action: current(实时天气)/forecast(未来几天预报)/hourly(逐小时)/air_quality(空气质量)/"
                         + "alerts(预警)/indices(生活指数)/all(全部)。"
                         + "city=城市名 或 和风城市编码 或 lat+lon=经纬度(经纬度别名 latitude/longitude 也可用)。"
+                        + "位置参数：用户已指定城市就传 city；用户没指定城市时不要传 city/lat/lon，"
+                        + "系统会自动用手机定位的经纬度查询。城市名可能查不到（该端点可能无权限），"
+                        + "失败时去掉 city 重新调用（改用手机定位城市）。"
                         + "current 返回温度/体感/天气现象/风向风力/湿度/能见度/紫外线；"
                         + "forecast 返回逐日 {日期,白天/夜间天气,最高/最低温}；air_quality 返回 AQI/PM2.5/PM10/污染等级。"
                         + "别名: get_weather/weather。")
                     .addParameter("action", "string", "操作类型: current(实时天气)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)，按用户需求选择", false)
-                    .addParameter("city", "string", "城市名称 或 和风城市编码（与经纬度二选一）", false)
-                    .addParameter("lat", "number", "纬度（与city二选一，配合lon；别名latitude）", false)
-                    .addParameter("lon", "number", "经度（与city二选一，配合lat；别名longitude）", false)
+                    .addParameter("city", "string", "城市名称 或 和风城市编码（用户**已指定**城市时才传；与经纬度二选一。城市名可能查不到，失败时去掉 city 改用手机定位城市）", false)
+                    .addParameter("lat", "number", "纬度（别名latitude，需配合lon）。用户没指定城市时不要传：留空不传，系统会自动用手机定位的经纬度", false)
+                    .addParameter("lon", "number", "经度（别名longitude，与lat配对）", false)
                     .category("weather")
-                    .whenToUse("用户问天气/温度/空气质量/天气预警/生活指数时使用；已知城市直接传city，不知道城市先调location定位")
+                    // CORE-TOOLS-4(2026-10-11)：文案必须与 AgentLoopEngine.executeToolSafely 的
+                    // fillWeatherLocation 行为一致 —— 该兜底只在模型**完全没给** city/lat/lon 时才
+                    // 自动补手机定位经纬度；原文案"不知道城市先调location定位"会让模型多调一轮 location，
+                    // 属于白烧推理（拿到的经纬度还得自己填回去，而留空反而由系统自动填）。
+                    // 城市名查询不可靠（和风 geo/city lookup 端点无 JWT 权限时 403，见 AgentLoopEngine
+                    // 位置缓存注释），故必须写明"城市名查不到就改用定位城市重查"这条降级路径。
+                    .whenToUse("用户问天气/温度/空气质量/天气预警/生活指数时使用。"
+                            + "用户没指定城市（问\"今天天气\"）：调用本工具不要带 city/lat/lon，系统自动用手机定位的城市。"
+                            + "用户已指定城市（问\"北京天气\"）：传 city 查询；若城市名查不到，去掉 city 重新调用改用手机定位城市，不要编造天气。"
+                            + "查外地城市一律按指定城市查，禁止用手机定位结果代替")
                     .build();
             case "network_search":
                 return ToolDefinition.builder("network_search", "网络搜索工具（秘塔搜索引擎驱动）：联网搜索+智能问答+网页读取。"
@@ -1973,6 +1985,18 @@ public class AIToolManager {
         weather.put("action", Arrays.asList("current", "forecast", "hourly",
                 "air_quality", "alerts", "indices", "all"));
         map.put("ai_weather", weather);
+        // CORE-TOOLS-4(2026-10-11)：time_date / location 是本工程仅有的两个"无 switch 定义、
+        // 走 createToolDefinitionFromAITool 注解路径"的核心工具。该路径下 getParameterDescriptions()
+        // 只有参数名与文本描述、没有枚举值，action 会退化成无约束的 string —— 小模型只能从描述文本里
+        // 猜（"2B 只敢用第一个值"正是本表要解决的问题）。这里补上 action 枚举。
+        // 注意：枚举值必须与 execute() 的 switch 分支**逐字一致**，否则模型会调出 "未知操作"。
+        Map<String, List<String>> timeDate = new HashMap<>();
+        timeDate.put("action", Arrays.asList("now", "date", "time", "weekday",
+                "timestamp_to_date", "date_to_timestamp", "timezone"));
+        map.put("time_date", timeDate);
+        Map<String, List<String>> location = new HashMap<>();
+        location.put("action", Arrays.asList("get_current", "get_city", "get_coordinates"));
+        map.put("location", location);
         Map<String, List<String>> chart = new HashMap<>();
         chart.put("action", Arrays.asList("bar", "line", "pie", "scatter",
                 "radar", "heatmap", "area", "table"));

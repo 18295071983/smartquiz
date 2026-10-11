@@ -94,10 +94,7 @@ public class NetworkSearchTool implements AITool {
     private String buildSearchPrompt(String query, int limit) {
         try {
             APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
-            if (apiKey == null || apiKey.isEmpty()) {
-                apiKey = DEFAULT_METASO_API_KEY;
-            }
+            String apiKey = resolveApiKey(apiKeyManager);
             List<Map<String, String>> results = metasoSearch(query, limit, apiKey);
             if (results == null || results.isEmpty()) return null;
             StringBuilder sb = new StringBuilder();
@@ -183,8 +180,11 @@ public class NetworkSearchTool implements AITool {
                     return smartSearch(parameters);
                 case "smart_read":
                     return smartRead(parameters);
-                case "get_weather":
-                    return getWeather(parameters);
+                // get_weather 分支已移除（CORE-TOOLS-4, 2026-10-11）：它只返回一句
+                // "天气查询功能请使用 get_weather 工具"，而 get_weather 这个名字**并不在工具注册表里**
+                // （天气工具名是 ai_weather），属于会误导模型的陈旧文案；且 action 枚举不含它、
+                // 模型无法选中，保留只会让人误以为 network_search 管天气。
+                // 天气一律走 ai_weather，逐字对应 system prompt 的选用规则。
                 default:
                     return new AIToolResult("Unknown action: " + action, parameters);
             }
@@ -204,6 +204,76 @@ public class NetworkSearchTool implements AITool {
         if (parameters.containsKey("num_results") && !parameters.containsKey("limit")) {
             parameters.put("limit", parameters.get("num_results"));
         }
+    }
+
+    /**
+     * 解析秘塔搜索 API Key（METASO-SEARCH，2026-10-11）。
+     *
+     * <p>背景：此前四处调用点各自写 `getAPIKey(Service.METASO_SEARCH)` 再兜底内置 key，
+     * 而 `APIKeyManager.Service.METASO_SEARCH`（扁平键）**全仓没有写入点** —— UI 走的是
+     * `APIConfig` 结构化配置（`getAPIConfigByServiceType` / `getAPIConfigsByCategory`），
+     * 两套存储互不相通，所以"用户在 UI 里配了搜索 key 也读不到"，永远用内置共享 key。
+     *
+     * <p>取值顺序（命中即返回）：
+     * <ol>
+     *   <li>扁平键 {@code Service.METASO_SEARCH}（代码/旧版本写入，优先级最高）</li>
+     *   <li>{@code APIConfig} 的 {@code serviceType=metaso_search}（UI "秘塔搜索"）</li>
+     *   <li>{@code APIConfig} 的 {@code serviceType=bing_search}（兼容历史配置）</li>
+     *   <li>{@code Category.SEARCH} 下 apiHost 指向秘塔的配置（最宽容的兜底）</li>
+     *   <li>内置共享 key {@link #DEFAULT_METASO_API_KEY}</li>
+     * </ol>
+     * 任一来源取到非空值即返回；内置 key 是打进 APK 的共享凭据，可能过期/被限流，
+     * 故用户可配置是主要出路（配好后不再走第 5 条）。
+     */
+    private String resolveApiKey(APIKeyManager mgr) {
+        if (mgr == null) return DEFAULT_METASO_API_KEY;
+        // 1. 扁平键
+        try {
+            String flat = mgr.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
+            if (flat != null && !flat.trim().isEmpty()) {
+                AILogger.i(TAG, "Metaso API key 来源: 扁平键(Service.METASO_SEARCH)");
+                return flat.trim();
+            }
+        } catch (Throwable ignored) {
+        }
+        // 2/3. 结构化配置：先"秘塔搜索"，再兼容"Bing Search"
+        try {
+            com.oilquiz.app.ai.model.APIConfig c =
+                    mgr.getAPIConfigByServiceType(com.oilquiz.app.ai.model.APIConfig.ServiceType.METASO_SEARCH);
+            if (c != null && c.getApiKey() != null && !c.getApiKey().trim().isEmpty()) {
+                AILogger.i(TAG, "Metaso API key 来源: API配置[秘塔搜索] name=" + c.getName());
+                return c.getApiKey().trim();
+            }
+            c = mgr.getAPIConfigByServiceType(com.oilquiz.app.ai.model.APIConfig.ServiceType.BING_SEARCH);
+            if (c != null && c.getApiKey() != null && !c.getApiKey().trim().isEmpty()) {
+                AILogger.i(TAG, "Metaso API key 来源: API配置[Bing Search] name=" + c.getName());
+                return c.getApiKey().trim();
+            }
+        } catch (Throwable ignored) {
+        }
+        // 4. 搜索类配置里 apiHost 指向秘塔的（用户可能选"自定义"）
+        try {
+            java.util.List<com.oilquiz.app.ai.model.APIConfig> searchConfigs =
+                    mgr.getAPIConfigsByCategory(com.oilquiz.app.ai.model.APIConfig.Category.SEARCH);
+            if (searchConfigs != null) {
+                for (com.oilquiz.app.ai.model.APIConfig c : searchConfigs) {
+                    String host = c.getApiHost();
+                    if (host != null && host.toLowerCase().contains("metaso")
+                            && c.getApiKey() != null && !c.getApiKey().trim().isEmpty()) {
+                        AILogger.i(TAG, "Metaso API key 来源: 搜索类配置 apiHost 含 metaso, name=" + c.getName());
+                        return c.getApiKey().trim();
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // 注意：此处只记来源不记 key 值（避免凭据进 logcat）。
+        // 排障时先看这行：若一直落在"内置共享 key"，说明用户配置没被读到 ——
+        // 常见原因是配置被 OnlineModelManager 当在线模型停用过（isActive=false），见
+        // ApiConfigActivity 的 CATEGORY-AUTOSET 注释。
+        AILogger.i(TAG, "Metaso API key 来源: 内置共享 key（未找到用户配置；"
+                + "该 key 可能过期/受限，建议在「API配置管理」添加【秘塔搜索】并填写 Key）");
+        return DEFAULT_METASO_API_KEY;
     }
 
     /** 类型安全的字符串参数提取（LLM可能传String/Number/Boolean） */
@@ -249,20 +319,23 @@ public class NetworkSearchTool implements AITool {
         }
 
         try {
-            // 秘塔搜索：优先用用户配置的Key，未配置则用内置默认Key
+            // 秘塔搜索：优先用用户配置的Key（见 resolveApiKey 的取值顺序），未配置则用内置默认Key
             APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
-            if (apiKey == null || apiKey.isEmpty()) {
-                apiKey = DEFAULT_METASO_API_KEY;
-            }
+            String apiKey = resolveApiKey(apiKeyManager);
 
             List<Map<String, String>> searchResults = metasoSearch(query, limit, apiKey);
 
             if (searchResults == null || searchResults.isEmpty()) {
-                return new AIToolResult(
-                    "未找到与 '" + query + "' 相关的搜索结果。",
-                    parameters
-                );
+                // FAIL-SEMANTICS(2026-10-11)：必须走 fail()，不能用成功构造器。
+                // 原实现返回 success=true 且文案是"未找到…"，而 AgentLoopEngine.isToolSuccess 的
+                // containsToolFailure 关键词表里没有"未找到"（只有"无结果/查询失败/超时"），
+                // 于是"API key 失效/被限流/网络异常"这类真实故障只要走到无结果分支，
+                // 都会被上层判为**成功**：不触发失败提示、不触发重试，
+                // 模型还会据此告诉用户"没有找到相关信息"。本工具是本地 4 工具里唯一的信息入口，
+                // 静默失败等于实时信息能力整体失效且无信号。
+                return AIToolResult.fail(
+                    "搜索无结果（未返回任何条目，可能是关键词过窄、配额用尽或网络异常）: " + query,
+                    parameters);
             }
 
             Map<String, Object> result = new HashMap<>();
@@ -298,6 +371,75 @@ public class NetworkSearchTool implements AITool {
         } catch (Exception e) {
             AILogger.e(TAG, "Search failed: " + e.getMessage(), e);
             return new AIToolResult("搜索失败: " + e.getMessage(), parameters);
+        }
+    }
+
+    /**
+     * 校验秘塔 API Key 是否可用（供「API配置管理 → 测试连接」调用）。
+     *
+     * <p><b>为什么必须走真实搜索端点</b>（2026-10-11 联网核实）：
+     * 秘塔只提供 POST {@code /api/v1/search} 这类业务端点，**没有**账号/余额/校验类的轻量 GET 端点；
+     * 而 {@code APIKeyManager.testAPIConnection} 的通用逻辑是"GET 后看 HTTP 200"，
+     * 对秘塔完全不适用（GET 非该端点允许的方法）。所以测试只能发一次**最小真实搜索**。
+     *
+     * <p><b>代价</b>：秘塔按次计费，本方法会消耗一次调用额度（size=1、includeSummary/RawContent 均 false，
+     * 已是能验证鉴权的最小请求）。调用方（UI）需把这点告知用户。
+     *
+     * <p>与运行时同一套解析逻辑（{@link #parseMetasoError} / {@code code != 0} 业务错误判定），
+     * 保证"测试通过"与"实际能用"一致 —— 避免自造一套探测逻辑而与真实行为脱节。
+     *
+     * @return 形如 {@code "OK|延迟ms"} 或 {@code "FAIL|原因"}（由 APIKeyManager 解析后写入 TestResult）
+     */
+    public String testApiKey(String apiKey) {
+        long start = System.currentTimeMillis();
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            return "FAIL|API Key 为空";
+        }
+        try {
+            JSONObject bodyJson = new JSONObject();
+            // 固定 query：秘塔按次计费，用固定词避免用户测试时的查询内容影响可复现性
+            bodyJson.put("q", "秘塔AI搜索");
+            bodyJson.put("scope", "webpage");
+            bodyJson.put("includeSummary", false);
+            bodyJson.put("includeRawContent", false);
+            bodyJson.put("size", 1);
+
+            RequestBody body = RequestBody.create(bodyJson.toString(),
+                    okhttp3.MediaType.parse("application/json; charset=utf-8"));
+            Request request = NetworkUtil.createApiRequestBuilder(METASO_SEARCH_API_URL)
+                    .addHeader("Authorization", "Bearer " + apiKey.trim())
+                    .post(body)
+                    .build();
+
+            try (Response response = NetworkUtil.getClient().newCall(request).execute()) {
+                long latency = System.currentTimeMillis() - start;
+                int code = response.code();
+                String responseBody = response.body() != null ? response.body().string() : "";
+
+                if (code == 401 || code == 403) {
+                    return "FAIL|API Key 无效或无权访问（HTTP " + code + "）";
+                }
+                if (code == 429) {
+                    return "FAIL|触发限流（HTTP 429），请稍后再试";
+                }
+                if (!response.isSuccessful()) {
+                    String err = parseMetasoError(responseBody);
+                    return "FAIL|" + (err != null ? err : "HTTP " + code);
+                }
+                // HTTP 2xx 仍可能是业务错误（秘塔把"余额/鉴权"类问题放在 body 的 code 字段，
+                // 见 parseMetasoSearchResponse 的注释与实测）。必须解析 body 才能判定。
+                JSONObject json = new JSONObject(responseBody);
+                int bizCode = json.optInt("code", 0);
+                if (bizCode != 0) {
+                    String msg = json.optString("message", "未知错误");
+                    return "FAIL|服务返回错误[" + bizCode + "]: " + msg;
+                }
+                // 注意：webpages 为空**不算失败** —— 鉴权已通过，仅该查询无结果。
+                return "OK|" + latency;
+            }
+        } catch (Exception e) {
+            AILogger.e(TAG, "testApiKey failed: " + e.getMessage(), e);
+            return "FAIL|" + e.getMessage();
         }
     }
 
@@ -455,10 +597,7 @@ public class NetworkSearchTool implements AITool {
 
         try {
             APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
-            if (apiKey == null || apiKey.isEmpty()) {
-                apiKey = DEFAULT_METASO_API_KEY;
-            }
+            String apiKey = resolveApiKey(apiKeyManager);
 
             JSONObject bodyJson = new JSONObject();
             bodyJson.put("question", question);
@@ -554,10 +693,7 @@ public class NetworkSearchTool implements AITool {
 
         try {
             APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-            String apiKey = apiKeyManager.getAPIKey(APIKeyManager.Service.METASO_SEARCH);
-            if (apiKey == null || apiKey.isEmpty()) {
-                apiKey = DEFAULT_METASO_API_KEY;
-            }
+            String apiKey = resolveApiKey(apiKeyManager);
 
             JSONObject bodyJson = new JSONObject();
             bodyJson.put("url", url);
@@ -755,7 +891,11 @@ public class NetworkSearchTool implements AITool {
             List<Map<String, String>> results = (List<Map<String, String>>) searchData.get("results");
             
             if (results == null || results.isEmpty()) {
-                return new AIToolResult("未找到与 '" + query + "' 相关的搜索结果。", parameters);
+                // FAIL-SEMANTICS(2026-10-11)：同 search()，见该处说明。此处 searchResult 是成功但
+                // 无条目，同样必须按失败上报，否则上层判成功、用户被告知"没有找到"。
+                return AIToolResult.fail(
+                    "搜索无结果（未返回任何条目，可能是关键词过窄、配额用尽或网络异常）: " + query,
+                    parameters);
             }
 
             List<Map<String, Object>> analyzedResults = analyzeSearchResults(results, query);
@@ -1206,13 +1346,6 @@ public class NetworkSearchTool implements AITool {
         } catch (Exception e) {
             return null;
         }
-    }
-    
-    private AIToolResult getWeather(Map<String, Object> parameters) {
-        return new AIToolResult(
-            "天气查询功能请使用 get_weather 工具",
-            parameters
-        );
     }
     
     private AIToolResult extractInfo(Map<String, Object> parameters) {

@@ -7,6 +7,7 @@ import com.oilquiz.app.ai.agent.software.model.AgentResponse;
 import com.oilquiz.app.ai.agent.software.model.AgentStats;
 import com.oilquiz.app.ai.chat.parser.ThinkingTagConfig;
 import com.oilquiz.app.ai.chat.parser.ToolCallTagConfig;
+import com.oilquiz.app.ai.config.UserModelParamsManager;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.refactor.AIConfig;
 import com.oilquiz.app.ai.service.AIService;
@@ -103,41 +104,31 @@ public class AgentLoopEngine {
     private static final int MAX_USER_MESSAGE_CHARS = 2000;
     /** UI 交互等待时长（毫秒）：弹窗问用户，超时未操作则回退文本追问 */
     private static final long UI_WAIT_MS = 30000;
+    /**
+     * 决策轮温度（模型产出 tool_call 的迭代轮）：结构化输出比"敢不敢试"更重要，
+     * 保持 Qwen3 官方默认 0.7。默认值只是**兜底**——实际取值走 resolveDecisionTemperature()，
+     * 优先用户参数（USER-PARAMS 2026-10-11）；过高会让 chatJson 的 tool_call JSON 出错，
+     * 过低（实测 0.6）会让小模型过度保守、只敢填默认 action/参数。
+     */
+    private static final float DEFAULT_DECISION_TEMPERATURE =
+            UserModelParamsManager.DEFAULT_DECISION_TEMPERATURE;
+    /**
+     * 回答轮温度（最终总结 / 普通对话）：纯自然语言，无结构约束，可高于决策轮换取表达自然度。
+     * 默认与决策轮一致（0.7）——**拆分本身不改变既有行为**，要放宽由用户参数显式设置。
+     */
+    private static final float DEFAULT_ANSWER_TEMPERATURE =
+            UserModelParamsManager.DEFAULT_ANSWER_TEMPERATURE;
 
-    /** 工具 → 中文标签（程序化总结时使用，覆盖全部常用注册工具） */
+    /** 工具 → 中文标签（程序化总结/toast 用）。
+     *  CORE-TOOLS-4(2026-10-11)：本地 Agent 只做这 4 个工具调用，故只保留可达的四条映射。
+     *  原先 30 条覆盖全量注册表，其中 26 条永远查不到（不可达）—— 留着会让后来者误判
+     *  "本引擎支持这些工具"。将来若恢复某工具的能力，在此补一条即可（toolLabel 缺省回退原名）。 */
     private static final java.util.Map<String, String> TOOL_LABELS = new java.util.HashMap<>();
     static {
-        TOOL_LABELS.put("ai_weather", "天气");
-        TOOL_LABELS.put("location", "位置");
-        TOOL_LABELS.put("network_search", "搜索");
         TOOL_LABELS.put("time_date", "时间日期");
-        TOOL_LABELS.put("webpage_reader", "网页");
-        TOOL_LABELS.put("smart_research", "调研");
-        TOOL_LABELS.put("database", "题库");
-        TOOL_LABELS.put("system_resource", "系统资源");
-        TOOL_LABELS.put("dynamic_clock", "时间");
-        TOOL_LABELS.put("calculator", "计算");
-        TOOL_LABELS.put("python_analyze_data", "数据分析");
-        TOOL_LABELS.put("file_reader", "文件");
-        TOOL_LABELS.put("file_analyzer", "文件分析");
-        TOOL_LABELS.put("file_generator", "文件生成");
-        TOOL_LABELS.put("excel_tool", "Excel");
-        TOOL_LABELS.put("workspace", "工作区");
-        TOOL_LABELS.put("image_gen", "图片生成");
-        TOOL_LABELS.put("dashscope_media", "百炼文生图/视频");
-        TOOL_LABELS.put("python_execute", "代码");
-        TOOL_LABELS.put("app_operation", "应用");
-        TOOL_LABELS.put("ui_component", "系统UI");
-        TOOL_LABELS.put("system_ui_control", "系统UI"); // 遗留名，保留标签兼容
-        TOOL_LABELS.put("memory", "记忆");
-        TOOL_LABELS.put("deepseek_balance", "余额");
-        TOOL_LABELS.put("deepseek_usage_calc", "用量");
-        TOOL_LABELS.put("clean_import_files", "模型清理");
-        TOOL_LABELS.put("speech_synthesis", "朗读");
-        TOOL_LABELS.put("voice_input", "语音输入");
-        TOOL_LABELS.put("tool_registry", "工具");
-        TOOL_LABELS.put("get_models_profile", "模型");
-        TOOL_LABELS.put("permission_manager", "权限");
+        TOOL_LABELS.put("location", "位置");
+        TOOL_LABELS.put("ai_weather", "天气");
+        TOOL_LABELS.put("network_search", "搜索");
     }
 
     /** 程序化执行结果：text 为程序直接输出的最终回复（不调模型） */
@@ -150,24 +141,40 @@ public class AgentLoopEngine {
         }
     }
 
-    /** 常驻基础工具：时间(time_date)、定位(location) + 工具注册表(tool_registry)。
-     *  tool_registry 是动态注入的详细发现通道：模型可查工具列表/说明后再按名调用；
-     *  其余全部工具（搜索/天气/记忆/计算/画图/文件/表格/网页/朗读/语音/图表/题库等）
-     *  由 agent 动态注入：模型按名直接调用 → 工具执行成功即加入注入集、下轮起注入 schema
-     *  （注入当轮 FULL 一次，之后稳定）。
-     *  大 schema 的 UI 工程工具（ui_component 等）与系统内部工具不注入。 */
+    /**
+     * 常驻核心工具（2026-10-11 定为产品范围）：时间(time_date)、定位(location)、
+     * 天气(ai_weather)、联网搜索(network_search)。本地 Agent **只做这四个工具调用**。
+     *
+     * <p><b>为什么这四个就是能力上限（重要，别照搬在线路径的经验）</b>：
+     * native 的 PEG 语法按本次请求的 tools 数组**逐字枚举**工具名 ——
+     * {@code atomic(literal(name))} + 该工具自己的参数 schema
+     * （llama.cpp/common/chat-peg-parser.cpp standard_json_tools）。
+     * 所以未注入 schema 的工具名，模型**根本生成不出来**：解析失败 → 整段 tool_call 退化成正文。
+     * 这与在线路径（OpenAI tools，模型可自由点名）有本质区别 ——
+     * 在线的"模型自主发现工具"策略在本地路径上不可行，会形成死锁：
+     * 要调用某工具必须先有它的 schema，而拿 schema 的唯一途径是先调用它。</p>
+     *
+     * <p>因此 <b>不要</b>把 {@code resolveToolNameFuzzy} 当作补救手段：
+     * 它只能归一化**已经在 tools 数组里的名字**（如别名 ui_control → ui_component），
+     * 无法让未注入的工具变得可调用。将来若要恢复 4 个之外的能力，需要新增一条
+     * "引擎侧注入"通道（意图匹配或发现工具返回工具名后由 Java 加入 activeTools），
+     * 单靠改 prompt 或让模型猜名字都无效。</p>
+     *
+     * <p>本次移出的 5 个（如需恢复，加回下面的数组即可，schema 由 buildToolsJson 自动处理）：
+     * {@code tool_registry}（原 list/search/get 发现通道）、
+     * {@code smart_research}（搜索→阅读→摘要多步链，现由 network_search 覆盖）、
+     * {@code memory}（跨会话记忆）、{@code file_reader}（读本地文件）、
+     * {@code workspace}（工作区文件浏览）。</p>
+     *
+     * <p>历史沿革（保留以便回退判断）：
+     * 2026-10-05 补 ai_weather/smart_research/memory —— 原先只有
+     * time_date/location/tool_registry/file_reader/workspace，而 sessionTools 只在会话首条消息
+     * 播种一次 → 模型整轮看不到天气工具（"我无法获取天气信息"的根因）；
+     * 2026-10-09 补 network_search —— 实测"查油价"这类非天气实时查询被错派给 ai_weather，
+     * 因为核心集里唯一带"实时查询"语义的就是 ai_weather。</p>
+     */
     private static final String[] DEFAULT_CORE_TOOLS = {
-            // 2026-10-05：补 ai_weather / smart_research / memory —— 原先只有
-            // time_date/location/tool_registry/file_reader/workspace，而 sessionTools
-            // 只在会话首条消息播种一次 → 模型整轮看不到天气工具（"我无法获取天气信息"）。
-            //
-            // 2026-10-09：补 network_search —— 实测"查油价"这类**非天气的实时查询**被错派给
-            // ai_weather。原因是核心工具里唯一带"实时查询"语义的就是 ai_weather：
-            // smart_research 是"智能研究"语义、指向不明确，而通用联网搜索 network_search
-            // 当时不在核心集（模型只能经 tool_registry 自行发现，小模型很少主动这么做）。
-            // 补上后，实时类问题有了语义正确的落点。
-            "time_date", "location", "ai_weather", "network_search", "smart_research", "memory",
-            "tool_registry", "file_reader", "workspace"
+            "time_date", "location", "ai_weather", "network_search"
     };
 
     private final AIService aiService;
@@ -205,7 +212,7 @@ public class AgentLoopEngine {
     private final java.util.List<ChatMessage> sessionMessages = new java.util.ArrayList<>();
     /** 最近一次实际发送的请求消息列表（含 system 头），供轮末持久化会话序列 */
     private volatile java.util.List<ChatMessage> lastRequestHistory = null;
-    /** 会话级工具集：首轮=核心5工具，动态注入结果跨轮保留。
+    /** 会话级工具集：首轮=核心4工具（见 DEFAULT_CORE_TOOLS），动态注入结果跨轮保留。
      *  Qwen3 模板把 tools 渲染在 system 前缀，跨轮集合必须逐字节一致，
      *  否则 system 漂移 → KV 前缀失配 → 全量 prefill。 */
     private final java.util.Set<String> sessionTools = new java.util.LinkedHashSet<>();
@@ -305,18 +312,33 @@ public class AgentLoopEngine {
                 selectedTools.add(name);
             }
         }
-        // 不注入大 schema 的 UI 工具（模型经 tool_registry 发现后按需自行注入）
+        // 不注入大 schema 的 UI 工程工具（保留为护栏：核心集若被改回含 ui_component 也不会注入）
         selectedTools.removeIf(n -> "ui_component".equals(n) || "ui_component_plugin".equals(n));
         // 会话级工具集：首轮=常用全量；动态注入结果跨轮保留。
         // tools 渲染在 system 前缀，跨轮集合一致 → system 字节稳定 → KV 前缀可增量。
         if (sessionTools.isEmpty()) {
             sessionTools.addAll(selectedTools);
         }
-        // 动态注入集合：初始 = 会话级工具集；FC 循环按模型实际使用增长
+        // 注入集：初始 = 会话级工具集（= DEFAULT_CORE_TOOLS 的 4 个）。
+        // CORE-TOOLS-4(2026-10-11)：本地 Agent 只做这 4 个工具调用，故此处不再有其它扩展途径；
+        // 下面 FC 循环里的"动态注入"分支因此恒不触发（见该处注释）。
         final java.util.Set<String> activeTools = new java.util.LinkedHashSet<>(sessionTools);
         String toolsJson = buildToolsJson(new ArrayList<>(activeTools));
         byte[] toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
         AILogger.i(TAG, "Initial tools: " + activeTools.size() + " tools, schema len: " + toolsJson.length());
+        // CORE-TOOLS-4(2026-10-11)：核心集收窄到 4 个后，必须能一眼看出实际生效的核心工具
+        // ——尤其 time_date 走 Python 注册块，注册失败时它会静默消失（buildToolsJson 对 null 定义
+        // 直接 continue），只靠数量无法定位问题。
+        AILogger.i(TAG, "Core tools: " + selectedTools + " (active initial: " + activeTools + ")");
+        // SCHEMA-DUMP(2026-10-11)：核对"模型实际看到的工具定义"。四个核心工具走两条不同路径 ——
+        // ai_weather / network_search 用 AIToolManager.getToolDefinition 的 switch 定义（有 enum、
+        // 参数类型正确）；time_date / location 无 switch case，走 createToolDefinitionFromAITool
+        // 注解路径（参数一律 string、required=false，枚举靠 PARAM_ENUM_OVERRIDES 补）。
+        // 只在首轮打一次（截断 2500 字符），避免每轮刷屏：
+        //   adb logcat -s AgentLoopEngine | grep "tools schema dump"
+        AILogger.i(TAG, "tools schema dump (" + activeTools.size() + " tools, " + toolsJson.length()
+                + " chars): " + truncate(toolsJson, 2500));
+        logEffectiveTemperature(); // USER-PARAMS：进入循环前打一次生效温度与来源，便于核对用户参数
         if (aiConfig != null && aiConfig.isFcEnabled()) {
             // 就绪弹窗：只列核心能力名（全量 20+ 工具太长，能力明细模型可从 schema 读取）
             StringBuilder readySb = new StringBuilder("🤖 本地Agent就绪：");
@@ -342,6 +364,14 @@ public class AgentLoopEngine {
         List<ChatMessage> history = new ArrayList<>();
         String sysPrompt = modelFcMode ? buildFcSystemPrompt() : buildSystemPrompt();
         history.add(new ChatMessage("system", sysPrompt));
+        // SCHEMA-DUMP(2026-10-11)：把**实际下发**的 system prompt 打出来（tools schema 在循环内
+        // 每轮重建，另有 "Round tools schema" 日志给长度/hash，下面那行给首轮内容）。
+        // 动机：4 个核心工具的 schema 来自两条不同路径 —— ai_weather/network_search 走
+        // AIToolManager.getToolDefinition 的 switch 定义，time_date/location 走
+        // createToolDefinitionFromAITool 注解路径（参数无类型/无 required，枚举靠
+        // PARAM_ENUM_OVERRIDES 补）。仅读代码难以确认模型最终看到什么，adb 一次即可核对：
+        //   adb logcat -s AgentLoopEngine | grep -E "system prompt dump|schema dump"
+        AILogger.i(TAG, "system prompt dump (" + sysPrompt.length() + " chars): " + sysPrompt);
         // 多轮上下文：把最近几轮对话注入历史（system → 历史 → 当前问题），
         // 让模型能理解"那明天呢？"之类的指代；超预算由 trimHistoryToFit 裁剪
         // ---- KV 前缀稳定性：会话级原始消息序列（2026-09-23）----
@@ -374,12 +404,22 @@ public class AgentLoopEngine {
             if (city != null && !city.isEmpty()) {
                 String cityId = getCityLocationId(city); // 优先用和风城市编码查询，最精确
                 String locParam = cityId != null ? cityId : city;
-                effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查 " + city + " 的天气，优先用 ai_weather 工具（参数 city=" + locParam
-                        + "，这是 " + city + " 的和风城市编码，直接按编码调用，工具会返回对应城市天气，无需先验证编码；action 按用户问法选：当前→current，预报→forecast，空气质量→air_quality，默认 current），也可用 network_search 搜索。"
-                        + "工具返回的城市与用户原意不符时，按用户原话重查。";
+                // 直给 city 参数并附编码，省掉模型"先查编码再查询"的一轮；编码不可用时退回城市名
+                // （AIWeatherManager 内部还有本地 CSV + Geocoder 两层换算，不再依赖 geo API）。
+                // action 枚举模型能从 schema 读到，此处不重复列举，只保留"按问法选"这一判断。
+                // 与 system prompt 的 ACTION-LOCATION 规则一致：换算不出位置就如实告知，不要用别的城市顶上。
+                effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查 " + city + " 的天气，"
+                        + "直接调用 ai_weather 工具并传 city=" + locParam
+                        + "（优先用此值，不要改用手机定位结果）；action 按用户问法选：当前→current，"
+                        + "预报→forecast，空气质量→air_quality，默认 current。"
+                        + "若该城市换算不出位置，如实告知查不到，不要用其他城市的数据顶上。";
             } else {
-                // 无具体城市（查"这里/附近/现在天气"）：经纬度查当前位置实时天气最准
-                effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查当前位置/附近的天气，用 ai_weather 工具，参数用 location 工具定位获取的 lat/lon；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。";
+                // 无具体城市（查"这里/附近/现在天气"）：**不要**让模型先调 location ——
+                // executeToolSafely 的 fillWeatherLocation 在模型"完全没给位置参数"时会自动补
+                // 手机定位的经纬度（优先经纬度缓存、其次用户消息城市、最后当前位置），
+                // 比让模型先跑一轮 location 再自己把经纬度填回去少一轮推理。
+                // 该文案必须与 system prompt"工具选择"行的位置参数规则保持一致，否则两句互相打架。
+                effectiveUserMessage = userMessage + "\n\n【本次任务】用户要查当前位置/附近的天气，直接调用 ai_weather 工具、不要带 city/lat/lon 参数（系统会自动使用手机定位的城市）；action 按问法选 current(实时)/forecast(预报)/air_quality(空气质量) 等。";
             }
         }
         // 动态状态（长期记忆摘要 + 活跃任务清单）从 system 移出，改为本轮 user 消息末尾 D 块注入：
@@ -489,9 +529,10 @@ public class AgentLoopEngine {
             final boolean[] streamedThisIteration = {false};
             lastStreamed = false;
 
-            // 动态注入：每轮从 activeTools 重建 schema——模型已调用/检索过的工具
-            // 按需加入注入集（需要哪个注入哪个，不一股脑全量），
-            // 初始集外的工具经 tool_registry 查询后由模型调用时自动注入。
+            // 动态注入：每轮从 activeTools 重建 schema——模型已调用过的工具
+            // 按需加入注入集（需要哪个注入哪个，不一股脑全量）；
+            // CORE-TOOLS-4(2026-10-11)：tool_registry 已移出核心集，"检索后注入"这条路径不存在了，
+            // 初始集外的工具只能靠模型自己猜对名字调用成功后才被注入。
             toolsJson = buildToolsJson(new ArrayList<>(activeTools));
             toolsJsonBytes = toolsJson.getBytes(StandardCharsets.UTF_8);
             // schema 指纹：跨轮比对即可确认 tools 前缀是否稳定（不稳定则 KV 前缀必失配）
@@ -513,8 +554,11 @@ public class AgentLoopEngine {
             long genStart = System.currentTimeMillis();
             GenerateResult genResult = null;
 
+            // 决策轮温度：本处产出 tool_call，用决策轮温度（默认 0.7）
             lastRequestHistory = new ArrayList<>(history); // 记录实际发送的请求（轮末持久化会话序列）
-            String requestJson = buildRequestJson(history, toolsJson, toolChoice, iterMaxTokens, enableThinking);
+            float iterTemperature = resolveDecisionTemperature();
+            String requestJson = buildRequestJson(history, toolsJson, toolChoice, iterMaxTokens,
+                    enableThinking, iterTemperature);
             if (requestJson == null) {
                 AILogger.e(TAG, "buildRequestJson returned null at iteration " + iteration + ", breaking");
                 break;
@@ -526,13 +570,13 @@ public class AgentLoopEngine {
                     genResult = generateWithChatJsonSync(requestJson, streamedThisIteration);
                 } else {
                     // 回退开关：旧 generateWithTools 路径（不限制思考量）
-                    genResult = generateWithToolsSync(history, toolsJsonBytes, FINAL_RESPONSE_MAX_TOKENS, 0.7f, enableThinking);
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, FINAL_RESPONSE_MAX_TOKENS, iterTemperature, enableThinking);
                 }
             } catch (UnsatisfiedLinkError e) {
                 // §10.2：chatJson 不可用 → 自动切回旧路径；仍失败则本轮失败（模型原生 FC，无标签兜底）
                 AILogger.w(TAG, "chatJson unavailable (" + e.getMessage() + "), fallback to generateWithToolsSync");
                 try {
-                    genResult = generateWithToolsSync(history, toolsJsonBytes, FINAL_RESPONSE_MAX_TOKENS, 0.7f, enableThinking);
+                    genResult = generateWithToolsSync(history, toolsJsonBytes, FINAL_RESPONSE_MAX_TOKENS, iterTemperature, enableThinking);
                 } catch (UnsatisfiedLinkError e2) {
                     AILogger.w(TAG, "nativeGenerateWithTools unavailable, generation failed");
                 }
@@ -586,11 +630,14 @@ public class AgentLoopEngine {
             List<ToolCall> toolCalls = genResult.toolCalls != null
                     ? genResult.toolCalls : new ArrayList<>();
 
-            // 按需动态注入：模型本轮调用/检索到的工具加入注入集，下轮起注入其 schema
-            // （tool_registry 查到的工具由模型实际调用后自动注入，无需手动全量）
+            // 动态注入（CORE-TOOLS-4 后为休眠路径）：
+            // 把本轮实际调用的工具名并入 activeTools，下轮起注入其 schema。
+            // 当前核心集固定 4 个、且没有任何其它途径扩展 activeTools，而 native PEG 语法
+            // 只允许生成 activeTools 里的工具名（见 DEFAULT_CORE_TOOLS 注释），
+            // 因此本循环的 !contains 分支恒不成立 —— 保留它是为将来恢复发现通道时复用，
+            // 不承担任何实际功能。真正的名字归一（别名/模糊匹配）在 resolveToolNameFuzzy。
             for (ToolCall tc : toolCalls) {
                 if (tc.toolName != null && !tc.toolName.isEmpty()) {
-                    // 模糊归一：模型可能用猜测名（weather→ai_weather），注入真实名避免重复/无效
                     String resolved = toolManager.resolveToolNameFuzzy(tc.toolName);
                     String real = resolved != null ? resolved : tc.toolName;
                     if (!activeTools.contains(real)) {
@@ -876,7 +923,7 @@ public class AgentLoopEngine {
                 AILogger.i(TAG, "Session history cleared, resetting KV-stable sequence");
                 sessionMessages.clear();
             }
-            sessionTools.clear(); // 工具集随会话重置（下次 run 重新填充核心5工具）
+            sessionTools.clear(); // 工具集随会话重置（下次 run 重新填充核心4工具，见 DEFAULT_CORE_TOOLS）
             return;
         }
         ChatMessage first = sessionMessages.get(0);
@@ -957,8 +1004,9 @@ public class AgentLoopEngine {
                     + "工具返回的次要细节只在用户问到时才提及。"));
 
             lastRequestHistory = new ArrayList<>(summaryHistory); // 记录实际发送的请求（轮末持久化会话序列）
+            // 回答轮温度：tool_choice=none，纯自然语言总结，用回答轮温度
             String requestJson = buildRequestJson(summaryHistory, toolsJson, "none",
-                    FINAL_RESPONSE_MAX_TOKENS, enableThinking);
+                    FINAL_RESPONSE_MAX_TOKENS, enableThinking, resolveAnswerTemperature());
             if (requestJson == null) return null;
 
             if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
@@ -970,7 +1018,7 @@ public class AgentLoopEngine {
             byte[] fbTools = toolsJson != null && !toolsJson.isEmpty()
                     ? toolsJson.getBytes(StandardCharsets.UTF_8) : new byte[0];
             return generateWithToolsSync(summaryHistory, fbTools,
-                    FINAL_RESPONSE_MAX_TOKENS, 0.7f, enableThinking);
+                    FINAL_RESPONSE_MAX_TOKENS, resolveAnswerTemperature(), enableThinking);
         } catch (UnsatisfiedLinkError e) {
             AILogger.w(TAG, "Final answer generation: native unavailable: " + e.getMessage());
             return null;
@@ -991,13 +1039,13 @@ public class AgentLoopEngine {
                     Math.max(1000, budget - FINAL_RESPONSE_MAX_TOKENS));
             lastRequestHistory = new ArrayList<>(trimmed); // 记录实际发送的请求（轮末持久化会话序列）
             String requestJson = buildRequestJson(trimmed, "", "none",
-                    PLAIN_CHAT_MAX_TOKENS, enableThinking);
+                    PLAIN_CHAT_MAX_TOKENS, enableThinking, resolveAnswerTemperature());
             if (requestJson == null) return null;
             if (aiConfig != null && aiConfig.isUseJsonProtocol()) {
                 return generateWithChatJsonSync(requestJson, null);
             }
             return generateWithToolsSync(trimmed, new byte[0],
-                    PLAIN_CHAT_MAX_TOKENS, 0.7f, enableThinking);
+                    PLAIN_CHAT_MAX_TOKENS, resolveAnswerTemperature(), enableThinking);
         } catch (Exception e) {
             AILogger.e(TAG, "Plain chat generation failed: " + e.getMessage());
             return null;
@@ -1511,12 +1559,55 @@ public class AgentLoopEngine {
     }
 
     /**
+     * 决策轮温度：用户参数优先，未配置回落到 {@link #DEFAULT_DECISION_TEMPERATURE}。
+     * 取值顺序：UserModelParamsManager（per-run 覆盖 > 持久化手动值 > 自动模式默认）。
+     * 温度不进 KV 前缀缓存，因此运行期调整无需重载模型，可随时回退。
+     */
+    private float resolveDecisionTemperature() {
+        try {
+            if (appContext != null) {
+                return UserModelParamsManager.getInstance(appContext).getDecisionTemperature();
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "resolveDecisionTemperature failed, using default: " + t.getMessage());
+        }
+        return DEFAULT_DECISION_TEMPERATURE;
+    }
+
+    /** 回答轮温度：同上，用户参数优先。 */
+    private float resolveAnswerTemperature() {
+        try {
+            if (appContext != null) {
+                return UserModelParamsManager.getInstance(appContext).getAnswerTemperature();
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "resolveAnswerTemperature failed, using default: " + t.getMessage());
+        }
+        return DEFAULT_ANSWER_TEMPERATURE;
+    }
+
+    /** 打印当前生效温度与来源（决策轮/回答轮），便于 adb logcat 核对用户参数是否生效 */
+    private void logEffectiveTemperature() {
+        try {
+            if (appContext == null) return;
+            AILogger.i(TAG, "effective temperature: "
+                    + UserModelParamsManager.getInstance(appContext).describeEffectiveTemperature());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
      * 构建 OpenAI 格式请求 JSON（spec §4.1 / §7.2.3）
      * 支持 assistant.tool_calls（结构化）与 tool.tool_call_id（R4-1）
      * 失败返回 null（org.json 的 put 抛受检 JSONException，内部消化）
+     *
+     * @param temperature 采样温度：决策轮传 {@link #resolveDecisionTemperature()}，
+     *                    回答轮（tool_choice=none）传 {@link #resolveAnswerTemperature()}。
+     *                    USER-PARAMS(2026-10-11)：原先硬编码 0.7f，用户改设置无效
      */
     private String buildRequestJson(List<ChatMessage> history, String toolsJson,
-                                     String toolChoice, int maxTokens, boolean enableThinking) {
+                                     String toolChoice, int maxTokens, boolean enableThinking,
+                                     float temperature) {
         try {
             JSONObject req = new JSONObject();
             req.put("action", "chat");
@@ -1565,7 +1656,7 @@ public class AgentLoopEngine {
             int safeMax = getEffectiveContextSize() - promptTokens - NATIVE_GENERATION_RESERVE;
             int clamped = Math.max(256, Math.min(maxTokens, safeMax));
             req.put("max_tokens", clamped);
-            req.put("temperature", 0.7f);   // R8-2：本地 Agent 统一 0.7（Qwen3 官方默认）。过低(0.6)会让 2B 在工具调用时过度保守，只敢用默认 action/参数；过高则破坏 chatJson 结构化输出稳定性
+            req.put("temperature", temperature);   // R8-2 / USER-PARAMS：由调用方按"决策轮 vs 回答轮"传入（默认均 0.7）。过低(0.6)会让 2B 在工具调用时过度保守，只敢用默认 action/参数；过高则破坏 chatJson 结构化输出稳定性
             req.put("top_p", 0.9f);
             req.put("top_k", 40);
 
@@ -1643,7 +1734,8 @@ public class AgentLoopEngine {
 
     // ==================== 工具注入与预算守卫 ====================
     // 工具注入策略（2026-09-23 起）：不做意图识别预判注入，完全由 agent 自行注入——
-    // 首轮注入常驻基础工具（含 tool_registry 发现通道）；模型在 FC 循环内输出
+    // 首轮注入常驻核心工具（CORE-TOOLS-4，2026-10-11 起为 time_date/location/ai_weather/
+    // network_search，已不含 tool_registry 发现通道）；模型在 FC 循环内输出
     // tool_call 后，被调工具自动加入注入集、下轮起注入其 schema（见 run() 按需动态注入）。
     // 该策略同时保证 tools 前缀字节跨轮稳定（会话级工具集 sessionTools 跨轮保留）。
 
@@ -1846,11 +1938,17 @@ public class AgentLoopEngine {
     }
 
     /**
-     * FC 模式的 system 提示词（最小版 2026-10-07）。
-     * 设计目标：prompt 尽可能小（首轮 FULL 更小、KV 更省），
-     * 工具使用信息以 schema 为准（buildToolsJson 注入完整 description + enum），
-     * system 只保留与在线 Agent 对齐的 persona 角色段，无规则段（原生 FC + schema 引导，
-     * 见方法内 RULES-REMOVED 注释）；工具发现交给 tool_registry 动态注入。
+     * FC 模式的 system 提示词。
+     *
+     * <p>设计目标：prompt 尽量小（首轮 FULL 更小、KV 更省），工具的能力与参数以 schema
+     * （{@code buildToolsJson} 注入完整 description + enum）为准，system 只补 schema 表达不了的
+     * <b>跨工具选用规则</b>。</p>
+     *
+     * <p>与 2026-10-07 版的差别：当时工具集是 9 个且依赖模型自主发现，故删掉了【规则】段
+     * （见文末 RULES-REMOVED）。CORE-TOOLS-4（2026-10-11）把工具集定为 4 个之后，规则段重新
+     * 变得必要：schema 只能描述"单个工具怎么用"，无法表达"四个工具之间怎么选"、
+     * "只准用这四个"、"能力边界外的请求怎么办"。因此当前版本有 4 行规则，
+     * <b>不再是"无规则段的最小版"</b>。</p>
      */
     private String buildFcSystemPrompt() {
         StringBuilder sb = new StringBuilder();
@@ -1862,24 +1960,70 @@ public class AgentLoopEngine {
         // ②"结构化信息用UI组件展示"→"清晰的分段与列表"（本地 ui_component 大 schema 不注入，
         // 照搬会诱导模型调用不存在的工具）。
         sb.append("你是答题宝App中的AI聊天助手，是App内\"AI对话\"功能模块的助手（Agent模式）。\n");
-        sb.append("你的工作：与用户对话答疑，并调用多种工具完成查询、搜索、生成、处理等任务。\n");
-        sb.append("你的方式：实时/动态信息必须用工具获取；静态知识直接回答；结构化信息用清晰的分段与列表展示。\n");
-        // TOOL-SELECTION(2026-10-09)：补一行工具选用规则。
-        // 原因：实测"查油价"这类非天气的实时查询被错派给 ai_weather —— 当时核心工具里唯一带
-        // "实时查询"语义的就是 ai_weather，且 prompt 无任何选用规则（AIToolUsageGuide 虽定义了
-        // 规则却从未被注入）。注：本行是**静态文本**，同一天内 system 前缀字节不变，
-        // 不破坏 buildCurrentTimeLine 所述的 KV 前缀复用设计。
-        sb.append("工具选择：天气用 ai_weather（先 location 定位）；其他实时/最新信息（油价、股价、"
-                + "新闻、赛事等）用 network_search 或 smart_research，不要用天气工具回答非天气问题。\n");
-        sb.append("你的边界：不可逆或影响外部操作（删除/覆盖文件、发送消息等）先征得用户确认。\n");
+        // CAPABILITY-HONEST(2026-10-11)：本地 Agent 只有 4 个工具（时间/定位/天气/联网搜索），
+        // 原文案"调用多种工具完成查询、搜索、生成、处理等任务"会让模型承诺做不到的事
+        // （生成文件/读本地文件/画图/跑代码），用户要了却办不到 —— 属于 persona 与能力不符。
+        // TOOL-SELECTION-EXACT(2026-10-11)：工具集从 9 个收到 4 个后，选用规则可以钉死到
+        // 每一步，因此把工具清单与选用规则合并为一节（原"你的工作"与"工具选择"两处重复列举
+        // 工具名，属冗余）。全部用**确定句**（必须/一律/直接），不用"可以/建议"这类可选项语气 ——
+        // 4B 模型对可选语气倾向于忽略。五条硬约束按实测痛点排序：
+        // ① 只准这四个 —— 未注入 schema 的工具名 native 根本生成不出来（PEG 逐字枚举），
+        //    模型凭训练记忆乱点名会让整轮 tool_call 退化成正文；
+        // ② 天气位置参数的精确写法（按 action 语义核对，不是"天气整体"一句话）——
+        //    见下方 ACTION-LOCATION 注释：七个 action 都必须有位置，两种给法（不带参数走自动定位 /
+        //    传 city 走内部换算）在实现上有实质差别。必须与 executeToolSafely、fillWeatherLocation、
+        //    AIWeatherManager 的七个 action 分支保持一致，否则模型会选错给法；
+        // ③ 静态知识别调工具 —— 原"实时/动态信息必须用工具获取"边界太粗，把可直答的
+        //    静态知识也推去调工具（浪费轮次）；
+        // ④ 办不到要如实说 + 不许拿别的工具凑 —— 4 个工具覆盖不了生成文件/读文件/画图/
+        //    跑代码，不写这条模型会硬用 network_search / ai_weather 去凑无关的答案。
+        // ⑤ 工具失败必须改参重调 —— 真机实测的行为缺陷，见下方 RETRY-ON-TOOL-FAILURE 注释。
+        // 注：四工具全是只读查询，无外部副作用，故删掉了在线路径照抄来的"删除/覆盖文件先确认"
+        // 死话（本地连该能力都没有），换成对四工具真实存在的风险：不许补充工具未返回的数据。
+        // 全部为静态文本，同一天内字节不变，不破坏 buildCurrentTimeLine 的 KV 前缀复用设计。
+        sb.append("你的工作：与用户对话答疑；需要实时信息时只能调用下列四个工具，"
+                + "不要调用这四个之外的任何工具。\n");
+        sb.append("你的方式：实时/时效性信息必须用工具查证，禁止用训练数据猜测；"
+                + "静态知识直接回答，不必调用工具；结构化信息用清晰的分段与列表展示。\n");
+        // ACTION-LOCATION(2026-10-11)：ai_weather 的每个 action 都**必须有位置**
+        // （current/forecast/hourly/air_quality/alerts/indices/all 七个分支在缺位置时统一
+        // 返回"请提供城市名称或经纬度"，且已确认**不再静默回退"北京"**，见 AIWeatherManager:2820）。
+        // 两种给法在实现上有实质差别，必须写明，否则模型会选错：
+        //   ① 不带任何位置参数 → executeToolSafely 的 fillWeatherLocation 自动补手机定位的**精确经纬度**
+        //      （走坐标分支，最准、且零解析开销）；
+        //   ② 传 city → air_quality/alerts 这类 URL 把经纬度拼进**路径**，内部必须先经
+        //      getHefengLatLon(city) 把城市名转坐标，多一步解析且受解析范围限制
+        //      （本地 CSV + Android Geocoder，非中文地名可能解析不出 → 返回"无法获取城市位置信息"）。
+        // 所以"查用户所在城市"用 ①，"查指定城市"必须用 ②；两者都不要额外调 location 工具。
+        sb.append("工具选择：time_date 查具体时刻；location 只用于用户明确要求定位、导航、"
+                + "\"我在哪\"这类问题时；ai_weather 查天气——它每个 action 都必须有位置，二选一："
+                + "（1）用户没指定城市（问\"今天天气\"\"这边天气\"）时，调用 ai_weather 不要带 city/lat/lon 参数，"
+                + "系统会自动使用手机 GPS 定位的经纬度，最准；"
+                + "（2）用户已指定城市（问\"北京天气\"）时传 city 参数，工具内部会自行换算坐标，"
+                + "不要改用手机定位结果、也不要编造该城市的数据；若城市名换算不出位置，"
+                + "如实告知查不到，不要用别的城市顶上。"
+                + "network_search 查其他实时信息（油价、股价、新闻、赛事等）。"
+                + "禁止用天气工具回答非天气问题；日期与星期直接采用上面给出的【当前真实日期】，不必调工具。\n");
+        sb.append("你的边界：生成文件、读取本地文件、画图、运行代码、操作手机等超出上述四个工具的能力，"
+                + "如实说明做不到，可建议用户换用在线模式，不要硬用不相关的工具凑答案；"
+                + "工具返回什么就说什么，禁止补充工具未返回的数据。\n");
+        // RETRY-ON-TOOL-FAILURE(2026-10-11)：真机实测（问"五台县的空气质量"）暴露的行为缺陷 ——
+        // 上一轮工具失败后，模型把失败**写进回答交付给用户**并顺带念了一遍"应该改传经纬度"，
+        // 整轮 toolCalls=0，没有重试。日志证据：
+        //   [15:11:53] generateWithChatJsonSync result: ... toolCalls=0 stopReason=eos
+        //   [15:11:53] No tool call at iteration 1, using model answer directly
+        // 而引擎循环本身是支持重调的（失败结果回填后 continue，见 executeToolSafely 与循环骨架）。
+        // 故用确定句要求"改参数重调"，并补第二句堵住"转而用训练数据回答"这条更糟的退路
+        // （本工具的天气类数据只能来自和风接口，编造风险最高）。
+        sb.append("你的做法：工具返回失败时，用修正后的参数重新调用该工具，不要把\"建议怎么改\""
+                + "当作回答交付给用户，也不要在工具失败后改用训练数据给出结果。\n");
         sb.append("你的风格：用中文，口语化、简洁有条理，先结论后细节。\n\n");
-        // RULES-REMOVED(2026-10-07)：原【规则】段（工具调用规则 1-6）删除。
-        // 理由：① 与在线 Agent 的最小提示词保持一致（在线无规则段，靠原生 function calling +
-        // tools schema description 引导）；② 本地 Qwen3.5 走原生 FC，tools 定义自带完整描述；
-        // ③ 规则段的关键约束已被 persona 覆盖——规则1(实时必须调工具)≈方式行
-        // "实时/动态信息必须用工具获取；静态知识直接回答"；规则5(中文简洁先结论)≈风格行。
-        // ④ prompt 更小：首轮 FULL 更小、KV 更省。若实测小模型编造实时数据，回退策略=恢复
-        // "实时/时效类必须调用工具，不要用训练数据猜测"一行即可。
+        // RULES-REMOVED(2026-10-07) 已被 CORE-TOOLS-4(2026-10-11) 部分回退：
+        // 当时的理由是"与在线 Agent 的最小提示词一致、靠原生 FC + tools schema 引导"，前提是
+        // 工具集 9 个且靠模型自主发现。现在工具集固定 4 个、且 schema 无法表达跨工具选用规则，
+        // 故上面恢复了 4 行规则（工作/方式/工具选择/边界）。若将来再删规则段，需先确认
+        // "只准这四个"与"能力边界外怎么说"这两条约束能从别处得到保证，否则模型会：
+        // ① 点名未注入的工具导致整轮退化；② 承诺生成文件/读文件等做不到的事。
         return sb.toString();
     }
 
@@ -2258,21 +2402,25 @@ public class AgentLoopEngine {
         }
     }
 
-    /** 工具失败时的替代工具映射：引导模型换工具而非放弃（4B 模型需要明确指引） */
+    /** 工具失败时的替代工具映射：引导模型换工具而非放弃（4B 模型需要明确指引）
+     *
+     *  <p>CORE-TOOLS-4(2026-10-11)：备选**只能给核心 4 个之内**的工具
+     *  （time_date / location / ai_weather / network_search）。
+     *  原因：native PEG 语法把工具名按本次请求的 tools 数组逐字枚举
+     *  （chat-peg-parser.cpp atomic(literal(name))），没注入 schema 的名字模型生成不出来；
+     *  建议一个调不动的工具，结果是模型把工具调用写成正文、整轮退化 —— 比不给建议更糟。
+     *  因此 file_reader / python_* / excel_tool / image_gen / smart_research 等原备选已删除。</p> */
     private static String getAlternativeTool(String toolName) {
         if (toolName == null) return null;
         switch (toolName) {
-            case "ai_weather": return "network_search（搜天气）、location（先定位）";
-            case "network_search": return "smart_research（智能研究）、webpage_reader（读网页）";
-            case "location": return "ai_weather 带 city 参数";
-            case "file_reader": return "python_file_ops、file_analyzer";
-            case "python_file_ops": return "file_reader";
-            case "calculator": return "python_calculate、python_execute";
-            case "python_calculate": return "calculator";
-            case "speech_synthesis": return "voice_input（语音转文字）";
-            case "excel_tool": return "file_reader(parse_excel)、python_file_ops";
-            case "image_gen": return "dashscope_media(image)、python_execute(生成SVG)";
-            case "tool_registry": return "直接查看【可用工具】表";
+            // 措辞与 system prompt / ai_weather.whenToUse 的"位置参数"规则保持一致：
+            // 用户所在城市 = 不带任何位置参数（由 fillWeatherLocation 自动补手机定位经纬度）；
+            // 外地城市 = 必须显式传 city。不要在这里出现"先调 location"这类多烧一轮的说法。
+            case "ai_weather": return "去掉 city/lat/lon 重新调用（改用手机定位城市）、或 network_search 搜天气";
+            // 不给"再试一次 network_search"这类建议：它刚失败，重试同一工具只会白烧一轮。
+            case "network_search": return "换更具体的关键词重搜、或用 ai_weather 查天气";
+            case "location": return "网络搜索该城市的信息；用户问本地天气时不必先定位，直接调 ai_weather";
+            case "time_date": return "network_search（联网查日期时间）";
             default: return null;
         }
     }
@@ -2320,29 +2468,31 @@ public class AgentLoopEngine {
         AIToolResult result = executeWithTimeout(toolName, params);
         if (isToolSuccess(result)) return result;
 
-        // 失败感知重试：模型可能把非城市词（"今天/这边/查询下"等）当 city 传进来
-        // （实测"查询下今天的天气"→city=今天→"无法定位城市: 今天"）。
-        // 判断"传了 city 但执行因无法定位失败" → 丢弃无效 city、改走位置兜底重试，
-        // 不依赖本地城市表覆盖度（geo 能查到的小城市不会被误伤）。
-        // 注意：AIWeatherManager 会把"无法定位城市"包装成 success 结果，须用 isToolSuccess
-        // 统一检测（含失败语义文本），不能只看 isSuccess()。
-        if ("ai_weather".equals(toolName)
-                && params.containsKey("city")
-                && !params.containsKey("lat") && !params.containsKey("lon")) {
-            if (containsToolFailure(extractResultText(result))) {
-                String badCity = String.valueOf(params.remove("city"));
-                AILogger.w(TAG, "ai_weather: model city '" + badCity
-                        + "' not locatable, retrying with location fallback");
-                fillWeatherLocation(params);
+        // NO-CITY-SUBSTITUTE(2026-10-11)：此处原有「失败感知重试」——
+        // 模型传了 city 但查不到时，丢弃该 city、改走 fillWeatherLocation 用**设备定位**重试。
+        // 该行为已移除，原因：用户明确问"镇江天气"而城市查不到时，它会静默返回**设备所在城市**
+        // 的天气 —— 属"错误数据冒充正确数据"，比查询失败更糟（用户无法察觉），
+        // 且与 system prompt 的规则直接冲突（prompt 明确要求"如实告知查不到，不要用别的城市顶上"）。
+        //
+        // 保留的行为区分（两者必须一致，改一处要同时改 system prompt 的 ACTION-LOCATION 段）：
+        //   ① 用户**未指定城市**（问"今天天气"）→ 由上方 !containsKey 分支的 fillWeatherLocation
+        //      自动补手机定位经纬度，这是**正确**的（问的就是用户所在地）；
+        //   ② 用户**已指定城市** → 城市解析失败就如实报错，不再替换为设备所在城市。
+        // 原注释担心的"模型把非城市词当 city 传入"（实测"查询下今天的天气"→city=今天）仍然会发生，
+        // 但现在会明确报"无法定位城市: 今天"，模型可据此改带正确城市名或改用 network_search 搜索。
+
+        // 通用重试：同参数重跑，只对**瞬时故障**有意义（网络抖动、服务端偶发 5xx）。
+        // NO-RETRY-TOOLS(2026-10-11)：network_search 的重试是纯浪费 ——
+        // 它的"无结果"是确定性结果，重试只会用同一 query 再打两次 HTTP（白烧 2 轮推理，还可能触发
+        // 服务端限流）；而真正的瞬时故障由模型换关键词重搜比引擎原样重跑更有效。
+        // 该工具的失败已改成 fail() 上报（见 NetworkSearchTool 的 FAIL-SEMANTICS 注释），
+        // 上层据此给模型"换更具体的关键词重搜"的替代提示。
+        if (!"network_search".equals(toolName)) {
+            for (int r = 0; r < MAX_RETRIES; r++) {
+                AILogger.w(TAG, "Retrying " + toolName);
                 result = executeWithTimeout(toolName, params);
                 if (isToolSuccess(result)) return result;
             }
-        }
-
-        for (int r = 0; r < MAX_RETRIES; r++) {
-            AILogger.w(TAG, "Retrying " + toolName);
-            result = executeWithTimeout(toolName, params);
-            if (isToolSuccess(result)) return result;
         }
         return result;
     }
@@ -2447,20 +2597,18 @@ public class AgentLoopEngine {
     private String extractCityFromMessage(String message) {
         if (message == null || message.isEmpty()) return null;
         try {
-            // ① 内置城市表匹配（最长优先）：直接与 CSV 全量城市比对，不依赖正则，
-            //    避免"查询下/看一下/今天"等动词·时间词被吞进地名（"查询下五台县的天气"→"五台县"）
+            // 城市表匹配（最长优先）：直接与 CSV 全量城市比对，不依赖正则，
+            // 避免"查询下/看一下/今天"等动词·时间词被吞进地名（"查询下五台县的天气"→"五台县"）
+            // CITY-TABLE-ONLY(2026-10-11)：原「② 内置常用城市表兜底」已随 DEFAULT_CITY_IDS 删除。
+            // 该表自称"覆盖 CSV 可能缺失的港澳台"，但实测 CSV 已含香港(101320101)/澳门(101330101)
+            // 与台湾地区 363 条 —— 兜底前提不成立，且该表本身有错编码。现在唯一来源是 CSV，
+            // 其加载已由 QWeatherCityManager.ensureLoaded() 保证确定性（见 LOAD-RACE 修复）。
             if (appContext != null) {
                 com.oilquiz.app.weather.QWeatherCityManager cityMgr =
                         com.oilquiz.app.weather.QWeatherCityManager.getInstance(appContext);
                 java.util.List<String> hits = cityMgr.findCityNamesInMessage(message);
                 if (hits != null && !hits.isEmpty()) {
                     return hits.get(0); // 最长 = 最精确
-                }
-                // ② 兜底：内置常用城市表（港澳台等 CSV 可能缺失）
-                for (String name : com.oilquiz.app.ai.tool.AIWeatherManager.getDefaultCityNames()) {
-                    if (name.length() >= 2 && message.contains(name)) {
-                        return name;
-                    }
                 }
             }
         } catch (Throwable t) {
@@ -2471,7 +2619,8 @@ public class AgentLoopEngine {
 
     /**
      * 取城市名对应的和风城市编码（locationId），供 ai_weather 按编码查询（最精确，
-     * 避免"银川市/银川"等名称不匹配）。CSV 全量表 + 内置常用表都会查；无则 null。
+     * 避免"银川市/银川"等名称不匹配）。查 CSV 全量表；无则 null
+     * （调用方在 null 时会退回直接传城市名，工具内部仍有本地 CSV + Geocoder 兜底）。
      */
     private String getCityLocationId(String cityName) {
         if (cityName == null || cityName.isEmpty()) return null;
@@ -2483,8 +2632,6 @@ public class AgentLoopEngine {
                 if (entry != null && entry.locationId != null && !entry.locationId.isEmpty()) {
                     return entry.locationId;
                 }
-                String id = com.oilquiz.app.ai.tool.AIWeatherManager.getDefaultCityId(cityName);
-                if (id != null && !id.isEmpty()) return id;
             }
         } catch (Throwable t) {
             AILogger.w(TAG, "getCityLocationId failed for " + cityName + ": " + t.getMessage());

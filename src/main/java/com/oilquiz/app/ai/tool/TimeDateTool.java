@@ -23,11 +23,14 @@ import java.util.TimeZone;
  */
 @Tool(
     value = "time_date",
-    description = "时间日期工具：查询当前时间/日期/时区，时间戳与日期互转。"
-            + "action: now(当前时间,默认)/timestamp_to_date(时间戳转日期)/date_to_timestamp(日期转时间戳)/timezone(时区信息)。"
+    description = "时间日期工具：查询当前时间/日期/星期/时区，时间戳与日期互转。"
+            + "action: now(当前时间,默认)/date(仅日期)/time(仅时刻)/weekday(星期)/"
+            + "timestamp_to_date(时间戳转日期)/date_to_timestamp(日期转时间戳)/timezone(时区信息)。"
             + "当前时间相关询问（现在几点/今天日期）用本工具获取准确时间。",
     category = "utility",
     aliases = {"time", "date", "current_time", "当前时间"},
+    // 与 execute() 的 switch 分支逐字一致（7 个）。此前注解少列 time/weekday，
+    // 而 getParameterDescriptions() 列了 7 个 —— 两处不一致会让后来者误判能力边界。
     actions = {
         @Action(name = "now", description = "获取当前时间/日期/时区",
             params = {}),
@@ -66,15 +69,17 @@ public class TimeDateTool implements AITool {
 
     @Override
     public String getDescription() {
-        return "查询当前时间/日期/时区，时间戳与日期互转。action: now|date|time|weekday|timestamp_to_date|date_to_timestamp|timezone";
+        return "时间日期工具：查询当前时间/日期/星期/时区，时间戳与日期互转。"
+                + "action: now(当前时间,默认)|date(仅日期)|time(仅时刻)|weekday(星期)|"
+                + "timestamp_to_date|date_to_timestamp|timezone";
     }
 
     @Override
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> params = new HashMap<>();
         params.put("action", "操作：now(完整,默认)|date(仅日期)|time(仅时间)|weekday(星期)|timestamp_to_date|date_to_timestamp|timezone");
-        params.put("timestamp", "时间戳（秒），timestamp_to_date 时使用");
-        params.put("date", "日期字符串（yyyy-MM-dd HH:mm:ss），date_to_timestamp 时使用");
+        params.put("timestamp", "秒级时间戳，timestamp_to_date 时使用（必填）");
+        params.put("date", "日期字符串（yyyy-MM-dd HH:mm:ss），date_to_timestamp 时使用（必填）");
         return params;
     }
 
