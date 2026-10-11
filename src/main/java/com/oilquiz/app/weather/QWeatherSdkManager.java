@@ -911,18 +911,19 @@ public class QWeatherSdkManager {
                 sb.append("风力: ").append(response.getWind().getScale()).append("级\n");
             }
             if (response.getWind().getSpeed() != null && response.getWind().getSpeed().getValue() != null) {
-                // v1 风速单位是 m/s，而全 App（含 HTTP 回退路径与详情页解析）统一按 km/h 呈现，
-                // 故在此换算为 km/h，保证两种数据源输出一致。
-                double speed = response.getWind().getSpeed().getValue();
-                String unit = response.getWind().getSpeed().getUnit();
-                double kmh = (unit != null && unit.contains("m/s")) ? speed * 3.6 : speed;
-                String num = (kmh == Math.floor(kmh)) ? String.valueOf((long) kmh) : String.format(java.util.Locale.US, "%.1f", kmh);
-                sb.append("风速: ").append(num).append("km/h\n");
+                // v1 风速 m/s → v7 km/h（见 V1-UNIT-MAP）
+                String kmh = windKmh(response.getWind().getSpeed());
+                if (kmh != null) {
+                    sb.append("风速: ").append(kmh).append("km/h\n");
+                }
             }
         }
         if (response.getVisibility() != null && response.getVisibility().getValue() != null) {
-            sb.append("能见度: ").append(valueOf(response.getVisibility()))
-              .append(response.getVisibility().getUnit() != null ? response.getVisibility().getUnit() : "m").append("\n");
+            // v1 能见度 米 → v7 公里（见 V1-UNIT-MAP）
+            String km = visKm(response.getVisibility());
+            if (km != null) {
+                sb.append("能见度: ").append(km).append("km\n");
+            }
         }
         if (response.getPressure() != null && response.getPressure().getValue() != null) {
             sb.append("气压: ").append(valueOf(response.getPressure()))
@@ -1038,9 +1039,63 @@ public class QWeatherSdkManager {
         }
     }
 
-    /** v1 的 0~1 小数量（湿度/云量/降水概率）还原成 v7 的百分比字符串 */
+    // ============================================================
+    // v1 → v7 单位/格式映射表（V1-UNIT-MAP，2026-10-11）
+    //
+    // 为什么需要这张表：SDK 已迁 v1，但 App 内**另一条 HTTP 回退路径仍是 v7**
+    // （WeatherService 在 SDK 失败时回退 AIWeatherManager.getHefengWeather*），
+    // 且下游（WeatherDetailActivity 等）的解析与渲染是按 v7 文本契约写死的：
+    //   能见度  → replace("km","")，并在显示层硬加 "km"；L2583 还有公里级判断（<1/<5/<10）
+    //   风速    → replace("km/h","")，显示层硬加 "km/h"
+    //   风向    → endsWith("风") ? : + " 风"
+    // 故 v1 数据必须在**解析层归一化回 v7 形态**，两条路径才能输出一致、下游零改动。
+    //
+    // 依据（官方文档）：
+    //   dev.qweather.com/docs/resource/unit/          —— 单位对照
+    //   dev.qweather.com/docs/api/weather/wind-guide/ —— 风向方位代码（v1 小写英文 / v7 中文）
+    //
+    //  数据       v7(公制)   v1            本类处理
+    //  温度       °C         °C            直通
+    //  体感温度   °C         °C            直通
+    //  风速       km/h       m/s           ×3.6
+    //  能见度     km         m             ÷1000
+    //  气压       hPa        hPa           直通
+    //  降水量     mm         mm            直通
+    //  湿度       百分比     [0,1]小数      ×100   (pct)
+    //  云量       百分比     [0,1]小数      ×100   (pct)
+    //  降水概率   百分比     [0,1]小数      ×100   (pct)
+    //  风向       中文风名   小写英文代码   查表   (compassToChinese)
+    //  风向角度   度         度             直通
+    //  风力等级   级         级             直通
+    //  紫外线     无量纲     无量纲         直通
+    // ============================================================
+
+    /** v1 湿度/云量/降水概率（[0,1] 小数）→ v7 百分比字符串 */
     private static String pct(Double v) {
         return v == null ? null : String.valueOf(Math.round(v * 100.0));
+    }
+
+    /**
+     * v1 能见度（米）→ v7 公里字符串。
+     *
+     * <p>不信任接口的 {@code unit} 字段做分支 —— 官方明确 v1 为公制固定单位（米），
+     * 以数值量级兜底：≥ 100 视为米（÷1000），否则已按公里处理（防上游误传公里）。
+     * 输出保留 1 位小数，与 v7 的 "16" / "8.5" 量级一致。
+     */
+    private static String visKm(com.qweather.sdk.response.ValueUnit v) {
+        if (v == null || v.getValue() == null) return null;
+        double val = v.getValue();
+        double km = val >= 100 ? val / 1000.0 : val;
+        if (km == Math.floor(km)) return String.valueOf((long) km);
+        return String.format(java.util.Locale.US, "%.1f", km);
+    }
+
+    /** v1 风速（m/s）→ v7 公里/小时字符串 */
+    private static String windKmh(com.qweather.sdk.response.ValueUnit v) {
+        if (v == null || v.getValue() == null) return null;
+        double kmh = v.getValue() * 3.6;
+        if (kmh == Math.floor(kmh)) return String.valueOf((long) kmh);
+        return String.format(java.util.Locale.US, "%.1f", kmh);
     }
 
     /** 取 v1 的 ValueUnit 数值（整数不带小数，避免 "24.0" 噪声）；null 时返回 null */
