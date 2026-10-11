@@ -3,6 +3,11 @@
 本仓库有**三类**体积较大的二进制资源。它们的功能都是必需的，但**因为超过代码托管平台的
 单文件上限而无法纳入版本库**，所以新克隆的仓库里没有它们，需要自行获取。
 
+> **构建方式未变**：`build.gradle` 与 `viewer` 模块**始终按本地文件使用这些资源**
+> （`viewer/src/main/jniLibs/arm64-v8a/` 等），本仓库的编译脚本**不依赖任何网络下载**。
+> 本文档描述的"从 Release 附件获取"仅是**当本地缺少文件时的取得途径**，
+> 不是构建流程的一部分。
+
 > **背景（来自历史提交 `acd989e3`）**：
 > 「从版本控制移除超 Gitee 100MB 限制的大文件（本地 SenseVoice asr 模型 239MB /
 > LibreOffice native 库 179MB）及日志、构建产物；.gitignore 防再入库」
@@ -185,7 +190,11 @@ LibreOffice 引擎只有 arm64 版"）在缺少该库时把配置阶段搞崩，
 
 > **如果你看到 `specify compileSdk` 这类报错，先查这个 `.so` 是否存在** ——
 > 不要去改 `compileSdk`、也不要怀疑 AGP 版本，方向是错的。
-> `build.gradle` 顶部的 `BINARY-PRECHECK` 就是为了替代这条误导信息而加的。
+>
+> `build.gradle` 顶部的 `BINARY-PRECHECK` 会**在报错信息中排在前面**列出真正缺失的文件
+> （实测：它的 "构建缺少必要的二进制资源…✗ liblo-native-code.so" 先出现，
+> AGP 那句 `specify compileSdk` 仍会在其后出现，**无法完全消除**）。
+> 所以看到多条错误时，**以 BINARY-PRECHECK 那段为准**。
 
 实测对照（用于排除"偶发失败"的误判）：
 
