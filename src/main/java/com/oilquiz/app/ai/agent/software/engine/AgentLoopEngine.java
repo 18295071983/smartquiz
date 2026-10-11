@@ -2460,8 +2460,14 @@ public class AgentLoopEngine {
         // 程序硬编码：天气与位置强关联——ai_weather 缺位置参数时自动补当前位置。
         // 优先填经纬度（绕开和风 geo/city lookup）；坐标无缓存时，优先从用户消息
         // 提取城市名（用户明确问的城市 > 当前位置），避免"五台县"场景首轮无 city 报错。
-        if ("ai_weather".equals(toolName)
-                && !params.containsKey("city") && !params.containsKey("lat") && !params.containsKey("lon")) {
+        //
+        // EMPTY-AS-ABSENT(2026-10-11)：原先只判 containsKey —— 模型传了**空值**
+        // （city="" 或 lat=null）时 containsKey 为 true 反而不注入，而工具侧把空值
+        // 视为"未提供"并报"缺少城市参数"，两边语义不一致导致"不传参必失败"
+        // （真机模型自测发现）。这里改为按**有效值**判断，与 AIWeatherManager 的
+        // hasCity/useLocation 语义对齐；若本层仍填不出（无缓存且消息里无城市），
+        // 则由 AIWeatherManager 的 tryAutoLocate() 兜底真正取一次设备定位。
+        if ("ai_weather".equals(toolName) && !hasMeaningfulLocationParam(params)) {
             fillWeatherLocation(params);
         }
 
@@ -2527,6 +2533,24 @@ public class AgentLoopEngine {
     }
 
     /** ai_weather 位置兜底：优先经纬度缓存，其次用户消息城市，最后当前位置。 */
+    /**
+     * 判断 ai_weather 的位置参数是否存在**有效值**（空串/null 视为未提供）。
+     * 与 AIWeatherManager 的 hasCity/useLocation 判定保持一致，避免引擎"以为模型给了位置"
+     * 而工具"认为没给"的语义错位（EMPTY-AS-ABSENT）。
+     */
+    private static boolean hasMeaningfulLocationParam(Map<String, Object> params) {
+        if (params == null) return false;
+        Object c = params.get("city");
+        if (c != null && !String.valueOf(c).trim().isEmpty()) return true;
+        for (String k : new String[]{"lat", "latitude"}) {
+            Object v = params.get(k);
+            if (v != null && !String.valueOf(v).trim().isEmpty() && !"null".equals(String.valueOf(v).trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void fillWeatherLocation(Map<String, Object> params) {
         // 确保坐标从主界面缓存加载（getCachedLocation 内部会先读 weather_location_cache）
         if (cachedLat == 0 && cachedLon == 0) {

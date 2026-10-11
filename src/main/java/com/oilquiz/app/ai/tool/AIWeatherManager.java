@@ -23,6 +23,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import com.oilquiz.app.ai.util.NetworkUtil;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.Map;
 import java.util.HashMap;
@@ -2532,6 +2533,38 @@ public class AIWeatherManager implements AITool {
             }
             
             boolean useLocation = lat != null && lon != null;
+            boolean hasCity = city != null && !city.trim().isEmpty();
+
+            // CONFlict-GUARD：city 与 lat/lon 同时传入时，两条路径都只用坐标、
+            // 但会把 city 原样回显（"城市: 北京" 配银川的数据）—— 输出张冠李戴，极具误导性。
+            // 真机模型自测（50+ 用例）专门验证过这一点。这里直接要求二选一，不再静默择一。
+            if (hasCity && useLocation) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("status", "error");
+                err.put("error", "city 与 lat/lon 只能二选一");
+                return new AIToolResult(
+                        "参数冲突: 请只传 city（按城市查）或只传成对的 lat+lon（按坐标查），不要同时传",
+                        err);
+            }
+
+            // AUTO-LOCATION：不传 city 也不传坐标时，按工具描述承诺的行为**自动使用设备定位**。
+            // 此前这里直接报"缺少城市参数"，与工具描述（"系统会自动用手机定位"）矛盾 ——
+            // 模型据描述认为不传参可行，实际必然失败（真机模型自测发现）。
+            if (!hasCity && !useLocation) {
+                double[] loc = tryAutoLocate();
+                if (loc != null) {
+                    lat = loc[0];
+                    lon = loc[1];
+                    useLocation = true;
+                    Log.i(TAG, "ai_weather 未指定位置，已自动使用设备定位: " + lat + "," + lon);
+                } else {
+                    Map<String, Object> err = new HashMap<>();
+                    err.put("status", "error");
+                    err.put("error", "无法获取设备定位，且未提供 city");
+                    return new AIToolResult(
+                            "无法获取设备定位: 请提供 city，或打开系统定位后重试", err);
+                }
+            }
 
             // 需要城市或坐标的 action：两者都缺失时明确报错，不再静默回退"北京"
             switch (action) {
@@ -2542,7 +2575,6 @@ public class AIWeatherManager implements AITool {
                 case "alerts":
                 case "indices":
                 case "all": {
-                    boolean hasCity = city != null && !city.trim().isEmpty();
                     if (!hasCity && !useLocation) {
                         Map<String, Object> err = new HashMap<>();
                         err.put("status", "error");
@@ -2872,6 +2904,53 @@ public class AIWeatherManager implements AITool {
         }
     }
     
+    /**
+     * 自动获取设备定位（供 ai_weather 在未指定位置时使用）。
+     *
+     * <p>复用 {@code ToolContextProvider.getCurrentLocation}（与引擎题注注入、location 工具同一套实现：
+     * getLastKnownLocation 优先，必要时 requestLocationUpdates，5 秒超时）。
+     * 它本身是**异步回调**，而本工具是同步返回，故用 CountDownLatch 在**工作线程**上等待
+     * （execute 由推理线程调用，非主线程，不会 ANR）。等待上限略大于其内部超时。
+     *
+     * @return {@code {lat, lon}}；拿不到则返回 null（调用方给明确错误，不静默兜底别的城市）
+     */
+    private double[] tryAutoLocate() {
+        final double[] out = new double[2];
+        final boolean[] ok = {false};
+        final CountDownLatch latch = new CountDownLatch(1);
+        try {
+            com.oilquiz.app.ai.agent.ToolContextProvider.getCurrentLocation(
+                    context,
+                    new com.oilquiz.app.ai.agent.ToolContextProvider.LocationCallback() {
+                        @Override
+                        public void onLocationReady(String cityName, double lat, double lon) {
+                            out[0] = lat;
+                            out[1] = lon;
+                            ok[0] = true;
+                            latch.countDown();
+                        }
+
+                        @Override
+                        public void onLocationFailed(String error) {
+                            Log.w(TAG, "自动定位失败: " + error);
+                            latch.countDown();
+                        }
+                    });
+            // 工具内部 5 秒超时 + Geocoder 反查可能稍慢，这里给 8 秒上限
+            if (!latch.await(8, TimeUnit.SECONDS)) {
+                Log.w(TAG, "自动定位超时");
+                return null;
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Throwable t) {
+            Log.w(TAG, "自动定位异常: " + t.getMessage());
+            return null;
+        }
+        return ok[0] ? out : null;
+    }
+
     private AIToolResult getAllWeatherAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
             Map<String, Object> resultMap = new HashMap<>();
@@ -2983,9 +3062,10 @@ public class AIWeatherManager implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
         
-        descriptions.put("city", "城市名称或和风城市编码（用于按城市查询）");
-        descriptions.put("lat", "纬度（用于按坐标查询）");
-        descriptions.put("lon", "经度（用于按坐标查询）");
+        descriptions.put("city", "城市名称或和风城市编码（支持中英文）。与 lat/lon **二选一，不要同时传**；"
+                + "用户没指定城市时留空不传，系统会自动使用设备定位");
+        descriptions.put("lat", "纬度（与 lon 成对使用，别名 latitude）。与 city 二选一");
+        descriptions.put("lon", "经度（与 lat 成对使用，别名 longitude）。与 city 二选一");
         
         return descriptions;
     }
@@ -3807,7 +3887,21 @@ public class AIWeatherManager implements AITool {
             if (!resultMap.containsKey("status")) {
                 resultMap.put("status", "success");
             }
-            
+
+            // SDK 天气路径返回的是**格式化文本**（非 JSON），上面的分支会把它塞进
+            // formatted_result 并把 status 置为 success —— 于是哪怕内容是
+            // "查询失败: …"/"缺少城市参数"/"无权限"，调用方看到的仍是 status:success。
+            // 真机实测（模型自测报告）确认过这个问题：错误一律被包成 success，
+            // 只能靠读文本才能发现真相。此处统一按文本特征纠正为 error。
+            // 注意：不检查裸"异常"二字（健康建议含"异常敏感人群"会误判），只认明确失败标记。
+            if ("success".equals(resultMap.get("status"))) {
+                Object fr = resultMap.get("formatted_result");
+                if (fr instanceof String && looksLikeFailureText((String) fr)) {
+                    resultMap.put("status", "error");
+                    resultMap.put("error", fr);
+                }
+            }
+
             return resultMap;
         } catch (Exception e) {
             Log.e(TAG, "Error parsing weather result to map", e);
@@ -3815,5 +3909,26 @@ public class AIWeatherManager implements AITool {
             resultMap.put("error", "解析天气数据失败: " + e.getMessage());
             return resultMap;
         }
+    }
+
+    /**
+     * 判断一段**天气结果文本**是否表示失败。
+     *
+     * <p>用于纠正「SDK 格式化文本一律被标成 status:success」的问题（真机模型自测发现）。
+     * 只认明确的失败标记，**刻意不检查裸"异常"二字** —— SDK 健康建议文本含
+     * "极少数异常敏感人群"，用它判定会把成功数据误判为失败。
+     */
+    private static boolean looksLikeFailureText(String text) {
+        if (text == null || text.isEmpty()) return true;
+        return text.contains("查询失败")
+            || text.contains("获取失败")
+            || text.contains("查询异常")
+            || text.contains("缺少城市参数")
+            || text.contains("无法解析")
+            || text.contains("无权限")
+            || text.contains("未初始化")
+            || text.contains("未找到")
+            || text.contains("暂无数据")
+            || text.contains("需要经纬度");
     }
 }
