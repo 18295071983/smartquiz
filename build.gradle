@@ -5,6 +5,54 @@ plugins {
     id "org.jetbrains.kotlin.android" version "1.9.22"
 }
 
+// ============================================================
+// BINARY-PRECHECK(2026-10-11)：构建前校验"因平台限制无法入库"的大体积二进制。
+//
+// 为什么需要它：这些文件都超过了代码托管平台的单文件上限（Gitee 100MB；GitHub 同样
+// 100MB 硬限、50MB 警告），因此**只能留在本地**，新克隆的仓库必然缺它们。缺了以后
+// Gradle 会在深处报一句含糊的"找不到文件"，很难定位。这里改为**构建一开始就列出**
+// 缺哪些、多大、用途、从哪拿 —— 让缺文件这件事可自助，而不是靠翻文档猜。
+//
+// 详细来源与获取方式见 BINARY_ASSETS.md。
+// ============================================================
+def checkBinaryAssets = {
+    def root = project.rootDir
+    // name / path / 说明 / 获取方式
+    def required = [
+        [ name: 'liblo-native-code.so', path: 'viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so',
+          sizeMB: 171, why: 'LibreOffice 引擎（Office 文档高保真预览）',
+          how: 'LibreOffice Android Viewer 源码构建（LibreOffice 25.2，MPL-2.0）。见 BINARY_ASSETS.md' ],
+        [ name: 'asr/model.int8.onnx', path: 'src/main/assets/asr/model.int8.onnx',
+          sizeMB: 228, why: 'SenseVoice-Small 本地离线语音识别',
+          how: 'scripts/fetch-asr-model.ps1 可自动下载（sherpa-onnx 官方 release）' ],
+        [ name: 'asr/tokens.txt', path: 'src/main/assets/asr/tokens.txt',
+          sizeMB: 0.3, why: 'SenseVoice 词表（与模型配套）',
+          how: '同上，同一压缩包内' ],
+    ]
+    def missing = required.findAll { !new File(root, it.path).exists() }
+    if (!missing.isEmpty()) {
+        def msg = new StringBuilder()
+        msg.append('\n\n')
+        msg.append('=' * 78).append('\n')
+        msg.append('构建缺少必要的二进制资源（这些文件因超过代码托管平台的单文件上限,\n')
+        msg.append('无法纳入版本库，需要自行获取后放到指定位置）\n')
+        msg.append('=' * 78).append('\n')
+        missing.each { m ->
+            msg.append("\n  ✗ ${m.name}  （约 ${m.sizeMB} MB）\n")
+            msg.append("      用途：${m.why}\n")
+            msg.append("      放置：${m.path}\n")
+            msg.append("      获取：${m.how}\n")
+        }
+        msg.append('\n').append('-' * 78).append('\n')
+        msg.append('完整说明（含体积/许可/来源/校验）见 BINARY_ASSETS.md\n')
+        msg.append('=' * 78).append('\n\n')
+        throw new GradleException(msg.toString())
+    }
+}
+
+// 在配置阶段校验：让错误尽早出现，而不是等到某个 task 深处
+checkBinaryAssets()
+
 // 配置资源处理
 afterEvaluate {
     if (android?.applicationVariants) {
