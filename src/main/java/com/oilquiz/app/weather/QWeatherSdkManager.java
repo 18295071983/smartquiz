@@ -1121,10 +1121,7 @@ public class QWeatherSdkManager {
             String gustUnit = current.getWindGust().getUnit();
             double gust = current.getWindGust().getValue();
             double gustKmh = (gustUnit != null && gustUnit.contains("m/s")) ? gust * 3.6 : gust;
-            String gustStr = (gustKmh == Math.floor(gustKmh))
-                    ? String.valueOf((long) gustKmh)
-                    : String.format(java.util.Locale.US, "%.1f", gustKmh);
-            sb.append("阵风: ").append(gustStr).append("km/h\n");
+            sb.append("阵风: ").append(round1(gustKmh)).append("km/h\n");
         }
 
         // ---- 能见度：v1 米 → km / v7 已是 km ----
@@ -1312,11 +1309,9 @@ public class QWeatherSdkManager {
     /** 输出 v1 的 ValueUnit（{@code value + unit}）；label 为期望单位，unitIsFixed=true 时用 label 而非接口 unit */
     private void appendValueUnit(StringBuilder sb, com.qweather.sdk.response.ValueUnit v, String label, boolean unitIsFixed) {
         if (v == null || v.getValue() == null) return;
-        double val = v.getValue();
-        // 整数则不带小数，避免 "24.0°C" 这类噪声
-        String num = (val == Math.floor(val)) ? String.valueOf((long) val) : String.valueOf(val);
+        // 统一走 round1：整数不带小数（避免 "24.0°C"），非整数保留 1 位（避免 "23.12°C"）
         String unit = (unitIsFixed || v.getUnit() == null || v.getUnit().isEmpty()) ? label : v.getUnit();
-        sb.append(num).append(unit);
+        sb.append(round1(v.getValue())).append(unit);
     }
 
     /**
@@ -1415,12 +1410,12 @@ public class QWeatherSdkManager {
     }
 
     /**
-     * v1 数值 → 简洁字符串：整数不带小数（{@code 46.0} → {@code "46"}），非整数保留原值。
-     * v1 的浓度/AQI 等字段是 {@code Double}，直接拼串会出现 "PM2.5: 46.0 µg/m³" 这类噪声。
+     * v1 数值 → 简洁字符串：保留最多 1 位小数并去掉末尾 ".0"（23.12 → "23.1"；46.0 → "46"）。
+     * v1 的浓度/AQI 等是 Double，直接拼串会出现 "PM2.5: 46.0 µg/m³"、"46.12" 这类噪声。
      */
     private static String num(Double v) {
         if (v == null) return null;
-        return (v == Math.floor(v) && !v.isInfinite()) ? String.valueOf((long) (double) v) : String.valueOf(v);
+        return round1(v);
     }
 
     /**
@@ -1434,23 +1429,35 @@ public class QWeatherSdkManager {
         if (v == null || v.getValue() == null) return null;
         double val = v.getValue();
         double km = val >= 100 ? val / 1000.0 : val;
-        if (km == Math.floor(km)) return String.valueOf((long) km);
-        return String.format(java.util.Locale.US, "%.1f", km);
+        return round1(km);
     }
 
     /** v1 风速（m/s）→ v7 公里/小时字符串 */
     private static String windKmh(com.qweather.sdk.response.ValueUnit v) {
         if (v == null || v.getValue() == null) return null;
-        double kmh = v.getValue() * 3.6;
-        if (kmh == Math.floor(kmh)) return String.valueOf((long) kmh);
-        return String.format(java.util.Locale.US, "%.1f", kmh);
+        return round1(v.getValue() * 3.6);
     }
 
-    /** 取 v1 的 ValueUnit 数值（整数不带小数，避免 "24.0" 噪声）；null 时返回 null */
+    /**
+     * v1 数值 → 简洁字符串。
+     *
+     * <p>v1 的 ValueUnit.value 是浮点（如 23.12、1013.5、0.09），直接拼串会出现
+     * "温度: 23.12°C"、"露点温度: 2.96°C" 这类两位小数的噪声（真机截屏实测）。
+     * 故统一保留**最多 1 位小数**：整数值不带小数点（46.0 → "46"），
+     * 非整数四舍五入到 1 位（23.12 → "23.1"）。
+     * 精度对天气显示足够（官方示例温度本身也只有 2 位小数）。
+     */
     private static String valueOf(com.qweather.sdk.response.ValueUnit v) {
         if (v == null || v.getValue() == null) return null;
-        double val = v.getValue();
-        return (val == Math.floor(val)) ? String.valueOf((long) val) : String.valueOf(val);
+        return round1(v.getValue());
+    }
+
+    /** 保留最多 1 位小数并去掉末尾 ".0"（23.12 → "23.1"；46.0 → "46"；1013.5 → "1013.5"） */
+    private static String round1(double val) {
+        double r = Math.round(val * 10.0) / 10.0;
+        return (r == Math.floor(r) && !Double.isInfinite(r))
+                ? String.valueOf((long) r)
+                : String.valueOf(r);
     }
 
     /** 取一天白/夜时段（v1 把 condition/temperature/wind/humidity 放在 WeatherPeriodForecast 里） */
