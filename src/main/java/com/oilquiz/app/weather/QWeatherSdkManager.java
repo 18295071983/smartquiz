@@ -891,9 +891,13 @@ public class QWeatherSdkManager {
             sb.append("湿度: ").append(pct(response.getHumidity())).append("%\n");
         }
         if (response.getPrecipitation() != null && response.getPrecipitation().getIntensity() != null) {
-            sb.append("降水量: ").append(valueOf(response.getPrecipitation().getIntensity()))
+            // SEMANTIC-CHANGE(v1)：v7 的 now.precip 是**累计降水量(mm)**，v1 的
+            // precipitation.intensity 是**降水强度(mm/h)** —— 数值都对但语义不同，故标签随之改。
+            // 已确认详情页对 "降水量:" 的解析结果 precip 是**死变量**（赋值后从未被读取），
+            // 改标签不会破坏任何下游逻辑。
+            sb.append("降水强度: ").append(valueOf(response.getPrecipitation().getIntensity()))
               .append(response.getPrecipitation().getIntensity().getUnit() != null
-                      ? response.getPrecipitation().getIntensity().getUnit() : "mm").append("\n");
+                      ? response.getPrecipitation().getIntensity().getUnit() : "mm/h").append("\n");
         }
         if (response.getWind() != null) {
             if (response.getWind().getDirection() != null) {
@@ -935,6 +939,12 @@ public class QWeatherSdkManager {
         if (response.getDewPoint() != null && response.getDewPoint().getValue() != null) {
             sb.append("露点温度: ").append(valueOf(response.getDewPoint()))
               .append(response.getDewPoint().getUnit() != null ? response.getDewPoint().getUnit() : "°C").append("\n");
+        }
+        // 紫外线指数：v1 新增（v7 的 now 里没有该字段）。
+        // 详情页早已能解析 "紫外线:" 并喂给仪表盘/防晒建议（WeatherDetailActivity L1368/L1447/L628），
+        // 但此前无数据源导致该仪表盘恒为空 —— 这里补上即激活它。
+        if (response.getUvIndex() != null) {
+            sb.append("紫外线: ").append(response.getUvIndex()).append("\n");
         }
 
         return sb.toString();
@@ -1060,7 +1070,9 @@ public class QWeatherSdkManager {
     //  温度/体感    °C         °C           直通（valueOf）
     //  露点温度     °C         °C           直通（valueOf）
     //  气压         hPa        hPa          直通（valueOf）
-    //  降水量       mm         mm           直通（valueOf）
+    //  降水量       mm         —            v1 无"累计降水量"，见下"降水强度"
+    //  降水强度     ✗ v7 无    mm/h         直通（本行标签由"降水量"改为"降水强度"，
+    //                                        因 v7 precip=累计量、v1 precipitation.intensity=强度）
     //  风速         km/h       m/s          ×3.6    windKmh
     //  能见度       km         m            ÷1000   visKm
     //  湿度         百分比     [0,1] 小数    ×100    pct
@@ -1069,7 +1081,8 @@ public class QWeatherSdkManager {
     //  风向         中文风名   小写英文代码   查表    compassToChinese
     //  风向角度     度         度            直通
     //  风力等级     级         级            直通
-    //  紫外线       无量纲     无量纲         直通
+    //  紫外线       ✗ v7 无    uvIndex       直通（新增可用数据：详情页早已能解析"紫外线:"
+    //                                        并渲染仪表盘/防晒建议，此前无数据源故恒为空）
     //
     // ── 二、空气质量 airCurrent / airDaily（v1）──
     //  本接口**无需单位换算**，理由：v1 直接给出成品形态 ——
@@ -1196,12 +1209,21 @@ public class QWeatherSdkManager {
                 String date = (start != null && start.length() >= 10) ? start.substring(0, 10) : String.valueOf(start);
                 sb.append(date).append("\n");
 
-                String tempMax = valueOf(daily.getTemperatureMax());
-                String tempMin = valueOf(daily.getTemperatureMin());
+                // v7 的 白天/夜间 温度来自 getTempMax/getTempMin；v1 的白/夜时段**各自有**
+                // 温度（daytime/nighttime 的 temperatureMax/Min），取时段值才符合"白天/夜间温度"语义。
+                // 顶层 temperatureMax/Min 是当日总最高/最低，用括号附在行后保留该信息。
+                WeatherPeriodForecast dayP = periodOf(daily, true);
+                WeatherPeriodForecast nightP = periodOf(daily, false);
+                String dayTemp = dayP != null ? valueOf(dayP.getTemperatureMax()) : null;
+                String nightTemp = nightP != null ? valueOf(nightP.getTemperatureMin()) : null;
+                String dailyMax = valueOf(daily.getTemperatureMax());
+                String dailyMin = valueOf(daily.getTemperatureMin());
                 sb.append("  白天: ").append(periodStr(daily, true, true, false, false, false))
-                  .append(" ").append(tempMax != null ? tempMax : "-").append("°C\n");
+                  .append(" ").append(dayTemp != null ? dayTemp : "-").append("°C")
+                  .append(" (当日 ").append(dailyMax != null ? dailyMax : "-").append("°C)\n");
                 sb.append("  夜间: ").append(periodStr(daily, false, true, false, false, false))
-                  .append(" ").append(tempMin != null ? tempMin : "-").append("°C\n");
+                  .append(" ").append(nightTemp != null ? nightTemp : "-").append("°C")
+                  .append(" (当日 ").append(dailyMin != null ? dailyMin : "-").append("°C)\n");
 
                 com.qweather.sdk.response.Astro astro = daily.getAstro();
                 sb.append("  日出: ").append(astro != null ? astro.getSunrise() : "-")
