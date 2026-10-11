@@ -357,8 +357,12 @@ public class QWeatherSdkManager {
         CountDownLatch latch = new CountDownLatch(1);
 
         try {
+            // localTime(true) 必须显式设置：v1 的默认是 **false = UTC 时间**，
+            // 而本类把 forecastTime / forecastStartTime 直接按字符串取 "HH:mm" 与日期展示，
+            // 用 UTC 会整体偏移时区（中国差 8 小时）。v7 无此问题（返回本地时间）。
             WeatherCurrentParameter parameter = new WeatherCurrentParameter(ll[0], ll[1])
-                    .lang(Lang.ZH_HANS);
+                    .lang(Lang.ZH_HANS)
+                    .localTime(true);
 
             QWeather.getInstance(context, apiHost).weatherCurrent(parameter, new Callback<WeatherCurrentResponse>() {
                 @Override
@@ -419,6 +423,7 @@ public class QWeatherSdkManager {
         try {
             WeatherHourlyParameter parameter = new WeatherHourlyParameter(ll[0], ll[1])
                     .lang(Lang.ZH_HANS)
+                    .localTime(true)   // 必须：默认 UTC，否则小时时刻整体偏 8 小时（见 current 处说明）
                     .hours(24);
 
             QWeather.getInstance(context, apiHost).weatherForecastHourly(parameter, new Callback<WeatherForecastHourlyResponse>() {
@@ -478,6 +483,7 @@ public class QWeatherSdkManager {
         try {
             WeatherDailyParameter parameter = new WeatherDailyParameter(ll[0], ll[1])
                     .lang(Lang.ZH_HANS)
+                    .localTime(true)   // 必须：默认 UTC，否则日期在临近午夜时会差一天（见 current 处说明）
                     .days(7);
 
             QWeather.getInstance(context, apiHost).weatherForecastDaily(parameter, new Callback<WeatherForecastDailyResponse>() {
