@@ -1051,28 +1051,55 @@ public class QWeatherSdkManager {
     // 故 v1 数据必须在**解析层归一化回 v7 形态**，两条路径才能输出一致、下游零改动。
     //
     // 依据（官方文档）：
-    //   dev.qweather.com/docs/resource/unit/          —— 单位对照
+    //   dev.qweather.com/docs/resource/unit/          —— 单位对照 + v1 仅公制
     //   dev.qweather.com/docs/api/weather/wind-guide/ —— 风向方位代码（v1 小写英文 / v7 中文）
+    //   dev.qweather.com/docs/api/air-quality/        —— 空气质量 v1（AQI + 带单位的浓度）
     //
-    //  数据       v7(公制)   v1            本类处理
-    //  温度       °C         °C            直通
-    //  体感温度   °C         °C            直通
-    //  风速       km/h       m/s           ×3.6
-    //  能见度     km         m             ÷1000
-    //  气压       hPa        hPa           直通
-    //  降水量     mm         mm            直通
-    //  湿度       百分比     [0,1]小数      ×100   (pct)
-    //  云量       百分比     [0,1]小数      ×100   (pct)
-    //  降水概率   百分比     [0,1]小数      ×100   (pct)
-    //  风向       中文风名   小写英文代码   查表   (compassToChinese)
-    //  风向角度   度         度             直通
-    //  风力等级   级         级             直通
-    //  紫外线     无量纲     无量纲         直通
+    // ── 一、天气三接口 weatherCurrent / weatherForecastHourly / weatherForecastDaily ──
+    //  数据        v7(公制)   v1           处理
+    //  温度/体感    °C         °C           直通（valueOf）
+    //  露点温度     °C         °C           直通（valueOf）
+    //  气压         hPa        hPa          直通（valueOf）
+    //  降水量       mm         mm           直通（valueOf）
+    //  风速         km/h       m/s          ×3.6    windKmh
+    //  能见度       km         m            ÷1000   visKm
+    //  湿度         百分比     [0,1] 小数    ×100    pct
+    //  云量         百分比     [0,1] 小数    ×100    pct
+    //  降水概率     百分比     [0,1] 小数    ×100    pct
+    //  风向         中文风名   小写英文代码   查表    compassToChinese
+    //  风向角度     度         度            直通
+    //  风力等级     级         级            直通
+    //  紫外线       无量纲     无量纲         直通
+    //
+    // ── 二、空气质量 airCurrent / airDaily（v1）──
+    //  本接口**无需单位换算**，理由：v1 直接给出成品形态 ——
+    //    · AQI 用 aqiDisplay（接口已格式化的字符串），等级/类别/首要污染物均为字符串
+    //    · 污染物浓度自带单位字段（conc.getUnit()，如 µg/m³ / mg/m³ / ppm），原样输出
+    //    · 健康影响/建议为字符串
+    //  唯一处理：浓度数值是 Double，直接用会显示 "46.0"，故经 num() 去除多余小数
+    //
+    // ── 三、天气预警 weatherAlertCurrent（v1，本轮未改）──
+    //  本接口**早已是 v1**，且代码内已有映射，无需再动：
+    //    · severity（minor/moderate/severe/extreme）→ convertSeverity() 中文级别
+    //    · color.code（blue/yellow/orange/red）      → convertColorCode() 中文颜色
+    //
+    // ── 四、indices1d / minutely / astronomySun（**仍是 v7**）──
+    //  这三个接口 v1 尚未提供（SDK 5.3.0 的方法面里 indices 仍是 v7 语义），
+    //  输出天然已是 v7 形态，无需映射。
     // ============================================================
 
     /** v1 湿度/云量/降水概率（[0,1] 小数）→ v7 百分比字符串 */
     private static String pct(Double v) {
         return v == null ? null : String.valueOf(Math.round(v * 100.0));
+    }
+
+    /**
+     * v1 数值 → 简洁字符串：整数不带小数（{@code 46.0} → {@code "46"}），非整数保留原值。
+     * v1 的浓度/AQI 等字段是 {@code Double}，直接拼串会出现 "PM2.5: 46.0 µg/m³" 这类噪声。
+     */
+    private static String num(Double v) {
+        if (v == null) return null;
+        return (v == Math.floor(v) && !v.isInfinite()) ? String.valueOf((long) (double) v) : String.valueOf(v);
     }
 
     /**
@@ -1459,7 +1486,7 @@ public class QWeatherSdkManager {
                     if (value != null) {
                         String displayName = (name != null && !name.isEmpty()) ? name.toUpperCase() : (code != null ? code.toUpperCase() : "");
                         String displayUnit = (unit != null && !unit.isEmpty()) ? " " + unit : "";
-                        sb.append(displayName).append(": ").append(value).append(displayUnit);
+                        sb.append(displayName).append(": ").append(num(value)).append(displayUnit);
                         String fullName = p.getFullName();
                         if (fullName != null && !fullName.isEmpty() && !fullName.equals(displayName)) {
                             sb.append(" (").append(fullName).append(")");
