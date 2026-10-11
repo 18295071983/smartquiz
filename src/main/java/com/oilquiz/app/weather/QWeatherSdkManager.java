@@ -4,7 +4,6 @@ import android.content.Context;
 import android.util.Log;
 
 import com.oilquiz.app.ai.util.APIKeyManager;
-import com.oilquiz.app.weather.model.WeatherNowData;
 import com.qweather.sdk.Callback;
 import com.qweather.sdk.QWeather;
 import com.qweather.sdk.TokenGenerator;
@@ -17,7 +16,6 @@ import com.qweather.sdk.basic.Indices;
 import com.qweather.sdk.parameter.indices.IndicesParameter;
 import com.qweather.sdk.parameter.minutely.MinutelyParameter;
 import com.qweather.sdk.parameter.weather.WeatherParameter;
-import com.qweather.sdk.response.air.AirNowResponse;
 import com.qweather.sdk.response.air.v1.AirDaily;
 import com.qweather.sdk.response.air.v1.AirIndex;
 import com.qweather.sdk.response.air.v1.AirV1CurrentResponse;
@@ -815,46 +813,6 @@ public class QWeatherSdkManager {
         }
 
         return sb.toString();
-    }
-
-    public WeatherNowData getWeatherNowData(WeatherNowResponse response, String cityName, WeatherDaily dailyForecast, AstronomySunResponse sunResponse, AirNowResponse airResponse) {
-        WeatherNowData data = WeatherDataParser.getEmptyData();
-
-        data.cityName = cityName != null ? cityName : "";
-        data.fxLink = response.getFxLink() != null ? response.getFxLink() : "";
-        data.updateTime = response.getUpdateTime() != null ? response.getUpdateTime() : "";
-
-        WeatherNow now = response.getNow();
-        if (now != null) {
-            data.obsTime = now.getObsTime() != null ? now.getObsTime() : "";
-            data.temp = now.getTemp() != null ? now.getTemp() : "";
-            data.feelsLike = now.getFeelsLike() != null ? now.getFeelsLike() : "";
-            data.iconCode = now.getIcon() != null ? now.getIcon() : "";
-            data.text = now.getText() != null ? now.getText() : "";
-            data.wind360 = now.getWind360() != null ? now.getWind360() : "";
-            data.windDir = now.getWindDir() != null ? now.getWindDir() : "";
-            data.windScale = now.getWindScale() != null ? now.getWindScale() : "";
-            data.windSpeed = now.getWindSpeed() != null ? now.getWindSpeed() : "";
-            data.humidity = now.getHumidity() != null ? now.getHumidity() : "";
-            data.precip = now.getPrecip() != null ? now.getPrecip() : "";
-            data.pressure = now.getPressure() != null ? now.getPressure() : "";
-            data.visibility = now.getVis() != null ? now.getVis() : "";
-            data.cloud = now.getCloud() != null ? now.getCloud() : "";
-            data.dew = now.getDew() != null ? now.getDew() : "";
-        }
-
-        if (dailyForecast != null) {
-            data.highTemp = dailyForecast.getTempMax() != null ? dailyForecast.getTempMax() : "";
-            data.lowTemp = dailyForecast.getTempMin() != null ? dailyForecast.getTempMin() : "";
-            data.uvIndex = dailyForecast.getUvIndex() != null ? dailyForecast.getUvIndex() : "";
-        }
-
-        if (sunResponse != null) {
-            data.sunRise = sunResponse.getSunrise() != null ? sunResponse.getSunrise() : "";
-            data.sunSet = sunResponse.getSunset() != null ? sunResponse.getSunset() : "";
-        }
-
-        return data;
     }
 
     private String parseHourly(WeatherHourlyResponse response) {
