@@ -18,6 +18,7 @@ import com.qweather.sdk.parameter.minutely.MinutelyParameter;
 import com.qweather.sdk.parameter.weather.WeatherCurrentParameter;
 // v7 响应类：仅用于本类解析函数的**兼容回退分支**（v1 为主、v7 回退），不再用于发起 v7 请求
 import com.qweather.sdk.response.weather.WeatherCurrentResponse;
+import com.qweather.sdk.response.weather.WeatherNow;
 import com.qweather.sdk.response.weather.WeatherNowResponse;
 import com.qweather.sdk.response.weather.WeatherHourly;
 import com.qweather.sdk.response.weather.WeatherHourlyResponse;
@@ -993,6 +994,9 @@ public class QWeatherSdkManager {
         StringBuilder sb = new StringBuilder();
         sb.append("天气信息:\n");
 
+        // v7 回退分支统一取一次 now，避免每处都写 legacy != null && legacy.getNow() != null
+        final WeatherNow now = (legacy != null) ? legacy.getNow() : null;
+
         if (cityName != null && !cityName.isEmpty()) {
             sb.append("城市: ").append(cityName).append("\n");
         }
@@ -1001,8 +1005,8 @@ public class QWeatherSdkManager {
         String text = null;
         if (current != null && current.getCondition() != null) {
             text = current.getCondition().getText();
-        } else if (legacy != null && legacy.getNow() != null) {
-            text = legacy.getNow().getText();
+        } else if (now != null) {
+            text = now.getText();
         }
         if (text != null && !text.isEmpty()) {
             sb.append("天气: ").append(text).append("\n");
@@ -1012,15 +1016,15 @@ public class QWeatherSdkManager {
         String icon = null;
         if (current != null && current.getCondition() != null) {
             icon = current.getCondition().getCode();
-        } else if (legacy != null && legacy.getNow() != null) {
-            icon = legacy.getNow().getIcon();
+        } else if (now != null) {
+            icon = now.getIcon();
         }
         if (icon != null && !icon.isEmpty()) {
             sb.append("图标: ").append(icon).append("\n");
         }
 
         // ---- 观测时间（仅 v7 有）----
-        String obsTime = (legacy != null && legacy.getNow() != null) ? legacy.getNow().getObsTime() : null;
+        String obsTime = (now != null) ? now.getObsTime() : null;
         if (obsTime != null && !obsTime.isEmpty()) {
             sb.append("观测时间: ").append(obsTime).append("\n");
         }
@@ -1029,8 +1033,8 @@ public class QWeatherSdkManager {
         String temp = null;
         if (current != null && current.getTemperature() != null) {
             temp = valueOf(current.getTemperature());
-        } else if (legacy != null && legacy.getNow() != null) {
-            temp = legacy.getNow().getTemp();
+        } else if (now != null) {
+            temp = now.getTemp();
         }
         if (temp != null && !temp.isEmpty()) {
             sb.append("温度: ").append(temp).append("°C\n");
@@ -1040,8 +1044,8 @@ public class QWeatherSdkManager {
         String feelsLike = null;
         if (current != null && current.getFeelsLike() != null) {
             feelsLike = valueOf(current.getFeelsLike());
-        } else if (legacy != null && legacy.getNow() != null) {
-            feelsLike = legacy.getNow().getFeelsLike();
+        } else if (now != null) {
+            feelsLike = now.getFeelsLike();
         }
         if (feelsLike != null && !feelsLike.isEmpty()) {
             sb.append("体感温度: ").append(feelsLike).append("°C\n");
@@ -1050,8 +1054,8 @@ public class QWeatherSdkManager {
         // ---- 湿度：v1 [0,1] 小数需 ×100 / v7 已是百分比 ----
         if (current != null && current.getHumidity() != null) {
             sb.append("湿度: ").append(pct(current.getHumidity())).append("%\n");
-        } else if (legacy != null && legacy.getNow() != null && legacy.getNow().getHumidity() != null) {
-            sb.append("湿度: ").append(legacy.getNow().getHumidity()).append("%\n");
+        } else if (now != null && now.getHumidity() != null) {
+            sb.append("湿度: ").append(now.getHumidity()).append("%\n");
         }
 
         // ---- 降水：v1 precipitation.intensity(mm/h，强度) / v7 precip(mm，累计量) ----
@@ -1061,9 +1065,8 @@ public class QWeatherSdkManager {
             String unit = current.getPrecipitation().getIntensity().getUnit();
             sb.append("降水强度: ").append(valueOf(current.getPrecipitation().getIntensity()))
               .append(unit != null && !unit.isEmpty() ? unit : "mm/h").append("\n");
-        } else if (legacy != null && legacy.getNow() != null
-                && legacy.getNow().getPrecip() != null && !legacy.getNow().getPrecip().isEmpty()) {
-            sb.append("降水量: ").append(legacy.getNow().getPrecip()).append("mm\n");
+        } else if (now != null && now.getPrecip() != null && !now.getPrecip().isEmpty()) {
+            sb.append("降水量: ").append(now.getPrecip()).append("mm\n");
         }
 
         // ---- 风：v1 wind.{direction{compass,degree},scale,speed(m/s),gust} / v7 扁平字段 ----
@@ -1080,18 +1083,18 @@ public class QWeatherSdkManager {
             windScale = current.getWind().getScale();
             // v1 风速 m/s → 统一为 v7 的 km/h（见 V1-UNIT-MAP）
             windSpeedKmh = windKmh(current.getWind().getSpeed());
-        } else if (legacy != null && legacy.getNow() != null) {
+        } else if (now != null) {
             // v7 的 windDir 在中文语言下已是中文风名，无需映射
-            windDirZh = legacy.getNow().getWindDir();
+            windDirZh = now.getWindDir();
             try {
-                if (legacy.getNow().getWind360() != null) {
-                    windDegree = Integer.valueOf(legacy.getNow().getWind360().trim());
+                if (now.getWind360() != null) {
+                    windDegree = Integer.valueOf(now.getWind360().trim());
                 }
             } catch (NumberFormatException ignored) {
                 // v7 偶尔返回非数字，忽略角度即可，不影响其他字段
             }
-            windScale = legacy.getNow().getWindScale();
-            windSpeedKmh = legacy.getNow().getWindSpeed();
+            windScale = now.getWindScale();
+            windSpeedKmh = now.getWindSpeed();
         }
 
         if (windDirZh != null && !windDirZh.isEmpty()) {
@@ -1124,17 +1127,17 @@ public class QWeatherSdkManager {
             if (km != null) {
                 sb.append("能见度: ").append(km).append("km\n");
             }
-        } else if (legacy != null && legacy.getNow() != null
-                && legacy.getNow().getVis() != null && !legacy.getNow().getVis().isEmpty()) {
-            sb.append("能见度: ").append(legacy.getNow().getVis()).append("km\n");
+        } else if (now != null
+                && now.getVis() != null && !now.getVis().isEmpty()) {
+            sb.append("能见度: ").append(now.getVis()).append("km\n");
         }
 
         // ---- 气压：两侧均 hPa ----
         String pressure = null;
         if (current != null && current.getPressure() != null) {
             pressure = valueOf(current.getPressure());
-        } else if (legacy != null && legacy.getNow() != null) {
-            pressure = legacy.getNow().getPressure();
+        } else if (now != null) {
+            pressure = now.getPressure();
         }
         if (pressure != null && !pressure.isEmpty()) {
             sb.append("气压: ").append(pressure).append("hPa\n");
@@ -1143,17 +1146,17 @@ public class QWeatherSdkManager {
         // ---- 云量：v1 [0,1] 小数需 ×100 / v7 已是百分比 ----
         if (current != null && current.getCloudCover() != null) {
             sb.append("云量: ").append(pct(current.getCloudCover())).append("%\n");
-        } else if (legacy != null && legacy.getNow() != null
-                && legacy.getNow().getCloud() != null && !legacy.getNow().getCloud().isEmpty()) {
-            sb.append("云量: ").append(legacy.getNow().getCloud()).append("%\n");
+        } else if (now != null
+                && now.getCloud() != null && !now.getCloud().isEmpty()) {
+            sb.append("云量: ").append(now.getCloud()).append("%\n");
         }
 
         // ---- 露点温度 ----
         String dew = null;
         if (current != null && current.getDewPoint() != null) {
             dew = valueOf(current.getDewPoint());
-        } else if (legacy != null && legacy.getNow() != null) {
-            dew = legacy.getNow().getDew();
+        } else if (now != null) {
+            dew = now.getDew();
         }
         if (dew != null && !dew.isEmpty()) {
             sb.append("露点温度: ").append(dew).append("°C\n");
