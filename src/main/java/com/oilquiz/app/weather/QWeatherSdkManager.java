@@ -1450,10 +1450,17 @@ public class QWeatherSdkManager {
                             ? start.substring(0, 10) : String.valueOf(start);
                     sb.append(date).append("\n");
 
+                    // 白/夜时段温度取**时段最高温**（官方语义：daytime/nighttime 的
+                    // temperatureMax 即"预报时段的最高温度"，daytime=当地时间[07:00,19:00)、
+                    // nighttime=[19:00,次日07:00)）。
+                    // 此前白天取 temperatureMax、夜间误取 nighttime.temperatureMin，
+                    // 导致"夜间"显示的是后半夜最低点（如 18°C）而非晚间时段温度，
+                    // 与"白天"的数字量级不可比、语义也不对。两侧统一为 temperatureMax。
+                    // 当日总最高/最低另用括号附上（官方:顶层 temperatureMax/Min 为当日极值）。
                     WeatherPeriodForecast dayP = periodOf(daily, true);
                     WeatherPeriodForecast nightP = periodOf(daily, false);
                     String dayTemp = (dayP != null) ? valueOf(dayP.getTemperatureMax()) : null;
-                    String nightTemp = (nightP != null) ? valueOf(nightP.getTemperatureMin()) : null;
+                    String nightTemp = (nightP != null) ? valueOf(nightP.getTemperatureMax()) : null;
                     String dailyMax = valueOf(daily.getTemperatureMax());
                     String dailyMin = valueOf(daily.getTemperatureMin());
                     sb.append("  白天: ").append(periodStr(daily, true, true, false, false, false))
