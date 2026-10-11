@@ -1219,6 +1219,63 @@ public class QWeatherSdkManager {
                             && hourly.getPrecipitation().getProbability() != null) {
                         sb.append("降水").append(Math.round(hourly.getPrecipitation().getProbability() * 100.0)).append("%");
                     }
+
+                    // ---- 以下为补充细节：详情页逐小时卡片(HourlyItem)只消费上面 5 项，
+                    //      这些不会渲染到 UI，但会进入 AI 工具链文本，供模型做趋势/穿衣等推断。
+                    //      单位换算同 V1-UNIT-MAP：风速/阵风 m/s→km/h，能见度 m→km，
+                    //      湿度/云量 [0,1]→百分比。
+                    //      注：v1 文档的 precipitation.amount(累计降水量) 与 type(雨雪类型)
+                    //      在 SDK 的 PrecipitationHourly 类中并不存在（仅 intensity/probability），
+                    //      故 SDK 路径拿不到这两项。
+                    StringBuilder d = new StringBuilder();
+                    if (hourly.getFeelsLike() != null && hourly.getFeelsLike().getValue() != null) {
+                        d.append(" 体感:").append(valueOf(hourly.getFeelsLike())).append("°C");
+                    }
+                    if (hourly.getHumidity() != null) {
+                        d.append(" 湿度:").append(pct(hourly.getHumidity())).append("%");
+                    }
+                    if (hourly.getWind() != null) {
+                        String dirZh = (hourly.getWind().getDirection() != null)
+                                ? compassToChinese(hourly.getWind().getDirection().getCompass()) : null;
+                        if (dirZh != null && !dirZh.isEmpty()) {
+                            d.append(" 风:").append(dirZh);
+                        }
+                        String spd = windKmh(hourly.getWind().getSpeed());
+                        if (spd != null) {
+                            d.append(" ").append(spd).append("km/h");
+                        }
+                        if (hourly.getWind().getScale() != null) {
+                            d.append(" ").append(hourly.getWind().getScale()).append("级");
+                        }
+                    }
+                    if (hourly.getWindGust() != null && hourly.getWindGust().getValue() != null) {
+                        String g = windKmh(hourly.getWindGust());
+                        if (g != null) d.append(" 阵风:").append(g).append("km/h");
+                    }
+                    if (hourly.getPrecipitation() != null
+                            && hourly.getPrecipitation().getIntensity() != null) {
+                        d.append(" 降水强度:").append(valueOf(hourly.getPrecipitation().getIntensity()))
+                         .append("mm/h");
+                    }
+                    if (hourly.getPressure() != null && hourly.getPressure().getValue() != null) {
+                        d.append(" 气压:").append(valueOf(hourly.getPressure())).append("hPa");
+                    }
+                    if (hourly.getVisibility() != null && hourly.getVisibility().getValue() != null) {
+                        String v = visKm(hourly.getVisibility());
+                        if (v != null) d.append(" 能见度:").append(v).append("km");
+                    }
+                    if (hourly.getDewPoint() != null && hourly.getDewPoint().getValue() != null) {
+                        d.append(" 露点:").append(valueOf(hourly.getDewPoint())).append("°C");
+                    }
+                    if (hourly.getCloudCover() != null) {
+                        d.append(" 云量:").append(pct(hourly.getCloudCover())).append("%");
+                    }
+                    if (hourly.getUvIndex() != null) {
+                        d.append(" 紫外线:").append(hourly.getUvIndex());
+                    }
+                    if (d.length() > 0) {
+                        sb.append("\n   ").append(d.toString().trim());
+                    }
                     sb.append("\n");
                 }
             }
