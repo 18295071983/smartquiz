@@ -70,10 +70,59 @@ LibreOffice 官方**不发布**该 `.so` 的预编译包（Android Viewer 的 na
 
 即：早期的"源码集成"是**完整且真实**的（提交 `c843472f`：官方源码+资源+native+资产）。
 
-### 缺失时的表现
+### 缺失时的表现 ⚠️ 报错信息会误导你
 
-`viewer` 模块的 Java 代码仍在，但引擎库缺失 → **Office 文档预览不可用**
-（`LibreOfficeKit` 相关调用会走"不可用"分支，不会崩溃 —— 见提交 `30ec2e87` 的安全化处理）。
+**构建期**（实测，2026-10-11）：缺这个 `.so` 会让构建在**配置阶段**直接失败，
+但 Gradle 报出的错误**与缺文件毫无关系**：
+
+```
+* What went wrong:
+Failed to query the value of property 'buildFlowServiceProperty'.
+> A problem occurred configuring root project 'smartquiz'.
+   > Android Gradle Plugin has been applied at the root build file. ...
+     To continue with the plugin in the resolved and applied state,
+     specify `compileSdk` in build.gradle (D:\...\smartquiz\build.gradle).
+```
+
+**`compileSdk 36` 明明已经配好了**（`build.gradle` 的 `android { compileSdk 36 }`）。
+真实原因是 `defaultConfig.ndk.abiFilters "arm64-v8a"`（其注释写着"仅 arm64-v8a：
+LibreOffice 引擎只有 arm64 版"）在缺少该库时把配置阶段搞崩，而错误被 Kotlin 插件
+包装后指向了无关的 `compileSdk`。
+
+> **如果你看到 `specify compileSdk` 这类报错，先查这个 `.so` 是否存在** ——
+> 不要去改 `compileSdk`、也不要怀疑 AGP 版本，方向是错的。
+> `build.gradle` 顶部的 `BINARY-PRECHECK` 就是为了替代这条误导信息而加的。
+
+实测对照（用于排除"偶发失败"的误判）：
+
+| 条件 | 结果 |
+| --- | --- |
+| 干净 daemon + 缺 `.so` | **稳定 `BUILD FAILED`** |
+| 文件在位，连跑 6 次 | 0 失败 |
+| 缺 `.so` 但 daemon 仍持有上一次的配置状态 | 时成时败（会造成"缺文件也能构建"的**假象**） |
+
+即：**判断"是否缺文件会导致失败"必须清掉 daemon 状态复测**，否则容易被缓存假象误导。
+
+**运行期**：`viewer` 模块的 Java 代码仍在，但引擎库缺失 → **Office 文档预览不可用**；
+`LibreOfficeKit` 相关调用会走"不可用"分支而**不会崩溃**（见提交 `30ec2e87` 的安全化处理）。
+
+### 为什么不能"随主程序一起编译"
+
+| 检查项 | 结果 |
+| --- | --- |
+| `viewer` 模块有 native 源码吗 | ❌ **零个** `.c/.cpp/CMakeLists.txt`，只有 Java（`org/libreoffice/kit` 等 JNI 绑定） |
+| `viewer/build.gradle` 有 native 构建配置吗 | ❌ 无 `externalNativeBuild` / `ndk` / `cmake`，**只消费预置的 `jniLibs`** |
+| 主工程 CMake 产出 | 只有 `llama-jni`、`ggml-probe`，**无任何 `liblo*` 目标** |
+
+`liblo-native-code.so` 是**整个 LibreOffice 办公引擎**（Writer/Calc/Impress/VCL/UNO/Skia/字体等）
+由 **LibreOffice 自己的构建系统**（上游源码 `android/` 目录 + gbuild/autotools）交叉编译出的产物，
+源码不在本仓库中，本工程的 CMake/NDK 从未参与也无从参与。
+
+即便把 LO 源码引入，也**无法合到主程序构建里**：它是百万行级 C++ 办公套件，Android 交叉编译
+以**小时**计，且产物的文件名与 strip 规则由 LO 的 gbuild 决定，不是我们的 CMake 能复现的。
+
+**可行的自动化途径**：在服务器/CI 上编译一次，把 `.so` 作为**代码托管平台的 Release 附件**
+发布（而不是提交进 Git），他人即可用一条命令下载。需要有能跑 LO 构建的机器。
 
 ---
 
