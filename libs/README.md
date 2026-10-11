@@ -10,26 +10,28 @@
 
 | 文件 | 大小 | 是否入库 | 用途 |
 | --- | --- | --- | --- |
-| `QWeather_Public_Android_V5.2.2.jar` | 0.12 MB | ✅ 已入库 | 和风天气 Android SDK |
+| `QWeather_Public_Android_V5.3.0.jar` | 0.11 MB | ✅ 已入库 | 和风天气 Android SDK |
 | `apksig-8.0.2.jar` | 0.46 MB | ✅ 已入库 | App 内导出 APK 的签名（v1+v2+v3，签名时自动对齐 STORED 条目） |
 | `geniex-android-0.8.0.aar` | 78.36 MB | ❌ **未入库** | Qualcomm GenieX SDK：NPU 端侧 LLM 推理（llama_cpp 跑 GGUF / qairt 跑 AI Hub 预编译） |
 
 ## 逐个说明
 
-### QWeather_Public_Android_V5.2.2.jar —— 已入库
+### QWeather_Public_Android_V5.3.0.jar —— 已入库
 
-- **用途**：和风天气（QWeather）Android SDK。`QWeatherSdkManager` 通过它访问天气接口
-  （`weatherNow`/`weather7d`/`weather24h`/`airCurrent`/`weatherAlertCurrent`/`indices1d` 等）。
+- **用途**：和风天气（QWeather）Android SDK。`QWeatherSdkManager` 通过它访问天气接口。
 - **获取方式**：官方 GitHub 仓库的 **源码归档里直接附带 jar**
   （[releases](https://github.com/qwd/qweather-android-sdk/releases) → 对应 tag → `Source code (zip)`，
   解压后在根目录即为 `QWeather_Public_Android_V<版本>.jar`）。
   注意：**release 的 Assets 是空的**，jar 不在附件里，必须走源码归档。
-- **当前版本为什么是 5.2.2**：这是当前代码编译验证过的版本。
-  官方已有 **5.3.0**（2026-08-24），它**新增 v1 天气**（`weatherCurrent` /
-  `weatherForecastDaily` / `weatherForecastHourly`）并**移除了 13 个我们未使用的 v7 方法**
-  （`airNow`/`air5d`/`airStation`/`gridNow`/`grid3d`/`grid7d`/`grid24h`/`grid72h`/
-  `historicalAir`/`oceanCurrents`/`warningNow`/`warningList`/`qwSDK1`）。
-  升级它属于 v7→v1 迁移工作，见分支 `feat/qweather-v1-migration`。
+- **版本历史与现状**：
+  - 长期使用 **5.2.2**（v7 接口，SDK 的 location 参数可直接接受城市编码/坐标/城市名）。
+  - 已升级到 **5.3.0**（2026-08-24）：**新增 v1 天气**（`weatherCurrent` /
+    `weatherForecastDaily` / `weatherForecastHourly`），并**移除了 13 个本仓库未使用的方法**
+    （`airNow`/`air5d`/`airStation`/`gridNow`/`grid3d`/`grid7d`/`grid24h`/`grid72h`/
+    `historicalAir`/`oceanCurrents`/`warningNow`/`warningList`/`qwSDK1`）。
+  - 天气三接口已迁移到 **v1**，详见分支 `feat/qweather-v1-migration`。
+    注意 v1 的参数类**只接受经纬度**，因此 `QWeatherSdkManager.resolveLatLon()`
+    负责把 LocationID / 城市名（中英文）/ 坐标串统一换算成坐标。
 - **升级时注意**：换 jar 必须**同时改 `build.gradle` 里的文件名**，否则 Gradle 仍按旧文件名查找，
   会出现「classpath 里是 A 版本、代码以为在写 B 版本」的静默错配。
 
@@ -54,9 +56,9 @@
 
 ## 相关背景
 
-- 之前 `*.aar` 的忽略规则同时把上面三个文件都挡在了版本库外（QWeather/apksig 的 jar 是
-  `*.jar` 未被忽略却**从未 `git add`**，属于遗漏；GenieX 的 aar 是被规则刻意排除）。
-- 本目录除上述三个文件外，还可能有 `apksig` 之外的临时产物；**判断构建真正需要什么，
+- 此前这三个文件都不在版本库里，但原因不同：QWeather/apksig 的 jar 是 `*.jar` 未被忽略、
+  却**从未 `git add`**（属于遗漏）；GenieX 的 aar 是被 `.gitignore` 的 `*.aar` 规则刻意排除。
+- 本目录除上述文件外，还可能有临时产物；**判断构建真正需要什么，
   以 `build.gradle` 里的 `files(...)`/`fileTree(...)` 为准**。
 - 另外这些路径也由 `.gitignore` 排除、同样需要本地存在才能构建：
   `src/main/jniLibs/`、`libs/com/`、`viewer/src/main/jniLibs/**/liblo-native-code.so`。
