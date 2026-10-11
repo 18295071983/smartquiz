@@ -42,12 +42,23 @@ GitHub 远端**，而 GitHub Release 附件单文件上限 **2 GB** —— 足�
 
 做法：
 
-**当前状态：已发布** —— tag `binary-assets-v1`，内含 `liblo-native-code.so`（171.3 MB）。
+**当前状态：已发布并通过往返校验** —— tag `binary-assets-v1`，内含
+`liblo-native-code.so`（179,584,144 字节，SHA256 见下节）。上传后重新下载比对，
+与本地产物逐字节一致。
 
 | 项 | 内容 |
 | --- | --- |
 | Release 页 | <https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1> |
 | 附件直链 | <https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so> |
+
+> **上传时的坑（供维护者参考）**：用 PowerShell 上传附件**不要用
+> `WebClient.UploadFile()`** —— 它会把文件包成 `multipart/form-data` 体（即使显式设了
+> `Content-Type: application/octet-stream` 也无效），结果是 GitHub 存下的附件**被追加了
+> 204 字节的 multipart 边界**、SHA256 与源文件不符（本项目 2026-10-11 踩到过，
+> 表现为"字节数差 204、哈希每次上传都不同"）。
+> 正确做法是**直接把文件字节写入请求流**并显式设置 `ContentLength` —— 已封装为
+> `scripts/upload-release-asset.ps1`（上传后会自查 size/digest，不一致即以非零码退出）。
+> 上传后**务必**用 API 返回的 `digest` 或重新下载比对 SHA256。
 
 **为什么只放了 LO 的 `.so`**：`fetch-asr-model.ps1` 已能从 **sherpa-onnx 官方 release**
 直接取到 ASR 模型（实测可用），无需自行托管；真正"无处可取"的只有 LO 引擎这一个文件。
@@ -108,16 +119,21 @@ LibreOffice 官方**不发布**该 `.so` 的预编译包（Android Viewer 的 na
    | --- | --- |
    | 直链 | <https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so> |
    | Release 页 | <https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1> |
-   | 体积 | 171.3 MB（已核对：`HTTP 200`，`Content-Length` 一致） |
+   | 精确大小 | **179,584,144 字节**（约 171.3 MiB） |
+   | SHA256 | `30D82A43595A76101AC86B66FE09EC8F2D115CF83587A7CA857E4243F55E42AC` |
    | 落位 | `viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so` |
 
    ```powershell
-   # 一条命令下载（PowerShell）
-   Invoke-WebRequest -Uri 'https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so' `
-                     -OutFile 'viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so'
+   # 下载 + 校验（PowerShell）
+   $u = 'https://github.com/18295071983/smartquiz/releases/download/binary-assets-v1/liblo-native-code.so'
+   $o = 'viewer/src/main/jniLibs/arm64-v8a/liblo-native-code.so'
+   Invoke-WebRequest -Uri $u -OutFile $o
+   # 必须与上面 SHA256 一致，否则是残缺/被篡改的文件
+   (Get-FileHash $o -Algorithm SHA256).Hash
    ```
 
-   下载后**先比对体积**（应约 171.3 MB），避免拿到残缺文件。
+   > 该附件已于 2026-10-11 做**往返校验**：上传后重新下载，大小与 SHA256
+   > 与本地产物**逐字节一致**。
 
    > ⚠️ **国内访问 GitHub 附件可能不稳定**。附件实际由
    > `release-assets.githubusercontent.com` 提供（下载时会重定向过去），
