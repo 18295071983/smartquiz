@@ -199,6 +199,8 @@ app/
 ## 快速开始
 
 > **全新克隆请先读 [SETUP_GUIDE.md](SETUP_GUIDE.md)** —— 环境搭建、构建、安装到设备的完整步骤。
+> **开发相关请参阅 [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** —— 项目结构、核心架构、
+> 添加新功能、调试、Git 协作、常见问题排查。
 >
 > ⚠️ **直接 `git clone` + `./gradlew assembleDebug` 会失败**：本仓库有三类内容不在版本库里
 > —— 本机绝对路径（5 处）、被 ignore 的 CMake 源码目录（含 `llama.cpp`）、
