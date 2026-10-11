@@ -677,7 +677,12 @@ public class AIWeatherManager implements AITool {
             Log.w(TAG, "GeoAPI failed for city " + city + ": " + e.getMessage());
         }
         
-        throw new Exception("无法定位城市: " + city + "（本地城市表与 geo 查询均无结果）");
+        throw new Exception("无法定位城市: " + city
+                + "（不在城市表中）。该地名可能是乡镇/街道等更小单位，城市表只到市/县级。"
+                + "请用你自己的地理知识判断它属于哪个县或市，然后用那个上级地名重新调用本工具"
+                + "（例如\"阳白乡\"属于\"五台县\"，就传 city=五台县）；"
+                + "若你不确定，改用 network_search 搜索\"" + city + "属于哪个县市\"后再查。"
+                + "不要编造或猜测天气数据。");
     }
 
     /**
@@ -766,7 +771,10 @@ public class AIWeatherManager implements AITool {
             Log.w(TAG, "Failed to get lat/lon from GeoAPI for city " + city, e);
             throw new Exception("地理编码失败（" + city + "）: " + e.getMessage());
         }
-        throw new Exception("无法定位城市坐标: " + city);
+        throw new Exception("无法定位城市坐标: " + city
+                + "。若该地名是乡镇/街道等更小单位，请用你的地理知识判断它属于哪个县或市，"
+                + "改用那个上级地名（例如\"阳白乡\"→\"五台县\"）重新调用；"
+                + "不确定则先用 network_search 查\"" + city + "属于哪个县市\"。不要编造天气数据。");
     }
 
     public String getHefengCityNameByLocation(double lat, double lon) {
