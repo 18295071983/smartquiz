@@ -556,6 +556,41 @@ public class AIWeatherManager implements AITool {
                     entry = matches.get(0);
                 }
             }
+            // 4. PARENT-FALLBACK(2026-10-11)：入参比城市表更"具体"时，向上回退到表内城市。
+            //    例："宁夏银川"→银川、"山西省五台县"→五台县、"广东省深圳市南山区"→深圳南山。
+            //    选优规则：**先用省/市信息消歧**（入参含该条目的 adm2Zh/adm1Zh 则加分），
+            //    再比名字长度取更具体者。
+            //    为什么必须消歧：同名的区县很多 —— 实测"广东省深圳市南山区"若只按名字最长匹配
+            //    会选中**黑龙江鹤岗的南山**(47.31,130.28)，张冠李戴。
+            //    注意：本层无法处理表内完全没有的地名（如乡镇"阳白乡"）——
+            //    表只到市/县级且无县级字段，无从推断其行政父级，那类仍会走到"查不到"。
+            if (entry == null) {
+                com.oilquiz.app.weather.QWeatherCityManager.CityEntry best = null;
+                int bestScore = -1;
+                java.util.List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> all = cityMgr.getAllCities();
+                if (all != null) {
+                    for (com.oilquiz.app.weather.QWeatherCityManager.CityEntry c : all) {
+                        if (c == null) continue;
+                        String name = c.nameZh;
+                        if (name == null || name.length() < 2) continue;
+                        if (!city.contains(name)) continue;
+                        // 消歧评分：入参里出现了该条目的市名/省名，说明上下文吻合
+                        int score = 0;
+                        if (c.adm2Zh != null && c.adm2Zh.length() >= 2 && city.contains(c.adm2Zh)) score++;
+                        if (c.adm1Zh != null && c.adm1Zh.length() >= 2 && city.contains(c.adm1Zh)) score++;
+                        if (best == null || score > bestScore
+                                || (score == bestScore && name.length() > best.nameZh.length())) {
+                            best = c;
+                            bestScore = score;
+                        }
+                    }
+                }
+                if (best != null) {
+                    entry = best;
+                    Log.i(TAG, "Parent-city fallback: " + city + " -> " + entry.nameZh
+                            + " (" + entry.adm1Zh + "/" + entry.adm2Zh + ", score=" + bestScore + ")");
+                }
+            }
             if (entry != null) {
                 Log.i(TAG, "Local city lookup hit: " + city + " -> " + entry.nameZh
                         + " (" + entry.locationId + ")");
