@@ -198,45 +198,59 @@ app/
 
 ## 快速开始
 
-> **详细指南请参阅：**
-> - [**SETUP_GUIDE.md**](SETUP_GUIDE.md) — 环境搭建、构建、安装到设备的完整步骤
-> - [**DEVELOPMENT_GUIDE.md**](DEVELOPMENT_GUIDE.md) — 架构说明、功能开发、调试、Git 协作、问题排查
+> **全新克隆请先读 [SETUP_GUIDE.md](SETUP_GUIDE.md)** —— 环境搭建、构建、安装到设备的完整步骤。
+>
+> ⚠️ **直接 `git clone` + `./gradlew assembleDebug` 会失败**：本仓库有三类内容不在版本库里
+> —— 本机绝对路径（5 处）、被 ignore 的 CMake 源码目录（含 `llama.cpp`）、
+> 以及超出托管平台单文件上限的大二进制（228 MB / 171 MB）。
+> 详见 [SETUP_GUIDE.md](SETUP_GUIDE.md) 与 [BINARY_ASSETS.md](BINARY_ASSETS.md)。
 
 ### 环境要求
 
-- **Android Studio**: Hedgehog (2023.1.1) 或更高版本
-- **JDK**: 17
-- **Android SDK**: API 34
-- **NDK**: 26.1.10909125（如需构建本地库）
-- **构建工具**: Gradle 8.13, Android Gradle Plugin 8.4.0
+以 `build.gradle` 为准（★ 表示 README 早前版本写错、已纠正）：
+
+| 组件 | 要求 |
+| --- | --- |
+| JDK | **21** ★（旧文档写 17；JDK 17 亦可，需改 `gradle.properties` 的 `org.gradle.java.home`） |
+| Android SDK | **compileSdk / targetSdk 36** ★（旧文档写 API 34） |
+| Android Gradle Plugin | **8.9.2** ★（旧文档写 8.4.0） |
+| buildToolsVersion | 36.0.0 |
+| minSdk | 31 |
+| Gradle | 8.13（由 wrapper 提供，无需单独安装） |
+| NDK | 26.1.10909125（构建 native 库必需） |
+| CMake | 3.22.1 |
+| Python | **3.10**（Chaquopy 的 `buildPython`，必须 3.10/3.9） |
+| Android Studio | 任意较新版本（命令行构建不需要） |
 
 ### 构建步骤
 
-1. 克隆仓库
 ```bash
+# 1. 克隆
 git clone https://github.com/18295071983/smartquiz.git
+cd smartquiz
+
+# 2. 自建 local.properties（未入库），写入你的 SDK 路径
+#    sdk.dir=D\:\\Android\\Sdk
+
+# 3. 修正 5 处本机绝对路径（gradle.properties 与 build.gradle）—— 见 SETUP_GUIDE.md 第 3 节
+
+# 4. 取得两个大二进制（缺了预检会直接报出来）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-asr-model.ps1
+#    LO 引擎：从 https://github.com/18295071983/smartquiz/releases/tag/binary-assets-v1 下载
+
+# 5. 构建
+./gradlew assembleDebug          # 完整构建（含 native）
+./gradlew compileDebugJavaWithJavac   # 仅 Java，更快，验证代码改动
 ```
 
-2. 使用 Android Studio 打开项目
+### 本地 LLM 推理引擎构建
 
-3. 同步 Gradle 依赖
+`libllama-jni.so`（约 199 MB）是 CMake 产物，**不在版本库中**，由 `assembleDebug` 通过
+`externalNativeBuild` 自动构建 —— 前提是 `src/main/cpp/llama.cpp/` 等源码目录已就位
+（这些目录被 `.gitignore` 排除，获取方式见 [SETUP_GUIDE.md](SETUP_GUIDE.md) 第 4 节）。
 
-4. 构建 APK
-```bash
-./gradlew assembleDebug
-```
-
-### 本地 LLM 推理引擎构建（可选）
-
-如需使用本地 AI 推理功能，需要构建 llama.cpp JNI 库：
-
-```bash
-# 在 MSYS2 环境中运行
-cd src/main/cpp
-bash build_llama_jni_msys2.sh
-```
-
-预编译的 `.so` 文件将输出到 `src/main/jniLibs/` 目录。
+`src/main/cpp/` 下的手动构建脚本（`build_arm64_full.sh` 等）内部**也写着本机绝对路径**，
+使用前需自行修正。
 
 ## 文档
 
