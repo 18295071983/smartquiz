@@ -253,7 +253,21 @@ public class OnlinePromptBuilder {
         sb.append("【调用规则】\n");
         sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
         sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
-        sb.append("  4. 查询天气优先用 ai_weather（支持实时/预报/逐小时/空气质量/预警/生活指数/全部，action按需选；用户说了城市就传 city(城市名或和风城市编码)，用户没说城市就先调 location 工具定位拿 lat/lon 再用坐标查询，city 和 lat/lon 二选一即可，不要不传参数依赖自动定位），也可用 network_search 搜索；不要依赖注入的环境信息\n");
+        // LOCATION-CONTRACT(2026-10-11)：原规则有两处已失真，一并修正 ——
+        //  ① "不要不传参数依赖自动定位"：该兜底此前并未实现（不传参会报缺少城市参数），
+        //     现已由 AIWeatherManager.tryAutoLocate() 真正实现，故改为"可不传"；
+        //  ② 未说明城市表只到市/县级：用户可能说乡镇/街道（如"阳白乡"），
+        //     需由模型判断上级县市再重查（工具是代码、无法自己推理，只能给可行动的失败提示）。
+        sb.append("  4. 查询天气优先用 ai_weather（支持实时/预报/逐小时/空气质量/预警/生活指数/全部，action按需选；"
+                + "位置参数只能二选一：用户说了城市就传 city(城市名或和风城市编码)，"
+                + "用户没说城市则不要传任何位置参数、系统会自动使用设备定位；"
+                + "不要同时传 city 与 lat/lon，会直接报参数冲突）；也可用 network_search 搜索；"
+                + "不要依赖注入的环境信息\n");
+        sb.append("  4b. 遇到乡镇、街道等小于城市的地名（城市表只到市/县级）："
+                + "先用你的地理知识判断它属于哪个县或市，再用那个上级地名重新调用 ai_weather"
+                + "（例：\"阳白乡\"属于\"五台县\"，就传 city=五台县）；"
+                + "拿不准就先用 network_search 搜\"<地名>属于哪个县市\"再查。"
+                + "绝不为了凑出结果而随便挑一个城市、也不要编造该地天气\n");
         sb.append("  5. 用户要求生成图片时优先调用 image_gen（自动内联显示），避免用 python_execute/open_url 绕路\n\n");
         return sb.toString();
     }
