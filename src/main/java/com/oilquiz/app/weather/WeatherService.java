@@ -59,6 +59,43 @@ public class WeatherService {
         }
     }
 
+    /**
+     * 判断 SDK 返回是否为**失败**（用于决定是否回退 HTTP）。
+     *
+     * <p>只认明确的失败标记，**刻意不检查裸"异常"二字**：SDK 的健康建议文本含
+     * "极少数异常敏感人群"，用它判定会把成功数据误判为失败并触发无谓回退
+     * （参见 isSdkAirResultValid 上方注释记录的历史事故）。故一律用
+     * "查询异常"/"未初始化"/"失败"/"无权限"/"解析失败" 这类明确前缀与词。
+     */
+    private static boolean isSdkFailure(String result) {
+        if (result == null || result.isEmpty()) return true;
+        return result.contains("失败")
+            || result.contains("查询异常")
+            || result.contains("未初始化")
+            || result.contains("无权限")
+            || result.contains("解析失败")
+            || result.contains("暂无");
+    }
+
+    /**
+     * SDK 失败时回退到 HTTP（和风 Web API v7 直连）。
+     *
+     * <p>此前 getForecast/getHourly 在 SDK 分支**没有回退**：一旦 SDK 失败就直接把错误
+     * 文本当作结果返回并缓存，用户看到"查询失败"而不会自动改用 HTTP 路径。
+     * 这与同类方法（getAirQuality/getIndices 等）的行为不一致，此处对齐。
+     */
+    private CompletableFuture<String> fallbackToHttp(CompletableFuture<String> sdkFuture,
+                                                     java.util.function.Supplier<CompletableFuture<String>> httpSupplier,
+                                                     String what) {
+        return sdkFuture.thenCompose(result -> {
+            if (!isSdkFailure(result)) {
+                return CompletableFuture.completedFuture(result);
+            }
+            Log.w(TAG, "SDK " + what + " 失败，回退 HTTP: " + result);
+            return httpSupplier.get();
+        });
+    }
+
     private static String extractFxLink(String data) {
         if (data == null) return null;
         int index = data.indexOf("链接: ");
@@ -186,7 +223,12 @@ public class WeatherService {
         }
 
         if (sdkManager.isInitialized()) {
-            return sdkManager.getCurrentWeather(city).thenApply(result -> {
+            // SDK 失败时回退 HTTP（此前是无条件返回 SDK 结果，失败文本会被当作结果缓存）
+            return fallbackToHttp(
+                    sdkManager.getCurrentWeather(city),
+                    () -> weatherManager.getCurrentWeather(city),
+                    "current"
+            ).thenApply(result -> {
                 saveCacheIfValid(cacheKey, result);
                 notifyWeatherUpdate(city, 0, 0, result);
                 return result;
@@ -567,7 +609,12 @@ public class WeatherService {
         }
 
         if (sdkManager.isInitialized()) {
-            return sdkManager.getDailyForecast(city).thenApply(result -> {
+            // SDK 失败时回退 HTTP（此前无回退，失败即整块预报不可用）
+            return fallbackToHttp(
+                    sdkManager.getDailyForecast(city),
+                    () -> weatherManager.getHefengForecast(city),
+                    "forecast"
+            ).thenApply(result -> {
                 saveCacheIfValid(cacheKey, result);
                 return result;
             });
@@ -589,7 +636,12 @@ public class WeatherService {
         }
 
         if (sdkManager.isInitialized()) {
-            return sdkManager.getHourlyForecast(city).thenApply(result -> {
+            // SDK 失败时回退 HTTP（此前无回退）
+            return fallbackToHttp(
+                    sdkManager.getHourlyForecast(city),
+                    () -> weatherManager.getHefengHourly(city),
+                    "hourly"
+            ).thenApply(result -> {
                 saveCacheIfValid(cacheKey, result);
                 return result;
             });

@@ -247,4 +247,17 @@ public class QWeatherCityManager {
     public boolean isReady() {
         return initialized;
     }
+
+    /**
+     * 返回全部城市的**快照**（与加载线程解耦，调用方可安全遍历）。
+     *
+     * <p>用于"入参比城市表更具体"时的向上回退（如"宁夏银川"→银川、
+     * "山西省五台县"→五台县）：需要在全表里找**被入参包含**的城市名并取最长命中。
+     */
+    public List<CityEntry> getAllCities() {
+        ensureLoaded();
+        synchronized (allCities) {
+            return new ArrayList<>(allCities);
+        }
+    }
 }

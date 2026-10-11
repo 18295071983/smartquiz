@@ -1194,28 +1194,32 @@ public class AIToolManager {
                 return ToolDefinition.builder("ai_weather", "天气查询工具：获取城市实时天气/预报/空气质量等。"
                         + "action: current(实时天气)/forecast(未来几天预报)/hourly(逐小时)/air_quality(空气质量)/"
                         + "alerts(预警)/indices(生活指数)/all(全部)。"
-                        + "city=城市名 或 和风城市编码 或 lat+lon=经纬度(经纬度别名 latitude/longitude 也可用)。"
-                        + "位置参数：用户已指定城市就传 city；用户没指定城市时不要传 city/lat/lon，"
-                        + "系统会自动用手机定位的经纬度查询。城市名可能查不到（该端点可能无权限），"
-                        + "失败时去掉 city 重新调用（改用手机定位城市）。"
+                        + "位置参数（**只能二选一**）：city=城市名或和风城市编码；或成对的 lat+lon=经纬度"
+                        + "（别名 latitude/longitude）。**不要同时传 city 和 lat/lon**，会直接报参数冲突。"
+                        + "用户没指定城市时（问\"今天天气\"）：不需要传任何位置参数，系统会自动用设备定位查询。"
+                        + "城市名支持中英文（如\"北京\"/\"Beijing\"），已改为本地城市表解析，查不到时会明确报错。"
                         + "current 返回温度/体感/天气现象/风向风力/湿度/能见度/紫外线；"
                         + "forecast 返回逐日 {日期,白天/夜间天气,最高/最低温}；air_quality 返回 AQI/PM2.5/PM10/污染等级。"
                         + "别名: get_weather/weather。")
                     .addParameter("action", "string", "操作类型: current(实时天气)/forecast(预报)/hourly(逐小时)/air_quality(空气质量)/alerts(预警)/indices(生活指数)/all(全部)，按用户需求选择", false)
-                    .addParameter("city", "string", "城市名称 或 和风城市编码（用户**已指定**城市时才传；与经纬度二选一。城市名可能查不到，失败时去掉 city 改用手机定位城市）", false)
-                    .addParameter("lat", "number", "纬度（别名latitude，需配合lon）。用户没指定城市时不要传：留空不传，系统会自动用手机定位的经纬度", false)
-                    .addParameter("lon", "number", "经度（别名longitude，与lat配对）", false)
+                    .addParameter("city", "string", "城市名称或和风城市编码。**与 lat/lon 二选一，不要同时传**；用户没指定城市时留空不传（系统自动用设备定位）", false)
+                    .addParameter("lat", "number", "纬度（别名latitude，必须与 lon 成对）。仅当用户明确给出坐标时使用；与 city 二选一", false)
+                    .addParameter("lon", "number", "经度（别名longitude，必须与 lat 成对）。与 city 二选一", false)
                     .category("weather")
-                    // CORE-TOOLS-4(2026-10-11)：文案必须与 AgentLoopEngine.executeToolSafely 的
-                    // fillWeatherLocation 行为一致 —— 该兜底只在模型**完全没给** city/lat/lon 时才
-                    // 自动补手机定位经纬度；原文案"不知道城市先调location定位"会让模型多调一轮 location，
-                    // 属于白烧推理（拿到的经纬度还得自己填回去，而留空反而由系统自动填）。
-                    // 城市名查询不可靠（和风 geo/city lookup 端点无 JWT 权限时 403，见 AgentLoopEngine
-                    // 位置缓存注释），故必须写明"城市名查不到就改用定位城市重查"这条降级路径。
+                    // LOCATION-CONTRACT(2026-10-11)：文案必须与实现三处保持一致，改一处要同步改：
+                    //   ① AgentLoopEngine.executeToolSafely 的 hasMeaningfulLocationParam + fillWeatherLocation
+                    //   ② AIWeatherManager 的 hasCity/useLocation 判定与 tryAutoLocate()
+                    //   ③ 本段 whenToUse
+                    // 行为：未给有效位置（含传空值）→ 引擎先尝试缓存坐标/消息内城市，仍无则
+                    // AIWeatherManager 真正取一次设备定位；**city 与 lat/lon 同传 → 直接报冲突**。
+                    // 旧文案有两处失真已修：一是"不传参会自动定位"当时并未实现（会报缺少城市参数），
+                    // 二是"城市名可能查不到"（和风 geo 端点 403 时代的问题）—— 现已改为本地城市表
+                    // 解析，中英文与后缀差异都能命中。
                     .whenToUse("用户问天气/温度/空气质量/天气预警/生活指数时使用。"
-                            + "用户没指定城市（问\"今天天气\"）：调用本工具不要带 city/lat/lon，系统自动用手机定位的城市。"
-                            + "用户已指定城市（问\"北京天气\"）：传 city 查询；若城市名查不到，去掉 city 重新调用改用手机定位城市，不要编造天气。"
-                            + "查外地城市一律按指定城市查，禁止用手机定位结果代替")
+                            + "用户没指定城市（问\"今天天气\"）：不要带任何位置参数，系统自动用设备定位查询。"
+                            + "用户已指定城市（问\"北京天气\"）：只传 city，不要编造天气。"
+                            + "查外地城市一律按指定城市查，禁止用手机定位结果代替；"
+                            + "city 与 lat/lon 不要同时传（会报参数冲突）。")
                     .build();
             case "network_search":
                 return ToolDefinition.builder("network_search", "网络搜索工具（秘塔搜索引擎驱动）：联网搜索+智能问答+网页读取。"

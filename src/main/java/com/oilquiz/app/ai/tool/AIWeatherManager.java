@@ -23,6 +23,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 import com.oilquiz.app.ai.util.NetworkUtil;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.Map;
 import java.util.HashMap;
@@ -555,6 +556,41 @@ public class AIWeatherManager implements AITool {
                     entry = matches.get(0);
                 }
             }
+            // 4. PARENT-FALLBACK(2026-10-11)：入参比城市表更"具体"时，向上回退到表内城市。
+            //    例："宁夏银川"→银川、"山西省五台县"→五台县、"广东省深圳市南山区"→深圳南山。
+            //    选优规则：**先用省/市信息消歧**（入参含该条目的 adm2Zh/adm1Zh 则加分），
+            //    再比名字长度取更具体者。
+            //    为什么必须消歧：同名的区县很多 —— 实测"广东省深圳市南山区"若只按名字最长匹配
+            //    会选中**黑龙江鹤岗的南山**(47.31,130.28)，张冠李戴。
+            //    注意：本层无法处理表内完全没有的地名（如乡镇"阳白乡"）——
+            //    表只到市/县级且无县级字段，无从推断其行政父级，那类仍会走到"查不到"。
+            if (entry == null) {
+                com.oilquiz.app.weather.QWeatherCityManager.CityEntry best = null;
+                int bestScore = -1;
+                java.util.List<com.oilquiz.app.weather.QWeatherCityManager.CityEntry> all = cityMgr.getAllCities();
+                if (all != null) {
+                    for (com.oilquiz.app.weather.QWeatherCityManager.CityEntry c : all) {
+                        if (c == null) continue;
+                        String name = c.nameZh;
+                        if (name == null || name.length() < 2) continue;
+                        if (!city.contains(name)) continue;
+                        // 消歧评分：入参里出现了该条目的市名/省名，说明上下文吻合
+                        int score = 0;
+                        if (c.adm2Zh != null && c.adm2Zh.length() >= 2 && city.contains(c.adm2Zh)) score++;
+                        if (c.adm1Zh != null && c.adm1Zh.length() >= 2 && city.contains(c.adm1Zh)) score++;
+                        if (best == null || score > bestScore
+                                || (score == bestScore && name.length() > best.nameZh.length())) {
+                            best = c;
+                            bestScore = score;
+                        }
+                    }
+                }
+                if (best != null) {
+                    entry = best;
+                    Log.i(TAG, "Parent-city fallback: " + city + " -> " + entry.nameZh
+                            + " (" + entry.adm1Zh + "/" + entry.adm2Zh + ", score=" + bestScore + ")");
+                }
+            }
             if (entry != null) {
                 Log.i(TAG, "Local city lookup hit: " + city + " -> " + entry.nameZh
                         + " (" + entry.locationId + ")");
@@ -624,6 +660,12 @@ public class AIWeatherManager implements AITool {
         }
 
         // 3. geo API 兜底（仅在本地 CSV / 系统 Geocoder 都未命中时；JWT 认证）
+        // 先做输入合理性校验：和风 geo 端点是**模糊匹配**，脏输入会被硬解析到毫不相干的地点
+        // （真机实测 city="'; DROP TABLE weather;--" 竟返回美国 Table Rock 18°C）。
+        // 没有注入风险，但会"一本正经地答错"，且让调用方以为该城市存在。
+        if (!looksLikePlaceName(city)) {
+            throw new Exception("无法定位城市: " + city + "（不是有效的地名）");
+        }
         try {
             String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
             String urlString = getGeocodeUrl() + "?location=" + encodedCity;
@@ -635,7 +677,12 @@ public class AIWeatherManager implements AITool {
             Log.w(TAG, "GeoAPI failed for city " + city + ": " + e.getMessage());
         }
         
-        throw new Exception("无法定位城市: " + city + "（本地城市表与 geo 查询均无结果）");
+        throw new Exception("无法定位城市: " + city
+                + "（不在城市表中）。该地名可能是乡镇/街道等更小单位，城市表只到市/县级。"
+                + "请用你自己的地理知识判断它属于哪个县或市，然后用那个上级地名重新调用本工具"
+                + "（例如\"阳白乡\"属于\"五台县\"，就传 city=五台县）；"
+                + "若你不确定，改用 network_search 搜索\"" + city + "属于哪个县市\"后再查。"
+                + "不要编造或猜测天气数据。");
     }
 
     /**
@@ -724,7 +771,10 @@ public class AIWeatherManager implements AITool {
             Log.w(TAG, "Failed to get lat/lon from GeoAPI for city " + city, e);
             throw new Exception("地理编码失败（" + city + "）: " + e.getMessage());
         }
-        throw new Exception("无法定位城市坐标: " + city);
+        throw new Exception("无法定位城市坐标: " + city
+                + "。若该地名是乡镇/街道等更小单位，请用你的地理知识判断它属于哪个县或市，"
+                + "改用那个上级地名（例如\"阳白乡\"→\"五台县\"）重新调用；"
+                + "不确定则先用 network_search 查\"" + city + "属于哪个县市\"。不要编造天气数据。");
     }
 
     public String getHefengCityNameByLocation(double lat, double lon) {
@@ -2532,6 +2582,38 @@ public class AIWeatherManager implements AITool {
             }
             
             boolean useLocation = lat != null && lon != null;
+            boolean hasCity = city != null && !city.trim().isEmpty();
+
+            // CONFlict-GUARD：city 与 lat/lon 同时传入时，两条路径都只用坐标、
+            // 但会把 city 原样回显（"城市: 北京" 配银川的数据）—— 输出张冠李戴，极具误导性。
+            // 真机模型自测（50+ 用例）专门验证过这一点。这里直接要求二选一，不再静默择一。
+            if (hasCity && useLocation) {
+                Map<String, Object> err = new HashMap<>();
+                err.put("status", "error");
+                err.put("error", "city 与 lat/lon 只能二选一");
+                return new AIToolResult(
+                        "参数冲突: 请只传 city（按城市查）或只传成对的 lat+lon（按坐标查），不要同时传",
+                        err);
+            }
+
+            // AUTO-LOCATION：不传 city 也不传坐标时，按工具描述承诺的行为**自动使用设备定位**。
+            // 此前这里直接报"缺少城市参数"，与工具描述（"系统会自动用手机定位"）矛盾 ——
+            // 模型据描述认为不传参可行，实际必然失败（真机模型自测发现）。
+            if (!hasCity && !useLocation) {
+                double[] loc = tryAutoLocate();
+                if (loc != null) {
+                    lat = loc[0];
+                    lon = loc[1];
+                    useLocation = true;
+                    Log.i(TAG, "ai_weather 未指定位置，已自动使用设备定位: " + lat + "," + lon);
+                } else {
+                    Map<String, Object> err = new HashMap<>();
+                    err.put("status", "error");
+                    err.put("error", "无法获取设备定位，且未提供 city");
+                    return new AIToolResult(
+                            "无法获取设备定位: 请提供 city，或打开系统定位后重试", err);
+                }
+            }
 
             // 需要城市或坐标的 action：两者都缺失时明确报错，不再静默回退"北京"
             switch (action) {
@@ -2542,7 +2624,6 @@ public class AIWeatherManager implements AITool {
                 case "alerts":
                 case "indices":
                 case "all": {
-                    boolean hasCity = city != null && !city.trim().isEmpty();
                     if (!hasCity && !useLocation) {
                         Map<String, Object> err = new HashMap<>();
                         err.put("status", "error");
@@ -2872,6 +2953,83 @@ public class AIWeatherManager implements AITool {
         }
     }
     
+    /**
+     * 判断一个字符串**像不像地名**，用于在 geo 兜底前挡掉明显非地名的输入。
+     *
+     * <p>背景：和风 geo 端点（{@code /geo/v2/city/lookup}）是模糊匹配，脏输入会被解析到
+     * 毫不相干的地点（真机实测 {@code city="'; DROP TABLE weather;--"} → 美国 Table Rock 18°C）。
+     * 无注入风险，但属"一本正经地答错"。
+     *
+     * <p>规则刻意宽松，**不校验真实地名**（否则会误伤"纽约"这类本地城市表没有的海外城市）：
+     * <ol>
+     *   <li>至少要有字母或 CJK 字符（排除纯符号/纯数字垃圾）</li>
+     *   <li>不含 SQL 元字符 {@code ; ' " ` \ -- /*}（合法地名不会包含它们）</li>
+     * </ol>
+     */
+    private static boolean looksLikePlaceName(String s) {
+        if (s == null) return false;
+        String t = s.trim();
+        if (t.isEmpty()) return false;
+        boolean hasLetter = false;
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (Character.isLetter(c)) { hasLetter = true; break; }
+        }
+        if (!hasLetter) return false;
+        if (t.contains(";") || t.contains("'") || t.contains("\"") || t.contains("`")
+                || t.contains("\\") || t.contains("--") || t.contains("/*")) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 自动获取设备定位（供 ai_weather 在未指定位置时使用）。
+     *
+     * <p>复用 {@code ToolContextProvider.getCurrentLocation}（与引擎题注注入、location 工具同一套实现：
+     * getLastKnownLocation 优先，必要时 requestLocationUpdates，5 秒超时）。
+     * 它本身是**异步回调**，而本工具是同步返回，故用 CountDownLatch 在**工作线程**上等待
+     * （execute 由推理线程调用，非主线程，不会 ANR）。等待上限略大于其内部超时。
+     *
+     * @return {@code {lat, lon}}；拿不到则返回 null（调用方给明确错误，不静默兜底别的城市）
+     */
+    private double[] tryAutoLocate() {
+        final double[] out = new double[2];
+        final boolean[] ok = {false};
+        final CountDownLatch latch = new CountDownLatch(1);
+        try {
+            com.oilquiz.app.ai.agent.ToolContextProvider.getCurrentLocation(
+                    context,
+                    new com.oilquiz.app.ai.agent.ToolContextProvider.LocationCallback() {
+                        @Override
+                        public void onLocationReady(String cityName, double lat, double lon) {
+                            out[0] = lat;
+                            out[1] = lon;
+                            ok[0] = true;
+                            latch.countDown();
+                        }
+
+                        @Override
+                        public void onLocationFailed(String error) {
+                            Log.w(TAG, "自动定位失败: " + error);
+                            latch.countDown();
+                        }
+                    });
+            // 工具内部 5 秒超时 + Geocoder 反查可能稍慢，这里给 8 秒上限
+            if (!latch.await(8, TimeUnit.SECONDS)) {
+                Log.w(TAG, "自动定位超时");
+                return null;
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Throwable t) {
+            Log.w(TAG, "自动定位异常: " + t.getMessage());
+            return null;
+        }
+        return ok[0] ? out : null;
+    }
+
     private AIToolResult getAllWeatherAITool(String city, Double lat, Double lon, boolean useLocation) {
         try {
             Map<String, Object> resultMap = new HashMap<>();
@@ -2960,7 +3118,16 @@ public class AIWeatherManager implements AITool {
             Object value = entry.getValue();
             if (!"status".equals(key) && !"type".equals(key) && !"error".equals(key) && !"message".equals(key)) {
                 if (value != null && !value.toString().isEmpty()) {
-                    target.put(key, value);
+                    // MERGE-CONCAT(2026-10-11)：formatted_result 必须**拼接**而非覆盖 ——
+                    // 6 个 action 各自都产出该 key，直接 put 会让后者覆盖前者，
+                    // 最终只剩最后一个（indices）的内容，表现为"all 只返回生活指数"
+                    // （真机模型两次自测都报了这一点，根因在此）。
+                    if ("formatted_result".equals(key) && target.containsKey(key)) {
+                        Object prev = target.get(key);
+                        target.put(key, String.valueOf(prev) + "\n\n" + value);
+                    } else {
+                        target.put(key, value);
+                    }
                 }
             }
         }
@@ -2983,9 +3150,10 @@ public class AIWeatherManager implements AITool {
     public Map<String, String> getParameterDescriptions() {
         Map<String, String> descriptions = new HashMap<>();
         
-        descriptions.put("city", "城市名称或和风城市编码（用于按城市查询）");
-        descriptions.put("lat", "纬度（用于按坐标查询）");
-        descriptions.put("lon", "经度（用于按坐标查询）");
+        descriptions.put("city", "城市名称或和风城市编码（支持中英文）。与 lat/lon **二选一，不要同时传**；"
+                + "用户没指定城市时留空不传，系统会自动使用设备定位");
+        descriptions.put("lat", "纬度（与 lon 成对使用，别名 latitude）。与 city 二选一");
+        descriptions.put("lon", "经度（与 lat 成对使用，别名 longitude）。与 city 二选一");
         
         return descriptions;
     }
@@ -3807,7 +3975,21 @@ public class AIWeatherManager implements AITool {
             if (!resultMap.containsKey("status")) {
                 resultMap.put("status", "success");
             }
-            
+
+            // SDK 天气路径返回的是**格式化文本**（非 JSON），上面的分支会把它塞进
+            // formatted_result 并把 status 置为 success —— 于是哪怕内容是
+            // "查询失败: …"/"缺少城市参数"/"无权限"，调用方看到的仍是 status:success。
+            // 真机实测（模型自测报告）确认过这个问题：错误一律被包成 success，
+            // 只能靠读文本才能发现真相。此处统一按文本特征纠正为 error。
+            // 注意：不检查裸"异常"二字（健康建议含"异常敏感人群"会误判），只认明确失败标记。
+            if ("success".equals(resultMap.get("status"))) {
+                Object fr = resultMap.get("formatted_result");
+                if (fr instanceof String && looksLikeFailureText((String) fr)) {
+                    resultMap.put("status", "error");
+                    resultMap.put("error", fr);
+                }
+            }
+
             return resultMap;
         } catch (Exception e) {
             Log.e(TAG, "Error parsing weather result to map", e);
@@ -3815,5 +3997,32 @@ public class AIWeatherManager implements AITool {
             resultMap.put("error", "解析天气数据失败: " + e.getMessage());
             return resultMap;
         }
+    }
+
+    /**
+     * 判断一段**天气结果文本**是否表示失败。
+     *
+     * <p>用于纠正「SDK 格式化文本一律被标成 status:success」的问题（真机模型自测发现）。
+     * 只认明确的失败标记，**刻意不检查裸"异常"二字** —— SDK 健康建议文本含
+     * "极少数异常敏感人群"，用它判定会把成功数据误判为失败。
+     */
+    private static boolean looksLikeFailureText(String text) {
+        if (text == null || text.isEmpty()) return true;
+        return text.contains("查询失败")
+            || text.contains("获取失败")
+            || text.contains("查询异常")
+            || text.contains("工具执行失败")
+            || text.contains("参数冲突")
+            || text.contains("缺少城市参数")
+            // "无法定位城市: X（本地城市表与 geo 查询均无结果）" —— 此前遗漏，
+            // 导致该错误仍被标记为 success（真机模型复测报告指出）
+            || text.contains("无法定位")
+            || text.contains("无法获取")
+            || text.contains("无法解析")
+            || text.contains("无权限")
+            || text.contains("未初始化")
+            || text.contains("未找到")
+            || text.contains("暂无数据")
+            || text.contains("需要经纬度");
     }
 }
