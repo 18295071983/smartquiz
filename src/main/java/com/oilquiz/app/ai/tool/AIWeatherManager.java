@@ -625,6 +625,12 @@ public class AIWeatherManager implements AITool {
         }
 
         // 3. geo API 兜底（仅在本地 CSV / 系统 Geocoder 都未命中时；JWT 认证）
+        // 先做输入合理性校验：和风 geo 端点是**模糊匹配**，脏输入会被硬解析到毫不相干的地点
+        // （真机实测 city="'; DROP TABLE weather;--" 竟返回美国 Table Rock 18°C）。
+        // 没有注入风险，但会"一本正经地答错"，且让调用方以为该城市存在。
+        if (!looksLikePlaceName(city)) {
+            throw new Exception("无法定位城市: " + city + "（不是有效的地名）");
+        }
         try {
             String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8.name());
             String urlString = getGeocodeUrl() + "?location=" + encodedCity;
@@ -2905,6 +2911,36 @@ public class AIWeatherManager implements AITool {
     }
     
     /**
+     * 判断一个字符串**像不像地名**，用于在 geo 兜底前挡掉明显非地名的输入。
+     *
+     * <p>背景：和风 geo 端点（{@code /geo/v2/city/lookup}）是模糊匹配，脏输入会被解析到
+     * 毫不相干的地点（真机实测 {@code city="'; DROP TABLE weather;--"} → 美国 Table Rock 18°C）。
+     * 无注入风险，但属"一本正经地答错"。
+     *
+     * <p>规则刻意宽松，**不校验真实地名**（否则会误伤"纽约"这类本地城市表没有的海外城市）：
+     * <ol>
+     *   <li>至少要有字母或 CJK 字符（排除纯符号/纯数字垃圾）</li>
+     *   <li>不含 SQL 元字符 {@code ; ' " ` \ -- /*}（合法地名不会包含它们）</li>
+     * </ol>
+     */
+    private static boolean looksLikePlaceName(String s) {
+        if (s == null) return false;
+        String t = s.trim();
+        if (t.isEmpty()) return false;
+        boolean hasLetter = false;
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (Character.isLetter(c)) { hasLetter = true; break; }
+        }
+        if (!hasLetter) return false;
+        if (t.contains(";") || t.contains("'") || t.contains("\"") || t.contains("`")
+                || t.contains("\\") || t.contains("--") || t.contains("/*")) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * 自动获取设备定位（供 ai_weather 在未指定位置时使用）。
      *
      * <p>复用 {@code ToolContextProvider.getCurrentLocation}（与引擎题注注入、location 工具同一套实现：
@@ -3039,7 +3075,16 @@ public class AIWeatherManager implements AITool {
             Object value = entry.getValue();
             if (!"status".equals(key) && !"type".equals(key) && !"error".equals(key) && !"message".equals(key)) {
                 if (value != null && !value.toString().isEmpty()) {
-                    target.put(key, value);
+                    // MERGE-CONCAT(2026-10-11)：formatted_result 必须**拼接**而非覆盖 ——
+                    // 6 个 action 各自都产出该 key，直接 put 会让后者覆盖前者，
+                    // 最终只剩最后一个（indices）的内容，表现为"all 只返回生活指数"
+                    // （真机模型两次自测都报了这一点，根因在此）。
+                    if ("formatted_result".equals(key) && target.containsKey(key)) {
+                        Object prev = target.get(key);
+                        target.put(key, String.valueOf(prev) + "\n\n" + value);
+                    } else {
+                        target.put(key, value);
+                    }
                 }
             }
         }
@@ -3923,7 +3968,13 @@ public class AIWeatherManager implements AITool {
         return text.contains("查询失败")
             || text.contains("获取失败")
             || text.contains("查询异常")
+            || text.contains("工具执行失败")
+            || text.contains("参数冲突")
             || text.contains("缺少城市参数")
+            // "无法定位城市: X（本地城市表与 geo 查询均无结果）" —— 此前遗漏，
+            // 导致该错误仍被标记为 success（真机模型复测报告指出）
+            || text.contains("无法定位")
+            || text.contains("无法获取")
             || text.contains("无法解析")
             || text.contains("无权限")
             || text.contains("未初始化")
