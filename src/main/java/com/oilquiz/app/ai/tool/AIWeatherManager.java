@@ -3754,7 +3754,13 @@ public class AIWeatherManager implements AITool {
             if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
                 resultMap.put("formatted_result", result);
                 resultMap.put("status", "success");
-                return resultMap;
+                // EARLY-RETURN-FIX(2026-10-11)：此处**提前 return**，原先会绕过函数末尾那段
+                // "按文本特征纠正 status"的逻辑 —— 而 SDK 天气路径返回的正是格式化文本，
+                // 于是"无法定位城市: 火星城"这类失败仍被标成 status:success。
+                // （真机模型测试报告指出：查不到城市时 type=current/status=success，
+                //  错误信息只藏在文案里，程序化调用无法按状态判错。）
+                // 处理：把纠正抽成 applyFailureCorrection()，在本出口与函数末尾**都**调用。
+                return applyFailureCorrection(resultMap);
             }
 
             JsonElement jsonElement = gson.fromJson(result, JsonElement.class);
@@ -3976,27 +3982,40 @@ public class AIWeatherManager implements AITool {
                 resultMap.put("status", "success");
             }
 
-            // SDK 天气路径返回的是**格式化文本**（非 JSON），上面的分支会把它塞进
-            // formatted_result 并把 status 置为 success —— 于是哪怕内容是
-            // "查询失败: …"/"缺少城市参数"/"无权限"，调用方看到的仍是 status:success。
-            // 真机实测（模型自测报告）确认过这个问题：错误一律被包成 success，
-            // 只能靠读文本才能发现真相。此处统一按文本特征纠正为 error。
-            // 注意：不检查裸"异常"二字（健康建议含"异常敏感人群"会误判），只认明确失败标记。
-            if ("success".equals(resultMap.get("status"))) {
-                Object fr = resultMap.get("formatted_result");
-                if (fr instanceof String && looksLikeFailureText((String) fr)) {
-                    resultMap.put("status", "error");
-                    resultMap.put("error", fr);
-                }
-            }
-
-            return resultMap;
+            // 末尾出口同样做一次失败纠正（与上面非 JSON 的提前 return 出口共用同一逻辑）
+            return applyFailureCorrection(resultMap);
         } catch (Exception e) {
             Log.e(TAG, "Error parsing weather result to map", e);
             resultMap.put("status", "error");
             resultMap.put("error", "解析天气数据失败: " + e.getMessage());
             return resultMap;
         }
+    }
+
+    /**
+     * 按文本特征把被误标为 `status:success` 的**失败结果**纠正为 `error`。
+     *
+     * <p>SDK 天气路径返回的是**格式化文本**（非 JSON），`parseWeatherResultToMap` 会把它
+     * 塞进 `formatted_result` 并把 status 置为 success —— 于是哪怕内容是
+     * "无法定位城市: X"/"查询失败: …"/"缺少城市参数"，调用方看到的仍是 `status:success`，
+     * 只能靠读文本才能发现真相（真机模型测试报告两次指出）。
+     *
+     * <p>**必须在所有出口调用**：该函数有一处非 JSON 的提前 return，若只在函数末尾处理，
+     * 会漏掉 SDK 文本这条最主要的路径（2026-10-11 实测确认过这个漏洞）。
+     *
+     * <p>只认明确的失败标记，**刻意不检查裸"异常"二字** —— SDK 健康建议文本含
+     * "极少数异常敏感人群"，用它判定会把成功数据误判为失败。
+     */
+    private static Map<String, Object> applyFailureCorrection(Map<String, Object> resultMap) {
+        if (resultMap == null) return null;
+        if ("success".equals(resultMap.get("status"))) {
+            Object fr = resultMap.get("formatted_result");
+            if (fr instanceof String && looksLikeFailureText((String) fr)) {
+                resultMap.put("status", "error");
+                resultMap.put("error", fr);
+            }
+        }
+        return resultMap;
     }
 
     /**
