@@ -430,6 +430,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentProgressSlot.setLayoutParams(apsLp);
         bubble.addView(agentProgressSlot);
 
+        // --- Agent 步骤时间线（timeline primitive 挂载槽位）：blocks 序列可视化 ---
+        LinearLayout agentTimelineSlot = new LinearLayout(ctx);
+        agentTimelineSlot.setOrientation(LinearLayout.VERTICAL);
+        agentTimelineSlot.setVisibility(View.GONE);
+        LinearLayout.LayoutParams atsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        atsLp.bottomMargin = dpToPx(4, ctx);
+        agentTimelineSlot.setLayoutParams(atsLp);
+        bubble.addView(agentTimelineSlot);
+
         // --- 停止生成按钮（流式生成中显示，其他状态隐藏） ---
         TextView btnStop = new TextView(ctx);
         btnStop.setText("⏹ 停止生成");
@@ -655,7 +665,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
                 agentStatus, agentSummary, actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate,
                 btnNewChat, btnLike, btnDislike, btnStop, timestampText, statusIcon, statusText,
-                inferenceProgressView, agentExecutionView, agentProgressSlot,
+                inferenceProgressView, agentExecutionView, agentProgressSlot, agentTimelineSlot,
                 attachmentsRecycler, modelInfoContainer, modelStatusIndicator, modelNameText,
                 modelLatencyText, modelCostText);
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
@@ -1150,6 +1160,88 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         renderAgentExecutionView(holder, message);
         // Agent 进度环：steps 完成比 + tokens 占用比
         renderAgentProgressRing(holder, message);
+        // Agent 步骤时间线：blocks 序列（timeline primitive）
+        renderAgentTimeline(holder, message);
+    }
+
+    /**
+     * 用 timeline primitive 组件渲染 Agent 执行步骤序列：
+     * 每个 block 变成一个节点（图标+标题+内容摘要+状态色），流式追加。
+     * 指纹：block 数 + 最后 block 状态；变化才重渲染，避免每 token 抖动。
+     */
+    private void renderAgentTimeline(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.agentTimelineSlot == null) return;
+        com.oilquiz.app.ai.agent.AgentExecutionState st = message.agentExecutionState;
+        if (st == null || !message.agentMode
+                || st.getBlocks() == null || st.getBlocks().isEmpty()) {
+            holder.agentTimelineSlot.setVisibility(View.GONE);
+            holder.agentTimelineFp = null;
+            return;
+        }
+        java.util.List<com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock> blocks = st.getBlocks();
+        com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock last = blocks.get(blocks.size() - 1);
+        final String fp = blocks.size() + "_" + (last.getStatus() != null ? last.getStatus().name() : "");
+        if (fp.equals(holder.agentTimelineFp) && holder.agentTimelineSlot.getChildCount() > 0) {
+            holder.agentTimelineSlot.setVisibility(View.VISIBLE);
+            return;
+        }
+        try {
+            org.json.JSONArray items = new org.json.JSONArray();
+            for (com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock b : blocks) {
+                if (b == null) continue;
+                org.json.JSONObject node = new org.json.JSONObject();
+                node.put("title", b.getTitle() != null ? b.getTitle() : mapBlockTypeToLabel(b.getType()));
+                node.put("icon", blockTypeToIcon(b.getType()));
+                String content = b.getContent();
+                if (content != null && content.length() > 120) content = content.substring(0, 120) + "…";
+                node.put("description", content != null ? content : "");
+                node.put("status", blockStatusToTimelineStatus(b.getStatus()));
+                items.put(node);
+            }
+            org.json.JSONObject props = new org.json.JSONObject()
+                    .put("items", items)
+                    .put("title", "执行时间线");
+            ComponentData data = new ComponentData("timeline", props);
+            View v = ComponentRegistry.getInstance().render(
+                    holder.agentTimelineSlot.getContext(), data);
+            holder.agentTimelineSlot.removeAllViews();
+            if (v != null) {
+                holder.agentTimelineSlot.addView(v);
+                holder.agentTimelineSlot.setVisibility(View.VISIBLE);
+                holder.agentTimelineFp = fp;
+            } else {
+                holder.agentTimelineSlot.setVisibility(View.GONE);
+            }
+        } catch (Throwable t) {
+            holder.agentTimelineSlot.setVisibility(View.GONE);
+        }
+    }
+
+    private static String blockTypeToIcon(
+            com.oilquiz.app.ai.agent.AgentExecutionState.BlockType t) {
+        if (t == null) return "•";
+        switch (t) {
+            case THINKING: return "💭";
+            case PLANNING: return "📋";
+            case TOOL_CALL: return "🔧";
+            case TOOL_RESULT: return "📤";
+            case INFERENCE: return "🧠";
+            case OBSERVATION: return "👁";
+            case REFLECTION: return "🔄";
+            case ERROR: return "❌";
+            default: return "📝";
+        }
+    }
+
+    private static String blockStatusToTimelineStatus(
+            com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock.BlockStatus s) {
+        if (s == null) return "pending";
+        switch (s) {
+            case COMPLETED: return "done";
+            case RUNNING: return "active";
+            case FAILED: return "error";
+            default: return "pending";
+        }
     }
 
     /**
@@ -4391,6 +4483,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final InferenceProgressView inferenceProgressView;
         final AgentExecutionView agentExecutionView;
         final LinearLayout agentProgressSlot;
+        final LinearLayout agentTimelineSlot;
         final androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         final View modelInfoContainer;
         final View modelStatusIndicator;
@@ -4406,6 +4499,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView btnStop, TextView timestampText, ImageView statusIcon,
                 TextView statusText, InferenceProgressView inferenceProgressView,
                 AgentExecutionView agentExecutionView, LinearLayout agentProgressSlot,
+                LinearLayout agentTimelineSlot,
                 androidx.recyclerview.widget.RecyclerView attachmentsRecycler, View modelInfoContainer,
                 View modelStatusIndicator, TextView modelNameText, TextView modelLatencyText,
                 TextView modelCostText) {
@@ -4434,6 +4528,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.inferenceProgressView = inferenceProgressView;
             this.agentExecutionView = agentExecutionView;
             this.agentProgressSlot = agentProgressSlot;
+            this.agentTimelineSlot = agentTimelineSlot;
             this.attachmentsRecycler = attachmentsRecycler;
             this.modelInfoContainer = modelInfoContainer;
             this.modelStatusIndicator = modelStatusIndicator;
@@ -4497,8 +4592,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         InferenceProgressView inferenceProgressView;
         AgentExecutionView agentExecutionView;
         LinearLayout agentProgressSlot;
+        LinearLayout agentTimelineSlot;
         /** Agent 进度环指纹缓存（steps/tokens 变化才重渲染） */
         String agentProgressFp;
+        /** Agent 时间线指纹缓存（block 数+最后状态变化才重渲染） */
+        String agentTimelineFp;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         // 在线模型信息
         View modelInfoContainer;
@@ -4535,6 +4633,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.inferenceProgressView = dr.inferenceProgressView;
             this.agentExecutionView = dr.agentExecutionView;
             this.agentProgressSlot = dr.agentProgressSlot;
+            this.agentTimelineSlot = dr.agentTimelineSlot;
             this.attachmentsRecycler = dr.attachmentsRecycler;
             this.modelInfoContainer = dr.modelInfoContainer;
             this.modelStatusIndicator = dr.modelStatusIndicator;
