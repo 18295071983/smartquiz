@@ -3643,6 +3643,54 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /**
      * 绑定用户消息中的附件（图片预览等）
      */
+    /**
+     * 尝试用 ImageGridCardView 组件渲染多张图片（AI 消息专用）。成功时把 view 挂到
+     * attachmentsRecycler 父容器上（tag=image_grid_slot），返回 view；失败返回 null
+     * （回退到 RecyclerView 路径）。让 Agent 生成的 image_grid 与用户消息附件复用同一渲染。
+     */
+    private View tryRenderImageGrid(AIMessageViewHolder holder, ChatMessage message) {
+        try {
+            org.json.JSONArray images = new org.json.JSONArray();
+            for (ChatMessage.Attachment a : message.attachments) {
+                if (a == null) continue;
+                org.json.JSONObject item = new org.json.JSONObject();
+                item.put("url", a.thumbnailPath != null && !a.thumbnailPath.isEmpty()
+                        ? a.thumbnailPath : a.localFilePath != null ? a.localFilePath : a.url);
+                if (a.name != null) item.put("name", a.name);
+                images.put(item);
+            }
+            org.json.JSONObject props = new org.json.JSONObject()
+                    .put("images", images)
+                    .put("columns", message.attachments.size() > 4 ? 2 : Math.min(2, message.attachments.size()));
+            ComponentData data = new ComponentData("image_grid", props);
+            View v = ComponentRegistry.getInstance().render(
+                    holder.attachmentsRecycler.getContext(), data);
+            if (v == null) return null;
+            android.view.ViewGroup parent = (android.view.ViewGroup) holder.attachmentsRecycler.getParent();
+            if (parent == null) return null;
+            View old = parent.findViewWithTag("image_grid_slot");
+            if (old != null) parent.removeView(old);
+            v.setTag("image_grid_slot");
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dpToPx(3, v.getContext());
+            int idx = parent.indexOfChild(holder.attachmentsRecycler);
+            parent.addView(v, idx + 1, lp);
+            return v;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 清理 AI holder 内可能挂载的 image_grid 组件槽位（复用/路径切换时） */
+    private void clearImageGridSlot(AIMessageViewHolder holder) {
+        if (holder == null || holder.attachmentsRecycler == null) return;
+        android.view.ViewGroup parent = (android.view.ViewGroup) holder.attachmentsRecycler.getParent();
+        if (parent == null) return;
+        View old = parent.findViewWithTag("image_grid_slot");
+        if (old != null) parent.removeView(old);
+    }
+
     private void bindUserAttachments(UserMessageViewHolder holder, ChatMessage message) {
         if (holder.attachmentsRecycler == null) return;
 
@@ -3692,7 +3740,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (holder.attachmentsRecycler == null) return;
 
         if (message.attachments != null && !message.attachments.isEmpty()) {
+            // 优先路径：多张图片走 ImageGridCardView 组件，直接添加到 contentHost
+            // 单一/混合附件仍走 MessageAttachmentAdapter（保留点击预览通路）
+            boolean allImages = true;
+            for (ChatMessage.Attachment a : message.attachments) {
+                if (a == null || !a.isImage()) { allImages = false; break; }
+            }
+            if (allImages && message.attachments.size() >= 2) {
+                View rendered = tryRenderImageGrid(holder, message);
+                if (rendered != null) {
+                    holder.attachmentsRecycler.setVisibility(View.GONE);
+                    if (holder.attachmentsRecycler.getAdapter() != null) {
+                        holder.attachmentsRecycler.setAdapter(null);
+                    }
+                    return;
+                }
+            }
             holder.attachmentsRecycler.setVisibility(View.VISIBLE);
+            // 清理可能残留的 image_grid 组件（复用 holder 时）
+            clearImageGridSlot(holder);
 
             // 根据附件类型选择 LayoutManager，ViewHolder 复用时需检查是否需要切换
             boolean hasMultipleImages = message.attachments.stream().allMatch(a -> a.isImage()) && message.attachments.size() > 1;
