@@ -1463,6 +1463,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             org.json.JSONObject props = new org.json.JSONObject()
                     .put("title", "Agent 执行汇总")
                     .put("metrics", metrics);
+            // 自定义 summary 文本（Agent 端可下发）
+            if (s.summary != null && !s.summary.isEmpty()) {
+                props.put("subtitle", s.summary);
+            }
             ComponentData data = new ComponentData("metric_card", props);
             View v = ComponentRegistry.getInstance().render(parent.getContext(), data);
             if (v == null) return false;
@@ -1474,9 +1478,65 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             parent.addView(v, idx + 1, lp);
             holder.agentSummarySlot = v;
             holder.agentSummaryFp = fp;
+            // 工具分布：从 agentExecutionState.blocks 提取 TOOL_CALL/TOOL_RESULT 序列
+            attachToolDistribution(parent, holder, message, idx + 2);
             return true;
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    /**
+     * 在 Agent 汇总卡片之后挂"工具分布"表格（table primitive）：
+     * 每行 = 工具名 / 耗时 / 状态。数据来源：agentExecutionState.blocks 中的 TOOL_CALL 序列。
+     */
+    private void attachToolDistribution(android.view.ViewGroup parent, AIMessageViewHolder holder,
+                                         ChatMessage message, int insertAt) {
+        if (message.agentExecutionState == null
+                || message.agentExecutionState.getBlocks() == null) return;
+        // 清理旧槽位
+        View old = parent.findViewWithTag("tool_distribution_slot");
+        if (old != null) parent.removeView(old);
+        try {
+            org.json.JSONArray rows = new org.json.JSONArray();
+            java.util.List<com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock> blocks
+                    = message.agentExecutionState.getBlocks();
+            for (com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock b : blocks) {
+                if (b == null || b.getType() != com.oilquiz.app.ai.agent.AgentExecutionState.BlockType.TOOL_CALL)
+                    continue;
+                org.json.JSONArray row = new org.json.JSONArray();
+                row.put(b.getToolName() != null ? b.getToolName() : (b.getTitle() != null ? b.getTitle() : "工具"));
+                row.put(b.getStatus() != null ? statusLabel(b.getStatus()) : "—");
+                rows.put(row);
+            }
+            if (rows.length() == 0) return;
+            org.json.JSONArray headers = new org.json.JSONArray();
+            headers.put("工具");
+            headers.put("状态");
+            org.json.JSONObject props = new org.json.JSONObject()
+                    .put("title", "工具调用分布（" + rows.length() + " 次）")
+                    .put("headers", headers)
+                    .put("rows", rows);
+            ComponentData data = new ComponentData("table", props);
+            View v = ComponentRegistry.getInstance().render(parent.getContext(), data);
+            if (v == null) return;
+            v.setTag("tool_distribution_slot");
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dpToPx(6, v.getContext());
+            int idx = Math.min(insertAt, parent.getChildCount());
+            parent.addView(v, idx, lp);
+        } catch (Throwable ignored) {}
+    }
+
+    private static String statusLabel(
+            com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock.BlockStatus s) {
+        if (s == null) return "—";
+        switch (s) {
+            case COMPLETED: return "✅ 成功";
+            case FAILED: return "❌ 失败";
+            case RUNNING: return "🔄 执行中";
+            default: return "⏳ 待执行";
         }
     }
 
@@ -1494,6 +1554,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         holder.agentSummarySlot = null;
         holder.agentSummaryFp = null;
+        // 工具分布表随汇总卡片一起清理
+        if (holder.agentSummary != null && holder.agentSummary.getParent() instanceof android.view.ViewGroup) {
+            android.view.ViewGroup p = (android.view.ViewGroup) holder.agentSummary.getParent();
+            View dist = p.findViewWithTag("tool_distribution_slot");
+            if (dist != null) p.removeView(dist);
+        }
     }
 
     /**
