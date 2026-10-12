@@ -1454,8 +1454,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static boolean endsWithParagraphBreak(String s) {
         int len = s.length();
         int i = len - 1;
-        // 跳过尾部空白
-        while (i >= 0 && s.charAt(i) == ' ' || i >= 0 && s.charAt(i) == '\t') i--;
+        // 跳过尾部空格/tab
+        while (i >= 0 && (s.charAt(i) == ' ' || s.charAt(i) == '\t')) i--;
         if (i < 0 || s.charAt(i) != '\n') return false;
         i--; // 跳过这个 \n
         // 跳过中间空白（\n 与 \n 之间允许空格/tab）
@@ -4358,6 +4358,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 搜索过滤消息
      */
     public void filter(String query) {
+        if (query == null) query = "";
         this.currentQuery = query.toLowerCase();
         if (originalMessages == null) {
             originalMessages = new java.util.ArrayList<>(messages);
