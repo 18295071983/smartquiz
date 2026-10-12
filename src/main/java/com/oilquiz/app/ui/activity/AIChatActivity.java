@@ -9716,7 +9716,48 @@ public class AIChatActivity extends BaseActivity {
             handleStopGeneration(action);
             return;
         }
+        // Agent 执行控制：暂停 / 继续 / 单步（回退需步骤快照架构，暂不支持）
+        if (action != null && (action.type == ChatMessage.ActionType.PAUSE_AGENT
+                || action.type == ChatMessage.ActionType.RESUME_AGENT
+                || action.type == ChatMessage.ActionType.STEP_AGENT
+                || action.type == ChatMessage.ActionType.REWIND_AGENT)) {
+            handleAgentControl(action);
+            return;
+        }
         if (dialogHelper != null) dialogHelper.handleAction(action, chatHistory);
+    }
+
+    /**
+     * Agent 执行控制：暂停/继续/单步委托到引擎。
+     * REWIND（回退一步）需要每步 messageHistory 快照，当前架构不支持，明确提示而非伪实现。
+     */
+    private void handleAgentControl(ChatMessage.Action action) {
+        if (agentChatHandler == null) {
+            showToast("⚠️ Agent 未在运行");
+            return;
+        }
+        switch (action.type) {
+            case PAUSE_AGENT:
+                agentChatHandler.pause();
+                showToast("⏸ 已暂停，点单步或继续");
+                break;
+            case RESUME_AGENT:
+                agentChatHandler.resume();
+                showToast("▶ 已继续执行");
+                break;
+            case STEP_AGENT:
+                if (!agentChatHandler.isPaused()) {
+                    agentChatHandler.pause(); // 未暂停时先暂停，再放行一步
+                }
+                agentChatHandler.stepOnce();
+                showToast("👣 单步执行一轮");
+                break;
+            case REWIND_AGENT:
+                showToast("⏮ 回退暂不支持（需引擎步骤快照）");
+                break;
+            default:
+                break;
+        }
     }
 
     /**

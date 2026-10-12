@@ -412,6 +412,26 @@ public SmartIntentRecognizer.IntentResult analyzeIntent(String message) {
         engine.cancel();
     }
 
+    /** 暂停 Agent 主循环（在线引擎） */
+    public void pause() {
+        engine.pause();
+    }
+
+    /** 继续 Agent 主循环 */
+    public void resume() {
+        engine.resume();
+    }
+
+    /** 暂停态下单步放行一轮 */
+    public void stepOnce() {
+        engine.stepOnce();
+    }
+
+    /** 是否处于暂停态 */
+    public boolean isPaused() {
+        return engine.isPaused();
+    }
+
     /** 清空对话历史（用于"新对话"/"清空对话"操作） */
     public void clearHistory() {
         engine.clearHistory();

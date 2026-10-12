@@ -108,6 +108,26 @@ public class AgentRouter {
         }
     }
 
+    /** 暂停 Agent 主循环（当前轮结束后阻塞） */
+    public void pause() {
+        if (onlineEngine != null) onlineEngine.pause();
+    }
+
+    /** 继续 Agent 主循环 */
+    public void resume() {
+        if (onlineEngine != null) onlineEngine.resume();
+    }
+
+    /** 暂停态下单步放行一轮 */
+    public void stepOnce() {
+        if (onlineEngine != null) onlineEngine.stepOnce();
+    }
+
+    /** 是否处于暂停态 */
+    public boolean isPaused() {
+        return onlineEngine != null && onlineEngine.isPaused();
+    }
+
     public void clearHistory() {
         if (onlineEngine != null) {
             onlineEngine.clearHistory();

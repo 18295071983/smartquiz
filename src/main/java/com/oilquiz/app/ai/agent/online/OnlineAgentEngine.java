@@ -117,6 +117,10 @@ public class OnlineAgentEngine {
     private final AtomicBoolean isGenerating = new AtomicBoolean(false);
     private final AtomicBoolean isCancelled = new AtomicBoolean(false);
     private final AtomicInteger toolLoopCount = new AtomicInteger(0);
+    /** 暂停标志：主循环每轮开头检查，暂停时阻塞等待 resume 或单步放行 */
+    private final AtomicBoolean isPaused = new AtomicBoolean(false);
+    /** 单步请求：暂停态下点"单步"置 true，主循环放行一轮后自动重新暂停 */
+    private final AtomicBoolean stepOnce = new AtomicBoolean(false);
 
     /** 上次模型摘要时间（限频用：长任务中每轮 trim 都可能触发模型摘要，30s 内只做一次） */
     private volatile long lastModelSummaryTime = 0;
@@ -611,6 +615,10 @@ public class OnlineAgentEngine {
 
         while (iteration < maxIterations && !isCancelled.get()) {
             iteration++;
+            // 暂停门：暂停态下阻塞，直到 resume / 单步放行 / 取消。
+            // 单步：stepOnce=true 时放行本轮并清除标志（下一轮重新进入暂停）。
+            awaitIfPaused();
+            if (isCancelled.get()) break;
             if (lastTurnMeta != null) lastTurnMeta.put("turns", iteration);
             AILogger.i(TAG, "Agent iteration " + iteration + "/" + maxIterations + " [" + agentMode + "]");
 
@@ -2121,9 +2129,51 @@ public class OnlineAgentEngine {
 
     public void cancel() {
         isCancelled.set(true);
+        // 取消时唤醒可能卡在暂停门里的循环
+        isPaused.set(false);
+        stepOnce.set(true);
         endDebugRun("cancelled", null);
         if (lastTurnMeta != null) {
             lastTurnMeta.put("reason", "user_cancel");
+        }
+    }
+
+    /** 暂停：主循环在当前轮结束后阻塞，等待 resume 或单步 */
+    public void pause() {
+        isPaused.set(true);
+    }
+
+    /** 继续：清除暂停标志，唤醒主循环 */
+    public void resume() {
+        isPaused.set(false);
+        stepOnce.set(false);
+    }
+
+    /** 单步：暂停态下放行一轮，然后自动重新暂停 */
+    public void stepOnce() {
+        stepOnce.set(true);
+    }
+
+    /** 是否处于暂停态 */
+    public boolean isPaused() {
+        return isPaused.get();
+    }
+
+    /**
+     * 暂停门：若处于暂停且无单步请求，则轮询阻塞（100ms 间隔）直到 resume/stepOnce/cancel。
+     * 单步请求放行后清除标志，使下一轮重新进入暂停。
+     */
+    private void awaitIfPaused() {
+        while (isPaused.get() && !stepOnce.get() && !isCancelled.get()) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        if (stepOnce.get()) {
+            stepOnce.set(false); // 消费单步请求：本轮放行，下轮重新暂停
         }
     }
 
