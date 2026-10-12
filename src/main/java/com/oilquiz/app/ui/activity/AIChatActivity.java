@@ -5531,12 +5531,6 @@ public class AIChatActivity extends BaseActivity {
         return chatContextBuilder;
     }
 
-    /** 粗略估算文本 token 数：中文约 2 字符/token 的保守估计 + 角色开销（宁多勿少，防溢出） */
-    private int estimateTokens(String text) {
-        if (text == null || text.isEmpty()) return 0;
-        return 4 + (text.length() + 1) / 2;
-    }
-
     /**
      * 可给历史上下文使用的 token 预算：
      *
@@ -5626,33 +5620,6 @@ public class AIChatActivity extends BaseActivity {
                                                             int currentUserIdx,
                                                             boolean includeThinking) {
         return getChatContextBuilder().collectHistoryByBudget(history, currentUserIdx, includeThinking);
-    }
-
-    /** 合并相邻同角色（失败/中断导致缺回复时保持 user/assistant 严格交替） */
-    private java.util.List<String[]> mergeConsecutiveSameRole(java.util.List<String[]> entries) {
-        java.util.List<String[]> result = new java.util.ArrayList<>();
-        String lastRole = null;
-        for (String[] entry : entries) {
-            if (entry[0].equals(lastRole) && !result.isEmpty()) {
-                String[] last = result.get(result.size() - 1);
-                last[1] = last[1] + "\n\n" + entry[1];
-            } else {
-                result.add(new String[]{entry[0], entry[1]});
-                lastRole = entry[0];
-            }
-        }
-        return result;
-    }
-
-    /** 定位最后一条 user 消息索引（即当前待发送消息）；无则返回 -1 */
-    private int lastUserMessageIndex(List<ChatMessage> history) {
-        for (int i = history.size() - 1; i >= 0; i--) {
-            ChatMessage m = history.get(i);
-            if (m != null && m.type == ChatMessage.MessageType.USER) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     /**
