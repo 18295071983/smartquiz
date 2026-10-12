@@ -1,5 +1,138 @@
 # 变更日志
 
+## [2026-10-12] ChatAdapter 深度审查 + 组件系统全面复用（渲染/反馈/回调/操作）
+
+### 1) 背景
+
+对 `ChatAdapter.java`（约 4600 行）做多轮递进审查，从"核心功能缺陷 → 动画/子布局 →
+操作/显示逻辑 → 缺失能力盘点 → 组件系统复用 → Agent UI 子系统"逐层深入，累计 **39 项
+改动、14 次提交**。核心原则：**加新 UI/交互前先盘点已有组件/回调/JS 桥接体系，复用优先于
+新建**（项目已有 `ComponentRegistry` 注册 29 个内置组件 + `ComponentActions` 回调体系 +
+WebView JS 桥，此前大量硬编码 UI 未复用）。
+
+### 2) 核心缺陷修复（任务 1-12）
+
+- **PAYLOAD_AGENT_UPDATE 空处理器**：此前 payload 分支只有注释"无需处理"，但 7 个 Agent
+  方法都在发这个通知 → Agent 执行状态实时刷新丢失。改为调用 `bindAgentStepStatus` +
+  `updateMessageStatus`；同时移除从未初始化的 `agentExecutionView` 字段及 5 处空 null-check。
+- **filter/addMessage/removeMessage 消息丢失**：过滤态下新增消息只进 `messages` 不进
+  `originalMessages`，`clearFilter` 后丢失。改为三处同步维护；`updateMessages` 全量替换时
+  重置过滤状态。
+- **RENDER_TOKENS 静态 Map 内存泄漏**：`static ConcurrentHashMap<TextView,Long>` 持有回收后
+  的 TextView 无法 GC。在 `drainPendingRenders` 每轮遍历清理 `!isAttachedToWindow()` 条目。
+- **不可达 ViewHolder 类型**：`getItemViewType` 已把 TASK/TOOL_RESULT/SUMMARY 合并映射，但
+  `TaskMessageViewHolder`/`ToolResultViewHolder`/`SummaryMessageViewHolder` + `VIEW_TYPE_
+  INFERENCE_PROGRESS` 仍是死代码，约 130 行清除。
+- **进入动画首帧失效**：`setAnimation` 用 `getWidth()*0.15f`，新消息首绑 `getWidth()==0`
+  → 无滑入。改固定 30dp 偏移。`animatedMessageIds` 只增不减，在 remove/delete 时清理。
+- **轮次模式思考标签点击失效**：`renderRoundAssembled` 设的 `notifyItemChanged` listener
+  被 `updateThinkingContent` 的动画 listener 覆盖（对已 GONE 的合并块做动画，点了没反应）。
+  给 `updateThinkingContent` 的 listener 设值加 `roundAssembled` 门控。
+- **thinkingPreview 正则回溯**：`content.matches("(?s).*\n\s*\n\s*$")` 对长思考文本每 token
+  执行 → 主线程卡顿。改 `endsWithParagraphBreak()` O(n) 尾部扫描；`replaceAll("\\s+")`
+  改手动循环。（修正中踩到 `&&`/`||` 优先级坑，已加括号。）
+- **Agent 组折叠全量刷新**：`notifyDataSetChanged()` 改 `notifyItemRangeChanged(headerPos,
+  groupSize)`。
+- **复制/分享含组件源码**：Agent 消息 `content` 含 ` ```component:xxx``` ` 标记，用户复制到
+  乱码。新增 `stripComponentMarkersForExport()` 剥离 component/mermaid/公式块。
+- **toggleAgentToolsExpanded 断链**：`message.components = new ArrayList<>(...)` 替换引用，
+  与外部生产者 `addAll` 断链 → 新组件不显示。改为 `boundComponentsFingerprint = -1` 触发重建。
+- **状态行完成后不消失**：`agentStepStatus` 完成后永久显示。加流式/失败判定，非进行中隐藏。
+- **废弃代码清理**：`handleLongContent`/`toggleMessageExpansion`/`PAYLOAD_EXPANDED_UPDATE`/
+  `btnExpand`/`expandButton` 全链路移除。
+- **isLastAiMessage 未排除 ERROR**：末尾 AI 后跟 ERROR 时操作栏仍显示。判定纳入 ERROR。
+
+### 3) 反馈/回调/操作能力扩展（任务 13-23）
+
+- **ChatMessage.ActionType 新增 13 种**：`STOP_GENERATION`/`EDIT_MESSAGE`/`DELETE_MESSAGE`/
+  `QUOTE_MESSAGE`/`SHOW_DETAIL`/`COPY_CODE_BLOCK`/`RETRY_TOOL_CALL`/`EDIT_TOOL_ARGS`/
+  `PAUSE_AGENT`/`RESUME_AGENT`/`STEP_AGENT`/`REWIND_AGENT`/`EXPORT_AGENT_LOGS` + 工厂方法。
+- **运行时字段**：`feedbackState`（1赞/-1踩/0未反馈）、`retryCount`、`quoteFromMessageId`、
+  `quotePreview`。
+- **操作栏扩展**：AI 消息加 👍/ 反馈按钮（激活态变色）；`setSpeakingMessageId(id)` API
+  让朗读按钮切"⏹ 停止"；流式生成中气泡内显示"⏹ 停止生成"。
+- **长按 PopupMenu**：AI/USER 消息长按弹菜单（复制/朗读/引用/编辑/删除/详情/导出日志/复制步骤）。
+- **时间戳点击详情**：`showDetailDialog` 用 `HtmlCardView` 富渲染消息元数据。
+- **ComponentActions 接入**：新增 `CHAT_UI_CHANNEL` 常量 + `dispatchChatAction(context, action)`
+  public API，所有 UI 操作双通路（Activity 即时反馈 + Agent `get_result` 查询）。
+- **代码块走 CodeCardView**：新增 `splitFencedSegments`，`bindMessageContent` 按 ``` fence
+  拆分，代码段转 `code_card` ComponentData 交给 `ComponentRegistry`（自带语言标签+复制），
+  移除自制的 `attachCodeCopySpans` hack。
+- **空态视图**：`setEmptyView(View)` + `AdapterDataObserver` 自动切换显隐。
+
+### 4) 组件系统复用（任务 24-28）
+
+- **新增 2 个组件**：`FeedbackBarCardView`（type=`feedback_bar`，声明式操作栏，props.actions
+  + visibleWhen/dynamic 状态感知）、`AgentStatusChipCardView`（type=`agent_status`，带 spinner
+  的状态徽章）。注册到 ComponentRegistry，Agent 端可下发复用。
+- **模型信息条走 MetricCardView**：`bindModelInfo` 的 4 个 TextView（指示器/名称/延迟/成本）
+  改为 `metric_card` 组件渲染，带指纹缓存 + legacy 回退。
+- **Agent 汇总走 MetricCardView**：`renderAgentSummaryMetricCard` 把 `AgentSummaryInfo`
+  （耗时/步骤/工具/Token）渲染成卡片，summary 文本作 subtitle，重试次数作 warning 项。
+- **附件桥接 ImageGridCardView**：AI 消息多张图片优先走 `image_grid` 组件（tag=image_grid_slot），
+  单一/混合附件回退 MessageAttachmentAdapter。
+
+### 5) Agent UI 子系统增强（任务 29-39）
+
+盘点发现：`AgentExecutionState.blocks` 结构化数据（THINKING/PLANNING/TOOL_CALL/TOOL_RESULT/
+INFERENCE/OBSERVATION/REFLECTION/ERROR/TEXT）此前完全没渲染，`AgentExecutionView` 类完整存在
+但 ChatAdapter 从未挂载。
+
+- **挂载 AgentExecutionView**（任务29）：AI 气泡内实例化，`renderAgentExecutionView` 把
+  blocks 同步到面板（updateCurrentStep/updateInferenceProgress/addLogEntry/complete/fail），
+  指纹缓存避免流式抖动。
+- **工具参数走 json_viewer**（任务30）：`renderToolParamsAsJsonViewer` 结构化展示 + 复制。
+- **Agent 进度 progress_ring**（任务31）：`renderAgentProgressRing` 显示 currentStep/totalSteps
+  百分比 + tokens。
+- **工具失败重试**（任务32）：`attachToolRetryButton` 在 FAILED 结果区顶部挂"🔄 重试该工具"。
+- **Agent 步骤时间线**（任务33）：`renderAgentTimeline` 用 `timeline` primitive 渲染 blocks
+  序列（图标+标题+摘要+状态色）。
+- **Agent 控制组**（任务34）：`bindAgentControlBar` 流式时显示 ⏸暂停/👣单步/⏮回退。
+- **步骤类型颜色**（任务35）：`applyStepColor` 把 `getStepColor()` 的 hex 应用到 stepIcon
+  圆形胶囊背景。
+- **汇总工具分布**（任务36）：`attachToolDistribution` 用 `table` primitive 渲染每工具名/状态。
+- **反思完整接线**（任务37）：`attachReflectionExtras` 用 progress_ring 显示 score、list_card
+  显示 suggestions；btnRetrySuggestion 接 dispatchChatAction。
+- **日志导出+步骤复制**（任务38）：长按菜单加"导出执行日志(JSON)"/"复制步骤内容"，
+  `flattenAgentBlocks` 序列化 blocks。
+- **工具参数编辑重跑**（任务39）：`attachToolEditButton` 在参数区挂"✏️ 编辑参数并重跑"，
+  弹 EditText 改 JSON 后 dispatch `edit_args:<id>`。
+
+### 6) 运行时验证
+
+真机（小米 25113PN0EC）安装运行，一次天气查询触发完整 Agent 链路（3 工具/4 轮思考/51.2k
+tokens），截图确认：模型信息卡（metric_card）、Agent 汇总卡（含 summary + 工具分布）、
+agent_status chip、操作栏（含 👍/👎）、长按菜单全部正常渲染。`AndroidRuntime` 零异常。
+
+### 7) 提交清单（14 次）
+
+```
+7372dfd1  修复核心功能缺陷并清理死代码
+05594e24  修复动画/思考交互/布局渲染的7项缺陷
+61aa0efe  修复 review 发现的边界情况
+6d4b46d8  修复操作与显示逻辑的6项缺陷
+4bcb9516  扩展反馈/回调/操作能力
+c9a02ae0  空态视图与代码块点击复制
+8f43057e  复用 HTML 卡片系统与 ComponentActions 回调
+ec005f3e  代码块改用 CodeCardView 组件
+1984ba47  复用组件系统覆盖更多硬编码 UI
+bd9243f0  附件渲染桥接 ImageGridCardView
+52574eee  Agent 汇总改用 MetricCardView（补全）
+88e5a774~f46b65cd  Agent UI 子系统增强（任务29-39，11 次提交）
+```
+
+### 8) 遗留（需外部配合，未在 adapter 层完成）
+
+- **朗读状态反馈**：需 Activity 传入"当前朗读消息 id"驱动 `setSpeakingMessageId`。
+- **Agent 暂停/单步/回退的实际执行**：UI 按钮和 Action 已就绪，但 `AgentLoopEngine` 侧的
+  暂停/单步/回退执行逻辑需引擎配合实现。
+- **工具编辑重跑/失败重试的执行**：Action + dispatch 通路已通，AIChatActivity 需接
+  `editToolArgs`/`retryToolCall` 并回灌引擎。
+- **AGENT_REFLECTION 消息生产**：反思卡片的渲染已完整，但引擎侧产生 AGENT_REFLECTION
+  消息的路径需确认是否已接线。
+
+---
+
 ## [2026-10-11] 本地 Agent 核心工具定为 4 个（产品范围决策）
 
 ### 1) 改动
