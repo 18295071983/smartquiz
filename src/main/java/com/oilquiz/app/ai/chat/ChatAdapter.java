@@ -117,8 +117,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewRecycled(holder);
         if (holder instanceof AIMessageViewHolder) {
-            removePendingLayoutListener((AIMessageViewHolder) holder);
-            ((AIMessageViewHolder) holder).holderMessage = null;
+            AIMessageViewHolder ai = (AIMessageViewHolder) holder;
+            removePendingLayoutListener(ai);
+            ai.holderMessage = null;
+            // 回收时清理 Agent 汇总组件槽位，避免残留 view 挂到下一个绑定的消息上
+            clearAgentSummarySlot(ai);
         }
     }
 
@@ -1086,12 +1089,20 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         }
         if (holder.agentSummary != null) {
-            String text = buildAgentSummaryText(message);
-            if (text == null || text.isEmpty()) {
+            // 优先路径：结构化 AgentSummaryInfo → MetricCardView 组件（与模型信息条统一视觉）
+            if (message.agentSummaryInfo != null
+                    && renderAgentSummaryMetricCard(holder, message)) {
                 holder.agentSummary.setVisibility(View.GONE);
             } else {
-                holder.agentSummary.setText(text);
-                holder.agentSummary.setVisibility(View.VISIBLE);
+                // 回退：清理可能残留的组件槽位，走纯文本
+                clearAgentSummarySlot(holder);
+                String text = buildAgentSummaryText(message);
+                if (text == null || text.isEmpty()) {
+                    holder.agentSummary.setVisibility(View.GONE);
+                } else {
+                    holder.agentSummary.setText(text);
+                    holder.agentSummary.setVisibility(View.VISIBLE);
+                }
             }
         }
         // 停止生成按钮：仅在流式生成中显示，点击触发 Action.stopGeneration
@@ -1114,8 +1125,85 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /**
+     * 用 MetricCardView 组件渲染 Agent 汇总卡片：耗时/步骤/工具/Token 四栏 + 状态/重试徽章。
+     * 挂载在 agentSummary TextView 之后（同 bubble 内），带指纹缓存避免流式重复重建。
+     * 返回 true 表示渲染成功；false 时调用方应回退到文本路径。
+     */
+    private boolean renderAgentSummaryMetricCard(AIMessageViewHolder holder, ChatMessage message) {
+        ChatMessage.AgentSummaryInfo s = message.agentSummaryInfo;
+        if (s == null) return false;
+        final String fp = agentSummaryFp(s, message.retryCount);
+        android.view.ViewGroup parent = (android.view.ViewGroup) holder.agentSummary.getParent();
+        if (parent == null) return false;
+        // 复用：槽位存在且指纹一致 → 只保证可见
+        if (holder.agentSummarySlot != null
+                && fp.equals(holder.agentSummaryFp)
+                && holder.agentSummarySlot.getParent() == parent) {
+            holder.agentSummarySlot.setVisibility(View.VISIBLE);
+            return true;
+        }
+        // 移除旧槽位
+        clearAgentSummarySlot(holder);
+        try {
+            org.json.JSONArray metrics = new org.json.JSONArray();
+            metrics.put(new org.json.JSONObject()
+                    .put("label", "耗时").put("value", s.getFormattedTime()));
+            metrics.put(new org.json.JSONObject()
+                    .put("label", "步骤").put("value", String.valueOf(s.totalSteps)));
+            metrics.put(new org.json.JSONObject()
+                    .put("label", "工具").put("value", String.valueOf(s.toolCallCount)));
+            metrics.put(new org.json.JSONObject()
+                    .put("label", "Token").put("value", s.getFormattedTokens())
+                    .put("color", "accent"));
+            if (!s.isSuccess) {
+                metrics.put(new org.json.JSONObject()
+                        .put("label", "状态").put("value", "未完成").put("color", "error"));
+            }
+            if (message.retryCount > 0) {
+                metrics.put(new org.json.JSONObject()
+                        .put("label", "重试").put("value", "第 " + (message.retryCount + 1) + " 次")
+                        .put("color", "warning"));
+            }
+            org.json.JSONObject props = new org.json.JSONObject()
+                    .put("title", "Agent 执行汇总")
+                    .put("metrics", metrics);
+            ComponentData data = new ComponentData("metric_card", props);
+            View v = ComponentRegistry.getInstance().render(parent.getContext(), data);
+            if (v == null) return false;
+            v.setTag("agent_summary_slot");
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dpToPx(6, v.getContext());
+            int idx = parent.indexOfChild(holder.agentSummary);
+            parent.addView(v, idx + 1, lp);
+            holder.agentSummarySlot = v;
+            holder.agentSummaryFp = fp;
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Agent 汇总组件指纹：结构化字段变化才重渲染 */
+    private static String agentSummaryFp(ChatMessage.AgentSummaryInfo s, int retryCount) {
+        return s.totalTimeMs + "_" + s.totalSteps + "_" + s.toolCallCount
+                + "_" + s.totalTokens + "_" + (s.isSuccess ? "ok" : "fail") + "_r" + retryCount;
+    }
+
+    /** 清理组件槽位 + holder 缓存字段（回退/复用切换时） */
+    private void clearAgentSummarySlot(AIMessageViewHolder holder) {
+        if (holder == null) return;
+        if (holder.agentSummarySlot != null && holder.agentSummarySlot.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) holder.agentSummarySlot.getParent()).removeView(holder.agentSummarySlot);
+        }
+        holder.agentSummarySlot = null;
+        holder.agentSummaryFp = null;
+    }
+
+    /**
      * 组装 Agent 汇总行文本：优先使用结构化 AgentSummaryInfo（耗时/步骤/工具/Token），
      * 无结构化数据时回退到 message.agentSummary 字符串；两者都附重试次数提示。
+     * MetricCardView 不可用时的兜底路径。
      */
     private String buildAgentSummaryText(ChatMessage message) {
         StringBuilder sb = new StringBuilder();
@@ -4137,6 +4225,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         String roundStructureFingerprint;
         /** 与 roundStructureFingerprint 对应的已挂载子 View 数（增量路径校验用） */
         int roundRenderedChildren;
+        /** Agent 汇总卡片组件挂载视图（MetricCardView 渲染结果）；null 表示走文本回退 */
+        View agentSummarySlot;
+        /** Agent 汇总卡片的指纹缓存，字段变化才重渲染 */
+        String agentSummaryFp;
         /** 思考区展开/折叠动画：点击切换时先取消旧动画，防止连续点击/流式更新时动画竞争 */
         android.animation.ValueAnimator thinkingAnimator;
         TextView thinkingLabel;
