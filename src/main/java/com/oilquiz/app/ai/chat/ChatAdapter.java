@@ -3099,6 +3099,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             else others.add(data);
         }
 
+        // ROUND-OWNER(2026-10-13)：轮次组装模式（contentRoundBounds 非空）下，tool_call 卡片
+        // 由 renderRoundAssembled 按"思考→工具→思考→工具"时序**内联**到 contentHost 独占渲染。
+        // 这里若再把同一批 tool_call 折叠进 componentContainer，会导致工具卡片显示两遍
+        // （内联一份 + 底部"工具过程 N 个"折叠一份）。故轮次模式下清空 toolCalls，
+        // componentContainer 只保留非 tool_call 产物（list_card/image_grid 等）。
+        boolean roundAssembled = message.contentRoundBounds != null
+                && !message.contentRoundBounds.isEmpty();
+        if (roundAssembled) {
+            toolCalls.clear();
+        }
+
         // 工具卡片是否全部执行完成（存在 running 则保持实时显示不折叠）
         boolean allToolsDone = !toolCalls.isEmpty();
         for (ComponentData tc : toolCalls) {
