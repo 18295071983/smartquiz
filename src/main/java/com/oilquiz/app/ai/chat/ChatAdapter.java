@@ -4087,10 +4087,75 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (retryClickListener != null) {
                     retryClickListener.onRetry(message.id);
                 }
+                // 同步通知 Agent 端：用户点击了"按建议重试"
+                ComponentActions.dispatchChatAction(v.getContext(), "retry_suggested:" + message.id);
             });
         } else {
             holder.btnRetrySuggestion.setVisibility(View.GONE);
         }
+
+        // 评分 progress_ring + suggestions 表格挂在 reflectionImprovements 之后
+        attachReflectionExtras(holder, message, reflection);
+    }
+
+    /**
+     * 反思附加视图：
+     *  - score (0-100) 用 progress_ring 可视化
+     *  - suggestions 用 list_card 组件展示（若为分点文本）
+     * 挂载在 reflectionImprovements 之后（tag=reflection_extras_slot），复用时清理。
+     */
+    private void attachReflectionExtras(AgentReflectionViewHolder holder, ChatMessage message,
+                                         ChatMessage.AgentReflectionInfo reflection) {
+        android.view.View anchor = holder.reflectionImprovements != null
+                ? holder.reflectionImprovements : holder.reflectionAnalysis;
+        if (anchor == null || !(anchor.getParent() instanceof android.view.ViewGroup)) return;
+        android.view.ViewGroup parent = (android.view.ViewGroup) anchor.getParent();
+        View old = parent.findViewWithTag("reflection_extras_slot");
+        if (old != null) parent.removeView(old);
+        if (reflection.score <= 0 && (reflection.suggestions == null || reflection.suggestions.isEmpty())) {
+            return;
+        }
+        try {
+            android.widget.LinearLayout slot = new android.widget.LinearLayout(parent.getContext());
+            slot.setOrientation(android.widget.LinearLayout.VERTICAL);
+            slot.setTag("reflection_extras_slot");
+            if (reflection.score > 0) {
+                org.json.JSONObject ringProps = new org.json.JSONObject()
+                        .put("value", reflection.score)
+                        .put("max", 100)
+                        .put("label", "评分 " + reflection.score + "/100");
+                View ring = ComponentRegistry.getInstance().render(parent.getContext(),
+                        new ComponentData("progress_ring", ringProps));
+                if (ring != null) {
+                    slot.addView(ring, new android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+                }
+            }
+            if (reflection.suggestions != null && !reflection.suggestions.isEmpty()) {
+                org.json.JSONArray items = new org.json.JSONArray();
+                for (String line : reflection.suggestions.split("\\n+")) {
+                    String t = line.trim();
+                    if (!t.isEmpty()) items.put(t);
+                }
+                if (items.length() > 0) {
+                    org.json.JSONObject listProps = new org.json.JSONObject()
+                            .put("title", "改进建议")
+                            .put("items", items);
+                    View list = ComponentRegistry.getInstance().render(parent.getContext(),
+                            new ComponentData("list_card", listProps));
+                    if (list != null) {
+                        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+                        lp.topMargin = dpToPx(6, parent.getContext());
+                        slot.addView(list, lp);
+                    }
+                }
+            }
+            int idx = parent.indexOfChild(anchor);
+            parent.addView(slot, idx + 1);
+        } catch (Throwable ignored) {}
     }
 
     private void bindAgentSummaryMessage(AgentSummaryViewHolder holder, ChatMessage message) {
