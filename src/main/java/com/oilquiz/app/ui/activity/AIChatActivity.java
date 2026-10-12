@@ -10238,6 +10238,8 @@ public class AIChatActivity extends BaseActivity {
     /** 实际朗读入口：silent=true 时不弹任何提示（自动朗读模式） */
     private void speakTextInternal(String text, final String messageId, final boolean silent) {
         speakingMessageId = messageId;
+        // 同步朗读状态到 adapter：当前消息按钮文案切"⏹ 停止"，上一条恢复"🔊 朗读"
+        if (chatAdapter != null) chatAdapter.setSpeakingMessageId(messageId);
         if (!silent) {
             showToast(getString(R.string.h_f3df22c9));
         }
@@ -10255,6 +10257,7 @@ public class AIChatActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     if (messageId != null && messageId.equals(speakingMessageId)) {
                         speakingMessageId = null;
+                        if (chatAdapter != null) chatAdapter.setSpeakingMessageId(null);
                     }
                 });
             }
@@ -10264,6 +10267,7 @@ public class AIChatActivity extends BaseActivity {
                 runOnUiThread(() -> {
                     if (messageId != null && messageId.equals(speakingMessageId)) {
                         speakingMessageId = null;
+                        if (chatAdapter != null) chatAdapter.setSpeakingMessageId(null);
                     }
                     if (!silent) {
                         showToast(getString(R.string.h_f9154462));
@@ -10280,6 +10284,7 @@ public class AIChatActivity extends BaseActivity {
         if (action.messageId != null && action.messageId.equals(speakingMessageId) && speech.isSpeaking()) {
             speech.stopSpeaking();
             speakingMessageId = null;
+            if (chatAdapter != null) chatAdapter.setSpeakingMessageId(null);
             showToast(getString(R.string.h_715ae415));
             return;
         }
