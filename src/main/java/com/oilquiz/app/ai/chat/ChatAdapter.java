@@ -3665,6 +3665,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.toolParams.setText(info.parameters);
                 holder.toolParams.setVisibility(View.VISIBLE);
             }
+            // 参数编辑重跑按钮（tag=tool_edit_slot）
+            attachToolEditButton(holder, message, info);
             applyParamsExpansion(holder, info);
             if (holder.toolParamsHeader != null) {
                 holder.toolParamsHeader.setOnClickListener(v -> {
@@ -3795,6 +3797,65 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         container.addView(btn, idx, lp);
     }
 
+    /**
+     * 在参数容器底部挂"✏️ 编辑参数并重跑"按钮。点击弹输入框预填当前参数 JSON，
+     * 确认后触发 Action.editToolArgs + dispatchChatAction 通知 Agent 端。
+     */
+    private void attachToolEditButton(ToolCallViewHolder holder, ChatMessage message,
+                                       ChatMessage.ToolCallInfo info) {
+        if (holder.toolParamsContainer == null) return;
+        if (!(holder.toolParamsContainer instanceof android.view.ViewGroup)) return;
+        android.view.ViewGroup container = (android.view.ViewGroup) holder.toolParamsContainer;
+        View existing = container.findViewWithTag("tool_edit_slot");
+        if (existing != null) return; // 已挂载
+        android.content.Context ctx = container.getContext();
+        TextView btn = new TextView(ctx);
+        btn.setText("✏️ 编辑参数并重跑");
+        btn.setTextSize(11f);
+        btn.setTextColor(0xFF1565C0);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(dpToPx(10, ctx));
+        bg.setStroke(dpToPx(1, ctx), 0x661565C0);
+        bg.setColor(0x141565C0);
+        btn.setBackground(bg);
+        btn.setPadding(dpToPx(10, ctx), dpToPx(4, ctx), dpToPx(10, ctx), dpToPx(4, ctx));
+        btn.setClickable(true);
+        btn.setFocusable(true);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dpToPx(6, ctx);
+        btn.setLayoutParams(lp);
+        btn.setTag("tool_edit_slot");
+        final String msgId = message.id;
+        final String tcId = info.toolCallId != null ? info.toolCallId : info.toolName;
+        final String currentArgs = info.parameters != null ? info.parameters : "";
+        btn.setOnClickListener(v -> {
+            final android.widget.EditText input = new android.widget.EditText(v.getContext());
+            input.setText(currentArgs);
+            input.setMinLines(3);
+            input.setTypeface(android.graphics.Typeface.MONOSPACE);
+            input.setTextSize(12f);
+            android.widget.ScrollView sv = new android.widget.ScrollView(v.getContext());
+            sv.addView(input);
+            new android.app.AlertDialog.Builder(v.getContext())
+                    .setTitle("编辑工具参数 (JSON)")
+                    .setView(sv)
+                    .setPositiveButton("重跑", (d, w) -> {
+                        String newArgs = input.getText().toString();
+                        if (actionClickListener != null) {
+                            actionClickListener.onAction(
+                                    ChatMessage.Action.editToolArgs(msgId, tcId, newArgs));
+                        }
+                        ComponentActions.dispatchChatAction(v.getContext(),
+                                "edit_args:" + tcId);
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+        });
+        container.addView(btn);
+    }
+
     /** 应用参数区域展开/折叠状态 */
     private void applyParamsExpansion(ToolCallViewHolder holder, ChatMessage.ToolCallInfo info) {
         if (holder.toolParams == null) return;
@@ -3808,6 +3869,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 // 组件已挂载时把 TextView 保持 GONE，避免重复展示
                 holder.toolParams.setVisibility(View.GONE);
             }
+            // 编辑按钮跟随展开态
+            View editBtn = holder.toolParamsContainer.findViewWithTag("tool_edit_slot");
+            if (editBtn != null) editBtn.setVisibility(expanded ? View.VISIBLE : View.GONE);
         }
         if (holder.toolParamsArrow != null) holder.toolParamsArrow.setText(expanded ? "▼" : "▶");
     }
