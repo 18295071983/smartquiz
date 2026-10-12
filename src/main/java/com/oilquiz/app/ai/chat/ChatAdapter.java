@@ -480,22 +480,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentSummary.setLayoutParams(sumLp);
         bubble.addView(agentSummary);
 
-        // ===== 展开按钮（主回复不再折叠，恒隐藏） =====
-        TextView btnExpand = new TextView(ctx);
-        btnExpand.setText(R.string.chat_expand_full);
-        btnExpand.setTextSize(11f);
-        btnExpand.setTextColor(0xCCFFFFFF); // 深蓝渐变背景上用浅色
-        btnExpand.setPadding(dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx), dpToPx(3, ctx));
-        btnExpand.setClickable(true);
-        btnExpand.setFocusable(true);
-        btnExpand.setForeground(getSelectableItemBackground(ctx));
-        btnExpand.setVisibility(View.GONE);
-        LinearLayout.LayoutParams beLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        beLp.topMargin = dpToPx(2, ctx);
-        btnExpand.setLayoutParams(beLp);
-        root.addView(btnExpand);
-
         // ===== 操作按钮行 =====
         LinearLayout actionButtons = new LinearLayout(ctx);
         actionButtons.setOrientation(LinearLayout.HORIZONTAL);
@@ -591,7 +575,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         DynamicAiMessageRoot dynamicRoot = new DynamicAiMessageRoot(ctx, blockLabel, messageText,
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
                 agentStatus, agentSummary, actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate,
-                btnNewChat, timestampText, statusIcon, statusText, btnExpand, inferenceProgressView,
+                btnNewChat, timestampText, statusIcon, statusText, inferenceProgressView,
                 attachmentsRecycler, modelInfoContainer, modelStatusIndicator, modelNameText,
                 modelLatencyText, modelCostText);
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
@@ -1247,6 +1231,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         // 分隔线仅在思考区实际显示时可见（思考内容与正文之间）
         boolean showDivider = false;
+        // 轮次模式：thinkingLabel 由 renderRoundAssembled 管理点击，本方法不覆盖 listener
+        final boolean roundAssembled = message.contentRoundBounds != null
+                && !message.contentRoundBounds.isEmpty();
 
         // 多轮思考：分块展示（每轮加粗标题 + 段落分隔，布局上明显分开）
         String displayContent = message.thinkingContent != null ? message.thinkingContent : "";
@@ -1317,8 +1304,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // （先 renderRoundAssembled 后本方法）最终显示 —— 用户展开思考区时每个 token
             // 都抖动一次，且展开态下同一段思考被渲染两份（合并块 + 逐轮块）。
             // 因此轮次模式下本方法只负责标签文案与分隔线，不碰合并块的显隐。
-            final boolean roundAssembled = message.contentRoundBounds != null
-                    && !message.contentRoundBounds.isEmpty();
             boolean wasExpanded = holder.thinkingContent.getVisibility() == View.VISIBLE;
             if (message.thinkingExpanded) {
                 if (!wasExpanded && !roundAssembled) {
@@ -1336,31 +1321,35 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 updateThinkingLabel(holder, false, isStreaming, message);
             }
 
-            // 点击展开/折叠，带动画效果
-            holder.thinkingLabel.setOnClickListener(v -> {
-                if (message.thinkingExpanded) {
-                    collapseThinkingContent(holder, message);
-                } else {
-                    expandThinkingContent(holder, message);
-                }
-            });
+            // 非轮次模式：点击展开/折叠带动画；轮次模式：listener 由 renderRoundAssembled 管理
+            if (!roundAssembled) {
+                holder.thinkingLabel.setOnClickListener(v -> {
+                    if (message.thinkingExpanded) {
+                        collapseThinkingContent(holder, message);
+                    } else {
+                        expandThinkingContent(holder, message);
+                    }
+                });
+            }
 
         } else if (isStreaming) {
             // 流式中但思考内容还没到，显示思考中标签让用户有感知
             holder.thinkingLabel.setVisibility(View.VISIBLE);
             holder.thinkingContent.setVisibility(View.GONE);
             updateThinkingLabel(holder, false, true, message);
-            // 点击占位标签也允许后续内容到来时展开
-            holder.thinkingLabel.setOnClickListener(v -> {
-                message.thinkingExpanded = !message.thinkingExpanded;
-                if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
-                    if (message.thinkingExpanded) {
-                        expandThinkingContent(holder, message);
-                    } else {
-                        collapseThinkingContent(holder, message);
+            // 非轮次模式占位标签点击；轮次模式由 renderRoundAssembled 管理
+            if (!roundAssembled) {
+                holder.thinkingLabel.setOnClickListener(v -> {
+                    message.thinkingExpanded = !message.thinkingExpanded;
+                    if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
+                        if (message.thinkingExpanded) {
+                            expandThinkingContent(holder, message);
+                        } else {
+                            collapseThinkingContent(holder, message);
+                        }
                     }
-                }
-            });
+                });
+            }
         } else {
             holder.thinkingLabel.setVisibility(View.GONE);
             holder.thinkingContent.setVisibility(View.GONE);
@@ -1426,10 +1415,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (content == null || content.trim().isEmpty()) return "";
         String t = content.trim();
         String[] paras = t.split("\n\\s*\n");
-        // 用未 trim 的原文判断末段是否进行中（trim 会吃掉尾部空行分隔，导致已完成误判为进行中）
+        // 用末尾扫描判断末段是否进行中（避免 matches 正则在长文本上回溯）：
+        // 若原始 content 去掉尾部空白后以 \n 结尾（即存在空行分隔符），则末段已完成。
         int idx;
         if (streaming) {
-            boolean lastInProgress = !content.matches("(?s).*\\n\\s*\\n\\s*$");
+            boolean lastInProgress = !endsWithParagraphBreak(content);
             idx = (lastInProgress && paras.length >= 2) ? paras.length - 2 : paras.length - 1;
         } else {
             idx = 0; // 非流式：取首段（思考开篇）
@@ -1439,9 +1429,39 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int nl = target.indexOf('\n');
         if (nl >= 0) target = target.substring(0, nl).trim();
         target = target.replace("**", "").replace("`", "");
-        target = target.replaceAll("\\s+", " ").trim();
+        // 压缩连续空白为单空格（手动循环替代 replaceAll 正则）
+        StringBuilder sb = new StringBuilder(target.length());
+        boolean lastWasSpace = false;
+        for (int i = 0; i < target.length(); i++) {
+            char c = target.charAt(i);
+            if (c == ' ' || c == '\t') {
+                if (!lastWasSpace && sb.length() > 0) sb.append(' ');
+                lastWasSpace = true;
+            } else {
+                sb.append(c);
+                lastWasSpace = false;
+            }
+        }
+        target = sb.toString();
         if (target.length() > 48) target = target.substring(0, 48);
         return target;
+    }
+
+    /**
+     * 检查字符串是否以"段落分隔符"结尾（\n 后跟可选空白再跟 \n + 可选空白）。
+     * 等价于原 (?s).*\\n\\s*\\n\\s*$ 正则，但只做 O(n) 尾部扫描无回溯。
+     */
+    private static boolean endsWithParagraphBreak(String s) {
+        int len = s.length();
+        int i = len - 1;
+        // 跳过尾部空白
+        while (i >= 0 && s.charAt(i) == ' ' || i >= 0 && s.charAt(i) == '\t') i--;
+        if (i < 0 || s.charAt(i) != '\n') return false;
+        i--; // 跳过这个 \n
+        // 跳过中间空白（\n 与 \n 之间允许空格/tab）
+        while (i >= 0 && (s.charAt(i) == ' ' || s.charAt(i) == '\t')) i--;
+        if (i < 0 || s.charAt(i) != '\n') return false;
+        return true;
     }
 
     /** 取消思考区进行中的展开/折叠动画（点击切换/流式更新前调用，防止动画竞争 height） */
@@ -3431,7 +3451,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final TextView timestampText;
         final ImageView statusIcon;
         final TextView statusText;
-        final TextView btnExpand;
         final InferenceProgressView inferenceProgressView;
         final androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         final View modelInfoContainer;
@@ -3445,7 +3464,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView thinkingContent, View thinkingDivider, TextView agentStatus, TextView agentSummary,
                 View actionButtons, TextView btnCopy, TextView btnSpeak, TextView btnShare,
                 TextView btnRegenerate, TextView btnNewChat, TextView timestampText, ImageView statusIcon,
-                TextView statusText, TextView btnExpand, InferenceProgressView inferenceProgressView,
+                TextView statusText, InferenceProgressView inferenceProgressView,
                 androidx.recyclerview.widget.RecyclerView attachmentsRecycler, View modelInfoContainer,
                 View modelStatusIndicator, TextView modelNameText, TextView modelLatencyText,
                 TextView modelCostText) {
@@ -3468,7 +3487,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.timestampText = timestampText;
             this.statusIcon = statusIcon;
             this.statusText = statusText;
-            this.btnExpand = btnExpand;
             this.inferenceProgressView = inferenceProgressView;
             this.attachmentsRecycler = attachmentsRecycler;
             this.modelInfoContainer = modelInfoContainer;
@@ -3519,7 +3537,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView timestampText;
         ImageView statusIcon;
         TextView statusText;
-        TextView expandButton;
         InferenceProgressView inferenceProgressView;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         // 在线模型信息
@@ -3551,7 +3568,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.timestampText = dr.timestampText;
             this.statusIcon = dr.statusIcon;
             this.statusText = dr.statusText;
-            this.expandButton = dr.btnExpand;
             this.inferenceProgressView = dr.inferenceProgressView;
             this.attachmentsRecycler = dr.attachmentsRecycler;
             this.modelInfoContainer = dr.modelInfoContainer;
@@ -3836,6 +3852,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (position >= 0) {
             ChatMessage removed = messages.remove(position);
             notifyItemRemoved(position);
+            animatedMessageIds.remove(messageId);
             if (originalMessages != null && removed != null) {
                 originalMessages.remove(removed);
             }
@@ -4274,6 +4291,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         while (iterator.hasNext()) {
             ChatMessage msg = iterator.next();
             if (msg.id != null && selectedMessageIds.contains(msg.id)) {
+                animatedMessageIds.remove(msg.id);
                 iterator.remove();
             }
         }
@@ -4315,7 +4333,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         animatedMessageIds.add(message.id);
 
         boolean isUser = message.isUserMessage();
-        float fromX = isUser ? viewToAnimate.getWidth() * 0.15f : -viewToAnimate.getWidth() * 0.15f;
+        // 用固定 dp 偏移替代 getWidth()*0.15f：首帧未布局时 getWidth()==0，
+        // 固定值保证首次 bind 也有可见的方向感。30dp ≈ 主流聊天 App 的滑入距离。
+        int offsetPx = dpToPx(30, viewToAnimate.getContext());
+        float fromX = isUser ? offsetPx : -offsetPx;
         android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(true);
         android.view.animation.TranslateAnimation translate = new android.view.animation.TranslateAnimation(
                 fromX, 0f, 0f, 0f);
