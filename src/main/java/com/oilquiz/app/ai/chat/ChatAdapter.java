@@ -852,39 +852,53 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         if (message.isCompleted()) {
-            // 操作栏（复制/朗读/分享/重新生成）只对最终轮显示；中间轮次隐藏
+            // 操作栏只对最终轮显示并设置 listener；非最终轮 GONE 且不分配 lambda（Fix F）
             if (holder.actionButtons != null) {
                 holder.actionButtons.setVisibility(lastAi ? View.VISIBLE : View.GONE);
             }
 
-            if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(v -> {
-                copyToClipboard(v.getContext(), message.content);
-                if (actionClickListener != null) {
-                    actionClickListener.onAction(ChatMessage.Action.copy(message.content));
-                }
-            });
+            if (lastAi) {
+                // 复制/分享用剥离组件标记后的可读文本（Fix A）
+                final String exportContent = stripComponentMarkersForExport(message.content);
+                if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(v -> {
+                    copyToClipboard(v.getContext(), exportContent);
+                    if (actionClickListener != null) {
+                        actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
+                    }
+                });
 
-            if (holder.btnSpeak != null) holder.btnSpeak.setOnClickListener(v -> {
-                if (actionClickListener != null) {
-                    actionClickListener.onAction(ChatMessage.Action.speak(message.id, message.content));
-                }
-            });
+                if (holder.btnSpeak != null) holder.btnSpeak.setOnClickListener(v -> {
+                    if (actionClickListener != null) {
+                        actionClickListener.onAction(ChatMessage.Action.speak(message.id, exportContent));
+                    }
+                });
 
-            if (holder.btnShare != null) holder.btnShare.setOnClickListener(v -> {
-                shareText(v.getContext(), message.content);
-            });
+                if (holder.btnShare != null) holder.btnShare.setOnClickListener(v -> {
+                    shareText(v.getContext(), message.content);
+                    if (actionClickListener != null) {
+                        actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
+                    }
+                });
 
-            if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(v -> {
-                if (actionClickListener != null) {
-                    actionClickListener.onAction(ChatMessage.Action.regenerate(message.id));
-                }
-            });
+                if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(v -> {
+                    if (actionClickListener != null) {
+                        actionClickListener.onAction(ChatMessage.Action.regenerate(message.id));
+                    }
+                });
 
-            if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(v -> {
-                if (actionClickListener != null) {
-                    actionClickListener.onAction(ChatMessage.Action.newChat());
-                }
-            });
+                if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(v -> {
+                    if (actionClickListener != null) {
+                        actionClickListener.onAction(ChatMessage.Action.newChat());
+                    }
+                });
+            } else {
+                // 非最终轮：清除 listener 防止复用残留
+                if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(null);
+                if (holder.btnSpeak != null) holder.btnSpeak.setOnClickListener(null);
+                if (holder.btnShare != null) holder.btnShare.setOnClickListener(null);
+                if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(null);
+                if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(null);
+            }
         } else {
             if (holder.actionButtons != null) holder.actionButtons.setVisibility(View.GONE);
             // 清除按钮点击事件，避免 ViewHolder 复用时旧消息的监听器残留
@@ -902,7 +916,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void bindAgentStepStatus(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.agentStatus != null) {
-            if (message.agentStepStatus != null && !message.agentStepStatus.isEmpty()) {
+            // 完成后步骤行让位给汇总行：仅进行中显示；FAILED 保留（显示失败原因）
+            boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                    || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+            boolean failed = message.status == ChatMessage.MessageStatus.FAILED;
+            if ((streaming || failed) && message.agentStepStatus != null && !message.agentStepStatus.isEmpty()) {
                 holder.agentStatus.setText(message.agentStepStatus);
                 holder.agentStatus.setVisibility(View.VISIBLE);
             } else {
@@ -1367,19 +1385,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * @param message 绑定消息（折叠+流式时用于实时思考预览）
      */
     private void updateThinkingLabel(AIMessageViewHolder holder, boolean expanded, boolean isStreaming, ChatMessage message) {
-        // 折叠态摘要预览上限 2 行，超长省略（dsh ReasoningRow 同款：折叠只展示摘要，不占正文空间）
         holder.thinkingLabel.setMaxLines(2);
         holder.thinkingLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        // 摘要预览源：轮次模式下 thinkingContent 可能为空（已落入 rounds），取首段 rounds
+        String previewSource = "";
+        if (message != null) {
+            if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
+                previewSource = message.thinkingContent;
+            } else if (message.thinkingRounds != null && !message.thinkingRounds.isEmpty()) {
+                String first = message.thinkingRounds.get(0);
+                if (first != null) previewSource = first;
+            }
+        }
         if (isStreaming) {
-            // 流式中：提示用户"思考中"，并告知可点击展开/折叠
             if (expanded) {
                 holder.thinkingLabel.setText(R.string.chat_thinking_streaming_collapse);
             } else {
-                // 折叠 + 思考中：展示"最新已完成段落首行"摘要预览（dsh ReasoningRow 算法移植），
-                // 段落完成时逐段推进，不再是旧版"最后40字符"粗暴截断
-                String c = (message != null && message.thinkingContent != null)
-                        ? message.thinkingContent : "";
-                String preview = thinkingPreview(c, true);
+                String preview = thinkingPreview(previewSource, true);
                 if (!preview.isEmpty()) {
                     holder.thinkingLabel.setText("🧠 思考中：" + preview + "…");
                 } else {
@@ -1387,17 +1409,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             }
         } else {
-            // 已完成：显示"思考过程"+ 段落首行摘要（让用户知道思考了什么）
             if (expanded) {
                 holder.thinkingLabel.setText(R.string.chat_thinking_expanded);
             } else {
-                String c = (message != null && message.thinkingContent != null)
-                        ? message.thinkingContent : "";
-                String preview = thinkingPreview(c, false);
+                String preview = thinkingPreview(previewSource, false);
                 if (!preview.isEmpty()) {
                     holder.thinkingLabel.setText("💭 思考过程：" + preview + "…");
                 } else {
-                    // 折叠时附上内容长度，让用户知道不是空的
                     holder.thinkingLabel.setText(R.string.chat_thinking_collapsed);
                 }
             }
@@ -1556,10 +1574,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    /** 判断 position 是否为列表中最后一条 AI 消息（最终轮 meta：操作栏/统计/时间 只显示在此） */
+    /**
+     * 判断 position 是否为列表中最后一条可交互 AI 消息（操作栏/统计/时间只显示在此）。
+     * 后续的 AI 或 ERROR 消息都会使它不再是"最后可交互"（Fix I）。
+     */
     private boolean isLastAiMessage(int position) {
         for (int i = position + 1; i < messages.size(); i++) {
-            if (messages.get(i).type == ChatMessage.MessageType.AI) return false;
+            ChatMessage.MessageType t = messages.get(i).type;
+            if (t == ChatMessage.MessageType.AI || t == ChatMessage.MessageType.ERROR) return false;
         }
         return true;
     }
@@ -2163,14 +2185,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /**
-     * 切换工具过程卡片的展开/折叠：翻转状态后给 components 赋新引用，
-     * 绕过 boundComponents 引用检测触发组件容器重建。
+     * 切换工具过程卡片的展开/折叠：翻转状态后使指纹失效触发重建，
+     * 不替换 List 引用避免与外部生产者的 addAll 断链（Fix D）。
      */
     private void toggleAgentToolsExpanded(AIMessageViewHolder holder, ChatMessage message) {
         message.agentToolsExpanded = !message.agentToolsExpanded;
-        if (message.components != null) {
-            message.components = new java.util.ArrayList<>(message.components);
-        }
+        // 使组件指纹失效（-1 不可能被正常计算命中）
+        holder.boundComponentsFingerprint = -1;
         int pos = holder.getBindingAdapterPosition();
         if (pos != RecyclerView.NO_POSITION) {
             notifyItemChanged(pos);
@@ -3086,10 +3107,28 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         clipboard.setPrimaryClip(clip);
     }
 
+    /**
+     * 剥离组件标记（```component:xxx {...}```）和 Mermaid/Math 块标记，
+     * 返回用户可读的纯文本/Markdown。用于复制和分享。
+     */
+    private static String stripComponentMarkersForExport(String content) {
+        if (content == null || content.isEmpty()) return "";
+        // 去除 ```component:... ...``` 块（含内部 JSON）
+        String result = content.replaceAll("(?s)```component:\\w+\\s*\\n.*?\\n```", "");
+        // 去除 ```mermaid ...``` 块
+        result = result.replaceAll("(?s)```mermaid\\s*\\n.*?\\n```", "[图表]\n");
+        // 去除 $$..$$ 和 \[..\] 数学公式块
+        result = result.replaceAll("(?s)\\$\\$.*?\\$\\$", "[公式]\n");
+        // 压缩多余空行
+        result = result.replaceAll("\\n{3,}", "\n\n").trim();
+        return result;
+    }
+
     private void shareText(Context context, String text) {
+        String exportText = stripComponentMarkersForExport(text);
         Intent shareIntent = new Intent(Intent.ACTION_SEND);
         shareIntent.setType("text/plain");
-        shareIntent.putExtra(Intent.EXTRA_TEXT, text);
+        shareIntent.putExtra(Intent.EXTRA_TEXT, exportText);
         context.startActivity(Intent.createChooser(shareIntent, "分享消息"));
     }
 
