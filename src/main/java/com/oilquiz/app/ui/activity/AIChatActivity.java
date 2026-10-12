@@ -9702,7 +9702,115 @@ public class AIChatActivity extends BaseActivity {
             handleSpeakAction(action);
             return;
         }
+        // 工具失败重试 / 编辑参数重跑
+        if (action != null && action.type == ChatMessage.ActionType.RETRY_TOOL_CALL) {
+            handleRetryToolCall(action);
+            return;
+        }
+        if (action != null && action.type == ChatMessage.ActionType.EDIT_TOOL_ARGS) {
+            handleEditToolArgs(action);
+            return;
+        }
         if (dialogHelper != null) dialogHelper.handleAction(action, chatHistory);
+    }
+
+    /** 按 messageId 在 chatHistory 中定位消息 */
+    private ChatMessage findMessageById(String messageId) {
+        if (messageId == null || chatHistory == null) return null;
+        for (ChatMessage m : chatHistory) {
+            if (m != null && m.id != null && m.id.equals(messageId)) return m;
+        }
+        return null;
+    }
+
+    /** 工具参数 JSON 字符串 → Map（org.json 正确解析嵌套结构） */
+    private Map<String, Object> parseToolParamsJson(String json) {
+        Map<String, Object> params = new HashMap<>();
+        if (json == null || json.trim().isEmpty()) return params;
+        try {
+            org.json.JSONObject obj = new org.json.JSONObject(json);
+            java.util.Iterator<String> keys = obj.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                params.put(k, obj.get(k));
+            }
+        } catch (org.json.JSONException e) {
+            android.util.Log.w("AIChatActivity", "工具参数 JSON 解析失败: " + e.getMessage());
+        }
+        return params;
+    }
+
+    /**
+     * 重试失败的工具调用：用原参数重新执行，成功后回写 toolCallInfo 结果并刷新。
+     * action.messageId 定位消息，action.content 存 toolCallId（当前用于日志）。
+     */
+    private void handleRetryToolCall(ChatMessage.Action action) {
+        ChatMessage target = findMessageById(action.messageId);
+        if (target == null || target.toolCallInfo == null) {
+            showToast("⚠️ 未找到对应的工具调用");
+            return;
+        }
+        final ChatMessage.ToolCallInfo info = target.toolCallInfo;
+        final int pos = chatHistory.indexOf(target);
+        info.status = ChatMessage.ToolCallInfo.ToolCallStatus.RUNNING;
+        if (chatAdapter != null && pos >= 0) chatAdapter.notifyItemChanged(pos);
+        final Map<String, Object> params = parseToolParamsJson(info.parameters);
+        new Thread(() -> {
+            AIToolResult result = null;
+            try {
+                result = aiToolManager.executeTool(info.toolName, params);
+            } catch (Throwable t) {
+                android.util.Log.e("AIChatActivity", "工具重试异常: " + t.getMessage(), t);
+            }
+            final AIToolResult r = result;
+            final boolean ok = r != null && r.isSuccess();
+            runOnUiThread(() -> {
+                info.status = ok ? ChatMessage.ToolCallInfo.ToolCallStatus.COMPLETED
+                        : ChatMessage.ToolCallInfo.ToolCallStatus.FAILED;
+                info.result = ok ? String.valueOf(r.getResult())
+                        : (r != null ? r.getErrorMessage() : "执行失败");
+                if (ok) info.interpretationDone = false; // 允许重新解读
+                if (chatAdapter != null && pos >= 0) chatAdapter.notifyItemChanged(pos);
+                showToast(ok ? "✅ 工具重试成功" : "❌ 工具重试仍失败");
+            });
+        }).start();
+    }
+
+    /**
+     * 编辑工具参数并重跑：action.content 存新的参数 JSON。
+     * 用新参数覆盖 toolCallInfo.parameters 后重新执行。
+     */
+    private void handleEditToolArgs(ChatMessage.Action action) {
+        ChatMessage target = findMessageById(action.messageId);
+        if (target == null || target.toolCallInfo == null) {
+            showToast("⚠️ 未找到对应的工具调用");
+            return;
+        }
+        final ChatMessage.ToolCallInfo info = target.toolCallInfo;
+        final int pos = chatHistory.indexOf(target);
+        if (action.content != null) info.parameters = action.content;
+        info.status = ChatMessage.ToolCallInfo.ToolCallStatus.RUNNING;
+        if (chatAdapter != null && pos >= 0) chatAdapter.notifyItemChanged(pos);
+        final Map<String, Object> params = parseToolParamsJson(info.parameters);
+        new Thread(() -> {
+            AIToolResult result = null;
+            try {
+                result = aiToolManager.executeTool(info.toolName, params);
+            } catch (Throwable t) {
+                android.util.Log.e("AIChatActivity", "工具重跑异常: " + t.getMessage(), t);
+            }
+            final AIToolResult r = result;
+            final boolean ok = r != null && r.isSuccess();
+            runOnUiThread(() -> {
+                info.status = ok ? ChatMessage.ToolCallInfo.ToolCallStatus.COMPLETED
+                        : ChatMessage.ToolCallInfo.ToolCallStatus.FAILED;
+                info.result = ok ? String.valueOf(r.getResult())
+                        : (r != null ? r.getErrorMessage() : "执行失败");
+                if (ok) info.interpretationDone = false;
+                if (chatAdapter != null && pos >= 0) chatAdapter.notifyItemChanged(pos);
+                showToast(ok ? "✅ 已用新参数重跑" : "❌ 重跑失败");
+            });
+        }).start();
     }
 
     /**
