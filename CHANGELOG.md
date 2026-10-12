@@ -1,5 +1,49 @@
 # 变更日志
 
+## [2026-10-13] Agent 轮次渲染去重 + contentRoundBounds 持久化（实时/历史一致）
+
+### 背景
+
+真机验证发现同一 Agent 回答里工具卡片"出现两份同样的"。静态调用链追踪定位为两条渲染通道
+读同一份 `components`：
+
+- 通道 A `renderRoundAssembled`（`ChatAdapter` 行 1791）：`contentRoundBounds` 非空时把工具
+  卡片按"思考→正文→工具"时序**内联**进 contentHost。
+- 通道 B `bindComponents` 的"🔧 工具过程 N 个"折叠：把 `components` 里的 `tool_call` 再画一遍。
+
+### 修复
+
+- **单帧互斥（round-owner）**：`bindComponents` 中 `roundAssembled==true` 时 `toolCalls.clear()`，
+  工具卡片归通道 A 独占渲染，消除同一帧内 A/B 双份（提交 85704fe7）。
+- **实时/历史一致（持久化）**：`contentRoundBounds` 此前只在流式内存里写（`AIChatActivity`
+  行 6863），`ChatHistoryManager.deepCopyForSave` 补拷了 `components`/`thinkingRounds`/
+  `thinkingRoundIds` 却漏了它，Gson 落盘为 null → 重进后 `roundAssembled==false`，历史只能退回
+  通道 B 折叠形态，与实时的内联形态不一致。在 `deepCopyForSave` 补一行深拷贝 `contentRoundBounds`，
+  使历史加载也走通道 A，实时与重进统一为内联时序渲染。
+
+验证：`compileDebugJavaWithJavac` 通过（仅既有警告）。调用链确认在线 Agent 的
+`contentRoundBounds` 与 `tool_call` 组件由同一 `findMessageIndexById(currentStreamingMessageId)`
+定位到同一消息，修复走的是活路径而非兜底。
+
+- **轮次卡片嵌入错位（round-card-align）**：`renderRoundAssembled` 每个轮次边界按裸下标
+  `comps.get(compIdx++)` 取组件，而 `message.components` 是 `tool_call` 与工具产物（`list_card`
+  等，`ComponentCollector.drain()` 在工具完成时 `addAll` 追加）的混排列表。多轮串行时产物会夹在
+  「上一轮工具卡」与「下一轮 running 工具卡」之间，导致从第一次跨轮 drain 起：产物被当工具卡塞进
+  槽位、真正的工具卡越界（`bounds.size()` 之外）被 ROUND-OWNER 的 `clear()` 从通道 B 抹掉而彻底丢失、
+  产物又在底部 `others` 通道重复一份。修法：渲染前滤出纯 `tool_call` 子列表 `toolComps`，
+  指纹/增量/重建三个循环一律按 `toolComps` 索引；产物仍归 `bindComponents` 的 `others` 通道完整显示。
+  该错位经持久化改动后同时暴露在实时与历史重载两条路径。
+
+- **工具产物按轮内联（product-owner）**：在"对齐"之上进一步把工具产物（list_card/table 等）内联到
+  它所属那一轮工具卡正下方，形成完整"思考→正文→工具→该工具产物→下一轮"时序。做法：
+  `appendAgentToolCall` 在工具完成 drain 时给每个产物 props 写 `producerToolCallId`/`producerToolName`
+  归属标注，并按邻接（`match+1`）插入而非尾部追加；`renderRoundAssembled` 预计算 `roundProds`（每轮
+  按归属键认领产物，`assigned` 身份集去重，同名多工具时产物落首轮不重复）与 `tailProds`（无归属兜底），
+  指纹/增量/重建三循环统一编码并挂载这些产物（新增 `mountRoundComponent` 复用渲染/降级逻辑）；
+  `bindComponents` 的 ROUND-OWNER 由"仅清 toolCalls"扩展为"清 toolCalls + others"，因产物已由通道 A
+  全部内联，componentContainer 轮次模式不再参与。覆盖不变式：roundProds+tailProds = 所有非 tool_call
+  组件，故清空 B 的 others 不丢任何产物。验证：`compileDebugJavaWithJavac` BUILD SUCCESSFUL。
+
 ## [2026-10-12] ChatAdapter 深度审查 + 组件系统全面复用（渲染/反馈/回调/操作）
 
 ### 1) 背景

@@ -10167,7 +10167,20 @@ public class AIChatActivity extends BaseActivity {
                     java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> drained =
                             com.oilquiz.app.ai.chat.component.ComponentCollector.drain();
                     if (drained != null && !drained.isEmpty()) {
-                        comps.addAll(drained);
+                        // PRODUCT-OWNER(2026-10-13)：给每个产物标注归属工具（toolCallId 优先、
+                        // 无 id 时退化到 toolName），供 ChatAdapter 的 renderRoundAssembled 把产物
+                        // 内联到"它所属那一轮工具卡"正下方；同时按邻接插入（match+1）而非尾部追加，
+                        // 让非轮次通道的 others 也保持"工具→其产物"顺序，不再全堆到底部。
+                        String producerId = c.props.optString("toolCallId", "");
+                        String producerName = c.props.optString("toolName", "");
+                        for (com.oilquiz.app.ai.chat.component.ComponentData p : drained) {
+                            if (p == null || p.props == null) continue;
+                            try {
+                                if (producerId != null && !producerId.isEmpty()) p.props.put("producerToolCallId", producerId);
+                                if (producerName != null && !producerName.isEmpty()) p.props.put("producerToolName", producerName);
+                            } catch (Exception ignore) { /* org.json put 抛异常时跳过标注，不影响渲染 */ }
+                        }
+                        comps.addAll(match + 1, drained);
                     }
                     // 新引用触发 ChatAdapter 组件容器重建
                     msg.components = new java.util.ArrayList<>(comps);

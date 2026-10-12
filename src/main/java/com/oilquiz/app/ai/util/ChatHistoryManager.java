@@ -237,6 +237,11 @@ public class ChatHistoryManager {
             m.subId = msg.subId;
             m.components = msg.components != null ? new ArrayList<>(msg.components) : null;
             m.thinkingRounds = msg.thinkingRounds != null ? new ArrayList<>(msg.thinkingRounds) : null;
+            // 正文轮次边界随 components 一起拷贝：clone() 的 Builder 未覆盖该字段，若不补拷，
+            // 保存后 contentRoundBounds 丢失 → 历史加载时 roundAssembled=false，通道 A（renderRoundAssembled
+            // 内联"思考→正文→工具"时序）被跳过，工具卡片退回通道 B「工具过程」折叠渲染，
+            // 导致实时（内联）与重进（折叠）两种形态不一致。补拷后历史加载与实时走同一渲染路径。
+            m.contentRoundBounds = msg.contentRoundBounds != null ? new ArrayList<>(msg.contentRoundBounds) : null;
             // 思考轮 id 随轮次内容一起拷贝（2026-09-14）：恢复后 id 与轮次一一对应不丢
             m.thinkingRoundIds = msg.thinkingRoundIds != null ? new ArrayList<>(msg.thinkingRoundIds) : null;
             // Agent 运行时字段（clone() 的 Builder 未覆盖，直接赋值）

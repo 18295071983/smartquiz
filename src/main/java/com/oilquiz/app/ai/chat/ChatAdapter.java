@@ -1788,12 +1788,94 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 多轮按轮次组装渲染：轮1(思考块+正文段) → 工具卡片 → 轮2(思考块+正文段) → …
      * contentRoundBounds 为工具调用边界；thinkingRounds 为每轮思考；components 为工具卡片。
      */
+    /** 工具卡片归属键：toolCallId 优先，空则退化到 toolName（本地 Agent 无 id 场景）。 */
+    private static String toolRoundKey(ComponentData tool) {
+        if (tool == null) return "";
+        String id = tool.props != null ? tool.props.optString("toolCallId", "") : "";
+        if (id != null && !id.isEmpty()) return "id:" + id;
+        String name = tool.props != null ? tool.props.optString("toolName", "") : "";
+        return "name:" + (name != null ? name : "");
+    }
+
+    /** 产物卡片归属键：producerToolCallId 优先，空则 producerToolName；都缺则 null（走尾部兜底）。 */
+    private static String productOwnerKey(ComponentData prod) {
+        if (prod == null || prod.props == null) return null;
+        String id = prod.props.optString("producerToolCallId", "");
+        if (id != null && !id.isEmpty()) return "id:" + id;
+        String name = prod.props.optString("producerToolName", "");
+        if (name != null && !name.isEmpty()) return "name:" + name;
+        return null;
+    }
+
+    /** 把一个组件（工具卡或产物卡）渲染挂载到 contentHost；渲染失败降级为占位文本，不显示源码。 */
+    private void mountRoundComponent(AIMessageViewHolder holder, Context ctx, ComponentData comp) {
+        if (comp == null) return;
+        View v = ComponentRegistry.getInstance().render(ctx, comp);
+        if (v == null) {
+            TextView tv = createSegmentTextView(ctx, holder.messageText);
+            tv.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ce08c6dd)
+                    + comp.type + SmartQuizApplication.getAppContext().getString(R.string.h_56e45313));
+            tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
+            holder.contentHost.addView(tv);
+        } else {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dpToPx(8, ctx);
+            holder.contentHost.addView(v, lp);
+        }
+    }
+
     private void renderRoundAssembled(AIMessageViewHolder holder, ChatMessage message, int availableWidth, Context ctx) {
         if (holder.contentHost == null) return;
         String content = message.content != null ? message.content : "";
         java.util.List<Integer> bounds = message.contentRoundBounds;
         java.util.List<String> thinks = message.thinkingRounds;
         java.util.List<ComponentData> comps = message.components;
+        // ROUND-CARD-ALIGN(2026-10-13)：轮次边界与「工具卡片」才是 1:1（每个 onToolCallStart
+        // 记一个 bound + append 一张 tool_call）。但 message.components 是混排列表：工具产物
+        // （list_card/image_grid 等）由 ComponentCollector.drain() 在工具**完成**时 addAll 追加，
+        // 多轮串行时产物会夹在「上一轮工具卡」与「下一轮 running 工具卡」之间，使裸下标
+        // comps.get(i) 从第一次跨轮 drain 起错位——把产物当工具卡渲染、真正的工具卡越界丢失、
+        // 产物又在底部 others 通道重复一份。故此处先滤出纯 tool_call 子列表，三个循环一律按它索引；
+        // 产物仍归 bindComponents 的 others 通道（始终完整显示），不再参与轮次槽位。
+        java.util.List<ComponentData> toolComps = new java.util.ArrayList<>();
+        if (comps != null) {
+            for (ComponentData c : comps) {
+                if (c != null && "tool_call".equals(c.type)) toolComps.add(c);
+            }
+        }
+        // PRODUCT-OWNER(2026-10-13)：把工具产物按「归属键」内联到其所属轮次工具卡正下方，
+        // 形成"思考→正文→工具→该工具产物→下一轮"的完整时序；无归属标注或键匹配不到任何工具的
+        // 产物收进 tailProds，在循环末尾兜底渲染，保证一个产物都不丢、也绝不重复。
+        // 每个产物只归属首个键匹配的轮次（同一 toolName 出现在多轮时，产物落在第一轮，后续轮空手），
+        // 用 assigned 身份集去重。三处循环（指纹/增量/重建）都读同一份 roundProds/tailProds 保持一致。
+        int nRounds = bounds.size();
+        java.util.List<java.util.List<ComponentData>> roundProds =
+                new java.util.ArrayList<>(Math.max(0, nRounds));
+        java.util.List<ComponentData> tailProds = new java.util.ArrayList<>();
+        java.util.Set<ComponentData> assigned =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<ComponentData, Boolean>());
+        for (int i = 0; i < nRounds; i++) roundProds.add(new java.util.ArrayList<ComponentData>());
+        if (comps != null && nRounds > 0) {
+            for (int i = 0; i < nRounds; i++) {
+                String key = toolRoundKey(toolComps.size() > i ? toolComps.get(i) : null);
+                java.util.List<ComponentData> bucket = roundProds.get(i);
+                for (ComponentData p : comps) {
+                    if (p == null || "tool_call".equals(p.type)) continue;
+                    if (assigned.contains(p)) continue;
+                    if (key.equals(productOwnerKey(p))) { bucket.add(p); assigned.add(p); }
+                }
+            }
+            for (ComponentData p : comps) {
+                if (p == null || "tool_call".equals(p.type)) continue;
+                if (!assigned.contains(p)) tailProds.add(p);
+            }
+        } else if (comps != null) {
+            // 无轮次边界（不应发生，外层已保证 bounds 非空才进此方法）：全部产物走尾部兜底
+            for (ComponentData p : comps) {
+                if (p != null && !"tool_call".equals(p.type)) tailProds.add(p);
+            }
+        }
         // 折叠机制：thinkingLabel 作为折叠开关（始终可见，流式中显示实时思考预览），
         // 思考块仅在 thinkingExpanded 时内嵌到轮次中显示；折叠时只显示正文段+工具卡片
         boolean expanded = message.thinkingExpanded;
@@ -1829,8 +1911,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             String seg = start < content.length() ? content.substring(start, end) : "";
             if (seg != null && !seg.trim().isEmpty()) { fp.append('T'); expect++; }
             start = end;
-            if (i < bounds.size() && comps != null && compIdx < comps.size()) {
-                ComponentData comp = comps.get(compIdx);
+            if (i < bounds.size() && compIdx < toolComps.size()) {
+                ComponentData comp = toolComps.get(compIdx);
+                int tkey = compIdx;
                 compIdx++;
                 if (comp != null && comp.props != null) {
                     fp.append('C').append(comp.type).append('|').append(comp.props.toString()).append(';');
@@ -1838,7 +1921,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     fp.append("Cnull;");
                 }
                 expect++;
+                // 该工具卡的内联产物（P 段随工具卡一起编码，产物 props 变化会触发重建）
+                if (tkey < nRounds) {
+                    for (ComponentData p : roundProds.get(tkey)) {
+                        fp.append('P').append(p.type).append('|')
+                          .append(p.props != null ? p.props.toString() : "null").append(';');
+                        expect++;
+                    }
+                }
             }
+        }
+        // 尾部兜底产物（无归属标注 / 匹配不到任何工具）
+        for (ComponentData p : tailProds) {
+            fp.append('P').append(p.type).append('|')
+              .append(p.props != null ? p.props.toString() : "null").append(';');
+            expect++;
         }
         // 最终轮思考（流式中或未落库的当前轮思考，未进 thinkingRounds 时补一块；仅展开时显示）
         String curThink = message.thinkingContent != null ? message.thinkingContent.trim() : "";
@@ -1882,11 +1979,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     childIdx++;
                 }
                 start = end;
-                if (i < bounds.size() && comps != null && compIdx < comps.size()) {
+                if (i < bounds.size() && compIdx < toolComps.size()) {
+                    int tkey = compIdx;
                     compIdx++;
                     childIdx++;  // 工具卡片已挂载，跳过
+                    if (tkey < nRounds) childIdx += roundProds.get(tkey).size();  // 内联产物已挂载，跳过
                 }
             }
+            childIdx += tailProds.size();  // 尾部兜底产物已挂载，跳过
             return;
         }
 
@@ -1916,26 +2016,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.contentHost.addView(tv);
             }
             start = end;
-            // 该轮后的工具卡片（第 i 个工具调用）
-            if (i < bounds.size() && comps != null && compIdx < comps.size()) {
-                ComponentData comp = comps.get(compIdx);
+            // 该轮后的工具卡片（第 i 个工具调用）+ 其内联产物
+            if (i < bounds.size() && compIdx < toolComps.size()) {
+                ComponentData comp = toolComps.get(compIdx);
+                int tkey = compIdx;
                 compIdx++;
-                if (comp != null) {
-                    View v = ComponentRegistry.getInstance().render(ctx, comp);
-                    if (v == null) {
-                        TextView tv = createSegmentTextView(ctx, holder.messageText);
-                        tv.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ce08c6dd)
-                                + comp.type + SmartQuizApplication.getAppContext().getString(R.string.h_56e45313));
-                        tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-                        holder.contentHost.addView(tv);
-                    } else {
-                        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                        lp.topMargin = dpToPx(8, ctx);
-                        holder.contentHost.addView(v, lp);
+                mountRoundComponent(holder, ctx, comp);
+                if (tkey < nRounds) {
+                    for (ComponentData p : roundProds.get(tkey)) {
+                        mountRoundComponent(holder, ctx, p);
                     }
                 }
             }
+        }
+
+        // 尾部兜底产物（无归属标注 / 匹配不到任何工具）
+        for (ComponentData p : tailProds) {
+            mountRoundComponent(holder, ctx, p);
         }
 
         // 最终轮思考（流式中或未落库的当前轮思考，未进 thinkingRounds 时补一块；仅展开时显示）
@@ -3099,15 +3196,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             else others.add(data);
         }
 
-        // ROUND-OWNER(2026-10-13)：轮次组装模式（contentRoundBounds 非空）下，tool_call 卡片
-        // 由 renderRoundAssembled 按"思考→工具→思考→工具"时序**内联**到 contentHost 独占渲染。
-        // 这里若再把同一批 tool_call 折叠进 componentContainer，会导致工具卡片显示两遍
-        // （内联一份 + 底部"工具过程 N 个"折叠一份）。故轮次模式下清空 toolCalls，
-        // componentContainer 只保留非 tool_call 产物（list_card/image_grid 等）。
+        // ROUND-OWNER(2026-10-13)：轮次组装模式（contentRoundBounds 非空）下，工具卡片**及其产物**
+        // 由 renderRoundAssembled 按"思考→正文→工具→该工具产物→下一轮"时序内联到 contentHost 独占渲染。
+        // roundProds/tailProds 覆盖了 components 里每一个非 tool_call 组件，若这里再走 componentContainer
+        // 会把同一批卡片显示两遍。故轮次模式下 toolCalls 与 others 一并清空，componentContainer 不参与。
         boolean roundAssembled = message.contentRoundBounds != null
                 && !message.contentRoundBounds.isEmpty();
         if (roundAssembled) {
             toolCalls.clear();
+            others.clear();
         }
 
         // 工具卡片是否全部执行完成（存在 running 则保持实时显示不折叠）
