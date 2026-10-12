@@ -122,6 +122,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             ai.holderMessage = null;
             // 回收时清理 Agent 汇总组件槽位，避免残留 view 挂到下一个绑定的消息上
             clearAgentSummarySlot(ai);
+            // 清理 Agent 执行面板缓存字段（面板本身随 holder 复用，只需重置指纹）
+            ai.agentExecFp = null;
+            ai.agentExecBlockCount = -1;
+            if (ai.agentExecutionView != null) ai.agentExecutionView.hide();
         }
     }
 
@@ -480,6 +484,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         bubble.addView(inferenceProgressView);
 
+        // --- Agent 执行面板（结构化 blocks 可视化：日志/当前步骤/工具参数/结果） ---
+        AgentExecutionView agentExecutionView = new AgentExecutionView(ctx);
+        agentExecutionView.setVisibility(View.GONE);
+        LinearLayout.LayoutParams aevLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        aevLp.topMargin = dpToPx(4, ctx);
+        agentExecutionView.setLayoutParams(aevLp);
+        bubble.addView(agentExecutionView);
+
         // --- 工具卡片组件容器 ---
         LinearLayout componentContainer = new LinearLayout(ctx);
         componentContainer.setOrientation(LinearLayout.VERTICAL);
@@ -631,7 +644,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
                 agentStatus, agentSummary, actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate,
                 btnNewChat, btnLike, btnDislike, btnStop, timestampText, statusIcon, statusText,
-                inferenceProgressView,
+                inferenceProgressView, agentExecutionView,
                 attachmentsRecycler, modelInfoContainer, modelStatusIndicator, modelNameText,
                 modelLatencyText, modelCostText);
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
@@ -1121,6 +1134,85 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             } else {
                 holder.btnStop.setOnClickListener(null);
             }
+        }
+        // Agent 执行面板：结构化 blocks 可视化（日志/当前步骤/工具参数/结果）
+        renderAgentExecutionView(holder, message);
+    }
+
+    /**
+     * 把 ChatMessage.agentExecutionState 的结构化数据同步到 AgentExecutionView。
+     * 无 state 或非 Agent 模式时隐藏面板。用 blocks.size()+currentStep+status 做指纹，
+     * 只在数据变化时更新，避免流式重复 bind 抖动。
+     */
+    private void renderAgentExecutionView(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.agentExecutionView == null) return;
+        com.oilquiz.app.ai.agent.AgentExecutionState st = message.agentExecutionState;
+        if (st == null || !message.agentMode) {
+            holder.agentExecutionView.hide();
+            return;
+        }
+        holder.agentExecutionView.show();
+        // 指纹：blocks 数量 + 当前步 + 状态
+        int blocksCount = st.getBlocks() != null ? st.getBlocks().size() : 0;
+        final String fp = blocksCount + "_" + st.getCurrentStep() + "_" + st.getTotalTokens()
+                + "_" + (message.status != null ? message.status.name() : "");
+        if (fp.equals(holder.agentExecFp)) return;
+        holder.agentExecFp = fp;
+        try {
+            // 步骤计数
+            holder.agentExecutionView.updateCurrentStep(
+                    st.getCurrentStep(),
+                    st.getCurrentStep() > 0 && st.getBlocks() != null
+                            ? mapBlockTypeToLabel(st.getBlocks().get(st.getCurrentStep() - 1).getType())
+                            : "准备",
+                    st.getMessageId(),
+                    st.getFinalAnswer() != null ? st.getFinalAnswer() : "");
+            // Token 统计
+            holder.agentExecutionView.updateInferenceProgress(
+                    st.getTotalTokens(),
+                    st.getTotalTokens() > 0 && st.getEndTime() > st.getStartTime()
+                            ? (st.getTotalTokens() * 1000f / (st.getEndTime() - st.getStartTime()))
+                            : 0f);
+            // 遍历 blocks 呈现日志（首次或数量变化时全量重建，避免重复 addLogEntry）
+            if (st.getBlocks() != null && blocksCount > 0) {
+                // 简化：只在数量变化时重放；AgentExecutionView 内部会滚动到底部
+                if (holder.agentExecBlockCount != blocksCount) {
+                    // 清空旧日志：AgentExecutionView 无 clearLogs API，用反射或直接依赖 addLogEntry 追加
+                    // 这里采用简化策略：只把最新 block 加进去
+                    com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock last =
+                            st.getBlocks().get(blocksCount - 1);
+                    holder.agentExecutionView.addLogEntry(
+                            mapBlockTypeToLabel(last.getType()),
+                            last.getContent() != null ? last.getContent() : last.getTitle());
+                    holder.agentExecBlockCount = blocksCount;
+                }
+            }
+            // 完成/失败状态
+            if (message.status == ChatMessage.MessageStatus.COMPLETED) {
+                holder.agentExecutionView.completeExecution(st.getFinalAnswer());
+            } else if (message.status == ChatMessage.MessageStatus.FAILED) {
+                holder.agentExecutionView.failExecution(
+                        message.errorDetail != null ? message.errorDetail : "执行失败");
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** BlockType → 中文标签（用于 AgentExecutionView 步骤类型显示） */
+    private static String mapBlockTypeToLabel(
+            com.oilquiz.app.ai.agent.AgentExecutionState.BlockType t) {
+        if (t == null) return "步骤";
+        switch (t) {
+            case THINKING: return "思考";
+            case PLANNING: return "规划";
+            case TOOL_CALL: return "工具调用";
+            case TOOL_RESULT: return "工具结果";
+            case INFERENCE: return "推理";
+            case OBSERVATION: return "观察";
+            case REFLECTION: return "反思";
+            case ERROR: return "错误";
+            case TEXT:
+            default: return "输出";
         }
     }
 
@@ -4152,6 +4244,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final ImageView statusIcon;
         final TextView statusText;
         final InferenceProgressView inferenceProgressView;
+        final AgentExecutionView agentExecutionView;
         final androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         final View modelInfoContainer;
         final View modelStatusIndicator;
@@ -4166,6 +4259,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView btnRegenerate, TextView btnNewChat, TextView btnLike, TextView btnDislike,
                 TextView btnStop, TextView timestampText, ImageView statusIcon,
                 TextView statusText, InferenceProgressView inferenceProgressView,
+                AgentExecutionView agentExecutionView,
                 androidx.recyclerview.widget.RecyclerView attachmentsRecycler, View modelInfoContainer,
                 View modelStatusIndicator, TextView modelNameText, TextView modelLatencyText,
                 TextView modelCostText) {
@@ -4192,6 +4286,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.statusIcon = statusIcon;
             this.statusText = statusText;
             this.inferenceProgressView = inferenceProgressView;
+            this.agentExecutionView = agentExecutionView;
             this.attachmentsRecycler = attachmentsRecycler;
             this.modelInfoContainer = modelInfoContainer;
             this.modelStatusIndicator = modelStatusIndicator;
@@ -4229,6 +4324,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         View agentSummarySlot;
         /** Agent 汇总卡片的指纹缓存，字段变化才重渲染 */
         String agentSummaryFp;
+        /** Agent 执行面板指纹缓存（blocks 数 + 当前步 + tokens + status） */
+        String agentExecFp;
+        /** Agent 执行面板已呈现的 block 数（增量 addLogEntry 用） */
+        int agentExecBlockCount = -1;
         /** 思考区展开/折叠动画：点击切换时先取消旧动画，防止连续点击/流式更新时动画竞争 */
         android.animation.ValueAnimator thinkingAnimator;
         TextView thinkingLabel;
@@ -4249,6 +4348,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ImageView statusIcon;
         TextView statusText;
         InferenceProgressView inferenceProgressView;
+        AgentExecutionView agentExecutionView;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         // 在线模型信息
         View modelInfoContainer;
@@ -4283,6 +4383,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.statusIcon = dr.statusIcon;
             this.statusText = dr.statusText;
             this.inferenceProgressView = dr.inferenceProgressView;
+            this.agentExecutionView = dr.agentExecutionView;
             this.attachmentsRecycler = dr.attachmentsRecycler;
             this.modelInfoContainer = dr.modelInfoContainer;
             this.modelStatusIndicator = dr.modelStatusIndicator;
