@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-10-13] 历史抽屉悬浮球 + AIChatActivity 死代码清理
+
+- **可拖拽历史悬浮球**：`AIChatActivity` 对话页左下新增 🕘 悬浮球，点击直接打开对话历史抽屉
+  （历史入口 `btn_history` 原本埋在工具抽屉 `view_tool_drawer.xml` 里，需先开工具抽屉，操作不便）。
+  拖拽/夹取/位置持久化/touchSlop 判定抽成通用控件 `ai.chat.ui.DraggableFloatingBall`（构造传 View +
+  回调 + keyPrefix，可复用），Activity 只注入 `openHistoryDrawer()` 回调，不内联触摸逻辑。
+- **AIChatActivity 死代码清理**：删除上下文组装迁移到 `ChatContextBuilder` 后遗留、文件内零调用的
+  三个 private 方法 `estimateTokens` / `lastUserMessageIndex` / `mergeConsecutiveSameRole`（−33 行）。
+  系统性扫描确认无其它零调用 private 方法。
+
 ## [2026-10-13] 纯文本气泡 WebView 渲染（MarkdownHtmlConverter + MarkdownWebView）
 
 ### 背景
