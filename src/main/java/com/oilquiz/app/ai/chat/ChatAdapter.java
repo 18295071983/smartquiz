@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.chat;
 import com.oilquiz.app.SmartQuizApplication;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.agent.ToolResultInterpreter;
+import com.oilquiz.app.ai.chat.component.ComponentActions;
 import com.oilquiz.app.ai.chat.component.ComponentContentSplitter;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.chat.component.ComponentRegistry;
@@ -877,25 +878,32 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final String rawContent = message.content;
         menu.setOnMenuItemClickListener(item -> {
             if (actionClickListener == null) return false;
+            android.content.Context ctx = anchor.getContext();
             switch (item.getItemId()) {
                 case 1:
-                    copyToClipboard(anchor.getContext(), exportContent);
+                    copyToClipboard(ctx, exportContent);
                     actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
+                    ComponentActions.dispatchChatAction(ctx, "copy:" + msgId);
                     return true;
                 case 2:
                     actionClickListener.onAction(ChatMessage.Action.speak(msgId, exportContent));
+                    ComponentActions.dispatchChatAction(ctx, "speak:" + msgId);
                     return true;
                 case 3:
                     actionClickListener.onAction(ChatMessage.Action.quoteMessage(msgId, rawContent));
+                    ComponentActions.dispatchChatAction(ctx, "quote:" + msgId);
                     return true;
                 case 4:
                     actionClickListener.onAction(ChatMessage.Action.editMessage(msgId, rawContent));
+                    ComponentActions.dispatchChatAction(ctx, "edit:" + msgId);
                     return true;
                 case 5:
                     actionClickListener.onAction(ChatMessage.Action.deleteMessage(msgId));
+                    ComponentActions.dispatchChatAction(ctx, "delete:" + msgId);
                     return true;
                 case 6:
                     actionClickListener.onAction(ChatMessage.Action.showDetail(msgId));
+                    ComponentActions.dispatchChatAction(ctx, "detail:" + msgId);
                     return true;
                 default:
                     return false;
@@ -991,6 +999,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (actionClickListener != null) {
                         actionClickListener.onAction(ChatMessage.Action.speak(message.id, exportContent));
                     }
+                    boolean speakingNow = message.id != null && message.id.equals(speakingMessageId);
+                    ComponentActions.dispatchChatAction(v.getContext(),
+                            speakingNow ? "stop_speak" : ("speak:" + message.id));
                 });
 
                 if (holder.btnShare != null) holder.btnShare.setOnClickListener(v -> {
@@ -1004,12 +1015,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (actionClickListener != null) {
                         actionClickListener.onAction(ChatMessage.Action.regenerate(message.id));
                     }
+                    ComponentActions.dispatchChatAction(v.getContext(), "regen:" + message.id);
                 });
 
                 if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(v -> {
                     if (actionClickListener != null) {
                         actionClickListener.onAction(ChatMessage.Action.newChat());
                     }
+                    ComponentActions.dispatchChatAction(v.getContext(), "new_chat");
                 });
 
                 if (holder.btnLike != null) holder.btnLike.setOnClickListener(v -> {
@@ -1018,6 +1031,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (actionClickListener != null && message.feedbackState == 1) {
                         actionClickListener.onAction(ChatMessage.Action.like(message.id));
                     }
+                    ComponentActions.dispatchChatAction(v.getContext(),
+                            (message.feedbackState == 1 ? "like:" : "unlike:") + message.id);
                 });
                 if (holder.btnDislike != null) holder.btnDislike.setOnClickListener(v -> {
                     message.feedbackState = (message.feedbackState == -1) ? 0 : -1;
@@ -1025,6 +1040,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (actionClickListener != null && message.feedbackState == -1) {
                         actionClickListener.onAction(ChatMessage.Action.dislike(message.id));
                     }
+                    ComponentActions.dispatchChatAction(v.getContext(),
+                            (message.feedbackState == -1 ? "dislike:" : "undislike:") + message.id);
                 });
                 applyFeedbackVisual(holder, message);
                 applySpeakingVisual(holder, message);
@@ -1093,6 +1110,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (actionClickListener != null) {
                         actionClickListener.onAction(ChatMessage.Action.stopGeneration(msgId));
                     }
+                    ComponentActions.dispatchChatAction(v.getContext(), "stop:" + msgId);
                 });
             } else {
                 holder.btnStop.setOnClickListener(null);
@@ -1148,52 +1166,104 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         timestampText.setOnClickListener(v -> showDetailDialog(v.getContext(), message));
     }
 
-    /** 展示消息元数据：完整时间/角色/状态/id/turnId/subId/tokens/耗时/模型/重试 */
+    /** 展示消息元数据：使用 HtmlCardView 组件渲染富样式卡片（表格+徽章+代码块） */
     private void showDetailDialog(android.content.Context ctx, ChatMessage message) {
-        StringBuilder sb = new StringBuilder();
-        java.text.SimpleDateFormat fullFmt = new java.text.SimpleDateFormat(
-                "yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault());
-        sb.append("完整时间：").append(fullFmt.format(new java.util.Date(message.timestamp))).append("\n");
-        sb.append("角色：").append(message.getRole()).append("  类型：").append(message.type).append("\n");
-        sb.append("状态：").append(message.status).append("\n");
-        if (message.id != null) sb.append("消息 id：").append(message.id).append("\n");
-        if (message.turnId != null) sb.append("回合：").append(message.turnId).append("\n");
-        if (message.subId != null) sb.append("子 id：").append(message.subId).append("\n");
-        if (message.tokensGenerated > 0) {
-            sb.append("Tokens：").append(message.tokensGenerated);
-            if (message.generationTimeMs > 0) {
-                sb.append("  耗时：").append(String.format(java.util.Locale.getDefault(),
-                        "%.2fs", message.generationTimeMs / 1000.0));
-            }
-            if (message.tokensPerSecond > 0) {
-                sb.append("  速度：").append(String.format(java.util.Locale.getDefault(),
-                        "%.1f tok/s", message.tokensPerSecond));
-            }
-            sb.append("\n");
-        }
-        if (message.modelInfo != null && message.modelInfo.modelName != null) {
-            sb.append("模型：").append(message.modelInfo.modelName);
-            if (message.modelInfo.latencyMs > 0) {
-                sb.append("  延迟：").append(message.modelInfo.latencyMs).append("ms");
-            }
-            if (message.modelInfo.costEstimate > 0) {
-                sb.append(String.format(java.util.Locale.getDefault(),
-                        "  成本：$%.4f", message.modelInfo.costEstimate));
-            }
-            sb.append("\n");
-        }
-        if (message.retryCount > 0) sb.append("重试次数：").append(message.retryCount).append("\n");
-        if (message.feedbackState != 0) sb.append("反馈：").append(message.feedbackState == 1 ? "👍 已赞" : "👎 已踩").append("\n");
-        if (message.errorDetail != null && !message.errorDetail.isEmpty()) {
-            sb.append("错误详情：").append(message.errorDetail).append("\n");
-        }
+        String html = buildDetailHtml(message);
         try {
-            new android.app.AlertDialog.Builder(ctx)
-                    .setTitle("消息详情")
-                    .setMessage(sb.toString())
-                    .setPositiveButton("关闭", null)
-                    .show();
+            org.json.JSONObject props = new org.json.JSONObject();
+            props.put("html", html);
+            props.put("maxHeight", 480);
+            ComponentData data = new ComponentData("html", props);
+            View card = ComponentRegistry.getInstance().render(ctx, data);
+            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx)
+                    .setTitle("消息详情");
+            if (card != null) {
+                b.setView(card);
+            } else {
+                b.setMessage(html.replaceAll("(?s)<[^>]+>", " ").trim());
+            }
+            b.setPositiveButton("关闭", null).show();
         } catch (Throwable ignored) {}
+    }
+
+    /** 构造消息详情 HTML：卡片头 + 元数据表 + 模型统计 + 反馈徽章 */
+    private static String buildDetailHtml(ChatMessage m) {
+        java.text.SimpleDateFormat full = new java.text.SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault());
+        StringBuilder sb = new StringBuilder();
+        sb.append("<div style='padding:12px;font-family:system-ui'>");
+        // 头部徽章
+        String roleColor = m.type == ChatMessage.MessageType.AI ? "#3B82F6"
+                : m.type == ChatMessage.MessageType.USER ? "#10B981"
+                : m.type == ChatMessage.MessageType.ERROR ? "#EF4444" : "#6B7280";
+        sb.append("<div style='display:flex;align-items:center;gap:8px;margin-bottom:12px'>");
+        sb.append("<span style='background:").append(roleColor)
+                .append(";color:#fff;padding:3px 10px;border-radius:12px;font-size:12px'>")
+                .append(escape(m.type.name())).append("</span>");
+        sb.append("<span style='color:#6B7280;font-size:12px'>")
+                .append(escape(m.status != null ? m.status.name() : "")).append("</span>");
+        if (m.feedbackState == 1) sb.append("<span style='color:#10B981'>👍</span>");
+        if (m.feedbackState == -1) sb.append("<span style='color:#EF4444'>👎</span>");
+        if (m.retryCount > 0) sb.append("<span style='color:#F59E0B'>🔄 第 ").append(m.retryCount + 1).append(" 次</span>");
+        sb.append("</div>");
+
+        // 元数据表
+        sb.append("<table style='width:100%;border-collapse:collapse;font-size:13px'>");
+        addRow(sb, "完整时间", full.format(new java.util.Date(m.timestamp)));
+        addRow(sb, "消息 ID", m.id != null ? m.id : "—");
+        if (m.turnId != null) addRow(sb, "回合", m.turnId);
+        if (m.subId != null) addRow(sb, "子 id", m.subId);
+        if (m.tokensGenerated > 0) {
+            addRow(sb, "Tokens", String.valueOf(m.tokensGenerated));
+            if (m.generationTimeMs > 0) {
+                addRow(sb, "耗时", String.format(java.util.Locale.getDefault(),
+                        "%.2fs", m.generationTimeMs / 1000.0));
+            }
+            if (m.tokensPerSecond > 0) {
+                addRow(sb, "速度", String.format(java.util.Locale.getDefault(),
+                        "%.1f tok/s", m.tokensPerSecond));
+            }
+        }
+        if (m.usingGPU && m.gpuLayers > 0) {
+            addRow(sb, "加速", "GPU/NPU " + m.gpuLayers + " 层");
+        }
+        sb.append("</table>");
+
+        // 模型信息块
+        if (m.modelInfo != null && m.modelInfo.modelName != null) {
+            sb.append("<div style='margin-top:12px;padding:10px;background:#F1F5F9;border-radius:8px'>");
+            sb.append("<div style='font-weight:600;color:#334155;font-size:13px;margin-bottom:4px'>")
+                    .append(escape(m.modelInfo.modelName)).append("</div>");
+            sb.append("<div style='color:#64748B;font-size:12px;display:flex;gap:12px'>");
+            if (m.modelInfo.latencyMs > 0) sb.append("延迟 ").append(m.modelInfo.latencyMs).append("ms");
+            if (m.modelInfo.costEstimate > 0) sb.append("成本 $")
+                    .append(String.format(java.util.Locale.getDefault(), "%.4f", m.modelInfo.costEstimate));
+            sb.append(" · 状态 ").append(escape(m.modelInfo.getStatusText()));
+            sb.append("</div></div>");
+        }
+
+        // 错误详情
+        if (m.errorDetail != null && !m.errorDetail.isEmpty()) {
+            sb.append("<div style='margin-top:12px;padding:10px;background:#FEE2E2;border-left:4px solid #EF4444;border-radius:4px;color:#991B1B;font-size:12px'>")
+                    .append(escape(m.errorDetail)).append("</div>");
+        }
+
+        sb.append("</div>");
+        return sb.toString();
+    }
+
+    private static void addRow(StringBuilder sb, String key, String value) {
+        sb.append("<tr>")
+                .append("<td style='padding:6px 8px;color:#64748B;width:40%;vertical-align:top;border-bottom:1px solid #E5E7EB'>")
+                .append(escape(key)).append("</td>")
+                .append("<td style='padding:6px 8px;color:#1F2937;word-break:break-all;border-bottom:1px solid #E5E7EB'>")
+                .append(escape(value)).append("</td>")
+                .append("</tr>");
+    }
+
+    private static String escape(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 
     /**

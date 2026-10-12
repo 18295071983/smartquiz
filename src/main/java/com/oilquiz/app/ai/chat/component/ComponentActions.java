@@ -132,6 +132,35 @@ public final class ComponentActions {
     }
 
     /** 通知组件结果（组件按钮 action=callback 时调用）。优先按 component_id 分发，未注册时回退全局回调。 */
+    /**
+     * 公开入口：向组件结果回调体系分发一次用户操作。
+     * 用于非组件按钮来源的用户交互（如 ChatAdapter 操作栏/长按菜单），让 Agent 能通过
+     * get_result 取回用户在 UI 上的选择。
+     *
+     * @param context     用于兜底注册全局回调
+     * @param componentId 组件/通道 id；null 或 empty 时分发到全局 resultCallback
+     * @param value       用户操作值（如 "like" / "quote:T1-2" / "stop" / "delete:T3"）
+     */
+    public static void dispatchResult(Context context, String componentId, String value) {
+        notifyResult(context, componentId, value);
+    }
+
+    /**
+     * ChatAdapter 用户交互统一分发：走专用 componentId="chat_ui_actions"，
+     * Agent 可通过 get_result("chat_ui_actions") 取到最近一次消息级操作。
+     * value 语义：
+     *  - like:&lt;msgId&gt; / dislike:&lt;msgId&gt; — 反馈
+     *  - speak:&lt;msgId&gt; / stop_speak — 朗读控制
+     *  - stop:&lt;msgId&gt; — 停止生成
+     *  - quote:&lt;msgId&gt; / edit:&lt;msgId&gt; / delete:&lt;msgId&gt; / detail:&lt;msgId&gt; — 长按菜单
+     *  - regen:&lt;msgId&gt; / new_chat — 操作栏
+     */
+    public static final String CHAT_UI_CHANNEL = "chat_ui_actions";
+
+    public static void dispatchChatAction(Context context, String action) {
+        notifyResult(context, CHAT_UI_CHANNEL, action);
+    }
+
     private static void notifyResult(Context context, String componentId, String value) {
         android.util.Log.i("ComponentActions", "notifyResult cid=" + componentId + " value=" + value
                 + " cb=" + (resultCallback != null));
