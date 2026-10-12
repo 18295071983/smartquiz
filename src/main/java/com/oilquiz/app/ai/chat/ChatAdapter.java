@@ -165,6 +165,31 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.inferenceStateManager = InferenceStateManager.getInstance();
         setupInferenceStateListener();
         setHasStableIds(true);
+        // 数据集变化时同步空态视图可见性
+        registerAdapterDataObserver(emptyViewObserver);
+    }
+
+    /** 无消息时展示的占位视图；由 Activity 通过 setEmptyView 传入 */
+    private View emptyView;
+    private final androidx.recyclerview.widget.RecyclerView.AdapterDataObserver emptyViewObserver
+            = new androidx.recyclerview.widget.RecyclerView.AdapterDataObserver() {
+        @Override public void onChanged() { updateEmptyViewVisibility(); }
+        @Override public void onItemRangeInserted(int p, int c) { updateEmptyViewVisibility(); }
+        @Override public void onItemRangeRemoved(int p, int c) { updateEmptyViewVisibility(); }
+    };
+
+    /**
+     * 设置空态视图。传入的 View 会在数据集非空时 GONE、为空时 VISIBLE。
+     * View 应由 Activity 从布局中 findViewById 后传入，adapter 只负责切换可见性。
+     */
+    public void setEmptyView(View view) {
+        this.emptyView = view;
+        updateEmptyViewVisibility();
+    }
+
+    private void updateEmptyViewVisibility() {
+        if (emptyView == null) return;
+        emptyView.setVisibility(getItemCount() == 0 ? View.VISIBLE : View.GONE);
     }
 
     /**
@@ -2269,11 +2294,63 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static void applyRenderedText(TextView textView, Spanned rendered, long token) {
         if (!isRenderCurrent(textView, token)) return;
         try {
-            Spannable spannable = new SpannableStringBuilder(rendered);
-            TextViewSpan.applyTo(spannable, textView);
-            textView.setText(spannable);
+            SpannableStringBuilder ssb = new SpannableStringBuilder(rendered);
+            // 给渲染后的代码块附加"点击复制"能力：识别 Markwon 输出的 CodeBlock/Code/Typeface
+            // 系列 span 覆盖的多行区间，把整段代码变成 ClickableSpan，点击复制到剪贴板。
+            attachCodeCopySpans(ssb);
+            TextViewSpan.applyTo(ssb, textView);
+            textView.setText(ssb);
         } catch (Throwable ignored) {
             // 应用失败（视图已分离等）：静默丢弃，等待下次渲染
+        }
+    }
+
+    /**
+     * 给渲染后的多行代码块附加 ClickableSpan，点击复制该段代码。
+     * 探测规则：遍历 Spanned 中所有 span，找类名包含 Code/CodeBlock/Fenced 的 Markwon 结构；
+     * 或 TypefaceSpan(MONOSPACE) 且区间跨行（多行代码）。
+     * 用 start..end 区间去重，避免同一段被反复附加 span。
+     */
+    private static void attachCodeCopySpans(SpannableStringBuilder ssb) {
+        if (ssb == null || ssb.length() == 0) return;
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        Object[] spans = ssb.getSpans(0, ssb.length(), Object.class);
+        for (Object s : spans) {
+            String n = s.getClass().getSimpleName();
+            boolean isCodeMarker = n.contains("CodeBlock") || n.contains("Fenced")
+                    || (n.contains("Code") && !n.equals("ClickableSpan"));
+            if (!isCodeMarker) continue;
+            int start = ssb.getSpanStart(s);
+            int end = ssb.getSpanEnd(s);
+            if (start < 0 || end <= start) continue;
+            String key = start + ":" + end;
+            if (seen.contains(key)) continue;
+            seen.add(key);
+            // 只在多行区间附加，单行内联 code 不打扰
+            String block = ssb.subSequence(start, end).toString();
+            if (block.indexOf('\n') < 0) continue;
+            final String codeText = block;
+            ClickableSpan copySpan = new ClickableSpan() {
+                @Override public void onClick(android.view.View widget) {
+                    if (widget instanceof TextView) {
+                        android.content.Context c = widget.getContext();
+                        ClipboardManager cm = (ClipboardManager) c.getSystemService(
+                                Context.CLIPBOARD_SERVICE);
+                        if (cm != null) {
+                            cm.setPrimaryClip(ClipData.newPlainText("code", codeText));
+                            android.widget.Toast.makeText(c, "代码已复制",
+                                    android.widget.Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                }
+                @Override public void updateDrawState(android.text.TextPaint ds) {
+                    // 保持原样式，不加下划线，只在长按/点击时行为改变
+                    ds.setUnderlineText(false);
+                }
+            };
+            try {
+                ssb.setSpan(copySpan, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            } catch (Throwable ignored) {}
         }
     }
 
