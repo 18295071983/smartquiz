@@ -3341,10 +3341,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         // 展开：按原逻辑显示参数和结果区域
-        // 参数区域：无参数时隐藏整个容器，有参数时支持折叠
+        // 参数区域：优先走 json_viewer 组件（结构化展示），失败回退到 toolParams TextView
         if (info.parameters != null && !info.parameters.isEmpty() && holder.toolParamsContainer != null) {
             holder.toolParamsContainer.setVisibility(View.VISIBLE);
-            holder.toolParams.setText(info.parameters);
+            if (!renderToolParamsAsJsonViewer(holder, info)) {
+                holder.toolParams.setText(info.parameters);
+                holder.toolParams.setVisibility(View.VISIBLE);
+            }
             applyParamsExpansion(holder, info);
             if (holder.toolParamsHeader != null) {
                 holder.toolParamsHeader.setOnClickListener(v -> {
@@ -3393,16 +3396,51 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * 用 json_viewer 组件渲染工具参数（结构化树形展示 + 复制）。
+     * 成功时把 view 挂到 toolParamsContainer（tag=tool_params_slot）并隐藏原 toolParams TextView；
+     * 失败返回 false 让调用方回退到 setText。
+     */
+    private boolean renderToolParamsAsJsonViewer(ToolCallViewHolder holder, ChatMessage.ToolCallInfo info) {
+        if (holder.toolParamsContainer == null || info.parameters == null) return false;
+        if (!(holder.toolParamsContainer instanceof android.view.ViewGroup)) return false;
+        android.view.ViewGroup container = (android.view.ViewGroup) holder.toolParamsContainer;
+        try {
+            org.json.JSONObject props = new org.json.JSONObject()
+                    .put("json", info.parameters)
+                    .put("title", "参数");
+            ComponentData data = new ComponentData("json_viewer", props);
+            View v = ComponentRegistry.getInstance().render(container.getContext(), data);
+            if (v == null) return false;
+            View old = container.findViewWithTag("tool_params_slot");
+            if (old != null) container.removeView(old);
+            v.setTag("tool_params_slot");
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dpToPx(4, v.getContext());
+            container.addView(v, lp);
+            if (holder.toolParams != null) holder.toolParams.setVisibility(View.GONE);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /** 应用参数区域展开/折叠状态 */
     private void applyParamsExpansion(ToolCallViewHolder holder, ChatMessage.ToolCallInfo info) {
         if (holder.toolParams == null) return;
-        if (info.paramsExpanded) {
-            holder.toolParams.setVisibility(View.VISIBLE);
-            if (holder.toolParamsArrow != null) holder.toolParamsArrow.setText("▼");
-        } else {
-            holder.toolParams.setVisibility(View.GONE);
-            if (holder.toolParamsArrow != null) holder.toolParamsArrow.setText("▶");
+        boolean expanded = info.paramsExpanded;
+        holder.toolParams.setVisibility(expanded ? View.VISIBLE : View.GONE);
+        // 同步 json_viewer 组件槽位显隐（若已挂载则优先展示它）
+        if (holder.toolParamsContainer != null) {
+            View slot = holder.toolParamsContainer.findViewWithTag("tool_params_slot");
+            if (slot != null) {
+                slot.setVisibility(expanded ? View.VISIBLE : View.GONE);
+                // 组件已挂载时把 TextView 保持 GONE，避免重复展示
+                holder.toolParams.setVisibility(View.GONE);
+            }
         }
+        if (holder.toolParamsArrow != null) holder.toolParamsArrow.setText(expanded ? "▼" : "▶");
     }
 
     /** 应用结果区域展开/折叠状态 */
