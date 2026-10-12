@@ -3807,12 +3807,37 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * 把 hex 色（如 "#8B5CF6"）应用到 TextView 的圆角胶囊背景 + 内边距。
+     * 用于 AgentStepInfo.getStepColor() 视觉化：10 种步骤类型各有专属色。
+     */
+    private void applyStepColor(TextView tv, String hexColor) {
+        if (tv == null || hexColor == null || hexColor.isEmpty()) return;
+        int color;
+        try {
+            color = android.graphics.Color.parseColor(hexColor);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        // 半透明底 + 主色描边，避免图标看不清
+        bg.setColor((color & 0x00FFFFFF) | 0x33000000);
+        bg.setStroke(dpToPx(1, tv.getContext()), color);
+        tv.setBackground(bg);
+        int pad = dpToPx(4, tv.getContext());
+        tv.setPadding(pad, pad, pad, pad);
+        tv.setGravity(android.view.Gravity.CENTER);
+    }
+
     private void bindAgentStepMessage(AgentStepViewHolder holder, ChatMessage message) {
         ChatMessage.AgentStepInfo stepInfo = message.agentStepInfo;
         if (stepInfo == null) return;
 
         // 设置步骤图标
         holder.stepIcon.setText(stepInfo.getStepIcon());
+        // 步骤类型颜色应用：图标背景色 + 圆角胶囊
+        applyStepColor(holder.stepIcon, stepInfo.getStepColor());
 
         // 构建自然语言描述
         StringBuilder description = new StringBuilder();
