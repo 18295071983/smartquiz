@@ -1,5 +1,38 @@
 # 变更日志
 
+## [2026-10-13] 纯文本气泡 WebView 渲染（MarkdownHtmlConverter + MarkdownWebView）
+
+### 背景
+
+主回复正文混排裸 HTML/表格时，Markwon 的 Span 渲染会逐 token 重排 → 表格宽高反复 measure、持续闪烁；
+且非标准 markdown / 脏 HTML 兼容性差。改为 WebView（浏览器引擎）渲染更稳。
+
+### 新增
+
+- `MarkdownHtmlConverter`（render 包）：commonmark 0.13.0（已随 Markwon 在 classpath，零新增依赖）
+  `HtmlRenderer` + GFM tables/strikethrough + HTML 透传；整篇 HTML 文档判定直载；流式未闭合 ``` 围栏兜底；
+  **输出净化**（剥 `<script>`/`on*=`/`javascript:`）；任务列表 `- [ ]`/`- [x]` 后处理转复选框；
+  `wrapDocument` 注入主题色 CSS 变量 + JS 引导（自动链接裸 URL、`<pre>` 复制按钮、图片点击预览）。
+- `MarkdownWebView`（ui 包）：消息级 WebView，`ResizeObserver`→`@JavascriptInterface onHeight` 回传内容高
+  原生设 `LayoutParams`（去掉旧 360dp 截断内滚）；流式原地换 `body.innerHTML` 不重载；按内容 hash 缓存
+  高度（仅定稿写缓存）免重测闪烁；6000dp 封顶兜底防超长消息撑爆；`QZ.copy`/`QZ.previewImage` 桥。
+- `ChatAdapter`：新增 `webMarkdownEnabled` 开关（默认关，setter 里压 `setMaxRecycledViews(VIEW_TYPE_AI,4)` 兜内存）；
+  AI holder 加 `markdownView` 槽；纯文本分支按开关在 messageText(Markwon)/MarkdownWebView 间二选一；
+  `buildMarkdownThemeVars` 从 ThemeColors token 注入正文配色对齐原生。
+- `AIChatActivity`：`setAdapter` 后读 `ai_chat_prefs.web_markdown_render`（试验期默认开）应用开关。
+
+### 边界（如实）
+
+- **隔离式**：仅接管"纯文本气泡 + 代码围栏"；含 `component` 标记、轮次组装、mermaid/数学、工具卡/Agent 面板仍走原生，
+  故与组件系统不互通（带 component 的混排消息不进 WebView）。
+- **代码高亮已补**：新增 `assets/js/highlight.min.js`（v11.9.0，121KB）+ `assets/css/hljs-github(-dark).min.css`，
+  WebView bootstrap 里 `hljs.highlightElement` 上色；开关开时代码围栏并入 WebView 分支（关闭则仍走原生 CodeCardView）。
+- **内联数学已补**：新增 `assets/js/katex-auto-render.min.js`（v0.16.11 匹配现有 katex），bootstrap 里
+  `renderMathInElement` 渲内联 `$…$`/`\(…\)`（katex 默认跳过 code/pre）；块级 `$$…$$`/mermaid 仍走原生分流（`containsStructure` 只拦块级）。
+- mermaid 维持原生（mermaid.min.js 3.3MB 每气泡加载过重）。
+
+验证：`assembleDebug` 通过并安装冷启动无崩溃；WebView 正文实际观感/流式跟高/长按冲突需真机回归。
+
 ## [2026-10-13] 在线 Agent 任务清单：会话隔离 + 关跨会话自动续行 + 按日期分组（治多日任务幻觉）
 
 ### 背景

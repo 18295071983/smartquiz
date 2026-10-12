@@ -653,6 +653,11 @@ public class AIChatActivity extends BaseActivity {
             });
             messageList.setAdapter(chatAdapter);
 
+            // 纯文本气泡 WebView 渲染开关（试验期默认开；出问题把 ai_chat_prefs.web_markdown_render 置 false 即回退 Markwon）
+            boolean webMarkdown = getSharedPreferences("ai_chat_prefs", MODE_PRIVATE)
+                    .getBoolean("web_markdown_render", true);
+            if (chatAdapter != null) chatAdapter.setWebMarkdownEnabled(webMarkdown);
+
             setupKeyboardListener();
             updateEmptyState();
 

@@ -9,6 +9,8 @@ import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.chat.component.ComponentRegistry;
 import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.render.RenderExecutor;
+import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
+import android.content.res.Configuration;
 
 import io.noties.markwon.core.spans.TextViewSpan;
 
@@ -81,6 +83,20 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public static final String PAYLOAD_INFERENCE_PROGRESS = "inference_progress";
     public static final String PAYLOAD_AGENT_UPDATE = "agent_update";
 
+    /** 纯文本气泡是否改用 WebView 渲染（commonmark→HTML），解决混排 HTML/表格的闪烁。默认关，由外部开关。 */
+    private boolean webMarkdownEnabled = false;
+    public void setWebMarkdownEnabled(boolean enabled) {
+        if (this.webMarkdownEnabled == enabled) return;
+        this.webMarkdownEnabled = enabled;
+        // 开启时收紧 AI ViewHolder 回收上限：同时存活的 WebView 数 ≈ 可见 + 回收数，
+        // 不设限则一屏多个 WebView × 几十 MB 在低端机易 OOM。关闭时恢复默认。
+        if (attachedRecyclerView != null) {
+            attachedRecyclerView.getRecycledViewPool()
+                    .setMaxRecycledViews(VIEW_TYPE_AI, enabled ? 4 : 5);
+        }
+        notifyDataSetChanged(); // 切换渲染器需整体重绑（messageText ↔ markdownView 显隐）
+    }
+
     private final List<ChatMessage> messages;
     private final OnActionClickListener actionClickListener;
     private OnRetryClickListener retryClickListener;
@@ -126,6 +142,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             ai.agentExecFp = null;
             ai.agentExecBlockCount = -1;
             if (ai.agentExecutionView != null) ai.agentExecutionView.hide();
+            // 回收时重置 WebView 正文渲染器（清占位高/待渲染状态），复用到别的消息不残留
+            if (ai.markdownView != null) ai.markdownView.resetForReuse();
         }
     }
 
@@ -689,7 +707,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         dynamicRoot.addView(root);
-        return new AIMessageViewHolder(dynamicRoot);
+        AIMessageViewHolder holder = new AIMessageViewHolder(dynamicRoot);
+        // 纯文本气泡的 WebView 渲染器：作为 contentHost 的第二子 View，默认 GONE，
+        // 仅 webMarkdownEnabled 时接管正文（与 messageText 二选一）。随 holder 复用，
+        // 存活上限由 Activity 侧 setMaxRecycledViews(VIEW_TYPE_AI, N) 兜底。
+        MarkdownWebView mv = new MarkdownWebView(ctx);
+        mv.setVisibility(View.GONE);
+        contentHost.addView(mv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        holder.markdownView = mv;
+        return holder;
     }
 
     /** 解析主题 attr 颜色 */
@@ -2937,6 +2964,49 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 若不绑定，则回落到 Canvas 全宽（含 padding），表格右侧会被裁掉。
      * 复制是为了不污染 RenderExecutor 的渲染缓存。
      */
+    /** 判断当前是否深色模式（供 MarkdownWebView 主题）。 */
+    private boolean isNightMode(Context ctx) {
+        int m = ctx.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return m == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    /** 从应用主题 token 生成 MarkdownWebView 的 CSS 变量覆盖，使正文配色与原生卡片一致。 */
+    private String buildMarkdownThemeVars(Context ctx) {
+        try {
+            int fg = ThemeColors.attr(ctx, R.attr.colorOnSurface);
+            int link = ThemeColors.attr(ctx, R.attr.colorPrimary);
+            int muted = ThemeColors.attr(ctx, R.attr.colorControlTextSecondary);
+            return "--fg:" + toCss(fg) + ";--link:" + toCss(link) + ";--muted:" + toCss(muted);
+        } catch (Throwable t) {
+            return ""; // 取色失败则用 MarkdownHtmlConverter 内置默认配色
+        }
+    }
+
+    private static String toCss(int argb) {
+        return String.format(java.util.Locale.US, "#%06X", 0xFFFFFF & argb);
+    }
+
+    /**
+     * 确保纯文本模式下 contentHost 恰好含 [messageText, markdownView] 两个子 View。
+     * mermaid/代码/轮次/组件等分支会 removeAllViews 自建子 View，切回纯文本时需补齐；
+     * 二者显隐由调用方按 webMarkdownEnabled 决定，这里只管"都在场"。
+     */
+    private void ensurePlainTextHostViews(AIMessageViewHolder holder) {
+        LinearLayout host = holder.contentHost;
+        if (host == null) return;
+        boolean hasText = false, hasMv = false;
+        for (int i = 0; i < host.getChildCount(); i++) {
+            View c = host.getChildAt(i);
+            if (c == holder.messageText) hasText = true;
+            else if (holder.markdownView != null && c == holder.markdownView) hasMv = true;
+        }
+        if (!hasText || !hasMv) {
+            host.removeAllViews();
+            host.addView(holder.messageText);
+            if (holder.markdownView != null) host.addView(holder.markdownView);
+        }
+    }
+
     private void setRenderedText(TextView textView, String content, int availableWidth) {
         // 渲染统一走后台线程池（避免主线程卡顿/ANR）：单线程串行保证与主线程一致的渲染器线程安全，
         // 代次守卫丢弃过期结果，防抖合并避免流式更新时渲染队列堆积。
@@ -3332,18 +3402,26 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             boolean hasFenced = !hasMermaidMath && hasFencedCode(message.content);
             if (holder.contentHost != null && hasMermaidMath) {
                 renderMermaidMath(holder, message, availableWidth, ctx);
+            } else if (webMarkdownEnabled && holder.markdownView != null && holder.contentHost != null) {
+                // 纯文本 + 代码围栏统一走 WebView：commonmark→HTML，混排裸 HTML/表格交浏览器引擎，
+                // 代码块由 highlight.js 上色；规避 Markwon Span 在脏/混排内容下的错位与逐 token 重排闪烁。
+                // （mermaid/数学仍在上一分支走原生，不进这里）
+                ensurePlainTextHostViews(holder);
+                holder.messageText.setVisibility(View.GONE);
+                holder.markdownView.setVisibility(View.VISIBLE);
+                holder.markdownView.setNight(isNightMode(ctx));
+                holder.markdownView.setThemeColors(buildMarkdownThemeVars(ctx));
+                boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                        || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+                holder.markdownView.setContent(message.content, streaming);
             } else if (holder.contentHost != null && hasFenced) {
-                // 代码围栏 → CodeCardView 组件渲染（自带语言标签+一键复制，复用现有组件系统）
+                // 代码围栏 → CodeCardView 组件渲染（web 渲染关闭时的原生高亮路径）
                 renderWithCodeCards(holder, message, availableWidth, ctx);
             } else {
-                // 纯文本模式：宿主只保留 messageText（Markdown 由 Markwon 统一渲染：
-                // 代码块带 Prism4j 语法高亮、表格带 TablePlugin，均由 MarkdownRenderer 处理）
-                if (holder.contentHost != null
-                        && (holder.contentHost.getChildCount() != 1
-                            || holder.contentHost.getChildAt(0) != holder.messageText)) {
-                    holder.contentHost.removeAllViews();
-                    holder.contentHost.addView(holder.messageText);
-                }
+                // 纯文本模式（Markwon）：宿主保留 messageText；关掉 web 渲染时 markdownView 隐藏
+                ensurePlainTextHostViews(holder);
+                if (holder.markdownView != null) holder.markdownView.setVisibility(View.GONE);
+                holder.messageText.setVisibility(View.VISIBLE);
                 setRenderedText(holder.messageText, message.content, availableWidth);
             }
             bindComponents(holder, message);
@@ -4982,6 +5060,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     static class AIMessageViewHolder extends RecyclerView.ViewHolder {
         TextView blockLabel;
         TextView messageText;
+        /** 纯文本气泡的 WebView 渲染器（webMarkdownEnabled 时接管正文，与 messageText 二选一显示） */
+        MarkdownWebView markdownView;
         LinearLayout contentHost;
         LinearLayout componentContainer;
         /** 当前绑定的消息（2026-09-14：思考轮独立折叠状态读写 / 轮次组件 id 锚点） */
