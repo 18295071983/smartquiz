@@ -386,6 +386,28 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentStatus.setLayoutParams(asLp);
         bubble.addView(agentStatus);
 
+        // --- 停止生成按钮（流式生成中显示，其他状态隐藏） ---
+        TextView btnStop = new TextView(ctx);
+        btnStop.setText("⏹ 停止生成");
+        btnStop.setTextSize(11f);
+        btnStop.setTextColor(colorPrimary);
+        btnStop.setPadding(dpToPx(8, ctx), dpToPx(4, ctx), dpToPx(8, ctx), dpToPx(4, ctx));
+        btnStop.setClickable(true);
+        btnStop.setFocusable(true);
+        btnStop.setForeground(getSelectableItemBackground(ctx));
+        btnStop.setVisibility(View.GONE);
+        android.graphics.drawable.GradientDrawable stopBg = new android.graphics.drawable.GradientDrawable();
+        stopBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        stopBg.setCornerRadius(dpToPx(10, ctx));
+        stopBg.setStroke(dpToPx(1, ctx), colorPrimary & 0x00FFFFFF | 0x66000000);
+        stopBg.setColor(0x14000000);
+        btnStop.setBackground(stopBg);
+        LinearLayout.LayoutParams bsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bsLp.bottomMargin = dpToPx(4, ctx);
+        btnStop.setLayoutParams(bsLp);
+        bubble.addView(btnStop);
+
         // --- 思考标签 ---
         TextView thinkingLabel = new TextView(ctx);
         thinkingLabel.setText(R.string.chat_thinking_process);
@@ -495,10 +517,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView btnShare = createActionButton(ctx, R.string.chat_share, actionTextColor, true);
         TextView btnRegenerate = createActionButton(ctx, R.string.chat_regenerate, actionTextColor, true);
         TextView btnNewChat = createActionButton(ctx, R.string.chat_new_chat, actionTextColor, false);
+        TextView btnLike = createActionButton(ctx, "👍", actionTextColor, true);
+        TextView btnDislike = createActionButton(ctx, "👎", actionTextColor, false);
         actionButtons.addView(btnCopy);
         actionButtons.addView(btnSpeak);
         actionButtons.addView(btnShare);
         actionButtons.addView(btnRegenerate);
+        actionButtons.addView(btnLike);
+        actionButtons.addView(btnDislike);
         actionButtons.addView(btnNewChat);
 
         // ===== 状态行 =====
@@ -575,7 +601,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         DynamicAiMessageRoot dynamicRoot = new DynamicAiMessageRoot(ctx, blockLabel, messageText,
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
                 agentStatus, agentSummary, actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate,
-                btnNewChat, timestampText, statusIcon, statusText, inferenceProgressView,
+                btnNewChat, btnLike, btnDislike, btnStop, timestampText, statusIcon, statusText,
+                inferenceProgressView,
                 attachmentsRecycler, modelInfoContainer, modelStatusIndicator, modelNameText,
                 modelLatencyText, modelCostText);
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
@@ -606,6 +633,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private TextView createActionButton(Context ctx, int textRes, int color, boolean marginEnd) {
         TextView tv = new TextView(ctx);
         tv.setText(textRes);
+        return finalizeActionButton(ctx, tv, color, marginEnd);
+    }
+
+    private TextView createActionButton(Context ctx, CharSequence text, int color, boolean marginEnd) {
+        TextView tv = new TextView(ctx);
+        tv.setText(text);
+        return finalizeActionButton(ctx, tv, color, marginEnd);
+    }
+
+    private TextView finalizeActionButton(Context ctx, TextView tv, int color, boolean marginEnd) {
         tv.setTextSize(11f);
         tv.setTextColor(color);
         // 2026-09-29: 操作栏压在深蓝渐变背景上，加半透明白描边胶囊+极淡白底，避免无边框看不清
@@ -766,24 +803,80 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /**
      * 设置 itemView 的点击/长按交互。
-     * 仅在设置了 messageClickListener 时才让 itemView 可点击，避免干扰
-     * messageText 的 textIsSelectable 文本选择功能（长按选择文本）。
+     * 长按优先展示内置操作菜单（复制/引用/编辑/删除/详情），
+     * 若无菜单可用（非 AI/USER 消息）则退回 messageClickListener.onMessageLongClick。
      * ViewHolder 复用时需重置，否则旧状态会残留。
      */
     private void setupItemViewInteraction(View itemView, ChatMessage message) {
         if (messageClickListener != null) {
             itemView.setOnClickListener(v -> messageClickListener.onMessageClick(message));
+        } else {
+            itemView.setOnClickListener(null);
+        }
+        // 长按优先走内置操作菜单；无 listener 时不拦截文本选择
+        boolean hasMenu = message.type == ChatMessage.MessageType.AI
+                || message.type == ChatMessage.MessageType.USER;
+        if (hasMenu || messageClickListener != null) {
             itemView.setOnLongClickListener(v -> {
-                messageClickListener.onMessageLongClick(message);
+                if (hasMenu) {
+                    showActionMenu(v, message);
+                } else if (messageClickListener != null) {
+                    messageClickListener.onMessageLongClick(message);
+                }
                 return true;
             });
+            itemView.setLongClickable(true);
         } else {
-            // 清除监听器并显式置为不可点击，确保 messageText 长按选择文本不被拦截
-            itemView.setOnClickListener(null);
             itemView.setOnLongClickListener(null);
             itemView.setClickable(false);
             itemView.setLongClickable(false);
         }
+    }
+
+    /** 长按操作菜单：AI 显示 复制/朗读/引用/详情；USER 显示 复制/编辑/引用/删除 */
+    private void showActionMenu(android.view.View anchor, ChatMessage message) {
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(
+                anchor.getContext(), anchor);
+        menu.getMenu().add(0, 1, 0, "📋 复制");
+        if (message.type == ChatMessage.MessageType.AI) {
+            menu.getMenu().add(0, 2, 1, "🔊 朗读");
+        }
+        menu.getMenu().add(0, 3, 2, "💬 引用回复");
+        if (message.type == ChatMessage.MessageType.USER) {
+            menu.getMenu().add(0, 4, 3, "✏️ 编辑重发");
+            menu.getMenu().add(0, 5, 4, "🗑 删除");
+        }
+        menu.getMenu().add(0, 6, 5, "ℹ️ 详情");
+        final String exportContent = stripComponentMarkersForExport(message.content);
+        final String msgId = message.id;
+        final String rawContent = message.content;
+        menu.setOnMenuItemClickListener(item -> {
+            if (actionClickListener == null) return false;
+            switch (item.getItemId()) {
+                case 1:
+                    copyToClipboard(anchor.getContext(), exportContent);
+                    actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
+                    return true;
+                case 2:
+                    actionClickListener.onAction(ChatMessage.Action.speak(msgId, exportContent));
+                    return true;
+                case 3:
+                    actionClickListener.onAction(ChatMessage.Action.quoteMessage(msgId, rawContent));
+                    return true;
+                case 4:
+                    actionClickListener.onAction(ChatMessage.Action.editMessage(msgId, rawContent));
+                    return true;
+                case 5:
+                    actionClickListener.onAction(ChatMessage.Action.deleteMessage(msgId));
+                    return true;
+                case 6:
+                    actionClickListener.onAction(ChatMessage.Action.showDetail(msgId));
+                    return true;
+                default:
+                    return false;
+            }
+        });
+        try { menu.show(); } catch (Throwable ignored) {}
     }
 
     private void bindUserMessage(UserMessageViewHolder holder, ChatMessage message, String timeStr) {
@@ -799,6 +892,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         holder.messageText.setText(message.content);
         holder.timestampText.setText(timeStr);
+        bindTimestampClick(holder.timestampText, message);
 
         setupItemViewInteraction(holder.itemView, message);
 
@@ -827,6 +921,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         holder.messageText.setMovementMethod(LinkMovementMethod.getInstance());
         holder.timestampText.setText(timeStr);
+        bindTimestampClick(holder.timestampText, message);
         // 时间栏只对最终轮（最后一条 AI 消息）显示；中间轮次隐藏
         holder.timestampText.setVisibility(isLastAiMessage(position) ? View.VISIBLE : View.GONE);
 
@@ -891,6 +986,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         actionClickListener.onAction(ChatMessage.Action.newChat());
                     }
                 });
+
+                if (holder.btnLike != null) holder.btnLike.setOnClickListener(v -> {
+                    message.feedbackState = (message.feedbackState == 1) ? 0 : 1;
+                    applyFeedbackVisual(holder, message);
+                    if (actionClickListener != null && message.feedbackState == 1) {
+                        actionClickListener.onAction(ChatMessage.Action.like(message.id));
+                    }
+                });
+                if (holder.btnDislike != null) holder.btnDislike.setOnClickListener(v -> {
+                    message.feedbackState = (message.feedbackState == -1) ? 0 : -1;
+                    applyFeedbackVisual(holder, message);
+                    if (actionClickListener != null && message.feedbackState == -1) {
+                        actionClickListener.onAction(ChatMessage.Action.dislike(message.id));
+                    }
+                });
+                applyFeedbackVisual(holder, message);
+                applySpeakingVisual(holder, message);
             } else {
                 // 非最终轮：清除 listener 防止复用残留
                 if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(null);
@@ -898,6 +1010,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (holder.btnShare != null) holder.btnShare.setOnClickListener(null);
                 if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(null);
                 if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(null);
+                if (holder.btnLike != null) holder.btnLike.setOnClickListener(null);
+                if (holder.btnDislike != null) holder.btnDislike.setOnClickListener(null);
             }
         } else {
             if (holder.actionButtons != null) holder.actionButtons.setVisibility(View.GONE);
@@ -907,6 +1021,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.btnShare != null) holder.btnShare.setOnClickListener(null);
             if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(null);
             if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(null);
+            if (holder.btnLike != null) holder.btnLike.setOnClickListener(null);
+            if (holder.btnDislike != null) holder.btnDislike.setOnClickListener(null);
         }
     }
 
@@ -929,12 +1045,130 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         if (holder.agentSummary != null) {
             if (message.agentSummary != null && !message.agentSummary.isEmpty()) {
-                holder.agentSummary.setText(message.agentSummary);
+                StringBuilder s = new StringBuilder();
+                if (message.retryCount > 0) s.append("🔄 第 ").append(message.retryCount + 1).append(" 次尝试\n");
+                s.append(message.agentSummary);
+                holder.agentSummary.setText(s.toString());
+                holder.agentSummary.setVisibility(View.VISIBLE);
+            } else if (message.retryCount > 0) {
+                holder.agentSummary.setText("🔄 第 " + (message.retryCount + 1) + " 次尝试");
                 holder.agentSummary.setVisibility(View.VISIBLE);
             } else {
                 holder.agentSummary.setVisibility(View.GONE);
             }
         }
+        // 停止生成按钮：仅在流式生成中显示，点击触发 Action.stopGeneration
+        if (holder.btnStop != null) {
+            boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                    || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+            holder.btnStop.setVisibility(streaming ? View.VISIBLE : View.GONE);
+            if (streaming) {
+                final String msgId = message.id;
+                holder.btnStop.setOnClickListener(v -> {
+                    if (actionClickListener != null) {
+                        actionClickListener.onAction(ChatMessage.Action.stopGeneration(msgId));
+                    }
+                });
+            } else {
+                holder.btnStop.setOnClickListener(null);
+            }
+        }
+    }
+
+    /** 当前正在朗读的消息 id（由 Activity 通过 setSpeakingMessageId 设置）；null 表示未朗读 */
+    private String speakingMessageId;
+
+    /**
+     * 由 Activity 调用，通知 adapter 哪条消息正在朗读中；
+     * adapter 更新对应按钮文案（朗读 ↔ 停止）。传 null 表示停止。
+     */
+    public void setSpeakingMessageId(String messageId) {
+        if (java.util.Objects.equals(this.speakingMessageId, messageId)) return;
+        String old = this.speakingMessageId;
+        this.speakingMessageId = messageId;
+        if (old != null) {
+            int pos = findMessagePosition(old);
+            if (pos >= 0) notifyItemChanged(pos, PAYLOAD_STATUS_UPDATE);
+        }
+        if (messageId != null) {
+            int pos = findMessagePosition(messageId);
+            if (pos >= 0) notifyItemChanged(pos, PAYLOAD_STATUS_UPDATE);
+        }
+    }
+
+    /** 反馈按钮（👍/👎）按状态变色 */
+    private void applyFeedbackVisual(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.btnLike != null) {
+            holder.btnLike.setText(message.feedbackState == 1 ? "👍✓" : "👍");
+            holder.btnLike.setAlpha(message.feedbackState == 1 ? 1f : 0.7f);
+        }
+        if (holder.btnDislike != null) {
+            holder.btnDislike.setText(message.feedbackState == -1 ? "👎✓" : "👎");
+            holder.btnDislike.setAlpha(message.feedbackState == -1 ? 1f : 0.7f);
+        }
+    }
+
+    /** 朗读按钮按当前 speakingMessageId 切换文案 */
+    private void applySpeakingVisual(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.btnSpeak == null) return;
+        boolean speaking = message.id != null && message.id.equals(speakingMessageId);
+        holder.btnSpeak.setText(speaking ? "⏹ 停止" : "🔊 朗读");
+    }
+
+    /** 时间戳点击查看消息详情对话框 */
+    private void bindTimestampClick(TextView timestampText, ChatMessage message) {
+        if (timestampText == null || message == null) return;
+        timestampText.setClickable(true);
+        timestampText.setForeground(getSelectableItemBackground(timestampText.getContext()));
+        timestampText.setOnClickListener(v -> showDetailDialog(v.getContext(), message));
+    }
+
+    /** 展示消息元数据：完整时间/角色/状态/id/turnId/subId/tokens/耗时/模型/重试 */
+    private void showDetailDialog(android.content.Context ctx, ChatMessage message) {
+        StringBuilder sb = new StringBuilder();
+        java.text.SimpleDateFormat fullFmt = new java.text.SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault());
+        sb.append("完整时间：").append(fullFmt.format(new java.util.Date(message.timestamp))).append("\n");
+        sb.append("角色：").append(message.getRole()).append("  类型：").append(message.type).append("\n");
+        sb.append("状态：").append(message.status).append("\n");
+        if (message.id != null) sb.append("消息 id：").append(message.id).append("\n");
+        if (message.turnId != null) sb.append("回合：").append(message.turnId).append("\n");
+        if (message.subId != null) sb.append("子 id：").append(message.subId).append("\n");
+        if (message.tokensGenerated > 0) {
+            sb.append("Tokens：").append(message.tokensGenerated);
+            if (message.generationTimeMs > 0) {
+                sb.append("  耗时：").append(String.format(java.util.Locale.getDefault(),
+                        "%.2fs", message.generationTimeMs / 1000.0));
+            }
+            if (message.tokensPerSecond > 0) {
+                sb.append("  速度：").append(String.format(java.util.Locale.getDefault(),
+                        "%.1f tok/s", message.tokensPerSecond));
+            }
+            sb.append("\n");
+        }
+        if (message.modelInfo != null && message.modelInfo.modelName != null) {
+            sb.append("模型：").append(message.modelInfo.modelName);
+            if (message.modelInfo.latencyMs > 0) {
+                sb.append("  延迟：").append(message.modelInfo.latencyMs).append("ms");
+            }
+            if (message.modelInfo.costEstimate > 0) {
+                sb.append(String.format(java.util.Locale.getDefault(),
+                        "  成本：$%.4f", message.modelInfo.costEstimate));
+            }
+            sb.append("\n");
+        }
+        if (message.retryCount > 0) sb.append("重试次数：").append(message.retryCount).append("\n");
+        if (message.feedbackState != 0) sb.append("反馈：").append(message.feedbackState == 1 ? "👍 已赞" : "👎 已踩").append("\n");
+        if (message.errorDetail != null && !message.errorDetail.isEmpty()) {
+            sb.append("错误详情：").append(message.errorDetail).append("\n");
+        }
+        try {
+            new android.app.AlertDialog.Builder(ctx)
+                    .setTitle("消息详情")
+                    .setMessage(sb.toString())
+                    .setPositiveButton("关闭", null)
+                    .show();
+        } catch (Throwable ignored) {}
     }
 
     /**
@@ -3487,6 +3721,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final TextView btnShare;
         final TextView btnRegenerate;
         final TextView btnNewChat;
+        final TextView btnLike;
+        final TextView btnDislike;
+        final TextView btnStop;
         final TextView timestampText;
         final ImageView statusIcon;
         final TextView statusText;
@@ -3502,7 +3739,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 LinearLayout contentHost, LinearLayout componentContainer, TextView thinkingLabel,
                 TextView thinkingContent, View thinkingDivider, TextView agentStatus, TextView agentSummary,
                 View actionButtons, TextView btnCopy, TextView btnSpeak, TextView btnShare,
-                TextView btnRegenerate, TextView btnNewChat, TextView timestampText, ImageView statusIcon,
+                TextView btnRegenerate, TextView btnNewChat, TextView btnLike, TextView btnDislike,
+                TextView btnStop, TextView timestampText, ImageView statusIcon,
                 TextView statusText, InferenceProgressView inferenceProgressView,
                 androidx.recyclerview.widget.RecyclerView attachmentsRecycler, View modelInfoContainer,
                 View modelStatusIndicator, TextView modelNameText, TextView modelLatencyText,
@@ -3523,6 +3761,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.btnShare = btnShare;
             this.btnRegenerate = btnRegenerate;
             this.btnNewChat = btnNewChat;
+            this.btnLike = btnLike;
+            this.btnDislike = btnDislike;
+            this.btnStop = btnStop;
             this.timestampText = timestampText;
             this.statusIcon = statusIcon;
             this.statusText = statusText;
@@ -3573,6 +3814,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView btnShare;
         TextView btnRegenerate;
         TextView btnNewChat;
+        TextView btnLike;
+        TextView btnDislike;
+        TextView btnStop;
         TextView timestampText;
         ImageView statusIcon;
         TextView statusText;
@@ -3604,6 +3848,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.btnShare = dr.btnShare;
             this.btnRegenerate = dr.btnRegenerate;
             this.btnNewChat = dr.btnNewChat;
+            this.btnLike = dr.btnLike;
+            this.btnDislike = dr.btnDislike;
+            this.btnStop = dr.btnStop;
             this.timestampText = dr.timestampText;
             this.statusIcon = dr.statusIcon;
             this.statusText = dr.statusText;

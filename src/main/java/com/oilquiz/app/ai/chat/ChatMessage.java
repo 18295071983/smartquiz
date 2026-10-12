@@ -317,6 +317,14 @@ public class ChatMessage {
     public boolean retryable;
     /** 消息来源是否为语音输入（按住说话识别后发送） */
     public boolean voiceInput;
+    /** 用户已点赞（0=未反馈, 1=已赞, -1=已踩）；运行时反馈，不持久化 */
+    public transient int feedbackState = 0;
+    /** 该消息已被重试的次数（>0 时显示"第 N 次尝试"） */
+    public int retryCount = 0;
+    /** 引用回复的目标消息 id（编辑/引用时填充；运行时字段） */
+    public transient String quoteFromMessageId;
+    /** 引用回复的目标消息摘要（UI 展示用；运行时字段） */
+    public transient String quotePreview;
 
     /** Agent反思信息 */
     public AgentReflectionInfo agentReflectionInfo;
@@ -1091,7 +1099,19 @@ public class ChatMessage {
         /** 用户点击工具调用卡片中的"AI深度解读"按钮：由 AIChatActivity 触发 LLM 解释 */
         AI_INTERPRET_RESULT,
         /** 用户点击本地Agent拦截提示中的"强行使用本地Agent"：重发原问题到本地Agent流程 */
-        FORCE_LOCAL_AGENT
+        FORCE_LOCAL_AGENT,
+        /** 停止正在流式生成的 AI 消息 */
+        STOP_GENERATION,
+        /** 编辑用户消息并重发 */
+        EDIT_MESSAGE,
+        /** 删除单条消息 */
+        DELETE_MESSAGE,
+        /** 引用回复某条消息 */
+        QUOTE_MESSAGE,
+        /** 查看消息详情（时间戳/元数据/模型信息） */
+        SHOW_DETAIL,
+        /** 复制代码块内容 */
+        COPY_CODE_BLOCK
     }
 
     /**
@@ -1164,6 +1184,36 @@ public class ChatMessage {
         /** 强行使用本地Agent执行（content 为需要重发的原始问题） */
         public static Action forceLocalAgent(String content) {
             return new Action(ActionType.FORCE_LOCAL_AGENT, null, content);
+        }
+
+        /** 停止生成 */
+        public static Action stopGeneration(String messageId) {
+            return new Action(ActionType.STOP_GENERATION, messageId, null);
+        }
+
+        /** 编辑消息（content 为原始内容供输入框预填） */
+        public static Action editMessage(String messageId, String content) {
+            return new Action(ActionType.EDIT_MESSAGE, messageId, content);
+        }
+
+        /** 删除单条消息 */
+        public static Action deleteMessage(String messageId) {
+            return new Action(ActionType.DELETE_MESSAGE, messageId, null);
+        }
+
+        /** 引用回复 */
+        public static Action quoteMessage(String messageId, String content) {
+            return new Action(ActionType.QUOTE_MESSAGE, messageId, content);
+        }
+
+        /** 查看消息详情 */
+        public static Action showDetail(String messageId) {
+            return new Action(ActionType.SHOW_DETAIL, messageId, null);
+        }
+
+        /** 复制代码块 */
+        public static Action copyCodeBlock(String code) {
+            return new Action(ActionType.COPY_CODE_BLOCK, null, code);
         }
     }
 
