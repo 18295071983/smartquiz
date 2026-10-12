@@ -914,6 +914,37 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /** 把 agentExecutionState.blocks 拼成可读文本（用于"复制步骤内容"） */
+    private static String flattenAgentBlocks(ChatMessage message) {
+        if (message.agentExecutionState == null
+                || message.agentExecutionState.getBlocks() == null) {
+            return message.content != null ? message.content : "";
+        }
+        StringBuilder sb = new StringBuilder();
+        int i = 1;
+        for (com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock b
+                : message.agentExecutionState.getBlocks()) {
+            if (b == null) continue;
+            sb.append("[").append(i++).append("] ")
+              .append(mapBlockTypeToLabel(b.getType()));
+            if (b.getTitle() != null && !b.getTitle().isEmpty()) {
+                sb.append(" · ").append(b.getTitle());
+            }
+            sb.append("\n");
+            if (b.getContent() != null && !b.getContent().isEmpty()) {
+                sb.append(b.getContent()).append("\n");
+            }
+            if (b.getToolName() != null) {
+                sb.append("工具：").append(b.getToolName());
+                if (b.getToolArgs() != null) sb.append(" 参数：").append(b.getToolArgs());
+                if (b.getToolResult() != null) sb.append(" 结果：").append(b.getToolResult());
+                sb.append("\n");
+            }
+            sb.append("\n");
+        }
+        return sb.toString().trim();
+    }
+
     /** 长按操作菜单：AI 显示 复制/朗读/引用/详情；USER 显示 复制/编辑/引用/删除 */
     private void showActionMenu(android.view.View anchor, ChatMessage message) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(
@@ -928,6 +959,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             menu.getMenu().add(0, 5, 4, "🗑 删除");
         }
         menu.getMenu().add(0, 6, 5, "ℹ️ 详情");
+        // Agent 消息：额外提供"导出执行日志"和"复制步骤内容"
+        if (message.agentMode && message.agentExecutionState != null) {
+            menu.getMenu().add(0, 7, 6, "📄 导出执行日志 (JSON)");
+            menu.getMenu().add(0, 8, 7, "📝 复制步骤内容");
+        }
         final String exportContent = stripComponentMarkersForExport(message.content);
         final String msgId = message.id;
         final String rawContent = message.content;
@@ -959,6 +995,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 case 6:
                     actionClickListener.onAction(ChatMessage.Action.showDetail(msgId));
                     ComponentActions.dispatchChatAction(ctx, "detail:" + msgId);
+                    return true;
+                case 7:
+                    // 导出执行日志为 JSON
+                    actionClickListener.onAction(ChatMessage.Action.exportAgentLogs(msgId, "json"));
+                    ComponentActions.dispatchChatAction(ctx, "export_logs:" + msgId);
+                    return true;
+                case 8:
+                    // 复制步骤内容：拼接所有 block 的 title+content
+                    String joined = flattenAgentBlocks(message);
+                    copyToClipboard(ctx, joined);
+                    ComponentActions.dispatchChatAction(ctx, "copy_steps:" + msgId);
                     return true;
                 default:
                     return false;
