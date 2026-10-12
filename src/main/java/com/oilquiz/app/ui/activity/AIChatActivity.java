@@ -9711,7 +9711,46 @@ public class AIChatActivity extends BaseActivity {
             handleEditToolArgs(action);
             return;
         }
+        // 停止生成：中止当前流式输出（复用 agentChatHandler.cancel + modelBridge stopGeneration）
+        if (action != null && action.type == ChatMessage.ActionType.STOP_GENERATION) {
+            handleStopGeneration(action);
+            return;
+        }
         if (dialogHelper != null) dialogHelper.handleAction(action, chatHistory);
+    }
+
+    /**
+     * 停止指定消息的流式生成。中止 Agent/普通对话生成通路，并把该消息标记为已取消。
+     * action.messageId 定位正在生成的 AI 消息。
+     */
+    private void handleStopGeneration(ChatMessage.Action action) {
+        try {
+            if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
+            if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
+            isGenerating = false;
+            // 把目标消息（或最后一条生成中的 AI 消息）标记为已取消
+            ChatMessage target = findMessageById(action.messageId);
+            if (target == null && chatHistory != null) {
+                for (int i = chatHistory.size() - 1; i >= 0; i--) {
+                    ChatMessage m = chatHistory.get(i);
+                    if (m != null && m.type == ChatMessage.MessageType.AI
+                            && (m.status == ChatMessage.MessageStatus.GENERATING
+                                || m.status == ChatMessage.MessageStatus.IN_PROGRESS)) {
+                        target = m;
+                        break;
+                    }
+                }
+            }
+            if (target != null) {
+                target.status = ChatMessage.MessageStatus.FAILED;
+                target.errorDetail = "已取消生成";
+                int pos = chatHistory.indexOf(target);
+                if (chatAdapter != null && pos >= 0) chatAdapter.notifyItemChanged(pos);
+            }
+            showToast("⏹ 已停止生成");
+        } catch (Throwable t) {
+            android.util.Log.e("AIChatActivity", "停止生成异常: " + t.getMessage(), t);
+        }
     }
 
     /** 按 messageId 在 chatHistory 中定位消息 */
