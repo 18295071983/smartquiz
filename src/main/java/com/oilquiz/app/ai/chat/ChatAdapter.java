@@ -1086,17 +1086,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         }
         if (holder.agentSummary != null) {
-            if (message.agentSummary != null && !message.agentSummary.isEmpty()) {
-                StringBuilder s = new StringBuilder();
-                if (message.retryCount > 0) s.append("🔄 第 ").append(message.retryCount + 1).append(" 次尝试\n");
-                s.append(message.agentSummary);
-                holder.agentSummary.setText(s.toString());
-                holder.agentSummary.setVisibility(View.VISIBLE);
-            } else if (message.retryCount > 0) {
-                holder.agentSummary.setText("🔄 第 " + (message.retryCount + 1) + " 次尝试");
-                holder.agentSummary.setVisibility(View.VISIBLE);
-            } else {
+            String text = buildAgentSummaryText(message);
+            if (text == null || text.isEmpty()) {
                 holder.agentSummary.setVisibility(View.GONE);
+            } else {
+                holder.agentSummary.setText(text);
+                holder.agentSummary.setVisibility(View.VISIBLE);
             }
         }
         // 停止生成按钮：仅在流式生成中显示，点击触发 Action.stopGeneration
@@ -1116,6 +1111,32 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.btnStop.setOnClickListener(null);
             }
         }
+    }
+
+    /**
+     * 组装 Agent 汇总行文本：优先使用结构化 AgentSummaryInfo（耗时/步骤/工具/Token），
+     * 无结构化数据时回退到 message.agentSummary 字符串；两者都附重试次数提示。
+     */
+    private String buildAgentSummaryText(ChatMessage message) {
+        StringBuilder sb = new StringBuilder();
+        if (message.retryCount > 0) {
+            sb.append("🔄 第 ").append(message.retryCount + 1).append(" 次尝试");
+        }
+        if (message.agentSummaryInfo != null) {
+            ChatMessage.AgentSummaryInfo s = message.agentSummaryInfo;
+            if (sb.length() > 0) sb.append(" · ");
+            sb.append("⏱ ").append(s.getFormattedTime())
+              .append(" · 📊 ").append(s.totalSteps).append("步")
+              .append(" · 🔧 ").append(s.toolCallCount).append("工具")
+              .append(" · 📝 ").append(s.getFormattedTokens()).append("tokens");
+            if (!s.isSuccess) sb.append(" · ❌ 未完成");
+            return sb.toString();
+        }
+        if (message.agentSummary != null && !message.agentSummary.isEmpty()) {
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(message.agentSummary);
+        }
+        return sb.toString();
     }
 
     /** 当前正在朗读的消息 id（由 Activity 通过 setSpeakingMessageId 设置）；null 表示未朗读 */
@@ -2065,57 +2086,113 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /**
      * 绑定在线模型信息
      */
+    /**
+     * 绑定在线模型信息条：委托 MetricCardView 组件（type=metric_card）。
+     * 保留旧 holder 字段兼容（回收时清空），主体走 ComponentRegistry 渲染，
+     * Agent 端也可通过下发 metric_card 组件复用同一渲染管线。
+     */
     private void bindModelInfo(AIMessageViewHolder holder, ChatMessage message) {
-        if (message.modelInfo == null || holder.modelInfoContainer == null) {
-            if (holder.modelInfoContainer != null) {
-                holder.modelInfoContainer.setVisibility(View.GONE);
-            }
+        if (holder.modelInfoContainer == null) return;
+        if (!(holder.modelInfoContainer instanceof LinearLayout)) {
+            // 兼容旧结构：走原路径
+            bindModelInfoLegacy(holder, message);
             return;
         }
-
-        holder.modelInfoContainer.setVisibility(View.VISIBLE);
-
-        // 模型名称
-        if (message.modelInfo.modelName != null) {
-            holder.modelNameText.setText(message.modelInfo.modelName);
-        } else {
-            holder.modelNameText.setText("");
+        LinearLayout container = (LinearLayout) holder.modelInfoContainer;
+        if (message.modelInfo == null || message.modelInfo.modelName == null
+                || message.modelInfo.modelName.isEmpty()) {
+            container.setVisibility(View.GONE);
+            container.removeAllViews();
+            return;
         }
-
-        // 状态指示器
-        if (holder.modelStatusIndicator != null) {
-            int indicatorDrawable;
-            switch (message.modelInfo.status) {
-                case 1: // online
-                    indicatorDrawable = R.drawable.status_indicator_online;
-                    break;
-                case 2: // offline
-                    indicatorDrawable = R.drawable.status_indicator_offline;
-                    break;
-                case 3: // error
-                    indicatorDrawable = R.drawable.status_indicator_error;
-                    break;
-                default:
-                    indicatorDrawable = R.drawable.status_indicator_unknown;
-                    break;
+        // 缓存上一次渲染，避免流式重复 bind 抖动
+        final String key = modelInfoCacheKey(message.modelInfo);
+        Object cachedTag = container.getTag();
+        if (cachedTag instanceof String && cachedTag.equals(key)) {
+            container.setVisibility(View.VISIBLE);
+            return;
+        }
+        container.removeAllViews();
+        try {
+            org.json.JSONArray metrics = new org.json.JSONArray();
+            metrics.put(new org.json.JSONObject()
+                    .put("label", "模型")
+                    .put("value", message.modelInfo.modelName)
+                    .put("color", "primary"));
+            if (message.modelInfo.status > 0) {
+                metrics.put(new org.json.JSONObject()
+                        .put("label", "状态")
+                        .put("value", message.modelInfo.getStatusText())
+                        .put("color", message.modelInfo.status == 1 ? "success"
+                                : message.modelInfo.status == 3 ? "error" : "warning"));
             }
-            holder.modelStatusIndicator.setBackgroundResource(indicatorDrawable);
+            if (message.modelInfo.latencyMs > 0) {
+                metrics.put(new org.json.JSONObject()
+                        .put("label", "延迟")
+                        .put("value", formatLatency(message.modelInfo.latencyMs)));
+            }
+            if (message.modelInfo.costEstimate > 0) {
+                metrics.put(new org.json.JSONObject()
+                        .put("label", "成本")
+                        .put("value", String.format(Locale.getDefault(),
+                                "$%.4f", message.modelInfo.costEstimate))
+                        .put("color", "accent"));
+            }
+            org.json.JSONObject props = new org.json.JSONObject().put("metrics", metrics);
+            ComponentData data = new ComponentData("metric_card", props);
+            View v = ComponentRegistry.getInstance().render(container.getContext(), data);
+            if (v != null) {
+                container.addView(v);
+                container.setVisibility(View.VISIBLE);
+                container.setTag(key);
+            } else {
+                // 组件不可用回退旧结构
+                bindModelInfoLegacy(holder, message);
+            }
+        } catch (Throwable t) {
+            bindModelInfoLegacy(holder, message);
         }
+    }
 
-        // 延迟
-        if (message.modelInfo.latencyMs > 0 && holder.modelLatencyText != null) {
-            holder.modelLatencyText.setVisibility(View.VISIBLE);
-            holder.modelLatencyText.setText(formatLatency(message.modelInfo.latencyMs));
-        } else if (holder.modelLatencyText != null) {
-            holder.modelLatencyText.setVisibility(View.GONE);
+    /** 模型信息指纹：字段变化才重渲染 */
+    private static String modelInfoCacheKey(ChatMessage.ModelInfo mi) {
+        if (mi == null) return "null";
+        return (mi.modelName == null ? "" : mi.modelName) + "|" + mi.status + "|"
+                + mi.latencyMs + "|" + mi.costEstimate;
+    }
+
+    /** 旧的 4-TextView 渲染路径，作为组件不可用时的回退 */
+    private void bindModelInfoLegacy(AIMessageViewHolder holder, ChatMessage message) {
+        if (message.modelInfo == null) {
+            if (holder.modelInfoContainer != null) holder.modelInfoContainer.setVisibility(View.GONE);
+            return;
         }
-
-        // 成本估算
-        if (message.modelInfo.costEstimate > 0 && holder.modelCostText != null) {
-            holder.modelCostText.setVisibility(View.VISIBLE);
-            holder.modelCostText.setText(String.format(Locale.getDefault(), "$%.4f", message.modelInfo.costEstimate));
-        } else if (holder.modelCostText != null) {
-            holder.modelCostText.setVisibility(View.GONE);
+        holder.modelInfoContainer.setVisibility(View.VISIBLE);
+        if (holder.modelNameText != null) {
+            holder.modelNameText.setText(message.modelInfo.modelName != null ? message.modelInfo.modelName : "");
+        }
+        if (holder.modelStatusIndicator != null) {
+            int ind;
+            switch (message.modelInfo.status) {
+                case 1: ind = R.drawable.status_indicator_online; break;
+                case 2: ind = R.drawable.status_indicator_offline; break;
+                case 3: ind = R.drawable.status_indicator_error; break;
+                default: ind = R.drawable.status_indicator_unknown; break;
+            }
+            holder.modelStatusIndicator.setBackgroundResource(ind);
+        }
+        if (holder.modelLatencyText != null) {
+            if (message.modelInfo.latencyMs > 0) {
+                holder.modelLatencyText.setVisibility(View.VISIBLE);
+                holder.modelLatencyText.setText(formatLatency(message.modelInfo.latencyMs));
+            } else holder.modelLatencyText.setVisibility(View.GONE);
+        }
+        if (holder.modelCostText != null) {
+            if (message.modelInfo.costEstimate > 0) {
+                holder.modelCostText.setVisibility(View.VISIBLE);
+                holder.modelCostText.setText(String.format(Locale.getDefault(),
+                        "$%.4f", message.modelInfo.costEstimate));
+            } else holder.modelCostText.setVisibility(View.GONE);
         }
     }
 

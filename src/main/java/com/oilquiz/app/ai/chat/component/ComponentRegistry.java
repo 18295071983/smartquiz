@@ -78,6 +78,8 @@ public class ComponentRegistry {
         register(new AudioCardView());
         // Agent 执行过程（插入式显示在 AI 消息内）
         register(new ToolCallCardView());
+        register(new FeedbackBarCardView());
+        register(new AgentStatusChipCardView());
         // Layout 原语桥接：把 NativeLayoutRenderer 的单控件渲染暴露为聊天流卡片
         // （table/steps/timeline/alert/stat/qrcode/barcode/calendar/图表/stepper 等，
         //  props 直接作为单控件节点渲染，Agent 可用 component_type=xxx 直接生成）
