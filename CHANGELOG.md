@@ -121,15 +121,31 @@ bd9243f0  附件渲染桥接 ImageGridCardView
 88e5a774~f46b65cd  Agent UI 子系统增强（任务29-39，11 次提交）
 ```
 
-### 8) 遗留（需外部配合，未在 adapter 层完成）
+### 8) 遗留项接线（2026-10-13 补做，任务40-43）
 
-- **朗读状态反馈**：需 Activity 传入"当前朗读消息 id"驱动 `setSpeakingMessageId`。
-- **Agent 暂停/单步/回退的实际执行**：UI 按钮和 Action 已就绪，但 `AgentLoopEngine` 侧的
-  暂停/单步/回退执行逻辑需引擎配合实现。
-- **工具编辑重跑/失败重试的执行**：Action + dispatch 通路已通，AIChatActivity 需接
-  `editToolArgs`/`retryToolCall` 并回灌引擎。
-- **AGENT_REFLECTION 消息生产**：反思卡片的渲染已完整，但引擎侧产生 AGENT_REFLECTION
-  消息的路径需确认是否已接线。
+初稿列出的 4 项"需外部配合"的遗留，本轮已接线到 Activity/引擎：
+
+- **朗读状态反馈**（任务40）：`AIChatActivity` 的 `speakingMessageId` 4 处变更点
+  （`speakTextInternal` 起始 / `onComplete` / `onError` / `handleSpeakAction` 停止）
+  同步调 `chatAdapter.setSpeakingMessageId()`，朗读按钮实时切"⏹ 停止"。
+- **工具失败重试 / 参数编辑重跑执行**（任务41）：`handleAction` 新增 `RETRY_TOOL_CALL` /
+  `EDIT_TOOL_ARGS` 分支 → `handleRetryToolCall` / `handleEditToolArgs`，用 `org.json`
+  正确解析参数（替代朴素逗号分割），后台线程 `aiToolManager.executeTool` 重跑，
+  `RUNNING→COMPLETED/FAILED` 回写 `toolCallInfo` 并 `notifyItemChanged`。
+- **停止生成 Action**（任务43）：`handleStopGeneration` 复用 `agentChatHandler.cancel` +
+  `modelBridge.stopGeneration`，目标 AI 消息标记 `FAILED` + `errorDetail="已取消生成"`。
+- **Agent 暂停/单步执行**（任务42）：`OnlineAgentEngine` 主循环 `while(iteration<max &&
+  !isCancelled)` 每轮开头插入 `awaitIfPaused()` 暂停门（`isPaused`/`stepOnce` 双标志，
+  100ms 轮询阻塞、尊重 cancel、`cancel()` 时清暂停唤醒循环）；`pause()/resume()/stepOnce()/
+  isPaused()` 沿 `AgentRouter → AgentChatHandler → AIChatActivity` 委托链上抛，
+  `PAUSE_AGENT/RESUME_AGENT/STEP_AGENT` 接线（STEP 未暂停时先暂停再放行一步）。
+
+**仍未实现（诚实标注）**：
+
+- **REWIND（回退一步）**：需要每步 `messageHistory` 快照才能安全回退，当前引擎架构无快照，
+  点击明确提示"暂不支持"而非伪实现。属真实架构缺口，非遗漏。
+- **AGENT_REFLECTION 消息生产**：反思卡片的渲染已完整（任务37），但引擎侧产生
+  `AGENT_REFLECTION` 消息的路径仍未确认接线——渲染端就绪，生产端待引擎补充。
 
 ---
 
