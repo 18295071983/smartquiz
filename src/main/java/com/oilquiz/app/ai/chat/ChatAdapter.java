@@ -462,6 +462,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         btnStop.setLayoutParams(bsLp);
         bubble.addView(btnStop);
 
+        // --- Agent 控制组（暂停/单步/回退），流式生成中显示 ---
+        LinearLayout agentControlBar = new LinearLayout(ctx);
+        agentControlBar.setOrientation(LinearLayout.HORIZONTAL);
+        agentControlBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        agentControlBar.setVisibility(View.GONE);
+        LinearLayout.LayoutParams acbLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        acbLp.bottomMargin = dpToPx(4, ctx);
+        agentControlBar.setLayoutParams(acbLp);
+        TextView btnPause = createActionButton(ctx, "⏸ 暂停", colorOnSurfaceVariant, true);
+        TextView btnStep = createActionButton(ctx, "👣 单步", colorOnSurfaceVariant, true);
+        TextView btnRewind = createActionButton(ctx, "⏮ 回退", colorOnSurfaceVariant, false);
+        agentControlBar.addView(btnPause);
+        agentControlBar.addView(btnStep);
+        agentControlBar.addView(btnRewind);
+        bubble.addView(agentControlBar);
+
         // --- 思考标签 ---
         TextView thinkingLabel = new TextView(ctx);
         thinkingLabel.setText(R.string.chat_thinking_process);
@@ -664,7 +681,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         DynamicAiMessageRoot dynamicRoot = new DynamicAiMessageRoot(ctx, blockLabel, messageText,
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
                 agentStatus, agentSummary, actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate,
-                btnNewChat, btnLike, btnDislike, btnStop, timestampText, statusIcon, statusText,
+                btnNewChat, btnLike, btnDislike, btnStop, btnPause, btnStep, btnRewind,
+                agentControlBar, timestampText, statusIcon, statusText,
                 inferenceProgressView, agentExecutionView, agentProgressSlot, agentTimelineSlot,
                 attachmentsRecycler, modelInfoContainer, modelStatusIndicator, modelNameText,
                 modelLatencyText, modelCostText);
@@ -1162,6 +1180,45 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         renderAgentProgressRing(holder, message);
         // Agent 步骤时间线：blocks 序列（timeline primitive）
         renderAgentTimeline(holder, message);
+        // Agent 控制组（暂停/单步/回退）：流式生成中显示
+        bindAgentControlBar(holder, message);
+    }
+
+    /**
+     * Agent 控制组：暂停/单步/回退按钮。仅在流式生成 + Agent 模式时显示。
+     * 点击触发对应 Action + dispatchChatAction 通知 Agent。
+     */
+    private void bindAgentControlBar(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.agentControlBar == null) return;
+        boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
+                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+        boolean show = streaming && message.agentMode;
+        holder.agentControlBar.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (!show) {
+            if (holder.btnPause != null) holder.btnPause.setOnClickListener(null);
+            if (holder.btnStep != null) holder.btnStep.setOnClickListener(null);
+            if (holder.btnRewind != null) holder.btnRewind.setOnClickListener(null);
+            return;
+        }
+        final String msgId = message.id;
+        if (holder.btnPause != null) holder.btnPause.setOnClickListener(v -> {
+            if (actionClickListener != null) {
+                actionClickListener.onAction(ChatMessage.Action.pauseAgent(msgId));
+            }
+            ComponentActions.dispatchChatAction(v.getContext(), "pause:" + msgId);
+        });
+        if (holder.btnStep != null) holder.btnStep.setOnClickListener(v -> {
+            if (actionClickListener != null) {
+                actionClickListener.onAction(ChatMessage.Action.stepAgent(msgId));
+            }
+            ComponentActions.dispatchChatAction(v.getContext(), "step:" + msgId);
+        });
+        if (holder.btnRewind != null) holder.btnRewind.setOnClickListener(v -> {
+            if (actionClickListener != null) {
+                actionClickListener.onAction(ChatMessage.Action.rewindAgent(msgId));
+            }
+            ComponentActions.dispatchChatAction(v.getContext(), "rewind:" + msgId);
+        });
     }
 
     /**
@@ -4477,6 +4534,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final TextView btnLike;
         final TextView btnDislike;
         final TextView btnStop;
+        final TextView btnPause;
+        final TextView btnStep;
+        final TextView btnRewind;
+        final LinearLayout agentControlBar;
         final TextView timestampText;
         final ImageView statusIcon;
         final TextView statusText;
@@ -4496,7 +4557,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView thinkingContent, View thinkingDivider, TextView agentStatus, TextView agentSummary,
                 View actionButtons, TextView btnCopy, TextView btnSpeak, TextView btnShare,
                 TextView btnRegenerate, TextView btnNewChat, TextView btnLike, TextView btnDislike,
-                TextView btnStop, TextView timestampText, ImageView statusIcon,
+                TextView btnStop, TextView btnPause, TextView btnStep, TextView btnRewind,
+                LinearLayout agentControlBar, TextView timestampText, ImageView statusIcon,
                 TextView statusText, InferenceProgressView inferenceProgressView,
                 AgentExecutionView agentExecutionView, LinearLayout agentProgressSlot,
                 LinearLayout agentTimelineSlot,
@@ -4522,6 +4584,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.btnLike = btnLike;
             this.btnDislike = btnDislike;
             this.btnStop = btnStop;
+            this.btnPause = btnPause;
+            this.btnStep = btnStep;
+            this.btnRewind = btnRewind;
+            this.agentControlBar = agentControlBar;
             this.timestampText = timestampText;
             this.statusIcon = statusIcon;
             this.statusText = statusText;
@@ -4586,6 +4652,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView btnLike;
         TextView btnDislike;
         TextView btnStop;
+        TextView btnPause;
+        TextView btnStep;
+        TextView btnRewind;
+        LinearLayout agentControlBar;
         TextView timestampText;
         ImageView statusIcon;
         TextView statusText;
@@ -4627,6 +4697,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.btnLike = dr.btnLike;
             this.btnDislike = dr.btnDislike;
             this.btnStop = dr.btnStop;
+            this.btnPause = dr.btnPause;
+            this.btnStep = dr.btnStep;
+            this.btnRewind = dr.btnRewind;
+            this.agentControlBar = dr.agentControlBar;
             this.timestampText = dr.timestampText;
             this.statusIcon = dr.statusIcon;
             this.statusText = dr.statusText;
