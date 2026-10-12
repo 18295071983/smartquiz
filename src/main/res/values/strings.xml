@@ -644,4 +644,10 @@
     <string name="chat_desc_history">历史</string>
     <string name="chat_desc_clear">清空</string>
 
+    <!-- 会话/头部任务进度（TaskStateTracker 进行中/待办） -->
+    <string name="drawer_task_badge">📋 %1$d 待办</string>
+    <string name="task_pill_inprogress">📋 进行%1$d</string>
+    <string name="task_pill_todo">📋 待办%1$d</string>
+    <string name="task_pill_both">📋 进行%1$d·待办%2$d</string>
+
 </resources>

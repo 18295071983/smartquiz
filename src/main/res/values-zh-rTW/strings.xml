@@ -592,4 +592,10 @@
     <string name="thinking_indicator">💭 思考中…</string>
     <string name="thinking_stage_start">開始分析使用者請求…</string>
     <string name="thinking_stage_complete">思考完成，準備執行…</string>
+
+    <!-- 會話/頭部任務進度（TaskStateTracker 進行中/待辦） -->
+    <string name="drawer_task_badge">📋 %1$d 待辦</string>
+    <string name="task_pill_inprogress">📋 進行%1$d</string>
+    <string name="task_pill_todo">📋 待辦%1$d</string>
+    <string name="task_pill_both">📋 進行%1$d·待辦%2$d</string>
 </resources>

@@ -12,7 +12,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -64,6 +66,28 @@ public class TaskStateTracker {
     private final File taskFile;
     private final ConcurrentHashMap<String, TaskEntry> tasks = new ConcurrentHashMap<>();
 
+    /** 未归属会话的哨兵键（历史遗留任务或 null 会话落到此桶，不会污染真实会话） */
+    public static final String SESSION_DEFAULT = "__default__";
+    /** 当前活跃会话键：add/getAll/size/buildTaskSummary 均按此隔离，杜绝跨会话/跨天串味 */
+    private volatile String activeSession = SESSION_DEFAULT;
+
+    /** 归一化会话 id：null/空 → SESSION_DEFAULT */
+    private static String normSession(String sid) {
+        return (sid == null || sid.trim().isEmpty()) ? SESSION_DEFAULT : sid.trim();
+    }
+
+    /**
+     * 设置当前活跃会话（会话切换 / Agent 执行开始时调用）。
+     * 之后所有清单读写仅作用于该会话的任务，实现按会话隔离与"关自动续行跨会话串扰"。
+     */
+    public void setActiveSession(String sessionId) {
+        this.activeSession = normSession(sessionId);
+    }
+
+    public String getActiveSession() {
+        return activeSession;
+    }
+
     private static volatile TaskStateTracker instance;
 
     public static TaskStateTracker getInstance(Context context) {
@@ -99,17 +123,19 @@ public class TaskStateTracker {
         if (desc.length() > MAX_DESC_LENGTH) {
             desc = desc.substring(0, MAX_DESC_LENGTH);
         }
-        // 上限控制：只淘汰已归档（completed/failed）的最旧任务
-        if (tasks.size() >= MAX_TASKS) {
+        // 上限控制：按「当前会话」计数与淘汰（只淘汰本会话已归档的最旧任务），
+        // 避免别的会话/别的天的任务互相挤占或串味
+        if (size() >= MAX_TASKS) {
             TaskEntry oldestArchived = findOldestArchived();
             if (oldestArchived == null) {
                 AILogger.w(TAG, "任务已达上限且无可归档淘汰，拒绝新建: " + desc);
                 return null;
             }
             tasks.remove(oldestArchived.id);
-            AILogger.i(TAG, "任务已满，淘汰最旧归档任务: " + oldestArchived.id);
+            AILogger.i(TAG, "任务已满，淘汰本会话最旧归档任务: " + oldestArchived.id);
         }
         TaskEntry entry = new TaskEntry(desc, normalizeStatus(status));
+        entry.session = this.activeSession;
         tasks.put(entry.id, entry);
         persist();
         return entry;
@@ -181,48 +207,156 @@ public class TaskStateTracker {
         return removed;
     }
 
+    /**
+     * 清除指定会话的全部任务（会话被删除时调用，防幽灵任务占着 task_states.json）。
+     * 若删的正是当前活跃会话，顺带把 activeSession 归到默认桶，避免指向已删会话 id。
+     * @return 被移除的任务条数
+     */
+    public synchronized int clearSession(String sessionId) {
+        String sid = normSession(sessionId);
+        int removed = 0;
+        java.util.Iterator<java.util.Map.Entry<String, TaskEntry>> it = tasks.entrySet().iterator();
+        while (it.hasNext()) {
+            TaskEntry e = it.next().getValue();
+            if (e != null && sid.equals(e.session)) { it.remove(); removed++; }
+        }
+        if (removed > 0) persist();
+        // 删除的是当前活跃会话：归位默认桶，避免 getAll/续行仍盯着已删会话 id
+        if (sid.equals(this.activeSession)) this.activeSession = SESSION_DEFAULT;
+        return removed;
+    }
+
+    /**
+     * 回收"孤儿会话"任务：移除 session 不在 knownSessionIds 里的任务。
+     * 供全清 / 会话列表刷新时兜底，清掉历史遗留或已删会话的残留任务。
+     * @param knownSessionIds 仍存在的会话 id 集合（含 SESSION_DEFAULT 视调用方而定）
+     * @return 被移除的任务条数
+     */
+    public synchronized int purgeUnknownSessions(java.util.Set<String> knownSessionIds) {
+        if (knownSessionIds == null) return 0;
+        int removed = 0;
+        java.util.Iterator<java.util.Map.Entry<String, TaskEntry>> it = tasks.entrySet().iterator();
+        while (it.hasNext()) {
+            TaskEntry e = it.next().getValue();
+            String es = e != null && e.session != null ? e.session : SESSION_DEFAULT;
+            if (!knownSessionIds.contains(es)) { it.remove(); removed++; }
+        }
+        if (removed > 0) persist();
+        return removed;
+    }
+
     /** 获取单条任务 */
     public TaskEntry get(String id) {
         return tasks.get(id);
     }
 
-    /** 全部任务（更新时间降序） */
+    /** 当前会话的全部任务（更新时间降序）；跨会话任务不可见，从根上隔离"别的对话/天的任务" */
     public List<TaskEntry> getAll() {
-        List<TaskEntry> result = new ArrayList<>(tasks.values());
+        String sid = this.activeSession;
+        List<TaskEntry> result = new ArrayList<>();
+        for (TaskEntry e : tasks.values()) {
+            if (e != null && sid.equals(e.session)) result.add(e);
+        }
         result.sort((a, b) -> Long.compare(b.updatedAt, a.updatedAt));
         return result;
     }
 
+    /** 当前会话任务数（供上限与 tool "total" 使用） */
     public int size() {
-        return tasks.size();
+        String sid = this.activeSession;
+        int n = 0;
+        for (TaskEntry e : tasks.values()) {
+            if (e != null && sid.equals(e.session)) n++;
+        }
+        return n;
+    }
+
+    /** 清空全部会话的任务（"清空全部对话"时调用，与 clearAllConversationSessions 对齐） */
+    public synchronized void clearAll() {
+        if (tasks.isEmpty()) { this.activeSession = SESSION_DEFAULT; return; }
+        tasks.clear();
+        this.activeSession = SESSION_DEFAULT;
+        persist();
+        AILogger.i(TAG, "All tasks cleared (clear-all-conversations)");
     }
 
     /**
-     * 任务摘要（注入系统提示词用）：活跃任务（进行中/待办）优先，按更新时间降序，
-     * 最多 MAX_SUMMARY_ENTRIES 条；无活跃任务返回 null（归档任务仅 task list 可见）。
+     * 按会话统计「活跃任务（进行中/待办）」条数，供历史抽屉给每条会话显示"N 待办"角标。
+     * 不含 SESSION_DEFAULT 桶（孤儿/无会话任务不进任何会话条目）。
+     * @return 会话 id -> 活跃任务数（仅含有活跃任务的会话）
      */
+    public Map<String, Integer> activeCountBySession() {
+        Map<String, Integer> out = new HashMap<>();
+        for (TaskEntry e : tasks.values()) {
+            if (e == null || !isActive(e.status)) continue;
+            String sid = e.session != null ? e.session : SESSION_DEFAULT;
+            if (SESSION_DEFAULT.equals(sid)) continue;
+            Integer c = out.get(sid);
+            out.put(sid, c == null ? 1 : c + 1);
+        }
+        return out;
+    }
+
+    /**
+     * 当前会话的进行中/待办任务数，供对话头部「任务进度胶囊」实时显示。
+     * 返回 int[]{进行中, 待办}；基于已隔离的 getAll()（仅活跃会话）。
+     */
+    public int[] activeCountsForCurrentSession() {
+        int inProgress = 0, todo = 0;
+        for (TaskEntry e : getAll()) {
+            if (e == null) continue;
+            if (STATUS_IN_PROGRESS.equals(e.status)) inProgress++;
+            else if (STATUS_TODO.equals(e.status)) todo++;
+        }
+        return new int[]{inProgress, todo};
+    }
+
+    /** 便捷重载：先切到指定会话再构建摘要（供非 Agent 注入路径按当前 UI 会话读取） */
+    public String buildTaskSummary(String sessionId) {
+        setActiveSession(sessionId);
+        return buildTaskSummary();
+    }
+
     public String buildTaskSummary() {
-        List<TaskEntry> all = getAll();
-        StringBuilder sb = new StringBuilder();
-        int count = 0;
+        List<TaskEntry> all = getAll(); // 已按 activeSession 过滤 + updatedAt 降序
+        java.util.LinkedHashMap<String, List<TaskEntry>> byDay = new java.util.LinkedHashMap<>();
+        java.text.SimpleDateFormat dayFmt =
+                new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
+        int taken = 0;
         for (TaskEntry e : all) {
             if (!isActive(e.status)) continue;
-            if (count >= MAX_SUMMARY_ENTRIES) break;
-            String state = STATUS_IN_PROGRESS.equals(e.status) ? "进行中" : "待办";
-            String line = "- [" + state + (e.progress > 0 ? " " + e.progress + "%" : "")
-                    + "] " + e.description;
-            if (sb.length() > 0) sb.append("\n");
-            sb.append(line);
-            count++;
+            if (taken >= MAX_SUMMARY_ENTRIES) break;
+            String day = dayFmt.format(new java.util.Date(e.createdAt));
+            java.util.List<TaskEntry> bucket = byDay.get(day);
+            if (bucket == null) { bucket = new ArrayList<>(); byDay.put(day, bucket); }
+            bucket.add(e);
+            taken++;
         }
-        if (sb.length() == 0) return null;
+        if (byDay.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder();
+        boolean firstDay = true;
+        for (java.util.Map.Entry<String, List<TaskEntry>> en : byDay.entrySet()) {
+            if (!firstDay) sb.append("\n");
+            sb.append("📅 ").append(en.getKey()).append("\n");
+            for (TaskEntry e : en.getValue()) {
+                String state = STATUS_IN_PROGRESS.equals(e.status) ? "进行中" : "待办";
+                sb.append("- [").append(state)
+                  .append(e.progress > 0 ? " " + e.progress + "%" : "")
+                  .append("] ").append(e.description).append("\n");
+            }
+            firstDay = false;
+        }
+        int len = sb.length();
+        while (len > 0 && sb.charAt(len - 1) == '\n') sb.deleteCharAt(len - 1);
         return sb.toString();
     }
 
-    /** 找已归档（completed/failed）且 updatedAt 最早的条目（淘汰用） */
+    /** 找本会话已归档（completed/failed）且 updatedAt 最早的条目（淘汰用） */
     private TaskEntry findOldestArchived() {
+        String sid = this.activeSession;
         TaskEntry oldest = null;
         for (TaskEntry e : tasks.values()) {
+            if (e == null || !sid.equals(e.session)) continue;
             if (isActive(e.status)) continue;
             if (oldest == null || e.updatedAt < oldest.updatedAt) {
                 oldest = e;
@@ -245,6 +379,7 @@ public class TaskStateTracker {
                 obj.put("progress", e.progress);
                 obj.put("createdAt", e.createdAt);
                 obj.put("updatedAt", e.updatedAt);
+                obj.put("session", e.session != null ? e.session : SESSION_DEFAULT);
                 arr.put(obj);
             }
             byte[] data = arr.toString(2).getBytes("UTF-8");
@@ -281,6 +416,9 @@ public class TaskStateTracker {
                         obj.optInt("progress", 0),
                         obj.optLong("createdAt", System.currentTimeMillis()),
                         obj.optLong("updatedAt", System.currentTimeMillis()));
+                // 历史任务无 session 字段 → 归入 SESSION_DEFAULT，不污染真实会话清单
+                e.session = obj.optString("session", SESSION_DEFAULT);
+                if (e.session == null || e.session.isEmpty()) e.session = SESSION_DEFAULT;
                 tasks.put(id, e);
             }
             AILogger.i(TAG, "Tasks loaded: " + tasks.size() + " entries");
@@ -316,6 +454,8 @@ public class TaskStateTracker {
         public int progress;
         public final long createdAt;
         public long updatedAt;
+        /** 归属会话键；getAll/size/summary 按当前活跃会话过滤，实现会话隔离 */
+        public String session = SESSION_DEFAULT;
 
         public TaskEntry(String description, String status) {
             this("t" + System.currentTimeMillis() + "_" + (int) (Math.random() * 10000),

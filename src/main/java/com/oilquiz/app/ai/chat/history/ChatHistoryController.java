@@ -45,6 +45,13 @@ public class ChatHistoryController {
     private TextView emptyView;
     private ChatHistoryAdapter chatHistoryAdapter;
     private String currentSessionId;
+    /** 会话 id -> 活跃任务数，refresh 时透传给 adapter 显示"N 待办"角标 */
+    private java.util.Map<String, Integer> taskCountsBySession;
+
+    /** 设置各会话活跃任务数（refreshHistoryDrawer 计算后、refresh 前调用） */
+    public void setTaskCounts(java.util.Map<String, Integer> counts) {
+        this.taskCountsBySession = counts;
+    }
 
     public ChatHistoryController(Activity activity, Callback callback) {
         this.activity = activity;
@@ -99,6 +106,7 @@ public class ChatHistoryController {
             @Override public void onClearAllHistory() { if (callback != null) callback.onClearChat(); }
         });
         chatHistoryAdapter.setCurrentSessionId(currentSessionId);
+        chatHistoryAdapter.setTaskCounts(taskCountsBySession);
         historyList.setAdapter(chatHistoryAdapter);
 
         // 空状态：无会话时显示提示

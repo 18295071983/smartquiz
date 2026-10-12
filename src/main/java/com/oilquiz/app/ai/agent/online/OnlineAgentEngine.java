@@ -79,7 +79,7 @@ public class OnlineAgentEngine {
      * 版本不一致（提示词升级）→ 丢弃重建（缓存 miss 一次属合理）。
      * 【注意】修改 OnlinePromptBuilder 的提示词模板时，必须同步递增此版本号。
      */
-    private static final String PROMPT_VERSION = "20260923-v8";
+    private static final String PROMPT_VERSION = "20261013-v9";
 
     /** Agent 执行模式 */
     public enum AgentMode {
@@ -502,6 +502,13 @@ public class OnlineAgentEngine {
             }
             // 分段组装：基础段（assist/takeover）+【深度思考】段 +【文件与工作区】段，
             // 由 PromptAssembler（dsh 分段语义）按 order 排序拼接；段文本与原手动 += 语义一致
+            // 执行起始即对齐任务跟踪器活跃会话：本轮 task add 落到当前会话、
+            // 自动续行/继续解析只看当前会话活跃任务（setSessionId 未覆盖到的首跑/懒建会话兜底）
+            try {
+                TaskStateTracker.getInstance(context).setActiveSession(this.sessionId);
+            } catch (Throwable t) {
+                AILogger.w(TAG, "setActiveSession(enter execute) failed: " + t.getMessage());
+            }
             String systemPrompt = promptBuilder.buildSystemPromptWithRuntime(
                     takeover, enableThinking, thinkingInstruction, workspaceBlock);
             JsonObject systemMsg = new JsonObject();
@@ -2486,6 +2493,14 @@ public class OnlineAgentEngine {
             return;
         }
         String old = this.sessionId;
+        // 任务清单活跃会话：放在 changed 判断之前、无条件（非生成中）幂等对齐，
+        // 使"同会话重复 setSessionId"也能把 tracker 拉回当前会话，不因 !changed 早退而漏同步
+        // （add/getAll/buildTaskSummary/自动续行都按此隔离，杜绝跨会话/跨天进行中任务串味）
+        try {
+            TaskStateTracker.getInstance(context).setActiveSession(newSessionId);
+        } catch (Throwable t) {
+            AILogger.w(TAG, "setActiveSession(sync task tracker) failed: " + t.getMessage());
+        }
         boolean changed = (old == null) ? (newSessionId != null && !newSessionId.isEmpty())
                 : !old.equals(newSessionId);
         if (!changed) return;

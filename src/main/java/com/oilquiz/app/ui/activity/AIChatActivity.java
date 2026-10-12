@@ -1187,6 +1187,21 @@ public class AIChatActivity extends BaseActivity {
         // 原 refreshContextMeter 只在旧版路径触发 → 在线对话下 pill 一直 0。
         // 并入统计刷新后，任何消息变化（发送/回复/恢复历史）都实时更新。
         refreshContextMeter();
+        // 任务进度胶囊：与引擎 TaskStateTracker 当前会话实时对接（发送/回复/历史刷新都重算）
+        refreshTaskPill();
+    }
+
+    /**
+     * 对话头部「任务进度胶囊」：读取 TaskStateTracker 当前活跃会话的进行中/待办数并显示。
+     * UI 线程调用；引擎在后台线程改任务，故工具/步骤推进(updateAgentStatusBar)与会话切换/历史刷新均重算。
+     */
+    private void refreshTaskPill() {
+        if (sessionStatsBar == null) return;
+        try {
+            int[] counts = com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this)
+                    .activeCountsForCurrentSession();
+            sessionStatsBar.setTaskProgress(counts[0], counts[1]);
+        } catch (Throwable ignore) { }
     }
     private void updateSendButtonState(boolean enabled, String text) {
         try {
@@ -7914,6 +7929,11 @@ public class AIChatActivity extends BaseActivity {
             if (agentChatHandler != null) agentChatHandler.clearAllHistory();
             // 会话 ID 重置：下次发送时创建新会话
             currentSessionId = null;
+            // 清空全部对话：连同各会话遗留任务一起清空（与 clearAllConversationSessions 对齐），
+            // 并把活跃会话归位默认桶，防幽灵任务残留
+            try {
+                com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).clearAll();
+            } catch (Throwable ignore) { }
             clearStreamingState();
             endGeneration();
             // 组件暂存缓存同步清除（2026-09-14）：防止上一轮/上一会话残留组件
@@ -7962,6 +7982,8 @@ public class AIChatActivity extends BaseActivity {
                 agentChatHandler.setSessionId(null);
                 agentChatHandler.clearHistory();
             }
+            // 新对话（默认空会话）：刷新头部任务胶囊，隐藏上一会话遗留的进行中/待办数
+            refreshTaskPill();
             // 本地推理上下文独立化：切到新会话（null=新建，历史从空开始）
             if (modelBridge != null) {
                 modelBridge.setLocalSessionId(null);
@@ -8035,6 +8057,8 @@ public class AIChatActivity extends BaseActivity {
                         }
                         updateEmptyState();
                         scrollToBottom(true);
+                        // 切会话后刷新头部任务胶囊（活跃会话已随 setSessionId 切换）
+                        refreshTaskPill();
                         showToast(getString(R.string.h_ab98c004) + session.title);
                     });
                 } else {
@@ -8057,6 +8081,11 @@ public class AIChatActivity extends BaseActivity {
             chatHistoryManager.deleteConversationSession(session.id);
             // 本地推理上下文独立化：同步删除该会话的本地推理历史文件（含全部模型隔离文件）
             if (modelBridge != null) modelBridge.deleteLocalHistory(session.id);
+            // 会话隔离：删除该会话遗留的任务条目，防幽灵任务占着 task_states.json；
+            // 若删的是当前活跃会话，clearSession 内部把 activeSession 归位默认桶
+            try {
+                com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).clearSession(session.id);
+            } catch (Throwable ignore) { }
             runOnUiThread(() -> {
                 if (isCurrent) {
                     // 当前会话被删除：清空页面 + 引擎历史（含其历史文件）
@@ -8080,8 +8109,15 @@ public class AIChatActivity extends BaseActivity {
         if (historyController == null || chatHistoryManager == null) return;
         new Thread(() -> {
             List<ConversationSession> sessions = chatHistoryManager.listConversationSessions();
+            // 各会话待办任务数（活跃：进行中/待办），供条目 "N 待办" 角标；后台线程读快照
+            java.util.Map<String, Integer> taskCounts = null;
+            try {
+                taskCounts = com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).activeCountBySession();
+            } catch (Throwable ignore) { }
+            final java.util.Map<String, Integer> counts = taskCounts;
             runOnUiThread(() -> {
                 historyController.setCurrentSessionId(currentSessionId);
+                historyController.setTaskCounts(counts);
                 historyController.refresh(sessions);
             });
         }).start();
@@ -9585,7 +9621,8 @@ public class AIChatActivity extends BaseActivity {
             if (memory != null && !memory.trim().isEmpty()) {
                 sb.append("已注入长期记忆：").append(memory.trim()).append("\n");
             }
-            String task = com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this).buildTaskSummary();
+            String task = com.oilquiz.app.ai.tool.TaskStateTracker.getInstance(this)
+                    .buildTaskSummary(currentSessionId);
             if (task != null && !task.trim().isEmpty()) {
                 sb.append("已注入活跃任务：").append(task.trim()).append("\n");
             }
@@ -10260,6 +10297,9 @@ public class AIChatActivity extends BaseActivity {
             serviceStatusProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
             if (busy) serviceStatusProgress.setIndeterminate(true);
         }
+        // 引擎每推进一个工具/思考步骤都会调本方法（已在 UI 线程），顺带刷新头部任务胶囊，
+        // 使 task add/update/complete 引起的进行中/待办变化实时反映到统计条
+        refreshTaskPill();
     }
 
     /**

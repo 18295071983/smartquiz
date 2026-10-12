@@ -9,6 +9,7 @@ import android.view.Gravity;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.ChatMessage;
 
 import java.util.List;
@@ -30,6 +31,8 @@ public class ChatStatsBar extends LinearLayout {
     private final TextView pillCost;
     /** 2026-09-23：上下文占用 pill（原 tv_context_meter 并入统计条，避免贴右边缘被工具抽屉覆盖） */
     private final TextView pillContext;
+    /** 引擎任务进度胶囊（当前会话进行中/待办数）；独立于消息统计，由外部 setTaskProgress 驱动 */
+    private final TextView pillTask;
     private Runnable contextPillClick = null;
     private List<ChatMessage> messages = null;
 
@@ -58,9 +61,13 @@ public class ChatStatsBar extends LinearLayout {
         pillTools = makePill("🛠 0");
         pillTokens = makePill("🔵 0 tok");
         pillCost = makePill("💰 --");
+        // 任务进度胶囊：默认隐藏，setTaskProgress 有活跃任务时才显示
+        pillTask = makePill("📋 0");
+        pillTask.setVisibility(GONE);
         addView(pillDuration);
         addView(pillTurns);
         addView(pillTools);
+        addView(pillTask);
         addView(pillTokens);
         addView(pillCost);
         setOnClickListener(v -> showDetailDialog());
@@ -114,6 +121,26 @@ public class ChatStatsBar extends LinearLayout {
     /** 上下文 pill 点击回调（弹上下文用量明细；父条点击仍弹会话统计） */
     public void setOnContextPillClick(Runnable r) {
         this.contextPillClick = r;
+    }
+
+    /**
+     * 引擎任务进度胶囊：显示当前会话的进行中/待办任务数，与 TaskStateTracker 会话隔离对接。
+     * 无活跃任务（都 <=0）时隐藏胶囊；仅进行中显示"📋 进行N"，仅待办显示"📋 待办M"，
+     * 两者都有显示"📋 进行N·待办M"。在 UI 线程调用。
+     */
+    public void setTaskProgress(int inProgress, int todo) {
+        if (inProgress < 0) inProgress = 0;
+        if (todo < 0) todo = 0;
+        if (inProgress == 0 && todo == 0) {
+            pillTask.setVisibility(GONE);
+            return;
+        }
+        String txt;
+        if (inProgress > 0 && todo > 0) txt = getContext().getString(R.string.task_pill_both, inProgress, todo);
+        else if (inProgress > 0) txt = getContext().getString(R.string.task_pill_inprogress, inProgress);
+        else txt = getContext().getString(R.string.task_pill_todo, todo);
+        pillTask.setText(txt);
+        pillTask.setVisibility(VISIBLE);
     }
 
     /** 以当前会话消息列表刷新统计；2026-09-23 常驻显示（空对话也显示统计条，不再隐藏） */

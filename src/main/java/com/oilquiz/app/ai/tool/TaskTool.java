@@ -183,8 +183,11 @@ public class TaskTool implements AITool {
                             ? TaskStateTracker.normalizeStatus(filter.trim()) : null;
                     List<TaskStateTracker.TaskEntry> all = tracker.getAll();
                     List<Map<String, Object>> items = new ArrayList<>();
-                    StringBuilder summary = new StringBuilder();
                     int active = 0;
+                    // 按创建日期分组（当前会话内），日期段按最近活动先后排列，便于用户阅读
+                    java.text.SimpleDateFormat dayFmt =
+                            new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
+                    java.util.LinkedHashMap<String, StringBuilder> dayGroups = new java.util.LinkedHashMap<>();
                     for (TaskStateTracker.TaskEntry e : all) {
                         if (statusFilter != null && !statusFilter.equals(e.status)) continue;
                         String state = "completed".equals(e.status) ? "完成"
@@ -196,11 +199,19 @@ public class TaskTool implements AITool {
                         item.put("status", e.status);
                         item.put("progress", e.progress);
                         items.add(item);
-                        if (summary.length() > 0) summary.append("\n");
-                        summary.append("- ").append(e.id).append(" [").append(state)
+                        String day = dayFmt.format(new java.util.Date(e.createdAt));
+                        StringBuilder g = dayGroups.get(day);
+                        if (g == null) { g = new StringBuilder(); dayGroups.put(day, g); }
+                        if (g.length() > 0) g.append("\n");
+                        g.append("- ").append(e.id).append(" [").append(state)
                                 .append(e.progress > 0 ? " " + e.progress + "%" : "")
                                 .append("] ").append(e.description);
                         if ("in_progress".equals(e.status) || "todo".equals(e.status)) active++;
+                    }
+                    StringBuilder summary = new StringBuilder();
+                    for (Map.Entry<String, StringBuilder> en : dayGroups.entrySet()) {
+                        if (summary.length() > 0) summary.append("\n");
+                        summary.append("📅 ").append(en.getKey()).append("\n").append(en.getValue());
                     }
                     Map<String, Object> result = new HashMap<>();
                     result.put("count", items.size());

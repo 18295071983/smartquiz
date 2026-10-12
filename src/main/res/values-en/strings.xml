@@ -623,4 +623,8 @@ Enter \'Help\' to see more functions.</string>
     <string name="thinking_stage_complete">Thinking complete, preparing to execute…</string>
 
     <!-- Common -->
+    <string name="drawer_task_badge">📋 %1$d to-do</string>
+    <string name="task_pill_inprogress">📋 %1$d in progress</string>
+    <string name="task_pill_todo">📋 %1$d to-do</string>
+    <string name="task_pill_both">📋 %1$d doing · %2$d to-do</string>
 </resources>

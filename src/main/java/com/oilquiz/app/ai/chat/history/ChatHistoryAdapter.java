@@ -51,6 +51,13 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
     private final SimpleDateFormat timeFormat;
     /** 当前会话 ID（用于高亮"当前"项），null = 无当前会话 */
     private String currentSessionId;
+    /** 会话 id -> 活跃(进行中/待办)任务数，用于条目"N 待办"角标；null/缺省 = 无角标 */
+    private java.util.Map<String, Integer> taskCountsBySession;
+
+    /** 设置各会话活跃任务数（刷新抽屉前调用） */
+    public void setTaskCounts(java.util.Map<String, Integer> counts) {
+        this.taskCountsBySession = counts;
+    }
 
     public ChatHistoryAdapter(Context context, List<ConversationSession> sessions,
                               OnHistoryItemClickListener listener) {
@@ -136,6 +143,17 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
         // 消息数
         holder.messageCountText.setText(String.format(Locale.getDefault(), context.getString(R.string.h_a9c08747), session.getMessageCount()));
+
+        // 待办任务角标：该会话有活跃任务（进行中/待办）才显示 "📋 N 待办"
+        Integer activeTasks = taskCountsBySession != null ? taskCountsBySession.get(session.id) : null;
+        if (holder.taskBadge != null) {
+            if (activeTasks != null && activeTasks > 0) {
+                holder.taskBadge.setText(context.getString(R.string.drawer_task_badge, activeTasks));
+                holder.taskBadge.setVisibility(View.VISIBLE);
+            } else {
+                holder.taskBadge.setVisibility(View.GONE);
+            }
+        }
 
         // 图标
         holder.iconText.setText("💬");
@@ -249,6 +267,7 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         TextView previewText;
         TextView timeText;
         TextView messageCountText;
+        TextView taskBadge;
         TextView currentTag;
         ImageView arrowIcon;
 
@@ -259,6 +278,7 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             previewText = itemView.findViewById(R.id.history_preview_text);
             timeText = itemView.findViewById(R.id.history_time_text);
             messageCountText = itemView.findViewById(R.id.history_message_count);
+            taskBadge = itemView.findViewById(R.id.history_task_badge);
             currentTag = itemView.findViewById(R.id.history_current_tag);
             arrowIcon = itemView.findViewById(R.id.history_arrow);
         }

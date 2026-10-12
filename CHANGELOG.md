@@ -1,5 +1,53 @@
 # 变更日志
 
+## [2026-10-13] 在线 Agent 任务清单：会话隔离 + 关跨会话自动续行 + 按日期分组（治多日任务幻觉）
+
+### 背景
+
+在线模式易"滚出好几天的任务且没分组"。静态定位为任务状态模型问题，非渲染问题：
+
+- `TaskStateTracker` 是**全局单例**、所有任务落同一个 `filesDir/task_states.json`，**跨会话跨天共享**（上限 20）。
+- `OnlineAgentEngine` 自动续行 `maybeAutoContinue()` 与"继续"解析 `maybeResolveContinueMessage()` 读
+  `tracker.getAll()`，几天前遗留的"进行中"任务被反复看到并驱动新一轮。
+- 在线提示词引导"自主规划/多步·跨轮/task 清单/失败重新规划"，模型把普通小问题拆成跨天多任务。
+- 清单是扁平列表，无按会话/日期分组；注入摘要与 `task list` 输出都不分组。
+
+### 修复
+
+- **会话隔离（`TaskStateTracker.java`）**：新增 `activeSession`/`setActiveSession()`/`normSession()`（null→`__default__`）；
+  `TaskEntry` 加 `session` 字段并随 persist/load 落盘（历史无 session 归 `__default__`）；`getAll()`/`size()`/
+  `findOldestArchived()`/`add()` 上限与淘汰全部按当前会话过滤；`buildTaskSummary()` 仅汇总当前会话活跃任务并
+  **按创建日期分组**（`📅 yyyy-MM-dd` 段，总数≤8），新增 `buildTaskSummary(sessionId)` 便捷重载。
+- **接线（`OnlineAgentEngine.java`/`AIChatActivity.java`）**：`setSessionId` 切会话时同步 `setActiveSession`；
+  `execute` 起始兜底对齐（覆盖懒建/首跑会话）；`maybeInsertContextInjectionRow` 注入行改用
+  `buildTaskSummary(currentSessionId)`。`getAll()` 会话化后，自动续行/继续解析天然**只在同会话**触发（关跨会话串扰）。
+- **清单分组（`TaskTool.java`）**：`list` 结果的 message 也按创建日期分组渲染，与注入摘要一致。
+- **提示词收紧（`OnlinePromptBuilder.buildTaskGuideSection`）**：明确一次性/单步不建任务、多步合并一条不按步骤拆分、
+  禁止臆造"第1天/第2天/多天路线图"跨天规划；`OnlineAgentEngine.PROMPT_VERSION` 递增 `20260923-v8`→`20261013-v9`。
+- **全路径对称同步（防御性）**：`OnlineAgentEngine.setSessionId` 把 `setActiveSession` 移到 `!changed` 早退**之前**、
+  非生成中无条件幂等对齐（同会话重复调用也拉回）；`clearChat` 不走 `setSessionId`，补显式 `setActiveSession(null)`。
+  至此新对话/清空/切换/发送四条路径都把活跃会话显式同步给 `TaskStateTracker`，不再仅依赖 `execute` 起始兜底。
+- **抽屉删除/全清接通任务隔离**：`TaskStateTracker` 新增 `clearSession(sid)`（删该会话全部任务，删的是活跃
+  会话则内部归位默认桶）、`purgeUnknownSessions(Set)`、`clearAll()`；`AIChatActivity.deleteSession` 删除任意会话
+  后调 `clearSession`（防幽灵任务残留 `task_states.json`）；"清空全部对话"由 `setActiveSession(null)` 升级为
+  `clearAll()`，与 `clearAllConversationSessions` 对齐。抽屉切换会话本就经 `switchToSession → setSessionId →
+  setActiveSession`，任务清单跟随会话，已接通。
+- **抽屉会话待办角标**：`TaskStateTracker` 加 `activeCountBySession()`（按会话统计进行中/待办数，排除默认桶）；
+  `item_chat_history.xml` meta 行新增 `history_task_badge`；`ChatHistoryAdapter` 加 `setTaskCounts(Map)` 与
+  `bindSessionItem` 内 "📋 N 待办" 显隐；`ChatHistoryController` 透传 counts；`refreshHistoryDrawer` 后台读快照
+  并下发。于是抽屉每条会话直接显示其待办任务数，与"任务按会话隔离"呼应。（与既有文件里硬编码中文
+  如"消息数:"/「当前」一致，沿用同风格）
+- **对话头部任务进度胶囊**：`ChatStatsBar`（输入框上方统计条）新增独立 `pillTask` + `setTaskProgress(inProgress,
+  todo)`，无活跃任务隐藏、有则显示"📋 进行N·待办M"；`TaskStateTracker.activeCountsForCurrentSession()` 供数；
+  `AIChatActivity.refreshTaskPill()` 在 `refreshSessionStats()`、`updateAgentStatusBar()`（引擎每步推进）、
+  `switchToSession`、`startNewConversation` 处刷新，使头部胶囊与引擎 `TaskStateTracker` 当前会话实时对接。
+  取舍：`ChatStatsBar` 原"仅依赖消息列表"的自洽被打破，改由这些刷新点保证一致（UI 线程读快照）。
+
+验证：`processDebugResources` + `compileDebugJavaWithJavac` BUILD SUCCESSFUL（补齐 `Map`/`HashMap` 导入后）。
+
+验证：`compileDebugJavaWithJavac` BUILD SUCCESSFUL。按用户确认，运行时效果需真机走多轮带任务的在线 Agent 再定；
+本轮为静态/编译级验证。旧的全局遗留任务归入 `__default__`，不影响真实会话清单。
+
 ## [2026-10-13] Agent 轮次渲染去重 + contentRoundBounds 持久化（实时/历史一致）
 
 ### 背景

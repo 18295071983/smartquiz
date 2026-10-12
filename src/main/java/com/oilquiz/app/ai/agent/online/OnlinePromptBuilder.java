@@ -299,7 +299,13 @@ public class OnlinePromptBuilder {
      */
     private String buildTaskGuideSection() {
         StringBuilder sb = new StringBuilder();
-        sb.append("【任务状态跟踪】你有跨轮任务清单能力（task 工具），跟踪多步/多轮任务：布置时 task add，有进展 task update（progress 百分比），完成 task complete / 失败 task fail / 取消 task delete，查看 task list；有活跃任务时每轮自动注入【当前任务】摘要。一次性问答不建任务，一个多步任务合并为一条维护。\n\n");
+        sb.append("【任务状态跟踪】task 工具只用于「确实需要跨多步/多轮持续推进」的任务：布置时 task add，"
+                + "有进展 task update（progress 百分比），完成 task complete / 失败 task fail / 取消 task delete，查看 task list。"
+                + "严格边界（防过度规划与幻觉）：一次性问答、单步操作、当场就能完成的请求一律不建任务；"
+                + "同一任务的多个步骤合并为一条维护，绝不按步骤逐条拆成很多任务；"
+                + "不要臆造用户没要求的后续计划，尤其禁止把任务排成"
+                + "『第1天/第2天/多天/长期路线图』这类跨越数天的规划——除非用户明确要求制定跨天计划。"
+                + "任务清单只反映当前会话真实待办，不预支未来的日期。\n\n");
         return sb.toString();
     }
 
