@@ -2290,67 +2290,109 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         RENDER_MAIN_HANDLER.post(() -> applyRenderedText(req.textView, rendered, req.token));
     }
 
-    /** 主线程应用渲染结果（代次校验通过才 setText） */
-    private static void applyRenderedText(TextView textView, Spanned rendered, long token) {
-        if (!isRenderCurrent(textView, token)) return;
-        try {
-            SpannableStringBuilder ssb = new SpannableStringBuilder(rendered);
-            // 给渲染后的代码块附加"点击复制"能力：识别 Markwon 输出的 CodeBlock/Code/Typeface
-            // 系列 span 覆盖的多行区间，把整段代码变成 ClickableSpan，点击复制到剪贴板。
-            attachCodeCopySpans(ssb);
-            TextViewSpan.applyTo(ssb, textView);
-            textView.setText(ssb);
-        } catch (Throwable ignored) {
-            // 应用失败（视图已分离等）：静默丢弃，等待下次渲染
+    /** 检测内容中是否包含 ``` 代码围栏（排除已由 MermaidMathSplitter 处理的 mermaid 块） */
+    private static boolean hasFencedCode(String content) {
+        return content != null && content.contains("```");
+    }
+
+    /**
+     * 分割并渲染：把 content 按 ``` fence 拆成 (text, code, text, code, ...)，
+     * 文本段走 Markdown，代码段生成 code_card ComponentData 交给 ComponentRegistry
+     * 复用现成的 CodeCardView（自带语言标签、暗色主题、一键复制）。
+     */
+    private void renderWithCodeCards(AIMessageViewHolder holder, ChatMessage message,
+                                     int availableWidth, Context ctx) {
+        String content = message.content != null ? message.content : "";
+        holder.contentHost.removeAllViews();
+        java.util.List<String[]> segs = splitFencedSegments(content);
+        for (String[] seg : segs) {
+            if ("code".equals(seg[0])) {
+                org.json.JSONObject props = new org.json.JSONObject();
+                try {
+                    props.put("language", seg[1]);
+                    props.put("code", seg[2]);
+                } catch (org.json.JSONException ignored) {}
+                ComponentData data = new ComponentData("code_card", props);
+                View v = ComponentRegistry.getInstance().render(ctx, data);
+                if (v != null) {
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                    lp.topMargin = dpToPx(8, ctx);
+                    holder.contentHost.addView(v, lp);
+                }
+            } else {
+                String text = seg[2];
+                if (text == null || text.trim().isEmpty()) continue;
+                TextView tv = createSegmentTextView(ctx, holder.messageText);
+                setRenderedText(tv, text, availableWidth);
+                tv.setMovementMethod(LinkMovementMethod.getInstance());
+                holder.contentHost.addView(tv);
+            }
         }
     }
 
     /**
-     * 给渲染后的多行代码块附加 ClickableSpan，点击复制该段代码。
-     * 探测规则：遍历 Spanned 中所有 span，找类名包含 Code/CodeBlock/Fenced 的 Markwon 结构；
-     * 或 TypefaceSpan(MONOSPACE) 且区间跨行（多行代码）。
-     * 用 start..end 区间去重，避免同一段被反复附加 span。
+     * 按 ``` fence 拆分：返回 [kind, language, content] 数组序列。
+     * kind ∈ "text" | "code"。fence 首行的语言标识提取到 language 字段。
+     * 流式中未闭合的 fence 也识别为 code（避免半渲染源码）。
      */
-    private static void attachCodeCopySpans(SpannableStringBuilder ssb) {
-        if (ssb == null || ssb.length() == 0) return;
-        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
-        Object[] spans = ssb.getSpans(0, ssb.length(), Object.class);
-        for (Object s : spans) {
-            String n = s.getClass().getSimpleName();
-            boolean isCodeMarker = n.contains("CodeBlock") || n.contains("Fenced")
-                    || (n.contains("Code") && !n.equals("ClickableSpan"));
-            if (!isCodeMarker) continue;
-            int start = ssb.getSpanStart(s);
-            int end = ssb.getSpanEnd(s);
-            if (start < 0 || end <= start) continue;
-            String key = start + ":" + end;
-            if (seen.contains(key)) continue;
-            seen.add(key);
-            // 只在多行区间附加，单行内联 code 不打扰
-            String block = ssb.subSequence(start, end).toString();
-            if (block.indexOf('\n') < 0) continue;
-            final String codeText = block;
-            ClickableSpan copySpan = new ClickableSpan() {
-                @Override public void onClick(android.view.View widget) {
-                    if (widget instanceof TextView) {
-                        android.content.Context c = widget.getContext();
-                        ClipboardManager cm = (ClipboardManager) c.getSystemService(
-                                Context.CLIPBOARD_SERVICE);
-                        if (cm != null) {
-                            cm.setPrimaryClip(ClipData.newPlainText("code", codeText));
-                            android.widget.Toast.makeText(c, "代码已复制",
-                                    android.widget.Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                }
-                @Override public void updateDrawState(android.text.TextPaint ds) {
-                    // 保持原样式，不加下划线，只在长按/点击时行为改变
-                    ds.setUnderlineText(false);
-                }
-            };
-            try {
-                ssb.setSpan(copySpan, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            } catch (Throwable ignored) {}
+    private static java.util.List<String[]> splitFencedSegments(String content) {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        int i = 0;
+        int len = content.length();
+        StringBuilder textBuf = new StringBuilder();
+        while (i < len) {
+            int fence = content.indexOf("```", i);
+            if (fence < 0) {
+                textBuf.append(content, i, len);
+                break;
+            }
+            textBuf.append(content, i, fence);
+            if (textBuf.length() > 0) {
+                out.add(new String[]{"text", "", textBuf.toString()});
+                textBuf.setLength(0);
+            }
+            // 解析 fence 首行（语言标识）
+            int headerEnd = content.indexOf('\n', fence);
+            if (headerEnd < 0) {
+                // 未闭合的 fence 且无换行，剩余当代码
+                String lang = content.substring(fence + 3).trim();
+                out.add(new String[]{"code", lang, ""});
+                break;
+            }
+            String lang = content.substring(fence + 3, headerEnd).trim();
+            // 关闭 fence：从 headerEnd+1 起找下一个 ```
+            int close = content.indexOf("```", headerEnd + 1);
+            if (close < 0) {
+                // 流式中未闭合：把余下全部当代码
+                String code = content.substring(headerEnd + 1);
+                out.add(new String[]{"code", lang, code});
+                i = len;
+                break;
+            }
+            String code = content.substring(headerEnd + 1, close);
+            out.add(new String[]{"code", lang, code});
+            i = close + 3;
+            // 跳过紧跟的换行
+            if (i < len && content.charAt(i) == '\n') i++;
+        }
+        if (textBuf.length() > 0) {
+            out.add(new String[]{"text", "", textBuf.toString()});
+        }
+        return out;
+    }
+
+    /** 主线程应用渲染结果（代次校验通过才 setText） */
+    private static void applyRenderedText(TextView textView, Spanned rendered, long token) {
+        if (!isRenderCurrent(textView, token)) return;
+        try {
+            // 代码块的复制能力已由 CodeCardView 组件承担（renderWithCodeCards 分派）；
+            // 这里只负责把 Markdown 渲染结果应用到 TextView。
+            SpannableStringBuilder ssb = new SpannableStringBuilder(rendered);
+            TextViewSpan.applyTo(ssb, textView);
+            textView.setText(ssb);
+        } catch (Throwable ignored) {
+            // 应用失败（视图已分离等）：静默丢弃，等待下次渲染
         }
     }
 
@@ -2535,8 +2577,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // （mermaid.js 画图 / katex 渲染公式），文本段保持 Markdown 渲染
             boolean hasMermaidMath = com.oilquiz.app.ai.chat.component.MermaidMathSplitter
                     .containsStructure(message.content);
+            boolean hasFenced = !hasMermaidMath && hasFencedCode(message.content);
             if (holder.contentHost != null && hasMermaidMath) {
                 renderMermaidMath(holder, message, availableWidth, ctx);
+            } else if (holder.contentHost != null && hasFenced) {
+                // 代码围栏 → CodeCardView 组件渲染（自带语言标签+一键复制，复用现有组件系统）
+                renderWithCodeCards(holder, message, availableWidth, ctx);
             } else {
                 // 纯文本模式：宿主只保留 messageText（Markdown 由 Markwon 统一渲染：
                 // 代码块带 Prism4j 语法高亮、表格带 TablePlugin，均由 MarkdownRenderer 处理）
