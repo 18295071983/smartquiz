@@ -40,6 +40,8 @@
 - **内联数学已补**：新增 `assets/js/katex-auto-render.min.js`（v0.16.11 匹配现有 katex），bootstrap 里
   `renderMathInElement` 渲内联 `$…$`/`\(…\)`（katex 默认跳过 code/pre）；块级 `$$…$$`/mermaid 仍走原生分流（`containsStructure` 只拦块级）。
 - mermaid 维持原生（mermaid.min.js 3.3MB 每气泡加载过重）。
+- **链接改走系统浏览器**：`MarkdownWebView.shouldOverrideUrlLoading` 对 http/https 由 `ComponentActions.openLink`
+  （App 内 WebViewActivity）改为发 `ACTION_VIEW` 交系统浏览器，与原生 Markwon 气泡链接行为一致；图片点击仍 App 内预览。
 
 验证：`assembleDebug` 通过并安装冷启动无崩溃；WebView 正文实际观感/流式跟高/长按冲突需真机回归。
 

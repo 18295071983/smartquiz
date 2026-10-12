@@ -111,8 +111,14 @@ public class MarkdownWebView extends FrameLayout {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String u = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
                 if (u != null && (u.startsWith("http://") || u.startsWith("https://"))) {
+                    // 交系统浏览器打开（与原生 Markwon 气泡的链接行为一致，不在 App 内 WebViewActivity）
                     try {
-                        com.oilquiz.app.ai.chat.component.ComponentActions.openLink(getContext(), u);
+                        android.content.Intent intent = new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u));
+                        if (!(getContext() instanceof android.app.Activity)) {
+                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        }
+                        getContext().startActivity(intent);
                     } catch (Throwable ignore) { }
                     return true; // 外部打开，不在气泡内导航
                 }
