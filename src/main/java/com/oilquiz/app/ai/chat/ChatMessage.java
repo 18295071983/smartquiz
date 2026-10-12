@@ -1111,7 +1111,21 @@ public class ChatMessage {
         /** 查看消息详情（时间戳/元数据/模型信息） */
         SHOW_DETAIL,
         /** 复制代码块内容 */
-        COPY_CODE_BLOCK
+        COPY_CODE_BLOCK,
+        /** 重试失败的工具调用 */
+        RETRY_TOOL_CALL,
+        /** 编辑工具参数并重跑 */
+        EDIT_TOOL_ARGS,
+        /** Agent 执行控制：暂停 */
+        PAUSE_AGENT,
+        /** Agent 执行控制：继续 */
+        RESUME_AGENT,
+        /** Agent 执行控制：单步执行 */
+        STEP_AGENT,
+        /** Agent 执行控制：回退一步 */
+        REWIND_AGENT,
+        /** 导出 Agent 执行日志 */
+        EXPORT_AGENT_LOGS
     }
 
     /**
@@ -1214,6 +1228,41 @@ public class ChatMessage {
         /** 复制代码块 */
         public static Action copyCodeBlock(String code) {
             return new Action(ActionType.COPY_CODE_BLOCK, null, code);
+        }
+
+        /** 重试失败的工具调用（messageId 定位消息，content 存 toolCallId） */
+        public static Action retryToolCall(String messageId, String toolCallId) {
+            return new Action(ActionType.RETRY_TOOL_CALL, messageId, toolCallId);
+        }
+
+        /** 编辑工具参数并重跑 */
+        public static Action editToolArgs(String messageId, String toolCallId, String newArgsJson) {
+            return new Action(ActionType.EDIT_TOOL_ARGS, messageId, newArgsJson);
+        }
+
+        /** Agent 执行控制：暂停 */
+        public static Action pauseAgent(String messageId) {
+            return new Action(ActionType.PAUSE_AGENT, messageId, null);
+        }
+
+        /** Agent 执行控制：继续 */
+        public static Action resumeAgent(String messageId) {
+            return new Action(ActionType.RESUME_AGENT, messageId, null);
+        }
+
+        /** Agent 执行控制：单步执行 */
+        public static Action stepAgent(String messageId) {
+            return new Action(ActionType.STEP_AGENT, messageId, null);
+        }
+
+        /** Agent 执行控制：回退一步 */
+        public static Action rewindAgent(String messageId) {
+            return new Action(ActionType.REWIND_AGENT, messageId, null);
+        }
+
+        /** 导出 Agent 执行日志（content 存导出格式：json / markdown） */
+        public static Action exportAgentLogs(String messageId, String format) {
+            return new Action(ActionType.EXPORT_AGENT_LOGS, messageId, format);
         }
     }
 

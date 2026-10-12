@@ -3433,6 +3433,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     holder.toolResult.setMovementMethod(LinkMovementMethod.getInstance());
                 }
             }
+            // 失败态：结果区顶部加"重试该工具"按钮（tag=tool_retry_slot 避免重复挂载）
+            attachToolRetryButton(holder, message, info);
             holder.toolProgress.setVisibility(View.GONE);
             applyResultExpansion(holder, info);
             if (holder.toolResultHeader != null) {
@@ -3479,6 +3481,56 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * 工具失败时在结果容器顶部挂"重试该工具"按钮；非失败态清理旧按钮。
+     * 点击触发 Action.retryToolCall + dispatchChatAction 通知 Agent。
+     */
+    private void attachToolRetryButton(ToolCallViewHolder holder, ChatMessage message,
+                                        ChatMessage.ToolCallInfo info) {
+        if (holder.toolResultContainer == null) return;
+        if (!(holder.toolResultContainer instanceof android.view.ViewGroup)) return;
+        android.view.ViewGroup container = (android.view.ViewGroup) holder.toolResultContainer;
+        View existing = container.findViewWithTag("tool_retry_slot");
+        boolean failed = info.status == ChatMessage.ToolCallInfo.ToolCallStatus.FAILED;
+        if (!failed) {
+            if (existing != null) container.removeView(existing);
+            return;
+        }
+        if (existing != null) return; // 已挂载
+        android.content.Context ctx = container.getContext();
+        TextView btn = new TextView(ctx);
+        btn.setText("🔄 重试该工具");
+        btn.setTextSize(11f);
+        btn.setTextColor(0xFFDC2626);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        bg.setCornerRadius(dpToPx(10, ctx));
+        bg.setStroke(dpToPx(1, ctx), 0x66DC2626);
+        bg.setColor(0x1ADC2626);
+        btn.setBackground(bg);
+        btn.setPadding(dpToPx(10, ctx), dpToPx(4, ctx), dpToPx(10, ctx), dpToPx(4, ctx));
+        btn.setClickable(true);
+        btn.setFocusable(true);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dpToPx(6, ctx);
+        lp.bottomMargin = dpToPx(4, ctx);
+        btn.setLayoutParams(lp);
+        btn.setTag("tool_retry_slot");
+        final String msgId = message.id;
+        final String tcId = info.toolCallId != null ? info.toolCallId : info.toolName;
+        btn.setOnClickListener(v -> {
+            if (actionClickListener != null) {
+                actionClickListener.onAction(ChatMessage.Action.retryToolCall(msgId, tcId));
+            }
+            ComponentActions.dispatchChatAction(v.getContext(), "retry_tool:" + tcId);
+        });
+        // 插到结果 TextView 之前
+        int idx = holder.toolResult != null ? container.indexOfChild(holder.toolResult) : 0;
+        if (idx < 0) idx = container.getChildCount();
+        container.addView(btn, idx, lp);
     }
 
     /** 应用参数区域展开/折叠状态 */
