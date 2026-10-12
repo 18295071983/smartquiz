@@ -63,15 +63,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private static final int VIEW_TYPE_AI = 1;
     private static final int VIEW_TYPE_SYSTEM = 2;
     private static final int VIEW_TYPE_THINKING = 3;
-    private static final int VIEW_TYPE_TASK = 4;
     private static final int VIEW_TYPE_TOOL_CALL = 5;
     private static final int VIEW_TYPE_AGENT_STEP = 6;
     private static final int VIEW_TYPE_AGENT_SUMMARY = 7;
     private static final int VIEW_TYPE_ERROR = 8;
-    private static final int VIEW_TYPE_TOOL_RESULT = 9;
     private static final int VIEW_TYPE_AGENT_REFLECTION = 10;
-    private static final int VIEW_TYPE_SUMMARY = 11;
-    private static final int VIEW_TYPE_INFERENCE_PROGRESS = 12;
     /** 上下文注入行（记忆/任务/工具目录等系统注入内容的展示条，点击看全文） */
     private static final int VIEW_TYPE_CONTEXT_INJECTION = 13;
     /** 系统提示词行（system prompt 变更记录/全文展示，点击看全文） */
@@ -79,7 +75,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public static final String PAYLOAD_CONTENT_UPDATE = "content_update";
     public static final String PAYLOAD_STATUS_UPDATE = "status_update";
-    public static final String PAYLOAD_EXPANDED_UPDATE = "expanded_update";
     public static final String PAYLOAD_THINKING_UPDATE = "thinking_update";
     public static final String PAYLOAD_ATTACHMENT_UPDATE = "attachment_update";
     public static final String PAYLOAD_INFERENCE_PROGRESS = "inference_progress";
@@ -304,8 +299,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
             case VIEW_TYPE_THINKING:
                 return new ThinkingMessageViewHolder(inflater.inflate(R.layout.item_thinking_message, parent, false));
-            case VIEW_TYPE_TASK:
-                return new TaskMessageViewHolder(inflater.inflate(R.layout.item_task_message, parent, false));
             case VIEW_TYPE_TOOL_CALL:
                 return new ToolCallViewHolder(inflater.inflate(R.layout.item_tool_call_message, parent, false));
             case VIEW_TYPE_AGENT_STEP:
@@ -314,12 +307,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 return new AgentSummaryViewHolder(inflater.inflate(R.layout.item_agent_summary_message, parent, false));
             case VIEW_TYPE_ERROR:
                 return new ErrorMessageViewHolder(inflater.inflate(R.layout.item_error_message, parent, false));
-            case VIEW_TYPE_TOOL_RESULT:
-                return new ToolResultViewHolder(inflater.inflate(R.layout.item_tool_result_message, parent, false));
             case VIEW_TYPE_AGENT_REFLECTION:
                 return new AgentReflectionViewHolder(inflater.inflate(R.layout.item_agent_reflection_message, parent, false));
-            case VIEW_TYPE_SUMMARY:
-                return new SummaryMessageViewHolder(inflater.inflate(R.layout.item_summary_message, parent, false));
             default:
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
         }
@@ -691,9 +680,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case VIEW_TYPE_THINKING:
                 bindThinkingMessage((ThinkingMessageViewHolder) holder, message);
                 break;
-            case VIEW_TYPE_TASK:
-                bindTaskMessage((TaskMessageViewHolder) holder, message);
-                break;
             case VIEW_TYPE_TOOL_CALL:
                 bindToolCallMessage((ToolCallViewHolder) holder, message);
                 break;
@@ -706,14 +692,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case VIEW_TYPE_ERROR:
                 bindErrorMessage((ErrorMessageViewHolder) holder, message);
                 break;
-            case VIEW_TYPE_TOOL_RESULT:
-                bindToolResultMessage((ToolResultViewHolder) holder, message);
-                break;
             case VIEW_TYPE_AGENT_REFLECTION:
                 bindAgentReflectionMessage((AgentReflectionViewHolder) holder, message);
-                break;
-            case VIEW_TYPE_SUMMARY:
-                bindSummaryMessage((SummaryMessageViewHolder) holder, message);
                 break;
         }
         // 消息进入动画：仅新消息触发（id 去重），用户消息右滑入、AI/系统左滑入
@@ -747,7 +727,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         bindMessageContent(aiHolder, message, availableWidth);
                     });
                     updateThinkingContent(aiHolder, message);
-                    handleLongContent(aiHolder, message);
                     // STEP-STATUS-PAYLOAD(2026-10-09)：气泡内「步骤状态」行（思考中/调用工具/
                     // 执行完成）此前只由 PAYLOAD_STATUS_UPDATE 刷新，而流式 token 走的是
                     // PAYLOAD_CONTENT_UPDATE 分支。两者都从同一个 message.agentStepStatus 取值，
@@ -777,11 +756,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     updateMessageStatus((AIMessageViewHolder) holder, message);
                 }
             } else if (PAYLOAD_AGENT_UPDATE.equals(payload)) {
-                // Agent执行状态更新 - 通过payload增量刷新，不触发完整rebind
-                // （AgentExecutionPanel 已解绑移除，无需处理）
-            } else if (PAYLOAD_EXPANDED_UPDATE.equals(payload)) {
+                // Agent 执行状态增量刷新：步骤行 + 汇总行 + 状态行
                 if (holder instanceof AIMessageViewHolder) {
-                    toggleMessageExpansion((AIMessageViewHolder) holder, message);
+                    AIMessageViewHolder aiHolder = (AIMessageViewHolder) holder;
+                    bindAgentStepStatus(aiHolder, message);
+                    updateMessageStatus(aiHolder, message);
                 }
             } else if (PAYLOAD_THINKING_UPDATE.equals(payload)) {
                 if (holder instanceof AIMessageViewHolder) {
@@ -931,8 +910,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(null);
             if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(null);
         }
-
-        handleLongContent(holder, message);
     }
 
     /**
@@ -1606,9 +1583,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.inferenceProgressView != null) {
                 holder.inferenceProgressView.hide();
             }
-            if (holder.agentExecutionView != null) {
-                holder.agentExecutionView.hide();
-            }
             holder.statusIcon.setVisibility(View.VISIBLE);
             holder.statusIcon.setImageResource(R.drawable.ic_error);
             holder.statusIcon.setColorFilter(context.getColor(R.color.error));
@@ -1630,9 +1604,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 隐藏推理进度视图
             if (holder.inferenceProgressView != null) {
                 holder.inferenceProgressView.hide();
-            }
-            if (holder.agentExecutionView != null) {
-                holder.agentExecutionView.hide();
             }
             
             holder.statusIcon.setVisibility(View.VISIBLE);
@@ -1667,15 +1638,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (holder.inferenceProgressView != null) {
                     holder.inferenceProgressView.hide();
                 }
-                if (holder.agentExecutionView != null) {
-                    holder.agentExecutionView.hide();
-                }
             } else {
                 if (holder.inferenceProgressView != null) {
                     holder.inferenceProgressView.updateState(currentState, stateDetails);
-                }
-                if (holder.agentExecutionView != null) {
-                    holder.agentExecutionView.hide();
                 }
             }
             
@@ -1685,9 +1650,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 其他状态（失败、取消等）
             if (holder.inferenceProgressView != null) {
                 holder.inferenceProgressView.hide();
-            }
-            if (holder.agentExecutionView != null) {
-                holder.agentExecutionView.hide();
             }
             holder.statusIcon.setVisibility(View.GONE);
             holder.statusText.setVisibility(View.GONE);
@@ -1855,18 +1817,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.componentSegmentViews = newCache;
     }
 
-    private void handleLongContent(AIMessageViewHolder holder, ChatMessage message) {
-        // 用户要求：主回复默认全部展开显示，长内容不自动折叠
-        holder.expandButton.setVisibility(View.GONE);
-        holder.messageText.setMaxLines(Integer.MAX_VALUE);
-        holder.messageText.setEllipsize(null);
-    }
-
-    private void toggleMessageExpansion(AIMessageViewHolder holder, ChatMessage message) {
-        handleLongContent(holder, message);
-        holder.itemView.post(() -> renderWithCorrectWidth(holder, message));
-    }
-
     /**
      * 以"正确宽度"渲染 AI 消息内容（表格按真实可用宽度计算列宽）：
      * - holder 已布局（isLaidOut 且宽度有效）：立即渲染；
@@ -1978,7 +1928,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** 全局渲染代次序列：每次请求分配新 token，应用时校验防止过期渲染覆盖新内容 */
     private static final AtomicLong RENDER_SEQ = new AtomicLong();
 
-    /** 每视图当前有效 token */
+    /** 每视图当前有效 token；在 drainPendingRenders 中清理已分离视图的条目 */
     private static final ConcurrentHashMap<TextView, Long> RENDER_TOKENS = new ConcurrentHashMap<>();
 
     /** 待渲染请求（防抖合并：同视图只保留最新一条） */
@@ -2015,6 +1965,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
             for (RenderRequest req : batch) {
                 renderOne(req);
+            }
+            // 清理已分离视图的 token 条目，防止 static map 持有回收后的 TextView 造成泄漏
+            for (TextView tv : RENDER_TOKENS.keySet()) {
+                if (tv != null && !tv.isAttachedToWindow()) {
+                    RENDER_TOKENS.remove(tv);
+                }
             }
         }
     }
@@ -2452,7 +2408,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             holder.messageText.setMovementMethod(null);
             holder.itemView.setOnClickListener(v -> {
                 message.agentGroupCollapsed = !message.agentGroupCollapsed;
-                notifyDataSetChanged();
+                // 局部刷新：只通知该组范围内的 item，避免全量 notifyDataSetChanged
+                int headerPos = holder.getBindingAdapterPosition();
+                if (headerPos != RecyclerView.NO_POSITION) {
+                    int groupEnd = headerPos;
+                    String gid = message.agentGroupId;
+                    while (groupEnd + 1 < messages.size()
+                            && gid != null && gid.equals(messages.get(groupEnd + 1).agentGroupId)) {
+                        groupEnd++;
+                    }
+                    notifyItemRangeChanged(headerPos, groupEnd - headerPos + 1);
+                }
             });
             return;
         }
@@ -2582,24 +2548,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void bindThinkingMessage(ThinkingMessageViewHolder holder, ChatMessage message) {
         holder.bind(message);
-    }
-
-    private void bindTaskMessage(TaskMessageViewHolder holder, ChatMessage message) {
-        holder.messageText.setText(message.content);
-        if (message.type == ChatMessage.MessageType.TASK_BREAKDOWN) {
-            holder.taskLabel.setText(R.string.chat_task_breakdown);
-            holder.taskLabel.setBackgroundColor(holder.itemView.getContext().getColor(R.color.task_background));
-        } else {
-            holder.taskLabel.setText(R.string.chat_task_progress);
-            holder.taskLabel.setBackgroundColor(holder.itemView.getContext().getColor(R.color.task_background));
-        }
-        
-        if (message.taskProgress != null) {
-            holder.taskProgress.setProgress(message.taskProgress);
-            holder.taskProgress.setVisibility(View.VISIBLE);
-        } else {
-            holder.taskProgress.setVisibility(View.GONE);
-        }
     }
 
     private void bindToolCallMessage(ToolCallViewHolder holder, ChatMessage message) {
@@ -2741,68 +2689,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         } else {
             holder.toolResult.setVisibility(View.GONE);
             if (holder.toolResultArrow != null) holder.toolResultArrow.setText("▶");
-        }
-    }
-
-    private void bindToolResultMessage(ToolResultViewHolder holder, ChatMessage message) {
-        ChatMessage.ToolCallInfo info = message.toolCallInfo;
-        if (info == null) return;
-
-        holder.toolIcon.setText(info.toolIcon);
-        holder.toolName.setText(info.toolDisplayName);
-        
-        if (info.result != null && !info.result.isEmpty()) {
-            CharSequence displayResult = buildResultWithInterpretChip(message, info, true);
-            holder.toolResult.setText(displayResult);
-            if (displayResult instanceof Spanned) {
-                holder.toolResult.setMovementMethod(LinkMovementMethod.getInstance());
-            }
-            // 长结果默认折叠，点击展开/收起
-            applyToolResultCollapse(holder, info);
-            holder.toolResult.setOnClickListener(v -> {
-                info.resultExpanded = !info.resultExpanded;
-                applyToolResultCollapse(holder, info);
-            });
-        }
-
-        if (info.executionTimeMs > 0) {
-            holder.toolTime.setText(SmartQuizApplication.getAppContext().getString(R.string.h_25856aec) + info.executionTimeMs + "ms");
-        }
-
-        holder.btnCopyResult.setOnClickListener(v -> {
-            if (info.result != null) {
-                copyToClipboard(v.getContext(), info.result);
-            }
-        });
-
-        holder.btnViewDetails.setOnClickListener(v -> {
-            info.resultExpanded = !info.resultExpanded;
-            applyToolResultCollapse(holder, info);
-        });
-    }
-
-    /** 应用工具结果折叠/展开状态（ToolResultViewHolder） */
-    private void applyToolResultCollapse(ToolResultViewHolder holder, ChatMessage.ToolCallInfo info) {
-        if (holder.toolResult == null) return;
-        boolean isLong = info.result != null && info.result.length() > 200;
-        if (!isLong) {
-            // 短结果不需要折叠
-            holder.toolResult.setMaxLines(Integer.MAX_VALUE);
-            holder.toolResult.setEllipsize(null);
-            if (holder.btnViewDetails != null) holder.btnViewDetails.setVisibility(View.GONE);
-            return;
-        }
-        // 长结果支持折叠
-        if (holder.btnViewDetails != null) {
-            holder.btnViewDetails.setVisibility(View.VISIBLE);
-            holder.btnViewDetails.setText(info.resultExpanded ? SmartQuizApplication.getAppContext().getString(R.string.h_def9e98b) : SmartQuizApplication.getAppContext().getString(R.string.h_fe0a2c38));
-        }
-        if (info.resultExpanded) {
-            holder.toolResult.setMaxLines(Integer.MAX_VALUE);
-            holder.toolResult.setEllipsize(null);
-        } else {
-            holder.toolResult.setMaxLines(4);
-            holder.toolResult.setEllipsize(android.text.TextUtils.TruncateAt.END);
         }
     }
 
@@ -3126,39 +3012,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.summaryText.setVisibility(View.GONE);
             }
         }
-    }
-
-    private void bindSummaryMessage(SummaryMessageViewHolder holder, ChatMessage message) {
-        holder.summaryIcon.setText("📊");
-        holder.summaryLabel.setText(SmartQuizApplication.getAppContext().getString(R.string.h_25f9c7fa));
-        holder.summaryContent.post(() -> {
-            int availableWidth = holder.itemView.getWidth()
-                - holder.itemView.getPaddingLeft()
-                - holder.itemView.getPaddingRight()
-                - dpToPx(2, holder.itemView.getContext());
-            if (availableWidth <= 0) availableWidth = getScreenWidth(holder.itemView.getContext());
-            setRenderedText(holder.summaryContent, message.content, availableWidth);
-        });
-        holder.summaryContent.setMovementMethod(LinkMovementMethod.getInstance());
-
-        if (message.summaryInfo != null) {
-            if (message.summaryInfo.stepsCount > 0) {
-                holder.summaryMeta.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ba889559) + message.summaryInfo.stepsCount + SmartQuizApplication.getAppContext().getString(R.string.h_668fffcd));
-            }
-            if (message.summaryInfo.totalTimeMs > 0) {
-                holder.summaryMeta.setText(holder.summaryMeta.getText() + SmartQuizApplication.getAppContext().getString(R.string.h_67ec4a7b) + message.summaryInfo.totalTimeMs + "ms");
-            }
-        }
-
-        holder.btnCopySummary.setOnClickListener(v -> {
-            copyToClipboard(v.getContext(), message.content);
-        });
-
-        holder.btnExport.setOnClickListener(v -> {
-            if (actionClickListener != null) {
-                actionClickListener.onAction(ChatMessage.Action.exportSummary(message.id));
-            }
-        });
     }
 
     private void bindErrorMessage(ErrorMessageViewHolder holder, ChatMessage message) {
@@ -3668,7 +3521,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView statusText;
         TextView expandButton;
         InferenceProgressView inferenceProgressView;
-        AgentExecutionView agentExecutionView;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         // 在线模型信息
         View modelInfoContainer;
@@ -3845,19 +3697,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    static class TaskMessageViewHolder extends RecyclerView.ViewHolder {
-        TextView taskLabel;
-        TextView messageText;
-        ProgressBar taskProgress;
-
-        TaskMessageViewHolder(View itemView) {
-            super(itemView);
-            taskLabel = itemView.findViewById(R.id.task_label);
-            messageText = itemView.findViewById(R.id.message_text);
-            taskProgress = itemView.findViewById(R.id.task_progress);
-        }
-    }
-
     static class ToolCallViewHolder extends RecyclerView.ViewHolder {
         View toolCallHeader;
         TextView toolCallArrow;
@@ -3892,25 +3731,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             toolResultLabel = itemView.findViewById(R.id.tool_result_label);
             toolResult = itemView.findViewById(R.id.tool_result);
             toolProgress = itemView.findViewById(R.id.tool_progress_small);
-        }
-    }
-
-    static class ToolResultViewHolder extends RecyclerView.ViewHolder {
-        TextView toolIcon;
-        TextView toolName;
-        TextView toolResult;
-        TextView toolTime;
-        Button btnCopyResult;
-        Button btnViewDetails;
-
-        ToolResultViewHolder(View itemView) {
-            super(itemView);
-            toolIcon = itemView.findViewById(R.id.tool_icon);
-            toolName = itemView.findViewById(R.id.tool_name);
-            toolResult = itemView.findViewById(R.id.tool_result);
-            toolTime = itemView.findViewById(R.id.tool_time);
-            btnCopyResult = itemView.findViewById(R.id.btn_copy_result);
-            btnViewDetails = itemView.findViewById(R.id.btn_view_details);
         }
     }
 
@@ -3969,25 +3789,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    static class SummaryMessageViewHolder extends RecyclerView.ViewHolder {
-        TextView summaryIcon;
-        TextView summaryLabel;
-        TextView summaryContent;
-        TextView summaryMeta;
-        Button btnCopySummary;
-        Button btnExport;
-
-        SummaryMessageViewHolder(View itemView) {
-            super(itemView);
-            summaryIcon = itemView.findViewById(R.id.summary_icon);
-            summaryLabel = itemView.findViewById(R.id.summary_label);
-            summaryContent = itemView.findViewById(R.id.summary_content);
-            summaryMeta = itemView.findViewById(R.id.summary_meta);
-            btnCopySummary = itemView.findViewById(R.id.btn_copy_summary);
-            btnExport = itemView.findViewById(R.id.btn_export);
-        }
-    }
-
     static class ErrorMessageViewHolder extends RecyclerView.ViewHolder {
         TextView errorTitle;
         TextView errorMessage;
@@ -4007,6 +3808,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public void updateMessages(List<ChatMessage> newMessages) {
         if (newMessages == null) return;
+        // 全量替换时重置过滤状态（外部调用表明数据源已完全更新）
+        if (originalMessages != null) {
+            originalMessages = null;
+            currentQuery = "";
+        }
         ChatMessageDiffCallback diffCallback = new ChatMessageDiffCallback(messages, newMessages);
         androidx.recyclerview.widget.DiffUtil.DiffResult diffResult = androidx.recyclerview.widget.DiffUtil.calculateDiff(diffCallback);
         messages.clear();
@@ -4017,6 +3823,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public void addMessage(ChatMessage message) {
         if (message == null) return;
         messages.add(message);
+        // 过滤态下同步维护完整列表，clearFilter 后新消息不丢失
+        if (originalMessages != null) {
+            originalMessages.add(message);
+        }
         notifyItemInserted(messages.size() - 1);
         scrollToPosition(messages.size() - 1);
     }
@@ -4024,8 +3834,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public void removeMessage(String messageId) {
         int position = findMessagePosition(messageId);
         if (position >= 0) {
-            messages.remove(position);
+            ChatMessage removed = messages.remove(position);
             notifyItemRemoved(position);
+            if (originalMessages != null && removed != null) {
+                originalMessages.remove(removed);
+            }
         }
     }
 
@@ -4313,30 +4126,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 break;
                 
             case THINKING_UPDATE:
-                com.oilquiz.app.ai.chat.event.StreamingEvent.ThinkingStepData thinkingUpdateData = event.getThinkingStepData();
-                if (thinkingUpdateData != null) {
-                    updateThinkingStep(event.messageId, thinkingUpdateData.stepNumber, thinkingUpdateData.stepType,
-                        thinkingUpdateData.title, thinkingUpdateData.content, thinkingUpdateData.progress);
-                    
-                    if (isAgentMode) {
-                        // Agent模式下，block由AgentExecutionEngine创建，这里只刷新UI
-                        notifyItemChanged(findMessagePosition(event.messageId), PAYLOAD_AGENT_UPDATE);
-                    }
-                }
-                break;
-                
-            case THINKING_STEP:
+            case THINKING_STEP: {
                 com.oilquiz.app.ai.chat.event.StreamingEvent.ThinkingStepData thinkingData = event.getThinkingStepData();
                 if (thinkingData != null) {
                     updateThinkingStep(event.messageId, thinkingData.stepNumber, thinkingData.stepType,
                         thinkingData.title, thinkingData.content, thinkingData.progress);
-                    
                     if (isAgentMode) {
-                        // Agent模式下，block由AgentExecutionEngine创建，这里只刷新UI
                         notifyItemChanged(findMessagePosition(event.messageId), PAYLOAD_AGENT_UPDATE);
                     }
                 }
                 break;
+            }
                 
             case INFERENCE_PROGRESS:
                 com.oilquiz.app.ai.chat.event.StreamingEvent.InferenceProgressData progressData = event.getInferenceProgressData();
@@ -4426,9 +4226,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * <p>SELECT-NO-RENDER(2026-10-09)：选中态目前**没有任何 binder 渲染**（没有选中背景/
      * 勾选框），而且本方法在项目内尚无调用方 —— 这是一条已实现但未接线的通路。
      * 因此这里不再发 notifyItemChanged：
-     * ① payload 分支已删除，通知不会产生任何视觉变化；
-     * ② 它原先还会调用 handleLongContent，那里会把展开按钮设为 GONE —— 一个声称"仅更新
-     *    选中视觉"的通知却改动了折叠控件，属于副作用与文档不符。
+     * ① 选中态目前无 binder 渲染，通知不产生视觉变化；
      * 仍需保证：将来接上选中态渲染时，必须在这里重新触发 item 刷新。</p>
      */
     public void toggleSelection(String messageId) {
