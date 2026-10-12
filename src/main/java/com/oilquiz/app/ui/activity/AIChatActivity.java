@@ -123,6 +123,8 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnModeSelect;
     private MaterialButton btnModelSelect;
     private MaterialButton btnHistory;
+    /** 历史抽屉悬浮球（可拖拽，点击直接打开对话历史抽屉） */
+    private TextView btnHistoryFab;
     private MaterialButton btnClearChat;
     private MaterialButton btnStopGeneration;
     /** 「📄 系统日志」按钮 → LogsActivity（统一日志中心） */
@@ -1203,6 +1205,15 @@ public class AIChatActivity extends BaseActivity {
             sessionStatsBar.setTaskProgress(counts[0], counts[1]);
         } catch (Throwable ignore) { }
     }
+
+    /** 打开对话历史抽屉：刷新列表 + 展开抽屉（工具抽屉里的历史入口与悬浮球共用） */
+    private void openHistoryDrawer() {
+        if (drawerLayout != null && historyController != null) {
+            refreshHistoryDrawer();
+            drawerLayout.openDrawer(findViewById(R.id.history_drawer));
+        }
+    }
+
     private void updateSendButtonState(boolean enabled, String text) {
         try {
             if (btnSend != null) {
@@ -1656,12 +1667,16 @@ public class AIChatActivity extends BaseActivity {
         updateVoiceButtonAvailability();
 
         if (btnHistory != null) {
-            btnHistory.setOnClickListener(v -> {
-                if (drawerLayout != null && historyController != null) {
-                    refreshHistoryDrawer();
-                    drawerLayout.openDrawer(findViewById(R.id.history_drawer));
-                }
-            });
+            btnHistory.setOnClickListener(v -> openHistoryDrawer());
+        }
+        btnHistoryFab = findViewById(R.id.btn_history_fab);
+        // 历史抽屉悬浮球：拖拽/点击/持久化逻辑抽到 DraggableFloatingBall，主对话页只注入点击回调
+        if (btnHistoryFab != null) {
+            new com.oilquiz.app.ai.chat.ui.DraggableFloatingBall(
+                    btnHistoryFab,
+                    getSharedPreferences("ai_chat_prefs", MODE_PRIVATE),
+                    "history_fab",
+                    this::openHistoryDrawer).attach();
         }
         if (btnCloseHistory != null) {
             btnCloseHistory.setOnClickListener(v -> {

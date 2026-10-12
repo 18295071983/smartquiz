@@ -284,6 +284,22 @@
                     android:textColor="?attr/colorOnPrimaryContainer"
                     android:visibility="gone"/>
 
+                <!-- 历史抽屉悬浮球：可拖拽，点击直接打开对话历史抽屉（历史入口原本埋在工具抽屉里，操作不便）。
+                     初始位于左下，避开右下角"回到底部"；位置由代码持久化并支持来回拖动 -->
+                <TextView
+                    android:id="@+id/btn_history_fab"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="bottom|start"
+                    android:layout_marginStart="14dp"
+                    android:layout_marginBottom="80dp"
+                    android:background="@drawable/system_message_background"
+                    android:elevation="6dp"
+                    android:gravity="center"
+                    android:text="🕘"
+                    android:textSize="20sp"
+                    android:contentDescription="对话历史"/>
+
                 <!-- 空状态视图 -->
                 <LinearLayout
                     android:id="@+id/empty_state_view"
