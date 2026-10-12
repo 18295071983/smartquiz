@@ -419,6 +419,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentStatus.setLayoutParams(asLp);
         bubble.addView(agentStatus);
 
+        // --- Agent 进度环（progress_ring 组件挂载槽位）：currentStep/totalSteps + tokens 占比 ---
+        LinearLayout agentProgressSlot = new LinearLayout(ctx);
+        agentProgressSlot.setOrientation(LinearLayout.HORIZONTAL);
+        agentProgressSlot.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        agentProgressSlot.setVisibility(View.GONE);
+        LinearLayout.LayoutParams apsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        apsLp.bottomMargin = dpToPx(4, ctx);
+        agentProgressSlot.setLayoutParams(apsLp);
+        bubble.addView(agentProgressSlot);
+
         // --- 停止生成按钮（流式生成中显示，其他状态隐藏） ---
         TextView btnStop = new TextView(ctx);
         btnStop.setText("⏹ 停止生成");
@@ -644,7 +655,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
                 agentStatus, agentSummary, actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate,
                 btnNewChat, btnLike, btnDislike, btnStop, timestampText, statusIcon, statusText,
-                inferenceProgressView, agentExecutionView,
+                inferenceProgressView, agentExecutionView, agentProgressSlot,
                 attachmentsRecycler, modelInfoContainer, modelStatusIndicator, modelNameText,
                 modelLatencyText, modelCostText);
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
@@ -1137,6 +1148,50 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         // Agent 执行面板：结构化 blocks 可视化（日志/当前步骤/工具参数/结果）
         renderAgentExecutionView(holder, message);
+        // Agent 进度环：steps 完成比 + tokens 占用比
+        renderAgentProgressRing(holder, message);
+    }
+
+    /**
+     * 用 progress_ring primitive 渲染 Agent 进度：
+     *  - 中心显示"当前步/总步"或百分比
+     *  - 数据源：AgentExecutionState.currentStep/totalSteps 与 totalTokens
+     *  - 无 Agent 状态或流式未开始时隐藏
+     */
+    private void renderAgentProgressRing(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.agentProgressSlot == null) return;
+        com.oilquiz.app.ai.agent.AgentExecutionState st = message.agentExecutionState;
+        if (st == null || !message.agentMode || st.getTotalSteps() <= 0) {
+            holder.agentProgressSlot.setVisibility(View.GONE);
+            holder.agentProgressFp = null;
+            return;
+        }
+        int pct = (int) Math.min(100, (st.getCurrentStep() * 100L) / st.getTotalSteps());
+        final String fp = pct + "_" + st.getTotalTokens();
+        if (fp.equals(holder.agentProgressFp) && holder.agentProgressSlot.getChildCount() > 0) {
+            holder.agentProgressSlot.setVisibility(View.VISIBLE);
+            return;
+        }
+        try {
+            org.json.JSONObject props = new org.json.JSONObject()
+                    .put("value", pct)
+                    .put("max", 100)
+                    .put("label", st.getCurrentStep() + "/" + st.getTotalSteps() + " 步")
+                    .put("hint", st.getTotalTokens() + " tokens");
+            ComponentData data = new ComponentData("progress_ring", props);
+            View v = ComponentRegistry.getInstance().render(
+                    holder.agentProgressSlot.getContext(), data);
+            holder.agentProgressSlot.removeAllViews();
+            if (v != null) {
+                holder.agentProgressSlot.addView(v);
+                holder.agentProgressSlot.setVisibility(View.VISIBLE);
+                holder.agentProgressFp = fp;
+            } else {
+                holder.agentProgressSlot.setVisibility(View.GONE);
+            }
+        } catch (Throwable t) {
+            holder.agentProgressSlot.setVisibility(View.GONE);
+        }
     }
 
     /**
@@ -4283,6 +4338,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final TextView statusText;
         final InferenceProgressView inferenceProgressView;
         final AgentExecutionView agentExecutionView;
+        final LinearLayout agentProgressSlot;
         final androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         final View modelInfoContainer;
         final View modelStatusIndicator;
@@ -4297,7 +4353,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 TextView btnRegenerate, TextView btnNewChat, TextView btnLike, TextView btnDislike,
                 TextView btnStop, TextView timestampText, ImageView statusIcon,
                 TextView statusText, InferenceProgressView inferenceProgressView,
-                AgentExecutionView agentExecutionView,
+                AgentExecutionView agentExecutionView, LinearLayout agentProgressSlot,
                 androidx.recyclerview.widget.RecyclerView attachmentsRecycler, View modelInfoContainer,
                 View modelStatusIndicator, TextView modelNameText, TextView modelLatencyText,
                 TextView modelCostText) {
@@ -4325,6 +4381,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.statusText = statusText;
             this.inferenceProgressView = inferenceProgressView;
             this.agentExecutionView = agentExecutionView;
+            this.agentProgressSlot = agentProgressSlot;
             this.attachmentsRecycler = attachmentsRecycler;
             this.modelInfoContainer = modelInfoContainer;
             this.modelStatusIndicator = modelStatusIndicator;
@@ -4387,6 +4444,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView statusText;
         InferenceProgressView inferenceProgressView;
         AgentExecutionView agentExecutionView;
+        LinearLayout agentProgressSlot;
+        /** Agent 进度环指纹缓存（steps/tokens 变化才重渲染） */
+        String agentProgressFp;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         // 在线模型信息
         View modelInfoContainer;
@@ -4422,6 +4482,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.statusText = dr.statusText;
             this.inferenceProgressView = dr.inferenceProgressView;
             this.agentExecutionView = dr.agentExecutionView;
+            this.agentProgressSlot = dr.agentProgressSlot;
             this.attachmentsRecycler = dr.attachmentsRecycler;
             this.modelInfoContainer = dr.modelInfoContainer;
             this.modelStatusIndicator = dr.modelStatusIndicator;
