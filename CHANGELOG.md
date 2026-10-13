@@ -1,5 +1,381 @@
 # 变更日志
 
+## [2026-10-13] 修"刚注册的动态 UI 没注册上"：reload() 会抹掉临时注册
+
+### 根因
+
+`UIComponentTypeRegistry.reload()` / `UIComponentPluginManager.reload()` /
+`LayoutTemplateRegistry.reload()` 三处实现都是无脑 `clear() + load()`，
+而 `temporary` 档**刻意不落盘**（`persist()` 只写 persistent）。
+`AgentToolView`（智能体 · 工具页）每 3 秒 `refresh()` 会调这三个 `reload()` ——
+于是刚 `layout_editor(action=pin)` 或 `register_type(persist=false)` 注册的画布，
+**在用户打开管理页的那一刻就被自动刷新抹掉了**，表现即"注册没生效 / 列表里没有 / 打不开"。
+
+修法：`reload()` 先摘出内存中 `mode=temporary` 的条目，`clear()+load()` 后再回填
+（磁盘上只有长久档，同名以磁盘为准）。三个注册表同一 bug 一起修。
+
+### 默认档保持不动（用户明确要求）
+
+`layout_editor(pin)` 的 `persist` 默认仍是 **false（临时，不落盘）**：画布与它的注册产物都不擅自
+持久化，要固化在运行时明确让模型传 `persist=true`。
+（一度想改成"pin 默认永久"以匹配 `register_type` 的 `persist` 默认 true，已按用户要求回退；
+两处默认档不一致是有意保留的：`register_type` 是"注册一个类型"，`pin` 是"把画布固定下来试试"。）
+
+同理撤销了为验证方便而加的 `AgentManagerActivity --ei tab N` 调试入口——不为测试改生产代码。
+管理页验证改为手动打开。
+
+
+## [2026-10-13] 后台产出文件补 UI 反馈（WorkspaceActivityLog + 通知）
+
+### 问题
+
+用户指出"模型后台编辑文件没有 UI 反馈"。核实现状：
+
+- 前台**是有**反馈的：Agent 模式 `onToolCallStart/Complete` → `appendAgentToolCall` → `tool_call` 卡；
+  普通对话/在线走 `addToolCallMessage` + `updateToolCallResult`；本批次又加了工具结果自动挂
+  `file_card`/`file_list`，所以"写了哪个文件"在前台可见。
+- 真缺口是**离开页面之后**：流式回调在 `uiDetached` 时直接 return（注释写明"生成在桥/服务层继续，
+  回调不再更新界面，只做结果落盘"），而 `uiDetached` 只在 `onDestroy` 置位 —— 用户按 Home 切走时它
+  仍是 false，界面在更新一个看不见的页面，**既没有通知、回到页面也没有任何提示**。
+- 也没有可订阅的工作区产出事件（`FileObserver` 只被 `WebViewLifecycleManager` 用于别的用途）。
+
+### 新增
+
+- `ai.agent.WorkspaceActivityLog`：会话级产出留痕（**只存内存**——后台生成发生在同一进程，
+  落盘只会带来"重启后残留陈旧产出"的新问题）。从卡片 props 提取 `file_card`/`file_list`/
+  `image_grid`/`video`/`audio` 里的文件名与路径；`ui_component` 这类"模型主动展示的卡片"
+  明确**不记**（那是显示选择，不是产出物）。前后台判据用 `setForeground(onResume/onStop)`
+  即**可见性**，而不是 `uiDetached`。
+- `ai.agent.WorkspaceActivityNotifier`：非前台时发一条"助手已产出 N 个文件"通知，
+  渠道 `ai_workspace_activity`（IMPORTANCE_DEFAULT、不振动），**固定 tag/id** 所以后续产出是
+  更新同一条而不是每文件堆一条；点击用 launcher intent 回 App（不在 `ai.agent` 反向依赖
+  `ui.activity`）。未授权/系统关闭通知时静默跳过 —— 不为一个提示音弹权限框。
+- 接入点：`AIToolManager.executeTool` 的两条卡片路径（工具自挂组件 + 自动卡片桥接）各加一行留痕，
+  与卡片同源、不额外解析结果文本。
+- 回到前台（`onResume`）：`drainPending()` 有内容就发一条系统消息「📁 你离开期间助手产出了 N 个文件：…」
+  并撤销通知；`clearChat` 时随 `ChatIdDispatcher.reset()` 一起清空留痕。
+
+### 待办
+
+真机验证未完成（设备中途掉线）：需确认 `POST_NOTIFICATIONS` 实际授权状态、后台产出时通知是否出现、
+回页面提示是否正确。另需决定：是否在首次需要时走统一权限入口（`PermissionManagerTool` 已把
+"通知"映射到该权限、`PermissionResourceProvider.requestPermissions` 可复用）主动申请一次。
+
+
+## [2026-10-13] 修 WebView 图片渲染错误 + 主消息 id 不匹配
+
+### 一、WebView（MarkdownWebView / MarkdownHtmlConverter）图片渲染
+
+0. **真机现场定位（先于下面几条）**：截图里报"⚠ 图片加载失败 / 点击重试"的那张其实**不是 WebView**，
+   而是 `ImageGridCardView`。同一回合两张 image_grid：`content://…gen_1791873835846.jpg` 正常，
+   `"images":["gen_1791873835846.jpg"]`（模型把 image_gen 结果里的裸文件名直接传进 ui_component）失败——
+   `loadWithFeedback()` 本地分支只认 `file://` / `/` 开头 / `content://`，裸名掉进
+   `Glide.load("gen_xxx.jpg")` → 相对路径解析不了 → `onLoadFailed`。
+   同工程 `FileCardView.normalizePath` / `VideoCardView.resolveMediaPath` 都走
+   `AgentWorkspace.resolveExistingFile`（含按文件名兜底搜索），只有图片网格漏了这层。
+   补 `resolveImageSrc()` 对齐口径。**已真机复验**：不重新生成，直接重开同一会话，
+   那条持久化的裸文件名图片正常显示。
+   下面 1-5 条是 WebView 正文内嵌图片的独立缺陷（同样真实，但复现路径是"markdown 里放图"，
+   不是这次截图的现场）。
+
+1. **本地与 http 图片必然裂图（根因）**：本项目 `targetSdk 36 / minSdk 31`，Android 11+ 起
+   WebView 的 `allowFileAccess`/`allowContentAccess` **默认 false**、混合内容默认 `NEVER_ALLOW`，
+   而页面用 `loadDataWithBaseURL("file:///android_asset/", …)` 加载（file:// 属安全上下文）。
+   于是 Agent 产出的截图（`file:///绝对路径`）、`content://` 图、`http://` 图在页内全部加载失败，
+   而同样的 markdown 走旧的 Markwon+Glide 路径却能显示 —— 即"切到 WebView 后图片出错"。
+   修法：构造器补 `setAllowFileAccess(true)` / `setAllowContentAccess(true)` /
+   `MIXED_CONTENT_ALWAYS_ALLOW` / `setLoadsImagesAutomatically(true)`。
+   安全性说明：该 WebView 只加载本地构造的 HTML，从不加载远程页（正文链接已改走系统浏览器），
+   故放开 file/content 访问不会给远程页读本地文件的机会。
+2. **点击预览拿不到可解析地址**：JS 原先取 `el.getAttribute('src')`（原始相对值）传给 Java，
+   命中 `ImagePreviewUtil` 的"无法识别的图片来源"。改取 `el.currentSrc || el.src`（浏览器解析后的
+   绝对地址）并 `decodeURIComponent`（失败回退原值）。
+3. **流式期间一次点击叠 N 个预览窗**：`swapBody()` 每个分片都会调 `window.__qzBoot()`，
+   而 `imgPrev()` 每次都 `document.addEventListener('click', …)` 且无去重 → 监听器累积 N 份。
+   加 `window.__qzImgBound` 标志，只绑一次。
+4. **超长截图撑爆气泡**：CSS 原先只有 `max-width:100%`，而旧 Markwon 路径有
+   `override(屏宽88%, 屏高60%)` 硬约束。补 `max-height:420px;object-fit:contain`
+   （用固定 px 而非 `vh`，避免"视口高依赖内容高"与 ResizeObserver 形成测量回环）。
+5. **高度缓存串台**：`onHeight` 原先直接 `HEIGHT_CACHE.put(currentContentHash, …)`，
+   holder 复用后 hash 已换成新消息，上一条迟到的测量就把旧高度缓存到新消息下（该消息以后每次
+   滚回来都错高）。改为**延迟 160ms 去重写**，`setContent`/`resetForReuse` 都会取消未落地的写入，
+   执行时再校验 hash 未变。
+
+校验方式：把 `bootstrapJs()` 的 Java 字符串拼接**还原成真实 JS 产物**并用 `node --check` 做语法校验
+（这段 JS 整体包在 try/catch 里，语法错会静默失效、编译期完全看不出来）—— 通过；
+确认 `addEventListener` 只剩 2 处且图片监听已去重。
+
+### 二、主消息 id 不匹配（ChatIdDispatcher）
+
+1. **恢复后重号（最可能症状）**：`masterCounter` 是进程内状态且**没有任何 seed 入口**，
+   而 `turnId`/`subId` 随消息持久化。杀掉应用重进 → 恢复出 T1..Tn 历史，派发器仍从 T1 发号 →
+   新回合 turnId 与旧消息**重号**；`ChatAdapter.getLastMessageByTurnId()` 用 `equals` 命中**第一条**，
+   于是流式内容/组件被写进旧气泡。新增 `seedFromTurnIds(Collection<String>)`，
+   在 `ensureRecoveredIds()`（所有恢复路径的唯一汇聚点）里播种到 max(T)+1，并把
+   `currentMasterId` 置空，防止迟到的隐式派发挂到旧回合。
+2. **turnId 与 subId 两个真值来源**：`applySubId(type)` 1 参版读派发器的 `currentMasterId`，
+   而消息 `turnId` 取 Activity 字段 `currentTurnId`，只在 `addUserMessage` 处同步过一次。
+   异步回调（AI 消息创建、组件 drain、思考轮）在 `reset()` 或新回合之后到达时，
+   会产出 `turnId=T7` 而 `subId=T1-A1` 这种字面不匹配。三处改为 2 参显式版
+   （`AIChatActivity` AI 子 id / 收口处 COMPONENT / `ChatMessage.addThinkingRound` 的 THINKING，
+   后者在消息无 turnId 时回退隐式版以保证唯一）。
+3. **在线 Agent 工具产物 id 恒为 null**：`appendAgentToolCall` 里的 `ComponentCollector.drain()`
+   把组件即时取走并插进消息，**没有补发 COMPONENT id**，而回合收口那次补号再也看不到它们 →
+   "按 id 定位/更新/移除单个组件"对这些组件完全失效。已在插入循环内按 `msg.turnId` 补发。
+4. **子序号计数器按类型全局共享**：`subCounters` 原先只按 `IdType` 分桶且 `applyMasterId()` 会
+   `clear()` → 恢复补发与新回合派发共用计数器，产生 `T2-C8` 这类与回合内历史不连续的编号，
+   且 `clear()` 后迟到回调会给旧回合补出**重号** id。改为按 `主id|类型码` 分桶，
+   并且 `applyMasterId()` 不再清空。
+
+排除项：项目内**不存在** `startsWith(masterId)` 式前缀匹配（ChatAdapter 全用 `equals`，
+DiffCallback 用 UUID），所以 T1/T10 误判这一类可以排除。
+
+`assembleDebug --offline` 通过；待真机确认：含本地截图/`content://` 图的消息能否正常显示与点击预览、
+流式图片是否仍闪烁、杀进程恢复后新消息是否不再与旧气泡串台。
+
+### 三、同类问题横向排查：路径解析口径统一（MediaPathResolver）
+
+上面那条不是孤立 bug，而是"同一个工程里多套路径解析、有的接了有的没接"。按
+"消费模型传来的路径"逐点比对（Glide 调用点清单 × 已含 `resolveExistingFile` 的文件清单）后，
+另有四处同样会在**裸文件名 / 工作区相对路径**上失败：
+
+| 位置 | 原行为 | 后果 |
+|---|---|---|
+| `NativeLayoutRenderer` image 节点 | `new File(src).exists()` | 画布/插件里的图永远错误占位 |
+| 同文件 carousel / avatar / avatar_group | 同上 / 原样 `load(src)` | 轮播与头像空白 |
+| `MarkdownRenderer` 的 `GlideStore.load` | `load(drawable.getDestination())` | 旧 Markwon 正文图片相对路径加载失败 |
+| `FileListCardView.navigateTo` | `new File(dirPath)` 判不到就 `return` | 点目录"没反应"（静默） |
+
+新增 `ai.chat.component.MediaPathResolver` 作为该口径的**唯一实现**（http(s)/content 原样、
+剥 `file://`、绝对路径直用、其余走 `AgentWorkspace.resolveExistingFile` 的按名兜底搜索），
+上述四处 + `ImageGridCardView`（改为委托，删掉我上一轮临时写的那份私有实现）统一调用它。
+WebView 正文另有一处独立问题：baseUrl 是 `file:///android_asset/`，相对 src 会被解析到 assets 下，
+而 JS 侧拿不到工作区路径 → 新增 `MarkdownHtmlConverter.resolveLocalImageSrcs(html, context)`，
+在建 HTML 阶段把 `<img src>` 的相对/裸名改写为 `file://` 绝对地址（http/data/content/file 不动）。
+
+`FileCardView` / `VideoCardView` / `AudioCardView` / `ComponentActions` 各自原本都抄了一份解析，
+本次未强行合并（避免一次性动四个稳定组件），但新代码一律走 `MediaPathResolver`。
+
+### 四、"markdown 内嵌图片没实现"的实测结论（离线复现 + 会话记录取证）
+
+取证：`run-as` 读设备 `local_chat_history_*.json`，用户看到的这条 AI 消息把图片语法写进了
+` ```markdown ` 代码围栏（`components=0`；`web_markdown_render` 未写入 prefs → 走默认 true 的 WebView 路径）：
+
+```
+![橘猫](gen_1791882834204.jpg)      ← 在围栏内，按 Markdown 语义就是源码文本
+```
+
+用 gradle 缓存里的 commonmark 0.13.0（与 `MarkdownHtmlConverter` 同款 Parser/Renderer 配置）
+离线跑真实转换，验证图片链路与新加的改写正则：
+
+| 写法 | commonmark 产物 | `resolveLocalImageSrcs` |
+|---|---|---|
+| 围栏外 `![](裸文件名)` | `<img src="gen_….jpg">` | 改写为 `file:///…/files/gen_….jpg` |
+| **围栏内** | `<pre><code class="language-markdown">…</code></pre>` | 无 `<img>`，正确地不动 |
+| 裸 HTML `<img src="…">` | 原样透传 | 同样改写 |
+| `https://…` | `<img src="https://…">` | 原样（正确） |
+| 解析不到的裸名 | `<img src="…">` | 原样，不误改写 |
+
+结论：md 内嵌图片**此前确实不可用**（`allowFileAccess`/`allowContentAccess` 默认关 +
+相对 src 被 WebView 的 `file:///android_asset/` baseUrl 解析到 assets 目录），本批次已修；
+这条消息没图是模型把语法写进代码围栏，属于"模型不知道正确写法"，不是渲染器缺陷。因此补两处：
+
+- `OnlinePromptBuilder.buildImageGenSection()`：明示正文可直接写 `![描述](路径)` 与 `<img src>`，
+  本地图片给工作区相对路径或裸文件名会自动解析，并点名"放进 ``` 围栏只会显示成源码文本"。
+- 引导 JS：图片 `onerror`（含 `complete && naturalWidth===0` 的迟到兜底）时插入可读占位
+  「⚠ 图片无法加载：`<src>`」+ `.qz-imgfail` 样式，替换原先只有一个 Chromium 裂图标、
+  用户与模型都无从判断的状态。
+
+校验手法（重要）：这段引导 JS 整体包在 `try/catch` 里，语法错会**静默失效**、Java 编译完全看不出来，
+因此把 Java 字符串拼接**还原成真实 JS 产物**再跑 `node --check`，并断言含
+`__qzImgBound` / `currentSrc` / `qz-imgfail` / `naturalWidth`。
+
+## [2026-10-13] 生成状态条：去掉常驻轮询，改为事件驱动 + 生成期心跳
+
+### 现状（改前）
+
+同一个 800ms 心跳在跑**两遍**：
+
+- `GenerationStatusBar` 自带 `pollRunnable`（800ms → `refresh()`）；
+- `AIChatActivity` 另有一个 `statePollRunnable`（800ms → `refreshNativeStateUI()`），
+  而该方法在 genStatusBar 可用时**只是委托** `genStatusBar.refresh()`。
+
+两者都在 `onResume` 起、`onDestroy`/`onStop` 停 —— 也就是说**用户只是停在聊天页没在生成，
+也在以 1.25 次/秒穿 JNI 读 llama.cpp 状态机与 KV 统计**（`GenSignalSource.current()/kvStats()`）。
+
+### 改为
+
+- 删除 Activity 级重复轮询（字段 + `startStatePolling()`/`stopStatePolling()` 及其 onResume/onDestroy 调用点）。
+- 保留并依赖**既有事件源**：每个 token（`updateTokenStatsUI` / `updateStreamingTokenStats`）、
+  每个思考段（`genStatusBar.onThinkingSegment`）、阶段/引擎变化都已触发刷新，这部分本来就是回调驱动。
+- 心跳改成**只在生成期间**跑：`beginGeneration()` → `startGenerationTicker()`，
+  `endGeneration()` 与三处取消/重置路径（旧版停止、cancel 动作、重置）→ `stopGenerationTicker()`
+  （关掉并补刷一次，让状态条停在最终态而不是最后一次事件的中间值）。
+- `onResume` 改为 `refresh()` 一次 + **仅当 `isGenerating`** 才恢复心跳（回前台时若还在生成就继续走字）；
+  初始化处 `startPolling()` → `refresh()`，空闲不再常驻。
+- 自愈：`updateStreamingTokenStats` 里按 `isGenerating` 补开心跳，覆盖个别没走
+  `beginGeneration()` 的生成路径；以 `isGenerating` 为门，避免生成结束后被迟到的流式回调重新拉起。
+
+### 为什么不能做成纯回调
+
+`GenSignalSource` 是**拉取式**契约——llama.cpp / NPU 的状态机阶段与 KV 统计没有变更回调，
+且思考阶段（THINKING/PREPROCESS）不产出正文 token，那段空窗没有任何事件会来触发刷新，
+"已 Xs"也不会自己走。所以保留一个**作用域受限**的心跳兜住空窗，而不是假装能纯事件驱动。
+
+`assembleDebug --offline` 通过。待真机确认：生成中状态条阶段/KV/耗时是否照常走字、
+生成结束与取消后是否确实不再刷新（空闲零轮询）。
+
+## [2026-10-13] 画布可固定复用（pin + 管理页「▶ 打开」），默认仍是临时画布
+
+### 需求
+
+用户要"Agent 做好动态画布后可选固定住，点按钮就能打开，而不是每次临时生成"，
+并明确**是否固化由模型决定，默认是临时画布**。
+
+### 新增
+
+- `layout_editor(action=pin, component_id, name, description, persist)`：把当前画布布局注册成可复用
+  组件类型，**复用 `ui_component register_type` 那张已有持久化表**（`files/ui_component_types.json`），
+  不新建第四套注册表。`persist` **默认 false = 临时类型**（仅本次会话可复用、不写盘，
+  可被「清除全部临时注册」一键清掉）；显式 `persist=true` 才跨重启固化。
+  结果文案按两种 mode 分别告知后续怎么打开、怎么升级为永久。
+- `AgentToolView`：注册项新增「▶ 打开」按钮（layout 类型与插件给，card 类型/模板不给——
+  前者是进聊天流的卡片，没有独立窗口可开）。打开直接复用
+  `AIToolManager.executeTool("ui_component", {action:create, component_type:名字})`，
+  与 Agent 在对话里打开走同一条链路，管理页不另写渲染。
+
+### 真机验证（adb + DebugLayoutInjectActivity）时发现并修掉两个问题
+
+- **回归**：`NativeLayoutRenderer.validate` 在 `root.optJSONObject("root")` 为 null 时直接判
+  "root 必须是对象"，而 `render()` 同一位置是 `if (node == null) node = root` 兜底
+  —— 校验比渲染严，裸节点布局（`{"type":"column",...}` / `props.root` 形式）**能正常渲染却被校验误拒**，
+  我把 validate 接进画布创建校验后立刻复现（`rejected create layout_canvas … root 必须是对象`）。
+  已让 validate 与 render 同口径；这同时修好了 `register_type` / layout 模板注册长期误拒裸节点的老问题。
+- 创建侧约束只认 `props.layout`，漏了宿主同样接受的 `props.root` → 用 root 传的画布会绕过创建前校验，已补齐。
+
+验证结果：合法画布正常弹出并渲染（标题/输入框/提交按钮，输入框自动聚焦）；
+重复 key 的画布被拒且日志精确到 `root/children/1: key 'k1' 重复（同名控件的值会互相覆盖，提交时丢数据）`、
+不产生弹窗；`canvas_height=auto` + `canvas_width=0.92` 的短画布贴内容高度，不再是默认 72% 屏高的大空白。
+`pin` 链路本身需要活动中的 component_id，尚未真机跑过。
+
+## [2026-10-13] 动态画布尺寸可由模型指定（canvas_width/height/max_height + resize）
+
+### 问题
+
+画布弹窗尺寸此前写死：窗口宽 = AlertDialog 默认，内容面板高 = `heightPixels * 0.72f`，
+模型完全没有介入余地——宽表单被挤成一列、短提示占掉大半个屏、图表类画布想要宽屏都做不到。
+
+### 新增
+
+- `LayoutCanvasConstraints.resolveCanvasSize(props, context)`：从 props 读
+  `canvas_width` / `canvas_height` / `canvas_max_height`，取值支持 dp 数字（`420`）、
+  比例（`"0.8"` / `"80%"`）、关键字（`full`/`max`、`half`、`auto`/`wrap`=高度随内容自适应）。
+  **越界只夹取不拒绝**（宽 240dp~94% 屏宽、高 200dp~92% 屏高），非法值忽略并在结果里回告原因，
+  避免模型写歪一个数字就开不出画布。
+- `PythonToolManager.showLayoutCanvasDialog`：未指定时**保持原默认行为**（72% 屏高 + 对话框默认宽）；
+  指定宽走 `window.setLayout`（只在模型显式给过时介入，不动 IME 相关 flag，避免碰输入焦点链）；
+  指定高写进 `android.R.id.custom` 面板 LayoutParams；`auto` 先 WRAP_CONTENT 测量、超上限再封顶，
+  保证 ScrollView 仍可内部滚动。
+- `layout_editor(action=resize, component_id, width, height, max_height)`：事后改尺寸，
+  **不重建弹窗、不丢用户已输入的值**（session.size + 宿主注册的 `applySize` 回调 → 主线程重新应用）。
+  未提供的键保持当前值。
+- `LayoutCanvasSession` 新增 `size` / `applySize`；`get` 结果与工具描述、`ui_component` 的
+  `component_type`/`@Action` 说明、`layout_editor` schema 同步补上尺寸参数说明。
+
+`assembleDebug --offline` 通过。真机需回归：宽表单画布给 `canvas_width=600` 是否真的变宽、
+`canvas_height=auto` 的短画布是否不再占大半屏、resize 后输入框已填内容是否保留、
+横屏/小屏下夹取是否合理。
+
+### 空指针与健壮性复查（同批次）
+
+- **真 bug**：`canvas_width: 0.8` 这类**数字比例**此前走 `Number.intValue()` 直接变 0，被当成"未指定"
+  而静默失效（只有字符串 `"0.8"` 生效）。改为 0<v≤1 一律按屏幕比例解析。
+- `LayoutCanvasConstraints.walk` 加 64 层遍历硬截断：结构校验报"嵌套过深"后仍会继续走同一棵树，
+  畸形深嵌套会把调用线程栈打爆，而 `StackOverflowError` 不是 `Exception`、上层 `catch (Exception)` 拦不住。
+- 画布 `register(componentId, session)` 移到 `applyLayout`/`applySize` 装配完成之后：
+  原顺序下存在 register 早于回调赋值的窗口，`resize` 会误报"宿主不支持动态改尺寸"、`set` 会静默不刷新。
+- 已确认的防护：`resolveCanvasSize` 对 null props/null context 直接返回默认尺寸，
+  `JSONObject.NULL`/布尔/乱串一律"忽略 + 回告"；`readDp` 越界只夹取；
+  `applyWindowSize` 对 `isShowing`/`getWindow`/`findViewById`/`getLayoutParams` 逐层判空；
+  `rulesContext()` 在 context 为空时回落 `AppServices.appContext()`，仍为 null 则整体不启用约束；
+  `resize` 未提供的维度保持当前值；卡片桥接 `build()` 外层 `catch (Throwable)`，
+  约束异常只记日志，绝不阻断工具执行或画布创建。
+
+## [2026-10-13] 动态布局画布补硬约束（LayoutCanvasConstraints）
+
+### 问题
+
+画布规则（类型白名单、输入控件必带 key、button 必带 action、深度≤8）此前只存在于两处：prompt 里的
+"铁律"，以及**可选**的 `layout_editor(action=validate)` dry-run。`set`/`add`/`patch` 三条写入路径
+一条都不校验，`ui_component(create, layout_canvas)` 也不校验，于是：
+
+- 未知控件类型/结构非法直接进画布 → 渲染成"⚠ 画布渲染失败"的死弹窗，用户面对空窗，模型不知道原因；
+- 两个输入控件同 `key` → `collectValues` 是 `Map by key`，后者静默覆盖前者，提交时丢一半数据（原本无任何约束）；
+- 一次 set 塞几千节点 → 每节点一个真实 View 且主线程整树重渲染，ANR 风险；深度只写在 validate 文案里；
+- 模型循环 `rebuild`/`patch` → 每次都 post 主线程全量重渲染，UI 抖动；
+- 反复 `create layout_canvas` → 会话表无界，并存多个 AlertDialog + 控件树（prompt 明令禁止但无约束）；
+- **并发读写**：`session.layout` 被工具线程换/改，主线程 `renderCanvas` 同时读且默认样式兜底还会往树里
+  `put`；org.json 底层 HashMap 并发读写会抛或渲染出半成品树。
+
+### 新增
+
+- `ai.chat.component.LayoutCanvasConstraints`：约束唯一实现，策略是**能修则修、修不了才拒**——
+  输入控件缺 key 就地补 `auto_<type>_<n>` 并把实际键名回给模型；结构非法（复用
+  `NativeLayoutRenderer.validate`，放行已注册类型名/`use` 模板）、key 重复、节点>150、
+  单容器子项>40、嵌套>8、layout JSON>200KB、同画布编辑>5 次/秒、活跃画布≥3 → 拒绝且**画布保持原样**。
+  校验一律在**副本**上做，通过才整体换入（copy-on-write）。
+- `LayoutEditorTool`：set/add/patch/rebuild 全部接入约束；`get` 返回节点预算并把活树**取副本**再序列化；
+  patch 删除必须给 key/path；节流改为"只读窗口 + 成功才记账"（`throttleEdit`/`recordEdit` 拆开），
+  避免连续改错时把真实的结构错误掩盖成"编辑过频"。
+  删掉本类自带的 `KNOWN_TYPES`/`INPUT_TYPES`/`validateNode` 副本（约 60 行）——类型清单以
+  `NativeLayoutRenderer` 为唯一权威，`validate` dry-run 改为与写入路径**共用同一套规则**（不再两处漂移）。
+- `SystemUIComponentTool`：`create layout_canvas` 时先校验（含活跃画布预算），非法 layout 不再弹出死窗；
+  自动补过 key 时把修复后的整棵树写回原参数位置（props.layout 或顶层 layout），保证渲染与收集一致。
+- `LayoutCanvasManager.LayoutCanvasSession.layoutLock` + 画布宿主 `renderCanvas` 在读树/样式兜底/渲染
+  期间持锁，消除工具线程换树与主线程渲染的并发读写；`unregister` 同步清理该画布的节流记录。
+- 约束暴露给模型：`layout_editor` schema/描述、`OnlinePromptBuilder` 画布段补上预算数字。
+- 回退开关 `ai_chat_prefs.layout_canvas_constraints`（默认开），关闭后行为与本次改动前完全一致。
+
+`assembleDebug --offline` 通过。约束阈值、自动补 key 的实际观感、画布并发下的稳定性需真机回归
+（重点：一次给 150+ 节点的布局应被拒并给出分页建议；两个同名 key 应被拒；连续快速 set 应触发节流）。
+
+## [2026-10-13] 工具结果自动挂内置 UI 组件（ToolResultCardBinder）
+
+### 背景
+
+59 个注册工具里只有 6 个会自己调 `AIToolResult.withComponent()` 挂原生卡片
+（network_search/file_reader/image_gen/dashscope_media/video_to_player/system_resource），
+其余工具的产物（天气、图表、截图、音视频、SQL 结果、任务/提醒/记忆列表……）只有模型**额外**
+再调一次 `ui_component` 才可见；模型没调就只剩一坨文本。`ToolCallCardView` 也不渲染图片/表格。
+
+### 新增
+
+- `ai.agent.ToolResultCardBinder`（与 `ToolResultInterpreter` 并列的 UI 展示层：那个出文本，这个出卡片）：
+  把工具结果按既有键名映射成 `ComponentRegistry` **已注册**的内置类型，不新增任何渲染器。
+  专属映射覆盖 `ai_weather`(weather_card/table_card/info_card/list_card，含把工具侧已压成 String 的
+  逐日、逐小时、预警、生活指数按原格式还原)、`location`(info_card)、`database`(table_card/list_card/
+  metric_card，直接用 execute_sql 现成的 columns+rows)、`excel_tool`、`task`(todo_card)、
+  `reminder`/`memory`/`chat_history`/`knowledge_base`(list_card/info_card)、
+  `web_render`(link_card+截图 image_grid)、`webpage_reader`、`smart_research`、
+  `import_status`(progress_card，按 current/total 折算)、`import_list_files`(file_list)、
+  `media_toolkit`/`speech_synthesis`/`douyin_downloader`(video/audio/image_grid/file_card)、
+  `file_generator`/`export_apk`/`file_analyzer`/`ocr_recognize`/`python_chart`/`screen_capture`/`screen_watch`。
+  另有产物路径探测兜底（仅限 `ARTIFACT_SCAN_TOOLS` 白名单：python_execute/js_execute 等自由输出），
+  **不给查询类工具开放**，否则 SQL 结果里出现的文件名会被误挂成文件卡。
+- `AIToolManager.executeTool()` 单点接入（本地 `AgentLoopEngine`/`ToolExecutionOrchestrator`/`AgentService`
+  与在线 `OnlineToolManager` 都经此分发）；工具自己已挂组件时不插手，异常只记日志绝不影响工具结果。
+- `ComponentCollector.pendingCount()` + 一轮 8 张的节流上限；开关 `ai_chat_prefs.tool_auto_ui_bridge`
+  （默认开，`setEnabled()` 可关，关掉即完全回到改动前的纯文本行为）。
+
+### 防误挂
+
+内部预检与环境预取不是"模型主调用"，直接补卡会重复刷屏，统一包进
+`ToolResultCardBinder.suppress()/callQuietly()`：`ToolPreChecker` 定位预检、
+`OnlineAgentEngine` env_loc 环境感知、`AgentLoopEngine` 位置缓存、`PythonToolManager`
+插件回调/监控桥接两处、`DynamicToolExecutor` 动态工具嵌套子调用、`ToolDependencyChecker` 依赖预调用。
+
+`assembleDebug --offline` 通过；卡片实际观感、路径可点开播放、长链路下的卡片密度需真机回归。
+
 ## [2026-10-13] 历史抽屉悬浮球 + AIChatActivity 死代码清理
 
 - **可拖拽历史悬浮球**：`AIChatActivity` 对话页左下新增 🕘 悬浮球，点击直接打开对话历史抽屉
@@ -1234,7 +1610,6 @@ GenieXSdk: prefill_speed=803.98 tok/s, decoding_speed=77.78 tok/s
    - 最终做法：**自检只跑安全的那部分**——随包运行库清单 / Genie 版本 / HTP 架构 / `backend → device → context`（这些在进程内跑过几十次都稳定）；`GenieDialog_create` 探测从自检里摘掉，`NpuHelper#genieProbe()` 保留但**明令禁止接 UI**，等真模型就位并单独隔离验证后再接。
    - 验证：临时在启动路径打开自检跑一遍（结果正确、进程存活 20s+），随后关闭启动探测并重装。
 6. 现状/下一步：环境已通，**只缺 QNN 格式模型**。`GenieDialog_create` 仍 `ERROR_GENERAL`，Genie 日志走到 `ctx-new` 之后（即解析模型那步）静默失败——探测时目录里只有 1MB 全零占位 bin + `{}` tokenizer。要真跑推理，需要 AI Hub 下载或本地 `qairt-converter` + `qairt-quantizer` + `qnn-context-binary-generator` 转换出 `ctx-bins` + `tokenizer.json`，再接到 App 的本地引擎选择上（llama.cpp 保留）。
-
 
 ## [2026-10-03] remote_dsh v5：dsh 客户端升级到 0.2.0-rc.2 后，桥接改走原生 stdio ACP
 
