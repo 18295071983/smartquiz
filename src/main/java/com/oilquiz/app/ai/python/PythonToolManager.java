@@ -2908,7 +2908,10 @@ public class PythonToolManager {
                                                     try {
                                                         com.oilquiz.app.ai.tool.AIToolManager tm =
                                                                 com.oilquiz.app.ai.tool.AIToolManager.getInstance(context);
-                                                        com.oilquiz.app.ai.tool.AIToolResult br = tm.executeTool(tool, callParams);
+                                                        com.oilquiz.app.ai.tool.AIToolResult br =
+                                                                com.oilquiz.app.ai.agent.ToolResultCardBinder
+                                                                        .<com.oilquiz.app.ai.tool.AIToolResult>callQuietly(
+                                                                                () -> tm.executeTool(tool, callParams));
                                                         handler.post(() -> {
                                                             if (doneRef[0]) return;
                                                             org.json.JSONObject res = new org.json.JSONObject();
@@ -3047,7 +3050,10 @@ public class PythonToolManager {
                     try {
                         com.oilquiz.app.ai.tool.AIToolManager tm =
                                 com.oilquiz.app.ai.tool.AIToolManager.getInstance(context);
-                        com.oilquiz.app.ai.tool.AIToolResult r = tm.executeTool(monitorTool, queryParams);
+                        com.oilquiz.app.ai.tool.AIToolResult r =
+                                com.oilquiz.app.ai.agent.ToolResultCardBinder
+                                        .<com.oilquiz.app.ai.tool.AIToolResult>callQuietly(
+                                                () -> tm.executeTool(monitorTool, queryParams));
                         handler.post(() -> {
                             if (done[0]) return;
                             if (r != null && r.isSuccess() && r.getResult() instanceof Map) {
@@ -3644,13 +3650,18 @@ public class PythonToolManager {
                     // 2) 重新渲染画布（新 refs）
                     java.util.Map<String, Object> refs = new java.util.HashMap<>();
                     curRefs.set(refs);
-                    org.json.JSONObject layout = session.layout;
-                    if (layout == null) layout = fInitLayout;
-                    // 画布默认设计兜底：根节点无装饰时给浅底+圆角+内边距；空画布给默认骨架，
-                    // 避免"裸白方框画布"（卡片有 style 而画布没有的问题）
-                    canvasDecorator[0].run();
-                    android.view.View v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
-                            act, layout, propsObj, refs);
+                    android.view.View v;
+                    // 读布局树 + 默认样式兜底（会往树里 put）必须与 layout_editor 的写入互斥：
+                    // org.json 底层是 HashMap，工具线程换树 / 主线程边读边改会抛异常或渲染出半成品
+                    synchronized (session.layoutLock) {
+                        org.json.JSONObject layout = session.layout;
+                        if (layout == null) layout = fInitLayout;
+                        // 画布默认设计兜底：根节点无装饰时给浅底+圆角+内边距；空画布给默认骨架，
+                        // 避免"裸白方框画布"（卡片有 style 而画布没有的问题）
+                        canvasDecorator[0].run();
+                        v = com.oilquiz.app.ai.python.NativeLayoutRenderer.render(
+                                act, layout, propsObj, refs);
+                    }
                     if (v == null) {
                         android.widget.TextView tvErr = new android.widget.TextView(act);
                         tvErr.setText("⚠ 画布渲染失败");
@@ -3725,12 +3736,17 @@ public class PythonToolManager {
                     .collectValues(curRefs.get());
 
             // 注册会话
-            com.oilquiz.app.ai.chat.component.LayoutCanvasManager.getInstance()
-                    .register(componentId, session);
+            // 会话注册推迟到 applySize/applyLayout 全部装配完成之后：
+            // register 之后 layout_editor 就能拿到 session，此时若回调还没装好，
+            // resize 会误报"宿主不支持动态改尺寸"、set 会静默不刷新
+            // 画布尺寸：模型可用 canvas_width / canvas_height / canvas_max_height 自选
+            // （支持 dp 数字、"0.8"/"80%" 比例、full/half/auto 关键字），越界由约束层夹取；
+            // 未指定时保持历史默认（内容高 = 72% 屏高，窗口宽 = AlertDialog 默认）。
+            final com.oilquiz.app.ai.chat.component.LayoutCanvasConstraints.CanvasSize defaultSize =
+                    com.oilquiz.app.ai.chat.component.LayoutCanvasConstraints
+                            .resolveCanvasSize(propsObj, act);
+            session.size = defaultSize;
 
-            // 弹窗：ScrollView 必须受限高度才可滚动（WRAP_CONTENT 时内容超高会被截断且无法滚动）。
-            // 高度取屏幕 72%（上限约 560dp），内容多时内部滚动，dialog 不被撑出屏幕。
-            int canvasMaxHeight = (int) (act.getResources().getDisplayMetrics().heightPixels * 0.72f);
             android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(act)
                     .setTitle(title != null && !title.isEmpty() ? title : "布局画布")
                     .setView(canvasScroll)
@@ -3741,21 +3757,72 @@ public class PythonToolManager {
                     })
                     .create();
             rt.dialog = dialog;
-            // 显示后约束自定义内容面板高度（android.R.id.custom 为 setView 的内容区）：
-            // 受限高度让 ScrollView 内容超出时可滚动，不被 dialog 窗口截断。
-            dialog.setOnShowListener(d -> {
+
+            /**
+             * 把 session.size 应用到窗口：宽用 window.setLayout（仅模型指定过时介入），
+             * 内容面板高用 android.R.id.custom 的 LayoutParams（auto 时先 WRAP，再按上限封顶）。
+             * layout_editor(action=resize) 改尺寸后走同一个入口，无需重建弹窗。
+             */
+            final Runnable applyWindowSize = () -> {
                 try {
-                    android.widget.FrameLayout panel = dialog.findViewById(android.R.id.custom);
-                    if (panel != null) {
-                        android.view.ViewGroup.LayoutParams lp = panel.getLayoutParams();
-                        if (lp != null) {
-                            lp.height = canvasMaxHeight;
-                            panel.setLayoutParams(lp);
-                        }
+                    if (!dialog.isShowing() || dialog.getWindow() == null) {
+                        return;
                     }
-                } catch (Throwable ignored) {
+                    com.oilquiz.app.ai.chat.component.LayoutCanvasConstraints.CanvasSize cs =
+                            session.size != null ? session.size : defaultSize;
+                    android.util.DisplayMetrics dm = act.getResources().getDisplayMetrics();
+                    final int defaultMaxH = (int) (dm.heightPixels
+                            * com.oilquiz.app.ai.chat.component.LayoutCanvasConstraints
+                                    .DEFAULT_CANVAS_HEIGHT_RATIO);
+                    // 1) 窗口宽：模型没指定就不动，保持对话框默认观感
+                    if (cs.widthDp > 0) {
+                        dialog.getWindow().setLayout((int) (cs.widthDp * density),
+                                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                    }
+                    // 2) 内容面板高
+                    android.widget.FrameLayout panel = dialog.findViewById(android.R.id.custom);
+                    if (panel == null) {
+                        return;
+                    }
+                    android.view.ViewGroup.LayoutParams lp = panel.getLayoutParams();
+                    if (lp == null) {
+                        return;
+                    }
+                    if (cs.wrapHeight) {
+                        lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+                        panel.setLayoutParams(lp);
+                        final int capPx = cs.maxHeightDp > 0
+                                ? (int) (cs.maxHeightDp * density) : defaultMaxH;
+                        // 自适应：先按内容测量，超过上限再固定封顶（保证 ScrollView 仍可内滚）
+                        panel.post(() -> {
+                            try {
+                                if (panel.getMeasuredHeight() > capPx) {
+                                    android.view.ViewGroup.LayoutParams p2 = panel.getLayoutParams();
+                                    if (p2 != null) {
+                                        p2.height = capPx;
+                                        panel.setLayoutParams(p2);
+                                    }
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        });
+                    } else {
+                        int hPx = cs.heightDp > 0 ? (int) (cs.heightDp * density)
+                                : (cs.maxHeightDp > 0 ? (int) (cs.maxHeightDp * density) : defaultMaxH);
+                        lp.height = hPx;
+                        panel.setLayoutParams(lp);
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "画布尺寸应用失败: " + t.getMessage());
                 }
-            });
+            };
+
+            // resize 入口：layout_editor 改 session.size 后调用（可能在工具线程 → 切主线程）
+            session.applySize = s -> new android.os.Handler(android.os.Looper.getMainLooper())
+                    .post(applyWindowSize);
+
+            // 显示后应用尺寸（含模型自选的宽高上限；受限高度让 ScrollView 内容超出时可滚动）
+            dialog.setOnShowListener(d -> applyWindowSize.run());
             // 画布弹窗统一走 configureDialogInput 的 IME 配置（与 custom 表单一致，保证输入框可弹键盘）；
             // 不额外设置 FLAG_DIM_BEHIND/setCanceledOnTouchOutside，避免干扰 window 输入焦点链。
             dialog.setOnDismissListener(d -> {
@@ -3764,6 +3831,8 @@ public class PythonToolManager {
                 rt.result.compareAndSet("pending", "closed");
                 synchronized (rt.resultLock) { rt.resultLock.notifyAll(); }
             });
+            com.oilquiz.app.ai.chat.component.LayoutCanvasManager.getInstance()
+                    .register(componentId, session);
             configureDialogInput(dialog);
             renderCanvas.run();
             dialog.show();

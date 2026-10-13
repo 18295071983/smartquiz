@@ -63,7 +63,8 @@ public class AgentToolView {
         page.addView(title);
 
         TextView desc = new TextView(context);
-        desc.setText("Agent 创建的工具/插件/类型/模板默认持久化保存（跨重启保留），可在此查看与删除。");
+        desc.setText("Agent 创建的工具/插件/类型/模板默认持久化保存（跨重启保留），可在此查看、打开与删除。"
+                + "对话里让助手用 layout_editor(action=pin) 把画布固定成类型，之后无需重新生成，点「▶ 打开」即可直接使用。");
         desc.setTextSize(12);
         desc.setTextColor(color(R.color.text_secondary));
         desc.setPadding(0, dp(4), 0, dp(8));
@@ -161,7 +162,8 @@ public class AgentToolView {
                         p.optString("card", ""),
                         "插件",
                         () -> com.oilquiz.app.ai.tool.UIComponentPluginManager.getInstance(context)
-                                .removePlugin(pName));
+                                .removePlugin(pName),
+                        openRegistered(pName, "🧩 " + pName));
             }
         }
 
@@ -174,7 +176,8 @@ public class AgentToolView {
         } else {
             for (org.json.JSONObject t : types) {
                 final String tName = t.optString("name", "");
-                String kind = t.optBoolean("has_layout", false) ? "layout类型" : "card类型";
+                boolean hasLayout = t.optBoolean("has_layout", false);
+                String kind = hasLayout ? "layout类型" : "card类型";
                 addRegistryItem(
                         "📦 " + tName,
                         t.optString("description", ""),
@@ -182,7 +185,9 @@ public class AgentToolView {
                         t.optString("card", ""),
                         kind,
                         () -> com.oilquiz.app.ai.tool.UIComponentTypeRegistry.getInstance(context)
-                                .removeType(tName));
+                                .removeType(tName),
+                        // card 类型是"进聊天流的卡片"，没有独立窗口可开；只有 layout 类型给「打开」
+                        hasLayout ? openRegistered(tName, "📦 " + tName) : null);
             }
         }
 
@@ -229,9 +234,47 @@ public class AgentToolView {
         listContainer.addView(tv);
     }
 
+    /**
+     * 「▶ 打开」动作：复用<b>既有</b> {@code ui_component(action=create)} 工具链路创建该
+     * 注册类型/插件的弹窗——与 Agent 在对话里打开走完全相同的解析、渲染与 get_result 收集，
+     * 管理页不另写一套渲染（避免第二套行为漂移）。
+     */
+    private Runnable openRegistered(final String typeName, final String displayTitle) {
+        return () -> {
+            try {
+                java.util.Map<String, Object> p = new java.util.HashMap<>();
+                p.put("action", "create");
+                p.put("component_type", typeName);
+                p.put("title", displayTitle);
+                com.oilquiz.app.ai.tool.AIToolResult r =
+                        AIToolManager.getInstance(context).executeTool("ui_component", p);
+                if (r == null || !r.isSuccess()) {
+                    String msg = r != null ? r.getErrorMessage() : null;
+                    Toast.makeText(context,
+                            "打开失败: " + (msg != null && !msg.isEmpty() ? msg : typeName),
+                            Toast.LENGTH_LONG).show();
+                }
+            } catch (Throwable t) {
+                Toast.makeText(context, "打开失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        };
+    }
+
     /** 通用注册项：名称 + 描述 + mode 标记 + 删除 */
     private void addRegistryItem(String name, String desc, String mode, String cardType,
                                  String kind, Runnable deleteAction) {
+        addRegistryItem(name, desc, mode, cardType, kind, deleteAction, null);
+    }
+
+    /**
+     * 通用注册项。
+     *
+     * @param openAction 非 null 时显示「▶ 打开」按钮（组件类型/插件这类可直接渲染的注册项才传）；
+     *                   打开走 {@code ui_component(action=create)} 这条**已有**工具链路，
+     *                   与 Agent 自己打开的行为完全一致，不另写一套渲染。
+     */
+    private void addRegistryItem(String name, String desc, String mode, String cardType,
+                                 String kind, Runnable deleteAction, Runnable openAction) {
         LinearLayout item = new LinearLayout(context);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setPadding(dp(10), dp(8), dp(8), dp(8));
@@ -266,6 +309,28 @@ public class AgentToolView {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tagLp.setMargins(0, 0, dp(6), 0);
         headRow.addView(modeTag, tagLp);
+
+        // 「▶ 打开」：仅可渲染的注册项（组件类型/插件）显示，走既有 ui_component 工具链路
+        if (openAction != null) {
+            TextView openBtn = new TextView(context);
+            openBtn.setText("▶ 打开");
+            openBtn.setTextSize(12);
+            openBtn.setGravity(Gravity.CENTER);
+            openBtn.setTextColor(color(R.color.primary));
+            openBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
+            LinearLayout.LayoutParams openLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            openLp.setMargins(0, 0, dp(6), 0);
+            openBtn.setOnClickListener(v -> {
+                try {
+                    openAction.run();
+                } catch (Throwable t) {
+                    Toast.makeText(context, "打开失败: " + t.getMessage(),
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
+            headRow.addView(openBtn, openLp);
+        }
 
         TextView delBtn = new TextView(context);
         delBtn.setText("删除");

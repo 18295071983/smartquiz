@@ -226,9 +226,25 @@ public class UIComponentTypeRegistry {
         }
     }
 
-    /** 重新从磁盘加载类型（管理界面刷新用）：单例可能先于外部注册初始化，reload 保证显示磁盘最新。 */
+    /**
+     * 重新从磁盘加载类型（管理界面刷新用）：单例可能先于外部注册初始化，reload 保证显示磁盘最新。
+     *
+     * <p><b>必须保留内存中的临时类型</b>：{@code temporary} 档刻意不写盘（见 {@link #persist()}），
+     * 若这里无脑 {@code clear()} 再 {@code load()}，管理页每 3 秒的自动 reload
+     * 就会把刚 {@code layout_editor(pin)} 成"临时"的画布直接抹掉 —— 真机复现为
+     * "pin 成功了但列表里没有 / 打不开"。磁盘上只有长久档，同名时以磁盘为准。</p>
+     */
     public synchronized void reload() {
+        java.util.Map<String, JSONObject> temporary = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, JSONObject> e : types.entrySet()) {
+            if ("temporary".equals(e.getValue().optString("mode", ""))) {
+                temporary.put(e.getKey(), e.getValue());
+            }
+        }
         types.clear();
         load();
+        for (java.util.Map.Entry<String, JSONObject> e : temporary.entrySet()) {
+            if (!types.containsKey(e.getKey())) types.put(e.getKey(), e.getValue());
+        }
     }
 }

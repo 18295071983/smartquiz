@@ -199,7 +199,11 @@ public class OnlinePromptBuilder {
         StringBuilder sb = new StringBuilder();
         sb.append("【图片生成】\n");
         sb.append("用户要求生成/画/绘制图片时，优先调用 image_gen 工具（自动下载并内联显示在对话中，点击可全屏放大查看）；\n");
-        sb.append("也可以直接输出 image_grid 组件标记展示图片。避免用 python_execute 或 system_resource(action=open_url) 这种绕路方式。\n\n");
+        sb.append("也可以直接输出 image_grid 组件标记展示图片。避免用 python_execute 或 system_resource(action=open_url) 这种绕路方式。\n");
+        sb.append("正文里直接写 Markdown 图片也是支持的：`![描述](路径)` 或 `<img src=\"路径\" width=…>`；"
+                + "本地图片可写工作区相对路径或**裸文件名**（如 gen_123.jpg），渲染时会自动解析到工作区实际位置；"
+                + "网络图片用 https 绝对地址。**注意**：图片语法必须写在正文里，"
+                + "放进 ``` 代码围栏只会显示成源码文本，不会显示成图片——展示与说明要分开写。\n\n");
         return sb.toString();
     }
 
@@ -380,6 +384,10 @@ public class OnlinePromptBuilder {
         sb.append("  路线2 注册可复用类型：ui_component(action=register_type, name=类型名(字母数字下划线), description=用途, render={\"layout\":{...} 或 \"card\":内置卡片}) → 之后 ui_component(action=create, component_type=类型名) 复用；list_types 查看, remove_type 删除\n");
         sb.append("  路线3 注册完整插件（带参数校验/生命周期/监控）：ui_component_plugin(action=create, name=..., description=..., params={字段:{type,required,default}}, render={\"layout\":{...}}, monitor=可选, persist=true|false) → 用 ui_component(action=create, component_type=插件名) 创建。创建时自动按 params schema 校验：缺必填会明确报错、类型自动转换(number/boolean/array/object)、有 default 自动填充\n");
         sb.append("  【动态画布（layout_canvas + layout_editor）】**创建画布时就要带完整 layout（含真实输入控件），不要只 create 空画布**：ui_component(action=create, component_type=layout_canvas, layout={完整布局JSON}, title=标题) → 拿 component_id。完整布局示例：{\"root\":{\"type\":\"column\",\"spacing\":12,\"children\":[{\"type\":\"text\",\"text\":\"标题\",\"bold\":true},{\"type\":\"input\",\"key\":\"name\",\"hint\":\"请输入姓名\"},{\"type\":\"select\",\"options\":[\"A\",\"B\"],\"key\":\"choice\"},{\"type\":\"switch\",\"label\":\"开关\",\"key\":\"sw\"},{\"type\":\"row\",\"children\":[{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}]}]}}。**重要**：①每个输入控件必须带 key（input/select/switch/checkbox_group/date/number 都要 key，否则值无法收集、不可用）；②button 必须带 action（如 submit）；③create 时 layout 键必须是完整布局（可含 root 包 column），不要传空；④如需后续编辑用 layout_editor(action=set, component_id=同一个id, layout=完整布局) 整体替换，或 add 加**单个控件节点**（勿传含 children 容器）；⑤全程用**同一个 component_id**，不要反复重建画布。控件值自动回填。\n");
+        sb.append("  画布硬约束（代码级强制，违反直接拒绝且画布保持原样）：单画布≤150节点、单容器≤40子节点、嵌套≤8层、"
+                + "key 全局唯一（同名控件的值会互相覆盖）、同一画布≤5次编辑/秒（多处改动请合并成一次 set）、"
+                + "活跃画布≤3张；输入控件缺 key 会自动补并在结果里回告实际键名；"
+                + "复杂布局先用 layout_editor(action=validate) 预检。\n");
         sb.append("  【连续输入表单（配套能力，实测可用）】custom 类型 props 内加 rounds=N(N>1) → 多轮连续输入：弹窗含「添加下一条」(收集本轮值并清空重建继续)与「完成」(收集本轮并结束)，get_result 返回 {\"rounds\":[{第1轮}...],\"total\":N}——适合批量录入多条数据（多条记录/多条题目/多条清单项），一次 create 连续收集，不用重复创建。示例: create(component_type=custom, props={fields:[{key:姓名,type:text,required:true},{key:金额,type:number}], rounds:3}) → 用户连续填 3 轮 → 返回 3 条记录\n");
         sb.append("  【layout 原生控件框架】JSON 声明真实原生 UI，控件 type 及属性：\n");
         sb.append("    布局: column(纵向)/row(横向)/scroll(滚动)/card(圆角卡片容器,title)/wrap(流式换行)/grid(网格,columns=N)/space(弹性空白)/tabs(标签页,tabs=[{label,content}])/stack(层叠,子项gravity定位)/accordion(折叠面板,items=[{title,content}])/carousel(图片轮播,images=[url])\n");

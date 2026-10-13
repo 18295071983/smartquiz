@@ -48,12 +48,25 @@ public final class LayoutCanvasManager {
     public static class LayoutCanvasSession {
         /** 当前布局（可能是 {"root":...} 完整结构或单节点） */
         public volatile JSONObject layout;
+        /**
+         * 布局写锁：layout_editor 在工具线程改树并整体换入 {@code layout}，
+         * 画布宿主在主线程读同一棵树重渲染（默认样式兜底还会往树里 put），
+         * org.json 底层是 HashMap，并发读写会抛或渲染出半成品 → 双方都必须在持有本锁时改读。
+         */
+        public final Object layoutLock = new Object();
         /** 重建弹窗内容（主线程调用）：用 session.layout 重新 render 并回填控件值 */
         public volatile java.util.function.Consumer<LayoutCanvasSession> applyLayout;
         /** 收集当前已渲染的输入控件值（供重建时回填，避免用户输入丢失） */
         public volatile java.util.function.Supplier<java.util.Map<String, Object>> collectCurrentValues;
         /** 初始 props（顶层参数，传给 render） */
         public volatile JSONObject props;
+        /**
+         * 模型自选的画布窗口尺寸（创建时从 props 的 canvas_width/canvas_height/canvas_max_height
+         * 解析，后续由 layout_editor(action=resize) 更新）。null=用宿主默认尺寸。
+         */
+        public volatile LayoutCanvasConstraints.CanvasSize size;
+        /** 应用窗口尺寸（主线程调用）：由画布宿主注册，改 size 后调它即时生效 */
+        public volatile java.util.function.Consumer<LayoutCanvasSession> applySize;
 
         public JSONObject getLayout() {
             return layout;
@@ -76,6 +89,8 @@ public final class LayoutCanvasManager {
     public void unregister(String componentId) {
         if (componentId != null) {
             sessions.remove(componentId);
+            // 同步清掉该画布的编辑节流记录（否则 component_id 无限累积）
+            LayoutCanvasConstraints.forgetCanvas(componentId);
         }
     }
 

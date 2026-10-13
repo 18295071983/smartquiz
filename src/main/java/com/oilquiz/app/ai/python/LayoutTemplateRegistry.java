@@ -239,7 +239,17 @@ public class LayoutTemplateRegistry {
      * 磁盘文件一致（磁盘为权威数据源，合并不覆盖已有同名）。
      */
     public synchronized void reload() {
+        // 同 UIComponentTypeRegistry.reload：temporary 档不落盘，clear() 会连它们一起清掉。
+        java.util.Map<String, JSONObject> temporary = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, JSONObject> e : templates.entrySet()) {
+            if ("temporary".equals(e.getValue().optString("mode", "persistent"))) {
+                temporary.put(e.getKey(), e.getValue());
+            }
+        }
         templates.clear();
         load();
+        for (java.util.Map.Entry<String, JSONObject> e : temporary.entrySet()) {
+            if (!templates.containsKey(e.getKey())) templates.put(e.getKey(), e.getValue());
+        }
     }
 }

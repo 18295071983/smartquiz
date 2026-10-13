@@ -316,8 +316,19 @@ public class UIComponentPluginManager {
 
     /** 重新从磁盘加载插件（管理界面刷新用）：单例可能先于外部注册初始化，reload 保证显示磁盘最新。 */
     public synchronized void reload() {
+        // 同 UIComponentTypeRegistry.reload：temporary 档不落盘，clear() 会把它们连同
+        // 管理页 3 秒自动刷新一起清掉，这里保留内存中的临时插件（同名以磁盘为准）。
+        java.util.Map<String, JSONObject> temporary = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, JSONObject> e : plugins.entrySet()) {
+            if ("temporary".equals(e.getValue().optString("mode", ""))) {
+                temporary.put(e.getKey(), e.getValue());
+            }
+        }
         plugins.clear();
         load();
+        for (java.util.Map.Entry<String, JSONObject> e : temporary.entrySet()) {
+            if (!plugins.containsKey(e.getKey())) plugins.put(e.getKey(), e.getValue());
+        }
     }
 
     /** 返回一个标准的插件模板（给 Agent 填参用，含设计方法注释字段） */
