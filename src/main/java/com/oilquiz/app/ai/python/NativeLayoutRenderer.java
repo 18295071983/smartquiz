@@ -154,7 +154,11 @@ public class NativeLayoutRenderer {
                 root = r;
             }
             JSONObject node = root.optJSONObject("root");
-            if (node == null) return "root 必须是对象";
+            // 与 render() 入口保持同一口径：render 在拿不到 root 时会退回把 root 本身当节点渲染
+            // （见 render() 的 `if (node == null) node = root;`）。校验器此前在这里直接判
+            // "root 必须是对象"，比渲染更严 —— 导致裸节点布局（{"type":"column","children":[...]}）
+            // 能正常渲染却被 register_type / 画布创建校验误拒（真机实测复现）。
+            if (node == null) node = root;
             // 与 render 入口同款兼容：layout 同时带 root+children 时，root 空壳无 children
             // 则用 layout.children 兜底（校验对象与渲染对象保持一致）
             if (!node.has("children")) {
@@ -742,8 +746,14 @@ public class NativeLayoutRenderer {
                             com.bumptech.glide.Glide.with(context).load(src)
                                     .placeholder(ph).error(ph).into(carView[0]);
                         } else {
-                            java.io.File f = new java.io.File(src.startsWith("file://")
-                                    ? android.net.Uri.parse(src).getPath() : src);
+                            // 轮播图源同样要过工作区解析：模型常给裸文件名/相对路径，
+                            // 原先只 new File(src) 判存在 → 解析不到就永远显示占位图
+                            java.io.File f = com.oilquiz.app.ai.chat.component.MediaPathResolver
+                                    .resolveToFile(context, src);
+                            if (f == null) {
+                                f = new java.io.File(src.startsWith("file://")
+                                        ? android.net.Uri.parse(src).getPath() : src);
+                            }
                             if (f.exists()) {
                                 com.bumptech.glide.Glide.with(context).load(f)
                                         .placeholder(ph).error(ph).into(carView[0]);
@@ -896,7 +906,8 @@ public class NativeLayoutRenderer {
                                         .centerCrop()
                                         .circleCrop();
                         com.bumptech.glide.Glide.with(context)
-                                .load(src)
+                                .load(com.oilquiz.app.ai.chat.component.MediaPathResolver
+                                        .resolve(context, src))
                                 .apply(avOpts)
                                 .into(av);
                     } catch (Throwable t) {
@@ -954,7 +965,10 @@ public class NativeLayoutRenderer {
                                 com.bumptech.glide.request.RequestOptions agOpts =
                                         new com.bumptech.glide.request.RequestOptions()
                                                 .override(agSize, agSize).centerCrop().circleCrop();
-                                com.bumptech.glide.Glide.with(context).load(url).apply(agOpts).into(agImg);
+                                com.bumptech.glide.Glide.with(context)
+                                        .load(com.oilquiz.app.ai.chat.component.MediaPathResolver
+                                                .resolve(context, url))
+                                        .apply(agOpts).into(agImg);
                             } catch (Throwable t) {
                                 agImg.setImageDrawable(null);
                             }
@@ -1641,7 +1655,12 @@ return attachLabel(context, node, props, row, density);
                     iv.setAdjustViewBounds(true);
                     iv.setMaxHeight((int) (240 * density));
                 }
-                String src = interpolate(node.optString("url", ""), props);
+                // 图源别名：本类控件文档写的是 "image(url 或 path)"，但代码原先只读 url ——
+                // 文档承诺的 path 从未生效，而模型按其它卡片（Video/Audio/image_grid 都收
+                // url/src/media/uri/value）的习惯常写 src → 结果 src 为空，
+                // 连占位图都不画（真机实测：画布里只出现空白，不是裂图）。
+                String src = interpolate(firstNonEmpty(node,
+                        "url", "path", "src", "image", "uri"), props);
                 final android.graphics.drawable.Drawable ph =
                         new android.graphics.drawable.ColorDrawable(
                                 com.oilquiz.app.ai.chat.component.ComponentColors.imagePlaceholder(context));
@@ -1664,9 +1683,13 @@ return attachLabel(context, node, props, row, density);
                                     .error(err)
                                     .into(iv);
                         } else {
+                            // image 节点：先按工作区解析（裸文件名 / files/xxx 相对路径是模型常见写法），
+                            // 解析不到再退回原值判存在 —— 与 ImageGridCardView / FileCardView 同口径
                             String path = src.startsWith("file://")
                                     ? android.net.Uri.parse(src).getPath() : src;
-                            java.io.File f = new java.io.File(path);
+                            java.io.File f = com.oilquiz.app.ai.chat.component.MediaPathResolver
+                                    .resolveToFile(context, src);
+                            if (f == null) f = new java.io.File(path);
                             if (f.exists()) {
                                 com.bumptech.glide.Glide.with(context)
                                         .load(f)

@@ -201,7 +201,14 @@ public class ImageGridCardView implements ChatComponent {
      * 本地图片（file://、/ 开头、content://）优先 BitmapFactory 直接解码
      * （避免 Glide 对本地 URI 不回调导致转圈）；网络 URL 走 Glide（15s 超时 + 失败提示）。
      */
-    private void loadWithFeedback(FrameLayout root, ImageView iv, ProgressBar loading, String url, boolean single) {
+    private void loadWithFeedback(FrameLayout root, ImageView iv, ProgressBar loading, String rawUrl, boolean single) {
+        // 地址归一（2026-10-13 修真机"图片加载失败"）：模型常把 image_gen 结果里的**裸文件名**
+        // （如 gen_1791873835846.jpg）直接传进 ui_component(image_grid, images=[…])，
+        // 而原先本地分支只认 file:// / "/" 开头 / content://，裸名直接掉进 Glide →
+        // Glide 不认相对路径 → onLoadFailed → 显示"⚠ 图片加载失败"。
+        // 同工程的 FileCardView.normalizePath / VideoCardView.resolveMediaPath 都会走工作区解析，
+        // 这里补齐同一口径（复用 AgentWorkspace.resolveExistingFile，含按文件名兜底搜索）。
+        final String url = resolveImageSrc(root.getContext(), rawUrl);
         loading.setVisibility(View.VISIBLE);
         iv.setVisibility(View.GONE);
         iv.setImageDrawable(null);
@@ -257,6 +264,14 @@ public class ImageGridCardView implements ChatComponent {
             showFailedLayer(root, iv, url, single);
         }
         iv.setOnClickListener(v -> showFullImage(root.getContext(), url));
+    }
+
+    /**
+     * 图片地址归一：委托 {@link MediaPathResolver}（全项目唯一口径）。
+     * 解析不到实体文件时原样返回，交给 Glide/系统按远程地址处理或走失败占位。
+     */
+    private static String resolveImageSrc(android.content.Context context, String url) {
+        return MediaPathResolver.resolve(context, url);
     }
 
     /** 失败提示层：点击重新加载 */

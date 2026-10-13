@@ -117,6 +117,47 @@ public final class MarkdownHtmlConverter {
      * @param night     是否深色模式（决定基础配色）
      * @param themeVars 额外 CSS 变量覆盖（如 "--fg:#..;--link:#.."，来自应用主题 token），可为 null
      */
+    /**
+     * 把正文 HTML 里<b>相对/裸文件名</b>的图片地址改写为 {@code file://} 绝对地址。
+     *
+     * <p>为什么必须在 Java 侧做：本 WebView 用 {@code file:///android_asset/} 作 baseUrl，
+     * 相对 src 会被 Chromium 解析到 assets 目录下（那里只有 js/css，没有图片）→ 必然裂图；
+     * 而 JS 侧也拿不到工作区路径。所以只能在建 HTML 时按 {@code AgentWorkspace} 解析后替换。</p>
+     *
+     * <p>只动 {@code <img src=…>}：http(s)/data/content/file 一律原样保留。</p>
+     */
+    public static String resolveLocalImageSrcs(String bodyHtml, android.content.Context context) {
+        if (bodyHtml == null || bodyHtml.isEmpty() || context == null) return bodyHtml;
+        try {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(<img[^>]*?\\bsrc=)([\"'])([^\"']*)\\2",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher mt = p.matcher(bodyHtml);
+            StringBuffer out = new StringBuffer(bodyHtml.length() + 64);
+            while (mt.find()) {
+                String url = mt.group(3).trim();
+                String rebuilt = mt.group(0);
+                if (!url.isEmpty()
+                        && !url.startsWith("http://") && !url.startsWith("https://")
+                        && !url.startsWith("data:") && !url.startsWith("content://")
+                        && !url.startsWith("file://")) {
+                    java.io.File f = com.oilquiz.app.ai.chat.component.MediaPathResolver
+                            .resolveToFile(context, url);
+                    if (f != null) {
+                        rebuilt = mt.group(1) + mt.group(2) + "file://" + f.getAbsolutePath() + mt.group(2);
+                    }
+                }
+                mt.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(rebuilt));
+            }
+            mt.appendTail(out);
+            return out.toString();
+        } catch (Throwable t) {
+            android.util.Log.w("MarkdownHtmlConverter",
+                    "图片地址解析失败，按原文渲染: " + t.getMessage());
+            return bodyHtml;
+        }
+    }
+
     public static String wrapDocument(String bodyHtml, boolean night, String themeVars) {
         String theme = night ? "dark" : "light";
         String vars = (themeVars == null || themeVars.trim().isEmpty()) ? "" : themeVars.trim();
@@ -166,7 +207,23 @@ public final class MarkdownHtmlConverter {
                 + "var b=document.createElement('button');b.className='qz-copy';b.textContent='复制';b.onclick=(function(pp){return function(){try{QZ.copy(pp.innerText);}catch(e){}};})(p);"
                 + "p.appendChild(b);}}"
                 // 图片点击预览（事件委托）
-                + "function imgPrev(){document.addEventListener('click',function(e){var el=e.target;while(el&&el.tagName!=='IMG'&&el!==document){el=el.parentElement;}if(el&&el.tagName==='IMG'){var s=el.getAttribute('src');if(s&&s.indexOf('data:')!==0){e.preventDefault();try{QZ.previewImage(s);}catch(x){}}}},true);var imgs=document.getElementsByTagName('img');for(var i=0;i<imgs.length;i++){imgs[i].style.cursor='zoom-in';}}"
+                // 修两处（2026-10-13）：
+                // ① 监听去重：__qzBoot 每次 swapBody 都会被调一次，原先每次都 addEventListener
+                //    → 流式 N 个分片后点一张图会触发 N 次 previewImage，叠出 N 个预览窗；
+                // ② 取 currentSrc（浏览器解析后的**绝对**地址）而非 getAttribute('src')：
+                //    相对路径原样传给 Java 会命中 ImagePreviewUtil 的"无法识别的图片来源"Toast。
+                + "function imgPrev(){if(!window.__qzImgBound){window.__qzImgBound=1;"
+                + "document.addEventListener('click',function(e){var el=e.target;while(el&&el.tagName!=='IMG'&&el!==document){el=el.parentElement;}"
+                + "if(el&&el.tagName==='IMG'){var s=el.currentSrc||el.src||el.getAttribute('src');"
+                + "if(s&&s.indexOf('data:')!==0){e.preventDefault();try{try{s=decodeURIComponent(s);}catch(y){}QZ.previewImage(s);}catch(x){}}}},true);}"
+                + "var imgs=document.getElementsByTagName('img');for(var i=0;i<imgs.length;i++){var g=imgs[i];g.style.cursor='zoom-in';"
+                // 图片加载失败给可读原因：原先只剩 Chromium 的裂图标，用户和模型都不知道是路径没解析到
+                + "if(!g.__qzErr){g.__qzErr=1;g.addEventListener('error',function(){try{this.style.display='none';"
+                + "var t=document.createElement('div');t.className='qz-imgfail';"
+                + "t.textContent='\\u26a0 \\u56fe\\u7247\\u65e0\\u6cd5\\u52a0\\u8f7d\\uff1a'+(this.getAttribute('src')||'\\uff08\\u7a7a\\u5730\\u5740\\uff09');"
+                + "this.parentNode.insertBefore(t,this);}catch(e){}});"
+                + "if(g.complete&&g.naturalWidth===0){g.dispatchEvent(new Event('error'));}}"
+                + "}}"
                 + "try{math();}catch(e){}try{linkify();}catch(e){}try{hl();}catch(e){}try{codeCopy();}catch(e){}try{imgPrev();}catch(e){}"
                 + "};"
                 + "if(document.readyState==='complete'||document.readyState==='interactive'){window.__qzBoot();}"
@@ -196,7 +253,13 @@ public final class MarkdownHtmlConverter {
                 + "a{color:var(--link," + link + ");text-decoration:none}"
                 + "ul,ol{margin:0.4em 0;padding-left:1.6em}li{margin:0.2em 0}"
                 + "li.qz-task{list-style:none;margin-left:-1.1em}li.qz-task input{margin-right:0.4em}"
-                + "img{max-width:100%;height:auto;border-radius:6px;display:block;margin:0.4em 0}"
+                // 图片：限宽 + **限高**（旧 Markwon+Glide 路径有 override(屏宽88%,屏高60%) 硬约束，
+                // WebView 路径原先只有 max-width → 超长截图整幅撑进气泡、配合 ResizeObserver 回跳高度
+                // 造成列表抖动；这里用固定 px 上限而非 vh，避免"视口高依赖内容高"形成测量回环）
+                + "img{max-width:100%;max-height:420px;object-fit:contain;height:auto;border-radius:6px;display:block;margin:0.4em 0}"
+                // 图片加载失败的可读占位（JS 在 onerror 时插入）
+                + ".qz-imgfail{font-size:12px;line-height:1.5;color:#8A8F98;background:rgba(138,143,152,0.14);"
+                + "border-radius:6px;padding:8px 10px;margin:0.4em 0;word-break:break-all}"
                 + "code{background:" + codeBg + ";padding:0.12em 0.4em;border-radius:4px;"
                 + "font-family:'Roboto Mono','Menlo',monospace;font-size:0.88em}"
                 + "pre{position:relative;background:" + preBg + ";padding:12px;padding-top:30px;border-radius:8px;overflow-x:auto;margin:0.6em 0}"

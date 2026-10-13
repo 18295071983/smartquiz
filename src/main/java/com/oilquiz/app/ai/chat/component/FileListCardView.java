@@ -133,7 +133,11 @@ public class FileListCardView implements ChatComponent {
     /** 应用内进入目录：读取该目录内容并刷新卡片（纯组件内导航，不跳系统） */
     private void navigateTo(Context context, LinearLayout card, String dirPath, String baseTitle) {
         if (dirPath == null || dirPath.isEmpty()) return;
-        File dir = new File(dirPath);
+        // 目录路径同样要过工作区解析：模型常给 "files" 或裸目录名，原先 new File(相对路径)
+        // 判不到就静默 return —— 用户看到的是"点了没反应"
+        File dir = MediaPathResolver.resolveToFile(context, dirPath);
+        if (dir == null) dir = new File(dirPath.startsWith("file://")
+                ? android.net.Uri.parse(dirPath).getPath() : dirPath);
         if (!dir.exists() || !dir.isDirectory()) return;
         File[] children = dir.listFiles();
         JSONArray items = new JSONArray();

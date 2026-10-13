@@ -61,9 +61,18 @@ public class MarkdownRenderer {
             GlideImagesPlugin.GlideStore glideStore = new GlideImagesPlugin.GlideStore() {
                 @Override
                 public RequestBuilder<Drawable> load(@NonNull AsyncDrawable drawable) {
+                    // 旧 Markwon 路径同样要解析裸文件名/相对路径：Glide 不认相对路径，
+                    // 解析到实体文件就传 File，否则原样传（http/content 由 Glide 自己处理）
+                    Object imageModel = drawable.getDestination();
+                    try {
+                        java.io.File local = com.oilquiz.app.ai.chat.component.MediaPathResolver
+                                .resolveToFile(appContext, String.valueOf(imageModel));
+                        if (local != null) imageModel = local;
+                    } catch (Throwable ignored) {
+                    }
                     RequestBuilder<Drawable> builder = Glide.with(appContext)
                             .asDrawable()
-                            .load(drawable.getDestination());
+                            .load(imageModel);
                     // Markdown 里已指定尺寸（![](... =WxH)）→ 超限则按比例缩放
                     if (drawable.hasKnownDimensions()) {
                         ImageSize size = drawable.getImageSize();
