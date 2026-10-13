@@ -48,15 +48,25 @@ public class ChatIdDispatcher {
     }
 
     private final AtomicLong masterCounter = new AtomicLong(1);
-    private final ConcurrentHashMap<IdType, AtomicLong> subCounters = new ConcurrentHashMap<>();
+    /**
+     * 子序号计数：<b>按 {@code 主id|类型码} 分桶</b>，不是只按类型。
+     *
+     * <p>原先只按 {@link IdType} 计数且 {@code applyMasterId()} 会 {@code clear()}，
+     * 两个后果：① 恢复补发（2 参 {@code applySubId(type, 旧turnId)}）与新回合的隐式派发
+     * 共用同一个计数器 → 旧回合里冒出 {@code T2-C8} 这种与回合内历史不连续的编号；
+     * ② 迟到的异步回调在 {@code clear()} 之后再给旧回合补 id，会拿到与已存在组件
+     * <b>完全相同</b>的 id（重号 → 适配器按 id 定位/更新/移除时命中错误对象）。</p>
+     */
+    private final ConcurrentHashMap<String, AtomicLong> subCounters = new ConcurrentHashMap<>();
     private volatile String currentMasterId = null;
 
     private ChatIdDispatcher() {
     }
 
-    /** 申请主 id（新回合开始）：T1、T2…；同时重置所有子类型序号 */
+    /** 申请主 id（新回合开始）：T1、T2…
+     *  <p>不在此清子计数器：子计数已按"主id|类型"分桶（见 {@link #subCounters}），
+     *  清掉只会让迟到回调给旧回合补出重号 id。</p> */
     public synchronized String applyMasterId() {
-        subCounters.clear();
         currentMasterId = "T" + masterCounter.getAndIncrement();
         return currentMasterId;
     }
@@ -83,7 +93,8 @@ public class ChatIdDispatcher {
     /** 子 id 生成核心：base 已确定非空，类型计数从 1 开始递增（T1-K1、T1-K2…） */
     private synchronized String applySubIdInternal(IdType type, String base) {
         IdType t = (type != null) ? type : IdType.SYSTEM;
-        long n = subCounters.computeIfAbsent(t, k -> new AtomicLong(1)).getAndIncrement();
+        long n = subCounters.computeIfAbsent(base + "|" + t.code, k -> new AtomicLong(1))
+                .getAndIncrement();
         return base + "-" + t.code + n;
     }
 
@@ -97,5 +108,45 @@ public class ChatIdDispatcher {
         masterCounter.set(1);
         subCounters.clear();
         currentMasterId = null;
+    }
+
+    /**
+     * 历史恢复后<b>播种</b>主 id 计数器：把 {@code masterCounter} 抬到已恢复的最大
+     * {@code T<n>} 序号 + 1。
+     *
+     * <p>为什么必须有：{@code masterCounter} 是进程内状态、原先没有任何 seed 入口，
+     * 而 {@code turnId}/{@code subId} 是随消息持久化的。杀掉应用重进 → 恢复出 T1..T8 的历史，
+     * 派发器仍从 T1 开始发号 → 新回合的 turnId 与旧消息<b>重号</b>。
+     * {@code ChatAdapter.getLastMessageByTurnId()} 这类"按 turnId 找消息"用的是 equals 命中<b>第一条</b>，
+     * 于是流式内容/组件会被写进<b>旧的</b>那个气泡（用户看到的"主消息 id 不匹配"）。</p>
+     *
+     * <p>同时把 {@code currentMasterId} 置空：恢复出来的历史回合不该成为"当前回合"，
+     * 否则迟到的隐式 {@code applySubId(type)} 会把子 id 挂到某个旧回合下。</p>
+     *
+     * @param turnIds 已恢复消息的 turnId 集合（null/空元素忽略）
+     * @return 播种后的下一个主 id 序号（用于日志）；无有效 turnId 时返回当前值
+     */
+    public synchronized long seedFromTurnIds(java.util.Collection<String> turnIds) {
+        if (turnIds == null || turnIds.isEmpty()) {
+            return masterCounter.get();
+        }
+        long max = 0L;
+        for (String id : turnIds) {
+            if (id == null) continue;
+            String s = id.trim();
+            if (s.length() < 2 || s.charAt(0) != 'T') continue;
+            long n = -1L;
+            try {
+                n = Long.parseLong(s.substring(1));
+            } catch (NumberFormatException ignored) {
+                continue;   // 非 "T<数字>" 形态（自定义/脏数据）忽略
+            }
+            if (n > max) max = n;
+        }
+        if (max > 0 && max >= masterCounter.get()) {
+            masterCounter.set(max + 1);
+            currentMasterId = null;
+        }
+        return masterCounter.get();
     }
 }

@@ -246,8 +246,15 @@ public class ChatMessage {
         thinkingRounds.add(roundContent);
         if (thinkingRoundIds == null) thinkingRoundIds = new java.util.ArrayList<>();
         if (roundId == null || roundId.isEmpty()) {
+            // 以本消息自己的 turnId 为前缀（1 参隐式版会读派发器的"当前主 id"，
+            // 异步思考回调在清空对话/新回合后到达时会给旧消息发出不匹配的前缀）
             roundId = com.oilquiz.app.ai.chat.ChatIdDispatcher.getInstance()
-                    .applySubId(com.oilquiz.app.ai.chat.ChatIdDispatcher.IdType.THINKING);
+                    .applySubId(com.oilquiz.app.ai.chat.ChatIdDispatcher.IdType.THINKING, turnId);
+            if (roundId == null || roundId.isEmpty()) {
+                // 本消息还没有 turnId（旧数据/异常路径）：退回隐式派发，至少保证 id 唯一
+                roundId = com.oilquiz.app.ai.chat.ChatIdDispatcher.getInstance()
+                        .applySubId(com.oilquiz.app.ai.chat.ChatIdDispatcher.IdType.THINKING);
+            }
         }
         // 防御：若已有记录条数与轮数不一致（旧数据恢复），按需补齐占位
         while (thinkingRoundIds.size() < thinkingRounds.size() - 1) {
