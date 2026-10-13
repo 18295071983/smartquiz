@@ -45,6 +45,8 @@ import com.oilquiz.app.ai.knowledge.KnowledgeBaseTool;
  */
 public class AIToolManager {
     private static final String TAG = "AIToolManager";
+    /** 一轮对话内自动卡片（含 ui_component 手动卡片）的暂存上限，超过则不再自动补挂 */
+    private static final int AUTO_UI_CARD_TURN_LIMIT = 8;
     private static AIToolManager instance;
     private final Context context;
     /**
@@ -431,7 +433,14 @@ public class AIToolManager {
             // 工具侧桥接：工具结果携带结构化 UI 组件时收集，本轮生成完成时附加到 AI 消息
             if (result != null && result.getComponent() != null) {
                 com.oilquiz.app.ai.chat.component.ComponentCollector.collect(result.getComponent());
+                // 产出留痕（前台无感；离开页面时用于通知/回灌提示）
+                com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance()
+                        .record(context, resolved, result.getComponent());
             }
+            // 自动卡片桥接（2026-10-13）：工具自己没挂组件时，按内置卡片类型补挂。
+            // 本地与在线两条链路都经本方法分发，故这是唯一接入点；
+            // 开关 ai_chat_prefs.tool_auto_ui_bridge 默认开，任何异常都不影响工具结果本身。
+            collectAutoUiCards(resolved, result, parameters);
             return result;
         } catch (Exception e) {
             Log.e(TAG, "Error executing tool: " + toolName, e);
@@ -439,6 +448,45 @@ public class AIToolManager {
             additionalInfo.put("toolName", toolName);
             additionalInfo.put("error", e.getMessage());
             return new AIToolResult("Error executing tool: " + e.getMessage(), additionalInfo);
+        }
+    }
+
+    /**
+     * 自动卡片桥接：把工具的结构化结果映射成项目内置聊天卡片（weather_card / table_card /
+     * list_card / image_grid / file_card …），挂在 {@code result.getComponent()} 之后执行，
+     * 工具自己已挂组件时不插手。实现见
+     * {@link com.oilquiz.app.ai.agent.ToolResultCardBinder}。
+     *
+     * <p>内部预检、环境预取这类"非模型主调用"应包在
+     * {@code ToolResultCardBinder.suppress()} 作用域里，避免挂出重复卡片。</p>
+     */
+    private void collectAutoUiCards(String toolName, AIToolResult result,
+                                    Map<String, Object> parameters) {
+        try {
+            if (result == null || !result.isSuccess() || result.getComponent() != null) {
+                return;
+            }
+            if (!com.oilquiz.app.ai.agent.ToolResultCardBinder.isEnabled(context)
+                    || com.oilquiz.app.ai.agent.ToolResultCardBinder.isSuppressed()) {
+                return;
+            }
+            // 一轮内节流：自动卡片与 ui_component 手动卡片共用同一个暂存队列，
+            // 累计到上限就不再自动补挂，避免长链路 Agent 把消息刷成一叠卡片。
+            if (com.oilquiz.app.ai.chat.component.ComponentCollector.pendingCount()
+                    >= AUTO_UI_CARD_TURN_LIMIT) {
+                return;
+            }
+            java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> cards =
+                    com.oilquiz.app.ai.agent.ToolResultCardBinder.build(
+                            context, toolName, result, parameters);
+            for (int i = 0; i < cards.size(); i++) {
+                com.oilquiz.app.ai.chat.component.ComponentCollector.collect(cards.get(i));
+            }
+            // 产出留痕：与上面卡片同源，不额外解析
+            com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance()
+                    .recordAll(context, toolName, cards);
+        } catch (Throwable t) {
+            Log.w(TAG, "auto ui card bridge skipped (" + toolName + "): " + t.getMessage());
         }
     }
 
@@ -1529,8 +1577,8 @@ public class AIToolManager {
                         .category("meta")
                         .build();
             case "layout_editor":
-                return ToolDefinition.builder("layout_editor", "布局画布编辑器：动态编辑常驻布局画布(layout_canvas组件)的控件树。动作: set(整体替换布局)/add(追加子节点)/patch(修改或删除节点)/get(查看当前布局)/rebuild(强制重渲染)。前置: 先用 ui_component(action=create, component_type=layout_canvas, layout=完整带输入控件的布局, title=标题) 创建画布拿 component_id——**create 时就要带含 input/button 的完整布局，不要只建空画布**；每个 input/select/switch/date/number 必须带 key，button 必须带 action，否则控件无法收集值/不可用。后续编辑用同一 component_id。推荐 set 整树替换: layout_editor(action=set, component_id=画布id, layout={\"root\":{\"type\":\"column\",\"spacing\":12,\"children\":[{\"type\":\"text\",\"text\":\"标题\",\"bold\":true},{\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"},{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}]}})。或用 add 逐个加**单个控件节点**(非容器): add(component_id, node={\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"})。**全程用同一个 component_id，不要反复重建画布**；add 的 node 必须是单个控件，勿传含 children 的容器。")
-                        .addParameter("action", "string", "操作: set/add/patch/get/rebuild", true)
+                return ToolDefinition.builder("layout_editor", "布局画布编辑器：动态编辑常驻布局画布(layout_canvas组件)的控件树。动作: set(整体替换布局)/add(追加子节点)/patch(修改或删除节点)/get(查看当前布局)/rebuild(强制重渲染)。前置: 先用 ui_component(action=create, component_type=layout_canvas, layout=完整带输入控件的布局, title=标题) 创建画布拿 component_id——**create 时就要带含 input/button 的完整布局，不要只建空画布**；每个 input/select/switch/date/number 必须带 key，button 必须带 action，否则控件无法收集值/不可用。后续编辑用同一 component_id。推荐 set 整树替换: layout_editor(action=set, component_id=画布id, layout={\"root\":{\"type\":\"column\",\"spacing\":12,\"children\":[{\"type\":\"text\",\"text\":\"标题\",\"bold\":true},{\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"},{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}]}})。或用 add 逐个加**单个控件节点**(非容器): add(component_id, node={\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"})。**全程用同一个 component_id，不要反复重建画布**；add 的 node 必须是单个控件，勿传含 children 的容器。**画布硬约束(代码级强制,违反直接拒绝且画布保持原样)**: 单画布≤150节点、单容器≤40子节点、嵌套≤8层、layout JSON≤200KB、key 全局唯一(同名控件值会互相覆盖)、同一画布≤5次编辑/秒(多处改动请合并成一次 set)；输入控件缺 key 会自动补并在结果里回告实际键名；复杂布局先 action=validate dry-run 预检再 set。画布窗口尺寸可由你指定：create 时放 canvas_width/canvas_height/canvas_max_height，或 layout_editor(action=resize, width=420, height=\"auto\") 事后调整，取值支持 dp 数字、比例(\"0.8\"/\"80%\")、full/half/auto(高度随内容自适应)，越界自动夹取并回告。**固定复用(默认临时)**: 画布与 pin 注册默认都不落盘; layout_editor(action=pin, component_id, name=类型名) 注册为组件类型(仅本次会话可复用), 要跨重启长期保留须显式传 persist=true(写入 ui_component register_type 表)。之后 ui_component(action=create, component_type=类型名) 直接打开、无需每次重新生成, 用户也可在「智能体·工具」页点「▶ 打开」使用。")
+                        .addParameter("action", "string", "操作: set/add/patch/get/validate/resize/pin/rebuild", true)
                         .addParameter("component_id", "string", "画布组件ID(layout_canvas创建返回的component_id),必填,全程保持同一个", true)
                         .addParameter("layout", "object", "set用: 完整布局JSON(如{\"root\":{\"type\":\"column\",\"children\":[...]}}或单节点{\"type\":\"column\"})；add用也可传单控件", false)
                         .addParameter("node", "object", "add用: **单个控件节点JSON**(如{\"type\":\"input\",\"key\":\"name\",\"hint\":\"输入姓名\"}或{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}或{\"type\":\"select\",\"options\":[\"A\",\"B\"],\"key\":\"choice\"}); 不要传含children的容器; 也兼容layout/item/child参数名", false)
@@ -1540,6 +1588,12 @@ public class AIToolManager {
                         .addParameter("path", "string", "patch用: 节点路径(如'root/children/0');与key二选一", false)
                         .addParameter("props", "object", "patch用: 要合并到节点的属性(替换text/key/value等)", false)
                         .addParameter("remove", "boolean", "patch用: true删除该节点(默认false)", false)
+                        .addParameter("width", "string", "resize用: 画布窗口宽, 可 dp数字(420)/比例(\"0.8\"或\"80%\")/full/half; 省略=保持当前", false)
+                        .addParameter("height", "string", "resize用: 内容区高, 可 dp数字/比例/full/half/auto(随内容自适应); 省略=保持当前", false)
+                        .addParameter("max_height", "string", "resize用: 内容区高度上限(dp/比例), auto模式下用作封顶; 省略=保持当前", false)
+                        .addParameter("name", "string", "pin用: 固定后的永久组件类型名(字母/数字/下划线), 之后可用 ui_component(create, component_type=该名字) 直接打开; 同名覆盖", false)
+                        .addParameter("description", "string", "pin用: 类型用途说明(省略自动生成)", false)
+                        .addParameter("persist", "boolean", "pin用: true=永久固化(跨重启保留); 默认false=临时类型(仅本次会话可复用,不写盘)", false)
                         .category("system")
                         .build();
             case "tool_registry":

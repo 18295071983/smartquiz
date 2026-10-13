@@ -2103,7 +2103,15 @@ public class AgentLoopEngine {
                 // get_current 返回完整位置（city + latitude + longitude），一次获取全缓存
                 java.util.Map<String, Object> params = new java.util.HashMap<>();
                 params.put("action", "get_current");
-                AIToolResult r = toolManager.executeTool("location", params);
+                // 内部环境感知取位：不该往聊天流挂卡片
+                AIToolResult r;
+                com.oilquiz.app.ai.agent.ToolResultCardBinder.BridgeScope uiScope =
+                        com.oilquiz.app.ai.agent.ToolResultCardBinder.suppress();
+                try {
+                    r = toolManager.executeTool("location", params);
+                } finally {
+                    uiScope.close();
+                }
                 if (r != null && r.isSuccess() && r.getResult() != null) {
                     String resultStr = String.valueOf(r.getResult());
                     holder.set(resultStr);

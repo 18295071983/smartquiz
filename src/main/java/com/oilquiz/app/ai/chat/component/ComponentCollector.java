@@ -48,4 +48,9 @@ public class ComponentCollector {
     public static boolean hasPending() {
         return !pending.isEmpty();
     }
+
+    /** 当前暂存数量（供调用方做"一轮内上限"之类的节流判断） */
+    public static int pendingCount() {
+        return pending.size();
+    }
 }

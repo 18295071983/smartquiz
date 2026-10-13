@@ -117,7 +117,10 @@ public class ToolPreChecker {
                 try {
                     Map<String, Object> locParams = new HashMap<>();
                     locParams.put("action", "get_current");
-                    AIToolResult locResult = AIToolManager.getInstance(ctx).executeTool("location", locParams);
+                    // 环境预检的位置调用不挂卡片（模型主调用才由 ToolResultCardBinder 补卡）
+                    AIToolResult locResult = com.oilquiz.app.ai.agent.ToolResultCardBinder
+                            .<AIToolResult>callQuietly(
+                                    () -> AIToolManager.getInstance(ctx).executeTool("location", locParams));
 
                     if (locResult != null && locResult.isSuccess() && locResult.getResult() instanceof Map) {
                         Map<?, ?> resultMap = (Map<?, ?>) locResult.getResult();

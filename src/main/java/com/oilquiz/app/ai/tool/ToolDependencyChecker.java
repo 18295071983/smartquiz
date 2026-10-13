@@ -141,7 +141,15 @@ public class ToolDependencyChecker {
         
         try {
             Log.i(TAG, "Executing pre-call: " + preCall.toolName + " with params: " + preCall.params);
-            AIToolResult result = toolManager.executeTool(preCall.toolName, preCall.params);
+            // 依赖预调用：只取数据给主调用用，不挂卡片
+            com.oilquiz.app.ai.agent.ToolResultCardBinder.BridgeScope uiScope =
+                    com.oilquiz.app.ai.agent.ToolResultCardBinder.suppress();
+            AIToolResult result;
+            try {
+                result = toolManager.executeTool(preCall.toolName, preCall.params);
+            } finally {
+                uiScope.close();
+            }
             preCall.success = result.isSuccess();
             preCall.result = result.getResult().toString();
             Log.i(TAG, "Pre-call result: success=" + preCall.success);

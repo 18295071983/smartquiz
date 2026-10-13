@@ -1677,7 +1677,9 @@ public class OnlineAgentEngine {
         String locationInfo = null;
         try {
             CompletableFuture<OnlineToolResult> locFuture = CompletableFuture.supplyAsync(
-                () -> toolManager.executeTool("env_loc", "location", "{\"action\":\"get_current\"}"),
+                () -> com.oilquiz.app.ai.agent.ToolResultCardBinder.<OnlineToolResult>callQuietlySafe(
+                        () -> toolManager.executeTool("env_loc", "location",
+                                "{\"action\":\"get_current\"}"), null),
                 executor);
 
             OnlineToolResult locResult = locFuture.get(5, TimeUnit.SECONDS);

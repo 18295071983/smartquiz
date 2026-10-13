@@ -637,7 +637,15 @@ public class DynamicToolExecutor {
             if (toolManager.hasTool(toolName)) {
                 CALL_DEPTH.set(depth + 1);
                 try {
-                    AIToolResult result = toolManager.executeTool(toolName, toolParams);
+                    // 动态工具内部的嵌套子调用：卡片只跟随最外层结果，子调用不挂卡
+                    com.oilquiz.app.ai.agent.ToolResultCardBinder.BridgeScope uiScope =
+                            com.oilquiz.app.ai.agent.ToolResultCardBinder.suppress();
+                    AIToolResult result;
+                    try {
+                        result = toolManager.executeTool(toolName, toolParams);
+                    } finally {
+                        uiScope.close();
+                    }
                     return result.getResult() != null ? result.getResult().toString() : "工具执行完成";
                 } finally {
                     CALL_DEPTH.set(depth);
