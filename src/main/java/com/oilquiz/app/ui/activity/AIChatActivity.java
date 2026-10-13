@@ -145,18 +145,13 @@ public class AIChatActivity extends BaseActivity {
     private String lastThinkShown;
     private final StringBuilder onlineThinkBuffer = new StringBuilder();  // 在线思考累积（顶部单行）
 
-    // 状态条独立轮询：思考段不走 token 流式回调，需定时刷新 native 状态机 + KV
-    private static final long STATE_POLL_INTERVAL_MS = 800L;
-    private final android.os.Handler statePollHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private boolean statePolling = false;
-    private final Runnable statePollRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (!statePolling) return;
-            refreshNativeStateUI();
-            statePollHandler.postDelayed(this, STATE_POLL_INTERVAL_MS);
-        }
-    };
+    // 状态条心跳（原 STATE_POLL_INTERVAL_MS=800ms 的 Activity 级轮询）已删除：
+    // 它与 GenerationStatusBar 自带的 pollRunnable 是**同一件事跑两遍**（本类的
+    // refreshNativeStateUI() 只是委托 genStatusBar.refresh()），且 onResume→onDestroy 常驻，
+    // 空闲时也在以 1.25 次/秒穿 JNI 读 native 状态机。
+    // 现在：事件驱动为主（每个 token / 思考段 / 阶段变化本来就在调 refreshNativeStateUI），
+    // 心跳只在"正在生成"期间由 genStatusBar 自己跑（补思考段无 token 的空窗与"已 Xs"走字），
+    // 见 startGenerationTicker() / stopGenerationTicker()。
     // ===== dsh 对齐：上下文仪表 / 发送队列 / 回底按钮 / 展示行（2026-09-23） =====
     // 上下文仪表已并入 session_stats_bar（ContextMeter pill），2026-09-23
     private android.widget.TextView btnScrollBottom;
@@ -574,7 +569,9 @@ public class AIChatActivity extends BaseActivity {
             try {
                 genStatusBar = new com.oilquiz.app.ai.chat.ui.GenerationStatusBar(
                         this, tvGenPhase, tvKvStats, appNativeSource());
-                genStatusBar.startPolling();
+                // 初始只画一次当前状态；心跳由 beginGeneration/endGeneration 成对开关，
+                // 空闲（没在生成）时不再常驻轮询
+                genStatusBar.refresh();
             } catch (Throwable t) {
                 AppLogger.aiW(TAG, "GenerationStatusBar 初始化失败: " + t);
             }
@@ -1850,6 +1847,7 @@ public class AIChatActivity extends BaseActivity {
             if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             isGenerating = false;
             isDirectStreaming = false;
+            stopGenerationTicker();
             hideLoadingUI();
             showToast(getString(R.string.h_a45bac47));
             addSystemMessage("生成已取消");
@@ -5197,7 +5195,10 @@ public class AIChatActivity extends BaseActivity {
             initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
             initialMessage.status = ChatMessage.MessageStatus.GENERATING;
             initialMessage.turnId = currentTurnId; // 消息对绑定：与本回合 user 消息共享 turnId
-            initialMessage.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.AI);
+            // 子 id 必须以<b>消息自己的 turnId</b> 为前缀：原先用 1 参隐式版（读派发器 currentMasterId），
+            // 与 turnId 是两个真值来源，异步路径/清空对话后会出现 "turnId=T7 而 subId=T1-A1" 的不匹配
+            initialMessage.subId = ChatIdDispatcher.getInstance()
+                    .applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
             chatHistory.add(initialMessage);
             currentStreamingMessageIndex = chatHistory.size() - 1;
             if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
@@ -6706,7 +6707,7 @@ public class AIChatActivity extends BaseActivity {
                     for (com.oilquiz.app.ai.chat.component.ComponentData cd : drained) {
                         if (cd != null && (cd.id == null || cd.id.isEmpty())) {
                             cd.id = ChatIdDispatcher.getInstance()
-                                    .applySubId(ChatIdDispatcher.IdType.COMPONENT);
+                                    .applySubId(ChatIdDispatcher.IdType.COMPONENT, finalMsg.turnId);
                         }
                     }
                     finalMsg.components.addAll(drained);
@@ -7253,6 +7254,7 @@ public class AIChatActivity extends BaseActivity {
     private void beginGeneration() {
         isGenerating = true;
         isDirectStreaming = true;
+        startGenerationTicker();
         totalTokensGenerated = 0;
         generationStartTime = System.currentTimeMillis();
         // 重置流式 token 统计
@@ -7282,6 +7284,7 @@ public class AIChatActivity extends BaseActivity {
     private void endGeneration() {
         isGenerating = false;
         isDirectStreaming = false;
+        stopGenerationTicker();
 
         // 清理Agent执行组
         if (currentAgentGroupId != null && chatAdapter != null) {
@@ -7548,6 +7551,18 @@ public class AIChatActivity extends BaseActivity {
      *  已存在 id 的组件/轮次不动（幂等）。 */
     private void ensureRecoveredIds(java.util.List<ChatMessage> messages) {
         if (messages == null) return;
+        // 先播种主 id：恢复出 T1..Tn 后，派发器必须从 n+1 继续发号，
+        // 否则新回合又是 T1 → 与旧消息 turnId 重号，按 turnId 定位会命中旧气泡
+        try {
+            java.util.List<String> recoveredTurns = new java.util.ArrayList<>();
+            for (ChatMessage m : messages) {
+                if (m != null && m.turnId != null && !m.turnId.isEmpty()) recoveredTurns.add(m.turnId);
+            }
+            long next = ChatIdDispatcher.getInstance().seedFromTurnIds(recoveredTurns);
+            android.util.Log.i(TAG, "ChatIdDispatcher seeded from recovered history: next master = T" + next);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "seedFromTurnIds failed: " + t.getMessage());
+        }
         for (ChatMessage m : messages) {
             if (m == null) continue;
             // 无回合锚点的旧消息（turnId 为空）不补发：补发会消耗派发器主 id（推进 T 序号），
@@ -7928,6 +7943,8 @@ public class AIChatActivity extends BaseActivity {
             com.oilquiz.app.ai.chat.component.ComponentCollector.clear();
             // ID 派发器重置：对话历史清空，主/子 id 从 T1 重新发放
             ChatIdDispatcher.getInstance().reset();
+            // 后台产出留痕一并清空（旧会话的产出不该在回前台时冒出来）
+            com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance().clear();
             updateEmptyState();
             // 重置 Token 统计
             TokenStatsManager.getInstance().resetSession();
@@ -8637,6 +8654,30 @@ public class AIChatActivity extends BaseActivity {
         return phase;
     }
 
+    /**
+     * 状态条心跳：只在**正在生成**期间跑。
+     *
+     * <p>为什么还需要心跳（不能纯事件驱动）：{@code GenSignalSource} 是**拉取式**契约
+     * （llama.cpp / NPU 的状态机与 KV 统计没有变更回调），而思考阶段（THINKING/PREPROCESS）
+     * 不产出正文 token，那段空窗期没有任何事件会来触发刷新，"已 Xs"也不会自己走。
+     * 所以：事件负责及时（每个 token/思考段/阶段变化都已调 {@code refreshNativeStateUI()}），
+     * 心跳负责兜住"无事件的生成中时段"，并且**生成一停就关掉**——
+     * 空闲时不再像原先那样 onResume 起常驻 800ms 轮询一直穿 JNI。</p>
+     */
+    private void startGenerationTicker() {
+        if (genStatusBar != null) {
+            genStatusBar.startPolling();
+        }
+    }
+
+    /** 生成结束：关心跳并补刷一次，让状态条停在最终态（而不是最后一次事件的中间值） */
+    private void stopGenerationTicker() {
+        if (genStatusBar != null) {
+            genStatusBar.stopPolling();
+            genStatusBar.refresh();
+        }
+    }
+
     private void refreshNativeStateUI() {
         try {
             // 统一到 GenerationStatusBar（2026-10-06 修闪烁）：
@@ -8757,21 +8798,6 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
-    /** 启动状态条轮询（onResume 时）：立即刷新一次 + 周期刷新，覆盖思考段无 token 回调的场景 */
-    private void startStatePolling() {
-        if (statePolling) return;
-        statePolling = true;
-        refreshNativeStateUI();
-        statePollHandler.removeCallbacks(statePollRunnable);
-        statePollHandler.postDelayed(statePollRunnable, STATE_POLL_INTERVAL_MS);
-    }
-
-    /** 停止状态条轮询（onDestroy 时） */
-    private void stopStatePolling() {
-        statePolling = false;
-        statePollHandler.removeCallbacksAndMessages(null);
-    }
-
     /**
      * 上下文窗口格式化：>=1M 显示 "1M"（如 deepseek-v4 的 1048576），>=1K 显示 "64K"，否则原值。
      */
@@ -8807,6 +8833,11 @@ public class AIChatActivity extends BaseActivity {
     private void updateStreamingTokenStats(int totalTokens, float tokensPerSecond) {
         // native 状态条（状态机阶段 + KV 缓存）随推理 token 流式更新实时刷新
         refreshNativeStateUI();
+        // 自愈：个别生成路径未经 beginGeneration()（心跳没被拉起过），这里按 isGenerating 补开；
+        // 只在生成中才开，避免结束后被迟到的流式回调重新拉起
+        if (isGenerating) {
+            startGenerationTicker();
+        }
         TextView tvTokenStats = findViewById(R.id.tv_token_stats);
         if (tvTokenStats != null) {
             tvTokenStats.setVisibility(View.VISIBLE);
@@ -8920,6 +8951,7 @@ public class AIChatActivity extends BaseActivity {
         currentStreamingMessageId = null;
         isGenerating = false;
         isDirectStreaming = false;
+        stopGenerationTicker();
         hideLoadingUI();
     }
 
@@ -9793,6 +9825,7 @@ public class AIChatActivity extends BaseActivity {
             if (agentChatHandler != null && agentChatHandler.isGenerating()) agentChatHandler.cancel();
             if (modelBridge != null) modelBridge.execute(ChatCommand.stopGeneration(), null);
             isGenerating = false;
+            stopGenerationTicker();
             // 把目标消息（或最后一条生成中的 AI 消息）标记为已取消
             ChatMessage target = findMessageById(action.messageId);
             if (target == null && chatHistory != null) {
@@ -10199,6 +10232,13 @@ public class AIChatActivity extends BaseActivity {
                         String producerName = c.props.optString("toolName", "");
                         for (com.oilquiz.app.ai.chat.component.ComponentData p : drained) {
                             if (p == null || p.props == null) continue;
+                            // 实时插入的产物组件也要发 COMPONENT 子 id：这条 drain 已经把组件取走，
+                            // 回合收口处（completeGeneration）的那次补号再也看不到它们 →
+                            // 原先 id 恒为 null，"按 id 定位/更新/移除单个组件"对它们完全失效
+                            if (p.id == null || p.id.isEmpty()) {
+                                p.id = ChatIdDispatcher.getInstance()
+                                        .applySubId(ChatIdDispatcher.IdType.COMPONENT, msg.turnId);
+                            }
                             try {
                                 if (producerId != null && !producerId.isEmpty()) p.props.put("producerToolCallId", producerId);
                                 if (producerName != null && !producerName.isEmpty()) p.props.put("producerToolName", producerName);
@@ -11497,8 +11537,31 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // STATUSBAR-POLLING: 回到聊天页恢复状态条轮询
-        if (genStatusBar != null) genStatusBar.startPolling();
+        // STATUSBAR: 回前台只在"确实还在生成"时恢复心跳，空闲不轮询；
+        // 另补刷一次，避免后台期间状态条停在离开那一刻的旧值
+        if (genStatusBar != null) genStatusBar.refresh();
+        if (isGenerating) startGenerationTicker();
+
+        // 后台产出回灌：离开页面期间工具写了哪些文件，回来用一条系统消息告知
+        // （通知只在离开时发，回到前台即撤销，避免提示滞留）
+        com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance().setForeground(true);
+        try {
+            java.util.List<com.oilquiz.app.ai.agent.WorkspaceActivityLog.Entry> away =
+                    com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance().drainPending();
+            if (!away.isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("📁 你离开期间助手产出了 ").append(away.size()).append(" 个文件：");
+                int shown = Math.min(away.size(), 4);
+                for (int i = 0; i < shown; i++) {
+                    sb.append(i > 0 ? "、" : " ").append(away.get(i).name);
+                }
+                if (away.size() > shown) sb.append(" 等");
+                addSystemMessage(sb.toString(), ChatMessage.SystemMessageType.INFO);
+            }
+            com.oilquiz.app.ai.agent.WorkspaceActivityNotifier.cancel(this);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "后台产出回灌失败: " + t.getMessage());
+        }
         // NPU-IDLE-RELEASE: 回前台 → 取消闲置释放（正在用就保持常驻）
         npuIdleHandler.removeCallbacks(npuIdleRelease);
         // NPU-PRELOAD: 方案 B —— 只在聊天页后台预加载 NPU 模型（不进启动路径，
@@ -11529,9 +11592,6 @@ public class AIChatActivity extends BaseActivity {
         // 再次进入页面时定位到最新消息。
         // 延迟执行：确保列表完成 layout（历史可能刚异步加载完成），直接 scrollToPosition 定位到底部
         messageList.postDelayed(() -> scrollToBottom(true), 80);
-
-        // 启动状态条轮询：思考段（THINKING）不产出正文 token，只能靠定时刷新拿到
-        startStatePolling();
     }
 
     private String getFileNameFromUri(Uri uri) {
@@ -11572,7 +11632,7 @@ public class AIChatActivity extends BaseActivity {
         } catch (Throwable ignored) {
         }
         super.onDestroy();
-        stopStatePolling();
+        if (genStatusBar != null) genStatusBar.stopPolling();
         try {
             // 释放 TTS 播放资源
             com.oilquiz.app.ai.speech.SpeechManager speechManagerRef =
@@ -11635,6 +11695,8 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void onStop() {
         super.onStop();
+        // 离开可见状态：此后工具产出改为"通知 + 回来回灌"，不再指望界面更新
+        com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance().setForeground(false);
         // STATUSBAR-POLLING: 离开聊天页停止轮询（原先无 onPause，轮询会一直跑）
         if (genStatusBar != null) genStatusBar.stopPolling();
         // NPU-IDLE-RELEASE: 进后台 → 闲置超时后若仍空闲则卸载模型（见 NPU_IDLE_RELEASE_MS 的取值说明）
