@@ -1,5 +1,69 @@
 # 变更日志
 
+## [2026-10-18] /responses 文本流修好并抽成可测解析器（#1 的第一步）
+
+### 现状核对（先证实再动手，两处硬伤是读代码读出来的）
+
+- `OnlineInferenceService.readResponsesStream` 把 `response.output_text.delta` 的 `delta`
+  当 **JsonObject** 取（`json.get("delta").isJsonObject()`），而 OpenAI 下发的是**字符串**
+  —— 于是每个正文片段都被判空丢弃，**这条路径一个字的正文都渲染不出来**。
+- 读完 `response.completed` 只是 `return`，**从不投递 onComplete**（对比 chat/completions
+  在 2774 行 post 了 onComplete）——流式界面永远停在"生成中"。
+- 都只在"服务商配置表声明 agent 端点为 `/responses` 且用户勾选 Agent"时才触发
+  （`shouldUseResponsesAPI`），所以长期没人撞见。ROADMAP 7.1 里"从未被真实端点验证过"
+  这句判断由此得到实证。
+
+### 新增 / 改动
+
+- 新增 `ai.service.ResponsesStreamParser`：Responses 事件语义的**唯一**解析处，
+  **不依赖任何 Android 类**（gson + Reader 进、Result 出）。覆盖
+  `output_text.delta`（字符串与对象两种 `delta` 形状都吃）、`output_text.done` 补尾差
+  （只补差额，不重发已收片段）、`reasoning_text/summary_text.delta` 分流思考区、
+  `function_call` 按 `item_id` 归槽拼接并**只外发一次**（`arguments.done` 与其后的
+  `output_item.done` 是同一个 call，两处都发会让工具被执行两遍 —— 本项目的工具执行有真实
+  副作用，重复执行不可接受）、`completed/failed/incomplete/error` 终态、`usage` 的
+  `input_tokens/output_tokens/output_tokens_details.reasoning_tokens/input_tokens_details.cached_tokens`
+  归一化，以及 SSE 心跳、`event:` 行兜底、非 JSON 行、`[DONE]`、无终态自然结束。
+- `readResponsesStream` 改为委托解析器 + 桥接回调：线程口径与 chat/completions 对齐
+  （增量与终态一律 `mainHandler.post`），失败走 `onError(带原因)`，`incomplete` 按已产出内容
+  收尾而不是报错，正文统一过 `ToolResultInterpreter.cleanModelOutput`；
+  usage 归一为 `prompt_tokens/completion_tokens` 后**复用既有** `parseAndNotifyTokenStats`
+  （同一处 TokenStats + api_usage_log 落账，不再开第二套统计口径）。
+
+- **非流式那条也一起归口**：`readResponsesFull` 此前自己遍历 `output[]`，遇到
+  `JsonNull`（`content[].type` 为 null、数组里混进字符串）会抛
+  `UnsupportedOperationException`，把一个"形状不合预期"的响应变成一句无法解释的生成失败；
+  现在改走 `ResponsesStreamParser.parseFullResponse`，容错与流式同一处实现。
+- 两条路径共用一个 `ResponsesBridge`（`Sink` 实现）：只有 `streaming=true` 才外发增量，
+  非流式仅归集用量 —— 顺带让 webSearch 重路由到 `/responses` 的**非流式**调用也开始记
+  token 账（此前那条路径完全不计用量）。
+
+### 验证（离线，已实跑）
+
+- 新增 `ResponsesStreamParserTest`：**27 例全绿**（流式 20 + 非流式 7）。传输形状不靠 mock：用自定义流构造
+  ① **UTF-8 半包**（一个中文字符的 3 字节逐字节交付，断言不乱码不丢字）
+  ② **终态后仍挂着长尾数据**（`TailTrackingReader` 计数：completed 整条交付完之后再向流要
+  一次数据就判失败 —— 这正是旧实现会挂住的地方）③ 无终态自然读完。
+  工具用例含并发 call 乱序到达仍按出现顺序回填、缺 `added` 事件也能收到工具调用。
+- `./gradlew testDebugUnitTest --offline --rerun-tasks`：**319 tests / 25 failed**
+  （基线 292 → 本批 +27；25 个仍是既有失败，类分布未变）。
+- **踩坑记录**：本想用 socket + 手搓 chunked 帧做"真 HTTP"验证，三次用例全在
+  `SocketTimeoutException`；单进程探针证实本机环回端口被安全软件 LSP 拦掉
+  （accept 成功但写入被中止）。同时 `com.sun.net.httpserver` 不在 android.jar 里、
+  `mockwebserver` 不在离线依赖缓存里。故测试改用自定义 Reader —— 判定更快、更确定，
+  也不再把"环境通不通"混进"解析对不对"。
+
+### 仍未做（#1 的第二步，需要端点）
+
+工具流还没接进 Agent 循环：`function_call` 聚合已经写完并被测，但
+`OnlineAgentEngine` 仍只走 `generateStreamWithToolsV2`（`/chat/completions`）。
+接线要做的是 chat↔responses 双向翻译（`assistant.tool_calls → function_call` item、
+`role:tool → function_call_output` 按 **call_id** 配对、`tools` 扁平形状），
+以及 `providers.json` 上一个默认关的能力位（只有显式声明的服务商走这条链）。
+真实事件顺序与各家私有字段仍需一个可用 `/responses`+tools 端点对拍，
+届时把录下的原始事件流冻成 fixture，此后回归不再依赖网络。
+
+
 ## [2026-10-17] 密钥存储改造：旧 AES-CBC 固定 IV（主密钥同存）→ Keystore AES-256-GCM
 
 ### 问题（上一轮记为 #3，本轮做完）

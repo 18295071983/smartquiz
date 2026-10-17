@@ -350,6 +350,15 @@ jobs:
 reasoning 与 usage 语义，数百行，且**流式事件语义必须连真实 `/responses` + tools 端点才能验证**。
 离线交付等于往主干埋一条从未跑过的代码路径，风险高于收益。
 
+**进展（2026-10-18，第一步已完成）**：读代码证实这条路径本身是坏的 —— `delta` 被当成
+JsonObject 取（OpenAI 实为字符串）导致正文一个字的片段都渲染不出，且读完
+`response.completed` 从不投递 `onComplete` 使界面停在"生成中"。两处已修，事件解析抽成
+`ai.service.ResponsesStreamParser`（不依赖 Android，可 JVM 单测），新增 27 例覆盖（流式 20 + 非流式 7）
+UTF-8 半包、终态后长尾、function_call 按 item_id 聚合并只外发一次、usage 归一化；
+非流式的 `readResponsesFull` 也收进同一个解析器（它对 `JsonNull` 会抛异常，属同类缺陷）。
+**文本流现在可用了；工具流仍未接**（解析器已具备聚合能力，缺的是 chat↔responses
+双向翻译与一个默认关的能力位）。
+
 **闭合它需要什么**：一个可用的 `/responses` + tools 端点（OpenAI 官方，或 MiniMax/Moonshot
 等声明 agent 服务的兼容层）+ 一轮在线对拍；届时把事件解析抽成独立可测类，用录制下来的 SSE
 fixture 做回归，而不是只靠真机点一遍。

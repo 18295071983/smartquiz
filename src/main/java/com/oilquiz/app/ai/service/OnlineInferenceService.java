@@ -488,7 +488,7 @@ public class OnlineInferenceService {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
-            while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+            while ((line = reader.readLine()) != null) sb.append(line).append((char) 10);
         }
         return sb.toString();
     }
@@ -1560,7 +1560,7 @@ public class OnlineInferenceService {
             if (stream) {
                 return readResponsesStream(connection, callback);
             }
-            return readResponsesFull(connection);
+            return readResponsesFull(connection, callback);
         } finally {
             connection.disconnect();
         }
@@ -1691,103 +1691,141 @@ public class OnlineInferenceService {
         }
     }
 
-    /** 解析 Responses API 流式事件（SSE data: 行） */
-    private String readResponsesStream(HttpURLConnection connection, StreamCallback callback) throws Exception {
-        StringBuilder fullText = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line == null || !line.startsWith("data:")) continue;
-                String data = line.substring(5).trim();
-                if (data.isEmpty() || "[DONE]".equals(data)) continue;
-                try {
-                    JsonObject json = gson.fromJson(data, JsonObject.class);
-                    if (json == null) continue;
-                    String type = json.has("type") && !json.get("type").isJsonNull()
-                            ? json.get("type").getAsString() : "";
-                    switch (type) {
-                        case "response.output_text.delta": {
-                            JsonObject delta = json.has("delta") && json.get("delta").isJsonObject()
-                                    ? json.getAsJsonObject("delta") : null;
-                            if (delta != null) {
-                                String t = delta.has("text") && !delta.get("text").isJsonNull()
-                                        ? delta.get("text").getAsString() : "";
-                                if (!t.isEmpty()) {
-                                    fullText.append(t);
-                                    if (callback != null) callback.onToken(t);
-                                }
-                            }
-                            break;
-                        }
-                        case "response.reasoning_summary_text.delta":
-                        case "response.reasoning_text.delta": {
-                            JsonObject delta = json.has("delta") && json.get("delta").isJsonObject()
-                                    ? json.getAsJsonObject("delta") : null;
-                            if (delta != null) {
-                                String t = delta.has("text") && !delta.get("text").isJsonNull()
-                                        ? delta.get("text").getAsString() : "";
-                                if (!t.isEmpty() && callback != null) callback.onThinkingToken(t);
-                            }
-                            break;
-                        }
-                        case "response.completed": {
-                            if (callback != null) callback.onThinkingEnd();
-                            return fullText.toString();
-                        }
-                        case "response.failed": {
-                            JsonObject r = json.has("response") && json.get("response").isJsonObject()
-                                    ? json.getAsJsonObject("response") : null;
-                            String err = r != null && r.has("status") && !r.get("status").isJsonNull()
-                                    ? r.get("status").getAsString() : "generation failed";
-                            if (callback != null) callback.onError(err);
-                            return fullText.toString();
-                        }
-                        case "error": {
-                            JsonObject err = json.has("error") && json.get("error").isJsonObject()
-                                    ? json.getAsJsonObject("error") : null;
-                            String msg = err != null && err.has("message") && !err.get("message").isJsonNull()
-                                    ? err.get("message").getAsString() : "unknown error";
-                            throw new Exception(msg);
-                        }
-                        default:
-                            break;
-                    }
-                } catch (com.google.gson.JsonSyntaxException ignored) {
-                    // 跳过非 JSON 行（注释/心跳）
-                }
-            }
+    /**
+     * Responses 事件 → {@link StreamCallback} 的桥，流式与非流式共用一套口径。
+     *
+     * <p>线程口径与 chat/completions 一致：增量与终态一律 {@code post} 到主线程。
+     * {@code streaming=false} 时不外发增量（非流式只有整段结果），但用量照常归集 ——
+     * webSearch 重路由到 {@code /responses} 的非流式调用因此也不会漏记 token 账
+     * （此前那条路径完全不计用量）。</p>
+     */
+    private final class ResponsesBridge implements ResponsesStreamParser.Sink {
+        private final StreamCallback callback;
+        private final boolean streaming;
+        private final StringBuilder text = new StringBuilder();
+        private final StringBuilder reasoning = new StringBuilder();
+
+        ResponsesBridge(StreamCallback callback, boolean streaming) {
+            this.callback = callback;
+            this.streaming = streaming;
         }
-        return fullText.toString();
+
+        @Override
+        public void onTextDelta(String delta) {
+            text.append(delta);
+            if (!streaming) return;
+            final String token = delta;
+            mainHandler.post(() -> {
+                if (callback != null) callback.onToken(token);
+            });
+        }
+
+        @Override
+        public void onReasoningDelta(String delta) {
+            reasoning.append(delta);
+            if (!streaming) return;
+            final String token = delta;
+            mainHandler.post(() -> {
+                if (callback != null) callback.onThinkingToken(token);
+            });
+        }
+
+        @Override
+        public void onUsage(int inputTokens, int outputTokens, int reasoningTokens,
+                            int cachedTokens) {
+            // 归一到 chat 体系的字段名，复用同一个统计 + 用量日志入口（不开第二套口径）
+            JsonObject usage = new JsonObject();
+            usage.addProperty("prompt_tokens", inputTokens);
+            usage.addProperty("completion_tokens", outputTokens);
+            JsonObject holder = new JsonObject();
+            holder.add("usage", usage);
+            parseAndNotifyTokenStats(holder, callback);
+        }
     }
 
-    /** 解析 Responses API 非流式响应（output[] → message.content[].output_text） */
-    private String readResponsesFull(HttpURLConnection connection) throws Exception {
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) sb.append(line).append('\n');
+    /**
+     * 解析 Responses API 流式事件：事件语义集中在 {@link ResponsesStreamParser}，
+     * 这里只负责桥接回调与收尾。
+     *
+     * <p><b>修掉此前两处硬伤</b>：① 旧实现在此处把 {@code delta} 当 JsonObject 取，
+     * 而 OpenAI 下发的是字符串 —— 于是每个正文片段都被判空丢弃，表现为"永远不出字"；
+     * ② 读完 {@code response.completed} 只是 return，从不投递 onComplete，
+     * 界面永远停在"生成中"。解析抽成独立类之后，才能用自定义流精确构造"UTF-8 半包"与
+     * "终态之后服务端仍挂着长尾不关连接"这两种真机上才会出现的形状，把它端到端验掉
+     * （见 {@code ResponsesStreamParserTest}；本机环回端口被安全软件的 LSP 拦截，
+     * 故测试不走 socket）。</p>
+     */
+    private String readResponsesStream(HttpURLConnection connection, StreamCallback callback) throws Exception {
+        ResponsesBridge bridge = new ResponsesBridge(callback, true);
+        ResponsesStreamParser.Result result = new ResponsesStreamParser(bridge)
+                .parse(connection.getInputStream());
+
+        // 思考已开始但未落到正文（纯思考 / 思考即全部输出）：补发思考结束，避免思考行悬挂
+        if (bridge.reasoning.length() > 0) {
+            mainHandler.post(callback::onThinkingEnd);
         }
-        JsonObject json = gson.fromJson(sb.toString(), JsonObject.class);
-        JsonArray output = json != null && json.has("output") && json.get("output").isJsonArray()
-                ? json.getAsJsonArray("output") : null;
-        if (output == null) return "";
-        StringBuilder text = new StringBuilder();
-        for (int i = 0; i < output.size(); i++) {
-            JsonObject o = output.get(i).getAsJsonObject();
-            JsonArray content = o != null && o.has("content") && o.get("content").isJsonArray()
-                    ? o.getAsJsonArray("content") : null;
-            if (content != null) {
-                for (int j = 0; j < content.size(); j++) {
-                    JsonObject c = content.get(j).getAsJsonObject();
-                    if ("output_text".equals(c.has("type") ? c.get("type").getAsString() : "")) {
-                        text.append(c.has("text") ? c.get("text").getAsString() : "");
-                    }
-                }
+
+        if (result.isFailed()) {
+            final String message = result.error != null && !result.error.isEmpty()
+                    ? result.error : "生成失败";
+            AILogger.e(TAG, "Responses 流失败: " + message);
+            mainHandler.post(() -> {
+                if (callback != null) callback.onError(message);
+            });
+            return bridge.text.toString();
+        }
+        if (ResponsesStreamParser.Result.STATUS_INCOMPLETE.equals(result.status)) {
+            AILogger.w(TAG, "Responses 流被截断（incomplete）："
+                    + (result.error == null ? "" : result.error) + "，按已产出内容收尾");
+        }
+
+        // result.text 是解析器的权威累计（含 completed 里的兜底整串）；bridge.text 只在
+        // "解析器没拿到正文但增量已外发"的异常形状下兜底，避免界面空屏
+        String fullText = result.text != null && !result.text.isEmpty()
+                ? result.text : bridge.text.toString();
+        if (fullText.trim().isEmpty() && bridge.reasoning.length() > 0) {
+            AILogger.w(TAG, "Responses 仅输出思考链无正文，不回退填充正文（思考链已在思考区展示）");
+        }
+        String cleaned = com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(fullText);
+        final String outputResult = cleaned != null ? cleaned
+                : com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(fullText);
+        mainHandler.post(() -> {
+            if (callback != null) callback.onComplete(outputResult);
+        });
+        return outputResult;
+    }
+
+    /**
+     * 解析 Responses API 非流式响应（{@code output[]} → {@code content[].output_text}）。
+     *
+     * <p>此前这里自己遍历 JSON，遇到 {@code JsonNull}（{@code content[].type} 为 null、
+     * 数组里混进字符串）会抛 {@code UnsupportedOperationException}，把一个"形状不合预期"
+     * 的响应变成一句无法解释的生成失败。现在复用 {@link ResponsesStreamParser}：字段容错
+     * 与流式同一处实现，状态为 failed 时明确抛带原因的错误。</p>
+     */
+    private String readResponsesFull(HttpURLConnection connection, StreamCallback callback) throws Exception {
+        // 直接按字节读原文再交给解析器：不逐行拼接，避免在 JSON 里插入换行
+        // （非流式响应是一个完整 JSON 文档，形状与流式的 SSE 帧完全不同）
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        byte[] part = new byte[4096];
+        int read;
+        try (java.io.InputStream in = connection.getInputStream()) {
+            while ((read = in.read(part)) > 0) {
+                buffer.write(part, 0, read);
             }
         }
-        return text.toString();
+        String body = new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+
+        ResponsesStreamParser.Result result = new ResponsesStreamParser(
+                new ResponsesBridge(callback, false)).parseFullResponse(body);
+        if (result.isFailed()) {
+            throw new Exception("Responses 返回失败: "
+                    + (result.error == null || result.error.isEmpty() ? "未知原因" : result.error));
+        }
+        if (ResponsesStreamParser.Result.STATUS_INCOMPLETE.equals(result.status)) {
+            AILogger.w(TAG, "Responses 非流式结果不完整（incomplete），按已产出内容返回");
+        }
+        return result.text;
     }
 
     /**
