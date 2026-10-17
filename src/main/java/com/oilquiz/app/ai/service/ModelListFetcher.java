@@ -285,11 +285,13 @@ public class ModelListFetcher {
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
-        // 禁用SSL证书验证以支持阿里云百炼等服务
-        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
-            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        // 禁用SSL证书验证以支持阿里云百炼等服务（仅 https 连接需要；http 端点直接放行，
+        // 避免强转 HttpsURLConnection 对局域网/自建 http 服务抛 ClassCastException 误判获取失败）
+        if (connection instanceof HttpsURLConnection
+                && com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation((HttpsURLConnection) connection);
         }
 
         try {
@@ -320,11 +322,12 @@ public class ModelListFetcher {
         String fullUrl = buildOpenAIUrl(apiUrl, "/models");
 
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
-        // 禁用SSL证书验证以支持各种服务
-        if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
-            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        // 禁用SSL证书验证以支持各种服务（仅 https 连接；http 端点直接放行，避免强转误判失败）
+        if (connection instanceof HttpsURLConnection
+                && com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation((HttpsURLConnection) connection);
         }
 
         try {
@@ -613,11 +616,13 @@ public class ModelListFetcher {
                 fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
                 URL url = new URL(fullUrl);
-                HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
-                // 禁用SSL证书验证以支持阿里云百炼等服务
-                if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
-                    SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+                // 禁用SSL证书验证以支持阿里云百炼等服务（仅 https 连接；http 端点直接放行，
+                // 避免强转 HttpsURLConnection 对局域网/自建 http 服务抛 ClassCastException 误判连接失败）
+                if (connection instanceof HttpsURLConnection
+                        && com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
+                    SSLSocketFactoryUtil.disableSSLCertificateValidation((HttpsURLConnection) connection);
                 }
 
                 try {

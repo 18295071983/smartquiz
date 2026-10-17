@@ -316,7 +316,7 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "embedding"));
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -381,7 +381,7 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "imageGen"));
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -451,7 +451,7 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, pcm.getServiceEndpoint(apiUrl, "rerank"));
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -691,7 +691,7 @@ public class OnlineInferenceService {
             // query-key 型服务商（Gemini 等）：密钥走 URL ?key=
             urlStr = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(urlStr, apiKey);
             URL url = new URL(urlStr);
-            HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(urlStr)) {
                 SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
             }
@@ -930,8 +930,8 @@ public class OnlineInferenceService {
     }
 
     /** 打开带统一鉴权的 POST 连接（query-key 已拼 URL） */
-    private HttpsURLConnection openProbePost(String fullUrl, String apiKey, int timeoutSec) throws Exception {
-        HttpsURLConnection connection = (HttpsURLConnection) new URL(fullUrl).openConnection();
+    private HttpURLConnection openProbePost(String fullUrl, String apiKey, int timeoutSec) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(fullUrl).openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -955,7 +955,7 @@ public class OnlineInferenceService {
         if (model == null || model.isEmpty()) return null; // 配置表未声明 embedding 模型 → 不探测
         String fullUrl = buildOpenAIUrl(config.apiUrl, pcm.getServiceEndpoint(config.apiUrl, "embedding"));
         fullUrl = pcm.withAuthQuery(fullUrl, config.apiKey);
-        HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
+        HttpURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
         try {
             JsonObject body = new JsonObject();
             body.addProperty("model", model);
@@ -978,10 +978,11 @@ public class OnlineInferenceService {
     /** 探测 vision：带 1x1 透明图的最小 chat 请求，200 → 支持；400（图片相关错误）→ 不支持 */
     private Boolean doProbeVision(OnlineModelManager.OnlineModelConfig config) throws Exception {
         if (!isProbeUsable(config)) return null;
-        String fullUrl = buildOpenAIUrl(config.apiUrl, "/chat/completions");
+        String fullUrl = buildOpenAIUrl(config.apiUrl,
+                com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(config.apiUrl));
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get()
                 .withAuthQuery(fullUrl, config.apiKey);
-        HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
+        HttpURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
         try {
             JsonObject body = new JsonObject();
             body.addProperty("model", config.modelName);
@@ -1037,7 +1038,7 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(config.apiUrl, responsesProbe ? "/responses" : "/chat/completions");
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get()
                 .withAuthQuery(fullUrl, config.apiKey);
-        HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
+        HttpURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
         try {
             JsonObject body = new JsonObject();
             body.addProperty("model", config.modelName);
@@ -1100,7 +1101,7 @@ public class OnlineInferenceService {
         if (ep == null || !ep.endsWith("/responses")) return null; // 非 Responses 格式不探测
         String fullUrl = buildOpenAIUrl(config.apiUrl, ep);
         fullUrl = pcm.withAuthQuery(fullUrl, config.apiKey);
-        HttpsURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
+        HttpURLConnection conn = openProbePost(fullUrl, config.apiKey, 12);
         try {
             JsonObject body = new JsonObject();
             body.addProperty("model", config.modelName);
@@ -1179,10 +1180,12 @@ public class OnlineInferenceService {
             // Anthropic 用 tools 参数（不同格式），这里保守返回 null（走模型名推断）
             return null;
         }
-        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
+        // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
+        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
         preResolveHost(fullUrl); // M9：DNS 预解析带超时
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -1276,10 +1279,12 @@ public class OnlineInferenceService {
      */
     private String callOpenAIAPIOnce(String apiUrl, String apiKey, String modelName,
                                      String prompt, int maxTokens) throws Exception {
-        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
+        // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
+        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
         preResolveHost(fullUrl); // M9：DNS 预解析带超时
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -1482,7 +1487,7 @@ public class OnlineInferenceService {
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -1587,7 +1592,7 @@ public class OnlineInferenceService {
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (pcm.needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -1846,12 +1851,14 @@ public class OnlineInferenceService {
                                            int maxTokens, boolean stream, boolean enableThinking,
                                            boolean webSearch,
                                            StreamCallback callback) throws Exception {
-        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
+        // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
+        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -2313,13 +2320,15 @@ public class OnlineInferenceService {
                 }
             }
         }
-        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
+        // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
+        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
         preResolveHost(fullUrl); // M9：DNS 预解析带超时
         
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         
         // 禁用SSL证书验证以支持阿里云百炼等服务
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
@@ -2432,12 +2441,14 @@ public class OnlineInferenceService {
     private String callOpenAIWithTools(String apiUrl, String apiKey, String modelName,
                                         String prompt, List<ChatMessage> history,
                                         int maxTokens, String toolsJson) throws Exception {
-        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
+        // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
+        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -2596,7 +2607,7 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, "/messages");
         
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         
         // 禁用SSL证书验证以支持各种服务
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
@@ -2682,8 +2693,8 @@ public class OnlineInferenceService {
         String line;
         try {
             while ((line = reader.readLine()) != null) {
-                if (line.startsWith("data: ")) {
-                    String data = line.substring(6).trim();
+                if (line.startsWith("data:")) {
+                    String data = line.substring(5).trim();
                     if (data.equals("[DONE]")) {
                         break;
                     }
@@ -2858,8 +2869,8 @@ public class OnlineInferenceService {
         String line;
         try {
             while ((line = reader.readLine()) != null) {
-                if (line.startsWith("data: ")) {
-                    String data = line.substring(6).trim();
+                if (line.startsWith("data:")) {
+                    String data = line.substring(5).trim();
                     if (data.equals("[DONE]")) {
                         break;
                     }
@@ -3099,12 +3110,14 @@ public class OnlineInferenceService {
      */
     private String callOpenAIStructured(String apiUrl, String apiKey, String modelName,
                                         String prompt, JSONObject schema, int maxTokens) throws Exception {
-        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
+        // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
+        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=，openConnection 前拼好
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
 
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
         // 禁用SSL证书验证以支持阿里云百炼等服务
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
@@ -3367,9 +3380,14 @@ public class OnlineInferenceService {
                                               JsonArray messages, int maxTokens,
                                               String toolsJson, boolean enableThinking,
                                               NativeToolStreamCallback callback) throws Exception {
-        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
+        // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
+        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        // query-key 服务商（Gemini 等）密钥走 URL ?key=，须在 openConnection 前补上，与其余
+        // 流式/同步路径口径一致；此前这两个带 tools 的流式路径遗漏，导致 Agent 模式下这类服务商 401。
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -3613,9 +3631,14 @@ public class OnlineInferenceService {
                                             String prompt, List<ChatMessage> history,
                                             int maxTokens, String toolsJson,
                                             NativeToolStreamCallback callback) throws Exception {
-        String fullUrl = buildOpenAIUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（缺省仍为 /chat/completions），使声明了非标准 chat 端点
+        // 的服务商无需改代码即可正确路由；此前此处写死 "/chat/completions" 令 getChatEndpoint 形同死代码。
+        String fullUrl = buildOpenAIUrl(apiUrl, com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
+        // query-key 服务商（Gemini 等）密钥走 URL ?key=，须在 openConnection 前补上，与其余
+        // 流式/同步路径口径一致；此前这两个带 tools 的流式路径遗漏，导致 Agent 模式下这类服务商 401。
+        fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
-        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         if (com.oilquiz.app.ai.model.ProviderConfigManager.get().needsTrustAllCerts(fullUrl)) {
             SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
         }
@@ -3713,8 +3736,8 @@ public class OnlineInferenceService {
                     AILogger.i(TAG, "Stream cancelled by caller, stopping read");
                     break;
                 }
-                if (!line.startsWith("data: ")) continue;
-                String data = line.substring(6).trim();
+                if (!line.startsWith("data:")) continue;
+                String data = line.substring(5).trim();
                 if (data.equals("[DONE]")) break;
 
                 try {

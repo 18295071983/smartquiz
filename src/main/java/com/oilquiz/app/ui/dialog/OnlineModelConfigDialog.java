@@ -86,6 +86,7 @@ public class OnlineModelConfigDialog {
     private CheckBox svcTts;
     private CheckBox svcAsr;
     private boolean capabilitiesUserTouched; // 用户是否手动调整过能力勾选
+    private boolean programmaticCapabilityChange; // true=程序回填/预置勾选期间，屏蔽"用户手动调整"误标记
 
     private ModelListFetcher modelListFetcher;
     private UsageTracker usageTracker;
@@ -167,19 +168,8 @@ public class OnlineModelConfigDialog {
                 selectedModelInput.setText(selectedModelId);
             }
 
-            // 编辑模式：按已有配置回填服务能力勾选并显示设置区
-            if (servicesSection != null && svcAgent != null) {
-                servicesSection.setVisibility(View.VISIBLE);
-                svcAgent.setChecked(existingConfig.supportsAgent);
-                svcVision.setChecked(existingConfig.supportsVision);
-                svcWebSearch.setChecked(existingConfig.supportsWebSearch);
-                svcEmbedding.setChecked(existingConfig.supportsEmbedding);
-                svcRerank.setChecked(existingConfig.supportsRerank);
-                svcImageGen.setChecked(existingConfig.supportsImageGen);
-                svcFunctionCalling.setChecked(existingConfig.supportsFunctionCalling);
-                svcTts.setChecked(existingConfig.supportsTts);
-                svcAsr.setChecked(existingConfig.supportsAsr);
-            }
+            // 服务能力勾选统一由下方 updateEndpointFields → applyServiceDefaults 回填（编辑模式用已存值），
+            // 此处不再重复 setChecked —— 程序回填须避免把能力误标为"用户手动设置"（见 programmaticCapabilityChange）。
 
             // 填充 apiSecret 和 appId
             if (existingConfig.apiSecret != null && !existingConfig.apiSecret.isEmpty()) {
@@ -247,7 +237,8 @@ public class OnlineModelConfigDialog {
         svcTts = dialog.findViewById(R.id.svc_tts);
         svcAsr = dialog.findViewById(R.id.svc_asr);
         // 能力勾选即视为用户手动设置（保存后配置表刷新不再覆盖）
-        android.widget.CompoundButton.OnCheckedChangeListener userSet = (b, c) -> capabilitiesUserTouched = true;
+        android.widget.CompoundButton.OnCheckedChangeListener userSet =
+                (b, c) -> { if (!programmaticCapabilityChange) capabilitiesUserTouched = true; };
         if (svcAgent != null) { svcAgent.setOnCheckedChangeListener(userSet); }
         if (svcVision != null) { svcVision.setOnCheckedChangeListener(userSet); }
         if (svcWebSearch != null) { svcWebSearch.setOnCheckedChangeListener(userSet); }
@@ -257,18 +248,6 @@ public class OnlineModelConfigDialog {
         if (svcFunctionCalling != null) { svcFunctionCalling.setOnCheckedChangeListener(userSet); }
         if (svcTts != null) { svcTts.setOnCheckedChangeListener(userSet); }
         if (svcAsr != null) { svcAsr.setOnCheckedChangeListener(userSet); }
-
-        // 服务能力设置区
-        servicesSection = dialog.findViewById(R.id.services_section);
-        svcAgent = dialog.findViewById(R.id.svc_agent);
-        svcVision = dialog.findViewById(R.id.svc_vision);
-        svcWebSearch = dialog.findViewById(R.id.svc_web_search);
-        svcEmbedding = dialog.findViewById(R.id.svc_embedding);
-        svcRerank = dialog.findViewById(R.id.svc_rerank);
-        svcImageGen = dialog.findViewById(R.id.svc_image_gen);
-        svcFunctionCalling = dialog.findViewById(R.id.svc_function_calling);
-        svcTts = dialog.findViewById(R.id.svc_tts);
-        svcAsr = dialog.findViewById(R.id.svc_asr);
 
         // 模型名手动输入框：内容变化时同步 selectedModelId（与列表点选/编辑回填保持一致）
         if (selectedModelInput != null) {
@@ -478,6 +457,9 @@ public class OnlineModelConfigDialog {
      */
     private void applyServiceDefaults(String url, com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config) {
         if (servicesSection == null || url == null || url.isEmpty()) return;
+        // 本方法内的勾选均为程序化回填/预置：置标志位，避免触发"用户手动调整"标记
+        programmaticCapabilityChange = true;
+        try {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         boolean known = pcm.matchByUrl(url) != null;
@@ -505,6 +487,9 @@ public class OnlineModelConfigDialog {
             svcAsr.setChecked(known && pcm.hasService(url, "asr"));
         }
         servicesSection.setVisibility(View.VISIBLE);
+        } finally {
+            programmaticCapabilityChange = false;
+        }
     }
 
     private void testConnection() {
@@ -682,6 +667,13 @@ public class OnlineModelConfigDialog {
         }
         if (url.isEmpty()) {
             Toast.makeText(context, "请填写 API 地址", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // 注册即校验地址形态（此前 OnlineModelManager.validateConfig 里的 http/https 判定从未被 UI 调用，
+        // 用户可保存垃圾地址直到运行期才失败）。与 OnlineModelManager.validateConfig 同一口径。
+        String urlLower = url.toLowerCase();
+        if (!urlLower.startsWith("http://") && !urlLower.startsWith("https://")) {
+            Toast.makeText(context, "API 地址需以 http:// 或 https:// 开头", Toast.LENGTH_SHORT).show();
             return;
         }
         if (key.isEmpty()) {

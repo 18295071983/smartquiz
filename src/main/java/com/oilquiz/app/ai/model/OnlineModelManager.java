@@ -235,9 +235,11 @@ public class OnlineModelManager {
                         obj.optLong("createdAt", System.currentTimeMillis()));
                     
                     // 加载增强字段
+                    // M12 延伸：apiSecret（讯飞 HMAC Secret / 百度 SecretKey / 火山 Token）与 appId 同属凭据，
+                    // 读取时解密（明文历史数据无 "enc:" 前缀，原样返回，向后兼容）
                     config.selectedModel = obj.optString("selectedModel", null);
-                    config.apiSecret = obj.optString("apiSecret", null);
-                    config.appId = obj.optString("appId", null);
+                    config.apiSecret = com.oilquiz.app.ai.util.ApiKeyCipher.decrypt(obj.optString("apiSecret", null));
+                    config.appId = com.oilquiz.app.ai.util.ApiKeyCipher.decrypt(obj.optString("appId", null));
                     config.lastFetchTime = obj.optLong("lastFetchTime", 0);
                     config.cachedModelsJson = obj.optString("cachedModelsJson", null);
                     config.autoFetchModels = obj.optBoolean("autoFetchModels", true);
@@ -525,8 +527,6 @@ public class OnlineModelManager {
      * 根据端点 URL 和模型名重新判断是否支持音频
      */
     private void refreshAllSupportsAudio() {
-        com.oilquiz.app.ai.speech.core.SpeechModelSelector selector = 
-            com.oilquiz.app.ai.speech.core.SpeechModelSelector.class != null ? null : null;
         for (OnlineModelConfig config : modelList) {
             config.supportsAudio = isAudioModel(config);
         }
@@ -554,8 +554,9 @@ public class OnlineModelManager {
                 obj.put("apiUrl", config.apiUrl);
                 obj.put("modelName", config.modelName);
                 obj.put("apiKey", com.oilquiz.app.ai.util.ApiKeyCipher.encrypt(config.apiKey)); // M12：密钥加密落盘
-                obj.put("apiSecret", config.apiSecret != null ? config.apiSecret : "");
-                obj.put("appId", config.appId != null ? config.appId : "");
+                // M12 延伸：apiSecret/appId 与 apiKey 同级凭据，同样加密落盘（encrypt 对 null/"" 原样返回，向后兼容）
+                obj.put("apiSecret", com.oilquiz.app.ai.util.ApiKeyCipher.encrypt(config.apiSecret != null ? config.apiSecret : ""));
+                obj.put("appId", com.oilquiz.app.ai.util.ApiKeyCipher.encrypt(config.appId != null ? config.appId : ""));
                 obj.put("enabled", config.enabled);
                 obj.put("createdAt", config.createdAt);
                 obj.put("selectedModel", config.selectedModel != null ? config.selectedModel : "");
@@ -656,7 +657,6 @@ public class OnlineModelManager {
                     || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isXfyunEndpoint(apiUrl)
                     || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isVolcanoEndpoint(apiUrl)
                     || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isBaiduEndpoint(apiUrl)
-                    || com.oilquiz.app.ai.speech.core.SpeechModelSelector.isDashScopeEndpoint(apiUrl)
                     || modelName != null && (modelName.contains("tts") || modelName.contains("asr")
                     || modelName.contains("cosyvoice") || modelName.contains("whisper"));
         }
@@ -1653,26 +1653,47 @@ public class OnlineModelManager {
         }
         try {
             APIKeyManager apiKeyManager = APIKeyManager.getInstance(context);
-            
-            // 构建 APIConfig
-            APIConfig apiConfig = new APIConfig();
+
+            // 复用既有 APIConfig（若有），只更新在线模型能贡献的字段，保留旧体系独有信息
+            // （描述/自定义头/超时/创建时间/校验状态等）。此前每次同步都 new 一条整体替换，
+            // 会把这些字段清空、并把 serviceType 无条件重置为 CUSTOM，导致按类型查询/测试结果失效。
+            APIConfig existing = apiKeyManager.getAPIConfigById(config.id);
+            boolean isNew = existing == null;
+            APIConfig apiConfig = isNew ? new APIConfig() : existing;
             apiConfig.setId(config.id);
             apiConfig.setName(config.name);
             apiConfig.setApiHost(config.apiUrl);
             apiConfig.setApiKey(config.apiKey);
             apiConfig.setModelName(config.selectedModel != null && !config.selectedModel.isEmpty()
                     ? config.selectedModel : config.modelName);
-            apiConfig.setCategory(APIConfig.Category.AI);
-            apiConfig.setServiceType(APIConfig.ServiceType.CUSTOM);
             apiConfig.setActive(config.enabled);
-            apiConfig.setStatus(APIConfig.Status.UNKNOWN);
-            
+            if (isNew) {
+                apiConfig.setCategory(APIConfig.Category.AI);
+                apiConfig.setStatus(APIConfig.Status.UNKNOWN);
+                // serviceType 仅在首次创建时判定；已存在的配置保留其原类型，避免来回覆盖。
+                String detected = detectServiceTypeFromUrl(config.apiUrl);
+                apiConfig.setServiceType(detected != null ? detected : APIConfig.ServiceType.CUSTOM);
+            }
+
             apiKeyManager.saveAPIConfig(apiConfig);
             return true;
         } catch (Exception e) {
             AILogger.w("OnlineModelManager", "同步到 APIKeyManager 失败: " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 按 API 地址识别旧体系 serviceType（仅覆盖有明确常量的主流服务商）。
+     * 未识别返回 null，交由调用方落 CUSTOM。
+     */
+    private static String detectServiceTypeFromUrl(String apiUrl) {
+        if (apiUrl == null || apiUrl.isEmpty()) return null;
+        String u = apiUrl.toLowerCase();
+        if (u.contains("anthropic")) return APIConfig.ServiceType.ANTHROPIC;
+        if (u.contains("openai")) return APIConfig.ServiceType.OPENAI;
+        if (u.contains("generativelanguage") || u.contains("apis.google")) return APIConfig.ServiceType.GOOGLE;
+        return null;
     }
 
     private String buildDisplayName(APIConfig apiConfig) {

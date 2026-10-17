@@ -73,6 +73,20 @@ public class SSLSocketFactoryUtil {
     }
 
     /**
+     * 为单个连接禁用SSL证书验证（接收基类型 HttpURLConnection）：
+     * 仅当连接确为 HTTPS 时才设置 SSLSocketFactory/HostnameVerifier；明文 http 连接
+     * 无 SSL 层，直接跳过。调用方因此可对任意端点（含自建 http 的 llama.cpp/vLLM）
+     * 统一声明 HttpURLConnection，而不必先强转 HttpsURLConnection（旧写法对 http 端点
+     * 会抛 ClassCastException，导致本地/局域网推理整体失败）。
+     * @param connection 目标连接
+     */
+    public static void disableSSLCertificateValidation(java.net.HttpURLConnection connection) {
+        if (connection instanceof HttpsURLConnection) {
+            disableSSLCertificateValidation((HttpsURLConnection) connection);
+        }
+    }
+
+    /**
      * 为单个连接禁用SSL证书验证
      * @param connection 需要禁用验证的HttpsURLConnection
      */
