@@ -91,4 +91,22 @@ public final class ApiKeyCipher {
                 .build());
         return generator.generateKey();
     }
+
+    /**
+     * Keystore 主密钥当前是否可用（能打开 KeyStore 且能取到/生成别名密钥）。
+     *
+     * <p>存在的理由：{@link #encrypt} 在失败时"返回原文"以保证功能可用，但调用方因此无法区分
+     * "拿到了密文"与"悄悄退化成明文"。{@link com.oilquiz.app.ai.util.SecretCodec} 的存量迁移
+     * 必须区分 —— 把一条本来已加密的旧数据"迁移"成明文，比不迁移更糟。故本方法只做探针，
+     * 不改变 {@link #encrypt} / {@link #decrypt} 既有语义。</p>
+     */
+    public static boolean keystoreAvailable() {
+        try {
+            return getOrCreateKey() != null;
+        } catch (Throwable t) {
+            com.oilquiz.app.util.AILogger.w(TAG,
+                    "keystore unavailable: " + t.getMessage());
+            return false;
+        }
+    }
 }

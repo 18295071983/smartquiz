@@ -448,9 +448,23 @@ public class ProviderConfigManager {
      * </ul>
      * 未识别服务商默认 bearer；key 为空返回空 Map（避免发出无效 Authorization 头）。
      */
+    /**
+     * 判定密钥是否"不可用"：null/空，或仍是未解密的本机密文哨兵值。
+     *
+     * <p>{@link com.oilquiz.app.ai.util.ApiKeyCipher#decrypt} 在 Keystore 密钥丢失/设备恢复备份等
+     * 场景会原样返回带 {@code "enc:"} 前缀的密文。这类值不是可用密钥——若当作 Bearer/?key=
+     * 发出只会得到服务商侧莫名的 401，掩盖"密钥需重新填写"的真实原因。据此在鉴权入口统一拦截。
+     * （旧体系的 {@code APIKeyManager} 已改为解不出就返回 {@code null}，不再产出哨兵值；
+     * {@code "UNENC:"} 一项只为兼容历史落盘数据而保留。）</p>
+     */
+    private static boolean isUnusableKey(String apiKey) {
+        if (apiKey == null || apiKey.isEmpty()) return true;
+        return apiKey.startsWith("enc:") || apiKey.startsWith("UNENC:");
+    }
+
     public Map<String, String> getAuthHeaders(String apiUrl, String apiKey, String apiSecret, String appId) {
         Map<String, String> headers = new HashMap<>();
-        if (apiKey == null || apiKey.isEmpty()) return headers;
+        if (isUnusableKey(apiKey)) return headers;
         Provider p = matchByUrl(apiUrl);
         String auth = p != null && p.auth != null && !p.auth.isEmpty() ? p.auth : "bearer";
 
@@ -491,7 +505,7 @@ public class ProviderConfigManager {
      * 调用点应在 openConnection 之前处理 URL。
      */
     public String withAuthQuery(String url, String apiKey) {
-        if (url == null || url.isEmpty() || apiKey == null || apiKey.isEmpty()) return url;
+        if (url == null || url.isEmpty() || isUnusableKey(apiKey)) return url;
         Provider p = matchByUrl(url);
         if (p == null || !"query-key".equals(p.auth)) return url;
         try {

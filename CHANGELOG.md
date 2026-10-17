@@ -1,5 +1,72 @@
 # 变更日志
 
+## [2026-10-17] 密钥存储改造：旧 AES-CBC 固定 IV（主密钥同存）→ Keystore AES-256-GCM
+
+### 问题（上一轮记为 #3，本轮做完）
+
+`APIKeyManager`（旧体系，私有 `api_keys` SharedPreferences）用 **AES-256-CBC + 固定 IV**，
+并且把 **主密钥和 IV 与密文存在同一个文件**里（`encryption_key` / `iv_key` 两个明文条目）。
+拿到该文件就等于拿到钥匙 —— 这不是"加密存储"，只是"编码存储"。而新体系
+（`OnlineModelManager` + `ApiKeyCipher`）早已是 Android Keystore 的 **AES-256-GCM、随机 IV、
+主密钥不可导出**。同一 App 内两套强度，是必须在某一刻收敛的技术债。
+
+上一轮我以"改格式需兼容迁移、可能损坏存量配置"为由搁置；本轮按"设计一份可验证的搬运"做完，
+并按用户明确要求**取消对旧格式的兼容**：读取只认新格式，旧数据要么一次搬完、要么作废。
+
+### 最终形态：只有一种落盘格式
+
+- `ai/util/SecretCodec` —— 读写口径的唯一事实源，**只认 `enc:` + Base64(iv||ct)**
+  （Keystore AES-256-GCM，主密钥不可导出）。非 `enc:` 的值一律判 `null`（="未配置"），
+  不再有多形态兼容分支、不再有"解不开就原样返回"。这条纪律的意义：一段 CBC 密文
+  绝不会冒充明文密钥被发出去（历史上正是这类哨兵值换来服务商侧无法解释的 401，
+  `ProviderConfigManager.isUnusableKey` 是在下游打的补丁，现在源头不产出）。
+  `encode` 只产出 `enc:`；**Keystore 不可用时返回 `null` 而不是降级写明文** ——
+  一条读不出的条目只是"需要重填密钥"，一条明文密钥是谁都能读的。
+- `ai/util/SecretMigrator` —— 一次性搬运器（旧格式只在这里被认识，搬完即失忆）：
+  能解出明文的旧值（CBC / `UNENC:` / 裸明文）升级成 `enc:`；**解不出的直接作废删除**；
+  搬完删除同文件内的旧主密钥与固定 IV 并置完成标志。安全边界：
+  ① 动磁盘前先探一次 `encode`，写不出 `enc:` 就整笔放弃、一个字都不改
+  （把"encrypt 失败返回原文"当成成功，等于把明文标成已加密还删掉旧钥匙）；
+  ② 落笔前 CAS 重读，用户并发保存的新密钥一定让位；③ 写后读回校验，不符就回滚本条；
+  ④ 已是 `enc:` 直接跳过 → 幂等，崩在任何一步重跑即可；⑤ 无旧主密钥又"形状像 CBC 密文"
+  的值按不可用作废（无法证明它是明文时不猜）。
+- `APIKeyManager` 接线：构造时后台跑搬运（Keystore 首次建钥 + 逐条加解密可达数百毫秒，
+  不压构造线程）；稳态读取若碰到旧格式残留会**就地同步补跑一次**再读
+  （`migrateSecretsOnce` 进程内至多真跑一次），避免后台没跑完时用户看到假象的"未配置密钥"。
+  所有读取统一走 `readSecret(key)`；各 save 方法在拿不到密文时放弃写入并记日志
+  （`putString(key, null)` 的真实语义是删除条目 —— 顺手写下去就是"保存失败还清了旧数据"）。
+  空值语义明确为"清除该条目"。不再新建 CBC 主密钥。
+- `ApiKeyCipher.keystoreAvailable()`：只做探针，既有 `encrypt/decrypt` 语义未改动。
+  存在的理由同上 —— 调用方必须能区分"拿到密文"与"悄悄退化成原文"。
+- 顺带修掉一个**既有**数据丢失隐患：列表读不出时 `getAllAPIConfigs()` 返回空表，而
+  `saveAPIConfig/toggleAPIConfigActive/importFromJson` 都是"读-改-写"，会把用户全部在线配置
+  抹成只剩本次一条。现在写不出密文就整笔放弃、磁盘保持原样。
+
+### 验证（离线，已实跑）
+
+- `src/test/.../SecretMigratorTest`：**15 个用例全绿**（`tests="15" failures="0"`）。用内存 KV +
+  内存 AES-GCM 顶替 SharedPreferences 与 Keystore，跑的是**真密码学**（CBC/PKCS5 与 GCM 真实加解密），
+  不是 mock 断言。覆盖：CBC→GCM 后明文逐字节一致、长 JSON 的 Android `Base64.DEFAULT` 折行
+  （JDK 基本解码器遇换行直接抛，必须用 MIME 解码器）、`UNENC:`/裸明文升级、旧主密钥丢失时
+  密文**不冒充明文**且被作废、Keystore 不可用时"一字不动且保留旧钥匙"、
+  "静默返回原文"在动磁盘前就被探测拦下、并发写 CAS 让位、幂等重跑、
+  "置了标志但在删钥匙前崩溃"的补清理、空 KV 直接达成终态。
+- `./gradlew testDebugUnitTest --offline --rerun-tasks`：编译通过；**292 tests / 25 failed**，
+  这 25 个是**既有失败**（剥离本次改动后同命令跑出同样的 277 tests / 25 failed，类分布一致：
+  StreamingUpdateManagerTest 依赖 JVM 桩里的主线程 Handler、ColorResourceProviderTest 依赖
+  Android 资源、AIServiceStateTest 断言与现行为不符等 7 个类），与本次改动无关，未顺手修。
+  已把这条基线记进项目记忆，避免下次误判成自己改坏了。
+
+### 未验证（设备缺口，需要接真机）
+
+Keystore 与 SharedPreferences 只能上真机。**当前 `adb devices` 列表为空**，故未验证：
+首次搬运是否真的跑完（与 Keystore 解锁时序的竞态）、日志是否出现
+`APIKeyManager: 密钥存储已升级为 Keystore-GCM`（写不出则是 `迁移未完成…complete=false`），
+以及存量 CBC 数据在真机上能否原样升级。**副作用须知**：旧主密钥已丢失的设备上，
+升级后这些密钥会被判为"未配置"，用户需在 API 配置界面重填一次。
+被动验证抓手（不新增调试入口）：`adb logcat -s APIKeyManager:* ApiKeyCipher:*`，
+再开 API 配置界面确认列表仍在、测试连接能过。
+
 ## [2026-10-13] 修"刚注册的动态 UI 没注册上"：reload() 会抹掉临时注册
 
 ### 根因

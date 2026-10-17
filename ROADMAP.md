@@ -332,6 +332,28 @@ jobs:
 | 签名密钥丢失 | 无法发布更新 | keystore 必须备份到安全位置 |
 | Vulkan 驱动兼容性 | 部分设备 GPU 加速失效 | CPU 回退机制 + 自动检测 |
 
+### 7.1 已记录的协议缺口：在线 Agent 未走 `/responses` 工具流（2026-10-17）
+
+**现状（已核对代码，非推测）**
+
+- `OnlineInferenceService.callResponsesAPI()` 构造的请求体只有 `model / input /
+  max_output_tokens / temperature / web_search`，**不含客户端 `tools` 数组**；
+  `readResponsesStream()` 只处理 `response.output_text.delta`、`response.reasoning_*`、
+  `response.completed`（见该文件 1478-1566、1695-1762 行），**没有 `function_call*` 事件的
+  增量聚合，也没有 `response.usage` 落库**。
+- 因此在线 Agent 的工具循环仍走 `/chat/completions`（`callOpenAIAPI` + 原生 tool_calls 解析），
+  **功能可用**；`/responses` 路由只在"服务商声明 agent 服务且勾选 Agent"时用于纯文本/官方
+  web_search 流（`shouldUseResponsesAPI()`）。
+
+**为什么本轮不补**：补齐等于新写一个协议适配器 —— Responses 事件流解析、`response.output_item.added`
+→ `response.function_call_arguments.delta` 的参数增量拼接、`function_call_output` 回填、
+reasoning 与 usage 语义，数百行，且**流式事件语义必须连真实 `/responses` + tools 端点才能验证**。
+离线交付等于往主干埋一条从未跑过的代码路径，风险高于收益。
+
+**闭合它需要什么**：一个可用的 `/responses` + tools 端点（OpenAI 官方，或 MiniMax/Moonshot
+等声明 agent 服务的兼容层）+ 一轮在线对拍；届时把事件解析抽成独立可测类，用录制下来的 SSE
+fixture 做回归，而不是只靠真机点一遍。
+
 ---
 
 ## 八、迭代排期建议
