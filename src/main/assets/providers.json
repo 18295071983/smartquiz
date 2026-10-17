@@ -53,7 +53,9 @@
         },
         "agent": {
           "enabled": true,
-          "endpoint": "/responses"
+          "endpoint": "/responses",
+          "toolsProtocol": "chat",
+          "note": "工具流协议开关：chat=默认（/chat/completions + tool_calls，已验证）；responses=/responses + function_call（实现与离线回归已具备，待在线对拍后切换）"
         },
         "vision": {
           "enabled": true

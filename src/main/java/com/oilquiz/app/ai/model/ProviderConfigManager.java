@@ -643,6 +643,23 @@ public class ProviderConfigManager {
     }
 
     /** 服务能力端点（缺省：按服务类型回落到标准 OpenAI 兼容端点，chat 缺省全局 chatEndpoint） */
+    /**
+     * agent 服务的工具流协议（配置驱动，缺省 chat）。
+     *
+     * @return {@code "responses"} 表示 Agent 循环应走 /responses + function_call；
+     *         其它任何取值（含缺省）都走 /chat/completions
+     */
+    public boolean agentUsesResponsesTools(String apiUrl) {
+        Provider p = matchByUrl(apiUrl);
+        ServiceConfig cfg = p == null || p.services == null ? null : p.services.agent;
+        if (cfg == null) return false;
+        if (cfg.enabled != null && !cfg.enabled) return false;
+        String ep = cfg.endpoint == null ? "" : cfg.endpoint;
+        // 端点不是 /responses 就谈不上 Responses 工具流（智谱 /agent/chat、百炼多模态那类）
+        if (!ep.endsWith("/responses")) return false;
+        return "responses".equalsIgnoreCase(cfg.toolsProtocol);
+    }
+
     public String getServiceEndpoint(String apiUrl, String service) {
         Provider p = matchByUrl(apiUrl);
         if (p != null && p.services != null) {
@@ -959,6 +976,15 @@ public class ProviderConfigManager {
         public Boolean enabled;
         public String endpoint;
         public String param;
+        /**
+         * agent 服务的工具流走哪种协议：{@code "chat"}（缺省，/chat/completions + tool_calls）
+         * 或 {@code "responses"}（/responses + function_call 条目）。
+         *
+         * <p>刻意<b>默认缺省 = chat</b>：本项目所有服务商的 Agent 循环现在都走已验证的
+         * chat 路径。Responses 工具链的实现与离线回归都在，但各家兼容层的事件顺序与私有字段
+         * 需要逐家在线对拍后才能放开（见 ROADMAP 7.1）；这里保留一个不改代码就能切换的口子。</p>
+         */
+        public String toolsProtocol;
     }
 
     public static class Thinking {

@@ -359,9 +359,25 @@ UTF-8 半包、终态后长尾、function_call 按 item_id 聚合并只外发一
 **文本流现在可用了；工具流仍未接**（解析器已具备聚合能力，缺的是 chat↔responses
 双向翻译与一个默认关的能力位）。
 
-**闭合它需要什么**：一个可用的 `/responses` + tools 端点（OpenAI 官方，或 MiniMax/Moonshot
-等声明 agent 服务的兼容层）+ 一轮在线对拍；届时把事件解析抽成独立可测类，用录制下来的 SSE
-fixture 做回归，而不是只靠真机点一遍。
+**进展（2026-10-18 续）**：协议两侧的可离线部分都已落地并被测。
+解析侧 `ResponsesStreamParser` 30 例（流式 20 + 非流式 7 + 供应商顺序 3）；请求侧
+`ResponsesPayloadBuilder` 11 例（`function_call` / `function_call_output` 按 `call_id` 配对、
+`tools` 扁平化、畸形输入退化）。聚合规则不是照文档空想，而是按仓库里两份**真实实现**校正的：
+`ref/…/OpenAIProvider.kt`（存在"先 output_item.done、后 arguments.delta"的供应商，
+故 done 事件不能收口、快照不能与增量混拼）与打包进来的 `llama.cpp` server
+（`item.arguments` 初值为空串、只发 `output_item.done` 不发 `arguments.done`、只带 `item_id`）。
+
+**最后一步也已接完（2026-10-18）**：`OnlineInferenceService.callResponsesStreamWithTools`
+在 `generateStreamWithToolsV2` 内按能力位分发（`providers.json` 的
+`services.agent.toolsProtocol`，**缺省 chat**，全部服务商行为不变），桥回既有
+`NativeToolStreamCallback` —— Agent 循环一行未改。带上了：取消中断
+（`parse(reader, cancelRequested)`，取消时把未收口的 call 整批定稿）、非 200 自动回落
+chat 工具流、用量换算成 chat 口径后复用同一条统计链；刻意**不**注入思考参数
+（Responses 用 `reasoning:{effort,summary}`，未经确认不猜）。
+
+**开启它需要的唯一一件事**：对目标服务商做一次在线对拍（真实事件顺序、`arguments` 快照
+与增量的关系、reasoning/usage 字段名），顺带录一份原始事件流冻成 fixture；通过后把该服务商的
+`toolsProtocol` 改成 `responses` 即可，无需改代码。
 
 ---
 

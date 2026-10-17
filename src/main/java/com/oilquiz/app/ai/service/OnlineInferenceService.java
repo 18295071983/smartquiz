@@ -3384,6 +3384,10 @@ public class OnlineInferenceService {
                     AILogger.w(TAG, "Anthropic API does not support streaming tools, falling back");
                     String prompt = extractLastUserContent(messages);
                     generateStreamFallback(prompt, config, null, maxTokens, enableThinking, callback);
+                } else if (shouldRouteToolsViaResponses(config, apiUrl)) {
+                    // 只有能力位显式开启的服务商才走 /responses 工具流；其余仍是已验证的 chat 路径
+                    callResponsesStreamWithTools(apiUrl, apiKey, modelName,
+                        messages, maxTokens, toolsJson, callback);
                 } else {
                     callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName,
                         messages, maxTokens, toolsJson, enableThinking, callback);
@@ -3395,6 +3399,178 @@ public class OnlineInferenceService {
                 });
             }
         });
+    }
+
+    /**
+     * Agent 工具流是否改走 OpenAI Responses（{@code /responses} + function_call 条目）。
+     *
+     * <p>三重门，缺一不走：① 用户在模型配置里勾了 Agent；② 服务商配置表声明的 agent 端点
+     * 就是 {@code /responses}；③ 配置表把 {@code services.agent.toolsProtocol} 显式写成
+     * {@code responses}。</p>
+     *
+     * <p>③ 的缺省值是 chat。理由：现在全部服务商的 Agent 循环都跑在已验证的 chat 上；
+     * Responses 侧的解析与翻译连同离线回归已具备，但各家兼容层的事件顺序和私有字段要逐家
+     * 在线对拍之后才值得放开（ROADMAP 7.1）。切换只需改一个 JSON 字段，不动代码。</p>
+     */
+    private boolean shouldRouteToolsViaResponses(
+            OnlineModelManager.OnlineModelConfig config, String apiUrl) {
+        if (config == null || !config.supportsAgent) return false;
+        try {
+            return com.oilquiz.app.ai.model.ProviderConfigManager.get()
+                    .agentUsesResponsesTools(apiUrl);
+        } catch (Exception e) {
+            // 读配置失败不冒进：按 chat 走，保证 Agent 可用优先
+            AILogger.w(TAG, "Responses 工具流能力位读取失败，按 chat 处理: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Responses 版带工具流式调用：请求体由 {@link ResponsesPayloadBuilder} 从 chat 方言翻译而来，
+     * 事件由 {@link ResponsesStreamParser} 解析，再桥回 {@link NativeToolStreamCallback} ——
+     * 于是 Agent 循环（工具并行、按 id 配对回填、历史裁剪、取消与超时保护）一行都不用改。
+     *
+     * <p>降级口径与 chat 路径一致：HTTP 非 200 不直接报错，而是回落 chat 工具流。这样即便把
+     * 能力位开到并不真支持工具的服务商上，用户遇到的仍是"能用"而不是"报错"。</p>
+     */
+    private void callResponsesStreamWithTools(String apiUrl, String apiKey, String modelName,
+                                              JsonArray messages, int maxTokens,
+                                              String toolsJson,
+                                              NativeToolStreamCallback callback) throws Exception {
+        com.oilquiz.app.ai.model.ProviderConfigManager pcm =
+                com.oilquiz.app.ai.model.ProviderConfigManager.get();
+        String endpoint = pcm.getServiceEndpoint(apiUrl, "agent");
+        if (endpoint == null || endpoint.isEmpty()) endpoint = "/responses";
+        String fullUrl = buildOpenAIUrl(apiUrl, endpoint);
+        fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
+
+        JsonObject body = ResponsesPayloadBuilder.build(modelName, messages, toolsJson,
+                maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, true);
+        // 刻意不注入 thinking/reasoning 参数：chat 侧那套按服务商分发（enable_thinking /
+        // reasoning_effort / thinking.type），而 Responses 用的是 reasoning:{effort,summary}
+        // 结构，各家兼容层是否接受、取值域如何都还没在线确认过。
+        // 与其猜一个字段把请求发坏，这里先不带 —— 思考开关在本路径上暂时无效，
+        // 开启前需要先按端点核实（ROADMAP 7.1）。
+
+        URL url = new URL(fullUrl);
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        if (pcm.needsTrustAllCerts(fullUrl)) {
+            SSLSocketFactoryUtil.disableSSLCertificateValidation(connection);
+        }
+        try {
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(DEFAULT_TIMEOUT_MS);
+            connection.setReadTimeout(CHAT_READ_TIMEOUT_MS);
+            connection.setRequestProperty("Content-Type", "application/json");
+            applyAuth(pcm, connection, fullUrl, apiKey, modelName);
+            connection.setRequestProperty("Accept", "text/event-stream");
+            connection.setDoOutput(true);
+
+            try (java.io.OutputStream os = connection.getOutputStream()) {
+                os.write(gson.toJson(body).getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                String errorBody = readErrorStream(connection);
+                AILogger.w(TAG, "Responses 工具流失败: HTTP " + responseCode + ": " + errorBody);
+                AILogger.i(TAG, "回落 chat/completions 工具流");
+                callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages, maxTokens,
+                        toolsJson, false, callback);
+                return;
+            }
+
+            ResponsesToolStreamBridge bridge = new ResponsesToolStreamBridge(callback);
+            ResponsesStreamParser.Result result = new ResponsesStreamParser(bridge)
+                    .parse(connection.getInputStream(), callback::isCancelled);
+            bridge.finish(result);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    /**
+     * Responses 事件 → {@link NativeToolStreamCallback} 的桥。
+     *
+     * <p>与 chat 路径对齐的三点：① 正文与思考增量一律 post 到主线程，UI 侧不必再判线程；
+     * ② 工具调用等流结束整批交付（单条定稿时机彼此不同步，逐条外发会让引擎只执行到一部分，
+     * 参数还可能是半截 JSON）；③ 用量换算成 chat 的 prompt/completion/total 后走
+     * {@code onUsageWithReasoning}，与 chat 路径共用同一条统计链。</p>
+     */
+    private final class ResponsesToolStreamBridge implements ResponsesStreamParser.Sink {
+        private final NativeToolStreamCallback callback;
+        /** 交付一次就好：失败/完成/取消都走同一出口，重复 post 会让引擎多跑一轮 */
+        private final java.util.concurrent.atomic.AtomicBoolean delivered =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        ResponsesToolStreamBridge(NativeToolStreamCallback callback) {
+            this.callback = callback;
+        }
+
+        @Override
+        public void onTextDelta(String delta) {
+            final String token = delta;
+            mainHandler.post(() -> {
+                if (callback != null) callback.onContentToken(token);
+            });
+        }
+
+        @Override
+        public void onReasoningDelta(String delta) {
+            final String token = delta;
+            mainHandler.post(() -> {
+                if (callback != null) callback.onReasoningToken(token);
+            });
+        }
+
+        /** 单条定稿：此处刻意不外发，整批交给 {@link #finish} */
+        @Override
+        public void onFunctionCallReady(ResponsesStreamParser.FunctionCall call) {
+        }
+
+        @Override
+        public void onUsage(int inputTokens, int outputTokens, int reasoningTokens,
+                            int cachedTokens) {
+            final int prompt = inputTokens;
+            final int completion = outputTokens;
+            final int total = inputTokens + outputTokens;
+            final int cached = cachedTokens;
+            final int reasoning = reasoningTokens;
+            mainHandler.post(() -> {
+                if (callback != null) {
+                    callback.onUsageWithReasoning(prompt, completion, total, cached, reasoning);
+                }
+            });
+        }
+
+        /** 流结束：整批工具调用或最终答案交给引擎，只交付一次 */
+        void finish(ResponsesStreamParser.Result result) {
+            if (callback == null || !delivered.compareAndSet(false, true)) return;
+            if (result.isFailed()) {
+                final String message = result.error != null && !result.error.isEmpty()
+                        ? result.error : "Responses 工具流失败";
+                mainHandler.post(() -> callback.onError(message));
+                return;
+            }
+            final java.util.List<ToolCallInfo> toolCalls = new java.util.ArrayList<>();
+            for (ResponsesStreamParser.FunctionCall call : result.functionCalls) {
+                ToolCallInfo info = new ToolCallInfo();
+                info.id = call.callId;
+                info.name = call.name;
+                info.arguments = call.arguments == null
+                        ? ResponsesPayloadBuilder.EMPTY_ARGUMENTS : call.arguments;
+                toolCalls.add(info);
+            }
+            final String content = result.text;
+            final String reasoning = result.reasoning;
+            if (toolCalls.isEmpty()) {
+                mainHandler.post(() -> callback.onComplete(content, reasoning, null, "stop"));
+                return;
+            }
+            mainHandler.post(() -> callback.onToolCallsReady(toolCalls));
+            mainHandler.post(() -> callback.onComplete(content, reasoning, toolCalls, "tool_calls"));
+        }
     }
 
     /**

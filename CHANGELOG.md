@@ -1,6 +1,6 @@
 # 变更日志
 
-## [2026-10-18] /responses 文本流修好并抽成可测解析器（#1 的第一步）
+## [2026-10-18] /responses：文本流修好、事件解析可测、工具流接通（默认关）
 
 ### 现状核对（先证实再动手，两处硬伤是读代码读出来的）
 
@@ -40,28 +40,95 @@
 
 ### 验证（离线，已实跑）
 
-- 新增 `ResponsesStreamParserTest`：**27 例全绿**（流式 20 + 非流式 7）。传输形状不靠 mock：用自定义流构造
+- 新增 `ResponsesStreamParserTest`：**33 例全绿**（流式 20 + 非流式 7 + 供应商顺序 3 + 取消中断 3）。传输形状不靠 mock：用自定义流构造
   ① **UTF-8 半包**（一个中文字符的 3 字节逐字节交付，断言不乱码不丢字）
   ② **终态后仍挂着长尾数据**（`TailTrackingReader` 计数：completed 整条交付完之后再向流要
   一次数据就判失败 —— 这正是旧实现会挂住的地方）③ 无终态自然读完。
   工具用例含并发 call 乱序到达仍按出现顺序回填、缺 `added` 事件也能收到工具调用。
-- `./gradlew testDebugUnitTest --offline --rerun-tasks`：**319 tests / 25 failed**
-  （基线 292 → 本批 +27；25 个仍是既有失败，类分布未变）。
+- `./gradlew testDebugUnitTest --offline --rerun-tasks`：**336 tests / 25 failed**
+  （基线 292 → 本批 +44；25 个仍是既有失败，类分布未变）。
 - **踩坑记录**：本想用 socket + 手搓 chunked 帧做"真 HTTP"验证，三次用例全在
   `SocketTimeoutException`；单进程探针证实本机环回端口被安全软件 LSP 拦掉
   （accept 成功但写入被中止）。同时 `com.sun.net.httpserver` 不在 android.jar 里、
   `mockwebserver` 不在离线依赖缓存里。故测试改用自定义 Reader —— 判定更快、更确定，
   也不再把"环境通不通"混进"解析对不对"。
 
-### 仍未做（#1 的第二步，需要端点）
+### 按真实实现校正工具聚合（不是照规范空想）
 
-工具流还没接进 Agent 循环：`function_call` 聚合已经写完并被测，但
-`OnlineAgentEngine` 仍只走 `generateStreamWithToolsV2`（`/chat/completions`）。
-接线要做的是 chat↔responses 双向翻译（`assistant.tool_calls → function_call` item、
-`role:tool → function_call_output` 按 **call_id** 配对、`tools` 扁平形状），
-以及 `providers.json` 上一个默认关的能力位（只有显式声明的服务商走这条链）。
-真实事件顺序与各家私有字段仍需一个可用 `/responses`+tools 端点对拍，
-届时把录下的原始事件流冻成 fixture，此后回归不再依赖网络。
+OpenAI 官方文档页对本机 403，取不到；改用两份**能读到的真实实现**当依据，结果发现我的聚合
+规则确实错了两处：
+
+- `ref/…/llmprovider/OpenAIProvider.kt`（一份跑在生产里的 Responses 客户端）：
+  **"参数统一由 `function_call_arguments.delta` 通道累积，避免快照+增量混拼导致 JSON 破坏"**，
+  并且**"某些供应商会先发送 `output_item.done`，随后才发送 `function_call_arguments.delta`，
+  因此不在 `output_item.done` 阶段关闭工具调用"**。
+- `src/main/cpp/llama.cpp/tools/server/server-task.cpp`（我们自己打包的 server 就是
+  `/responses` 服务端）：`output_item.added` 里 `item.arguments` 是**空串**，增量事件只带
+  `item_id`（形如 `fc_<id>` / `call_<id>`），且**不发** `function_call_arguments.done`。
+
+据此改写聚合：① 参数唯一来源是 delta 通道，done 事件的完整快照只在"一条增量都没收到"时兜底
+（原来我会把快照直接覆盖/拼接进去 —— 在"先 done 后增量"的顺序下会**带着空参数把工具执行掉**，
+而在 llama.cpp 的形状下又会丢掉参数）；② `output_item.done` 不再收口，收口点只能是
+`function_call_arguments.done` 或 `response.completed`（completed 兜底关闭所有未定稿 call，
+每条恰好外发一次）；③ 槽位键从只认 `item_id` 改成 `item_id → item.id → output_index 别名表`，
+否则只带 `output_index` 的兼容层会把同一次调用拆成两条（工具执行两遍、参数劈成两半）；
+④ 失败事件补 `response.error` 别名。新增 3 例把这些顺序锁死
+（`outputItemDoneBeforeArgumentsDelta_doesNotFireEmptyCall`、
+`argumentsDeltaKeyedByOutputIndexOnly_staysOneCall`、
+`snapshotOnlyStream_llamaCppShape_stillYieldsCall`）。
+
+踩到的坑值得记：单测里一处手写多层转义的 fixture 少了一个右花括号，而解析器对坏行是
+**静默跳过**的（真流里确实有坏行），于是表现成"某个增量凭空消失"的极难定位假失败。现在
+`ev()` 会先把 JSON 校验一遍、坏了立刻在夹具处炸出来，且那条 fixture 改由 dict + `json.dumps`
+生成并自检。**教训**：宽容的解析器必须配一个不宽容的测试夹具入口。
+
+### 请求侧翻译（#1 第二步的前半）
+
+新增 `ai.service.ResponsesPayloadBuilder`：chat 方言 → Responses 请求体的单向翻译，
+把三处"翻错了不报错但模型看不懂"的差异集中处理 —— 工具调用是独立的 `function_call` item
+（不是 `assistant.tool_calls[]`）、工具结果是独立的 `function_call_output` item
+（**按 `call_id` 配对**，不是 `role:"tool"`）、`tools` 是扁平 `{type,name,description,parameters}`
+（不是 chat 的再套一层 `function`）。`call_id` 缺失时**丢弃该条而不是猜一个**（错配比少一条
+结果更糟）；空白内容不占条目；工具定义坏了退化成"无工具"而非抛异常。
+`ResponsesPayloadBuilderTest` 11 例覆盖条目顺序与配对、扁平化与已是扁平的重复调用、
+畸形输入、顶层字段只在有意义时下发。
+
+### 调用侧接通：`callResponsesStreamWithTools` + `ResponsesToolStreamBridge`
+
+Agent 循环整套建立在 chat 消息形状上，而 Responses 有三处不同：工具调用是独立的
+`function_call` item（不是 `assistant.tool_calls[]`）；工具结果是独立的
+`function_call_output` item，**按 `call_id` 配对**（不是 `role:"tool"` + `tool_call_id`）；
+`tools` 是扁平 `{type,name,description,parameters}`（不再套一层 `function`）。
+翻译集中在新类 `ResponsesPayloadBuilder`（11 例覆盖条目顺序与配对、扁平化与已是扁平的重复
+调用、畸形输入退化、顶层字段只在有意义时下发），**`OnlineAgentEngine` 一行没改**。
+
+调用侧的三个决定：
+
+- 非 200 **回落 chat 工具流**而不是报错：能力位万一开到了并不真支持工具的服务商上，
+  用户遇到的仍是"能用"。
+- 工具调用**整批在流结束后交付**。单条定稿时机彼此不同步，逐条外发会让引擎只执行一部分，
+  参数还可能是半截 JSON。
+- 取消：`ResponsesStreamParser.parse(reader, cancelRequested)` 每处理完一个**有效事件**
+  检查一次（与 chat 路径"每个 SSE chunk 检查一次"同口径），且取消时把未收口的 call
+  整批定稿 —— 否则上层会拿到"参数残缺且永不完成"的调用，引擎既不执行也不跳过。
+
+思考参数在本路径上**刻意不注入**：chat 侧那套按服务商分发（`enable_thinking` /
+`reasoning_effort` / `thinking.type`），Responses 用的是 `reasoning:{effort,summary}`，
+字段与取值域未经确认；与其猜一个把请求发坏，先不带（代码里就地注释了原因）。
+
+### 开关：默认关，改 JSON 即可切
+
+`providers.json` 的 `services.agent` 新增 `toolsProtocol`，由
+`ProviderConfigManager.agentUsesResponsesTools` 读取；判定还要求"用户勾了 Agent"且
+"agent 端点确实是 `/responses`"。**当前所有服务商缺省 chat，行为零变化** —— Responses
+侧的实现与离线回归都在，但各家兼容层的事件顺序与私有字段要逐家在线对拍后才值得放开。
+
+### 开启它还需要的一件事
+
+对目标服务商做一次在线对拍：真实事件顺序、`arguments` 快照与增量的关系、`reasoning`/
+`usage` 字段名，并录一份原始事件流冻成 fixture。之后把该服务商的 `toolsProtocol` 改成
+`responses` 即可启用，不必改代码。此外本批 Android 侧的桥（`ResponsesBridge`、
+`ResponsesToolStreamBridge`）只做到编译与逻辑对齐，`mainHandler.post` 的时序要真机确认。
 
 
 ## [2026-10-17] 密钥存储改造：旧 AES-CBC 固定 IV（主密钥同存）→ Keystore AES-256-GCM

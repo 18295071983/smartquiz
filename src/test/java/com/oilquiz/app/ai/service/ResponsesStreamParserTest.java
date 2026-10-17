@@ -81,7 +81,19 @@ public class ResponsesStreamParserTest {
                         sse.getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8)));
     }
 
+    /**
+     * 组装一条 SSE 事件。
+     *
+     * <p>先校验"这条 JSON 本身合法"再交给解析器：解析器对坏行是<b>故意静默跳过</b>的
+     * （真流里会有心跳/截帧），于是本文件里一处写坏的 fixture 会变成"某个增量凭空消失"
+     * 这种极难定位的假失败（本轮就踩到了）。让夹具自己把关，坏字面量立刻炸在这里。</p>
+     */
     private static String ev(String json) {
+        try {
+            com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+        } catch (RuntimeException malformed) {
+            throw new AssertionError("测试事件不是合法 JSON: " + json, malformed);
+        }
         return "data: " + json + "\n\n";
     }
 
@@ -155,19 +167,14 @@ public class ResponsesStreamParserTest {
 
     @Test
     public void functionCallArguments_aggregatePerItemIdAndFireOnce() throws Exception {
-        String sse = ev("{\"type\":\"response.output_item.added\",\"item_id\":\"item_a\","
-                + "\"item\":{\"id\":\"item_a\",\"type\":\"function_call\",\"call_id\":\"call_1\","
-                + "\"name\":\"get_weather\"}}")
-                + ev("{\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"item_a\","
-                + "\"delta\":\"{\\\"city\\\":\")")
-                + ev("{\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"item_a\","
-                + "\"delta\":\"\\\"北京\\\"}\"}")
-                + ev("{\"type\":\"response.function_call_arguments.done\",\"item_id\":\"item_a\","
-                + "\"arguments\":\"{\\\"city\\\":\\\"北京\\\"}\"}")
-                + ev("{\"type\":\"response.output_item.done\",\"item_id\":\"item_a\","
-                + "\"item\":{\"id\":\"item_a\",\"type\":\"function_call\",\"call_id\":\"call_1\","
-                + "\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"北京\\\"}\"}}")
-                + ev("{\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}");
+        // fixture 由 dict 生成并自检（手写多层转义极易漏掉右花括号，而解析器对坏行静默跳过，
+        // 会让"某个增量凭空消失"变成极难定位的假失败）
+        String sse = ev("{\"type\": \"response.output_item.added\", \"item_id\": \"item_a\", \"item\": {\"id\": \"item_a\", \"type\": \"function_call\", \"call_id\": \"call_1\", \"name\": \"get_weather\"}}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", \"item_id\": \"item_a\", \"delta\": \"{\\\"city\\\":\"}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", \"item_id\": \"item_a\", \"delta\": \"\\\"北京\\\"}\"}")
+                + ev("{\"type\": \"response.function_call_arguments.done\", \"item_id\": \"item_a\", \"arguments\": \"{\\\"city\\\":\\\"北京\\\"}\"}")
+                + ev("{\"type\": \"response.output_item.done\", \"item_id\": \"item_a\", \"item\": {\"id\": \"item_a\", \"type\": \"function_call\", \"call_id\": \"call_1\", \"name\": \"get_weather\", \"arguments\": \"{\\\"city\\\":\\\"北京\\\"}\"}}")
+                + ev("{\"type\": \"response.completed\", \"response\": {\"status\": \"completed\"}}");
 
         RecordingSink sink = new RecordingSink();
         ResponsesStreamParser.Result r = parse(sink, sse);
@@ -212,6 +219,69 @@ public class ResponsesStreamParserTest {
         assertEquals(1, r.functionCalls.size());
         assertEquals("search", r.functionCalls.get(0).name);
         assertEquals("{\"q\":1}", r.functionCalls.get(0).arguments);
+    }
+
+    /**
+     * 服务商先送 {@code output_item.done}、之后才送参数增量。
+     *
+     * <p>来自 ref/…/OpenAIProvider.kt 的同一条实战注释："因此不在 output_item.done 阶段
+     * 关闭工具调用"。若在 done 阶段收口，工具会带着空参数被执行；本用例锁死这个行为。</p>
+     */
+    @Test
+    public void outputItemDoneBeforeArgumentsDelta_doesNotFireEmptyCall() throws Exception {
+        String sse = ev("{\"type\": \"response.output_item.added\", \"item_id\": \"i1\", "
+                + "\"item\": {\"id\": \"i1\", \"type\": \"function_call\", "
+                + "\"call_id\": \"c1\", \"name\": \"lookup\"}}")
+                + ev("{\"type\": \"response.output_item.done\", \"item_id\": \"i1\", "
+                + "\"item\": {\"id\": \"i1\", \"type\": \"function_call\", "
+                + "\"call_id\": \"c1\", \"name\": \"lookup\", \"arguments\": \"\"}}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", "
+                + "\"item_id\": \"i1\", \"delta\": \"{\\\"q\\\": 1}\"}")
+                + ev("{\"type\": \"response.function_call_arguments.done\", "
+                + "\"item_id\": \"i1\", \"arguments\": \"{\\\"q\\\": 1}\"}")
+                + ev("{\"type\": \"response.completed\"}");
+
+        RecordingSink sink = new RecordingSink();
+        ResponsesStreamParser.Result r = parse(sink, sse);
+        assertEquals(1, r.functionCalls.size());
+        assertEquals("增量通道是参数的唯一来源", "{\"q\": 1}", r.functionCalls.get(0).arguments);
+        assertEquals("只在 arguments.done 收口一次", 1, sink.readyCalls.size());
+    }
+
+    /** 只带 {@code output_index}、不带 item_id 的兼容层：不能把同一条 call 拆成两条 */
+    @Test
+    public void argumentsDeltaKeyedByOutputIndexOnly_staysOneCall() throws Exception {
+        String sse = ev("{\"type\": \"response.output_item.added\", \"output_index\": 0, "
+                + "\"item\": {\"id\": \"x0\", \"type\": \"function_call\", "
+                + "\"call_id\": \"c9\", \"name\": \"n\"}}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", "
+                + "\"output_index\": 0, \"delta\": \"{\"}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", "
+                + "\"output_index\": 0, \"delta\": \"}\"}")
+                + ev("{\"type\": \"response.completed\"}");
+        ResponsesStreamParser.Result r = parse(new RecordingSink(), sse);
+        assertEquals(1, r.functionCalls.size());
+        assertEquals("{}", r.functionCalls.get(0).arguments);
+    }
+
+    /**
+     * llama.cpp 的形状：只有 {@code output_item.done} 带完整参数，没有任何 arguments 事件。
+     * 参数取快照、由 completed 收口一次（本项目本地/自建端点会走这条）。
+     */
+    @Test
+    public void snapshotOnlyStream_llamaCppShape_stillYieldsCall() throws Exception {
+        String sse = ev("{\"type\": \"response.output_item.added\", \"item\": "
+                + "{\"id\": \"fc_1\", \"type\": \"function_call\", \"call_id\": \"call_1\", "
+                + "\"name\": \"time_date\", \"arguments\": \"\"}}")
+                + ev("{\"type\": \"response.output_item.done\", \"item\": "
+                + "{\"id\": \"fc_1\", \"type\": \"function_call\", \"call_id\": \"call_1\", "
+                + "\"name\": \"time_date\", \"arguments\": \"{\\\"fmt\\\": \\\"yyyy\\\"}\"}}")
+                + ev("{\"type\": \"response.completed\"}");
+        RecordingSink sink = new RecordingSink();
+        ResponsesStreamParser.Result r = parse(sink, sse);
+        assertEquals(1, r.functionCalls.size());
+        assertEquals("{\"fmt\": \"yyyy\"}", r.functionCalls.get(0).arguments);
+        assertEquals("completed 兜底收口，且只发一次", 1, sink.readyCalls.size());
     }
 
     // ---------- 终态与容错 ----------
@@ -443,6 +513,67 @@ public class ResponsesStreamParserTest {
             delegate.close();
         }
     }
+    // ---------- 取消中断（Agent 的"停止生成"依赖它） ----------
+
+    @Test
+    public void cancelRequested_stopsBetweenEvents_notMidEvent() throws Exception {
+        // 只在事件之间中断：不接这个口子，用户点了停止也要等服务商把整条流推完。
+        // 夹具由 dict 生成并自检（手写多层转义极易产出非法逃逸符）。
+        String sse = ev("{\"type\": \"response.output_text.delta\", \"delta\": \"前段\", \"item_id\": \"msg_0\", \"output_index\": 0}")
+                + ev("{\"type\": \"response.output_text.delta\", \"delta\": \"不该被读到\", \"item_id\": \"msg_0\", \"output_index\": 0}")
+                + ev("{\"type\": \"response.completed\"}");
+        java.util.concurrent.atomic.AtomicInteger checks =
+                new java.util.concurrent.atomic.AtomicInteger();
+        ResponsesStreamParser.Result r = new ResponsesStreamParser(new RecordingSink()).parse(
+                sseReader(sse),
+                () -> checks.incrementAndGet() >= 1);   // 第一个事件处理完就要求停止
+
+        assertTrue("取消状态要让上层可辨", r.cancelled);
+        assertEquals("前段", r.text);
+        assertFalse("取消不等于失败", r.isFailed());
+        assertEquals("每处理完一个事件检查一次，不做无谓轮询", 1, checks.get());
+    }
+
+    @Test
+    public void cancelRequested_finalizesOpenCalls_soToolsAreNeverHalfRead() throws Exception {
+        // 取消时若还有没收口的 function_call，必须整批定稿：否则上层拿到一条"参数残缺且
+        // 永不完成"的调用，引擎既不执行也不跳过。
+        String sse = ev("{\"type\": \"response.output_item.added\", \"item_id\": \"i1\", \"output_index\": 0, \"item\": {\"id\": \"i1\", \"type\": \"function_call\", \"call_id\": \"c1\", \"name\": \"n\", \"arguments\": \"\"}}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", \"item_id\": \"i1\", \"output_index\": 0, \"delta\": \"{\\\"x\\\": 1}\"}")
+                + ev("{\"type\": \"response.output_text.delta\", \"delta\": \"尾巴\"}");
+        java.util.concurrent.atomic.AtomicInteger checks =
+                new java.util.concurrent.atomic.AtomicInteger();
+        RecordingSink sink = new RecordingSink();
+        ResponsesStreamParser.Result r = new ResponsesStreamParser(sink).parse(
+                sseReader(sse),
+                () -> checks.incrementAndGet() >= 2);   // added + arguments 之后停止
+
+        assertEquals(1, r.functionCalls.size());
+        assertTrue("取消时也要收口", r.functionCalls.get(0).argumentsFinalized);
+        assertEquals("{\"x\": 1}",
+                r.functionCalls.get(0).arguments);
+        assertEquals("整批只外发一次", 1, sink.readyCalls.size());
+        assertEquals("取消前没读到正文", "", r.text);
+    }
+
+    @Test
+    public void withoutCancelChecker_behaviorIsUnchanged() throws Exception {
+        // 文本流那条路径就是不传取消检查：默认必须一路读到终态
+        String sse = ev("{\"type\": \"response.output_text.delta\", \"delta\": \"照常\"}")
+                + ev("{\"type\": \"response.completed\"}");
+        ResponsesStreamParser.Result r = new ResponsesStreamParser(new RecordingSink())
+                .parse(sseReader(sse));
+        assertEquals("照常", r.text);
+        assertFalse(r.cancelled);
+    }
+
+    /** SSE 文本 → BufferedReader（三个取消用例共用） */
+    private static BufferedReader sseReader(String sse) {
+        return new BufferedReader(new InputStreamReader(
+                new ByteArrayInputStream(sse.getBytes(StandardCharsets.UTF_8)),
+                StandardCharsets.UTF_8));
+    }
+
     // ---------- 非流式响应体（webSearch 重路由到 /responses 时走这条路） ----------
 
     @Test

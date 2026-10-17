@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,8 +69,17 @@ public final class ResponsesStreamParser {
         /** 与后续 function_call_output 配对用的 call_id（配对靠它，不是数组下标） */
         public String callId;
         public String name;
-        /** 增量拼接出来的 JSON 参数串 */
+        /** 增量拼接出来的 JSON 参数串 —— 唯一可信来源 */
         public String arguments = "";
+        /**
+         * 各 done 事件带来的"完整参数快照"，只用于<b>增量一条都没收到</b>时兜底。
+         *
+         * <p>绝不与 {@link #arguments} 拼接：混拼（快照 + 增量）会产出
+         * {@code {"a":1}{"a":1}} 这种坏 JSON。真实服务商里存在"先送 output_item.done、
+         * 之后才送参数增量"的顺序（ref/…/OpenAIProvider.kt 同一处注释就是这么写的），
+         * 所以增量优先、快照只在最后关头补位。</p>
+         */
+        String snapshotArguments = "";
         /** 参数是否已随 done 事件定稿 */
         public boolean argumentsFinalized;
 
@@ -91,6 +101,8 @@ public final class ResponsesStreamParser {
         public String reasoning = "";
         public final List<FunctionCall> functionCalls = new ArrayList<>();
         public String status = STATUS_ENDED;
+        /** 调用方主动中断（Agent"停止生成"）；此时已产出的内容仍然有效 */
+        public boolean cancelled;
         /** 失败原因（{@link #STATUS_FAILED} 或传输异常时） */
         public String error;
         public int inputTokens;
@@ -121,6 +133,8 @@ public final class ResponsesStreamParser {
     private final Gson gson = new Gson();
     /** 按出现顺序保留，便于多工具时与 UI 展示顺序一致 */
     private final Map<String, FunctionCall> callsByItem = new LinkedHashMap<>();
+    /** output_index → item_id 的别名表，见 {@link #resolveKey} */
+    private final Map<String, String> keyByOutputIndex = new HashMap<>();
     /** SSE 的 {@code event:} 行；部分兼容层不在 data 里带 type，只能靠它 */
     private String lastEventType = "";
     /** 正文兜底：若只收到 output_item.done 的最终 message 而无增量，用它补齐 */
@@ -128,6 +142,7 @@ public final class ResponsesStreamParser {
     private final StringBuilder reasoning = new StringBuilder();
     /** 终态（默认 ended：流自然读完但没有 completed/failed 事件） */
     private String status = Result.STATUS_ENDED;
+    private boolean cancelled;
     private String error;
     private int usageInput;
     private int usageOutput;
@@ -150,7 +165,20 @@ public final class ResponsesStreamParser {
 
     /** 从字节流解析（Responses 流恒为 UTF-8）。 */
     public Result parse(InputStream in) throws IOException {
-        return parse(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)));
+        return parse(in, null);
+    }
+
+    /**
+     * 从字节流解析，并允许调用方在事件之间中断。
+     *
+     * @param cancelRequested 每处理完一个事件检查一次；返回 true 就停止读流。
+     *                        Agent 的"停止生成"依赖它 —— 不接这个口子，用户点了停止也要
+     *                        等服务把整条流推完（chat 路径是每个 SSE chunk 检查一次的）。
+     */
+    public Result parse(InputStream in,
+                        java.util.function.BooleanSupplier cancelRequested) throws IOException {
+        return parse(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)),
+                cancelRequested);
     }
 
     /**
@@ -160,6 +188,12 @@ public final class ResponsesStreamParser {
      *         只有 I/O 问题才抛 {@link IOException}，由调用方决定如何转成错误回调
      */
     public Result parse(BufferedReader reader) throws IOException {
+        return parse(reader, null);
+    }
+
+    /** 同上：允许在事件之间检查取消。 */
+    public Result parse(BufferedReader reader,
+                        java.util.function.BooleanSupplier cancelRequested) throws IOException {
         String line;
         while ((line = reader.readLine()) != null) {
             if (line.isEmpty()) {
@@ -198,6 +232,11 @@ public final class ResponsesStreamParser {
             if (handle(type, json)) {
                 break; // 终态
             }
+            if (cancelRequested != null && cancelRequested.getAsBoolean()) {
+                // 每处理完一个有效事件检查一次：与 chat 路径"每个 SSE chunk 之间检查"同口径
+                cancelled = true;
+                break;
+            }
         }
         return finish();
     }
@@ -235,22 +274,34 @@ public final class ResponsesStreamParser {
             case "response.output_item.added": {
                 JsonObject item = object(json, "item");
                 if (item != null && "function_call".equals(text(item, "type"))) {
-                    openCall(item);
+                    slot(json, item); // 只开槽并取元信息（name/call_id），参数留给 delta 通道
                 }
                 return false;
             }
             case "response.function_call_arguments.delta": {
-                appendArgs(text(json, "item_id"), deltaText(json), false);
+                FunctionCall call = slot(json, null);
+                String delta = deltaText(json);
+                if (!delta.isEmpty() && !call.argumentsFinalized) {
+                    // 增量通道是唯一累加来源
+                    call.arguments = call.arguments + delta;
+                }
                 return false;
             }
             case "response.function_call_arguments.done": {
-                appendArgs(text(json, "item_id"), deltaText(json), true);
+                FunctionCall call = slot(json, null);
+                // 注意字段名：done 事件带的是完整 arguments，而不是 delta
+                adoptSnapshot(call, text(json, "arguments"));
+                close(call); // 这是正规收口点
                 return false;
             }
             case "response.output_item.done": {
                 JsonObject item = object(json, "item");
                 if (item != null && "function_call".equals(text(item, "type"))) {
-                    closeCall(item);
+                    FunctionCall call = slot(json, item);
+                    adoptSnapshot(call, text(item, "arguments"));
+                    // 刻意不在这里收口：有服务商先送 output_item.done、之后才送参数增量
+                    // （ref/…/OpenAIProvider.kt 的同一处注释），收口交给
+                    // function_call_arguments.done 或 response.completed
                 }
                 return false;
             }
@@ -258,10 +309,14 @@ public final class ResponsesStreamParser {
                 JsonObject response = object(json, "response");
                 applyUsage(response);
                 applyTerminalOutput(response);
+                // 兜底收口：没有 arguments.done 的实现（如 llama.cpp 只发 output_item.done）
+                // 也要让每条 call 恰好外发一次
+                closeAllOpenCalls();
                 status = Result.STATUS_COMPLETED;
                 return true;
             }
-            case "response.failed": {
+            case "response.failed":
+            case "response.error": {
                 status = Result.STATUS_FAILED;
                 error = failureReason(object(json, "response"), "generation failed");
                 return true;
@@ -320,7 +375,9 @@ public final class ResponsesStreamParser {
                 JsonObject item = element.getAsJsonObject();
                 String itemType = text(item, "type");
                 if ("function_call".equals(itemType)) {
-                    closeCall(item);
+                    FunctionCall call = slot(null, item);
+                    adoptSnapshot(call, text(item, "arguments"));
+                    close(call);
                 } else if ("message".equals(itemType)) {
                     String joined = joinMessageText(item);
                     if (!joined.isEmpty()) {
@@ -359,6 +416,11 @@ public final class ResponsesStreamParser {
         r.functionCalls.addAll(callsByItem.values());
         r.status = status;
         r.error = error;
+        r.cancelled = cancelled;
+        if (cancelled) {
+            // 取消不算失败也不等终态：把没收口的调用整批定稿，交给上层自行丢弃
+            closeAllOpenCalls();
+        }
         r.inputTokens = usageInput;
         r.outputTokens = usageOutput;
         r.reasoningTokens = usageReasoningTokens;
@@ -415,7 +477,9 @@ public final class ResponsesStreamParser {
             JsonObject item = element.getAsJsonObject();
             String itemType = text(item, "type");
             if ("function_call".equals(itemType)) {
-                closeCall(item);
+                FunctionCall call = slot(null, item);
+                adoptSnapshot(call, text(item, "arguments"));
+                close(call);
             } else if ("message".equals(itemType) && text.length() == 0) {
                 String joined = joinMessageText(item);
                 if (!joined.isEmpty()) {
@@ -442,67 +506,83 @@ public final class ResponsesStreamParser {
 
     // ---------- function_call 聚合 ----------
 
-    private FunctionCall openCall(JsonObject item) {
-        String itemId = firstNonEmpty(text(item, "item_id"), text(item, "id"));
-        if (itemId.isEmpty()) {
-            itemId = "anon-" + callsByItem.size(); // 无 id 时按顺序占位，仍保持配对顺序
-        }
-        FunctionCall call = callsByItem.get(itemId);
+    /**
+     * 取（或建）一条 call 的槽位。
+     *
+     * <p>槽位键按 {@code item_id → item.id → output_index} 依次兜底：OpenAI 与 llama.cpp 都带
+     * {@code item_id}（llama.cpp 形如 {@code fc_<id>}），但参考实现里也遇到过只带
+     * {@code output_index} 的兼容层 —— 只按 item_id 建槽会把同一条 call 拆成两条。</p>
+     */
+    private FunctionCall slot(JsonObject json, JsonObject item) {
+        String key = resolveKey(json, item);
+        FunctionCall call = callsByItem.get(key);
         if (call == null) {
             call = new FunctionCall();
-            call.itemId = itemId;
-            callsByItem.put(itemId, call);
+            call.itemId = key;
+            callsByItem.put(key, call);
         }
-        String callId = text(item, "call_id");
+        JsonObject meta = item != null ? item : json;
+        String callId = text(meta, "call_id");
         if (!callId.isEmpty()) call.callId = callId;
-        String name = text(item, "name");
+        String name = text(meta, "name");
         if (!name.isEmpty()) call.name = name;
-        String args = text(item, "arguments");
-        if (!args.isEmpty()) {
-            call.arguments = args;
-            finalizeCall(call); // added/done 自带完整参数时也算定稿
-        }
         return call;
     }
 
     /**
-     * 定稿一条工具调用，并且<b>只外发一次</b>。
+     * 一条 call 的槽位键：{@code item_id → item.id →（经 output_index 别名映射的）item_id}。
      *
-     * <p>为什么关键：{@code function_call_arguments.done} 之后紧跟的
-     * {@code output_item.done} 描述的是同一个 call，若两处都外发，第 2 步接入 Agent 循环后
-     * 同一个工具会被执行两次（本项目的工具执行是真实副作用，重复执行不可接受）。</p>
+     * <p>为什么要维护别名表：OpenAI 的 {@code arguments.delta} 同时带 {@code item_id} 与
+     * {@code output_index}，但实战中存在只带 {@code output_index} 的兼容层（参考实现
+     * ref/…/OpenAIProvider.kt 就是整条按 output_index 归槽的），llama.cpp 则反过来只带
+     * {@code item_id}。若只按其中一个建槽，同一次调用会被拆成两条 —— 工具就会执行两次、
+     * 参数也被劈成两半。所以第一次同时看到两者时记下 "output_index → item_id"，之后
+     * 只有 output_index 的事件也能并回同一条 call。</p>
      */
-    private void finalizeCall(FunctionCall call) {
+    private String resolveKey(JsonObject json, JsonObject item) {
+        String id = firstNonEmpty(text(json, "item_id"),
+                firstNonEmpty(text(item, "item_id"), text(item, "id")));
+        String index = indexValue(json, item);
+        if (!id.isEmpty() && !index.isEmpty()) {
+            keyByOutputIndex.put(index, id);
+        }
+        if (!id.isEmpty()) {
+            return id;
+        }
+        if (!index.isEmpty()) {
+            String mapped = keyByOutputIndex.get(index);
+            return mapped != null ? mapped : "idx:" + index;
+        }
+        return "anon-" + callsByItem.size();
+    }
+
+    /** 取 {@code output_index}（数字或字符串形态都见过） */
+    private static String indexValue(JsonObject json, JsonObject item) {
+        String fromJson = primitiveText(json, "output_index");
+        return !fromJson.isEmpty() ? fromJson : primitiveText(item, "output_index");
+    }
+    /** 记下 done 事件带来的完整参数快照（兜底用，见 {@link FunctionCall#snapshotArguments}） */
+    private void adoptSnapshot(FunctionCall call, String snapshot) {
+        if (snapshot != null && !snapshot.isEmpty()) {
+            call.snapshotArguments = snapshot;
+        }
+    }
+
+    /** 定稿一条 call，并且只外发一次（重复外发会让有真实副作用的工具被执行两遍） */
+    private void close(FunctionCall call) {
         if (call.argumentsFinalized) return;
+        if ((call.arguments == null || call.arguments.isEmpty())
+                && !call.snapshotArguments.isEmpty()) {
+            call.arguments = call.snapshotArguments;
+        }
         call.argumentsFinalized = true;
         sink.onFunctionCallReady(call);
     }
 
-    private void appendArgs(String itemId, String delta, boolean finalized) {
-        if (itemId == null) itemId = "";
-        FunctionCall call = callsByItem.get(itemId);
-        if (call == null) {
-            // 没有 added 事件也必须能收：兼容层可能直接给 delta/done
-            call = new FunctionCall();
-            call.itemId = itemId.isEmpty() ? "anon-" + callsByItem.size() : itemId;
-            callsByItem.put(call.itemId, call);
+    private void closeAllOpenCalls() {
+        for (FunctionCall call : callsByItem.values()) {
+            close(call);
         }
-        if (delta != null && !delta.isEmpty()) {
-            // 已定稿还来增量 = 事件序列异常（兼容层乱序）：追加但不重复外发，交由调用方按终值取用
-            call.arguments = call.arguments + delta;
-        }
-        if (finalized) {
-            finalizeCall(call);
-        }
-    }
-
-    private void closeCall(JsonObject item) {
-        FunctionCall call = openCall(item);
-        String args = text(item, "arguments");
-        if (!args.isEmpty()) {
-            call.arguments = args;
-        }
-        finalizeCall(call);
     }
 
     // ---------- JSON 取值小工具（一律容忍 null / 缺字段 / 类型不符） ----------
@@ -527,6 +607,18 @@ public final class ResponsesStreamParser {
         if (json == null) return null;
         JsonElement e = json.get(key);
         return e != null && e.isJsonObject() ? e.getAsJsonObject() : null;
+    }
+
+    /** 只接受标量字段（对象/数组一律当缺省），避免 getAsString 抛异常 */
+    private static String primitiveText(JsonObject json, String key) {
+        if (json == null) return "";
+        JsonElement e = json.get(key);
+        if (e == null || e.isJsonNull() || !e.isJsonPrimitive()) return "";
+        try {
+            return e.getAsString();
+        } catch (RuntimeException ex) {
+            return "";
+        }
     }
 
     private static String text(JsonObject json, String key) {
