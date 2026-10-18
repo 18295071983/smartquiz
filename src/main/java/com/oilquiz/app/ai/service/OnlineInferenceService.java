@@ -1774,6 +1774,11 @@ public class OnlineInferenceService {
             });
             return bridge.text.toString();
         }
+        if (result.hasFunctionCalls()) {
+            // 本路径不带 tools，正常不该收到调用；收到说明服务商自作主张，留条线索
+            AILogger.w(TAG, "Responses 文本流收到 " + result.functionCalls.size()
+                    + " 条 function_call，但本路径未声明 tools，已忽略");
+        }
         if (ResponsesStreamParser.Result.STATUS_INCOMPLETE.equals(result.status)) {
             AILogger.w(TAG, "Responses 流被截断（incomplete）："
                     + (result.error == null ? "" : result.error) + "，按已产出内容收尾");
@@ -3387,7 +3392,7 @@ public class OnlineInferenceService {
                 } else if (shouldRouteToolsViaResponses(config, apiUrl)) {
                     // 只有能力位显式开启的服务商才走 /responses 工具流；其余仍是已验证的 chat 路径
                     callResponsesStreamWithTools(apiUrl, apiKey, modelName,
-                        messages, maxTokens, toolsJson, callback);
+                        messages, maxTokens, toolsJson, enableThinking, callback);
                 } else {
                     callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName,
                         messages, maxTokens, toolsJson, enableThinking, callback);
@@ -3435,7 +3440,7 @@ public class OnlineInferenceService {
      */
     private void callResponsesStreamWithTools(String apiUrl, String apiKey, String modelName,
                                               JsonArray messages, int maxTokens,
-                                              String toolsJson,
+                                              String toolsJson, boolean enableThinking,
                                               NativeToolStreamCallback callback) throws Exception {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
@@ -3475,9 +3480,9 @@ public class OnlineInferenceService {
             if (responseCode != 200) {
                 String errorBody = readErrorStream(connection);
                 AILogger.w(TAG, "Responses 工具流失败: HTTP " + responseCode + ": " + errorBody);
-                AILogger.i(TAG, "回落 chat/completions 工具流");
+                AILogger.i(TAG, "回落 chat/completions 工具流（保留思考开关，行为与直接走 chat 一致）");
                 callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages, maxTokens,
-                        toolsJson, false, callback);
+                        toolsJson, enableThinking, callback);
                 return;
             }
 
@@ -3555,21 +3560,45 @@ public class OnlineInferenceService {
             }
             final java.util.List<ToolCallInfo> toolCalls = new java.util.ArrayList<>();
             for (ResponsesStreamParser.FunctionCall call : result.functionCalls) {
+                // 与 chat 路径同规则过滤无效调用：没有 name 的调用无从执行，留着只会让引擎空转
+                if (call.name == null || call.name.isEmpty()) continue;
                 ToolCallInfo info = new ToolCallInfo();
-                info.id = call.callId;
+                // call_id 是 assistant.function_call 与 function_call_output 之间唯一的配对凭据
+                info.id = call.callId != null && !call.callId.isEmpty()
+                        ? call.callId : call.itemId;
                 info.name = call.name;
-                info.arguments = call.arguments == null
+                info.arguments = call.arguments == null || call.arguments.isEmpty()
                         ? ResponsesPayloadBuilder.EMPTY_ARGUMENTS : call.arguments;
                 toolCalls.add(info);
             }
-            final String content = result.text;
-            final String reasoning = result.reasoning;
-            if (toolCalls.isEmpty()) {
-                mainHandler.post(() -> callback.onComplete(content, reasoning, null, "stop"));
-                return;
+            String content = result.text;
+            String cleaned = content == null ? null
+                    : com.oilquiz.app.ai.agent.ToolResultInterpreter.cleanModelOutput(content);
+            if (cleaned != null) {
+                content = cleaned;
+            } else if (content != null) {
+                content = com.oilquiz.app.ai.agent.ToolResultInterpreter.sanitize(content);
             }
-            mainHandler.post(() -> callback.onToolCallsReady(toolCalls));
-            mainHandler.post(() -> callback.onComplete(content, reasoning, toolCalls, "tool_calls"));
+            final String fc = content;
+            final String rc = result.reasoning;
+            // 收尾语义与 chat 一致：有调用就是 tool_calls；被截断是 length；其余 stop
+            final String finishReason;
+            if (!toolCalls.isEmpty()) {
+                finishReason = "tool_calls";
+            } else if (ResponsesStreamParser.Result.STATUS_INCOMPLETE.equals(result.status)) {
+                finishReason = "length";
+            } else {
+                finishReason = "stop";
+            }
+            AILogger.i(TAG, "Responses 工具流完成: content_len="
+                    + (fc == null ? 0 : fc.length()) + " reasoning_len="
+                    + (rc == null ? 0 : rc.length()) + " tool_calls=" + toolCalls.size()
+                    + " status=" + result.status + (result.cancelled ? " cancelled" : ""));
+            if (!toolCalls.isEmpty()) {
+                mainHandler.post(() -> callback.onToolCallsReady(toolCalls));
+            }
+            mainHandler.post(() -> callback.onComplete(fc, rc,
+                    toolCalls.isEmpty() ? null : toolCalls, finishReason));
         }
     }
 
