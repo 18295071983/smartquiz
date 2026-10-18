@@ -53,11 +53,20 @@ public class OnlineAgentEngine {
     private static final int MAX_ITERATIONS = 50;
     /** 接管模式最大迭代轮数（信任模型自主控制，上限仅作安全兜底防死循环） */
     private static final int MAX_ITERATIONS_TAKEOVER = 100;
-    private static final int MAX_TOKENS = 16384;
-    /** 工具调用轮的输出上限：工具轮只需简短 tool_call（通常 <1K），
-     *  设小上限避免大 max_tokens 被中转站预扣额度/防工具轮跑飞长文；
-     *  最终答案轮仍用 MAX_TOKENS（16384）不受限。 */
-    private static final int TOOL_ITERATION_MAX_TOKENS = 8192;
+    /**
+     * 在线 Agent 的输出长度策略（2026-10-18）：**引擎侧不再设上限**。
+     *
+     * <p>原先这里有两道 app 自己的闸门：最终答案轮 16384、工具轮再收到 8192。它们与模型真实能力
+     * 无关，纯粹是硬编码，于是长回答/大工具参数会被 {@code finish_reason=length} 斩断
+     * （工具轮斩断即整批 tool_calls 丢弃重来，白烧一轮）。现在统一传
+     * {@link OnlineInferenceService#NO_OUTPUT_CAP}，由服务层按服务商声明的该模型
+     * {@code max_output_tokens} 下发；未声明时才退回默认档。</p>
+     *
+     * <p>仍保留的"截断处理"只针对**服务商侧**截断（finish_reason=length）：正文补截断说明、
+     * 工具参数丢弃重试 —— 那是兜底，不是本地限制。</p>
+     */
+    private static final int AGENT_OUTPUT_CAP = OnlineInferenceService.NO_OUTPUT_CAP;
+
     /** 消息历史最大保留条数（超出则从前面截断，保留 system + 最近消息） */
     private static final int MAX_HISTORY_MESSAGES = 30;
     /** 历史摘要消息最大长度（字符），超出只保留最新部分，防止摘要本身撑爆上下文 */
@@ -312,6 +321,8 @@ public class OnlineAgentEngine {
     /**
      * 执行 Agent 任务。
      *
+     * @param maxTokens 已废弃的输出长度参数：在线链路不再由调用方限长（见 {@link #AGENT_OUTPUT_CAP}），
+     *                  传入值一律忽略，保留形参只为与本地 Agent 的调用点对齐
      * @param autoContinue 是否为引擎内部「目标自动续行」（true 时不重置续行计数/间隔，
      *                     且该轮消息为系统注入的【继续任务】提示词，非用户输入）
      */
@@ -364,11 +375,10 @@ public class OnlineAgentEngine {
         inferenceStartTime = System.currentTimeMillis();
         startDebugRun();
 
-        // 在线模型每轮输出上限：用宽松值（16384），不被外部保守配置（4096 是给本地模型的）截断。
-        // 在线 API 通常支持大 max_tokens（模型自己决定实际输出），App 不设紧限制。
-        // max_tokens 只是上限（按实际生成计费），最终答案轮用大值防截断；
-        // 工具调用轮只需简短 tool_call，streamOneIteration 内用小上限（见 TOOL_ITERATION_MAX_TOKENS）。
-        int effectiveMaxTokens = Math.max(maxTokens > 0 ? maxTokens : 0, MAX_TOKENS);
+        // 每轮（工具轮与最终答案轮）都用同一个"不限输出"策略：外部传进来的保守 maxTokens
+        //（4096 那类是给本地模型的配置）与工具轮原先的 8192 降档，都会把在线模型的输出
+        // 在模型还有话说时斩断，这里一并去掉；额度由服务层按模型声明容量下发。
+        int effectiveMaxTokens = AGENT_OUTPUT_CAP;
 
         executor.submit(() -> {
             try {
@@ -1194,10 +1204,8 @@ public class OnlineAgentEngine {
                     + " thinking=" + enableThinking);
         } catch (Exception ignored) {}
 
-        // 工具轮用小上限（只需简短 tool_call）；最终答案轮（toolsJson=null）保持传入的大值防截断
-        int iterMaxTokens = toolsJson != null
-                ? Math.min(maxTokens, TOOL_ITERATION_MAX_TOKENS)
-                : maxTokens;
+        // 工具轮与最终答案轮同额度（原先工具轮降到 8192，长参数/长思考会被斩断后整批丢弃重试）
+        int iterMaxTokens = maxTokens;
 
         // idle 超时计时：任何 token（思考/正文）到达都刷新，防止慢模型生成长答案被误判超时
         final java.util.concurrent.atomic.AtomicLong streamLastActivity =

@@ -59,6 +59,18 @@ public class OnlineInferenceService {
     private static final int DEFAULT_THINKING_BUDGET = 4096;
     private static final int DEFAULT_MAX_TOKENS = 16384;
     /**
+     * 哨兵值：调用方**主动不设输出长度上限**（在线 Agent 使用）。
+     *
+     * <p>解析规则见 {@link #resolveMaxTokensForThinking}：优先用服务商在 {@code GET /models}
+     * 声明的该模型最大输出 token（{@code max_output_tokens}），即"把模型的额度全部给模型"；
+     * 未声明时退到既有默认档（非思考 16K、思考 64K/128K）——<b>不能改成"干脆不下发"</b>，
+     * 因为多家服务商的省略默认值比 16K 更小（DeepSeek 非思考默认 8K），省略反而更容易被截断，
+     * 且 Anthropic 的 {@code max_tokens} 是必填字段。</p>
+     *
+     * <p>与"未指定"（{@code <=0} 走默认值）区分开，避免影响其余按旧约定调用 {@code 0} 的路径。</p>
+     */
+    public static final int NO_OUTPUT_CAP = -1;
+    /**
      * 思考模式输出上限（DeepSeek 官方默认）：思考模式 64K；{@code reasoning_effort=max} 时 128K。
      * 见 {@link #resolveMaxTokensForThinking}。
      */
@@ -1570,7 +1582,7 @@ public class OnlineInferenceService {
             input.add(user);
             body.add("input", input);
 
-            body.addProperty("max_output_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            body.addProperty("max_output_tokens", resolveOutputCap(apiUrl, maxTokens, modelName, false));
             body.addProperty("temperature", DEFAULT_TEMPERATURE);
             // 网络搜索：Responses API 也支持 web_search 工具（OpenAI 托管工具 web_search_preview）；
             // 自有工具已接管时跳过官方注入
@@ -2097,6 +2109,22 @@ public class OnlineInferenceService {
     }
 
     /**
+     * 输出上限解析的统一口径（非思考联动路径）。
+     *
+     * <p>只有显式传 {@link #NO_OUTPUT_CAP} 的调用方（在线 Agent）才走"按模型声明容量放宽"；
+     * 其余调用方保持原语义（{@code <=0} 用默认档），避免这次改动把普通对话的请求体也改掉。</p>
+     *
+     * <p>{@code apiUrl} 必传：声明容量取自"该端点保存时缓存的模型列表"，
+     * {@code OnlineModelManager.findConfig(null, …)} 直接返回 null，端点缺失就等于读不到上限。</p>
+     */
+    private int resolveOutputCap(String apiUrl, int maxTokens, String modelName, boolean enableThinking) {
+        if (maxTokens != NO_OUTPUT_CAP) {
+            return maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
+        }
+        return resolveMaxTokensForThinking(apiUrl, maxTokens, modelName, enableThinking);
+    }
+
+    /**
      * 思考模式输出上限联动（DeepSeek 官方语义）。
      *
      * <p>官方文档（api-docs.deepseek.com/zh-cn/api/create-chat-completion）："未设置时，
@@ -2105,39 +2133,79 @@ public class OnlineInferenceService {
      * 若照旧下发就把服务端 64K/128K 的能力压掉了 —— 表现为"选了最高档也拿不到更长输出"。</p>
      *
      * <p>因此：思考开启且模型支持思考时，输出上限取
-     * <b>max(配置值, 档位对应上限)</b>；{@code max} 档取 128K，其余档取 64K。
+     * <b>max(配置值, min(档位对应上限, 服务端声明容量))</b>；{@code max} 档取 128K，其余档取 64K。
      * 关闭思考或模型不支持时按原值（不受影响）。</p>
      *
-     * @param maxTokens 调用方给定的上限（{@code <=0} 时用默认值）
+     * <p><b>取小只约束"我们自己放大的那部分"</b>：调用方显式给的数值不会被压低
+     * （这次改动的目标是去掉截断，不能再顺手添一道新上限），但我们把档位抬到 64K/128K 时
+     * 不会越过服务商声明的容量去要一个必然被拒/被裁的值。</p>
+     *
+     * <p>本方法只负责取上下文数据（端点缓存的声明容量、思考档位），
+     * 具体取大取小规则在 {@link #computeOutputCap}（有单测钉住）。</p>
+     *
+     * @param maxTokens 调用方给定的上限（{@code <=0} 时用默认值；
+     *                  {@link #NO_OUTPUT_CAP} 表示"app 不设上限"→ 取服务商声明的该模型
+     *                  最大输出 token，未声明时退回默认档，避免用小默认值反向造成更短的输出）
+     * @param apiUrl 端点地址，用于定位该端点缓存的模型列表（声明容量只存在于此，传 null 读不到）
      */
-    private int resolveMaxTokensForThinking(int maxTokens, String modelName, boolean enableThinking) {
-        int base = maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
+    private int resolveMaxTokensForThinking(String apiUrl, int maxTokens, String modelName,
+                                            boolean enableThinking) {
         try {
-            // 服务端声明的允许上限（GET /models 的 max_output_tokens）：作为硬上限参与取小，
-            // 防止我们算出的值超出服务端允许范围。未声明(0)则不约束。
+            // 服务端声明的允许上限（GET /models 的 max_output_tokens），未声明(0)则不约束。
             int apiMax = 0;
             try {
                 String cachedJson = com.oilquiz.app.ai.model.OnlineModelManager.getInstance(context)
-                        .getCachedModelsFor(null, modelName);
+                        .getCachedModelsFor(apiUrl, modelName);
                 apiMax = com.oilquiz.app.ai.model.OnlineModelManager
                         .parseMaxOutputTokens(cachedJson, modelName);
             } catch (Throwable ignored) {
             }
 
-            if (!enableThinking || !OnlineModelManager.isThinkingModelName(modelName)) {
-                return apiMax > 0 ? Math.min(base, apiMax) : base;
+            int thinkingCeiling = 0; // 0 = 本轮不做思考放大
+            if (enableThinking && OnlineModelManager.isThinkingModelName(modelName)) {
+                boolean maxEffort = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(context)
+                        .getThinkingEffort() == com.oilquiz.app.ai.chat.ChatModeManager.ThinkingEffort.MAX;
+                // 档位对应上限：官方文档"未设置时思考模式默认 64K，reasoning_effort=max 时 128K"
+                thinkingCeiling = maxEffort ? THINKING_MAX_TOKENS_MAX_EFFORT : THINKING_MAX_TOKENS;
             }
-            boolean maxEffort = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(context)
-                    .getThinkingEffort() == com.oilquiz.app.ai.chat.ChatModeManager.ThinkingEffort.MAX;
-            // 档位对应上限：官方文档"未设置时思考模式默认 64K，reasoning_effort=max 时 128K"
-            int ceiling = maxEffort ? THINKING_MAX_TOKENS_MAX_EFFORT : THINKING_MAX_TOKENS;
-            int resolved = Math.max(base, ceiling);
-            // min(档位对应值, 服务端上限) —— 两个都用，防御越界
-            if (apiMax > 0) resolved = Math.min(resolved, apiMax);
-            return resolved;
+            return computeOutputCap(maxTokens, apiMax, DEFAULT_MAX_TOKENS, thinkingCeiling);
         } catch (Throwable t) {
+            return computeOutputCap(maxTokens, 0, DEFAULT_MAX_TOKENS, 0);
+        }
+    }
+
+    /**
+     * 输出上限的纯计算规则（不碰 Android 依赖，便于单测钉住口径）。
+     *
+     * <p>三种请求语义分开处理，避免"去掉截断"顺手添出一道新上限、也避免凭空要一个会被拒的大值：</p>
+     * <ul>
+     *   <li>{@link #NO_OUTPUT_CAP}（在线 Agent）：把服务商声明的 {@code declaredMax} 全部让给模型；
+     *       未声明时不猜"省略即无限"（多家默认值比 16K 更小），退 {@code defaultCap}。</li>
+     *   <li>调用方显式正数：原样保留，<b>永不被压低</b>。</li>
+     *   <li>{@code <=0} 未指定：用 {@code defaultCap}，但不越过声明容量（这是原有防御意图，
+     *       只是此前端点没传对、声明容量一直读不到而形同虚设）。</li>
+     * </ul>
+     *
+     * <p>{@code thinkingCeiling > 0} 时再叠加思考模式放大：放大那段收到声明容量以内，
+     * 结果不会低于上面得到的 base。</p>
+     *
+     * @param defaultCap 未指定时的兜底档（{@code <=0} 时内部再退 8192）
+     */
+    static int computeOutputCap(int requested, int declaredMax, int defaultCap, int thinkingCeiling) {
+        int safeDefault = defaultCap > 0 ? defaultCap : 8192;
+        int base;
+        if (requested == NO_OUTPUT_CAP) {
+            base = declaredMax > 0 ? declaredMax : safeDefault;
+        } else if (requested > 0) {
+            base = requested;
+        } else {
+            base = declaredMax > 0 ? Math.min(safeDefault, declaredMax) : safeDefault;
+        }
+        if (thinkingCeiling <= 0) {
             return base;
         }
+        int lifted = declaredMax > 0 ? Math.min(thinkingCeiling, declaredMax) : thinkingCeiling;
+        return Math.max(base, lifted);
     }
 
     /**
@@ -2487,10 +2555,13 @@ public class OnlineInferenceService {
             messages.add(userMessage);
             
             requestBody.add("messages", messages);
-            // 思考联动：思考模式下放宽输出上限（DeepSeek 思考默认 64K / max 档 128K），
-            // 否则 app 的 16K 默认会把服务端能力压掉
-            requestBody.addProperty("max_tokens",
-                    resolveMaxTokensForThinking(maxTokens, modelName, enableThinking));
+            // 输出上限：Agent 传 NO_OUTPUT_CAP（引擎侧已不再硬编码 16K/8K），这里解析为
+            // 模型声明容量；思考模式再按档位放宽（DeepSeek 64K / max 档 128K）。
+            int outputCap = resolveMaxTokensForThinking(apiUrl, maxTokens, modelName, enableThinking);
+            requestBody.addProperty("max_tokens", outputCap);
+            AILogger.i(TAG, "在线请求输出上限: max_tokens=" + outputCap + " (请求语义="
+                    + (maxTokens == NO_OUTPUT_CAP ? "不限，按模型声明容量" : maxTokens)
+                    + ", 思考=" + enableThinking + ")");
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
 
             // 深度思考：模型支持时按参数名规范传 thinking 开关（与多模态路径共用同一注入逻辑）
@@ -2742,7 +2813,9 @@ public class OnlineInferenceService {
             messages.add(userMessage);
             
             requestBody.add("messages", messages);
-            requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            // Anthropic 的 max_tokens 是必填字段，不能省略；Agent 传 NO_OUTPUT_CAP 时
+            // 按该模型声明的最大输出下发（未声明退默认档），不再用 app 的 16K 卡住回答。
+            requestBody.addProperty("max_tokens", resolveOutputCap(apiUrl, maxTokens, modelName, false));
             
             if (stream) {
                 requestBody.addProperty("stream", true);
@@ -3511,8 +3584,11 @@ public class OnlineInferenceService {
                 reasoningEffort = effort;
             }
         }
+        // 与 chat 工具流同一条输出上限口径：此前这里固定下发 16K（且没有思考联动），
+        // 于是放量到 /responses 的 DeepSeek 在 Agent 上反而被压得更短。
         JsonObject body = ResponsesPayloadBuilder.build(modelName, messages, toolsJson,
-                maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, true,
+                resolveMaxTokensForThinking(apiUrl, maxTokens, modelName, enableThinking),
+                DEFAULT_TEMPERATURE, true,
                 reasoningEffort);
 
         URL url = new URL(fullUrl);
@@ -3720,10 +3796,13 @@ public class OnlineInferenceService {
             JsonObject requestBody = new JsonObject();
             requestBody.addProperty("model", modelName);
             requestBody.add("messages", messages);
-            // 思考联动：思考模式下放宽输出上限（DeepSeek 思考默认 64K / max 档 128K），
-            // 否则 app 的 16K 默认会把服务端能力压掉
-            requestBody.addProperty("max_tokens",
-                    resolveMaxTokensForThinking(maxTokens, modelName, enableThinking));
+            // 输出上限：Agent 传 NO_OUTPUT_CAP（引擎侧已不再硬编码 16K/8K），这里解析为
+            // 模型声明容量；思考模式再按档位放宽（DeepSeek 64K / max 档 128K）。
+            int outputCap = resolveMaxTokensForThinking(apiUrl, maxTokens, modelName, enableThinking);
+            requestBody.addProperty("max_tokens", outputCap);
+            AILogger.i(TAG, "在线请求输出上限: max_tokens=" + outputCap + " (请求语义="
+                    + (maxTokens == NO_OUTPUT_CAP ? "不限，按模型声明容量" : maxTokens)
+                    + ", 思考=" + enableThinking + ")");
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             requestBody.addProperty("stream", true);
             // 深度思考：按模型名选择 thinking 参数。
@@ -3794,6 +3873,16 @@ public class OnlineInferenceService {
                     callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages, maxTokens, null, enableThinking, callback);
                     return;
                 }
+                // 输出上限放宽后，部分自托管/vLLM 网关会校验 prompt+max_tokens ≤ 上下文长度并直接 400
+                //（OpenAI/DeepSeek 官方是静默按剩余空间生成，不报错）。这类错误只收回一档重试一次，
+                // 避免"为了不限长度"把请求打成硬失败；其余错误仍按原样上报。
+                if (responseCode == 400 && maxTokens != DEFAULT_MAX_TOKENS && isOutputCapError(errorBody)) {
+                    AILogger.w(TAG, "max_tokens 被服务端判为过大 (400)，收回至 "
+                            + DEFAULT_MAX_TOKENS + " 重试一次");
+                    callOpenAIStreamWithToolsV2(apiUrl, apiKey, modelName, messages,
+                            DEFAULT_MAX_TOKENS, toolsJson, enableThinking, callback);
+                    return;
+                }
                 // thinking 参数导致 400（部分服务商不支持）：去掉 thinking 重试。
                 // 注意：重试时必须同时剥离 assistant 消息里的 reasoning_content 字段
                 //（DeepSeek 思考模式硬性要求：思考请求中所有 assistant 消息都要带该字段；
@@ -3832,6 +3921,22 @@ public class OnlineInferenceService {
             || lower.contains("thinking")
             || lower.contains("chat_template_kwargs")
             || lower.contains("unrecognized");
+    }
+
+    /**
+     * 判断 400 是否由输出长度参数（{@code max_tokens}）与上下文长度冲突引起。
+     *
+     * <p>只在"参数过大"这类明确措辞上成立；鉴权/限流/工具不支持等错误不匹配，
+     * 避免把真实故障掩盖成一次无谓的重试。</p>
+     */
+    private boolean isOutputCapError(String errorBody) {
+        if (errorBody == null) return false;
+        String lower = errorBody.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("max_tokens")
+            || lower.contains("max_output_tokens")
+            || lower.contains("maximum context length")
+            || lower.contains("context length exceeded")
+            || (lower.contains("context") && lower.contains("too long"));
     }
 
     /**
@@ -3995,7 +4100,7 @@ public class OnlineInferenceService {
             messages.add(userMessage);
 
             requestBody.add("messages", messages);
-            requestBody.addProperty("max_tokens", maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS);
+            requestBody.addProperty("max_tokens", resolveOutputCap(apiUrl, maxTokens, modelName, false));
             requestBody.addProperty("temperature", DEFAULT_TEMPERATURE);
             requestBody.addProperty("stream", true);
 
