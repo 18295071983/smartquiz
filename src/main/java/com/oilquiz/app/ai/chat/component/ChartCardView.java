@@ -106,8 +106,48 @@ public class ChartCardView implements ChatComponent {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 "pie".equals(chartType) ? ComponentTheme.dp(context, 190)
                         : ComponentTheme.dp(context, 170));
-        shell.addBody(chartView);
+        shell.addBody(chartView, lp);
+        // 图表读不出数（分类多、色弱、TalkBack）时的降级入口：同一份数据渲染成表格
+        shell.addAction(context.getString(R.string.component_chart_data_table), false,
+                () -> showChartDataDialog(context, cats, seriesList,
+                        chartTypeLabel(context, chartType)));
         return shell;
+    }
+
+    /**
+     * 「查看数据表」：把 series/categories 交给 table_card 渲染后弹窗展示。
+     * 复用现成组件而不是另写一套表格，保证与聊天流里的表格卡同一口径。
+     */
+    private static void showChartDataDialog(Context context, List<String> cats,
+                                            List<Series> seriesList, String chartLabel) {
+        try {
+            org.json.JSONArray headers = new org.json.JSONArray();
+            headers.put(cats.isEmpty() ? "项" : "分类");
+            for (Series s : seriesList) headers.put(s.name);
+            int rows = Math.max(cats.size(), 1);
+            for (Series s : seriesList) rows = Math.max(rows, s.values.size());
+            org.json.JSONArray rowsArr = new org.json.JSONArray();
+            for (int i = 0; i < rows; i++) {
+                org.json.JSONArray row = new org.json.JSONArray();
+                row.put(i < cats.size() ? cats.get(i) : "第 " + (i + 1) + " 项");
+                for (Series s : seriesList) {
+                    row.put(i < s.values.size() ? String.valueOf(s.values.get(i)) : "");
+                }
+                rowsArr.put(row);
+            }
+            JSONObject props = new JSONObject();
+            props.put("headers", headers);
+            props.put("rows", rowsArr);
+            View table = ComponentRegistry.getInstance().render(context,
+                    new ComponentData("table_card", props));
+            androidx.appcompat.app.AlertDialog.Builder b =
+                    new androidx.appcompat.app.AlertDialog.Builder(context)
+                            .setTitle(context.getString(R.string.component_chart_data_title, chartLabel));
+            if (table != null) b.setView(table);
+            b.setNegativeButton(R.string.close, null).show();
+        } catch (Throwable t) {
+            android.util.Log.w("ChartCardView", "数据表弹窗失败: " + t.getMessage());
+        }
     }
 
     /** 图表类型中文标签（TalkBack 与 meta 共用） */

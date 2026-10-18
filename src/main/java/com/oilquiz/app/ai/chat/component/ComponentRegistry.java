@@ -90,6 +90,23 @@ public class ComponentRegistry {
         }
         // Layout 树卡片：ui_component 传 layout 控件树时渲染为聊天流卡片
         register(new LayoutCardView());
+
+        // ---------- canonical 归一（B1-2）----------
+        // canonical 名字指向"原生卡片"实现：table/steps/alert/stat… 这些名字此前被
+        // Layout 原语占着，模型选它拿到的是另一套长相；现在原生赢下名字，
+        // 原语仍可通过 primitive_<名字> 访问（下面同时登记这个逃生口）。
+        for (String primitive : LayoutPrimitiveCardView.BRIDGED_TYPES) {
+            ChatComponent p = components.get(primitive);
+            if (p instanceof LayoutPrimitiveCardView) {
+                components.put("primitive_" + primitive, p);
+            }
+        }
+        for (Map.Entry<String, String> e : ComponentTypes.CANONICAL_TARGET.entrySet()) {
+            ChatComponent impl = components.get(e.getValue());
+            if (impl != null) {
+                components.put(e.getKey(), impl);
+            }
+        }
     }
 
     /**
@@ -103,9 +120,20 @@ public class ComponentRegistry {
         Log.i(TAG, "registered component: " + component.getType());
     }
 
-    /** 是否注册了指定类型组件 */
+    /** 是否注册了指定类型组件（旧名/别名按 canonical 解析后再判断） */
     public boolean hasType(String type) {
-        return type != null && components.containsKey(type);
+        if (type == null) return false;
+        return components.containsKey(type)
+                || components.containsKey(ComponentTypes.resolve(type));
+    }
+
+    /**
+     * 取某类型当前绑定的渲染器（不做兜底）：目录展示、单测与"这名字到底谁来画"的排查用。
+     */
+    public ChatComponent componentFor(String type) {
+        if (type == null) return null;
+        ChatComponent byCanonical = components.get(ComponentTypes.resolve(type));
+        return byCanonical != null ? byCanonical : components.get(type);
     }
 
     /**
@@ -126,7 +154,9 @@ public class ComponentRegistry {
      */
     public View render(Context context, ComponentData data) {
         if (data == null || data.type == null) return null;
-        ChatComponent component = components.get(data.type);
+        // canonical 优先（table_card/steps_card 等旧名与重复名归一到同一实现），再退回原名
+        ChatComponent component = components.get(ComponentTypes.resolve(data.type));
+        if (component == null) component = components.get(data.type);
         if (component == null) {
             Log.i(TAG, "unregistered type, using dynamic fallback: " + data.type);
             component = dynamicFallback;
@@ -201,10 +231,10 @@ public class ComponentRegistry {
         return null;
     }
 
-    /** 自身已渲染 actions 按钮的类型（避免外层重复附加）：
-     *  alert_card/contact_card 内部自带 actions 渲染。 */
+    /** 自身已渲染 actions 的类型（避免外层重复附加）：alert / contact 卡片内部自带动作区 */
     private boolean selfRendersActions(String type) {
-        return "alert_card".equals(type) || "contact_card".equals(type);
+        String canonical = ComponentTypes.resolve(type);
+        return "alert".equals(canonical) || "contact".equals(canonical);
     }
 
     /**

@@ -351,11 +351,19 @@ public class SystemUIComponentTool implements AITool {
                     java.util.List<org.json.JSONObject> list = typeRegistry.listTypes();
                     org.json.JSONArray arr = new org.json.JSONArray();
                     for (org.json.JSONObject t : list) arr.put(t);
+                    // B1-2：自定义类型之外，把内置 canonical 目录与别名一起给模型，
+                    // 否则模型只能凭猜在 table/table_card、stat/metric_card 之间挑名字
+                    org.json.JSONArray builtin =
+                            com.oilquiz.app.ai.chat.component.ComponentTypes.catalogJson();
                     java.util.Map<String, Object> r = new java.util.HashMap<>();
                     r.put("status", "success");
                     r.put("count", list.size());
                     r.put("types", arr.toString());
-                    r.put("message", "已注册 " + list.size() + " 个自定义组件类型（含 mode 长久/临时）");
+                    r.put("builtin_types", builtin.toString());
+                    r.put("builtin_count", builtin.length());
+                    r.put("aliases", com.oilquiz.app.ai.chat.component.ComponentTypes.ALIAS.toString());
+                    r.put("message", "自定义类型 " + list.size() + " 个；内置 canonical 类型 "
+                            + builtin.length() + " 个（旧名见 aliases，任选其一都能渲染，推荐用 canonical 名）");
                     return AIToolResult.success(r);
                 }
                 case "clear_temporary_types": {

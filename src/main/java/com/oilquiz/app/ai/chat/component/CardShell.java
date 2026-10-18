@@ -233,6 +233,21 @@ public class CardShell extends LinearLayout {
         return this;
     }
 
+    /** 追加一个自带尺寸的内容控件（如图表这种需要固定高度的自绘 View） */
+    public CardShell addBody(View view, LinearLayout.LayoutParams params) {
+        if (view == null) return this;
+        ensureBody();
+        body.addView(view, params);
+        return this;
+    }
+
+    /** 清空 body（组件内导航/刷新时复用同一张卡，不重建外壳） */
+    public CardShell clearBody() {
+        ensureBody();
+        body.removeAllViews();
+        return this;
+    }
+
     /** 追加一段正文文本 */
     public TextView addBodyText(String text, float sizeSp, int color, boolean medium) {
         TextView tv = new TextView(shellContext);
@@ -406,6 +421,18 @@ public class CardShell extends LinearLayout {
         return footerInline.getChildCount() > 0 || moreButton.getVisibility() == VISIBLE;
     }
 
+    /**
+     * 清空 footer 动作（B1：题目卡提交后动作要从「提交」换成「重做」）。
+     * 清空后 footer 隐藏，调用方再 {@link #addAction} 重新填。
+     */
+    public CardShell clearActions() {
+        footerInline.removeAllViews();
+        overflowActions.clear();
+        moreButton.setVisibility(GONE);
+        footer.setVisibility(GONE);
+        return this;
+    }
+
     private TextView buildActionButton(Action action) {
         TextView btn = new TextView(shellContext);
         btn.setText(action.label);
@@ -488,8 +515,11 @@ public class CardShell extends LinearLayout {
         return lp;
     }
 
-    /** 带最大高度的滚动容器：内容不足时按内容高，超过上限才滚动 */
-    private static class MaxHeightScrollView extends ScrollView {
+    /**
+     * 带最大高度的滚动容器：内容不足时按内容高，超过上限才滚动。
+     * 公开给需要"局部限高"的组件（如 DynamicCardView 的原始 JSON 折叠区）。
+     */
+    public static class MaxHeightScrollView extends ScrollView {
         private final int maxHeightPx;
 
         MaxHeightScrollView(Context context, int maxHeightPx) {

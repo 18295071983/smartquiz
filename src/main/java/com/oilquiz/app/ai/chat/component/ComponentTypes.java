@@ -1,0 +1,194 @@
+package com.oilquiz.app.ai.chat.component;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * 组件类型目录（B1-2）：canonical 类型 + alias + 字段说明。
+ *
+ * <p>问题：注册表里同时有 {@code table_card}（原生卡）与 {@code table}（Layout 原语）、
+ * {@code steps_card} 与 {@code steps}、{@code alert_card} 与 {@code alert}、
+ * {@code metric_card} 与 {@code stat}……加上 32 个 Layout 原语，模型能选的名字约 63 个，
+ * 同一个语义两种长相，还经常名字与参数对不上。
+ *
+ * <p>口径：
+ * <ul>
+ *   <li><b>canonical</b>：面向模型的名字，18 个通用类型 + 4 个场景类型；</li>
+ *   <li><b>alias</b>：旧名/重复名一律解析到 canonical，历史数据与旧提示词继续可用，
+ *       持久化结构不动（{@code ComponentData.type} 存什么都能渲染）；</li>
+ *   <li><b>原生实现赢名字</b>：{@code table}/{@code steps}/{@code alert}/{@code stat} 等
+ *       原先被 Layout 原语占用的名字，现在指向原生卡片；原语仍可用
+ *       {@code primitive_<名字>} 访问（如 {@code primitive_timeline}）。</li>
+ * </ul>
+ *
+ * <p>{@link #catalogJson()} 是给模型看的目录（名字/分类/必填/可选），
+ * 由 {@code ui_component(action=list_types)} 等出口复用，避免再维护第二份名单。
+ */
+public final class ComponentTypes {
+
+    /** canonical 名 → 注册表里原生实现占用的 key（即该组件 getType() 的返回值） */
+    public static final Map<String, String> CANONICAL_TARGET;
+
+    /** 旧名 / 重复名 / 场景别名 → canonical */
+    public static final Map<String, String> ALIAS;
+
+    /** 分类（给目录分组用） */
+    public static final String CATEGORY_CONTENT = "content";
+    public static final String CATEGORY_DATA = "data";
+    public static final String CATEGORY_MEDIA = "media";
+    public static final String CATEGORY_TASK = "task";
+    public static final String CATEGORY_SCENE = "scene";
+
+    /** canonical → {category, required[], optional[]} */
+    private static final Map<String, String[]> SCHEMA = new LinkedHashMap<>();
+
+    static {
+        Map<String, String> target = new LinkedHashMap<>();
+        // 内容
+        target.put("info", "info_card");
+        target.put("list", "list_card");
+        target.put("steps", "steps_card");
+        target.put("alert", "alert_card");
+        target.put("markdown", "markdown_card");
+        target.put("code", "code_card");
+        target.put("html", "html");
+        // 数据
+        target.put("table", "table_card");
+        target.put("chart", "chart");
+        target.put("metric", "metric_card");
+        target.put("progress", "progress_card");
+        target.put("json", "json_viewer");
+        // 媒体
+        target.put("image", "image_grid");
+        target.put("video", "video");
+        target.put("audio", "audio");
+        target.put("file", "file_card");
+        target.put("link", "link_card");
+        // 任务/学习
+        target.put("quiz", "quiz_card");
+        CANONICAL_TARGET = Collections.unmodifiableMap(target);
+
+        Map<String, String> alias = new LinkedHashMap<>();
+        alias.put("info_card", "info");
+        alias.put("note_card", "info");
+        alias.put("note", "info");
+        alias.put("list_card", "list");
+        alias.put("grid_card", "list");
+        alias.put("grid", "list");
+        alias.put("table_card", "table");
+        alias.put("steps_card", "steps");
+        alias.put("timeline", "steps");
+        alias.put("alert_card", "alert");
+        alias.put("metric_card", "metric");
+        alias.put("stat", "metric");
+        alias.put("progress_card", "progress");
+        alias.put("progress_ring", "progress");
+        alias.put("bar_chart", "chart");
+        alias.put("pie_chart", "chart");
+        alias.put("sparkline", "chart");
+        alias.put("code_card", "code");
+        alias.put("json_viewer", "json");
+        alias.put("markdown_card", "markdown");
+        alias.put("image_grid", "image");
+        alias.put("file_card", "file");
+        alias.put("link_card", "link");
+        alias.put("quiz_card", "quiz");
+        alias.put("question_card", "quiz");
+        alias.put("web", "html");
+        alias.put("weather_card", "weather");
+        alias.put("contact_card", "contact");
+        alias.put("todo_card", "todo");
+        ALIAS = Collections.unmodifiableMap(alias);
+
+        // required/optional 只列真正决定渲染的字段，其余按 props 自由扩展
+        SCHEMA.put("info", new String[]{CATEGORY_CONTENT, "标题 title", "条目 items[{label,value}]", ""});
+        SCHEMA.put("list", new String[]{CATEGORY_CONTENT, "条目 items[]", "标题 title", "布局 variant=list|grid, columns"});
+        SCHEMA.put("steps", new String[]{CATEGORY_CONTENT, "步骤 steps[{title,status,description}]", "标题 title", "status=done|current|todo|failed"});
+        SCHEMA.put("alert", new String[]{CATEGORY_CONTENT, "正文 content", "级别 level=info|success|warning|error", "标题 title, actions[]"});
+        SCHEMA.put("markdown", new String[]{CATEGORY_CONTENT, "正文 content", "标题 title", ""});
+        SCHEMA.put("code", new String[]{CATEGORY_CONTENT, "代码 code", "语言 language", "标题 title"});
+        SCHEMA.put("html", new String[]{CATEGORY_CONTENT, "html 或 url", "标题 title", "maxHeight(dp)；脚本按来源分档，见 HtmlSandbox"});
+        SCHEMA.put("table", new String[]{CATEGORY_DATA, "表头 headers[]", "数据 rows[[]]", "标题 title, align=left|center"});
+        SCHEMA.put("chart", new String[]{CATEGORY_DATA, "类型 chartType=bar|line|pie", "系列 series[{name,data[]}]", "分类 categories[], 标题 title"});
+        SCHEMA.put("metric", new String[]{CATEGORY_DATA, "指标 items[{label,value}]", "标题 title", "单位 unit, trend"});
+        SCHEMA.put("progress", new String[]{CATEGORY_DATA, "百分比 percent", "标题 title", "文案 label"});
+        SCHEMA.put("json", new String[]{CATEGORY_DATA, "数据 data", "标题 title", "折叠 collapsed"});
+        SCHEMA.put("image", new String[]{CATEGORY_MEDIA, "图片 images[]", "标题 title", "columns"});
+        SCHEMA.put("video", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "封面 poster"});
+        SCHEMA.put("audio", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "时长 duration"});
+        SCHEMA.put("file", new String[]{CATEGORY_MEDIA, "文件名 name", "路径 path 或 uri", "大小 size, 类型 type"});
+        SCHEMA.put("link", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "描述 description, 图标 icon"});
+        SCHEMA.put("quiz", new String[]{CATEGORY_TASK, "题干 question", "选项 options[]", "答案 answer, 解析 analysis, 题型 type=single|multiple|judge"});
+        SCHEMA.put("weather", new String[]{CATEGORY_SCENE, "城市 city", "数据 data", "标题 title"});
+        SCHEMA.put("contact", new String[]{CATEGORY_SCENE, "姓名 name", "电话 phone", "actions[]"});
+        SCHEMA.put("todo", new String[]{CATEGORY_SCENE, "待办 items[{text,done}]", "标题 title", ""});
+    }
+
+    private ComponentTypes() {
+    }
+
+    /**
+     * 把任意输入名解析成 canonical 名。
+     *
+     * @return 已知类型返回 canonical；未知类型原样返回（交给注册表/兜底渲染）
+     */
+    public static String resolve(String type) {
+        if (type == null || type.isEmpty()) return type;
+        String canonical = CANONICAL_TARGET.containsKey(type) ? type : null;
+        if (canonical == null) canonical = ALIAS.get(type);
+        return canonical != null ? canonical : type;
+    }
+
+    /** 注册表实际存放该组件用的 key（canonical → 原生实现的类型名） */
+    public static String targetKey(String canonical) {
+        return CANONICAL_TARGET.getOrDefault(canonical, canonical);
+    }
+
+    /** 是否面向模型的 canonical 类型 */
+    public static boolean isCanonical(String type) {
+        return CANONICAL_TARGET.containsKey(type);
+    }
+
+    /** 场景类型（有专用渲染器，不进 18 个通用目录） */
+    public static boolean isScene(String type) {
+        return "weather".equals(type) || "contact".equals(type) || "todo".equals(type)
+                || "layout".equals(type) || "file_list".equals(type);
+    }
+
+    /**
+     * 给模型看的类型目录：[{type,category,required,optional}, …]。
+     * 未注册的字段留空字符串，避免在提示词里写出"看起来像必填"的噪音。
+     */
+    public static JSONArray catalogJson() {
+        JSONArray out = new JSONArray();
+        for (Map.Entry<String, String[]> e : SCHEMA.entrySet()) {
+            try {
+                JSONObject o = new JSONObject();
+                o.put("type", e.getKey());
+                o.put("category", e.getValue()[0]);
+                o.put("required", e.getValue()[1]);
+                o.put("optional", e.getValue()[2]);
+                o.put("note", e.getValue()[3]);
+                out.put(o);
+            } catch (org.json.JSONException ignored) {
+                // 单条组装失败不影响目录整体可用
+            }
+        }
+        return out;
+    }
+
+    /** 目录的一行式文本（提示词/工作区速查表用） */
+    public static String catalogLine() {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String[]> e : SCHEMA.entrySet()) {
+            sb.append(e.getKey()).append('(').append(e.getValue()[1]);
+            if (!e.getValue()[2].isEmpty()) sb.append(" / ").append(e.getValue()[2]);
+            sb.append(") ");
+        }
+        return sb.toString().trim();
+    }
+}

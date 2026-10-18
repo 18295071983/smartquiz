@@ -1,12 +1,17 @@
 package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import androidx.core.widget.ImageViewCompat;
+
+import com.oilquiz.app.R;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -17,26 +22,28 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 文件列表卡片组件：图标 + 文件名 + 大小 + 路径（文件/目录浏览结果）。
+ * 文件列表卡片组件（目录浏览结果，B1-4 起接 {@link CardShell}）。
+ *
+ * <p>支持应用内文件夹导航：点目录项直接在卡内刷新列表，「上一级」收进 footer 动作；
+ * 文件项点击仍走 {@link ComponentActions#openLink} 打开。图标不再是 emoji（📁/🖼/⬆），
+ * 与 {@link FileCardView} 共用 {@link FileGlyph} 一套口径。
+ *
+ * <p>条目超过 {@link #MAX_VISIBLE_ROWS} 时截断并给出总数（与 table_card 同策略：
+ * 卡内放纵向滚动会和聊天列表抢手势）。
  *
  * 数据格式（ComponentData.props）：
  * <pre>
  * {
  *   "title": "目录内容",
- *   "path": "/sdcard/Documents",            // 可选，当前路径
- *   "files": [
- *     {"name":"report.pdf","size":"1.2 MB","type":"file","path":"/sdcard/..."},
- *     {"name":"images","size":"","type":"dir"}
- *   ]
+ *   "path": "/sdcard/Documents",
+ *   "files": [{"name":"report.pdf","size":"1.2 MB","type":"file|dir","path":"..."}]
  * }
  * </pre>
- *
- * 2026-09-14 增强：支持【应用内文件夹导航】——
- * - 点击目录项（type=dir）→ 组件内直接读取该目录并刷新列表（不再跳到系统文件管理器）；
- * - 顶部提供「⬆ 上一级」返回父目录（path 存在且非根时显示）；
- * - 文件项保持点击打开（openLink）。
  */
 public class FileListCardView implements ChatComponent {
+
+    /** 卡内最多显示的条目数 */
+    private static final int MAX_VISIBLE_ROWS = 30;
 
     @Override
     public String getType() {
@@ -50,121 +57,144 @@ public class FileListCardView implements ChatComponent {
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props != null ? data.props : new JSONObject();
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
-        card.setBackground(cardBackground(context));
-        buildContent(context, card, p);
-        return card;
+        CardShell shell = CardShell.create(context);
+        renderInto(context, shell, data.props != null ? data.props : new JSONObject());
+        return shell;
     }
 
-    /** 重建卡片内容（初始渲染 / 导航刷新共用） */
-    private void buildContent(Context context, LinearLayout card, JSONObject props) {
-        card.removeAllViews();
+    /** 初始渲染与导航刷新共用：同一张壳，只重填 header/body/footer */
+    private void renderInto(Context context, CardShell shell, JSONObject props) {
         String title = props.optString("title", "");
         String path = props.optString("path", "");
         JSONArray files = props.optJSONArray("files");
+        int count = files == null ? 0 : files.length();
 
-        // 标题 + 路径
-        if (!TextUtils.isEmpty(title) || !TextUtils.isEmpty(path)) {
-            TextView titleTv = new TextView(context);
-            if (!TextUtils.isEmpty(title)) {
-                titleTv.setText(title + (TextUtils.isEmpty(path) ? "" : " · " + path));
-            } else {
-                titleTv.setText(path);
-            }
-            titleTv.setTextSize(13);
-            titleTv.setTextColor(ComponentColors.textPrimary(context));
-            titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            titleTv.setPadding(0, 0, 0, dp(context, 6));
-            card.addView(titleTv);
-        }
+        shell.setHeader(TextUtils.isEmpty(title) ? path : title,
+                count > 0 ? context.getString(R.string.card_shell_item_count, count) : null);
+        shell.setSubtitle(TextUtils.isEmpty(title) ? null : path);
+        shell.clearBody().clearActions();
 
-        // 上一级导航（path 存在且非根时）
         if (!TextUtils.isEmpty(path) && !"/".equals(path)) {
-            LinearLayout upRow = makeRow(context, "⬆", "上一级", "");
-            upRow.setOnClickListener(v -> navigateTo(context, card, parentPath(path), title));
-            card.addView(upRow, rowLayoutParams());
+            final String upTarget = parentPath(path);
+            final String baseTitle = title;
+            shell.addAction(context.getString(R.string.file_list_up), false,
+                    () -> navigate(context, shell, upTarget, baseTitle));
         }
 
-        if (files != null) {
-            for (int i = 0; i < files.length(); i++) {
-                JSONObject f = files.optJSONObject(i);
-                if (f == null) continue;
-
-                String type = f.optString("type", "file");
-                final String rowPath = f.optString("path", "");
-                boolean isDir = "dir".equals(type);
-                String name = f.optString("name", "");
-
-                LinearLayout row = makeRow(context,
-                        isDir ? "📁" : fileIcon(name),
-                        TextUtils.isEmpty(name) ? "未命名" : name,
-                        rowPath);
-                // 目录项：应用内进入浏览；文件项：点击打开（path 缺失时不可点）
-                if (!TextUtils.isEmpty(rowPath)) {
-                    row.setClickable(true);
-                    row.setFocusable(true);
-                    if (isDir) {
-                        row.setOnClickListener(v -> navigateTo(context, card, rowPath, title));
-                    } else {
-                        row.setOnClickListener(v ->
-                                com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, rowPath));
-                    }
-                }
-
-                // 大小（文件显示；目录可显示条目占位由导航后填充）
-                String size = f.optString("size", "");
-                if (!TextUtils.isEmpty(size)) {
-                    TextView sizeTv = new TextView(context);
-                    sizeTv.setText(size);
-                    sizeTv.setTextSize(11);
-                    sizeTv.setTextColor(ComponentColors.textSecondary(context));
-                    sizeTv.setPadding(dp(context, 8), 0, 0, 0);
-                    row.addView(sizeTv);
-                }
-
-                card.addView(row, rowLayoutParams());
-            }
+        if (count == 0) {
+            shell.setState(CardShell.State.EMPTY, context.getString(R.string.file_list_empty));
+            return;
+        }
+        int visible = Math.min(count, MAX_VISIBLE_ROWS);
+        for (int i = 0; i < visible; i++) {
+            JSONObject f = files.optJSONObject(i);
+            if (f == null) continue;
+            shell.addBody(buildRow(context, f));
+        }
+        if (count > visible) {
+            shell.setState(CardShell.State.TRUNCATED,
+                    context.getString(R.string.file_list_truncated, count, visible));
         }
     }
 
-    /** 应用内进入目录：读取该目录内容并刷新卡片（纯组件内导航，不跳系统） */
-    private void navigateTo(Context context, LinearLayout card, String dirPath, String baseTitle) {
-        if (dirPath == null || dirPath.isEmpty()) return;
-        // 目录路径同样要过工作区解析：模型常给 "files" 或裸目录名，原先 new File(相对路径)
-        // 判不到就静默 return —— 用户看到的是"点了没反应"
+    /** 一行：类型图标 + 名称（+ 路径）+ 大小 */
+    private View buildRow(Context context, JSONObject f) {
+        String type = f.optString("type", "file");
+        final String rowPath = f.optString("path", "");
+        boolean isDir = "dir".equals(type);
+        String name = f.optString("name", "");
+        String size = f.optString("size", "");
+
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(ComponentTheme.dp(context, 40));
+        row.setPadding(0, ComponentTheme.dp(context, 3), 0, ComponentTheme.dp(context, 3));
+
+        int iconRes = FileGlyph.iconRes(type, name);
+        ImageView icon = new ImageView(context);
+        int iconSize = ComponentTheme.dp(context, 18);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(iconSize, iconSize);
+        iconLp.setMarginEnd(ComponentTheme.dp(context, 8));
+        icon.setLayoutParams(iconLp);
+        icon.setImageResource(iconRes);
+        ImageViewCompat.setImageTintList(icon,
+                ColorStateList.valueOf(FileGlyph.tint(context, iconRes)));
+        row.addView(icon);
+
+        LinearLayout textCol = new LinearLayout(context);
+        textCol.setOrientation(LinearLayout.VERTICAL);
+        textCol.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        TextView nameTv = new TextView(context);
+        nameTv.setText(TextUtils.isEmpty(name)
+                ? context.getString(R.string.file_list_unnamed) : name);
+        nameTv.setTextSize(ComponentTheme.bodyTextSize());
+        nameTv.setTextColor(ComponentTheme.textPrimary(context));
+        nameTv.setSingleLine(true);
+        nameTv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        textCol.addView(nameTv);
+        row.addView(textCol);
+
+        if (!TextUtils.isEmpty(size)) {
+            TextView sizeTv = new TextView(context);
+            sizeTv.setText(size);
+            sizeTv.setTextSize(ComponentTheme.metaTextSize());
+            sizeTv.setTextColor(ComponentTheme.textTertiary(context));
+            sizeTv.setPadding(ComponentTheme.dp(context, 8), 0, 0, 0);
+            row.addView(sizeTv);
+        }
+
+        // 目录：卡内进入；文件：交回应用打开；没有路径的条目不可点（点了没反应最伤信任）
+        if (!TextUtils.isEmpty(rowPath)) {
+            row.setClickable(true);
+            row.setFocusable(true);
+            if (isDir) {
+                row.setOnClickListener(v -> navigate(context,
+                        (CardShell) findShell(row), rowPath, ""));
+            } else {
+                row.setOnClickListener(v -> ComponentActions.openLink(context, rowPath));
+            }
+        }
+        return row;
+    }
+
+    /** 应用内进入目录：读取目录内容并刷新卡片（相对路径也先过工作区解析） */
+    private void navigate(Context context, CardShell shell, String dirPath, String baseTitle) {
+        if (TextUtils.isEmpty(dirPath)) return;
         File dir = MediaPathResolver.resolveToFile(context, dirPath);
-        if (dir == null) dir = new File(dirPath.startsWith("file://")
-                ? android.net.Uri.parse(dirPath).getPath() : dirPath);
-        if (!dir.exists() || !dir.isDirectory()) return;
+        if (dir == null) {
+            dir = new File(dirPath.startsWith("file://")
+                    ? HtmlSandbox.filePathFromUrl(dirPath) : dirPath);
+        }
+        if (!dir.exists() || !dir.isDirectory()) {
+            shell.setState(CardShell.State.ERROR,
+                    context.getString(R.string.file_list_dir_missing));
+            return;
+        }
         File[] children = dir.listFiles();
         JSONArray items = new JSONArray();
         if (children != null) {
-            // 目录优先、文件在后（同目录内按名称排序）
             List<File> dirs = new ArrayList<>();
-            List<File> files = new ArrayList<>();
+            List<File> plain = new ArrayList<>();
             for (File c : children) {
-                if (c.isDirectory()) dirs.add(c);
-                else files.add(c);
+                if (c.isDirectory()) dirs.add(c); else plain.add(c);
             }
             dirs.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
-            files.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
-            for (File d : dirs) {
-                items.put(entry(d.getName(), d.getAbsolutePath(), "dir", ""));
-            }
-            for (File f : files) {
+            plain.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+            for (File d : dirs) items.put(entry(d.getName(), d.getAbsolutePath(), "dir", ""));
+            for (File f : plain) {
                 items.put(entry(f.getName(), f.getAbsolutePath(), "file", formatSize(f.length())));
             }
         }
         try {
             JSONObject np = new JSONObject();
             np.put("title", baseTitle);
-            np.put("path", dirPath);
+            np.put("path", dir.getAbsolutePath());
             np.put("files", items);
-            buildContent(context, card, np);
+            renderInto(context, shell, np);
         } catch (Exception ignore) {
+            // 组装失败保持原视图，不清空卡片
         }
     }
 
@@ -187,83 +217,20 @@ public class FileListCardView implements ChatComponent {
         return path.substring(0, idx);
     }
 
-    /** 构造一行（图标 + 文本列），大小由调用方追加 */
-    private LinearLayout makeRow(Context context, String icon, String name, String pathText) {
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(context, 4), 0, dp(context, 4));
-
-        TextView iconTv = new TextView(context);
-        iconTv.setText(icon);
-        iconTv.setTextSize(16);
-        iconTv.setPadding(0, 0, dp(context, 8), 0);
-        row.addView(iconTv);
-
-        LinearLayout textCol = new LinearLayout(context);
-        textCol.setOrientation(LinearLayout.VERTICAL);
-        textCol.setLayoutParams(new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView nameTv = new TextView(context);
-        nameTv.setText(name);
-        nameTv.setTextSize(13);
-        nameTv.setTextColor(ComponentColors.textPrimary(context));
-        nameTv.setSingleLine(true);
-        nameTv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-        textCol.addView(nameTv);
-
-        if (!TextUtils.isEmpty(pathText)) {
-            TextView pathTv = new TextView(context);
-            pathTv.setText(pathText);
-            pathTv.setTextSize(10);
-            pathTv.setTextColor(ComponentColors.textTertiary(context));
-            pathTv.setSingleLine(true);
-            pathTv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-            textCol.addView(pathTv);
+    /** 从行 View 往上找回所属的 CardShell（导航要在同一张卡里刷新） */
+    private static CardShell findShell(View view) {
+        View v = view;
+        while (v != null) {
+            if (v instanceof CardShell) return (CardShell) v;
+            if (!(v.getParent() instanceof View)) return null;
+            v = (View) v.getParent();
         }
-
-        row.addView(textCol);
-        return row;
-    }
-
-    private static LinearLayout.LayoutParams rowLayoutParams() {
-        return new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-    }
-
-    private String fileIcon(String name) {
-        if (name == null) return "📄";
-        String lower = name.toLowerCase();
-        if (lower.endsWith(".pdf")) return "📕";
-        if (lower.endsWith(".doc") || lower.endsWith(".docx")) return "📘";
-        if (lower.endsWith(".xls") || lower.endsWith(".xlsx")) return "📗";
-        if (lower.endsWith(".ppt") || lower.endsWith(".pptx")) return "📙";
-        if (lower.endsWith(".zip") || lower.endsWith(".rar")) return "🗜️";
-        if (lower.endsWith(".jpg") || lower.endsWith(".png") || lower.endsWith(".gif")) return "🖼️";
-        if (lower.endsWith(".mp3") || lower.endsWith(".wav")) return "🎵";
-        if (lower.endsWith(".mp4") || lower.endsWith(".avi")) return "🎬";
-        if (lower.endsWith(".java") || lower.endsWith(".kt") || lower.endsWith(".py")) return "💻";
-        if (lower.endsWith(".txt") || lower.endsWith(".md")) return "📝";
-        return "📄";
+        return null;
     }
 
     private static String formatSize(long bytes) {
         if (bytes < 1024) return bytes + " B";
         if (bytes < 1024 * 1024) return String.format(Locale.US, "%.1f KB", bytes / 1024.0);
-        return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024));
-    }
-
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
-        gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
-    }
-
-    private static int dp(Context context, float value) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
-                context.getResources().getDisplayMetrics());
+        return String.format(Locale.US, "%.1f MB", bytes / (1048576.0));
     }
 }

@@ -50,9 +50,9 @@ public class FileCardView implements ChatComponent {
         final String uri = p.optString("uri", "");
         final String path = p.optString("path", "");
 
-        int iconRes = fileIconRes(type, name);
+        int iconRes = FileGlyph.iconRes(type, name);
         CardShell shell = CardShell.create(context)
-                .setHeaderIcon(iconRes, fileIconTint(context, iconRes))
+                .setHeaderIcon(iconRes, FileGlyph.tint(context, iconRes))
                 .setHeader(name, TextUtils.isEmpty(size) ? null : size);
 
         if (TextUtils.isEmpty(uri) && TextUtils.isEmpty(path)) {
@@ -318,40 +318,4 @@ public class FileCardView implements ChatComponent {
         }
     }
 
-    /**
-     * 按类型/扩展名选矢量图标资源（原来是 28sp 的 emoji：字号、基线、深浅色都不受控）。
-     * 颜色由 CardShell 的 header 图标着色统一处理（品牌色），这里只负责语义区分。
-     */
-    private static int fileIconRes(String type, String name) {
-        String lower = (type != null ? type : "").toLowerCase();
-        String n = (name != null ? name : "").toLowerCase();
-        if (lower.contains("pdf") || n.endsWith(".pdf")) return R.drawable.ic_file_pdf;
-        if (lower.contains("image") || lower.contains("png") || lower.contains("jpg")
-                || lower.contains("jpeg") || lower.contains("webp") || lower.contains("gif")
-                || n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
-                || n.endsWith(".webp") || n.endsWith(".gif")) return R.drawable.ic_ai_image;
-        if (lower.contains("excel") || lower.contains("xls") || lower.contains("csv")
-                || n.endsWith(".xlsx") || n.endsWith(".xls") || n.endsWith(".csv")) {
-            return R.drawable.ic_excel;
-        }
-        if (lower.contains("zip") || lower.contains("rar") || lower.contains("7z")
-                || n.endsWith(".zip") || n.endsWith(".rar") || n.endsWith(".7z")) {
-            return R.drawable.ic_file_archive;
-        }
-        if (lower.contains("audio") || lower.contains("video") || lower.contains("mp3")
-                || lower.contains("mp4") || n.endsWith(".mp3") || n.endsWith(".mp4")
-                || n.endsWith(".wav") || n.endsWith(".m4a")) {
-            return R.drawable.ic_file_media;
-        }
-        return R.drawable.ic_file;
-    }
-
-    /** 图标着色：只用 ComponentTheme 语义色，深浅色自动跟随 */
-    private static int fileIconTint(Context context, int iconRes) {
-        if (iconRes == R.drawable.ic_file_pdf) return ComponentTheme.danger(context);
-        if (iconRes == R.drawable.ic_excel) return ComponentTheme.success(context);
-        if (iconRes == R.drawable.ic_file_media) return ComponentTheme.warning(context);
-        if (iconRes == R.drawable.ic_ai_image) return ComponentTheme.brand(context);
-        return ComponentTheme.textSecondary(context);
-    }
 }
