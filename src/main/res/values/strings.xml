@@ -705,6 +705,21 @@
     <string name="file_list_unnamed">未命名</string>
     <string name="file_list_truncated">共 %1$d 项，已显示前 %2$d 项</string>
     <string name="file_list_dir_missing">该目录不存在或已被移动</string>
+    <!-- 聊天页 v2 外壳（Track A0，开关 chat_ui_v2） -->
+    <string name="chat_v2_title">AI 对话</string>
+    <string name="chat_v2_more_desc">更多信息</string>
+    <string name="chat_v2_new_desc">新建对话</string>
+    <string name="chat_v2_sheet_title">本次会话</string>
+    <string name="chat_v2_model">当前模型</string>
+    <string name="chat_v2_tokens">Token 用量</string>
+    <string name="chat_v2_phase">生成阶段</string>
+    <string name="chat_v2_kv">KV 缓存</string>
+    <string name="chat_v2_balance">账户余额</string>
+    <string name="chat_v2_log">运行日志</string>
+    <string name="chat_v2_console">智能体控制台</string>
+    <string name="chat_v2_ui_switch">启用新版界面</string>
+    <string name="chat_v2_restart_hint">重进聊天页后生效</string>
+    <string name="chat_v2_no_data">暂无数据</string>
     <!-- 工具结果卡（C0-T2/T4）：预览、全文弹层、AI 解读入口 -->
     <string name="tool_result_view_all">查看全部（%1$d 字）</string>
     <string name="tool_result_full_title">%1$s · 完整结果</string>
