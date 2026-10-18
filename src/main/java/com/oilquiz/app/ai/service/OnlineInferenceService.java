@@ -1522,6 +1522,25 @@ public class OnlineInferenceService {
                                     String prompt, List<ChatMessage> history, int maxTokens,
                                     boolean stream, boolean webSearch, StreamCallback callback,
                                     java.util.concurrent.atomic.AtomicBoolean emittedOut) throws Exception {
+        return callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, stream,
+                webSearch, callback, emittedOut, null);
+    }
+
+    /**
+     * 同上，并可带上本轮图片（Responses 侧的 {@code input_image} 条目）。
+     *
+     * <p>为什么要显式支持：同一个模型的文本流已经按 {@code agentUsesResponses} 走
+     * {@code /responses}，而带图请求此前绕过协议分发恒定走 {@code /chat/completions}，
+     * 一次会话就被劈成两套表示（{@code instructions}/reasoning 项续接只在 Responses 侧）。
+     * DeepSeek 官方 vision 文档明确两端都收图：chat 用 {@code image_url}、
+     * Responses 用 {@code input_image}，形状差异由 {@link ResponsesPayloadBuilder} 收口。</p>
+     */
+    private String callResponsesAPI(String apiUrl, String apiKey, String modelName,
+                                    String prompt, List<ChatMessage> history, int maxTokens,
+                                    boolean stream, boolean webSearch, StreamCallback callback,
+                                    java.util.concurrent.atomic.AtomicBoolean emittedOut,
+                                    List<com.oilquiz.app.ai.util.ImagePreprocessUtil
+                                            .PreparedVisionImage> images) throws Exception {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         String endpoint = pcm.getServiceEndpoint(apiUrl, "agent");
@@ -1568,17 +1587,24 @@ public class OnlineInferenceService {
                     input.add(m);
                 }
             }
-            JsonObject user = new JsonObject();
-            user.addProperty("role", "user");
-            JsonArray uc = new JsonArray();
-            JsonObject uct = new JsonObject();
-            uct.addProperty("type", "input_text");
             // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
             String searchPrompt = applySearchToPrompt(prompt, webSearch);
             boolean ownSearchUsed = searchPrompt != prompt;
-            uct.addProperty("text", searchPrompt);
-            uc.add(uct);
-            user.add("content", uc);
+            JsonObject user;
+            List<String> imageDataUrls = images == null ? new ArrayList<>() : dataUrlsOf(images);
+            if (!imageDataUrls.isEmpty()) {
+                // 有图：形状统一交给 builder（input_image 在前、input_text 在后）
+                user = ResponsesPayloadBuilder.userMessageWithImages(searchPrompt, imageDataUrls);
+            } else {
+                user = new JsonObject();
+                user.addProperty("role", "user");
+                JsonArray uc = new JsonArray();
+                JsonObject uct = new JsonObject();
+                uct.addProperty("type", "input_text");
+                uct.addProperty("text", searchPrompt);
+                uc.add(uct);
+                user.add("content", uc);
+            }
             input.add(user);
             body.add("input", input);
 
@@ -1908,6 +1934,34 @@ public class OnlineInferenceService {
                                          OnlineModelManager.OnlineModelConfig config,
                                          List<ChatMessage> history, int maxTokens, boolean enableThinking,
                                          StreamCallback callback) {
+        List<com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage> parts =
+                new ArrayList<>();
+        if (imageBase64List != null) {
+            for (String b64 : imageBase64List) {
+                if (b64 == null || b64.isEmpty()) continue;
+                parts.add(com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage
+                        .ofBase64(b64, "image/jpeg"));
+            }
+        }
+        generateStreamWithImageParts(prompt, parts, config, history, maxTokens, enableThinking, callback);
+    }
+
+    /**
+     * 视觉流式生成的唯一出口：图片带自己的 MIME。
+     *
+     * 与旧的"调用方传裸 base64、这里硬拼 data:image/jpeg 前缀"相比：
+     * 1. PNG/WebP/GIF 不再被标成 jpeg —— 各家官方都要求 media_type / data URI 前缀与真实字节
+     *    一致（火山方舟文档写明不一致会被拒），标错是静默 400 的常见来源；
+     * 2. Anthropic 端点不再一刀切报"不支持图片"退回 OCR，改走原生 image block；
+     * 3. 多图按用户发送顺序进同一条消息，且图片 part 排在文本 part 之前 —— 与 Anthropic、
+     *    Gemini 官方建议一致（Gemini 明确要求"图在前、提示在后"，并用 image 1/image 2 指代）。
+     */
+    public void generateStreamWithImageParts(String prompt,
+                                             List<com.oilquiz.app.ai.util.ImagePreprocessUtil
+                                                     .PreparedVisionImage> images,
+                                             OnlineModelManager.OnlineModelConfig config,
+                                             List<ChatMessage> history, int maxTokens,
+                                             boolean enableThinking, StreamCallback callback) {
         executor.execute(() -> {
             try {
                 String apiUrl = config.apiUrl;
@@ -1926,19 +1980,52 @@ public class OnlineInferenceService {
                     postError(callback, "API Key 不能为空");
                     return;
                 }
-                if (imageBase64List == null || imageBase64List.isEmpty()) {
+                if (images == null || images.isEmpty()) {
                     generateStream(prompt, config, history, maxTokens, enableThinking, callback);
                     return;
                 }
 
                 mainHandler.post(callback::onStart);
 
-                if (isAnthropicAPI(apiUrl)) {
-                    postError(callback, "当前 API 端点不支持图片消息，已回退请用 OCR 或本地多模态");
-                    return;
+                // 协议分发与文本流共用同一条判据（ChatProtocol + shouldUseResponsesAPI）：
+                // 否则同一个模型的文本走 /responses、图片走 /chat/completions，一次会话被劈成
+                // 两套表示（instructions / reasoning 项续接只在 Responses 侧）。
+                // Ollama 原生 /api/chat 没有图片字段，带图时继续走它的 OpenAI 兼容层。
+                switch (ChatProtocol.of(apiUrl)) {
+                    case ANTHROPIC_MESSAGES:
+                        callAnthropicAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
+                                callback, images);
+                        break;
+                    case OPENAI_RESPONSES:
+                        if (shouldUseResponsesAPI(config)) {
+                            final java.util.concurrent.atomic.AtomicBoolean emitted =
+                                    new java.util.concurrent.atomic.AtomicBoolean(false);
+                            try {
+                                callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens,
+                                        true, config.supportsWebSearch, callback, emitted, images);
+                            } catch (Exception responsesFailure) {
+                                // 与文本流同一条安全网：只有还没吐过字时才回落 chat
+                                if (emitted.get()) throw responsesFailure;
+                                AILogger.w(TAG, "Responses 图片流失败，回落 chat: "
+                                        + responsesFailure.getMessage());
+                                callOpenAIAPIWithImages(apiUrl, apiKey, modelName, prompt, images,
+                                        history, maxTokens, true, enableThinking,
+                                        config.supportsWebSearch, callback);
+                            }
+                        } else {
+                            callOpenAIAPIWithImages(apiUrl, apiKey, modelName, prompt, images,
+                                    history, maxTokens, true, enableThinking,
+                                    config.supportsWebSearch, callback);
+                        }
+                        break;
+                    case OLLAMA_NATIVE:
+                    case OPENAI_COMPAT:
+                    default:
+                        callOpenAIAPIWithImages(apiUrl, apiKey, modelName, prompt, images,
+                                history, maxTokens, true, enableThinking,
+                                config.supportsWebSearch, callback);
+                        break;
                 }
-                callOpenAIAPIWithImages(apiUrl, apiKey, modelName, prompt, imageBase64List,
-                        history, maxTokens, true, enableThinking, config.supportsWebSearch, callback);
             } catch (Exception e) {
                 AILogger.e(TAG, "Stream generate with images failed: " + e.getMessage(), e);
                 postError(callback, e.getMessage());
@@ -1946,11 +2033,25 @@ public class OnlineInferenceService {
         });
     }
 
+    /** 图片列表 → data URI 列表（跳过空条目，顺序即发送顺序） */
+    private static List<String> dataUrlsOf(
+            List<com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage> images) {
+        List<String> urls = new ArrayList<>();
+        if (images == null) return urls;
+        for (com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage img : images) {
+            if (img == null || img.base64 == null || img.base64.isEmpty()) continue;
+            urls.add(img.dataUrl());
+        }
+        return urls;
+    }
+
     /**
      * 调用 OpenAI 兼容 API（带图片 content 数组）
      */
     private String callOpenAIAPIWithImages(String apiUrl, String apiKey, String modelName,
-                                           String prompt, List<String> imageBase64List,
+                                           String prompt,
+                                           List<com.oilquiz.app.ai.util.ImagePreprocessUtil
+                                                   .PreparedVisionImage> images,
                                            List<ChatMessage> history,
                                            int maxTokens, boolean stream, boolean enableThinking,
                                            boolean webSearch,
@@ -1994,17 +2095,32 @@ public class OnlineInferenceService {
                 }
             }
 
-            // 最后一条 user 消息：content 数组（文本 + 图片）
+            // 最后一条 user 消息：content 数组（图片在前 + 文本在后）
             JsonObject userMessage = new JsonObject();
             userMessage.addProperty("role", "user");
             JsonArray contentArray = new JsonArray();
+            // 图片先入消息：Anthropic 官方建议 image block 置于 text 之前，Gemini 官方最佳实践同样
+            // 是"图在前、提示在后"，多图时用 image 1/image 2 指代；OpenAI 对顺序不敏感。
+            for (com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage img : images) {
+                if (img == null || img.base64 == null || img.base64.isEmpty()) continue;
+                JsonObject imgPart = new JsonObject();
+                imgPart.addProperty("type", "image_url");
+                JsonObject imgUrl = new JsonObject();
+                // data URI 前缀唯一由 PreparedVisionImage#dataUrl 负责（真实 MIME）
+                imgUrl.addProperty("url", img.dataUrl());
+                // detail 交给服务商按官方默认档处理（auto），体积已由编码预算控制
+                imgUrl.addProperty("detail", "auto");
+                imgPart.add("image_url", imgUrl);
+                contentArray.add(imgPart);
+            }
             JsonObject textPart = new JsonObject();
             textPart.addProperty("type", "text");
             // 联网搜索优先自有工具：预搜索成功则拼入 prompt 且不再注入官方 webSearch
             String searchPrompt = applySearchToPrompt(prompt, webSearch);
             boolean ownSearchUsed = searchPrompt != prompt;
-            // 端口不匹配（配置表 webSearch.endpoint=responses，如图片+DeepSeek 官方 web_search 仅 /responses 生效）：
-            // 多模态无法重拼到 Responses（图片输入）→ 预搜索失败时跳过官方注入，避免 chat/completions 400
+            // 端口不匹配（配置表 webSearch.endpoint=responses，如图片+DeepSeek 官方 web_search 仅
+            // /responses 生效）：多模态无法重拼到 Responses（图片输入）→ 预搜索失败时跳过官方注入，
+            // 避免 chat/completions 400
             if (!ownSearchUsed) {
                 String wse = com.oilquiz.app.ai.model.ProviderConfigManager.get().getWebSearchEndpoint(apiUrl);
                 if (wse != null && !wse.isEmpty() && !apiUrl.contains(wse)) {
@@ -2015,14 +2131,6 @@ public class OnlineInferenceService {
             }
             textPart.addProperty("text", searchPrompt);
             contentArray.add(textPart);
-            for (String b64 : imageBase64List) {
-                JsonObject imgPart = new JsonObject();
-                imgPart.addProperty("type", "image_url");
-                JsonObject imgUrl = new JsonObject();
-                imgUrl.addProperty("url", "data:image/jpeg;base64," + b64);
-                imgPart.add("image_url", imgUrl);
-                contentArray.add(imgPart);
-            }
             userMessage.add("content", contentArray);
             messages.add(userMessage);
 
@@ -2039,8 +2147,17 @@ public class OnlineInferenceService {
                 requestBody.addProperty("stream", true);
             }
 
+            StringBuilder imageSummary = new StringBuilder();
+            long totalBytes = 0;
+            for (com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage img : images) {
+                if (img == null) continue;
+                if (imageSummary.length() > 0) imageSummary.append(",");
+                imageSummary.append(img.mimeType).append("(").append(img.size() / 1024).append("KB)");
+                totalBytes += img.size();
+            }
             AILogger.i(TAG, "Online multimodal request: model=" + modelName
-                    + ", images=" + imageBase64List.size() + ", prompt_len=" + prompt.length());
+                    + ", images=" + images.size() + " [" + imageSummary + "]"
+                    + ", image_bytes=" + totalBytes + ", prompt_len=" + prompt.length());
 
             try (OutputStream os = connection.getOutputStream()) {
                 os.write(gson.toJson(requestBody).getBytes(StandardCharsets.UTF_8));
@@ -2766,6 +2883,21 @@ public class OnlineInferenceService {
     private String callAnthropicAPI(String apiUrl, String apiKey, String modelName,
                                     String prompt, List<ChatMessage> history,
                                     int maxTokens, boolean stream, StreamCallback callback) throws Exception {
+        return callAnthropicAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, stream,
+                callback, null);
+    }
+
+    /**
+     * Anthropic messages 调用。带图片时走原生 image block：
+     * {@code {"type":"image","source":{"type":"base64","media_type":"<真实 MIME>","data":"<b64>"}}}
+     * 并把 image block 排在 text block 之前（官方建议）。此前带图片直接被拒回"不支持图片消息"，
+     * 整条链路降级成 OCR，而 Anthropic 本身是完全支持视觉输入的。
+     */
+    private String callAnthropicAPI(String apiUrl, String apiKey, String modelName,
+                                    String prompt, List<ChatMessage> history,
+                                    int maxTokens, boolean stream, StreamCallback callback,
+                                    List<com.oilquiz.app.ai.util.ImagePreprocessUtil
+                                            .PreparedVisionImage> images) throws Exception {
         // Anthropic messages 端点：兼容 /v1 结尾的地址，避免拼成 /v1/v1/messages
         String fullUrl = buildOpenAIUrl(apiUrl, "/messages");
         
@@ -2806,10 +2938,31 @@ public class OnlineInferenceService {
                 }
             }
             
-            // 添加当前提示
+            // 添加当前提示（有图时 content 为块数组：image block 在前，text block 在后）
             JsonObject userMessage = new JsonObject();
             userMessage.addProperty("role", "user");
-            userMessage.addProperty("content", prompt);
+            if (images != null && !images.isEmpty()) {
+                JsonArray contentBlocks = new JsonArray();
+                for (com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage img : images) {
+                    if (img == null || img.base64 == null || img.base64.isEmpty()) continue;
+                    JsonObject imageBlock = new JsonObject();
+                    imageBlock.addProperty("type", "image");
+                    JsonObject source = new JsonObject();
+                    source.addProperty("type", "base64");
+                    source.addProperty("media_type",
+                            img.mimeType != null ? img.mimeType : "image/jpeg");
+                    source.addProperty("data", img.base64);
+                    imageBlock.add("source", source);
+                    contentBlocks.add(imageBlock);
+                }
+                JsonObject textBlock = new JsonObject();
+                textBlock.addProperty("type", "text");
+                textBlock.addProperty("text", prompt);
+                contentBlocks.add(textBlock);
+                userMessage.add("content", contentBlocks);
+            } else {
+                userMessage.addProperty("content", prompt);
+            }
             messages.add(userMessage);
             
             requestBody.add("messages", messages);

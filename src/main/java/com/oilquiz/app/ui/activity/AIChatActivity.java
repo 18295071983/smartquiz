@@ -3749,6 +3749,16 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void processMessageWithAttachmentsViaAgent(String originalMessage, List<ChatMessage.Attachment> attachments) {
+        processMessageWithAttachmentsViaAgent(originalMessage, attachments, true);
+    }
+
+    /**
+     * @param allowVisionDispatch 是否允许再次尝试视觉通道。视觉链路自己回退 OCR 时必须传 false，
+     *                            否则"编码失败 → OCR 路径 → 又分派回视觉"会原地往返。
+     */
+    private void processMessageWithAttachmentsViaAgent(String originalMessage,
+                                                       List<ChatMessage.Attachment> attachments,
+                                                       boolean allowVisionDispatch) {
         // 同步捕获本条消息的深度思考开关（开关保持用户设定，不自动复位）
         boolean thinkingFlag = false;
         try {
@@ -3756,17 +3766,11 @@ public class AIChatActivity extends BaseActivity {
         } catch (Exception ignored) {
         }
         final boolean visionThinkingEnabled = thinkingFlag;
-        List<ChatMessage.Attachment> filtered = new ArrayList<>();
-        List<String> skippedFiles = new ArrayList<>();
-        for (ChatMessage.Attachment att : attachments) {
-            if (filtered.size() >= MAX_ATTACHMENTS) {
-                skippedFiles.add(att.name);
-            } else if (att.size > MAX_ATTACHMENT_FILE_SIZE) {
-                skippedFiles.add(att.name + "(大文件)");
-            } else {
-                filtered.add(att);
-            }
-        }
+        // 数量/大小过滤口径统一问视觉编排器（原先 Activity 与 pipeline 各写一份阈值）
+        final com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.FilterResult filterResult =
+                getVisionPipeline().filterAttachments(attachments);
+        final List<ChatMessage.Attachment> filtered = filterResult.filtered;
+        final List<String> skippedFiles = filterResult.skipped;
 
         if (!skippedFiles.isEmpty()) {
             showToast(getString(R.string.h_a3e17914) + skippedFiles.size() + getString(R.string.h_7c645c81));
@@ -3786,28 +3790,23 @@ public class AIChatActivity extends BaseActivity {
         }
 
         saveAttachmentsToLocal(uris).thenAccept(localFileMap -> {
-            // 本地多模态优先：vision 模型 + mmproj 已加载 + 单张图片 → 直接视觉理解（不走 OCR/Agent）
-            // 在线模型场景：不走此分支（在线走 OCR 文本 + Agent，见下方注释）
-            boolean allImages = !filtered.isEmpty();
+            // 图片附件统一交给视觉编排器决策：能吃下全部图片的引擎优先，OCR 文本只做兜底。
+            // （旧实现要求"只有 1 张图"才走视觉，两张就整条链路降级，已改掉。）
+            List<ChatMessage.Attachment> imageAttachments = new ArrayList<>();
             for (ChatMessage.Attachment att : filtered) {
-                if (!"image".equals(att.type)) { allImages = false; break; }
+                if (att != null && "image".equals(att.type)) imageAttachments.add(att);
             }
-            boolean multimodalReady = false;
-            try {
-                multimodalReady = LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
-            } catch (Exception ignored) {}
-            // 本地模型已加载但视觉未就绪（供 OCR 兜底提示使用，final 以便 lambda 捕获）
-            final boolean localVisionNotReady = !multimodalReady && LlamaHelper.isModelInitialized();
-            if (allImages && multimodalReady && filtered.size() == 1) {
-                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage, visionThinkingEnabled);
+            final boolean allImages = !filtered.isEmpty()
+                    && imageAttachments.size() == filtered.size();
+            if (allImages && allowVisionDispatch && routeImagesToVision(imageAttachments, localFileMap,
+                    originalMessage, visionThinkingEnabled)) {
                 return;
             }
 
-            // 在线多模态：在线视觉模型 + 单图 → 直接看图（base64 注入 OpenAI 兼容消息），不走 OCR
-            if (allImages && filtered.size() == 1 && isOnlineVisionModel()) {
-                handleOnlineMultimodalImage(filtered.get(0), localFileMap, originalMessage);
-                return;
-            }
+            // 视觉通道没接住（没有视觉能力 / 图片全部落盘失败）→ 走 OCR 文本 + Agent
+            // 本地模型已加载但视觉未就绪（供兜底提示说明原因，final 以便 lambda 捕获）
+            final boolean localVisionNotReady =
+                    !getVisionPipeline().canFollowUpLocalVision() && LlamaHelper.isModelInitialized();
 
             runOnUiThread(() -> {
                 // 1. 先展示上传状态（状态闭环起点：文件已落盘，开始解析）
@@ -3824,9 +3823,19 @@ public class AIChatActivity extends BaseActivity {
                             .append(saved ? getString(R.string.h_d7610fbf) : getString(R.string.h_21c163e1))
                             .append("\n");
                 }
-                // 本地模型已加载但视觉未就绪时，明确提示走 OCR 的原因（避免静默降级困惑）
-                if (localVisionNotReady) {
-                    displayMsg.append(getString(R.string.h_96262f69));
+                // 为什么这批图片没有直接"看图"：说清原因，避免静默降级成 OCR 后被当成识别失败
+                if (!imageAttachments.isEmpty()) {
+                    int localLimit = getVisionPipeline().localVisionImageLimit();
+                    boolean onlineVision = isOnlineVisionModel();
+                    if (localLimit == 0 && !onlineVision) {
+                        displayMsg.append(localVisionNotReady
+                                ? getString(R.string.h_96262f69)
+                                : "当前没有可用的视觉模型（本地 vision 未加载、在线模型不支持图片），本次图片改用文字识别通道。");
+                    } else if (localLimit == 1 && imageAttachments.size() > 1 && !onlineVision) {
+                        // llama.cpp mtmd 是单图硬限（native 侧 bitmaps[1]），一次只吃一张
+                        displayMsg.append("本地视觉单次只能理解 1 张图片，本次 ").append(imageAttachments.size())
+                                .append(" 张全部改用文字识别通道；逐张发送可以直接看图，或改用支持图片的在线模型。");
+                    }
                 }
                 displayMsg.append(getString(R.string.h_a791b767));
 
@@ -3925,6 +3934,53 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 视觉编排器（懒加载）：图片附件的数量/请求体预算选图、本地与在线视觉可用性判定、
+     * 视觉历史口径都问它；Activity 只负责提供环境事实（当前模型、引擎能力、上下文窗口）。
+     */
+    private com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline visionPipeline;
+    private com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline getVisionPipeline() {
+        if (visionPipeline == null) {
+            visionPipeline = new com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline(this,
+                    new com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.Env() {
+                        @Override public boolean isOnlineModel() { return shouldUseOnlineModel(); }
+                        @Override public OnlineModelManager.OnlineModelConfig getActiveModel() {
+                            return onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+                        }
+                        @Override public String getCurrentModelName() {
+                            return inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
+                        }
+                        @Override public boolean isLocalVisionLoaded() {
+                            try {
+                                return LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
+                            } catch (Throwable t) {
+                                return false;
+                            }
+                        }
+                        // llama.cpp mtmd 是 bitmaps[1] 单图硬限，NPU VLM 可以一次挂多张
+                        @Override public boolean supportsLocalMultiImage() { return isNpuEngineOn(); }
+                        @Override public int getModelContextSize() {
+                            return aiConfig != null ? aiConfig.getContextSize() : 0;
+                        }
+                    });
+        }
+        return visionPipeline;
+    }
+
+    /** 视觉推理辅助器（懒加载）：附件→本地文件解析口径、视觉历史裁剪、批量落盘 */
+    private com.oilquiz.app.ai.chat.vision.VisionInferenceHelper visionHelper;
+    private com.oilquiz.app.ai.chat.vision.VisionInferenceHelper getVisionHelper() {
+        if (visionHelper == null) {
+            visionHelper = new com.oilquiz.app.ai.chat.vision.VisionInferenceHelper(this);
+        }
+        return visionHelper;
+    }
+
+    /** 附件提示词构建器（与视觉编排器共用同一份上下文配置，避免阈值两处各写一遍） */
+    private com.oilquiz.app.ai.chat.attachment.AttachmentPromptBuilder getAttachmentPromptBuilder() {
+        return getVisionPipeline().getPromptBuilder();
+    }
+
+    /**
      * 构建解析进度中的系统消息
      */
     private StringBuilder rebuildParseProgressMsg(List<ChatMessage.Attachment> filtered,
@@ -3986,129 +4042,23 @@ public class AIChatActivity extends BaseActivity {
      * 解析方式可读标签
      */
     private String methodLabel(String method) {
-        if (method == null) return "未知";
-        switch (method) {
-            case "text_extract": return "文本提取";
-            case "online_ocr": return "在线视觉模型OCR";
-            case "local_ocr": return "本地OCR";
-            case "pdf_pages_ocr": return "PDF逐页OCR";
-            default: return method;
-        }
+        return getAttachmentPromptBuilder().methodLabel(method);
     }
 
+    /** 批量落盘（回调→CompletableFuture）：实现见 VisionInferenceHelper */
     private java.util.concurrent.CompletableFuture<java.util.Map<Uri, String>> saveAttachmentsToLocal(List<Uri> uris) {
-        java.util.concurrent.CompletableFuture<java.util.Map<Uri, String>> future =
-                new java.util.concurrent.CompletableFuture<>();
-        java.util.Map<Uri, String> localPaths = new java.util.concurrent.ConcurrentHashMap<>();
-
-        if (uris.isEmpty()) {
-            future.complete(localPaths);
-            return future;
-        }
-
-        List<Uri> uriList = new ArrayList<>(uris);
-        attachmentManager.saveAttachments(this, uriList, new AttachmentManager.AttachmentCallback() {
-            @Override
-            public void onSuccess(List<AttachmentManager.AttachmentFile> savedFiles) {
-                for (AttachmentManager.AttachmentFile file : savedFiles) {
-                    localPaths.put(file.uri, file.path);
-                }
-                future.complete(localPaths);
-            }
-
-            @Override
-            public void onError(String error) {
-                AppLogger.aiE(TAG, "Save attachments failed: " + error);
-                future.complete(localPaths);
-            }
-        });
-
-        return future;
+        return getVisionHelper().saveAttachmentsToLocal(attachmentManager, uris);
     }
 
+    /**
+     * Agent 增强消息（落盘路径 + 预解析确定性状态）：实现见 AttachmentPromptBuilder，
+     * 与本地 OCR 路径共用同一份截断阈值（单文件 12000 字），不再两处各写一遍。
+     */
     private String buildAgentAugmentedMessage(String originalMessage, List<ChatMessage.Attachment> attachments,
                                                java.util.Map<Uri, String> localFileMap, List<String> skippedFiles,
                                                java.util.Map<String, com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult> parseResults) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(getString(R.string.h_793176ee)).append(originalMessage).append("\n\n");
-        sb.append(getString(R.string.h_11214c64));
-
-        int successCount = 0;
-        int idx = 1;
-        for (ChatMessage.Attachment att : attachments) {
-            Uri uri = Uri.parse(att.url);
-            String localPath = localFileMap.get(uri);
-            com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseResult r =
-                    parseResults != null ? parseResults.get(att.id) : null;
-
-            sb.append(getString(R.string.h_94e069c2)).append(idx).append("】").append(att.name).append("\n");
-            sb.append(getString(R.string.h_1ee53933)).append(att.type).append(getString(R.string.h_176d6e45)).append(formatFileSize(att.size)).append("\n");
-            if (localPath != null) {
-                sb.append(getString(R.string.h_28c797b8)).append(localPath).append("\n");
-            }
-
-            if (r != null && r.isUsable()) {
-                successCount++;
-                sb.append(getString(R.string.h_764fab2b)).append(r.status == com.oilquiz.app.ai.chat.input.AttachmentPreParser.ParseStatus.PARTIAL_SUCCESS
-                        ? "PARTIAL_SUCCESS" : "SUCCESS").append("\n");
-                sb.append(getString(R.string.h_5f27c9db)).append(r.method).append(r.fromCache ? getString(R.string.h_2d8ed504) : "").append("\n");
-                if (r.errorMessage != null) {
-                    sb.append(getString(R.string.h_46bc48a9)).append(r.errorMessage).append("\n");
-                }
-                sb.append(getString(R.string.h_1e7d25f8));
-                sb.append(getString(R.string.h_24984e0c));
-                String content = r.content;
-                int maxLen = 12000;
-                if (content.length() > maxLen) {
-                    sb.append(content, 0, maxLen);
-                    sb.append(getString(R.string.h_55a2a38e)).append(content.length())
-                      .append(getString(R.string.h_6b35290e));
-                } else {
-                    sb.append(content).append("\n");
-                }
-                sb.append(getString(R.string.h_dae5a2ac));
-            } else {
-                // 失败：明确错误码与原因，禁止模型笼统说"未检测到附件"
-                sb.append(getString(R.string.h_bf63260f));
-                if (r != null) {
-                    sb.append(getString(R.string.h_5d89be82)).append(r.errorCode).append("\n");
-                    sb.append(getString(R.string.h_41d16b3d)).append(r.errorMessage).append("\n");
-                    if (localPath != null) {
-                        sb.append(getString(R.string.h_cad33dfa));
-                    }
-                } else {
-                    sb.append(getString(R.string.h_03670db5));
-                }
-            }
-            sb.append("\n");
-            idx++;
-        }
-
-        if (skippedFiles != null && !skippedFiles.isEmpty()) {
-            sb.append(getString(R.string.h_d7824330)).append(String.join(", ", skippedFiles)).append("\n\n");
-        }
-
-        sb.append(getString(R.string.h_9e0ee86a));
-        if (successCount > 0) {
-            sb.append(getString(R.string.h_ee31e1e3)).append(successCount).append(getString(R.string.h_fe85860b));
-        }
-        sb.append(getString(R.string.h_f6a98d86));
-        sb.append(getString(R.string.h_447064b9));
-        sb.append(getString(R.string.h_30890ceb));
-
-        sb.append(getString(R.string.h_b07b6bc9));
-        sb.append(getString(R.string.h_db5abb31));
-        sb.append("- file_parse_text: file_path | file_read_lines: file_path, start_line, line_count\n");
-        sb.append("- ocr_recognize: image_path | ocr_recognize_pdf: pdf_path\n\n");
-
-        // 直发附件的默认占位文案已表达“分析附件”意图，不再重复注入结尾指令
-        if (!DEFAULT_ATTACHMENT_MESSAGE.equals(originalMessage)) {
-            sb.append(getString(R.string.h_cf88fe4b));
-        } else {
-            sb.append(getString(R.string.h_926e80d4));
-        }
-
-        return sb.toString();
+        return getAttachmentPromptBuilder().buildAgentAugmentedMessage(
+                originalMessage, attachments, localFileMap, skippedFiles, parseResults);
     }
 
     private String formatFileSize(long size) {
@@ -4119,10 +4069,10 @@ public class AIChatActivity extends BaseActivity {
 
     // 附件处理并发控制
     private final java.util.concurrent.atomic.AtomicBoolean isProcessingAttachments = new java.util.concurrent.atomic.AtomicBoolean(false);
-    private static final int MAX_CONCURRENT_ATTACHMENTS = 3; // 最大并发处理附件数
 
-    /** 直发附件（无文字输入）时的默认占位文案 */
-    private static final String DEFAULT_ATTACHMENT_MESSAGE = "请分析这些附件的内容";
+    /** 直发附件（无文字输入）时的默认占位文案：与提示词构建器同一常量，避免两处字面量漂移 */
+    private static final String DEFAULT_ATTACHMENT_MESSAGE =
+            com.oilquiz.app.ai.chat.attachment.AttachmentPromptBuilder.DEFAULT_ATTACHMENT_MESSAGE;
 
     private void processMessageWithAttachments(String originalMessage, List<ChatMessage.Attachment> attachments) {
         // 同步捕获本条消息的深度思考开关（开关保持用户设定，不自动复位）
@@ -4132,18 +4082,12 @@ public class AIChatActivity extends BaseActivity {
         } catch (Exception ignored) {
         }
         final boolean visionThinkingEnabled = thinkingFlag;
-        // 过滤有效附件（限制数量与大小）
-        List<ChatMessage.Attachment> filtered = new ArrayList<>();
-        List<String> skippedFiles = new ArrayList<>();
-        for (ChatMessage.Attachment att : attachments) {
-            if (filtered.size() >= MAX_CONCURRENT_ATTACHMENTS) {
-                skippedFiles.add(att.name + "(超出数量限制)");
-            } else if (att.size > MAX_ATTACHMENT_FILE_SIZE) {
-                skippedFiles.add(att.name + "(" + formatFileSize(att.size) + ")");
-            } else {
-                filtered.add(att);
-            }
-        }
+        // 过滤有效附件：数量与大小阈值与在线 Agent 路径同一口径（原先这里是 3 张、
+        // ViaAgent 是 10 张，同一条消息换条链路就会被切掉一半附件）
+        final com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.FilterResult filterResult =
+                getVisionPipeline().filterAttachments(attachments);
+        final List<ChatMessage.Attachment> filtered = filterResult.filtered;
+        final List<String> skippedFiles = filterResult.skipped;
 
         if (!skippedFiles.isEmpty()) {
             showToast(getString(R.string.h_a3e17914) + skippedFiles.size() + getString(R.string.h_7c645c81));
@@ -4170,21 +4114,16 @@ public class AIChatActivity extends BaseActivity {
                 return;
             }
 
-            // 本地多模态优先：vision 模型 + mmproj 已加载 + 单张图片 → 直接视觉理解（不走 OCR）
-            boolean allImages = !filtered.isEmpty();
-            for (ChatMessage.Attachment att : filtered) {
-                if (!"image".equals(att.type)) { allImages = false; break; }
-            }
+            // 本方法是 OCR/文本提取通道，不再自己做视觉分派：图片要不要"直接看图"统一由
+            // routeImagesToVision（在线 Agent 路径）决定。此前这里也有一套"单图才走本地多模态"的
+            // 判定，与 ViaAgent 那套重复且阈值不同；视觉回退到本方法时必须直接落 OCR，
+            // 否则会出现"OCR 回退 → 又分派回视觉"的往返。
             boolean multimodalReady = false;
             try {
                 multimodalReady = LlamaHelper.isMultimodalLoaded() && LlamaHelper.isModelInitialized();
             } catch (Exception ignored) {}
-            // 本地模型已加载但视觉未就绪（供 OCR 兜底提示使用，final 以便 lambda 捕获）
+            // 本地模型已加载但视觉未就绪（供兜底提示说明原因，final 以便 lambda 捕获）
             final boolean localVisionNotReady = !multimodalReady && LlamaHelper.isModelInitialized();
-            if (allImages && multimodalReady && filtered.size() == 1) {
-                handleMultimodalImage(filtered.get(0), localFileMap, originalMessage, visionThinkingEnabled);
-                return;
-            }
 
             // 图片等附件统一走 OCR 附件预解析路径（不交给本地模型多模态推理）
             runOnUiThread(() -> {
@@ -4288,38 +4227,92 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 本地多模态推理：单张图片 + vision 模型（mmproj 已加载）→ generateWithImage 直接视觉理解。
+     * 图片 → 视觉通道的单一决策出口。返回 true 表示本轮已由视觉链路接管。
+     *
+     * 优先级按"谁能完整吃下这批图"排，而不是本地/在线的固定顺序：
+     * 1. 本地视觉且引擎支持本次图片数（llama.cpp mtmd 是 bitmaps[1] 单图硬限，NPU VLM 支持多图）；
+     * 2. 在线视觉模型（单次最多 {@code MAX_VISION_IMAGES} 张，另受请求体字节预算约束）；
+     * 3. 两边都接不住 → false，调用方落回 OCR 文本 + Agent。
+     * 本地只能 1 张而本次发了 3 张时，先给在线机会，不再像旧实现那样整批降级成 OCR。
+     */
+    private boolean routeImagesToVision(List<ChatMessage.Attachment> images,
+                                        java.util.Map<Uri, String> localFileMap,
+                                        String originalMessage, boolean thinkingEnabled) {
+        if (images == null || images.isEmpty()) return false;
+
+        List<java.io.File> files = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        List<ChatMessage.Attachment> resolved = new ArrayList<>();
+        for (ChatMessage.Attachment att : images) {
+            String path = localFileMap != null ? localFileMap.get(Uri.parse(att.url)) : null;
+            java.io.File file = path != null ? new java.io.File(path) : null;
+            if (file == null || !file.exists()) {
+                file = getVisionHelper().resolveAttachmentFile(att);
+            }
+            if (file == null || !file.exists()) continue;
+            files.add(file);
+            names.add(att.name);
+            resolved.add(att);
+        }
+        if (resolved.isEmpty()) {
+            AppLogger.w(TAG, "routeImagesToVision: 图片全部未能解析到本地文件，落回 OCR");
+            return false;
+        }
+
+        int localLimit = getVisionPipeline().localVisionImageLimit();
+        if (localLimit >= resolved.size()) {
+            handleLocalVisionImages(resolved, files, originalMessage, thinkingEnabled);
+            return true;
+        }
+
+        if (isOnlineVisionModel()) {
+            com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.VisionImageSelection selection =
+                    com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
+                            .selectVisionImages(files, names);
+            if (selection.isEmpty()) return false;
+            return handleOnlineMultimodalImages(selection, resolved, originalMessage);
+        }
+
+        return false;
+    }
+
+    /**
+     * 本地视觉推理：vision 模型 + mmproj 已加载 → generateWithImage 直接看图。
+     * 单张按引擎原样传路径；NPU 多模态一次挂多张（预处理图全部经 setPendingImagePaths 下发）。
      * 图片本地保存失败时回退 OCR 附件路径；任何异常仅提示，不崩溃。
      */
-    private void handleMultimodalImage(ChatMessage.Attachment imageAtt,
-                                       java.util.Map<android.net.Uri, String> localFileMap,
-                                       String originalMessage,
-                                       boolean visionThinkingEnabled) {
+    private void handleLocalVisionImages(List<ChatMessage.Attachment> imageAtts,
+                                         List<java.io.File> imageFiles,
+                                         String originalMessage,
+                                         boolean visionThinkingEnabled) {
         try {
-            android.net.Uri uri = android.net.Uri.parse(imageAtt.url);
-            String localPath = localFileMap != null ? localFileMap.get(uri) : null;
-            java.io.File localFile = localPath != null ? new java.io.File(localPath) : null;
+            java.io.File localFile = imageFiles.isEmpty() ? null : imageFiles.get(0);
             if (localFile == null || !localFile.exists()) {
-                AppLogger.w(TAG, "Multimodal: image not saved locally, falling back to OCR path");
-                processMessageWithAttachments(originalMessage, java.util.Collections.singletonList(imageAtt));
+                AppLogger.w(TAG, "Vision: image not saved locally, falling back to OCR path");
+                processMessageWithAttachments(originalMessage, imageAtts);
                 return;
             }
 
-            final String userText = originalMessage == null || originalMessage.trim().isEmpty()
-                    ? "请描述这张图片的内容" : originalMessage;
+            final String userText = com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
+                    .visionUserText(originalMessage);
             // 图片预处理：WebP/HEIC 等重编码为 JPEG + 长边降采样，
             // 解决原生 mtmd(stb_image) 不支持 WebP/HEIC、大图全尺寸解码 OOM 两个问题
-            final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(this, localFile);
-        // NPU-VLM-IMAGE: 同一张预处理图也交给 NPU 的 VLM 路径
-        // （NpuLlmChat 会在 VLM 分支把它作为 VlmContent("image", path) 挂到最后一条 user 消息，
-        //   再由 injectMediaPathsToConfig 注入 GenerationConfig；非 VLM 模型下该设置无效）
-        try {
-            if (isNpuEngineOn()) {
-                com.oilquiz.app.ai.engine.NpuLlmChat.setPendingImagePaths(
-                        java.util.Collections.singletonList(visionImagePath));
+            List<String> visionImagePaths = new ArrayList<>();
+            for (java.io.File file : imageFiles) {
+                visionImagePaths.add(com.oilquiz.app.ai.util.ImagePreprocessUtil
+                        .prepareVisionImage(this, file));
             }
-        } catch (Throwable ignored) {
-        }
+            final String visionImagePath = visionImagePaths.get(0);
+            // NPU-VLM-IMAGE: 同一批预处理图也交给 NPU 的 VLM 路径
+            // （NpuLlmChat 会在 VLM 分支把它们逐个作为 VlmContent("image", path) 挂到最后一条
+            //   user 消息，再由 injectMediaPathsToConfig 注入 GenerationConfig；
+            //   非 VLM 模型下该设置无效，llama.cpp 仍按 imagePath 单图处理）
+            try {
+                if (isNpuEngineOn()) {
+                    com.oilquiz.app.ai.engine.NpuLlmChat.setPendingImagePaths(visionImagePaths);
+                }
+            } catch (Throwable ignored) {
+            }
             // 多轮上下文：取当前图片消息之前的 USER/AI 文本消息（图片消息本身不入历史，
             // 其文本离开图片会误导模型）
             final java.util.List<ChatMessage> history = buildVisionHistory(1);
@@ -4332,26 +4325,14 @@ public class AIChatActivity extends BaseActivity {
             startLocalVisionGeneration(history, userText, visionImagePath,
                     maxTokens, temperature, topP, topK, visionThinkingEnabled);
         } catch (Exception e) {
-            AppLogger.e(TAG, "handleMultimodalImage error: " + e.getMessage(), e);
+            AppLogger.e(TAG, "handleLocalVisionImages error: " + e.getMessage(), e);
             showToast(getString(R.string.h_c7833a66));
         }
     }
 
-    /** 构建本地视觉模型的多轮上下文：取 chatHistory 中除末尾 excludeLast 条外的 USER/AI 文本消息，最多 12 条 */
+    /** 构建本地视觉模型的多轮上下文（实现见 VisionInferenceHelper：USER/AI 有正文、最多 12 条） */
     private java.util.List<ChatMessage> buildVisionHistory(int excludeLast) {
-        java.util.List<ChatMessage> hist = new java.util.ArrayList<>();
-        int end = Math.max(0, chatHistory.size() - excludeLast);
-        for (int i = 0; i < end; i++) {
-            ChatMessage m = chatHistory.get(i);
-            if ((m.type == ChatMessage.MessageType.USER || m.type == ChatMessage.MessageType.AI)
-                    && m.content != null && !m.content.isEmpty()) {
-                hist.add(m);
-            }
-        }
-        if (hist.size() > 12) {
-            hist = new java.util.ArrayList<>(hist.subList(hist.size() - 12, hist.size()));
-        }
-        return hist;
+        return getVisionHelper().buildVisionHistory(chatHistory, excludeLast);
     }
 
     /**
@@ -4432,21 +4413,12 @@ public class AIChatActivity extends BaseActivity {
         }).start();
     }
 
-    /** 解析附件为真实本地文件（优先落盘路径，否则 content:// 复制到缓存） */
+    /**
+     * 解析附件为真实本地文件：口径统一在 VisionInferenceHelper（优先落盘路径，
+     * 其余交给 UriPathResolver 统一处理 file://、content://、纯路径三种写法）。
+     */
     private java.io.File resolveAttachmentFile(ChatMessage.Attachment att) {
-        try {
-            if (att.localFilePath != null) {
-                java.io.File f = new java.io.File(att.localFilePath);
-                if (f.exists()) return f;
-            }
-            if (att.url != null && !att.url.isEmpty()) {
-                java.io.File f = com.oilquiz.app.util.UriPathResolver.resolveToFile(this, att.url);
-                if (f != null && f.exists()) return f;
-            }
-        } catch (Exception e) {
-            AppLogger.w(TAG, "resolveAttachmentFile failed: " + e.getMessage());
-        }
-        return null;
+        return getVisionHelper().resolveAttachmentFile(att);
     }
 
     /**
@@ -4459,32 +4431,29 @@ public class AIChatActivity extends BaseActivity {
             if (!LlamaHelper.isMultimodalLoaded() || !LlamaHelper.isModelInitialized()) return false;
             if (chatHistory == null || chatHistory.isEmpty()) return false;
             // 找最近一条带图片的用户消息（当前纯文字消息已在末尾、无图，会被跳过）
-            ChatMessage.Attachment lastImage = null;
-            int lastImageIndex = -1;
-            for (int i = chatHistory.size() - 1; i >= 0; i--) {
-                ChatMessage m = chatHistory.get(i);
-                if (m.type == ChatMessage.MessageType.USER && m.attachments != null) {
-                    for (ChatMessage.Attachment att : m.attachments) {
-                        if (att != null && "image".equals(att.type)) {
-                            lastImage = att;
-                            lastImageIndex = i;
-                            break;
-                        }
-                    }
-                }
-                if (lastImage != null) break;
-            }
-            if (lastImage == null || lastImageIndex < 0) return false;
+            int lastImageIndex = getVisionPipeline().findLastImageAttachment(chatHistory);
+            if (lastImageIndex < 0) return false;
             if (lastImageIndex == chatHistory.size() - 1) return false; // 当前消息本身就是带图消息，不应走到这
-            java.io.File imageFile = resolveAttachmentFile(lastImage);
-            if (imageFile == null || !imageFile.exists()) return false;
-
-            final String visionImagePath = com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareVisionImage(this, imageFile);
-        // NPU-VLM-IMAGE: 同上（图片追问路径）
+            // 复用该轮图片：llama.cpp mtmd 是单图硬限（bitmaps[1]），NPU VLM 可以整批复用
+            int localLimit = getVisionPipeline().localVisionImageLimit();
+            if (localLimit <= 0) return false;
+            List<ChatMessage.Attachment> reuseImages =
+                    com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.collectImages(
+                            chatHistory.get(lastImageIndex), localLimit);
+            if (reuseImages.isEmpty()) return false;
+            List<String> visionImagePaths = new ArrayList<>();
+            for (ChatMessage.Attachment att : reuseImages) {
+                java.io.File file = resolveAttachmentFile(att);
+                if (file == null || !file.exists()) continue;
+                visionImagePaths.add(com.oilquiz.app.ai.util.ImagePreprocessUtil
+                        .prepareVisionImage(this, file));
+            }
+            if (visionImagePaths.isEmpty()) return false;
+            final String visionImagePath = visionImagePaths.get(0);
+        // NPU-VLM-IMAGE: 同上（图片追问路径，NPU 一次挂整批复用图）
         try {
             if (isNpuEngineOn()) {
-                com.oilquiz.app.ai.engine.NpuLlmChat.setPendingImagePaths(
-                        java.util.Collections.singletonList(visionImagePath));
+                com.oilquiz.app.ai.engine.NpuLlmChat.setPendingImagePaths(visionImagePaths);
             }
         } catch (Throwable ignored) {
         }
@@ -4513,7 +4482,8 @@ public class AIChatActivity extends BaseActivity {
             } catch (Exception ignored) {
             }
             final boolean thinkingEnabled = thinkingFlag;
-            AppLogger.ai(TAG, "Follow-up vision: reuse image " + imageFile.getName() + " for: " + message);
+            AppLogger.ai(TAG, "Follow-up vision: reuse " + visionImagePaths.size()
+                    + " image(s) for: " + message);
             startLocalVisionGeneration(history, message, visionImagePath,
                     maxTokens, temperature, topP, topK, thinkingEnabled);
             return true;
@@ -4534,33 +4504,44 @@ public class AIChatActivity extends BaseActivity {
             if (!isOnlineVisionModel()) return false;
             if (chatHistory == null || chatHistory.isEmpty()) return false;
             // 找最近一条带图片的用户消息（当前纯文字消息已在末尾、无图，会被跳过）
-            ChatMessage.Attachment lastImage = null;
-            int lastImageIndex = -1;
-            for (int i = chatHistory.size() - 1; i >= 0; i--) {
-                ChatMessage m = chatHistory.get(i);
-                if (m.type == ChatMessage.MessageType.USER && m.attachments != null) {
-                    for (ChatMessage.Attachment att : m.attachments) {
-                        if (att != null && "image".equals(att.type)) {
-                            lastImage = att;
-                            lastImageIndex = i;
-                            break;
-                        }
-                    }
-                }
-                if (lastImage != null) break;
-            }
-            if (lastImage == null || lastImageIndex < 0) return false;
+            int lastImageIndex = getVisionPipeline().findLastImageAttachment(chatHistory);
+            if (lastImageIndex < 0) return false;
             if (lastImageIndex == chatHistory.size() - 1) return false; // 当前消息本身就是带图消息，不应走到这
-            final ChatMessage.Attachment fImage = lastImage;
-            java.io.File imageFile = resolveAttachmentFile(lastImage);
-            if (imageFile == null || !imageFile.exists()) return false;
-            if (imageFile.length() > 4L * 1024 * 1024) return false; // 防请求体过大，超 4MB 不走在线视觉
+            // 复用该轮的整批图片（旧实现只取"最近一张"，多图那轮的上下文会丢）
+            List<ChatMessage.Attachment> followUpImages =
+                    com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.collectImages(
+                            chatHistory.get(lastImageIndex),
+                            com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.MAX_VISION_IMAGES);
+            if (followUpImages.isEmpty()) return false;
 
-            // 读图转 base64
-            byte[] bytes = java.nio.file.Files.readAllBytes(imageFile.toPath());
-            final String b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+            List<java.io.File> files = new ArrayList<>();
+            List<String> names = new ArrayList<>();
+            final List<ChatMessage.Attachment> resolved = new ArrayList<>();
+            for (ChatMessage.Attachment att : followUpImages) {
+                java.io.File file = resolveAttachmentFile(att);
+                if (file == null || !file.exists()) continue;
+                files.add(file);
+                names.add(att.name);
+                resolved.add(att);
+            }
+            if (resolved.isEmpty()) return false;
+            com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.VisionImageSelection selection =
+                    com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
+                            .selectVisionImages(files, names);
+            if (selection.isEmpty()) return false;
 
-            // 历史：图片消息之前的 USER/AI 纯文本（跳过带附件消息，多轮发图时避免把旧图文本/默认文本混入）
+            // 与首轮同一套编码出口：真实 MIME + 长边 1568 + 预算内质量梯度（不再"超 4MB 就不看图"）
+            List<String> encodeFailedNames = new ArrayList<>();
+            List<com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage> parts =
+                    encodeVisionSelection(selection.images, encodeFailedNames);
+            if (parts.isEmpty()) return false;
+            reportVisionSkippedImages(selection.skipReasons, encodeFailedNames);
+            final String followUpText = parts.size() > 1
+                    ? message + "\n（本轮复用上一批 " + parts.size() + " 张图，按发送顺序依次记为第 1、2…"
+                            + parts.size() + " 张）"
+                    : message;
+
+            // 历史：图片消息之前的 USER/AI 纯文本（跳过更早的带附件消息，避免旧图文本混入）
             final java.util.List<ChatMessage> history = new java.util.ArrayList<>();
             for (int i = 0; i < lastImageIndex; i++) {
                 ChatMessage m = chatHistory.get(i);
@@ -4570,8 +4551,18 @@ public class AIChatActivity extends BaseActivity {
                     history.add(m);
                 }
             }
-            if (history.size() > 12) {
-                java.util.List<ChatMessage> trimmed = new java.util.ArrayList<>(history.subList(history.size() - 12, history.size()));
+            // 带图那条消息的原文这次要带上：本轮把它的图片重新喂给了模型，
+            // 当初那句"看这张图里的第三题"就不再是脱离图片的噪声，而是本轮追问的前提。
+            ChatMessage imageMessage = chatHistory.get(lastImageIndex);
+            String imageMessageText = imageMessage.content;
+            if (imageMessageText != null && !imageMessageText.trim().isEmpty()
+                    && !DEFAULT_ATTACHMENT_MESSAGE.equals(imageMessageText)) {
+                history.add(ChatMessage.createUserMessage(imageMessageText));
+            }
+            if (history.size() > com.oilquiz.app.ai.chat.vision.VisionInferenceHelper.VISION_HISTORY_MAX) {
+                java.util.List<ChatMessage> trimmed = new java.util.ArrayList<>(history.subList(
+                        history.size() - com.oilquiz.app.ai.chat.vision.VisionInferenceHelper.VISION_HISTORY_MAX,
+                        history.size()));
                 history.clear();
                 history.addAll(trimmed);
             }
@@ -4599,14 +4590,15 @@ public class AIChatActivity extends BaseActivity {
                 return true;
             }
 
-            AppLogger.ai(TAG, "Follow-up online vision: reuse image " + imageFile.getName() + " for: " + message);
+            AppLogger.ai(TAG, "Follow-up online vision: reuse " + parts.size()
+                    + " image(s) for: " + message);
             // 深度思考开关：跟随 UI 独立开关，多模态思考模型（如 Qwen3-VL）reasoning 走思考区
             boolean visionThinking = false;
             try {
                 visionThinking = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
             } catch (Exception ignored) {
             }
-            ois.generateStreamWithImages(message, java.util.Collections.singletonList(b64),
+            ois.generateStreamWithImageParts(followUpText, parts,
                     active, history, maxTokens, visionThinking, new com.oilquiz.app.ai.callback.StreamCallback() {
                         @Override public void onToken(String token) {
                             if (token == null) return;
@@ -4640,9 +4632,9 @@ public class AIChatActivity extends BaseActivity {
                                 aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
                                 if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndex);
                                 endGeneration();
-                                // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）
-                                processMessageWithAttachmentsViaAgent(message,
-                                        java.util.Collections.singletonList(fImage));
+                                // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）：
+                                // 回退的是整批复用图，不能只回退第一张；且不再重开视觉分派，避免往返
+                                processMessageWithAttachmentsViaAgent(message, resolved, false);
                             });
                         }
                     });
@@ -4654,27 +4646,19 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 当前是否为支持视觉的在线模型（模型名含 vl/vision/4o/omni/gemini/glm-4v 等）。
-     * 局限：模型名判断不绝对可靠——近期在线视觉失败（lastOnlineVisionFailAt）时返回 false，
-     * 走 OCR 兜底，避免对不支持图片的 API 反复发图导致 400 循环。
+     * 当前是否为支持视觉的在线模型。判定本身（能力字段优先 + 模型名关键词兜底）在
+     * {@code AttachmentVisionPipeline} 里，这里只补两条 Activity 才有的事实：
+     * 是否处于在线模式、以及失败冷却（近期在线视觉失败时返回 false 走 OCR 兜底，
+     * 避免对不支持图片的 API 反复发图导致 400 循环）。
      */
     private boolean isOnlineVisionModel() {
         try {
             if (!shouldUseOnlineModel()) return false;
-            if (System.currentTimeMillis() - lastOnlineVisionFailAt < 30_000L) return false; // 失败冷却 30s
-            // 1) 配置能力字段优先（supportsVision / capabilities.supportsImageInput，
-            //    加载时按模型名自动填充并持久化，未来可支持用户手动覆盖）
-            OnlineModelManager.OnlineModelConfig active =
-                    onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
-            if (active != null && active.hasCapability("vision")) return true;
-            // 2) 模型名关键词兜底推断（active 为 null 或能力字段未标记时）
-            String modelName = null;
-            if (inferenceRouter != null) {
-                modelName = inferenceRouter.getCurrentModelName();
+            if (System.currentTimeMillis() - lastOnlineVisionFailAt
+                    < com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.VISION_FAIL_COOLDOWN_MS) {
+                return false; // 失败冷却
             }
-            if ((modelName == null || modelName.isEmpty()) && active != null) modelName = active.modelName;
-            if (modelName == null) return false;
-            return com.oilquiz.app.ai.model.OnlineModelManager.isVisionModelName(modelName);
+            return getVisionPipeline().isOnlineVisionModel();
         } catch (Exception e) {
             return false;
         }
@@ -4684,41 +4668,57 @@ public class AIChatActivity extends BaseActivity {
     private volatile long lastOnlineVisionFailAt = 0;
 
     /**
-     * 在线多模态推理：单张图片 + 在线视觉模型 → base64 注入 OpenAI 兼容消息直接看图。
-     * 图片超过 4MB 或读取失败时回退 OCR+Agent 路径；任何异常仅提示，不崩溃。
+     * 在线多模态推理：在线视觉模型 + 一批图片 → 每张按真实字节 MIME 编 base64，
+     * 全部注入同一条 user 消息（图片 part 在前、文本在后），一次请求看完整批图。
+     *
+     * 与旧实现的三点区别：
+     * 1. 不再只允许 1 张，数量与请求体预算由 {@code selectVisionImages} 统一裁决；
+     * 2. 不再"原字节 + 硬标 image/jpeg"，长边 1568 降采样 + EXIF 矫正 + 预算内质量梯度重编码；
+     * 3. 单张编码失败只跳过该张并在界面上说明，不像旧实现那样超 4MB 就整条链路降级 OCR。
+     *
+     * @return true 表示已由视觉链路接管；false 表示没图可用，调用方落回 OCR+Agent
      */
-    private void handleOnlineMultimodalImage(ChatMessage.Attachment imageAtt,
-                                             java.util.Map<android.net.Uri, String> localFileMap,
-                                             String originalMessage) {
+    private boolean handleOnlineMultimodalImages(
+            com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline.VisionImageSelection selection,
+            List<ChatMessage.Attachment> allImages,
+            String originalMessage) {
+        List<java.io.File> imageFiles = selection.images;
         try {
-            android.net.Uri uri = android.net.Uri.parse(imageAtt.url);
-            String localPath = localFileMap != null ? localFileMap.get(uri) : null;
-            java.io.File localFile = localPath != null ? new java.io.File(localPath) : null;
-            if (localFile == null || !localFile.exists()) {
-                AppLogger.w(TAG, "Online multimodal: image not saved, falling back to OCR path");
-                processMessageWithAttachmentsViaAgent(originalMessage, java.util.Collections.singletonList(imageAtt));
-                return;
-            }
-            if (localFile.length() > 4L * 1024 * 1024) {
-                AppLogger.w(TAG, "Online multimodal: image > 4MB, falling back to OCR path");
-                showToast(getString(R.string.h_a8f5e4b0));
-                processMessageWithAttachmentsViaAgent(originalMessage, java.util.Collections.singletonList(imageAtt));
-                return;
+            List<String> encodeFailedNames = new ArrayList<>();
+            List<com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage> parts =
+                    encodeVisionSelection(imageFiles, encodeFailedNames);
+            if (parts.isEmpty()) {
+                AppLogger.w(TAG, "Online multimodal: no image could be encoded, falling back to OCR path");
+                reportVisionSkippedImages(selection.skipReasons, encodeFailedNames);
+                return false;
             }
 
-            // 读图转 base64
-            byte[] bytes = java.nio.file.Files.readAllBytes(localFile.toPath());
-            String b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
-
-            final String userText = originalMessage == null || originalMessage.trim().isEmpty()
-                    ? "请描述这张图片的内容" : originalMessage;
+            final String baseText = com.oilquiz.app.ai.chat.vision.AttachmentVisionPipeline
+                    .visionUserText(originalMessage);
+            // 多图指代：各家官方都建议多图时用序号指代（Gemini 最佳实践明确 image 1/image 2）
+            final String userText = parts.size() > 1
+                    ? baseText + "\n（本轮随图发来 " + parts.size() + " 张，按发送顺序依次记为第 1、2…"
+                            + parts.size() + " 张）"
+                    : baseText;
+            reportVisionSkippedImages(selection.skipReasons, encodeFailedNames);
             // 用户消息已由 sendMessage 添加（含附件），此处不再重复添加，直接创建 AI 回复消息
+
+            final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
+            com.oilquiz.app.ai.service.OnlineInferenceService ois =
+                    com.oilquiz.app.ai.service.OnlineInferenceService.getInstance(this);
+            OnlineModelManager.OnlineModelConfig active =
+                    onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
+            if (ois == null || active == null) {
+                // 在线视觉不可用：让调用方落回 OCR+Agent，而不是先建一条错误 AI 消息
+                AppLogger.w(TAG, "Online multimodal: no usable online model, falling back to OCR path");
+                return false;
+            }
 
             final String msgId = java.util.UUID.randomUUID().toString();
             ChatMessage aiMsg = ChatMessage.createAIMessage(msgId, "", System.currentTimeMillis(), null, 0, 0);
             aiMsg.status = ChatMessage.MessageStatus.GENERATING;
             final int[] aiIndexRef = { -1 };
-            // 可能被后台线程调用（附件回调链 AttachmentManager→CompletableFuture→handleOnlineMultimodalImage），
+            // 可能被后台线程调用（附件回调链 AttachmentManager→CompletableFuture→视觉路由），
             // notifyItemInserted/scrollToBottom 必须在 UI 线程执行
             runOnUiThread(() -> {
                 chatHistory.add(aiMsg);
@@ -4727,21 +4727,6 @@ public class AIChatActivity extends BaseActivity {
                 scrollToBottom();
                 beginGeneration();
             });
-
-            final int maxTokens = aiConfig != null ? aiConfig.getMaxTokens() : 1024;
-            com.oilquiz.app.ai.service.OnlineInferenceService ois =
-                    com.oilquiz.app.ai.service.OnlineInferenceService.getInstance(this);
-            OnlineModelManager.OnlineModelConfig active =
-                    onlineModelManager != null ? onlineModelManager.getActiveModel() : null;
-            if (ois == null || active == null) {
-                runOnUiThread(() -> {
-                    aiMsg.content = "在线模型未配置";
-                    aiMsg.status = ChatMessage.MessageStatus.ERROR;
-                    if (aiIndexRef[0] >= 0 && chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
-                    endGeneration();
-                });
-                return;
-            }
 
             // 多轮上下文：图片消息之前的 USER/AI 纯文本（跳过带附件消息，避免旧图文本混入）
             final java.util.List<ChatMessage> onlineHistory = new java.util.ArrayList<>();
@@ -4765,7 +4750,7 @@ public class AIChatActivity extends BaseActivity {
                 visionThinking = com.oilquiz.app.ai.chat.ChatModeManager.getInstance(this).isDeepThinkingEnabled();
             } catch (Exception ignored) {
             }
-            ois.generateStreamWithImages(userText, java.util.Collections.singletonList(b64),
+            ois.generateStreamWithImageParts(userText, parts,
                     active, onlineHistory,
                     maxTokens, visionThinking, new com.oilquiz.app.ai.callback.StreamCallback() {
                         @Override public void onToken(String token) {
@@ -4800,136 +4785,105 @@ public class AIChatActivity extends BaseActivity {
                                 aiMsg.status = ChatMessage.MessageStatus.COMPLETED;
                                 if (chatAdapter != null) chatAdapter.notifyItemChanged(aiIndexRef[0]);
                                 endGeneration();
-                                // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）
-                                processMessageWithAttachmentsViaAgent(originalMessage,
-                                        java.util.Collections.singletonList(imageAtt));
+                                // 回退 OCR 文本 + Agent（ViaAgent 因冷却标记不再走在线视觉）：
+                                // 回退的是整批图片，不能只回退第一张；且不再重开视觉分派，避免往返
+                                processMessageWithAttachmentsViaAgent(originalMessage, allImages, false);
                             });
                         }
                     });
+            return true;
         } catch (Exception e) {
-            AppLogger.e(TAG, "handleOnlineMultimodalImage error: " + e.getMessage(), e);
+            AppLogger.e(TAG, "handleOnlineMultimodalImages error: " + e.getMessage(), e);
             lastOnlineVisionFailAt = System.currentTimeMillis();
             showToast(getString(R.string.h_2b587ccc));
-            processMessageWithAttachmentsViaAgent(originalMessage, java.util.Collections.singletonList(imageAtt));
+            // 异常兜底同样不再重开视觉分派（否则会 OCR→视觉→OCR 往返）
+            processMessageWithAttachmentsViaAgent(originalMessage, allImages, false);
+            return true;
         }
     }
 
     /**
-     * 根据附件 ID 查找文件名
+     * 选中的图片 → 视觉请求部件（实现见 VisionInferenceHelper → ImagePreprocessUtil）。
+     * 与入参一一对应地收集编码失败的文件名，供上层如实回报哪几张没进模型。
+     */
+    private List<com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage> encodeVisionSelection(
+            List<java.io.File> files, List<String> failedNamesOut) {
+        List<com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage> parts = new ArrayList<>();
+        List<com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage> encoded =
+                getVisionHelper().encodeForVision(files);
+        for (int i = 0; i < encoded.size(); i++) {
+            com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage prepared = encoded.get(i);
+            if (prepared == null || prepared.base64 == null || prepared.base64.isEmpty()) {
+                failedNamesOut.add(files.get(i).getName());
+                continue;
+            }
+            if (!prepared.withinBudget) {
+                AppLogger.w(TAG, "Vision image still over budget after re-encode: "
+                        + files.get(i).getName() + " (" + prepared.size() + " bytes)");
+            }
+            parts.add(prepared);
+        }
+        return parts;
+    }
+
+    /**
+     * 把"没能进视觉通道的图片"如实告诉用户（超数量/超预算/编码失败三种原因），
+     * 避免静默丢图后模型只答了一半内容。
+     */
+    private void reportVisionSkippedImages(List<String> skipReasons, List<String> encodeFailedNames) {
+        boolean hasSkip = skipReasons != null && !skipReasons.isEmpty();
+        boolean hasFail = encodeFailedNames != null && !encodeFailedNames.isEmpty();
+        if (!hasSkip && !hasFail) return;
+        StringBuilder sb = new StringBuilder("部分图片未能做视觉理解：\n");
+        if (hasSkip) {
+            for (String reason : skipReasons) sb.append("• ").append(reason).append("\n");
+        }
+        if (hasFail) {
+            for (String name : encodeFailedNames) sb.append("• ").append(name).append("（图片无法解码）\n");
+        }
+        sb.append("这些图片已改用文字识别通道处理。");
+        final String text = sb.toString();
+        runOnUiThread(() -> {
+            ChatMessage sysMsg = ChatMessage.createSystemMessage(
+                    java.util.UUID.randomUUID().toString(), text,
+                    ChatMessage.SystemMessageType.INFO, System.currentTimeMillis());
+            chatHistory.add(sysMsg);
+            if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
+            scrollToBottom();
+        });
+    }
+
+    /**
+     * 附件提示词与解析状态判定：统一委派给 {@code AttachmentPromptBuilder}
+     * （与视觉编排器共用同一份上下文配置）。此前 Activity 里保有一份同名实现，
+     * 两处截断比例与单文件字数上限各自演化，同一条消息换条链路就会得到不同注入结果。
      */
     private String getAttachmentNameById(List<ChatMessage.Attachment> attachments, String id) {
-        for (ChatMessage.Attachment att : attachments) {
-            if (att.id != null && att.id.equals(id)) return att.name;
-        }
-        return "未知文件";
+        return getAttachmentPromptBuilder().getAttachmentNameById(attachments, id);
     }
 
-    /**
-     * 构建安全的附件分析提示词（带长度限制和异常保护）
-     */
+    /** 构建安全的附件分析提示词（带长度限制和异常保护） */
     private String buildSafeAttachmentAnalysisPrompt(String originalMessage, String attachmentContent, int fileCount) {
-        try {
-            // 防崩溃：附件内容上限随当前模式的上下文窗口动态计算
-            // 中文约 1 字 ≈ 1 token，预留输出与历史对话空间，附件内容最多占上下文 40%
-            int contextSize = aiConfig.getContextSize();
-            int contentLimit = Math.min((int) (contextSize * 0.4), 16000);
-            if (attachmentContent != null && attachmentContent.length() > contentLimit) {
-                AppLogger.w(TAG, "附件内容过长(" + attachmentContent.length() + " 字符, 上下文="
-                        + contextSize + ")，截断到 " + contentLimit);
-                attachmentContent = attachmentContent.substring(0, contentLimit)
-                        + "\n...[附件内容过长已截断，请基于已提供内容分析]";
-            }
-
-            StringBuilder prompt = new StringBuilder();
-            prompt.append(getString(R.string.h_8997e243)).append(fileCount).append(getString(R.string.h_feae15b8));
-
-            if (originalMessage != null && !originalMessage.isEmpty() && !originalMessage.equals(DEFAULT_ATTACHMENT_MESSAGE)) {
-                prompt.append(getString(R.string.h_14e8a21e)).append(originalMessage).append("\n\n");
-            } else {
-                prompt.append(getString(R.string.h_e4b86c39));
-            }
-
-            prompt.append(getString(R.string.h_4fe2794a));
-            prompt.append(attachmentContent);
-            prompt.append(getString(R.string.h_4b4e3db7));
-            prompt.append(getString(R.string.h_48e86d79));
-
-            String finalPrompt = prompt.toString();
-
-            // 最终硬保护：整个提示词不超过上下文 60%（给输出和历史留空间），防 native 层 SIGSEGV
-            int hardLimit = (int) (contextSize * 0.6);
-            if (finalPrompt.length() > hardLimit) {
-                AppLogger.w(TAG, "提示词仍超限(" + finalPrompt.length() + "/" + hardLimit + ")，强制截断");
-                finalPrompt = finalPrompt.substring(0, hardLimit)
-                        + "\n...[内容过长已截断]\n请基于以上内容回答。";
-            }
-
-            return finalPrompt;
-        } catch (Exception e) {
-            AppLogger.e(TAG, "构建提示词异常: " + e.getMessage(), e);
-            return null;
-        }
+        return getAttachmentPromptBuilder().buildSafeAttachmentAnalysisPrompt(
+                originalMessage, attachmentContent, fileCount);
     }
 
-    /**
-     * 构建附件分析提示词
-     */
+    /** 构建附件分析提示词 */
     private String buildAttachmentAnalysisPrompt(String originalMessage, String attachmentContent, int fileCount) {
-        return buildSafeAttachmentAnalysisPrompt(originalMessage, attachmentContent, fileCount);
+        return getAttachmentPromptBuilder().buildAttachmentAnalysisPrompt(
+                originalMessage, attachmentContent, fileCount);
     }
 
     private boolean canSummarize(String content) {
-        if (content == null || content.trim().isEmpty()) {
-            return false;
-        }
-
-        int minCharsForSummary = 100;
-        int wordCount = content.trim().split("\\s+").length;
-        int charCount = content.length();
-
-        return charCount >= minCharsForSummary || wordCount >= 30;
+        return getAttachmentPromptBuilder().canSummarize(content);
     }
 
     private String buildSummaryPrompt(String userMessage, String parsedContent) {
-        int contextSize = aiConfig.getContextSize();
-        int safeLimit = (int) (contextSize * 0.35);
-        int contentLimit = Math.min(safeLimit, 5000);
-
-        if (parsedContent.length() > contentLimit) {
-            parsedContent = parsedContent.substring(0, contentLimit) + "\n...[内容已截断]";
-        }
-
-        StringBuilder prompt = new StringBuilder();
-
-        if (userMessage != null && !userMessage.trim().isEmpty()) {
-            prompt.append(getString(R.string.h_36623a6c)).append(userMessage).append("\n\n");
-        } else {
-            prompt.append(getString(R.string.h_a485628e));
-        }
-
-        prompt.append(getString(R.string.h_a4368a9d));
-        prompt.append(parsedContent).append("\n\n");
-        prompt.append(getString(R.string.h_b575ddeb));
-        prompt.append(getString(R.string.h_bd78f6c8));
-        prompt.append(getString(R.string.h_5529af52));
-        prompt.append(getString(R.string.h_d6c806dd));
-        prompt.append(getString(R.string.h_29d6d222));
-        prompt.append(getString(R.string.h_dc9307dd));
-
-        return prompt.toString();
+        return getAttachmentPromptBuilder().buildSummaryPrompt(userMessage, parsedContent);
     }
 
     private boolean isExtractFailed(String content) {
-        if (content == null) return true;
-        return content.startsWith("解析失败:")
-                || content.startsWith("文件解析失败:")
-                || content.startsWith("无法加载图片")
-                || content.startsWith("OCR识别失败:")
-                || content.startsWith("不支持的文件类型:")
-                || content.startsWith("PDF文件需要")
-                || content.startsWith("Word文件需要")
-                || content.startsWith("Excel文件需要")
-                || content.startsWith("无法确定文件类型");
+        return getAttachmentPromptBuilder().isExtractFailed(content);
     }
 
     private java.util.concurrent.CompletableFuture<java.util.Map<Uri, String>> extractAllAttachmentContents(List<Uri> uris) {
@@ -4965,58 +4919,11 @@ public class AIChatActivity extends BaseActivity {
         return allFutures;
     }
 
-    private static final int MAX_ATTACHMENTS = 10;
-    private static final int MAX_SINGLE_ATTACHMENT_CHARS = 2000;
-    private static final int MAX_TOTAL_ATTACHMENT_CHARS = 6000;
-    private static final long MAX_ATTACHMENT_FILE_SIZE = 5 * 1024 * 1024;
-
+    /**
+     * 本地解析结果 → 增强消息（阈值与在线 Agent 路径同源，统一在 AttachmentPromptBuilder）
+     */
     private String buildAugmentedMessage(String originalMessage, java.util.Map<Uri, String> extractedMap) {
-        if (extractedMap.isEmpty()) return originalMessage;
-
-        int contextSize = aiConfig.getContextSize();
-        int safeLimit = (int) (contextSize * 0.4);
-        int totalCharLimit = Math.min(safeLimit, MAX_TOTAL_ATTACHMENT_CHARS);
-        int singleCharLimit = Math.min(totalCharLimit / Math.max(1, extractedMap.size()), MAX_SINGLE_ATTACHMENT_CHARS);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(getString(R.string.h_793176ee)).append(originalMessage).append("\n\n");
-        sb.append(getString(R.string.h_4fe2794a));
-
-        int totalUsed = 0;
-        int idx = 1;
-        for (java.util.Map.Entry<Uri, String> entry : extractedMap.entrySet()) {
-            String fileName = getFileNameFromUri(entry.getKey());
-            String content = entry.getValue();
-
-            if (content == null || isExtractFailed(content)) {
-                sb.append(getString(R.string.h_94e069c2)).append(idx++).append("】");
-                if (fileName != null) sb.append(" ").append(fileName);
-                sb.append(getString(R.string.h_68e672a0));
-                continue;
-            }
-
-            int remaining = totalCharLimit - totalUsed;
-            if (remaining <= 0) {
-                sb.append(getString(R.string.h_86b05ff3));
-                break;
-            }
-
-            int thisLimit = Math.min(singleCharLimit, remaining);
-            if (content.length() > thisLimit) {
-                content = content.substring(0, thisLimit) + "\n...[内容已截断]";
-            }
-
-            sb.append(getString(R.string.h_94e069c2)).append(idx++).append("】");
-            if (fileName != null) sb.append(" ").append(fileName);
-            sb.append("\n");
-            sb.append(content).append("\n\n");
-            totalUsed += content.length();
-        }
-
-        sb.append(getString(R.string.h_c65217ea));
-        sb.append(getString(R.string.h_1575bdd9));
-
-        return sb.toString();
+        return getAttachmentPromptBuilder().buildAugmentedMessage(originalMessage, extractedMap);
     }
 
     /**
@@ -10843,6 +10750,11 @@ public class AIChatActivity extends BaseActivity {
             );
             attachment.localFilePath = localPath;
             attachment.thumbnailPath = localPath;
+            // 按真实字节记 MIME（相机产物通常是 JPEG，但个别机型出 PNG/HEIC）
+            String sniffedMime = com.oilquiz.app.ai.util.ImagePreprocessUtil.sniffMimeType(localFile);
+            if (sniffedMime != null && !"application/octet-stream".equals(sniffedMime)) {
+                attachment.mimeType = sniffedMime;
+            }
 
             // 统一走 inputManager 添加（sendMessage 从 inputManager 取附件）
             if (inputManager != null) {
@@ -11307,36 +11219,14 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void handleAttachedFiles(List<Uri> uris) {
-        for (Uri uri : uris) {
-            String fileName = getFileNameFromUri(uri);
-            String mimeType = getContentResolver().getType(uri);
-            String type = "file";
-            if (mimeType != null) {
-                if (mimeType.startsWith("image/")) type = "image";
-                else if (mimeType.startsWith("video/")) type = "video";
-                else if (mimeType.startsWith("audio/")) type = "audio";
-                else if (mimeType.contains("pdf")) type = "pdf";
-            }
-
-            String attachmentUrl = uri.toString();
-            String localFilePath = null;  // 本地文件路径（用于 thumbnailPath）
-
-            // 对 content:// URI 复制到本地，避免权限过期后无法访问
-            if ("content".equals(uri.getScheme())) {
-                String localPath = copyUriToCacheFile(uri);
-                if (localPath != null) {
-                    localFilePath = localPath;
-                    attachmentUrl = Uri.fromFile(new java.io.File(localPath)).toString();  // 使用 file:// URI
-                }
-            }
-
+        // 转换（类型判定 + content:// 落盘 + 真实 MIME 嗅探 + 图片缩略图路径）统一在 AttachmentFactory
+        List<ChatMessage.Attachment> created =
+                com.oilquiz.app.ai.chat.attachment.AttachmentFactory.createFromUris(this, uris);
+        for (ChatMessage.Attachment attachment : created) {
             if (inputManager != null) {
-                ChatMessage.Attachment attachment = new ChatMessage.Attachment(type, attachmentUrl, fileName, getFileSizeFromUri(uri));
-                // 如果是图片且已复制到本地，设置 thumbnailPath 便于快速显示
-                if ("image".equals(type) && localFilePath != null) {
-                    attachment.thumbnailPath = localFilePath;  // 纯文件路径
-                }
                 inputManager.addAttachment(attachment);
+            } else {
+                currentAttachments.add(attachment);
             }
         }
         showToast(getString(R.string.h_24c5bd08) + uris.size() + getString(R.string.h_e74f5dd7));

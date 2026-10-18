@@ -353,11 +353,9 @@ public class ChatInputManager {
         }
     }
 
+    /** 图片后缀判定统一走 ImageParserUtil（含 heic/heif/avif，避免点击后被丢给系统 VIEW 打不开） */
     private boolean isImage(String url) {
-        if (url == null) return false;
-        String lower = url.toLowerCase(java.util.Locale.ROOT);
-        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
-                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp");
+        return com.oilquiz.app.util.ImageParserUtil.isImagePath(url);
     }
 
     /** 应用内图片预览（统一全屏流：ImagePreviewUtil——PhotoView 双指缩放 + 本地系统解码/网络原生下载） */

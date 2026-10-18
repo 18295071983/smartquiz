@@ -5,6 +5,7 @@ import android.net.Uri;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.util.AttachmentManager;
+import com.oilquiz.app.ai.util.ImagePreprocessUtil;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -48,19 +49,42 @@ public class VisionInferenceHelper {
         return hist;
     }
 
-    /** 解析附件为真实本地文件（优先落盘路径，否则 content:// 复制到缓存） */
+    /**
+     * 解析附件为真实本地文件（优先落盘路径，其次走统一 Uri 解析）。
+     *
+     * 口径与 {@code AIChatActivity}/{@code UriPathResolver} 保持一致：不再手工
+     * {@code url.replace("file://", "")} —— 那会让 content://、纯路径、带空格的 file URI
+     * 三种写法各自解读，同一附件在不同链路里解析出不同结果。
+     */
     public File resolveAttachmentFile(ChatMessage.Attachment att) {
+        if (att == null) return null;
         try {
             if (att.localFilePath != null) {
                 File f = new File(att.localFilePath);
                 if (f.exists()) return f;
             }
-            if (att.url != null) {
-                File f = new File(att.url.replace("file://", ""));
-                if (f.exists()) return f;
+            if (att.url != null && !att.url.isEmpty()) {
+                File f = com.oilquiz.app.util.UriPathResolver.resolveToFile(context, att.url);
+                if (f != null && f.exists()) return f;
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w("VisionHelper", "resolveAttachmentFile failed: " + e.getMessage());
+        }
         return null;
+    }
+
+    /**
+     * 把附件解析并编码为一次在线视觉请求的图片集。
+     *
+     * @return 与 files 等长的结果列表，元素可能为 null（该图不可用），由宿主决定如何回报
+     */
+    public java.util.List<ImagePreprocessUtil.PreparedVisionImage> encodeForVision(List<File> files) {
+        List<ImagePreprocessUtil.PreparedVisionImage> out = new ArrayList<>();
+        if (files == null) return out;
+        for (File file : files) {
+            out.add(ImagePreprocessUtil.prepareForOnlineVision(file));
+        }
+        return out;
     }
 
     /**

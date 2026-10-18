@@ -130,8 +130,9 @@ public class OnlineOCRService {
                            ", image_size=" + bitmap.getWidth() + "x" + bitmap.getHeight() +
                            ", base64_len=" + base64Image.length());
 
-                // 构建视觉 API 请求
-                String result = callVisionAPI(config, base64Image, language, ocrModelOverride);
+                // 构建视觉 API 请求（Bitmap 入口必然已重编码为 JPEG，MIME 确定）
+                String result = callVisionAPI(config, base64Image, "image/jpeg",
+                        language, ocrModelOverride);
                 
                 if (result == null || result.trim().isEmpty()) {
                     throw new Exception("在线视觉模型返回空结果");
@@ -164,9 +165,9 @@ public class OnlineOCRService {
                     throw new Exception("文件不存在: " + filePath);
                 }
 
-                // 读取文件为 base64
-                String base64Image = encodeFileToBase64(file);
-                if (base64Image == null || base64Image.isEmpty()) {
+                // 读取文件为 base64（含真实 MIME）
+                EncodedImage encoded = encodeFileToBase64(file);
+                if (encoded == null || encoded.base64 == null || encoded.base64.isEmpty()) {
                     throw new Exception("文件编码失败");
                 }
 
@@ -181,9 +182,11 @@ public class OnlineOCRService {
 
                 AILogger.i(TAG, "Online OCR from file: endpoint=" + config.name +
                            ", model=" + actualModelName +
-                           ", file=" + file.getName() + ", base64_len=" + base64Image.length());
+                           ", file=" + file.getName() + ", mime=" + encoded.mimeType +
+                           ", base64_len=" + encoded.base64.length());
 
-                String result = callVisionAPI(config, base64Image, language, ocrModelOverride);
+                String result = callVisionAPI(config, encoded.base64, encoded.mimeType,
+                        language, ocrModelOverride);
                 if (result == null || result.trim().isEmpty()) {
                     throw new Exception("在线视觉模型返回空结果");
                 }
@@ -281,7 +284,8 @@ public class OnlineOCRService {
      * @param modelOverride 用户为 OCR 指定的具体模型名（可为 null）
      */
     private String callVisionAPI(OnlineModelManager.OnlineModelConfig config,
-                                  String base64Image, String language, String modelOverride) throws Exception {
+                                  String base64Image, String mimeType,
+                                  String language, String modelOverride) throws Exception {
         String apiUrl = config.apiUrl;
         String apiKey = config.apiKey;
         String modelName = resolveModelName(config, modelOverride);
@@ -293,7 +297,10 @@ public class OnlineOCRService {
             throw new IllegalArgumentException("API Key 不能为空");
         }
 
-        String fullUrl = buildUrl(apiUrl, "/chat/completions");
+        // chat 端点由服务商配置表决定（此前这里写死 "/chat/completions"，
+        // 与 OnlineInferenceService 的口径不一致，声明了非标准 chat 端点的服务商会 404）
+        String fullUrl = buildUrl(apiUrl,
+                com.oilquiz.app.ai.model.ProviderConfigManager.get().getChatEndpoint(apiUrl));
         // query-key 型服务商（Gemini 等）：密钥走 URL ?key=
         fullUrl = com.oilquiz.app.ai.model.ProviderConfigManager.get().withAuthQuery(fullUrl, apiKey);
         URL url = new URL(fullUrl);
@@ -323,8 +330,18 @@ public class OnlineOCRService {
             JsonObject userMessage = new JsonObject();
             userMessage.addProperty("role", "user");
 
-            // content 为数组，包含文本提示和图片
+            // content 为数组：图片在前、文字提示在后（与 Anthropic/Gemini 官方建议一致）
             JsonArray contentArray = new JsonArray();
+
+            // 图片内容（MIME 用真实字节类型，不再统一标 image/jpeg）
+            JsonObject imageContent = new JsonObject();
+            imageContent.addProperty("type", "image_url");
+            JsonObject imageUrlObj = new JsonObject();
+            imageUrlObj.addProperty("url", "data:" + (mimeType != null ? mimeType : "image/jpeg")
+                    + ";base64," + base64Image);
+            imageUrlObj.addProperty("detail", "high");
+            imageContent.add("image_url", imageUrlObj);
+            contentArray.add(imageContent);
 
             // 文本提示
             String prompt = buildOCRPrompt(language);
@@ -332,15 +349,6 @@ public class OnlineOCRService {
             textContent.addProperty("type", "text");
             textContent.addProperty("text", prompt);
             contentArray.add(textContent);
-
-            // 图片内容
-            JsonObject imageContent = new JsonObject();
-            imageContent.addProperty("type", "image_url");
-            JsonObject imageUrlObj = new JsonObject();
-            imageUrlObj.addProperty("url", "data:image/jpeg;base64," + base64Image);
-            imageUrlObj.addProperty("detail", "high");
-            imageContent.add("image_url", imageUrlObj);
-            contentArray.add(imageContent);
 
             userMessage.add("content", contentArray);
             messages.add(userMessage);
@@ -466,10 +474,20 @@ public class OnlineOCRService {
         }
     }
 
+    /** 视觉输入编码结果：base64 + 真实 MIME（OCR 请求体里两者必须一致，否则服务商直接 400） */
+    private static class EncodedImage {
+        final String base64;
+        final String mimeType;
+        EncodedImage(String base64, String mimeType) {
+            this.base64 = base64;
+            this.mimeType = mimeType;
+        }
+    }
+
     /**
-     * 将文件编码为 base64（发送大小合适的图片：采样缩放 + 压缩，控制视觉模型 tokens 消耗）
+     * 将文件编码为视觉输入（采样缩放 + JPEG 压缩控制 tokens；非图片按真实 MIME 原样透传）。
      */
-    private String encodeFileToBase64(File file) {
+    private EncodedImage encodeFileToBase64(File file) {
         try {
             // 先读取图片尺寸（仅边界信息，不加载像素），避免大图解码 OOM
             BitmapFactory.Options bounds = new BitmapFactory.Options();
@@ -477,7 +495,7 @@ public class OnlineOCRService {
             BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
 
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                // 非图片文件：直接读取原始字节（限制大小）
+                // 非图片文件：直接读取原始字节（限制大小），MIME 按文件头嗅探
                 if (file.length() > 10 * 1024 * 1024) {
                     AILogger.w(TAG, "File too large for direct base64: " + file.length());
                     return null;
@@ -486,23 +504,19 @@ public class OnlineOCRService {
                 try (FileInputStream fis = new FileInputStream(file)) {
                     fis.read(raw);
                 }
-                return Base64.encodeToString(raw, Base64.NO_WRAP);
+                return new EncodedImage(Base64.encodeToString(raw, Base64.NO_WRAP),
+                        com.oilquiz.app.ai.util.ImagePreprocessUtil.sniffMimeType(file));
             }
 
-            // 按目标最大边长计算采样率，避免大图 OOM
-            int maxSide = Math.max(bounds.outWidth, bounds.outHeight);
-            int sampleSize = 1;
-            if (maxSide > MAX_IMAGE_DIMENSION * 2) {
-                sampleSize = maxSide / MAX_IMAGE_DIMENSION;
-            }
-
-            BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inSampleSize = sampleSize;
-            Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+            // 采样解码 + EXIF 方向矫正（ImageParserUtil 已内置）：
+            // 竖拍照片不矫正会被按错误方向识别，横竖文字混排时 OCR 结果整段乱序
+            Bitmap bitmap = com.oilquiz.app.util.ImageParserUtil
+                    .parseImage(file, MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION);
             if (bitmap == null) return null;
 
             // 缩放至合适尺寸并压缩（encodeBitmapToBase64 内执行），控制 tokens 消耗
-            return encodeBitmapToBase64(bitmap);
+            String base64 = encodeBitmapToBase64(bitmap);
+            return base64 == null ? null : new EncodedImage(base64, "image/jpeg");
         } catch (Exception e) {
             AILogger.e(TAG, "encodeFileToBase64 failed: " + e.getMessage(), e);
             return null;

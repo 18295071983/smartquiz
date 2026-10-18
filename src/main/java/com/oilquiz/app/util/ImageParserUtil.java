@@ -146,11 +146,17 @@ public class ImageParserUtil {
     }
 
     /**
-     * 获取图片MIME类型
+     * 获取图片MIME类型：先按文件头字节嗅探（扩展名可能与实际编码不符），
+     * 嗅探不出来再退回按扩展名。
      * @param file 图片文件
      * @return MIME类型
      */
     public static String getImageMimeType(File file) {
+        if (file == null) return "image/*";
+        String sniffed = com.oilquiz.app.ai.util.ImagePreprocessUtil.sniffMimeType(file);
+        if (!"application/octet-stream".equals(sniffed)) {
+            return sniffed;
+        }
         String extension = FileParserUtil.getFileExtension(file);
         switch (extension.toLowerCase()) {
             case "jpg":
@@ -164,6 +170,9 @@ public class ImageParserUtil {
                 return "image/bmp";
             case "webp":
                 return "image/webp";
+            case "heic":
+            case "heif":
+                return "image/heic";
             default:
                 return "image/*";
         }
@@ -175,10 +184,31 @@ public class ImageParserUtil {
      * @return 是否为图片
      */
     public static boolean isImageFile(File file) {
-        String extension = FileParserUtil.getFileExtension(file);
-        String[] imageExtensions = {"jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif"};
-        for (String ext : imageExtensions) {
-            if (ext.equalsIgnoreCase(extension)) {
+        if (file == null) return false;
+        return isImageExtension(FileParserUtil.getFileExtension(file));
+    }
+
+    /**
+     * 判断路径/URI 是否指向图片（供"点缩略图走应用内预览"这类按后缀决策使用）。
+     * 后缀集合与 AttachmentPreParser 的图片判定一致，并含 HEIC/HEIF —— Android 10+ 相机默认产物，
+     * 之前按后缀判断的地方漏掉它，导致 HEIC 图片附件点击后被丢给系统 VIEW 而报"没有可打开的页面"。
+     */
+    public static boolean isImagePath(String pathOrUri) {
+        if (pathOrUri == null || pathOrUri.isEmpty()) return false;
+        String path = pathOrUri.startsWith("file://") ? android.net.Uri.parse(pathOrUri).getPath() : pathOrUri;
+        int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        if (slash >= 0 && slash < path.length() - 1) path = path.substring(slash + 1);
+        int dot = path.lastIndexOf('.');
+        String ext = dot > 0 ? path.substring(dot + 1) : "";
+        return isImageExtension(ext);
+    }
+
+    private static boolean isImageExtension(String extension) {
+        if (extension == null) return false;
+        String[] imageExtensions = {"jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif",
+                "heic", "heif", "avif"};
+        for (String candidate : imageExtensions) {
+            if (candidate.equalsIgnoreCase(extension)) {
                 return true;
             }
         }

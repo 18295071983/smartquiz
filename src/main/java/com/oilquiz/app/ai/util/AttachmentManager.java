@@ -162,8 +162,11 @@ public class AttachmentManager {
         if (fileName == null) {
             fileName = generateFileName(mimeType);
         }
+        fileName = sanitizeFileName(fileName);
 
-        File outputFile = new File(attachmentDir, fileName);
+        // 同批次里两个附件同名（两张 IMG_0001.jpg、或同一文件重复选入）时不能互相覆盖：
+        // 覆盖会让先落盘那条附件的 localFilePath 指到后一张图的内容上。
+        File outputFile = uniqueFileIn(attachmentDir, fileName);
 
         try (InputStream inputStream = context.getContentResolver().openInputStream(uri);
              FileOutputStream outputStream = new FileOutputStream(outputFile)) {
@@ -185,9 +188,33 @@ public class AttachmentManager {
             outputStream.flush();
 
             String id = "attach_" + System.currentTimeMillis() + "_" + savedFilesCount++;
-            return new AttachmentFile(id, fileName, outputFile.getAbsolutePath(),
+            return new AttachmentFile(id, outputFile.getName(), outputFile.getAbsolutePath(),
                                      mimeType, totalSize, uri);
         }
+    }
+
+    /** 去掉路径分隔符等非法字符（文件名来自 Uri path，可能带目录段） */
+    private String sanitizeFileName(String name) {
+        if (name == null || name.isEmpty()) return "attachment";
+        String cleaned = name.replaceAll("[^a-zA-Z0-9._-]", "_");
+        // 只剩扩展名的畸形名（".jpg"）补一个前缀，避免写出隐藏文件
+        if (cleaned.startsWith(".")) cleaned = "attachment" + cleaned;
+        return cleaned;
+    }
+
+    /** 目标已存在时在扩展名前加 _1、_2… 直到不冲突 */
+    private File uniqueFileIn(File dir, String fileName) {
+        File candidate = new File(dir, fileName);
+        if (!candidate.exists()) return candidate;
+        int dot = fileName.lastIndexOf('.');
+        String base = dot > 0 ? fileName.substring(0, dot) : fileName;
+        String ext = dot > 0 ? fileName.substring(dot) : "";
+        int i = 1;
+        while (candidate.exists() && i < 1000) {
+            candidate = new File(dir, base + "_" + i + ext);
+            i++;
+        }
+        return candidate;
     }
 
     private String getFileNameFromUri(Context context, Uri uri) {

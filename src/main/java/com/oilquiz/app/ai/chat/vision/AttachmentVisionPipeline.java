@@ -2,7 +2,6 @@ package com.oilquiz.app.ai.chat.vision;
 
 import android.content.Context;
 import android.net.Uri;
-import android.util.Base64;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.attachment.AttachmentPromptBuilder;
@@ -10,24 +9,28 @@ import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.spi.AppServices;
 
 import java.io.File;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 附件视觉编排器（全局可复用，逻辑层）。
  *
- * 从 AIChatActivity 附件+视觉链路抽取的可复用侧：
- * 附件过滤（数量/大小）、最近图片附件定位、视觉历史构建、本地/在线视觉可用性决策、
- * 在线视觉模型判定、图片 base64 读取。完整执行流程（落盘→生成→渲染）由宿主
- * 组合 {@link VisionInferenceHelper} 与本类决策完成。
+ * 从 AIChatActivity 附件+视觉链路抽取的可复用侧：附件过滤（数量/大小）、图片视觉通道
+ * 选图（数量/请求体预算）、视觉历史构建、本地/在线视觉可用性决策、在线视觉模型判定。
+ * 完整执行流程（落盘→编码→生成→渲染）由宿主组合 {@link VisionInferenceHelper} 与本类决策完成。
+ *
+ * 单次视觉请求的图片数取各家官方最小值（智谱 GLM-4V 5 张、GLM-4V-Flash 1 张），
+ * 请求体预算取交集（Anthropic 单图 base64 ≤5MB、Gemini inline 整请求 ≤20MB），
+ * 单图字节预算见 ImagePreprocessUtil.ONLINE_VISION_BUDGET_BYTES。
  */
 public class AttachmentVisionPipeline {
 
     public static final int MAX_ATTACHMENTS = 10;
     public static final long MAX_ATTACHMENT_FILE_SIZE = 5L * 1024 * 1024;
-    /** 在线视觉图片大小上限（防请求体过大） */
-    public static final long ONLINE_VISION_MAX_FILE_SIZE = 4L * 1024 * 1024;
+    /** 单次视觉请求最多携带的图片数（各家官方最小值；超出部分并入 OCR 文本通道） */
+    public static final int MAX_VISION_IMAGES = 5;
+    /** 单次视觉请求所有图片的字节预算（base64 前；base64 膨胀约 1.33 倍） */
+    public static final long MAX_VISION_TOTAL_BYTES = 8L * 1024 * 1024;
     /** 在线视觉失败冷却时间 */
     public static final long VISION_FAIL_COOLDOWN_MS = 30_000L;
 
@@ -40,6 +43,8 @@ public class AttachmentVisionPipeline {
         OnlineModelManager.OnlineModelConfig getActiveModel();
         String getCurrentModelName();
         boolean isLocalVisionLoaded();   // LlamaHelper.isMultimodalLoaded && isModelInitialized
+        /** 本地引擎是否能一次吃多张图（llama.cpp mtmd 是 bitmaps[1] 单图硬限，NPU VLM 支持 List） */
+        boolean supportsLocalMultiImage();
         int getModelContextSize();
     }
 
@@ -109,6 +114,22 @@ public class AttachmentVisionPipeline {
         return lastImageIndex >= 0 && lastImageIndex == history.size() - 1;
     }
 
+    /**
+     * 收集一条消息里的全部图片附件（保持用户发送顺序），最多 max 张。
+     * 追问场景旧实现只取"最近一张"，多图那轮的上下文会丢；这里按整条消息取图。
+     */
+    public static List<ChatMessage.Attachment> collectImages(ChatMessage message, int max) {
+        List<ChatMessage.Attachment> images = new ArrayList<>();
+        if (message == null || message.attachments == null) return images;
+        for (ChatMessage.Attachment att : message.attachments) {
+            if (att != null && "image".equals(att.type)) {
+                if (images.size() >= max) break;
+                images.add(att);
+            }
+        }
+        return images;
+    }
+
     /** 构建图片消息之前的视觉历史（USER/AI 文本，最多 max 条） */
     public List<ChatMessage> buildVisionHistoryBefore(List<ChatMessage> history, int lastImageIndex, int max) {
         List<ChatMessage> hist = new ArrayList<>();
@@ -132,6 +153,16 @@ public class AttachmentVisionPipeline {
         return env.isLocalVisionLoaded();
     }
 
+    /**
+     * 本地视觉本次能吃几张图：0=不可用；1=llama.cpp mtmd 单图硬限；其余按在线同一预算。
+     * 本次图片数超过该上限时，宿主先把整批交给在线视觉（若可用），在线也不可用才整批改走
+     * OCR 文本 —— 不做"只看第一张、其余静默丢掉"那种取舍。
+     */
+    public int localVisionImageLimit() {
+        if (!env.isLocalVisionLoaded()) return 0;
+        return env.supportsLocalMultiImage() ? MAX_VISION_IMAGES : 1;
+    }
+
     /** 在线视觉可用（模型支持 vision + 失败冷却未触发） */
     public boolean canFollowUpOnlineVision(long lastOnlineVisionFailAt) {
         if (!env.isOnlineModel()) return false;
@@ -153,25 +184,69 @@ public class AttachmentVisionPipeline {
         }
     }
 
-    /** 在线视觉图片是否可走 base64（落盘存在 + 未超 4MB） */
-    public static boolean canOnlineVisionUseFile(File localFile) {
-        return localFile != null && localFile.exists()
-                && localFile.length() <= ONLINE_VISION_MAX_FILE_SIZE;
-    }
+    /**
+     * 视觉通道选图结果：按发送顺序可发的图片，以及被移出视觉通道的文件名与原因。
+     * 被移出的图片不丢：宿主把它们交给 OCR 文本通道，附件本身仍在消息里可见。
+     */
+    public static class VisionImageSelection {
+        public final List<File> images = new ArrayList<>();
+        public final List<String> skippedNames = new ArrayList<>();
+        public final List<String> skipReasons = new ArrayList<>();
 
-    /** 读图转 base64（NO_WRAP） */
-    public static String readImageAsBase64(File file) {
-        try {
-            byte[] bytes = Files.readAllBytes(file.toPath());
-            return Base64.encodeToString(bytes, Base64.NO_WRAP);
-        } catch (Exception e) {
-            return null;
+        public boolean isEmpty() {
+            return images.isEmpty();
+        }
+
+        public int count() {
+            return images.size();
         }
     }
 
-    /** 在线视觉用户文本兜底 */
+    /**
+     * 从已落盘的图片里挑出可进同一次视觉请求的图集（数量与请求体预算双重约束，按发送顺序贪心）。
+     *
+     * 旧实现只允许 1 张，两张图就整条链路掉回 OCR 文本；这里放开到 {@link #MAX_VISION_IMAGES}
+     * 张，并把"超数量""超预算""文件缺失"三种原因分开回报，避免静默丢图。
+     */
+    public static VisionImageSelection selectVisionImages(List<File> files, List<String> names) {
+        VisionImageSelection selection = new VisionImageSelection();
+        if (files == null) return selection;
+        long total = 0;
+        for (int i = 0; i < files.size(); i++) {
+            File file = files.get(i);
+            String name = (names != null && i < names.size() && names.get(i) != null)
+                    ? names.get(i) : (file != null ? file.getName() : "图片" + (i + 1));
+            if (file == null || !file.exists() || file.length() == 0) {
+                selection.skippedNames.add(name);
+                selection.skipReasons.add(name + "（本地文件缺失或为空）");
+                continue;
+            }
+            if (selection.count() >= MAX_VISION_IMAGES) {
+                selection.skippedNames.add(name);
+                selection.skipReasons.add(name + "（超出单次 " + MAX_VISION_IMAGES + " 张）");
+                continue;
+            }
+            if (total + file.length() > MAX_VISION_TOTAL_BYTES) {
+                selection.skippedNames.add(name);
+                selection.skipReasons.add(name + "（请求体预算已满）");
+                continue;
+            }
+            selection.images.add(file);
+            total += file.length();
+        }
+        return selection;
+    }
+
+    /**
+     * 在线/本地视觉的用户文本兜底。
+     * 直发图片时消息正文是附件占位文案（"请分析这些附件的内容"），那句是给 OCR/Agent 通道用的，
+     * 喂给视觉模型会让它以为要"分析附件"；这里一并换成看图指令。
+     */
     public static String visionUserText(String originalMessage) {
-        return originalMessage == null || originalMessage.trim().isEmpty()
-                ? "请描述这张图片的内容" : originalMessage;
+        if (originalMessage == null || originalMessage.trim().isEmpty()
+                || AttachmentPromptBuilder.DEFAULT_ATTACHMENT_MESSAGE.equals(originalMessage.trim())) {
+            return "请描述这些图片的内容";
+        }
+        return originalMessage;
     }
 }

@@ -1,5 +1,105 @@
 # 变更日志
 
+# 变更日志
+
+## [2026-10-18] 图片附件链路对齐业界口径：在线放开多图、MIME 按真实字节、预算内压缩
+
+### 查到的事实（各家官方文档取交集）
+
+- 消息形状：OpenAI 兼容侧是 `content[]` 的 `image_url` part；Anthropic 是 `image` block
+  （`source.type=base64` + `media_type`）；Gemini 是 `inline_data{mime_type,data}`。
+  Anthropic/Gemini 官方都建议 **图片块排在文字块之前**，多图用 image 1/image 2 指代。
+- MIME 必须与真实字节一致（火山方舟官方明写"格式声明需与实际一致"）；
+  **OpenAI 与 Anthropic 都不收 HEIC**，Gemini/Qwen 收；各家都要求客户端先做 EXIF 方向矫正。
+- 尺寸/体积：Anthropic 长边 >1568px 会被服务端等比缩小、单图 base64 ≤5MB；OpenAI 高细节档
+  最短边 768/最长边 2048；Gemini inline 整请求 ≤20MB；Qwen-VL 建议边长对齐 32 且 base64 ≤20MB。
+- 单次图片数：智谱 GLM-4V 官方限 5 张（GLM-4V-Flash 仅 1 张）、Anthropic API 100 张、
+  OpenAI 按模型 50~500 张、Gemini 3000 张 —— 取最小值 5 作为默认档。
+- Google 官方 Firebase SDK 的客户端做法就是统一转 JPEG（质量约 80），可作为公认基准。
+
+### 由此改掉的事
+
+1. **在线视觉放开多图**：`AIChatActivity` 原来用 `filtered.size() == 1` 卡死，两张图就整批掉回
+   OCR 文本；现在由 `AttachmentVisionPipeline.selectVisionImages` 按"数量 ≤5 + 请求体 ≤8MB"贪心选图，
+   一次请求带整批图片（按发送顺序，图片 part 在前、文本在后，多图补序号指代）。
+   本地侧维持单图语义是**引擎事实**，不是保守：native `mtmd` 写死 `bitmaps[1]`
+   （native-lib.cpp:5144），而 NPU VLM 的 `setPendingImagePaths(List)` 支持整批 —— 因此
+   `Env.supportsLocalMultiImage()` 区分两种引擎，本地只能 1 张而本次多张时先给在线机会，
+   两边都不行才落 OCR，并在系统消息里说明是哪条原因。
+2. **MIME 与预算不再靠"整文件字节 + 硬标 image/jpeg + 超 4MB 放弃"**：新增单一编码出口
+   `ImagePreprocessUtil.prepareForOnlineVision` —— 长边 1568（=32×49）采样解码 → EXIF 矫正
+   （补上此前漏掉的 FLIP 两种）→ 质量梯度 85/75/65 → 仍超预算退到长边 1024 再试；
+   解码不了的文件按文件头字节嗅探后原样透传，HEIC/AVIF 判定为不可透传。
+   嗅探实现独立在无 Android 依赖的 `ImageFormatSniffer`，10 条用例直接跑 JVM 单测。
+   `OnlineInferenceService.generateStreamWithImageParts` 用图片自带 MIME 拼 data URI，
+   旧 `generateStreamWithImages` 保留为兼容入口。
+3. **Anthropic 端点不再直接拒图**：原来带图就 `postError("当前 API 端点不支持图片消息")` 降级 OCR，
+   现在走原生 `image` block（`media_type` 用真实类型）。
+4. **追问复用整批图**：`tryFollowUpOnlineVision` 原来只复用"最近一张"且硬跳 4MB，现在复用该轮
+   整批图片（同一条消息内），并把那条带图消息的原文带进历史 —— 图片既然重新喂给了模型，
+   当初那句"看这张图里的第三题"就不再是脱离图片的噪声。
+5. **口径收成一个**：`AttachmentVisionPipeline`/`VisionInferenceHelper`/`AttachmentFactory`/
+   `AttachmentPromptBuilder` 从"写了但没人调"接回 `AIChatActivity`，Activity 侧只留薄接线；
+   删掉重复的 `MAX_ATTACHMENTS`/`MAX_ATTACHMENT_FILE_SIZE`/`MAX_SINGLE|TOTAL_ATTACHMENT_CHARS`
+   常量与 `buildAgentAugmentedMessage`/`buildAugmentedMessage`/`isExtractFailed`/`methodLabel`
+   等第二份实现（本地链路的附件张数上限原先是 3，与在线链路的 10 不一致，现统一）。
+   路径解析统一到 `UriPathResolver`，`resolveAttachmentFile` 不再 `url.replace("file://","")`。
+6. **顺带修掉的三处事实性错误**：`AttachmentProcessor.detectContentType` 判为 `image_ocr` 后按
+   `vision` 能力选模型 —— 摘要输入早已是 OCR 出来的纯文本，用视觉模型属语义错配且更贵，改回默认档；
+   摘要持久化缓存键是随机 UUID（等于永不命中），改成文件指纹（路径:大小:名）；
+   `AttachmentManager` 同批次同名附件直接覆盖，会让先落盘那条的路径指到后一张图上，改为自动加 `_1` 后缀。
+   另外 `ChatInputManager`/`ImageParserUtil` 的图片后缀判定补 HEIC/HEIF/AVIF，
+   非图片文件的 OCR 透传 MIME 不再统一谎报 image/jpeg。
+7. **不再静默丢图**：超数量/超预算/无法解码的图片会汇总成一条系统消息说明，
+   失败回退 OCR 时回退的是整批而不是第一张；OCR 对"图里没字"的说明也改成可执行提示
+   （建议启用视觉模型），不再让模型含糊地说"未检测到附件"。
+
+### 验证
+
+- `./gradlew compileDebugJavaWithJavac --offline` 通过。
+- 新增 `VisionImagePolicyTest` 10 例（MIME 嗅探 + 选图数量/预算/缺文件/顺序 + 看图兜底文案）、
+  `SummaryCacheKeyTest` 3 例，全绿。
+- 全量 `testDebugUnitTest --offline`：25 例失败，逐条比对 **HEAD 基线（stash 后同命令重跑）
+  失败数完全一致**（ExportTemplate 4 / OnlinePromptBuilderAssembly 4 / StreamingUpdateManager 5 /
+  AIServiceState 1 / AIToolManager 2 / ColorResourceProvider 7 / ResourceIntegration 2），
+  且失败堆栈不含本次改动的任何类 —— 属既有失败（Robolectric `Context.getColor` 缺失、
+  模板资源缺失等），本次未引入回归。
+- 未做的验证：本机 `adb devices` 无连接设备，真机发图（多图/HEIC/大图）与
+  Anthropic 端点的实请求未跑通，需要接上设备后按 CHANGELOG 上述路径回归。
+
+### 补记（同日）：Responses 侧把图片输入补上
+
+追问时先纠正一处说法：`input_image` 全仓不存在，是**实现缺失**，不是设计取舍 —— 我上一轮
+复述了代码注释里那句"images cannot route to Responses"而没验证，注释只解释了 webSearch 注入
+为什么要跳过，不构成"图片不能走 Responses"的依据。DeepSeek 官方 vision 文档写得很明确：
+`/chat/completions` 用 `image_url`、`Responses API` 用 `input_image`，两处都收
+`data:<真实 media_type>;base64,...`（限制：单图 32MiB、服务端缩放后约 1300×1300、单图 ≤1024 token）。
+
+当时的真实问题是**同一个模型被劈成两套表示**：文本流按 `ChatProtocol` + `shouldUseResponsesAPI`
+分发（DeepSeek 已 `protocol: responses`），而 `generateStreamWithImageParts` 只判断 Anthropic，
+带图请求恒定走 `/chat/completions` —— `instructions` 与 reasoning 项续接只存在于 Responses 侧。
+
+改法（最小收口，不动 Agent 循环）：
+
+- 形状集中到 `ResponsesPayloadBuilder.inputImageItem` / `userMessageWithImages`。这里有个
+  静默坑值得写下来：chat 侧 `image_url` 是**对象**、Responses 侧是**字符串**且 `detail` 与之同级，
+  写成 chat 形状服务商不报错、只是不看图。4 条用例锁住字符串形状、图片在文本前、空元素跳过、
+  纯图无空 text 条目。
+- `callResponsesAPI` 增加 images 参数；`generateStreamWithImageParts` 改为与文本流同一条判据分发
+  （`ChatProtocol.of` + `shouldUseResponsesAPI`），并复用"只有还没吐字时才回落 chat"的安全网。
+  Ollama 原生 `/api/chat` 无图片字段，带图继续走它的 `/v1/chat/completions`。
+- data URI 前缀收成一处 `PreparedVisionImage#dataUrl()`，chat / Responses / Anthropic 三条链路
+  不再各自拼前缀。
+- 明确没做的：Responses 历史条目仍只带文本（不重放上一轮图片、不用 `call_id/output_index`
+  引用图片 —— DeepSeek 也声明不支持 `previous_response_id`，我们本来就每轮带完整 input）；
+  Agent 工具流 `callResponsesStreamWithTools` 不发消息级图片，Agent 看图仍走 `ocr_recognize`
+  工具内部那条 base64 注入。
+
+验证：`compileDebugJavaWithJavac --offline` 通过；`ResponsesPayloadBuilderTest` 14 → 18 例、
+`VisionImagePolicyTest` 10 → 12 例、`SummaryCacheKeyTest` 3 例全绿。**在线对拍未做**
+（本机无设备，且 DeepSeek/OpenAI 的 Responses 图片条目细节文档写得不全）—— 事件顺序、
+图片条目被静默忽略、以及回落 chat 的时机，都要接上可用视觉模型跑一次才算验过。
+
 ## [2026-10-18] 按 DeepSeek 官方文档收口 Responses 形状，并把 DeepSeek 放量打开
 
 ### 查到的事实（`api-docs.deepseek.com/zh-cn/guides/responses_api/`；OpenAI 文档页对本机 403）

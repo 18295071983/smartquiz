@@ -237,9 +237,13 @@ public class AttachmentPreParser {
                     .get(PARSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (text == null || text.trim().isEmpty()
                     || text.startsWith("OCR识别失败") || text.equals("OCR未识别到文本")) {
+                // 这不是"识别失败"而是"图里没有文字"：把可执行的下一步写进原因，
+                // 否则模型只会含糊地说"未检测到附件内容"，用户也不知道该开视觉模型
                 result.status = ParseStatus.FAILED;
                 result.errorCode = ERR_OCR_FAILED;
-                result.errorMessage = "图片 OCR 未识别到文字（可能图片模糊或无文字内容）";
+                result.errorMessage = "图片 OCR 未识别到文字（图片模糊、纯图形或无文字内容）。"
+                        + "如需理解图像本身（场景/物体/图表），请启用本地 vision 模型或在线视觉模型，"
+                        + "本条不应被判定为附件读取失败";
                 return;
             }
             result.status = ParseStatus.SUCCESS;

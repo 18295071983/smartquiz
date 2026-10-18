@@ -302,4 +302,53 @@ public class ResponsesPayloadBuilderTest {
         assertEquals(ResponsesPayloadBuilder.EMPTY_ARGUMENTS,
                 input.get(0).getAsJsonObject().get("arguments").getAsString());
     }
+
+    // ==================== 图片条目（input_image） ====================
+
+    /**
+     * chat 侧 image_url 是对象、Responses 侧是**字符串**：写成 chat 形状服务商不会报错，
+     * 只会静默忽略图片，表现是"模型说它看不到图"。这条用例锁住字符串形状与 detail 同级。
+     */
+    @Test
+    public void inputImageItem_isResponsesShape_notChatShape() {
+        JsonObject item = ResponsesPayloadBuilder.inputImageItem("data:image/png;base64,AAAA");
+        assertEquals("input_image", item.get("type").getAsString());
+        assertTrue("image_url 必须是字符串（chat 侧才是嵌套对象）",
+                item.get("image_url").isJsonPrimitive());
+        assertEquals("data:image/png;base64,AAAA", item.get("image_url").getAsString());
+        assertEquals("detail 与 image_url 同级", "auto", item.get("detail").getAsString());
+    }
+
+    @Test
+    public void inputImageItem_skipsBlankDataUrl() {
+        assertEquals(null, ResponsesPayloadBuilder.inputImageItem(null));
+        assertEquals(null, ResponsesPayloadBuilder.inputImageItem("   "));
+    }
+
+    /** 官方建议图片块排在文本块之前（Anthropic 明写、Gemini 最佳实践同样），两条链路顺序需一致 */
+    @Test
+    public void userMessageWithImages_putsImagesBeforeText() {
+        JsonObject user = ResponsesPayloadBuilder.userMessageWithImages("这两张图差别在哪？",
+                java.util.Arrays.asList("data:image/jpeg;base64,AAA",
+                        null,
+                        "data:image/webp;base64,BBB"));
+        assertEquals("user", user.get("role").getAsString());
+        JsonArray content = user.getAsJsonArray("content");
+        assertEquals("空元素被跳过，只留两张图 + 一段文本", 3, content.size());
+        assertEquals("input_image", content.get(0).getAsJsonObject().get("type").getAsString());
+        assertEquals("input_image", content.get(1).getAsJsonObject().get("type").getAsString());
+        assertEquals("input_text", content.get(2).getAsJsonObject().get("type").getAsString());
+        assertEquals("这两张图差别在哪？",
+                content.get(2).getAsJsonObject().get("text").getAsString());
+    }
+
+    /** 纯图发送（无文字）：只有图片条目也合法，但不能留一个空 text 条目占位 */
+    @Test
+    public void userMessageWithImages_omitsBlankTextItem() {
+        JsonObject user = ResponsesPayloadBuilder.userMessageWithImages("   ",
+                java.util.Collections.singletonList("data:image/png;base64,AAA"));
+        JsonArray content = user.getAsJsonArray("content");
+        assertEquals(1, content.size());
+        assertEquals("input_image", content.get(0).getAsJsonObject().get("type").getAsString());
+    }
 }

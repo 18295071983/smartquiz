@@ -340,4 +340,62 @@ public final class ResponsesPayloadBuilder {
         String x = a == null ? "" : a;
         return !x.isEmpty() ? x : (b == null ? "" : b);
     }
+
+    // ==================== 图片输入（input_image） ====================
+
+    /**
+     * Responses 侧的图片条目：{@code {type:"input_image", image_url:"<字符串>", detail}}。
+     *
+     * <p>与 chat/completions 的形状差异要记清：chat 侧是
+     * {@code {"type":"image_url","image_url":{"url":...,"detail":...}}}（image_url 是对象），
+     * Responses 侧 {@code image_url} <b>直接是字符串</b>、{@code detail} 与其同级。写成 chat
+     * 形状不会报错，只会被服务商静默忽略图片 —— 表现是"模型说它看不到图"。</p>
+     *
+     * <p>依据 OpenAI Responses 与 DeepSeek 官方 vision 文档：{@code /chat/completions} 用
+     * {@code image_url}、{@code /responses} 用 {@code input_image}，两处都接受
+     * {@code data:<真实 media_type>;base64,...} 形式的内联图。</p>
+     *
+     * @param dataUrl 已按真实字节拼好的 data URI（见 PreparedVisionImage#dataUrl）
+     * @return 图片条目；dataUrl 为空时返回 null（调用方跳过该条，不发空条目）
+     */
+    public static JsonObject inputImageItem(String dataUrl) {
+        if (isBlank(dataUrl)) return null;
+        JsonObject item = new JsonObject();
+        item.addProperty("type", "input_image");
+        item.addProperty("image_url", dataUrl);
+        // detail 交给服务商默认档：体积已由客户端编码预算控制（长边 1568 / 单图 ≤2.4MB）
+        item.addProperty("detail", "auto");
+        return item;
+    }
+
+    /**
+     * 组装带图片的当前轮 user 条目：图片条目在前、文本条目在后。
+     *
+     * <p>顺序取自各家官方建议（Anthropic 明确 image block 置于 text 前；Gemini 最佳实践同样
+     * "图在前、提示在后"，多图用 image 1/image 2 指代）；OpenAI 两种顺序都接受，因此统一到
+     * 这一条规则，避免 chat 与 Responses 两条链路形状不一致。</p>
+     *
+     * @param text     本轮文本（可为空 —— 纯图发送时只有图片条目也合法）
+     * @param dataUrls 图片 data URI 列表（按发送顺序；null/空元素跳过）
+     * @return {@code {role:"user", content:[input_image..., input_text]}}
+     */
+    public static JsonObject userMessageWithImages(String text, java.util.List<String> dataUrls) {
+        JsonObject user = new JsonObject();
+        user.addProperty("role", "user");
+        JsonArray content = new JsonArray();
+        if (dataUrls != null) {
+            for (String dataUrl : dataUrls) {
+                JsonObject image = inputImageItem(dataUrl);
+                if (image != null) content.add(image);
+            }
+        }
+        if (!isBlank(text)) {
+            JsonObject textItem = new JsonObject();
+            textItem.addProperty("type", "input_text");
+            textItem.addProperty("text", text);
+            content.add(textItem);
+        }
+        user.add("content", content);
+        return user;
+    }
 }

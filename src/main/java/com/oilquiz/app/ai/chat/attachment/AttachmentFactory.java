@@ -24,7 +24,9 @@ public final class AttachmentFactory {
 
     /**
      * 把选择器返回的 Uri 列表转换为聊天附件（含本地落盘）。
-     * 返回的附件已含 thumbnailPath（图片且已复制到本地时）。
+     * 返回的附件已含 thumbnailPath / localFilePath（图片且已复制到本地时），
+     * 并按真实字节头嗅探 mimeType —— 扩展名和 content resolver 给的 MIME 都可能与实际编码不符，
+     * 而视觉接口要求 media_type/data URI 前缀与字节一致。
      */
     public static List<ChatMessage.Attachment> createFromUris(Context context, List<Uri> uris) {
         List<ChatMessage.Attachment> result = new ArrayList<>();
@@ -55,11 +57,23 @@ public final class AttachmentFactory {
                     attachmentUrl = Uri.fromFile(new File(localPath)).toString();
                 }
             }
+            if (localFilePath == null && "file".equals(uri.getScheme())) {
+                // file:// 直接选入（例如拍照落盘后重新进入选择器）：路径本身可用
+                localFilePath = uri.getPath();
+            }
 
             ChatMessage.Attachment attachment = new ChatMessage.Attachment(
                     type, attachmentUrl, fileName, fileUriUtils.getFileSizeFromUri(uri));
+            if (localFilePath != null) {
+                attachment.localFilePath = localFilePath;
+            }
             if ("image".equals(type) && localFilePath != null) {
                 attachment.thumbnailPath = localFilePath;
+                String sniffed = com.oilquiz.app.ai.util.ImagePreprocessUtil
+                        .sniffMimeType(new File(localFilePath));
+                if (sniffed != null && !"application/octet-stream".equals(sniffed)) {
+                    attachment.mimeType = sniffed;
+                }
             }
             result.add(attachment);
         }

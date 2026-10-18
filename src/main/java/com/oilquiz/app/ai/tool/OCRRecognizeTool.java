@@ -325,20 +325,18 @@ public class OCRRecognizeTool implements AITool {
                 AILogger.d(TAG, "imageUnderstandOnline: no active online model");
                 return null;
             }
-            // 图片转 base64（≤4MB，与 AIChatActivity 在线多模态一致）
-            if (imageFile.length() > 4L * 1024 * 1024) {
-                AILogger.d(TAG, "imageUnderstandOnline: image > 4MB, skip online");
+            // 统一走视觉编码出口：按真实字节定 MIME、长边 1568 降采样、预算内质量梯度，
+            // 不再"原字节 + 硬标 jpeg + 超 4MB 直接放弃在线视觉"
+            com.oilquiz.app.ai.util.ImagePreprocessUtil.PreparedVisionImage prepared =
+                    com.oilquiz.app.ai.util.ImagePreprocessUtil.prepareForOnlineVision(imageFile);
+            if (prepared == null) {
+                AILogger.d(TAG, "imageUnderstandOnline: image cannot be encoded for vision");
                 return null;
             }
-            byte[] bytes;
-            try (FileInputStream fis = new FileInputStream(imageFile)) {
-                bytes = new byte[(int) imageFile.length()];
-                int off = 0, n;
-                while (off < bytes.length && (n = fis.read(bytes, off, bytes.length - off)) > 0) {
-                    off += n;
-                }
+            if (!prepared.withinBudget) {
+                AILogger.w(TAG, "imageUnderstandOnline: still over vision budget after re-encode ("
+                        + prepared.size() + " bytes), proceeding anyway");
             }
-            String b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
 
             OnlineInferenceService ois = OnlineInferenceService.getInstance(context);
             if (ois == null) return null;
@@ -348,7 +346,8 @@ public class OCRRecognizeTool implements AITool {
             final AtomicReference<String> errorRef = new AtomicReference<>();
             final StringBuilder full = new StringBuilder();
 
-            ois.generateStreamWithImages(question, java.util.Collections.singletonList(b64),
+            ois.generateStreamWithImageParts(question,
+                    java.util.Collections.singletonList(prepared),
                     active, new java.util.ArrayList<>(), 1024, false,
                     new com.oilquiz.app.ai.callback.StreamCallback() {
                         @Override public void onToken(String token) {
