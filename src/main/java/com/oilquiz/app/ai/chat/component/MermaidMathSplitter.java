@@ -78,7 +78,9 @@ public class MermaidMathSplitter {
                     flushText(textBuf, segs);
                     String mermaidCode = code.toString().trim();
                     if (!mermaidCode.isEmpty()) {
-                        segs.add(Segment.component(new ComponentData("html",
+                        // 可信模板：图渲染需要 mermaid.js 执行，标记为内置模板，
+                        // HtmlSandbox 才会在"无桥 + 无文件访问"的前提下放开脚本
+                        segs.add(Segment.component(ComponentData.ofTrustedTemplate("html",
                                 htmlProps(mermaidHtml(mermaidCode, isDark)))));
                     }
                     i = j;
@@ -107,7 +109,7 @@ public class MermaidMathSplitter {
                     flushText(textBuf, segs);
                     String formula = math.toString().trim();
                     if (!formula.isEmpty()) {
-                        segs.add(Segment.component(new ComponentData("html",
+                        segs.add(Segment.component(ComponentData.ofTrustedTemplate("html",
                                 htmlProps(mathHtml(formula, true, isDark)))));
                     }
                     // j 恒为最后消费的行号：单行公式 j==i，多行公式 j==闭合行。
@@ -159,7 +161,7 @@ public class MermaidMathSplitter {
                 + escapeHtml(code)
                 + "</div>"
                 + "<script>mermaid.initialize({startOnLoad:true,theme:'" + theme
-                + "',securityLevel:'loose'});</script>"
+                + "',securityLevel:'strict'});</script>"
                 + "</body></html>";
     }
 

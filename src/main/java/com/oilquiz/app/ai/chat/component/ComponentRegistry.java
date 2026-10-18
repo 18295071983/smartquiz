@@ -5,6 +5,8 @@ import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 
+import com.oilquiz.app.R;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -152,26 +154,51 @@ public class ComponentRegistry {
                 applyViewStyle(context, view, styleObj);
             }
         }
-        // 统一附加 actions 按钮行；以下情况跳过避免重复：
+        // 统一附加 actions；以下情况跳过避免重复：
         // 1. 由 DynamicCardView 渲染（其内部已渲染 actions）
         // 2. 组件自带 actions 渲染（alert_card/contact_card 内部已渲染）
+        JSONArray actions = data.props != null ? data.props.optJSONArray("actions") : null;
+        boolean hasActions = actions != null && actions.length() > 0;
         boolean actionsAlreadyRendered = renderedBy == dynamicFallback || selfRendersActions(data.type);
-        if (!actionsAlreadyRendered
-                && data.props != null && data.props.optJSONArray("actions") != null
-                && data.props.optJSONArray("actions").length() > 0) {
+        if (hasActions && !actionsAlreadyRendered) {
+            // 已接 CardShell 的组件：动作进卡片 footer（最多 2 个 + 更多），
+            // 不再外面包一层 LinearLayout 把按钮"飘"在卡片背景之外
+            CardShell shell = findShell(view);
+            if (shell != null) {
+                try {
+                    shell.addActions(actions);
+                    return view;
+                } catch (Throwable t) {
+                    Log.w(TAG, "footer actions failed, fall back to outer row: " + t.getMessage());
+                }
+            }
             try {
                 android.widget.LinearLayout wrapper = new android.widget.LinearLayout(context);
                 wrapper.setOrientation(android.widget.LinearLayout.VERTICAL);
                 wrapper.addView(view, new android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
-                ComponentActions.renderActions(wrapper, context, data.props.optJSONArray("actions"));
+                ComponentActions.renderActions(wrapper, context, actions);
                 return wrapper;
             } catch (Throwable t) {
                 Log.w(TAG, "attach actions failed, return raw view: " + t.getMessage());
             }
         }
         return view;
+    }
+
+    /** 在渲染结果里找 CardShell（组件可能把外壳包在包装容器下） */
+    private static CardShell findShell(View view) {
+        if (view == null) return null;
+        if (view instanceof CardShell) return (CardShell) view;
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup vg = (android.view.ViewGroup) view;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                CardShell found = findShell(vg.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     /** 自身已渲染 actions 按钮的类型（避免外层重复附加）：
@@ -181,13 +208,15 @@ public class ComponentRegistry {
     }
 
     /**
-     * 渲染失败时的兜底占位（显示组件类型，便于排查）。
+     * 渲染失败时的兜底卡片（Track B0-4：从"⚠ 组件渲染失败: type"一行裸文本
+     * 升级为统一错误态外壳，带上类型便于排查，视觉与其它卡片一致）。
      */
     public View renderFallback(Context context, ComponentData data) {
-        TextView tv = new TextView(context);
-        tv.setText("⚠ 组件渲染失败: " + (data != null ? data.type : "null"));
-        tv.setTextSize(12);
-        return tv;
+        return CardShell.create(context)
+                .setHeaderIcon(R.drawable.ic_ai_error, ComponentTheme.danger(context))
+                .setState(CardShell.State.ERROR, context.getString(
+                        R.string.component_render_failed,
+                        data != null && data.type != null ? data.type : "unknown"));
     }
 
     // ---------- UI-06 统一 style 对象（容器级） ----------
@@ -244,7 +273,7 @@ public class ComponentRegistry {
                     if (c != Integer.MIN_VALUE) { bgColor = c; bgOk = true; }
                 }
                 int borderWidth = 0;
-                int borderColor = 0xFFFFFFFF;
+                int borderColor = ComponentTheme.outline(context);
                 boolean borderOk = false;
                 if (style.has("border")) {
                     String bs = style.optString("border", "").trim();

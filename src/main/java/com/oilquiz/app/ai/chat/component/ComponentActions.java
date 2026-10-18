@@ -191,6 +191,10 @@ public final class ComponentActions {
 
     /**
      * 在卡片底部渲染动作按钮行（无 actions 或全部无效时返回 false，不添加任何 View）。
+     *
+     * <p>已接 {@link CardShell} 的组件请改用 {@code shell.addActions(actions)}：
+     * 按钮落在卡片 footer 内，不再飘到卡片背景之外。两条链路走同一个
+     * {@link #perform} 语义，行为一致。
      */
     public static boolean renderActions(LinearLayout card, Context context, JSONArray actions) {
         if (card == null || context == null || actions == null || actions.length() == 0) {
@@ -203,58 +207,16 @@ public final class ComponentActions {
         for (int i = 0; i < actions.length(); i++) {
             JSONObject a = actions.optJSONObject(i);
             if (a == null) continue;
-            final String label = a.optString("label", "打开");
-            final String link = a.optString("link", "");
-            final String copy = a.optString("copy", "");
-            final String action = a.optString("action", "");
-            final String componentId = a.optString("component_id", "");
-            final String value = a.optString("value", "");
-            if (link.isEmpty() && copy.isEmpty() && action.isEmpty()) continue;
+            final Runnable runner = actionRunner(context, a);
+            if (runner == null) continue;
             TextView btn = new TextView(context);
-            btn.setText(label);
+            btn.setText(a.optString("label", "打开"));
             btn.setTextSize(12);
             btn.setTextColor(ComponentColors.accent(context));
             btn.setPadding(0, 0, dp(context, 16), 0);
             btn.setGravity(Gravity.CENTER_VERTICAL);
             btn.setClickable(true);
-            btn.setOnClickListener(v -> {
-                if ("callback".equals(action) && !componentId.isEmpty()) {
-                    // 交互内置组件：按钮点击把 value 回传给组件注册表（Agent get_result 取回）。
-                    // layout 卡片等容器：同时收集容器内输入控件值（input/select/switch 等）合并回传，
-                    // 修复"layout 控件输入值无法回传"——仅按钮 value 不含用户填写内容。
-                    // 点击反馈：Toast 提示已记录（避免"点了没反应"的体验）
-                    try {
-                        Toast.makeText(context, "已选择: " + (value.isEmpty() ? label : value),
-                                Toast.LENGTH_SHORT).show();
-                    } catch (Throwable ignored) {
-                    }
-                    String payload = value.isEmpty() ? label : value;
-                    try {
-                        java.util.Map<String, Object> inputs = collectInputs(componentId);
-                        if (inputs != null && !inputs.isEmpty()) {
-                            JSONObject merged = new JSONObject();
-                            merged.put("action", payload);
-                            merged.put("inputs", new JSONObject(
-                                    new com.google.gson.Gson().toJson(inputs)));
-                            payload = merged.toString();
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                    notifyResult(context, componentId, payload);
-                    return;
-                }
-                // P3：refresh 动作（带 component_id 时）：通知组件注册表用户点了刷新，
-                // Agent get_result 可取回 "refresh" 后重新 update 组件内容
-                if ("refresh".equals(action) && !componentId.isEmpty()) {
-                    try {
-                        Toast.makeText(context, "已请求刷新: " + label, Toast.LENGTH_SHORT).show();
-                    } catch (Throwable ignored) {
-                    }
-                    notifyResult(context, componentId, "refresh");
-                    return;
-                }
-                execute(context, link, copy, action);
-            });
+            btn.setOnClickListener(v -> runner.run());
             row.addView(btn);
             added = true;
         }
@@ -263,6 +225,62 @@ public final class ComponentActions {
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         }
         return added;
+    }
+
+    /**
+     * 把一条 action 编译成点击回调；字段不合法（既无 link 又无 copy 又无 action）返回 null。
+     */
+    public static Runnable actionRunner(Context context, JSONObject a) {
+        if (a == null || context == null) return null;
+        final String label = a.optString("label", "打开");
+        final String link = a.optString("link", "");
+        final String copy = a.optString("copy", "");
+        final String action = a.optString("action", "");
+        final String componentId = a.optString("component_id", "");
+        final String value = a.optString("value", "");
+        if (link.isEmpty() && copy.isEmpty() && action.isEmpty()) return null;
+        return () -> perform(context, label, link, copy, action, componentId, value);
+    }
+
+    /**
+     * 动作点击的统一语义（footer 按钮与旧动作行共用）：
+     * callback/refresh 回传给 Agent，link 打开，copy 进剪贴板。
+     */
+    public static void perform(Context context, String label, String link, String copy,
+                               String action, String componentId, String value) {
+        try {
+            if ("callback".equals(action) && componentId != null && !componentId.isEmpty()) {
+                // 交互内置组件：按钮点击把 value 回传给组件注册表（Agent get_result 取回）。
+                // layout 卡片等容器：同时收集容器内输入控件值（input/select/switch 等）合并回传，
+                // 修复"layout 控件输入值无法回传"——仅按钮 value 不含用户填写内容。
+                // 点击反馈：Toast 提示已记录（避免"点了没反应"的体验）
+                Toast.makeText(context, "已选择: "
+                        + (value == null || value.isEmpty() ? label : value),
+                        Toast.LENGTH_SHORT).show();
+                String payload = (value == null || value.isEmpty()) ? label : value;
+                try {
+                    java.util.Map<String, Object> inputs = collectInputs(componentId);
+                    if (inputs != null && !inputs.isEmpty()) {
+                        JSONObject merged = new JSONObject();
+                        merged.put("action", payload);
+                        merged.put("inputs", new JSONObject(
+                                new com.google.gson.Gson().toJson(inputs)));
+                        payload = merged.toString();
+                    }
+                } catch (Throwable ignored) {
+                }
+                notifyResult(context, componentId, payload);
+                return;
+            }
+            if ("refresh".equals(action) && componentId != null && !componentId.isEmpty()) {
+                Toast.makeText(context, "已请求刷新: " + label, Toast.LENGTH_SHORT).show();
+                notifyResult(context, componentId, "refresh");
+                return;
+            }
+            execute(context, link, copy, action);
+        } catch (Throwable t) {
+            Toast.makeText(context, "动作执行失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** 执行单个动作（link 打开 / copy 复制 / action 内置动作） */

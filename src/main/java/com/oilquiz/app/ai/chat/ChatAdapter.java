@@ -10,6 +10,7 @@ import com.oilquiz.app.ai.chat.component.ComponentRegistry;
 import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.render.RenderExecutor;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
+import com.oilquiz.app.ai.chat.util.ToolResultText;
 import android.content.res.Configuration;
 
 import io.noties.markwon.core.spans.TextViewSpan;
@@ -2018,7 +2019,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         // ---- 结构变化：重建（原逻辑） ----
-        holder.contentHost.removeAllViews();
+        // 旧组件 View 本轮不再复用：先显式释放（WebView 不 destroy 会常驻原生内存），
+        // 并作废组件段缓存，防止下次指纹命中时复用已销毁的 View
+        releaseAndClearComponents(holder.contentHost);
+        holder.componentSegmentViews = null;
+        holder.componentSegmentsFingerprint = null;
         start = 0;
         thinkIdx = 0;
         compIdx = 0;
@@ -2851,9 +2856,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         }
         String newFp = fp.toString();
+        // staleCache：上一轮的组件段 View。指纹一致才复用，否则本轮结尾统一释放
+        List<View> staleCache = holder.componentSegmentViews;
         boolean canReuse = newFp.equals(holder.componentSegmentsFingerprint)
-                && holder.componentSegmentViews != null;
-        List<View> oldCache = canReuse ? holder.componentSegmentViews
+                && staleCache != null;
+        List<View> oldCache = canReuse ? staleCache
                 : java.util.Collections.<View>emptyList();
         List<View> newCache = new java.util.ArrayList<View>();
         int compIdx = 0;
@@ -2882,6 +2889,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.contentHost.addView(tv);
             }
         }
+        releaseStaleSegmentViews(staleCache, newCache);
         holder.componentSegmentsFingerprint = newFp;
         holder.componentSegmentViews = newCache;
     }
@@ -3246,7 +3254,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (holder.boundComponents == message.components && holder.boundComponentsFingerprint == fp) {
             return;
         }
-        holder.componentContainer.removeAllViews();
+        releaseAndClearComponents(holder.componentContainer);
         holder.boundComponents = message.components;
         holder.boundComponentsFingerprint = fp;
 
@@ -3292,15 +3300,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         for (ComponentData data : others) {
             View view = ComponentRegistry.getInstance().render(ctx, data);
             if (view == null) {
-                // 渲染失败降级占位（不显示组件源码）
-                TextView tv = new TextView(ctx);
-                tv.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ce08c6dd) + data.type + SmartQuizApplication.getAppContext().getString(R.string.h_56e45313));
-                tv.setTextSize(12);
-                tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
+                // 渲染失败降级占位（统一错误态卡片，不显示组件源码）
+                View fallback = ComponentRegistry.getInstance().renderFallback(ctx, data);
                 LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 flp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
-                holder.componentContainer.addView(tv, flp);
+                holder.componentContainer.addView(fallback, flp);
                 first = false;
                 rendered++;
                 continue;
@@ -3443,9 +3448,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             }
             String newFp = fp.toString();
+            // staleCache：上一轮的组件段 View。指纹一致才复用，否则本轮结尾统一释放
+            List<View> staleCache = holder.componentSegmentViews;
             boolean canReuse = newFp.equals(holder.componentSegmentsFingerprint)
-                    && holder.componentSegmentViews != null;
-            List<View> oldCache = canReuse ? holder.componentSegmentViews
+                    && staleCache != null;
+            List<View> oldCache = canReuse ? staleCache
                     : java.util.Collections.<View>emptyList();
             List<View> newCache = new java.util.ArrayList<View>();
             int compIdx = 0;
@@ -3459,12 +3466,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         view = ComponentRegistry.getInstance().render(ctx, seg.component);
                     }
                     if (view == null) {
-                        // 渲染失败降级占位（不显示组件源码）
-                        TextView tv = createSegmentTextView(ctx, holder.messageText);
-                        tv.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ce08c6dd) + seg.component.type + SmartQuizApplication.getAppContext().getString(R.string.h_56e45313));
-                        tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-                        holder.contentHost.addView(tv);
-                        newCache.add(tv);
+                        // 渲染失败降级占位（统一错误态卡片，不显示组件源码）
+                        View fallback = ComponentRegistry.getInstance()
+                                .renderFallback(ctx, seg.component);
+                        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT);
+                        flp.topMargin = dpToPx(8, ctx);
+                        holder.contentHost.addView(fallback, flp);
+                        newCache.add(fallback);
                         compIdx++;
                         continue;
                     }
@@ -3483,12 +3493,42 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             }
             // 更新缓存：本次实际渲染的组件段 View（与指纹一一对应，供下次流式更新复用）
+            releaseStaleSegmentViews(staleCache, newCache);
             holder.componentSegmentsFingerprint = newFp;
             holder.componentSegmentViews = newCache;
         }
         // 消息级组件（Agent 工具卡片、工具 withComponent 组件）渲染到 component_container，
         // 执行中与完成后的渲染路径保持一致
         bindComponents(holder, message);
+    }
+
+    /**
+     * 释放并清空组件容器（Track B0-1 生命周期）。
+     *
+     * <p>RecyclerView 复用 ViewHolder 时这里重建组件 View，旧 View 被摘下来就再没人引用，
+     * 但 WebView 的原生内存/渲染器进程不会随 Java GC 立刻回收——长会话滚动会一直堆。
+     * 所以在 removeAllViews 前显式 release 一次（只处理确定不复用的容器；
+     * 组件段指纹缓存走 {@link #releaseStaleSegmentViews}）。
+     */
+    private static void releaseAndClearComponents(android.view.ViewGroup container) {
+        if (container == null) return;
+        for (int i = 0; i < container.getChildCount(); i++) {
+            com.oilquiz.app.ai.chat.component.ComponentLifecycle.release(container.getChildAt(i));
+        }
+        container.removeAllViews();
+    }
+
+    /**
+     * 释放上一轮组件段缓存里本次没被复用的 View（流式重建时 WebView 的确定性销毁点）。
+     *
+     * <p>必须在 contentHost.removeAllViews() 之后、缓存字段被新列表替换之前调用。
+     */
+    private static void releaseStaleSegmentViews(List<View> staleCache, List<View> newCache) {
+        if (staleCache == null || staleCache.isEmpty()) return;
+        for (View old : staleCache) {
+            if (old == null || (newCache != null && newCache.contains(old))) continue;
+            com.oilquiz.app.ai.chat.component.ComponentLifecycle.release(old);
+        }
     }
 
     /** 按 messageText 模板创建段落 TextView（样式一致） */
@@ -3789,7 +3829,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.toolResultContainer.setVisibility(View.VISIBLE);
             }
             if (message.content != null && holder.toolResult != null) {
-                holder.toolResult.setText(message.content);
+                // 兼容旧 TOOL_RESULT 消息：同样只渲染预览（C0-T2 同一口径），
+                // 否则历史里的几十 KB 结果仍会整段进 TextView
+                ToolResultText.Preview pv = ToolResultText.preview(message.content);
+                CharSequence shown = pv.truncated
+                        ? appendViewAllSpan(pv.text, pv.totalChars,
+                                SmartQuizApplication.getAppContext()
+                                        .getString(R.string.tool_result_legacy_title),
+                                message.content)
+                        : pv.text;
+                holder.toolResult.setText(shown);
                 holder.toolResult.setMovementMethod(LinkMovementMethod.getInstance());
             }
             if (holder.toolProgress != null) holder.toolProgress.setVisibility(View.GONE);
@@ -3799,6 +3848,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.toolIcon.setText(info.toolIcon);
         holder.toolName.setText(info.toolDisplayName);
         holder.toolStatus.setText(info.getStatusText());
+        // C0-T4：状态文字去掉 emoji 后，靠颜色区分完成/失败/进行中
+        holder.toolStatus.setTextColor(toolStatusColor(holder.toolStatus.getContext(), info.status));
 
         // dsh 对齐：工具声明化卡片意图（presentCall/presentResult → presentCard.title，2026-09-23）
         Object cardTitle = info.presentCard != null ? info.presentCard.get("title") : null;
@@ -3817,6 +3868,27 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         if (info.executionTimeMs > 0) {
             holder.toolStatus.setText(info.getStatusText() + " · " + info.executionTimeMs + "ms");
+        }
+    }
+
+    /**
+     * 工具状态文字配色（C0-T4）：完成=成功色、失败=错误色、等待/执行中=次要色。
+     * 只取语义色资源，不在代码里写十六进制。
+     */
+    private static int toolStatusColor(Context context,
+                                       ChatMessage.ToolCallInfo.ToolCallStatus status) {
+        if (context == null || status == null) {
+            return ThemeColors.get(context, R.color.text_secondary);
+        }
+        switch (status) {
+            case COMPLETED:
+                return ThemeColors.get(context, R.color.success);
+            case FAILED:
+                return ThemeColors.get(context, R.color.error);
+            case PENDING:
+            case RUNNING:
+            default:
+                return ThemeColors.get(context, R.color.text_secondary);
         }
     }
 
@@ -4075,55 +4147,27 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /**
-     * 在工具结果文本末尾追加可点击的「AI深度解读」chip（仅满足条件时追加）。
-     * 不修改任何 XML 布局：通过 Spannable 在文本末尾渲染一个高亮圆角效果的可点击区域。
+     * 工具结果区的显示文本：预览 +「查看全部」+ 可选「AI 深度解读」chip。
+     * 不修改任何 XML 布局：通过 Spannable 在文本末尾渲染可点击区域。
      *
-     * 追加条件：状态为 COMPLETED 且存在 rawResult、尚未触发过解读、且任意 LLM (在线或本地) 可用。
+     * <p>C0-T2：以前把 {@code formatForUi} 的整段结果直接进 TextView，一次
+     * {@code python_execute} 几十 KB 输出就让这条 item 的测量/绘制/回收全部变贵
+     * （聊天流滚动卡顿的主因之一）。现在只显示 {@link ToolResultText} 的预览，
+     * 全文仍在 {@code info.result} 与历史里，点「查看全部」才一次性弹层展示。
+     *
+     * <p>chip 追加条件：状态为 COMPLETED 且存在 rawResult、尚未触发过解读、且 canInterpret。
      */
     private CharSequence buildResultWithInterpretChip(ChatMessage message, ChatMessage.ToolCallInfo info, boolean applyMarkdown) {
-        // 如果有自动写入的 AI 解读摘要（interpretedMessage）：放在顶部作为自然语言结论，
-        // 其后保留原始结构化结果作为详细参考，避免信息丢失
-        CharSequence interpreted = null;
-        if (info.interpretedMessage != null && !info.interpretedMessage.isEmpty()) {
-            if (applyMarkdown) {
-                interpreted = formatMessageContent(info.interpretedMessage);
-            } else {
-                interpreted = info.interpretedMessage;
-            }
-        }
-
-        // 渲染基础内容（结构化结果）
-        CharSequence baseContent;
-        if (applyMarkdown) {
-            baseContent = info.result == null ? "" : formatMessageContent(info.result);
-        } else {
-            baseContent = info.result == null ? "" : info.result;
-        }
-
-        // 拼接：解读 + 分隔 + 原始结果（若原始结果与解读文本相同且过短，可省略以避免重复）
-        CharSequence mainContent;
-        if (interpreted != null && interpreted.length() > 0) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("💡 ");
-            sb.append(interpreted);
-            // 如果原始结果和 interpreted 完全一样且是短文本（模板产物），不重复展示
-            boolean duplicateRaw = info.result != null && info.result.equals(info.interpretedMessage)
-                    && info.result.length() < 800;
-            if (!duplicateRaw && baseContent != null && baseContent.length() > 0
-                    && !info.interpretedMessage.contentEquals(baseContent)) {
-                sb.append(SmartQuizApplication.getAppContext().getString(R.string.h_129d0a0f));
-                sb.append(baseContent);
-            }
-            if (applyMarkdown) {
-                mainContent = formatMessageContent(sb.toString());
-            } else {
-                mainContent = sb.toString();
-            }
-        } else {
-            mainContent = baseContent;
-        }
+        final String fullText = buildToolResultFullText(info);
+        final ToolResultText.Preview pv = ToolResultText.preview(fullText);
+        CharSequence mainContent = applyMarkdown ? formatMessageContent(pv.text) : pv.text;
 
         try {
+            if (pv.truncated) {
+                String title = info.toolDisplayName != null && !info.toolDisplayName.isEmpty()
+                        ? info.toolDisplayName : info.toolName;
+                mainContent = appendViewAllSpan(mainContent, pv.totalChars, title, fullText);
+            }
             // canInterpret 由 AIChatActivity 在工具执行完毕时一次性赋值，
             // 此处仅读取 boolean，不做任何重量级操作（避免触发 ALChat 初始化等导致气泡不显示）
             final boolean shouldShowChip =
@@ -4134,11 +4178,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (!shouldShowChip) {
                 return mainContent;
             }
-            final String chipText = "\n\n🔍 点击使用AI深度解读此结果";
-            SpannableStringBuilder ssb = new SpannableStringBuilder();
-            ssb.append(mainContent == null ? "" : mainContent);
-            ssb.append(chipText);
-            final int chipStart = (mainContent == null ? 0 : mainContent.length()) + 2;
+            SpannableStringBuilder ssb = new SpannableStringBuilder(
+                    mainContent == null ? "" : mainContent);
+            ssb.append("\n\n");
+            final int chipStart = ssb.length();
+            ssb.append(SmartQuizApplication.getAppContext()
+                    .getString(R.string.tool_result_ai_chip));
             final int chipEnd = ssb.length();
             if (chipStart < chipEnd) {
                 ssb.setSpan(new BackgroundColorSpan(ThemeColors.get(R.color.hc_ffe3f2fd)), chipStart, chipEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -4167,6 +4212,82 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         } catch (Throwable t) {
             android.util.Log.w("ChatAdapter", "buildResultWithInterpretChip 异常: " + t.getMessage());
             return mainContent == null ? "" : mainContent;
+        }
+    }
+
+    /**
+     * 把「AI 解读摘要 + 原始结果」拼成一条完整文本（未截断），
+     * 供预览与「查看全部」弹层共用同一份内容，避免两处口径漂移。
+     */
+    private String buildToolResultFullText(ChatMessage.ToolCallInfo info) {
+        String raw = info.result == null ? "" : info.result;
+        String interpreted = info.interpretedMessage;
+        if (interpreted == null || interpreted.isEmpty()) {
+            return raw;
+        }
+        StringBuilder sb = new StringBuilder(interpreted);
+        // 模板兜底时解读与原文一致，短文本不重复展示
+        boolean duplicateRaw = interpreted.equals(raw) && raw.length() < 800;
+        if (!duplicateRaw && !raw.isEmpty()) {
+            sb.append(SmartQuizApplication.getAppContext()
+                    .getString(R.string.tool_result_raw_section));
+            sb.append(raw);
+        }
+        return sb.toString();
+    }
+
+    /** 预览末尾追加「查看全部（N 字）」点击区 */
+    private CharSequence appendViewAllSpan(CharSequence content, int totalChars,
+                                          String title, String fullText) {
+        SpannableStringBuilder ssb = new SpannableStringBuilder(content == null ? "" : content);
+        ssb.append("\n\n");
+        final int start = ssb.length();
+        ssb.append(SmartQuizApplication.getAppContext()
+                .getString(R.string.tool_result_view_all, totalChars));
+        final int end = ssb.length();
+        ssb.setSpan(new ForegroundColorSpan(
+                ThemeColors.attr(SmartQuizApplication.getAppContext(), R.attr.colorPrimary)),
+                start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        ssb.setSpan(new ClickableSpan() {
+            @Override
+            public void onClick(@NonNull android.view.View widget) {
+                showFullToolResult(widget.getContext(), title, fullText);
+            }
+        }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return ssb;
+    }
+
+    /**
+     * 完整结果弹层：原样展示（不再截断、不做 Markdown），可复制。
+     * 用户主动点开才构建大 TextView，这里允许一次性付这笔渲染成本。
+     */
+    private void showFullToolResult(Context context, String title, String fullText) {
+        if (context == null || fullText == null) return;
+        try {
+            android.widget.TextView tv = new android.widget.TextView(context);
+            tv.setText(fullText);
+            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f);
+            tv.setTextIsSelectable(true);
+            tv.setPadding(dpToPx(16, context), dpToPx(12, context),
+                    dpToPx(16, context), dpToPx(12, context));
+            android.widget.ScrollView scroll = new android.widget.ScrollView(context);
+            scroll.addView(tv);
+            final Context uiContext = context;
+            new androidx.appcompat.app.AlertDialog.Builder(context)
+                    .setTitle(context.getString(R.string.tool_result_full_title,
+                            title == null ? "" : title))
+                    .setView(scroll)
+                    .setPositiveButton(R.string.chat_copy, (dialog, which) -> {
+                        try {
+                            copyToClipboard(uiContext, fullText);
+                        } catch (Throwable ignored) {
+                        }
+                    })
+                    .setNegativeButton(R.string.close, null)
+                    .show();
+        } catch (Throwable t) {
+            // 非 Activity 上下文（弹窗无 window token）等情况：不影响工具卡本身渲染
+            android.util.Log.w("ChatAdapter", "完整结果弹层打开失败: " + t.getMessage());
         }
     }
 

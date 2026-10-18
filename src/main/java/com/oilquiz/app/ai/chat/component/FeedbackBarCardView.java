@@ -1,9 +1,8 @@
 package com.oilquiz.app.ai.chat.component;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
-import android.graphics.drawable.GradientDrawable;
+import android.content.res.ColorStateList;
+import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -11,13 +10,22 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
+import androidx.core.graphics.drawable.DrawableCompat;
+
+import com.oilquiz.app.R;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
  * 消息操作栏组件（feedback_bar）：横向按钮条，声明式配置。
  *
- * 取代 ChatAdapter 里硬编码的 btnCopy/btnSpeak/btnShare/btnRegenerate/btnLike/
+ * <p>Track B0-4：去掉写死的白色系颜色（浅色底上几乎不可读）与 emoji 图标，
+ * 颜色一律走 {@link ComponentTheme}，图标走 res/drawable 矢量资源；
+ * props 里的 icon 字段不再当图标用（模型给的就是 emoji），改为按按钮 id 映射。
+ *
+ * <p>取代 ChatAdapter 里硬编码的 btnCopy/btnSpeak/btnShare/btnRegenerate/btnLike/
  * btnDislike/btnStop 等 TextView。props 描述按钮列表 + 反馈状态，点击通过
  * ComponentActions.dispatchResult 分发到 chat_ui_actions 通道，Agent 端可查询。
  *
@@ -29,13 +37,8 @@ import org.json.JSONObject;
  *   "speaking": false,           // 是否正在朗读
  *   "streaming": false,          // 是否正在流式生成
  *   "actions": [
- *     {"id":"copy","icon":"📋","label":"复制"},
- *     {"id":"speak","icon":"🔊","label":"朗读","dynamic":{"speaking":{"icon":"⏹","label":"停止"}}},
- *     {"id":"share","icon":"↗️","label":"分享"},
- *     {"id":"regen","icon":"🔄","label":"重新生成"},
- *     {"id":"like","icon":"👍"},
- *     {"id":"dislike","icon":"👎"},
- *     {"id":"stop","icon":"⏹","label":"停止生成","visibleWhen":"streaming"}
+ *     {"id":"copy","label":"复制"},
+ *     {"id":"speak","label":"朗读","dynamic":{"speaking":{"label":"停止"}}}
  *   ]
  * }
  * </pre>
@@ -67,7 +70,7 @@ public class FeedbackBarCardView implements ChatComponent {
 
         JSONArray actions = p.optJSONArray("actions");
         if (actions == null || actions.length() == 0) {
-            actions = defaultActions();
+            actions = defaultActions(context);
         }
         for (int i = 0; i < actions.length(); i++) {
             JSONObject a = actions.optJSONObject(i);
@@ -78,22 +81,20 @@ public class FeedbackBarCardView implements ChatComponent {
             if ("streaming".equals(when) && !streaming) continue;
             if ("completed".equals(when) && streaming) continue;
 
-            String icon = a.optString("icon", "");
-            String label = a.optString("label", "");
+            String label = a.optString("label", defaultLabel(context, id));
             // 动态状态覆盖（如 speak → stop）
             JSONObject dynamic = a.optJSONObject("dynamic");
-            if (dynamic != null && speaking && id.equals("speak")) {
+            if (dynamic != null && speaking && "speak".equals(id)) {
                 JSONObject speakingState = dynamic.optJSONObject("speaking");
                 if (speakingState != null) {
-                    icon = speakingState.optString("icon", icon);
-                    label = speakingState.optString("label", label);
+                    label = speakingState.optString("label", context.getString(R.string.chat_stop));
                 }
             }
             // 反馈按钮激活态
             boolean active = ("like".equals(id) && feedback == 1)
                     || ("dislike".equals(id) && feedback == -1);
 
-            TextView btn = makeChip(context, icon, label, active);
+            TextView btn = makeChip(context, id, label, active);
             final String actionId = id;
             btn.setOnClickListener(v -> {
                 String value = actionId + (msgId != null ? ":" + msgId : "");
@@ -105,47 +106,100 @@ public class FeedbackBarCardView implements ChatComponent {
         return row;
     }
 
-    private JSONArray defaultActions() {
+    /** 默认全套：只声明 id，图标与文案都由本地资源决定（不再往数据里塞 emoji） */
+    private JSONArray defaultActions(Context context) {
         JSONArray arr = new JSONArray();
         try {
-            arr.put(new JSONObject().put("id", "copy").put("icon", "📋").put("label", "复制"));
-            arr.put(new JSONObject().put("id", "speak").put("icon", "🔊").put("label", "朗读")
+            arr.put(new JSONObject().put("id", "copy"));
+            arr.put(new JSONObject().put("id", "speak")
                     .put("dynamic", new JSONObject().put("speaking",
-                            new JSONObject().put("icon", "⏹").put("label", "停止"))));
-            arr.put(new JSONObject().put("id", "share").put("icon", "↗️").put("label", "分享"));
-            arr.put(new JSONObject().put("id", "regen").put("icon", "🔄").put("label", "重新生成"));
-            arr.put(new JSONObject().put("id", "like").put("icon", "👍"));
-            arr.put(new JSONObject().put("id", "dislike").put("icon", "👎"));
-            arr.put(new JSONObject().put("id", "stop").put("icon", "⏹").put("label", "停止生成")
-                    .put("visibleWhen", "streaming"));
-        } catch (org.json.JSONException ignored) {}
+                            new JSONObject().put("label",
+                                    context.getString(R.string.chat_stop)))));
+            arr.put(new JSONObject().put("id", "share"));
+            arr.put(new JSONObject().put("id", "regen"));
+            arr.put(new JSONObject().put("id", "like"));
+            arr.put(new JSONObject().put("id", "dislike"));
+            arr.put(new JSONObject().put("id", "stop").put("visibleWhen", "streaming"));
+        } catch (org.json.JSONException ignored) {
+        }
         return arr;
     }
 
-    private TextView makeChip(Context ctx, String icon, String label, boolean active) {
+    /** 按钮图标：按 id 映射矢量资源，未知 id 不显示图标 */
+    private static int iconFor(String id) {
+        switch (id) {
+            case "copy":
+                return R.drawable.ic_copy;
+            case "speak":
+                return R.drawable.ic_speaker;
+            case "share":
+                return R.drawable.ic_share;
+            case "regen":
+                return R.drawable.ic_refresh;
+            case "like":
+                return R.drawable.ic_thumb_up;
+            case "dislike":
+                return R.drawable.ic_thumb_down;
+            case "stop":
+                return R.drawable.ic_stop;
+            default:
+                return 0;
+        }
+    }
+
+    private static String defaultLabel(Context context, String id) {
+        switch (id) {
+            case "copy":
+                return context.getString(R.string.chat_copy);
+            case "speak":
+                return context.getString(R.string.chat_speak);
+            case "share":
+                return context.getString(R.string.chat_share);
+            case "regen":
+                return context.getString(R.string.chat_regenerate);
+            case "like":
+                return context.getString(R.string.chat_like);
+            case "dislike":
+                return context.getString(R.string.chat_dislike);
+            case "stop":
+                return context.getString(R.string.chat_stop_generating);
+            default:
+                return "";
+        }
+    }
+
+    private TextView makeChip(Context ctx, String id, String label, boolean active) {
         TextView tv = new TextView(ctx);
-        String text = (TextUtils.isEmpty(icon) ? "" : icon)
-                + (TextUtils.isEmpty(label) ? "" : (TextUtils.isEmpty(icon) ? label : " " + label));
-        tv.setText(text);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
-        tv.setTextColor(active ? 0xFF1565C0 : 0xE8FFFFFF);
-        GradientDrawable gd = new GradientDrawable();
-        gd.setShape(GradientDrawable.RECTANGLE);
-        gd.setCornerRadius(dp(ctx, 12));
-        gd.setStroke(dp(ctx, 1), active ? 0xFF1565C0 : 0x59FFFFFF);
-        gd.setColor(active ? 0x331565C0 : 0x1AFFFFFF);
-        tv.setBackground(gd);
-        tv.setPadding(dp(ctx, 8), dp(ctx, 3), dp(ctx, 8), dp(ctx, 3));
+        boolean hasLabel = !TextUtils.isEmpty(label);
+        tv.setText(hasLabel ? label : "");
+        tv.setContentDescription(hasLabel ? label : id);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP,
+                hasLabel ? ComponentTheme.metaTextSize() : ComponentTheme.bodyTextSize());
+        int fg = active ? ComponentTheme.brand(ctx) : ComponentTheme.textSecondary(ctx);
+        tv.setTextColor(fg);
+        tv.setBackground(ComponentTheme.chipBackground(ctx, active));
+        tv.setGravity(Gravity.CENTER_VERTICAL);
+        tv.setMinHeight(ComponentTheme.dp(ctx, 32));
+        tv.setPadding(ComponentTheme.dp(ctx, 8), ComponentTheme.dp(ctx, 4),
+                ComponentTheme.dp(ctx, 8), ComponentTheme.dp(ctx, 4));
+        tv.setCompoundDrawablePadding(ComponentTheme.dp(ctx, 4));
+
+        int iconRes = iconFor(id);
+        if (iconRes != 0) {
+            Drawable d = ContextCompat.getDrawable(ctx, iconRes);
+            if (d != null) {
+                d = DrawableCompat.wrap(d.mutate());
+                DrawableCompat.setTintList(d, ColorStateList.valueOf(fg));
+                d.setBounds(0, 0, ComponentTheme.dp(ctx, 14), ComponentTheme.dp(ctx, 14));
+                tv.setCompoundDrawablesRelative(d, null, null, null);
+            }
+        }
         tv.setClickable(true);
         tv.setFocusable(true);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.setMarginEnd(dp(ctx, 8));
+        lp.setMarginEnd(ComponentTheme.dp(ctx, 6));
         tv.setLayoutParams(lp);
         return tv;
-    }
-
-    private int dp(Context ctx, int v) {
-        return (int) (v * ctx.getResources().getDisplayMetrics().density + 0.5f);
     }
 }

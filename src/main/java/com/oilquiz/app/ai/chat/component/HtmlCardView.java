@@ -9,29 +9,36 @@ import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import com.oilquiz.app.R;
 
 import org.json.JSONObject;
 
 /**
  * HTML 富内容组件（系统原生 WebView 渲染，零第三方依赖）。
  *
- * 完整渲染 Agent/Python 生成的 HTML（支持 CSS、简单 JS、表格、图片等），
- * 交互已修复：组件内可滚动/可点击/链接跳转，不与外层消息列表抢触摸。
- * 内容高度自适应（JS 读取 scrollHeight，上限 maxHeight 内部滚动）。
+ * <p>渲染 Agent/Python 生成的 HTML（CSS、表格、图片等），组件内可滚动/可点击，
+ * 不与外层消息列表抢触摸；内容高度自适应（上限 maxHeight，超出内部滚动）。
  *
- * 字段兼容：html/content/text/body/html_content/markdown/description/message/value
- * 及嵌套 props.data.html 等；url 字段直接加载网页（web 组件映射）。
- * 设计升级：统一排版 CSS（标题/列表/表格/引用/代码块配色高亮/标签徽章/按钮/
- * 状态色/卡片容器），深色模式双主题。
+ * <p><b>安全模型（Track B0-1）</b>：能力不再由 props 决定，而由 {@link HtmlSandbox} 按
+ * 内容来源分四档授予——内置模板 / 工作区本地文件 / https 网页 / 模型给的 HTML 字符串。
+ * 默认档（模型内联 HTML）关闭脚本、不挂 Java 桥、禁文件与 content 访问、注入 CSP、
+ * 限 512 KB，卡片内不做页面导航。依赖脚本的能力（自适应高度、图片点击预览、
+ * 页内按钮回调）只在放开脚本的档位开启。
+ *
+ * <p>字段兼容：html/content/text/body/html_content/markdown/description/message/value
+ * 及嵌套 props.data.html 等；url 字段加载网页或本地 HTML 文件（web 组件映射）。
  *
  * 数据格式（ComponentData.props）：
  * <pre>
  * {
  *   "html": "&lt;h3&gt;标题&lt;/h3&gt;&lt;p&gt;内容&lt;/p&gt;",
+ *   "url":  "https://... 或 file:///storage/.../report.html",
  *   "title": "可选卡片标题",
  *   "maxHeight": 360   // 可选，内容区最大高度(dp)，超出内部滚动
  * }
@@ -39,8 +46,13 @@ import org.json.JSONObject;
  */
 public class HtmlCardView implements ChatComponent {
 
+    private static final String TAG = "HtmlCardView";
+
     /** 默认内容区最大高度(dp) */
     private static final int DEFAULT_MAX_HEIGHT_DP = 360;
+
+    /** 脚本关闭时（默认档）WebView 的固定高度(dp)：读不到内容高度，靠内部滚动兜住 */
+    private static final int FALLBACK_HEIGHT_DP = 160;
 
     @Override
     public String getType() {
@@ -58,87 +70,56 @@ public class HtmlCardView implements ChatComponent {
         JSONObject p = data.props != null ? data.props : new JSONObject();
         // 兼容多字段名 + 嵌套结构提取 HTML 内容
         String html = extractHtml(p);
-        // url 字段：直接加载网页（web 组件映射用），优先于 html 字符串
         String url = p.optString("url", "");
         String title = extractTitle(p);
         int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
         if (maxHeightDp <= 0) maxHeightDp = DEFAULT_MAX_HEIGHT_DP;
 
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8));
-        card.setBackground(cardBackground(context));
+        CardShell shell = CardShell.create(context).setTitle(title);
 
-        if (!TextUtils.isEmpty(title)) {
-            TextView titleTv = new TextView(context);
-            titleTv.setText(title);
-            titleTv.setTextSize(14);
-            titleTv.setTextColor(ComponentColors.textPrimary(context));
-            titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            titleTv.setPadding(0, 0, 0, dp(context, 6));
-            card.addView(titleTv);
+        // —— 信任档判定：拦得下的先给说明卡，连 WebView 都不建 ——
+        HtmlSandbox.Decision decision = HtmlSandbox.resolve(context, data, html, url);
+        if (decision.isBlocked()) {
+            shell.setState(CardShell.State.ERROR, blockedText(context, decision));
+            Log.w(TAG, "html load blocked by sandbox, url=" + safeUrl(url));
+            return shell;
         }
 
-        boolean hasWebUrl = url.startsWith("http://") || url.startsWith("https://")
-                || url.startsWith("file://");
-        if (html.trim().isEmpty() && !hasWebUrl) {
+        boolean hasContent = !TextUtils.isEmpty(decision.html)
+                || !TextUtils.isEmpty(decision.loadUrl);
+        if (!hasContent) {
             // 空态：展示可读提示 + 原始数据预览（帮助排查字段映射问题）
-            LinearLayout emptyBox = new LinearLayout(context);
-            emptyBox.setOrientation(LinearLayout.VERTICAL);
-            emptyBox.setPadding(0, dp(context, 4), 0, dp(context, 4));
-            TextView emptyTv = new TextView(context);
-            emptyTv.setText("⚠ 未获取到 HTML 内容");
-            emptyTv.setTextSize(13);
-            emptyTv.setTextColor(ComponentColors.warning(context));
-            emptyBox.addView(emptyTv);
-            // 有 url 但没有 html：提示用 url 加载（应走 web 类型）
+            shell.setState(CardShell.State.EMPTY, context.getString(R.string.card_html_empty));
             if (!url.isEmpty()) {
-                TextView urlHint = new TextView(context);
-                urlHint.setText("检测到 url 字段：" + url + "\n（网页链接建议用 component_type=web 加载）");
-                urlHint.setTextSize(11);
-                urlHint.setTextColor(ComponentColors.textTertiary(context));
-                urlHint.setPadding(0, dp(context, 4), 0, 0);
-                emptyBox.addView(urlHint);
+                shell.addBodyText(context.getString(R.string.card_html_url_hint, url),
+                        ComponentTheme.metaTextSize(),
+                        ComponentTheme.textTertiary(context), false);
             } else {
-                // 预览 props 结构（截断），帮助定位内容放错字段
                 String preview = p.toString();
                 if (preview.length() > 200) preview = preview.substring(0, 200) + "...";
-                TextView dataTv = new TextView(context);
-                dataTv.setText("接收到的字段：" + preview);
-                dataTv.setTextSize(11);
-                dataTv.setTextColor(ComponentColors.textTertiary(context));
-                dataTv.setPadding(0, dp(context, 4), 0, 0);
-                emptyBox.addView(dataTv);
+                shell.addBodyText(context.getString(R.string.card_html_fields, preview),
+                        ComponentTheme.metaTextSize(),
+                        ComponentTheme.textTertiary(context), false);
             }
-            card.addView(emptyBox);
-            Log.w("HtmlCardView", "html component: empty content, props=" + p.toString());
-            return card;
+            Log.w(TAG, "html component: empty content, props=" + p.toString());
+            return shell;
         }
 
-        WebView webView = new WebView(context);
-        webView.setBackgroundColor(Color.TRANSPARENT);
-        webView.setVerticalScrollBarEnabled(true);
-        // 横向滚动开启：宽页面（表格/PC网页）overview 全览后可横滚查看，滚动条提示可滚
-        webView.setHorizontalScrollBarEnabled(true);
-        webView.getSettings().setJavaScriptEnabled(true);
-        webView.getSettings().setDomStorageEnabled(true);
-        // 宽度适配（浏览器式）：useWideViewPort+overview 让无 viewport 的网页（PC 页/老页）先
-        // 全览缩放到屏幕宽，再双指放大——否则按 980px 渲染右侧溢出显示不全
-        webView.getSettings().setUseWideViewPort(true);
-        webView.getSettings().setLoadWithOverviewMode(true);
-        // 浏览器级体验：双指缩放 + 缩放按钮（类似浏览器可缩放内容）
-        webView.getSettings().setSupportZoom(true);
-        webView.getSettings().setBuiltInZoomControls(true);
-        webView.getSettings().setDisplayZoomControls(false);
-        webView.setWebChromeClient(new WebChromeClient());
-        // JS → Java 桥：HTML 组件内按钮可调用 Android.showToast/copy/openLink 回调应用
-        webView.addJavascriptInterface(new HtmlJsBridge(context), "Android");
+        final HtmlSandbox.Trust trust = decision.trust;
+        final HtmlWebView webView = new HtmlWebView(context, trust);
+        final boolean scriptEnabled = webView.isScriptEnabled();
 
-        // 组件可操作：阻止外层 RecyclerView 拦截触摸，WebView 内可滚动/点击
+        // 桥只给工作区本地文件档：模型内联内容永远拿不到 Android.* 回调
+        if (HtmlSandbox.allowsBridge(trust)) {
+            webView.setBridge(new HtmlJsBridge(context), HtmlWebView.BRIDGE_NAME);
+        }
+
+        // 组件可操作：阻止外层 RecyclerView 拦截触摸，WebView 内可滚动/点击。
+        // 事件本身一律 return false 放行给 WebView（此前按 ACTION_DOWN 做一次 JS 探测
+        // "是否点在可交互元素上"，但两个分支返回值相同——纯开销、无行为差异，已删除）
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.setClickable(true);
-        final boolean[] interactiveDown = {false};
         webView.setOnTouchListener((v, event) -> {
             // 防护：event 为 null（WebView 快速滑动/组件回收等场景）直接放行，避免 NPE
             if (event == null) {
@@ -147,31 +128,14 @@ public class HtmlCardView implements ChatComponent {
             if (v.getParent() != null) {
                 v.getParent().requestDisallowInterceptTouchEvent(true);
             }
-            switch (event.getActionMasked()) {
-                case android.view.MotionEvent.ACTION_DOWN:
-                    interactiveDown[0] = false;
-                    // 异步探测按下位置是否为可点击元素（a/button/onclick/表单控件）
-                    probeInteractive(webView, (int) event.getX(), (int) event.getY(), interactiveDown);
-                    break;
-                case android.view.MotionEvent.ACTION_UP:
-                    // 命中可交互元素（链接/按钮/onclick）→ 放行给 WebView 执行页内 JS；
-                    // 空白区域 → 放行让 WebView 自身处理（不跳全屏页）
-                    if (interactiveDown[0]) {
-                        return false; // 让 WebView 处理点击（执行 onclick / 打开链接）
-                    }
-                    return false;
-                default:
-                    break;
-            }
-            return false; // 不消费事件，由 WebView 自身处理滚动
+            return false; // 不消费事件，由 WebView 自身处理滚动与点击
         });
 
-        // 初始高度：内容自适应前先用 160dp 占位，onPageFinished 后按内容高度调整
         final int maxHeightPx = dp(context, maxHeightDp);
         // WebView 外包 FrameLayout：承载"← 返回"浮标（canGoBack 时显示，卡片内可返回上一页）
         final android.widget.FrameLayout webContainer = new android.widget.FrameLayout(context);
         final LinearLayout.LayoutParams containerLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 160));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, FALLBACK_HEIGHT_DP));
         webContainer.setLayoutParams(containerLp);
         webView.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -179,177 +143,252 @@ public class HtmlCardView implements ChatComponent {
         final android.widget.TextView backBtn = new android.widget.TextView(context);
         backBtn.setText("←");
         backBtn.setTextSize(16);
-        backBtn.setTextColor(android.graphics.Color.WHITE);
+        backBtn.setTextColor(androidx.core.content.ContextCompat.getColor(context,
+                R.color.card_scrim_text));
         backBtn.setGravity(android.view.Gravity.CENTER);
         backBtn.setBackground(roundedRect(context, dp(context, 18),
-                android.graphics.Color.parseColor("#99000000")));
+                androidx.core.content.ContextCompat.getColor(context, R.color.card_scrim)));
         backBtn.setPadding(dp(context, 7), dp(context, 3), dp(context, 7), dp(context, 3));
         backBtn.setVisibility(android.view.View.GONE);
         backBtn.setOnClickListener(v -> {
             try {
-                if (webView != null && webView.canGoBack()) webView.goBack();
+                if (webView.canGoBack()) webView.goBack();
             } catch (Throwable ignored) {
             }
         });
         final android.widget.FrameLayout.LayoutParams backLp =
                 new android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
         backLp.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
         backLp.topMargin = dp(context, 6);
         backLp.rightMargin = dp(context, 6);
         webContainer.addView(webView);
         webContainer.addView(backBtn, backLp);
 
-        final WebView wvRef = webView;
-        // 本地文件模式：file:// 导航在 WebView 内部加载（不拦截系统打开），否则外部打开
-        final boolean isFileMode = url.startsWith("file://");
-        webView.setWebViewClient(new WebViewClient() {
-            // 页内链接点击：http/https 在卡片内 WebView 自身加载（return false，不跳全屏
-            // WebViewActivity，用户可连续点链接在卡片内浏览）；file:// 非本地文件模式外部打开
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (url == null) return true;
-                if (url.startsWith("http://") || url.startsWith("https://")
-                        || url.startsWith("/")) {
-                    return false; // 卡片内加载
-                }
-                if (url.startsWith("file://")) {
-                    // 本地文件模式：file:// 链接继续在 WebView 内加载；非本地文件模式外部打开
-                    if (isFileMode) return false;
-                    com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
-                    return true;
-                }
-                return true;
-            }
+        webView.setWebChromeClient(new WebChromeClient());
+        final boolean bridgeEnabled = HtmlSandbox.allowsBridge(trust);
+        webView.setWebViewClient(new SandboxWebViewClient(context, trust, webView,
+                webContainer, backBtn, maxHeightPx, scriptEnabled, bridgeEnabled));
 
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
-                String url = request != null && request.getUrl() != null
-                        ? request.getUrl().toString() : null;
-                if (url == null) return true;
-                if (url.startsWith("http://") || url.startsWith("https://")
-                        || url.startsWith("/")) {
-                    return false; // 卡片内加载
-                }
-                if (url.startsWith("file://")) {
-                    if (isFileMode) return false;
-                    com.oilquiz.app.ai.chat.component.ComponentActions.openLink(view.getContext(), url);
-                    return true;
-                }
-                return true;
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                // 图片点击预览（浏览器级体验）：document 捕获阶段事件委托拦截所有 img 点击
-                // （比逐个绑定 img.onclick 可靠——动态插入/懒加载/页面自带 onclick 的图片全覆盖，
-                // 捕获先于冒泡执行，页面自身的 onclick 无法吞掉）
-                try {
-                    view.evaluateJavascript(
-                            "(function(){"
-                                    + "function bind(){"
-                                    + "document.addEventListener('click',function(e){"
-                                    + "var el=e.target;"
-                                    + "while(el&&el.tagName!=='IMG'&&el!==document){el=el.parentElement;}"
-                                    + "if(el&&el.tagName==='IMG'){"
-                                    + "var s=el.getAttribute('src');"
-                                    + "if(s&&s.indexOf('data:')!==0){"
-                                    + "e.preventDefault();e.stopPropagation();"
-                                    + "Android.previewImage(s);"
-                                    + "}}},true);"
-                                    + "var imgs=document.getElementsByTagName('img');"
-                                    + "for(var i=0;i<imgs.length;i++){imgs[i].style.cursor='zoom-in';}"
-                                    + "}"
-                                    + "if(document.readyState==='complete'||document.readyState==='interactive'){bind();}"
-                                    + "else{document.addEventListener('DOMContentLoaded',bind);}"
-                                    + "})()", null);
-                } catch (Throwable ignored) {
-                }
-                // 延迟取高度：等 JS/CSS 渲染完成；失败保持初始高度（内容可滚动，不算失败）
-                view.postDelayed(() -> {
-                    if (wvRef == null) return;
-                    try {
-                        // 返回浮标：可返回上一页时显示
-                        try {
-                            backBtn.setVisibility(wvRef.canGoBack() ? android.view.View.VISIBLE
-                                    : android.view.View.GONE);
-                        } catch (Throwable ignored) {
-                        }
-                        wvRef.evaluateJavascript(
-                                "(function(){var b=document.body;var d=document.documentElement;" +
-                                        "var h=Math.max(b.scrollHeight,d.scrollHeight,200);" +
-                                        "return String(h);})()",
-                                value -> {
-                                    if (value == null || wvRef == null) return;
-                                    try {
-                                        String v = value.replace("\"", "").trim();
-                                        int h = (int) (Float.parseFloat(v)
-                                                * context.getResources().getDisplayMetrics().density);
-                                        int target = Math.min(h + dp(context, 16), maxHeightPx);
-                                        wvRef.post(() -> {
-                                            // 高度作用于外层容器（WebView 填满容器）
-                                            ViewGroup.LayoutParams lp = webContainer.getLayoutParams();
-                                            if (lp != null && lp.height != target) {
-                                                lp.height = target;
-                                                webContainer.setLayoutParams(lp);
-                                            }
-                                        });
-                                        Log.i("HtmlCardView", "html rendered, height=" + target
-                                                + "px (max " + maxHeightPx + "px)");
-                                    } catch (Exception ignored) {
-                                    }
-                                });
-                    } catch (Throwable t) {
-                        Log.w("HtmlCardView", "height measure failed(keep initial): " + t.getMessage());
-                    }
-                }, 150L);
-            }
-        });
-
-        // 完整文档（含 <!DOCTYPE>/<html>）直接加载，否则包裹 viewport + 基础样式
-        // （缺 viewport 时 WebView/浏览器按 980px 默认宽度渲染，手机上会显示成"横屏"）
-        // url 模式：http(s) 加载网页 / file:// 加载本地文件（web 组件映射，
-        // onPageFinished 自适应高度逻辑复用）。其余内容按 HTML 字符串渲染。
-        if (!url.isEmpty()
-                && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file://"))) {
-            // 本地文件需开启文件访问（WebView 默认允许 file:// 自身加载，但需允许相对资源）
-            if (url.startsWith("file://")) {
-                webView.getSettings().setAllowFileAccess(true);
-                webView.getSettings().setAllowFileAccessFromFileURLs(true);
-                webView.getSettings().setAllowUniversalAccessFromFileURLs(true);
-            }
-            webView.loadUrl(url);
+        if (!TextUtils.isEmpty(decision.loadUrl)) {
+            webView.loadUrl(decision.loadUrl);
         } else {
             // style→内容 CSS 桥接：组件 style（或顶层 fontSize/color/background 字段）注入
             // WebView 内容 CSS——html 内容像浏览器那样应用样式（不再只有外层卡片有样式）
-            JSONObject contentStyle = new JSONObject();
-            JSONObject styleObj = p.optJSONObject("style");
-            if (styleObj != null) {
-                String[] sk = {"fontSize", "color", "background", "background_color", "bg"};
-                for (String s : sk) {
-                    if (styleObj.has(s)) {
-                        try { contentStyle.put(s, styleObj.get(s)); } catch (Exception ignored) {}
-                    }
-                }
-            }
-            String[] topk = {"fontSize", "color"};
-            for (String tk : topk) {
-                if (!contentStyle.has(tk) && p.has(tk)) {
-                    try { contentStyle.put(tk, p.get(tk)); } catch (Exception ignored) {}
-                }
-            }
-            String fullHtml = wrapHtml(html, isNightMode(context), contentStyle);
-            // baseURL 指向 android_asset：HTML 内可引用本地 js/css（mermaid/katex 等）
-            webView.loadDataWithBaseURL("file:///android_asset/", fullHtml, "text/html", "UTF-8", null);
+            JSONObject contentStyle = extractContentStyle(p);
+            String fullHtml = wrapHtml(decision.html, isNightMode(context), contentStyle);
+            // 默认档：JS 已关，再叠一层 CSP 做纵深防御（脚本/外发/表单/嵌套框架全禁）
+            fullHtml = HtmlSandbox.injectCsp(fullHtml, trust);
+            // baseURL 指向 android_asset：内置模板的 js/css（mermaid/katex）按相对路径加载；
+            // 该路径不受 setAllowFileAccess 影响，所以关掉文件访问仍渲得出图
+            webView.loadDataWithBaseURL("file:///android_asset/", fullHtml,
+                    "text/html", "UTF-8", null);
         }
 
-        card.addView(webContainer);
-        Log.i("HtmlCardView", "html component created (WebView), htmlLen=" + html.length()
+        // 注意：不能走 shell.addBody()——那会把参数换成 WRAP_CONTENT，
+        // WebView 在 wrap_content 下会塌成一条，量高失败时用户就看不到任何内容。
+        // 这里显式给一个初始高度，自适应成功后由 WebViewClient 改写容器高度。
+        shell.getBody().addView(webContainer, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, FALLBACK_HEIGHT_DP)));
+        if (decision.truncated) {
+            shell.setState(CardShell.State.TRUNCATED, context.getString(
+                    R.string.card_html_truncated, HtmlSandbox.maxInlineHtmlKb()));
+        }
+        Log.i(TAG, "html component created (WebView), trust=" + trust
+                + ", htmlLen=" + (decision.html == null ? 0 : decision.html.length())
                 + ", title=" + (title == null ? "" : title));
-        return card;
+        return shell;
     }
+
+    /** 拦截原因 → 用户可见文案（判定层只出枚举，文案归 strings.xml） */
+    private static String blockedText(Context context, HtmlSandbox.Decision decision) {
+        if (decision.blocked == HtmlSandbox.Block.SCHEME_UNSUPPORTED) {
+            return context.getString(R.string.card_html_blocked_scheme,
+                    decision.blockedDetail);
+        }
+        if (decision.blocked == HtmlSandbox.Block.HTTP_NOT_ALLOWED) {
+            return context.getString(R.string.card_html_blocked_http);
+        }
+        return context.getString(R.string.card_html_blocked_local);
+    }
+
+    // ---------------------------------------------------------------- 加载与测量
+
+    /**
+     * 按信任档管控导航，并在加载完成后确定卡片高度。
+     *
+     * <p>导航口径：卡片内只允许该档必需的目标，其余一律不外溢——
+     * http(s) 链接交回应用内浏览器，file 目标只允许工作区内，其它协议直接吞掉。
+     */
+    private static class SandboxWebViewClient extends WebViewClient {
+        private final Context context;
+        private final HtmlSandbox.Trust trust;
+        private final HtmlWebView webView;
+        private final android.widget.FrameLayout webContainer;
+        private final android.widget.TextView backBtn;
+        private final int maxHeightPx;
+        private final boolean scriptEnabled;
+        private final boolean bridgeEnabled;
+
+        SandboxWebViewClient(Context context, HtmlSandbox.Trust trust, HtmlWebView webView,
+                            android.widget.FrameLayout webContainer,
+                            android.widget.TextView backBtn, int maxHeightPx,
+                            boolean scriptEnabled, boolean bridgeEnabled) {
+            this.context = context;
+            this.trust = trust;
+            this.webView = webView;
+            this.webContainer = webContainer;
+            this.backBtn = backBtn;
+            this.maxHeightPx = maxHeightPx;
+            this.scriptEnabled = scriptEnabled;
+            this.bridgeEnabled = bridgeEnabled;
+        }
+
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            return handleNavigation(view, url);
+        }
+
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            String url = request != null && request.getUrl() != null
+                    ? request.getUrl().toString() : null;
+            return handleNavigation(view, url);
+        }
+
+        /** @return true 表示卡片内不加载（已交回应用或被拦下） */
+        private boolean handleNavigation(WebView view, String url) {
+            if (url == null) return true;
+            String lower = url.toLowerCase(java.util.Locale.US);
+            boolean webScheme = lower.startsWith("http://") || lower.startsWith("https://");
+            boolean localScheme = lower.startsWith("file://");
+
+            if (trust == HtmlSandbox.Trust.REMOTE_PAGE) {
+                // 网页浏览档：http(s) 留在卡片内连续浏览，其它协议拦下
+                return !(webScheme || url.startsWith("/"));
+            }
+            if (trust == HtmlSandbox.Trust.LOCAL_FILE) {
+                // 本地报表档：目录内相对链接继续留在卡片内；外链交回应用
+                if (localScheme) {
+                    String path = HtmlSandbox.filePathFromUrl(url);
+                    if (path != null && !path.isEmpty()
+                            && HtmlSandbox.isWithinAllowedRoots(context, new java.io.File(path))) {
+                        return false;
+                    }
+                    Log.w(TAG, "local file navigation outside workspace blocked: " + safeUrl(url));
+                    return true;
+                }
+                if (webScheme) {
+                    ComponentActions.openLink(context, url);
+                    return true;
+                }
+                return true;
+            }
+            // 内置模板 / 模型内联：卡片内不导航，外链交回应用
+            if (webScheme) {
+                ComponentActions.openLink(context, url);
+            }
+            return true;
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            super.onPageFinished(view, url);
+            if (webView.isComponentReleased()) return;
+            // 图片点击预览依赖 Android.previewImage：只有挂了桥的档位才注入，
+            // 否则页内 JS 会因 Android 未定义而报错
+            if (scriptEnabled && bridgeEnabled) {
+                injectImagePreview(view);
+            }
+            // 延迟取高度：等 CSS/JS 渲染完成；失败保持初始高度（内容可滚动，不算失败）
+            view.postDelayed(this::measureContentHeight, 150L);
+        }
+
+        /** 图片点击预览（浏览器级体验）：仅放开脚本的档位注入 */
+        private void injectImagePreview(WebView view) {
+            try {
+                view.evaluateJavascript(
+                        "(function(){"
+                                + "function bind(){"
+                                + "document.addEventListener('click',function(e){"
+                                + "var el=e.target;"
+                                + "while(el&&el.tagName!=='IMG'&&el!==document){el=el.parentElement;}"
+                                + "if(el&&el.tagName==='IMG'){"
+                                + "var s=el.getAttribute('src');"
+                                + "if(s&&s.indexOf('data:')!==0){"
+                                + "e.preventDefault();e.stopPropagation();"
+                                + "Android.previewImage(s);"
+                                + "}}},true);"
+                                + "var imgs=document.getElementsByTagName('img');"
+                                + "for(var i=0;i<imgs.length;i++){imgs[i].style.cursor='zoom-in';}"
+                                + "}"
+                                + "if(document.readyState==='complete'||document.readyState==='interactive'){bind();}"
+                                + "else{document.addEventListener('DOMContentLoaded',bind);}"
+                                + "})()", null);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        /**
+         * 内容自适应高度。
+         *
+         * <p>放开脚本时用 scrollHeight（最准）；默认档 JS 已关，退回 getContentHeight()
+         * ——它不依赖页面脚本，返回 CSS 布局高度（单位与 dp 同阶，需乘 density）。
+         */
+        private void measureContentHeight() {
+            if (webView.isComponentReleased()) return;
+            try {
+                backBtn.setVisibility(webView.canGoBack()
+                        ? View.VISIBLE : View.GONE);
+            } catch (Throwable ignored) {
+            }
+            if (scriptEnabled) {
+                try {
+                    webView.evaluateJavascript(
+                            "(function(){var b=document.body;var d=document.documentElement;"
+                                    + "var h=Math.max(b.scrollHeight,d.scrollHeight,200);"
+                                    + "return String(h);})()",
+                            value -> applyMeasuredHeight(parseScrollHeight(value)));
+                } catch (Throwable t) {
+                    Log.w(TAG, "js height measure failed(keep initial): " + t.getMessage());
+                }
+            } else {
+                applyMeasuredHeight(Math.round(webView.getContentHeight()
+                        * context.getResources().getDisplayMetrics().density));
+            }
+        }
+
+        private void applyMeasuredHeight(Integer heightPx) {
+            if (heightPx == null || heightPx <= 0 || webView.isComponentReleased()) return;
+            try {
+                int target = Math.min(heightPx + dp(context, 16), maxHeightPx);
+                webView.post(() -> {
+                    if (webView.isComponentReleased()) return;
+                    ViewGroup.LayoutParams lp = webContainer.getLayoutParams();
+                    if (lp != null && lp.height != target) {
+                        lp.height = target;
+                        webContainer.setLayoutParams(lp);
+                    }
+                });
+                Log.i(TAG, "html rendered, height=" + target + "px (max " + maxHeightPx + "px)");
+            } catch (Throwable ignored) {
+            }
+        }
+
+        private Integer parseScrollHeight(String value) {
+            if (value == null) return null;
+            try {
+                String v = value.replace("\"", "").trim();
+                return (int) (Float.parseFloat(v)
+                        * context.getResources().getDisplayMetrics().density);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- props 提取
 
     /**
      * 从 props 提取 HTML 内容：兼容多字段名与嵌套结构。
@@ -384,6 +423,33 @@ public class HtmlCardView implements ChatComponent {
             if (!v.trim().isEmpty()) return v;
         }
         return "";
+    }
+
+    /** style 对象（或顶层 fontSize/color）→ 内容 CSS 变量 */
+    private static JSONObject extractContentStyle(JSONObject p) {
+        JSONObject contentStyle = new JSONObject();
+        JSONObject styleObj = p.optJSONObject("style");
+        if (styleObj != null) {
+            String[] sk = {"fontSize", "color", "background", "background_color", "bg"};
+            for (String s : sk) {
+                if (styleObj.has(s)) {
+                    try {
+                        contentStyle.put(s, styleObj.get(s));
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }
+        String[] topk = {"fontSize", "color"};
+        for (String tk : topk) {
+            if (!contentStyle.has(tk) && p.has(tk)) {
+                try {
+                    contentStyle.put(tk, p.get(tk));
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return contentStyle;
     }
 
     /**
@@ -494,39 +560,20 @@ public class HtmlCardView implements ChatComponent {
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 
-    /**
-     * 异步探测坐标处是否为可交互元素（a/button/input/textarea/select/带 onclick 的元素）。
-     * 通过 elementFromPoint 查找并向上遍历祖先，结果写入 interactive[0]。
-     * WebView 未缩放时触摸坐标即 CSS 像素坐标；探测失败保持 false（不阻塞点击）。
-     */
-    private static void probeInteractive(final WebView webView, final int x, final int y,
-                                        final boolean[] interactive) {
-        try {
-            String js = "(function(px,py){"
-                    + "var el=document.elementFromPoint(px,py);"
-                    + "while(el){"
-                    + "var t=(el.tagName||'').toLowerCase();"
-                    + "if(t==='a'||t==='button'||t==='input'||t==='textarea'||t==='select'"
-                    + "||el.onclick||el.getAttribute&&el.getAttribute('onclick')"
-                    + "||el.getAttribute&&el.getAttribute('role')==='button'){return true;}"
-                    + "el=el.parentElement;}"
-                    + "return false;})(" + x + "," + y + ")";
-            webView.evaluateJavascript(js, value -> {
-                if (value != null) {
-                    interactive[0] = "true".equals(value.trim());
-                }
-            });
-        } catch (Throwable t) {
-            // 探测失败不影响 WebView 自身点击
-        }
-    }
+    // ---------------------------------------------------------------- 小工具
 
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
-        gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
+    /** 日志里不打印完整 url（可能带 token/路径隐私），只留协议+主机+文件名 */
+    private static String safeUrl(String url) {
+        if (url == null || url.isEmpty()) return "";
+        try {
+            android.net.Uri u = android.net.Uri.parse(url);
+            String host = u.getHost();
+            String last = u.getLastPathSegment();
+            return (u.getScheme() != null ? u.getScheme() : "?") + "://"
+                    + (host == null ? "" : host) + (last == null ? "" : "/…" + last);
+        } catch (Throwable t) {
+            return url.length() > 40 ? url.substring(0, 40) + "…" : url;
+        }
     }
 
     /** 圆角纯色背景（返回浮标用） */
@@ -546,7 +593,10 @@ public class HtmlCardView implements ChatComponent {
     /**
      * HTML 组件 JS → Java 桥：按钮 onclick 里可调用
      * Android.showToast('...') / Android.copy('...') / Android.openLink('url')
-     * 让 Agent 生成的 HTML 组件按钮能真实回调应用（Toast/复制/打开链接），不再"点了没反应"。
+     * 让本地 HTML 报表里的按钮能真实回调应用（Toast/复制/打开链接），不再"点了没反应"。
+     *
+     * <p>只挂到 {@link HtmlSandbox.Trust#LOCAL_FILE} 档的 WebView 上——
+     * 模型直接给的 HTML 拿不到本桥，注入脚本也就无法读写剪贴板、打开链接或取本地文件。
      */
     public static class HtmlJsBridge {
         private final Context context;
@@ -578,18 +628,35 @@ public class HtmlCardView implements ChatComponent {
             }
         }
 
+        /** 打开链接：外链交回应用内浏览器；本地路径只允许工作区内（不再任意路径打开） */
         @android.webkit.JavascriptInterface
         public void openLink(String url) {
             try {
                 if (url == null || url.isEmpty()) return;
+                String lower = url.toLowerCase(java.util.Locale.US);
+                if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+                    String path = lower.startsWith("file://")
+                            ? HtmlSandbox.filePathFromUrl(url) : url;
+                    if (path == null || !HtmlSandbox.isWithinAllowedRoots(context, new java.io.File(path))) {
+                        Log.w(TAG, "bridge openLink blocked: " + safeUrl(url));
+                        showToast("仅允许打开应用工作区内的文件");
+                        return;
+                    }
+                }
                 ComponentActions.openLink(context, url);
             } catch (Throwable ignored) {
             }
         }
 
-        /** HTML 内图片点击全屏预览（浏览器级体验）——对齐项目标准链路：
+        /**
+         * HTML 内图片点击全屏预览（浏览器级体验）——对齐项目标准链路：
          * 本地文件 BitmapFactory 采样解码（不用 Glide，file:// 路径 Glide 易不回调/灰屏），
-         * 网络 URL 才走 Glide（15s 超时+失败 Toast），全屏用 PhotoView（双指缩放+点击关闭） */
+         * 网络 URL 才走原生下载（15s 超时+失败 Toast），全屏用 PhotoView（双指缩放+点击关闭）。
+         *
+         * <p>路径口径：只接受 https 图片，或按相对名解析后仍落在工作区内的文件；
+         * 任意绝对路径（如 /data/data/… 、/sdcard/DCIM/…）一律拒绝——
+         * 报表引图靠相对路径，不需要任意路径解析能力。
+         */
         @android.webkit.JavascriptInterface
         public void previewImage(String url) {
             try {
@@ -597,20 +664,25 @@ public class HtmlCardView implements ChatComponent {
                 android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
                 main.post(() -> {
                     try {
-                        // 本地相对路径（file:// 或 /storage）先解析为绝对路径
                         String imageUrl = url;
-                        if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")
-                                && !imageUrl.startsWith("content://")) {
+                        final boolean isNetwork = imageUrl.startsWith("http://")
+                                || imageUrl.startsWith("https://");
+                        if (!isNetwork && !imageUrl.startsWith("content://")) {
                             String p = imageUrl.startsWith("file://")
-                                    ? android.net.Uri.parse(imageUrl).getPath() : imageUrl;
+                                    ? HtmlSandbox.filePathFromUrl(imageUrl) : imageUrl;
+                            if (p == null) return;
                             java.io.File f = new java.io.File(p);
-                            if (f.isFile()) {
-                                imageUrl = f.getAbsolutePath();
-                            } else {
+                            if (!f.isFile()) {
                                 java.io.File resolved = com.oilquiz.app.ai.agent.online.AgentWorkspace
                                         .getInstance(context).resolveExistingFile(p);
-                                if (resolved != null && resolved.isFile()) imageUrl = resolved.getAbsolutePath();
+                                if (resolved != null && resolved.isFile()) f = resolved;
                             }
+                            if (!f.isFile() || !HtmlSandbox.isWithinAllowedRoots(context, f)) {
+                                Log.w(TAG, "bridge previewImage blocked: " + safeUrl(url));
+                                showToast("仅允许预览应用工作区内的图片");
+                                return;
+                            }
+                            imageUrl = f.getAbsolutePath();
                         }
                         final String finalUrl = imageUrl;
                         // 非 Activity 上下文无法弹 Dialog（BadTokenException 静默失败），给提示
@@ -619,8 +691,6 @@ public class HtmlCardView implements ChatComponent {
                                     android.widget.Toast.LENGTH_LONG).show();
                             return;
                         }
-                        final boolean isNetwork = finalUrl.startsWith("http://")
-                                || finalUrl.startsWith("https://");
                         final boolean isLocalFile = !isNetwork
                                 && !finalUrl.startsWith("content://")
                                 && new java.io.File(finalUrl).isFile();
@@ -638,18 +708,18 @@ public class HtmlCardView implements ChatComponent {
                                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
                         android.widget.ProgressBar loading = new android.widget.ProgressBar(context);
                         root.addView(loading, new android.widget.FrameLayout.LayoutParams(
-                                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
                                 android.view.Gravity.CENTER));
-                        dialog.setContentView(root, new android.view.ViewGroup.LayoutParams(
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+                        dialog.setContentView(root, new ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT));
                         photoView.setOnClickListener(v -> dialog.dismiss());
                         dialog.show();
                         if (dialog.getWindow() != null) {
                             dialog.getWindow().setLayout(
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT);
                             dialog.getWindow().setBackgroundDrawable(
                                     new android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK));
                         }
@@ -670,7 +740,7 @@ public class HtmlCardView implements ChatComponent {
                                         android.graphics.BitmapFactory.decodeFile(finalUrl, opts);
                                 if (bmp != null) {
                                     photoView.setImageBitmap(bmp);
-                                    loading.setVisibility(android.view.View.GONE);
+                                    loading.setVisibility(View.GONE);
                                 } else {
                                     if (dialog.isShowing()) dialog.dismiss();
                                     android.widget.Toast.makeText(context, "图片解码失败（文件损坏或非图片）",
@@ -747,7 +817,7 @@ public class HtmlCardView implements ChatComponent {
                             if (fbmp != null) {
                                 if (dialog.isShowing()) {
                                     photoView.setImageBitmap(fbmp);
-                                    loading.setVisibility(android.view.View.GONE);
+                                    loading.setVisibility(View.GONE);
                                 }
                             } else {
                                 if (dialog.isShowing()) dialog.dismiss();

@@ -478,29 +478,20 @@ public class ChatMessage {
         }
 
         public String getStatusText() {
+            // C0-T4：状态去 emoji（⏳//✅/❌ 与 B0 之后统一过的卡片视觉打架），
+            // 颜色改由 ChatAdapter.bindToolCallMessage 按状态设置
             switch (status) {
-                case PENDING: return "⏳ 等待执行";
-                case RUNNING: return "🔄 执行中...";
-                case COMPLETED: return "✅ 执行完成";
-                case FAILED: return "❌ 执行失败";
+                case PENDING: return "等待执行";
+                case RUNNING: return "执行中";
+                case COMPLETED: return "已完成";
+                case FAILED: return "失败";
                 default: return "";
             }
         }
 
+        /** 工具中文名统一走 {@link ToolMetaRegistry}（此前这里只有 9 个 case） */
         private static String formatToolDisplayName(String name) {
-            if (name == null) return "";
-            switch (name) {
-                case "get_weather": return "天气查询";
-                case "network_search": return "网络搜索";
-                case "database": return "数据库查询";
-                case "app_operation": return "应用操作";
-                case "generate_questions": return "生成题目";
-                case "analyze_question": return "分析题目";
-                case "search_questions": return "搜索题目";
-                case "create_study_plan": return "创建学习计划";
-                case "get_statistics": return "获取统计";
-                default: return name.replace("_", " ");
-            }
+            return ToolMetaRegistry.displayName(name);
         }
 
         private static String getToolIcon(String name) {

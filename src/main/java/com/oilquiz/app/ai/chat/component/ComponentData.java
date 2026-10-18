@@ -30,6 +30,16 @@ public class ComponentData {
     /** 组件属性（JSON 对象） */
     public JSONObject props;
 
+    /**
+     * 内部模板标记（Track B0-1）：由应用自己的渲染器（如 {@code MermaidMathSplitter}）置位，
+     * 表示这段 HTML 是我们拼出来的可信模板，可在沙箱里执行脚本。
+     *
+     * <p>刻意用 transient 而不用 props 字段：Gson 默认跳过 transient，持久化里不会出现该键，
+     * 模型也无法通过在 component 代码块里写 "internalTemplate":true 来提权——
+     * 信任只能由产生内容的代码决定，不能由内容自己声明。
+     */
+    public transient boolean internalTemplate;
+
     public ComponentData() {
     }
 
@@ -49,6 +59,16 @@ public class ComponentData {
     /** 便捷工厂：创建组件数据 */
     public static ComponentData of(String type, JSONObject props) {
         return new ComponentData(type, props);
+    }
+
+    /**
+     * 便捷工厂：创建「应用内置模板」组件数据（可信 HTML，见 {@link #internalTemplate}）。
+     * 只供应用内渲染器调用，模型输出路径必须走 {@link #of(String, JSONObject)}。
+     */
+    public static ComponentData ofTrustedTemplate(String type, JSONObject props) {
+        ComponentData data = new ComponentData(type, props);
+        data.internalTemplate = true;
+        return data;
     }
 
     /**

@@ -609,9 +609,12 @@
     <string name="chat_expand_full">展开全文</string>
     <string name="chat_collapse">收起</string>
     <string name="chat_copy">复制</string>
-    <string name="chat_speak">🔊 朗读</string>
+    <string name="chat_speak">朗读</string>
     <string name="chat_share">分享</string>
     <string name="chat_regenerate">重新生成</string>
+    <string name="chat_like">有用</string>
+    <string name="chat_dislike">没用</string>
+    <string name="chat_stop_generating">停止生成</string>
     <string name="chat_new_chat">新对话</string>
     <string name="chat_thinking_process">💭 思考过程</string>
     <string name="chat_thinking_expanded">▼ 思考过程</string>
@@ -649,5 +652,60 @@
     <string name="task_pill_inprogress">📋 进行%1$d</string>
     <string name="task_pill_todo">📋 待办%1$d</string>
     <string name="task_pill_both">📋 进行%1$d·待办%2$d</string>
+
+    <!-- CardShell 卡片外壳（Track B0-2）：统一状态文案 + footer 动作 -->
+    <string name="card_shell_more">更多</string>
+    <string name="card_shell_empty">暂无内容</string>
+    <string name="card_shell_loading">正在加载…</string>
+    <string name="card_shell_error">内容渲染失败</string>
+    <string name="card_shell_truncated">内容较长，已截断显示</string>
+    <string name="card_shell_actions_more">查看其余 %1$d 个操作</string>
+    <string name="card_shell_item_count">共 %1$d 项</string>
+    <string name="card_shell_option_count">共 %1$d 个选项</string>
+    <string name="card_shell_no_options">该题没有可显示的选项</string>
+    <string name="card_quiz_type_single">单选题</string>
+    <string name="card_quiz_type_multiple">多选题</string>
+    <string name="card_quiz_type_judge">判断题</string>
+    <string name="card_quiz_answer">答案：%1$s</string>
+    <string name="card_quiz_analysis">解析：%1$s</string>
+    <string name="card_row_count">共 %1$d 行</string>
+    <string name="card_row_truncated_rows">共 %1$d 行，已显示前 %2$d 行</string>
+    <string name="card_shell_step_count">共 %1$d 步</string>
+    <string name="card_shell_step_default_title">步骤 %1$d</string>
+    <string name="card_shell_step_done">已完成</string>
+    <string name="card_shell_step_current">进行中</string>
+    <string name="card_shell_step_todo">未开始</string>
+    <string name="card_shell_step_failed">已失败</string>
+    <string name="card_file_no_target">该文件卡片没有可用的路径或 URI</string>
+    <string name="card_file_open">打开</string>
+    <string name="card_file_share">分享</string>
+    <string name="card_chart_type_bar">柱状图</string>
+    <string name="card_chart_type_line">折线图</string>
+    <string name="card_chart_type_pie">饼图</string>
+    <!-- Agent 状态徽章（agent_status） -->
+    <string name="agent_status_thinking">思考中</string>
+    <string name="agent_status_tool">调用 %1$s</string>
+    <string name="agent_status_default_tool">工具</string>
+    <string name="agent_status_done">执行完成</string>
+    <string name="agent_status_error">执行失败</string>
+    <string name="component_render_failed">组件 %1$s 渲染失败</string>
+    <!-- 工具结果卡（C0-T2/T4）：预览、全文弹层、AI 解读入口 -->
+    <string name="tool_result_view_all">查看全部（%1$d 字）</string>
+    <string name="tool_result_full_title">%1$s · 完整结果</string>
+    <string name="tool_result_raw_section">\n\n原始结果：\n</string>
+    <string name="tool_result_ai_chip">点击使用 AI 深度解读此结果</string>
+    <string name="tool_result_legacy_title">工具结果</string>
+    <string name="tool_status_waiting">等待执行</string>
+    <string name="tool_status_running">执行中</string>
+    <string name="tool_status_completed">已完成</string>
+    <string name="tool_status_failed">失败</string>
+    <!-- HTML 卡片（html/web）沙箱说明 -->
+    <string name="card_html_empty">未获取到 HTML 内容</string>
+    <string name="card_html_url_hint">检测到 url 字段：%1$s\n（网页链接建议用 component_type=web 加载）</string>
+    <string name="card_html_fields">接收到的字段：%1$s</string>
+    <string name="card_html_truncated">内容超过 %1$d KB，已截断显示（可让 Agent 生成 HTML 文件后打开完整版）</string>
+    <string name="card_html_blocked_local">已拦截：只允许预览应用工作区内的本地文件</string>
+    <string name="card_html_blocked_http">已拦截：卡片内仅允许 https 页面（或本机地址），请复制链接到浏览器打开</string>
+    <string name="card_html_blocked_scheme">已拦截：不支持的链接协议 %1$s</string>
 
 </resources>

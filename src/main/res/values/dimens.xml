@@ -133,4 +133,17 @@
     <dimen name="text_42">42sp</dimen>
     <dimen name="text_64">64sp</dimen>
     <dimen name="text_76">76sp</dimen>
+
+    <!-- 卡片外壳 CardShell 设计 token（docs/ui/component-system-review.md §3.1，
+         与 demo/ai-chat-redesign.html 的 quiz/file/tool 卡同一套基线） -->
+    <dimen name="card_shell_radius">14dp</dimen>
+    <dimen name="card_shell_padding">14dp</dimen>
+    <dimen name="card_shell_border">1dp</dimen>
+    <dimen name="card_shell_gap">10dp</dimen>
+    <dimen name="card_shell_header_text">13sp</dimen>
+    <dimen name="card_shell_meta_text">11sp</dimen>
+    <dimen name="card_shell_body_text">13sp</dimen>
+    <dimen name="card_shell_action_text">12sp</dimen>
+    <dimen name="card_shell_action_min_height">32dp</dimen>
+    <dimen name="card_shell_body_max_height">360dp</dimen>
 </resources>

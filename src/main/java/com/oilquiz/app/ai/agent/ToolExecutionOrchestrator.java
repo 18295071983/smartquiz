@@ -16,6 +16,12 @@ import java.util.Map;
  * {@link AppServices#tools()} 注入的工具网关）→ 成功解读（ToolResultInterpreter）
  * / 失败智能恢复（ToolErrorRecovery）→ 重试。
  * 渲染与提示通过 {@link Host} 回调，不依赖页面。
+ *
+ * <p><b>现状（2026-10-19 核对）：本类没有任何调用点</b>——{@code AIChatActivity} 仍在用自己
+ * 内部的同名实现（{@code preCheckThenExecute}/{@code executeToolWithRecovery}），
+ * 且这里 {@code Host} 也没人实现（进度消息位置写死 -1，"正在解读"提示关不掉）。
+ * 属于抽取了一半未接线的副本。C0-T1/T3 只改了 AIChatActivity 那条真实链路；
+ * 若要接线本类，必须先把"自动解读 + 逐工具成功消息"同步去掉，否则止血会在这里复发。
  */
 public class ToolExecutionOrchestrator {
 

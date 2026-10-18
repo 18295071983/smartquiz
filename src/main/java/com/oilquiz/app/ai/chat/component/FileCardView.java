@@ -50,70 +50,22 @@ public class FileCardView implements ChatComponent {
         final String uri = p.optString("uri", "");
         final String path = p.optString("path", "");
 
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(context, 12), dp(context, 10), dp(context, 8), dp(context, 10));
-        card.setBackground(cardBackground(context));
+        int iconRes = fileIconRes(type, name);
+        CardShell shell = CardShell.create(context)
+                .setHeaderIcon(iconRes, fileIconTint(context, iconRes))
+                .setHeader(name, TextUtils.isEmpty(size) ? null : size);
 
-        // 图标（按类型）
-        TextView iconTv = new TextView(context);
-        iconTv.setTextSize(28);
-        iconTv.setText(fileIcon(type, name));
-        iconTv.setGravity(Gravity.CENTER);
-        card.addView(iconTv, new LinearLayout.LayoutParams(dp(context, 40), dp(context, 40)));
-
-        // 名称 + 大小
-        LinearLayout infoCol = new LinearLayout(context);
-        infoCol.setOrientation(LinearLayout.VERTICAL);
-        infoCol.setPadding(dp(context, 10), 0, 0, 0);
-
-        TextView nameTv = new TextView(context);
-        nameTv.setText(name);
-        nameTv.setTextSize(14);
-        nameTv.setTextColor(ComponentColors.textPrimary(context));
-        nameTv.setSingleLine(true);
-        nameTv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-        infoCol.addView(nameTv);
-
-        if (!TextUtils.isEmpty(size)) {
-            TextView sizeTv = new TextView(context);
-            sizeTv.setText(size);
-            sizeTv.setTextSize(11);
-            sizeTv.setTextColor(ComponentColors.textTertiary(context));
-            infoCol.addView(sizeTv);
+        if (TextUtils.isEmpty(uri) && TextUtils.isEmpty(path)) {
+            // 模型只给了名字没有落地路径：明说，不给一个点了没反应的按钮
+            shell.setState(CardShell.State.ERROR,
+                    context.getString(R.string.card_file_no_target));
+            return shell;
         }
-        card.addView(infoCol, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        // 操作按钮区（打开 / 分享）
-        if (!TextUtils.isEmpty(uri) || !TextUtils.isEmpty(path)) {
-            LinearLayout actionCol = new LinearLayout(context);
-            actionCol.setOrientation(LinearLayout.VERTICAL);
-
-            TextView openBtn = new TextView(context);
-            openBtn.setText("打开");
-            openBtn.setTextSize(13);
-            openBtn.setTextColor(ComponentColors.accent(context));
-            openBtn.setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5));
-            openBtn.setBackground(buttonBackground(context));
-            openBtn.setGravity(Gravity.CENTER);
-            openBtn.setOnClickListener(v -> openFile(context, uri, path));
-            actionCol.addView(openBtn);
-
-            TextView shareBtn = new TextView(context);
-            shareBtn.setText("分享");
-            shareBtn.setTextSize(13);
-            shareBtn.setTextColor(ComponentColors.textPrimary(context));
-            shareBtn.setPadding(dp(context, 10), dp(context, 5), dp(context, 10), dp(context, 5));
-            shareBtn.setBackground(buttonBackground(context));
-            shareBtn.setGravity(Gravity.CENTER);
-            shareBtn.setOnClickListener(v -> shareFile(context, uri, path));
-            actionCol.addView(shareBtn);
-
-            card.addView(actionCol);
-        }
-
-        return card;
+        shell.addAction(context.getString(R.string.card_file_open), true,
+                () -> openFile(context, uri, path));
+        shell.addAction(context.getString(R.string.card_file_share), false,
+                () -> shareFile(context, uri, path));
+        return shell;
     }
 
     private static void openFile(Context context, String uri, String path) {
@@ -366,43 +318,40 @@ public class FileCardView implements ChatComponent {
         }
     }
 
-    private static String fileIcon(String type, String name) {
+    /**
+     * 按类型/扩展名选矢量图标资源（原来是 28sp 的 emoji：字号、基线、深浅色都不受控）。
+     * 颜色由 CardShell 的 header 图标着色统一处理（品牌色），这里只负责语义区分。
+     */
+    private static int fileIconRes(String type, String name) {
         String lower = (type != null ? type : "").toLowerCase();
         String n = (name != null ? name : "").toLowerCase();
-        if (lower.contains("pdf") || n.endsWith(".pdf")) return "📕";
+        if (lower.contains("pdf") || n.endsWith(".pdf")) return R.drawable.ic_file_pdf;
         if (lower.contains("image") || lower.contains("png") || lower.contains("jpg")
                 || lower.contains("jpeg") || lower.contains("webp") || lower.contains("gif")
                 || n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
-                || n.endsWith(".webp") || n.endsWith(".gif")) return "🖼";
-        if (lower.contains("excel") || lower.contains("xls") || n.endsWith(".xlsx") || n.endsWith(".xls")) return "📊";
-        if (lower.contains("word") || lower.contains("doc") || n.endsWith(".docx") || n.endsWith(".doc")) return "📄";
-        if (lower.contains("ppt") || lower.contains("powerpoint") || n.endsWith(".pptx") || n.endsWith(".ppt")) return "📽";
-        if (lower.contains("zip") || lower.contains("rar") || lower.contains("7z") || n.endsWith(".zip")
-                || n.endsWith(".rar") || n.endsWith(".7z")) return "🗜";
-        if (lower.contains("text") || lower.contains("txt") || lower.contains("md")
-                || n.endsWith(".txt") || n.endsWith(".md")) return "📝";
-        if (lower.contains("audio") || lower.contains("mp3") || lower.contains("wav") || n.endsWith(".mp3")) return "🎵";
-        if (lower.contains("video") || lower.contains("mp4") || n.endsWith(".mp4")) return "🎬";
-        return "📁";
+                || n.endsWith(".webp") || n.endsWith(".gif")) return R.drawable.ic_ai_image;
+        if (lower.contains("excel") || lower.contains("xls") || lower.contains("csv")
+                || n.endsWith(".xlsx") || n.endsWith(".xls") || n.endsWith(".csv")) {
+            return R.drawable.ic_excel;
+        }
+        if (lower.contains("zip") || lower.contains("rar") || lower.contains("7z")
+                || n.endsWith(".zip") || n.endsWith(".rar") || n.endsWith(".7z")) {
+            return R.drawable.ic_file_archive;
+        }
+        if (lower.contains("audio") || lower.contains("video") || lower.contains("mp3")
+                || lower.contains("mp4") || n.endsWith(".mp3") || n.endsWith(".mp4")
+                || n.endsWith(".wav") || n.endsWith(".m4a")) {
+            return R.drawable.ic_file_media;
+        }
+        return R.drawable.ic_file;
     }
 
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
-        gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
-    }
-
-    private static android.graphics.drawable.Drawable buttonBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.accentOverlay(context));
-        gd.setCornerRadius(dp(context, 6));
-        return gd;
-    }
-
-    private static int dp(Context context, float value) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
-                context.getResources().getDisplayMetrics());
+    /** 图标着色：只用 ComponentTheme 语义色，深浅色自动跟随 */
+    private static int fileIconTint(Context context, int iconRes) {
+        if (iconRes == R.drawable.ic_file_pdf) return ComponentTheme.danger(context);
+        if (iconRes == R.drawable.ic_excel) return ComponentTheme.success(context);
+        if (iconRes == R.drawable.ic_file_media) return ComponentTheme.warning(context);
+        if (iconRes == R.drawable.ic_ai_image) return ComponentTheme.brand(context);
+        return ComponentTheme.textSecondary(context);
     }
 }

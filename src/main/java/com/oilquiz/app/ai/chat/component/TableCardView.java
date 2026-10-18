@@ -1,19 +1,25 @@
 package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
+import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.oilquiz.app.R;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 结构化表格卡片组件：表头 + 数据行，列宽均分、边框网格。
- * 比 Markdown 表格更适合结构化数据（列对齐可控）。
+ * 结构化表格卡片组件：表头 + 数据行，列宽均分、边框网格
+ * （Track B0-3 已接 {@link CardShell}）。
+ *
+ * <p>行数超过 {@link #MAX_VISIBLE_ROWS} 时截断并把总数放进状态行——不做纵向内滚，
+ * 因为卡片内再放一个纵向 ScrollView 会和聊天列表抢手势，用户划到表格就滚不动会话。
+ * 要看全量数据请让 Agent 落成表格文件（file_card 打开）。
  *
  * 数据格式（ComponentData.props）：
  * <pre>
@@ -26,6 +32,9 @@ import org.json.JSONObject;
  * </pre>
  */
 public class TableCardView implements ChatComponent {
+
+    /** 卡片内最多显示的数据行数（表头不计），超出走截断态 */
+    private static final int MAX_VISIBLE_ROWS = 24;
 
     @Override
     public String getType() {
@@ -42,88 +51,65 @@ public class TableCardView implements ChatComponent {
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
-        String title = p.optString("title", "");
         String align = p.optString("align", "left");
         JSONArray headers = p.optJSONArray("headers");
         JSONArray rows = p.optJSONArray("rows");
         int colCount = headers != null ? headers.length() : 0;
+        int rowCount = rows != null ? rows.length() : 0;
         if (colCount <= 0) return null;
 
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(context, 8), dp(context, 8), dp(context, 8), dp(context, 8));
-        card.setBackground(cardBackground(context));
+        CardShell shell = CardShell.create(context)
+                .setHeaderIcon(R.drawable.ic_home_database)
+                .setHeader(p.optString("title", ""),
+                        rowCount > 0 ? context.getString(R.string.card_row_count, rowCount) : null);
 
-        if (!TextUtils.isEmpty(title)) {
-            TextView titleTv = new TextView(context);
-            titleTv.setText(title);
-            titleTv.setTextSize(14);
-            titleTv.setTextColor(ComponentColors.textPrimary(context));
-            titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            titleTv.setPadding(dp(context, 4), 0, 0, dp(context, 6));
-            card.addView(titleTv, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        shell.addBody(buildRow(context, headers, true, align));
+        int visible = Math.min(rowCount, MAX_VISIBLE_ROWS);
+        for (int i = 0; i < visible; i++) {
+            JSONArray row = rows.optJSONArray(i);
+            if (row == null) continue;
+            shell.addBody(buildRow(context, row, false, align));
         }
-
-        // 表头行
-        card.addView(buildRow(context, headers, true, align));
-
-        // 数据行
-        if (rows != null) {
-            for (int i = 0; i < rows.length(); i++) {
-                JSONArray row = rows.optJSONArray(i);
-                if (row == null) continue;
-                card.addView(buildRow(context, row, false, align));
-            }
+        if (rowCount > visible) {
+            shell.setState(CardShell.State.TRUNCATED,
+                    context.getString(R.string.card_row_truncated_rows, rowCount, visible));
+        } else if (rowCount == 0) {
+            shell.setState(CardShell.State.EMPTY);
         }
-
-        return card;
+        return shell;
     }
 
-    /** 构建一行（表头高亮） */
+    /** 构建一行（表头用次级底 + 中等字重） */
     private View buildRow(Context context, JSONArray cells, boolean header, String align) {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        if (header) {
-            row.setBackgroundColor(ComponentColors.accentOverlay(context));
-        } else {
-            row.setBackgroundColor(ComponentColors.background(context));
-        }
+        row.setBackgroundColor(header ? ComponentTheme.surfaceVariant(context)
+                : ComponentTheme.surface(context));
         int gravity = "center".equals(align) ? Gravity.CENTER : Gravity.START;
 
         for (int i = 0; i < cells.length(); i++) {
-            String text = cells.optString(i, "");
             TextView cell = new TextView(context);
-            cell.setText(text);
-            cell.setTextSize(header ? 12 : 12);
-            cell.setTextColor(ComponentColors.textPrimary(context));
-            if (header) cell.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            cell.setText(cells.optString(i, ""));
+            cell.setTextSize(ComponentTheme.bodyTextSize());
+            cell.setTextColor(ComponentTheme.textPrimary(context));
+            if (header) {
+                cell.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
+                        android.graphics.Typeface.NORMAL));
+            }
             cell.setGravity(gravity | Gravity.CENTER_VERTICAL);
-            cell.setPadding(dp(context, 6), dp(context, 5), dp(context, 6), dp(context, 5));
-            cell.setBackground(borderBackground(context, i));
+            cell.setPadding(ComponentTheme.dp(context, 6), ComponentTheme.dp(context, 5),
+                    ComponentTheme.dp(context, 6), ComponentTheme.dp(context, 5));
+            cell.setBackground(cellBorder(context));
             row.addView(cell, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         }
         return row;
     }
 
-    /** 单元格边框（左/右分隔线） */
-    private static android.graphics.drawable.Drawable borderBackground(Context context, int index) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
+    /** 单元格描边（与外壳 outline token 同源） */
+    private static GradientDrawable cellBorder(Context context) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setStroke(ComponentTheme.borderWidth(context), ComponentTheme.outline(context));
         return gd;
-    }
-
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
-        gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
-    }
-
-    private static int dp(Context context, float value) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
-                context.getResources().getDisplayMetrics());
     }
 }

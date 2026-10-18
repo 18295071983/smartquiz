@@ -13,6 +13,8 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.oilquiz.app.R;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -82,45 +84,41 @@ public class ChartCardView implements ChatComponent {
             }
         }
 
-        // 组装卡片
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
-        card.setBackground(cardBackground(context));
-        card.setClickable(false);
+        // 组装卡片（外壳统一走 CardShell，图表只填 body）
+        CardShell shell = CardShell.create(context)
+                .setHeaderIcon(R.drawable.ic_stats)
+                .setHeader(title, chartTypeLabel(context, chartType));
 
-        if (!TextUtils.isEmpty(title)) {
-            TextView titleTv = new TextView(context);
-            titleTv.setText(title);
-            titleTv.setTextSize(14);
-            titleTv.setTextColor(ComponentColors.textPrimary(context));
-            titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            titleTv.setPadding(0, 0, 0, dp(context, 6));
-            card.addView(titleTv, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        int points = 0;
+        for (Series s : seriesList) {
+            points += s.values.size();
+        }
+        if (points == 0) {
+            shell.setState(CardShell.State.EMPTY);
+            return shell;
         }
 
         ChartView chartView = new ChartView(context);
         chartView.setChartData(chartType, cats, seriesList);
+        chartView.setContentDescription(chartTypeLabel(context, chartType)
+                + "：" + seriesList.size() + " 组 / " + points + " 个数据点");
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                "pie".equals(chartType) ? dp(context, 190) : dp(context, 170));
-        card.addView(chartView, lp);
-
-        return card;
+                "pie".equals(chartType) ? ComponentTheme.dp(context, 190)
+                        : ComponentTheme.dp(context, 170));
+        shell.addBody(chartView);
+        return shell;
     }
 
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
-        gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
-    }
-
-    private static int dp(Context context, float value) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
-                context.getResources().getDisplayMetrics());
+    /** 图表类型中文标签（TalkBack 与 meta 共用） */
+    private static String chartTypeLabel(Context context, String chartType) {
+        if ("line".equals(chartType)) {
+            return context.getString(R.string.card_chart_type_line);
+        }
+        if ("pie".equals(chartType)) {
+            return context.getString(R.string.card_chart_type_pie);
+        }
+        return context.getString(R.string.card_chart_type_bar);
     }
 
     /** 系列数据 */

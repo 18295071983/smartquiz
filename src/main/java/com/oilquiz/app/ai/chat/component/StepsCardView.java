@@ -1,18 +1,26 @@
 package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import androidx.core.widget.ImageViewCompat;
+
+import com.oilquiz.app.R;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 步骤流程卡片组件：多步骤状态展示（计划/流程/检查清单）。
+ * 步骤流程卡片组件：多步骤状态展示（计划/流程/检查清单，Track B0-3 已接 {@link CardShell}）。
+ *
+ * <p>状态指示原来是 ✅/⏳/❌/○ 四个字符——在不同字体下大小不一、深色模式对比度不可控，
+ * 换成矢量图标 + 主题状态色。
  *
  * 数据格式（ComponentData.props）：
  * <pre>
@@ -40,106 +48,110 @@ public class StepsCardView implements ChatComponent {
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
-        String title = p.optString("title", "");
         JSONArray steps = p.optJSONArray("steps");
 
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
-        card.setBackground(cardBackground(context));
+        CardShell shell = CardShell.create(context)
+                .setHeaderIcon(R.drawable.ic_home_plan)
+                .setHeader(p.optString("title", ""),
+                        steps != null && steps.length() > 0
+                                ? context.getString(R.string.card_shell_step_count, steps.length())
+                                : null);
 
-        if (!TextUtils.isEmpty(title)) {
-            TextView titleTv = new TextView(context);
-            titleTv.setText(title);
-            titleTv.setTextSize(13);
-            titleTv.setTextColor(ComponentColors.textPrimary(context));
-            titleTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            titleTv.setPadding(0, 0, 0, dp(context, 6));
-            card.addView(titleTv);
+        if (steps == null || steps.length() == 0) {
+            shell.setState(CardShell.State.EMPTY);
+            return shell;
         }
-
-        if (steps != null) {
-            for (int i = 0; i < steps.length(); i++) {
-                JSONObject step = steps.optJSONObject(i);
-                if (step == null) continue;
-                String status = step.optString("status", "todo");
-
-                // 每步一行：状态指示 + 标题 + 描述
-                LinearLayout row = new LinearLayout(context);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setGravity(Gravity.TOP);
-                row.setPadding(0, dp(context, 3), 0, dp(context, 3));
-
-                String indicator;
-                int indicatorColor;
-                switch (status) {
-                    case "done":
-                        indicator = "✅";
-                        indicatorColor = ComponentColors.success(context);
-                        break;
-                    case "current":
-                        indicator = "⏳";
-                        indicatorColor = ComponentColors.accent(context);
-                        break;
-                    case "failed":
-                        indicator = "❌";
-                        indicatorColor = ComponentColors.error(context);
-                        break;
-                    default:
-                        indicator = "○";
-                        indicatorColor = ComponentColors.textTertiary(context);
-                        break;
-                }
-
-                TextView indicatorTv = new TextView(context);
-                indicatorTv.setText(indicator);
-                indicatorTv.setTextSize(13);
-                indicatorTv.setTextColor(indicatorColor);
-                indicatorTv.setPadding(0, 0, dp(context, 8), 0);
-                row.addView(indicatorTv);
-
-                LinearLayout textCol = new LinearLayout(context);
-                textCol.setOrientation(LinearLayout.VERTICAL);
-                textCol.setLayoutParams(new LinearLayout.LayoutParams(0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-                String stepTitle = step.optString("title", "步骤 " + (i + 1));
-                TextView stepTitleTv = new TextView(context);
-                stepTitleTv.setText(stepTitle);
-                stepTitleTv.setTextSize(13);
-                stepTitleTv.setTextColor(ComponentColors.textPrimary(context));
-                if ("todo".equals(status)) {
-                    stepTitleTv.setTextColor(ComponentColors.textSecondary(context));
-                }
-                textCol.addView(stepTitleTv);
-
-                String description = step.optString("description", "");
-                if (!TextUtils.isEmpty(description)) {
-                    TextView descTv = new TextView(context);
-                    descTv.setText(description);
-                    descTv.setTextSize(11);
-                    descTv.setTextColor(ComponentColors.textTertiary(context));
-                    textCol.addView(descTv);
-                }
-
-                row.addView(textCol);
-                card.addView(row, new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-            }
+        for (int i = 0; i < steps.length(); i++) {
+            JSONObject step = steps.optJSONObject(i);
+            if (step == null) continue;
+            shell.addBody(buildRow(context, step, i));
         }
-        return card;
+        return shell;
     }
 
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
-        gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
+    /** 单步：状态图标 + 标题 + 描述 */
+    private View buildRow(Context context, JSONObject step, int index) {
+        String status = step.optString("status", "todo");
+
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.TOP);
+        row.setPadding(0, ComponentTheme.dp(context, 3), 0, ComponentTheme.dp(context, 3));
+
+        ImageView indicator = new ImageView(context);
+        int size = ComponentTheme.dp(context, 16);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(size, size);
+        iconLp.topMargin = ComponentTheme.dp(context, 2);
+        iconLp.setMarginEnd(ComponentTheme.dp(context, 8));
+        indicator.setLayoutParams(iconLp);
+        indicator.setImageResource(iconFor(status));
+        ImageViewCompat.setImageTintList(indicator,
+                ColorStateList.valueOf(colorFor(context, status)));
+        indicator.setContentDescription(statusLabel(context, status));
+        row.addView(indicator);
+
+        LinearLayout textCol = new LinearLayout(context);
+        textCol.setOrientation(LinearLayout.VERTICAL);
+        textCol.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        String stepTitle = step.optString("title",
+                context.getString(R.string.card_shell_step_default_title, index + 1));
+        TextView stepTitleTv = new TextView(context);
+        stepTitleTv.setText(stepTitle);
+        stepTitleTv.setTextSize(ComponentTheme.bodyTextSize());
+        stepTitleTv.setTextColor("todo".equals(status)
+                ? ComponentTheme.textSecondary(context) : ComponentTheme.textPrimary(context));
+        textCol.addView(stepTitleTv);
+
+        String description = step.optString("description", "");
+        if (!TextUtils.isEmpty(description)) {
+            TextView descTv = new TextView(context);
+            descTv.setText(description);
+            descTv.setTextSize(ComponentTheme.metaTextSize());
+            descTv.setTextColor(ComponentTheme.textTertiary(context));
+            textCol.addView(descTv);
+        }
+        row.addView(textCol);
+        return row;
     }
 
-    private static int dp(Context context, float value) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
-                context.getResources().getDisplayMetrics());
+    private static int iconFor(String status) {
+        switch (status) {
+            case "done":
+                return R.drawable.ic_check_circle;
+            case "current":
+                return R.drawable.ic_schedule;
+            case "failed":
+                return R.drawable.ic_close;
+            default:
+                return R.drawable.ic_circle_outline;
+        }
+    }
+
+    private static int colorFor(Context context, String status) {
+        switch (status) {
+            case "done":
+                return ComponentTheme.success(context);
+            case "current":
+                return ComponentTheme.brand(context);
+            case "failed":
+                return ComponentTheme.danger(context);
+            default:
+                return ComponentTheme.textTertiary(context);
+        }
+    }
+
+    private static String statusLabel(Context context, String status) {
+        switch (status) {
+            case "done":
+                return context.getString(R.string.card_shell_step_done);
+            case "current":
+                return context.getString(R.string.card_shell_step_current);
+            case "failed":
+                return context.getString(R.string.card_shell_step_failed);
+            default:
+                return context.getString(R.string.card_shell_step_todo);
+        }
     }
 }

@@ -2,17 +2,21 @@ package com.oilquiz.app.ai.chat.component;
 
 import android.content.Context;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.oilquiz.app.R;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 题目卡片组件：题干 + 选项 + 答案/解析（答题宝核心场景）。
+ * 题目卡片组件：题干 + 选项 + 答案/解析（答题宝核心场景，Track B0-3 已接 {@link CardShell}）。
+ *
+ * <p>本步只统一外壳；选项可点、判题、回传答题结果属于 Track B1
+ * （{@code quiz_answer}），当前仍是"题目预览"形态。
  *
  * 数据格式（ComponentData.props）：
  * <pre>
@@ -45,80 +49,64 @@ public class QuizCardView implements ChatComponent {
         String analysis = p.optString("analysis", "");
         JSONArray options = p.optJSONArray("options");
 
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
-        card.setBackground(cardBackground(context));
+        CardShell shell = CardShell.create(context)
+                .setHeaderIcon(R.drawable.ic_quiz)
+                .setHeader(typeLabel(context, p.optString("type", "")),
+                        options != null && options.length() > 0
+                                ? context.getString(R.string.card_shell_option_count, options.length())
+                                : null)
+                .setSubtitle(question);
 
-        // 题型标签
-        String qType = p.optString("type", "");
-        String typeLabel = "";
-        if ("multiple".equals(qType)) typeLabel = "【多选】";
-        else if ("judge".equals(qType)) typeLabel = "【判断】";
-        else typeLabel = "【单选】";
-
-        // 题干
-        TextView questionTv = new TextView(context);
-        questionTv.setText(typeLabel + question);
-        questionTv.setTextSize(14);
-        questionTv.setTextColor(ComponentColors.textPrimary(context));
-        questionTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        questionTv.setLineSpacing(0, 1.25f);
-        questionTv.setPadding(0, 0, 0, dp(context, 6));
-        card.addView(questionTv, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        // 选项
-        if (options != null) {
+        if (options == null || options.length() == 0) {
+            shell.setState(CardShell.State.EMPTY, context.getString(R.string.card_shell_no_options));
+        } else {
             for (int i = 0; i < options.length(); i++) {
                 String option = options.optString(i, "");
-                if (option.isEmpty()) continue;
-                TextView optTv = new TextView(context);
-                optTv.setText(option);
-                optTv.setTextSize(13);
-                optTv.setTextColor(ComponentColors.textPrimary(context));
-                optTv.setPadding(dp(context, 4), dp(context, 3), dp(context, 4), dp(context, 3));
-                card.addView(optTv, new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+                if (TextUtils.isEmpty(option)) continue;
+                shell.addBody(optionView(context, option));
             }
         }
 
-        // 答案
         if (!TextUtils.isEmpty(answer)) {
-            TextView answerTv = new TextView(context);
-            answerTv.setText("✓ 答案：" + answer);
-            answerTv.setTextSize(13);
-            answerTv.setTextColor(ComponentColors.accent(context));
-            answerTv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            answerTv.setPadding(0, dp(context, 4), 0, 0);
-            card.addView(answerTv);
+            shell.addBodyText(context.getString(R.string.card_quiz_answer, answer),
+                    ComponentTheme.bodyTextSize(), ComponentTheme.brand(context), true);
         }
-
-        // 解析
         if (!TextUtils.isEmpty(analysis)) {
-            TextView analysisTv = new TextView(context);
-            analysisTv.setText("💡 " + analysis);
-            analysisTv.setTextSize(12);
-            analysisTv.setTextColor(ComponentColors.textSecondary(context));
-            analysisTv.setLineSpacing(0, 1.2f);
-            analysisTv.setPadding(0, dp(context, 4), 0, 0);
-            card.addView(analysisTv, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            shell.addBodyText(context.getString(R.string.card_quiz_analysis, analysis),
+                    ComponentTheme.metaTextSize(), ComponentTheme.textSecondary(context), false);
         }
-
-        return card;
+        return shell;
     }
 
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
-        gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
+    /** 题型标签：不再用【单选】这类硬拼字符串，走 strings.xml */
+    private static String typeLabel(Context context, String type) {
+        if ("multiple".equals(type)) {
+            return context.getString(R.string.card_quiz_type_multiple);
+        }
+        if ("judge".equals(type)) {
+            return context.getString(R.string.card_quiz_type_judge);
+        }
+        return context.getString(R.string.card_quiz_type_single);
     }
 
-    private static int dp(Context context, float value) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
-                context.getResources().getDisplayMetrics());
+    /**
+     * 选项行（静态展示）。
+     *
+     * <p>刻意保留为独立方法：B1 要在这里换成可点击控件 + 选中/判题态，
+     * 外壳其余部分不用动。
+     */
+    private TextView optionView(Context context, String option) {
+        TextView tv = new TextView(context);
+        tv.setText(option);
+        tv.setTextSize(ComponentTheme.bodyTextSize());
+        tv.setTextColor(ComponentTheme.textPrimary(context));
+        tv.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        tv.setMinHeight(ComponentTheme.dp(context, 32));
+        tv.setPadding(ComponentTheme.dp(context, 4), ComponentTheme.dp(context, 3),
+                ComponentTheme.dp(context, 4), ComponentTheme.dp(context, 3));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tv.setLayoutParams(lp);
+        return tv;
     }
 }

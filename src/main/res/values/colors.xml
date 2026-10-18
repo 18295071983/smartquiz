@@ -320,6 +320,9 @@
     <color name="component_rating_empty">#D1D5DB</color>
     <color name="component_image_placeholder">#EEEEEE</color>
     <color name="component_image_error">#FDECEC</color>
+    <!-- 卡片内浮层（如 HTML 卡片的"← 返回"浮标）：压在任意网页内容上都得可读 -->
+    <color name="card_scrim">#99000000</color>
+    <color name="card_scrim_text">#FFFFFFFF</color>
     <!-- 图表系列色（与主题色板一致：主紫/青/绿/琥珀/红/蓝/粉/石板灰） -->
     <color name="chart_1">#8B5CF6</color>
     <color name="chart_2">#06B6D4</color>

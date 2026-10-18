@@ -71,8 +71,12 @@ public class SimpleWebViewActivity extends BaseActivity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(true);
-        settings.setAllowFileAccessFromFileURLs(true);
-        settings.setAllowUniversalAccessFromFileURLs(true);
+        // 跨源文件访问关闭（Track B0 同口径，见 HtmlSandbox）：本地报表加载自身与同目录
+        // 相对资源靠的是 setAllowFileAccess(true)，这两个 flag 放开的是"file 页读任意本地文件"
+        // ——正是提示词注入生成的 HTML 能拿走用户文件的那条路。
+        // API 30 起默认就是 false，这里显式钉住，防止被上游默认值改动带回来。
+        settings.setAllowFileAccessFromFileURLs(false);
+        settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
         settings.setSupportZoom(true);
