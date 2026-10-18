@@ -332,52 +332,51 @@ jobs:
 | 签名密钥丢失 | 无法发布更新 | keystore 必须备份到安全位置 |
 | Vulkan 驱动兼容性 | 部分设备 GPU 加速失效 | CPU 回退机制 + 自动检测 |
 
-### 7.1 已记录的协议缺口：在线 Agent 未走 `/responses` 工具流（2026-10-17）
+### 7.1 `/responses` 路径：缺口、补齐过程与当前放量状态（2026-10-17 记录，2026-10-18 更新）
 
-**现状（已核对代码，非推测）**
+**最初的缺口（已核对代码）**
 
-- `OnlineInferenceService.callResponsesAPI()` 构造的请求体只有 `model / input /
-  max_output_tokens / temperature / web_search`，**不含客户端 `tools` 数组**；
-  `readResponsesStream()` 只处理 `response.output_text.delta`、`response.reasoning_*`、
-  `response.completed`（见该文件 1478-1566、1695-1762 行），**没有 `function_call*` 事件的
-  增量聚合，也没有 `response.usage` 落库**。
-- 因此在线 Agent 的工具循环仍走 `/chat/completions`（`callOpenAIAPI` + 原生 tool_calls 解析），
-  **功能可用**；`/responses` 路由只在"服务商声明 agent 服务且勾选 Agent"时用于纯文本/官方
-  web_search 流（`shouldUseResponsesAPI()`）。
+`callResponsesAPI()` 的请求体只有 `model / input / max_output_tokens / temperature / web_search`，
+不含客户端 `tools`；`readResponsesStream()` 不聚合 `function_call*` 事件、不落 `usage`。
+在线 Agent 的工具循环因此一直走 `/chat/completions`（功能可用）。当时判断"补齐需要连真实
+端点验证流语义，离线交付等于埋一条没跑过的路径"，先记为缺口。
 
-**为什么本轮不补**：补齐等于新写一个协议适配器 —— Responses 事件流解析、`response.output_item.added`
-→ `response.function_call_arguments.delta` 的参数增量拼接、`function_call_output` 回填、
-reasoning 与 usage 语义，数百行，且**流式事件语义必须连真实 `/responses` + tools 端点才能验证**。
-离线交付等于往主干埋一条从未跑过的代码路径，风险高于收益。
+**为什么那个判断是对的，但不够**
 
-**进展（2026-10-18，第一步已完成）**：读代码证实这条路径本身是坏的 —— `delta` 被当成
-JsonObject 取（OpenAI 实为字符串）导致正文一个字的片段都渲染不出，且读完
-`response.completed` 从不投递 `onComplete` 使界面停在"生成中"。两处已修，事件解析抽成
-`ai.service.ResponsesStreamParser`（不依赖 Android，可 JVM 单测），新增 36 例覆盖（流式 20 + 非流式 7 + 供应商顺序与快照取舍 6 + 取消 3）
-UTF-8 半包、终态后长尾、function_call 按 item_id 聚合并只外发一次、usage 归一化；
-非流式的 `readResponsesFull` 也收进同一个解析器（它对 `JsonNull` 会抛异常，属同类缺陷）。
-**文本流现在可用了；工具流仍未接**（解析器已具备聚合能力，缺的是 chat↔responses
-双向翻译与一个默认关的能力位）。
+后来读代码证实：那条已存在的 `/responses` 路径本身就是坏的 —— `delta` 被当成 JsonObject 取
+（OpenAI 与 DeepSeek 都下发字符串）导致正文一个片段都渲染不出；读完 `response.completed`
+只 `return`、从不投递 `onComplete`，界面停在"生成中"；非流式的 `readResponsesFull` 遇到
+`JsonNull` 还会抛异常。也就是说"未验证的路径"早就在主干上，只是没人走进去过。
 
-**进展（2026-10-18 续）**：协议两侧的可离线部分都已落地并被测。
-解析侧 `ResponsesStreamParser` 30 例（流式 20 + 非流式 7 + 供应商顺序 3）；请求侧
-`ResponsesPayloadBuilder` 11 例（`function_call` / `function_call_output` 按 `call_id` 配对、
-`tools` 扁平化、畸形输入退化）。聚合规则不是照文档空想，而是按仓库里两份**真实实现**校正的：
-`ref/…/OpenAIProvider.kt`（存在"先 output_item.done、后 arguments.delta"的供应商，
-故 done 事件不能收口、快照不能与增量混拼）与打包进来的 `llama.cpp` server
-（`item.arguments` 初值为空串、只发 `output_item.done` 不发 `arguments.done`、只带 `item_id`）。
+**现在的形态**
 
-**最后一步也已接完（2026-10-18）**：`OnlineInferenceService.callResponsesStreamWithTools`
-在 `generateStreamWithToolsV2` 内按能力位分发（`providers.json` 的
-`services.agent.toolsProtocol`，**缺省 chat**，全部服务商行为不变），桥回既有
-`NativeToolStreamCallback` —— Agent 循环一行未改。带上了：取消中断
-（`parse(reader, cancelRequested)`，取消时把未收口的 call 整批定稿）、非 200 自动回落
-chat 工具流、用量换算成 chat 口径后复用同一条统计链；刻意**不**注入思考参数
-（Responses 用 `reasoning:{effort,summary}`，未经确认不猜）。
+- 事件语义集中在 `ai.service.ResponsesStreamParser`（不依赖 Android，JVM 可测）：
+  文本/思考增量、`function_call` 按 `item_id → item.id → output_index` 别名归槽、
+  终态与取消、`usage` 四字段。`ResponsesStreamParserTest` 36 例。
+- 请求侧集中在 `ai.service.ResponsesPayloadBuilder`：chat 方言 → `input` 条目
+  （`function_call` / `function_call_output` 按 `call_id` 配对）、`tools` 扁平化、
+  系统提示走顶层 `instructions`、思考走嵌套 `reasoning:{effort}`。
+  `ResponsesPayloadBuilderTest` 14 例。
+- Agent 循环（`OnlineAgentEngine`）**一行未改**：`callResponsesStreamWithTools` 桥回既有
+  `NativeToolStreamCallback`。安全网两条：还没吐出任何字时失败自动回落 chat（文本流与工具流
+  都有）；取消时把未收口的 call 整批定稿，不留"参数残缺且永不完成"的死态。
+- 聚合规则不是照文档空想，而是按两份真实实现校正：仓库打包的 `llama.cpp` server
+  （`item.arguments` 初值为空串、只发 `output_item.done` 不发 `arguments.done`、只带 `item_id`）
+  与参考实现 `OpenAIProvider.kt`（存在"先 `output_item.done`、后 `arguments.delta`"的供应商，
+  故 done 不能收口、快照不得与增量混拼）。
 
-**开启它需要的唯一一件事**：对目标服务商做一次在线对拍（真实事件顺序、`arguments` 快照
-与增量的关系、reasoning/usage 字段名），顺带录一份原始事件流冻成 fixture；通过后把该服务商的
-`toolsProtocol` 改成 `responses` 即可，无需改代码。
+**当前放量状态**：唯一开关是配置表 `services.agent.protocol`，文本流与工具流共用它
+（避免出现"一半在 Responses、一半在 chat"）。
+
+| 服务商 | protocol | 依据 |
+|---|---|---|
+| deepseek | **responses** | 官方 Responses 指南逐条对齐：`function` 工具与 `function_call_output`+`call_id` 回填；`usage` 字段名与解析器读的四条路径一致；以 `completed\|incomplete\|failed` 收尾且无 `[DONE]`；不支持 `previous_response_id` / `store` / `parallel_tool_calls` / `stream_options`（我们本来就不发） |
+| openai / minimax / moonshot | chat | 兼容层细节未逐家核实；有 `/responses` 端点声明，端点探测可用 |
+
+**仍未做的**：DeepSeek 的**真实一次调用**（本机无 key、无设备）—— 放量靠"文档逐条对齐 +
+未吐字即回落 chat"两层，而不是"应该没问题"。接入时的观察点是文档没写的三件事：增量与
+`output_item.done` 快照的先后、`arguments.done` 是否总带完整值、`reasoning.effort` 取值域。
+跑通后录一份原始事件流冻成 fixture，再决定把 openai/minimax/moonshot 一起翻过来还是留逐家开关。
 
 ---
 
