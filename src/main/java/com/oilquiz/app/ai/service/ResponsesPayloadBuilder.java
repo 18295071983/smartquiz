@@ -70,6 +70,13 @@ public final class ResponsesPayloadBuilder {
         if (model != null && !model.isEmpty()) {
             body.addProperty("model", model);
         }
+        // system / developer 提示走顶层 instructions：两家官方文档给出的系统提示入口都是它，
+        // 没有一处示范 input 里的 role=system —— 猜错的表征不是报错，而是"系统提示被当成
+        // 普通用户轮次"这种静默劣化。它还不参与逐轮历史，天然是稳定的请求前缀。
+        String instructions = extractInstructions(chatMessages);
+        if (!instructions.isEmpty()) {
+            body.addProperty("instructions", instructions);
+        }
         body.add("input", toInputItems(chatMessages));
         JsonArray tools = toFlatTools(toolsJson);
         if (tools.size() > 0) {
@@ -93,6 +100,41 @@ public final class ResponsesPayloadBuilder {
     }
 
     /**
+     * 抽出<b>开头连续</b>那段 system / developer 文本，拼成顶层 {@code instructions}。
+     *
+     * <p>只收开头连续段：Agent 循环会在中途插入 system 角色的实时引导（格式提醒、
+     * 任务清单提示等），那是"此刻说的话"，搬到开头等于改变语义 —— 中段系统消息仍按原位置
+     * 留在 {@code input} 里。</p>
+     */
+    public static String extractInstructions(JsonArray chatMessages) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < leadingSystemCount(chatMessages); i++) {
+            JsonElement element = chatMessages.get(i);
+            if (element == null || !element.isJsonObject()) continue;
+            String content = contentOf(element.getAsJsonObject());
+            if (content.trim().isEmpty()) continue;
+            if (sb.length() > 0) sb.append(LF_CONST);
+            sb.append(content);
+        }
+        return sb.toString();
+    }
+
+    /** 开头连续的 system / developer 条数（这些条目由 instructions 承载，不再进 input） */
+    private static int leadingSystemCount(JsonArray chatMessages) {
+        if (chatMessages == null) return 0;
+        int n = 0;
+        for (JsonElement element : chatMessages) {
+            JsonObject msg = asObject(element);
+            if (msg == null) break;
+            String role = str(msg, "role");
+            if (!"system".equals(role) && !"developer".equals(role)) break;
+            n++;
+        }
+        return n;
+    }
+
+    private static final String LF_CONST = String.valueOf((char) 10);
+    /**
      * chat 消息数组 → Responses {@code input[]} 条目数组。
      *
      * <p>顺序即数组顺序：一条 assistant 若同时有正文与工具调用，先出 message 条目再出
@@ -104,7 +146,12 @@ public final class ResponsesPayloadBuilder {
         if (chatMessages == null) {
             return input;
         }
+        int skip = leadingSystemCount(chatMessages);   // 这一段已由顶层 instructions 承载
+        int index = 0;
         for (JsonElement element : chatMessages) {
+            if (index++ < skip) {
+                continue;
+            }
             if (element == null || !element.isJsonObject()) {
                 continue;
             }

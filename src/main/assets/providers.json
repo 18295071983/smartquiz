@@ -1018,8 +1018,8 @@
         "agent": {
           "enabled": true,
           "endpoint": "/responses",
-          "protocol": "chat",
-          "note": "官方 Responses API 已支持（base_url https://api.deepseek.com，模型 deepseek-flash / deepseek-v4-pro），自定义 function 工具与 function_call_output(call_id) 回填、流式以 response.completed/incomplete/failed 收尾且无 [DONE]；不支持 previous_response_id/store/parallel_tool_calls/stream_options，正好与我们“每轮带完整 input 回填”的做法一致。protocol 仍留 chat：置 responses 前需在 App 内用真实 key 对拍三件事 —— system 放 input 还是 instructions、增量与 output_item.done 快照的先后、usage 的 cached/reasoning 字段"
+          "protocol": "responses",
+          "note": "官方 Responses API 已放量（protocol=responses）：base_url https://api.deepseek.com，模型 deepseek-flash / deepseek-v4-pro，自定义 function 工具、结果按 function_call_output+call_id 回填，usage 字段与本项目解析一致（input_tokens/output_tokens/input_tokens_details.cached_tokens/output_tokens_details.reasoning_tokens），流式以 completed/incomplete/failed 收尾且无 [DONE]，不支持 previous_response_id/store/parallel_tool_calls/stream_options（我们本来就不发）。两处文档未写、按防御处理：增量与 output_item.done 快照的先后（两种顺序都能收口且不混拼）、reasoning.effort 取值域（只在服务商为该模型声明档位时才下发）。安全网：文本流与工具流在尚未吐字前失败都会自动回落 chat，形状不兼容不会变成用户可见故障"
         },
         "vision": {
           "enabled": true,

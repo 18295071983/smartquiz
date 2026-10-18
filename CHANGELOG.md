@@ -1,5 +1,47 @@
 # 变更日志
 
+## [2026-10-18] 按 DeepSeek 官方文档收口 Responses 形状，并把 DeepSeek 放量打开
+
+### 查到的事实（`api-docs.deepseek.com/zh-cn/guides/responses_api/`；OpenAI 文档页对本机 403）
+
+- base_url 就是 `https://api.deepseek.com`，模型 `deepseek-flash` / `deepseek-v4-pro`；
+  **自定义 function 工具支持**，结果按 `function_call_output` + `call_id` 回填 —— 与
+  `ResponsesPayloadBuilder` 的形状一致。
+- `usage` 字段名逐个对上：`input_tokens` / `output_tokens` /
+  `input_tokens_details.cached_tokens` / `output_tokens_details.reasoning_tokens` —— 正是
+  `ResponsesStreamParser.applyUsage` 读的那四条路径，缓存命中与思考占比在 DeepSeek 上不会变 0。
+- 流式以 `response.completed|incomplete|failed` 收尾且**没有 `[DONE]`**；
+  不支持 `previous_response_id` / `store` / `parallel_tool_calls` / `stream_options` ——
+  我们本来就每轮带完整 `input`、也不发 `stream_options.include_usage`（那是 chat 侧用法），
+  正好落在它支持的子集里。
+
+### 由此改掉的三件事
+
+1. **系统提示改走顶层 `instructions`**（官方只示范这个入口，没写 `input` 里的 `role=system`；
+   猜错的表征不是 400 而是"系统提示被当成普通轮次"的静默劣化）。只收**开头连续**那段 ——
+   Agent 循环中途插的 system 实时引导（格式提醒、任务清单提示）是"此刻说的话"，
+   搬到开头等于改变语义，所以它们仍按原位置留在 `input`。builder 测试同时锁住这两种情形。
+2. **失败自动回落 chat 的安全网扩到文本流**（此前只有工具流有）：新增 `emitted` 出参，
+   只有"还没吐过任何字"时才重发一次走 chat；已经吐字就如实报错，因为重试会让界面出现两份回答。
+   这条安全网是"敢开新协议"的前提，不是锦上添花。
+3. **DeepSeek 放量 `protocol: "responses"`**，其余三家（openai/minimax/moonshot）保持 `chat`。
+   判据只有一处：`ProviderConfigManager.agentUsesResponses`，文本流与工具流共用，
+   不会出现"一半在 Responses 一半在 chat"。
+
+### 文档没写、按防御处理的三件事
+
+增量与 `output_item.done` 快照的先后（两种顺序都能收口且不混拼，已各有一条用例）、
+`function_call_arguments.done` 是否总带完整 `arguments`（带就用、不带就用增量）、
+`reasoning.effort` 取值域（只在服务商为该模型声明过档位时才下发，与 chat 路径同一条保守规则）。
+
+### 验证
+
+`ResponsesPayloadBuilderTest` 14 例（+3：开头 system → instructions、中段 system 保持原位、
+无系统提示时不下发空 `instructions`）、`ResponsesStreamParserTest` 36 例，全绿；
+全量 **342 tests / 25 failed**（25 仍是既有基线）。
+DeepSeek 的**真实一次调用仍未做过**（这里没有 key、也没接真机）—— 所以放量靠的是
+"文档形状逐条对齐 + 失败自动回落 chat"两层，而不是"应该没问题"。
+
 ## [2026-10-18] /responses：文本流修好、事件解析可测、工具流接通（默认关）
 
 ### 现状核对（先证实再动手，两处硬伤是读代码读出来的）

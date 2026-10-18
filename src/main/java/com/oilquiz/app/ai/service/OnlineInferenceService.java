@@ -1422,8 +1422,21 @@ public class OnlineInferenceService {
                         // 仅在服务商声明 agent 且端点 /responses 兼容、且用户勾选 Agent 时启用；
                         // 否则回落 OpenAI 兼容（保持旧行为）
                         if (shouldUseResponsesAPI(config)) {
-                            callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
-                                    config.supportsWebSearch, callback);
+                            final java.util.concurrent.atomic.AtomicBoolean emitted =
+                                    new java.util.concurrent.atomic.AtomicBoolean(false);
+                            try {
+                                callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens,
+                                        true, config.supportsWebSearch, callback, emitted);
+                            } catch (Exception responsesFailure) {
+                                // 服务商已声明支持 /responses，但兼容层仍可能因输入形状回 4xx。
+                                // 这时候不该把用户的普通对话赌在协议上：回落 chat 再试一次。
+                                // 只在"还没吐出任何正文"时回落，否则会在界面上重复一遍回答。
+                                if (emitted.get()) throw responsesFailure;
+                                AILogger.w(TAG, "Responses 文本流失败，回落 chat: "
+                                        + responsesFailure.getMessage());
+                                callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens,
+                                        true, enableThinking, config.supportsWebSearch, callback);
+                            }
                         } else {
                             callOpenAIAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, true,
                                     enableThinking, config.supportsWebSearch, callback);
@@ -1483,6 +1496,20 @@ public class OnlineInferenceService {
     private String callResponsesAPI(String apiUrl, String apiKey, String modelName,
                                     String prompt, List<ChatMessage> history, int maxTokens,
                                     boolean stream, boolean webSearch, StreamCallback callback) throws Exception {
+        return callResponsesAPI(apiUrl, apiKey, modelName, prompt, history, maxTokens, stream,
+                webSearch, callback, null);
+    }
+
+    /**
+     * 同上，可带一个"是否已外发内容"的出参。
+     *
+     * @param emittedOut 非空时，一旦有正文/思考片段到达界面就会置 true；调用方据此决定
+     *                   失败时还能否安全回落 chat（吐过字再重试会出现两份回答）
+     */
+    private String callResponsesAPI(String apiUrl, String apiKey, String modelName,
+                                    String prompt, List<ChatMessage> history, int maxTokens,
+                                    boolean stream, boolean webSearch, StreamCallback callback,
+                                    java.util.concurrent.atomic.AtomicBoolean emittedOut) throws Exception {
         com.oilquiz.app.ai.model.ProviderConfigManager pcm =
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         String endpoint = pcm.getServiceEndpoint(apiUrl, "agent");
@@ -1563,7 +1590,8 @@ public class OnlineInferenceService {
                 throw new Exception("API 请求失败: HTTP " + responseCode + " - " + errorBody);
             }
             if (stream) {
-                return readResponsesStream(connection, callback);
+                String value = readResponsesStream(connection, callback, emittedOut);
+                return value;
             }
             return readResponsesFull(connection, callback);
         } finally {
@@ -1707,6 +1735,9 @@ public class OnlineInferenceService {
     private final class ResponsesBridge implements ResponsesStreamParser.Sink {
         private final StreamCallback callback;
         private final boolean streaming;
+        /** 是否已把正文/思考片段外发给界面：决定失败时还能不能安全回落 chat */
+        private final java.util.concurrent.atomic.AtomicBoolean emitted =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
         private final StringBuilder text = new StringBuilder();
         private final StringBuilder reasoning = new StringBuilder();
 
@@ -1715,9 +1746,15 @@ public class OnlineInferenceService {
             this.streaming = streaming;
         }
 
+        /** 已经吐过字了吗（跨线程读，写在 post 之前，保证与回调顺序一致） */
+        boolean hasEmitted() {
+            return emitted.get();
+        }
+
         @Override
         public void onTextDelta(String delta) {
             text.append(delta);
+            emitted.set(true);
             if (!streaming) return;
             final String token = delta;
             mainHandler.post(() -> {
@@ -1728,6 +1765,7 @@ public class OnlineInferenceService {
         @Override
         public void onReasoningDelta(String delta) {
             reasoning.append(delta);
+            emitted.set(true);
             if (!streaming) return;
             final String token = delta;
             mainHandler.post(() -> {
@@ -1761,9 +1799,15 @@ public class OnlineInferenceService {
      * 故测试不走 socket）。</p>
      */
     private String readResponsesStream(HttpURLConnection connection, StreamCallback callback) throws Exception {
+        return readResponsesStream(connection, callback, null);
+    }
+
+    private String readResponsesStream(HttpURLConnection connection, StreamCallback callback,
+                                       java.util.concurrent.atomic.AtomicBoolean emittedOut) throws Exception {
         ResponsesBridge bridge = new ResponsesBridge(callback, true);
         ResponsesStreamParser.Result result = new ResponsesStreamParser(bridge)
                 .parse(connection.getInputStream());
+        if (emittedOut != null && bridge.hasEmitted()) emittedOut.set(true);
 
         // 思考已开始但未落到正文（纯思考 / 思考即全部输出）：补发思考结束，避免思考行悬挂
         if (bridge.reasoning.length() > 0) {

@@ -51,22 +51,51 @@ public class ResponsesPayloadBuilderTest {
     // ---------- input 条目形状 ----------
 
     @Test
-    public void systemAndUserBecomeInputTextItems() {
+    public void leadingSystemBecomesTopLevelInstructions() {
+        // 官方文档给出的系统提示入口是顶层 instructions（没有示范 input 里的 role=system）；
+        // 猜错的表征不是 400，而是"系统提示被当成普通轮次"这种静默劣化。
         JsonArray messages = new JsonArray();
         messages.add(msg("system", "你是答题助手"));
         messages.add(msg("user", "给我出三道题"));
 
-        JsonArray input = ResponsesPayloadBuilder.toInputItems(messages);
-
-        assertEquals(2, input.size());
-        assertEquals("system", type(input, 0).get("role").getAsString());
-        assertEquals("你是答题助手", type(input, 0).getAsJsonArray("content").get(0)
-                .getAsJsonObject().get("text").getAsString());
-        assertEquals("input_text", type(input, 0).getAsJsonArray("content").get(0)
-                .getAsJsonObject().get("type").getAsString());
-        assertEquals("user", type(input, 1).get("role").getAsString());
+        JsonObject body = ResponsesPayloadBuilder.build("m", messages, null, 0, -1, false);
+        assertEquals("你是答题助手", body.get("instructions").getAsString());
+        JsonArray input = body.getAsJsonArray("input");
+        assertEquals("系统提示不再占一个输入条目", 1, input.size());
+        assertEquals("user", input.get(0).getAsJsonObject().get("role").getAsString());
     }
 
+    @Test
+    public void midLoopSystemHint_staysInPlaceInsteadOfBeingHoisted() {
+        // Agent 循环会在中途插 system 角色的实时引导（格式提醒等）。那是"此刻说的话",
+        // 搬到开头等于改变语义，所以只收开头连续段。
+        JsonArray messages = new JsonArray();
+        messages.add(msg("system", "总纲"));
+        messages.add(msg("user", "问题"));
+        messages.add(msg("assistant", "我先查一下"));
+        messages.add(msg("system", "请把工具调用放进 tool_calls 字段"));
+        messages.add(msg("user", "继续"));
+
+        JsonObject body = ResponsesPayloadBuilder.build("m", messages, null, 0, -1, false);
+        assertEquals("总纲", body.get("instructions").getAsString());
+        JsonArray input = body.getAsJsonArray("input");
+        java.util.List<String> roles = new java.util.ArrayList<>();
+        for (int i = 0; i < input.size(); i++) {
+            roles.add(input.get(i).getAsJsonObject().get("role").getAsString());
+        }
+        assertEquals(java.util.Arrays.asList("user", "assistant", "system", "user"), roles);
+    }
+
+    @Test
+    public void noSystemMessage_meansNoInstructionsField() {
+        JsonArray messages = new JsonArray();
+        messages.add(msg("user", "只有用户"));
+        JsonObject body = ResponsesPayloadBuilder.build("m", messages, null, 0, -1, false);
+        assertFalse("不下发空 instructions（部分端点对空串的处理不一致）",
+                body.has("instructions"));
+        assertEquals("input_text", body.getAsJsonArray("input").get(0).getAsJsonObject()
+                .getAsJsonArray("content").get(0).getAsJsonObject().get("type").getAsString());
+    }
     @Test
     public void assistantTextAndToolCalls_becomeSeparateItemsInOrder() {
         JsonObject assistant = msg("assistant", "我先查一下天气");
