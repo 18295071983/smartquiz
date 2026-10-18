@@ -184,6 +184,56 @@ public final class ComponentTheme {
      * <p>0 在颜色里是透明黑：个别非 Material 主题（AppTheme）解析 ?attr/colorSurface
      * 失败会返回 0，直接用会把卡片染黑，所以 0/透明一律当作"没配"处理。
      */
+    /**
+     * 解析组件 {@code props.style} 里的颜色写法（B2：只接受语义 token，不接受任意色值）。
+     *
+     * <p>此前模型可以传 {@code style.background="#000000"} 覆盖卡片底色，深色模式与对比度
+     * 直接失控（一张白底黑字的卡在暗色主题里可能整块不可读）。现在只认这些 token：
+     * surface / surfaceVariant / outline / brand / success / warning / danger /
+     * text / textSecondary / textTertiary / transparent。
+     *
+     * @return 解析出的颜色；写法不被接受时返回 {@code null}（调用方保持 token 默认值）
+     */
+    public static Integer styleColor(Context context, String token) {
+        if (context == null || token == null) return null;
+        String t = token.trim().toLowerCase(java.util.Locale.US).replace("_", "");
+        switch (t) {
+            case "surface":
+            case "surfacevariant":
+            case "card":
+                return surface(context);
+            case "outline":
+            case "border":
+            case "divider":
+                return outline(context);
+            case "brand":
+            case "primary":
+            case "accent":
+                return brand(context);
+            case "success":
+                return success(context);
+            case "warning":
+                return warning(context);
+            case "danger":
+            case "error":
+                return danger(context);
+            case "text":
+            case "textprimary":
+                return textPrimary(context);
+            case "textsecondary":
+                return textSecondary(context);
+            case "texttertiary":
+            case "hint":
+                return textTertiary(context);
+            case "transparent":
+            case "none":
+                return android.graphics.Color.TRANSPARENT;
+            default:
+                // 十六进制/rgb() 等任意色值一律拒绝：宁可保持主题默认底色也不让模型改配色
+                return null;
+        }
+    }
+
     private static int orFallback(int fromTheme, int fallback) {
         if (fromTheme == 0 || fromTheme == android.graphics.Color.TRANSPARENT) {
             return fallback;

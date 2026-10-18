@@ -256,34 +256,36 @@ public class ComponentRegistry {
     private static void applyViewStyle(Context context, View v, JSONObject style) {
         if (v == null || style == null) return;
         float density = context.getResources().getDisplayMetrics().density;
-        // padding
+        // padding（B2：上限 32dp，防止模型把卡片内边距撑成半屏）
         try {
             if (style.has("padding")) {
                 Object pad = style.opt("padding");
                 if (pad instanceof Number) {
-                    int p = dp(((Number) pad).intValue(), density);
+                    int p = dpPad(((Number) pad).intValue(), density);
                     v.setPadding(p, p, p, p);
                 } else if (pad instanceof JSONArray) {
                     JSONArray pa = (JSONArray) pad;
                     if (pa.length() == 1) {
-                        int p = dp(pa.optInt(0), density);
+                        int p = dpPad(pa.optInt(0), density);
                         v.setPadding(p, p, p, p);
                     } else if (pa.length() == 2) {
-                        int ph = dp(pa.optInt(0), density), pv2 = dp(pa.optInt(1), density);
+                        int ph = dpPad(pa.optInt(0), density), pv2 = dpPad(pa.optInt(1), density);
                         v.setPadding(ph, pv2, ph, pv2);
                     } else if (pa.length() >= 4) {
-                        v.setPadding(dp(pa.optInt(0), density), dp(pa.optInt(1), density),
-                                dp(pa.optInt(2), density), dp(pa.optInt(3), density));
+                        v.setPadding(dpPad(pa.optInt(0), density), dpPad(pa.optInt(1), density),
+                                dpPad(pa.optInt(2), density), dpPad(pa.optInt(3), density));
                     }
                 } else {
                     String ps = String.valueOf(pad).trim();
                     String[] parts = ps.split("\\s+");
                     if (parts.length == 1) {
-                        int p = dp(parseIntSafe(parts[0]), density);
+                        int p = dpPad(parseIntSafe(parts[0]), density);
                         v.setPadding(p, p, p, p);
                     } else if (parts.length == 4) {
-                        v.setPadding(dp(parseIntSafe(parts[0]), density), dp(parseIntSafe(parts[1]), density),
-                                dp(parseIntSafe(parts[2]), density), dp(parseIntSafe(parts[3]), density));
+                        v.setPadding(dpPad(parseIntSafe(parts[0]), density),
+                                dpPad(parseIntSafe(parts[1]), density),
+                                dpPad(parseIntSafe(parts[2]), density),
+                                dpPad(parseIntSafe(parts[3]), density));
                     }
                 }
             }
@@ -295,31 +297,32 @@ public class ComponentRegistry {
             boolean hasBg = style.has("background");
             boolean hasBorder = style.has("border") || style.has("border_width");
             if (hasRadius || hasBg || hasBorder) {
-                int radiusDp = hasRadius ? dp(style.optInt("radius"), density) : 0;
+                int radiusPx = hasRadius ? dp(clampRadius(style.optInt("radius")), density) : 0;
                 int bgColor = 0;
                 boolean bgOk = false;
                 if (hasBg) {
-                    int c = parseColorSafe(style.optString("background", ""));
-                    if (c != Integer.MIN_VALUE) { bgColor = c; bgOk = true; }
+                    Integer c = ComponentTheme.styleColor(context, style.optString("background", ""));
+                    if (c != null) { bgColor = c; bgOk = true; }
                 }
                 int borderWidth = 0;
                 int borderColor = ComponentTheme.outline(context);
                 boolean borderOk = false;
                 if (style.has("border")) {
                     String bs = style.optString("border", "").trim();
-                    if (bs.matches("\\d+(\\s+#?[0-9A-Fa-f]{6,8})?")) {
+                    // "1 surface" / "2 outline"：宽度 + 颜色 token（B2 起不再接受十六进制色值）
+                    if (bs.matches("\\d+(\\s+\\S+)?")) {
                         String[] bp = bs.split("\\s+");
-                        borderWidth = parseIntSafe(bp[0]);
+                        borderWidth = clampBorderWidth(parseIntSafe(bp[0]));
                         if (bp.length > 1) {
-                            int c = parseColorSafe(bp[1]);
-                            if (c != Integer.MIN_VALUE) { borderColor = c; borderOk = true; }
+                            Integer c = ComponentTheme.styleColor(context, bp[1]);
+                            if (c != null) { borderColor = c; borderOk = true; }
                         }
                     }
                 }
                 if (style.has("border_width")) {
-                    borderWidth = parseIntSafe(style.optString("border_width", "0"));
-                    int c = parseColorSafe(style.optString("border_color", ""));
-                    if (c != Integer.MIN_VALUE) { borderColor = c; borderOk = true; }
+                    borderWidth = clampBorderWidth(parseIntSafe(style.optString("border_width", "0")));
+                    Integer c = ComponentTheme.styleColor(context, style.optString("border_color", ""));
+                    if (c != null) { borderColor = c; borderOk = true; }
                 }
                 if (borderWidth > 0) borderOk = true;
                 // 仅 radius（无 background/border）且控件已有背景 → 跳过，保留原背景
@@ -327,7 +330,7 @@ public class ComponentRegistry {
                 if (hasRadius || bgOk || borderOk) {
                     android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
                     if (bgOk) gd.setColor(bgColor);
-                    if (hasRadius) gd.setCornerRadius(radiusDp);
+                    if (hasRadius) gd.setCornerRadius(radiusPx);
                     if (borderOk && borderWidth > 0) gd.setStroke(dp(borderWidth, density), borderColor);
                     v.setBackground(gd);
                 }
@@ -340,26 +343,26 @@ public class ComponentRegistry {
         return (int) (v * density + 0.5f);
     }
 
+    /** 内边距上限 32dp（B2：模型给的 style 不能把卡片内边距撑成半屏） */
+    private static int dpPad(int v, float density) {
+        return dp(Math.max(0, Math.min(32, v)), density);
+    }
+
+    /** 圆角上限 24dp */
+    private static int clampRadius(int dpValue) {
+        return Math.max(0, Math.min(24, dpValue));
+    }
+
+    /** 描边宽度上限 4dp */
+    private static int clampBorderWidth(int dpValue) {
+        return Math.max(0, Math.min(4, dpValue));
+    }
+
     private static int parseIntSafe(String s) {
         try {
             return Integer.parseInt(s.trim());
         } catch (Exception e) {
             return 0;
-        }
-    }
-
-    private static int parseColorSafe(String s) {
-        try {
-            String cs = s.trim();
-            if (cs.isEmpty()) return Integer.MIN_VALUE;
-            if (cs.startsWith("#")) {
-                long l = Long.parseLong(cs.substring(1), 16);
-                if (cs.length() == 7) l |= 0xFF000000L;
-                return (int) l;
-            }
-            return android.graphics.Color.parseColor(cs);
-        } catch (Exception e) {
-            return Integer.MIN_VALUE;
         }
     }
 }

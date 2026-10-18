@@ -24,7 +24,8 @@ import java.util.regex.Pattern;
  * {@link #resolveRef(String)} 解析为具体值。
  *
  * 设计要点：
- * - 使用静态列表全局保存，所有方法 synchronized 保证线程安全
+ * - 使用静态列表全局保存，所有方法 synchronized 保证线程安全；
+ *   列表按 {@link #MAX_KEEP} 限长（只保留最近若干次，见 C1）
  * - {@link ToolExecution#resultJson} 缓存结果的 JSON 字符串，便于引用解析
  * - resolveRef 支持 $prev.* / $stepN.* 两种引用形式及普通字符串直返
  */
@@ -37,6 +38,16 @@ public class ToolResultStore {
             Pattern.compile("(https?://[^\\s\"'<>]+)");
 
     private static final List<ToolExecution> executions = Collections.synchronizedList(new ArrayList<>());
+
+    /**
+     * 内存里最多保留多少次执行（C1）。
+     *
+     * <p>这里存的是<b>原始结果对象 + 结果 JSON 全文</b>：一次 {@code python_execute} 或
+     * 网页读取可能就是几百 KB，此前这个静态列表只增不减，长会话下等于稳定泄漏。
+     * 上限取 32：聚合流程的跨步引用（{@code $stepN.*}）最多用到个位数步骤，
+     * 32 条足够覆盖一次流程，又能把驻留内存压到可预期。
+     */
+    static final int MAX_KEEP = 32;
 
     private ToolResultStore() {}
 
@@ -58,8 +69,17 @@ public class ToolResultStore {
         exec.timestamp = System.currentTimeMillis();
         exec.stepIndex = stepIndex;
         executions.add(exec);
+        // 只保留最近 MAX_KEEP 条：更早的结果既不会被流程引用，也不该继续占内存
+        while (executions.size() > MAX_KEEP) {
+            executions.remove(0);
+        }
         Log.d(TAG, "保存工具结果: " + toolName + ", step=" + stepIndex
                 + ", 总数=" + executions.size());
+    }
+
+    /** 当前驻留的执行条数（≤ {@link #MAX_KEEP}），测试与排查用 */
+    public static synchronized int size() {
+        return executions.size();
     }
 
     /**
