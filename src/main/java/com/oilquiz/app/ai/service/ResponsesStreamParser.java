@@ -571,9 +571,18 @@ public final class ResponsesStreamParser {
     /** 定稿一条 call，并且只外发一次（重复外发会让有真实副作用的工具被执行两遍） */
     private void close(FunctionCall call) {
         if (call.argumentsFinalized) return;
-        if ((call.arguments == null || call.arguments.isEmpty())
-                && !call.snapshotArguments.isEmpty()) {
-            call.arguments = call.snapshotArguments;
+        // 定稿时用完整快照修正参数：只"整串择一"，绝不把两段拼起来（混拼会产出
+        // {"a":1}{"a":1} 这种坏 JSON）。快照是 done 事件给的完整值，可信度高于我手头的增量累积：
+        // 增量为空 → 直接采用；增量是快照的前缀 → 采用快照（说明尾部增量丢了）；
+        // 两者互不一致 → 保留增量（宁可少一段，也不把两个来源混成一个假参数）。
+        String acc = call.arguments == null ? "" : call.arguments;
+        String snapshot = call.snapshotArguments;
+        if (!snapshot.isEmpty()) {
+            if (acc.isEmpty()) {
+                call.arguments = snapshot;
+            } else if (snapshot.length() >= acc.length() && snapshot.startsWith(acc)) {
+                call.arguments = snapshot;
+            }
         }
         call.argumentsFinalized = true;
         sink.onFunctionCallReady(call);

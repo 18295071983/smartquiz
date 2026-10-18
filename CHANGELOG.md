@@ -40,13 +40,13 @@
 
 ### 验证（离线，已实跑）
 
-- 新增 `ResponsesStreamParserTest`：**33 例全绿**（流式 20 + 非流式 7 + 供应商顺序 3 + 取消中断 3）。传输形状不靠 mock：用自定义流构造
+- 新增 `ResponsesStreamParserTest`：**36 例全绿**（流式 20 + 非流式 7 + 供应商顺序与快照取舍 6 + 取消中断 3）。传输形状不靠 mock：用自定义流构造
   ① **UTF-8 半包**（一个中文字符的 3 字节逐字节交付，断言不乱码不丢字）
   ② **终态后仍挂着长尾数据**（`TailTrackingReader` 计数：completed 整条交付完之后再向流要
   一次数据就判失败 —— 这正是旧实现会挂住的地方）③ 无终态自然读完。
   工具用例含并发 call 乱序到达仍按出现顺序回填、缺 `added` 事件也能收到工具调用。
-- `./gradlew testDebugUnitTest --offline --rerun-tasks`：**336 tests / 25 failed**
-  （基线 292 → 本批 +44；25 个仍是既有失败，类分布未变）。
+- `./gradlew testDebugUnitTest --offline --rerun-tasks`：**339 tests / 25 failed**
+  （基线 292 → 本批 +47；25 个仍是既有失败，类分布未变）。
 - **踩坑记录**：本想用 socket + 手搓 chunked 帧做"真 HTTP"验证，三次用例全在
   `SocketTimeoutException`；单进程探针证实本机环回端口被安全软件 LSP 拦掉
   （accept 成功但写入被中止）。同时 `com.sun.net.httpserver` 不在 android.jar 里、
@@ -107,14 +107,39 @@ Agent 循环整套建立在 chat 消息形状上，而 Responses 有三处不同
 - 非 200 **回落 chat 工具流**而不是报错：能力位万一开到了并不真支持工具的服务商上，
   用户遇到的仍是"能用"。
 - 工具调用**整批在流结束后交付**。单条定稿时机彼此不同步，逐条外发会让引擎只执行一部分，
-  参数还可能是半截 JSON。
-- 取消：`ResponsesStreamParser.parse(reader, cancelRequested)` 每处理完一个**有效事件**
-  检查一次（与 chat 路径"每个 SSE chunk 检查一次"同口径），且取消时把未收口的 call
-  整批定稿 —— 否则上层会拿到"参数残缺且永不完成"的调用，引擎既不执行也不跳过。
+  参数还可能是半截 JSON；无名调用按 chat 同规则过滤掉（引擎拿到只会空转），`arguments` 空时补
+  `{}`，`call_id` 缺失时退回 `item_id` 保底配对。
+- 用量交付补齐成**与 chat V2 同一组四个回调**（`onUsage` / `onUsageWithCache` /
+  `onUsageWithReasoning` / `onUsageWithCacheFull`）。引擎的 token 显示、进度推进、缓存未命中
+  统计分别挂在不同回调上 —— 只发其中一个，切到 Responses 后界面会停在旧计数上，而日志里
+  看不出任何异常。Responses 不给"未命中"，按 chat 的兜底口径用 `prompt - cached` 推算。
+- 收尾原因补三态：有调用 `tool_calls` / 被截断 `length` / 其余 `stop`；正文同样过
+  `cleanModelOutput`，与 chat 一致地挡乱码。
+- 回落 chat 时**透传 `enableThinking`**：此前写死 `false`，于是"开了 Responses 的服务商一旦
+  回落就顺手丢了思考开关"，与直接走 chat 不一致。
+- 文本流加一条诊断：本路径未声明 `tools` 却收到 `function_call` 时记录并忽略，否则表现为
+  "答案凭空少一段"。
 
 思考参数在本路径上**刻意不注入**：chat 侧那套按服务商分发（`enable_thinking` /
 `reasoning_effort` / `thinking.type`），Responses 用的是 `reasoning:{effort,summary}`，
 字段与取值域未经确认；与其猜一个把请求发坏，先不带（代码里就地注释了原因）。
+
+### 快照与增量的取舍（同一批真实形状逼出来的）
+
+`function_call_arguments.done` 与 `output_item.done`、以及 `completed.response.output[]`
+都带"完整参数快照"，与增量累积可能出现三种关系，各自的处置必须不同，否则要么参数截半、
+要么产出坏 JSON：
+
+- 增量为空 → 采用快照（llama.cpp 就走这条：它只发 `output_item.done` 带完整参数，
+  根本不发 `function_call_arguments.done`）。
+- 增量是快照的**前缀** → 采用快照（尾部增量被代理切帧吞掉时，参数截半交给引擎只会白失败一轮）。
+- 两者互不一致 → 保留增量。绝不把两段拼起来：混拼出来的
+  `{"a":1}{"b":2}` 不是合法 JSON，比"少一段"更糟。
+
+另三条与 chat V2 的口径对齐：无名 `function_call` 按同规则过滤（引擎无法执行）、
+`call_id` 缺失时退回 `item_id` 保底配对、收尾原因补 `length`（被截断）与正文乱码清理；
+回落 chat 时透传 `enableThinking`（此前写死 `false`，会让"开了 Responses 的服务商一回落就丢思考开关"）。
+文本流也加了一条诊断：未声明 `tools` 却收到 `function_call` 时记录条数并忽略。
 
 ### 开关：默认关，改 JSON 即可切
 

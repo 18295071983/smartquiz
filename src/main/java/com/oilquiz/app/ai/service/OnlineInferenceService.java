@@ -3534,6 +3534,13 @@ public class OnlineInferenceService {
         public void onFunctionCallReady(ResponsesStreamParser.FunctionCall call) {
         }
 
+        /**
+         * 用量交付必须与 chat V2 同组：那边一次 post 里发了四个回调
+         * （{@code onUsage} / {@code onUsageWithCache} / {@code onUsageWithReasoning} /
+         * {@code onUsageWithCacheFull}），而引擎的 token 显示、进度推进与缓存未命中统计分别挂在
+         * 不同回调上。只发其中一个，切到 Responses 后界面就会停在旧的 token 计数上 ——
+         * 这类"协议换了但统计没换"的缺口最难从日志里看出来。
+         */
         @Override
         public void onUsage(int inputTokens, int outputTokens, int reasoningTokens,
                             int cachedTokens) {
@@ -3542,10 +3549,17 @@ public class OnlineInferenceService {
             final int total = inputTokens + outputTokens;
             final int cached = cachedTokens;
             final int reasoning = reasoningTokens;
+            // Responses 不直接给"未命中"，与 chat 路径的兜底口径一致：命中>0 时用 prompt-cached 推算
+            final int miss = cached > 0 && prompt >= cached ? prompt - cached : 0;
+            AILogger.i(TAG, "Responses API usage: prompt=" + prompt + " completion=" + completion
+                    + " total=" + total + " cache_hit=" + cached + " cache_miss=" + miss
+                    + " reasoning=" + reasoning);
             mainHandler.post(() -> {
-                if (callback != null) {
-                    callback.onUsageWithReasoning(prompt, completion, total, cached, reasoning);
-                }
+                if (callback == null) return;
+                callback.onUsage(prompt, completion, total);
+                callback.onUsageWithCache(prompt, completion, total, cached);
+                callback.onUsageWithReasoning(prompt, completion, total, cached, reasoning);
+                callback.onUsageWithCacheFull(prompt, completion, total, cached, miss);
             });
         }
 

@@ -284,6 +284,36 @@ public class ResponsesStreamParserTest {
         assertEquals("completed 兜底收口，且只发一次", 1, sink.readyCalls.size());
     }
 
+    /**
+     * 全保真复现打包的 llama.cpp server 的 {@code /responses} 序列：
+     * {@code output_item.added(arguments:"")} → 若干 {@code function_call_arguments.delta}
+     * → {@code output_item.done}(带完整快照，且<b>没有</b>顶层 item_id，只有 item.id)
+     * → {@code response.completed}(其 {@code response.output[]} 再带一次同样的条目)。
+     * 这条序列同时压住三件事：不能因空快照提前收口、不能把快照与增量拼接、
+     * 也不能因 done/completed 重复投递而让同一次工具调用被执行两遍。
+     */
+    @Test
+    public void llamaCppFullSequence_deltaThenSnapshots_yieldsOneCallWithExactArguments()
+            throws Exception {
+        String sse = ev("{\"type\": \"response.output_item.added\", \"output_index\": 0, \"item\": {\"id\": \"fc_1\", \"type\": \"function_call\", \"status\": \"in_progress\", \"arguments\": \"\", \"call_id\": \"call_1\", \"name\": \"time_date\"}}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", \"item_id\": \"fc_1\", \"output_index\": 0, \"delta\": \"{\\\"fmt\\\": \"}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", \"item_id\": \"fc_1\", \"output_index\": 0, \"delta\": \"\\\"yyyy\\\"}\"}")
+                + ev("{\"type\": \"response.output_item.done\", \"output_index\": 0, \"item\": {\"id\": \"fc_1\", \"type\": \"function_call\", \"status\": \"completed\", \"arguments\": \"{\\\"fmt\\\": \\\"yyyy\\\"}\", \"call_id\": \"call_1\", \"name\": \"time_date\"}}")
+                + ev("{\"type\": \"response.completed\", \"response\": {\"id\": \"resp_1\", \"status\": \"completed\", \"output\": [{\"id\": \"fc_1\", \"type\": \"function_call\", \"status\": \"completed\", \"arguments\": \"{\\\"fmt\\\": \\\"yyyy\\\"}\", \"call_id\": \"call_1\", \"name\": \"time_date\"}], \"usage\": {\"input_tokens\": 30, \"output_tokens\": 7}}}");
+
+        RecordingSink sink = new RecordingSink();
+        ResponsesStreamParser.Result r = parse(sink, sse);
+
+        assertEquals("done 快照与 completed.output[] 都不该再造一条", 1, r.functionCalls.size());
+        assertEquals("增量拼接出来就是完整参数", "{\"fmt\": \"yyyy\"}",
+                r.functionCalls.get(0).arguments);
+        assertEquals("call_id 而不是 item.id", "call_1", r.functionCalls.get(0).callId);
+        assertEquals("同一次调用只许外发一次", 1, sink.readyCalls.size());
+        assertEquals("tool_calls", r.finishReason());
+        assertEquals(30, r.inputTokens);
+        assertEquals(7, r.outputTokens);
+    }
+
     // ---------- 终态与容错 ----------
 
     @Test
@@ -573,6 +603,39 @@ public class ResponsesStreamParserTest {
                 new ByteArrayInputStream(sse.getBytes(StandardCharsets.UTF_8)),
                 StandardCharsets.UTF_8));
     }
+
+    /**
+    * 尾部增量丢失（代理按字节切帧时常见）：done 事件给的是完整值，而我手头的增量正好是它
+    * 的前缀 —— 此时采用快照补齐。参数截半交给引擎只会让这一轮工具白失败一次。
+    */
+    @Test
+    public void tailDeltaLost_snapshotExtendsAccumulation_adoptsSnapshot() throws Exception {
+        String sse = ev("{\"type\": \"response.output_item.added\", \"item_id\": \"i1\", \"item\": {\"id\": \"i1\", \"type\": \"function_call\", \"call_id\": \"c1\", \"name\": \"ai_weather\", \"arguments\": \"\"}}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", \"item_id\": \"i1\", \"delta\": \"{\\\"city\\\":\\\"北京\\\"\"}")
+                + ev("{\"type\": \"response.function_call_arguments.done\", \"item_id\": \"i1\", \"arguments\": \"{\\\"city\\\":\\\"北京\\\",\\\"days\\\":3}\"}")
+                + ev("{\"type\": \"response.completed\"}");
+
+        ResponsesStreamParser.Result r = parse(new RecordingSink(), sse);
+        assertEquals(1, r.functionCalls.size());
+        assertEquals("{\"city\":\"北京\",\"days\":3}", r.functionCalls.get(0).arguments);
+    }
+
+    /**
+    * 两个来源互不一致（快照不是增量的延长前缀）时保留增量：混拼会产出
+    * {@code {"a":1}{"b":2}} 这种坏 JSON，"少一段"至少还是合法前缀。
+    */
+    @Test
+    public void divergentSnapshot_keepsDeltaChannel_neverConcatenates() throws Exception {
+        String sse = ev("{\"type\": \"response.output_item.added\", \"item_id\": \"i1\", \"item\": {\"id\": \"i1\", \"type\": \"function_call\", \"call_id\": \"c1\", \"name\": \"n\", \"arguments\": \"\"}}")
+                + ev("{\"type\": \"response.function_call_arguments.delta\", \"item_id\": \"i1\", \"delta\": \"{\\\"a\\\": 12}\"}")
+                + ev("{\"type\": \"response.output_item.done\", \"item_id\": \"i1\", \"item\": {\"id\": \"i1\", \"type\": \"function_call\", \"call_id\": \"c1\", \"name\": \"n\", \"arguments\": \"{\\\"b\\\": 7}\"}}")
+                + ev("{\"type\": \"response.completed\"}");
+
+        ResponsesStreamParser.Result r = parse(new RecordingSink(), sse);
+        assertEquals(1, r.functionCalls.size());
+        assertEquals("{\"a\": 12}", r.functionCalls.get(0).arguments);
+    }
+
 
     // ---------- 非流式响应体（webSearch 重路由到 /responses 时走这条路） ----------
 

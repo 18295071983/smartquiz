@@ -353,7 +353,7 @@ reasoning 与 usage 语义，数百行，且**流式事件语义必须连真实 
 **进展（2026-10-18，第一步已完成）**：读代码证实这条路径本身是坏的 —— `delta` 被当成
 JsonObject 取（OpenAI 实为字符串）导致正文一个字的片段都渲染不出，且读完
 `response.completed` 从不投递 `onComplete` 使界面停在"生成中"。两处已修，事件解析抽成
-`ai.service.ResponsesStreamParser`（不依赖 Android，可 JVM 单测），新增 27 例覆盖（流式 20 + 非流式 7）
+`ai.service.ResponsesStreamParser`（不依赖 Android，可 JVM 单测），新增 36 例覆盖（流式 20 + 非流式 7 + 供应商顺序与快照取舍 6 + 取消 3）
 UTF-8 半包、终态后长尾、function_call 按 item_id 聚合并只外发一次、usage 归一化；
 非流式的 `readResponsesFull` 也收进同一个解析器（它对 `JsonNull` 会抛异常，属同类缺陷）。
 **文本流现在可用了；工具流仍未接**（解析器已具备聚合能力，缺的是 chat↔responses
