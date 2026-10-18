@@ -644,20 +644,21 @@ public class ProviderConfigManager {
 
     /** 服务能力端点（缺省：按服务类型回落到标准 OpenAI 兼容端点，chat 缺省全局 chatEndpoint） */
     /**
-     * agent 服务的工具流协议（配置驱动，缺省 chat）。
+     * agent 服务是否放量到 Responses 协议（配置驱动，缺省走 chat）。
      *
-     * @return {@code "responses"} 表示 Agent 循环应走 /responses + function_call；
-     *         其它任何取值（含缺省）都走 /chat/completions
+     * <p>三条同时成立才算数：agent 服务启用、端点确实是 {@code /responses}、
+     * 且 {@code services.agent.protocol} 显式写成 {@code responses}。第三条就是那条总闸：
+     * 普通流式与 Agent 工具流共用它，避免“一半在一半不在”的混合状态。</p>
      */
-    public boolean agentUsesResponsesTools(String apiUrl) {
+    public boolean agentUsesResponses(String apiUrl) {
         Provider p = matchByUrl(apiUrl);
         ServiceConfig cfg = p == null || p.services == null ? null : p.services.agent;
         if (cfg == null) return false;
         if (cfg.enabled != null && !cfg.enabled) return false;
         String ep = cfg.endpoint == null ? "" : cfg.endpoint;
-        // 端点不是 /responses 就谈不上 Responses 工具流（智谱 /agent/chat、百炼多模态那类）
+        // 端点不是 /responses 就谈不上 Responses 协议（智谱 /agent/chat、百炼多模态那类）
         if (!ep.endsWith("/responses")) return false;
-        return "responses".equalsIgnoreCase(cfg.toolsProtocol);
+        return "responses".equalsIgnoreCase(cfg.protocol);
     }
 
     public String getServiceEndpoint(String apiUrl, String service) {
@@ -977,14 +978,19 @@ public class ProviderConfigManager {
         public String endpoint;
         public String param;
         /**
-         * agent 服务的工具流走哪种协议：{@code "chat"}（缺省，/chat/completions + tool_calls）
-         * 或 {@code "responses"}（/responses + function_call 条目）。
+         * agent 服务用哪套协议，<b>一条开关同时管住普通流式与 Agent 工具流</b>：
+         * {@code "chat"}（缺省）＝ /chat/completions + tool_calls；
+         * {@code "responses"} ＝ /responses + 条目化 input / function_call。
          *
-         * <p>刻意<b>默认缺省 = chat</b>：本项目所有服务商的 Agent 循环现在都走已验证的
-         * chat 路径。Responses 工具链的实现与离线回归都在，但各家兼容层的事件顺序与私有字段
-         * 需要逐家在线对拍后才能放开（见 ROADMAP 7.1）；这里保留一个不改代码就能切换的口子。</p>
+         * <p>为什么不与 {@code enabled}/{@code endpoint} 合并：后两者是“能力声明”，
+         * 被端点探测与配置对话框勾选消费；若协议只按“端点像不像 /responses”判定，
+         * 那么“只想让某服务商的探测可用”就会顺手把它的普通对话也搬到尚未在线对拍过的
+         * 端点上。声明与放量分成两件事，才敢逐步开。</p>
+         *
+         * <p>Responses 侧的解析、请求翻译与离线回归都已具备；各家兼容层的事件顺序与私有
+         * 字段仍需逐家在线对拍后才放开（见 ROADMAP 7.1）。</p>
          */
-        public String toolsProtocol;
+        public String protocol;
     }
 
     public static class Thinking {

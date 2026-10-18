@@ -54,8 +54,8 @@
         "agent": {
           "enabled": true,
           "endpoint": "/responses",
-          "toolsProtocol": "chat",
-          "note": "工具流协议开关：chat=默认（/chat/completions + tool_calls，已验证）；responses=/responses + function_call（实现与离线回归已具备，待在线对拍后切换）"
+          "protocol": "chat",
+          "note": "统一开关 protocol（文本流与工具流共用一条，避免一半在一半不在）：chat=走 /chat/completions（已验证）；responses=走 /responses + function_call 条目。Responses 侧实现与离线回归已具备，置成 responses 前需先做一次在线对拍（事件顺序、快照与增量的关系、usage/reasoning 字段名）"
         },
         "vision": {
           "enabled": true
@@ -646,7 +646,8 @@
         "agent": {
           "enabled": true,
           "endpoint": "/responses",
-          "note": "MiniMax Responses API"
+          "protocol": "chat",
+          "note": "MiniMax Responses API（有 /responses 端点声明，故端点探测可用）；协议仍走 chat，放量见 openai 条的 protocol 说明"
         },
         "vision": {
           "enabled": true
@@ -798,7 +799,8 @@
         "agent": {
           "enabled": true,
           "endpoint": "/responses",
-          "note": "Kimi Responses API"
+          "protocol": "chat",
+          "note": "Kimi Responses API（有 /responses 端点声明，故端点探测可用）；协议仍走 chat，放量见 openai 条的 protocol 说明"
         },
         "vision": {
           "enabled": true
@@ -1014,8 +1016,10 @@
           "endpoint": "/chat/completions"
         },
         "agent": {
-          "enabled": false,
-          "note": "DeepSeek 无独立 Agent 端点"
+          "enabled": true,
+          "endpoint": "/responses",
+          "protocol": "chat",
+          "note": "官方 Responses API 已支持（base_url https://api.deepseek.com，模型 deepseek-flash / deepseek-v4-pro），自定义 function 工具与 function_call_output(call_id) 回填、流式以 response.completed/incomplete/failed 收尾且无 [DONE]；不支持 previous_response_id/store/parallel_tool_calls/stream_options，正好与我们“每轮带完整 input 回填”的做法一致。protocol 仍留 chat：置 responses 前需在 App 内用真实 key 对拍三件事 —— system 放 input 还是 instructions、增量与 output_item.done 快照的先后、usage 的 cached/reasoning 字段"
         },
         "vision": {
           "enabled": true,

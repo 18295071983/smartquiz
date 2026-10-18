@@ -50,6 +50,22 @@ public final class ResponsesPayloadBuilder {
      */
     public static JsonObject build(String model, JsonArray chatMessages, String toolsJson,
                                    int maxOutputTokens, double temperature, boolean stream) {
+        return build(model, chatMessages, toolsJson, maxOutputTokens, temperature, stream, null);
+    }
+
+    /**
+     * 同上，并可带上思考强度。
+     *
+     * <p>Responses 侧的思考不是 chat 那套 {@code enable_thinking} / {@code thinking.type} /
+     * {@code reasoning_effort} 扁平参数，而是嵌套的 {@code reasoning:{effort}} ——
+     * 官方（OpenAI 与 DeepSeek）都列了该字段。强度取值一律由调用方按服务商声明的档位给出，
+     * 本方法不猜：传 null/空 就整个字段不下发。</p>
+     *
+     * @param reasoningEffort 思考强度（如 low/medium/high）；null 表示不开启
+     */
+    public static JsonObject build(String model, JsonArray chatMessages, String toolsJson,
+                                   int maxOutputTokens, double temperature, boolean stream,
+                                   String reasoningEffort) {
         JsonObject body = new JsonObject();
         if (model != null && !model.isEmpty()) {
             body.addProperty("model", model);
@@ -67,6 +83,11 @@ public final class ResponsesPayloadBuilder {
         }
         if (stream) {
             body.addProperty("stream", true);
+        }
+        if (reasoningEffort != null && !reasoningEffort.trim().isEmpty()) {
+            JsonObject reasoning = new JsonObject();
+            reasoning.addProperty("effort", reasoningEffort.trim());
+            body.add("reasoning", reasoning);
         }
         return body;
     }

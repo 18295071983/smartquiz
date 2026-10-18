@@ -241,6 +241,26 @@ public class ResponsesPayloadBuilderTest {
     }
 
     @Test
+    public void reasoningEffort_isNestedObjectAndOmittedWhenUnset() {
+        JsonArray messages = new JsonArray();
+        messages.add(msg("user", "hi"));
+
+        JsonObject with = ResponsesPayloadBuilder.build("deepseek-v4-pro", messages, null,
+                1024, 0.7, true, "high");
+        // Responses 用的是嵌套 reasoning:{effort}，不是 chat 侧的扁平 reasoning_effort
+        assertEquals("high", with.getAsJsonObject("reasoning").get("effort").getAsString());
+        assertFalse(with.has("reasoning_effort"));
+
+        JsonObject blank = ResponsesPayloadBuilder.build("m", messages, null,
+                1024, 0.7, true, "   ");
+        assertFalse("空档位不占字段（未声明档位的模型交给服务端默认）",
+                blank.has("reasoning"));
+
+        JsonObject legacy = ResponsesPayloadBuilder.build("m", messages, null,
+                1024, 0.7, true);
+        assertFalse("旧签名保持不带思考参数", legacy.has("reasoning"));
+    }
+    @Test
     public void assistantWithNoArguments_getsEmptyJsonObjectArguments() {
         JsonObject assistant = msg("assistant", "");
         JsonArray calls = new JsonArray();

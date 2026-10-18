@@ -1456,7 +1456,8 @@ public class OnlineInferenceService {
      * 是否启用 Agent/Responses 接口：
      * - 用户勾选 supportsAgent（配置对话框"Agent 接口"）
      * - 配置表声明该服务商提供 agent 服务
-     * - agent 端点为 Responses 兼容（/responses 结尾，OpenAI/MiniMax/Moonshot）
+     * - agent 端点为 Responses 兼容（/responses 结尾）
+     * - 且配置表把 services.agent.protocol 显式放量成 responses（缺省 chat）
      * 智谱 /agent/chat、百炼 multimodal-generation 等特殊格式暂不走此路由（保持 chat 兼容可用）。
      */
     private boolean shouldUseResponsesAPI(OnlineModelManager.OnlineModelConfig config) {
@@ -1467,7 +1468,11 @@ public class OnlineInferenceService {
                 com.oilquiz.app.ai.model.ProviderConfigManager.get();
         if (!pcm.hasService(apiUrl, "agent")) return false;
         String ep = pcm.getServiceEndpoint(apiUrl, "agent");
-        return ep != null && ep.endsWith("/responses");
+        if (ep == null || !ep.endsWith("/responses")) return false;
+        // 端点像 /responses 只说明"这家有这个端点"（探测与配置对话框勾选就靠它），
+        // 真正放量走哪套协议由 services.agent.protocol 一条总闸决定，与工具流共用同一判据 ——
+        // 否则"给某服务商补上端点声明"就会顺手把它的普通对话也搬到尚未在线对拍的端点上。
+        return pcm.agentUsesResponses(apiUrl);
     }
 
     /**
@@ -3422,7 +3427,7 @@ public class OnlineInferenceService {
         if (config == null || !config.supportsAgent) return false;
         try {
             return com.oilquiz.app.ai.model.ProviderConfigManager.get()
-                    .agentUsesResponsesTools(apiUrl);
+                    .agentUsesResponses(apiUrl);
         } catch (Exception e) {
             // 读配置失败不冒进：按 chat 走，保证 Agent 可用优先
             AILogger.w(TAG, "Responses 工具流能力位读取失败，按 chat 处理: " + e.getMessage());
@@ -3449,13 +3454,22 @@ public class OnlineInferenceService {
         String fullUrl = buildOpenAIUrl(apiUrl, endpoint);
         fullUrl = pcm.withAuthQuery(fullUrl, apiKey);
 
+        // 思考强度只在"用户开了思考 + 服务商为该模型声明了可用档位"时下发，
+        // 且走 Responses 自己的嵌套形态 reasoning:{effort}（chat 侧是扁平
+        // enable_thinking / thinking.type / reasoning_effort，两种协议不能混用同一套参数）。
+        // 未声明档位的模型一律不带该字段 —— 与 chat 路径同一条保守规则，避免 400。
+        String reasoningEffort = null;
+        if (enableThinking
+                && com.oilquiz.app.ai.model.OnlineModelManager.isThinkingModelName(modelName)) {
+            String effort = currentThinkingEffort();
+            if (effort != null && !"none".equalsIgnoreCase(effort)
+                    && isEffortLevelSupported(apiUrl, modelName, effort)) {
+                reasoningEffort = effort;
+            }
+        }
         JsonObject body = ResponsesPayloadBuilder.build(modelName, messages, toolsJson,
-                maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, true);
-        // 刻意不注入 thinking/reasoning 参数：chat 侧那套按服务商分发（enable_thinking /
-        // reasoning_effort / thinking.type），而 Responses 用的是 reasoning:{effort,summary}
-        // 结构，各家兼容层是否接受、取值域如何都还没在线确认过。
-        // 与其猜一个字段把请求发坏，这里先不带 —— 思考开关在本路径上暂时无效，
-        // 开启前需要先按端点核实（ROADMAP 7.1）。
+                maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, true,
+                reasoningEffort);
 
         URL url = new URL(fullUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
