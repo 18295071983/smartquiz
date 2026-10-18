@@ -1,11 +1,11 @@
 # HANDOVER · 答题宝 AI 对话 / Agent UI 改版
 
-> 交接时间：2026-10-19（B0、C0 均已落地；未提交、未真机验证）
+> 交接时间：2026-10-19（B0 / C0 / B1 / A0 已落地；C1、B2 各完成一部分；A1 / A2 未开始）
 > 交接对象：在 Qoder 中继续开发的 Agent
-> 当前状态：**设计 + 原型完成；Track B0（安全 + 卡片外壳）与 Track C0（工具结果 5 个止血改动）均已进源码，编译/单测通过，未提交**
-> 下一步：B1（quiz 可答题 + 类型收敛）→ A0 → C1 → A1 → A2 → B2；B0/C0 的真机回归可并行插队
+> 当前状态：**已提交 5 个 commit（docs、B0+C0、B1、A0、C1/B2 局部）；全部改动未真机验证**
+> 下一步：先做 B0/C0/B1/A0 的真机回归（含打开 `chat_ui_v2` 看新外壳），再排 A1（消息四段结构）
 > 必读：`docs/ui/ai-chat-redesign.md`、`docs/ui/component-system-review.md`、`docs/ui/tool-result-step0-tasks.md`、`demo/README.md`
-> **先读 §4.1（B0）与 §4.2（C0）**：落地时对两份任务单的口径做了修正，别再按旧文字实现。
+> **先读 §4.1（B0）/ §4.2（C0）/ §4.3（A0）**：落地时对任务单口径做了修正，别再按旧文字实现。
 
 ---
 
@@ -184,20 +184,31 @@
 
 
 
-**B1 · 交互与收敛（3–5 天）**
+**B1 · 交互与收敛（3–5 天）— 2026-10-19 已完成**
 
-- [ ] `QuizCardView` 可答题：单选/多选/判断 → 判题 → 正确/错误态 + 解析 → `ComponentActions` 回传 `quiz_answer`。
-- [ ] canonical 类型表（≤18）+ alias；`ChatComponent` 增加 `getSchema()` / `getVersion()` / `onRecycle()`。
-- [ ] `DynamicCardView` 折叠 + 最大高度 + "查看原始 JSON"。
-- [ ] 统一空态 / 错误态 / 截断态；图表提供"查看数据表"降级。
+- [x] `QuizCardView` 可答题：选项可点（单选/多选/判断）→ 本地判题 → 正确/错误态 + 解析 →
+      「重做」；结果以 `quiz_answer` 回传（有 `component_id` 走该 id，否则走 `quiz_card` 通道）。
+      答案与解析不再在作答前显示。
+- [x] canonical 类型表 + alias：新增 `ComponentTypes`（18 个 canonical + 场景类型 + 别名表 +
+      字段目录），注册表里**原生卡赢下被 Layout 原语占用的名字**，原语保留 `primitive_<名字>`；
+      `ui_component(action=list_types)` 同时返回内置目录与别名。
+      `ChatComponent` 补 `getCategory()/getVersion()/getSchema()/onRecycle()` 默认实现。
+- [x] `DynamicCardView` 折叠 + 最大高度 + "查看原始 JSON"（默认只显示 title/content/items，
+      其余字段收进限高滚动区，超 4000 字截断）。
+- [x] 统一空态/错误态/截断态：`file_list` 接 CardShell 并截断超 30 条；`chart` 增加
+      "查看数据表"降级（复用 `table_card` 渲染）；emoji 图标统一走新 `FileGlyph`。
+- [ ] 未做：`ChatComponent.getSchema()` 目前是 `ComponentTypes` 目录的转发，各卡没有专属 schema；
+      判题口径见 §9-3（本次按"本地判 + 回传"实现，可改）。
 
-**B2 · 质量（约 1 周）**
+**B2 · 质量（约 1 周）— 部分完成**
 
-- [ ] WebView / 媒体生命周期；长会话不增长。
-- [ ] `style` 只接受 token，不接受任意十六进制色。
-- [ ] 无障碍：contentDescription、48dp 触控、TalkBack 顺序。
-- [ ] 30 卡 × 3 主题截图回归。
-- [ ] 拆分 `NativeLayoutRenderer`（240 KB）与聊天组件，统一类型注册表。
+- [x] `style` 只接受 token，不接受任意十六进制色；`padding`/`radius`/`border` 宽度加上限。
+- [x] WebView 生命周期：B0 的 `ComponentLifecycle.release()` + `HtmlWebView.releaseComponent()`
+      已覆盖"确定不再复用即销毁"；`ChatComponent.onRecycle(View)` 钩子已留（B1）。
+- [ ] `ToolResultStore` 落盘（本次只做了内存限长 32 条，见 C1）。
+- [ ] 无障碍：contentDescription 只在少数新控件加了，未系统覆盖 30 卡；48dp 触控未全面达标。
+- [ ] 30 卡 × 3 主题截图回归（未做，需要真机/模拟器批量截图）。
+- [ ] 拆分 `NativeLayoutRenderer`（240 KB）与聊天组件、统一类型注册表（未动）。
 
 ### Track C（工具结果，C0 先做）
 
@@ -243,25 +254,55 @@
    新消息才是中文名——要连旧消息一起刷，得在反序列化后重算 `toolDisplayName`，属 C1 范畴。
 
 
-**C1 · 结果模型 + Presenter 化（3–5 天，C0 稳定后）**
+**C1 · 结果模型 + Presenter 化（3–5 天，C0 稳定后）— 只做了两项，其余未开始**
 
-- [ ] `ToolResultPresentation`（title/status/summary/body/raw/actions）；`AITool.presentResult` 按 schema 输出，复用现有 `onToolPresent → presentCard` 通道。
-- [ ] `ToolResultCard` 复用 `CardShell`；body 走 `ComponentRegistry.renderBody()`（避免双层卡片）。
-- [ ] `ToolResultPresenter` + 注册表；`ToolResultCardBinder` 降级为旧工具 fallback，逐步删 switch/三份名单。
-- [ ] AI 解读改按需按钮；`ToolResultStore` LRU + 落盘；`ChatMessage` 只存 preview/ref。
-- [ ] Agent 运行内用时间线（`AgentRunCard`），每步展开 compact 结果卡。
+- [x] `ToolResultStore` 内存限长：静态列表原本只增不减（存的是原始结果 + 结果 JSON 全文），
+      现按 `MAX_KEEP=32` 只保留最近若干次；`ToolResultStoreTest`(3) 钉住上限/最新条/流程内引用。
+- [x] AI 解读改按需按钮 —— C0 已完成（自动触发删除、手动入口保留）。
+- [ ] `ToolResultPresentation`（title/status/summary/body/raw/actions）与 `AITool.presentResult`。
+- [ ] `ToolResultCard` 复用 `CardShell`；body 走 `ComponentRegistry.renderBody()`。
+- [ ] `ToolResultPresenter` + 注册表；`ToolResultCardBinder`（1647 行）降级为 fallback。
+- [ ] `ToolResultStore` 落盘 + `ChatMessage` 只存 preview/ref。
+- [ ] Agent 运行内时间线（`AgentRunCard`）。
+
+> 为什么只做了两项：C1 的主体是把 1647 行的 `ToolResultCardBinder` 与 1616 行的
+> `ToolResultInterpreter` 里的映射迁到 Presenter 上。那需要逐工具核对输出结构（30+ 工具），
+> 塞进本轮"顺手做完"只会得到一层没人验证的抽象 + 半迁移的映射表，比现状更糟。
+> 建议单独排一期，从 3–5 个高频工具开始逐个迁，每迁一个跑一次真实调用。
+
 
 ### Track A（聊天 / Agent UI）
 
-**A0 · 视觉收敛（1–2 天）**
+**A0 · 视觉收敛（1–2 天）— 2026-10-19 已完成（开关式），见 §4.3**
 
-- [ ] 新增语义 token（`colors.xml` / `dimens.xml` / `styles.xml`）。
-- [ ] 重写 `activity_ai_chat.xml`：删除 3 行状态胶囊、`remote_dsh_bar`、`ChatStatsBar`、日志面板。
-- [ ] 顶栏改为"标题 + 模型副标题 + 新建 + 更多"。
-- [ ] 输入区 3 个 chip 压成一行 28dp；统计/模型进 BottomSheet。
-- [ ] 加 `chat_ui_v2` 开关（SharedPreferences 或现有 `AppConfigManager`），默认关。
+- [x] 语义 token：B0 的 `card_shell_*` dimens + `ComponentTheme` 已覆盖取色与尺寸；A0 复用，未再新增同义 token。
+- [x] 技术信息下沉：`service_status_bar` / `remote_dsh_bar` / `log_container` 在 v2 下收起，
+      模型/余额/token/生成阶段/KV/日志统一进右上「⋯」的 `BottomSheetDialog`。
+- [x] 顶栏改为"标题 + 模型副标题 + 新建 + 更多"。
+- [x] 输入区 3 个 chip 压成 28dp 一行。
+- [x] `chat_ui_v2` 开关：`ai/chat/ui/ChatUiFlags`（SharedPreferences，**默认关**），
+      面板内可切换，改完重进聊天页生效。
+- [ ] 布局文件本身未重写（`activity_ai_chat.xml` 保持原样），旧控件仍在布局里只是被隐藏；
+      A1 做四段消息结构时再决定是删掉这些节点还是继续隐藏。
 
-**A1 · 消息重构（3–6 天）**
+### 4.3 A0 落地记录（做法与任务单不同）
+
+1. **没有重写 `activity_ai_chat.xml`**，而是新增 `ai/chat/ui/ChatUiV2Chrome`，
+   在 `AIChatActivity.initData()` 开头调用一次（开关关闭时直接 return，零影响）。
+   原因：那个布局 683 行、被 10k 行的 Activity 按 id 绑着，重写布局等于把绑定全炸一遍；
+   开关式改造能先并行验证视觉，A1 再决定要不要落到 XML。
+2. **技术信息的数据源没有另起一套**：被收起的 `service_status_text` / `tv_api_balance` /
+   `tv_token_stats` / `tv_gen_phase` / `tv_kv_stats` / `log_content` 仍由原逻辑刷新，
+   「⋯」面板打开时直接读它们的当前值。代价是这些控件"看不见但还在跑"，
+   A1 若要删控件，得同时把写入方改成写 ViewModel。
+3. **「新建对话」复用历史抽屉里的 `btn_new_conversation.performClick()`**，
+   没有复制一份会话切换逻辑（那条逻辑涉及会话 id 派发、历史落盘、上下文清理）。
+4. **开关入口在面板里**（"启用新版界面"），改完要重进聊天页；默认关。
+   adb 也可改：`run-as com.oilquiz.app` 写 `shared_prefs/chat_ui_prefs.xml` 的 `chat_ui_v2`。
+5. **未验**：v2 外壳在真机上的实际观感（顶栏是否与状态栏打架、chip 28dp 是否点得动、
+   面板读数是否有值）。这是 A0 目前最大的空白，也是下一步该先做的事。
+
+**A1 · 消息重构（3–6 天）— 未开始**
 
 - [ ] 新建 `item_ai_message_v2.xml`：思考行 / 工具组 / 正文 / 操作四段。
 - [ ] `ChatAdapter` 拆 Binder：`UserBinder` / `AiBinder` / `SystemBinder` / `ToolBinder`；**不要一次性重写 5,302 行**，按 viewType 逐步切。
@@ -349,26 +390,28 @@
 - demo/README.md
 
 现状：
-- B0（HtmlSandbox + CardShell + 6 卡迁移）已完成并编译/单测通过，不要重做；
-  也不要动 CardShell / HtmlSandbox / HtmlWebView / ComponentLifecycle。
-- C0（工具结果 5 个止血改动）已完成，见 §4.2；不要重做，也不要"顺手"接线
-  ToolExecutionOrchestrator（它是无调用点的副本）。
-- 仓库已有未提交修改（含 B0/C0），不要 revert / 不要 git add -A。
+- B0（沙箱 + CardShell + 7 卡）、C0（工具结果止血）、B1（quiz 可答题 + 类型收敛 + 兜底卡折叠）、
+  A0（聊天页 v2 外壳，开关默认关）已落地并提交；C1 只做了 Store 限长，B2 只做了 style token。
+- 全部改动**未真机验证**。
+- 不要动 CardShell / HtmlSandbox / HtmlWebView / ComponentLifecycle / ComponentTypes 的既有口径；
+  不要"顺手"接线 ToolExecutionOrchestrator（无调用点的副本）。
 
-下一步：做 Track B1（组件交互与收敛），严格按 docs/ui/component-system-review.md §4 P1：
-1) QuizCardView 可答题：选项可点 → 判题 → 正确/错误态 + 解析 → ComponentActions 回传 quiz_answer；
-2) canonical 类型表（≤18）+ alias；ChatComponent 增 getSchema()/getVersion()/onRecycle()；
-3) DynamicCardView 折叠 + 最大高度（用 CardShell.enableBodyScroll）+ "查看原始 JSON"；
-4) 统一空态 / 错误态 / 截断态；图表提供"查看数据表"降级。
-判题在本地做还是回传模型判（§9-3）先问用户再动手。
-
-B0/C0 的真机回归仍未做（安装 + 卡片外观 + 工具卡限长 + 手动解读入口），可与 B1 并行插队。
+下一步（按顺序）：
+1) 真机回归：装包 → 打开聊天页 → 面板里开 chat_ui_v2 → 重进页面看顶栏/信息下沉/chip；
+   跑一次成功工具（看只剩一张工具卡、无"正在AI解读"）、一次 200KB 输出（看 8 行预览 + 查看全部）、
+   一次 mermaid 流程图（可信模板档仍要渲得出）、一次答题（选项可点、判题、解析、回传）。
+2) A1 消息四段结构（新建 item_ai_message_v2.xml + ChatAdapter 按 viewType 拆 Binder，
+   不整体重写；操作行 3 图标 + 更多；停止生成移到输入框）。
+3) A2 Agent 执行子 UI + 控制台 6 Tab。
+4) C1 剩余（ToolResultPresentation/Presenter/落盘/时间线）与 B2 剩余（无障碍、截图回归、
+   拆 NativeLayoutRenderer）各自独立排期。
 
 约束：
 - 不整体重写 ChatAdapter / AIChatActivity；不改 ChatMessage 持久化结构。
 - 新 UI 不用 emoji 图标、不新增硬编码颜色；中文文案走 strings.xml。
 - 构建前先确认 liblo-native-code.so / asr/model.int8.onnx 存在。
-- 动 HTML 相关必须跑 HtmlSandboxTest；全量单测存量失败 25 个 / 7 个类，别算到自己头上。
+- 动 HTML 相关必须跑 HtmlSandboxTest；动类型名必须跑 ComponentTypesTest；
+  全量单测存量失败 25 个 / 7 个类，别算到自己头上。
 ```
 
 ---
@@ -378,6 +421,9 @@ B0/C0 的真机回归仍未做（安装 + 卡片外观 + 工具卡限长 + 手�
 1. 默认主题：中性浅色（推荐）还是保留现有深蓝渐变作为默认？
 2. Agent 控制台「会话」Tab 要不要展示正在运行的实时会话，还是只展示历史？
 3. quiz 判题在本地做，还是回传 Agent 由模型判？
+   —— B1 先按**本地判题 + 结果回传**实现（即时反馈，不等模型；Agent 可用
+   `get_result` 拿到 `quiz_answer` 继续讲评）。要改成"模型判"只需把
+   `QuizCardView` 的提交动作换成回传后等模型下发正确态。
 4. 文件"公共目录权限"的具体范围（Downloads / 用户选择目录 / 全盘）？
 5. 是否接受把 `feedback_bar` / `agent_status` 移出可被模型调用的卡片类型（推荐）？
    —— B0 只把它们的颜色/图标接了 token，**注册状态原样保留**，移出与否仍等你拍。
