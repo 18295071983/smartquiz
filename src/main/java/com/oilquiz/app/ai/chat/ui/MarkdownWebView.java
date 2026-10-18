@@ -18,6 +18,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 import com.oilquiz.app.ai.chat.render.MarkdownHtmlConverter;
+import com.oilquiz.app.ai.chat.render.MarkdownLinkRouter;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
@@ -36,7 +37,9 @@ import java.util.Map;
  * 3) 高度缓存：按内容 hash 缓存最终高度，RecyclerView 复用回绑已定稿消息时直接套用，
  *    不再重新测量 → 消除滚回时的抖动。
  *
- * 本组件独立于 ChatAdapter，暂不接线；接线（开关接管正文气泡 + 池化）为下一步。
+ * 接线状态：已由 {@code ChatAdapter} 在 {@code webMarkdownEnabled} 时接管 AI 正文气泡
+ * （与 messageText 二选一）。链接/图片点击统一走 {@link MarkdownLinkRouter}，与原生
+ * Markwon 气泡同一套行为，不再各说各话。
  */
 public class MarkdownWebView extends FrameLayout {
 
@@ -123,19 +126,12 @@ public class MarkdownWebView extends FrameLayout {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String u = request != null && request.getUrl() != null ? request.getUrl().toString() : null;
-                if (u != null && (u.startsWith("http://") || u.startsWith("https://"))) {
-                    // 交系统浏览器打开（与原生 Markwon 气泡的链接行为一致，不在 App 内 WebViewActivity）
-                    try {
-                        android.content.Intent intent = new android.content.Intent(
-                                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u));
-                        if (!(getContext() instanceof android.app.Activity)) {
-                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                        }
-                        getContext().startActivity(intent);
-                    } catch (Throwable ignore) { }
-                    return true; // 外部打开，不在气泡内导航
-                }
-                return true;
+                return handleNavigation(u);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleNavigation(url);
             }
 
             @Override
@@ -159,6 +155,34 @@ public class MarkdownWebView extends FrameLayout {
 
     public void setOnContentHeightChanged(OnContentHeightChanged l) {
         this.heightListener = l;
+    }
+
+    /**
+     * 气泡内导航的统一出口：除页内锚点（{@code #}）外一律不在气泡内导航，
+     * 交 {@link MarkdownLinkRouter} 按 scheme 分流——应用内预览文件/图片、
+     * 系统浏览器打开网页、{@code tel:}/{@code mailto:}/{@code geo:} 等交系统能力。
+     *
+     * <p>这里曾是"只认 http/https，其余 {@code return true} 静默吞掉"，于是主气泡里的
+     * 文件链接、content:// 附件、工作区相对路径点了全无反应（原生 Markwon 路径本来有）。
+     * 现在两条渲染路径共用同一个路由器，不会再分叉。</p>
+     */
+    private boolean handleNavigation(String url) {
+        if (url == null || url.trim().isEmpty()) return true;
+        String s = url.trim();
+        if (s.startsWith("#")) return false; // 锚点：让 WebView 自己滚动
+        routeLink(s);
+        return true;
+    }
+
+    /** 把链接（含 android_asset 相对补全形态）交给路由器，主线程执行 */
+    private void routeLink(String raw) {
+        final String url = MarkdownLinkRouter.normalizeAssetHref(raw);
+        if (url == null || url.isEmpty()) return;
+        main.post(() -> {
+            try {
+                MarkdownLinkRouter.open(getContext(), url);
+            } catch (Throwable ignore) { }
+        });
     }
 
     public void setNight(boolean night) {
@@ -205,6 +229,9 @@ public class MarkdownWebView extends FrameLayout {
         // 正文里的相对/裸文件名图片 → file:// 绝对地址（WebView baseUrl 是 android_asset，
         // 不改写必然裂图；JS 侧拿不到工作区路径，只能在这里做）
         bodyHtml = MarkdownHtmlConverter.resolveLocalImageSrcs(bodyHtml, getContext());
+        // 锚点同理：工作区相对路径的链接在这里解析成绝对 file://，
+        // 解析不到的保留原串，交给点链接时的 MarkdownLinkRouter 给可读提示
+        bodyHtml = MarkdownHtmlConverter.resolveLocalLinkHrefs(bodyHtml, getContext());
         String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars);
         pendingHtml = doc;
         if (!pageReady) {
@@ -284,6 +311,11 @@ public class MarkdownWebView extends FrameLayout {
                 } catch (Throwable ignore) { }
             });
         }
+
+        // 桥方法刻意只有 onHeight/copy/previewImage 三个（2026-10-13 定下的"不扩桥"）。
+        // 链接接 App 与系统这件事不需要新桥：真实点击一定会触发 WebViewClient 的
+        // shouldOverrideUrlLoading，由那里交给 MarkdownLinkRouter；再开一个
+        // QZ.openLink 等于让正文里的脚本可以不经点击就拉起文件预览/系统 Intent。
     }
 
     private void applyHeightPx(int px) {

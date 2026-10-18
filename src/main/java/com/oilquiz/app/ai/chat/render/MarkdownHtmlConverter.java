@@ -158,6 +158,51 @@ public final class MarkdownHtmlConverter {
         }
     }
 
+    /**
+     * 把正文 HTML 里<b>相对/裸文件名</b>的链接地址（{@code <a href=…>}）改写为 {@code file://} 绝对地址。
+     *
+     * <p>与 {@link #resolveLocalImageSrcs} 同一个道理，只是对象换成锚点：Agent 正文里常写
+     * {@code [报告](files/报告.md)} 这种工作区相对路径，浏览器会把它补成
+     * {@code file:///android_asset/files/报告.md}（assets 目录下没有业务文件），点击后
+     * 路由器拿到的就是个不存在的路径。这里能解析到真实文件的直接换成绝对 {@code file://}；
+     * 解析不到就<b>原样保留</b>，让 {@code MarkdownLinkRouter} 去给"工作区相似文件"这种
+     * 有操作性的提示，而不是静默失败。</p>
+     *
+     * <p>只动锚点：http(s)、data:、content://、mailto:、tel:、#锚点一律原样保留。</p>
+     */
+    public static String resolveLocalLinkHrefs(String bodyHtml, android.content.Context context) {
+        if (bodyHtml == null || bodyHtml.isEmpty() || context == null) return bodyHtml;
+        try {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(<a[^>]*?\\bhref=)([\"'])([^\"']*)\\2",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher mt = p.matcher(bodyHtml);
+            StringBuffer out = new StringBuffer(bodyHtml.length() + 64);
+            while (mt.find()) {
+                String url = mt.group(3).trim();
+                String rebuilt = mt.group(0);
+                if (!url.isEmpty() && !url.startsWith("#")
+                        && !url.startsWith("http://") && !url.startsWith("https://")
+                        && !url.startsWith("data:") && !url.startsWith("content://")
+                        && !url.startsWith("file://") && !url.startsWith("mailto:")
+                        && !url.startsWith("tel:") && !url.contains("://")) {
+                    java.io.File f = com.oilquiz.app.ai.chat.component.MediaPathResolver
+                            .resolveToFile(context, url);
+                    if (f != null) {
+                        rebuilt = mt.group(1) + mt.group(2) + "file://" + f.getAbsolutePath() + mt.group(2);
+                    }
+                }
+                mt.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(rebuilt));
+            }
+            mt.appendTail(out);
+            return out.toString();
+        } catch (Throwable t) {
+            android.util.Log.w("MarkdownHtmlConverter",
+                    "链接地址解析失败，按原文渲染: " + t.getMessage());
+            return bodyHtml;
+        }
+    }
+
     public static String wrapDocument(String bodyHtml, boolean night, String themeVars) {
         String theme = night ? "dark" : "light";
         String vars = (themeVars == null || themeVars.trim().isEmpty()) ? "" : themeVars.trim();
@@ -224,7 +269,14 @@ public final class MarkdownHtmlConverter {
                 + "this.parentNode.insertBefore(t,this);}catch(e){}});"
                 + "if(g.complete&&g.naturalWidth===0){g.dispatchEvent(new Event('error'));}}"
                 + "}}"
-                + "try{math();}catch(e){}try{linkify();}catch(e){}try{hl();}catch(e){}try{codeCopy();}catch(e){}try{imgPrev();}catch(e){}"
+                // 锚点归一化（**不调任何桥方法**，遵循"不扩桥"的最小权限约定）：
+                // ① 去掉 target=_blank —— 否则点击会走 window.open，绕开原生
+                //    shouldOverrideUrlLoading，链接就静默失效了；
+                // ② 补 cursor，让正文链接有可点的反馈。
+                // 真正的路由全在原生 WebViewClient 里，JS 侧只负责把点击变成一次普通导航。
+                + "function aNorm(){var as=document.getElementsByTagName('a');for(var j=0;j<as.length;j++){var a=as[j];"
+                + "a.style.cursor='pointer';if(a.target){a.removeAttribute('target');}a.rel='noopener';}}"
+                + "try{math();}catch(e){}try{linkify();}catch(e){}try{hl();}catch(e){}try{codeCopy();}catch(e){}try{imgPrev();}catch(e){}try{aNorm();}catch(e){}"
                 + "};"
                 + "if(document.readyState==='complete'||document.readyState==='interactive'){window.__qzBoot();}"
                 + "else{document.addEventListener('DOMContentLoaded',function(){window.__qzBoot();});}";
