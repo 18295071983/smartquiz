@@ -353,7 +353,35 @@
     属于 A1/B2 范围，本轮没动（不影响功能，只是配色不统一）。
     chip 文案里的 🧠/🔍 emoji 同样来自那两个方法，也不在本轮范围内。
 
-**A1 · 消息重构（3–6 天）— 未开始**
+### 4.5 A1 第一段 · 思考段换成 demo 的折叠行（做法与任务单不同）
+
+任务单写的是"新建 `item_ai_message_v2.xml` 四段结构"。**没有照做**，原因是 AI 消息根本没有布局文件：
+`ChatAdapter#createAiMessageItem` 用 ~330 行代码 new 出整棵树，再塞进
+`DynamicAiMessageRoot`（构造参数就是那 30 多个视图引用），全类靠字段访问、不用 `findViewById`。
+所以 A1 只能一段一段换，第一段挑了**思考段**（最小、最能看出差异）：
+
+1. `createAiMessageItem` 里思考区改成 v2 / 旧版两条分支，两条路都只交出
+   `thinkingLabel` / `thinkingContent` / `thinkingDivider` 三个引用，
+   后面 20 多处折叠、流式预览、高度动画的调用点**一行没改**。
+2. 新增两个薄视图类，专门解决"旧逻辑只认 TextView、v2 却是一整行"的错配：
+   - `ThinkLineLabel`：`setVisibility` 转发给行容器（只藏文字会剩一行孤零零的图标+箭头），
+     `setOnClickListener` 也转发（demo 里整条才是按钮，旧代码只把 listener 设到文字上）。
+   - `ThinkLineBody`：正文可见性就是展开态的唯一事实来源，显了就转箭头 90°，
+     这样不必在 ChatAdapter 每个点击回调里补一句"顺便转一下箭头"。
+3. v2 下 `thinkingDivider` 给一个**不入树**的占位 View（demo 的正文自带左侧竖线，不需要分隔线），
+   保持 holder 字段非空，调用点不用加判空分支。
+4. **未真机验证**：代码过了 `compileDebugJavaWithJavac` + `assembleDebug`，
+   装包时设备从 adb 掉线（`device '279b6c51' not found`，kill-server/start-server 后仍为空），
+   所以折叠行的观感、点击展开、流式预览时"实时思考"是否还落在这一行，**都还没看过**。
+   设备回来后要专门看：有思考的历史消息（当前会话里就有一条"思考过程：用户答了…"）。
+5. 下一段接 **tool-line**：现在工具信息分散在 `componentContainer`（工具结果卡）与
+   `AgentExecutionView`（执行面板）里，不像 demo 那样先有一条"已运行 N 个工具 · 2.8s"的汇总行。
+   做这条之前要先定口径：**汇总行统计的是本轮工具调用次数还是消息内全部卡片**，
+   以及它和 `AgentExecutionView` 谁显示谁隐藏（不能两条都摆着）。
+
+
+
+**A1 · 消息重构（3–6 天）— 已开始，思考段见 §4.5**
 
 - [ ] 新建 `item_ai_message_v2.xml`：思考行 / 工具组 / 正文 / 操作四段。
       （think/tool 行的行视图已由 §4.4 做成 `view_chat_v2_think_line` / `view_chat_v2_tool_line`）

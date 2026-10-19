@@ -29,7 +29,7 @@
             android:src="@drawable/ic_chat_v2_sparkle"
             app:tint="@color/chat_v2_brand"/>
 
-        <TextView
+        <com.oilquiz.app.ai.chat.ui.ThinkLineLabel
             android:id="@+id/chat_v2_think_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -50,7 +50,7 @@
             app:tint="@color/chat_v2_text_3"/>
     </LinearLayout>
 
-    <TextView
+    <com.oilquiz.app.ai.chat.ui.ThinkLineBody
         android:id="@+id/chat_v2_think_body"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

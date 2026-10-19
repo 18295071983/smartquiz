@@ -504,41 +504,65 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentControlBar.addView(btnRewind);
         bubble.addView(agentControlBar);
 
-        // --- 思考标签 ---
-        TextView thinkingLabel = new TextView(ctx);
-        thinkingLabel.setText(R.string.chat_thinking_process);
-        thinkingLabel.setTextSize(11f);
-        thinkingLabel.setTextColor(colorOnSurfaceVariant);
-        thinkingLabel.setClickable(true);
-        thinkingLabel.setFocusable(true);
-        thinkingLabel.setForeground(getSelectableItemBackground(ctx));
-        thinkingLabel.setVisibility(View.GONE);
-        LinearLayout.LayoutParams tlLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tlLp.bottomMargin = dpToPx(2, ctx);
-        thinkingLabel.setLayoutParams(tlLp);
-        bubble.addView(thinkingLabel);
+        // --- 思考区 ---
+        // v2（demo .think-line / .think-body）：一行"星形图标 + 摘要 + 箭头"，点开才是左侧竖线正文；
+        // 旧版：标签 + 内容 + 分隔线三段直接堆在气泡里。
+        // 两条路都只交出 thinkingLabel / thinkingContent / thinkingDivider 三个引用，
+        // 后面那 20 多处折叠、流式预览、高度动画的调用点不需要知道开关的存在。
+        TextView thinkingLabel;
+        TextView thinkingContent;
+        View thinkingDivider;
+        if (ChatUiFlags.isUiV2Enabled(ctx)) {
+            View thinkSection = LayoutInflater.from(ctx)
+                    .inflate(R.layout.view_chat_v2_think_line, bubble, false);
+            thinkingLabel = thinkSection.findViewById(R.id.chat_v2_think_text);
+            thinkingContent = thinkSection.findViewById(R.id.chat_v2_think_body);
+            // 藏标签会连带藏整行（ThinkLineLabel 把可见性转发给行容器），
+            // 否则会剩下一行孤零零的图标和箭头
+            thinkingLabel.setVisibility(View.GONE);
+            thinkingContent.setTextSize(13f);
+            thinkingContent.setLineSpacing(0f, 1.7f);
+            bubble.addView(thinkSection);
+            // v2 不需要"思考与正文之间的分隔线"（正文自带左侧竖线）：
+            // 给一个不入树的占位，holder 字段保持非空，调用点不用加判空
+            thinkingDivider = new View(ctx);
+        } else {
+            TextView legacyThinkingLabel = new TextView(ctx);
+            legacyThinkingLabel.setText(R.string.chat_thinking_process);
+            legacyThinkingLabel.setTextSize(11f);
+            legacyThinkingLabel.setTextColor(colorOnSurfaceVariant);
+            legacyThinkingLabel.setClickable(true);
+            legacyThinkingLabel.setFocusable(true);
+            legacyThinkingLabel.setForeground(getSelectableItemBackground(ctx));
+            legacyThinkingLabel.setVisibility(View.GONE);
+            LinearLayout.LayoutParams tlLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            tlLp.bottomMargin = dpToPx(2, ctx);
+            legacyThinkingLabel.setLayoutParams(tlLp);
+            bubble.addView(legacyThinkingLabel);
+            thinkingLabel = legacyThinkingLabel;
 
-        // --- 思考内容 ---
-        TextView thinkingContent = new TextView(ctx);
-        thinkingContent.setTextColor(colorOnSurfaceVariant);
-        thinkingContent.setTextSize(12f);
-        thinkingContent.setLineSpacing(0f, 1.2f);
-        thinkingContent.setVisibility(View.GONE);
-        thinkingContent.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        bubble.addView(thinkingContent);
+            TextView legacyThinkingContent = new TextView(ctx);
+            legacyThinkingContent.setTextColor(colorOnSurfaceVariant);
+            legacyThinkingContent.setTextSize(12f);
+            legacyThinkingContent.setLineSpacing(0f, 1.2f);
+            legacyThinkingContent.setVisibility(View.GONE);
+            legacyThinkingContent.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            bubble.addView(legacyThinkingContent);
+            thinkingContent = legacyThinkingContent;
 
-        // --- 思考与正文分隔线 ---
-        View thinkingDivider = new View(ctx);
-        thinkingDivider.setBackgroundColor(colorOutlineVariant);
-        thinkingDivider.setVisibility(View.GONE);
-        LinearLayout.LayoutParams tdLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(1, ctx));
-        tdLp.topMargin = dp6;
-        tdLp.bottomMargin = dpToPx(2, ctx);
-        thinkingDivider.setLayoutParams(tdLp);
-        bubble.addView(thinkingDivider);
+            View legacyDivider = new View(ctx);
+            legacyDivider.setBackgroundColor(colorOutlineVariant);
+            legacyDivider.setVisibility(View.GONE);
+            LinearLayout.LayoutParams tdLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(1, ctx));
+            tdLp.topMargin = dp6;
+            tdLp.bottomMargin = dpToPx(2, ctx);
+            legacyDivider.setLayoutParams(tdLp);
+            bubble.addView(legacyDivider);
+            thinkingDivider = legacyDivider;
+        }
 
         // --- 推理进度 ---
         InferenceProgressView inferenceProgressView = new InferenceProgressView(ctx);
