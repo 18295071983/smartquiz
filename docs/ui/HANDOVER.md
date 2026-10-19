@@ -374,10 +374,27 @@
    装包时设备从 adb 掉线（`device '279b6c51' not found`，kill-server/start-server 后仍为空），
    所以折叠行的观感、点击展开、流式预览时"实时思考"是否还落在这一行，**都还没看过**。
    设备回来后要专门看：有思考的历史消息（当前会话里就有一条"思考过程：用户答了…"）。
-5. 下一段接 **tool-line**：现在工具信息分散在 `componentContainer`（工具结果卡）与
-   `AgentExecutionView`（执行面板）里，不像 demo 那样先有一条"已运行 N 个工具 · 2.8s"的汇总行。
-   做这条之前要先定口径：**汇总行统计的是本轮工具调用次数还是消息内全部卡片**，
-   以及它和 `AgentExecutionView` 谁显示谁隐藏（不能两条都摆着）。
+5. **第二段接了 tool-line**，口径先定了三件事：
+   - **计数取 `message.agentSummaryInfo.toolCallCount`**（与汇总卡同一个源），
+     明细取 `message.components` 里 `type=tool_call` 的卡（生产方是 `AIChatActivity`
+     的 onToolCallStart/完成回调，props 带 `toolName/status/args/result`）。
+     两者不一致时（工具卡被合并/丢弃）行上仍按计数说"N 个工具"，
+     明细尾部补一行"另有 M 次调用未列出明细"，不假装对得上。
+   - **行接管后 `agentSummary` 文本与 `MetricCardView` 汇总卡都不再出现**
+     （`renderToolLine` 返回 true 时调用方 `clearAgentSummarySlot`），
+     否则同一组数字在气泡里摆两遍。步骤数/tokens/缓存命中率这些技术读数
+     不在行上重复——「⋯」面板里本来就有。
+   - **明细行右侧显示状态而不是耗时**：demo 每条工具有 `1.2s`，
+     但 `tool_call` 卡的 props 里没有逐调用耗时（只有 `AgentSummaryInfo.totalTimeMs` 总量），
+     所以先显示"执行中/已完成/失败"（成功绿、失败红、进行中性），
+     要真做逐工具耗时得让生产方在 props 里补 `durationMs`。
+6. **流式期间的重建**：`toolLineFp`（名称|状态|参数摘要序列）没变就复用明细视图，
+   重建时先记下 `body` 的可见性再还原，用户展开着就不会每来一个 token 就被折叠回去。
+7. **未真机验证**：这一段的编译（`compileDebugJavaWithJavac`）过了，
+   但装包时设备仍不在 adb 里，所以折叠行的观感、点击展开、
+   工具行与 `AgentExecutionView`/工具结果卡同时出现时会不会挤，都还没看过。
+   设备回来后：找一条带工具的历史消息（当前会话里就有一条"调用工具 5 次"的），
+   看它是否变成"已运行 5 个工具 · 29s ✅"一行，点开是 5 条明细。
 
 
 
@@ -454,6 +471,14 @@
 - 组件：quiz 答题 → 判题 → 回传；空/错/超长内容；HTML 注入用例。
 - 工具结果（C0）：成功/失败/200KB 输出/手动 AI 解读/聚合流程/历史恢复，明细见 `docs/ui/tool-result-step0-tasks.md` §T5。
 - 构建：`gradlew.bat assembleDebug`（确认二进制资源存在）。
+- **JVM 单测现状（2026-10-19 实测）**：`testDebugUnitTest` 整体是红的，27 条失败集中在
+  `ExportTemplateTest` / `OnlinePromptBuilderAssemblyTest` / `StreamingUpdateManagerTest` /
+  `AIToolManagerTest` / `AIServiceStateTest` / `ColorResourceProviderTest` / `ResourceIntegrationTest`，
+  与本次 UI 改版无关（`ColorResourceProviderTest` 报 `NoSuchMethodError`，是测试代码比生产 API 旧）。
+  改版自己的用例是绿的：`HtmlSandboxTest` 17/17、`ComponentTypesTest` 6/6、
+  `ToolResultTextTest` 6/6、`ToolResultStoreTest` 3/3、`ResponsesPayloadBuilderTest` 1/1。
+  **别把整体红当成这次改坏了**；也别顺手修那 27 条（不在这个任务范围，且要先定"是测试旧了还是行为变了"）。
+  跑测试时别把输出接进 `tail`，Gradle 的失败会被管道吞掉（`exit=0` 假绿）。
 - 截图：`demo/screenshots/` 是设计基线，可作为实现对照。
 
 ---

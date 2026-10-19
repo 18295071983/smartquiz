@@ -564,6 +564,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             thinkingDivider = legacyDivider;
         }
 
+        // --- 工具活动行（v2 / demo .tool-line）---
+        // 位置紧跟思考行：demo 的一条 AI 消息就是 思考行 → 工具行 → 正文 → 操作 四段。
+        // 旧版没有这一行（工具信息散在 agentSummary 文本/汇总卡里），所以只在 v2 建树，
+        // 由 renderToolLine() 在绑定时接管 agentSummary 的显示。
+        View toolSection = null;
+        if (ChatUiFlags.isUiV2Enabled(ctx)) {
+            toolSection = LayoutInflater.from(ctx)
+                    .inflate(R.layout.view_chat_v2_tool_line, bubble, false);
+            toolSection.setVisibility(View.GONE);
+            bubble.addView(toolSection);
+        }
+
         // --- 推理进度 ---
         InferenceProgressView inferenceProgressView = new InferenceProgressView(ctx);
         inferenceProgressView.setVisibility(View.GONE);
@@ -739,6 +751,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         dynamicRoot.addView(root);
         AIMessageViewHolder holder = new AIMessageViewHolder(dynamicRoot);
+        holder.toolSection = toolSection;
         // 纯文本气泡的 WebView 渲染器：作为 contentHost 的第二子 View，默认 GONE，
         // 仅 webMarkdownEnabled 时接管正文（与 messageText 二选一）。随 holder 复用，
         // 存活上限由 Activity 侧 setMaxRecycledViews(VIEW_TYPE_AI, N) 兜底。
@@ -1245,9 +1258,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.agentStatus.setVisibility(View.GONE);
             }
         }
+        // v2（demo .tool-line）：工具活动行接管"跑了几个工具/多久/成没成"，
+        // 返回 false 表示旧版布局、或这条消息没有可汇总的工具调用。
+        boolean toolLineTookOver = renderToolLine(holder, message);
         if (holder.agentSummary != null) {
-            // 优先路径：结构化 AgentSummaryInfo → MetricCardView 组件（与模型信息条统一视觉）
-            if (message.agentSummaryInfo != null
+            if (toolLineTookOver) {
+                // 汇总文本与汇总卡片都要让位，否则同一组数字在气泡里出现两遍
+                holder.agentSummary.setVisibility(View.GONE);
+                clearAgentSummarySlot(holder);
+            } else if (message.agentSummaryInfo != null
                     && renderAgentSummaryMetricCard(holder, message)) {
                 holder.agentSummary.setVisibility(View.GONE);
             } else {
@@ -1692,6 +1711,162 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             sb.append(message.agentSummary);
         }
         return sb.toString();
+    }
+
+    /**
+     * v2（demo {@code .tool-line}）：把"调用工具 N 次 · 思考 N 轮 · 输入/输出 tokens · 缓存命中率"
+     * 那一坨汇总文本压成一条折叠行 ——「已运行 N 个工具 · 耗时 · 成败」，点开才是逐个工具的名称/参数摘要/状态。
+     *
+     * <p>数据不新造：计数与耗时/成败取自 {@code message.agentSummaryInfo}（与汇总卡同一个源），
+     * 明细取自 {@code message.components} 里 {@code type=tool_call} 的那些卡（生产方是
+     * {@code AIChatActivity} 的 onToolCallStart/完成回调，props 带 toolName/status/args/result）。
+     *
+     * @return true 表示这条行已接管汇总信息，调用方要跳过 agentSummary 文本与汇总卡片，
+     *         否则同一组数字会在气泡里出现两遍
+     */
+    private boolean renderToolLine(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder.toolSection == null) return false;
+        java.util.List<ComponentData> tools = collectToolComponents(message);
+        ChatMessage.AgentSummaryInfo summary = message.agentSummaryInfo;
+        int count = summary != null && summary.toolCallCount > 0 ? summary.toolCallCount : tools.size();
+        if (count <= 0) {
+            holder.toolSection.setVisibility(View.GONE);
+            holder.toolLineFp = null;
+            return false;
+        }
+        Context ctx = holder.toolSection.getContext();
+        holder.toolSection.setVisibility(View.VISIBLE);
+
+        TextView lineText = holder.toolSection.findViewById(R.id.chat_v2_tool_text);
+        TextView lineTime = holder.toolSection.findViewById(R.id.chat_v2_tool_time);
+        View lineOk = holder.toolSection.findViewById(R.id.chat_v2_tool_ok);
+        final LinearLayout body = holder.toolSection.findViewById(R.id.chat_v2_tool_body);
+        if (lineText != null) lineText.setText(ctx.getString(R.string.chat_v2_tools_ran, count));
+        if (lineTime != null) {
+            lineTime.setText(summary != null ? summary.getFormattedTime() : "");
+            lineTime.setVisibility(summary != null ? View.VISIBLE : View.GONE);
+        }
+        if (lineOk != null) lineOk.setVisibility(summary == null || summary.isSuccess
+                ? View.VISIBLE : View.GONE);
+        if (body == null) return true;
+
+        String fp = toolLineFingerprint(tools);
+        if (!fp.equals(holder.toolLineFp) || body.getChildCount() == 0) {
+            // 流式期间工具数每轮都在长，重建明细时保留用户已展开的状态
+            boolean wasExpanded = body.getVisibility() == View.VISIBLE;
+            body.removeAllViews();
+            LayoutInflater inflater = LayoutInflater.from(ctx);
+            int index = 0;
+            for (ComponentData tool : tools) {
+                body.addView(buildToolRow(inflater, body, tool, index++));
+            }
+            // 汇总计数比明细多（工具卡被合并/丢弃）时，补一行说明，避免"5 个工具但只列 3 行"
+            if (count > tools.size()) {
+                TextView more = new TextView(ctx);
+                more.setText(ctx.getString(R.string.chat_v2_tool_more, count - tools.size()));
+                more.setTextSize(11f);
+                more.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
+                more.setPadding(0, dpToPx(6, ctx), 0, dpToPx(2, ctx));
+                body.addView(more);
+            }
+            holder.toolLineFp = fp;
+            body.setVisibility(wasExpanded ? View.VISIBLE : View.GONE);
+        }
+
+        View line = holder.toolSection.findViewById(R.id.chat_v2_tool_line);
+        if (line != null) {
+            line.setOnClickListener(v -> {
+                boolean expand = body.getVisibility() != View.VISIBLE;
+                body.setVisibility(expand ? View.VISIBLE : View.GONE);
+                View chev = holder.toolSection.findViewById(R.id.chat_v2_tool_chev);
+                if (chev != null) {
+                    chev.animate().rotation(expand ? 90f : 0f).setDuration(180).start();
+                }
+            });
+        }
+        return true;
+    }
+
+    /** 取消息里的工具调用卡（type=tool_call），保持生产顺序；null 安全 */
+    private java.util.List<ComponentData> collectToolComponents(ChatMessage message) {
+        java.util.List<ComponentData> out = new java.util.ArrayList<>();
+        if (message == null || message.components == null) return out;
+        for (ComponentData c : message.components) {
+            if (c != null && "tool_call".equals(c.type)) out.add(c);
+        }
+        return out;
+    }
+
+    /** 明细行内容指纹：名称|状态|参数摘要序列，流式重绑时结构没变就不重建视图 */
+    private String toolLineFingerprint(java.util.List<ComponentData> tools) {
+        StringBuilder sb = new StringBuilder();
+        for (ComponentData tool : tools) {
+            org.json.JSONObject p = tool.props;
+            sb.append(p != null ? p.optString("toolCallId", "") : "").append('|')
+                    .append(p != null ? p.optString("toolName", "") : "").append('|')
+                    .append(p != null ? p.optString("status", "") : "").append(';');
+        }
+        return sb.toString();
+    }
+
+    /** 单条工具明细（demo {@code .tool-item}）：图标 + 中文名/参数摘要 + 状态 */
+    private View buildToolRow(LayoutInflater inflater, android.view.ViewGroup parent,
+                              ComponentData tool, int index) {
+        Context ctx = inflater.getContext();
+        View row = inflater.inflate(R.layout.item_chat_v2_tool_row, parent, false);
+        org.json.JSONObject p = tool.props;
+        String toolName = p != null ? p.optString("toolName", "") : "";
+        String status = p != null ? p.optString("status", "running") : "running";
+        String args = p != null ? p.optString("args", "") : "";
+        TextView name = row.findViewById(R.id.chat_v2_tool_row_name);
+        if (name != null) {
+            String label = ToolMetaRegistry.displayName(toolName);
+            name.setText(label.isEmpty() ? ctx.getString(R.string.chat_v2_tool_unknown) : label);
+        }
+        TextView desc = row.findViewById(R.id.chat_v2_tool_row_desc);
+        if (desc != null) {
+            String brief = oneLineBrief(args);
+            desc.setText(brief);
+            desc.setVisibility(brief.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+        TextView state = row.findViewById(R.id.chat_v2_tool_row_time);
+        if (state != null) {
+            state.setText(toolRowStatusText(ctx, status));
+            state.setTextColor(toolRowStatusColor(ctx, status));
+        }
+        View divider = row.findViewById(R.id.chat_v2_tool_row_divider);
+        if (divider != null) divider.setVisibility(index == 0 ? View.GONE : View.VISIBLE);
+        return row;
+    }
+
+    /** 参数摘要：压成一行、限长，避免把整段 JSON 摆进明细 */
+    private String oneLineBrief(String raw) {
+        if (raw == null) return "";
+        String s = raw.replaceAll("[\\r\\n\\t]+", " ").trim();
+        if (s.length() > 60) s = s.substring(0, 60) + "…";
+        return s;
+    }
+
+    /** 工具状态文案（demo 用耗时占位，本仓没有逐调用耗时，先给状态） */
+    private String toolRowStatusText(Context ctx, String status) {
+        if ("completed".equals(status) || "success".equals(status)) {
+            return ctx.getString(R.string.chat_v2_tool_done);
+        }
+        if ("failed".equals(status) || "error".equals(status)) {
+            return ctx.getString(R.string.chat_v2_tool_failed);
+        }
+        return ctx.getString(R.string.chat_v2_tool_running);
+    }
+
+    /** 单条工具明细的状态色（字符串状态来自 tool_call 卡 props，与枚举版的 toolStatusColor 不是一条通道） */
+    private int toolRowStatusColor(Context ctx, String status) {
+        if ("completed".equals(status) || "success".equals(status)) {
+            return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_success);
+        }
+        if ("failed".equals(status) || "error".equals(status)) {
+            return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_danger);
+        }
+        return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
     }
 
     /** 当前正在朗读的消息 id（由 Activity 通过 setSpeakingMessageId 设置）；null 表示未朗读 */
@@ -5236,6 +5411,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int roundRenderedChildren;
         /** Agent 汇总卡片组件挂载视图（MetricCardView 渲染结果）；null 表示走文本回退 */
         View agentSummarySlot;
+        /** v2 工具活动行（demo .tool-line 整块：行 + 折叠明细）；旧版布局下为 null */
+        View toolSection;
+        /** 工具行明细的内容指纹（工具名|状态|参数摘要序列）：流式重绑时结构没变就不重建 */
+        String toolLineFp;
         /** Agent 汇总卡片的指纹缓存，字段变化才重渲染 */
         String agentSummaryFp;
         /** Agent 执行面板指纹缓存（blocks 数 + 当前步 + tokens + status） */

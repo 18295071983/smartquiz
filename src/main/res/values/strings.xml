@@ -761,6 +761,11 @@
     <string name="chat_v2_tools_ran">已运行 %1$d 个工具</string>
     <string name="chat_v2_tool_desc">工具调用</string>
     <string name="chat_v2_tool_ok_desc">执行成功</string>
+    <string name="chat_v2_tool_running">执行中</string>
+    <string name="chat_v2_tool_done">已完成</string>
+    <string name="chat_v2_tool_failed">失败</string>
+    <string name="chat_v2_tool_unknown">未命名工具</string>
+    <string name="chat_v2_tool_more">另有 %1$d 次调用未列出明细</string>
     <!-- 工具结果卡（C0-T2/T4）：预览、全文弹层、AI 解读入口 -->
     <string name="tool_result_view_all">查看全部（%1$d 字）</string>
     <string name="tool_result_full_title">%1$s · 完整结果</string>
