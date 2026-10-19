@@ -2399,7 +2399,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 多轮串行时产物会夹在「上一轮工具卡」与「下一轮 running 工具卡」之间，使裸下标
         // comps.get(i) 从第一次跨轮 drain 起错位——把产物当工具卡渲染、真正的工具卡越界丢失、
         // 产物又在底部 others 通道重复一份。故此处先滤出纯 tool_call 子列表，三个循环一律按它索引；
-        // 产物仍归 bindComponents 的 others 通道（始终完整显示），不再参与轮次槽位。
+        // 产物仍按 PRODUCT-OWNER 内联到所属工具卡下方；显示档位由 ComponentDisplay 决定
+        // （2026-10-20 前才是"始终完整显示"），不再参与轮次槽位。
         java.util.List<ComponentData> toolComps = new java.util.ArrayList<>();
         if (comps != null) {
             for (ComponentData c : comps) {
@@ -2455,9 +2456,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         // 轮次结构指纹（2026-10-07 本地 Agent 闪烁修复）：
         // E/F=展开态 + K=思考块 + T=正文段 + C:type|props=工具卡片；不编码正文文本内容。
+        // D=展示默认档（2026-10-20 设置页）：换档时内容一个字没变，不编码进指纹就永远不会重建。
         // 流式期间轮次结构稳定时只增量刷新正文段，不 removeAllViews、不重建工具卡片。
         StringBuilder fp = new StringBuilder();
         fp.append(expanded ? 'E' : 'F');
+        fp.append('D').append(ComponentDisplay.name(ComponentDisplay.defaultTier(ctx)));
         int expect = 0;
         int thinkIdx = 0;
         int compIdx = 0;
@@ -3802,6 +3805,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 不重新赋值），此时引用不变、内容已变，早退会导致工具产出的 list_card/image_grid
         // 等卡片永远不显示（除非 holder 被回收后重新绑定）。改为按内容指纹判断。
         int fp = 17;
+        // 展示默认档也是缓存键的一部分（2026-10-20 设置页）：用户换档时组件内容一个字都没变，
+        // 不把档位算进来，重绑会走"缓存命中"早退，屏幕上的卡片仍是旧样子。
+        fp = fp * 31 + ComponentDisplay.name(ComponentDisplay.defaultTier(
+                holder.componentContainer.getContext())).hashCode();
         if (message.components != null) {
             for (ComponentData c : message.components) {
                 fp = fp * 31 + (c == null ? 0

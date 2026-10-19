@@ -174,6 +174,7 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnAttach;
     private MaterialButton btnVoice; // 语音输入按钮（点击弹出语音识别组件，录音→ASR→填入输入框）
     private MaterialButton btnAutoTts; // 全局自动语音合成开关按钮
+    private MaterialButton btnToolResultDisplay; // 工具结果卡片展示档位（整卡/摘要/不显示）入口
     private boolean autoTtsEnabled = false; // 自动语音合成是否开启（AI回复完成后自动朗读）
     private String lastAutoSpokenMessageId; // 已自动朗读的消息ID（防止重复朗读）
     private com.oilquiz.app.ai.speech.StreamingTtsSpeaker streamingTtsSpeaker; // 流式按句朗读器（边生成边朗读）
@@ -496,6 +497,7 @@ public class AIChatActivity extends BaseActivity {
             btnAttach = findViewById(R.id.btn_attach);
             btnVoice = findViewById(R.id.btn_voice);
             btnAutoTts = findViewById(R.id.btn_auto_tts);
+            btnToolResultDisplay = findViewById(R.id.btn_tool_result_display);
             btnCloseHistory = findViewById(R.id.btn_close_history);
             btnNewConversation = findViewById(R.id.btn_new_conversation);
             btnClearAllHistory = findViewById(R.id.btn_clear_all_history);
@@ -1703,6 +1705,23 @@ public class AIChatActivity extends BaseActivity {
         if (btnAutoTts != null) {
             updateAutoTtsButtonUI();
             btnAutoTts.setOnClickListener(v -> toggleAutoTts());
+        }
+        // 工具结果卡片的展示档位：文案/弹窗/写 pref 都在 ToolResultDisplaySetting，这里只接按钮。
+        // 换档后必须重绑列表——档位是绑定时按 pref 现算的，不重绑则已渲染的消息仍是旧样子。
+        if (btnToolResultDisplay != null) {
+            btnToolResultDisplay.setText(com.oilquiz.app.ai.chat.ui
+                    .ToolResultDisplaySetting.buttonLabel(this));
+            btnToolResultDisplay.setOnClickListener(v ->
+                    com.oilquiz.app.ai.chat.ui.ToolResultDisplaySetting.showPicker(this, () -> {
+                        btnToolResultDisplay.setText(com.oilquiz.app.ai.chat.ui
+                                .ToolResultDisplaySetting.buttonLabel(this));
+                        if (chatAdapter != null) {
+                            // 用 notifyItemRangeChanged 而不是 notifyDataSetChanged：
+                            // ChatAdapter 开了 setHasStableIds(true)，整批 notify 会让
+                            // RecyclerView 把位置没变的项当"没变化"跳过重绑，屏幕上的卡片仍是旧档位。
+                            chatAdapter.notifyItemRangeChanged(0, chatAdapter.getItemCount());
+                        }
+                    }));
         }
         updateVoiceButtonAvailability();
 

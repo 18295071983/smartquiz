@@ -309,6 +309,21 @@
                 android:minWidth="@dimen/min_0"/>
         </LinearLayout>
 
+        <!-- 工具结果显示档位（ComponentDisplay 默认档：整卡展开/摘要一行/不显示卡片） -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_tool_result_display"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_40"
+            android:layout_marginTop="@dimen/space_8"
+            android:text="🖼️ 摘要一行"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorOnSecondaryContainer"
+            app:backgroundTint="?attr/colorSecondaryContainer"
+            app:cornerRadius="@dimen/radius_12"
+            android:textAllCaps="false"
+            android:paddingHorizontal="8dp"
+            android:minWidth="@dimen/min_0"/>
+
         <!-- 系统日志（统一日志中心：AppLogger + AILogger + 崩溃报告 + 操作记录） -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_log_viewer"
