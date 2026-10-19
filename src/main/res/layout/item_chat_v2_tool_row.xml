@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2：工具明细单行（demo .tool-item）：图标 + 名称/参数摘要 + 耗时。
+     由 view_chat_v2_tool_line 的 body 在 A1 接线时逐条 inflate；
+     首行的分隔线由代码置 GONE（demo 的 :first-child 去边框口径）。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <View
+        android:id="@+id/chat_v2_tool_row_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/chat_v2_border"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/size_40"
+        android:orientation="horizontal"
+        android:paddingTop="@dimen/chat_v2_line_pad"
+        android:paddingBottom="@dimen/chat_v2_line_pad">
+
+        <ImageView
+            android:id="@+id/chat_v2_tool_row_icon"
+            android:layout_width="@dimen/chat_v2_line_icon"
+            android:layout_height="@dimen/chat_v2_line_icon"
+            android:contentDescription="@string/chat_v2_tool_desc"
+            android:src="@drawable/ic_ai_tool"
+            app:tint="@color/chat_v2_text_3"/>
+
+        <LinearLayout
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/chat_v2_line_pad"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/chat_v2_tool_row_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:textColor="@color/chat_v2_text"
+                android:textSize="@dimen/chat_v2_think_text"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/chat_v2_tool_row_desc"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:textColor="@color/chat_v2_text_3"
+                android:textSize="@dimen/chat_v2_status_text"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/chat_v2_tool_row_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/chat_v2_line_pad"
+            android:textColor="@color/chat_v2_text_3"
+            android:textSize="@dimen/chat_v2_status_text"/>
+    </LinearLayout>
+</LinearLayout>

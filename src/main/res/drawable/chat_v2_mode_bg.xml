@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2：输入区模式 chip 背景（demo .mode / .mode.on）。
+     用 selected 态而不是 checked 态：现有 chip_deep_think 等是 Chip，
+     选中由代码 setSelected/setChecked 驱动，selected 态两者都能命中。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/chat_v2_mode_on" android:state_selected="true"/>
+    <item android:drawable="@drawable/chat_v2_mode_on" android:state_checked="true"/>
+    <item android:drawable="@drawable/chat_v2_mode_off"/>
+</selector>

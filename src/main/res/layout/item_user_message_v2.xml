@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 用户消息 v2（demo .row.user .bubble）：渐变气泡、右下小圆角、下方一行极淡的时间/状态。
+     控件 id 与 item_user_message.xml 完全一致，ChatAdapter 只需按开关换 inflate 的布局文件。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="@dimen/space_4"
+    android:paddingVertical="@dimen/space_5">
+
+    <TextView
+        android:id="@+id/block_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginBottom="@dimen/space_2"
+        android:textColor="@color/chat_v2_text_3"
+        android:textSize="@dimen/chat_v2_status_text"
+        android:visibility="gone"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/size_48"
+            android:gravity="end"
+            android:orientation="vertical">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/attachments_recycler"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginBottom="@dimen/space_3"
+                android:clipToPadding="false"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/message_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:background="@drawable/chat_v2_bubble_user"
+                android:lineSpacingMultiplier="1.55"
+                android:paddingHorizontal="@dimen/chat_v2_bubble_padding"
+                android:paddingVertical="@dimen/space_10"
+                android:textColor="@color/chat_v2_on_brand"
+                android:textIsSelectable="true"
+                android:textSize="@dimen/chat_v2_bubble_text"/>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginTop="@dimen/space_2"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/status_icon"
+                    android:layout_width="@dimen/size_13"
+                    android:layout_height="@dimen/size_13"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/status_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/chat_v2_text_3"
+                    android:textSize="@dimen/chat_v2_status_text"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/timestamp_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_4"
+                    android:textColor="@color/chat_v2_text_3"
+                    android:textSize="@dimen/chat_v2_status_text"/>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

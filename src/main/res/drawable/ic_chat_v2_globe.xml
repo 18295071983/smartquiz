@@ -1,0 +1,11 @@
+<!-- 聊天页 v2：联网模式（demo 的 i-globe，地球）。口径同 ic_file。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorControlNormal">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12C2,17.52 6.48,22 12,22C17.52,22 22,17.52 22,12C22,6.48 17.52,2 12,2ZM11,19.93C7.05,19.44 4,16.08 4,12C4,11.38 4.08,10.79 4.21,10.21L9,15V16C9,17.1 9.9,18 11,18V19.93ZM17.9,17.39C17.64,16.58 16.9,16 16,16H15V13C15,12.45 14.55,12 14,12H8V10H10C10.55,10 11,9.55 11,9V7.72C13.89,8.49 16,11.13 16,14.25C16,15.42 15.7,16.52 15.17,17.49C15.42,17.65 15.7,17.75 16,17.75C16.74,17.75 17.39,17.35 17.9,17.39Z"/>
+</vector>

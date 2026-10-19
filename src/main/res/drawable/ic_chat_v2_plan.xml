@@ -1,0 +1,15 @@
+<!-- 聊天页 v2：复习计划场景（demo 的 i-plan，日历）。
+     首页的 ic_home_plan 是带渐变底块的 56dp 图标，不能当线性图标用，所以单独出一枚。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorControlNormal">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M19,4H18V2H16V4H8V2H6V4H5C3.89,4 3.01,4.9 3.01,6L3,20C3,21.1 3.89,22 5,22H19C20.1,22 21,21.1 21,20V6C21,4.9 20.1,4 19,4ZM19,20H5V10H19V20ZM19,8H5V6H19V8Z"/>
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M7,12H12V17H7Z"/>
+</vector>

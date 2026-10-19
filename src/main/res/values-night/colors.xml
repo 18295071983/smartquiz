@@ -285,6 +285,27 @@
     <color name="component_rating_empty">#3D3457</color>
     <color name="component_image_placeholder">#2B2342</color>
     <color name="component_image_error">#7F1D1D</color>
+
+    <!-- 聊天页 v2 设计 token（深色档），对应 demo [data-theme="dark"] -->
+    <color name="chat_v2_bg">#0E0C16</color>
+    <color name="chat_v2_surface">#181522</color>
+    <color name="chat_v2_surface_2">#221D31</color>
+    <color name="chat_v2_surface_3">#2C2540</color>
+    <color name="chat_v2_border">#2E2740</color>
+    <color name="chat_v2_border_strong">#413956</color>
+    <color name="chat_v2_text">#F3F1FA</color>
+    <color name="chat_v2_text_2">#A9A3BE</color>
+    <color name="chat_v2_text_3">#7E7893</color>
+    <color name="chat_v2_brand">#A78BFA</color>
+    <color name="chat_v2_brand_2">#C4B5FD</color>
+    <color name="chat_v2_brand_soft">#2A2340</color>
+    <color name="chat_v2_brand_ink">#DDD6FE</color>
+    <color name="chat_v2_success">#34D399</color>
+    <color name="chat_v2_danger">#F87171</color>
+    <color name="chat_v2_warn">#FBBF24</color>
+    <color name="chat_v2_user_1">#8B6DFF</color>
+    <color name="chat_v2_user_2">#5B3ED6</color>
+    <color name="chat_v2_on_brand">#FFFFFF</color>
     <color name="chart_1">#C4B5FD</color>
     <color name="chart_2">#67E8F9</color>
     <color name="chart_3">#6EE7B7</color>

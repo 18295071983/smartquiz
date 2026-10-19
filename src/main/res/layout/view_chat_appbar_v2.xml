@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2 顶栏（demo/ai-chat-redesign.html 的 header.appbar）：
+     历史抽屉 / 会话标题 + 模型副标题（整块可点，开模型面板）/ 新建 / 更多。
+     由 ChatUiV2Chrome 在开关 chat_ui_v2 打开时插入聊天页；
+     旧的状态胶囊条、返回键那一段仍保留在 activity_ai_chat 里但被隐藏，便于关开关回退。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/chat_v2_appbar"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/chat_v2_appbar_height"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="@dimen/chat_v2_composer_pad"
+    android:paddingEnd="@dimen/space_6">
+
+    <ImageView
+        android:id="@+id/chat_v2_btn_history"
+        android:layout_width="@dimen/chat_v2_icon_button"
+        android:layout_height="@dimen/chat_v2_icon_button"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/chat_v2_history_desc"
+        android:padding="@dimen/chat_v2_icon_button_pad"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_menu_hamburger"
+        app:tint="@color/chat_v2_text_2"/>
+
+    <!-- 标题 + 副标题：整块点击打开模型面板（demo 的 .title-btn） -->
+    <LinearLayout
+        android:id="@+id/chat_v2_btn_model"
+        android:layout_width="@dimen/size_0"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:paddingStart="@dimen/space_6"
+        android:paddingEnd="@dimen/space_6">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/chat_v2_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxWidth="@dimen/chat_v2_title_max_width"
+                android:singleLine="true"
+                android:text="@string/chat_v2_title"
+                android:textColor="@color/chat_v2_text"
+                android:textSize="@dimen/chat_v2_title_text"
+                android:textStyle="bold"/>
+
+            <ImageView
+                android:id="@+id/chat_v2_title_chev"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginStart="@dimen/space_2"
+                android:contentDescription="@string/chat_v2_switch_model"
+                android:src="@drawable/ic_chevron_down"
+                app:tint="@color/chat_v2_text_3"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <View
+                android:id="@+id/chat_v2_status_dot"
+                android:layout_width="@dimen/chat_v2_dot"
+                android:layout_height="@dimen/chat_v2_dot"
+                android:background="@drawable/chat_v2_dot_brand"/>
+
+            <TextView
+                android:id="@+id/chat_v2_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_6"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text="@string/chat_v2_no_data"
+                android:textColor="@color/chat_v2_text_3"
+                android:textSize="@dimen/chat_v2_subline_text"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/chat_v2_btn_new"
+        android:layout_width="@dimen/chat_v2_icon_button"
+        android:layout_height="@dimen/chat_v2_icon_button"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/chat_v2_new_desc"
+        android:padding="@dimen/chat_v2_icon_button_pad"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_add"
+        app:tint="@color/chat_v2_text_2"/>
+
+    <ImageView
+        android:id="@+id/chat_v2_btn_more"
+        android:layout_width="@dimen/chat_v2_icon_button"
+        android:layout_height="@dimen/chat_v2_icon_button"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/chat_v2_more_desc"
+        android:padding="@dimen/space_10"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_more_vert"
+        app:tint="@color/chat_v2_text_2"/>
+</LinearLayout>

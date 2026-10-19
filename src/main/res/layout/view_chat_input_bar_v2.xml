@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天输入栏 v2（demo/ai-chat-redesign.html 的 .composer .shell）：
+     一颗胶囊装下 附件 / 输入 / 语音 / 发送·停止。
+     控件 id 与 view_chat_input_bar.xml 完全一致，ChatInputBar 按开关选本文件，
+     宿主逻辑（getter / findViewById / 监听器）不需要改。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="@dimen/chat_v2_composer_pad"
+    android:paddingTop="@dimen/space_6"
+    android:paddingBottom="@dimen/space_6">
+
+    <!-- 生成中提示（demo .gen）：一颗脉冲点 + 「正在生成 · Ns」，
+         取代旧版在气泡上方单独占一行的大段状态文案；显隐由 ChatInputManager.setGenerating 驱动 -->
+    <LinearLayout
+        android:id="@+id/chat_v2_gen_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/space_4"
+        android:paddingBottom="@dimen/space_6"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/chat_v2_gen_dot"
+            android:layout_width="@dimen/chat_v2_dot"
+            android:layout_height="@dimen/chat_v2_dot"
+            android:background="@drawable/chat_v2_dot_brand"/>
+
+        <TextView
+            android:id="@+id/chat_v2_gen_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/chat_v2_line_gap"
+            android:text="@string/chat_v2_generating"
+            android:textColor="@color/chat_v2_text_3"
+            android:textSize="@dimen/chat_v2_status_text"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="@dimen/chat_v2_composer_min_height"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/chat_v2_composer_shell"
+        android:padding="5dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_attach"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="@dimen/chat_v2_icon_button"
+            android:layout_height="@dimen/chat_v2_icon_button"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/chat_attach_desc"
+            app:backgroundTint="@android:color/transparent"
+            app:cornerRadius="20dp"
+            app:icon="@drawable/ic_add"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="20dp"
+            app:iconTint="@color/chat_v2_text_2"/>
+
+        <EditText
+            android:id="@+id/input_message"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:hint="@string/chat_input_hint"
+            android:inputType="textMultiLine"
+            android:maxLines="5"
+            android:minHeight="24dp"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="10dp"
+            android:textColor="@color/chat_v2_text"
+            android:textColorHint="@color/chat_v2_text_3"
+            android:textSize="@dimen/chat_v2_bubble_text"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_voice"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="@dimen/chat_v2_icon_button"
+            android:layout_height="@dimen/chat_v2_icon_button"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/chat_voice_desc"
+            app:backgroundTint="@android:color/transparent"
+            app:cornerRadius="20dp"
+            app:icon="@drawable/ic_mic"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="20dp"
+            app:iconTint="@color/chat_v2_text_2"/>
+
+        <!-- 发送：品牌色圆钮（demo 是 brand-2→brand 渐变，MaterialButton 的
+             backgroundTint 只能纯色，渐变留给后续换 ImageView 时做） -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_send"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="@dimen/chat_v2_send_size"
+            android:layout_height="@dimen/chat_v2_send_size"
+            android:layout_marginStart="2dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/chat_send_desc"
+            app:backgroundTint="@color/chat_v2_brand"
+            app:cornerRadius="19dp"
+            app:icon="@drawable/ic_send_message"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="18dp"
+            app:iconTint="@color/chat_v2_on_brand"/>
+
+        <!-- 停止生成：与发送同位切换（ChatInputBar 已有显隐逻辑） -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_stop_generation"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="@dimen/chat_v2_send_size"
+            android:layout_height="@dimen/chat_v2_send_size"
+            android:layout_marginStart="2dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:contentDescription="@string/chat_stop_generating"
+            android:visibility="gone"
+            app:backgroundTint="@color/chat_v2_brand"
+            app:cornerRadius="19dp"
+            app:icon="@drawable/ic_stop"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="16dp"
+            app:iconTint="@color/chat_v2_on_brand"/>
+    </LinearLayout>
+</LinearLayout>

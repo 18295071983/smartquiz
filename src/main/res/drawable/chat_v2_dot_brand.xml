@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2：状态点（demo .dot / .pulse），6dp 品牌色实心圆 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/chat_v2_brand"/>
+    <size android:width="@dimen/chat_v2_dot" android:height="@dimen/chat_v2_dot"/>
+</shape>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2：思考活动行 + 折叠正文（demo .think-line / .think-body）。
+     行高 32dp、无底色（hover 才给 surface-2），正文用左侧 2dp 竖线标记"这是模型的内心过程"。
+     A1 接线时由消息 Binder inflate 到 AI 消息根布局，折叠由代码切 visibility/rotation。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/chat_v2_think_line"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/chat_v2_think_height"
+        android:background="@drawable/chat_v2_think_pill"
+        android:foreground="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/space_2"
+        android:paddingEnd="@dimen/space_8">
+
+        <ImageView
+            android:layout_width="@dimen/size_14"
+            android:layout_height="@dimen/size_14"
+            android:layout_marginStart="@dimen/chat_v2_line_gap"
+            android:contentDescription="@string/chat_v2_phase"
+            android:src="@drawable/ic_chat_v2_sparkle"
+            app:tint="@color/chat_v2_brand"/>
+
+        <TextView
+            android:id="@+id/chat_v2_think_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/chat_v2_line_gap"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="@color/chat_v2_text_2"
+            android:textSize="@dimen/chat_v2_think_text"/>
+
+        <ImageView
+            android:id="@+id/chat_v2_think_chev"
+            android:layout_width="@dimen/size_13"
+            android:layout_height="@dimen/size_13"
+            android:layout_marginStart="@dimen/space_2"
+            android:alpha="0.55"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_chevron_right"
+            app:tint="@color/chat_v2_text_3"/>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/chat_v2_think_body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="@dimen/space_4"
+        android:layout_marginBottom="@dimen/space_8"
+        android:background="@drawable/chat_v2_think_body_bar"
+        android:lineSpacingMultiplier="1.7"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_2"
+        android:textColor="@color/chat_v2_text_2"
+        android:textSize="@dimen/chat_v2_scene_text"
+        android:visibility="gone"/>
+</LinearLayout>

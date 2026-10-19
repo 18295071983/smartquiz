@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2：场景卡左上角的图标底（demo .sg .ic：30dp 圆角 10，brand-soft） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/chat_v2_brand_soft"/>
+    <corners android:radius="10dp"/>
+</shape>

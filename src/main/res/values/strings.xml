@@ -716,10 +716,50 @@
     <string name="chat_v2_kv">KV 缓存</string>
     <string name="chat_v2_balance">账户余额</string>
     <string name="chat_v2_log">运行日志</string>
+    <string name="chat_v2_tools">工具中心</string>
     <string name="chat_v2_console">智能体控制台</string>
     <string name="chat_v2_ui_switch">启用新版界面</string>
     <string name="chat_v2_restart_hint">重进聊天页后生效</string>
     <string name="chat_v2_no_data">暂无数据</string>
+    <!-- 聊天页 v2 输入胶囊（demo .composer）：旧布局里这些文案是硬编码的，v2 走资源 -->
+    <string name="chat_input_hint">输入消息…</string>
+    <string name="chat_attach_desc">添加附件</string>
+    <string name="chat_voice_desc">语音输入</string>
+    <string name="chat_send_desc">发送</string>
+    <string name="chat_v2_generating">正在生成</string>
+    <!-- 聊天页 v2 顶栏（demo .appbar） -->
+    <string name="chat_v2_history_desc">对话历史</string>
+    <string name="chat_v2_switch_model">切换模型</string>
+    <string name="chat_v2_online">在线</string>
+    <!-- 聊天页 v2 空状态（demo .empty）：问候语 + 四个场景卡 + 最近 -->
+    <string name="chat_v2_greet_am">早上好，</string>
+    <string name="chat_v2_greet_pm">下午好，</string>
+    <string name="chat_v2_greet_eve">晚上好，</string>
+    <string name="chat_v2_greet_title">今天想学点什么？</string>
+    <string name="chat_v2_greet_sub">我可以出题、讲题、总结资料，也能帮你排复习计划。选一个场景，或者直接说。</string>
+    <string name="chat_v2_scene_quiz">出题练习</string>
+    <string name="chat_v2_scene_quiz_sub">按错题生成相似题</string>
+    <string name="chat_v2_scene_explain">错题讲解</string>
+    <string name="chat_v2_scene_explain_sub">一步步讲清思路</string>
+    <string name="chat_v2_scene_summary">资料总结</string>
+    <string name="chat_v2_scene_summary_sub">长文档变提纲</string>
+    <string name="chat_v2_scene_plan">复习计划</string>
+    <string name="chat_v2_scene_plan_sub">按考试日期安排</string>
+    <string name="chat_v2_recent">最近</string>
+    <!-- 场景卡填进输入框的示例提示词（demo data-fill） -->
+    <string name="chat_v2_prompt_quiz">根据我的错题生成 5 道相似题</string>
+    <string name="chat_v2_prompt_explain">把这道错题一步步讲清楚</string>
+    <string name="chat_v2_prompt_summary">总结这份资料的核心考点</string>
+    <string name="chat_v2_prompt_plan">按考试日期帮我排一个复习计划</string>
+    <string name="chat_v2_untitled">新对话</string>
+    <string name="chat_v2_yesterday">昨天</string>
+    <!-- 作为 SimpleDateFormat 的 pattern 使用，不是展示文案 -->
+    <string name="chat_v2_date_format" translatable="false">M月d日</string>
+    <!-- 聊天页 v2 消息活动行（demo .think-line / .tool-line） -->
+    <string name="chat_v2_thought_for">已深度思考 %1$s</string>
+    <string name="chat_v2_tools_ran">已运行 %1$d 个工具</string>
+    <string name="chat_v2_tool_desc">工具调用</string>
+    <string name="chat_v2_tool_ok_desc">执行成功</string>
     <!-- 工具结果卡（C0-T2/T4）：预览、全文弹层、AI 解读入口 -->
     <string name="tool_result_view_all">查看全部（%1$d 字）</string>
     <string name="tool_result_full_title">%1$s · 完整结果</string>

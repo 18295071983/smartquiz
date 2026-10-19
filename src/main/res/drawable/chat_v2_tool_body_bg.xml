@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2：工具明细折叠容器底（demo .tool-body：圆角只给下方 12dp，与 .tool-line 拼成一张卡） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/chat_v2_surface"/>
+    <stroke android:width="1dp" android:color="@color/chat_v2_border"/>
+    <corners
+        android:topLeftRadius="0dp"
+        android:topRightRadius="0dp"
+        android:bottomLeftRadius="@dimen/chat_v2_tool_radius"
+        android:bottomRightRadius="@dimen/chat_v2_tool_radius"/>
+</shape>

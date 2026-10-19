@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2：思考正文左侧竖线（demo .think-body 的 border-left:2px border-strong）。
+     layer-list 的 item width 需要 API 23+，本项目 minSdk 30 可直接用。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="2dp" android:gravity="start">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/chat_v2_border_strong"/>
+        </shape>
+    </item>
+</layer-list>

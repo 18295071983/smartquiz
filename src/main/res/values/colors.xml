@@ -323,6 +323,28 @@
     <!-- 卡片内浮层（如 HTML 卡片的"← 返回"浮标）：压在任意网页内容上都得可读 -->
     <color name="card_scrim">#99000000</color>
     <color name="card_scrim_text">#FFFFFFFF</color>
+
+    <!-- 聊天页 v2 设计 token（浅色档），口径来自 demo/ai-chat-redesign.html :root
+         仅 v2 布局使用；不改全局主题，默认主题是否换成这套由 §9-1 决定 -->
+    <color name="chat_v2_bg">#F7F6FB</color>
+    <color name="chat_v2_surface">#FFFFFF</color>
+    <color name="chat_v2_surface_2">#F1EEF9</color>
+    <color name="chat_v2_surface_3">#E8E3F5</color>
+    <color name="chat_v2_border">#E8E3F3</color>
+    <color name="chat_v2_border_strong">#D5CEE9</color>
+    <color name="chat_v2_text">#1B1830</color>
+    <color name="chat_v2_text_2">#6B6780</color>
+    <color name="chat_v2_text_3">#9A96AC</color>
+    <color name="chat_v2_brand">#6D4AF0</color>
+    <color name="chat_v2_brand_2">#8B6DFF</color>
+    <color name="chat_v2_brand_soft">#EFEAFF</color>
+    <color name="chat_v2_brand_ink">#4B2BD0</color>
+    <color name="chat_v2_success">#0FA575</color>
+    <color name="chat_v2_danger">#E5484D</color>
+    <color name="chat_v2_warn">#D97706</color>
+    <color name="chat_v2_user_1">#8B6DFF</color>
+    <color name="chat_v2_user_2">#6A46EE</color>
+    <color name="chat_v2_on_brand">#FFFFFF</color>
     <!-- 图表系列色（与主题色板一致：主紫/青/绿/琥珀/红/蓝/粉/石板灰） -->
     <color name="chart_1">#8B5CF6</color>
     <color name="chart_2">#06B6D4</color>

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2：工具活动行 + 折叠明细（demo .tool-line / .tool-body）。
+     一行只讲"跑了几个工具、多久、成没成"，明细点开才逐条列出。
+     A1 接线时由消息 Binder inflate；时间/状态位由代码切文案与可见性。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="@dimen/space_2"
+    android:layout_marginBottom="@dimen/chat_v2_block_gap"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/chat_v2_tool_line"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/chat_v2_tool_height"
+        android:background="@drawable/chat_v2_tool_line_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/chat_v2_line_pad"
+        android:paddingEnd="@dimen/chat_v2_line_pad">
+
+        <ImageView
+            android:id="@+id/chat_v2_tool_icon"
+            android:layout_width="@dimen/size_14"
+            android:layout_height="@dimen/size_14"
+            android:contentDescription="@string/chat_v2_tool_desc"
+            android:src="@drawable/ic_ai_tool"
+            app:tint="@color/chat_v2_brand"/>
+
+        <TextView
+            android:id="@+id/chat_v2_tool_text"
+            android:layout_width="@dimen/size_0"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/chat_v2_line_gap"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="@color/chat_v2_text_2"
+            android:textSize="@dimen/chat_v2_think_text"/>
+
+        <TextView
+            android:id="@+id/chat_v2_tool_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_6"
+            android:textColor="@color/chat_v2_text_3"
+            android:textSize="@dimen/chat_v2_status_text"/>
+
+        <ImageView
+            android:id="@+id/chat_v2_tool_ok"
+            android:layout_width="@dimen/size_13"
+            android:layout_height="@dimen/size_13"
+            android:layout_marginStart="@dimen/chat_v2_line_gap"
+            android:contentDescription="@string/chat_v2_tool_ok_desc"
+            android:src="@drawable/ic_check"
+            app:tint="@color/chat_v2_success"/>
+
+        <ImageView
+            android:id="@+id/chat_v2_tool_chev"
+            android:layout_width="@dimen/size_13"
+            android:layout_height="@dimen/size_13"
+            android:layout_marginStart="@dimen/chat_v2_line_gap"
+            android:alpha="0.55"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_chevron_right"
+            app:tint="@color/chat_v2_text_3"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/chat_v2_tool_body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/chat_v2_tool_body_bg"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/chat_v2_line_pad"
+        android:paddingEnd="@dimen/chat_v2_line_pad"
+        android:visibility="gone"/>
+</LinearLayout>

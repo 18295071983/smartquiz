@@ -146,4 +146,45 @@
     <dimen name="card_shell_action_text">12sp</dimen>
     <dimen name="card_shell_action_min_height">32dp</dimen>
     <dimen name="card_shell_body_max_height">360dp</dimen>
+
+    <!-- 聊天页 v2 尺寸 token（demo/ai-chat-redesign.html） -->
+    <dimen name="chat_v2_appbar_height">56dp</dimen>
+    <dimen name="chat_v2_thread_padding">18dp</dimen>
+    <dimen name="chat_v2_icon_button">40dp</dimen>
+    <dimen name="chat_v2_title_text">14.5sp</dimen>
+    <dimen name="chat_v2_subline_text">11sp</dimen>
+    <dimen name="chat_v2_bubble_radius">20dp</dimen>
+    <dimen name="chat_v2_bubble_padding">14dp</dimen>
+    <dimen name="chat_v2_bubble_text">14.5sp</dimen>
+    <dimen name="chat_v2_ai_text">15sp</dimen>
+    <dimen name="chat_v2_think_height">32dp</dimen>
+    <dimen name="chat_v2_think_text">12.5sp</dimen>
+    <dimen name="chat_v2_tool_height">38dp</dimen>
+    <dimen name="chat_v2_tool_radius">12dp</dimen>
+    <dimen name="chat_v2_composer_radius">26dp</dimen>
+    <dimen name="chat_v2_composer_min_height">52dp</dimen>
+    <dimen name="chat_v2_send_size">38dp</dimen>
+    <dimen name="chat_v2_mode_height">28dp</dimen>
+    <dimen name="chat_v2_scene_radius">14dp</dimen>
+    <dimen name="chat_v2_scene_padding">13dp</dimen>
+    <dimen name="chat_v2_scene_icon">30dp</dimen>
+    <dimen name="chat_v2_scene_text">13sp</dimen>
+    <dimen name="chat_v2_scene_sub_text">11.5sp</dimen>
+    <dimen name="chat_v2_greet_text">26sp</dimen>
+    <dimen name="chat_v2_greet_sub_text">13.5sp</dimen>
+    <dimen name="chat_v2_recent_text">13sp</dimen>
+    <dimen name="chat_v2_dot">6dp</dimen>
+    <dimen name="chat_v2_line_icon">15dp</dimen>
+    <dimen name="chat_v2_composer_icon">20dp</dimen>
+    <dimen name="chat_v2_composer_pad">14dp</dimen>
+    <dimen name="chat_v2_status_text">11sp</dimen>
+    <!-- 通用 space_/size_ 阶梯里没有这几档，且只服务 v2，所以挂在 v2 命名下而不是补阶梯 -->
+    <dimen name="chat_v2_icon_button_pad">9dp</dimen>
+    <dimen name="chat_v2_scene_icon_pad">7dp</dimen>
+    <dimen name="chat_v2_empty_h_pad">22dp</dimen>
+    <dimen name="chat_v2_recent_margin_top">26dp</dimen>
+    <dimen name="chat_v2_title_max_width">180dp</dimen>
+    <dimen name="chat_v2_block_gap">10dp</dimen>
+    <dimen name="chat_v2_line_gap">7dp</dimen>
+    <dimen name="chat_v2_line_pad">10dp</dimen>
 </resources>

@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 聊天页 v2 空状态（demo/ai-chat-redesign.html 的 section.empty）：
+     问候语 + 四个场景卡（2×2）+ 最近会话。左对齐、可滚动，替代旧版居中的 🤖 大图标 + 三个示例 chip。
+     开关 chat_ui_v2 打开时由 AIChatActivity 把 emptyStateView 指向本布局，
+     旧 empty_state_view 整块隐藏，关开关即回退。
+     场景卡点击 = 填入示例问题并发送，复用 chip_empty_exampleN 的既有行为口径。 -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/empty_state_v2_view"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/chat_v2_bg"
+    android:paddingStart="@dimen/chat_v2_empty_h_pad"
+    android:paddingEnd="@dimen/chat_v2_empty_h_pad"
+    android:paddingTop="@dimen/space_16"
+    android:paddingBottom="@dimen/space_8"
+    android:scrollbars="none"
+    android:visibility="gone">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/chat_v2_greet_hello"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_18"
+            android:text="@string/chat_v2_greet_pm"
+            android:textColor="@color/chat_v2_text"
+            android:textSize="@dimen/chat_v2_greet_text"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/chat_v2_greet_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/chat_v2_greet_title"
+            android:textColor="@color/chat_v2_text"
+            android:textSize="@dimen/chat_v2_greet_text"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/chat_v2_greet_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_8"
+            android:layout_marginBottom="@dimen/space_24"
+            android:lineSpacingMultiplier="1.6"
+            android:maxWidth="@dimen/size_300"
+            android:text="@string/chat_v2_greet_sub"
+            android:textColor="@color/chat_v2_text_2"
+            android:textSize="@dimen/chat_v2_greet_sub_text"/>
+
+        <!-- 场景卡：demo 的 .sugg 是 2 列网格，这里用两行 LinearLayout 等价实现，
+             避免为四个静态卡片引入 GridLayout 依赖 -->
+        <LinearLayout
+            android:id="@+id/chat_v2_scene_row_1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/chat_v2_scene_quiz"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/space_5"
+                android:background="@drawable/chat_v2_scene_card_bg"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:orientation="vertical"
+                android:padding="@dimen/chat_v2_scene_padding">
+
+                <ImageView
+                    android:layout_width="@dimen/chat_v2_scene_icon"
+                    android:layout_height="@dimen/chat_v2_scene_icon"
+                    android:layout_marginBottom="@dimen/space_10"
+                    android:background="@drawable/chat_v2_scene_icon_bg"
+                    android:contentDescription="@string/chat_v2_scene_quiz"
+                    android:padding="@dimen/chat_v2_scene_icon_pad"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_quiz"
+                    app:tint="@color/chat_v2_brand_ink"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/space_3"
+                    android:text="@string/chat_v2_scene_quiz"
+                    android:textColor="@color/chat_v2_text"
+                    android:textSize="@dimen/chat_v2_scene_text"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_v2_scene_quiz_sub"
+                    android:textColor="@color/chat_v2_text_3"
+                    android:textSize="@dimen/chat_v2_scene_sub_text"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/chat_v2_scene_explain"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/space_5"
+                android:background="@drawable/chat_v2_scene_card_bg"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:orientation="vertical"
+                android:padding="@dimen/chat_v2_scene_padding">
+
+                <ImageView
+                    android:layout_width="@dimen/chat_v2_scene_icon"
+                    android:layout_height="@dimen/chat_v2_scene_icon"
+                    android:layout_marginBottom="@dimen/space_10"
+                    android:background="@drawable/chat_v2_scene_icon_bg"
+                    android:contentDescription="@string/chat_v2_scene_explain"
+                    android:padding="@dimen/chat_v2_scene_icon_pad"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_chat_v2_bulb"
+                    app:tint="@color/chat_v2_brand_ink"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/space_3"
+                    android:text="@string/chat_v2_scene_explain"
+                    android:textColor="@color/chat_v2_text"
+                    android:textSize="@dimen/chat_v2_scene_text"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_v2_scene_explain_sub"
+                    android:textColor="@color/chat_v2_text_3"
+                    android:textSize="@dimen/chat_v2_scene_sub_text"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/chat_v2_scene_row_2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_10"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/chat_v2_scene_summary"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/space_5"
+                android:background="@drawable/chat_v2_scene_card_bg"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:orientation="vertical"
+                android:padding="@dimen/chat_v2_scene_padding">
+
+                <ImageView
+                    android:layout_width="@dimen/chat_v2_scene_icon"
+                    android:layout_height="@dimen/chat_v2_scene_icon"
+                    android:layout_marginBottom="@dimen/space_10"
+                    android:background="@drawable/chat_v2_scene_icon_bg"
+                    android:contentDescription="@string/chat_v2_scene_summary"
+                    android:padding="@dimen/chat_v2_scene_icon_pad"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_file"
+                    app:tint="@color/chat_v2_brand_ink"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/space_3"
+                    android:text="@string/chat_v2_scene_summary"
+                    android:textColor="@color/chat_v2_text"
+                    android:textSize="@dimen/chat_v2_scene_text"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_v2_scene_summary_sub"
+                    android:textColor="@color/chat_v2_text_3"
+                    android:textSize="@dimen/chat_v2_scene_sub_text"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/chat_v2_scene_plan"
+                android:layout_width="@dimen/size_0"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/space_5"
+                android:background="@drawable/chat_v2_scene_card_bg"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:orientation="vertical"
+                android:padding="@dimen/chat_v2_scene_padding">
+
+                <ImageView
+                    android:layout_width="@dimen/chat_v2_scene_icon"
+                    android:layout_height="@dimen/chat_v2_scene_icon"
+                    android:layout_marginBottom="@dimen/space_10"
+                    android:background="@drawable/chat_v2_scene_icon_bg"
+                    android:contentDescription="@string/chat_v2_scene_plan"
+                    android:padding="@dimen/chat_v2_scene_icon_pad"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_chat_v2_plan"
+                    app:tint="@color/chat_v2_brand_ink"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/space_3"
+                    android:text="@string/chat_v2_scene_plan"
+                    android:textColor="@color/chat_v2_text"
+                    android:textSize="@dimen/chat_v2_scene_text"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_v2_scene_plan_sub"
+                    android:textColor="@color/chat_v2_text_3"
+                    android:textSize="@dimen/chat_v2_scene_sub_text"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 最近会话：数据在接线阶段由现有历史列表填充，容器为空时整块隐藏 -->
+        <LinearLayout
+            android:id="@+id/chat_v2_recent_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/chat_v2_recent_margin_top"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_6"
+                android:text="@string/chat_v2_recent"
+                android:textColor="@color/chat_v2_text_3"
+                android:textSize="@dimen/chat_v2_scene_sub_text"/>
+
+            <LinearLayout
+                android:id="@+id/chat_v2_recent_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"/>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
