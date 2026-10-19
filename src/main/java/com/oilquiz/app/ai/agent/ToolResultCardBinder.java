@@ -43,6 +43,12 @@ import java.util.regex.Pattern;
  *   <li><b>绝不抛异常影响执行</b>：任何解析失败都返回空列表，工具结果照常返回。</li>
  *   <li><b>可回退</b>：开关 {@code ai_chat_prefs.tool_auto_ui_bridge}（默认开）；
  *       内部预检/环境预取等"非模型主调用"用 {@link #suppress()} 包一层，避免挂重复卡片。</li>
+ *   <li><b>只管"挂什么卡"，不管"怎么显示"</b>（2026-10-20 拆分）：本类产出的卡片默认被
+ *       {@code ChatAdapter} 整卡摊开，长表格/图集会把正文顶出屏幕。展示档位（整卡 / 一行摘要 /
+ *       不挂载）统一由
+ *       {@link com.oilquiz.app.ai.chat.component.ComponentDisplay} 决定——
+ *       模型可用 {@code display} 声明，用户默认档在 {@code tool_result_display_default}，
+ *       本类的名单与 dispatch 只负责选卡片类型，不要再往里加显示策略。</li>
  * </ul>
  * </p>
  */

@@ -352,78 +352,21 @@ public class OnlinePromptBuilder {
     }
 
     /**
-     * 构建富内容组件渲染指引（工具通道版：引导用 ui_component 工具创建组件，
-     * 结构由工具定义的 props 参数承载，不在此写 JSON 示例，省 token 且字段准确）。
+     * 长版《UI 组件使用规则》已删除（2026-10-20 名字账本收口）。
+     *
+     * <p>它是上下文瘦身的遗留：装配器注册的一直是上面的 {@link #buildComponentGuideMiniSection()}
+     * （assist 与 takeover 两条链都是），这个方法<b>没有任何调用方</b>（连带 javadoc 共 73 行），里面那 68 行提示词从来不会被发进请求——
+     * golden 两份逐字快照里搜 {@code 【UI 组件使用规则 —— 按需选型，禁止乱猜】} 命中为 0 就是证明
+     * （{@code OnlinePromptBuilderAssemblyTest#uiComponentGuidanceStaysSlim} 也钉着这条）。
+     *
+     * <p>删之前逐条核过内容并没有丢：控件清单/rounds 连续输入/media_task 在常驻的 ui_component 定义里
+     * （ui_component 属 {@code OnlineAgentEngine.CORE_TOOLS}，每轮都随 tools 下发）；
+     * 预装 Python 库清单在 python_execute / python_file_ops 定义里；画布硬约束在 layout_editor 定义里
+     * （与 {@code LayoutCanvasConstraints} 的 MAX_* 常量同口径）；ffmpeg 的边界与
+     * "内置 shell 工具箱里没有 ffmpeg（也装不上）" 在 media_toolkit 定义里。
+     * 因此这次<b>一行都没往系统提示词里加</b>——那段死文字里还写着"不依赖 ffmpeg"与"回退内置 ffmpeg"
+     * 自相矛盾，正是该删的理由。
      */
-    private String buildComponentGuideSection() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("\n【UI 组件使用规则 —— 按需选型，禁止乱猜】\n");
-        sb.append("  先判断需求类型，再选组件，不要凭空造组件类型名：\n");
-        sb.append("  A. 需要用户操作（确认/输入/选择/文件/录音等）→ 用原生交互组件（见下），必须 get_result 取结果\n");
-        sb.append("  B. 展示结构信息（列表/表格/图表/指标/步骤/待办/题目/天气/文件/代码/富文本/图片）→ 用内置卡片（见下），直接展示\n");
-        sb.append("  C. 进度汇报/通知 → progress 或 notification；滚动公告 → marquee\n");
-        sb.append("  D. 提交文生图/文生视频任务并监控 → media_task（props: task_id/type/api_url/api_key，自动轮询）\n");
-        sb.append("  E. 以上都不满足、需要自定义界面 → 见【自定义 UI】三条路（按需选一条）\n");
-        sb.append("  F. 不确定有哪些组件/参数 → 先 ui_component_plugin(action=list) 和 ui_component(action=list_types) 查已有注册，别猜\n");
-        sb.append("  【参数传法】组件参数可放顶层参数或 props 内（两种等效，系统自动合并，props 内已有值优先）：\n");
-        sb.append("    如 marquee: ui_component(action=create, component_type=marquee, text=内容, speed=2) 与 props={text:内容,speed:2} 等效；\n");
-        sb.append("    otp 的 length、number 的 min/max、media_task 的 task_id/type/api_url、custom 的 fields、插件自定义参数同理（顶层或 props 均可）\n");
-        sb.append("  【原生交互组件】ui_component(action=create, component_type=类型, 参数...) 创建 → get_result 取结果：\n");
-        sb.append("    dialog(confirm/warning) / input(输入,input_hint) / choice(单选,options) / multi_choice(多选,options) /\n");
-        sb.append("    date(日期) / time(时间) / rating(星级) / color(取色) / otp(验证码,length) / number(数字,min/max) /\n");
-        sb.append("    file_picker(文件) / image_picker(相册) / contact_picker(联系人) / custom(动态表单,fields定义任意字段) /\n");
-        sb.append("    voice_recorder(录音) / speech_player(朗读) / snackbar(提示条) / notification(通知) / toast / progress(进度,max或max_value,update传progress) / marquee(跑马灯,text/speed 0~3)\n");
-        sb.append("  【内置卡片】ui_component(action=create, component_type=卡片类型, props={字段}) 直接展示：\n");
-        sb.append("    chart(bar/line/pie) / table_card / list_card / grid_card / metric_card / info_card / alert_card /\n");
-        sb.append("    steps_card / todo_card / note_card / json_viewer / code_card / link_card / image_grid / file_card /\n");
-        sb.append("    file_list / contact_card / quiz_card / weather_card / progress_card / html / markdown_card；web=网页卡片, image=图片卡片\n");
-        sb.append("    卡片 props 字段结构见 ui_component 工具定义（props 参数），严格按定义填，不要自创字段。\n");
-        sb.append("  【交互】卡片可加 actions=[{\"label\":\"文字\",\"value\":\"回传值\",\"action\":\"callback\"}] 收集用户点击（get_result 取回）；纯展示不加 actions。\n\n");
-        sb.append("【自定义 UI —— 三条路，按需选一条】\n");
-        sb.append("  路线1 一次性现场渲染（最简单）：ui_component(action=create, component_type=任意名, layout={...原生控件树...}) 或 props={layout:{...}} 或 render={layout:{...}} —— 三种传法等效，无需注册，仅本次有效\n");
-        sb.append("  路线2 注册可复用类型：ui_component(action=register_type, name=类型名(字母数字下划线), description=用途, render={\"layout\":{...} 或 \"card\":内置卡片}) → 之后 ui_component(action=create, component_type=类型名) 复用；list_types 查看, remove_type 删除\n");
-        sb.append("  路线3 注册完整插件（带参数校验/生命周期/监控）：ui_component_plugin(action=create, name=..., description=..., params={字段:{type,required,default}}, render={\"layout\":{...}}, monitor=可选, persist=true|false) → 用 ui_component(action=create, component_type=插件名) 创建。创建时自动按 params schema 校验：缺必填会明确报错、类型自动转换(number/boolean/array/object)、有 default 自动填充\n");
-        sb.append("  【动态画布（layout_canvas + layout_editor）】**创建画布时就要带完整 layout（含真实输入控件），不要只 create 空画布**：ui_component(action=create, component_type=layout_canvas, layout={完整布局JSON}, title=标题) → 拿 component_id。完整布局示例：{\"root\":{\"type\":\"column\",\"spacing\":12,\"children\":[{\"type\":\"text\",\"text\":\"标题\",\"bold\":true},{\"type\":\"input\",\"key\":\"name\",\"hint\":\"请输入姓名\"},{\"type\":\"select\",\"options\":[\"A\",\"B\"],\"key\":\"choice\"},{\"type\":\"switch\",\"label\":\"开关\",\"key\":\"sw\"},{\"type\":\"row\",\"children\":[{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}]}]}}。**重要**：①每个输入控件必须带 key（input/select/switch/checkbox_group/date/number 都要 key，否则值无法收集、不可用）；②button 必须带 action（如 submit）；③create 时 layout 键必须是完整布局（可含 root 包 column），不要传空；④如需后续编辑用 layout_editor(action=set, component_id=同一个id, layout=完整布局) 整体替换，或 add 加**单个控件节点**（勿传含 children 容器）；⑤全程用**同一个 component_id**，不要反复重建画布。控件值自动回填。\n");
-        sb.append("  画布硬约束（代码级强制，违反直接拒绝且画布保持原样）：单画布≤150节点、单容器≤40子节点、嵌套≤8层、"
-                + "key 全局唯一（同名控件的值会互相覆盖）、同一画布≤5次编辑/秒（多处改动请合并成一次 set）、"
-                + "活跃画布≤3张；输入控件缺 key 会自动补并在结果里回告实际键名；"
-                + "复杂布局先用 layout_editor(action=validate) 预检。\n");
-        sb.append("  【连续输入表单（配套能力，实测可用）】custom 类型 props 内加 rounds=N(N>1) → 多轮连续输入：弹窗含「添加下一条」(收集本轮值并清空重建继续)与「完成」(收集本轮并结束)，get_result 返回 {\"rounds\":[{第1轮}...],\"total\":N}——适合批量录入多条数据（多条记录/多条题目/多条清单项），一次 create 连续收集，不用重复创建。示例: create(component_type=custom, props={fields:[{key:姓名,type:text,required:true},{key:金额,type:number}], rounds:3}) → 用户连续填 3 轮 → 返回 3 条记录\n");
-        sb.append("  【layout 原生控件框架】JSON 声明真实原生 UI，控件 type 及属性：\n");
-        sb.append("    布局: column(纵向)/row(横向)/scroll(滚动)/card(圆角卡片容器,title)/wrap(流式换行)/grid(网格,columns=N)/space(弹性空白)/tabs(标签页,tabs=[{label,content}])/stack(层叠,子项gravity定位)/accordion(折叠面板,items=[{title,content}])/carousel(图片轮播,images=[url])\n");
-        sb.append("    展示: text(text,bold,size,color,align)/image(url)/marquee(跑马灯,text,speed 0~3)/badge(徽章,text,color)/avatar(头像,url,size)/avatar_group(头像组,urls,size,overlap)/quote(引用,text,author)/code(代码块,code,language)/icon(图标,size,color)\n");
-        sb.append("    数据: table(headers=[列],rows=[[值]])/steps(步骤条,steps=[{title,status:done|current|todo}])/timeline(时间线,items=[{title,time,description}])/alert(提示条,**样式字段用 alert_type 或 variant**(success|warning|error|info),title,content)/stat(指标卡,label,value,unit,sub)/empty(空态,icon,title,description)/notice(通知条,icon,text,action)/progress_ring(环形进度,progress)\n");
-        sb.append("    图表: line_chart(categories=[x],series=[{name,data:[数值]}])/bar_chart(同上)/pie_chart(data=[{label,value}])/sparkline(data=[数值],迷你趋势)\n");
-        sb.append("    工具: qrcode(content,size二维码)/barcode(content条形码)/countdown(seconds倒计时)/calendar(日历,value=yyyy-MM-dd)/breadcrumb(items=[{label,action}])\n");
-        sb.append("    媒体: video(url或src,title,autoPlay,loop,speed,ExoPlayer原生播放)/audio(url或src,title,artist,播放条)/html(html富文本内容,maxHeight)\n");
-        sb.append("    输入: input(hint,key)/number(key,min,max)/password/multiline/otp(length)/email/tel/url/search/search_bar(搜索条)/tag_input(标签输入,tags)——点击可唤起软键盘\n");
-        sb.append("    选择: select(options,key)/switch(checked,key)/checkbox/checkbox_group(options,key)/radio/radio_group(options,key)/date/time/datetime(日期+时间)/color(value)/rating(value 1~5)/toggle(胶囊分段开关,options,value)/dropdown(下拉菜单,options)/stepper(步进器,min/max/step)/slider_range(双滑块,min/max/low/high)\n");
-        sb.append("    交互: button(text,action 回传 或 tool+tool_params 调后端)/link(text,url或action)/slider(key,min,max)/progress(progress,max)/spinner(加载圈)\n");
-        sb.append("    文件: file(key,label)；装饰: divider/divider_v/separator\n");
-        sb.append("    **交互能力（实测可用）**：layout 内输入/选择/交互控件可正常操作；带 key 的控件值在布局内 button 提交时统一收集，get_result 返回 values={key:值}；多控件内容自动可滚动；divider 正常显示分隔线。\n");
-        sb.append("    通用属性: width/height(match/wrap/数字dp/百分比如\"50%\"在wrap/grid内), margin(数字或{top,left,bottom,right}), weight或flex(弹性比例), align(start/center/end), 容器spacing(子项间距)/alignItems(对齐)/justify(flex_start/flex_end/center/space_between等)\n");
-        sb.append("    **样式 style（美化外观，推荐使用）**：任意节点可带 style={padding(整数或 t r b l 四空格值),radius(圆角dp),background(颜色#RRGGBB),border(边框,如 1 #CCCCCC 或 border_width+border_color),fontSize(文本字号),color(文本色)}；动态画布/临时layout的最外层可传顶层 style= 作用于整个画布。展示类卡片与画布建议加浅色背景+圆角，让界面有层次，别全是白底方块。\n");
-        sb.append("    自定义模板: layout顶层define={模板名:节点树}或ui_component_plugin(register_layout)注册,树内use={模板名,props:{参数}}引用,模板内{key}由props替换；**类型嵌套与现场定义（实测可用）**：①已注册组件类型名(register_type/插件/模板)可直接作layout节点type嵌套（如{\"type\":\"online_music_player\"}，自动展开其render.layout，节点props覆盖模板占位）；②未注册类型但节点自带layout可现场展开（{\"type\":\"my_widget\",\"layout\":{...}} 或 {\"type\":\"x\",\"render\":{\"layout\":{...}}}，等效临时注册）；③临时layout：create时component_type给任意未注册名+layout参数（顶层/props/render三选一）不注册即用，仅本次有效\n");
-        sb.append("    示例 render.layout: {\"root\":{\"type\":\"column\",\"children\":[{\"type\":\"text\",\"text\":\"标题\",\"bold\":true},{\"type\":\"input\",\"hint\":\"输入\",\"key\":\"name\"},{\"type\":\"row\",\"children\":[{\"type\":\"button\",\"text\":\"提交\",\"action\":\"submit\"}]}]}}\n");
-        sb.append("  【任务监控】插件或注册类型加 monitor={tool:已注册工具, action, poll_seconds, param_map:{组件字段:查询参数}, success_field} → 创建后自动轮询查询，完成展示结果文件；layout 按钮加 tool=工具名+tool_params={参数,支持{key}占位} → 点击直接调后端\n");
-        sb.append("  【复用与管理】ui_component_plugin(action=list) 查看已有插件(含长久/临时)；ui_component(action=list_types) 查看注册类型；直接用其 name 创建即可复用，不要重复注册。\n");
-        sb.append("  【工作区速查】工作区 files/ 目录内置《工具创建指南.md》（创建工具/动态插件/控件树详解）、《使用速查表.md》（全部工具/组件速查）、《HTML_DESIGN_RULES.md》（生成导出 APK 的 HTML 时的设计规则）、《LINUX_TOOLKIT_GUIDE.md》（内置 Linux 工具箱：清单/路由/示例/限制）、《APK_SOURCE_GUIDE.md》（导出 APK 壳的 40 个原生桥方法清单/回调契约）、《MEDIA_TOOLKIT_GUIDE.md》（媒体工具箱/内置 ffmpeg 引擎/边界）、《THIRD_PARTY_NOTICES.md》（第三方许可），创建工具/选组件/导出 APK/做媒体处理前可先 workspace 读取，避免凭空造参数。\n\n");
-        sb.append("【Python UI 能力】执行 python_execute / python_analyze_data / 动态工具(Python逻辑) 时，脚本内置 android_ui 模块：from android_ui import show_toast, show_dialog, update_progress；耗时操作或需要用户感知进度时主动使用。\n");
-        sb.append("【linux_shell 工具】shell 能力已独立成 linux_shell（优先于 system_resource(action=shell_command)）：action=exec 跑命令、tools 列内置工具与版本、download 下载 URL、route 改命令路由。内置（随包、免权限）busybox(280+ applet)/openssl(真TLS)/ssh/scp/sftp/ssh-keygen/curl/aria2c/rg/jq/sqlite3/zstd/zip/unzip/file/tree/ncdu/htop/ps/free/tmux/nano/gawk，加上系统 toybox(sed/grep/find/sort…)；命令按 内置->系统->busybox->toybox 路由，失败自动回退，action=route 可按命令改写(order=bskt/stkb/b，reset 恢复)。Python 里 import android_shell 用同一套环境(run/available/tool_path)。单条命令 25 秒超时（超时返回已产生输出）；默认不拦截，可用 system_resource(action=shell_mode, mode=readonly) 打开。详见工作区《LINUX_TOOLKIT_GUIDE.md》。\n");
-        sb.append("【media_toolkit 工具】本地媒体处理用 media_toolkit（系统硬解硬编，不依赖 ffmpeg/外部二进制，处理过程不需要权限、不联网），别去 shell 里找 ffmpeg（内置工具箱没有 ffmpeg，也装不上）："
-                + "probe 读媒体信息(时长/分辨率/帧率/码率/轨道/编码器)；frame/thumbnail 截帧出图(time=秒 或 percent=0-100 或 index=帧序号，count=N 抽 N 张)；"
-                + "extract_audio 无损抽音轨(aac→m4a、mp3→mp3，不重编码)；to_wav 解码 WAV(默认 16k 单声道，可直接喂语音识别)；"
-                + "trim 无损剪切(start/end 秒，关键帧对齐，不重编码)；transcode 转码/压缩/改分辨率/换容器(video_mime=h264/h265/av1/keep、audio_mime=aac/none/keep、width/height/scale/bitrate/remove_audio，走硬件编解码，长任务可给 timeout)；"
-                + "image_ops 图片处理(width/height/max/crop=x,y,w,h/rotate/flip=h|v/gray/format=png|jpeg|webp/quality)；filter 滤镜链(vfilter/afilter 传 ffmpeg 滤镜串，如 scale=-2:720,fps=10 / atempo=1.5,volume=2)。engine=auto(默认：系统框架优先，打不开或做不到时自动回退内置 ffmpeg)/system(只用系统)/ffmpeg(只用 ffmpeg)。"
-                + "输入支持绝对路径、工作区相对路径、content:// URI（读取外部文件仍受 App 已有存储访问限制）；输出默认落工作区 files/media/，返回 file 绝对路径（可直接给 image/video 组件渲染）。\n");
-        sb.append("  【能力边界｜不要越界承诺】avi/flv/rmvb/wmv 等系统框架打不开的容器、rv40/cook/wmv3/vc1 等老编码，engine=auto 会自动回退**内置 ffmpeg 引擎**（真机实测可读可截帧可转码，转码走 h264_mediacodec 硬件桥）；"
-                + "滤镜链（scale/fps/overlay/ass字幕/atempo/volume）用 filter 动作。仍然做不到的：mp3/opus **编码**（min 构建无 lame/opus 编码器，mp3 只能抽已有音轨）、drawtext 文字水印（无 freetype）、时间轴水印/画中画/多路混流这类复杂编排；"
-                + "非主流编码是纯软解会慢。trim 是**关键帧对齐**（不是帧级精确），transcode 实际分辨率会被编码器对齐取整（以返回的 output_width/height 为准）。"
-                + "遇到确实做不了的，如实告诉用户，不要硬凑一条能跑但结果是错的路径。\n");
-        sb.append("【Python 媒体处理】Python 里 import android_media 可调用同一套能力（probe/frame/thumbnail/extract_audio/to_wav/trim/transcode/image_ops，参数与工具一致）；纯图片批处理也可直接用 Pillow。\n");
-        sb.append("【Python 环境预装库】可直接 import（无需安装）：requests、beautifulsoup4(bs4)、jieba、lxml、regex、numpy(np)、pandas(pd)、matplotlib(plt)、Pillow(PIL)、openpyxl、yaml、tabulate、python-dateutil、chardet、xlrd、reportlab、python-docx(docx→Word读写)、python-pptx(pptx→PPT读写)、pypdf(PDF读取/合并/拆分)、XlsxWriter(xlsxwriter→Excel写入，pptx图表依赖)。读写 Word/PPT/PDF 直接用 docx / pptx / pypdf（已预装，无需再装）。画数据图表用 matplotlib 或 Pillow；matplotlib 画中文前先调用 setup_matplotlib_cjk()（android_helper 已 star-import，注册系统 CJK 字体，避免中文方框）；复杂图表（子图/对数轴/热力图等）用 python_execute 写 matplotlib 代码。\n\n");
-        return sb.toString();
-    }
 
     /**
      * 构建知识库驱动的工具策略提示词。

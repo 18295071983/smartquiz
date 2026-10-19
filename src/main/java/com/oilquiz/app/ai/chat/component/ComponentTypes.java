@@ -73,6 +73,10 @@ public final class ComponentTypes {
         CANONICAL_TARGET = Collections.unmodifiableMap(target);
 
         Map<String, String> alias = new LinkedHashMap<>();
+        // 2026-10-20：note_card / grid_card 的原生实现（NoteCardView/GridCardView）已删——
+        // 下面这两条 alias 让 render() 先归一到 info/list，那两个注册键从建立起就永不被命中。
+        // alias 必须保留：历史会话里持久化的 type="note_card"/"grid_card" 仍要能渲染
+        // （note_card 落到 info 卡，props 里的 content 由 DynamicCardView 兜底通道显示）。
         alias.put("info_card", "info");
         alias.put("note_card", "info");
         alias.put("note", "info");
@@ -106,7 +110,10 @@ public final class ComponentTypes {
 
         // required/optional 只列真正决定渲染的字段，其余按 props 自由扩展
         SCHEMA.put("info", new String[]{CATEGORY_CONTENT, "标题 title", "条目 items[{label,value}]", ""});
-        SCHEMA.put("list", new String[]{CATEGORY_CONTENT, "条目 items[]", "标题 title", "布局 variant=list|grid, columns"});
+        // list 的可选字段按 ListCardView 真读的字段写（icon/title/description/value/url）；
+        // 此前目录里承诺的 "布局 variant=list|grid, columns" 渲染器一个字都不读，2026-10-20 删掉。
+        SCHEMA.put("list", new String[]{CATEGORY_CONTENT, "条目 items[{icon,title,description,value}]", "标题 title",
+                "网格长相请直接用 grid 之外的 list 卡片；variant/columns 未被 ListCardView 支持"});
         SCHEMA.put("steps", new String[]{CATEGORY_CONTENT, "步骤 steps[{title,status,description}]", "标题 title", "status=done|current|todo|failed"});
         SCHEMA.put("alert", new String[]{CATEGORY_CONTENT, "正文 content", "级别 level=info|success|warning|error", "标题 title, actions[]"});
         SCHEMA.put("markdown", new String[]{CATEGORY_CONTENT, "正文 content", "标题 title", ""});
@@ -116,7 +123,11 @@ public final class ComponentTypes {
         SCHEMA.put("chart", new String[]{CATEGORY_DATA, "类型 chartType=bar|line|pie", "系列 series[{name,data[]}]", "分类 categories[], 标题 title"});
         SCHEMA.put("metric", new String[]{CATEGORY_DATA, "指标 items[{label,value}]", "标题 title", "单位 unit, trend"});
         SCHEMA.put("progress", new String[]{CATEGORY_DATA, "百分比 percent", "标题 title", "文案 label"});
-        SCHEMA.put("json", new String[]{CATEGORY_DATA, "数据 data", "标题 title", "折叠 collapsed"});
+        // collapsed 这个字段目录里写了很久、渲染端一直没人读；2026-10-20 起
+        // ComponentDisplay 同时认它（true=收成一行）和新加的 display 三档。
+        SCHEMA.put("json", new String[]{CATEGORY_DATA, "数据 data",
+                "标题 title, 展示 display=inline|peek|hidden",
+                "旧字段 collapsed=true 等效 peek；三档口径见 ui_component 的 display 参数"});
         SCHEMA.put("image", new String[]{CATEGORY_MEDIA, "图片 images[]", "标题 title", "columns"});
         SCHEMA.put("video", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "封面 poster"});
         SCHEMA.put("audio", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "时长 duration"});
@@ -130,6 +141,19 @@ public final class ComponentTypes {
 
     private ComponentTypes() {
     }
+
+    /**
+     * 原语逃生口说明（2026-10-20 加）：{@code table}/{@code steps}/{@code alert}/{@code stat}/
+     * {@code timeline}/{@code bar_chart}/{@code pie_chart}/{@code sparkline}/{@code progress_ring}
+     * 这些短名按"原生实现赢名字"被原生卡片认领了，Layout 原语的同名长相只能走
+     * {@code primitive_<名字>}。以前这件事只写在类注释里，模型侧看不到，逃生口等于不存在
+     * ——全项目 grep {@code primitive_} 除了注册那一行，没有任何调用方用过它。
+     * 目录（{@link #catalogJson()} 的使用方）与 {@code ui_component(action=list_types)} 都要带上这句。
+     */
+    public static final String PRIMITIVE_HINT =
+            "短名 table/steps/alert/stat 指向原生卡片实现（table_card/steps_card/alert_card/metric_card）；"
+                    + "timeline/bar_chart/pie_chart/sparkline/progress_ring 也已被卡片认领。"
+                    + "想要 Layout 原语那一套长相，名字前加 primitive_（如 primitive_timeline、primitive_stat）";
 
     /**
      * 把任意输入名解析成 canonical 名。
