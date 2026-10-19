@@ -353,7 +353,7 @@
     属于 A1/B2 范围，本轮没动（不影响功能，只是配色不统一）。
     chip 文案里的 🧠/🔍 emoji 同样来自那两个方法，也不在本轮范围内。
 
-### 4.5 A1 第一段 · 思考段换成 demo 的折叠行（做法与任务单不同）
+### 4.5 A1 三段 · 思考段 / 工具段 / 正文段（做法与任务单不同）
 
 任务单写的是"新建 `item_ai_message_v2.xml` 四段结构"。**没有照做**，原因是 AI 消息根本没有布局文件：
 `ChatAdapter#createAiMessageItem` 用 ~330 行代码 new 出整棵树，再塞进
@@ -462,6 +462,85 @@
 - [ ] `AgentSessionView` 留在聊天流；控制台「会话」Tab 只展示列表与状态。
 
 ---
+
+### 4.6 已知缺陷（修法已落地，真机未验）：v2 主气泡恢复首屏偶发空白
+
+2026-10-19 16:08 用户报"WebView 主气泡 JS 被锁死，前面的会话历史只显示当前会话的主气泡"。
+我抓了截图与数据，**没有复现到稳定态**（用户随后自行滚动/重进，消息就出现了）。
+下面先记已排除的与机制推断，再记按该推断落地的修法（第 6 条）——**修法尚未在真机验证**：
+
+1. **不是持久化问题**：`run-as` 拉 `files/ai_chat_history.json` 解析，8 条消息全在，
+   空白那条（AI，"你好呀！😊 我是答题宝的 AI 助手…"）`content` 207 字、`components` 0、
+   `contentRoundBounds` 0 → 走 `bindMessageContent` 的"纯文本 + webMarkdownEnabled"分支。
+2. **也不是 B0 的沙箱把 JS 关了**：主气泡用的是 `MarkdownWebView`，它自己
+   `setJavaScriptEnabled(true)` + `QZ` 桥（`onHeight`/`copy`/`previewImage`），
+   与 `HtmlSandbox`/`HtmlWebView`（卡片链路）是两套；全仓没有 `setWebContentsDebuggingEnabled`，
+   所以我无法隔空看页面内容。
+3. **"高度塌陷为 0"这条已被代码排除**：`Bridge.onHeight` 有 `cssPx <= 0 return`，
+   `applyHeightPx` 也有 `px <= 0 return`，且 2026-10-13 已把高度缓存改成
+   "延迟写 + 二次校验 hash"，不会把迟到的测量缓存到新内容 hash 下。
+4. **剩下的头号嫌疑**：`setContent` 在 `pageReady == true` 时走 `swapBody()`
+   （`evaluateJavascript` 原地换 `document.body.innerHTML`，JS 里 `catch(e){}` 静默失败）。
+   若 `pageReady` 是**上一次加载**的 `onPageFinished` 迟到置上的（holder 复用 + 短时间内连续
+   `loadDataWithBaseURL`），`swapBody` 就会作用在一个不是我们想要的文档上，
+   且因为 `pageReady` 已为 true，之后不会再 `loadDocument` → 该气泡永久空白，
+   直到滚出屏幕触发 `resetForReuse()`（它把 `pageReady` 清 false）才自愈。
+   **这与"滚一下就出来了"完全吻合。**
+5. **要定性还缺的证据**（下次别凭猜改）：
+   - 让它稳定复现：进一个有多条长 markdown 回复的会话，快速上下滚，看空白是否随滚动出现/消失；
+   - 或在 `onPageFinished` / `swapBody` 两条路径上打一次性日志（**属于为验证改生产代码，
+     需要用户同意**，且只能临时加、验完删）；
+   - 或给 debug 变体开 `setWebContentsDebuggingEnabled(true)` 用 DevTools 直接看页面
+     ——同样是"为验证动生产代码"，要先问。
+6. **已按第 4 条落地（未真机验证）**：`MarkdownWebView` 加了"文档代号"状态机——
+   `docGeneration`/`loadingGeneration`/`readyGeneration` 三者对齐才算"页面就绪"，
+   `onPageFinished` 只认最后一次发出的加载；`setContent` 在**同一份文档仍在途**时不再重复
+   `loadDataWithBaseURL`（这正是不就绪期每一绑都重载、互相取消导致活锁的点），
+   并加 1.2s 看门狗对同一份文档最多补发一次；`resetForReuse()` 清空 `pendingHtml` 与全部代号，
+   使 `setNight`/`setThemeColors` 在复用后第一次绑定前不会去加载上一条消息的文档。
+   **不要**顺手改 `MAX_HEIGHT_DP`/高度缓存策略，那些与本案无关（第 3 条已排除）。
+
+
+
+### 4.7 已修：每次退出重进多一条历史会话（会话持久化归属缺失）
+
+用户报"你改坏了，每次恢复都会多出一个历史对话记录"。先给结论：**不是本次 UI 改版引入的**，
+`git blame` 为证——`onStop` 里那句 `saveCurrentChatAsSession(copy, currentSessionId)` 是
+2026-08-18（`ce699db09`），恢复分支不设 `currentSessionId` 是 2026-09-25（`965c43fb4`）。
+但我今天为验证反复 `am force-stop` + 重启 + 进聊天页，等于把这个循环踩了很多遍，
+**触发是我干的，代码不是我写的**，这点记在这里。
+
+机制（一句话）：`ai_chat_history.json` 是**纯消息数组、不存会话归属**，
+恢复完 `currentSessionId` 恒为 null；而 `onStop` 无条件调
+`saveCurrentChatAsSession(copy, null)`，该方法在 id 为空时的行为是**新建一条 uuid 会话文件**，
+且返回值被丢弃 → 每次退后台都多一条几乎相同的对话，原会话反而再也不更新（看着像分裂）。
+注意：`saveHistoryAsync()` 里**本来就有**认领逻辑（`currentSessionId = session.id`），
+所以只有 `onStop` 与 `saveCurrentHistory()` 两条路径漏了。
+
+修法（三处，都不改写路径语义）：
+1. `onStop`：把 `currentSessionId` 取成快照，保存后**认领返回的会话 id**（仅在仍为空时回填，
+   不覆盖用户期间主动切换的会话）。
+2. `saveCurrentHistory()`：同口径认领（与 `saveHistoryAsync` 一致）。
+3. **恢复时认领回原会话**：新增 `adoptSessionForRestoredHistory(window)`，
+   按"最后一条消息 id 相同"在既有会话里找（`ChatMessage#id` 非 transient、持久化且唯一），
+   先用会话元数据 title 便宜筛、再对候选做一次"只读最后一条"的分段查询，
+   不给几十个会话全量解析文件。找到就设 `currentSessionId`，
+   并把"会话前端未加载条数"**返回给主线程去覆盖 `sessionFrontSkipped`**。
+   这一步是关键：恢复分支原本紧跟着 `sessionFrontSkipped = 0`，
+   若认领后仍清零，下一次"更新同一条会话"的保存会按 0 头部重写、**截掉会话里未加载的旧消息**。
+   认不到就什么都不做（那确实是新会话）。
+   `historySourceSessionId` / `aiHistoryFrontSkipped` 保持单文件口径不动：
+   "加载更早消息"与单文件保存仍以单文件为准。
+
+**遗留（用户自己处理）**：历史上已经攒出来的重复会话文件不做迁移/清理，
+用户表示"我清空历史文件就行了"。**不要替他删**。
+验证方式：清空后新建一次对话 → 退后台 → 回来看历史抽屉是否只有一条；
+再杀进程重进 → 恢复的应是同一条会话（日志有 `恢复历史认领回原会话: <id>`）。
+
+
+
+2026-10-19 
+
 
 ## 5. 关键文件 / 改动地图
 
