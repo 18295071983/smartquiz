@@ -1,5 +1,62 @@
 # 变更日志
 
+## [2026-10-19 深夜] A1 第四段（两半）：v2 日期分隔替代逐条时间戳、操作段换成三图标 + 更多
+
+真机不在电脑跟前，这一节只做到"编译 + 单测 + 出包"，**没有目视确认**；验收清单见
+`docs/ui/HANDOVER.md` §4.8。
+
+### 查到的事实
+
+- demo 的 `.day` 是"按天在消息流里插一行居中日期"，但 `chatHistory` 就是 Adapter 的数据源本体，
+  Activity 与 ChatAdapter 各处直接按 `position` 取消息（`notifyItemRangeInserted` /
+  `chatHistory.get(position)` 一大片）——插虚拟条目会让所有位置计算偏移，
+  而我们刚修完"分页恢复 + 头部保留"那条链，最不该动的就是它。
+  所以日期分隔做成**本条消息行的第一个子 View**，视觉等价、position 语义一个没动。
+- 跨天判定必须比日历日而不是"相隔 24 小时"：凌晨 00:30 与前一天 23:30 只差一小时但属于两天。
+- 日期文案在仓库里已经有两份实现（`ChatHistoryAdapter#formatItemTime` 与
+  `ChatV2EmptyState#formatItemTime` 各抄了一遍 `isSameDay` + `SimpleDateFormat`），
+  "今天"在历史抽屉里还是硬编码字面量（只有 `chat_v2_yesterday` 一个字符串）。
+- demo 的操作段只有三颗图标（复制 / 重新生成 / 更多），六个动作全在 `#sheet-message` 里；
+  旧版那 7 个动作是 7 颗文字胶囊，其中 👍/👎 是**字面量 emoji**，
+  而 `chat_like`/`chat_dislike` 两个字符串一直存在却没人用。
+- 图标资源全部已有：`ic_copy` / `ic_refresh` / `ic_more_vert` / `ic_speaker` / `ic_share` /
+  `ic_thumb_up` / `ic_thumb_down` / `ic_add` —— 不需要新增 drawable。
+- `ChatUiV2Chrome` 已经确立了"复用旧控件的 `performClick()`，不另写一套打开流程"的做法
+  （工具抽屉、清空对话都是这么接的），`View.performClick()` 不检查可见性，
+  被 GONE 的按钮照常执行 listener —— 操作段图标化正好可以照这个路子做。
+
+### 由此改掉的事
+
+- **新增 `ai/chat/ui/ChatDayLabel`**：跨天判定 + `divider`（今天/昨天/M月d日 都带时分）+
+  `listTime`（今天只给时分）。两个方法都收显式 `now`，否则用例就是"今天跑得过、明天跑就红"。
+- **ChatAdapter**：AI 侧在 `createAiMessageItem` 按开关建 `dayLabel` 挂到 holder
+  （沿用 `toolSection`/`markdownView` 的写法，**不动 `DynamicAiMessageRoot` 那 36 参构造器**）；
+  USER 侧走 `item_user_message_v2.xml` 的 `@+id/day_label`，旧版布局没这个 id 就返回 null，
+  关开关完全回到旧样子。`bindDayLabel` 统一决定显隐，v2 下收起逐条时间戳，
+  "点时间看详情"的入口挪到分隔行（长按菜单里本来也有「详情」，入口不会丢）。
+- **`ChatV2EmptyState` 去重**：那份自己抄的 `isSameDay` + `SimpleDateFormat` 改调
+  `ChatDayLabel.listTime`，并清掉随之失效的 import。
+- **v2 操作段 = 三图标 + 更多**，且**没有新建任何动作实现**：旧 7 胶囊原样留着
+  （v2 下整块 GONE、不删不改绑定），图标与面板条目一律转发成对旧按钮的 `performClick()`，
+  动作口径与埋点（`ComponentActions.dispatchChatAction`）自动与旧版逐字一致。
+- **新增 `ai/chat/ui/ChatV2ActionSheet`**（通用"标题 + 图标文字行"底栏，形状同
+  `ChatUiV2Chrome.openInfoSheet`），条目 `Item` 只带一个 `OnClickListener`，不接管语义。
+- **补回被收走的确认感**：旧版靠胶囊上的 `👍✓` / `🔊 停止` 表达状态，v2 收起胶囊后会丢，
+  改成面板文案（"有帮助（已反馈）"）+ Toast（感谢反馈 / 已取消反馈，取消时不报"已反馈"）+
+  朗读条目按 `speakingMessageId` 显示"停止"。
+- 每颗图标按钮都带 `contentDescription`（换成图标后 TalkBack 否则念不出这颗键是干什么的）。
+- 新增字符串：`chat_v2_today`、`chat_v2_msg_actions`、`chat_v2_feedback_saved/thanks/cleared`；
+  配色只用 `chat_v2_text*` token，图标零新增。
+
+### 验证
+
+- 新增 `ChatDayLabelTest` 4 条（同一天/跨零点、分隔行三档、列表时间三档、
+  过零点后"今天"换人而 23:30 归昨天）。
+- `testDebugUnitTest --rerun` = **417 tests / 0 failed / 0 skipped**；`assembleDebug` 通过。
+- **未验**：日期分隔与操作段的实际观感、面板弹出与点选、`chat_ui_v2` 关掉后的回归——
+  都需要装机看，验收清单写在 HANDOVER §4.8。
+
+
 ## [2026-10-19 深夜] 出厂模板按 version 补字段：老设备的错题本版也能拿到"答错次数"
 
 ### 查到的事实

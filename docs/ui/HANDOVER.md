@@ -588,6 +588,65 @@ createdAt/updatedAt/messageCount，读到 messages 就 `break` 再 `endObject()`
 日志里每次恢复都能看到 `恢复历史认领回原会话: <id>`。
 
 
+### 4.8 A1 第四段（已落地两半，真机未验）：日期分隔 + 操作段图标化
+
+设备不在电脑跟前，这两半只做到"编译 + 单测 + 出包"，**没有目视确认**。
+下一台手机回来先验这一节，再往下走 A2。
+
+**第一半：日期分隔替代逐条时间戳**
+
+demo 的 `.day` 是"按天在消息流里插一行居中的 今天 14:32"。Android 侧**没有**照抄成
+RecyclerView 的独立条目，而是做成**本条消息行的第一个子 View**：
+`chatHistory` 就是 Adapter 的数据源本体，Activity 与 ChatAdapter 各处直接按 `position`
+取消息（`notifyItemRangeInserted` / `chatHistory.get(position)` 一大片），
+插虚拟条目会让所有位置计算偏移——我们刚修完分页恢复 + 头部保留那条链，最不该做的就是这个。
+
+- 新增 `ai/chat/ui/ChatDayLabel`：跨天判定 + 两套文案（`divider` 今天/昨天/M月d日 都带时分；
+  `listTime` 今天只给时分）。判定比**日历日**不比"相隔 24 小时"，
+  凌晨 00:30 与前一天 23:30 只差一小时但必须分到两天。
+  两个方法都收显式 `now` 参数，否则用例就是"今天跑得过、明天跑就红"。
+- AI 侧在 `createAiMessageItem` 里按开关建 `dayLabel` 并挂 holder（沿用
+  `toolSection`/`markdownView` 那种"建完直接挂 holder"的写法，
+  **不动 `DynamicAiMessageRoot` 那 36 参构造器**）；USER 侧走
+  `item_user_message_v2.xml` 的 `@+id/day_label`，旧版布局没这个 id → `findViewById` 返回 null，
+  关开关就是原来的样子。`bindDayLabel` 统一决定显隐，v2 下逐条时间戳收起。
+- "点时间看详情"的入口没丢：挪到分隔行上（`bindTimestampClick` 复用），
+  长按菜单里本来也有一项「详情」。
+- 去重：`ChatV2EmptyState` 的"最近"时间原来自己抄了一份 `isSameDay` + `SimpleDateFormat`，
+  改调 `ChatDayLabel.listTime`。新增 `chat_v2_today` 字符串（原来只有 `chat_v2_yesterday`，
+  "今天"在历史抽屉里还是硬编码字面量——那处是旧代码，本轮没动）。
+
+**第二半：操作段图标化（三图标 + 更多）**
+
+demo 的 `#tpl-actions` 只有三颗图标（复制 / 重新生成 / 更多），
+六个动作（朗读 / 复制 / 分享 / 有帮助 / 没帮助 / 在新对话中继续）在 `#sheet-message` 里。
+
+- **没有新建一套动作实现**：旧版那 7 个 TextView 胶囊原样留着（v2 下整块 `GONE`、
+  不删也不改绑定），`bindAIMessage` 仍把 listener 绑在它们上面；
+  v2 的图标与面板条目一律转发成 `performClick()`
+  （`View.performClick()` 不检查可见性，被 GONE 的旧按钮照常执行 listener）。
+  这与 `ChatUiV2Chrome` 里"复用汉堡键/清空键"的既有做法一致，
+  不会出现"两条路径动作口径不同"（埋点 `ComponentActions.dispatchChatAction` 也自动跟着走）。
+- 新增 `ai/chat/ui/ChatV2ActionSheet`（通用"标题 + 图标文字行"底栏），
+  形状与 `ChatUiV2Chrome.openInfoSheet` 一致但可复用给消息操作；条目 `Item` 只带一个
+  `OnClickListener`，不接管语义。
+- **状态可见性的口径改过一次**：旧版靠胶囊上的 `👍✓` / `🔊 停止` 文字表达反馈与朗读状态，
+  v2 把胶囊收起后这个确认感会丢。所以改为：面板条目文案（已反馈时显示"有帮助（已反馈）"）、
+  Toast 确认（`chat_v2_feedback_thanks` / `chat_v2_feedback_cleared`，取消反馈不报"已反馈"）、
+  朗读条目按 `speakingMessageId` 显示"停止"。
+- 图标全部复用现成 drawable（`ic_copy` / `ic_refresh` / `ic_more_vert` / `ic_speaker` /
+  `ic_share` / `ic_thumb_up` / `ic_thumb_down` / `ic_add`），**没有新增图标资源**；
+  配色用 `chat_v2_text*` token，无新增硬编码色。
+- 每颗图标按钮都带 `contentDescription`（把文字换成图标后，TalkBack 否则念不出来）。
+
+**装机后要看的四件事**：
+1. 新日期的第一条消息上方有一行居中文案，用户气泡右下不再显示时间；
+2. v2 末条 AI 消息下方只有三颗图标，旧胶囊行不出现；
+3. 点「更多」出底部面板，六项齐全，点「有帮助」有 Toast 且再开面板该条显示"（已反馈）"；
+4. 关掉 `chat_ui_v2` 后以上全部回到旧样子（胶囊文字 + 逐条时间戳）。
+
+---
+
 ## 5. 关键文件 / 改动地图
 
 | 区域 | 文件 | 动作 |

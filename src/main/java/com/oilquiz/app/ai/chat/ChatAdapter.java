@@ -10,6 +10,7 @@ import com.oilquiz.app.ai.chat.component.ComponentRegistry;
 import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.render.RenderExecutor;
 import com.oilquiz.app.ai.chat.ui.ChatUiFlags;
+import com.oilquiz.app.ai.chat.ui.ChatV2ActionSheet;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
 import com.oilquiz.app.ai.chat.util.ToolResultText;
 import android.content.res.Configuration;
@@ -718,6 +719,35 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         actionButtons.addView(btnDislike);
         actionButtons.addView(btnNewChat);
 
+        // ===== v2 操作段：三个图标 +「更多」（demo .ai-actions / #tpl-actions）=====
+        // 刻意不新建一套按钮：旧版那 7 个 TextView 原样留着（在 v2 里整体 GONE），
+        // 点击逻辑仍由 bindAIMessage 绑在这 7 个上；v2 的图标与面板条目一律
+        // 转发成"对相应旧按钮 performClick()"，动作口径（含 ComponentActions.dispatch 埋点）
+        // 与旧版逐字相同，不会出现"两条路径行为不一致"。
+        // 另外 applySpeakingVisual / applyFeedbackVisual 会 setText 改这几个旧按钮的文字，
+        // 它们在此路径上仍是唯一的状态载体，所以不能删、只能藏。
+        LinearLayout v2Actions = null;
+        ImageView v2BtnCopy = null;
+        ImageView v2BtnRegenerate = null;
+        ImageView v2BtnMore = null;
+        if (uiV2) {
+            v2Actions = new LinearLayout(ctx);
+            v2Actions.setOrientation(LinearLayout.HORIZONTAL);
+            v2Actions.setVisibility(View.GONE);
+            LinearLayout.LayoutParams v2Lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            v2Lp.topMargin = dpToPx(8, ctx);
+            v2Actions.setLayoutParams(v2Lp);
+            int iconColor = androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
+            v2BtnCopy = createIconAction(ctx, R.drawable.ic_copy, R.string.chat_copy, dp10, iconColor);
+            v2BtnRegenerate = createIconAction(ctx, R.drawable.ic_refresh, R.string.chat_regenerate, dp10, iconColor);
+            v2BtnMore = createIconAction(ctx, R.drawable.ic_more_vert, R.string.chat_v2_msg_actions, 0, iconColor);
+            v2Actions.addView(v2BtnCopy);
+            v2Actions.addView(v2BtnRegenerate);
+            v2Actions.addView(v2BtnMore);
+            root.addView(v2Actions);
+        }
+
         // ===== 状态行 =====
         LinearLayout statusRow = new LinearLayout(ctx);
         statusRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -806,6 +836,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         dynamicRoot.addView(root);
         AIMessageViewHolder holder = new AIMessageViewHolder(dynamicRoot);
         holder.dayLabel = dayLabel;
+        holder.v2ActionRow = v2Actions;
+        holder.v2BtnCopy = v2BtnCopy;
+        holder.v2BtnRegenerate = v2BtnRegenerate;
+        holder.v2BtnMore = v2BtnMore;
         holder.toolSection = toolSection;
         // 纯文本气泡的 WebView 渲染器：作为 contentHost 的第二子 View，默认 GONE，
         // 仅 webMarkdownEnabled 时接管正文（与 messageText 二选一）。随 holder 复用，
@@ -834,6 +868,36 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             return ctx.getDrawable(tv.resourceId);
         }
         return null;
+    }
+
+    /**
+     * v2 操作段的图标按钮（demo {@code .act}：30×30、圆角 9、无底色、图标 18）。
+     *
+     * <p>只负责"长什么样 + 可点/可达"，不接管任何动作语义：点击转发由 bindAIMessage 绑到
+     * 旧版那颗同名按钮上，行为与旧版逐字一致。</p>
+     *
+     * <p>contentDescription 是必需的：这一版把文字换成了图标，
+     * 没有它 TalkBack 就念不出这颗键是干什么的（无障碍在 B2 清单里，但改一步就补一步）。</p>
+     */
+    private ImageView createIconAction(Context ctx, int iconRes, int descRes, int marginEndDp, int tintColor) {
+        ImageView iv = new ImageView(ctx);
+        int size = dpToPx(30, ctx);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+        if (marginEndDp > 0) {
+            lp.setMarginEnd(dpToPx(marginEndDp, ctx));
+        }
+        iv.setLayoutParams(lp);
+        iv.setImageResource(iconRes);
+        iv.setColorFilter(tintColor);
+        iv.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        int pad = dpToPx(6, ctx);
+        iv.setPadding(pad, pad, pad, pad);
+        // 无边框水波纹：demo .act 就是透明底 + hover 才出浅底，不额外造 shape drawable
+        iv.setBackground(getSelectableItemBackground(ctx));
+        iv.setContentDescription(ctx.getString(descRes));
+        iv.setClickable(true);
+        iv.setFocusable(true);
+        return iv;
     }
 
     /** 创建操作按钮（小字、可点击） */
@@ -1341,6 +1405,105 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.btnLike != null) holder.btnLike.setOnClickListener(null);
             if (holder.btnDislike != null) holder.btnDislike.setOnClickListener(null);
         }
+
+        // v2 操作段（三图标 + 更多）：放在旧胶囊行的显隐逻辑之后，因为它要把旧行整块收起
+        bindV2Actions(holder, message, message.isCompleted() && isLastAiMessage(position));
+    }
+
+    /**
+     * v2 操作段：把"复制 / 重新生成 / 更多"三颗图标接到旧版同名按钮上。
+     *
+     * <p>旧版那 7 个胶囊在 v2 下整块 GONE，但<b>不删也不改绑定</b>：
+     * 它们的 listener 已经写好了动作（含 {@code ComponentActions.dispatchChatAction} 埋点、
+     * 反馈状态翻转、{@code applySpeakingVisual} 等状态文字），
+     * 图标与动作面板条目一律转发成 {@code performClick()}，
+     * 与 {@code ChatUiV2Chrome} 复用汉堡键/清空键的既有做法一致，避免出现第二条动作实现。</p>
+     *
+     * <p>{@code holder.v2ActionRow == null} 表示当前是旧版档位，直接返回，旧行为一字不变。</p>
+     */
+    private void bindV2Actions(AIMessageViewHolder holder, ChatMessage message, boolean show) {
+        if (holder.v2ActionRow == null) return;
+        if (holder.actionButtons != null) {
+            holder.actionButtons.setVisibility(View.GONE);
+        }
+        holder.v2ActionRow.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (!show) {
+            // 复用池里防残留：非最终轮/流式中都要清掉，否则点图标会打到上一条消息的动作
+            if (holder.v2BtnCopy != null) holder.v2BtnCopy.setOnClickListener(null);
+            if (holder.v2BtnRegenerate != null) holder.v2BtnRegenerate.setOnClickListener(null);
+            if (holder.v2BtnMore != null) holder.v2BtnMore.setOnClickListener(null);
+            return;
+        }
+        if (holder.v2BtnCopy != null) {
+            holder.v2BtnCopy.setOnClickListener(v -> forwardToLegacyAction(holder.btnCopy));
+        }
+        if (holder.v2BtnRegenerate != null) {
+            holder.v2BtnRegenerate.setOnClickListener(v -> forwardToLegacyAction(holder.btnRegenerate));
+        }
+        if (holder.v2BtnMore != null) {
+            holder.v2BtnMore.setOnClickListener(v -> openMessageActionSheet(holder, message));
+        }
+    }
+
+    /**
+     * 把 v2 图标/面板条目的点击转给旧版那颗按钮。
+     *
+     * <p>{@link android.view.View#performClick()} 不检查可见性，所以被 GONE 的旧按钮
+     * 仍会照常执行它的 listener——这正是我们要的：动作只有一份实现。</p>
+     */
+    private void forwardToLegacyAction(android.view.View legacy) {
+        if (legacy == null) return;
+        legacy.performClick();
+    }
+
+    /**
+     * 「更多」面板（demo {@code #sheet-message}）：朗读 / 复制 / 分享 / 有帮助 / 没帮助 / 在新对话中继续。
+     * 条目顺序与 demo 一致。
+     *
+     * <p>旧版靠胶囊上的 {@code 👍✓}/{@code 🔊 朗读} 文字表达状态，v2 把胶囊整块收起来了，
+     * 所以状态改由两处表达：面板里的文案（已反馈时写"已反馈"），以及点完的一条 Toast——
+     * 否则用户点了「有帮助」什么都看不到，等于把旧版已有的确认感做丢了。</p>
+     */
+    private void openMessageActionSheet(AIMessageViewHolder holder, ChatMessage message) {
+        if (holder == null || message == null) return;
+        android.content.Context ctx = holder.v2ActionRow.getContext();
+        boolean speaking = message.id != null && message.id.equals(speakingMessageId);
+        List<ChatV2ActionSheet.Item> items = new ArrayList<>();
+        items.add(new ChatV2ActionSheet.Item(R.drawable.ic_speaker, R.string.chat_speak,
+                ctx.getString(speaking ? R.string.chat_stop : R.string.chat_speak),
+                v -> forwardToLegacyAction(holder.btnSpeak)));
+        items.add(new ChatV2ActionSheet.Item(R.drawable.ic_copy, R.string.chat_copy,
+                v -> forwardToLegacyAction(holder.btnCopy)));
+        items.add(new ChatV2ActionSheet.Item(R.drawable.ic_share, R.string.chat_share,
+                v -> forwardToLegacyAction(holder.btnShare)));
+        // feedbackState：1=有帮助、-1=没帮助（与旧版那颗胶囊同一字段，不另存一份状态）
+        items.add(new ChatV2ActionSheet.Item(R.drawable.ic_thumb_up, R.string.chat_like,
+                message.feedbackState == 1
+                        ? ctx.getString(R.string.chat_v2_feedback_saved, ctx.getString(R.string.chat_like))
+                        : null,
+                v -> {
+                    forwardToLegacyAction(holder.btnLike);
+                    toastFeedbackSaved(ctx, message.feedbackState == 1);
+                }));
+        items.add(new ChatV2ActionSheet.Item(R.drawable.ic_thumb_down, R.string.chat_dislike,
+                message.feedbackState == -1
+                        ? ctx.getString(R.string.chat_v2_feedback_saved, ctx.getString(R.string.chat_dislike))
+                        : null,
+                v -> {
+                    forwardToLegacyAction(holder.btnDislike);
+                    toastFeedbackSaved(ctx, message.feedbackState == -1);
+                }));
+        items.add(new ChatV2ActionSheet.Item(R.drawable.ic_add, R.string.chat_new_chat,
+                v -> forwardToLegacyAction(holder.btnNewChat)));
+        ChatV2ActionSheet.show(ctx, R.string.chat_v2_msg_actions, items);
+    }
+
+    /** 反馈确认：取消反馈时不报"已反馈"，避免和"再点一次取消"的语义打架 */
+    private void toastFeedbackSaved(android.content.Context ctx, boolean saved) {
+        if (ctx == null) return;
+        android.widget.Toast.makeText(ctx,
+                saved ? R.string.chat_v2_feedback_thanks : R.string.chat_v2_feedback_cleared,
+                android.widget.Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -5542,6 +5705,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
          * 不进 DynamicAiMessageRoot 那 36 参构造器。
          */
         TextView dayLabel;
+        /**
+         * v2 操作段整行（三图标 + 更多）。旧版那 7 个 TextView 依然存在并继续承担
+         * 动作绑定与状态文字（朗读中/已反馈），v2 下被隐藏，图标与面板条目用
+         * performClick() 转发到它们，避免第二条动作实现。
+         */
+        LinearLayout v2ActionRow;
+        ImageView v2BtnCopy;
+        ImageView v2BtnRegenerate;
+        ImageView v2BtnMore;
         /** 工具行明细的内容指纹（工具名|状态|参数摘要序列）：流式重绑时结构没变就不重建 */
         String toolLineFp;
         /** Agent 汇总卡片的指纹缓存，字段变化才重渲染 */

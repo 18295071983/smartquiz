@@ -755,6 +755,12 @@
     <string name="chat_v2_untitled">新对话</string>
     <!-- 消息流日期分隔（demo .day）与"最近"列表时间用 -->
     <string name="chat_v2_today">今天</string>
+    <!-- v2 操作段：更多（消息动作面板标题 + 那颗溢出键的 contentDescription） -->
+    <string name="chat_v2_msg_actions">消息操作</string>
+    <!-- v2 操作段：反馈状态确认（旧版靠胶囊上的 ✓ 表达，v2 收起胶囊后改由面板文案 + Toast 表达） -->
+    <string name="chat_v2_feedback_saved">%1$s（已反馈）</string>
+    <string name="chat_v2_feedback_thanks">感谢反馈</string>
+    <string name="chat_v2_feedback_cleared">已取消反馈</string>
     <string name="chat_v2_yesterday">昨天</string>
     <!-- 作为 SimpleDateFormat 的 pattern 使用，不是展示文案 -->
     <string name="chat_v2_date_format" translatable="false">M月d日</string>
