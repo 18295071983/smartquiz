@@ -1,11 +1,11 @@
 # HANDOVER · 答题宝 AI 对话 / Agent UI 改版
 
-> 交接时间：2026-10-19（B0 / C0 / B1 / A0 已落地；C1、B2 各完成一部分；A1 / A2 未开始）
+> 交接时间：2026-10-19（B0 / C0 / B1 / A0 + demo UI 落地与接线已落地；C1、B2 各完成一部分；A1 / A2 未开始）
 > 交接对象：在 Qoder 中继续开发的 Agent
-> 当前状态：**已提交 5 个 commit（docs、B0+C0、B1、A0、C1/B2 局部）；全部改动未真机验证**
-> 下一步：先做 B0/C0/B1/A0 的真机回归（含打开 `chat_ui_v2` 看新外壳），再排 A1（消息四段结构）
+> 当前状态：**已提交 9 个 commit（docs、B0+C0、B1、A0、C1/B2 局部、demo UI 资源、v2 接线、v2 清空入口）；全部改动未真机验证**
+> 下一步：设备回来后装 APK 开 `chat_ui_v2` 做真机回归（B0/C0/B1/A0/A1 视觉一起看），再排 A1（消息四段结构）
 > 必读：`docs/ui/ai-chat-redesign.md`、`docs/ui/component-system-review.md`、`docs/ui/tool-result-step0-tasks.md`、`demo/README.md`
-> **先读 §4.1（B0）/ §4.2（C0）/ §4.3（A0）**：落地时对任务单口径做了修正，别再按旧文字实现。
+> **先读 §4.1（B0）/ §4.2（C0）/ §4.3（A0）/ §4.4（demo UI 落地与接线）**：落地时对任务单口径做了修正，别再按旧文字实现。
 
 ---
 
@@ -302,14 +302,56 @@
 5. **未验**：v2 外壳在真机上的实际观感（顶栏是否与状态栏打架、chip 28dp 是否点得动、
    面板读数是否有值）。这是 A0 目前最大的空白，也是下一步该先做的事。
 
+### 4.4 demo UI 落地 + 接线记录（A0 的第二步，2 个 commit）
+
+用户口径是"**先把 demo 中的 UI 实现了，再接线**"，所以拆成两个 commit：
+`feat(chat-ui): demo 视觉体系落地为 v2 token / 图标 / 布局`（纯视图层，无引用点）+
+`feat(chat-ui): 把 v2 布局接进聊天页（输入栏 / 顶栏 / 空状态 / 用户气泡）`。
+
+1. **demo 的设计系统进了资源**：`chat_v2_*` 颜色（values + values-night 两档）、
+   `chat_v2_*` 尺寸、14 枚 shape drawable、4 枚线性图标（sparkle/bulb/plan/globe）。
+   `ic_home_plan` 是 56dp 带渐变底块的首页图标，当不了行内图标，所以另出一枚 plan。
+   仍然没接 demo 的第三套蓝色主题（`[data-theme="blue"]`），也没有渐变按钮 ——
+   `MaterialButton` 的 `backgroundTint` 只吃纯色，渐变得换 ImageView，先记在这。
+2. **两套布局并存的口径**：输入栏和用户气泡的 v2 布局**控件 id 与旧布局逐一对应**，
+   所以 `ChatInputBar` / `UserMessageViewHolder` 只按开关换 inflate 的文件，绑定逻辑零分支。
+   空状态的场景卡用 v2 专属 id，**不能**复用 `chip_empty_exampleN`：
+   Activity 里那几个字段声明成 `Chip`，塞进 LinearLayout 会 ClassCastException。
+3. **顶栏从代码拼装改成 inflate `view_chat_appbar_v2`**，三个入口继续转发旧控件
+   （历史=`btn_history`、新建=`btn_new_conversation`、模型=`btn_model_select`）。
+   这些控件在 v2 下是 GONE 的，`performClick()` 照样能点，所以不必搬逻辑。
+   副标题同步从"按 tag 找"改成"按 id 找 + tag 兜底"，并新增 `updateTitle()`，
+   Activity 在刷新历史抽屉时顺手把当前会话标题写进顶栏。
+4. **空状态是怎么"复活"的**：旧版 `updateEmptyState()` 把空状态**永远置 GONE**
+   （注释写着"已移除欢迎界面"），而 `ChatAdapter#setEmptyView` 那套数据观察者
+   一直没人用。v2 直接复用它做唯一写入者，`updateEmptyState()` 在 v2 下不再插手，
+   避免出现两个写入者互相打回。**开关关着时仍是"永远只显示列表"。**
+5. **"正在生成"提示行**由 `ChatInputBar#setGeneratingHint()` 驱动，
+   挂在 `toggleStopButton()` 上（生成开始/结束各调一次，8 个调用点不用改）。
+   demo 文案带秒数（"正在生成 · 0s"），秒数需要一个计时器，
+   现有 `GenerationStatusBar` 没有对外暴露 elapsed，**先只做静态文案 + 呼吸点**，
+   秒数留给 A1（与 think-line 的"已深度思考 N 秒"一起做，两处共用一个计时口径）。
+6. **think-line / tool-line 两个布局已落地但未接**（A1 的四段结构才用到），
+   现在属于"有资源无引用"，A1 直接 inflate 即可。
+7. **补回了一个被 A0 吃掉的入口**：v2 把旧空状态整块收起后，里面那颗「清空」chip 就没地方点了，
+   「⋯」面板加了「清空当前对话」一行，转发 `chip_clear_chat2.performClick()`
+   （清空逻辑本身在 `QuickToolChipModule` 里，不重写）。
+8. **未验（本轮的实际状态）**：`assembleDebug` 通过、APK 已构建，但
+   `adb install` 时报 `device '279b6c51' not found`，设备已断开，所以下面这些**一个都没在真机上看过的**：
+   顶栏是否与状态栏打架、v2 胶囊与上方附件列表的对齐、场景卡点击填词、
+   「最近」列表是否有数据、模式 chip 28dp 点得动、面板读数是否有值。
+   设备回来后：装 APK → 冷启动 → 开 `chat_ui_v2` → 重进聊天页 → 截图对比 demo。
+
 **A1 · 消息重构（3–6 天）— 未开始**
 
 - [ ] 新建 `item_ai_message_v2.xml`：思考行 / 工具组 / 正文 / 操作四段。
+      （think/tool 行的行视图已由 §4.4 做成 `view_chat_v2_think_line` / `view_chat_v2_tool_line`）
 - [ ] `ChatAdapter` 拆 Binder：`UserBinder` / `AiBinder` / `SystemBinder` / `ToolBinder`；**不要一次性重写 5,302 行**，按 viewType 逐步切。
 - [ ] 思考折叠 + 工具组折叠 + 流式光标。
 - [ ] 操作行 3 图标 + 更多面板；末条常驻。
-- [ ] 停止生成移到输入框，停止后"继续生成"。
-- [ ] 空状态场景卡；日期分隔替代逐条时间戳。
+- [ ] 停止生成移到输入框，停止后"继续生成"。（停止按钮已在 v2 胶囊内，见 §4.4）
+- [x] 空状态场景卡（demo 四张场景卡 + 最近列表已落地并接好，见 §4.4）。
+- [ ] 日期分隔替代逐条时间戳。
 
 **A2 · Agent 执行 + 控制台（4–6 天）**
 
