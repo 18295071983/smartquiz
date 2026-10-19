@@ -132,7 +132,12 @@ public final class ChatUiV2Chrome {
         compressStatsBar(activity);
 
         ViewGroup root = activity.findViewById(R.id.main_content);
-        if (root == null || root.findViewWithTag(TAG_HEADER) != null) return;
+        if (root == null) return;
+        // 页面底色：demo 的整套 token（surface/border/text）都是按"浅底/深底纯色"设计的，
+        // 坐在首页那张深蓝壁纸上会全部失配（深色字压深底）。v2 用 chat_v2_bg 把内容层铺成纯色，
+        // 壁纸留给抽屉本身（history_drawer / tool drawer 仍按原样）。
+        root.setBackgroundColor(ContextCompat.getColor(activity, R.color.chat_v2_bg));
+        if (root.findViewWithTag(TAG_HEADER) != null) return;
 
         View header = buildHeader(activity, root);
         header.setTag(TAG_HEADER);

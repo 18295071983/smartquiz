@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 思考过程消息 v2：控件 id 与 item_thinking_message.xml 一致，ThinkingMessageViewHolder 不需要分支。
+     旧版文字色是给深蓝壁纸用的半透明白（#B3FFFFFF），v2 页面是 chat_v2_bg 纯色底，
+     所以整套换成 chat_v2_* token；正文样式对齐 demo 的 .think-body（左侧竖线 + text-2）。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="@dimen/space_4">
+
+    <TextView
+        android:id="@+id/thinking_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/space_2"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:text="@string/chat_thinking_process"
+        android:textColor="@color/chat_v2_text_3"
+        android:textSize="@dimen/text_11" />
+
+    <TextView
+        android:id="@+id/message_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/chat_v2_think_body_bar"
+        android:lineSpacingMultiplier="1.7"
+        android:paddingStart="@dimen/space_12"
+        android:paddingEnd="@dimen/space_2"
+        android:textColor="@color/chat_v2_text_2"
+        android:textIsSelectable="true"
+        android:textSize="@dimen/chat_v2_scene_text" />
+
+    <ProgressBar
+        android:id="@+id/thinking_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_4"
+        android:layout_marginTop="@dimen/space_4"
+        android:max="100"
+        android:progress="0" />
+
+</LinearLayout>

@@ -390,11 +390,26 @@
      要真做逐工具耗时得让生产方在 props 里补 `durationMs`。
 6. **流式期间的重建**：`toolLineFp`（名称|状态|参数摘要序列）没变就复用明细视图，
    重建时先记下 `body` 的可见性再还原，用户展开着就不会每来一个 token 就被折叠回去。
-7. **未真机验证**：这一段的编译（`compileDebugJavaWithJavac`）过了，
-   但装包时设备仍不在 adb 里，所以折叠行的观感、点击展开、
-   工具行与 `AgentExecutionView`/工具结果卡同时出现时会不会挤，都还没看过。
-   设备回来后：找一条带工具的历史消息（当前会话里就有一条"调用工具 5 次"的），
-   看它是否变成"已运行 5 个工具 · 29s ✅"一行，点开是 5 条明细。
+7. **第三段：页面底色 + 正文段，牵出一个根本冲突**——
+   demo 的整套 token（`--surface/--border/--text`）是按"纯色浅底"设计的，
+   而聊天页根布局 `drawer_layout` 的 background 是首页那张深蓝壁纸（`@drawable/bg_home_full`），
+   `main_content` 是 transparent。所以 v2 里"深色字压深底"的问题不是某个控件配色错，
+   是**页面底没换**。这一轮：
+   - `ChatUiV2Chrome` 把 `main_content` 铺成 `@color/chat_v2_bg`（壁纸留给两个抽屉）；
+   - AI 侧去掉气泡（demo 的 `.ai-text` 就是坐在页面底上），正文 15sp / 行高 1.68 / `chat_v2_text`；
+   - **连带必改**：`createAiMessageItem` 里操作栏、状态行、模型信息行、时间戳原本写死
+     `0xE8FFFFFF/0xB3FFFFFF/0xA8FFFFFF`（注释就写着"深蓝渐变背景上用"），
+     纯色浅底上会直接看不见，统一换成 token（旧版分支保持原值）；
+   - 同理给 `item_thinking_message` / `item_agent_step_message` 出了 v2 变体
+     （这两个布局里有硬编码 `#B3FFFFFF/#E8FFFFFF`），id 保持一致，只按开关换 inflate 的文件；
+     其余 `item_*` 布局用的是 `?attr` 主题色，不用动。
+   这是"换页面底"的最小闭环：**以后任何 v2 底色相关的改动，都要先检查这一串壁纸专用色**。
+8. **未真机验证**：这两段（tool-line、页面底 + 正文）只过了编译与 JVM 单测，
+   装包时设备反复从 adb 掉线（`device '279b6c51' not found`，几秒前才在列表里），
+   所以折叠行、工具行、浅底正文的实际观感**都还没看过**。
+   设备回来后要专门看：有工具调用的历史消息（当前会话里就有一条"调用工具 5 次"的）
+   是否变成"已运行 5 个工具 · 29s ✅"一行、点开是明细；以及浅底上
+   系统消息 / 工具卡 / 空状态是否协调。
 
 
 

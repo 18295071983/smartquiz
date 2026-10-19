@@ -356,11 +356,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case VIEW_TYPE_SYSTEM_PROMPT:
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
             case VIEW_TYPE_THINKING:
-                return new ThinkingMessageViewHolder(inflater.inflate(R.layout.item_thinking_message, parent, false));
+                // v2 页面底色换成纯色 token，旧布局里壁纸专用的半透明白文字会看不见
+                return new ThinkingMessageViewHolder(inflater.inflate(
+                        ChatUiFlags.isUiV2Enabled(parent.getContext())
+                                ? R.layout.item_thinking_message_v2 : R.layout.item_thinking_message,
+                        parent, false));
             case VIEW_TYPE_TOOL_CALL:
                 return new ToolCallViewHolder(inflater.inflate(R.layout.item_tool_call_message, parent, false));
             case VIEW_TYPE_AGENT_STEP:
-                return new AgentStepViewHolder(inflater.inflate(R.layout.item_agent_step_message, parent, false));
+                return new AgentStepViewHolder(inflater.inflate(
+                        ChatUiFlags.isUiV2Enabled(parent.getContext())
+                                ? R.layout.item_agent_step_message_v2 : R.layout.item_agent_step_message,
+                        parent, false));
             case VIEW_TYPE_AGENT_SUMMARY:
                 return new AgentSummaryViewHolder(inflater.inflate(R.layout.item_agent_summary_message, parent, false));
             case VIEW_TYPE_ERROR:
@@ -382,6 +389,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int dp10 = dpToPx(10, ctx);
         int dp12 = dpToPx(12, ctx);
         int dp14 = dpToPx(14, ctx);
+        // 一次读开关，本方法内所有分支共用（同一棵视图树里不允许一半 v2 一半旧版）
+        final boolean uiV2 = ChatUiFlags.isUiV2Enabled(ctx);
 
         // 主题色解析
         int colorOnSurface = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOnSurface);
@@ -427,8 +436,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // ===== 主气泡：思考区 + 工具卡片 + 正文 全部包裹 =====
         LinearLayout bubble = new LinearLayout(ctx);
         bubble.setOrientation(LinearLayout.VERTICAL);
-        bubble.setBackgroundResource(R.drawable.ai_message_background);
-        bubble.setPadding(dp12, dp10, dp12, dp10);
+        if (uiV2) {
+            // demo 的 AI 侧没有"气泡"：正文直接坐在页面底色上，靠字号/行距与卡片分层。
+            // 页面底色由 ChatUiV2Chrome 铺成 chat_v2_bg（纯色），所以这里去掉 ai_message_background
+            // 和它的内边距；卡片仍自带 CardShell 背景，不会跟着失去底。
+            bubble.setPadding(0, dpToPx(2, ctx), 0, 0);
+        } else {
+            bubble.setBackgroundResource(R.drawable.ai_message_background);
+            bubble.setPadding(dp12, dp10, dp12, dp10);
+        }
         bubble.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         vCol.addView(bubble);
@@ -512,7 +528,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView thinkingLabel;
         TextView thinkingContent;
         View thinkingDivider;
-        if (ChatUiFlags.isUiV2Enabled(ctx)) {
+        if (uiV2) {
             View thinkSection = LayoutInflater.from(ctx)
                     .inflate(R.layout.view_chat_v2_think_line, bubble, false);
             thinkingLabel = thinkSection.findViewById(R.id.chat_v2_think_text);
@@ -569,7 +585,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 旧版没有这一行（工具信息散在 agentSummary 文本/汇总卡里），所以只在 v2 建树，
         // 由 renderToolLine() 在绑定时接管 agentSummary 的显示。
         View toolSection = null;
-        if (ChatUiFlags.isUiV2Enabled(ctx)) {
+        if (uiV2) {
             toolSection = LayoutInflater.from(ctx)
                     .inflate(R.layout.view_chat_v2_tool_line, bubble, false);
             toolSection.setVisibility(View.GONE);
@@ -620,9 +636,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // --- 正文 ---
         TextView messageText = new TextView(ctx);
         messageText.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
-        messageText.setTextColor(colorOnSurface);
-        messageText.setTextSize(14f);
-        messageText.setLineSpacing(0f, 1.3f);
+        if (uiV2) {
+            // demo .ai-text：15px / 行高 1.68 / 主文本色（页面已是纯色底，不再靠气泡底色撑对比）
+            messageText.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+                    R.color.chat_v2_text));
+            messageText.setTextSize(15f);
+            messageText.setLineSpacing(0f, 1.68f);
+        } else {
+            messageText.setTextColor(colorOnSurface);
+            messageText.setTextSize(14f);
+            messageText.setLineSpacing(0f, 1.3f);
+        }
         messageText.setTextIsSelectable(true);
         if (android.os.Build.VERSION.SDK_INT >= 23) {
             messageText.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY);
@@ -652,7 +676,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         root.addView(actionButtons);
 
         // 操作栏位于消息卡片之外的深蓝渐变背景上，固定浅色文字(半透明白)保证可读
-        int actionTextColor = 0xE8FFFFFF;
+        // 操作栏在旧版坐在深蓝壁纸上，用半透明白；v2 页面是 chat_v2_bg 纯色底，
+        // 半透明白会直接看不见，所以按 token 取色（这一处必须跟着页面底色一起换）。
+        int actionTextColor = uiV2
+                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_2)
+                : 0xE8FFFFFF;
         TextView btnCopy = createActionButton(ctx, R.string.chat_copy, actionTextColor, true);
         TextView btnSpeak = createActionButton(ctx, R.string.chat_speak, actionTextColor, true);
         TextView btnShare = createActionButton(ctx, R.string.chat_share, actionTextColor, true);
@@ -682,9 +710,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         statusIcon.setLayoutParams(new LinearLayout.LayoutParams(dp14, dp14));
         statusRow.addView(statusIcon);
 
+        // 状态行 / 模型信息行 / 时间戳这些"元信息"文字同理：旧版半透明白是给深蓝壁纸用的
+        int metaTextColor = uiV2
+                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3)
+                : 0xB3FFFFFF;
         TextView statusText = new TextView(ctx);
         statusText.setTextSize(10f);
-        statusText.setTextColor(0xB3FFFFFF); // 深蓝渐变背景上状态文字用半透明白
+        statusText.setTextColor(metaTextColor);
         statusText.setVisibility(View.GONE);
         statusRow.addView(statusText);
 
@@ -707,7 +739,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         TextView modelNameText = new TextView(ctx);
         modelNameText.setTextSize(10f);
-        modelNameText.setTextColor(0xE8FFFFFF); // 深蓝渐变背景上用白色
+        modelNameText.setTextColor(metaTextColor); // v2 用 token，旧版深蓝壁纸上用半透明白
         LinearLayout.LayoutParams mntLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT);
         mntLp.weight = 1f;
         mntLp.setMarginStart(dpToPx(5, ctx));
@@ -716,12 +748,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         TextView modelLatencyText = new TextView(ctx);
         modelLatencyText.setTextSize(10f);
-        modelLatencyText.setTextColor(0xA8FFFFFF); // 深蓝渐变背景上用淡白
+        modelLatencyText.setTextColor(metaTextColor);
         modelInfoContainer.addView(modelLatencyText);
 
         TextView modelCostText = new TextView(ctx);
         modelCostText.setTextSize(10f);
-        modelCostText.setTextColor(0xA8FFFFFF); // 深蓝渐变背景上用淡白
+        modelCostText.setTextColor(metaTextColor);
         LinearLayout.LayoutParams mctLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         mctLp.setMarginStart(dp6);
@@ -731,7 +763,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // ===== 时间戳 =====
         TextView timestampText = new TextView(ctx);
         timestampText.setTextSize(10f);
-        timestampText.setTextColor(0xB3FFFFFF); // 深蓝渐变背景上时间戳用半透明白
+        timestampText.setTextColor(metaTextColor);
         LinearLayout.LayoutParams tsLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tsLp.setMarginStart(dp6);
