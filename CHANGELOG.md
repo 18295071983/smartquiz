@@ -1,5 +1,46 @@
 # 变更日志
 
+## [2026-10-20 补] 「工具结果显示」档位进设置入口（聊天页工具抽屉）
+
+卡片三档那节留了一句"新 pref 没有设置页入口"，这次补上，并把 `tool_auto_ui_bridge` 之外的
+用户可控项收敛成一个三档按钮。
+
+### 查到的事实
+
+- 聊天页这两个 pref 一直**只有代码能改**：`ToolResultCardBinder.setEnabled` 全项目零调用方，
+  `web_markdown_render` 同样只在 `AIChatActivity:676` 读。App 没有独立"设置页"，
+  AI 相关开关都集中在 `ToolboxActivity` 的入口清单和聊天页左侧工具抽屉里。
+- 抽屉里已有同型先例：`btn_auto_tts`（状态写进按钮文字 + 点击切换 + `updateAutoTtsButtonUI`
+  刷文字/配色），单选弹窗先例是 `AIChatActivity:8436`（思考强度）与
+  `ModelDownloadActivity:334`（镜像站）——照这两个路子做，不新建控件、不新增 drawable。
+- **档位是绑定时现算的**，所以换档不会自动生效，两处缓存必须先失效：
+  `bindComponents` 的整型内容指纹（`:3804`）与 `renderRoundAssembled` 的轮次字符串指纹，
+  都不含 pref；`ChatAdapter:197` 开了 `setHasStableIds(true)`，
+  位置没变的条目 `notifyDataSetChanged()` 会被 RecyclerView 跳过重绑。
+
+### 由此改掉的事
+
+- 新增 `ai/chat/ui/ToolResultDisplaySetting`：档位顺序/中文名/说明/写 pref/单选弹窗全在这个类里，
+  **不复制一份枚举**，口径仍由 `ComponentDisplay` 独占；`AIChatActivity` 只加一个字段、
+  一行 findViewById、一段按钮接线（沿用 God Object 少堆内联 UI 的既有做法）。
+- 抽屉"其他"行下方新增整宽按钮 `btn_tool_result_display`（"🖼️ 摘要一行"），
+  文字随当前档位变；说明文案里把代价写清（整卡展开=老样子但顶屏幕、不显示卡片=只留过程与文字）。
+- 换档生效链补全：把默认档编进上面两处指纹（整型指纹乘进一个 hash、轮次指纹加 `D<档名>` 段），
+  并用 `notifyItemRangeChanged(0, itemCount)` 代替 `notifyDataSetChanged()`——
+  后者在 stable ids 下会跳过位置未变项的重绑，用户会以为按钮没反应。
+- 顺手改掉一条现在会说谎的注释：`renderRoundAssembled` 里"产物仍归 others 通道（始终完整显示）"。
+- hidden 档与 `tool_auto_ui_bridge` 的差异没被抹平，也没在按钮里假装等价：
+  三档只管"怎么显示"，自动补挂开关只管"要不要生成卡片"，后者仍只有代码可改（要给用户控制它得再加一项）。
+
+### 验证
+
+- `testDebugUnitTest --offline` = **439 tests / 0 failed / 0 skipped / 0 errors**（41 个结果 XML 逐个数过 skipped，
+  含新增 `ToolResultDisplaySettingTest` 4 条：档位顺序与 pref 名往返、三个标签唯一、
+  无 Context 时按钮落到默认档、**说明文案不许与"交互/正文类强制 inline"的底线打架**），
+  `assembleDebug --offline` BUILD SUCCESSFUL。
+- **未做真机验证**（设备不在）：按钮点开后弹窗排版（三行长说明在窄屏会不会截）、
+  换档后在屏消息是否立刻重绘、抽屉第四行会不会挤——这三条只能装机看。
+
 ## [2026-10-20] 组件名字账本收口：删死名单与死实现，list/progress 让给卡片，primitive_ 逃生口见光
 
 接着上一节查"工具结果 UI 组件 AI 能不能管"时，用户改问"这些内置组件够用吗"，按**实现完整性（死名字与没接线）**口径盘了一遍。结论：能力不缺（32 个 Layout 原语在 `NativeLayoutRenderer` 都有真实分支），**缺的是名字账本的一致性**。
