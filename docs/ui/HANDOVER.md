@@ -486,14 +486,28 @@
 - 组件：quiz 答题 → 判题 → 回传；空/错/超长内容；HTML 注入用例。
 - 工具结果（C0）：成功/失败/200KB 输出/手动 AI 解读/聚合流程/历史恢复，明细见 `docs/ui/tool-result-step0-tasks.md` §T5。
 - 构建：`gradlew.bat assembleDebug`（确认二进制资源存在）。
-- **JVM 单测现状（2026-10-19 实测）**：`testDebugUnitTest` 整体是红的，27 条失败集中在
-  `ExportTemplateTest` / `OnlinePromptBuilderAssemblyTest` / `StreamingUpdateManagerTest` /
-  `AIToolManagerTest` / `AIServiceStateTest` / `ColorResourceProviderTest` / `ResourceIntegrationTest`，
-  与本次 UI 改版无关（`ColorResourceProviderTest` 报 `NoSuchMethodError`，是测试代码比生产 API 旧）。
-  改版自己的用例是绿的：`HtmlSandboxTest` 17/17、`ComponentTypesTest` 6/6、
-  `ToolResultTextTest` 6/6、`ToolResultStoreTest` 3/3、`ResponsesPayloadBuilderTest` 1/1。
-  **别把整体红当成这次改坏了**；也别顺手修那 27 条（不在这个任务范围，且要先定"是测试旧了还是行为变了"）。
-  跑测试时别把输出接进 `tail`，Gradle 的失败会被管道吞掉（`exit=0` 假绿）。
+- **JVM 单测现状（2026-10-19 已修绿）**：`testDebugUnitTest` 现在 **407 条全绿**。
+  之前 25 条红有两类根因，都不在 UI 改版范围内：
+  1. **Robolectric 没钉 API 等级**（13 条，含 `ExportTemplateTest` 4 条）：应用 targetSdk=36，
+     Robolectric 4.10.3 最高只支持 33，不钉等级时它退到本地缓存里更老的 android-all 镜像，
+     那批框架类没有 `Context.getColor(int)`（API 23 才有），`ThemeColors.get()` 的兜底分支必炸。
+     修法是加 `src/test/resources/robolectric.properties`（`sdk=33`）——
+     **不改断言、也不为迁就测试改生产代码**。
+  2. **断言停在旧契约**（12 条）：`StreamingUpdateManagerTest` 5 条是因为回调走
+     `mainHandler.post()`，纯 JUnit 没有主 Looper → 回调永不发生（改成 Robolectric + idle，
+     并补一条 `callbackIsDeliveredOnMainThread` 钉住这个异步契约）；
+     `AIToolManagerTest` 2 条是"测试环境没注册工具"的前提早已不成立（构造即注册 20 来个工厂），
+     顺带去掉满篇 `if (manager != null)`（初始化失败会空跑通过，等于没测），
+     并区分 `hasTool`（查注册表）与 `getTool`（要真构造，database 在纯 JVM 建不起 Room）；
+     `OnlinePromptBuilderAssemblyTest` 4 条 + golden 是提示词上下文瘦身（20.8KB→9.9KB）后没重新生成。
+  3. 只有一条是生产端的问题：`AIServiceState.setCurrentStage(stage, msg, progress)` 少夹 0..100
+     （`setProgressPercent()` 有夹，同一个字段两条写入口径不一致）。测试断言是对的，
+     所以改生产端一行（`3609a2a8`），没有把断言改松。
+- **改提示词后怎么更新 golden**：见 `OnlinePromptBuilderAssemblyTest` 类注释——
+  先看 diff 确认措辞是想要的，再重新生成，**不许为了让测试变绿直接覆盖 golden**；
+  另有 `uiComponentGuidanceStaysSlim` 钉住"UI 组件长规则不再回系统提示词"。
+- **跑测试别把输出接进 `tail`**：Gradle 的失败会被管道吞掉（后台任务通知也会报 exit 0）。
+  怀疑"没真跑"时加 `--rerun`，并核对 `build/test-results/testDebugUnitTest/*.xml` 的时间戳。
 - 截图：`demo/screenshots/` 是设计基线，可作为实现对照。
 
 ---
