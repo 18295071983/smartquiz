@@ -2,6 +2,91 @@
 
 # 变更日志
 
+## [2026-10-19] 聊天页 v2：demo 视觉体系落地并接线，A1 换掉三段消息结构；JVM 单测从"25 条既有红"修到全绿
+
+### 查到的事实（先证实再动手）
+
+- **AI 消息没有布局文件**：`ChatAdapter#createAiMessageItem` 用约 330 行代码 new 出整棵视图树，
+  再塞进 `DynamicAiMessageRoot`（构造参数就是那 30 多个视图引用），全类靠字段访问、不用 `findViewById`。
+  所以任务单里"新建 `item_ai_message_v2.xml` 四段结构"没法照做，只能一段一段换。
+- **"深色字压深底"不是某个控件配错，是页面底没换**：demo 整套 token 按纯色浅底设计，
+  而聊天页根布局 `drawer_layout` 的 background 是首页深蓝壁纸 `@drawable/bg_home_full`、
+  `main_content` 是 transparent。更要紧的是有一整串**壁纸专用硬编码色**
+  （`createAiMessageItem` 里的 `0xE8FFFFFF`/`0xB3FFFFFF`/`0xA8FFFFFF`，
+  `item_thinking_message` / `item_agent_step_message` 里的 `#B3FFFFFF`/`#E8FFFFFF`，
+  注释原文就是"深蓝渐变背景上用"）—— 换浅底后它们会直接看不见。
+- **`ChatAdapter#setEmptyView` 那套数据观察者一直没人用**：旧版 `updateEmptyState()`
+  把空状态**永远置 GONE**（注释写着"已移除欢迎界面"），所以 demo 的空状态首屏接不上。
+- **`ChatStatsBar.update()` 每次刷新都 `setVisibility(VISIBLE)`**：A0 想收起会话统计胶囊条时
+  单纯 `GONE` 会被打回（真机截图证实这条确实还挂着）。
+- **Chip 字段类型不能换**：`AIChatActivity` 把 `chip_empty_exampleN` 声明成 `Chip`，
+  v2 场景卡若复用同一批 id 换成 LinearLayout 会 ClassCastException。
+- **25 条单测红的根因不是"生产 API 变了"**：`NoSuchMethodError: android.content.Context.getColor(int)`
+  出在 `ThemeColors.get()` 的兜底分支——应用 targetSdk=36 而 Robolectric 4.10.3 最高支持 33，
+  不显式钉等级时它退到本地 `~/.m2` 里更老的 android-all 镜像（本机只有 4.1.2_r1 / 9 / 13 三档），
+  那批框架类根本没有 `Context.getColor(int)`（API 23 才有）。
+- **`StreamingUpdateManager` 的回调走 `mainHandler.post()`**：纯 JUnit 没有主 Looper，
+  post 静默丢失，所以"回调收到什么内容"永远拿到空串——不是逻辑坏，是测试跑在错的环境上。
+- **`AIToolManager` 构造即注册 20 来个工具工厂**，`getTool(name)` 懒加载出实例：
+  旧用例"测试环境没注册工具 → getTool 返回 null"的前提早已不成立；
+  而且满篇 `if (manager != null) {...}` 在初始化失败时会空跑通过，等于没测。
+- **在线提示词做过上下文瘦身**（golden 20.8KB/19.3KB → 现行 9.9KB/8.1KB），
+  UI 组件段从长规则换成精简指引（长规则挪进 `ui_component` 工具定义），golden 没跟着重生成。
+- 只有一条是生产端真缺东西：`AIServiceState.setCurrentStage(stage, msg, progress)` 直接赋值，
+  而同字段的 `setProgressPercent()` 有 `max(0,min(100,...))` —— 两条写入口径不一致。
+
+### 由此改掉的事
+
+- **demo 设计系统进资源**：`chat_v2_*` 颜色（values + values-night 两档）、尺寸 token、
+  14 枚 shape drawable、4 枚线性图标（sparkle/bulb/plan/globe；`ic_home_plan` 是 56dp 带渐变底块的
+  首页图标，当不了行内图标所以另出一枚），加 9 个 v2 布局（输入胶囊、顶栏、空状态、最近行、
+  think-line、tool-line、tool-row、用户气泡）。
+- **接线全部挂在既有开关 `chat_ui_v2` 后面**（默认关，关着就是原路径）：
+  输入栏与用户气泡按开关换 inflate 的布局文件（两套 id 逐一对应，绑定逻辑零分支）；
+  顶栏从代码拼装改成 inflate，三个入口继续转发页面里已存在的旧控件（历史 / 新建 / 模型），
+  GONE 的 `performClick()` 照样有效；空状态用 `ChatV2EmptyState` 接问候语、
+  四张场景卡填示例提示词、「最近」取现有会话列表前 3 条（时间口径与历史抽屉一致）。
+- **空状态"复活"用单一写入者**：改接 `ChatAdapter#setEmptyView` 的数据观察者，
+  `updateEmptyState()` 在 v2 下不再插手，避免两个写入者互相打回。
+- **A1 前三段**：思考段换 demo 折叠行（新增 `ThinkLineLabel` / `ThinkLineBody` 两个薄视图类，
+  解决"旧逻辑只认一个 TextView、v2 是一整行"的错配，后面 20 多处折叠/流式/高度动画调用点一行没改）；
+  工具段 `renderToolLine` 接管 Agent 汇总（计数取 `AgentSummaryInfo.toolCallCount`、明细取
+  `components` 里 `type=tool_call` 的卡；接管后汇总文本与汇总卡都不再出现；
+  逐调用耗时 props 里没有，先显示状态而不是耗时）；正文段去气泡 + 页面底色 token 化，
+  并连带把那一串壁纸专用白换成 token、给 thinking/agent-step 出 v2 布局变体。
+- **补两个被 A0 吃掉的入口**：「⋯」面板加「清空当前对话」（旧空状态收起后那颗 chip 没地方点了）；
+  会话统计胶囊条加 `setSuppressed()`（不是 setVisibility，见上）。
+- **单测修绿**：加 `src/test/resources/robolectric.properties`（`sdk=33`）修 13 条环境性红；
+  重写 `StreamingUpdateManagerTest`（Robolectric + idle Looper，并补一条钉住"回调是异步投递"的用例）、
+  `AIToolManagerTest`（区分 `hasTool` 查注册表 / `getTool` 要真构造，去掉空跑式 null 判断，
+  未初始化抛异常改用反射临时清单例再还原）、`OnlinePromptBuilderAssemblyTest` + 重新生成 golden，
+  并新增 `uiComponentGuidanceStaysSlim` 反向钉住"长规则别再被塞回系统提示词"。
+  **断言没有一条是为了变绿而放松的。**
+- 生产端只动一行：`setCurrentStage` 补进度夹取（`3609a2a8`）。
+
+### 验证
+
+- `./gradlew testDebugUnitTest --offline --rerun`：**36 个类 / 407 tests / 0 failed**。
+  **10-18 那几条记的"342 tests / 25 failed（25 是既有基线）"已经失效** ——
+  那 25 条现在全绿，根因与逐条判断见本节"查到的事实"和 `docs/ui/HANDOVER.md` §7。
+  改版自有用例：`HtmlSandboxTest` 17、`ComponentTypesTest` 6、`ToolResultTextTest` 6、
+  `ToolResultStoreTest` 3、`ResponsesPayloadBuilderTest` 全绿。
+- **真机三轮（设备 279b6c51 / 25113PN0EC，`chat_ui_v2=true`）**：
+  13:15 首轮确认 v2 顶栏、输入胶囊、旧头部行收起，并当场发现会话统计胶囊条漏收（已修）；
+  15:00 二轮确认浅底页面、无气泡正文、紫色渐变用户气泡、操作行/状态行在浅底上可读、无崩溃；
+  15:06–15:11 三轮由用户跑了一条"查天气"对话（有思考 + 11 次工具调用）后确认：
+  思考段是"星形图标 + 摘要 + ›"一行，工具段是"已运行 11 个工具 ✓ ›"，
+  **点开是 11 行明细**（工具中文名 + 参数摘要 + 绿色"已完成"、行间分隔线、箭头转 ▼），
+  且 Agent 汇总那坨 emoji 文本/汇总卡没有再出现 —— A1 三段在真机成立。
+- **仍未确认的**：`ecae6e67`（思考行去掉重复 🧠/ emoji）只做到"编译 + 装机成功"，
+  装完后那张截图的可视区域没有思考行，**没有目视确认**；
+  v2 空状态首屏（要单独点一次「新对话」才出现）也没看过。
+- **下一段要定的口径**：工具行展开是 11 行明细，而正文里那张 `tool_call` 卡
+  （"🔧 location ✅ address:金凤区丽银街…"）仍按轮次组装内联显示 —— 同一批工具在一条消息里
+  出现两种表示。demo 的口径是"结果卡就是工具行的展开体"，动它要改 `renderRoundAssembled`，
+  属 A1 第四段，本轮刻意没做。另外 15:22 截图里底部那条「Agent 执行汇总」卡是
+  **另一个 view type**（`item_agent_summary_message`），不在 `renderToolLine` 的接管范围内。
+
 ## [2026-10-19] 专用模型与服务商密钥两处口径收敛：语音勾选真正生效、密钥页不再双处编辑
 
 ### 查到的事实
@@ -269,6 +354,9 @@
 `ResponsesPayloadBuilderTest` 14 例（+3：开头 system → instructions、中段 system 保持原位、
 无系统提示时不下发空 `instructions`）、`ResponsesStreamParserTest` 36 例，全绿；
 全量 **342 tests / 25 failed**（25 仍是既有基线）。
+  > 2026-10-19 更新：这个「25 条既有基线」已失效 —— 根因是 Robolectric 没钉 API 等级
+  > （`ThemeColors.get()` 兜底分支要的 `Context.getColor` 在被选中的老 android-all 镜像里没有）
+  > 加三处断言过期，现已 **407 tests / 0 failed**（见本文件顶部 10-19「聊天页 v2」一节）。
 DeepSeek 的**真实一次调用仍未做过**（这里没有 key、也没接真机）—— 所以放量靠的是
 "文档形状逐条对齐 + 失败自动回落 chat"两层，而不是"应该没问题"。
 
@@ -319,6 +407,7 @@ DeepSeek 的**真实一次调用仍未做过**（这里没有 key、也没接真
   工具用例含并发 call 乱序到达仍按出现顺序回填、缺 `added` 事件也能收到工具调用。
 - `./gradlew testDebugUnitTest --offline --rerun-tasks`：**339 tests / 25 failed**
   （基线 292 → 本批 +47；25 个仍是既有失败，类分布未变）。
+  > 2026-10-19 更新：这批「既有失败」已修绿，现全量 **407 tests / 0 failed**。
 - **踩坑记录**：本想用 socket + 手搓 chunked 帧做"真 HTTP"验证，三次用例全在
   `SocketTimeoutException`；单进程探针证实本机环回端口被安全软件 LSP 拦掉
   （accept 成功但写入被中止）。同时 `com.sun.net.httpserver` 不在 android.jar 里、
@@ -483,6 +572,10 @@ Agent 循环整套建立在 chat 消息形状上，而 Responses 有三处不同
   这 25 个是**既有失败**（剥离本次改动后同命令跑出同样的 277 tests / 25 failed，类分布一致：
   StreamingUpdateManagerTest 依赖 JVM 桩里的主线程 Handler、ColorResourceProviderTest 依赖
   Android 资源、AIServiceStateTest 断言与现行为不符等 7 个类），与本次改动无关，未顺手修。
+  > 2026-10-19 更新：这个「25 条」基线已清零（现 **407 tests / 0 failed**）。当时的三条猜测里
+  > 主线程 Handler 那条是对的；ColorResourceProvider 那条其实不是"缺资源"而是 Robolectric
+  > 没钉 API 等级（targetSdk 36 超出 4.10.3 支持上限，退到老 android-all，里面没有
+  > Context.getColor）；AIServiceStateTest 那条方向反了——是生产端少夹了一次进度，改的是代码。
   已把这条基线记进项目记忆，避免下次误判成自己改坏了。
 
 ### 未验证（设备缺口，需要接真机）
