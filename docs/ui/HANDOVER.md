@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-19（B0 / C0 / B1 / A0 / demo UI 落地与接线 / A1 前三段已落地；C1、B2 各完成一部分；A1 剩余与 A2 未开始）
 > 交接对象：在 Qoder 中继续开发的 Agent
-> 当前状态：**v2 已过真机首轮回归（浅底页面、顶栏、输入胶囊、正文段都确认生效）；A1 的思考段/工具段与 v2 空状态首屏仍未在真机看过；JVM 单测 411 条全绿（0 跳过——上一轮报的"407 全绿"里有 128 条被 Robolectric 静默跳过，见 §7）**
+> 当前状态：**v2 已过真机首轮回归（浅底页面、顶栏、输入胶囊、正文段都确认生效）；A1 第四段（日期分隔 + 操作段图标化）与思考/工具段的真机观感都还没看过；会话重复已查到第三层主因并修完（待装机复测）；JVM 单测 417 条全绿（0 跳过——更早报的"407 全绿"里有 128 条被 Robolectric 静默跳过，见 §7）**
 > 下一步：切一条有工具调用的历史会话回归 A1 的思考段与工具段 + 点「新对话」看空状态首屏，再做 A1 剩余（操作段图标化、日期分隔、Binder 拆分）
 > 必读：`docs/ui/ai-chat-redesign.md`、`docs/ui/component-system-review.md`、`docs/ui/tool-result-step0-tasks.md`、`demo/README.md`
 > **先读 §4.1（B0）/ §4.2（C0）/ §4.3（A0）/ §4.4（demo UI 落地与接线）/ §4.5（A1 三段）**：落地时对任务单口径做了修正，别再按旧文字实现。
@@ -768,21 +768,29 @@ demo 的 `#tpl-actions` 只有三颗图标（复制 / 重新生成 / 更多）�
   输入胶囊、旧头部胶囊行与会话统计胶囊条已收起、无崩溃。
 - 真机**未看过的**：带思考/带工具调用的消息（思考折叠行、"已运行 N 个工具"行 + 点开明细）、
   v2 空状态首屏（要点一次「新对话」才会出现）、深色档。
-- JVM 单测 **411 条全绿、0 跳过**（2026-10-19 两轮：先修 25 条红，再发现 Robolectric 因没开
-  `includeAndroidResources` 被整类跳过 128 条，开齐后逐条查修 18 条——明细见 §7，别再按"407 全绿"理解，
-  也别只看 failures=0，**要连 skipped 一起看**）。
+- JVM 单测 **417 条全绿、0 跳过**（2026-10-19 一天内三轮：修 25 条红 → 发现 Robolectric 因没开
+  `includeAndroidResources` 被整类跳过 128 条 → 开齐后逐条查修 18 条，明细见 §7。
+  **报"绿"之前必须核 tests/skipped/failures/errors 四个数**，`failures=0` 会被跳过骗）。
+- "每次退后台/重进多一条历史会话"查到第三层主因并修完（§4.7）：会话文件只持久化 USER/AI，
+  而恢复窗口末尾常是 SYSTEM 消息，认领比对必须取"窗口里最后一条 USER/AI"的 id。
+- A1 第四段两半已落地但**真机没看过**（§4.8）：日期分隔做成"消息行自己的第一个子 View"
+  （不是 RecyclerView 虚拟条目）、操作段换成三图标 + 更多面板。
 - 不要动 CardShell / HtmlSandbox / HtmlWebView / ComponentLifecycle / ComponentTypes 的既有口径；
   不要"顺手"接线 ToolExecutionOrchestrator（无调用点的副本）。
 
 下一步（按顺序）：
-1) 真机回归 A1 剩余部分：切到一条有工具调用的历史会话（如"一元二次方程专项练习"），
-   确认思考段是"折叠行 + 点开正文"、工具段是"已运行 N 个工具 · 耗时 · 成败"一行且汇总卡不再重复出现；
-   再点「新对话」看 v2 空状态（问候 + 四张场景卡填词 + 最近列表）；顺手看一眼深色档。
-   同时补跑 C0/B1 的行为用例：一次成功工具、一次 200KB 输出、一次 mermaid、一次答题回传。
-2) A1 剩余：操作段（3 图标 + 更多面板、末条常驻、去掉 👍👎 emoji 与文字按钮）、
-   日期分隔替代逐条时间戳、"正在生成 · Ns"的秒数（与 think-line 共用一个计时口径）、
-   ChatAdapter 按 viewType 拆 Binder。**注意 AI 消息没有布局文件**：
-   是 createAiMessageItem 用 ~330 行代码 new 出整棵树，只能一段一段换，不要整体重写。
+1) **装机回归（设备 279b6c51 回到电脑跟前第一件事；APK 已在 `build/outputs/apk/debug/`）**，四组一起看：
+   a. 会话不再重复：反复进出聊天页，`files/conversations/` 只有一条 uuid 文件在被更新、
+      没有 `null.json`，日志每次恢复都有 `恢复历史认领回原会话: <id>`（§4.7）；
+   b. 主气泡不再空白：进页面首屏就有正文，logcat 无 `measure failed`（§4.6，仍未验）；
+   c. A1 第四段：新日期第一条上方一行居中日期、用户气泡右下不再显示时间；
+      末条 AI 只有三颗图标、点「更多」出六项面板、点「有帮助」有 Toast（§4.8）；
+   d. 切一条有工具调用的历史会话确认思考段/工具段，点「新对话」看 v2 空状态，顺手看深色档。
+2) A1 剩余：**"正在生成 · Ns"的秒数**（与 think-line 共用一个计时口径）、
+   **ChatAdapter 按 viewType 拆 Binder**。**注意 AI 消息没有布局文件**：
+   是 `createAiMessageItem` 用 ~330 行代码 new 出整棵树（`DynamicAiMessageRoot` 36 参构造器），
+   只能一段一段换，不要整体重写；新加的视图沿用"建完直接挂 holder"（`toolSection`/`markdownView`/
+   `dayLabel`/`v2ActionRow` 都是这样），别去扩构造器参数。
 3) A2 Agent 执行子 UI + 控制台 6 Tab。
 4) C1 剩余（ToolResultPresentation/Presenter/落盘/时间线）与 B2 剩余（无障碍、截图回归、
    拆 NativeLayoutRenderer）各自独立排期。
