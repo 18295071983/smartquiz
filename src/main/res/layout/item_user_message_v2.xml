@@ -8,6 +8,24 @@
     android:paddingHorizontal="@dimen/space_4"
     android:paddingVertical="@dimen/space_5">
 
+    <!-- 日期分隔（demo .day）：本条消息与上一条不在同一日历日时，在这条消息上方居中显示一行日期。
+         刻意做成"行内首个子 View"而不是 RecyclerView 的独立条目：
+         消息列表是 chatHistory 本体，索引被 Activity 与 ChatAdapter 各处直接使用
+         （notifyItemRangeInserted / chatHistory.get(position) 等），
+         往里插虚拟条目会让所有位置计算偏移，风险远大于收益。
+         item_user_message.xml（旧版）没有这个 id，Adapter 按 null 处理。 -->
+    <TextView
+        android:id="@+id/day_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_10"
+        android:layout_marginBottom="@dimen/space_6"
+        android:gravity="center"
+        android:letterSpacing="0.02"
+        android:textColor="@color/chat_v2_text_3"
+        android:textSize="@dimen/chat_v2_status_text"
+        android:visibility="gone"/>
+
     <TextView
         android:id="@+id/block_label"
         android:layout_width="wrap_content"

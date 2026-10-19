@@ -408,6 +408,28 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         root.setLayoutParams(rootLp);
 
+        // ===== 日期分隔（demo .day：居中一行"今天 14:32"）=====
+        // 刻意做成"本行内容的第一个子 View"而不是 RecyclerView 的独立条目：
+        // 消息列表就是 chatHistory 本体，各处直接用 position 取消息
+        //（Activity 里 notifyItemRangeInserted / chatHistory.get(position) 一大片），
+        // 插虚拟条目会让所有位置计算偏移，风险远大于收益。
+        // 旧版界面没有这个控件（保持 null），只有 v2 建它。
+        TextView dayLabel = null;
+        if (uiV2) {
+            dayLabel = new TextView(ctx);
+            dayLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                    ctx.getResources().getDimension(R.dimen.chat_v2_status_text));
+            dayLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3));
+            dayLabel.setGravity(android.view.Gravity.CENTER);
+            LinearLayout.LayoutParams dayLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            dayLp.topMargin = dpToPx(10, ctx);
+            dayLp.bottomMargin = dpToPx(6, ctx);
+            dayLabel.setLayoutParams(dayLp);
+            dayLabel.setVisibility(View.GONE);
+            root.addView(dayLabel);
+        }
+
         // ===== blockLabel（未使用，保持隐藏） =====
         TextView blockLabel = new TextView(ctx);
         blockLabel.setTextSize(10f);
@@ -783,6 +805,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         dynamicRoot.addView(root);
         AIMessageViewHolder holder = new AIMessageViewHolder(dynamicRoot);
+        holder.dayLabel = dayLabel;
         holder.toolSection = toolSection;
         // 纯文本气泡的 WebView 渲染器：作为 contentHost 的第二子 View，默认 GONE，
         // 仅 webMarkdownEnabled 时接管正文（与 messageText 二选一）。随 holder 复用，
@@ -872,7 +895,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         switch (holder.getItemViewType()) {
             case VIEW_TYPE_USER:
-                bindUserMessage((UserMessageViewHolder) holder, message, timeStr);
+                bindUserMessage((UserMessageViewHolder) holder, message, timeStr, position);
                 break;
             case VIEW_TYPE_AI:
                 bindAIMessage((AIMessageViewHolder) holder, message, timeStr, position);
@@ -983,6 +1006,45 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         long currentTime = messages.get(position).timestamp;
         long prevTime = messages.get(position - 1).timestamp;
         return currentTime - prevTime > TIME_GROUP_INTERVAL_MS;
+    }
+
+    /**
+     * 本条消息是否是"新的一天"的第一条（v2 日期分隔的判据）。
+     * 比的是日历日而不是"相隔 24 小时"：凌晨 00:30 与前一天 23:30 只差一小时，但它们属于两天，
+     * 分隔行必须落在后者之后。
+     */
+    private boolean startsNewDay(int position) {
+        if (position <= 0) return true;
+        if (position >= messages.size()) return false;
+        ChatMessage cur = messages.get(position);
+        ChatMessage prev = messages.get(position - 1);
+        if (cur == null || prev == null) return true;
+        return !com.oilquiz.app.ai.chat.ui.ChatDayLabel.isSameDay(cur.timestamp, prev.timestamp);
+    }
+
+    /**
+     * 日期分隔行（demo {@code .day}："今天 14:32"）。
+     *
+     * <p>只在 {@code chat_ui_v2} 开启时显示；旧版视图树里没有这个控件（{@code dayLabel == null}），
+     * 直接返回，所以关掉开关就是原来的逐条时间戳样子。</p>
+     *
+     * <p>v2 下逐条时间戳按设计收起（时间信息已经进这一行日期），
+     * "点时间看详情"的入口跟着挪到分隔行上；长按菜单里本来也有「详情」，入口不会丢。</p>
+     */
+    private void bindDayLabel(TextView dayLabel, int position, ChatMessage message) {
+        if (dayLabel == null || message == null) return;
+        android.content.Context ctx = dayLabel.getContext();
+        if (!ChatUiFlags.isUiV2Enabled(ctx)) {
+            dayLabel.setVisibility(View.GONE);
+            return;
+        }
+        if (startsNewDay(position)) {
+            dayLabel.setText(com.oilquiz.app.ai.chat.ui.ChatDayLabel.divider(ctx, message.timestamp));
+            dayLabel.setVisibility(View.VISIBLE);
+            bindTimestampClick(dayLabel, message);
+        } else {
+            dayLabel.setVisibility(View.GONE);
+        }
     }
 
     /**
@@ -1117,7 +1179,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         try { menu.show(); } catch (Throwable ignored) {}
     }
 
-    private void bindUserMessage(UserMessageViewHolder holder, ChatMessage message, String timeStr) {
+    private void bindUserMessage(UserMessageViewHolder holder, ChatMessage message, String timeStr, int position) {
         // 语音消息标识：来源语音的 USER 消息在气泡上方显示 "🎤 语音" 标签，与文字消息区分
         if (holder.blockLabel != null) {
             if (message.voiceInput) {
@@ -1131,6 +1193,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.messageText.setText(message.content);
         holder.timestampText.setText(timeStr);
         bindTimestampClick(holder.timestampText, message);
+        bindDayLabel(holder.dayLabel, position, message);
+        // v2：逐条时间戳收进日期分隔行。dayLabel 只存在于 v2 的布局/视图树里，
+        // 关开关时它是 null、这里维持旧版的一直显示；开开关时显式收起（复用池要清状态）。
+        holder.timestampText.setVisibility(
+                holder.dayLabel != null ? View.GONE : View.VISIBLE);
 
         setupItemViewInteraction(holder.itemView, message);
 
@@ -1160,8 +1227,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.messageText.setMovementMethod(LinkMovementMethod.getInstance());
         holder.timestampText.setText(timeStr);
         bindTimestampClick(holder.timestampText, message);
-        // 时间栏只对最终轮（最后一条 AI 消息）显示；中间轮次隐藏
-        holder.timestampText.setVisibility(isLastAiMessage(position) ? View.VISIBLE : View.GONE);
+        bindDayLabel(holder.dayLabel, position, message);
+        // 时间栏只对最终轮（最后一条 AI 消息）显示；中间轮次隐藏。
+        // v2（holder.dayLabel 存在）下逐条时间戳整体收起，时间信息由日期分隔行承担。
+        holder.timestampText.setVisibility(
+                holder.dayLabel == null && isLastAiMessage(position) ? View.VISIBLE : View.GONE);
 
         // blockLabel 当前未使用，确保隐藏
         if (holder.blockLabel != null) {
@@ -5328,6 +5398,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ImageView statusIcon;
         TextView statusText;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
+        /** 日期分隔行（demo .day，仅 v2 布局有；旧版布局 findViewById 返回 null） */
+        TextView dayLabel;
 
         UserMessageViewHolder(View itemView) {
             super(itemView);
@@ -5337,6 +5409,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             statusIcon = itemView.findViewById(R.id.status_icon);
             statusText = itemView.findViewById(R.id.status_text);
             attachmentsRecycler = itemView.findViewById(R.id.attachments_recycler);
+            dayLabel = itemView.findViewById(R.id.day_label);
         }
     }
 
@@ -5463,6 +5536,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         View agentSummarySlot;
         /** v2 工具活动行（demo .tool-line 整块：行 + 折叠明细）；旧版布局下为 null */
         View toolSection;
+        /**
+         * 日期分隔行（demo .day，仅 v2 建）。null 表示当前界面档位没这个控件。
+         * 与 markdownView 一样在 createAiMessageItem 里建好后直接挂 holder，
+         * 不进 DynamicAiMessageRoot 那 36 参构造器。
+         */
+        TextView dayLabel;
         /** 工具行明细的内容指纹（工具名|状态|参数摘要序列）：流式重绑时结构没变就不重建 */
         String toolLineFp;
         /** Agent 汇总卡片的指纹缓存，字段变化才重渲染 */

@@ -11,11 +11,8 @@ import android.widget.TextView;
 import com.oilquiz.app.R;
 import com.oilquiz.app.ai.util.ConversationSession;
 
-import java.text.SimpleDateFormat;
 import java.util.Calendar;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * 聊天页 v2 空状态（demo {@code section.empty}）：问候语 + 四个场景卡 + 最近会话。
@@ -139,30 +136,11 @@ public final class ChatV2EmptyState {
         recentGroup.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
     }
 
-    /** 与历史抽屉同口径：今天→HH:mm，昨天→"昨天 HH:mm"，更早→M月d日 */
+    /**
+     * 与消息流的日期分隔行同口径（今天→HH:mm，昨天→"昨天 HH:mm"，更早→M月d日），
+     * 判定与文案都收在 {@link ChatDayLabel} 里，避免"同一天在两个界面长成两种样子"。
+     */
     private String formatItemTime(long updatedAt) {
-        Locale locale = Locale.getDefault();
-        Calendar item = Calendar.getInstance();
-        item.setTimeInMillis(updatedAt);
-        Calendar today = Calendar.getInstance();
-        Calendar yesterday = Calendar.getInstance();
-        yesterday.add(Calendar.DAY_OF_MONTH, -1);
-        if (isSameDay(item, today)) {
-            return new SimpleDateFormat("HH:mm", locale).format(new Date(updatedAt));
-        }
-        if (isSameDay(item, yesterday)) {
-            return recentContainer.getContext().getString(R.string.chat_v2_yesterday) + " "
-                    + new SimpleDateFormat("HH:mm", locale).format(new Date(updatedAt));
-        }
-        return new SimpleDateFormat(
-                recentContainer.getContext().getString(R.string.chat_v2_date_format), locale)
-                .format(new Date(updatedAt));
-    }
-
-    private static boolean isSameDay(Calendar a, Calendar b) {
-        if (a == null || b == null) return false;
-        return a.get(Calendar.ERA) == b.get(Calendar.ERA)
-                && a.get(Calendar.YEAR) == b.get(Calendar.YEAR)
-                && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR);
+        return ChatDayLabel.listTime(recentContainer.getContext(), updatedAt);
     }
 }

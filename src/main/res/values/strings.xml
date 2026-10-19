@@ -753,6 +753,8 @@
     <string name="chat_v2_prompt_summary">总结这份资料的核心考点</string>
     <string name="chat_v2_prompt_plan">按考试日期帮我排一个复习计划</string>
     <string name="chat_v2_untitled">新对话</string>
+    <!-- 消息流日期分隔（demo .day）与"最近"列表时间用 -->
+    <string name="chat_v2_today">今天</string>
     <string name="chat_v2_yesterday">昨天</string>
     <!-- 作为 SimpleDateFormat 的 pattern 使用，不是展示文案 -->
     <string name="chat_v2_date_format" translatable="false">M月d日</string>
