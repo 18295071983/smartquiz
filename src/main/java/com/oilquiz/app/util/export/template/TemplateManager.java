@@ -159,6 +159,10 @@ public class TemplateManager {
         if (!existingIds.contains("scene_data")) { createSceneDataTemplate(); changed = true; Log.i(TAG, "  Added: scene_data"); }
         if (!existingIds.contains("scene_mistake")) { createSceneMistakeTemplate(); changed = true; Log.i(TAG, "  Added: scene_mistake"); }
         if (!existingIds.contains("scene_exam")) { createSceneExamTemplate(); changed = true; Log.i(TAG, "  Added: scene_exam"); }
+        // 出厂模板的字段列表改过时（例：10-19 给 scene_mistake 补 incorrectCount），
+        // 老设备上落盘的那份不会自动长出这个字段 —— 上面只按 id 补"缺失的模板"，
+        // 不改已存在模板的字段。这里按 version 补字段。
+        changed |= backfillBuiltinFields();
         // createScene*Template 只做 templates.add(...)，不碰 templateMap；
         // 补建之后必须刷新 id 索引，否则 getTemplateById 对刚补出来的场景模板恒为 null
         // （getTemplateById 走 map，而 getDefaultTemplates/getAllTemplates 走 list，
@@ -170,6 +174,68 @@ public class TemplateManager {
         } else {
             Log.d(TAG, "All scene templates exist, no migration needed");
         }
+    }
+
+    /**
+     * 出厂（内置）场景模板的<b>当前代码定义</b>的那一份：id / version / 字段顺序都在里面。
+     *
+     * <p>用一个新的临时实例去调那 8 个 {@code createScene*Template()}——它们只往自己的
+     * {@code templates} 里 add，不碰磁盘，所以拿到的就是"代码里现在定义了什么"，
+     * 是唯一事实来源（不再抄一份常量表，避免改字段时两处不同步）。</p>
+     */
+    private List<Template> builtinSceneTemplates() {
+        TemplateManager fresh = new TemplateManager();
+        fresh.createSceneStandardTemplate();
+        fresh.createScenePracticeTemplate();
+        fresh.createSceneAnswerTemplate();
+        fresh.createSceneTeachingTemplate();
+        fresh.createSceneMemoryTemplate();
+        fresh.createSceneDataTemplate();
+        fresh.createSceneMistakeTemplate();
+        fresh.createSceneExamTemplate();
+        return fresh.templates;
+    }
+
+    /**
+     * 把出厂模板新增的字段补到老设备上已落盘的那份里。
+     *
+     * <p>规则刻意保守：
+     * 只处理内置 id 且 {@code isDefault()} 的模板；只在<b>落盘 version 比出厂 version 低</b>时动；
+     * 只<b>追加</b>缺失字段（不删、不重排），用户自己加的列原样保留。
+     * 字段齐平时也不会白改内容，只把 version 对齐，所以重复 init 是幂等的。
+     * 代价：补进来的列排在末尾，与新装设备的列顺序可能不同——顺序不是正确性属性，
+     * 且用户自己调过的顺序必须被尊重，所以这里不做重排。</p>
+     *
+     * @return 是否改动了模板（调用方据此决定要不要落盘）
+     */
+    private boolean backfillBuiltinFields() {
+        // 按 id 建索引，避免依赖 templateMap 是否已刷新（本方法可能在 createScene* 之后被调）
+        java.util.Map<String, Template> canonById = new java.util.HashMap<>();
+        for (Template canon : builtinSceneTemplates()) {
+            if (canon != null && canon.getId() != null) canonById.put(canon.getId(), canon);
+        }
+        boolean changed = false;
+        for (Template t : templates) {
+            if (t == null || t.getId() == null || !t.isDefault()) continue;   // 用户自建模板：完全不碰
+            Template canon = canonById.get(t.getId());
+            if (canon == null) continue;
+            if (t.getVersion() >= canon.getVersion()) continue;               // 版本已到位：不动
+            List<String> fields = t.getFields() != null
+                    ? new ArrayList<>(t.getFields()) : new ArrayList<>();
+            List<String> missing = new ArrayList<>();
+            if (canon.getFields() != null) {
+                for (String f : canon.getFields()) {
+                    if (!fields.contains(f)) missing.add(f);
+                }
+            }
+            fields.addAll(missing);
+            t.setFields(fields);
+            t.setVersion(canon.getVersion());
+            changed = true;
+            Log.i(TAG, "出厂模板字段补齐: " + t.getId() + " -> v" + t.getVersion()
+                    + " 补入 " + missing);
+        }
+        return changed;
     }
 
     /**
@@ -477,7 +543,9 @@ public class TemplateManager {
         template.setDescription("导出错题及解析，包含错误次数与正确答案，适合错题复习");
         template.setFormat("EXCEL");
         template.setScene("mistake");
-        template.setVersion(1);
+        // v2：字段列表补了 incorrectCount（描述里一直承诺"包含错误次数"）。
+        // 老设备上落盘的那份是 v1，靠 backfillBuiltinFields() 按版本把缺的列补回去。
+        template.setVersion(2);
         template.setDefault(true);
         template.setAppliesTo(java.util.Arrays.asList("EXCEL", "CSV", "JSON", "HTML", "ENHANCED_HTML", "MARKDOWN", "WORD", "PDF", "LONG_IMAGE", "WEBVIEW_APK"));
 

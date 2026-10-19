@@ -313,6 +313,66 @@ public class ExportTemplateTest {
 
     // ========== 工具 ==========
 
+    /**
+     * 老设备升级：出厂模板补了字段（scene_mistake 的 incorrectCount）之后，
+     * 已经落盘的那份 v1 模板要能被补回来，且用户自己加的列不能被吃掉。
+     */
+    @Test
+    public void oldInstallGainsNewBuiltinFieldWithoutLosingUserColumn() {
+        TemplateManager mgr = TemplateManager.getInstance();
+        mgr.init(context);
+        Template mistake = mgr.getTemplateById("scene_mistake");
+        assertNotNull("出厂应有错题回顾版", mistake);
+        assertTrue("出厂模板自带 incorrectCount", mistake.getFields().contains("incorrectCount"));
+
+        // 模拟老设备：v1 出厂模板（没有 incorrectCount）+ 用户自己加的一列
+        List<String> oldFields = new ArrayList<>(mistake.getFields());
+        oldFields.remove("incorrectCount");
+        oldFields.add("我的备注列");
+        mistake.setFields(oldFields);
+        mistake.setVersion(1);
+        mgr.saveTemplates();
+
+        // 重新 init = 走一次真实的"读盘 + migrateTemplatesIfNeeded"
+        mgr.init(context);
+        Template upgraded = mgr.getTemplateById("scene_mistake");
+        assertNotNull(upgraded);
+        assertTrue("升级后应补回出厂新增列", upgraded.getFields().contains("incorrectCount"));
+        assertTrue("用户自己加的列必须保留", upgraded.getFields().contains("我的备注列"));
+        assertEquals("版本应升到出厂版本", 2, upgraded.getVersion());
+
+        // 再 init 一次：补齐是幂等的，不能把列补重
+        mgr.init(context);
+        Template again = mgr.getTemplateById("scene_mistake");
+        int count = 0;
+        for (String f : again.getFields()) {
+            if ("incorrectCount".equals(f)) count++;
+        }
+        assertEquals("重复 init 不该补出第二列", 1, count);
+    }
+
+    /** 用户自建模板（不在出厂 id 表里）在迁移中必须完全不被改动。 */
+    @Test
+    public void userTemplateIsNeverTouchedByBuiltinBackfill() {
+        TemplateManager mgr = TemplateManager.getInstance();
+        mgr.init(context);
+
+        Template mine = new Template();
+        mine.setId("my_custom_template");
+        mine.setName("我的模板");
+        mine.setDefault(false);
+        mine.setVersion(1);
+        mine.setFields(new ArrayList<>(java.util.Arrays.asList("questionText")));
+        mgr.addTemplate(mine);
+
+        mgr.init(context);
+        Template after = mgr.getTemplateById("my_custom_template");
+        assertNotNull(after);
+        assertEquals(1, after.getFields().size());
+        assertEquals("questionText", after.getFields().get(0));
+        assertEquals("用户模板的 version 不该被改", 1, after.getVersion());
+    }
+
     private String readUtf8(File file) throws Exception {
         return new String(readAll(file), StandardCharsets.UTF_8);
     }

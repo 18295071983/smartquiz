@@ -1,5 +1,37 @@
 # 变更日志
 
+## [2026-10-19 深夜] 出厂模板按 version 补字段：老设备的错题本版也能拿到"答错次数"
+
+### 查到的事实
+
+- `migrateTemplatesIfNeeded()` 只做两件事：`appliesTo` 强刷 + **按 id 补缺失的模板**。
+  已存在的 `scene_mistake` 即便字段表旧了也不会被碰，所以前一条提交里补的 `incorrectCount`
+  只对新装或删过 `files/templates/` 的设备生效。
+- 8 个 `createScene*Template()` 是字段表的唯一来源（`scene_mistake` 之前是 `setVersion(1)`，
+  其余场景模板是 2），没有别处可以抄一份"出厂字段表"，抄了就会两处不同步。
+
+### 由此改掉的事
+
+- **`builtinSceneTemplates()`**：用一个临时 `TemplateManager` 实例把 8 个出厂模板建出来
+  （`createScene*Template()` 只往自己的 `templates` 里 add、不落盘），
+  这就是"代码当前定义的出厂形状"，id / version / 字段顺序同源。
+- **`backfillBuiltinFields()`**：在 `migrateTemplatesIfNeeded()` 末尾按上面的快照补字段，规则刻意保守——
+  只碰内置 id 且 `isDefault()` 的模板；只在**落盘 version 低于出厂 version**时动；
+  只**追加**缺失的列（不删、不重排），用户自己加的列原样保留；补完把 version 对齐，所以重复 `init()` 幂等。
+  代价写在注释里：补进来的列排在末尾，与新装设备的列顺序可能不同——
+  顺序不是正确性属性，而用户调过的列序必须被尊重，所以这里不重排。
+- `scene_mistake` 的 `setVersion(1)` → `2`，作为这次字段变更的版本信号。
+
+### 验证
+
+- `ExportTemplateTest` 加 2 条：`oldInstallGainsNewBuiltinFieldWithoutLosingUserColumn`
+  （模拟 v1 老模板 + 用户自加列 → 重新 `init()` 走真实读盘迁移 → 断言 `incorrectCount` 补回、
+  用户列保留、version 升到 2、再 `init()` 不会补出第二列）、
+  `userTemplateIsNeverTouchedByBuiltinBackfill`（非出厂 id 的用户模板字段与 version 都不被改）。
+  该类 8 条全绿；全量 `testDebugUnitTest --rerun-tasks` = **413 tests / 0 failed / 0 skipped**。
+- **真机未验**：设备不在电脑跟前，APK 待装机；`files/templates/` 里那份 v1 错题本版
+  能不能被补上列，要等装机后开一次导出页看日志 `出厂模板字段补齐: scene_mistake -> v2 补入 [incorrectCount]`。
+
 ## [2026-10-19 晚] "每次重进多一条历史会话"查到第三层；顺带发现 JVM 单测有 128 条被静默跳过
 
 ### 查到的事实
@@ -73,9 +105,8 @@
   预期看两样——logcat 每次恢复都有 `恢复历史认领回原会话: <id>`，
   且 `files/conversations/` 只有一条 uuid 文件在被更新、不再出现 `null.json`。
 - **遗留（用户自己处理）**：已经攒出来的重复会话文件不做迁移/清理，**不要替他删**。
-- **一条待拍的口径**：`incorrectCount` 只对新装/删过 `files/templates/` 的用户生效，
-  `migrateTemplatesIfNeeded` 只按 id 补缺失模板、不改已存在模板的字段列表，
-  老设备上的错题本版仍然没有错次列。要不要做"默认模板按 version 刷新"是单独的决定。
+- **出厂模板字段改了，老设备也要拿到**（当晚补做，见下一节）：`migrateTemplatesIfNeeded`
+  原本只按 id 补"缺失的模板"，不改已存在模板的字段列表，所以老设备上的错题本版仍然没有错次列。
 
 ## [2026-10-19] 聊天页 v2：demo 视觉体系落地并接线，A1 换掉三段消息结构；JVM 单测从"25 条既有红"修到全绿
 
