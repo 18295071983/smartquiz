@@ -159,6 +159,11 @@ public class TemplateManager {
         if (!existingIds.contains("scene_data")) { createSceneDataTemplate(); changed = true; Log.i(TAG, "  Added: scene_data"); }
         if (!existingIds.contains("scene_mistake")) { createSceneMistakeTemplate(); changed = true; Log.i(TAG, "  Added: scene_mistake"); }
         if (!existingIds.contains("scene_exam")) { createSceneExamTemplate(); changed = true; Log.i(TAG, "  Added: scene_exam"); }
+        // createScene*Template 只做 templates.add(...)，不碰 templateMap；
+        // 补建之后必须刷新 id 索引，否则 getTemplateById 对刚补出来的场景模板恒为 null
+        // （getTemplateById 走 map，而 getDefaultTemplates/getAllTemplates 走 list，
+        //  于是列表里看得见、按 id 取不到 → ExportManager 拿不到模板就回退）。
+        updateTemplateMap();
         if (changed) {
             Log.i(TAG, "Missing scene templates created, saving updated templates");
             saveTemplates();
@@ -179,6 +184,9 @@ public class TemplateManager {
         createSceneDataTemplate();
         createSceneMistakeTemplate();
         createSceneExamTemplate();
+        // 同上：默认模板是"首次运行/模板文件不存在"这条路上建的，
+        // 不刷 map 的话首次进导出页按 id 取模板全部取不到。
+        updateTemplateMap();
         saveTemplates();
     }
 
@@ -497,6 +505,10 @@ public class TemplateManager {
         fields.add("answerText");
         fields.add("explanation");
         fields.add("analysis");
+        // 错题回顾版的核心就是"错了几次"：描述里写了"包含错误次数"，
+        // FieldMapper / ExportUtils / MarkdownExporter 也都支持 incorrectCount（表头"答错次数"），
+        // 之前只是这个模板的字段列表漏了它，导出来的错题本没有错次。
+        fields.add("incorrectCount");
         fields.add("points");
         template.setFields(fields);
 

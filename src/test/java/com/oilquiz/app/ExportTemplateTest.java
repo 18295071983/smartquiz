@@ -45,6 +45,16 @@ public class ExportTemplateTest {
     @Before
     public void setup() {
         context = ApplicationProvider.getApplicationContext();
+        // Robolectric 的 sandbox 会在进程内复用 filesDir，而 TemplateManager 的默认模板是
+        // "模板文件不存在时才创建"的：只要前一个用例落过盘，后面的用例就永远看不到代码里
+        // 改过的默认模板。这里显式清掉，让每个用例都从"新装 App"的状态开始。
+        File templatesDir = new File(context.getFilesDir(), "templates");
+        File[] existing = templatesDir.listFiles();
+        if (existing != null) {
+            for (File f : existing) {
+                f.delete();
+            }
+        }
     }
 
     private Question buildQuestion(long id, String text) {
@@ -279,6 +289,9 @@ public class ExportTemplateTest {
         ExportManager.ExportConfig config = buildConfig(ExportManager.ExportFormat.JSON, null);
         config.includeAnswers = true;
         config.includeExplanations = true;
+        // 难度是"开关字段"：JSONExporter 与 CSV/Excel/Markdown 同口径，
+        // includeDifficulty 关着就不输出 difficulty / difficultyText（默认 false，这里要显式打开）
+        config.includeDifficulty = true;
 
         ExportManager.ExportTask task = new ExportManager.ExportTask();
         task.setContext(context);
