@@ -72,6 +72,31 @@ public class MarkdownWebView extends FrameLayout {
 
     private boolean night;
     private boolean pageReady;
+    /**
+     * 文档代号。每次真正发起整篇加载都 +1，用于回答两个布尔值答不出的问题：
+     * <b>现在页面上的是哪一份文档、以及哪一份的加载已经完成</b>。
+     *
+     * <p>为什么必须有它（2026-10-19 修"进页面主气泡空白、有时永远出不来"）：
+     * 原先只有一个 {@code pageReady} 布尔。绑定顺序是 setNight → setThemeColors → setContent，
+     * 前两步在主题/变量变化时会用 {@code pendingHtml} 再发一次整篇加载，setContent 又发一次；
+     * 而 RecyclerView 高频重绑（流式 token、状态 payload）时 {@code pageReady} 还是 false，
+     * 于是<b>每一绑都 loadDataWithBaseURL 一次</b>，后一次取消前一次。
+     * 被取消的那次可能仍回调 onPageFinished（把 ready 提前点亮，指向一份已成过去的文档），
+     * 也可能一次回调都没有（后续绑定又立刻把在途加载取消掉）——
+     * 前者让 {@code swapBody} 打在错页面上、后者是活锁，两种都表现为**气泡永久空白**，
+     * 直到滚出屏幕触发 {@link #resetForReuse()} 才自愈。所以"有时过会儿出现、有时根本不出现"。
+     */
+    private int docGeneration;
+    /** 最近一次发出的整篇加载的代号；onPageFinished 完成时把它记到 {@link #readyGeneration} */
+    private int loadingGeneration;
+    /** 已完成加载并渲染好的文档代号；-1 表示没有 */
+    private int readyGeneration = -1;
+    /** 已发起加载的那份文档的 hash：同一份文档在途时不再重复发加载 */
+    private String issuedDocHash;
+    /** 上一次请求内容的 hash，用于换内容时重置补发额度 */
+    private String lastIssuedContentHash;
+    /** 同一份文档最多补发一次加载（看门狗），避免"永远等不到 onPageFinished" */
+    private boolean retryIssued;
     private boolean lastStreaming;
     private int lastAppliedPx = -1;
     private String currentContentHash;
@@ -137,6 +162,9 @@ public class MarkdownWebView extends FrameLayout {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                // 认"最后一次发出的加载"：被后续加载取消掉的旧加载若也回调，
+                // 不能让它把就绪状态安在一份已成过去的文档上（那会让 swapBody 打空）。
+                readyGeneration = loadingGeneration;
                 pageReady = true;
                 injectResizeObserver();
             }
@@ -189,8 +217,7 @@ public class MarkdownWebView extends FrameLayout {
         if (this.night == night) return;
         this.night = night;
         // 主题变化需整篇重载（CSS 在 head）
-        pageReady = false;
-        if (pendingHtml != null) loadDocument(pendingHtml);
+        reloadForStyleChange();
     }
 
     /**
@@ -201,8 +228,24 @@ public class MarkdownWebView extends FrameLayout {
         String v = cssVars == null ? "" : cssVars;
         if (v.equals(this.themeVars)) return;
         this.themeVars = v;
+        reloadForStyleChange();
+    }
+
+    /**
+     * 主题/夜间变化要整篇重载，但<b>只重载"这份文档已经发出去过"的情况</b>：
+     * holder 复用后 {@code pendingHtml} 可能还是上一条消息的文档，
+     * 那时加载它等于凭空多插一次 loadDataWithBaseURL，会和随后 setContent 的加载互相取消。
+     * {@link #resetForReuse()} 会把 pendingHtml 清空，正是为了让这条路径在复用后第一次绑定时不触发。
+     */
+    private void reloadForStyleChange() {
         pageReady = false;
-        if (pendingHtml != null) loadDocument(pendingHtml);
+        readyGeneration = -1;
+        if (pendingHtml != null) {
+            // 同一份文档换主题：允许重新发一次
+            issuedDocHash = null;
+            retryIssued = false;
+            loadDocument(pendingHtml);
+        }
     }
 
     private String pendingHtml;
@@ -217,6 +260,11 @@ public class MarkdownWebView extends FrameLayout {
         cancelPendingCacheWrite();
         currentContentHash = hash;
         lastStreaming = streaming;
+        // 内容变了，之前"这份文档正在加载"的判断与补发额度都要作废重来
+        if (!hash.equals(lastIssuedContentHash)) {
+            lastIssuedContentHash = hash;
+            retryIssued = false;
+        }
         // 定稿内容命中缓存 → 先套用缓存高，减少重测抖动
         Integer cached = HEIGHT_CACHE.get(hash);
         if (cached != null && lastAppliedPx < 0) {
@@ -234,17 +282,43 @@ public class MarkdownWebView extends FrameLayout {
         bodyHtml = MarkdownHtmlConverter.resolveLocalLinkHrefs(bodyHtml, getContext());
         String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars);
         pendingHtml = doc;
-        if (!pageReady) {
-            loadDocument(doc);
-        } else if (streaming) {
+        boolean documentReady = pageReady && docGeneration > 0 && readyGeneration == docGeneration;
+        if (documentReady) {
+            // 页面就是这份文档且已就绪：原地换 body，不重载（流式逐 token 也走这里，避免闪烁）
             swapBody(bodyHtml);
-        } else {
-            // 非流式的整篇更新也走原地换 body，避免重载闪烁；主题变化才走 loadDocument
-            swapBody(bodyHtml);
+            return;
         }
+        String docHash = hashOf(doc);
+        if (docHash.equals(issuedDocHash)) {
+            // 这份文档的整篇加载还在途：再发一次只会把上一次取消掉（真机上就是"反复空白 /
+            // 有时永远出不来"的成因）。等它的 onPageFinished；超过阈值仍未回来则补发一次兜底。
+            if (!retryIssued) {
+                retryIssued = true;
+                main.postDelayed(this::retryLoadIfNeeded, LOAD_SETTLE_MS);
+            }
+            return;
+        }
+        loadDocument(doc);
     }
 
+    /** 看门狗：在途加载超时未就绪时补发一次（每份文档最多一次），保证不会永久空白。 */
+    private void retryLoadIfNeeded() {
+        if (pageReady && readyGeneration == docGeneration && docGeneration > 0) return;
+        if (pendingHtml == null) return;
+        issuedDocHash = null;
+        loadDocument(pendingHtml);
+    }
+
+    private static final long LOAD_SETTLE_MS = 1200L;
+
     private void loadDocument(String fullHtml) {
+        docGeneration++;
+        loadingGeneration = docGeneration;
+        readyGeneration = -1;
+        pageReady = false;
+        issuedDocHash = hashOf(fullHtml);
+        // 每次真正发出加载都重新获得一次看门狗额度：保证"在途被取消"最坏情况只多等一帧
+        retryIssued = false;
         webView.loadDataWithBaseURL("file:///android_asset/", fullHtml, "text/html", "UTF-8", null);
     }
 
@@ -342,6 +416,14 @@ public class MarkdownWebView extends FrameLayout {
         lastAppliedPx = -1;
         pageReady = false;
         currentContentHash = null;
+        // 文档身份一并清零：复用到新消息时必须重新整篇加载，
+        // 且不能让 setNight/setThemeColors 用上一条消息的 pendingHtml 去插一次加载。
+        pendingHtml = null;
+        issuedDocHash = null;
+        retryIssued = false;
+        readyGeneration = -1;
+        loadingGeneration = 0;
+        docGeneration = 0;
     }
 
     /** 延迟写高度缓存的等待时长：期间内容再变（新 token / 换绑）就作废这次写入 */
