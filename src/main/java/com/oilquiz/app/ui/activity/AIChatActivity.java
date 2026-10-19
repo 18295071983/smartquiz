@@ -11462,6 +11462,29 @@ public class AIChatActivity extends BaseActivity {
         }
     }
 
+    /**
+     * 聊天页被 {@code REORDER_TO_FRONT} 复用时的入口（见 {@code ChatNavigation}）。
+     *
+     * <p>本页不读任何 Intent extra，所以复用实例时<b>不需要</b>重跑恢复：
+     * 重跑会再走一遍"读单文件历史 → 替换 chatHistory"，把用户正在看的位置和
+     * 未落盘的生成中消息一起打掉。这里只做两件轻量的事：滚回最新消息、刷新状态条。
+     *
+     * <p>这条回调同时是去重的证据：日志里出现 {@code onNewIntent 复用聊天页实例}
+     * 就说明没有叠新实例；反之若又看到多次"恢复历史认领回原会话"，说明还有入口没走统一入口。
+     */
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        AppLogger.i(TAG, "onNewIntent 复用聊天页实例（未新建）");
+        try {
+            if (genStatusBar != null) genStatusBar.refresh();
+            scrollToBottom(true);
+        } catch (Throwable t) {
+            AppLogger.aiW(TAG, "onNewIntent 刷新失败: " + t.getMessage());
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();

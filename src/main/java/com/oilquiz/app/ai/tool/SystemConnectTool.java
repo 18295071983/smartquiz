@@ -181,7 +181,11 @@ public class SystemConnectTool implements AITool {
                 nm.createNotificationChannel(ch);
             }
             Intent intent = new Intent(context, com.oilquiz.app.ui.activity.AIChatActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            // REORDER_TO_FRONT：通知点进来时复用已存在的聊天页实例。
+            // 只有 SINGLE_TOP 不够——它仅在"已在栈顶"时生效，从通知进入通常不是栈顶，
+            // 结果就是再叠一个实例，而每个实例都会在 onStop 各存一份会话（历史里多出重复对话）。
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             android.app.PendingIntent pi = android.app.PendingIntent.getActivity(context, id, intent,
                     Build.VERSION.SDK_INT >= 23 ? android.app.PendingIntent.FLAG_UPDATE_CURRENT
                             | android.app.PendingIntent.FLAG_IMMUTABLE : android.app.PendingIntent.FLAG_UPDATE_CURRENT);

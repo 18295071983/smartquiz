@@ -300,7 +300,8 @@ public class AICenterActivity extends AppCompatActivity
 
         if (btnAIChat != null) {
             btnAIChat.setOnClickListener(v -> {
-                startActivity(new Intent(AICenterActivity.this, AIChatActivity.class));
+                // 统一入口：复用已存在的聊天页实例，避免叠层导致历史会话被重复保存
+                com.oilquiz.app.ai.chat.ui.ChatNavigation.openChat(AICenterActivity.this);
             });
         }
 

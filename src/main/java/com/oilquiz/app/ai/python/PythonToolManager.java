@@ -1200,7 +1200,7 @@ public class PythonToolManager {
                         }
                         android.content.Intent intent = new android.content.Intent(context,
                                 com.oilquiz.app.ui.activity.AIChatActivity.class);
-                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
                         android.app.PendingIntent pi = android.app.PendingIntent.getActivity(context, (int) (System.currentTimeMillis() % 100000), intent,
                                 android.os.Build.VERSION.SDK_INT >= 23
                                         ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
@@ -4462,7 +4462,7 @@ public class PythonToolManager {
                         }
                         android.content.Intent intent = new android.content.Intent(context,
                                 com.oilquiz.app.ui.activity.AIChatActivity.class);
-                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
                         android.app.PendingIntent pi = android.app.PendingIntent.getActivity(context,
                                 (int) (System.currentTimeMillis() % 100000), intent,
                                 android.os.Build.VERSION.SDK_INT >= 23

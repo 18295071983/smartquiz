@@ -456,7 +456,9 @@ public class MainActivity extends BaseActivity {
             btnQuestionGenerate.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, com.oilquiz.app.ui.activity.AIChatActivity.class));
+                    // 走统一入口：聊天页已存在时提到前台复用，别叠新实例
+                    //（叠实例会导致每个实例各自 onStop 保存 → 历史里多出一条条相同对话）
+                    com.oilquiz.app.ai.chat.ui.ChatNavigation.openChat(MainActivity.this);
                 }
             });
         }

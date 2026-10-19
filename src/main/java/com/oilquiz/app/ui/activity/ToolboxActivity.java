@@ -250,6 +250,11 @@ public class ToolboxActivity extends AppCompatActivity {
         builder.setTitle(title);
         builder.setItems(toolNames, (dialog, which) -> {
             if (which < activities.length) {
+                if (activities[which] == AIChatActivity.class) {
+                    // 统一入口：复用已存在的聊天页实例，避免叠层导致历史会话被重复保存
+                    com.oilquiz.app.ai.chat.ui.ChatNavigation.openChat(this);
+                    return;
+                }
                 startActivity(new Intent(this, activities[which]));
             }
         });
