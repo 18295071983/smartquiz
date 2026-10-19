@@ -214,6 +214,10 @@ public class AIChatActivity extends BaseActivity {
 
     private View emptyStateView;
     private com.google.android.material.chip.ChipGroup emptyStateChips;
+    /** v2 空状态（开关 chat_ui_v2 打开时非 null）；null 表示仍用旧的居中空状态 */
+    private com.oilquiz.app.ai.chat.ui.ChatV2EmptyState chatV2EmptyState;
+    /** 输入栏组件；v2 用它驱动胶囊上方那行"正在生成"提示 */
+    private ChatInputBar chatInputBar;
 
     private AIChatCoordinator coordinator;
     private AIChatViewModel chatViewModel;
@@ -536,6 +540,20 @@ public class AIChatActivity extends BaseActivity {
 
             emptyStateView = findViewById(R.id.empty_state_view);
             emptyStateChips = findViewById(R.id.empty_state_chips);
+            // v2 空状态（demo .empty：问候 + 场景卡 + 最近）：开关打开时把 emptyStateView
+            // 改指 v2 视图，旧的居中空状态整块保持隐藏；关开关即回原样。
+            chatV2EmptyState = com.oilquiz.app.ai.chat.ui.ChatV2EmptyState.bind(
+                    this, new com.oilquiz.app.ai.chat.ui.ChatV2EmptyState.Listener() {
+                @Override public void onScenePrompt(String prompt) { fillQuickInput(prompt); }
+                @Override public void onOpenSession(
+                        com.oilquiz.app.ai.util.ConversationSession session) { switchToSession(session); }
+            });
+            if (chatV2EmptyState != null) {
+                View legacyEmpty = emptyStateView;
+                emptyStateView = chatV2EmptyState.getRoot();
+                if (legacyEmpty != null) legacyEmpty.setVisibility(View.GONE);
+                chatV2EmptyState.refreshGreeting();
+            }
 
             serviceStatusBar = findViewById(R.id.service_status_bar);
             serviceStatusIcon = findViewById(R.id.service_status_icon);
@@ -604,6 +622,11 @@ public class AIChatActivity extends BaseActivity {
             messageList.setItemAnimator(null);
             chatHistory = new ArrayList<>();
             chatAdapter = new ChatAdapter(chatHistory, this::handleAction);
+            // v2：空状态是首屏，可见性由 ChatAdapter 既有的数据观察者切换
+            //（onChanged / 插入 / 删除都会同步），不再依赖各个手动调用点。
+            if (chatV2EmptyState != null) {
+                chatAdapter.setEmptyView(chatV2EmptyState.getRoot());
+            }
             // dsh 对齐：滚动监听驱动回底按钮显隐
             messageList.addOnScrollListener(new androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
                 @Override public void onScrolled(androidx.recyclerview.widget.RecyclerView rv, int dx, int dy) {
@@ -1230,6 +1253,9 @@ public class AIChatActivity extends BaseActivity {
 
     /**
      * 停止/发送按钮切换：生成中显示停止、隐藏发送；空闲反之（同位置切换）
+     *
+     * <p>v2 还负责点亮输入胶囊上方的"正在生成"提示行（demo {@code .composer .gen}）；
+     * 旧版布局下 {@code ChatInputBar#setGeneratingHint} 是空操作。
      */
     private void toggleStopButton(boolean show) {
         if (btnStopGeneration != null) {
@@ -1237,6 +1263,9 @@ public class AIChatActivity extends BaseActivity {
         }
         if (btnSend != null) {
             btnSend.setVisibility(show ? View.GONE : View.VISIBLE);
+        }
+        if (chatInputBar != null) {
+            chatInputBar.setGeneratingHint(show, null);
         }
     }
 
@@ -1558,7 +1587,7 @@ public class AIChatActivity extends BaseActivity {
         recoveryHandler.setupListener();
 
         // 6. ChatInputManager - 输入管理（经 ChatInputBar 组件接线）
-        ChatInputBar chatInputBar = findViewById(R.id.chat_input_bar);
+        chatInputBar = findViewById(R.id.chat_input_bar);
         if (chatInputBar != null) {
             inputManager = chatInputBar.attachManager(this, new ChatInputManager.Callback() {
                 @Override public void onSendMessage(String text) { sendMessage(); }
@@ -7957,8 +7986,27 @@ public class AIChatActivity extends BaseActivity {
                 historyController.setCurrentSessionId(currentSessionId);
                 historyController.setTaskCounts(counts);
                 historyController.refresh(sessions);
+                // v2 空状态的「最近」和顶栏标题复用同一份会话列表，不再额外读盘
+                if (chatV2EmptyState != null) chatV2EmptyState.showRecent(sessions);
+                com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateTitle(this,
+                        titleForSession(sessions));
             });
         }).start();
+    }
+
+    /**
+     * 顶栏主标题：当前会话的标题；没有会话（新对话）时用页面名兜底。
+     * 与历史抽屉取标题的口径一致（{@code ConversationSession#title}）。
+     */
+    private String titleForSession(List<ConversationSession> sessions) {
+        String fallback = getString(R.string.chat_v2_title);
+        if (sessions == null || currentSessionId == null) return fallback;
+        for (ConversationSession session : sessions) {
+            if (session != null && currentSessionId.equals(session.id)) {
+                return (session.title == null || session.title.isEmpty()) ? fallback : session.title;
+            }
+        }
+        return fallback;
     }
 
     /**
@@ -10113,6 +10161,8 @@ public class AIChatActivity extends BaseActivity {
         CharSequence cur = serviceStatusText.getText();
         if (cur != null && text.contentEquals(cur)) return;
         serviceStatusText.setText(text);
+        // v2 顶栏副标题跟着走（旧状态条在 v2 下是隐藏的，顶栏才是用户看到的那一行）
+        com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateSubtitle(this, text);
     }
 
     /**
@@ -11624,9 +11674,13 @@ public class AIChatActivity extends BaseActivity {
 
     /**
      * 更新空状态显示（已移除欢迎界面，始终显示消息列表）
+     *
+     * <p>例外：开关 {@code chat_ui_v2} 打开时，demo 的空状态（问候 + 场景卡 + 最近）就是首屏，
+     * 它的可见性交给 {@code ChatAdapter#setEmptyView} 那套数据观察者统一切换，
+     * 这里不再插手，避免两个写入者；关开关回到"永远只显示列表"的旧行为。
      */
     private void updateEmptyState() {
-        if (emptyStateView != null) {
+        if (emptyStateView != null && chatV2EmptyState == null) {
             emptyStateView.setVisibility(View.GONE);
         }
         if (messageList != null) {

@@ -7,6 +7,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -41,7 +42,46 @@ public final class ChatUiV2Chrome {
     /** 顶栏插入标记：重复 apply 时不再插第二条 */
     private static final int TAG_HEADER = 0x7a000001;
 
+    /** 副标题（模型/服务状态）标记，供 {@link #updateSubtitle} 定位 */
+    private static final int TAG_SUBTITLE = 0x7a000002;
+
     private ChatUiV2Chrome() {
+    }
+
+    /**
+     * 同步 v2 顶栏副标题。
+     *
+     * <p>顶栏的模型文案是<b>复制</b>自旧状态条的当前值，旧状态条被隐藏后仍由
+     * {@code setStatusTextIfChanged} 刷新，所以必须在这里跟着更新，
+     * 否则切模型/服务初始化完成后顶栏会一直停在冷启动那一刻的"AI服务未初始化"。
+     */
+    public static void updateSubtitle(Activity activity, String text) {
+        setText(activity, R.id.chat_v2_subtitle, TAG_SUBTITLE, text);
+    }
+
+    /**
+     * 同步 v2 顶栏主标题（会话标题）。开关关着或还没插顶栏时静默忽略，
+     * 旧版头部没有标题位，因此这里不回落写任何控件。
+     */
+    public static void updateTitle(Activity activity, String text) {
+        setText(activity, R.id.chat_v2_title, 0, text);
+    }
+
+    private static void setText(Activity activity, int id, int fallbackTag, String text) {
+        if (activity == null || TextUtils.isEmpty(text)) return;
+        try {
+            ViewGroup root = activity.findViewById(R.id.main_content);
+            if (root == null) return;
+            View header = root.findViewWithTag(TAG_HEADER);
+            if (header == null) return;
+            View target = header.findViewById(id);
+            if (target == null && fallbackTag != 0) target = header.findViewWithTag(fallbackTag);
+            if (target instanceof TextView) {
+                ((TextView) target).setText(text);
+            }
+        } catch (Throwable ignored) {
+            // 顶栏同步失败不影响聊天页
+        }
     }
 
     /** 开关关闭时什么都不做；开启时改造外壳 */
@@ -60,60 +100,65 @@ public final class ChatUiV2Chrome {
         hide(activity, R.id.service_status_bar);
         hide(activity, R.id.remote_dsh_bar);
         hide(activity, R.id.log_container);
+        // 旧头部胶囊（状态信息 + 右侧「工具中心」抽屉按钮）是同一行的两个子控件，
+        // 真机上只隐藏状态条会留下一条空白胶囊 + 一个孤零零的汉堡键（2026-10-19 实测），
+        // 所以整行收起；工具中心改由「⋯」面板提供。
+        View statusBar = activity.findViewById(R.id.service_status_bar);
+        if (statusBar != null && statusBar.getParent() instanceof View) {
+            ((View) statusBar.getParent()).setVisibility(View.GONE);
+        }
+        hide(activity, R.id.btn_back);
         compressStatsBar(activity);
 
         ViewGroup root = activity.findViewById(R.id.main_content);
         if (root == null || root.findViewWithTag(TAG_HEADER) != null) return;
 
-        LinearLayout header = buildHeader(activity, root);
+        View header = buildHeader(activity, root);
         header.setTag(TAG_HEADER);
         root.addView(header, 0);
     }
 
     // ---------------------------------------------------------------- 顶栏
 
-    private static LinearLayout buildHeader(Activity activity, ViewGroup parent) {
+    /**
+     * 顶栏来自 {@code view_chat_appbar_v2}（demo header.appbar）：
+     * 历史抽屉 / 会话标题 + 模型副标题 / 新建 / 更多。
+     *
+     * <p>三个入口全部<b>转发给原控件</b>，不另写一套流程：历史 = {@code btn_history}，
+     * 新建 = {@code btn_new_conversation}，模型 = {@code btn_model_select}，
+     * 这些控件在 v2 下被隐藏但 performClick 依然有效。</p>
+     */
+    private static View buildHeader(Activity activity, ViewGroup parent) {
         Context ctx = activity;
-        LinearLayout header = new LinearLayout(ctx);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = dp(ctx, 14);
-        header.setPadding(pad, dp(ctx, 8), dp(ctx, 6), dp(ctx, 6));
+        View header = LayoutInflater.from(ctx).inflate(R.layout.view_chat_appbar_v2, parent, false);
 
-        LinearLayout titles = new LinearLayout(ctx);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        titles.setLayoutParams(new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView subtitle = header.findViewById(R.id.chat_v2_subtitle);
+        if (subtitle != null) {
+            subtitle.setText(modelSubtitle(ctx));
+            subtitle.setTag(TAG_SUBTITLE);
+        }
 
-        TextView title = new TextView(ctx);
-        title.setText(R.string.chat_v2_title);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
-        title.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlText));
-        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium",
-                android.graphics.Typeface.NORMAL));
-        titles.addView(title);
-
-        TextView subtitle = new TextView(ctx);
-        subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
-        subtitle.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-        subtitle.setSingleLine(true);
-        subtitle.setEllipsize(TextUtils.TruncateAt.END);
-        subtitle.setText(modelSubtitle(ctx));
-        titles.addView(subtitle);
-
-        header.addView(titles);
-        header.addView(iconButton(ctx, R.drawable.ic_add, R.string.chat_v2_new_desc, v -> {
-            // 复用历史抽屉里的"新建对话"逻辑，不另写一套会话切换
-            View btn = activity.findViewById(R.id.btn_new_conversation);
-            if (btn instanceof View && btn.isClickable()) {
-                btn.performClick();
-            } else {
-                Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
-            }
-        }));
-        header.addView(iconButton(ctx, R.drawable.ic_more_vert, R.string.chat_v2_more_desc,
-                v -> openInfoSheet(ctx)));
+        click(header, R.id.chat_v2_btn_history, v -> perform(activity, R.id.btn_history));
+        click(header, R.id.chat_v2_btn_new, v -> perform(activity, R.id.btn_new_conversation));
+        click(header, R.id.chat_v2_btn_more, v -> openInfoSheet(ctx));
+        click(header, R.id.chat_v2_btn_model, v -> {
+            if (!perform(activity, R.id.btn_model_select)) openInfoSheet(ctx);
+        });
         return header;
+    }
+
+    /** 给 v2 顶栏上的一个控件挂点击回调；控件缺失时静默跳过（不影响其余入口） */
+    private static void click(View root, int id, View.OnClickListener listener) {
+        View v = root.findViewById(id);
+        if (v != null) v.setOnClickListener(listener);
+    }
+
+    /** 转发点击到页面上已存在的旧控件；返回 false 表示该控件不存在，调用方自行兜底 */
+    private static boolean perform(Activity activity, int id) {
+        View v = activity.findViewById(id);
+        if (v == null) return false;
+        v.performClick();
+        return true;
     }
 
     /** 副标题：优先服务状态条上的模型文案（原逻辑一直在刷新它） */
@@ -125,28 +170,9 @@ public final class ChatUiV2Chrome {
         return ctx.getString(R.string.chat_v2_no_data);
     }
 
-    private static ImageView iconButton(Context ctx, int iconRes, int descRes,
-                                        View.OnClickListener onClick) {
-        ImageView iv = new ImageView(ctx);
-        int size = dp(ctx, 40);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
-        lp.setMarginStart(dp(ctx, 2));
-        iv.setLayoutParams(lp);
-        iv.setPadding(dp(ctx, 9), dp(ctx, 9), dp(ctx, 9), dp(ctx, 9));
-        iv.setImageResource(iconRes);
-        iv.setImageTintList(android.content.res.ColorStateList.valueOf(
-                ThemeColors.attr(ctx, R.attr.colorControlTextSecondary)));
-        iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-        iv.setContentDescription(ctx.getString(descRes));
-        iv.setClickable(true);
-        iv.setFocusable(true);
-        iv.setOnClickListener(onClick);
-        return iv;
-    }
-
     // ---------------------------------------------------------------- 输入区密度
 
-    /** 输入区上方的模式 chip 压到一行 28dp（v2 只调密度，不改交互） */
+    /** 输入区上方的模式 chip：压到 28dp 一行，并按 demo {@code .mode} 上色 */
     private static void compressStatsBar(Activity activity) {
         int[] chips = {R.id.chip_local_agent, R.id.chip_deep_think, R.id.chip_web_search};
         for (int id : chips) {
@@ -162,7 +188,31 @@ public final class ChatUiV2Chrome {
             if (chip instanceof TextView) {
                 ((TextView) chip).setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
             }
+            styleModeChip(chip);
         }
+    }
+
+    /**
+     * demo {@code .mode} 的配色口径：未选中透明底 + text-2，选中 brand-soft 底 + brand-ink 字。
+     * 只改颜色状态列表，不动 chip 的交互（checked 仍由原有 setChecked 逻辑驱动）。
+     */
+    private static void styleModeChip(View chip) {
+        if (!(chip instanceof com.google.android.material.chip.Chip)) return;
+        com.google.android.material.chip.Chip c = (com.google.android.material.chip.Chip) chip;
+        Context ctx = c.getContext();
+        int soft = ContextCompat.getColor(ctx, R.color.chat_v2_brand_soft);
+        int ink = ContextCompat.getColor(ctx, R.color.chat_v2_brand_ink);
+        int idle = ContextCompat.getColor(ctx, R.color.chat_v2_text_2);
+        int transparent = android.graphics.Color.TRANSPARENT;
+        int[][] states = new int[][]{
+                new int[]{android.R.attr.state_checked},
+                new int[]{-android.R.attr.state_checked},
+                new int[]{},
+        };
+        c.setChipBackgroundColor(new android.content.res.ColorStateList(states,
+                new int[]{soft, transparent, transparent}));
+        c.setTextColor(new android.content.res.ColorStateList(states, new int[]{ink, idle, idle}));
+        c.setChipStrokeWidth(0f);
     }
 
     // ---------------------------------------------------------------- 信息面板
@@ -187,6 +237,15 @@ public final class ChatUiV2Chrome {
             addLinkRow(ctx, box, R.string.chat_v2_log,
                     v -> showPlainText(ctx, ctx.getString(R.string.chat_v2_log),
                             textOf(ctx, R.id.log_content)));
+            addLinkRow(ctx, box, R.string.chat_v2_tools, v -> {
+                // 复用原头部那颗汉堡键的点击逻辑（工具抽屉），不另写一套打开流程
+                View tools = find(ctx, R.id.btn_back);
+                if (tools != null) {
+                    tools.performClick();
+                } else {
+                    Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
+                }
+            });
             addLinkRow(ctx, box, R.string.chat_v2_console, v -> {
                 try {
                     ctx.startActivity(new Intent(ctx,

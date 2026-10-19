@@ -377,6 +377,11 @@
 
         </com.google.android.material.chip.ChipGroup>
             </LinearLayout>
+
+            <!-- 聊天页 v2 空状态（demo .empty：问候语 + 场景卡 + 最近）。
+                 开关 chat_ui_v2 打开时由 AIChatActivity 把 emptyStateView 指向它，
+                 上面那块旧空状态整块保持隐藏，关开关即回退。 -->
+            <include layout="@layout/view_chat_empty_v2"/>
         </FrameLayout>
         </LinearLayout>
 

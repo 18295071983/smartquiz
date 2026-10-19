@@ -9,6 +9,7 @@ import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.chat.component.ComponentRegistry;
 import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.render.RenderExecutor;
+import com.oilquiz.app.ai.chat.ui.ChatUiFlags;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
 import com.oilquiz.app.ai.chat.util.ToolResultText;
 import android.content.res.Configuration;
@@ -341,7 +342,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
         switch (viewType) {
             case VIEW_TYPE_USER:
-                return new UserMessageViewHolder(inflater.inflate(R.layout.item_user_message, parent, false));
+                // v2（demo .row.user）只换外壳观感：两套布局的控件 id 完全一致，
+                // UserMessageViewHolder 的绑定逻辑不需要分支。
+                return new UserMessageViewHolder(inflater.inflate(
+                        ChatUiFlags.isUiV2Enabled(parent.getContext())
+                                ? R.layout.item_user_message_v2 : R.layout.item_user_message,
+                        parent, false));
             case VIEW_TYPE_AI:
                 // AI 消息完全动态构建（不依赖布局文件/id），杜绝 id 错乱
                 return createAiMessageItem(parent.getContext());
