@@ -6,6 +6,7 @@ import com.oilquiz.app.ai.agent.ToolResultInterpreter;
 import com.oilquiz.app.ai.chat.component.ComponentActions;
 import com.oilquiz.app.ai.chat.component.ComponentContentSplitter;
 import com.oilquiz.app.ai.chat.component.ComponentData;
+import com.oilquiz.app.ai.chat.component.ComponentDisplay;
 import com.oilquiz.app.ai.chat.component.ComponentRegistry;
 import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.render.RenderExecutor;
@@ -2305,22 +2306,85 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return null;
     }
 
-    /** 把一个组件（工具卡或产物卡）渲染挂载到 contentHost；渲染失败降级为占位文本，不显示源码。 */
-    private void mountRoundComponent(AIMessageViewHolder holder, Context ctx, ComponentData comp) {
+    /**
+     * 把一个组件（工具卡或产物卡）渲染挂载到 contentHost；渲染失败降级为占位文本，不显示源码。
+     *
+     * <p>2026-10-20：产物卡按 {@link ComponentDisplay} 的档位挂载——INLINE 整卡、PEEK 摘要行、
+     * HIDDEN 由调用方（指纹段/增量跳位/重建三处）先跳过计数再跳过挂载，**这里只是第二道闸**，
+     * 两处判定必须同口径，否则 contentHost 子 View 数与 expect 对不上、增量更新会错位。
+     * 工具过程卡（tool_call）不参与分档：它已有"全部完成后折成一行"的组级折叠，
+     * 再套一层摘要等于同一张卡收两次。
+     */
+    private void mountRoundComponent(AIMessageViewHolder holder, Context ctx, ChatMessage message,
+                                     ComponentData comp, int prodIndex) {
         if (comp == null) return;
+        boolean isToolCard = "tool_call".equals(comp.type);
+        ComponentDisplay.Mode mode = isToolCard
+                ? ComponentDisplay.Mode.INLINE : ComponentDisplay.resolve(ctx, comp);
+        if (!ComponentDisplay.mounts(mode)) return;
         View v = ComponentRegistry.getInstance().render(ctx, comp);
         if (v == null) {
             TextView tv = createSegmentTextView(ctx, holder.messageText);
             tv.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ce08c6dd)
                     + comp.type + SmartQuizApplication.getAppContext().getString(R.string.h_56e45313));
             tv.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-            holder.contentHost.addView(tv);
-        } else {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = dpToPx(8, ctx);
-            holder.contentHost.addView(v, lp);
+            v = tv;
         }
+        if (mode == ComponentDisplay.Mode.PEEK) {
+            v = wrapProductPeek(ctx, message, comp, v, prodIndex);
+            if (v == null) return;
+        }
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dpToPx(8, ctx);
+        holder.contentHost.addView(v, lp);
+    }
+
+    /**
+     * peek 档产物卡的摘要行容器（2026-10-20）：一行"▸ 标题 · 关键值"，点击就地展开/收起完整卡。
+     *
+     * <p>返回<b>单个</b> View（标题行 + 卡体的垂直容器）：轮次渲染的 expect 子 View 计数
+     * 不必为"展开与否"准备两套口径，指纹/增量/重建三处循环共用同一份计数。
+     *
+     * <p>展开态记在消息上（{@link ChatMessage#componentBodyExpandedIds}）而不是 View 上，
+     * 整条消息重建后照样还原；完整卡即使收起也照常渲染（只是 GONE），
+     * 渲染成本与旧行为一致，而 {@code ComponentLifecycle.release} 会深度优先递归销毁
+     * 嵌套的 WebView，不会因为多包了一层而漏放。
+     */
+    private View wrapProductPeek(Context ctx, ChatMessage message, ComponentData comp,
+                                 View body, int prodIndex) {
+        if (body == null) return null;
+        final String key = ComponentDisplay.stateKey(comp, prodIndex);
+        final boolean startExpanded = message != null && message.isComponentBodyExpanded(key);
+
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+
+        TextView row = new TextView(ctx);
+        row.setTextSize(12f);
+        row.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
+        row.setPadding(dpToPx(4, ctx), dpToPx(6, ctx), dpToPx(4, ctx), dpToPx(6, ctx));
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setBackground(getSelectableItemBackground(ctx));
+        body.setVisibility(startExpanded ? View.VISIBLE : View.GONE);
+        row.setText(peekRowLabel(comp, startExpanded));
+        row.setOnClickListener(v -> {
+            boolean expanded = message != null
+                    ? message.toggleComponentBodyExpanded(key)
+                    : body.getVisibility() != View.VISIBLE;
+            body.setVisibility(expanded ? View.VISIBLE : View.GONE);
+            row.setText(peekRowLabel(comp, expanded));
+        });
+
+        box.addView(row);
+        box.addView(body);
+        return box;
+    }
+
+    /** 摘要行文案：箭头 + {@link ComponentDisplay#peekLabel} 的"标题 · 关键值" */
+    private static String peekRowLabel(ComponentData comp, boolean expanded) {
+        return (expanded ? "▾ " : "▸ ") + ComponentDisplay.peekLabel(comp);
     }
 
     private void renderRoundAssembled(AIMessageViewHolder holder, ChatMessage message, int availableWidth, Context ctx) {
@@ -2420,8 +2484,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
                 expect++;
                 // 该工具卡的内联产物（P 段随工具卡一起编码，产物 props 变化会触发重建）
+                // HIDDEN 档产物不进指纹也不计数：它们压根不挂载，算进去会让 expect 比实际子 View 多
                 if (tkey < nRounds) {
                     for (ComponentData p : roundProds.get(tkey)) {
+                        if (!ComponentDisplay.mounts(ComponentDisplay.resolve(ctx, p))) continue;
                         fp.append('P').append(p.type).append('|')
                           .append(p.props != null ? p.props.toString() : "null").append(';');
                         expect++;
@@ -2429,8 +2495,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             }
         }
-        // 尾部兜底产物（无归属标注 / 匹配不到任何工具）
+        // 尾部兜底产物（无归属标注 / 匹配不到任何工具）；同 P 段：HIDDEN 不进指纹、不计数
         for (ComponentData p : tailProds) {
+            if (!ComponentDisplay.mounts(ComponentDisplay.resolve(ctx, p))) continue;
             fp.append('P').append(p.type).append('|')
               .append(p.props != null ? p.props.toString() : "null").append(';');
             expect++;
@@ -2481,10 +2548,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     int tkey = compIdx;
                     compIdx++;
                     childIdx++;  // 工具卡片已挂载，跳过
-                    if (tkey < nRounds) childIdx += roundProds.get(tkey).size();  // 内联产物已挂载，跳过
+                    // 内联产物已挂载，跳过——只跳"真的挂了"的那些（HIDDEN 档没挂 View）
+                    if (tkey < nRounds) childIdx += ComponentDisplay.countMounting(roundProds.get(tkey), ctx);
                 }
             }
-            childIdx += tailProds.size();  // 尾部兜底产物已挂载，跳过
+            childIdx += ComponentDisplay.countMounting(tailProds, ctx);  // 尾部兜底产物已挂载，跳过
             return;
         }
 
@@ -2497,6 +2565,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         start = 0;
         thinkIdx = 0;
         compIdx = 0;
+        // 产物序号：只用于没有组件 id 时的展开状态锚点（ComponentDisplay#stateKey 的兜底），
+        // 对每个产物推进一次（含 HIDDEN），同一消息重建前后同一张卡拿到同一个键
+        int prodSeq = 0;
         java.util.List<String> thinkIds = message.thinkingRoundIds;
         for (int i = 0; i <= bounds.size(); i++) {
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
@@ -2523,10 +2594,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ComponentData comp = toolComps.get(compIdx);
                 int tkey = compIdx;
                 compIdx++;
-                mountRoundComponent(holder, ctx, comp);
+                mountRoundComponent(holder, ctx, message, comp, -1);
                 if (tkey < nRounds) {
                     for (ComponentData p : roundProds.get(tkey)) {
-                        mountRoundComponent(holder, ctx, p);
+                        mountRoundComponent(holder, ctx, message, p, prodSeq++);
                     }
                 }
             }
@@ -2534,7 +2605,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         // 尾部兜底产物（无归属标注 / 匹配不到任何工具）
         for (ComponentData p : tailProds) {
-            mountRoundComponent(holder, ctx, p);
+            mountRoundComponent(holder, ctx, message, p, prodSeq++);
         }
 
         // 最终轮思考（流式中或未落库的当前轮思考，未进 thinkingRounds 时补一块；仅展开时显示）
@@ -3784,24 +3855,32 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         boolean first = true;
         int rendered = 0;
 
-        // 渲染非工具组件（工具产物如 list_card/image_grid 等始终完整显示）
+        // 渲染非工具组件（工具产物卡）：2026-10-20 起不再"始终完整显示"，改由 ComponentDisplay 分档——
+        // INLINE 整卡；PEEK 收成一行摘要（点开才是完整卡）；HIDDEN 不挂载（卡片数据仍在 message.components 里，可复盘）。
+        // prodIndex 对每个产物都推进（含 hidden），保证没有 id 的组件在同一消息里的锚点稳定。
+        int prodIndex = 0;
         for (ComponentData data : others) {
+            ComponentDisplay.Mode mode = ComponentDisplay.resolve(ctx, data);
+            if (!ComponentDisplay.mounts(mode)) {
+                prodIndex++;
+                continue;
+            }
             View view = ComponentRegistry.getInstance().render(ctx, data);
             if (view == null) {
                 // 渲染失败降级占位（统一错误态卡片，不显示组件源码）
-                View fallback = ComponentRegistry.getInstance().renderFallback(ctx, data);
-                LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                flp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
-                holder.componentContainer.addView(fallback, flp);
-                first = false;
-                rendered++;
+                view = ComponentRegistry.getInstance().renderFallback(ctx, data);
+            }
+            View mounted = mode == ComponentDisplay.Mode.PEEK
+                    ? wrapProductPeek(ctx, message, data, view, prodIndex++)
+                    : view;
+            if (mounted == null) {
+                prodIndex++;
                 continue;
             }
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
-            holder.componentContainer.addView(view, lp);
+            holder.componentContainer.addView(mounted, lp);
             first = false;
             rendered++;
         }

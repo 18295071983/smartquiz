@@ -234,6 +234,33 @@ public class ChatMessage {
         }
     }
 
+    /**
+     * 被用户点开过的产物卡（2026-10-20）：peek 档卡片默认收成一行摘要
+     * （见 {@link com.oilquiz.app.ai.chat.component.ComponentDisplay}），此集合记"这条已展开"。
+     *
+     * <p>仅运行时 UI 状态、不持久化，与 {@link #thinkingCollapsedRounds} 同套路子：
+     * 状态放在消息模型上而不是 View 上，RecyclerView 复用/整条重建后按它还原，
+     * 不会像 v2 工具行那样一次绑定结束就丢。
+     */
+    public transient java.util.Set<String> componentBodyExpandedIds;
+
+    /** 该产物卡是否处于展开状态（只有 peek 档会读到 true） */
+    public boolean isComponentBodyExpanded(String key) {
+        return key != null && !key.isEmpty()
+                && componentBodyExpandedIds != null && componentBodyExpandedIds.contains(key);
+    }
+
+    /** 切换某张产物卡的展开状态，返回切换后的值 */
+    public boolean toggleComponentBodyExpanded(String key) {
+        if (key == null || key.isEmpty()) return false;
+        if (componentBodyExpandedIds == null) {
+            componentBodyExpandedIds = new java.util.HashSet<>();
+        }
+        if (componentBodyExpandedIds.remove(key)) return false;
+        componentBodyExpandedIds.add(key);
+        return true;
+    }
+
     /** 追加一轮思考内容（自动创建列表；轮次 id 为空时由派发器自动发放） */
     public void addThinkingRound(String roundContent) {
         addThinkingRound(roundContent, null);
