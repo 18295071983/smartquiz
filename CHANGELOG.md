@@ -1,5 +1,212 @@
 # 变更日志
 
+## [2026-10-20] 组件名字账本收口：删死名单与死实现，list/progress 让给卡片，primitive_ 逃生口见光
+
+接着上一节查"工具结果 UI 组件 AI 能不能管"时，用户改问"这些内置组件够用吗"，按**实现完整性（死名字与没接线）**口径盘了一遍。结论：能力不缺（32 个 Layout 原语在 `NativeLayoutRenderer` 都有真实分支），**缺的是名字账本的一致性**。
+
+### 查到的事实
+
+- 名字对不上时**不报错、只悄悄换长相**：`ComponentRegistry#render`（`:158-163`）先按 canonical 解析，
+  解析不到就用 `DynamicCardView` 通配兜底（标题 + content + 键值行 + 折叠原始 JSON）。
+  这是这类漂移能长期无人发现的根因。
+- `note_card`/`grid_card` 是**死实现**：`ComponentTypes` 的 alias 把 `note_card→info`、`grid_card→list`（`:77/:80`），
+  而 `render()` 先解析 alias，所以 `ComponentRegistry:63/:65` 注册的 `NoteCardView`/`GridCardView` 永不被命中。
+  更糟的是工具文案长期教模型用 `note_card:{type,content,author}`/`grid_card:{title,columns,items:[{icon,label}]}`
+  ——这些字段没有一个渲染器读，模型传 `note_card` 今天的真实结果是落到 DynamicCardView 兜底卡。
+- `list`/`progress` 两个短名被抢：`ComponentTypes` 目录（canonical 与 `catalogJson`）把它们教成聊天流卡片
+  （`list→list_card`、`progress→progress_card`），而 `SystemUIComponentTool` 的原生弹窗拦截表里也写着这两个名字，
+  `isBuiltinComponentType` 因此返回 false → 模型照目录用 `list` 拿到的是弹窗，卡片实现永远进不去。
+- 拦截表在 `isNativeComponentType` 与 `isBuiltinComponentType` 里**被抄了两遍同样的数组**，
+  旁边还有第三份 `BUILTIN_COMPONENT_TYPES`——grep 全项目只有定义行、零引用，是死名单，
+  且它列着的正是上面两个死实现。
+- `primitive_<名字>` 逃生口只在 `ComponentRegistry:101` 注册和类注释里出现，零调用方；
+  而被卡片认领走名字的短名（`table/steps/alert/stat/timeline/bar_chart/pie_chart/sparkline/progress_ring`）
+  想拿原语长相目前只能靠它。
+- `ComponentTypes` 目录里 `list` 的可选字段写着 `variant=list|grid, columns`，`ListCardView` 一个字都不读
+  （它读 `items[{icon,title,description,value,url,link}]`）——又一处目录过度承诺。
+- 干净的部分：需要"合法卡片名"的地方都查注册表（`UIComponentPluginManager:141`、
+  `UIComponentTypeRegistry:84-86`、`PythonToolManager`），没有再抄一份；插件/layout 模板落盘后
+  `NativeLayoutRenderer:257/3207-3216` 都会读回，没有"存了没人读"的断点。
+
+### 由此改掉的事
+
+- **新增 `ai/tool/NativeComponentTypes`**：原生弹窗类型的唯一名单，
+  `INTERNAL_NAMES`（内部实现认的老名字，一个不动）/ `MODEL_NAMES`（模型可见名）/
+  `MODEL_TO_INTERNAL`（`list_picker→list`、`progress_dialog→progress`）。
+  **短名让给卡片，弹窗改用带语义的名字**；`SystemUIComponentTool` 两处重复数组与死名单全部删掉改为委托，
+  下发给 `PythonToolManager` 前用 `internalName()` 翻译，内部调用方零改动、零风险。
+- **删死实现 `NoteCardView`/`GridCardView`** 与 `ComponentRegistry` 里两行注册；
+  `note_card/grid_card` 的 alias **必须保留**（历史会话里的 `type` 仍是旧名，删了就没法渲染），
+  注释写明去处：条目用 `info_card`，笔记/引用用 `quote`（渲染器真读 `text/content + author`）。
+- **文案与目录同步收口**：`ui_component` 两份定义（`AIToolManager` 与 `SystemUIComponentTool` 的
+  `@Tool/@Param`）不再推销 `note_card/grid_card`，弹窗名改 `progress_dialog/list_picker`，
+  并明确"短名 table/steps/alert/stat… 已被原生卡片认领，要原语长相写 `primitive_` 前缀"；
+  `ComponentTypes` 目录删掉没实现的 `variant/columns` 承诺，新增 `PRIMITIVE_HINT` 常量，
+  随 `ui_component(action=list_types)` 一起给模型看（以前只躺在类注释里，等于没有）。
+- **新增 `ComponentNameIntegrityTest` 6 条**：canonical 名不许被弹窗表抢走、canonical 必须命中原生卡片实现
+  而非 Layout 原语、`primitive_*` 全部可解析、旧名归一后仍能渲染、`MODEL_TO_INTERNAL` 自洽、
+  alias 目标必须是 canonical/场景名。**写它时当场抓到我抄漏的 `INTERNAL_NAMES` 里少了 `list`**
+  （`别名指向了不存在的内部类型`），补回后才绿。
+
+### 验证
+
+- `compileDebugJavaWithJavac --offline`、全量 `testDebugUnitTest --offline --rerun-tasks`
+  = **435 tests / 0 failed / 0 skipped / 0 errors**（40 个结果 XML 逐个核过 skipped），
+  `assembleDebug --offline` BUILD SUCCESSFUL。上一节的 `ComponentDisplayTest`（12 条，含后来补的原语输入类底线）
+  一并被这轮覆盖，那次 429 的运行早于这两处新增，数字已在此更正口径。
+- 提示词 golden 重生成过：diff 里 UI 组件那几行**没有变化**——因为真正装配的是精简版
+  `buildComponentGuideMiniSection`，我改的长版清单属于下面那条未决项。
+- **未做真机验证**（设备不在）：`list`/`progress` 现在拿到卡片、`list_picker`/`progress_dialog` 仍是弹窗、
+  旧数据里的 `note_card` 渲染成 info 卡这三条都只是代码推断。
+- **未决（等用户定）**：工作区根目录多出 `pip-build-env-*`/`pip-unpack-*`/`tmp_znwph35` 未跟踪残渣
+  （跑测试时 pip/Chaquopy 落在项目根的），删或进 `.gitignore`。
+
+### 追加：那条死提示词的处置（我上一轮的推荐被自己核掉了）
+
+先按"拆 3–5 行常驻"准备动手，**核完发现一行都不该加**，所以最终只删不加：
+
+- 证据链：`buildComponentGuideSection()` 没有任何调用方，装配器两条链注册的 `component_guide`
+  都是 `buildComponentGuideMiniSection()`（`:127`/`:148`）；删除它之后
+  `OnlinePromptBuilderAssemblyTest` 拿**旧 golden** 逐字比对照样全绿——
+  这就直接证明那 68 行提示词今天确实不在发出去的请求里。
+- 逐条核对内容并没有丢，而且去处比"塞回系统提示词"更合理：
+  控件清单 / `rounds` 连续输入 / `media_task` 在 **ui_component** 定义里（`ui_component` 属
+  `OnlineAgentEngine.CORE_TOOLS`，每轮都随 tools 下发，等于常驻）；预装 Python 库清单在
+  **python_execute / python_file_ops** 定义里；画布硬约束在 **layout_editor** 定义里
+  （与 `LayoutCanvasConstraints` 的 `MAX_NODES=150`/`MAX_CHILDREN_PER_CONTAINER=40`/`MAX_DEPTH=8`/
+  `MAX_ACTIVE_CANVASES=3`/`MAX_EDITS_PER_SECOND=5` 同口径）；
+  连"内置 shell 工具箱里没有 ffmpeg（也装不上）"和 mp3/opus 无编码器、无 freetype 故 drawtext 不行，
+  也都在 **media_toolkit** 定义里。
+- 反过来，那段死文字自己口径就是打架的：一处写"不依赖 ffmpeg/外部二进制"，另一处写
+  "engine=auto…自动回退内置 ffmpeg"。把它请回系统提示词等于把一份过时草稿重新发给模型。
+- 处置：删方法（连带 javadoc 共 73 行），在原位留一段说明——写清"为什么没有调用方、
+  内容今天从哪四条出口下发、以及不要再把它注册回来"。
+
+## [2026-10-20] 工具结果卡片不再每轮整卡摊开：展示档位 inline/peek/hidden，模型可以逐条管
+
+用户提的第二件事："工具结果的 UI 组件目前怎么显示的，AI 能不能管理，每次默认显示也不行啊"。
+查下来答案是**模型完全管不了，而且不是没做界面，是连展示控制字段都不存在**。
+
+### 查到的事实
+
+- 一次工具调用在 UI 上最多落四处：工具过程卡（`tool_call`）、结果文本、**自动补挂的产物卡**、
+  模型用 ui_component 主动创建的卡。前两处本来就有折叠/截断——
+  过程卡全部完成后收成一行"N 个工具调用"（`ChatAdapter#bindComponents`），
+  文本走 `ToolResultText.preview` 2000 字/8 行 + "查看全部"弹窗。
+- 后两处**没有任何折叠**：`ChatAdapter` 里原话注释就是"工具产物如 list_card/image_grid 等始终完整显示"；
+  `renderRoundAssembled` 的 roundProds/tailProds 同口径整卡内联。
+  `AIToolManager#collectAutoUiCards` 每轮最多补 8 张（只限数量不限显示），
+  开关 `ai_chat_prefs.tool_auto_ui_bridge` 默认开、且**没有任何设置页入口**（只有代码里的 `setEnabled`）。
+- 模型侧没有入口：全项目没有 `display/collapse/hide` 之类的展示字段被消费；
+  `AITool.presentCall/presentResult` 是 default 返回 null 且没有任何工具覆写，
+  传上来的 `presentCard` 到渲染端只被读了 `title`。
+- `ComponentTypes` 给 json 类型声明了可选字段"折叠 collapsed"，**渲染端一个字都没读**——
+  声明多年、从未实现的死字段。
+- 已有的折叠先例可以复用：`DynamicCardView` 的「查看原始 JSON」默认收起 + 展开后限高、
+  工具过程卡的组级折叠行、`ComponentLifecycle.release` 是深度优先递归销毁
+  （所以摘要行多包一层容器不会漏放 WebView）。
+- 展开状态有两种现成路子：`ChatMessage.ToolCallInfo.callExpanded`（随 Gson 落盘）与
+  `thinkingCollapsedRounds`（transient，只活在内存）。v2 工具行那份把状态挂在 View 上，
+  绑定一结束就丢，是反面例子。
+
+### 由此改掉的事
+
+- **拆口径：「挂什么卡」与「怎么显示」分离。** 新增
+  `ai/chat/component/ComponentDisplay`：`ToolResultCardBinder` 的名单继续只管选卡片类型，
+  展示档位统一由它决定，优先级是
+  模型 `props.display`（inline/peek/hidden）→ 历史 `collapsed` 字段（true=peek，本次才真生效）→
+  **类型底线**（交互类 dialog/input/choice/…、实时状态 progress/media_task、正文类 markdown/html/code/quiz
+  永远 inline，且这条压在模型声明之上——不许把用户要点的按钮 hidden 掉，带 `actions` 的卡同理）→
+  用户默认档 `ai_chat_prefs.tool_result_display_default`（**默认 peek**，设成 inline 即整体回到旧行为）。
+- **默认档改成摘要折叠一行**：peek 档渲染成一行"▸ 标题 · 关键值"（天气=城市+温度+天气、
+  表格=N 行 × M 列、图集=N 张、JSON=N 个字段、正文=裁到 40 字），点击就地展开完整卡。
+  完整卡即使收起也照常渲染（只是 GONE），渲染成本与旧行为一致，
+  `ComponentLifecycle.release` 递归覆盖嵌套 WebView。
+- **展开态学思考轮那一套**：`ChatMessage.componentBodyExpandedIds`（transient，不污染历史 JSON），
+  锚点用组件子 id（`T1-Cn`），没有 id 才退回"类型+序号"；重建后照样还原，不像 v2 工具行那样丢。
+- **三条渲染循环同口径**：`bindComponents` 的 others 通道、`renderRoundAssembled` 的
+  指纹段 `P`/`expect`、增量 `childIdx` 跳位、重建挂载，全部走同一个
+  `ComponentDisplay.resolve` / `countMounting`——hidden 卡既不挂 View 也不计入 expect，
+  否则增量更新的子 View 计数会错位。工具过程卡强制 inline，不参与分档（它已有组级折叠，再收一层等于收两次）。
+- **模型侧入口**：`ui_component` 新增可选参数 `display`，文案与组件目录共用一个
+  `ComponentDisplay.DISPLAY_DOC`（避免第二份口径）；`SystemUIComponentTool` 按既有
+  title/content/actions 的兜底路子把顶层 `display` 并进 props（放顶层或 props 内都有效）；
+  `ComponentTypes` 那条死掉的 `collapsed` 说明换成 display 三档 + 旧字段等效说明。
+- **回退面**：`tool_result_display_default=inline` 一行 pref 回到今天之前的"整卡摊开"；
+  `tool_auto_ui_bridge=false` 仍是"干脆不补挂产物卡"。两个开关都不需要重装。
+
+### 验证
+
+- 新增 `ComponentDisplayTest` 13 条：档位优先级、交互/正文底线压过 hidden 声明、`collapsed` 历史字段、
+  垃圾声明回落、`countMounting` 与 hidden 不计数（钉住"指纹/增量/重建同口径"这条）、
+  无 Context 时默认 peek、摘要行各类型文案与天气单位不重复（`26°C` 不再被写成 `26°C℃`）、
+  8 种畸形 props 都不抛、展开锚点取 id、`DISPLAY_DOC` 与组件目录真的把 display 暴露给模型。
+  **写这条测试时抓到两个真 bug**：`countMounting` 我一开始按 3 个期望写错（隐藏卡确实只有 1 个不挂），
+  以及天气摘要会给自带单位的温度再补一个 ℃。
+- `compileDebugJavaWithJavac --offline` 通过；提示词 golden 未受影响（`display` 走 API 的 tools 参数，
+  不进系统提示词），`OnlinePromptBuilderAssemblyTest` 未改动。
+- 全量 `testDebugUnitTest --offline --rerun-tasks` = **429 tests / 0 failed / 0 skipped / 0 errors**
+  且 `assembleDebug` 通过；随后补的"原语输入类强制 inline + 天气单位不重复"两处新增，
+  由下一节那轮 **435/0/0/0 + assembleDebug** 一并覆盖（口径以那一轮为准）。
+- **未做真机验证**（设备不在线）：摘要行的字号/配色/点击热区是否够用、长图集合起来后
+  用户是否知道能点开、以及模型是否真的会主动用 `display`（这条只能装机后看实际 tool_calls）。
+- 已知没做：新 pref **还没有设置页入口**（旧的 `tool_auto_ui_bridge` 同样只在代码里），
+  目前只有代码/调试可改；要给用户三档选择需要再补一次设置页。
+
+## [2026-10-20] 在线引擎不再每轮自动定位：环境上下文只给日期，"天气要不要先 location"三处口径对齐
+
+用户反馈"在线引擎每次都自动使用定位工具"。查下来**主因不是提示词，是引擎硬编码**：提示词只是跟着错了一半。
+
+### 查到的事实
+
+- `OnlineAgentEngine` 每次 execute 开头（第一条用户消息进推理循环之前）都调
+  `toolManager.executeTool("env_loc", "location", "{\"action\":\"get_current\"}")`，把结果拼成
+  "当前位置：X"注入 system，还配一条"环境感知 · 正在获取位置信息…"进度步骤——用户看到的"每次都定位"就是它，
+  与本轮问什么无关，且每轮白付最多 5 秒阻塞 + 一次 GPS 唤醒。
+- 这件事与自家提示词直接打架：`OnlinePromptBuilder.buildCallRulesSection()` 明写
+  "用户没说城市则不要传任何位置参数、系统会自动使用设备定位""不要依赖注入的环境信息"，
+  而引擎转头就把位置标成"当前权威事实"塞进 system。
+- 天气轮会**定位两次**：`AIWeatherManager.tryAutoLocate()`（city/lat/lon 全非必填时的兜底，
+  经 `ToolContextProvider.getCurrentLocation`）与引擎注入各跑一次。
+- 三条独立链路仍在教模型"先调 location"：`OnlineToolGuide.buildGuide()` 的错误处理条
+  （"缺少前置信息时…可先调用依赖工具（如 location）补充"）与调用规则第 5 条（"无城市先 location 定位"）、
+  `OnlineToolChain` 的依赖链 `ai_weather→location`（会渲染成工具详情里的"依赖（缺少参数时可先调用）: location"）、
+  组合链 `location→ai_weather`（进【工具组合示例】），外加【工具策略】第 4 条"位置→location+weather"。
+- 仓库里另外两处环境上下文本来就没有位置：`AIService.buildDefaultChatSystemPrompt()` 与
+  `ModelExecutionBridge` 的 env 段都只给日期，前者注释还写了理由（"位置/天气由 Agent 工具链按需获取，
+  不在此处同步拉取，避免拖慢上下文创建"）——在线引擎是唯一不合群的。
+
+### 由此改掉的事
+
+- **`buildEnvironmentContext()` 只留日期**：删掉 location 取数段与两处解析助手
+  （`extractCityFromLocationResult` / `extractDistrictFromLocationResult`，无其他调用方），
+  结尾"权威事实"说明改成日期口径并补一句"系统未注入你的位置：需要位置时按工具定义处理，
+  例如 ai_weather 不传位置参数即自动用设备定位"。日期格式仍只到"日"，前缀缓存收益不变；
+  `【环境上下文】` 前缀保留，跨天 `refreshEnvIfStale()` 靠它识别。"环境感知"进度步骤整条不再发
+  （纯本地取日期，无 I/O 可报）。
+- **口径统一成"位置谁需要谁自取"**：`OnlineToolGuide` 两条改成"优先留空让工具自定位，不要先调 location；
+  location 只在用户问'我在哪/附近有什么'这类位置本身时用"；`OnlineToolChain` 删掉 `ai_weather→location`
+  依赖与 `location→ai_weather` 组合，并把 `ai_weather` 的回退收成只剩 `network_search`（location 不返回天气）；
+  【工具策略】第 4 条改"位置→weather 留空即自动定位（不要先调 location）"。
+  `network_search→location`（搜"附近"类）与 `location→network_search` 回退保持不动。
+- 接管档 `buildCallRulesSection()` 原文没动——它本来就是对的，其余几处向它看齐。
+  链数据只影响喂给模型的文字：`getCombinationPairs`/`getDependencies` 仅 `OnlineToolGuide` 用来出指南与工具详情，
+  `getFallbackTools` 也只在辅助档失败时经 `buildFallbackHint` 注入一条 system 建议（`:897-920`，接管档不注入），
+  三处都不驱动执行，删链不会改变任何自动调用行为。
+
+### 验证
+
+- `compileDebugJavaWithJavac --offline` 通过（警告均为既有）。
+- golden 按 `OnlinePromptBuilderAssemblyTest` 类注释的流程重生成：临时用例写出两份 golden 后即删，
+  diff 只有【工具策略】第 4 条这一行变化，无夹带。
+- `testDebugUnitTest --offline --rerun-tasks` = **417 tests / 0 failed / 0 skipped / 0 errors**（38 个 XML 汇总，
+  skipped 逐个数过，与改版前记录的 417 条一致，没有用例被静默跳过）。
+- 定向复跑 `OnlinePromptBuilderAssemblyTest` / `PromptAssemblerTest` / `AIToolManagerTest` /
+  `ToolMetaRegistryTest` / `ResponsesPayloadBuilderTest` = 55 tests / 0 skipped / 0 failed / 0 errors。
+- **未做真机验证**（`adb devices` 无设备）：每轮不再出现"环境感知/定位"步骤、问天气不再两次定位、
+  "我在附近有什么"这类仍能由模型自己调 location，都要装机后看 logcat 与回复才准。
+- 已知未动：软件/本地档 `AgentLoopEngine.fillWeatherLocation()` 仍在引擎侧补位置，本次只收在线引擎。
+
 ## [2026-10-19 深夜] A1 第四段（两半）：v2 日期分隔替代逐条时间戳、操作段换成三图标 + 更多
 
 真机不在电脑跟前，这一节只做到"编译 + 单测 + 出包"，**没有目视确认**；验收清单见
