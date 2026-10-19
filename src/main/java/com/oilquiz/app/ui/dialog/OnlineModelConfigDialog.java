@@ -85,6 +85,10 @@ public class OnlineModelConfigDialog {
     private CheckBox svcFunctionCalling;
     private CheckBox svcTts;
     private CheckBox svcAsr;
+    /** 单价（$/百万 token）：唯一有能力含义却没有入口的注册字段 */
+    private EditText costInput;
+    /** 协议只读提示：展示推理链实际按 providers.json 反推出的协议 */
+    private TextView protocolHint;
     private boolean capabilitiesUserTouched; // 用户是否手动调整过能力勾选
     private boolean programmaticCapabilityChange; // true=程序回填/预置勾选期间，屏蔽"用户手动调整"误标记
 
@@ -236,6 +240,8 @@ public class OnlineModelConfigDialog {
         svcFunctionCalling = dialog.findViewById(R.id.svc_function_calling);
         svcTts = dialog.findViewById(R.id.svc_tts);
         svcAsr = dialog.findViewById(R.id.svc_asr);
+        costInput = dialog.findViewById(R.id.input_cost_per_million);
+        protocolHint = dialog.findViewById(R.id.text_protocol_hint);
         // 能力勾选即视为用户手动设置（保存后配置表刷新不再覆盖）
         android.widget.CompoundButton.OnCheckedChangeListener userSet =
                 (b, c) -> { if (!programmaticCapabilityChange) capabilitiesUserTouched = true; };
@@ -487,9 +493,35 @@ public class OnlineModelConfigDialog {
             svcAsr.setChecked(known && pcm.hasService(url, "asr"));
         }
         servicesSection.setVisibility(View.VISIBLE);
+        applyCapabilityMeta(url, config);
         } finally {
             programmaticCapabilityChange = false;
         }
+    }
+
+    /**
+     * 单价回填 + 协议/上下文的只读说明。
+     *
+     * <p>单价此前没有入口，字段恒为 0；协议与上下文窗口则从来没有界面露出过 ——
+     * 用户无法知道自己注册的端点实际走 chat/completions 还是 /responses，
+     * 也看不出上下文数值是 API 检测来的还是按配置表推断的（可信度完全不同）。</p>
+     */
+    private void applyCapabilityMeta(String url,
+                                     com.oilquiz.app.ai.model.OnlineModelManager.OnlineModelConfig config) {
+        if (costInput != null) {
+            costInput.setText(config != null && config.costPerMillionTokens > 0
+                    ? String.format(java.util.Locale.US, "%.4f", config.costPerMillionTokens)
+                    : "");
+        }
+        if (protocolHint == null) return;
+        StringBuilder sb = new StringBuilder();
+        sb.append(com.oilquiz.app.ui.modelcenter.ModelCapabilitySummary.protocolLabel(url));
+        if (config != null) {
+            sb.append(" · ").append(
+                    com.oilquiz.app.ui.modelcenter.ModelCapabilitySummary.contextLabel(config));
+        }
+        sb.append("（协议由服务商配置表按地址判定，不可手改）");
+        protocolHint.setText(sb.toString());
     }
 
     private void testConnection() {
@@ -743,6 +775,12 @@ public class OnlineModelConfigDialog {
             // 保存即视为用户手动设置能力（配置表刷新不再覆盖；新建必置 true）
             config.capabilitiesUserSet = !isEditing || editingConfig.capabilitiesUserSet || capabilitiesUserTouched;
         }
+        // 单价：AttachmentProcessor 按它给同能力模型排性价比择优；空/非法按 0（无价）处理
+        if (costInput != null) {
+            String rawCost = costInput.getText().toString().trim().replace(",", "");
+            config.costPerMillionTokens = rawCost.isEmpty()
+                    ? 0 : parseCostOrZero(rawCost);
+        }
         if (cachedModelsJson != null) {
             config.cachedModelsJson = cachedModelsJson;
             config.lastFetchTime = System.currentTimeMillis();
@@ -759,6 +797,16 @@ public class OnlineModelConfigDialog {
 
         Toast.makeText(context, isEditing ? "配置已更新" : "配置已保存", Toast.LENGTH_SHORT).show();
         dialog.dismiss();
+    }
+
+    /** 单价解析：非数字/负数一律按 0（=无价），不让一个手抖的输入毁掉整次保存 */
+    private static double parseCostOrZero(String raw) {
+        try {
+            double v = Double.parseDouble(raw);
+            return v > 0 ? v : 0;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /**

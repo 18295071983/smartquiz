@@ -406,13 +406,22 @@ public class AICenterActivity extends AppCompatActivity
                 tvCurrentOnlineModel.setText(modelName != null ? modelName : getString(R.string.h_be4bb9e0));
                 tvCurrentOnlineProvider.setText(getString(R.string.h_7fc75577));
             } else {
-                OnlineModelManager.OnlineModelConfig active = onlineModelManager.getActiveModel();
-                if (active != null) {
-                    tvCurrentOnlineModel.setText(active.selectedModel != null ? active.selectedModel : active.modelName);
-                    tvCurrentOnlineProvider.setText(active.name);
+                // 不在用在线模型（本地或 NPU 接管）时，不能把注册表里的在线配置当成"当前使用"显示，
+                // 否则本页与聊天页会同时报出两个不同的生效模型。这里改读路由的真实口径。
+                String routed = inferenceRouter.getCurrentModelName();
+                if (routed != null && !routed.isEmpty()) {
+                    tvCurrentOnlineModel.setText(routed);
+                    tvCurrentOnlineProvider.setText(
+                            inferenceRouter.getCurrentInferenceType().getDisplayName());
                 } else {
-                    tvCurrentOnlineModel.setText(getString(R.string.h_be4bb9e0));
-                    tvCurrentOnlineProvider.setText(getString(R.string.h_fdb64631));
+                    OnlineModelManager.OnlineModelConfig active = onlineModelManager.getActiveModel();
+                    if (active != null) {
+                        tvCurrentOnlineModel.setText(active.selectedModel != null ? active.selectedModel : active.modelName);
+                        tvCurrentOnlineProvider.setText(active.name);
+                    } else {
+                        tvCurrentOnlineModel.setText(getString(R.string.h_be4bb9e0));
+                        tvCurrentOnlineProvider.setText(getString(R.string.h_fdb64631));
+                    }
                 }
             }
         }

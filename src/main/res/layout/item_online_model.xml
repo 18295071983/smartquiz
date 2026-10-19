@@ -80,6 +80,19 @@
             android:maxLines="1"
             android:ellipsize="end"/>
 
+        <!-- 能力摘要：视觉/Agent 等徽章 · 上下文窗口(含来源) · 实际走的协议 · 单价
+             此前这行整张列表都不显示，用户看不出注册的模型到底能干什么 -->
+        <TextView
+            android:id="@+id/online_model_capability"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="@dimen/text_11"
+            android:textColor="?attr/colorControlTextHint"
+            android:layout_marginTop="@dimen/space_4"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:visibility="gone"/>
+
         <!-- 模型选择行 -->
         <LinearLayout
             android:layout_width="match_parent"

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="?attr/colorSurface"
+    android:paddingHorizontal="@dimen/space_12"
+    android:paddingVertical="@dimen/space_10">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/text_usage_model"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="@dimen/text_14"
+            android:textStyle="bold"
+            android:textColor="?attr/colorControlText"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+
+        <TextView
+            android:id="@+id/text_usage_calls"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorPrimary"/>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/text_usage_tokens"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_4"
+        android:textSize="@dimen/text_12"
+        android:textColor="?attr/colorControlTextSecondary"/>
+
+    <TextView
+        android:id="@+id/text_usage_meta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_2"
+        android:textSize="@dimen/text_11"
+        android:textColor="?attr/colorControlTextHint"
+        android:maxLines="2"
+        android:ellipsize="end"/>
+
+</LinearLayout>

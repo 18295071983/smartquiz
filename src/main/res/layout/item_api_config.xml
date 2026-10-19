@@ -215,37 +215,9 @@
                 android:textSize="@dimen/text_12"
                 android:textColor="?attr/colorControlTextSecondary"/>
 
-            <TextView
-                android:id="@+id/tv_latency"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="@dimen/text_12"
-                android:textColor="@color/success_color"
-                android:layout_marginStart="@dimen/space_8"
-                android:visibility="gone"/>
-
-            <View
-                android:layout_width="@dimen/size_0"
-                android:layout_height="@dimen/size_0"
-                android:layout_weight="1"/>
-
-            <TextView
-                android:id="@+id/tv_usage"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textSize="@dimen/text_12"
-                android:textColor="?attr/colorControlTextHint"/>
+            <!-- 原此处的「延迟」占位、「使用次数 N」「最后使用时间」三块已移除：
+                 useCount / lastUsedAt 全项目无写入方，恒为 0 / 恒空，是看着像数据的空壳 -->
         </LinearLayout>
-
-        <!-- 最后使用时间 -->
-        <TextView
-            android:id="@+id/tv_last_used"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="@dimen/text_11"
-            android:textColor="?attr/colorControlTextHint"
-            android:layout_marginTop="@dimen/space_2"
-            android:visibility="gone"/>
 
         <!-- 操作按钮行 -->
         <LinearLayout

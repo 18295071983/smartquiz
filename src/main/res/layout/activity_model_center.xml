@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/colorBackground">
+
+    <!-- 顶栏：与 Agent 管理页同款结构 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_56"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/colorSurface"
+        android:paddingHorizontal="8dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_back"
+            android:layout_width="@dimen/size_40"
+            android:layout_height="@dimen/size_40"
+            style="@style/Widget.Material3.Button.IconButton"
+            app:icon="@drawable/ic_back"
+            app:iconSize="22dp"
+            app:iconTint="?attr/colorControlText"
+            android:contentDescription="返回"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="模型中心"
+            android:textSize="@dimen/text_18"
+            android:textStyle="bold"
+            android:textColor="?attr/colorControlText"
+            android:layout_marginStart="@dimen/space_4"/>
+
+        <TextView
+            android:id="@+id/text_active_model"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="end"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlTextSecondary"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:paddingEnd="@dimen/space_8"/>
+    </LinearLayout>
+
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        app:tabIndicatorColor="?attr/colorPrimary"
+        app:tabSelectedTextColor="?attr/colorPrimary"
+        app:tabTextColor="?attr/colorControlTextSecondary"/>
+
+    <!-- 模型 Tab：注册列表 -->
+    <LinearLayout
+        android:id="@+id/container_models"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- 相邻职责的入口：专用模型（ASR/TTS/NPU）与服务商密钥不属于「注册在线模型」，
+             但仍需从这一页一步可达，避免用户回到旧页面去凑 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="?attr/colorSurface"
+            android:paddingHorizontal="@dimen/space_8"
+            android:paddingVertical="@dimen/space_4">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_goto_speech_models"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="专用模型"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_goto_api_config"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="服务商密钥"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_goto_service_status"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="服务状态"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"/>
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_models"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_0"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingVertical="@dimen/space_8"/>
+    </LinearLayout>
+
+    <!-- 用量 Tab：本地调用统计 -->
+    <LinearLayout
+        android:id="@+id/container_usage"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/size_0"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- 概览卡 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/colorSurface"
+            android:padding="@dimen/space_12">
+
+            <TextView
+                android:id="@+id/text_usage_overview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="@dimen/text_13"
+                android:textColor="?attr/colorControlText"
+                android:lineSpacingExtra="3dp"/>
+
+            <TextView
+                android:id="@+id/text_usage_caveat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_6"
+                android:textSize="@dimen/text_11"
+                android:textColor="?attr/colorControlTextHint"/>
+        </LinearLayout>
+
+        <!-- 区间切换 + 明细标题：必须与概览卡同底色。此前裸放在页面背景上，
+             深色壁纸下按钮文字与标题几乎不可读 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/colorSurface"
+            android:paddingHorizontal="@dimen/space_4"
+            android:paddingBottom="@dimen/space_4">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_range_week"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="近 7 天"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_range_month"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="近 30 天"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_range_all"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="全部"
+                android:textAllCaps="false"
+                android:textSize="@dimen/text_12"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/text_usage_range_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="@dimen/space_12"
+            android:paddingVertical="@dimen/space_8"
+            android:textSize="@dimen/text_12"
+            android:textStyle="bold"
+            android:textColor="?attr/colorControlText"/>
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_usage"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/size_0"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingBottom="@dimen/space_12"/>
+    </LinearLayout>
+
+</LinearLayout>

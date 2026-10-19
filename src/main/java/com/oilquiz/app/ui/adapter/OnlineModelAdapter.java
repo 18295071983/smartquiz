@@ -72,6 +72,8 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         List<String> modelList;
         String selectedModel;
         String cachedModelsJson;
+        /** 能力/上下文/协议/单价的紧凑摘要，由 ModelCapabilitySummary 派生，不在 bind 里算 */
+        String capabilityLine;
 
         static DisplayItem header(String title) {
             DisplayItem item = new DisplayItem();
@@ -294,7 +296,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 boolean isCurrent = activeModelId != null && activeModelId.equals(config.id);
                 List<String> modelList = parseCachedModels(config.cachedModelsJson);
                 String selectedModel = config.selectedModel != null ? config.selectedModel : config.modelName;
-                items.add(DisplayItem.model(
+                DisplayItem displayItem = DisplayItem.model(
                         config.name,
                         selectedModel,
                         config.apiUrl,
@@ -307,7 +309,11 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                         modelList,
                         selectedModel,
                         config.cachedModelsJson
-                ));
+                );
+                // 能力/上下文/协议/单价摘要：此前整张列表只有名字和 URL，
+                // 用户看不出自己注册的模型走哪条协议、有没有视觉能力、上下文按什么算
+                displayItem.capabilityLine = com.oilquiz.app.ui.modelcenter.ModelCapabilitySummary.oneLine(config);
+                items.add(displayItem);
             }
         }
 
@@ -465,6 +471,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         TextView modelTypeTextView;
         TextView statusTextView;
         TextView apiUrlTextView;
+        TextView capabilityTextView;
         View statusIndicator;
         MaterialButton deleteButton;
         MaterialButton editButton;
@@ -480,6 +487,7 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             modelTypeTextView = itemView.findViewById(R.id.online_model_type);
             statusTextView = itemView.findViewById(R.id.online_model_status);
             apiUrlTextView = itemView.findViewById(R.id.online_model_url);
+            capabilityTextView = itemView.findViewById(R.id.online_model_capability);
             statusIndicator = itemView.findViewById(R.id.status_indicator);
             deleteButton = itemView.findViewById(R.id.delete_online_model_button);
             editButton = itemView.findViewById(R.id.edit_online_model_button);
@@ -594,6 +602,16 @@ public class OnlineModelAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
                 modelNameTextView.setText(item.modelName);
                 modelTypeTextView.setText(item.modelType != null ? item.modelType : "");
                 apiUrlTextView.setText(item.apiUrl != null ? item.apiUrl : "");
+
+                // 能力摘要行：无内容时整行隐藏，避免撑出一段空白
+                if (capabilityTextView != null) {
+                    if (item.capabilityLine != null && !item.capabilityLine.isEmpty()) {
+                        capabilityTextView.setText(item.capabilityLine);
+                        capabilityTextView.setVisibility(View.VISIBLE);
+                    } else {
+                        capabilityTextView.setVisibility(View.GONE);
+                    }
+                }
 
                 // Status indicator
                 int indicatorDrawable;

@@ -2,6 +2,136 @@
 
 # 变更日志
 
+## [2026-10-19] 专用模型与服务商密钥两处口径收敛：语音勾选真正生效、密钥页不再双处编辑
+
+### 查到的事实
+
+- `SpeechModelSelector.select()` 类注释写着"第 3 档按具体模型名启发式匹配"，但代码算出的
+  `keywords[]` 数组**从未被使用**，实际第一档就是端点域名族匹配直接 return。
+  后果：配置表单里的「语音合成 / 语音识别」勾选格对运行时毫无影响 ——
+  `supportsTts`/`supportsAsr` 除注册表自身刷新与表单读写外**零消费方**（已 grep 确认）。
+- 音色存在单个全局键 `tts_voice`，而音色 id 是模型作用域的（MiMo 的「冰糖」在 cosyvoice 上无意义），
+  换 TTS 模型时 `setFeatureModel` 不碰它 → 旧音色被带到新模型上。
+- `removeModel` 清 `featureModelIds` 但不清 `featureModelNames` → 留指向已删配置的孤儿模型名。
+- 「哪些 APIConfig 算 AI」这条判定在同步代码里内联抄了三份（导入 / 批量同步 / 单条同步）。
+- 密钥页的配额块不是死布局：`updateUsageDisplay` 确实被调用，但 `UsageTracker.usageInfoCache`
+  全类**只有读没有写**（`fetchUsage` 拿到结果从不落缓存），且列表 bind 也从不主动拉取
+  → 显示条件 `totalQuota > 0` 恒假。子代理据此建议"删掉死 UI"，判断错了，实际缺的是一次写入。
+- 「使用次数 N」「最后使用时间」两行确为空壳：`useCount` / `lastUsedAt` 无任何写入方。
+
+### 由此改掉的事
+
+1. **语音选择器接上勾选**：优先级改为 专用模型绑定 → 勾选了该能力的启用模型（激活者优先、
+   名形相符者优先）→ 语音服务商端点兜底 → `supportsAudio` 推断兜底。保留后两档是刻意的：
+   老配置从没勾过能力，直接收紧会让语音突然选不到模型。删掉未使用的 `keywords[]`。
+2. **音色改按模型作用域**：新增 `tts_voice_by_model`（JSON，键为模型配置 id），
+   作用域键取「TTS 专用模型绑定」否则当前激活模型。回落规则收窄到"从未按模型存过"才用旧全局键，
+   一旦有按模型记录就只认当前模型的 —— 换模型不再带走别的模型的音色，老用户首次升级不清空。
+3. **删除模型时两张表一起清**，并改为先收集受影响 feature 再删（避免遍历中改集合）。
+4. **AI 判定收成一处** `OnlineModelManager.isAIServiceConfig`，三处内联副本全部改调用。
+5. **密钥页不再双处编辑同一条记录**：AI 条目的名称/地址/密钥/模型名在编辑对话框里锁住
+   （置灰、不可聚焦）并说明"由模型中心管理"，超时/描述/分类/服务类型仍可改；
+   配额块改为缓存读 + 编辑对话框打开该条时主动拉一次（列表 bind 绝不发网络请求），
+   可见性统一由 `applyUsageTo` 判定，无数据整块隐藏；删掉恒为 0 的「使用次数」「最后使用」两行。
+
+### 追加：两个页面报出不同的"生效模型"（用户报）
+
+真机 prefs 核对：`active_model_id` 指向小米（mimo-v2.6-flash），而模型中心顶栏当时显示"深度求索"。
+三处独立成因：
+
+1. **显示口径不同源**：模型中心顶栏读 `getActiveModel().name`（**配置名**"小米"），
+   聊天页读 `inferenceRouter.getCurrentModelName()`（**实际模型名**"mimo-v2.6-flash"），
+   且 NPU 接管时路由返回 NPU 模型而注册表仍指在线配置。改为统一读路由 + `InferenceType.getDisplayName()`。
+2. **缺刷新时机**：模型中心无 `onResume` 刷新；聊天页顶部横幅只在服务事件时重绘，
+   而禁用当前活跃模型会连带 `stopActiveModel()` 且**只发 list 变更、不发 active 变更**。
+   补 `onResume` 与两个变更回调的刷新。
+3. **两个存储按 id 配对，留下同端点两条记录**：同步 `getAPIConfigById(config.id)` 只按 id 配对，
+   id 不同时注册表那条与密钥库那条互不覆盖，密钥库里那条的 `modelName` 停在旧值
+   （DeepSeek-V4.1-Flash），而注册表已是 deepseek-flash。
+   `syncSingleAPIConfigFromOnlineModel` 增加「同地址 + 同密钥」兜底配对，
+   命中后把旧行迁到注册表 id 并删除；新增 `reconcileApiConfigsFromRegistry()`，
+   打开模型中心或密钥页时回灌一次。
+4. **密钥页标题根本不显示配置名**：`bindApiConfigItem` 的判定方向反了 ——
+   只要 `modelName` 非空就走 `serviceType · modelName`，`name` 永远轮不到，
+   于是同一条端点在模型中心叫"深度求索"、在密钥页叫"OpenAI · deepseek-flash"。
+   改为优先用配置名（与模型中心同一字段），无名字才退回拼接；
+   模型名本页已有独立"已选模型"行，标题里再放是重复信息。
+
+另修真机发现的自身缺陷：用量 Tab 的区间按钮行与"近 30 天 · N 个模型"标题裸放在页面背景上，
+深色壁纸下几乎不可读 → 与概览卡同底色，标题改用 `colorControlText`。
+
+真机已确认：模型中心顶栏显示"使用中：在线模型 · mimo-v2.6-flash"（与注册表活跃 id 一致）；
+用量 Tab 出数正常（近 30 天 79 次调用 / 54,324 tokens，入 21,808 + 出 32,516 自洽，
+按模型 join 出配置名与服务商，缓存命中 9,344 归到 deepseek-flash），全程无 FATAL。
+真机已复核：密钥页两条标题变为"深度求索 / 小米"（与模型中心同名），
+`已选模型` 分别为 deepseek-flash / mimo-v2.6-flash，服务类型退到右上角标签，无 FATAL。
+
+
+### 验证
+
+- 编译 + `assembleDebug --offline` 通过，已 `adb install -r` 到真机（小米 25113RUDEE / Android 17）。
+- 真机确认：API 配置管理页不再出现使用次数/最后使用与空白配额块；打开 AI 条目编辑对话框，
+  提示文案显示、四个重叠字段呈置灰锁定态、服务类型与分类仍可改；全程无 FATAL。
+- 语音选择器第 1 档（勾选能力命中）仍未被运行时确认——需要勾动某端点的语音合成/识别后朗读一次，
+  看日志有无 `Using capability-matched TTS model`。
+
+## [2026-10-18] 模型注册与用量接通：新增模型中心，使用侧补齐三条整类漏记的路径
+
+### 查到的事实（逐条对着源码核，不采信注释）
+
+- 注册表 `OnlineModelConfig` 的 `costPerMillionTokens` 既不在 `saveToPrefs` 也不在 `loadFromPrefs`，
+  且**全项目没有任何赋值方** —— `AttachmentProcessor` 按它给视觉模型排性价比，那条排序一直是
+  "全员无价"的并列。`supportsAudio` 看着同样不落盘，但它每次启动由 `refreshAllSupportsAudio()`
+  按端点 URL 重算，落盘反而与推断打架，故不补。`config.maxOutputTokens` 零消费方（真实口径是
+  `parseMaxOutputTokens` 从 `cachedModelsJson` 按模型名取），内层 `ModelCapabilities` 既不填充
+  也不序列化，只喂 `hasCapability()` 里恒为 false 的兜底分支。
+- 用量侧 `api_usage_log`：写入只挂在 4 个非流式/Responses 解析点。普通聊天流式
+  （`readStreamResponse`）连 usage 都没请求；Agent 带工具流式解析出了完整 usage（含缓存/推理 token）
+  却只回调给界面、从不落库；Anthropic 协议只更新内存统计。用得最多的三类调用一条都不在表里。
+- 已落库的行也是假的：`sessionId=""`、`traceId="local_"+now`、`startTime=now-5000`
+  → 每行 `duration` 恒等于 5000ms，`callTime` 一律早 5 秒。
+- `models` 表零写入（`ModelDao` 只有抽象声明），所以 `modelId` 是自由文本，无法与注册模型 join。
+- 读取方为零：包外唯一引用就是那行 `new UsageInterceptingWrapper`，没有任何界面读过聚合查询。
+- 成本恒为 0 的根因：`CostCalculator` 从 `api_price_config` 取价，而 `ConfigSyncManager`
+  全项目没有一处 `new`，价格表从未加载。
+
+### 由此改掉的事
+
+1. **使用侧单一录入口** `ai/usage/ModelUsageRecorder`：真实 `sessionId`（取 `TaskStateTracker`
+   这个全应用唯一会话持有者）、UUID traceId、`callTime` 不再前移。原 4 个点就地拼字段的写法删除，
+   `UsageInterceptingWrapper`（含本就零调用者的 `processResponse`）随之移除。
+2. **三条漏记路径接通**：`readStreamResponse` 与两个 chat 请求体补 `stream_options.include_usage`
+   并在末尾 chunk 归一到同一解析点；带工具流式在原回调处补落库（不动 `TokenStatsManager`，避免界面
+   统计双计）；Anthropic 流式按 `message_start`/`message_delta` 两处事件合并 usage 后归一化落库，
+   非流式同一口径。缓存 token 的四种服务商写法（嵌套 `prompt_tokens_details.cached_tokens`、
+   DeepSeek 顶层 `prompt_cache_hit_tokens`、通用 `cached_tokens`、Anthropic `cache_read_input_tokens`）
+   收进 `cachedTokensFrom` 与 `normalizeAnthropicUsage`。
+3. **join 打通**：新增 `ai/usage/ModelUsageBridge` 把注册表投射成 `models` 行（`modelId`/`providerId`
+   与落日志共用同一对静态方法），页面打开时全量对齐并清理已删配置的行。
+4. **注册侧字段缺口**：`costPerMillionTokens` 补持久化 + 表单入口（此前无任何输入）；
+   删除死字段 `maxOutputTokens` 与死类 `ModelCapabilities`，`hasCapability()` 口径收成扁平布尔一处。
+   `supportsCode` 保持落盘原状（同样零消费方，但删它无收益、加勾选框等于给死字段做 UI）。
+5. **新页面 `ModelCenterActivity`**（模型/用量两 Tab）成为统一入口：聊天页模型按钮、AI 服务状态
+   选模型、性能面板切模型、工具箱、Agent 的 PAGE_MAP 全部指向它。逻辑按既有约定抽成
+   `ui/modelcenter/ModelRegistrationController` / `ModelUsageController` / `ModelCapabilitySummary`，
+   Activity 只做薄接线。列表行新增能力摘要（徽章 · 上下文窗口及其来源 · 实际协议 · 单价），
+   协议刻意只读——推理链按 `providers.json` 的 URL 反推，放开编辑就是造两套事实。
+6. **两处旧页面的用户可见分叉已消除**：它们与新页共用同一个 `OnlineModelAdapter` 和
+   `OnlineModelConfigDialog`，故能力摘要行与单价输入框自动同步。控制器移植了 AI 中心原本多做的
+   三项副作用（启用态同步 `APIKeyManager`、禁用活跃模型时 `stopActiveModel`、删除时清成对密钥条目），
+   并保留了它的 RecyclerView 布局期更新保护。
+
+### 有意不做（别当 bug 修）
+
+- 金额不显示、成本列恒 0：不加载价格表，用量只统计 token。
+- `duration` 恒 0：真实耗时需在约 16 处建连点各插起始时间戳，为次要指标改动主推理链不划算。
+- 不按会话拆分统计：知识库/OCR/题目修复等共用推理单例，会读到上一次会话残留的 sessionId。
+
+### 验证
+
+- `assembleDebug --offline` 通过，APK 重新产出（含清单合并与资源链接）。
+- **未做真机验证**：`adb devices` 为空，新页面的实际渲染与 Tab 切换未经运行确认；单测未跑。
+
 ## [2026-10-18] 图片附件链路对齐业界口径：在线放开多图、MIME 按真实字节、预算内压缩
 
 ### 查到的事实（各家官方文档取交集）

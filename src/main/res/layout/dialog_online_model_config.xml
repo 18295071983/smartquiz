@@ -306,6 +306,28 @@
             <CheckBox android:id="@+id/svc_tts" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="语音合成" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
             <CheckBox android:id="@+id/svc_asr" android:layout_width="@dimen/size_0" android:layout_height="wrap_content" android:layout_weight="1" android:text="语音识别" android:textSize="@dimen/text_12" android:textColor="?attr/colorControlText"/>
         </LinearLayout>
+
+        <!-- 单价：此前整张表单没有任何入口，字段恒为 0，
+             而 AttachmentProcessor 是按它给视觉模型排性价比的 —— 择优因此形同虚设 -->
+        <EditText
+            android:id="@+id/input_cost_per_million"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_8"
+            android:hint="单价 $/百万 token（选填，用于多图附件时优先选便宜的同能力模型）"
+            android:inputType="numberDecimal"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlText"/>
+
+        <!-- 协议：只读展示。它由 providers.json 按 URL 反推，推理链只认这一个来源；
+             放开编辑会造出「存的协议」与「实际走的协议」两套事实 -->
+        <TextView
+            android:id="@+id/text_protocol_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_4"
+            android:textSize="@dimen/text_11"
+            android:textColor="?attr/colorControlTextHint"/>
     </LinearLayout>
 
     <!-- 底部按钮 -->

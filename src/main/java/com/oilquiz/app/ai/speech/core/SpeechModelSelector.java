@@ -18,10 +18,15 @@ import java.util.Map;
  *
  * 选择优先级（ASR / TTS 一致）：
  * 0. 用户配置的专用模型（FEATURE_ASR / FEATURE_TTS）
- * 1. 激活模型中标记 supportsAudio 的
- * 2. 任意标记 supportsAudio 的启用模型
- * 3. 模型名启发式匹配（ASR: whisper/paraformer/sensevoice/asr；TTS: tts/cosyvoice/sambert/speech）
- * 4. 当前激活模型（兜底，部分端点所有模型共用一个端点）
+ * 1. 勾选了对应能力的启用模型（ASR 认 supportsAsr，TTS 认 supportsTts），当前激活者优先；
+ *    同档内再按模型名形态排序（见 {@link #isAsrModelName} / {@link #isTtsModelName}）
+ * 2. 语音服务商端点（百炼/讯飞/火山/百度/MiMo）的启用模型 —— 兜底档，
+ *    让**没勾过能力**的老配置不至于因为第 1 档收紧而突然选不到
+ * 3. 标记 supportsAudio 的启用模型（supportsAudio 由端点地址推断，非用户勾选）
+ *
+ * <p>历史坑：本类曾声明"按具体模型名启发式匹配"并算出 keywords 数组，但循环体从未使用它，
+ * 实际第一档就是端点域名匹配 —— 于是配置表单里的"语音合成/语音识别"勾选格
+ * 对运行时毫无影响（只被 providers.json 刷新读写）。现在第 1 档真正读这两个勾选。</p>
  */
 public final class SpeechModelSelector {
 
@@ -92,27 +97,30 @@ public final class SpeechModelSelector {
 
             OnlineModelManager.OnlineModelConfig active = mm.getActiveModel();
 
-            // 1. 启发式关键词匹配（按具体模型名）
-            String[] keywords = capability == Capability.ASR
-                    ? new String[]{"whisper", "paraformer", "sensevoice", "asr", "gummy"}
-                    : new String[]{"tts", "cosyvoice", "qwen-tts", "qwen3-tts", "sambert", "speech"};
-            for (OnlineModelManager.OnlineModelConfig c : all) {
+            // 1. 用户勾选了对应能力的模型：当前激活者优先，同档内模型名形态匹配者优先。
+            //    这是配置表单里「语音合成 / 语音识别」勾选唯一真正生效的地方。
+            OnlineModelManager.OnlineModelConfig byCapability =
+                    pickByCapability(all, active, capability, true);
+            if (byCapability == null) {
+                byCapability = pickByCapability(all, active, capability, false);
+            }
+            if (byCapability != null) {
+                AILogger.i(TAG, "Using capability-matched " + capability + " model: " + byCapability.name);
+                return byCapability;
+            }
+
+            // 2. 语音服务商端点兜底（不要求勾选，保住"老配置没勾过能力"的用户不至于突然选不到）
+            for (OnlineModelManager.OnlineModelConfig c : ordered(all, active)) {
                 if (!c.enabled) continue;
-                // 检查端点是否为语音服务商（百炼/讯飞/火山/百度/MiMo）
-                if (isDashScopeEndpoint(c.apiUrl) || isXfyunEndpoint(c.apiUrl) ||
-                    isVolcanoEndpoint(c.apiUrl) || isBaiduEndpoint(c.apiUrl) ||
-                    isMimoEndpoint(c.apiUrl)) {
-                    // 语音服务商端点：只要专用模型未设置，就认为可用
+                if (isSpeechProviderEndpoint(c.apiUrl)) {
+                    AILogger.i(TAG, "Using speech-provider " + capability
+                            + " endpoint (未勾选该能力): " + c.name);
                     return c;
                 }
             }
 
-            // 2. 兜底：返回当前激活模型（必须支持音频，避免把纯文本聊天模型打到 /audio/transcriptions）
-            if (active != null && active.enabled && active.supportsAudio) {
-                return active;
-            }
-            // 3. 兜底：任意支持音频的启用模型
-            for (OnlineModelManager.OnlineModelConfig c : all) {
+            // 3. 端点地址推断出的音频能力（supportsAudio 不是用户勾选，是 isAudioModel 的结果）
+            for (OnlineModelManager.OnlineModelConfig c : ordered(all, active)) {
                 if (c.enabled && c.supportsAudio) {
                     return c;
                 }
@@ -122,6 +130,78 @@ public final class SpeechModelSelector {
             AILogger.e(TAG, "select(" + capability + ") failed: " + e.getMessage(), e);
             return null;
         }
+    }
+
+    /**
+     * 音色持久化的作用域键 = 实际用于合成的那条 TTS 配置 id。
+     *
+     * <p>写入（{@code SpeechManager.saveTtsVoice}）与读取（{@code TTSService.resolveVoice}）
+     * 必须走同一个解析口，否则会出现"按 A 端点存的音色，合成时按 B 端点读"而静默回落默认音色。</p>
+     *
+     * @return 配置 id；没有可用 TTS 配置时返回 null（调用方按无作用域处理）
+     */
+    public static String voiceScopeId(Context context) {
+        OnlineModelManager.OnlineModelConfig config = select(context, Capability.TTS);
+        return config != null ? config.id : null;
+    }
+
+    /** 该配置是否被用户勾选为具备这一路语音能力 */
+    private static boolean hasCapability(OnlineModelManager.OnlineModelConfig config,
+                                         Capability capability) {
+        return capability == Capability.ASR ? config.supportsAsr : config.supportsTts;
+    }
+
+    /** 模型名形态是否与该能力相符（用于同档内排序，不做硬过滤） */
+    private static boolean nameMatchesCapability(String modelName, Capability capability) {
+        return capability == Capability.ASR ? isAsrModelName(modelName) : isTtsModelName(modelName);
+    }
+
+    private static String probedModelName(OnlineModelManager.OnlineModelConfig config) {
+        String name = config.selectedModel != null && !config.selectedModel.isEmpty()
+                ? config.selectedModel : config.modelName;
+        return name;
+    }
+
+    /**
+     * 按能力勾选挑一个模型。
+     *
+     * @param preferNameMatch true 时只认「勾选了能力且模型名形态也相符」的配置；
+     *                        false 时只看勾选。分两趟是为了让名形相符的排前面，
+     *                        而不是把勾选档直接砍掉。
+     */
+    private static OnlineModelManager.OnlineModelConfig pickByCapability(
+            List<OnlineModelManager.OnlineModelConfig> all,
+            OnlineModelManager.OnlineModelConfig active,
+            Capability capability,
+            boolean preferNameMatch) {
+        for (OnlineModelManager.OnlineModelConfig c : ordered(all, active)) {
+            if (!c.enabled || !hasCapability(c, capability)) continue;
+            if (preferNameMatch && !nameMatchesCapability(probedModelName(c), capability)) continue;
+            return c;
+        }
+        return null;
+    }
+
+    /** 当前激活模型排在最前：同能力档内优先沿用手上正在用的那个端点 */
+    private static List<OnlineModelManager.OnlineModelConfig> ordered(
+            List<OnlineModelManager.OnlineModelConfig> all,
+            OnlineModelManager.OnlineModelConfig active) {
+        List<OnlineModelManager.OnlineModelConfig> out =
+                new java.util.ArrayList<>(all.size());
+        if (active != null) out.add(active);
+        for (OnlineModelManager.OnlineModelConfig c : all) {
+            // 按 id 去重而非对象引用：调用方拿到的是副本时引用比较会失效，导致激活模型出现两次
+            if (active != null && active.id != null && active.id.equals(c.id)) continue;
+            out.add(c);
+        }
+        return out;
+    }
+
+    /** 是否为已知语音服务商端点（百炼/讯飞/火山/百度/MiMo） */
+    public static boolean isSpeechProviderEndpoint(String apiUrl) {
+        return isDashScopeEndpoint(apiUrl) || isXfyunEndpoint(apiUrl)
+                || isVolcanoEndpoint(apiUrl) || isBaiduEndpoint(apiUrl)
+                || isMimoEndpoint(apiUrl);
     }
 
     /**

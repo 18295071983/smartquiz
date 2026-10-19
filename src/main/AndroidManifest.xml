@@ -381,6 +381,11 @@
             android:name=".ui.activity.ModelSelectorActivity"
             android:exported="false" />
 
+        <!-- 模型中心：注册与用量合并后的统一入口（取代 AI 中心/模型选择两处的重复列表） -->
+        <activity
+            android:name=".ui.activity.ModelCenterActivity"
+            android:exported="false" />
+
         <activity
             android:name=".ui.activity.AIServiceStatusActivity"
             android:exported="false" />

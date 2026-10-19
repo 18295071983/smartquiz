@@ -15,6 +15,7 @@ import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.importing.ImportValidator;
 import com.oilquiz.app.ai.model.OnlineModelManager;
 import com.oilquiz.app.ai.stats.TokenStatsManager;
+import com.oilquiz.app.ai.usage.ModelUsageRecorder;
 import com.oilquiz.app.ai.tool.AIToolManager;
 import com.oilquiz.app.ai.util.SSLSocketFactoryUtil;
 import com.oilquiz.app.util.AILogger;
@@ -2145,6 +2146,11 @@ public class OnlineInferenceService {
             }
             if (stream) {
                 requestBody.addProperty("stream", true);
+                // 要求服务商在最后一个 chunk 回 usage：口径对齐带工具的流式路径（3990 行附近），
+                // 此前这条主聊天路径不留用量账，导致 api_usage_log 缺最常见的调用。
+                JsonObject streamOptions = new JsonObject();
+                streamOptions.addProperty("include_usage", true);
+                requestBody.add("stream_options", streamOptions);
             }
 
             StringBuilder imageSummary = new StringBuilder();
@@ -2690,6 +2696,11 @@ public class OnlineInferenceService {
             
             if (stream) {
                 requestBody.addProperty("stream", true);
+                // 要求服务商在最后一个 chunk 回 usage：口径对齐带工具的流式路径（3990 行附近），
+                // 此前这条主聊天路径不留用量账，导致 api_usage_log 缺最常见的调用。
+                JsonObject streamOptions = new JsonObject();
+                streamOptions.addProperty("include_usage", true);
+                requestBody.add("stream_options", streamOptions);
             }
 
             // 发送请求
@@ -2972,6 +2983,9 @@ public class OnlineInferenceService {
             
             if (stream) {
                 requestBody.addProperty("stream", true);
+                // 不加 stream_options：Anthropic Messages API 不认这个 OpenAI 系专有字段，
+                // 带上可能被服务端判为非法请求体。其用量由 readAnthropicFullResponse 的
+                // parseAndNotifyAnthropicTokenStats 记录。
             }
 
             // 发送请求
@@ -3005,6 +3019,10 @@ public class OnlineInferenceService {
         StringBuilder reasoningText = new StringBuilder();
         // 思考结束信号：content 首次出现即思考段结束；流结束仍未触发则补发（防 UI 思考行悬挂）
         final boolean[] thinkingEnded = {false};
+        // 请求带 stream_options.include_usage 时，服务商在最后一个 choices 为空的 chunk 里回 usage。
+        // 此前这条主聊天路径完全不计用量（旧注释认定「流式拿不到 usage」，与同文件的带工具流式实现矛盾），
+        // 导致 api_usage_log 系统性缺失最常见的聊天调用。
+        final JsonObject[] streamUsage = {null};
         InputStream inputStream = connection.getInputStream();
         BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
         
@@ -3018,6 +3036,9 @@ public class OnlineInferenceService {
                     }
                     try {
                         JsonObject json = JsonParser.parseString(data).getAsJsonObject();
+                        if (json.has("usage") && !json.get("usage").isJsonNull()) {
+                            streamUsage[0] = json.getAsJsonObject("usage");
+                        }
                         JsonArray choices = json.getAsJsonArray("choices");
                         if (choices != null && choices.size() > 0) {
                             JsonObject choice = choices.get(0).getAsJsonObject();
@@ -3092,7 +3113,12 @@ public class OnlineInferenceService {
         mainHandler.post(() -> {
             if (callback != null) callback.onComplete(outputResult);
         });
-        // 注意：流式响应结束后无法获取 usage 统计信息
+        // 末尾 usage chunk：归一到与非流式同一个解析点，复用 TokenStats + 用量落库，不开第二套口径
+        if (streamUsage[0] != null) {
+            JsonObject holder = new JsonObject();
+            holder.add("usage", streamUsage[0]);
+            parseAndNotifyTokenStats(holder, callback);
+        }
         return outputResult;
     }
 
@@ -3133,6 +3159,38 @@ public class OnlineInferenceService {
     }
     
     /**
+     * 缓存命中 token 数的字段差异收口（此前只在内联的带工具流式解析里算过一次）：
+     * <ol>
+     *   <li>OpenAI/Moonshot/通义：{@code usage.prompt_tokens_details.cached_tokens}（嵌套）</li>
+     *   <li>DeepSeek/智谱：{@code usage.prompt_cache_hit_tokens}（顶层）</li>
+     *   <li>兜底：{@code usage.cached_tokens}（顶层）</li>
+     * </ol>
+     */
+    private static int cachedTokensFrom(JsonObject usage) {
+        if (usage == null) return 0;
+        try {
+            int cached = 0;
+            if (usage.has("prompt_tokens_details") && !usage.get("prompt_tokens_details").isJsonNull()) {
+                JsonObject details = usage.getAsJsonObject("prompt_tokens_details");
+                if (details.has("cached_tokens") && !details.get("cached_tokens").isJsonNull()) {
+                    cached = details.get("cached_tokens").getAsInt();
+                }
+            }
+            // 嵌套字段为 0 时继续试顶层：部分服务商两个字段都带，嵌套的恒为 0
+            if (cached == 0 && usage.has("prompt_cache_hit_tokens")
+                    && !usage.get("prompt_cache_hit_tokens").isJsonNull()) {
+                cached = usage.get("prompt_cache_hit_tokens").getAsInt();
+            }
+            if (cached == 0 && usage.has("cached_tokens") && !usage.get("cached_tokens").isJsonNull()) {
+                cached = usage.get("cached_tokens").getAsInt();
+            }
+            return cached;
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    /**
      * 解析并通知 Token 统计信息
      */
     private void parseAndNotifyTokenStats(JsonObject json) {
@@ -3145,26 +3203,19 @@ public class OnlineInferenceService {
                 JsonObject usage = json.getAsJsonObject("usage");
                 int promptTokens = usage.has("prompt_tokens") ? usage.get("prompt_tokens").getAsInt() : 0;
                 int completionTokens = usage.has("completion_tokens") ? usage.get("completion_tokens").getAsInt() : 0;
+                // 缓存命中：三种服务商写法（OpenAI/通义嵌套、DeepSeek/智谱顶层、通用兜底）
+                int cachedTokens = cachedTokensFrom(usage);
                 
                 // 更新 TokenStatsManager
                 TokenStatsManager.getInstance().updateRequestStats(promptTokens, completionTokens);
                 
-                // P2-4 api_usage_log 用量日志接线：非流式与流式共用此解析点，
-                // 模型/服务商取当前活跃配置（请求均基于活跃模型发起，足够审计口径）
-                try {
-                    OnlineModelManager.OnlineModelConfig active = getActiveConfig();
-                    String modelId = active != null && active.modelName != null
-                            ? active.modelName : (active != null && active.name != null ? active.name : "unknown");
-                    String providerId = active != null && active.apiUrl != null
-                            ? active.apiUrl.replaceAll("^https?://", "").split("/")[0] : "";
-                    long now = System.currentTimeMillis();
-                    new com.oilquiz.app.ai.usage.interceptor.UsageInterceptingWrapper(context)
-                            .recordUsage("local_" + now, "", "local",
-                                    modelId, providerId, promptTokens, completionTokens,
-                                    now - 5000, now);
-                } catch (Throwable t) {
-                    AILogger.d(TAG, "Usage log skipped: " + t.getMessage());
-                }
+                // api_usage_log 落库统一走 ModelUsageRecorder：真实 sessionId、
+                // 与 models 表同一套 modelId/providerId 口径。此前就地 new Wrapper 传的是
+                // sessionId=""、startTime=now-5000，于是每行 duration 恒为 5000ms、callTime 早 5 秒，
+                // 且无法与注册模型 join。
+                // 模型/服务商取当前活跃配置（请求均基于活跃模型发起，足够审计口径）。
+                ModelUsageRecorder.record(context, getActiveConfig(),
+                        promptTokens, completionTokens, cachedTokens);
                 
                 // 回调通知调用方
                 if (callback != null) {
@@ -3181,6 +3232,9 @@ public class OnlineInferenceService {
      */
     private String readAnthropicStreamResponse(HttpURLConnection connection, StreamCallback callback) throws Exception {
         StringBuilder fullText = new StringBuilder();
+        // Anthropic 流式把用量拆在两个事件里：input/cache 随 message_start，
+        // output 随 message_delta 收尾（且后者会覆盖前者）。此前这条路径整类不落用量账。
+        JsonObject anthropicUsage = new JsonObject();
         InputStream inputStream = connection.getInputStream();
         BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
         
@@ -3196,6 +3250,16 @@ public class OnlineInferenceService {
                         JsonObject json = JsonParser.parseString(data).getAsJsonObject();
                         if (json.has("type")) {
                             String type = json.get("type").getAsString();
+                            if ("message_start".equals(type) && json.has("message")
+                                    && !json.get("message").isJsonNull()) {
+                                JsonObject message = json.getAsJsonObject("message");
+                                if (message.has("usage") && !message.get("usage").isJsonNull()) {
+                                    mergeUsage(anthropicUsage, message.getAsJsonObject("usage"));
+                                }
+                            } else if ("message_delta".equals(type) && json.has("usage")
+                                    && !json.get("usage").isJsonNull()) {
+                                mergeUsage(anthropicUsage, json.getAsJsonObject("usage"));
+                            }
                             if ("content_block_delta".equals(type) && json.has("delta")) {
                                 JsonObject delta = json.getAsJsonObject("delta");
                                 if (delta.has("text")) {
@@ -3225,7 +3289,29 @@ public class OnlineInferenceService {
         mainHandler.post(() -> {
             if (callback != null) callback.onComplete(outputResult);
         });
+        // 归一到与非流式同一个解析点：统计 + 用量落库共用一套口径
+        if (anthropicUsage.size() > 0) {
+            JsonObject normalized = normalizeAnthropicUsage(anthropicUsage);
+            JsonObject holder = new JsonObject();
+            holder.add("usage", normalized);
+            parseAndNotifyTokenStats(holder, callback);
+        }
         return outputResult;
+    }
+
+    /**
+     * 合并 Anthropic 流式分散在两个事件里的 usage 字段。
+     * 后到的 {@code message_delta} 只带 {@code output_tokens}，它带的就覆盖，没带的保留
+     * {@code message_start} 里的 input/cache —— 直接整体替换会把输入侧丢掉。
+     */
+    private static void mergeUsage(JsonObject target, JsonObject incoming) {
+        if (target == null || incoming == null) return;
+        for (Map.Entry<String, JsonElement> entry : incoming.entrySet()) {
+            JsonElement value = entry.getValue();
+            if (value != null && !value.isJsonNull()) {
+                target.add(entry.getKey(), value);
+            }
+        }
     }
 
     /**
@@ -3274,20 +3360,42 @@ public class OnlineInferenceService {
         try {
             if (json.has("usage")) {
                 JsonObject usage = json.getAsJsonObject("usage");
-                int promptTokens = usage.has("input_tokens") ? usage.get("input_tokens").getAsInt() : 0;
-                int completionTokens = usage.has("output_tokens") ? usage.get("output_tokens").getAsInt() : 0;
-                
-                // 更新 TokenStatsManager
-                TokenStatsManager.getInstance().updateRequestStats(promptTokens, completionTokens);
-                
-                // 回调通知调用方
-                if (callback != null) {
-                    mainHandler.post(() -> callback.onTokenStats(promptTokens, completionTokens));
+                // 归一到 chat 体系的字段名后复用同一个解析点（统计 + 用量落库），不开第二套口径。
+                // 必须加回 cache_read：Anthropic 的 input_tokens 只算未命中部分，
+                // 直接当总输入会让「输入 token」在不同服务商之间不可比。
+                JsonObject normalized = normalizeAnthropicUsage(usage);
+                if (normalized != null) {
+                    JsonObject holder = new JsonObject();
+                    holder.add("usage", normalized);
+                    parseAndNotifyTokenStats(holder, callback);
                 }
             }
         } catch (Exception e) {
             AILogger.w(TAG, "Failed to parse Anthropic token stats: " + e.getMessage());
         }
+    }
+
+    /**
+     * Anthropic usage → OpenAI 形状字段。
+     *
+     * <p>Anthropic 把用量拆在 {@code input_tokens}（未命中部分）+ {@code cache_read_input_tokens}
+     * + {@code cache_creation_input_tokens} 三个字段里，且流式时 input 在
+     * {@code message_start}、output 在 {@code message_delta} 收尾事件。归一后：
+     * {@code prompt_tokens} = 三者之和（=真实总输入），{@code cached_tokens} = 缓存读。</p>
+     *
+     * @return 归一后的 usage 对象；入参为 null 时返回 null
+     */
+    private static JsonObject normalizeAnthropicUsage(JsonObject usage) {
+        if (usage == null) return null;
+        int input = firstInt(usage, "input_tokens");
+        int cacheRead = firstInt(usage, "cache_read_input_tokens");
+        int cacheWrite = firstInt(usage, "cache_creation_input_tokens");
+        int output = firstInt(usage, "output_tokens");
+        JsonObject normalized = new JsonObject();
+        normalized.addProperty("prompt_tokens", input + cacheRead + cacheWrite);
+        normalized.addProperty("completion_tokens", output);
+        normalized.addProperty("cached_tokens", cacheRead);
+        return normalized;
     }
 
     /**
@@ -4329,24 +4437,8 @@ public class OnlineInferenceService {
                             if (usage.has("total_tokens")) {
                                 totalTokens = usage.get("total_tokens").getAsInt();
                             }
-                            // 缓存命中统计，兼容多种结构：
-                            // 1) OpenAI/Moonshot/通义: usage.prompt_tokens_details.cached_tokens（嵌套）
-                            // 2) DeepSeek/智谱: usage.prompt_cache_hit_tokens（顶层）
-                            // 3) 兜底: usage.cached_tokens（顶层）
-                            int cachedTokens = 0;
-                            if (usage.has("prompt_tokens_details")
-                                    && !usage.get("prompt_tokens_details").isJsonNull()) {
-                                JsonObject details = usage.getAsJsonObject("prompt_tokens_details");
-                                if (details.has("cached_tokens") && !details.get("cached_tokens").isJsonNull()) {
-                                    cachedTokens = details.get("cached_tokens").getAsInt();
-                                }
-                            }
-                            if (cachedTokens == 0 && usage.has("prompt_cache_hit_tokens")) {
-                                cachedTokens = usage.get("prompt_cache_hit_tokens").getAsInt();
-                            }
-                            if (cachedTokens == 0 && usage.has("cached_tokens")) {
-                                cachedTokens = usage.get("cached_tokens").getAsInt();
-                            }
+                            // 缓存命中统计：字段差异收口到 cachedTokensFrom，与非流式同一口径
+                            int cachedTokens = cachedTokensFrom(usage);
                             // 缓存未命中（DeepSeek prompt_cache_miss_tokens 顶层直读；
                             // 未返回时用 prompt-cached 推算兜底）
                             int missTokens = 0;
@@ -4368,6 +4460,10 @@ public class OnlineInferenceService {
                             AILogger.i(TAG, "API usage: prompt=" + pt + " completion=" + ct
                                 + " total=" + tt + " cache_hit=" + cache + " cache_miss=" + miss
                                 + " reasoning=" + reasoning);
+                            // 用量落库：这条 Agent 带工具流式路径此前只把 usage 回调给界面，
+                            // 从不写 api_usage_log —— Agent 调用（本应用最重的一类消耗）整类缺席。
+                            // 只补日志行，不动 TokenStatsManager（界面统计另有其口径，避免双计）。
+                            ModelUsageRecorder.record(context, getActiveConfig(), pt, ct, cache);
                             mainHandler.post(() -> {
                                 callback.onUsage(pt, ct, tt);
                                 callback.onUsageWithCache(pt, ct, tt, cache);

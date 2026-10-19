@@ -307,7 +307,9 @@ public class TTSService {
             return voiceOverride;
         }
         try {
-            String saved = OnlineModelManager.getInstance(context).getTtsVoice();
+            // 必须与保存时同作用域（按实际用于合成的 TTS 配置），否则用户存的音色读不回来、静默回落默认音色
+            String saved = OnlineModelManager.getInstance(context)
+                    .getTtsVoice(com.oilquiz.app.ai.speech.core.SpeechModelSelector.voiceScopeId(context));
             if (saved != null && !saved.isEmpty()) {
                 return saved;
             }

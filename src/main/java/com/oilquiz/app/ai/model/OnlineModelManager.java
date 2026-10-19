@@ -23,6 +23,8 @@ public class OnlineModelManager {
     private static final String KEY_FEATURE_MODELS = "feature_models"; // 功能专用模型 Map
     private static final String KEY_FEATURE_MODEL_NAMES = "feature_model_names"; // 功能专用模型的具体模型名
     private static final String KEY_TTS_VOICE = "tts_voice"; // TTS 音色（如 alloy/longwan）
+    /** 音色按模型作用域存：JSON 对象，键为模型配置 id（音色 id 跨模型不通用） */
+    private static final String KEY_TTS_VOICE_BY_MODEL = "tts_voice_by_model";
     
     // 功能专用模型的 feature key 常量
     public static final String FEATURE_OCR = "ocr";           // OCR 文字识别
@@ -65,15 +67,20 @@ public class OnlineModelManager {
         public long lastUsageFetchTime;           // 上次获取使用量时间
         public boolean autoFetchModels;           // 是否自动获取模型列表
         
-        // === 新增：模型能力元数据 ===
-        public ModelCapabilities capabilities;    // 模型能力标签
+        // === 模型能力元数据 ===
+        // 能力口径唯一来源：下面这组扁平布尔。曾有 ModelCapabilities 内层对象作为兜底，
+        // 但它既不落盘也从不被填充，hasCapability() 的 || 分支恒为 false，只剩误导性，已删除。
+        // 同理删除 config.maxOutputTokens：输出上限的实际口径是
+        // {@link #parseMaxOutputTokens(String, String)} 从 cachedModelsJson 按模型名取，
+        // 该字段零消费方，留着会让人以为能在配置层调上限。
         public int contextWindow = 4096;          // 上下文窗口大小（tokens）
         /** 上下文窗口是否来自服务商 API 真实检测（/models 字段或 /models/{name} 详情）。
          *  仅 true 时该值可信保留；false（名称推断/旧默认 4096 死值）启动时按配置表重算。 */
         public boolean contextWindowFromApi = false;
-        public int maxOutputTokens = 2048;        // 最大输出长度
         public boolean supportsVision = false;    // 是否支持视觉理解
-        public boolean supportsAudio = false;     // 是否支持音频处理
+        /** 是否支持音频处理。派生值，不落盘：每次启动由 {@link #refreshAllSupportsAudio()}
+         *  按端点 URL 重算（DashScope/讯飞/火山/百度四家），再与 supportsAsr 取并集。 */
+        public boolean supportsAudio = false;
         public boolean supportsCode = false;      // 是否擅长代码生成
         public boolean supportsFunctionCalling = false; // 是否支持原生 function calling（Agent 接管模式判定用）
         public boolean supportsAgent = false;     // 是否支持 Agent/Responses 类接口
@@ -84,10 +91,9 @@ public class OnlineModelManager {
         public boolean supportsTts = false;       // 是否支持语音合成
         public boolean supportsAsr = false;       // 是否支持语音识别
         public boolean capabilitiesUserSet = false; // 用户是否手动调整过服务能力（true 时配置表刷新不再覆盖）
-        public double costPerMillionTokens = 0;   // 每百万token成本（美元）
-        
+        public double costPerMillionTokens = 0;   // 每百万token成本（美元）；供视觉模型按性价比择优
+
         public OnlineModelConfig() {
-            this.capabilities = new ModelCapabilities();
         }
         
         public OnlineModelConfig(String id, String name, String apiUrl, String modelName,
@@ -100,24 +106,21 @@ public class OnlineModelManager {
             this.enabled = enabled;
             this.createdAt = createdAt;
             this.autoFetchModels = true;
-            this.capabilities = new ModelCapabilities();
         }
         
         /**
-         * 检查模型是否具备指定能力
+         * 检查模型是否具备指定能力（只读扁平布尔，口径唯一）
          */
         public boolean hasCapability(String capability) {
-            if (capabilities == null) return false;
-            
             switch (capability.toLowerCase()) {
                 case "vision":
-                    return supportsVision || capabilities.supportsImageInput;
+                    return supportsVision;
                 case "audio":
-                    return supportsAudio || capabilities.supportsAudioInput;
+                    return supportsAudio;
                 case "coding":
-                    return supportsCode || capabilities.supportsCodeGeneration;
+                    return supportsCode;
                 case "function_calling":
-                    return supportsFunctionCalling || capabilities.supportsFunctionCalling;
+                    return supportsFunctionCalling;
                 case "agent":
                     return supportsAgent;
                 case "web_search":
@@ -140,18 +143,6 @@ public class OnlineModelManager {
         }
     }
     
-    /**
-     * 模型能力描述
-     */
-    public static class ModelCapabilities {
-        public boolean supportsStreaming = true;
-        public boolean supportsFunctionCalling = false;
-        public boolean supportsCodeGeneration = false;
-        public boolean supportsImageInput = false;      // 图像输入
-        public boolean supportsAudioInput = false;      // 音频输入
-        public int maxOutputTokens = 4096;
-    }
-
     public interface ModelChangeListener {
         void onModelListChanged();
         void onActiveModelChanged(String activeModelId);
@@ -259,6 +250,8 @@ public class OnlineModelManager {
                     config.contextWindow = obj.optInt("contextWindow", 0);
                     // 窗口是否来自 API 真实检测：仅 true 时保留该值，推断值/旧死值启动时重算
                     config.contextWindowFromApi = obj.optBoolean("contextWindowFromApi", false);
+                    // 单价：旧配置无此键，缺省 0 与既有「无价并列」行为一致
+                    config.costPerMillionTokens = obj.optDouble("costPerMillionTokens", 0);
                     
                     // 加载使用量信息
                     if (obj.has("usageInfo")) {
@@ -577,6 +570,10 @@ public class OnlineModelManager {
                 obj.put("capabilitiesUserSet", config.capabilitiesUserSet);
                 obj.put("contextWindow", config.contextWindow);
                 obj.put("contextWindowFromApi", config.contextWindowFromApi);
+                // 单价：AttachmentProcessor 按它给视觉模型排性价比。此键此前既不落盘、也没有启动期重算，
+                // 是唯一真正会丢的能力值（重启后退化成「所有模型都无价」并列，择优失效），现补齐。
+                // 对照：supportsAudio 不需要落盘，它每次启动由 refreshAllSupportsAudio() 按端点重算。
+                obj.put("costPerMillionTokens", config.costPerMillionTokens);
                 
                 // 保存使用量信息
                 if (config.usageInfo != null) {
@@ -685,9 +682,19 @@ public class OnlineModelManager {
         modelList.removeIf(c -> c.id.equals(modelId));
         if (wasActive) { activeModelId = null; notifyActiveChanged(); }
         
-        // 清除功能专用模型中对该模型的引用
-        boolean featureChanged = featureModelIds.values().removeIf(v -> modelId.equals(v));
-        if (featureChanged) {
+        // 清除功能专用模型中对该模型的引用：两张表都要清，只清 ids 会让 featureModelNames
+        // 留下指向已删除配置的孤儿模型名（它会被后续按 feature 取模型名的地方读到）
+        List<String> freedFeatures = new ArrayList<>();
+        for (Map.Entry<String, String> entry : featureModelIds.entrySet()) {
+            if (modelId.equals(entry.getValue())) {
+                freedFeatures.add(entry.getKey());
+            }
+        }
+        if (!freedFeatures.isEmpty()) {
+            for (String feature : freedFeatures) {
+                featureModelIds.remove(feature);
+                featureModelNames.remove(feature);
+            }
             saveFeatureModels();
         }
         
@@ -962,19 +969,71 @@ public class OnlineModelManager {
     /**
      * 保存 TTS 音色（传 null 清除，恢复默认音色）
      */
+    /**
+     * 音色归属的模型键：优先「TTS 专用模型」绑定，其次当前激活模型。
+     *
+     * <p>仅用于无显式作用域的旧调用口。语音层应按实际用于合成的模型传入
+     * （见 {@link #setTtsVoice(String, String)}），否则音色列表按 A 端点列出、
+     * 却存进 B 的键下，换聊天模型就会换出别的音色。</p>
+     */
+    private String currentTtsVoiceScopeKey() {
+        String dedicatedId = featureModelIds.get(FEATURE_TTS);
+        if (dedicatedId != null && !dedicatedId.isEmpty()) return dedicatedId;
+        return activeModelId != null && !activeModelId.isEmpty() ? activeModelId : "__global__";
+    }
+
     public void setTtsVoice(String voice) {
-        if (voice == null || voice.isEmpty()) {
-            prefs.edit().remove(KEY_TTS_VOICE).apply();
-        } else {
-            prefs.edit().putString(KEY_TTS_VOICE, voice).apply();
-        }
+        setTtsVoice(voice, null);
     }
 
     /**
-     * 获取已保存的 TTS 音色，未设置返回 null
+     * @param scopeModelId 音色所属的模型配置 id；null 表示回落到 {@link #currentTtsVoiceScopeKey()}
      */
+    public void setTtsVoice(String voice, String scopeModelId) {
+        try {
+            JSONObject map = new JSONObject(prefs.getString(KEY_TTS_VOICE_BY_MODEL, "{}"));
+            String scope = scopeModelId != null && !scopeModelId.isEmpty()
+                    ? scopeModelId : currentTtsVoiceScopeKey();
+            android.content.SharedPreferences.Editor editor = prefs.edit();
+            if (voice == null || voice.isEmpty()) {
+                map.remove(scope);
+            } else {
+                map.put(scope, voice);
+            }
+            // 全局单键继续写：只作为「升级前老用户」的回落来源（见 getTtsVoice），不再作为读取口径
+            editor.putString(KEY_TTS_VOICE, voice == null ? "" : voice);
+            editor.putString(KEY_TTS_VOICE_BY_MODEL, map.toString()).apply();
+        } catch (Exception e) {
+            AILogger.e(TAG, "保存 TTS 音色失败", e);
+        }
+    }
+
     public String getTtsVoice() {
-        return prefs.getString(KEY_TTS_VOICE, null);
+        return getTtsVoice(null);
+    }
+
+    /**
+     * 获取指定模型作用域下已保存的音色，未设置返回 null。
+     *
+     * <p>回落规则刻意收窄：只有**从未按模型存过**音色时才用旧的全局单键（升级兼容），
+     * 一旦有了按模型的记录，就只认该模型的 —— 否则换模型后会拿到别的模型的音色 id。</p>
+     */
+    public String getTtsVoice(String scopeModelId) {
+        try {
+            JSONObject map = new JSONObject(prefs.getString(KEY_TTS_VOICE_BY_MODEL, "{}"));
+            String scope = scopeModelId != null && !scopeModelId.isEmpty()
+                    ? scopeModelId : currentTtsVoiceScopeKey();
+            String scoped = map.optString(scope, null);
+            if (scoped != null && !scoped.isEmpty()) return scoped;
+            if (map.length() == 0) {
+                String legacy = prefs.getString(KEY_TTS_VOICE, null);
+                return legacy != null && !legacy.isEmpty() ? legacy : null;
+            }
+            return null;
+        } catch (Exception e) {
+            String legacy = prefs.getString(KEY_TTS_VOICE, null);
+            return legacy != null && !legacy.isEmpty() ? legacy : null;
+        }
     }
 
     public OnlineModelConfig getModel(String modelId) {
@@ -1386,13 +1445,7 @@ public class OnlineModelManager {
             // 只导入AI类型的配置
             String category = apiConfig.getCategory();
             String serviceType = apiConfig.getServiceType();
-            boolean isAIConfig = (category != null && category.equals(APIConfig.Category.AI)) ||
-                                (serviceType != null && (
-                                    serviceType.equals(APIConfig.ServiceType.OPENAI) ||
-                                    serviceType.equals(APIConfig.ServiceType.ANTHROPIC) ||
-                                    serviceType.equals(APIConfig.ServiceType.GOOGLE) ||
-                                    serviceType.equals(APIConfig.ServiceType.CUSTOM)
-                                ));
+            boolean isAIConfig = isAIServiceConfig(apiConfig);
 
             if (!isAIConfig) {
                 continue;
@@ -1452,13 +1505,7 @@ public class OnlineModelManager {
         for (APIConfig apiConfig : apiConfigs) {
             String category = apiConfig.getCategory();
             String serviceType = apiConfig.getServiceType();
-            boolean isAIConfig = (category != null && category.equals(APIConfig.Category.AI)) ||
-                                (serviceType != null && (
-                                    serviceType.equals(APIConfig.ServiceType.OPENAI) ||
-                                    serviceType.equals(APIConfig.ServiceType.ANTHROPIC) ||
-                                    serviceType.equals(APIConfig.ServiceType.GOOGLE) ||
-                                    serviceType.equals(APIConfig.ServiceType.CUSTOM)
-                                ));
+            boolean isAIConfig = isAIServiceConfig(apiConfig);
             if (!isAIConfig) {
                 continue;
             }
@@ -1545,16 +1592,8 @@ public class OnlineModelManager {
             return removeByAPIConfigId(apiConfigId);
         }
 
-        // 检查是否是 AI 类型
-        String category = apiConfig.getCategory();
-        String serviceType = apiConfig.getServiceType();
-        boolean isAIConfig = (category != null && category.equals(APIConfig.Category.AI)) ||
-                            (serviceType != null && (
-                                serviceType.equals(APIConfig.ServiceType.OPENAI) ||
-                                serviceType.equals(APIConfig.ServiceType.ANTHROPIC) ||
-                                serviceType.equals(APIConfig.ServiceType.GOOGLE) ||
-                                serviceType.equals(APIConfig.ServiceType.CUSTOM)
-                            ));
+        // 检查是否是 AI 类型（判定口径见 isAIServiceConfig，与另外两处同步入口共用）
+        boolean isAIConfig = isAIServiceConfig(apiConfig);
 
         OnlineModelConfig existing = getModel(apiConfigId);
         if (!isAIConfig) {
@@ -1647,6 +1686,25 @@ public class OnlineModelManager {
     /**
      * 将 OnlineModelConfig 同步到 APIKeyManager（反向同步）
      */
+    /**
+     * 一条 APIConfig 是否属于「会进在线模型注册表」的那类。
+     *
+     * <p>此前这条判定在同步代码里内联抄了三份（导入、批量同步、单条同步各一份），
+     * 三份一旦改漏就会出现「同一个条目在这个页算 AI、在那个页不算」的分叉。
+     * UI 也复用这里：服务商密钥页据此决定 AI 条目跳模型中心编辑。</p>
+     */
+    public static boolean isAIServiceConfig(APIConfig apiConfig) {
+        if (apiConfig == null) return false;
+        String category = apiConfig.getCategory();
+        String serviceType = apiConfig.getServiceType();
+        if (category != null && category.equals(APIConfig.Category.AI)) return true;
+        return serviceType != null && (
+                serviceType.equals(APIConfig.ServiceType.OPENAI)
+                        || serviceType.equals(APIConfig.ServiceType.ANTHROPIC)
+                        || serviceType.equals(APIConfig.ServiceType.GOOGLE)
+                        || serviceType.equals(APIConfig.ServiceType.CUSTOM));
+    }
+
     public boolean syncSingleAPIConfigFromOnlineModel(OnlineModelConfig config) {
         if (config == null || config.id == null || config.id.isEmpty()) {
             return false;
@@ -1658,6 +1716,16 @@ public class OnlineModelManager {
             // （描述/自定义头/超时/创建时间/校验状态等）。此前每次同步都 new 一条整体替换，
             // 会把这些字段清空、并把 serviceType 无条件重置为 CUSTOM，导致按类型查询/测试结果失效。
             APIConfig existing = apiKeyManager.getAPIConfigById(config.id);
+            String staleId = null;
+            if (existing == null) {
+                // id 配不上时再按「同地址 + 同密钥」找回旧记录。只按 id 配对会留下同端点两条记录
+                // —— 密钥页那条名字/模型与模型中心那条互不覆盖，用户看到的正是"两个页面不同步"。
+                APIConfig byEndpoint = findApiConfigByEndpoint(apiKeyManager, config);
+                if (byEndpoint != null) {
+                    existing = byEndpoint;
+                    staleId = byEndpoint.getId(); // 迁到注册表 id 后删掉，避免同端点两条
+                }
+            }
             boolean isNew = existing == null;
             APIConfig apiConfig = isNew ? new APIConfig() : existing;
             apiConfig.setId(config.id);
@@ -1676,10 +1744,48 @@ public class OnlineModelManager {
             }
 
             apiKeyManager.saveAPIConfig(apiConfig);
+            if (staleId != null) {
+                // 旧行已按注册表 id 重建，删掉它才不会在密钥页留下同端点的重复条目
+                apiKeyManager.deleteAPIConfig(staleId);
+            }
             return true;
         } catch (Exception e) {
             AILogger.w("OnlineModelManager", "同步到 APIKeyManager 失败: " + e.getMessage());
             return false;
+        }
+    }
+
+    /** 按「同地址 + 同密钥」在旧体系里找回同一条端点配置（id 对不上时的兜底配对） */
+    private APIConfig findApiConfigByEndpoint(APIKeyManager apiKeyManager, OnlineModelConfig config) {
+        if (config.apiUrl == null || config.apiUrl.isEmpty()) return null;
+        try {
+            APIConfig fallback = null;
+            for (APIConfig apiConfig : apiKeyManager.getAllAPIConfigs()) {
+                if (apiConfig == null || apiConfig.getApiHost() == null) continue;
+                if (!config.apiUrl.equals(apiConfig.getApiHost())) continue;
+                // 密钥也一致才算同一条；只地址相同可能是两个账号
+                if (config.apiKey != null && config.apiKey.equals(apiConfig.getApiKey())) {
+                    if (APIConfig.Category.AI.equals(apiConfig.getCategory())) return apiConfig;
+                    if (fallback == null) fallback = apiConfig;
+                }
+            }
+            return fallback;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 把注册表全量回灌到旧体系，让两个存储对同一条端点显示同一份名字与模型。
+     * 供打开模型中心 / 密钥页时调用；纯派生写入，不改注册表本身。
+     */
+    public void reconcileApiConfigsFromRegistry() {
+        try {
+            for (OnlineModelConfig config : modelList) {
+                syncSingleAPIConfigFromOnlineModel(config);
+            }
+        } catch (Exception e) {
+            AILogger.w("OnlineModelManager", "回灌旧体系失败: " + e.getMessage());
         }
     }
 

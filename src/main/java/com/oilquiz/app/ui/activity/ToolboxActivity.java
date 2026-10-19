@@ -165,11 +165,13 @@ public class ToolboxActivity extends AppCompatActivity {
         showToolDialog("AI工具", new String[]{
             "AI聊天",
             "AI中心",
+            "模型中心",
             "文字识别",
             "AI服务状态"
         }, new Class<?>[]{
             AIChatActivity.class,
             AICenterActivity.class,
+            ModelCenterActivity.class,
             OCRActivity.class,
             AIServiceStatusActivity.class
         });

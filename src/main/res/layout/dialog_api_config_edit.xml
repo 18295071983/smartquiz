@@ -20,6 +20,17 @@
             android:textColor="?attr/colorControlText"
             android:layout_marginBottom="@dimen/space_8"/>
 
+        <!-- AI 类条目：名字/地址/密钥/模型名与在线模型注册表是同一条记录的两个视图，
+             两处都能改会互相覆盖（推理链只读注册表那份），故默认锁住并说明去向 -->
+        <TextView
+            android:id="@+id/text_online_model_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/space_8"
+            android:textSize="@dimen/text_12"
+            android:textColor="?attr/colorControlTextHint"
+            android:visibility="gone"/>
+
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

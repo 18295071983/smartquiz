@@ -4,6 +4,7 @@ import android.content.Context;
 import android.net.Uri;
 
 import com.oilquiz.app.ai.model.OnlineModelManager;
+import com.oilquiz.app.ai.speech.core.SpeechModelSelector;
 
 import com.oilquiz.app.util.AILogger;
 
@@ -463,9 +464,19 @@ public class SpeechManager {
      */
     public void saveTtsVoice(String voiceId) {
         try {
-            OnlineModelManager.getInstance(context).setTtsVoice(voiceId);
+            OnlineModelManager.getInstance(context).setTtsVoice(voiceId, ttsVoiceScopeId());
         } catch (Exception ignored) {
         }
+    }
+
+    /**
+     * 音色作用域 = 实际用于合成的那条 TTS 配置，与音色列表同源
+     * （{@code TTSVoiceSelectorDialog} 的列表就是按 {@link SpeechModelSelector#select} 选的模型列的）。
+     * 若改用「已绑定 TTS 模型，否则当前激活模型」，在未显式绑定 TTS 时会出现
+     * 列表按 A 端点列、音色存到 B（聊天激活模型）键下，换聊天模型就换出别的音色。
+     */
+    private String ttsVoiceScopeId() {
+        return SpeechModelSelector.voiceScopeId(context);
     }
 
     /** 获取当前生效的音色 ID */
@@ -476,7 +487,8 @@ public class SpeechManager {
     /** 获取用户已保存的音色 ID（未设置返回 null，不回填默认值避免误导） */
     public String getSavedTtsVoice() {
         try {
-            return OnlineModelManager.getInstance(context).getTtsVoice();
+            // 与 saveTtsVoice 同作用域，否则刚存的音色在下次打开对话框时读不回来
+            return OnlineModelManager.getInstance(context).getTtsVoice(ttsVoiceScopeId());
         } catch (Exception e) {
             return null;
         }

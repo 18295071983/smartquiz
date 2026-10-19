@@ -325,7 +325,8 @@ public class AIServiceStatusActivity extends AppCompatActivity implements AIServ
     private void setButtonListeners() {
         if (btnSelectModel != null) {
             btnSelectModel.setOnClickListener(v -> {
-                Intent intent = new Intent(this, ModelSelectorActivity.class);
+                // 在线模型的注册与选用统一收进模型中心
+                Intent intent = ModelCenterActivity.intent(this);
                 startActivityForResult(intent, REQUEST_SELECT_MODEL);
             });
         }

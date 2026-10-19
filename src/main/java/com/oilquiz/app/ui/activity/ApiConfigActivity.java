@@ -185,6 +185,9 @@ public class ApiConfigActivity extends BaseActivity {
         if (onlineModelManager == null) {
             onlineModelManager = OnlineModelManager.getInstance(this);
         }
+        // 先按注册表回灌再读列表：同一条端点在两个存储里的名字/模型必须一致，
+        // 否则本页显示"自定义 · DeepSeek-V4.1-Flash"而模型中心显示"深度求索 / deepseek-flash"
+        onlineModelManager.reconcileApiConfigsFromRegistry();
         allConfigs = apiKeyManager.getAllAPIConfigs();
         if (allConfigs == null) {
             allConfigs = new ArrayList<>();
@@ -246,9 +249,6 @@ public class ApiConfigActivity extends BaseActivity {
         TextView tvApiHost = itemView.findViewById(R.id.tv_api_host);
         TextView tvModelName = itemView.findViewById(R.id.tv_model_name);
         TextView tvStatus = itemView.findViewById(R.id.tv_status);
-        TextView tvUsage = itemView.findViewById(R.id.tv_usage);
-        TextView tvLatency = itemView.findViewById(R.id.tv_latency);
-        TextView tvLastUsed = itemView.findViewById(R.id.tv_last_used);
         TextView tvUsagePercent = itemView.findViewById(R.id.tv_usage_percent);
         TextView tvUsageDetail = itemView.findViewById(R.id.tv_usage_detail);
         View statusIndicator = itemView.findViewById(R.id.status_indicator);
@@ -261,15 +261,22 @@ public class ApiConfigActivity extends BaseActivity {
         MaterialButton btnEdit = itemView.findViewById(R.id.btn_edit);
         MaterialButton btnDelete = itemView.findViewById(R.id.btn_delete);
 
-        // 显示格式：服务商 + 模型名称
+        // 标题优先用用户起的配置名 —— 它与模型中心列表是同一个字段，两页才会显示同一个名字；
+        // 没有配置名时才退回「服务类型 · 模型名」。
+        // 原先的判定方向反了：只要 modelName 非空就永远走"服务类型 · 模型名"，
+        // 于是同一条端点在模型中心叫"深度求索"、在这里叫"OpenAI · deepseek-flash"。
+        // 模型名本页已有独立的"已选模型"一行，标题里再放一遍本就是重复信息。
         String serviceType = getServiceTypeDisplay(config.getServiceType());
         String modelName = config.getModelName();
+        String configName = config.getName();
         String displayName;
-        
-        if (modelName != null && !modelName.isEmpty()) {
+
+        if (configName != null && !configName.trim().isEmpty()) {
+            displayName = configName;
+        } else if (modelName != null && !modelName.isEmpty()) {
             displayName = serviceType + " · " + modelName;
         } else {
-            displayName = config.getName() != null ? config.getName() : serviceType;
+            displayName = serviceType;
         }
         
         tvName.setText(displayName);
@@ -291,34 +298,15 @@ public class ApiConfigActivity extends BaseActivity {
         }
 
         tvStatus.setText(getStatusDisplay(config.getStatus()));
-        tvUsage.setText(getString(R.string.h_d4d779f4) + config.getUseCount() + "次");
 
         updateStatusIndicator(statusIndicator, config.getStatus());
 
-        // 显示延迟（如果有）
-        if (config.getLastUsedAt() > 0) {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault());
-            tvLastUsed.setText(getString(R.string.h_49ab797b) + sdf.format(new Date(config.getLastUsedAt())));
-            tvLastUsed.setVisibility(View.VISIBLE);
-        } else {
-            tvLastUsed.setVisibility(View.GONE);
-        }
-
-        // 显示使用量进度
-        if (usageTracker != null) {
-            String configId = config.getId();
-            UsageTracker.UsageInfo usageInfo = usageTracker.getUsageInfo(configId);
-            if (usageInfo != null && usageInfo.totalQuota > 0) {
-                int progress = (int) ((usageInfo.usedQuota * 100) / usageInfo.totalQuota);
-                pbUsage.setProgress(progress);
-                tvUsagePercent.setText(progress + "%");
-                tvUsageDetail.setText(String.format(Locale.getDefault(), "%.2f / %.2f",
-                    usageInfo.usedQuota / 1000000.0, usageInfo.totalQuota / 1000000.0));
-                llUsage.setVisibility(View.VISIBLE);
-            } else {
-                llUsage.setVisibility(View.GONE);
-            }
-        }
+        // 服务商配额：列表行只读缓存（绝不在 bind 里发网络请求），
+        // 真正的拉取发生在编辑对话框打开该条时（见 updateUsageDisplay）。
+        // 原先这里还显示「使用次数 N」「最后使用时间」—— useCount/lastUsedAt 全项目无写入方，
+        // 恒为 0 / 恒空，属于看着像数据其实是空壳的展示，已移除。
+        applyUsageTo(llUsage, pbUsage, tvUsagePercent, tvUsageDetail,
+                usageTracker != null ? usageTracker.getUsageInfo(config.getId()) : null);
 
         btnTest.setOnClickListener(v -> testSingleConfig(config));
         btnEdit.setOnClickListener(v -> {
@@ -472,10 +460,23 @@ public class ApiConfigActivity extends BaseActivity {
                 }
             }
 
-            // 显示使用量信息
-            if (llUsageSection != null) {
-                llUsageSection.setVisibility(View.VISIBLE);
-                updateUsageDisplay(llUsageSection, pbUsage, tvUsagePercent, tvUsageDetail, existingConfig.getId());
+            // 使用量信息：可见性交给 updateUsageDisplay/applyUsageTo 判定
+            // （此前这里无条件 VISIBLE，而配额数据又只在拉到时才有，会先露出一块空白进度条）
+            updateUsageDisplay(llUsageSection, pbUsage, tvUsagePercent, tvUsageDetail, existingConfig.getId());
+
+            // 与在线模型注册表重叠的字段锁住：同一条记录两处都能改就会互相覆盖，
+            // 而推理链读的是注册表那一份
+            if (com.oilquiz.app.ai.model.OnlineModelManager.isAIServiceConfig(existingConfig)) {
+                TextView hint = dialogView.findViewById(R.id.text_online_model_hint);
+                if (hint != null) {
+                    hint.setText("这是一个 AI 服务条目：名称 / 地址 / 密钥 / 模型名由「模型中心」的模型配置管理，"
+                            + "此处只保留超时、描述、分类与服务类型。");
+                    hint.setVisibility(View.VISIBLE);
+                }
+                lockOnlineManagedField(etName);
+                lockOnlineManagedField(etApiHost);
+                lockOnlineManagedField(etApiKey);
+                lockOnlineManagedField(etModelName);
             }
         }
 
@@ -729,20 +730,55 @@ public class ApiConfigActivity extends BaseActivity {
 
     private void updateUsageDisplay(LinearLayout llUsage, ProgressBar pbUsage, 
             TextView tvPercent, TextView tvDetail, String configId) {
-        if (usageTracker != null && configId != null && !configId.isEmpty()) {
-            UsageTracker.UsageInfo info = usageTracker.getUsageInfo(configId);
-            if (info != null && info.totalQuota > 0) {
-                int progress = (int) ((info.usedQuota * 100) / info.totalQuota);
-                pbUsage.setProgress(progress);
-                tvPercent.setText(progress + "%");
-                tvDetail.setText(String.format(Locale.getDefault(), 
-                    "%.2fM / %.2fM tokens", 
-                    info.usedQuota / 1000000.0, 
-                    info.totalQuota / 1000000.0));
-                llUsage.setVisibility(View.VISIBLE);
-            } else {
-                llUsage.setVisibility(View.GONE);
+        if (usageTracker == null || configId == null || configId.isEmpty()) {
+            return;
+        }
+        UsageTracker.UsageInfo cached = usageTracker.getUsageInfo(configId);
+        applyUsageTo(llUsage, pbUsage, tvPercent, tvDetail, cached);
+        if (cached != null && cached.totalQuota > 0) {
+            return; // 已有数据，不重复请求
+        }
+        // 缓存里没有配额：按该条配置的地址与密钥主动拉一次。
+        // 此前这里只读缓存、而缓存从无写入方，导致这块配额显示永远不出现。
+        try {
+            APIConfig config = apiKeyManager.getAPIConfigById(configId);
+            if (config == null || config.getApiHost() == null || config.getApiHost().isEmpty()
+                    || config.getApiKey() == null || config.getApiKey().isEmpty()) {
+                return;
             }
+            usageTracker.fetchUsageForConfig(configId, config.getApiHost(),
+                    config.getApiKey(), "monthly").thenAccept(info ->
+                    runOnUiThread(() -> applyUsageTo(llUsage, pbUsage, tvPercent, tvDetail, info)));
+        } catch (Exception e) {
+            Log.w("ApiConfigActivity", "拉取服务商配额失败: " + e.getMessage());
+        }
+    }
+
+    /** 锁住由模型中心管理的字段：保留可读（值仍会原样回写），但不可编辑 */
+    private void lockOnlineManagedField(android.widget.EditText field) {
+        if (field == null) return;
+        field.setEnabled(false);
+        field.setFocusable(false);
+        field.setLongClickable(false);
+        field.setAlpha(0.55f);
+    }
+
+    /** 配额渲染的唯一出口：无数据时整块隐藏，不显示 0/0 这种看起来像真数据的假值 */
+    private void applyUsageTo(LinearLayout llUsage, ProgressBar pbUsage,
+                              TextView tvPercent, TextView tvDetail,
+                              UsageTracker.UsageInfo info) {
+        if (llUsage == null) return;
+        if (info != null && info.totalQuota > 0) {
+            int progress = (int) ((info.usedQuota * 100) / info.totalQuota);
+            pbUsage.setProgress(progress);
+            tvPercent.setText(progress + "%");
+            tvDetail.setText(String.format(Locale.getDefault(),
+                "%.2fM / %.2fM tokens",
+                info.usedQuota / 1000000.0,
+                info.totalQuota / 1000000.0));
+            llUsage.setVisibility(View.VISIBLE);
+        } else {
+            llUsage.setVisibility(View.GONE);
         }
     }
 

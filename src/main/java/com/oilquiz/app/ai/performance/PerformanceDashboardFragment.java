@@ -292,7 +292,8 @@ public class PerformanceDashboardFragment extends Fragment {
                 break;
             case PerformanceRuleEngine.ACTION_SWITCH_MODEL:
                 if (getContext() != null) {
-                    startActivity(new Intent(getContext(), ModelSelectorActivity.class));
+                    // 模型中心：切模型与看该模型的用量在同一处
+                    startActivity(com.oilquiz.app.ui.activity.ModelCenterActivity.intent(getContext()));
                 }
                 break;
             case PerformanceRuleEngine.ACTION_RELOAD:

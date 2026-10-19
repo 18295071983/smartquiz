@@ -71,6 +71,28 @@ public class UsageTracker {
         return cached != null ? cached : new UsageInfo();
     }
 
+    /**
+     * 拉取某条配置的使用量并**写入缓存**。
+     *
+     * <p>此前 {@code usageInfoCache} 只有读方（{@link #getUsageInfo}）而全类没有任何写入，
+     * 于是服务商密钥页与编辑对话框里那块配额进度条永远满足不了 {@code totalQuota > 0}
+     * 的显示条件——不是该删的死布局，是漏了一次落缓存。</p>
+     *
+     * @param configId 缓存键（APIConfig / OnlineModelConfig 共用同一 id）
+     */
+    public CompletableFuture<UsageInfo> fetchUsageForConfig(String configId, String apiUrl,
+                                                            String apiKey, String period) {
+        CompletableFuture<UsageInfo> future = fetchUsage(apiUrl, apiKey, period);
+        if (configId != null && !configId.isEmpty()) {
+            future.thenAccept(info -> {
+                if (info != null) {
+                    usageInfoCache.put(configId, info);
+                }
+            });
+        }
+        return future;
+    }
+
     public UsageInfo getUsageInfo(long configId) {
         return getUsageInfo(String.valueOf(configId));
     }
