@@ -759,6 +759,9 @@
     <!-- 聊天页 v2 消息活动行（demo .think-line / .tool-line） -->
     <string name="chat_v2_thought_for">已深度思考 %1$s</string>
     <string name="chat_v2_tools_ran">已运行 %1$d 个工具</string>
+    <!-- v2 折叠行前缀：左侧已有品牌色图标，文字不再挂 emoji -->
+    <string name="chat_v2_thinking_prefix_streaming">思考中：</string>
+    <string name="chat_v2_thinking_prefix_done">思考过程：</string>
     <string name="chat_v2_tool_desc">工具调用</string>
     <string name="chat_v2_tool_ok_desc">执行成功</string>
     <string name="chat_v2_tool_running">执行中</string>

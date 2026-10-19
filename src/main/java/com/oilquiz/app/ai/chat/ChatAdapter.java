@@ -2598,6 +2598,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * @param message 绑定消息（折叠+流式时用于实时思考预览）
      */
     private void updateThinkingLabel(AIMessageViewHolder holder, boolean expanded, boolean isStreaming, ChatMessage message) {
+        Context ctx = holder.thinkingLabel.getContext();
         holder.thinkingLabel.setMaxLines(2);
         holder.thinkingLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
         // 摘要预览源：轮次模式下 thinkingContent 可能为空（已落入 rounds），取首段 rounds
@@ -2616,7 +2617,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             } else {
                 String preview = thinkingPreview(previewSource, true);
                 if (!preview.isEmpty()) {
-                    holder.thinkingLabel.setText("🧠 思考中：" + preview + "…");
+                    holder.thinkingLabel.setText(
+                            thinkingPrefix(ctx, true) + preview + "…");
                 } else {
                     holder.thinkingLabel.setText(R.string.chat_thinking_streaming_expand);
                 }
@@ -2627,12 +2629,28 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             } else {
                 String preview = thinkingPreview(previewSource, false);
                 if (!preview.isEmpty()) {
-                    holder.thinkingLabel.setText("💭 思考过程：" + preview + "…");
+                    holder.thinkingLabel.setText(
+                            thinkingPrefix(ctx, false) + preview + "…");
                 } else {
                     holder.thinkingLabel.setText(R.string.chat_thinking_collapsed);
                 }
             }
         }
+    }
+
+    /**
+     * 折叠行的文字前缀。旧版在深蓝壁纸上没有图标，所以用 🧠/ 当视觉锚点；
+     * v2 的 think-line 左侧已经带了品牌色星形图标，再留 emoji 就是重复装饰，
+     * 也违反"新 UI 不用 emoji 图标"的口径 —— 所以 v2 走纯文字前缀。
+     *
+     * @param streaming 是否流式生成中（"思考中" vs 已完成的"思考过程"）
+     */
+    private String thinkingPrefix(Context ctx, boolean streaming) {
+        if (ChatUiFlags.isUiV2Enabled(ctx)) {
+            return ctx.getString(streaming
+                    ? R.string.chat_v2_thinking_prefix_streaming : R.string.chat_v2_thinking_prefix_done);
+        }
+        return streaming ? "🧠 思考中：" : "💭 思考过程：";
     }
 
     /**
