@@ -874,6 +874,10 @@ public class AIChatActivity extends BaseActivity {
                                     hadGenerating[0] = true;
                                 }
                             }
+                            // 单文件历史不存会话归属：恢复完 currentSessionId 是 null，
+                            // 之后任何一次保存都会另起一条新会话（"每退一次多一条对话"的成因）。
+                            // 在后台线程按"最后一条消息 id"把它认领回原本的会话。
+                            final int[] adoptedFrontSkipped = {adoptSessionForRestoredHistory(historyToLoad)};
                             runOnUiThread(() -> {
                                 // 用户已主动清空/新建对话：丢弃本次历史加载结果，防止回灌顶掉新消息
                                 if (historyLoadStale) return;
@@ -890,7 +894,9 @@ public class AIChatActivity extends BaseActivity {
                                 // 分段加载状态：单文件历史，前端未加载条数
                                 historySourceSessionId = null;
                                 aiHistoryFrontSkipped = aiSkipped[0];
-                                sessionFrontSkipped = 0;
+                                // 若刚把这份历史认领回某个会话，这里必须沿用它的前端未加载条数：
+                                // 清零会让后续"更新同一条会话"的保存截掉会话头部（丢旧消息）。
+                                sessionFrontSkipped = Math.max(0, adoptedFrontSkipped[0]);
                                 updateLoadMoreButton();
                                 if (chatAdapter != null) {
                                     chatAdapter.notifyDataSetChanged();
@@ -7275,11 +7281,77 @@ public class AIChatActivity extends BaseActivity {
     private void saveCurrentHistory(boolean mergeSingleFileHead) {
         if (chatHistoryManager == null || chatHistory == null || chatHistory.isEmpty()) return;
         final List<ChatMessage> copy = new ArrayList<>(chatHistory);
-        if (currentSessionId != null && !currentSessionId.isEmpty()) {
-            chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId, sessionFrontSkipped, false);
-        } else {
-            chatHistoryManager.saveCurrentChatAsSession(copy, null, aiHistoryFrontSkipped, mergeSingleFileHead);
+        final boolean hadSession = currentSessionId != null && !currentSessionId.isEmpty();
+        ConversationSession saved = hadSession
+                ? chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId, sessionFrontSkipped, false)
+                : chatHistoryManager.saveCurrentChatAsSession(copy, null, aiHistoryFrontSkipped, mergeSingleFileHead);
+        // 没有会话时这次调用会新建一条：必须把它的 id 认领下来，否则下一次调用又新建一条
+        //（与 saveHistoryAsync 里已有的认领逻辑同口径）
+        if (!hadSession && saved != null && saved.id != null
+                && (currentSessionId == null || currentSessionId.isEmpty())) {
+            currentSessionId = saved.id;
         }
+    }
+
+    /**
+     * 恢复单文件历史（{@code ai_chat_history.json}）后，把这份历史<b>认领</b>回它原本的会话。
+     *
+     * <p>为什么需要：单文件历史是一个纯消息数组、不存会话归属，恢复完
+     * {@code currentSessionId} 一直是 null；之后任何一次保存走到
+     * {@code saveCurrentChatAsSession(copy, null, ...)} 都会新建一条会话文件。
+     * 用户看到的现象就是"每退出重进一次，历史抽屉多一条几乎一样的对话"，
+     * 而原会话再没被更新过（越用越像分裂）。</p>
+     *
+     * <p>认领依据：消息 id 持久化且唯一（{@code ChatMessage#id} 非 transient），
+     * 同一会话的最后一跳必然对得上。先用会话元数据里的 title 便宜地筛一遍，
+     * 再对候选做一次"只读最后一条消息"的分段查询确认，避免为几十个会话全量解析文件。
+     * 认不到就什么都不做——那确实是新会话，让它按原逻辑新建。</p>
+     *
+     * <p>必须在后台线程调用（有文件 I/O）。认领只设 {@code currentSessionId} 并把
+     * "会话前端未加载条数"<b>作为返回值交给调用方</b>（-1 = 没认领到）：调用方要在主线程
+     * 用它覆盖 {@code sessionFrontSkipped}，否则后续保存会按 0 头部去写、截掉会话里
+     * 未加载的旧消息。{@code historySourceSessionId} 与 {@code aiHistoryFrontSkipped}
+     * 保持单文件口径不动——"加载更早消息"与单文件保存仍以单文件为准。</p>
+     */
+    private int adoptSessionForRestoredHistory(List<ChatMessage> window) {
+        try {
+            if (chatHistoryManager == null || window == null || window.isEmpty()) return -1;
+            if (currentSessionId != null && !currentSessionId.isEmpty()) return -1;
+
+            String lastId = null;
+            for (int i = window.size() - 1; i >= 0; i--) {
+                ChatMessage m = window.get(i);
+                if (m != null && m.id != null && !m.id.isEmpty()) {
+                    lastId = m.id;
+                    break;
+                }
+            }
+            if (lastId == null) return -1;
+
+            String title = ConversationSession.generateTitle(window);
+            List<ConversationSession> sessions = chatHistoryManager.listConversationSessions();
+            if (sessions == null) return -1;
+            for (ConversationSession s : sessions) {
+                if (s == null || s.id == null || s.messageCount <= 0) continue;
+                // 便宜筛：标题由首条用户消息派生，不同会话几乎不会撞
+                if (title != null && s.title != null && !title.equals(s.title)) continue;
+                List<ChatMessage> tail = chatHistoryManager.loadConversationSessionMessages(
+                        s.id, s.messageCount - 1, 1);
+                if (tail == null || tail.isEmpty()) continue;
+                ChatMessage last = tail.get(0);
+                if (last != null && lastId.equals(last.id)) {
+                    currentSessionId = s.id;
+                    // 会话文件前端未加载的条数：会话总长 - 当前窗口长度（窗口来自单文件）
+                    int skipped = Math.max(0, s.messageCount - window.size());
+                    AppLogger.i(TAG, "恢复历史认领回原会话: " + s.id + " frontSkipped=" + skipped);
+                    return skipped;
+                }
+            }
+        } catch (Exception e) {
+            // 认领失败不影响恢复本身：最坏仍是"另起一条会话"，不能因此丢历史
+            AppLogger.aiE(TAG, "认领会话失败(忽略): " + e.getMessage());
+        }
+        return -1;
     }
 
     /** 点击"加载更早消息"：分段加载上一页并前插，保持视口 */
@@ -11563,9 +11635,22 @@ public class AIChatActivity extends BaseActivity {
         // 停止时保存当前会话到历史（更新当前会话而非重复创建副本；与 saveHistoryAsync 互斥）
         if (chatHistoryManager != null && chatHistory != null && !chatHistory.isEmpty()) {
             final List<ChatMessage> copy = new ArrayList<>(chatHistory);
+            // 快照"进 onStop 时有没有会话 id"，并把返回的会话认领下来。
+            // 原先返回值直接丢弃，而 currentSessionId 在"从单文件历史恢复"后一直是 null →
+            // 每次 onStop 都走 saveCurrentChatAsSession(copy, null) **新建一条会话文件**，
+            // 用户看到的就是"每退出重进一次，历史里多一条几乎一样的对话"。
+            final boolean hadSession = currentSessionId != null && !currentSessionId.isEmpty();
+            final String sidAtStop = currentSessionId;
             new Thread(() -> {
+                ConversationSession saved;
                 synchronized (HISTORY_IO_LOCK) {
-                    chatHistoryManager.saveCurrentChatAsSession(copy, currentSessionId);
+                    saved = chatHistoryManager.saveCurrentChatAsSession(copy, sidAtStop);
+                }
+                if (!hadSession && saved != null && saved.id != null
+                        && (currentSessionId == null || currentSessionId.isEmpty())) {
+                    // 仅在仍没认领到会话时回填，避免覆盖用户期间主动切换的会话
+                    currentSessionId = saved.id;
+                    AppLogger.i(TAG, "onStop 保存后认领会话: " + saved.id);
                 }
             }).start();
         }
