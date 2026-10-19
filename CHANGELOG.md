@@ -1,5 +1,82 @@
 # 变更日志
 
+## [2026-10-19 晚] "每次重进多一条历史会话"查到第三层；顺带发现 JVM 单测有 128 条被静默跳过
+
+### 查到的事实
+
+- **同一段对话被抄成 3 条会话**：把真机 `files/conversations/` 的三个文件拉下来对比，
+  内容逐字节同构（同样 2 条消息、同样的消息 id），所以不是"点了三次生成"。
+- **会话文件只持久化 USER / AI 两类消息**（保存时按 `isUserMessage()||isAIMessage()` 过滤），
+  而 `ai_chat_history.json` 里那条对话是 `USER / AI / SYSTEM("✓ 模型加载完成")` 三条。
+  恢复后认领原会话时取的是"窗口最后一条有 id 的消息"= 那条 **SYSTEM**，
+  拿去比会话文件最后一条（AI）**必然对不上** → 每次恢复都认不回原会话 →
+  每次 `onStop` 各新建一条。日志对得上：19:33:12 认不到，19:33:18 恰好窗口末尾是 AI 就认到了，
+  **看运气**——会话只要以系统提示/思考/工具消息收尾就必然分裂。
+- **聊天页确实在叠实例，但这次不是主因**：三次 `START` 带的 flag 已是 `0x20020000`
+  （`SINGLE_TOP|REORDER_TO_FRONT`，入口收敛生效），仍是新实例——用户按的是返回键，
+  实例已销毁，`REORDER_TO_FRONT` 无从复用。所以入口收敛算"该修但不治这条"。
+- **`ChatHistoryManager.loadMessagesFromFile` 每次分页读会话都抛异常**：
+  会话对象的 `messages` 之后还有 `createdAt/updatedAt/messageCount`，
+  读到 messages 就 `break` 再 `endObject()` 必抛
+  `IllegalStateException: Expected END_OBJECT but was NAME path $.messages`。
+  异常被 catch、返回值仍完整，所以表现为"日志脏 + 调用方一旦靠异常判断就误判"。
+- **JVM 单测上午报的"407 tests / 0 failed"是假的**：`build.gradle` 没开
+  `testOptions.unitTests.includeAndroidResources`，Robolectric 跑在 legacy resources mode
+  （Android P 之后不受支持），凡 sdk≥28 的类**被整类跳过**——Gradle 记成 skipped 不是 failure，
+  `failures=0` 看着像绿。实际 11 个类 128 条用例上午一条没跑
+  （加新用例后去看 `build/test-results/*.xml` 才发现 `skipped="4"`）。
+- 开齐配置后真跑的 132 条里 18 条红，逐条查：10 条是 Robolectric 给的 Application 上下文
+  **没套清单主题**，而 `ThemeColors.get(Context,resId)` 对主题语义色走 `?attr` 解析、
+  解析不到按设计返回 0；4 条是 `TemplateManager` 的 8 个 `createScene*Template()`
+  只 `templates.add(...)` **不写 `templateMap`**，而 `getTemplateById()` 只查 map
+  （`getDefaultTemplates()` 查 list）→ 首建/补建那条路上"列表看得见、按 id 取不到"；
+  4 条是 `PreviewRenderBridgeTest` 自带 `@Config(sdk = P)`，本应用 minSdk=31，
+  28 档位下解析应用自己的 `ap_` 直接抛 `Requires newer sdk version #31`。
+- 另一个 `System.loadLibrary("crypto_chaquopy")` 的坑：开了 `includeAndroidResources` 后
+  Robolectric 按清单实例化真 `SmartQuizApplication`，其 `onCreate` 里 `new AndroidPlatform()`
+  在桌面 JVM 必炸，132 条全倒在 `beforeTest`。
+
+### 由此改掉的事
+
+- **认领口径**（主因）：改成比较窗口里**最后一条 USER/AI 消息**的 id；
+  `sessionFrontSkipped` 也按窗口内 USER/AI 条数（`persistedInWindow`）算，
+  不再拿含 SYSTEM/thinking 的窗口总条数去减（会算成负数被夹 0，后续保存按 0 头部重写会截掉旧消息）。
+- **`loadMessagesFromFile`**：不再 `break`，把剩余成员读完再 `endObject()`。
+- **入口收敛**（上午那批，`1c02c6e9`）：新增 `ai/chat/ui/ChatNavigation.openChat(Context)`，
+  首页 / AI 中心 / 工具箱 3 个入口改走它，通知侧 3 处 `PendingIntent` 补 `REORDER_TO_FRONT`；
+  `AIChatActivity.onNewIntent` 只滚到底 + 刷状态条，**不重跑历史恢复**
+  （本页不读任何 Intent extra，全文件 0 处 `getIntent()`）。
+- **`null.json`**（`09efd26b`）：`saveCurrentChatAsSession(...)` 走 `writeSessionWithHead`
+  那条路不经过唯一 mint id 的 `saveConversationSession`，
+  于是文件名成字面量 `null.json`、返回 `session.id==null` 让认领拿不到 id → 拼文件名前先 mint UUID。
+- **测试环境**：`includeAndroidResources = true`；
+  `robolectric.properties` 加 `application=android.app.Application`（躲 Chaquopy 静态初始化）；
+  新增 `testsupport/ThemedAppContext` 把 `R.style.Theme_OilQuizApp` 套到应用上下文
+  ——**没有为了让断言通过去放宽生产取色口径**；去掉 `PreviewRenderBridgeTest` 的 `@Config(sdk=P)`。
+- **生产端（导出）**：`createDefaultTemplates()` / `migrateTemplatesIfNeeded()` 各补一次
+  `updateTemplateMap()`；`scene_mistake`（错题回顾版）补上它描述里承诺的 `incorrectCount` 字段。
+- **测试端**：`ExportTemplateTest` 补 `config.includeDifficulty = true`
+  （该开关默认 false、与 CSV/Excel/Markdown 同口径，用例漏开却断言难度）；
+  `setup()` 清 `files/templates/`（Robolectric sandbox 复用 filesDir，
+  而默认模板是"文件不存在才创建"，不清就永远看不到改过的默认模板）。
+- 新增 `ChatHistoryManagerSessionTest`（4 条）钉住：`null.json` 不再出现、
+  会话文件只存 USER/AI（这就是认领必须比"最后一条 USER/AI"的依据）、
+  分页读会话能取到指定页、带 id 保存是更新而非新建。
+
+### 验证
+
+- `./gradlew testDebugUnitTest --offline --rerun` = **37 个类 / 411 tests / 0 failed / 0 skipped**
+  （直接汇总 `build/test-results/testDebugUnitTest/*.xml` 的 tests/skipped/failures 计数，
+  这次是**真跑**：128 条 Robolectric 用例全部执行）。
+- `assembleDebug` 通过，APK 已 `install -r` 到 279b6c51。
+- **真机未复测**：第三层口径修好后的"反复进出只更新同一条会话"还没装机验证，
+  预期看两样——logcat 每次恢复都有 `恢复历史认领回原会话: <id>`，
+  且 `files/conversations/` 只有一条 uuid 文件在被更新、不再出现 `null.json`。
+- **遗留（用户自己处理）**：已经攒出来的重复会话文件不做迁移/清理，**不要替他删**。
+- **一条待拍的口径**：`incorrectCount` 只对新装/删过 `files/templates/` 的用户生效，
+  `migrateTemplatesIfNeeded` 只按 id 补缺失模板、不改已存在模板的字段列表，
+  老设备上的错题本版仍然没有错次列。要不要做"默认模板按 version 刷新"是单独的决定。
+
 ## [2026-10-19] 聊天页 v2：demo 视觉体系落地并接线，A1 换掉三段消息结构；JVM 单测从"25 条既有红"修到全绿
 
 ### 查到的事实（先证实再动手）
@@ -65,6 +142,10 @@
 ### 验证
 
 - `./gradlew testDebugUnitTest --offline --rerun`：**36 个类 / 407 tests / 0 failed**。
+  > **当晚更正：这个数字是假的。** 当时 `includeAndroidResources` 没开，
+  > 11 个 Robolectric 类共 128 条用例被**整类跳过**（记成 skipped 不是 failure）。
+  > 开齐后实跑为 **411 tests / 0 failed / 0 skipped**，见本文件顶部「2026-10-19 晚」一节与
+  > `docs/ui/HANDOVER.md` §7。
   **10-18 那几条记的"342 tests / 25 failed（25 是既有基线）"已经失效** ——
   那 25 条现在全绿，根因与逐条判断见本节"查到的事实"和 `docs/ui/HANDOVER.md` §7。
   改版自有用例：`HtmlSandboxTest` 17、`ComponentTypesTest` 6、`ToolResultTextTest` 6、
@@ -354,7 +435,8 @@
 全量 **342 tests / 25 failed**（25 仍是既有基线）。
   > 2026-10-19 更新：这个「25 条既有基线」已失效 —— 根因是 Robolectric 没钉 API 等级
   > （`ThemeColors.get()` 兜底分支要的 `Context.getColor` 在被选中的老 android-all 镜像里没有）
-  > 加三处断言过期，现已 **407 tests / 0 failed**（见本文件顶部 10-19「聊天页 v2」一节）。
+  > 加三处断言过期，10-19 声称修到 407/0，**当晚更正为 411 tests / 0 failed / 0 skipped**
+  > （407 那批里有 128 条 Robolectric 被静默跳过，见顶部「2026-10-19 晚」一节与 HANDOVER §7）。
 DeepSeek 的**真实一次调用仍未做过**（这里没有 key、也没接真机）—— 所以放量靠的是
 "文档形状逐条对齐 + 失败自动回落 chat"两层，而不是"应该没问题"。
 
@@ -405,7 +487,8 @@ DeepSeek 的**真实一次调用仍未做过**（这里没有 key、也没接真
   工具用例含并发 call 乱序到达仍按出现顺序回填、缺 `added` 事件也能收到工具调用。
 - `./gradlew testDebugUnitTest --offline --rerun-tasks`：**339 tests / 25 failed**
   （基线 292 → 本批 +47；25 个仍是既有失败，类分布未变）。
-  > 2026-10-19 更新：这批「既有失败」已修绿，现全量 **407 tests / 0 failed**。
+  > 2026-10-19 更新：这批「既有失败」已修绿，当晚复核更正为 **411 tests / 0 failed / 0 skipped**
+  > （原先记的 407/0 里有 128 条 Robolectric 用例被静默跳过，见顶部「2026-10-19 晚」一节）。
 - **踩坑记录**：本想用 socket + 手搓 chunked 帧做"真 HTTP"验证，三次用例全在
   `SocketTimeoutException`；单进程探针证实本机环回端口被安全软件 LSP 拦掉
   （accept 成功但写入被中止）。同时 `com.sun.net.httpserver` 不在 android.jar 里、
@@ -570,7 +653,8 @@ Agent 循环整套建立在 chat 消息形状上，而 Responses 有三处不同
   这 25 个是**既有失败**（剥离本次改动后同命令跑出同样的 277 tests / 25 failed，类分布一致：
   StreamingUpdateManagerTest 依赖 JVM 桩里的主线程 Handler、ColorResourceProviderTest 依赖
   Android 资源、AIServiceStateTest 断言与现行为不符等 7 个类），与本次改动无关，未顺手修。
-  > 2026-10-19 更新：这个「25 条」基线已清零（现 **407 tests / 0 failed**）。当时的三条猜测里
+  > 2026-10-19 更新：这个「25 条」基线已清零（当晚复核更正为 **411 tests / 0 failed / 0 skipped**；
+  > 当时记的 407/0 里有 128 条 Robolectric 用例被静默跳过）。当时的三条猜测里
   > 主线程 Handler 那条是对的；ColorResourceProvider 那条其实不是"缺资源"而是 Robolectric
   > 没钉 API 等级（targetSdk 36 超出 4.10.3 支持上限，退到老 android-all，里面没有
   > Context.getColor）；AIServiceStateTest 那条方向反了——是生产端少夹了一次进度，改的是代码。

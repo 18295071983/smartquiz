@@ -2,7 +2,7 @@
 
 > 交接时间：2026-10-19（B0 / C0 / B1 / A0 / demo UI 落地与接线 / A1 前三段已落地；C1、B2 各完成一部分；A1 剩余与 A2 未开始）
 > 交接对象：在 Qoder 中继续开发的 Agent
-> 当前状态：**v2 已过真机首轮回归（浅底页面、顶栏、输入胶囊、正文段都确认生效）；A1 的思考段/工具段与 v2 空状态首屏仍未在真机看过；JVM 单测 407 条全绿**
+> 当前状态：**v2 已过真机首轮回归（浅底页面、顶栏、输入胶囊、正文段都确认生效）；A1 的思考段/工具段与 v2 空状态首屏仍未在真机看过；JVM 单测 411 条全绿（0 跳过——上一轮报的"407 全绿"里有 128 条被 Robolectric 静默跳过，见 §7）**
 > 下一步：切一条有工具调用的历史会话回归 A1 的思考段与工具段 + 点「新对话」看空状态首屏，再做 A1 剩余（操作段图标化、日期分隔、Binder 拆分）
 > 必读：`docs/ui/ai-chat-redesign.md`、`docs/ui/component-system-review.md`、`docs/ui/tool-result-step0-tasks.md`、`demo/README.md`
 > **先读 §4.1（B0）/ §4.2（C0）/ §4.3（A0）/ §4.4（demo UI 落地与接线）/ §4.5（A1 三段）**：落地时对任务单口径做了修正，别再按旧文字实现。
@@ -537,13 +537,11 @@
 验证方式：清空后新建一次对话 → 退后台 → 回来看历史抽屉是否只有一条；
 再杀进程重进 → 恢复的应是同一条会话（日志有 `恢复历史认领回原会话: <id>`）。
 
-**第二层根因（同日接着查，用户一句"你看看是不是 ai 对话界面的生命周期的问题"点中的）**：
-上面三处认领修完，真机上"每次退后台多一条会话"依然存在。logcat 显示同一个 pid 在 38 秒里
-连续 6 次 `START ... AIChatActivity with LAUNCH_MULTIPLE` ——
+**第二层（入口收敛，改动本身成立，但当时不是"多一条会话"的主因）**：
+logcat 里同一 pid 曾出现连续 6 次 `START ... AIChatActivity with LAUNCH_MULTIPLE`，
 `AIChatActivity` 清单里是默认 `launchMode=standard`，而首页"AI 聊天"卡、AI 中心、工具箱、
-通知点击都用**裸 `startActivity`** 跳它，于是**每进一次叠一个新实例**。`currentSessionId` 是实例字段，
-每个实例各自恢复历史、各自 `onStop` 保存，认领逻辑再对也只在"自己那个实例"里认领，
-同一段对话还是被抄成 N 份。
+通知点击都用**裸 `startActivity`** 跳它，确实会叠实例。`currentSessionId` 是实例字段，
+叠实例会把"同一段对话各自保存一遍"放大，所以这一处该修。
 
 两处代码改动（`1c02c6e9` + `09efd26b`）：
 1. **入口收敛**：新增 `ai/chat/ui/ChatNavigation.openChat(Context)`，统一带
@@ -560,10 +558,34 @@
    见过 728B 那份），所有"从单文件历史认领出来的新会话"挤进同一个文件，
    且返回 `session.id == null` → Activity 侧认领拿不到 id。修法：拼文件名前先 mint UUID 一行。
 
-验证口径（2026-10-19 19:31 已装机，`279b6c51`，logcat 已清空、`files/conversations/` 已由用户清空为 0 条）：
-反复"首页 → AI 聊天 → 回首页 → 再进"，应当**只在第一次**看到 `LAUNCH_MULTIPLE`，
-之后每次是 `onNewIntent 复用聊天页实例（未新建）`；`files/conversations/` 只增长到 1 条 uuid 文件，
-且不再出现 `null.json`。
+**第三层才是主因（装机后用户实测"还是有 3 个对话历史"，把 3 个会话文件拉下来对比才看清）**：
+三个文件**内容逐字节同构**（同样 2 条消息、同样的消息 id `a4b749a3…`/`d380cb59…`），
+而 logcat 显示那 3 次 `START` 带的 flag 是 `0x20020000`（= `SINGLE_TOP|REORDER_TO_FRONT`，
+说明入口收敛已生效），3 次都还是新实例——因为用户是**返回键**退出的，
+实例已被销毁，`REORDER_TO_FRONT` 无从复用。真正让每次恢复都新建会话的是认领比对口径错了：
+
+`ai_chat_history.json` 里那条对话是 `USER / AI / SYSTEM("✓ 模型加载完成")` 三条，
+而会话文件**只持久化 USER/AI**（保存时按 `isUserMessage()||isAIMessage()` 过滤）。
+`adoptSessionForRestoredHistory` 取的是"窗口里最后一条有 id 的消息"= 那条 **SYSTEM**，
+拿去比会话文件的最后一条（AI），**永远对不上** → 认不回原会话 → 每次 onStop 新建一条。
+日志能对上：19:33:12 那次认不到（无 `恢复历史认领回原会话` 行），
+19:33:18 那次恰好窗口末尾是 AI 消息就认到了 `3168b5eb`——**看运气**，
+会话只要以系统提示/思考/工具消息收尾就必然分裂。
+
+修在 Activity 侧（同 commit 之后另发）：认领时改为取窗口里**最后一条 USER/AI 消息**的 id，
+`sessionFrontSkipped` 也按"窗口内 USER/AI 条数"（`persistedInWindow`）算，
+不再拿含 SYSTEM/thinking 的窗口总条数去减（会算成负数被夹 0，后续保存按 0 头部重写截掉旧消息）。
+顺带修 `ChatHistoryManager.loadMessagesFromFile`：会话对象的 `messages` 之后还有
+createdAt/updatedAt/messageCount，读到 messages 就 `break` 再 `endObject()` 必抛
+`IllegalStateException: Expected END_OBJECT but was NAME path $.messages`
+——真机上每次分页读会话（含认领时"只读最后一条"）都刷这条错误日志；
+异常被 catch 后返回值仍完整，所以是"日志脏 + 靠运气"的缺陷，改成把剩余成员读完再收尾。
+回归用例见 `src/test/java/com/oilquiz/app/ai/util/ChatHistoryManagerSessionTest.java`（4 条）。
+
+验证口径（截至 2026-10-19 19:33 那次装机）：入口侧 flag 已生效、`null.json` 已不再出现；
+"多一条会话"要等第三层修好的包装机后复测——
+预期：反复进出聊天页时 `files/conversations/` 只有一条 uuid 文件在被更新，
+日志里每次恢复都能看到 `恢复历史认领回原会话: <id>`。
 
 
 ## 5. 关键文件 / 改动地图
@@ -618,23 +640,46 @@
 - 组件：quiz 答题 → 判题 → 回传；空/错/超长内容；HTML 注入用例。
 - 工具结果（C0）：成功/失败/200KB 输出/手动 AI 解读/聚合流程/历史恢复，明细见 `docs/ui/tool-result-step0-tasks.md` §T5。
 - 构建：`gradlew.bat assembleDebug`（确认二进制资源存在）。
-- **JVM 单测现状（2026-10-19 已修绿）**：`testDebugUnitTest` 现在 **407 条全绿**。
-  之前 25 条红有两类根因，都不在 UI 改版范围内：
-  1. **Robolectric 没钉 API 等级**（13 条，含 `ExportTemplateTest` 4 条）：应用 targetSdk=36，
-     Robolectric 4.10.3 最高只支持 33，不钉等级时它退到本地缓存里更老的 android-all 镜像，
-     那批框架类没有 `Context.getColor(int)`（API 23 才有），`ThemeColors.get()` 的兜底分支必炸。
-     修法是加 `src/test/resources/robolectric.properties`（`sdk=33`）——
-     **不改断言、也不为迁就测试改生产代码**。
-  2. **断言停在旧契约**（12 条）：`StreamingUpdateManagerTest` 5 条是因为回调走
-     `mainHandler.post()`，纯 JUnit 没有主 Looper → 回调永不发生（改成 Robolectric + idle，
-     并补一条 `callbackIsDeliveredOnMainThread` 钉住这个异步契约）；
-     `AIToolManagerTest` 2 条是"测试环境没注册工具"的前提早已不成立（构造即注册 20 来个工厂），
-     顺带去掉满篇 `if (manager != null)`（初始化失败会空跑通过，等于没测），
-     并区分 `hasTool`（查注册表）与 `getTool`（要真构造，database 在纯 JVM 建不起 Room）；
-     `OnlinePromptBuilderAssemblyTest` 4 条 + golden 是提示词上下文瘦身（20.8KB→9.9KB）后没重新生成。
-  3. 只有一条是生产端的问题：`AIServiceState.setCurrentStage(stage, msg, progress)` 少夹 0..100
-     （`setProgressPercent()` 有夹，同一个字段两条写入口径不一致）。测试断言是对的，
-     所以改生产端一行（`3609a2a8`），没有把断言改松。
+- **JVM 单测现状（2026-10-19 二次修正）**：`testDebugUnitTest` = **411 条，0 失败，0 跳过**。
+  这里必须记一件难看的事：**同一天早些时候我报的"407 条全绿"是假的**。
+  当时 `build.gradle` 没开 `testOptions.unitTests.includeAndroidResources`，
+  Robolectric 跑在 legacy resources mode（P 之后不受支持），
+  于是**所有 Robolectric 类被整类跳过**——Gradle 把 skip 记成既不是 failure 也不是 pass，
+  11 个类 128 条用例一条没跑。我是加了 `ChatHistoryManagerSessionTest` 之后
+  去看 `build/test-results/*.xml` 才发现 `skipped="4"`，顺手统计出全仓 128 条被跳过。
+  **教训：判断"测试过了"要连 `skipped` 一起看，光看 failures=0 会被骗。**
+  开齐配置后真跑的 132 条里 18 条红，逐条查完的结论：
+  1. **配置层（必改）**：`includeAndroidResources = true`；
+     `robolectric.properties` 加 `application=android.app.Application`
+     ——否则 Robolectric 按清单实例化 `SmartQuizApplication`，它 onCreate 里
+     `new AndroidPlatform()` 会 `System.loadLibrary("crypto_chaquopy")`，桌面 JVM 必炸；
+     删掉 `PreviewRenderBridgeTest` 的 `@Config(sdk = P)`（minSdk=31，28 档位解析 ap_ 直接抛
+     "Requires newer sdk version #31"）。
+  2. **测试环境不像真机（10 条，改测试）**：`ThemeColors.get(Context, resId)` 对主题语义色
+     走 `?attr/...` 解析，解析不到**按设计返回 0**；Robolectric 给的 Application 上下文没套清单主题，
+     于是 `ColorResourceProviderTest` / `AppResourceManagerTest` / `ResourceIntegrationTest`
+     成片"color should not be 0"。**没有为了让断言通过去改生产口径**，
+     而是新增 `src/test/java/com/oilquiz/app/testsupport/ThemedAppContext.java`
+     把 `R.style.Theme_OilQuizApp` 显式套到应用上下文（真机上每个 Activity 都带这个主题）。
+     注意必须套在应用上下文本身：`ColorResourceProvider` 构造时会 `getApplicationContext()`，
+     包一层 `ContextThemeWrapper` 会被脱掉。
+  3. **真缺陷（改生产端，2 处）**：
+     `TemplateManager` 的 8 个 `createScene*Template()` 只 `templates.add(...)`、
+     **不写 `templateMap`**，而 `getTemplateById()` 只查 map（`getDefaultTemplates()` 查 list）——
+     首次运行/迁移补建模板那条路上，列表看得见、按 id 取不到，`ExportManager` 拿不到模板就回退。
+     修法：`createDefaultTemplates()` 与 `migrateTemplatesIfNeeded()` 补建后各调一次 `updateTemplateMap()`。
+     另一处：`scene_mistake`（错题回顾版）描述写着"包含错误次数"，字段列表却漏了
+     `incorrectCount`，而 FieldMapper/ExportUtils/MarkdownExporter 全都支持它（表头"答错次数"）→ 补进字段。
+  4. **测试自己漏了开关（1 条，改测试）**：`includeDifficulty` 默认 false，
+     JSON 与 CSV/Excel/Markdown 同口径都不输出难度；用例没打开开关就断言"难度应为文字"。
+     补 `config.includeDifficulty = true`（生产口径本来就是对的）。
+     另在 `ExportTemplateTest#setup` 里清 `files/templates/`：Robolectric 的 sandbox 会复用 filesDir，
+     而默认模板是"文件不存在才创建"的，不清就永远看不到改过的默认模板。
+  5. 更早一轮（本轮之前）修红的三类根因仍然成立：
+     `StreamingUpdateManagerTest`（回调走 `mainHandler.post()`，改 Robolectric + idle）、
+     `AIToolManagerTest`（"测试环境没注册工具"的前提早已不成立）、
+     `OnlinePromptBuilderAssemblyTest` + golden（提示词瘦身后没重新生成）；
+     以及唯一一条生产端修复 `AIServiceState.setCurrentStage(...)` 少夹 0..100（`3609a2a8`）。
 - **改提示词后怎么更新 golden**：见 `OnlinePromptBuilderAssemblyTest` 类注释——
   先看 diff 确认措辞是想要的，再重新生成，**不许为了让测试变绿直接覆盖 golden**；
   另有 `uiComponentGuidanceStaysSlim` 钉住"UI 组件长规则不再回系统提示词"。
@@ -664,8 +709,9 @@
   输入胶囊、旧头部胶囊行与会话统计胶囊条已收起、无崩溃。
 - 真机**未看过的**：带思考/带工具调用的消息（思考折叠行、"已运行 N 个工具"行 + 点开明细）、
   v2 空状态首屏（要点一次「新对话」才会出现）、深色档。
-- JVM 单测 407 条全绿（2026-10-19 修红：Robolectric 钉 sdk=33 + 重写三处过期断言 +
-  AIServiceState 补一处进度夹取）。别再按"存量 25 红"理解。
+- JVM 单测 **411 条全绿、0 跳过**（2026-10-19 两轮：先修 25 条红，再发现 Robolectric 因没开
+  `includeAndroidResources` 被整类跳过 128 条，开齐后逐条查修 18 条——明细见 §7，别再按"407 全绿"理解，
+  也别只看 failures=0，**要连 skipped 一起看**）。
 - 不要动 CardShell / HtmlSandbox / HtmlWebView / ComponentLifecycle / ComponentTypes 的既有口径；
   不要"顺手"接线 ToolExecutionOrchestrator（无调用点的副本）。
 

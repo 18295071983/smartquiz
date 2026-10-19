@@ -22,6 +22,7 @@
 | D8 | P1 | 4 套协议方言塞在一个类里 | 每接一家服务商都改同一个文件 | 1 周 |
 | D9 | P1 | 190 处裸 `new Thread` | 无取消、无生命周期、难测 | 持续 |
 | D12 | P1 | 无 CI；曾把 25 条失败当"基线"（10-19 已清零为 407/0，但仍是本地手跑）| 回归信号失效 | 1–2 天 |
+| D12b | P0 | **当晚复核：那个 407/0 本身也是假的**——没开 `includeAndroidResources`，11 个 Robolectric 类 128 条用例被整类跳过（记成 skipped）。真跑后 18 条红，逐条查修完才是 411/0/0 跳过 | "全绿"可以完全建立在没跑的用例上；把这一条并进了 D12 的"回归信号失效" | 已在 10-19 晚修 |
 | D13 | P1 | 构建路径/签名口令硬编码 | 换机不可构建 | 1 天 |
 | D5 | P2 | `Security.java` 假加密（+1 位移）无人调用 | 未来误用的地雷 | 0.5 天 |
 | D10 | P2 | Hilt 只用了 7 个 `@Inject` | DI 名义存在，测试无法替换 | 持续 |
@@ -191,7 +192,25 @@ Hilt 已接入，但全仓只有 7 个 `@Inject`（集中在 `AIChatViewModel`�
 
 ### D12 测试与 CI — P1
 
-没有 `.github/`（无 CI）。CHANGELOG 长期把 **342 tests / 25 failed** 当"既有基线"记（10-18 三条记录都是 25）。**2026-10-19 复跑并清零**：`testDebugUnitTest --rerun` 现为 **36 个类 / 407 tests / 0 failed**。清零过程本身印证了这条判断——那 25 条里没有一条是"功能坏了"：13 条是 Robolectric 没钉 API 等级（targetSdk 36 超出 4.10.3 支持上限，退到老 android-all，里面没有 `Context.getColor`），11 条是断言停在旧契约（主线程 Handler 回调、工具注册表、提示词 golden），只有 1 条是生产端少夹了一次进度。**红灯长期挂在"基线"里没人复跑，代价是这些数字既不能证明坏了、也不能证明没坏**。测试仍集中在工具类与 parser，`OnlineInferenceService` 只有 parser 级覆盖。
+没有 `.github/`（无 CI）。CHANGELOG 长期把 **342 tests / 25 failed** 当"既有基线"记（10-18 三条记录都是 25）。**2026-10-19 复跑并清零**：`testDebugUnitTest --rerun` 当时记为 **36 个类 / 407 tests / 0 failed**。
+
+> **10-19 晚复核：这个 407/0 也不作数，而且它把 D12 的判断加强到了难看的程度。**
+> `build.gradle` 没开 `testOptions.unitTests.includeAndroidResources`，
+> Robolectric 于是跑在 legacy resources mode（Android P 之后不受支持），
+> 只要钉了 `sdk=33` 就**整类跳过**——Gradle 记成 `skipped`，既不是 failure 也不是 pass。
+> 11 个类 128 条用例当天上午一条都没跑，而我只核对了 `failures="0"`。
+> 开齐配置后真跑的 132 条里 18 条红，其中 2 处是真生产缺陷
+> （`TemplateManager` 首建/补建模板时不刷新 `templateMap`，`getTemplateById` 恒 null；
+> `scene_mistake` 描述承诺"包含错误次数"却漏了 `incorrectCount` 字段），
+> 10 条是测试环境没套清单主题（`ThemeColors` 对主题语义色走 `?attr`，解析不到按设计返回 0），
+> 4 条是 `PreviewRenderBridgeTest` 自带 `@Config(sdk = P)` 与 minSdk 31 冲突。
+> 全部修完：**411 tests / 0 failed / 0 skipped**。
+> 当时那 25 条红的根因也订正了：不是"没钉 API 等级"，
+> 而是缺 `includeAndroidResources` ——老 android-all 镜像里没有 `Context.getColor(int)`
+> 正是 legacy 模式跑在低档位的表征。
+> **结论比原来更硬：在这个仓库里，"绿灯"本身必须先证明用例真跑过（数 skipped），
+> 否则它既不能证明坏了、也不能证明没坏。**
+> 测试仍集中在工具类与 parser，`OnlineInferenceService` 只有 parser 级覆盖。
 
 **为什么算设计问题**：红灯常驻等于回归信号失效。上次 `delta` 被当 `JsonObject` 的 bug 能长期躺在主干，与"失败是常态"直接相关。
 
@@ -264,7 +283,7 @@ Hilt 已接入，但全仓只有 7 个 `@Inject`（集中在 `AIChatViewModel`�
 - `AgentDebugBridge` 的 token 强度、"默认关闭"的实际实现未逐行验证，仅依据注释与清单；
 - 云备份是否真的会把 `database` 域带走，取决于系统备份策略与 `backup_rules.xml`，本文只依据 `data_extraction_rules.xml` 的 include；
 - 空 catch 计数只统计单行 `catch (...) {}`，多行空块未计，真实数量更高；
-- ~~25 个失败用例的具体名单未在本机复跑，引用自 CHANGELOG 记录~~（10-19 已复跑：根因与逐条判断见 `docs/ui/HANDOVER.md` §7 与 CHANGELOG 顶部 10-19 一节；现全量 407 tests / 0 failed）；
+- ~~25 个失败用例的具体名单未在本机复跑，引用自 CHANGELOG 记录~~（10-19 已复跑：根因与逐条判断见 `docs/ui/HANDOVER.md` §7 与 CHANGELOG 顶部 10-19 一节；当晚复核更正——407/0 那次有 128 条 Robolectric 用例被静默跳过，真跑并修完是 **411 tests / 0 failed / 0 skipped**）；
 - `AgentExecutionEngine` "无调用点"基于 `grep "new AgentExecutionEngine"` 与类名引用，若有反射调用则结论不成立；
 - 所有行号基于 2026-10-19 的工作区（含未提交改动），提交后可能偏移。
 
@@ -280,6 +299,6 @@ Hilt 已接入，但全仓只有 7 个 `@Inject`（集中在 `AIChatViewModel`�
 | 单行空 catch | 182（放宽到任意异常类型与空白后为 243）| `grep "catch \(Exception \w*\) \{\s*\}"` |
 | `@Inject` | 7 | 全部在 `AIChatViewModel` |
 | 最大文件 | 11,691 行 | `AIChatActivity.java` |
-| 单测基线 | 407 / 0 failed | 10-19 `testDebugUnitTest --offline --rerun` 实跑（36 个类）|
+| 单测基线 | 411 / 0 failed / **0 skipped** | 10-19 晚 `testDebugUnitTest --offline --rerun`（37 个类）。当天早些时候记的 407/0 不作数：`includeAndroidResources` 没开，11 个 Robolectric 类 128 条用例被整类跳过 |
 
 > 复跑方式：上述 grep 均可直接重放；行数用 `(Get-Content file).Count`。这些数字用于横向比较趋势，不作为精确 KPI。
