@@ -2,8 +2,8 @@
 
 > 交接时间：2026-10-19（B0 / C0 / B1 / A0 + demo UI 落地与接线已落地；C1、B2 各完成一部分；A1 / A2 未开始）
 > 交接对象：在 Qoder 中继续开发的 Agent
-> 当前状态：**已提交 9 个 commit（docs、B0+C0、B1、A0、C1/B2 局部、demo UI 资源、v2 接线、v2 清空入口）；全部改动未真机验证**
-> 下一步：设备回来后装 APK 开 `chat_ui_v2` 做真机回归（B0/C0/B1/A0/A1 视觉一起看），再排 A1（消息四段结构）
+> 当前状态：**demo UI 已落地并接线，v2 外壳已过真机首轮回归（§4.4-8）；消息四段结构 A1 / Agent 子 UI A2 未开始，C1 未开始**
+> 下一步：A1（AI 消息四段结构 + Binder 拆分），think/tool 行布局已备好可直接 inflate；顺路补 v2 空状态首屏截图（需点一次「新对话」）
 > 必读：`docs/ui/ai-chat-redesign.md`、`docs/ui/component-system-review.md`、`docs/ui/tool-result-step0-tasks.md`、`demo/README.md`
 > **先读 §4.1（B0）/ §4.2（C0）/ §4.3（A0）/ §4.4（demo UI 落地与接线）**：落地时对任务单口径做了修正，别再按旧文字实现。
 
@@ -336,11 +336,22 @@
 7. **补回了一个被 A0 吃掉的入口**：v2 把旧空状态整块收起后，里面那颗「清空」chip 就没地方点了，
    「⋯」面板加了「清空当前对话」一行，转发 `chip_clear_chat2.performClick()`
    （清空逻辑本身在 `QuickToolChipModule` 里，不重写）。
-8. **未验（本轮的实际状态）**：`assembleDebug` 通过、APK 已构建，但
-   `adb install` 时报 `device '279b6c51' not found`，设备已断开，所以下面这些**一个都没在真机上看过的**：
-   顶栏是否与状态栏打架、v2 胶囊与上方附件列表的对齐、场景卡点击填词、
-   「最近」列表是否有数据、模式 chip 28dp 点得动、面板读数是否有值。
-   设备回来后：装 APK → 冷启动 → 开 `chat_ui_v2` → 重进聊天页 → 截图对比 demo。
+8. **真机回归（2026-10-19 13:15，`279b6c51` / 25113PN0EC，`chat_ui_v2=true`）**：
+   装 APK → 冷启动 → 从首页进 AI 聊天页，logcat 无 `ChatUiV2Chrome`/`InflateException`/崩溃。
+   已确认生效：v2 顶栏（汉堡 + 「AI 对话 ▾」+ 紫点副标题"AI 服务未初始化"，随服务状态刷新）、
+   v2 输入胶囊（＋ / 输入消息… / 麦克风 / 品牌色圆发送）、旧头部胶囊行不再出现、
+   **会话统计胶囊条已收起**（这条是真机上看出来 A0 漏掉的，见 §4.4-9）。
+   仍未验：v2 空状态首屏（当前会话有历史消息，要看到它得点一次「新对话」，
+   属于会改用户会话状态的动作，没替用户点）。
+9. **统计胶囊条不能简单 `setVisibility(GONE)`**：`ChatStatsBar.update()` 每次刷新都会
+   `setVisibility(VISIBLE)` 把自己显回来，所以给它加了 `setSuppressed(boolean)`
+   ——照常算数、只是不显形，「⋯」面板仍读它的当前值。分隔线（stats bar 下面那条 1dp View）一起收。
+10. **模式 chip 的 v2 配色会被打回**：`ChatUiV2Chrome.styleModeChip` 设的
+    `chipBackgroundColor`/`setTextColor` 状态列表，在 `AIChatActivity#updateAgentChip`
+    / `updateDeepThinkChip` 里会被 `setChipBackgroundColor(纯色)` 覆写（它们在自己的更新时机跑）。
+    真机上看到的就是覆写后的样子。要彻底对齐 demo `.mode`，得让那两个方法在 v2 下走同一套 token，
+    属于 A1/B2 范围，本轮没动（不影响功能，只是配色不统一）。
+    chip 文案里的 🧠/🔍 emoji 同样来自那两个方法，也不在本轮范围内。
 
 **A1 · 消息重构（3–6 天）— 未开始**
 

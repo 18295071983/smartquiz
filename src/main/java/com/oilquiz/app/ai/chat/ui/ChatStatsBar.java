@@ -35,6 +35,22 @@ public class ChatStatsBar extends LinearLayout {
     private final TextView pillTask;
     private Runnable contextPillClick = null;
     private List<ChatMessage> messages = null;
+    /**
+     * 聊天页 v2（{@code chat_ui_v2}）把这条统计胶囊条收起来了：置 true 后
+     * {@link #update} 照常算数、但不再把自己显示出来，读数改由「⋯」面板呈现。
+     * 没有这个开关的话 {@link #update} 每次刷新都会把 GONE 打回 VISIBLE。
+     */
+    private boolean suppressed = false;
+
+    /** v2 外壳调用：true=收起整条（数据仍刷新），false=恢复常驻显示 */
+    public void setSuppressed(boolean suppressed) {
+        this.suppressed = suppressed;
+        setVisibility(suppressed ? GONE : VISIBLE);
+    }
+
+    public boolean isSuppressed() {
+        return suppressed;
+    }
 
     public ChatStatsBar(Context context) {
         this(context, null);
@@ -143,10 +159,11 @@ public class ChatStatsBar extends LinearLayout {
         pillTask.setVisibility(VISIBLE);
     }
 
-    /** 以当前会话消息列表刷新统计；2026-09-23 常驻显示（空对话也显示统计条，不再隐藏） */
+    /** 以当前会话消息列表刷新统计；2026-09-23 常驻显示（空对话也显示统计条，不再隐藏）。
+     *  v2 外壳收起时（{@link #setSuppressed}）只算数不显形，避免每次刷新把 GONE 打回。 */
     public void update(List<ChatMessage> newMessages) {
         this.messages = newMessages;
-        setVisibility(VISIBLE);
+        if (!suppressed) setVisibility(VISIBLE);
 
         // 空对话：显示基础 0 值 pill（轮次/工具/token），条常驻不空
         if (newMessages == null || newMessages.isEmpty()) {

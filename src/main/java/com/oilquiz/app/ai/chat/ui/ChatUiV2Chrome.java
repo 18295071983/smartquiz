@@ -108,6 +108,27 @@ public final class ChatUiV2Chrome {
             ((View) statusBar.getParent()).setVisibility(View.GONE);
         }
         hide(activity, R.id.btn_back);
+        // 会话统计胶囊条（token/耗时/轮次/上下文仪表）：demo 的输入区上方只有模式 chip，
+        // 这些技术读数在「⋯」面板里都有，v2 下把整条连同它下面的分隔线一起收起。
+        // 数据源不动：ChatStatsBar 仍被原逻辑刷新，面板打开时照旧读它的值。
+        View statsBar = activity.findViewById(R.id.session_stats_bar);
+        if (statsBar != null) {
+            if (statsBar instanceof ChatStatsBar) {
+                // 不能用 setVisibility：ChatStatsBar.update() 每次刷新都会把自己显回来
+                ((ChatStatsBar) statsBar).setSuppressed(true);
+            } else {
+                statsBar.setVisibility(View.GONE);
+            }
+            if (statsBar.getParent() instanceof ViewGroup) {
+                ViewGroup parent = (ViewGroup) statsBar.getParent();
+                int index = parent.indexOfChild(statsBar);
+                View divider = index + 1 < parent.getChildCount() ? parent.getChildAt(index + 1) : null;
+                if (divider != null && divider.getLayoutParams() != null
+                        && divider.getLayoutParams().height <= dp(activity, 2)) {
+                    divider.setVisibility(View.GONE);
+                }
+            }
+        }
         compressStatsBar(activity);
 
         ViewGroup root = activity.findViewById(R.id.main_content);
