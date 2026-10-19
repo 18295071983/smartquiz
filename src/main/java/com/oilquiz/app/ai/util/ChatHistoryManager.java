@@ -716,6 +716,13 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             ConversationSession session = new ConversationSession(existingSessionId, title, filtered);
             session.createdAt = createdAt;
             session.updatedAt = System.currentTimeMillis();
+            // 新建会话（existingSessionId 为空）时必须先补一个 id：
+            // 下面 writeSessionWithHead 的路径不走 saveConversationSession，没人 mint，
+            // 于是文件名变成字面量 "null.json"，所有"从单文件历史认领出来的新会话"都写进同一个文件、
+            // 且返回的 session.id 为 null → Activity 侧的认领逻辑拿不到 id，历史越滚越大。
+            if (session.id == null || session.id.isEmpty()) {
+                session.id = UUID.randomUUID().toString();
+            }
             if (sessionFile != null || headSource != null) {
                 // 保留未加载头部 + 新尾部（流式合并，内存有界）
                 File target = sessionFile != null
