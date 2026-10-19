@@ -1,5 +1,55 @@
 # 变更日志
 
+## [2026-10-20] 删掉 AI 对话页的「引导式工具调用」：抽屉快捷工具整段 + 向导链 + 孤儿类一起清账
+
+用户看了工具中心抽屉后要求"把 ai 对话界面的引导式工具调用功能删了"。先问清两件事再动手：
+快捷 chips 的去向（选**整块删掉**）、删除深度（选**连孤儿一起删干净**）。
+
+### 查到的事实
+
+- 这条链的**唯一入口**就是抽屉那排 chips：`AIChatActivity:1809/1814` 分别调
+  `showToolGuideDialog`/`showCompositeGuideDialog`，全项目再无第二个调用点；
+  `ToolGuideFlow.getFlow` 也只被 `:1941` 用过一次。
+- 向导链自成一簇：`ToolGuideFlow`/`CompositeGuideFlow`/`ToolPreChecker`/`ToolErrorRecovery`/
+  `ToolParamResolver`/`ToolExecutionOrchestrator`/`ToolResultStore`/`QuickToolChipModule`
+  互相引用成闭环，簇外零引用（逐个 grep 类名核对，含 `src/test`）。
+- 顺手查实两处死物：`🧰 聚合工具包`那颗 chip 是**死按钮**——`chip_calc` 传进
+  `QuickToolChipModule.bindStaticToolChips` 后从没绑过任何监听（`:54-66` 形参收下来就没用）；
+  `ToolExecutionOrchestrator` 整类**从未被实例化**（grep `new ToolExecutionOrchestrator` 零命中），
+  是上一轮"抽工具执行链"没接完的尾巴。
+- 不能跟着删的三件：`ToolContextProvider.getCurrentLocation` 是 `AIWeatherManager.tryAutoLocate()`
+  的取位来源（只删它的 `getMissingContext`/`hasKey`）；`ChatBottomSheet` 与 `GuideStepFlowView`
+  虽然 javadoc 写着"工具引导/复合引导"，实际现在被**题库导入**流程使用，保留并改掉说明；
+  `chip_clear_chat2` 被 v2 空状态面板 `ChatUiV2Chrome:277` 当清空入口用，删它必须同时改转发目标。
+- `injectInterpretToLocalContext`（把工具结果的 AI 解读注入本地模型 native chat context，
+  让用户能追问）的三个调用点全在向导链里 → 随本次删除一起消失，**没有**别的路径能触发它。
+
+### 由此删掉的事
+
+- `AIChatActivity` 减 2039 行：向导/复合两个弹窗及其步骤渲染、补参弹窗、执行与错误恢复
+  （`preCheckThenExecute`/`executeToolWithRecovery`/`attemptToolRecovery`/`autoFillMissingParams` 等）、
+  引导文件选择器三件套与 `pendingPicker*`/`autoContext` 字段、`loadGuideDynamicOptions`、
+  chips 接线与 7 个失效 import。
+- 抽屉布局删掉「快捷工具」整段 94 行（含那颗死 chip 聚合工具包）；
+  v2 清空对话转发改指"其他"行的 `btn_clear_chat`，清空能力不丢。
+- 删 9 个文件：上述 8 个簇内类 + `ToolResultStoreTest`；`ToolContextProvider` 只保留取时间/取位公共能力。
+- 键盘监听里"折叠快捷工具栏"的分支与注释、`docs/ui/ai-chat-redesign.md` 的抽屉描述一并校正
+  （今天刚说过"别留会说谎的注释"）。
+
+### 验证
+
+- `testDebugUnitTest --offline` = **436 tests / 0 failed / 0 skipped / 0 errors**（40 个结果 XML 逐个数过；
+  比上一轮少 3 条正是被删的 `ToolResultStoreTest`），`assembleDebug --offline` BUILD SUCCESSFUL。
+- **过程里出过一次险情，值得记下**：批量删方法的脚本把块注释状态在每行行尾重置，
+  于是 javadoc 里 `{@link}` 的括号被计入深度，**顺手删掉了三个紧邻方法**
+  （`createImageFile`/`initAttachFileLauncher`/`injectInterpretToLocalContext`）。
+  前两个靠"找不到符号"暴露并从 HEAD 恢复；第三个的三个调用点恰好也在删除范围内，编译一声不响，
+  是 `git show HEAD` 与当前文件**diff 方法清单**才发现的。结论：批量删代码后，方法清单 diff 是必做步骤，
+  不能只看编译过没过。`injectInterpretToLocalContext` 确认只服务向导链，本次不恢复——
+  若要给"手动 AI 深度解读"补回"追问能接上"的能力，得单独接一条线到解读入口。
+- **未做真机验证**（设备不在）：抽屉少一段后排版是否仍顺、v2 面板"清空对话"点了确实走
+  `btn_clear_chat`、输入区键盘弹出滚动没被误删——这三条要装机看一眼。
+
 ## [2026-10-20 补] 「工具结果显示」档位进设置入口（聊天页工具抽屉）
 
 卡片三档那节留了一句"新 pref 没有设置页入口"，这次补上，并把 `tool_auto_ui_bridge` 之外的

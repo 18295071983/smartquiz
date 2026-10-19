@@ -22,15 +22,13 @@ import java.util.Map;
  * 工具环境上下文提供者。
  *
  * 自动获取当前时间、当前位置等环境上下文，供工具执行前注入，
- * 实现"留空自动定位"等智能化能力。同时提供上下文缺失检测，
- * 用于在执行工具前判断是否需要补充环境信息。
+ * 实现"留空自动定位"等智能化能力。
+ *（原"上下文缺失检测 getMissingContext"随引导式工具调用一并删除，2026-10-20）
  *
  * 设计要点：
  * - 时间相关方法同步返回，开销极小
  * - 定位方法异步执行，5秒超时保护，避免阻塞调用线程
  * - Geocoder 反查城市名为同步调用，放在后台线程执行
- * - {@link #getMissingContext(ToolGuideFlow, Map)} 根据 flow 的 contextDependencies
- *   与已有参数对比，返回缺失的上下文名列表
  */
 public class ToolContextProvider {
 
@@ -278,48 +276,6 @@ public class ToolContextProvider {
         });
     }
 
-    /**
-     * 检查工具执行前缺失的环境上下文。
-     *
-     * 规则：遍历 flow.contextDependencies，若依赖 "location" 但 params 中
-     * 没有 city / lat / lon 任何一个，则视为缺失。
-     *
-     * @param flow   工具引导流程
-     * @param params 当前已有的参数
-     * @return 缺失的上下文依赖列表；无缺失时返回空列表
-     */
-    public static List<String> getMissingContext(ToolGuideFlow flow, Map<String, Object> params) {
-        List<String> missing = new ArrayList<>();
-        if (flow == null || flow.contextDependencies == null || flow.contextDependencies.isEmpty()) {
-            return missing;
-        }
-        for (String dep : flow.contextDependencies) {
-            if (dep == null) {
-                continue;
-            }
-            if ("location".equals(dep)) {
-                if (!hasKey(params, "city") && !hasKey(params, "lat") && !hasKey(params, "lon")) {
-                    missing.add("location");
-                }
-            }
-        }
-        return missing;
-    }
-
-    /** 判断 params 中是否存在指定 key 且值非空 */
-    private static boolean hasKey(Map<String, Object> params, String key) {
-        if (params == null) {
-            return false;
-        }
-        Object v = params.get(key);
-        if (v == null) {
-            return false;
-        }
-        if (v instanceof String) {
-            return !((String) v).isEmpty();
-        }
-        return true;
-    }
 
     /**
      * 定位回调接口。

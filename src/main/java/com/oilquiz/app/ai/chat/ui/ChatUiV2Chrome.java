@@ -273,8 +273,10 @@ public final class ChatUiV2Chrome {
                 }
             });
             addLinkRow(ctx, box, R.string.chat_v2_clear, v -> {
-                // v2 把旧空状态（里面有「清空」chip）整块收起来了，清空对话改从这里进
-                View clear = find(ctx, R.id.chip_clear_chat2);
+                // v2 把旧空状态（里面有「清空」chip）整块收起来了，清空对话改从这里进。
+                // 2026-10-20：抽屉里的「快捷工具」整段（含 chip_clear_chat2）随引导式工具调用一起删除，
+                // 清空对话的入口现在是抽屉"其他"行的 btn_clear_chat，转发目标改成它。
+                View clear = find(ctx, R.id.btn_clear_chat);
                 if (clear != null) {
                     clear.performClick();
                 } else {
