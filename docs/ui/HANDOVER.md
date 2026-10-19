@@ -1,11 +1,11 @@
 # HANDOVER · 答题宝 AI 对话 / Agent UI 改版
 
-> 交接时间：2026-10-19（B0 / C0 / B1 / A0 + demo UI 落地与接线已落地；C1、B2 各完成一部分；A1 / A2 未开始）
+> 交接时间：2026-10-19（B0 / C0 / B1 / A0 / demo UI 落地与接线 / A1 前三段已落地；C1、B2 各完成一部分；A1 剩余与 A2 未开始）
 > 交接对象：在 Qoder 中继续开发的 Agent
-> 当前状态：**demo UI 已落地并接线，v2 外壳已过真机首轮回归（§4.4-8）；消息四段结构 A1 / Agent 子 UI A2 未开始，C1 未开始**
-> 下一步：A1（AI 消息四段结构 + Binder 拆分），think/tool 行布局已备好可直接 inflate；顺路补 v2 空状态首屏截图（需点一次「新对话」）
+> 当前状态：**v2 已过真机首轮回归（浅底页面、顶栏、输入胶囊、正文段都确认生效）；A1 的思考段/工具段与 v2 空状态首屏仍未在真机看过；JVM 单测 407 条全绿**
+> 下一步：切一条有工具调用的历史会话回归 A1 的思考段与工具段 + 点「新对话」看空状态首屏，再做 A1 剩余（操作段图标化、日期分隔、Binder 拆分）
 > 必读：`docs/ui/ai-chat-redesign.md`、`docs/ui/component-system-review.md`、`docs/ui/tool-result-step0-tasks.md`、`demo/README.md`
-> **先读 §4.1（B0）/ §4.2（C0）/ §4.3（A0）/ §4.4（demo UI 落地与接线）**：落地时对任务单口径做了修正，别再按旧文字实现。
+> **先读 §4.1（B0）/ §4.2（C0）/ §4.3（A0）/ §4.4（demo UI 落地与接线）/ §4.5（A1 三段）**：落地时对任务单口径做了修正，别再按旧文字实现。
 
 ---
 
@@ -370,10 +370,9 @@
      这样不必在 ChatAdapter 每个点击回调里补一句"顺便转一下箭头"。
 3. v2 下 `thinkingDivider` 给一个**不入树**的占位 View（demo 的正文自带左侧竖线，不需要分隔线），
    保持 holder 字段非空，调用点不用加判空分支。
-4. **未真机验证**：代码过了 `compileDebugJavaWithJavac` + `assembleDebug`，
-   装包时设备从 adb 掉线（`device '279b6c51' not found`，kill-server/start-server 后仍为空），
-   所以折叠行的观感、点击展开、流式预览时"实时思考"是否还落在这一行，**都还没看过**。
-   设备回来后要专门看：有思考的历史消息（当前会话里就有一条"思考过程：用户答了…"）。
+4. **思考段仍未真机看过**：装包当时设备掉线；15:00 重新装上后，当前活跃会话是一条
+   "你好"闲聊（**既没思考也没工具调用**），所以折叠行的观感、点击展开、
+   流式预览时"实时思考"是否落在这一行，仍需在真机上切到一条有思考的历史会话才能验（见 §8 下一步 1）。
 5. **第二段接了 tool-line**，口径先定了三件事：
    - **计数取 `message.agentSummaryInfo.toolCallCount`**（与汇总卡同一个源），
      明细取 `message.components` 里 `type=tool_call` 的卡（生产方是 `AIChatActivity`
@@ -404,12 +403,19 @@
      （这两个布局里有硬编码 `#B3FFFFFF/#E8FFFFFF`），id 保持一致，只按开关换 inflate 的文件；
      其余 `item_*` 布局用的是 `?attr` 主题色，不用动。
    这是"换页面底"的最小闭环：**以后任何 v2 底色相关的改动，都要先检查这一串壁纸专用色**。
-8. **未真机验证**：这两段（tool-line、页面底 + 正文）只过了编译与 JVM 单测，
-   装包时设备反复从 adb 掉线（`device '279b6c51' not found`，几秒前才在列表里），
-   所以折叠行、工具行、浅底正文的实际观感**都还没看过**。
-   设备回来后要专门看：有工具调用的历史消息（当前会话里就有一条"调用工具 5 次"的）
-   是否变成"已运行 5 个工具 · 29s ✅"一行、点开是明细；以及浅底上
-   系统消息 / 工具卡 / 空状态是否协调。
+8. **真机第二轮（15:00，装的是含 A1 三段的 HEAD）**：
+   页面底色 + 正文段这一组**已确认生效**——首页壁纸被 `chat_v2_bg` 浅底覆盖、
+   顶栏（汉堡 + 「AI 对话 ▾」+ 紫点副标题 + ＋ + ⋮ 全露出来，之前被悬浮摄像头窗挡住）、
+   紫色渐变用户气泡（右下小圆角）、无气泡的 AI 正文与 Markdown 列表、
+   操作行"复制/朗读/分享/重新生成/新对话"与状态行"已完成 · 121 token · 1.7s · 71.7 t/s"
+   在浅底上都读得清（证明那一串壁纸专用白换 token 是必须的，否则会隐形）、
+   输入胶囊与模式 chip 正常，无崩溃。
+   **仍未看过**：思考折叠行与工具行——当前活跃会话是一条"你好"闲聊，
+   既没思考也没工具调用（`toolCallCount=0` 时 `renderToolLine` 返回 false，
+   汇总卡照旧显示，这条路径也顺带验证了"不接管时不抢戏"）。
+   要验这两段得切到有工具调用的历史会话（如"一元二次方程专项练习"）。
+   另外浅底上看到的仍是模型输出自带 emoji 与汇总卡里的 🍰，
+   那属于 C1/B2 的"去 emoji"范围，不是这次改坏的。
 
 
 
@@ -516,37 +522,56 @@
 
 ```text
 你在继续 D:\qzq\smartquiz 的 AI 对话 / Agent UI 改版。先读：
-- docs/ui/HANDOVER.md
+- docs/ui/HANDOVER.md（**先读 §4.1 / §4.2 / §4.3 / §4.4 / §4.5 的落地修正口径**，别照抄 §3/§4 的旧文字）
 - docs/ui/tool-result-step0-tasks.md
-- docs/ui/tool-result-ui-review.md
-- docs/ui/tool-result-modification-directions.md
 - docs/ui/ai-chat-redesign.md
 - docs/ui/component-system-review.md
-- demo/README.md
+- demo/README.md 与 demo/ai-chat-redesign.html（视觉验收基线）
 
-现状：
-- B0（沙箱 + CardShell + 7 卡）、C0（工具结果止血）、B1（quiz 可答题 + 类型收敛 + 兜底卡折叠）、
-  A0（聊天页 v2 外壳，开关默认关）已落地并提交；C1 只做了 Store 限长，B2 只做了 style token。
-- 全部改动**未真机验证**。
+现状（已提交，工作区干净）：
+- B0（HTML 沙箱 + CardShell + 7 卡）、C0（工具结果止血）、B1（quiz 可答题 + 类型收敛 + 兜底卡折叠）、
+  A0（聊天页 v2 外壳，开关 chat_ui_v2 默认关）、demo 视觉体系落地为 chat_v2_* token/图标/9 个 v2 布局
+  并完成接线（输入胶囊、顶栏、空状态、用户气泡、正在生成提示行）、A1 前三段
+  （思考段折叠行 / 工具段接管 Agent 汇总 / 正文段去气泡 + 页面底色 token 化）。
+- 真机已确认：浅底页面（chat_v2_bg 覆盖首页壁纸）、v2 顶栏（汉堡 + 标题▾ + 紫点副标题 + ＋ + ）、
+  紫色渐变用户气泡、无气泡的 AI 正文与 Markdown、操作行/状态行在浅底上可读、
+  输入胶囊、旧头部胶囊行与会话统计胶囊条已收起、无崩溃。
+- 真机**未看过的**：带思考/带工具调用的消息（思考折叠行、"已运行 N 个工具"行 + 点开明细）、
+  v2 空状态首屏（要点一次「新对话」才会出现）、深色档。
+- JVM 单测 407 条全绿（2026-10-19 修红：Robolectric 钉 sdk=33 + 重写三处过期断言 +
+  AIServiceState 补一处进度夹取）。别再按"存量 25 红"理解。
 - 不要动 CardShell / HtmlSandbox / HtmlWebView / ComponentLifecycle / ComponentTypes 的既有口径；
   不要"顺手"接线 ToolExecutionOrchestrator（无调用点的副本）。
 
 下一步（按顺序）：
-1) 真机回归：装包 → 打开聊天页 → 面板里开 chat_ui_v2 → 重进页面看顶栏/信息下沉/chip；
-   跑一次成功工具（看只剩一张工具卡、无"正在AI解读"）、一次 200KB 输出（看 8 行预览 + 查看全部）、
-   一次 mermaid 流程图（可信模板档仍要渲得出）、一次答题（选项可点、判题、解析、回传）。
-2) A1 消息四段结构（新建 item_ai_message_v2.xml + ChatAdapter 按 viewType 拆 Binder，
-   不整体重写；操作行 3 图标 + 更多；停止生成移到输入框）。
+1) 真机回归 A1 剩余部分：切到一条有工具调用的历史会话（如"一元二次方程专项练习"），
+   确认思考段是"折叠行 + 点开正文"、工具段是"已运行 N 个工具 · 耗时 · 成败"一行且汇总卡不再重复出现；
+   再点「新对话」看 v2 空状态（问候 + 四张场景卡填词 + 最近列表）；顺手看一眼深色档。
+   同时补跑 C0/B1 的行为用例：一次成功工具、一次 200KB 输出、一次 mermaid、一次答题回传。
+2) A1 剩余：操作段（3 图标 + 更多面板、末条常驻、去掉 👍👎 emoji 与文字按钮）、
+   日期分隔替代逐条时间戳、"正在生成 · Ns"的秒数（与 think-line 共用一个计时口径）、
+   ChatAdapter 按 viewType 拆 Binder。**注意 AI 消息没有布局文件**：
+   是 createAiMessageItem 用 ~330 行代码 new 出整棵树，只能一段一段换，不要整体重写。
 3) A2 Agent 执行子 UI + 控制台 6 Tab。
 4) C1 剩余（ToolResultPresentation/Presenter/落盘/时间线）与 B2 剩余（无障碍、截图回归、
    拆 NativeLayoutRenderer）各自独立排期。
 
 约束：
 - 不整体重写 ChatAdapter / AIChatActivity；不改 ChatMessage 持久化结构。
-- 新 UI 不用 emoji 图标、不新增硬编码颜色；中文文案走 strings.xml。
+- 新 UI 不用 emoji 图标、不新增硬编码颜色；中文文案走 strings.xml（注意还有 strings_migrated.xml）。
+- **v2 页面底色已是 chat_v2_bg 纯色**：任何底色相关改动，先查那一串"深蓝壁纸专用"的
+  0xE8FFFFFF / 0xB3FFFFFF / #E8FFFFFF（createAiMessageItem 与若干 item_*.xml），
+  浅底上它们会直接看不见；需要时出 *_v2 布局变体，控件 id 保持一致，只按开关换 inflate 的文件。
+- Chip 字段类型不能换（Activity 里按 Chip 声明），v2 场景卡因此用独立 id。
+- 模式 chip 的 v2 配色会被 AIChatActivity#updateAgentChip / updateDeepThinkChip 覆写，
+  要彻底对齐 demo .mode 得改那两个方法（见 §4.4-10）。
 - 构建前先确认 liblo-native-code.so / asr/model.int8.onnx 存在。
 - 动 HTML 相关必须跑 HtmlSandboxTest；动类型名必须跑 ComponentTypesTest；
-  全量单测存量失败 25 个 / 7 个类，别算到自己头上。
+  改在线提示词要先看 diff 再重新生成 golden（见 OnlinePromptBuilderAssemblyTest 类注释）。
+- 验证：adb install / gradle test 的输出**别接进 tail**（管道吞失败、后台通知照样 exit 0）；
+  写 prefs 前先 am force-stop；AIChatActivity 是 exported=false，进它只能起首页再点首页"AI 聊天"卡
+  （实测坐标 (610,2053)，屏 1220x2656），不要为验证放开 exported；
+  该设备 279b6c51 会反复从 adb 掉线，装不上就说明"编译+单测已过、真机未验"，别连续重试耗轮次。
 ```
 
 ---
