@@ -717,6 +717,7 @@
     <string name="chat_v2_balance">账户余额</string>
     <string name="chat_v2_log">运行日志</string>
     <string name="chat_v2_tools">工具中心</string>
+    <string name="chat_v2_clear">清空当前对话</string>
     <string name="chat_v2_console">智能体控制台</string>
     <string name="chat_v2_ui_switch">启用新版界面</string>
     <string name="chat_v2_restart_hint">重进聊天页后生效</string>

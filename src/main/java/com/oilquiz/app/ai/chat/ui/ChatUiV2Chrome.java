@@ -246,6 +246,15 @@ public final class ChatUiV2Chrome {
                     Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
                 }
             });
+            addLinkRow(ctx, box, R.string.chat_v2_clear, v -> {
+                // v2 把旧空状态（里面有「清空」chip）整块收起来了，清空对话改从这里进
+                View clear = find(ctx, R.id.chip_clear_chat2);
+                if (clear != null) {
+                    clear.performClick();
+                } else {
+                    Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
+                }
+            });
             addLinkRow(ctx, box, R.string.chat_v2_console, v -> {
                 try {
                     ctx.startActivity(new Intent(ctx,
