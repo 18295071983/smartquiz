@@ -537,9 +537,33 @@
 验证方式：清空后新建一次对话 → 退后台 → 回来看历史抽屉是否只有一条；
 再杀进程重进 → 恢复的应是同一条会话（日志有 `恢复历史认领回原会话: <id>`）。
 
+**第二层根因（同日接着查，用户一句"你看看是不是 ai 对话界面的生命周期的问题"点中的）**：
+上面三处认领修完，真机上"每次退后台多一条会话"依然存在。logcat 显示同一个 pid 在 38 秒里
+连续 6 次 `START ... AIChatActivity with LAUNCH_MULTIPLE` ——
+`AIChatActivity` 清单里是默认 `launchMode=standard`，而首页"AI 聊天"卡、AI 中心、工具箱、
+通知点击都用**裸 `startActivity`** 跳它，于是**每进一次叠一个新实例**。`currentSessionId` 是实例字段，
+每个实例各自恢复历史、各自 `onStop` 保存，认领逻辑再对也只在"自己那个实例"里认领，
+同一段对话还是被抄成 N 份。
 
+两处代码改动（`1c02c6e9` + `09efd26b`）：
+1. **入口收敛**：新增 `ai/chat/ui/ChatNavigation.openChat(Context)`，统一带
+   `REORDER_TO_FRONT | SINGLE_TOP`（非 Activity 上下文再补 `NEW_TASK`）；
+   首页/AI 中心/工具箱 3 个入口改走它，通知侧 3 处 `PendingIntent`（`SystemConnectTool`、
+   `PythonToolManager` ×2）补 `REORDER_TO_FRONT`——它们原本只有 `SINGLE_TOP`，
+   而 `SINGLE_TOP` 只在"已在栈顶"时生效，从通知进照样叠。
+   `AIChatActivity` 加 `onNewIntent`：本页**不读任何 Intent extra**（全文件 0 处 `getIntent()`），
+   所以复用实例时**故意不重跑历史恢复**（重跑会把用户正在看的位置和未落盘的生成中消息打掉），
+   只 `scrollToBottom(true)` + 刷状态条。不改清单 `launchMode`，免得影响通知/工具箱的任务场景。
+2. **`null.json` bug**：`saveCurrentChatAsSession(...)` 在 `existingSessionId` 为空、
+   但要合并单文件头部时走 `writeSessionWithHead`，这条路**不经过 `saveConversationSession`**
+   （全场唯一 mint id 的地方），于是文件名是字面量 `null.json`（真机 `files/conversations/` 下
+   见过 728B 那份），所有"从单文件历史认领出来的新会话"挤进同一个文件，
+   且返回 `session.id == null` → Activity 侧认领拿不到 id。修法：拼文件名前先 mint UUID 一行。
 
-2026-10-19 
+验证口径（2026-10-19 19:31 已装机，`279b6c51`，logcat 已清空、`files/conversations/` 已由用户清空为 0 条）：
+反复"首页 → AI 聊天 → 回首页 → 再进"，应当**只在第一次**看到 `LAUNCH_MULTIPLE`，
+之后每次是 `onNewIntent 复用聊天页实例（未新建）`；`files/conversations/` 只增长到 1 条 uuid 文件，
+且不再出现 `null.json`。
 
 
 ## 5. 关键文件 / 改动地图
