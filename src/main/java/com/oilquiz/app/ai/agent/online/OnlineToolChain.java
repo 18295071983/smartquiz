@@ -56,7 +56,9 @@ public class OnlineToolChain {
 
     private void initDefaultChains() {
         // 回退链（从 UnifiedAgentEngine.TOOL_FALLBACK_MAP 迁移）
-        addFallbackChainInternal("ai_weather", "location", "network_search");
+        // ai_weather 的回退去掉 location（2026-10-20）：location 不返回天气，失败时该建议的是
+        // "换 network_search 查"；天气轮的位置兜底在 AIWeatherManager.tryAutoLocate() 内部，不靠链建议。
+        addFallbackChainInternal("ai_weather", "network_search");
         addFallbackChainInternal("network_search", "smart_research", "webpage_reader");
         addFallbackChainInternal("python_calculate", "python_execute");
         addFallbackChainInternal("location", "network_search");
@@ -64,12 +66,15 @@ public class OnlineToolChain {
         addFallbackChainInternal("database", "network_search");
 
         // 依赖链：缺少必填参数时可先调用的前置工具
-        addChainInternal(ChainType.DEPENDENCY, "ai_weather", "location"); // ai_weather 缺 city 时可先定位
+        // ai_weather→location 已删（2026-10-20）：ai_weather 的 city/lat/lon 全是可选参数，
+        // 不传时工具自己取设备定位；留着这条依赖会在工具详情里写"依赖（缺少参数时可先调用）: location"，
+        // 诱导模型每轮天气都先调一次 location。
         addChainInternal(ChainType.DEPENDENCY, "network_search", "location"); // 搜索本地信息可先定位
 
         // 组合链：常见组合使用建议
         addChainInternal(ChainType.COMBINATION, "network_search", "webpage_reader", "smart_research");
-        addChainInternal(ChainType.COMBINATION, "location", "ai_weather");
+        // location→ai_weather 已删（2026-10-20）：同上，位置由 ai_weather 自取，
+        // 这条组合会出现在【工具组合示例】里教模型"先定位再查天气"。
         addChainInternal(ChainType.COMBINATION, "python_calculate", "file_generator");
         addChainInternal(ChainType.COMBINATION, "file_reader", "file_analyzer");
 

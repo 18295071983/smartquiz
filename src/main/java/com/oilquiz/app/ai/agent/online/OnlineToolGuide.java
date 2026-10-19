@@ -115,7 +115,8 @@ public class OnlineToolGuide {
         sb.append("  • 参数错误：系统会注入该工具的详细参数定义和缺失参数分析，请据此修正后重试\n");
         sb.append("  • 工具不适用：系统会推荐替代工具（回退链），请判断是否适合后调用\n");
         sb.append("  • 同一工具连续失败 2 次：更换策略或向用户澄清，不要无限重试\n");
-        sb.append("  • 缺少前置信息时（如查天气无城市），可先调用依赖工具（如 location）补充\n\n");
+        sb.append("  • 缺少前置信息时（如查天气无城市）：先看该工具自带兜底——ai_weather 不传位置参数就自动用设备定位，"
+                + "优先留空调用，不要先调 location 补参（location 只在用户问\"我在哪/附近有什么\"这类位置本身时用）\n\n");
 
         // 4. 应用定制规则（精简版，2026-09-23：与 reasoning/knowledge_strategy 去重；
         //    工具 action 枚举见 API tools 参数/工具定义，不在此重复）
@@ -123,7 +124,8 @@ public class OnlineToolGuide {
         sb.append("  2. 文件路径：工作区文件用相对路径（如 report.md 或 files/报告.pdf），系统自动解析；外部文件用绝对路径\n");
         sb.append("  3. 涉及权限的操作（定位/相机/录音/存储）先主动调 permission_manager(action=request_and_wait, permission=对应权限名) 请求，不要假设已授权\n");
         sb.append("  4. 按需选参数：多数工具支持多种操作类型（action）——先按用户需求选最匹配的 action 再填对应参数，完整 action/参数见 API tools 定义，不确定用 tool_registry(action=get) 查看；用户已给的参数直接照用先调用，以工具返回为准\n");
-        sb.append("  5. 天气优先 ai_weather，无城市先 location 定位；图片用 image_gen；不要依赖注入的环境信息\n\n");
+        sb.append("  5. 天气优先 ai_weather，用户没说城市就一个位置参数都不传（工具自动用设备定位，不要先调 location 补参）；"
+                + "图片用 image_gen；不要依赖注入的环境信息\n\n");
 
         sb.append("═══════════════════════════════════════════════════════\n");
 

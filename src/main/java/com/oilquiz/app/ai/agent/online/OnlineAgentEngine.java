@@ -527,9 +527,8 @@ public class OnlineAgentEngine {
             // 插到最前（恢复的历史可能是 用户/助手 消息，system 必须在前）
             messageHistory.add(0, systemMsg);
 
-            // 获取环境上下文（日期、位置——天气不注入，Agent 用 ai_weather 工具主动获取），
-            // 注入为系统消息辅助Agent思考
-            notifyStep("环境感知", "正在获取位置信息...");
+            // 获取环境上下文（只含当前日期——位置一律不注入，理由见 buildEnvironmentContext），
+            // 注入为系统消息辅助Agent思考。纯本地取日期，无 I/O，不再发"环境感知"进度步骤。
             String envContext = buildEnvironmentContext();
             if (envContext != null && !envContext.isEmpty()) {
                 JsonObject envMsg = new JsonObject();
@@ -1670,81 +1669,38 @@ public class OnlineAgentEngine {
         }
     }
 
+    /**
+     * 构建注入给模型的环境上下文：<b>只含当前日期</b>。
+     *
+     * <p>2026-10-20 起不再注入位置。此前每次 execute 开头都硬编码调
+     * {@code toolManager.executeTool("env_loc", "location", ...)} 取"当前位置"，有三个问题：
+     * <ul>
+     *   <li>与提示词自相矛盾——{@code OnlinePromptBuilder.buildCallRulesSection()} 明确写着
+     *       "用户没说城市则不要传任何位置参数、系统会自动使用设备定位""不要依赖注入的环境信息"，
+     *       引擎却把位置当作"当前权威事实"塞进 system；</li>
+     *   <li>与用户问什么无关，每轮都要付最多 5 秒阻塞 + 一次 GPS 唤醒；</li>
+     *   <li>天气轮会与 {@code AIWeatherManager.tryAutoLocate()} 叠成同一轮定位两次。</li>
+     * </ul>
+     *
+     * <p>位置改为"谁需要谁自己取"：ai_weather 不传位置参数时由 tryAutoLocate() 兜底；
+     * 用户显式问"我在哪/附近有什么"时，模型可用 location 工具。
+     */
     private String buildEnvironmentContext() {
         StringBuilder sb = new StringBuilder();
         sb.append("【环境上下文】\n");
 
-        // 1. 当前日期时间（始终可用）。
+        // 当前日期时间（始终可用）。
         // 注意：格式只到"日"级别，不含分钟——避免 Activity 重建后重新注入时
         // 前缀因分钟变化而不同，导致服务商前缀缓存 miss
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy年M月d日 EEEE", Locale.CHINA);
         String dateTime = sdf.format(new Date());
         sb.append("当前日期：").append(dateTime).append("\n");
 
-        // 2. 获取位置（5秒超时，失败仅用日期）
-        String locationInfo = null;
-        try {
-            CompletableFuture<OnlineToolResult> locFuture = CompletableFuture.supplyAsync(
-                () -> com.oilquiz.app.ai.agent.ToolResultCardBinder.<OnlineToolResult>callQuietlySafe(
-                        () -> toolManager.executeTool("env_loc", "location",
-                                "{\"action\":\"get_current\"}"), null),
-                executor);
-
-            OnlineToolResult locResult = locFuture.get(5, TimeUnit.SECONDS);
-            if (locResult != null && locResult.success && locResult.result != null) {
-                String city = extractCityFromLocationResult(locResult.result);
-                String district = extractDistrictFromLocationResult(locResult.result);
-                if (city != null) {
-                    locationInfo = district != null ? district : city;
-                    sb.append("当前位置：").append(locationInfo).append("\n");
-                    notifyStep("环境感知", "✅ 位置: " + locationInfo);
-                } else {
-                    notifyStep("环境感知", "⚠️ 位置解析失败，仅使用日期时间");
-                }
-            } else {
-                notifyStep("环境感知", "⚠️ 位置获取失败，仅使用日期时间");
-            }
-        } catch (Exception e) {
-            AILogger.w(TAG, "Location fetch for env context failed: " + e.getMessage());
-            notifyStep("环境感知", "⚠️ 位置获取超时，仅使用日期时间");
-        }
-
-        sb.append("（以上为系统实时获取的当前日期与位置，是当前权威事实；回答今天/现在/最新/几号等问题以此为准，");
+        sb.append("（以上为系统实时获取的当前日期，是当前权威事实；回答今天/现在/最新/几号等问题以此为准，");
         sb.append("不以训练数据中的旧时间推断。工具与搜索返回的实时数据（新闻、开奖、行情、政策、天气）直接采用其内容，");
-        sb.append("不要用训练知识改写或否定。）");
+        sb.append("不要用训练知识改写或否定。系统未注入你的位置：需要位置时按工具定义处理，");
+        sb.append("例如 ai_weather 不传位置参数即自动用设备定位。）");
         return sb.toString();
-    }
-
-    /** 从location工具返回的JSON中提取城市名 */
-    private String extractCityFromLocationResult(String result) {
-        try {
-            JsonObject json = JsonParser.parseString(result).getAsJsonObject();
-            if (json.has("city")) return json.get("city").getAsString();
-            if (json.has("cityName")) return json.get("cityName").getAsString();
-            if (json.has("address")) {
-                String addr = json.get("address").getAsString();
-                // 尝试从地址中提取城市
-                String[] parts = addr.split("[省市自治区]");
-                if (parts.length > 0) return parts[0].replace("省", "").trim();
-            }
-        } catch (Exception e) {
-            AILogger.w(TAG, "Failed to extract city from location result: " + e.getMessage());
-        }
-        return null;
-    }
-
-    /** 从location工具返回的JSON中提取区/县名 */
-    private String extractDistrictFromLocationResult(String result) {
-        try {
-            JsonObject json = JsonParser.parseString(result).getAsJsonObject();
-            if (json.has("district")) return json.get("district").getAsString();
-            if (json.has("address")) {
-                return json.get("address").getAsString();
-            }
-        } catch (Exception e) {
-            // ignore
-        }
-        return null;
     }
 
     /**
