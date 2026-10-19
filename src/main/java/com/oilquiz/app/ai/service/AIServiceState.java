@@ -43,7 +43,9 @@ public class AIServiceState {
         synchronized (lock) {
             this.currentStage = stage;
             this.stageMessage = message != null ? message : getDefaultMessageForStage(stage);
-            this.progressPercent = progress;
+            // 与 setProgressPercent() 同一口径夹到 0..100：调用方（恢复流程/进度回调）
+            // 会传 -1（未知）或 >100（累加超额）这类值，不夹就会把非法百分比留在状态里
+            this.progressPercent = Math.max(0, Math.min(100, progress));
             this.stageStartedAt = System.currentTimeMillis();
         }
     }
