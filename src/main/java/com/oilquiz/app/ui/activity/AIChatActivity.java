@@ -704,6 +704,9 @@ public class AIChatActivity extends BaseActivity {
     @Override
     protected void initData() {
         try {
+            // A0：聊天页 v2 外壳（开关 chat_ui_v2 默认关；关闭时这里不做任何改动）
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.apply(this);
+
             // 0. 初始化协调器（统一管理所有数据源）
             coordinator = new AIChatCoordinator(this);
             coordinator.initialize();
@@ -1635,9 +1638,9 @@ public class AIChatActivity extends BaseActivity {
         if (btnModeSelect != null) btnModeSelect.setOnClickListener(v -> toggleMode());
         if (btnModelSelect != null) {
             btnModelSelect.setOnClickListener(v -> {
-                // 打开模型选择页面
-                Intent intent = new Intent(AIChatActivity.this, ModelSelectorActivity.class);
-                startActivity(intent);
+                // 打开模型中心（注册 + 用量统一入口；此前指向 ModelSelectorActivity，
+                // 与 AI 中心各挂一份重复的在线模型列表）
+                startActivity(ModelCenterActivity.intent(AIChatActivity.this));
             });
         }
         if (btnClearChat != null) {
@@ -2507,7 +2510,7 @@ public class AIChatActivity extends BaseActivity {
             runOnUiThread(() -> {
                 final boolean success = result != null && result.isSuccess();
                 if (success) {
-                    // === 成功：工具卡片更新 + 主气泡显示结果（自然语言摘要） ===
+                    // === 成功：只更新工具卡片结果区（C0 之后不再自动解读、不再补主气泡） ===
                     Object rawResult = result.getResult();
                     String resultStr = ToolResultInterpreter.formatForUi(toolName, rawResult);
                     // 保存原始结果数据 + canInterpret（乐观策略）
@@ -2520,52 +2523,21 @@ public class AIChatActivity extends BaseActivity {
                     }
                     // 1) 更新工具卡片自身的结果区（保留详细结构 + 折叠区里的深度解读按钮）
                     updateToolCallResult(msgPos, true, resultStr);
-                    addSystemMessage("✅ 工具执行完成");
+                    // C0-T3：不再插"✅ 工具执行完成"——工具卡自己就显示"已完成 · 耗时"，
+                    // 每条成功工具再插一条系统气泡是第三处重复信息。失败提示保留。
                     scrollToBottom();
                     // 保存到ToolResultStore
                     try {
                         ToolResultStore.save(toolName, params, rawResult, 0);
                     } catch (Exception ignore) { }
-                    // 2) 自动解读：①写入 toolCallInfo.interpretedMessage（工具卡片内展示）
-                    //              ②再添加一条新的独立 AI 主气泡（addAIMessage）——两处都显示
-                    // 本地模型解读可能耗时数十秒，先给进度提示避免用户以为功能卡死
-                    addSystemMessage("💡 正在AI解读结果...");
-                    scrollToBottom();
-                    // 记录进度消息位置，无模型可用时关闭提示避免"正在解读"文案残留
-                    final int progressMsgPos = chatHistory.size() - 1;
-                    final Runnable doContinue = onComplete;
-                    final String fallback = resultStr;
-                    final int targetMsgPos = msgPos;
-                    ToolResultInterpreter.interpret(this, toolName, rawResult,
-                        new ToolResultInterpreter.InterpretCallback() {
-                            @Override
-                            public void onInterpreted(String summary) {
-                                boolean hasInterpret = summary != null && !summary.isEmpty();
-                                String content = hasInterpret ? summary : fallback;
-                                writeInterpretedToMessage(targetMsgPos, content);
-                                // 只有真正的 AI 解读才额外加 AI 主气泡；
-                                // fallback（模板文本）已在工具卡片展示，不再重复显示
-                                if (hasInterpret) {
-                                    addAIMessage(content);
-                                    // 同步注入本地模型主对话上下文，使后续追问可连续对话
-                                    injectInterpretToLocalContext(content);
-                                } else {
-                                    // 无任何可用模型（在线/本地均不可用）：关闭进度提示，
-                                    // 工具结果已以模板形式展示在工具卡片，功能不中断
-                                    updateSystemMessageText(progressMsgPos, "ℹ️ 无可用AI模型解读，已展示模板结果");
-                                }
-                                scrollToBottom();
-                                if (doContinue != null) doContinue.run();
-                            }
-                            @Override
-                            public void onError(String error) {
-                                writeInterpretedToMessage(targetMsgPos, fallback);
-                                // 同上：模板兜底内容已在工具卡片内，不重复加 AI 气泡
-                                updateSystemMessageText(progressMsgPos, "ℹ️ AI解读失败，已展示模板结果");
-                                scrollToBottom();
-                                if (doContinue != null) doContinue.run();
-                            }
-                        });
+                    // C0-T1：不再自动调 LLM 解读、不再补一条 AI 主气泡。
+                    // 同一段摘要此前会被画两遍（工具卡 + 主气泡），且每次成功都要多等一次
+                    // 解读（在线 60s 超时）。工具卡内"AI 深度解读"按钮保留，用户按需触发
+                    // （handleAiInterpretAction）。
+                    // 这里仍把模板结果喂回本地模型上下文：它不产生任何气泡，
+                    // 但用户接着追问时本地模型还看得到这次工具结果（在线模型走 chatHistory 重建，不需要）。
+                    injectInterpretToLocalContext(resultStr);
+                    if (onComplete != null) onComplete.run();
                 } else if (retryCount < 2) {
                     // === 失败但可重试：智能恢复 ===
                     String error = result != null ? result.getErrorMessage() : "未知错误";
@@ -3122,49 +3094,19 @@ public class AIChatActivity extends BaseActivity {
                             }
                             // 1) 更新工具卡片自身的结果区（保留详细结构 + 折叠区里的深度解读按钮）
                             updateToolCallResult(msgPos, true, resultStr);
-                            addSystemMessage("✅ " + step.actionDescription + " 完成");
+                            // C0-T3：逐步成功不再插"✅ xxx 完成"系统气泡（工具卡已显示状态），
+                            // 流程级"全部完成"仍保留一条（见 executeCompositeFlow 收尾）。
                             scrollToBottom();
                             // 保存结果
                             try {
                                 ToolResultStore.save(step.toolName, params, rawResult, stepIndex);
                             } catch (Exception ignore) { }
-                            // 2) 自动解读：①写工具卡片 + ②新的独立 AI 主气泡（仅真正解读时）
-                            // 解读可能耗时较长，先给进度提示
-                            addSystemMessage("💡 正在AI解读结果...");
+                            // C0-T1：聚合流程不再自动解读、不再补 AI 主气泡（同一段摘要曾画两遍，
+                            // 每步还要多等一次解读）。工具卡内"AI 深度解读"按钮保留，用户按需触发。
+                            // 结果只回灌本地模型上下文（不产生气泡），随后推进下一步。
+                            injectInterpretToLocalContext(resultStr);
                             scrollToBottom();
-                            // 记录进度消息位置，无模型可用时关闭提示避免"正在解读"文案残留
-                            final int progressMsgPos2 = chatHistory.size() - 1;
-                            final int nextIndex = stepIndex + 1;
-                            final String fallback = resultStr;
-                            final int targetMsgPos2 = msgPos;
-                            ToolResultInterpreter.interpret(AIChatActivity.this, step.toolName, rawResult,
-                                new ToolResultInterpreter.InterpretCallback() {
-                                    @Override
-                                    public void onInterpreted(String summary) {
-                                        boolean hasInterpret = summary != null && !summary.isEmpty();
-                                        String content = hasInterpret ? summary : fallback;
-                                        writeInterpretedToMessage(targetMsgPos2, content);
-                                        // 仅真正 AI 解读才加主气泡，模板兜底已在工具卡片展示
-                                        if (hasInterpret) {
-                                            addAIMessage(content);
-                                            // 同步注入本地模型主对话上下文，使后续追问可连续对话
-                                            injectInterpretToLocalContext(content);
-                                        } else {
-                                            // 无任何可用模型：关闭进度提示，组合流程继续执行下一步
-                                            updateSystemMessageText(progressMsgPos2, "ℹ️ 无可用AI模型解读，已展示模板结果");
-                                        }
-                                        scrollToBottom();
-                                        executeCompositeFlow(flow, nextIndex);
-                                    }
-                                    @Override
-                                    public void onError(String error) {
-                                        writeInterpretedToMessage(targetMsgPos2, fallback);
-                                        // 模板兜底内容已在工具卡片内，不重复加 AI 气泡
-                                        updateSystemMessageText(progressMsgPos2, "ℹ️ AI解读失败，已展示模板结果");
-                                        scrollToBottom();
-                                        executeCompositeFlow(flow, nextIndex);
-                                    }
-                                });
+                            executeCompositeFlow(flow, stepIndex + 1);
                         } else {
                             // 失败：尝试智能恢复
                             String error = result != null ? result.getErrorMessage() : "未知错误";
@@ -3266,38 +3208,15 @@ public class AIChatActivity extends BaseActivity {
                     }
                     // 1) 更新工具卡片自身的结果区（保留详细结构 + 折叠区里的深度解读按钮）
                     updateToolCallResult(msgPos, true, resultStr);
-                    addSystemMessage("✅ " + step.actionDescription + " 完成");
+                    // C0-T3：重试成功同样不再补逐工具成功气泡
                     scrollToBottom();
                     try {
                         ToolResultStore.save(step.toolName, params, rawResult, stepIndex);
                     } catch (Exception ignore) { }
-                    // 2) 自动解读：①写工具卡片 + ②仅真正解读时加独立 AI 主气泡（模板兜底不重复显示）
-                    final int nextIndex = stepIndex + 1;
-                    final String fallback = resultStr;
-                    final int targetMsgPos3 = msgPos;
-                    ToolResultInterpreter.interpret(this, step.toolName, rawResult,
-                        new ToolResultInterpreter.InterpretCallback() {
-                            @Override
-                            public void onInterpreted(String summary) {
-                                boolean hasInterpret = summary != null && !summary.isEmpty();
-                                String content = hasInterpret ? summary : fallback;
-                                writeInterpretedToMessage(targetMsgPos3, content);
-                                if (hasInterpret) {
-                                    addAIMessage(content);
-                                    // 同步注入本地模型主对话上下文，使后续追问可连续对话
-                                    injectInterpretToLocalContext(content);
-                                }
-                                scrollToBottom();
-                                executeCompositeFlow(flow, nextIndex);
-                            }
-                            @Override
-                            public void onError(String error) {
-                                writeInterpretedToMessage(targetMsgPos3, fallback);
-                                // 模板兜底已在工具卡片展示，不重复加 AI 气泡
-                                scrollToBottom();
-                                executeCompositeFlow(flow, nextIndex);
-                            }
-                        });
+                    // C0-T1：重试成功分支同样去掉自动解读与重复 AI 气泡，只推进下一步。
+                    injectInterpretToLocalContext(resultStr);
+                    scrollToBottom();
+                    executeCompositeFlow(flow, stepIndex + 1);
                 } else {
                     // 还是失败，继续恢复
                     String error = result != null ? result.getErrorMessage() : "未知错误";
@@ -7636,7 +7555,12 @@ public class AIChatActivity extends BaseActivity {
             @Override
             public void onModelListChanged() {
                 // 模型列表变化时刷新模式按钮
-                runOnUiThread(() -> updateModeButtonText());
+                runOnUiThread(() -> {
+                    updateModeButtonText();
+                    // 禁用当前活跃模型会连带停用它（只发 list 变更、不发 active 变更），
+                    // 状态栏横幅此前只在服务事件时重绘 → 从模型中心切完回到聊天页仍显示旧模型
+                    if (serviceStatusManager != null) serviceStatusManager.updateInitialStatus();
+                });
             }
             @Override
             public void onActiveModelChanged(String activeModelId) {
@@ -7656,6 +7580,9 @@ public class AIChatActivity extends BaseActivity {
                     updateModeButtonText();
                     updateApiBalanceDisplay();
                     updateWebSearchChip();
+                    // 顶部横幅必须同步重算：此前它只在服务状态事件时重绘，
+                    // 在模型中心换过模型后回到聊天页仍显示上一个模型名（两页报出不同的生效模型）
+                    if (serviceStatusManager != null) serviceStatusManager.updateInitialStatus();
                     // 深度思考芯片也要随模型刷新：不同模型能力不同 ——
                     // "始终思考"模型（如 GLM-5.3）需置为不可关闭，切回其它模型要恢复可点。
                     // 缺这一步会出现"在一个模型上被置灰后，切换模型仍无法恢复"。
@@ -9046,20 +8973,6 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 更新指定位置系统消息的文案（用于把"正在解读"进度提示改为终态）。
-     * 位置无效或该位置已不是系统消息（可能因后续插入发生偏移）时静默跳过。
-     */
-    private void updateSystemMessageText(int pos, String text) {
-        try {
-            if (chatHistory == null || pos < 0 || pos >= chatHistory.size()) return;
-            ChatMessage msg = chatHistory.get(pos);
-            if (msg == null || msg.type != ChatMessage.MessageType.SYSTEM) return;
-            msg.content = text;
-            if (chatAdapter != null) chatAdapter.notifyItemChanged(pos);
-        } catch (Throwable ignore) { }
-    }
-
-    /**
      * 拉取引导步骤的动态选项列表（后台线程调用）。
      * 执行 spec 声明的工具 action，从结果 Map 的 listKey 中提取字符串列表；
      * 元素为 Map 时取 itemField 字段。spec 声明了 allOptionLabel 时列表顶部加空值"全部"项。
@@ -9182,8 +9095,11 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
-     * 将自动解读的自然语言摘要写入对应 TOOL_CALL 消息的 toolCallInfo.interpretedMessage 字段，
-     * 不再新增独立 AI 主气泡；通过 notifyItemChanged 触发 RecyclerView 局部刷新。
+     * 将解读摘要写入对应 TOOL_CALL 消息的 toolCallInfo.interpretedMessage 字段（工具卡内展示），
+     * 不新增独立 AI 主气泡；通过 notifyItemChanged 触发局部刷新。
+     *
+     * <p>C0-T1 之后自动解读已关掉，这里暂时没有调用点：字段与工具卡渲染仍保留，
+     * 手动"AI 深度解读"要落到卡内、以及 C1 的 ToolResultCard 都走这条路，故不删。
      */
     private void writeInterpretedToMessage(final int position, final String content) {
         if (position < 0 || chatHistory == null || position >= chatHistory.size()) return;
