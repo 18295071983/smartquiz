@@ -797,12 +797,19 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                 new java.io.InputStreamReader(new java.io.FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8))) {
             if (sessionObject) {
                 reader.beginObject();
+                // 不能读到 messages 就 break：writeSessionWithHead / saveConversationSession 都把
+                // createdAt、updatedAt、messageCount 写在 messages <b>之后</b>，
+                // break 之后 endObject 会抛 IllegalStateException
+                // "Expected END_OBJECT but was NAME path $.messages"——
+                // 真机上每次分段读会话（含恢复时的会话认领）都刷一条错误日志，
+                // 结果数据虽然还在（异常被 catch、out 已填好），但认领这类调用方一旦依赖
+                // 是否抛异常来判断就会误判。这里把剩余成员读完再收尾。
                 while (reader.hasNext()) {
                     if ("messages".equals(reader.nextName())) {
                         readArrayInto(reader, out, skipCount, limit);
-                        break;
+                    } else {
+                        reader.skipValue();
                     }
-                    reader.skipValue();
                 }
                 reader.endObject();
             } else {

@@ -7303,7 +7303,10 @@ public class AIChatActivity extends BaseActivity {
      * 而原会话再没被更新过（越用越像分裂）。</p>
      *
      * <p>认领依据：消息 id 持久化且唯一（{@code ChatMessage#id} 非 transient），
-     * 同一会话的最后一跳必然对得上。先用会话元数据里的 title 便宜地筛一遍，
+     * 同一会话的最后一跳必然对得上——比较的是<b>窗口里最后一条 USER/AI 消息</b>的 id，
+     * 因为会话文件只持久化这两类（SYSTEM / thinking / 工具消息不落会话文件），
+     * 直接拿"窗口最后一条"比会因末尾是 SYSTEM 消息而永远认不中。
+     * 先用会话元数据里的 title 便宜地筛一遍，
      * 再对候选做一次"只读最后一条消息"的分段查询确认，避免为几十个会话全量解析文件。
      * 认不到就什么都不做——那确实是新会话，让它按原逻辑新建。</p>
      *
@@ -7319,12 +7322,20 @@ public class AIChatActivity extends BaseActivity {
             if (currentSessionId != null && !currentSessionId.isEmpty()) return -1;
 
             String lastId = null;
+            // 会话文件里只持久化 USER / AI 两类消息（保存时按同口径过滤），
+            // 而内存窗口末尾常常是一条 SYSTEM（"✓ 模型加载完成"）或 thinking / 工具消息——
+            // 拿"窗口最后一条有 id 的消息"去比会话文件的最后一条，永远比不中，
+            // 于是每次恢复都认不回原会话、每次 onStop 都新建一条（真机 2026-10-19 19:33 实测 3 条同内容会话即此因）。
+            int persistedInWindow = 0;
+            for (ChatMessage m : window) {
+                if (m != null && (m.isUserMessage() || m.isAIMessage())) persistedInWindow++;
+            }
             for (int i = window.size() - 1; i >= 0; i--) {
                 ChatMessage m = window.get(i);
-                if (m != null && m.id != null && !m.id.isEmpty()) {
-                    lastId = m.id;
-                    break;
-                }
+                if (m == null || m.id == null || m.id.isEmpty()) continue;
+                if (!m.isUserMessage() && !m.isAIMessage()) continue;
+                lastId = m.id;
+                break;
             }
             if (lastId == null) return -1;
 
@@ -7341,8 +7352,10 @@ public class AIChatActivity extends BaseActivity {
                 ChatMessage last = tail.get(0);
                 if (last != null && lastId.equals(last.id)) {
                     currentSessionId = s.id;
-                    // 会话文件前端未加载的条数：会话总长 - 当前窗口长度（窗口来自单文件）
-                    int skipped = Math.max(0, s.messageCount - window.size());
+                    // 会话前端未加载条数：两边都用"会话文件里会持久化的条数"（USER/AI）口径，
+                    // 不能拿含 SYSTEM/thinking 的窗口总条数去减，否则算出负数被夹成 0、
+                    // 后续保存按 0 头部重写会截掉会话里未加载的旧消息。
+                    int skipped = Math.max(0, s.messageCount - persistedInWindow);
                     AppLogger.i(TAG, "恢复历史认领回原会话: " + s.id + " frontSkipped=" + skipped);
                     return skipped;
                 }
