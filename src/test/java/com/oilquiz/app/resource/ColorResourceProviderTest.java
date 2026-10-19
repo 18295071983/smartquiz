@@ -23,7 +23,9 @@ public class ColorResourceProviderTest {
 
     @Before
     public void setUp() {
-        context = ApplicationProvider.getApplicationContext();
+        // 主题语义色（primary / text_*）在生产代码里是走 ?attr 解析的，
+        // 必须用套好应用主题的上下文，否则读回来是 0（见 ThemedAppContext）
+        context = com.oilquiz.app.testsupport.ThemedAppContext.get();
         colorProvider = ColorResourceProvider.getInstance(context);
     }
 

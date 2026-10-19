@@ -2,7 +2,6 @@ package com.oilquiz.app.util;
 
 import android.content.Context;
 import android.content.res.AssetManager;
-import android.os.Build;
 
 import androidx.test.platform.app.InstrumentationRegistry;
 
@@ -10,7 +9,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
 
 import java.io.File;
 import java.io.IOException;
@@ -20,7 +18,10 @@ import java.io.OutputStream;
 import static org.junit.Assert.*;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = {Build.VERSION_CODES.P})
+// 不要再钉 @Config(sdk = P)：本应用 minSdk=31，Robolectric 在 28 档位下解析
+// 应用自己的 apk-for-local-test.ap_ 会直接抛
+// "Requires newer sdk version #31 (current version is #28)"，整类用例还没进方法就炸。
+// 全局等级已在 src/test/resources/robolectric.properties 钉为 33，这里继承即可。
 public class PreviewRenderBridgeTest {
 
     private Context context;

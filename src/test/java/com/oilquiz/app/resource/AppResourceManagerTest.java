@@ -22,7 +22,8 @@ public class AppResourceManagerTest {
 
     @Before
     public void setUp() {
-        context = ApplicationProvider.getApplicationContext();
+        // 同 ColorResourceProviderTest：主题语义色要 ?attr 解析得通，见 ThemedAppContext
+        context = com.oilquiz.app.testsupport.ThemedAppContext.get();
         appResourceManager = AppResourceManager.getInstance(context);
     }
 

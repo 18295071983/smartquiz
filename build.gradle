@@ -298,6 +298,12 @@ android {
             // 默认抛 "not mocked" 异常（如 android.util.Log.i 一调就炸）。
             // 开启后桩方法返回默认值；真实实现（org.json 等）已由 testImplementation 显式引入。
             returnDefaultValues = true
+            // Robolectric 必须开这个，否则它跑在 "legacy resources mode" 下，
+            // 而该模式在 Android P 之后不受支持：凡是钉了 sdk=33（见
+            // src/test/resources/robolectric.properties）的 Robolectric 测试类会被整类跳过
+            // ——Gradle 记成 skipped 而不是 failure，于是"全绿"是假的。
+            // 真机复现于 2026-10-19：11 个 Robolectric 类共 128 条用例一条都没跑。
+            includeAndroidResources = true
         }
     }
 

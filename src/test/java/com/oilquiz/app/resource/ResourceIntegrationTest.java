@@ -23,7 +23,8 @@ public class ResourceIntegrationTest {
 
     @Before
     public void setUp() {
-        context = ApplicationProvider.getApplicationContext();
+        // 主题语义色需 ?attr 解析，用套好应用主题的上下文，见 ThemedAppContext
+        context = com.oilquiz.app.testsupport.ThemedAppContext.get();
         appResourceManager = AppResourceManager.getInstance(context);
     }
 
