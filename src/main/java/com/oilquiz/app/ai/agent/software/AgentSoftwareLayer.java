@@ -48,6 +48,16 @@ public class AgentSoftwareLayer {
         default void onRoundComplete(int iteration, String fullText) {}
         void onToolCallStart(String toolName, String args);
         void onToolCallComplete(String toolName, boolean success, String result);
+
+        /** 可选：带稳定 toolCallId 的重载。 */
+        default void onToolCallStart(String toolCallId, String toolName, String args) {
+            onToolCallStart(toolName, args);
+        }
+
+        default void onToolCallComplete(String toolCallId, String toolName,
+                                        boolean success, String result) {
+            onToolCallComplete(toolName, success, result);
+        }
         void onToken(String token);
         void onComplete(AgentResponse response);
         void onError(String error);
@@ -120,9 +130,24 @@ public class AgentSoftwareLayer {
             }
 
             @Override
+            public void onToolCall(String toolCallId, String toolName, String args) {
+                if (callback != null) {
+                    callback.onToolCallStart(toolCallId, toolName, args);
+                }
+            }
+
+            @Override
             public void onToolResult(String toolName, boolean success, String result) {
                 if (callback != null) {
                     callback.onToolCallComplete(toolName, success, result);
+                }
+            }
+
+            @Override
+            public void onToolResult(String toolCallId, String toolName,
+                                     boolean success, String result) {
+                if (callback != null) {
+                    callback.onToolCallComplete(toolCallId, toolName, success, result);
                 }
             }
 

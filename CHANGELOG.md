@@ -1,5 +1,16 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 本地 Agent 工具调用 id 补齐
+
+- 之前 `AgentLoopEngine.LoopCallback` 只传 `toolName`，`AgentChatHandler` 只能给
+  start/complete 传空 id，UI 靠工具名匹配；串行唯一工具能用，但并行/同名工具会错配。
+  这是**疏漏**，不是“本地不需要 id”。
+- 修法：`LoopCallback` 新增带 `toolCallId` 的默认重载，
+  `AgentLoopEngine` 用 `tc.id` 调用；`AgentSoftwareLayer` → `AgentChatHandler`
+  逐层透传；UI 用真实 id 精确匹配 running/success 卡片。
+- `RoundSnapshot.toolCallIds` 现在能记录本地工具 id。
+- 验证：482 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 每轮 fullText 快照：不再只有最后一轮 finalAnswer
 
 ### 新增

@@ -29,6 +29,19 @@ public class AgentChatHandler {
     public interface AgentChatCallback {
         void onToolCallStart(String toolCallId, String toolName, String args);
         void onToolCallComplete(String toolCallId, String toolName, OnlineToolResult result);
+
+        /** 本地 Agent：带稳定 id 的 start/complete（默认退回空 id 旧行为）。 */
+        default void onToolCallStartLocal(String toolCallId, String toolName, String args) {
+            onToolCallStart(toolCallId, toolName, args);
+        }
+
+        default void onToolCallCompleteLocal(String toolCallId, String toolName,
+                                             boolean success, String result) {
+            OnlineToolResult r = success
+                    ? OnlineToolResult.success(null, toolName, result, 0)
+                    : OnlineToolResult.failure(null, toolName, result, 0);
+            onToolCallComplete(toolCallId, toolName, r);
+        }
         void onToken(String token);
         void onThinkingToken(String token);
         void onThinkingEnd();
@@ -132,15 +145,29 @@ public class AgentChatHandler {
             @Override
             public void onToolCallStart(String toolName, String args) {
                 if (isValid()) {
-                    // TOOLCALL-ID-MATCH(2026-10-09)：此前 start 与 complete 各自生成
-                    // "software_" + System.nanoTime()，两次拿到的是**不同**的假 id。
-                    // UI 侧 appendAgentToolCall 以 toolCallId 精确匹配 running 卡片，
-                    // 于是完成时永远匹配不到开始那张 -> 新建第二张 success 卡片，
-                    // 旧卡片永久停在"⏳ 执行中"。
-                    // 本地 Agent 的工具回调本身不携带 id（AgentLoopEngine.LoopCallback
-                    // 只有 toolName），因此这里不再伪造 id，交给 UI 按工具名匹配。
+                    // 兼容旧回调（无 id）：新路径由 AgentLoopEngine 发稳定 tc.id，
+                    // 走下面的 onToolCallStart(String toolCallId, ...) 重载。
                     callback.onToolCallStart("", toolName, args);
                     callback.onToolCallUI(toolName, args, -1);
+                }
+            }
+
+            @Override
+            public void onToolCallStart(String toolCallId, String toolName, String args) {
+                if (isValid()) {
+                    // 本地 Agent 现在由 AgentLoopEngine 发稳定 call id（tc.id），
+                    // 不再用空 id 按工具名猜匹配。
+                    callback.onToolCallStartLocal(toolCallId, toolName, args);
+                    callback.onToolCallUI(toolName, args, -1);
+                }
+            }
+
+            @Override
+            public void onToolCallComplete(String toolCallId, String toolName,
+                                           boolean success, String result) {
+                if (isValid()) {
+                    callback.onToolCallCompleteLocal(toolCallId, toolName, success, result);
+                    callback.onToolCallResultUI(-1, success, result);
                 }
             }
 
@@ -157,7 +184,7 @@ public class AgentChatHandler {
                     OnlineToolResult toolResult = success
                         ? OnlineToolResult.success(null, toolName, result, 0)
                         : OnlineToolResult.failure(null, toolName, result, 0);
-                    // 同上：保持与 onToolCallStart 一致的（空）id，避免合成 id 造成匹配失败
+                    // 兼容旧回调（无 id）；新路径走 onToolCallComplete(String toolCallId, ...) 重载。
                     callback.onToolCallComplete("", toolName, toolResult);
                     callback.onToolCallResultUI(-1, success, result);
                 }

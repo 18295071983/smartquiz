@@ -230,6 +230,16 @@ public class AgentLoopEngine {
         void onThinkingUpdate(String thought);
         void onToolCall(String toolName, String args);
         void onToolResult(String toolName, boolean success, String result);
+
+        /** 可选：带稳定 toolCallId 的重载；默认退回旧方法，兼容已有实现。 */
+        default void onToolCall(String toolCallId, String toolName, String args) {
+            onToolCall(toolName, args);
+        }
+
+        default void onToolResult(String toolCallId, String toolName,
+                                  boolean success, String result) {
+            onToolResult(toolName, success, result);
+        }
         /**
          * 可选：工具声明化卡片意图（dsh presentCall/presentResult 对齐，2026-09-23）。
          * 引擎在 onToolCall/onToolResult 前调用；card 为 null 表示工具无声明，UI 走通用呈现。
@@ -807,7 +817,7 @@ public class AgentLoopEngine {
                 if (presentTool != null) {
                     try { callCard = presentTool.presentCall(jsonToMap(tc.args)); } catch (Throwable ignored) {}
                 }
-                if (callback != null) callback.onToolCall(tc.toolName, tc.args.toString());
+                if (callback != null) callback.onToolCall(tc.id, tc.toolName, tc.args.toString());
                 if (callback != null) callback.onToolPresent(tc.toolName, callCard);
                 AIToolResult result;
                 if (parResults[i] instanceof AIToolResult) {
@@ -839,7 +849,7 @@ public class AgentLoopEngine {
                 if (presentTool != null) {
                     try { resultCard = presentTool.presentResult(jsonToMap(tc.args), result); } catch (Throwable ignored) {}
                 }
-                if (callback != null) callback.onToolResult(tc.toolName, success, resultStr);
+                if (callback != null) callback.onToolResult(tc.id, tc.toolName, success, resultStr);
                 if (callback != null) callback.onToolPresent(tc.toolName, resultCard);
                 history.add(new ChatMessage("tool", truncate(resultStr, MAX_TOOL_RESULT_LENGTH), tc.id, true));
                 AILogger.i(TAG, "Tool " + tc.toolName + (success ? " OK" : " FAIL")

@@ -1211,6 +1211,18 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    不直接替换 UI 正文。在线 Agent 逐轮接入待补。
 5. **验证**：482 单测全绿，装机。
 
+### 4.43 本地 Agent 工具调用 id（2026-10-21 凌晨）
+
+1. **问题**：`LoopCallback` 只有 `toolName`，start/complete 传空 id，UI 按工具名猜匹配；
+   并行或同名工具会错配，这是疏漏。
+2. **修法**：
+   - `LoopCallback` 增加带 `toolCallId` 的默认重载；
+   - `AgentLoopEngine` 用 `tc.id` 调用；
+   - `AgentSoftwareLayer` → `AgentChatHandler` 透传真实 id；
+   - UI 按 id 精确匹配 running/success 卡片；
+   - `RoundSnapshot.toolCallIds` 可记录本地 id。
+3. **验证**：482 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图
