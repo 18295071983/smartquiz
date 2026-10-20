@@ -106,6 +106,60 @@ public class AssistantTurn {
             p.timestamp = ts;
             return p;
         }
+
+        /** 工具结果 part：id 由所属 tool_call 的 id 派生，保证稳定且唯一。 */
+        public static Part toolResult(Part call, String result, long ts) {
+            Part p = new Part();
+            p.id = (call != null && call.id != null ? call.id : "tool") + ID_RESULT_SUFFIX;
+            p.type = TYPE_TOOL_RESULT;
+            p.toolCallId = call != null ? call.toolCallId : null;
+            p.toolName = call != null ? call.toolName : null;
+            p.result = result != null ? result : "";
+            p.status = call != null ? call.status : null;
+            p.timestamp = ts;
+            return p;
+        }
+
+        /**
+         * 内容指纹：对 Part 的展示相关内容做确定性哈希（type / text / toolCallId /
+         * toolName / args / result / status）。<b>不含 id、timestamp</b>——它回答的是
+         * "同一个 id 的内容是否变化"：逐字段相同则指纹相同，任一内容字段变化则指纹变化。
+         *
+         * <p>算法为 FNV-1a 64 位，仅做字符算术运算，跨 JVM/设备结果稳定；每个字段带
+         * 长度前缀，避免相邻字段拼接产生歧义；null 与空串视为等价。</p>
+         */
+        public String fingerprint() {
+            long h = FNV_OFFSET;
+            h = fnvField(h, type);
+            h = fnvField(h, text);
+            h = fnvField(h, toolCallId);
+            h = fnvField(h, toolName);
+            h = fnvField(h, args);
+            h = fnvField(h, result);
+            h = fnvField(h, status);
+            return Long.toString(h, 36);
+        }
+
+        private static long fnvField(long h, String s) {
+            String v = s == null ? "" : s;
+            h = fnvChars(h, Integer.toString(v.length()));
+            return fnvChars(h, v);
+        }
+
+        private static long fnvChars(long h, String s) {
+            for (int i = 0; i < s.length(); i++) {
+                h ^= s.charAt(i);
+                h *= FNV_PRIME;
+            }
+            return h;
+        }
+
+        private static final long FNV_OFFSET = 0xcbf29ce484222325L;
+        private static final long FNV_PRIME = 0x100000001b3L;
+        static final String ID_REASONING_SUFFIX = ":reasoning";
+        static final String ID_TEXT_SUFFIX = ":text";
+        static final String ID_TOOL_PREFIX = ":tool:";
+        static final String ID_RESULT_SUFFIX = ":result";
     }
 
     /** 从当前 ChatMessage 的兼容字段构建 canonical turn。 */
@@ -114,7 +168,6 @@ public class AssistantTurn {
         AssistantTurn turn = new AssistantTurn();
         turn.turnId = msg.turnId;
         long base = msg.timestamp > 0 ? msg.timestamp : System.currentTimeMillis();
-        int seq = 0;
 
         if (msg.roundSnapshots != null && !msg.roundSnapshots.isEmpty()) {
             for (ChatMessage.RoundSnapshot snap : msg.roundSnapshots) {
@@ -128,32 +181,36 @@ public class AssistantTurn {
                 turn.modelCalls.add(call);
 
                 if (snap.thinking != null && !snap.thinking.trim().isEmpty()) {
-                    turn.parts.add(Part.reasoning(callId + "-think", snap.thinking,
+                    turn.parts.add(Part.reasoning(callId + Part.ID_REASONING_SUFFIX, snap.thinking,
                             call.timestamp));
                 }
                 if (snap.content != null && !snap.content.trim().isEmpty()) {
-                    turn.parts.add(Part.text(callId + "-text", snap.content,
+                    turn.parts.add(Part.text(callId + Part.ID_TEXT_SUFFIX, snap.content,
                             call.timestamp));
                 }
-                // 工具调用按该轮顺序挂到 text 后；name/args 由 UI 的 tool card 保留
+                // 工具调用按该轮顺序挂到 text 后；id 以 toolCallId 为键，保证跨重建稳定、
+                // 且不随其它轮次或前序工具的增减而漂移。缺 toolCallId 的脏数据跳过。
                 if (snap.toolCallIds != null) {
                     for (String toolId : snap.toolCallIds) {
                         if (toolId == null || toolId.isEmpty()) continue;
-                        turn.parts.add(Part.toolCall(callId + "-tool-" + (seq++),
+                        turn.parts.add(Part.toolCall(
+                                callId + Part.ID_TOOL_PREFIX + toolId,
                                 toolId, "", "", "done", call.timestamp));
                     }
                 }
             }
         } else {
             // 旧数据/无逐轮快照：至少保留一条 model call + text part
-            ModelCall call = new ModelCall("R1", 1, msg.content, msg.thinkingContent,
+            String callId = turn.turnId != null ? turn.turnId + "-R1" : "R1";
+            ModelCall call = new ModelCall(callId, 1, msg.content, msg.thinkingContent,
                     "", base);
             turn.modelCalls.add(call);
             if (msg.thinkingContent != null && !msg.thinkingContent.trim().isEmpty()) {
-                turn.parts.add(Part.reasoning("R1-think", msg.thinkingContent, base));
+                turn.parts.add(Part.reasoning(callId + Part.ID_REASONING_SUFFIX,
+                        msg.thinkingContent, base));
             }
             if (msg.content != null && !msg.content.trim().isEmpty()) {
-                turn.parts.add(Part.text("R1-text", msg.content, base));
+                turn.parts.add(Part.text(callId + Part.ID_TEXT_SUFFIX, msg.content, base));
             }
         }
         fillToolPartsFromComponents(turn, msg);
@@ -174,7 +231,9 @@ public class AssistantTurn {
         java.util.Set<org.json.JSONObject> used =
                 java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
         int seq = 0;
-        for (Part p : turn.parts) {
+        // 遍历时会向 turn.parts 插入 result part，故对快照列表迭代，避免 ConcurrentModificationException；
+        // 插入位置用 indexOf(真实列表) 计算，新插入的 result 不参与本轮匹配。
+        for (Part p : new ArrayList<>(turn.parts)) {
             if (p == null || !Part.TYPE_TOOL_CALL.equals(p.type)) continue;
             org.json.JSONObject props = p.toolCallId != null ? byId.get(p.toolCallId) : null;
             if (props == null) continue;
@@ -184,37 +243,26 @@ public class AssistantTurn {
             p.status = props.optString("status", p.status);
             String result = props.optString("result", "");
             if (!result.isEmpty()) {
-                Part r = new Part();
-                r.id = (p.id != null ? p.id : "tool") + "-result";
-                r.type = Part.TYPE_TOOL_RESULT;
-                r.toolCallId = p.toolCallId;
-                r.toolName = p.toolName;
-                r.result = result;
-                r.status = p.status;
-                r.timestamp = p.timestamp;
+                Part r = Part.toolResult(p, result, p.timestamp);
                 int at = turn.parts.indexOf(p) + 1;
                 turn.parts.add(at, r);
             }
         }
-        // 没有快照/没有 toolCallIds 的旧数据：组件里的工具调用补到末尾
+        // 没有快照/没有 toolCallIds 的旧数据：组件里的工具调用补到末尾。
+        // id 以 toolCallId 为键，缺失时退化为稳定前缀 + 序号。
         for (org.json.JSONObject props : all) {
             if (used.contains(props)) continue;
-            String id = props.optString("toolCallId", "tool_legacy_" + (seq++));
-            Part p = Part.toolCall("tool-" + id, id,
+            String toolCallId = props.optString("toolCallId", "");
+            String partId = toolCallId.isEmpty()
+                    ? "legacy:ord" + (seq++)
+                    : "legacy:" + toolCallId;
+            Part p = Part.toolCall(partId, toolCallId,
                     props.optString("toolName", ""), props.optString("args", ""),
                     props.optString("status", "done"), System.currentTimeMillis());
             turn.parts.add(p);
             String result = props.optString("result", "");
             if (!result.isEmpty()) {
-                Part r = new Part();
-                r.id = p.id + "-result";
-                r.type = Part.TYPE_TOOL_RESULT;
-                r.toolCallId = id;
-                r.toolName = p.toolName;
-                r.result = result;
-                r.status = p.status;
-                r.timestamp = p.timestamp;
-                turn.parts.add(r);
+                turn.parts.add(Part.toolResult(p, result, p.timestamp));
             }
         }
     }

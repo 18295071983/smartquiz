@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.chat.turn;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -10,6 +11,8 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * AssistantTurn parts 模型（2026-10-21）：modelCalls + 有序 parts 为权威，content 为投影。
@@ -82,5 +85,140 @@ public class AssistantTurnTest {
         assertEquals("a", turn.modelCalls.get(0).content);
         assertEquals("a", turn.parts.get(0).text);
         assertTrue(copy.modelCalls.get(0).toolCallIds.isEmpty());
+    }
+
+    // ---- P1: 稳定 id 与 fingerprint() ----------------------------------
+
+    private static ChatMessage twoRoundMsg() {
+        ChatMessage msg = ChatMessage.createAIMessage("a1", "final", 1L);
+        msg.turnId = "T1";
+        msg.roundSnapshots = new ArrayList<>();
+        ChatMessage.RoundSnapshot r1 = new ChatMessage.RoundSnapshot(1, "第一轮正文", "轮1思考", 11L);
+        r1.toolCallIds = new ArrayList<>(Arrays.asList("call_1", "call_2"));
+        msg.roundSnapshots.add(r1);
+        msg.roundSnapshots.add(new ChatMessage.RoundSnapshot(2, "第二轮最终", "", 12L));
+        return msg;
+    }
+
+    private static java.util.List<String> ids(AssistantTurn turn) {
+        java.util.List<String> out = new ArrayList<>();
+        for (AssistantTurn.Part p : turn.parts) out.add(p.id);
+        return out;
+    }
+
+    @Test
+    public void everyPartGetsNonEmptyUniqueStableId() {
+        AssistantTurn turn = AssistantTurn.fromMessage(twoRoundMsg());
+        java.util.List<String> ids = ids(turn);
+        Set<String> seen = new HashSet<>();
+        for (String id : ids) {
+            assertNotNull(id);
+            assertTrue("id 不应为空", !id.trim().isEmpty());
+            assertTrue("id 应唯一: " + id, seen.add(id));
+        }
+    }
+
+    @Test
+    public void partIdsAreStableAcrossRebuild() {
+        // 同一消息两次构建，part id 必须逐个一致（供渲染层做 keyed diff/复用）
+        java.util.List<String> first = ids(AssistantTurn.fromMessage(twoRoundMsg()));
+        java.util.List<String> second = ids(AssistantTurn.fromMessage(twoRoundMsg()));
+        assertEquals(first, second);
+    }
+
+    @Test
+    public void toolPartIdKeyedByToolCallId() {
+        AssistantTurn turn = AssistantTurn.fromMessage(twoRoundMsg());
+        assertTrue(ids(turn).contains("T1-R1:tool:call_1"));
+        assertTrue(ids(turn).contains("T1-R1:tool:call_2"));
+    }
+
+    @Test
+    public void toolIdDoesNotDriftWhenEarlierToolRemoved() {
+        // 移除前一个工具不应改变后一个工具的 id（旧的全局 seq 方案会漂移）
+        ChatMessage withBoth = twoRoundMsg();
+        ChatMessage onlySecond = twoRoundMsg();
+        onlySecond.roundSnapshots.get(0).toolCallIds =
+                new ArrayList<>(Arrays.asList("call_2"));
+
+        AssistantTurn a = AssistantTurn.fromMessage(withBoth);
+        AssistantTurn b = AssistantTurn.fromMessage(onlySecond);
+
+        String idOfCall2InA = "T1-R1:tool:call_2";
+        assertTrue(ids(a).contains(idOfCall2InA));
+        assertTrue("call_2 的 id 不应随 call_1 移除而变化", ids(b).contains(idOfCall2InA));
+    }
+
+    @Test
+    public void resultPartIdDerivedFromCallId() {
+        ChatMessage msg = twoRoundMsg();
+        org.json.JSONObject props = new org.json.JSONObject();
+        try {
+            props.put("toolCallId", "call_1");
+            props.put("toolName", "weather");
+            props.put("args", "{\"city\":\"北京\"}");
+            props.put("status", "done");
+            props.put("result", "晴天 25度");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        msg.components = new ArrayList<>();
+        msg.components.add(com.oilquiz.app.ai.chat.component.ComponentData.of(
+                "tool_call", props));
+
+        AssistantTurn turn = AssistantTurn.fromMessage(msg);
+
+        AssistantTurn.Part call = null;
+        AssistantTurn.Part result = null;
+        for (AssistantTurn.Part p : turn.parts) {
+            if ("T1-R1:tool:call_1".equals(p.id)) call = p;
+            if (AssistantTurn.Part.TYPE_TOOL_RESULT.equals(p.type)) result = p;
+        }
+        assertNotNull("组件应回填到快照工具 part", call);
+        assertNotNull("应生成 result part", result);
+        assertEquals("T1-R1:tool:call_1:result", result.id);
+    }
+
+    @Test
+    public void fingerprintIgnoresIdAndTimestamp() {
+        AssistantTurn.Part a = AssistantTurn.Part.text("id-a", "你好世界", 1L);
+        AssistantTurn.Part b = AssistantTurn.Part.text("id-b", "你好世界", 9999L);
+        assertEquals(a.fingerprint(), b.fingerprint());
+    }
+
+    @Test
+    public void fingerprintChangesWithContent() {
+        String base = AssistantTurn.Part.text("id", "你好", 1L).fingerprint();
+        assertNotEquals(base, AssistantTurn.Part.text("id", "你好呀", 1L).fingerprint());
+    }
+
+    @Test
+    public void fingerprintDistinguishesPartType() {
+        assertNotEquals(
+                AssistantTurn.Part.text("id", "same", 1L).fingerprint(),
+                AssistantTurn.Part.reasoning("id", "same", 1L).fingerprint());
+    }
+
+    @Test
+    public void fingerprintTreatsNullAsEmpty() {
+        AssistantTurn.Part viaFactory = AssistantTurn.Part.text("id", "x", 1L);
+        AssistantTurn.Part manual = new AssistantTurn.Part();
+        manual.id = "id";
+        manual.type = AssistantTurn.Part.TYPE_TEXT;
+        manual.text = "x";
+        manual.timestamp = 1L;
+        // 其余字段留 null，应与工厂（未设置即 null）等价
+        assertEquals(viaFactory.fingerprint(), manual.fingerprint());
+    }
+
+    @Test
+    public void fingerprintChangesWhenToolResultChanges() {
+        AssistantTurn.Part call = AssistantTurn.Part.toolCall(
+                "t", "call_1", "weather", "{}", "done", 1L);
+        String r1 = AssistantTurn.Part.toolResult(call, "晴天", 1L).fingerprint();
+        String r2 = AssistantTurn.Part.toolResult(call, "雨天", 1L).fingerprint();
+        assertNotEquals(r1, r2);
+        // 结果 part 与调用 part 指纹不同（type/result 不同）
+        assertNotEquals(call.fingerprint(), r1);
     }
 }
