@@ -188,6 +188,7 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnCloseHistory;
     private MaterialButton btnNewConversation;
     private MaterialButton btnClearAllHistory;
+    private MaterialButton btnRecycleBin;
     private MaterialButton btnAgentManager;
     private MaterialButton btnAICenter;
     private MaterialButton btnAIService;
@@ -511,6 +512,7 @@ public class AIChatActivity extends BaseActivity {
             btnCloseHistory = findViewById(R.id.btn_close_history);
             btnNewConversation = findViewById(R.id.btn_new_conversation);
             btnClearAllHistory = findViewById(R.id.btn_clear_all_history);
+            btnRecycleBin = findViewById(R.id.btn_recycle_bin);
             btnAgentManager = findViewById(R.id.btn_agent_manager);
             btnAICenter = findViewById(R.id.btn_ai_center);
             btnAIService = findViewById(R.id.btn_ai_service);
@@ -1796,6 +1798,10 @@ public class AIChatActivity extends BaseActivity {
         }
         if (btnClearAllHistory != null) {
             btnClearAllHistory.setOnClickListener(v -> confirmClearChat());
+        }
+        if (btnRecycleBin != null) {
+            btnRecycleBin.setOnClickListener(v -> showRecycleBin());
+            updateRecycleBinLabel();
         }
 
         // 快捷工具 chip 模块：统一绑定抽屉静态 chip 引导 + 动态创建聚合方案 chip
@@ -8129,6 +8135,162 @@ public class AIChatActivity extends BaseActivity {
     }
 
     /**
+     * 历史回收站：列出被清空/删除的会话（conversations_trash/），支持恢复、彻底删除、清空。
+     * 与 clearAllConversationSessions() 的软删除配套。
+     */
+    private void showRecycleBin() {        if (chatHistoryManager == null) {
+            showToast("历史管理器未就绪");
+            return;
+        }
+        final java.util.List<ChatHistoryManager.TrashEntry> entries =
+                chatHistoryManager.listTrashedSessions();
+        final com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(16), dp(20), dp(8));
+
+        TextView title = new TextView(this);
+        title.setText("🗑 历史回收站");
+        title.setTextSize(18);
+        title.setTextColor(ThemeColors.get(R.color.hc_ff333333));
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        root.addView(title);
+
+        TextView subtitle = new TextView(this);
+        subtitle.setText(entries.isEmpty()
+                ? "回收站是空的，清空的会话会先放到这里"
+                : "清空的会话会先放这里（最多 40 份），可随时恢复");
+        subtitle.setTextSize(13);
+        subtitle.setTextColor(ThemeColors.get(R.color.hc_ff666666));
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp(6);
+        subLp.bottomMargin = dp(12);
+        subtitle.setLayoutParams(subLp);
+        root.addView(subtitle);
+
+        if (!entries.isEmpty()) {
+            android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            final java.text.SimpleDateFormat fmt =
+                    new java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA);
+            for (final ChatHistoryManager.TrashEntry e : entries) {
+                LinearLayout card = new LinearLayout(this);
+                card.setOrientation(LinearLayout.VERTICAL);
+                card.setPadding(dp(14), dp(12), dp(14), dp(10));
+                android.graphics.drawable.GradientDrawable bg =
+                        new android.graphics.drawable.GradientDrawable();
+                bg.setColor(ThemeColors.get(R.color.hc_ffffffff));
+                bg.setCornerRadius(dp(14));
+                bg.setStroke(dp(1), ThemeColors.get(R.color.hc_ffe0e0e0));
+                card.setBackground(bg);
+                LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                cardLp.bottomMargin = dp(10);
+                card.setLayoutParams(cardLp);
+
+                TextView name = new TextView(this);
+                name.setText(e.title);
+                name.setTextSize(14);
+                name.setTextColor(ThemeColors.get(R.color.hc_ff333333));
+                name.setTypeface(null, android.graphics.Typeface.BOLD);
+                name.setSingleLine(true);
+                name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                card.addView(name);
+
+                TextView meta = new TextView(this);
+                meta.setText(e.messageCount + " 条消息 · 删除于 "
+                        + fmt.format(new java.util.Date(e.deletedAt)));
+                meta.setTextSize(12);
+                meta.setTextColor(ThemeColors.get(R.color.hc_ff666666));
+                LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                metaLp.topMargin = dp(3);
+                meta.setLayoutParams(metaLp);
+                card.addView(meta);
+
+                LinearLayout actions = new LinearLayout(this);
+                actions.setOrientation(LinearLayout.HORIZONTAL);
+                actions.setGravity(android.view.Gravity.END);
+                LinearLayout.LayoutParams actLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                actLp.topMargin = dp(6);
+                actions.setLayoutParams(actLp);
+
+                com.google.android.material.button.MaterialButton restore = recycleRowButton("恢复");
+                restore.setOnClickListener(v -> {
+                    String newId = chatHistoryManager.restoreTrashedSession(e);
+                    if (newId != null) {
+                        showToast("已恢复：" + e.title);
+                        refreshHistoryDrawer();
+                    } else {
+                        showToast("恢复失败，会话文件可能已损坏");
+                    }
+                    dialog.dismiss();
+                    showRecycleBin();
+                });
+
+                com.google.android.material.button.MaterialButton delete = recycleRowButton("彻底删除");
+                delete.setOnClickListener(v -> new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                        .setTitle("彻底删除")
+                        .setMessage("「" + e.title + "」删除后无法恢复，确定吗？")
+                        .setPositiveButton("删除", (d, w) -> {
+                            chatHistoryManager.deleteTrashedSession(e);
+                            updateRecycleBinLabel();
+                            dialog.dismiss();
+                            showRecycleBin();
+                        })
+                        .setNegativeButton("取消", null)
+                        .show());
+
+                actions.addView(restore);
+                actions.addView(delete);
+                card.addView(actions);
+                list.addView(card);
+            }
+            scroll.addView(list);
+            LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(340));
+            scroll.setLayoutParams(scrollLp);
+            root.addView(scroll);
+        }
+
+        if (!entries.isEmpty()) {
+            com.google.android.material.button.MaterialButton clear =
+                    new com.google.android.material.button.MaterialButton(this);
+            clear.setText("清空回收站");
+            clear.setTextSize(13);
+            clear.setAllCaps(false);
+            clear.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    ThemeColors.get(R.color.hc_ffe53935)));
+            clear.setTextColor(ThemeColors.get(R.color.hc_ffffffff));
+            LinearLayout.LayoutParams clearLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+            clearLp.topMargin = dp(6);
+            clear.setLayoutParams(clearLp);
+            clear.setOnClickListener(v -> new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("清空回收站")
+                    .setMessage("回收站里的 " + entries.size() + " 个会话将被永久删除，无法恢复。")
+                    .setPositiveButton("清空", (d, w) -> {
+                        int n = chatHistoryManager.clearTrash();
+                        showToast("已清空回收站（" + n + " 个）");
+                        updateRecycleBinLabel();
+                        dialog.dismiss();
+                        showRecycleBin();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show());
+            root.addView(clear);
+        }
+
+        dialog.setContentView(root);
+        dialog.show();
+    }
+
+    /**
      * 清空对话前二次确认。
      * 工具中心的「🗑️ 清空对话」chip 之前直接调 clearChat()，误触一次就把
      * 全部会话文件（conversations/*.json）删干净，没有任何挽回余地；
@@ -8141,10 +8303,11 @@ public class AIChatActivity extends BaseActivity {
                 .setPositiveButton(getString(R.string.h_288f0c40), (dialog, which) -> {
                     clearChat();
                     refreshHistoryDrawer();
+                    updateRecycleBinLabel();
                     if (drawerLayout != null) {
                         drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
                     }
-                    showToast(getString(R.string.h_3683077f));
+                    showToast("已移入回收站，可在「🗑 回收站」里恢复");
                 })
                 .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
@@ -8365,8 +8528,41 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 刷新历史抽屉：从持久化存储加载会话列表。
      */
+    /**
+     * 回收站条目里的紧凑操作按钮。
+     * outlined 样式在 wrap_content + 默认 inset 下会量出很矮的高度，描边退化成一条穿过文字的横线，
+     * 这里固定尺寸并清掉上下 inset。
+     */
+    private com.google.android.material.button.MaterialButton recycleRowButton(String text) {
+        com.google.android.material.button.MaterialButton b =
+                new com.google.android.material.button.MaterialButton(this, null,
+                        com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        b.setText(text);
+        b.setTextSize(12);
+        b.setAllCaps(false);
+        b.setInsetTop(0);
+        b.setInsetBottom(0);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(10), 0, dp(10), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(84), dp(34));
+        lp.leftMargin = dp(8);
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    /** 回收站按钮角标：有可恢复会话时显示数量，提示用户有东西可捞 */
+    private void updateRecycleBinLabel() {
+        if (btnRecycleBin == null || chatHistoryManager == null) return;
+        int n = chatHistoryManager.getTrashCount();
+        btnRecycleBin.setText(n > 0 ? "🗑 回收站 " + n : "🗑 回收站");
+    }
+
     private void refreshHistoryDrawer() {
         if (historyController == null || chatHistoryManager == null) return;
+        updateRecycleBinLabel();
         new Thread(() -> {
             List<ConversationSession> sessions = chatHistoryManager.listConversationSessions();
             // 各会话待办任务数（活跃：进行中/待办），供条目 "N 待办" 角标；后台线程读快照

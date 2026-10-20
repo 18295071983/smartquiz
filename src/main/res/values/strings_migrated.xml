@@ -196,7 +196,7 @@
     <string name="h_c8e5b7a6">附件解析失败: </string>
     <string name="h_cbae4f39">✅ AI摘要生成完成</string>
     <string name="h_2e5be76a">清空所有历史</string>
-    <string name="h_fadd8853">将删除全部对话记录（含所有会话），此操作不可撤销。确定继续吗？</string>
+    <string name="h_fadd8853">将把全部对话记录（含所有会话）移入回收站，可随时恢复。确定继续吗？</string>
     <string name="h_288f0c40">清空</string>
     <string name="h_3683077f">已清空</string>
     <string name="h_15261c3c">AI正在生成中，请先停止生成再切换模式</string>

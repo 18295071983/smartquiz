@@ -696,6 +696,155 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         }
     }
 
+    // ==================== 历史回收站 ====================
+
+    /** 回收站条目：文件 + 列表展示需要的元数据 */
+    public static class TrashEntry {
+        public File file;
+        public String sessionId;
+        public String title;
+        public int messageCount;
+        /** 删除时间（取自文件名前缀，取不到时用文件 mtime） */
+        public long deletedAt;
+        public long updatedAt;
+    }
+
+    public File getTrashDir() {
+        return new File(context.getFilesDir(), "conversations_trash");
+    }
+
+    /** 回收站里的会话数量（给入口显示数量） */
+    public int getTrashCount() {
+        File[] files = getTrashDir().listFiles((d, name) -> name.endsWith(".json"));
+        return files == null ? 0 : files.length;
+    }
+
+    /** 列出回收站会话，按删除时间倒序（最近删除的在前） */
+    public List<TrashEntry> listTrashedSessions() {
+        List<TrashEntry> out = new ArrayList<>();
+        File[] files = getTrashDir().listFiles((d, name) -> name.endsWith(".json"));
+        if (files == null) {
+            return out;
+        }
+        for (File f : files) {
+            TrashEntry e = new TrashEntry();
+            e.file = f;
+            e.deletedAt = parseTrashTimestamp(f.getName(), f.lastModified());
+            String name = f.getName();
+            int us = name.indexOf('_');
+            String idPart = us >= 0 ? name.substring(us + 1) : name;
+            e.sessionId = idPart.endsWith(".json") ? idPart.substring(0, idPart.length() - 5) : idPart;
+            try (FileReader reader = new FileReader(f)) {
+                ConversationSession s = gson.fromJson(reader, ConversationSession.class);
+                if (s != null) {
+                    e.title = s.title;
+                    e.messageCount = s.messageCount > 0
+                            ? s.messageCount : (s.messages == null ? 0 : s.messages.size());
+                    e.updatedAt = s.updatedAt;
+                    if (s.id != null && !s.id.isEmpty()) {
+                        e.sessionId = s.id;
+                    }
+                }
+            } catch (Exception ignore) {
+                // 单个坏文件不影响整个列表
+            }
+            if (e.title == null || e.title.isEmpty()) {
+                e.title = e.sessionId;
+            }
+            out.add(e);
+        }
+        out.sort((a, b) -> Long.compare(b.deletedAt, a.deletedAt));
+        return out;
+    }
+
+    /**
+     * 恢复一个回收站会话：文件移回 conversations/。
+     * 若同 id 会话已存在（重复恢复），换一个新 id 写回，不覆盖现有会话。
+     *
+     * @return 恢复后的会话 id；失败返回 null
+     */
+    public String restoreTrashedSession(TrashEntry entry) {
+        if (entry == null || entry.file == null || !entry.file.exists()) {
+            return null;
+        }
+        try {
+            File dir = getConversationsDir();
+            if (!dir.exists() && !dir.mkdirs()) {
+                return null;
+            }
+            String id = entry.sessionId;
+            File target = new File(dir, id + ".json");
+            if (!target.exists()) {
+                if (!entry.file.renameTo(target)) {
+                    copyFile(entry.file, target);
+                    entry.file.delete();
+                }
+                return id;
+            }
+            String text = readText(entry.file);
+            org.json.JSONObject o = new org.json.JSONObject(text);
+            id = java.util.UUID.randomUUID().toString();
+            o.put("id", id);
+            File renamed = new File(dir, id + ".json");
+            try (java.io.FileWriter w = new java.io.FileWriter(renamed)) {
+                w.write(o.toString());
+            }
+            entry.file.delete();
+            return id;
+        } catch (Exception e) {
+            android.util.Log.w("ChatHistoryManager", "restore trashed session failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 彻底删除一个回收站会话 */
+    public boolean deleteTrashedSession(TrashEntry entry) {
+        return entry != null && entry.file != null && entry.file.delete();
+    }
+
+    /** 清空回收站（不可恢复） */
+    public int clearTrash() {
+        File[] files = getTrashDir().listFiles((d, name) -> name.endsWith(".json"));
+        int removed = 0;
+        if (files != null) {
+            for (File f : files) {
+                if (f.delete()) {
+                    removed++;
+                }
+            }
+        }
+        return removed;
+    }
+
+    /** 文件名前缀 yyyyMMdd_HHmmss → 毫秒时间戳；解析失败退回文件 mtime */
+    private static long parseTrashTimestamp(String name, long fallback) {
+        try {
+            if (name != null && name.length() >= 15 && name.charAt(8) == '_') {
+                java.text.SimpleDateFormat fmt =
+                        new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US);
+                java.util.Date d = fmt.parse(name.substring(0, 15));
+                if (d != null) {
+                    return d.getTime();
+                }
+            }
+        } catch (Exception ignore) {
+        }
+        return fallback;
+    }
+
+    private static String readText(File f) throws java.io.IOException {
+        StringBuilder sb = new StringBuilder();
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                new java.io.FileInputStream(f), java.nio.charset.StandardCharsets.UTF_8))) {
+            char[] buf = new char[8192];
+            int n;
+            while ((n = r.read(buf)) != -1) {
+                sb.append(buf, 0, n);
+            }
+        }
+        return sb.toString();
+    }
+
     /**
      * 将当前聊天历史保存为一个会话（用于自动保存）。
      * 如果 existingSessionId 不为空，则更新该会话；否则创建新会话。

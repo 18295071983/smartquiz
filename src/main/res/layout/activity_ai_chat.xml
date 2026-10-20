@@ -679,17 +679,40 @@
                 android:padding="@dimen/space_8"
                 android:clipToPadding="false"/>
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_clear_all_history"
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="@dimen/size_44"
-                android:layout_margin="@dimen/space_12"
-                android:text="清空所有历史"
-                android:textSize="@dimen/text_14"
-                app:backgroundTint="@color/error"
-                android:textColor="@color/on_error"
-                app:cornerRadius="@dimen/radius_22"
-                android:textAllCaps="false"/>
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginHorizontal="@dimen/space_12"
+                android:layout_marginTop="@dimen/space_12"
+                android:layout_marginBottom="@dimen/space_12">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_recycle_bin"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="@dimen/space_8"
+                    android:text="🗑 回收站"
+                    android:textSize="@dimen/text_14"
+                    app:backgroundTint="?attr/colorSurfaceVariant"
+                    android:textColor="?attr/colorControlText"
+                    app:cornerRadius="@dimen/radius_22"
+                    android:textAllCaps="false"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_clear_all_history"
+                    android:layout_width="@dimen/size_0"
+                    android:layout_height="@dimen/size_44"
+                    android:layout_weight="1"
+                    android:text="清空所有历史"
+                    android:textSize="@dimen/text_14"
+                    app:backgroundTint="@color/error"
+                    android:textColor="@color/on_error"
+                    app:cornerRadius="@dimen/radius_22"
+                    android:textAllCaps="false"/>
+            </LinearLayout>
         </LinearLayout>
     </FrameLayout>
 
