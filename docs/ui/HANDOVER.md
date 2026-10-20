@@ -1260,6 +1260,14 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    带来的回流风险。
 4. **验证**：486 单测全绿，装机。
 
+### 4.48 架构升级交接（2026-10-21 凌晨）
+
+1. 新增 `docs/ui/parts-architecture-upgrade.md`：Parts 渲染器目标架构、
+   `PartRenderer`/Registry/`TurnPartsHost` 草案、P0–P5 迁移、测试矩阵、风险/回滚。
+2. 新增 `docs/ui/qcoder-handoff.md`：qcoder 交接卡，第一任务为
+   `AssistantTurn.Part` 稳定 id + fingerprint，禁止裸 `for(Part)` 全量重建。
+3. 当前只写文档，UI 代码未动；基线 486 单测全绿。
+
 ---
 
 ## 5. 关键文件 / 改动地图

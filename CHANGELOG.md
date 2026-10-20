@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 架构升级交接文档：Chat Parts 渲染器
+
+- 新增 `docs/ui/parts-architecture-upgrade.md`：
+  - 当前 parts/投影双路径现状；
+  - 目标 PartRendererRegistry + 稳定 id + diff/复用；
+  - P0–P5 迁移阶段、接口草案、测试矩阵、风险/回滚；
+  - qcoder 开工清单与 Definition of Done。
+- 新增 `docs/ui/qcoder-handoff.md`：交接卡与第一任务。
+- 本阶段只写文档，不改 UI 代码；基线 486 单测全绿。
+
 ## [2026-10-21 凌晨] UI 绑定前从 parts 重算投影
 
 - `ChatAdapter.bindMessageContent` 对完成态且存在 `assistantTurn` 的消息，先执行
