@@ -1386,7 +1386,11 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. `AIMessageViewHolder` 加 partsHost/partsContainer/partsBinder 三字段（flag=false 恒 null，未动构造器）。审批回调暂空（无生产者）。
 4. **未做，需真机（用户一次性测）**：flag=true 视觉一致 / 并行同名工具不串卡 / 滚动回收旋转 / contentHost 内 legacy 子 View 与
    partsContainer 顺序 / data 卡 PEEK/HIDDEN 档位归属（parts 路径未复刻 bindComponents 语义）。
-5. **验证**：`assembleDebug` 通过；全量 542 全绿、无回归；flag=false 现网不变。
+5. **自审修复**（接线后复查，非设备相关）：① 工具卡 result 丢——`ToolCallPartRenderer.bindView` 改 `mergeCall` 增量合并保留 result
+   （result 在独立 tool_result part，整体重建会在 call 后续重绑时抹掉结果）+ 回归单测；② 流式→完成切换：parts 接管时
+   `contentHost.removeAllViews()` 只留 partsContainer + 清 `componentContainer`，去掉旧渲染残留子 View；③ 核实
+   `AIChatActivity` 完成时 `msg.assistantTurn = fromMessage(msg)`（:6699/:6903），gate 非死代码。
+6. **验证**：`assembleDebug` 通过；全量 543 全绿、无回归；flag=false 现网不变。
 
 ---
 

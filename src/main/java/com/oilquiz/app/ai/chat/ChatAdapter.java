@@ -3535,22 +3535,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.partsHost.setAvailableWidth(availableWidth);
         holder.partsHost.setWebMarkdownEnabled(webMarkdownEnabled);
 
-        // 隐藏旧正文视图（messageText/markdownView 仍留 contentHost，但 GONE，不与 parts 树并存）。
-        if (holder.messageText != null) holder.messageText.setVisibility(View.GONE);
-        if (holder.markdownView != null) holder.markdownView.setVisibility(View.GONE);
-
-        // parts 引擎独占容器：首次建，之后确保仍挂在 contentHost 上
-        //（旧路径 ensurePlainTextHostViews 的 removeAllViews 会把它从 contentHost 摘掉，
-        //  容器实例与引擎内部视图仍存活，这里回接即可恢复复用）。
+        // parts 引擎独占容器：holder 从"流式(旧路径)"切到"完成(parts)"时，旧路径可能已往 contentHost
+        // 塞过正文/组件子 View。这里让 contentHost 只保留 partsContainer（其余子 View 摘掉，messageText/
+        // markdownView 由旧路径的 ensurePlainTextHostViews 在需要时再挂回），避免旧内容残留在 parts 树旁。
         if (holder.partsContainer == null) {
             holder.partsContainer = new LinearLayout(ctx);
             holder.partsContainer.setOrientation(LinearLayout.VERTICAL);
             holder.partsContainer.setLayoutParams(new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
-        if (holder.partsContainer.getParent() != holder.contentHost) {
-            holder.contentHost.addView(holder.partsContainer);
+        if (holder.partsContainer.getParent() instanceof ViewGroup) {
+            ((ViewGroup) holder.partsContainer.getParent()).removeView(holder.partsContainer);
         }
+        holder.contentHost.removeAllViews();
+        holder.contentHost.addView(holder.partsContainer);
+        // 组件容器也清空：parts 模式不再走 bindComponents，残留的是上一轮旧渲染。
+        if (holder.componentContainer != null) {
+            holder.componentContainer.removeAllViews();
+        }
+
         if (holder.partsBinder == null) {
             holder.partsBinder = new com.oilquiz.app.ai.chat.parts.PartsTurnBinder(
                     holder.partsContainer,

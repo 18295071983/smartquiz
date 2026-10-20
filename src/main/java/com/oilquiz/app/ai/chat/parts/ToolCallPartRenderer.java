@@ -63,7 +63,14 @@ public final class ToolCallPartRenderer implements PartRenderer {
         if (!(view instanceof ViewGroup)) {
             return;
         }
-        JSONObject props = ToolCardProps.fromCall(part);
+        // 增量合并进 anchor 视图已有的 props，而不是从 call 部分整个重建：
+        // canonical 模型里 result 挂在独立的 tool_result part（call.result 恒空），若整体重建会
+        // 把已合并的 result 抹掉——典型场景是结果回来后工具状态再 running→success 触发本 part 重绑，
+        // 而 tool_result 指纹没变被引擎跳过 → 卡片结果丢失。故只覆盖调用字段、保留已有 result。
+        JSONObject props = view.getTag() instanceof JSONObject
+                ? (JSONObject) view.getTag()
+                : new JSONObject();
+        ToolCardProps.mergeCall(props, part);
         view.setTag(props);
         View card = factory.create(host.context(), ComponentData.of(ToolCardProps.TYPE, props));
         ViewGroup group = (ViewGroup) view;
@@ -127,6 +134,24 @@ public final class ToolCallPartRenderer implements PartRenderer {
             } catch (JSONException ignore) {
             }
             return o;
+        }
+
+        /**
+         * 增量合并调用字段到既有 props：更新 toolCallId/toolName/args/status，
+         * 但 <b>result 只在 call 自带非空时才覆盖</b>——否则会用空的 call.result 抹掉
+         * 已由 {@link ToolResultPartRenderer} 合并进去的 result（见 bindView 注释）。
+         */
+        static void mergeCall(JSONObject props, AssistantTurn.Part call) {
+            try {
+                props.put("toolCallId", nz(call.toolCallId));
+                props.put("toolName", nz(call.toolName));
+                props.put("args", nz(call.args));
+                props.put("status", normalizeStatus(call.status));
+                if (call.result != null && !call.result.isEmpty()) {
+                    props.put("result", call.result);
+                }
+            } catch (JSONException ignore) {
+            }
         }
 
         /** 把 result/status 合进已有 props（tool_result 挂回工具卡时用）。 */

@@ -17,7 +17,15 @@ flag=false（默认）→ 新增分支根本不执行，旧路径字节级不变
 均需真机验证（用户一次性测）。data 卡"挂所属工具卡下 + PEEK/HIDDEN 档位"归属仍按旧 bindComponents 语义，未在 parts 路径复刻。
 `bindComponents` 未改（parts 模式直接 return，不再调它，故天然不双渲 tool_call）。
 
-验证：`assembleDebug` 通过；全量 `--offline` 542 全绿（0/0/0）无回归。flag=false 现网不变。
+自审修复（接线后复查代码，非设备相关）：
+- **工具卡丢结果 bug**：canonical 里 result 挂在独立 tool_result part（`call.result` 恒空）。原 `ToolCallPartRenderer.bindView`
+  每次从 call 整体重建 props → 若结果回来后工具状态又 running→success 触发 call 重绑、tool_result 指纹没变被跳过 → 卡片结果被抹掉。
+  改 `ToolCardProps.mergeCall`：增量合并、call.result 空时保留既有 result。加回归单测。
+- **流式→完成 切换残留**：原只 GONE 掉 messageText/markdownView，未清 contentHost/componentContainer 里旧渲染残留子 View。
+  改为 parts 接管时 contentHost 只留 partsContainer + 清 componentContainer。
+- 核实纠正：`AIChatActivity` 完成时确实 `msg.assistantTurn = fromMessage(msg)`（:6699/:6903），gate 非死代码。
+
+验证：`assembleDebug` 通过；全量 `--offline` **543** 全绿（0/0/0）无回归。flag=false 现网不变。
 
 ## [2026-10-21] parts P3a：消费端机器 ChatPartsHost + PartsTurnBinder（仍未接 ChatAdapter）
 

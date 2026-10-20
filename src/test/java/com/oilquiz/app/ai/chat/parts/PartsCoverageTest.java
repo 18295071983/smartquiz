@@ -178,6 +178,29 @@ public class PartsCoverageTest {
         assertEquals("同内容不重复渲染卡片", created, factory.created.size());
     }
 
+    @Test
+    public void toolCardPreservesResultWhenCallRebinds() {
+        FakeFactory factory = new FakeFactory();
+        ToolCallPartRenderer call = new ToolCallPartRenderer(factory);
+        TurnPartsHost host = hostWith(call, new ToolResultPartRenderer(call.componentFactory()));
+
+        AssistantTurn.Part c1 = AssistantTurn.Part.toolCall("c1", "c1", "weather", "{}", "running", 1L);
+        AssistantTurn.Part r1 = new AssistantTurn.Part();
+        r1.id = "c1:result";
+        r1.type = AssistantTurn.Part.TYPE_TOOL_RESULT;
+        r1.toolCallId = "c1";
+        r1.result = "晴天";
+        host.bind(Arrays.asList(c1, r1));
+
+        // 结果回来后，工具状态再 running→success 触发 call 重绑（result part 指纹没变会被跳过）。
+        AssistantTurn.Part c1b = AssistantTurn.Part.toolCall("c1", "c1", "weather", "{}", "success", 1L);
+        host.bind(Arrays.asList(c1b, r1));
+
+        org.json.JSONObject last = factory.created.get(factory.created.size() - 1);
+        assertEquals("call 重绑不能抹掉已合并的 result", "晴天", last.optString("result"));
+        assertEquals("success", last.optString("status"));
+    }
+
     /** 假组件工厂：在每次 create 时快照 props，返回空壳视图，不触真实 ToolCallCardView。 */
     private static final class FakeFactory implements ToolCallPartRenderer.ComponentFactory {
         final java.util.List<org.json.JSONObject> created = new ArrayList<>();
