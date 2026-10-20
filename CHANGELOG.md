@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-10-21 凌晨] AssistantTurn 三期：content/bounds 改为 parts 派生
+
+- 新增 `AssistantTurn.applyToMessage(ChatMessage)`：
+  - 按 parts 中 TEXT 顺序拼 `content`；
+  - 按 TOOL_CALL 位置生成 `contentRoundBounds` / `contentRoundToolIds`；
+  - 不再依赖 `onToolCallStart` 手工记录的最终 bounds（实时预览仍可临时记，提交时覆盖）。
+- 完成时先 `fromMessage()` 建 canonical turn，再 `applyToMessage()` 回写兼容字段；
+  `content` 不再是独立权威，而是 parts 的投影。
+- UI 仍读 `content + bounds`，但这两者现在由 parts 派生，属于兼容层；
+  旧数据/流式预览继续可用。
+- 验证：新增 `partsDeriveContentAndBounds`；全量 **486** 单测全绿，已装机。
+
 ## [2026-10-21 凌晨] AssistantTurn 二期：在线逐轮快照 + 工具 parts
 
 - `AgentCallback` 新增 `onRoundComplete(iteration, fullText)`；`OnlineAgentEngine`

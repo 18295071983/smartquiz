@@ -43,6 +43,25 @@ public class AssistantTurnTest {
     }
 
     @Test
+    public void partsDeriveContentAndBounds() {
+        ChatMessage msg = ChatMessage.createAIMessage("a3", "old", 1L);
+        msg.turnId = "T4";
+        msg.roundSnapshots = new ArrayList<>();
+        ChatMessage.RoundSnapshot r1 = new ChatMessage.RoundSnapshot(1, "第一轮正文", "", 11L);
+        r1.toolCallIds = new ArrayList<>(Arrays.asList("call_9"));
+        msg.roundSnapshots.add(r1);
+        msg.roundSnapshots.add(new ChatMessage.RoundSnapshot(2, "第二轮最终", "", 12L));
+
+        AssistantTurn turn = AssistantTurn.fromMessage(msg);
+        turn.applyToMessage(msg);
+
+        assertEquals("第一轮正文\n\n第二轮最终", msg.content);
+        assertEquals(1, msg.contentRoundBounds.size());
+        assertEquals(Integer.valueOf("第一轮正文".length()), msg.contentRoundBounds.get(0));
+        assertEquals("call_9", msg.contentRoundToolIds.get(0));
+    }
+
+    @Test
     public void legacyContentFallsBackToSingleCall() {
         ChatMessage msg = ChatMessage.createAIMessage("a2", "老消息", 1L);
         msg.turnId = "T2";

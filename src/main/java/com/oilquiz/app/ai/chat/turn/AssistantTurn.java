@@ -219,6 +219,37 @@ public class AssistantTurn {
         }
     }
 
+    /**
+     * 把 canonical parts 投影回兼容字段：
+     * content / contentRoundBounds / contentRoundToolIds。
+     *
+     * <p>这是“移除手工 bounds”的关键：UI 仍按 content+bounds 渲染，但 bounds 不再由
+     * onToolCallStart 手写，而是由 parts 顺序在提交时统一派生。</p>
+     */
+    public void applyToMessage(ChatMessage msg) {
+        if (msg == null) return;
+        StringBuilder sb = new StringBuilder();
+        java.util.List<Integer> bounds = new java.util.ArrayList<>();
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        for (Part p : parts) {
+            if (p == null) continue;
+            if (Part.TYPE_TEXT.equals(p.type)) {
+                if (p.text == null || p.text.isEmpty()) continue;
+                if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') {
+                    sb.append("\n\n");
+                }
+                sb.append(p.text);
+            } else if (Part.TYPE_TOOL_CALL.equals(p.type)) {
+                bounds.add(sb.length());
+                ids.add(p.toolCallId != null ? p.toolCallId : "");
+            }
+        }
+        if (sb.length() == 0) return;
+        msg.content = sb.toString();
+        msg.contentRoundBounds = bounds;
+        msg.contentRoundToolIds = ids;
+    }
+
     /** 兼容投影：按 parts 顺序拼出正文（不含 tool 参数/结果）。 */
     public String deriveText() {
         StringBuilder sb = new StringBuilder();

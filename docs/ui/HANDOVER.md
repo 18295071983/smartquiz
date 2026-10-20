@@ -1241,6 +1241,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. 仍未做：content 派生、UI parts 渲染、移除 contentRoundBounds。
 4. **验证**：485 单测全绿，装机。
 
+### 4.46 AssistantTurn 三期：content/bounds 派生（2026-10-21 凌晨）
+
+1. `AssistantTurn.applyToMessage`：按 parts TEXT 拼 content，按 TOOL_CALL 位置生成
+   `contentRoundBounds`/`contentRoundToolIds`。
+2. 完成时 `fromMessage` → `applyToMessage`，content 成为 parts 投影；实时预览的
+   bounds 只是临时值，提交时覆盖。
+3. UI 仍读 content+bounds，但不再手写最终位置；旧数据/流式继续兼容。
+4. **验证**：486 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图
