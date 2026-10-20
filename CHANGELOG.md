@@ -1,5 +1,31 @@
 # 变更日志
 
+## [2026-10-20 深夜·真机首验] S5 包装上：活动时间线生效；工具结果预览改取 formatted_result
+
+### 查到的事实
+
+- 23:42 装机成功（MIUI 第一次 `INSTALL_FAILED_USER_RESTRICTED`，原样重试一次即通过，不需要放开权限）。
+- 进入聊天页：v2 顶栏、无 AI 气泡、三图标操作段（复制/重新生成/消息操作）、状态行、
+  输入胶囊都在；旧数据里没有 `thinkingRounds`/`tool_call` 的消息按设计退回汇总卡。
+- 滚动触发一次 rebind 后活动区出现：**"已深度思考 4.6s · 2 步 · 1 个工具"**；
+  点开后顺序为 **思考 2.1s → 天气查询（已完成）→ 思考 2.5s**，与 `contentRoundBounds` 一致。
+- 点工具行展开，预览显示的是 `result` 里的**原始 JSON**（`{"formatted_result":...}`），
+  不是给人看的 `formatted_result` 文本——S2 的工具行没做这层解包。
+- 旧会话里独立的 `AGENT_SUMMARY` 消息仍以 MetricCard + emoji 显示（历史数据行，本轮未动）。
+
+### 由此改掉的事
+
+- `ActivityTimeline.formatToolResult`：工具结果优先取包装 JSON 的
+  `formatted_result`，其次 `content`/`text`，解析失败原样返回；工具行预览不再是一坨转义报文。
+- 新增 2 条单测：包装 JSON 取 formatted_result、纯文本结果原样透传。
+
+### 验证
+
+- 全量 `testDebugUnitTest` = **456 tests / 0 skipped / 0 failures / 0 errors**；重新出包并二次装机成功。
+- 真机已确认活动区 header 与行顺序；**格式化后的工具预览还没有拿到稳定截图**
+  （点击后列表会滚动，uiautomator 截图时目标已移出视口），属下一步复看项。
+- 未验：三图标/更多面板的点击、暂停/单步/回退新配色、深色档、流式展开。
+
 ## [2026-10-20 深夜] 合并 S5：删掉 v1 消息层、旧布局/资源与界面开关，只剩一套渲染
 
 ### 查到的事实

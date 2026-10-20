@@ -167,8 +167,9 @@ public final class ActivityTimeline {
         String anchor = (callId != null && !callId.isEmpty())
                 ? "tool:" + callId : "tool#idx" + index;
         String title = ToolMetaRegistry.displayName(name);
+        String body = result.isEmpty() ? null : formatToolResult(result);
         Item item = new Item(Kind.TOOL, anchor, title, oneLineBrief(args),
-                result.isEmpty() ? null : result, parseStatus(status), duration,
+                body, parseStatus(status), duration,
                 callId == null || callId.isEmpty() ? null : callId);
         put(items, indexById, item);
     }
@@ -318,6 +319,31 @@ public final class ActivityTimeline {
         String s = sb.toString();
         if (s.length() > maxChars) s = s.substring(0, maxChars);
         return s;
+    }
+
+    /**
+     * 工具结果的展示文本：优先取工具包装 JSON 里的 {@code formatted_result}（天气等工具
+     * 真正给人看的那段），其次 content/text；解析不了原样返回。
+     *
+     * <p>tool_call 组件的 {@code result} 往往是整个原始 JSON（含 24 小时预报、空气质量、
+     * 预警全文），直接塞进预览就是一堆转义字符——活动区的行应该显示"结果"而不是"报文"。</p>
+     */
+    static String formatToolResult(String result) {
+        if (result == null || result.isEmpty()) return result;
+        String t = result.trim();
+        if (!t.startsWith("{")) return result;
+        try {
+            JSONObject o = new JSONObject(t);
+            String f = o.optString("formatted_result", "");
+            if (!f.isEmpty()) return f;
+            String c = o.optString("content", "");
+            if (!c.isEmpty()) return c;
+            String text = o.optString("text", "");
+            if (!text.isEmpty()) return text;
+        } catch (Exception ignored) {
+            // 不是合法 JSON（有些工具直接返回纯文本），原样展示
+        }
+        return result;
     }
 
     /** 工具参数摘要：压成一行、限长 60（与 ChatAdapter#oneLineBrief 同口径）。 */

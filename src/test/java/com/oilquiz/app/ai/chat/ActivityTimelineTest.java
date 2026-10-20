@@ -154,6 +154,40 @@ public class ActivityTimelineTest {
     }
 
     @Test
+    public void toolResultPrefersFormattedResultOverRawJson() throws Exception {
+        ChatMessage m = aiMessage();
+        JSONObject props = new JSONObject();
+        props.put("toolCallId", "C1");
+        props.put("toolName", "ai_weather");
+        props.put("status", "success");
+        props.put("result", new JSONObject()
+                .put("formatted_result", "天气信息:\n城市: 五台县\n天气: 多云")
+                .put("status", "success")
+                .toString());
+        m.components = new ArrayList<>();
+        m.components.add(ComponentData.of("tool_call", props));
+
+        ActivityTimeline.Item item = ActivityTimeline.build(m).items.get(0);
+
+        assertTrue(item.body.startsWith("天气信息:"));
+        assertFalse(item.body.contains("formatted_result"));
+    }
+
+    @Test
+    public void plainTextToolResultPassesThrough() throws Exception {
+        ChatMessage m = aiMessage();
+        JSONObject props = new JSONObject();
+        props.put("toolCallId", "C2");
+        props.put("toolName", "calculator");
+        props.put("status", "completed");
+        props.put("result", "42");
+        m.components = new ArrayList<>();
+        m.components.add(ComponentData.of("tool_call", props));
+
+        assertEquals("42", ActivityTimeline.build(m).items.get(0).body);
+    }
+
+    @Test
     public void oldThinkingWithoutIdGetsStableFallbackAnchor() {
         ChatMessage m = aiMessage();
         m.thinkingRounds = new ArrayList<>(Arrays.asList("只有内容没有 id 的旧数据"));
