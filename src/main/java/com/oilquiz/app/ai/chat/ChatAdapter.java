@@ -3497,6 +3497,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void bindMessageContent(AIMessageViewHolder holder, ChatMessage message, int availableWidth) {
         Context ctx = holder.itemView.getContext();
+        // canonical parts → 兼容投影：UI 在每次完成态绑定前都用 parts 重算
+        // content/bounds/toolIds，避免历史里旧的投影字段与 AssistantTurn 漂移。
+        if (message.isCompleted() && message.assistantTurn != null) {
+            message.assistantTurn.applyToMessage(message);
+        }
         // 按轮次组装：存在工具轮次边界时，思考块+正文段+工具卡片按轮次交替渲染
         // （轮1思考+正文 → 工具卡片 → 轮2思考+正文 → …）；单轮无边界走现有逻辑
         if (message.contentRoundBounds != null && !message.contentRoundBounds.isEmpty()) {

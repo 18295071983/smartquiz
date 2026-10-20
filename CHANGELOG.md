@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-10-21 凌晨] UI 绑定前从 parts 重算投影
+
+- `ChatAdapter.bindMessageContent` 对完成态且存在 `assistantTurn` 的消息，先执行
+  `assistantTurn.applyToMessage(message)`，再进入现有渲染。
+- 因此 UI 每次绑定看到的 `content/bounds/toolIds` 都是 parts 的即时投影，
+  历史里旧的投影字段不会和 canonical turn 漂移。
+- 视觉树仍复用现有渲染器（性能/回流风险不在一轮内重写）；数据到 UI 的入口
+  已经统一走 parts。
+- 验证：486 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] AssistantTurn 三期：content/bounds 改为 parts 派生
 
 - 新增 `AssistantTurn.applyToMessage(ChatMessage)`：

@@ -1250,6 +1250,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. UI 仍读 content+bounds，但不再手写最终位置；旧数据/流式继续兼容。
 4. **验证**：486 单测全绿，装机。
 
+### 4.47 UI 绑定前重算 parts 投影（2026-10-21 凌晨）
+
+1. `ChatAdapter.bindMessageContent` 对完成态且有 `assistantTurn` 的消息先
+   `applyToMessage`，再进入现有渲染。
+2. UI 每次绑定拿到的 content/bounds/toolIds 都是 parts 的即时投影，历史旧字段
+   不会与 canonical turn 漂移。
+3. 视觉树仍复用现有渲染器，避免一次性重写 `renderRoundAssembled`/`bindComponents`
+   带来的回流风险。
+4. **验证**：486 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图
