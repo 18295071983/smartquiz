@@ -1365,6 +1365,17 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. 未接 ChatAdapter、flag 默认 false；产物卡"挂所属工具卡下"与 PEEK/HIDDEN 档位归属留 P3。
 6. **验证**：新增 3 条，全量 537 全绿、无回归（fromMessage 在用路径，特意跑全量）。
 
+### 4.57 parts P3a：消费端机器（未接 ChatAdapter）（2026-10-21）
+
+1. P3 拆两步，本次只做不碰在用绑定、JVM 可验的部分；flag=false 时 ChatAdapter 不构造这些类 → 现网不变。
+2. `ChatPartsHost implements PartHost`（放 `com.oilquiz.app.ai.chat` 包内以复用 ChatAdapter 包级静态 `renderInto`）：
+   renderMarkdown→renderInto、dark/markdownThemeVars→ThemeColors、审批/尺寸经 `Callback`。按 holder 复用刷新。
+3. `PartsTurnBinder`：封装 `TurnPartsHost`，输入 (容器, registry, host) + `bind(ChatMessage)`；
+   parts 源优先 `message.assistantTurn` 否则 `fromMessage`；`clear()` 供 holder 回收。仅依赖抽象，可脱 ChatAdapter 测。
+4. **P3b（待做，需手机）**：在 `ChatAdapter.bindMessageContent` 的 `isCompleted && assistantTurn!=null` seam(:3510)
+   加 flag 门控改走 binder + `bindComponents` 跳 tool_call + holder 生命周期 + 真机视觉/不串卡验证。
+5. **验证**：新增 5 条，全量 542 全绿、无回归。
+
 ---
 
 ## 5. 关键文件 / 改动地图

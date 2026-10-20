@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-10-21] parts P3a：消费端机器 ChatPartsHost + PartsTurnBinder（仍未接 ChatAdapter）
+
+P3 按风险拆两步；本次只做**可 JVM 验、且不碰在用绑定路径**的消费端机器，flag=false 时 ChatAdapter 根本不构造它们 → 现网字节级不变。
+
+- `ChatPartsHost implements PartHost`（`com.oilquiz.app.ai.chat` 包内，为复用 ChatAdapter 包级静态 `renderInto`）：
+  `renderMarkdown→renderInto`（复用后台 Markwon+链接+图片）、`dark/markdownThemeVars→ThemeColors`（同 buildMarkdownThemeVars 口径）、
+  审批决策/尺寸变化经 `Callback` 回投宿主。实例按 holder 复用（setMessage/Width/webEnabled 每绑刷新）。
+- `PartsTurnBinder`：封装 `TurnPartsHost`，"给一条消息+容器+宿主"即可渲染；parts 源优先 `message.assistantTurn`，缺则 `fromMessage` 重建；
+  持有引擎的 viewById+fingerprint 复用，holder 回收调 `clear()`。只依赖抽象，可脱 ChatAdapter 单测。
+
+P3b（未做，需手机）：在 `bindMessageContent` 的 `isCompleted && assistantTurn!=null` seam（ChatAdapter:3510）加 flag 门控改走 binder + `bindComponents` 跳 tool_call + holder 生命周期 + 真机视觉一致/不串卡验证。
+
+测试：+5（PartsTurnBinder 逐 part 一次·复用·切消息清空·clear；ChatPartsHost 访问器·回调路由），全量 `--offline` **542** 全绿（0/0/0）。
+
 ## [2026-10-21] parts P2.7：data/产物 part（有真实来源的一类）
 
 数据审计后定的取舍：#2 执行结果块（ToolCallInfo 只有 result 串，无 stdout/stderr/exit 分字段）与
