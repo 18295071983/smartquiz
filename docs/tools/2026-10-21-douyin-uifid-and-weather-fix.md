@@ -99,6 +99,8 @@
 历史抽屉底部改为两个按钮：`🗑 回收站`（有内容时显示数量角标）+ `清空所有历史`。
 
 - 列表：`ChatHistoryManager.listTrashedSessions()` 读取回收目录，展示标题、消息数、删除时间，按删除时间倒序。
+- **长按删除**：历史条目长按 →「删除」也走 `trashConversationSession()`（确认框文案同步改为「删除后可在回收站里恢复」），
+  不再直接 `deleteConversationSession()` 硬删。
 - **恢复**：`restoreTrashedSession()` 把文件移回 `conversations/`；若同 id 会话仍在（重复恢复），换一个新 UUID 写回 JSON 的 `id` 字段，不覆盖现有会话。
 - **彻底删除**：单个删除带二次确认；**清空回收站**同样二次确认。
 - 清空历史的确认文案同步改为「移入回收站，可随时恢复」，不再写「不可撤销」。
@@ -117,6 +119,7 @@
 | `agent/CompositeGuideFlow.java` | 出行准备第 2 步只传坐标 |
 | `ui/activity/AIChatActivity.java` | 引导参数互斥、确认页摘要、聚合工具包选择器、清空确认、历史回收站 |
 | `ai/chat/component/QuickToolChipModule.java` | 聚合工具包 chip 绑定 |
-| `ai/util/ChatHistoryManager.java` | 会话软删除 + 回收站读写（列表/恢复/删除/清空） |
+| `ai/util/ChatHistoryManager.java` | 会话软删除 + 回收站读写（列表/恢复/删除/清空）、单条会话入回收站 |
+| `ai/chat/history/ChatHistoryAdapter.java` | 长按删除确认文案改为「可在回收站恢复」 |
 | `res/layout/activity_ai_chat.xml` | 历史抽屉底部：回收站 + 清空所有历史 |
 | `res/values/strings_migrated.xml` | 清空确认文案改为「移入回收站」 |

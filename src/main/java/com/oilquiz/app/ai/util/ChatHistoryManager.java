@@ -650,27 +650,60 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         if (files == null || files.length == 0) {
             return;
         }
-        File trash = new File(context.getFilesDir(), "conversations_trash");
+        for (File file : files) {
+            moveToTrash(file);
+        }
+        trimTrash(getTrashDir(), 40);
+    }
+
+    /**
+     * 把单个会话移入回收站（历史条目长按删除走这里，与"清空所有历史"同一套回收策略）。
+     *
+     * @return true 表示已移入回收站；false 表示文件不存在或移动失败（原文件保持不动）
+     */
+    public boolean trashConversationSession(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) {
+            return false;
+        }
+        File file = new File(getConversationsDir(), sessionId + ".json");
+        if (!file.exists()) {
+            android.util.Log.w("ChatHistoryManager", "trash: file not found " + file.getAbsolutePath());
+            return false;
+        }
+        boolean moved = moveToTrash(file);
+        android.util.Log.i("ChatHistoryManager", "trash " + sessionId + " -> " + moved
+                + " (" + getTrashDir().getAbsolutePath() + ")");
+        if (moved) {
+            trimTrash(getTrashDir(), 40);
+        }
+        return moved;
+    }
+
+    /**
+     * 会话文件 → 回收目录（文件名加删除时间前缀）。
+     * 回收目录建不出来时才退回直接删除；移动失败保留原文件，避免"既没进回收站又丢了"。
+     */
+    private boolean moveToTrash(File file) {
+        File trash = getTrashDir();
         if (!trash.exists() && !trash.mkdirs()) {
-            for (File file : files) {
-                file.delete();
-            }
-            return;
+            return file.delete();
         }
         String stamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
                 .format(new java.util.Date());
-        for (File file : files) {
-            File target = new File(trash, stamp + "_" + file.getName());
-            if (!file.renameTo(target)) {
-                try {
-                    copyFile(file, target);
-                    file.delete();
-                } catch (Exception ignore) {
-                    // 回收失败也不能留下半截文件，保持原文件不动（宁可不删）
-                }
-            }
+        File target = new File(trash, stamp + "_" + file.getName());
+        if (target.exists()) {
+            // 同一秒清空/删除同名会话：补一个序号，避免 renameTo 在部分文件系统上静默失败
+            target = new File(trash, stamp + "_" + System.nanoTime() + "_" + file.getName());
         }
-        trimTrash(trash, 40);
+        if (file.renameTo(target)) {
+            return true;
+        }
+        try {
+            copyFile(file, target);
+            return file.delete();
+        } catch (Exception ignore) {
+            return false;
+        }
     }
 
     /** 回收目录超过上限时，按最后修改时间从旧到新清理 */

@@ -230,7 +230,7 @@ public class ChatHistoryAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             .setMessage(context.getString(R.string.h_6b3e0657) +
                        context.getString(R.string.h_243e4ec1) + session.title + "\n" +
                        "消息数: " + session.getMessageCount() + "条\n\n" +
-                       "此操作不可撤销")
+                       "删除后可在「🗑 回收站」里恢复")
             .setPositiveButton(context.getString(R.string.h_2f4aaddd), (dialog, which) -> {
                 if (clickListener != null) clickListener.onItemDelete(session);
             })

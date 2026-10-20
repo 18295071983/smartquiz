@@ -8501,7 +8501,8 @@ public class AIChatActivity extends BaseActivity {
         if (session == null || session.id == null) return;
         boolean isCurrent = session.id.equals(currentSessionId);
         new Thread(() -> {
-            chatHistoryManager.deleteConversationSession(session.id);
+            // 长按删除也走回收站：与"清空所有历史"同一套软删除，删错了能从回收站恢复
+            boolean movedToTrash = chatHistoryManager.trashConversationSession(session.id);
             // 本地推理上下文独立化：同步删除该会话的本地推理历史文件（含全部模型隔离文件）
             if (modelBridge != null) modelBridge.deleteLocalHistory(session.id);
             // 会话隔离：删除该会话遗留的任务条目，防幽灵任务占着 task_states.json；
@@ -8520,7 +8521,10 @@ public class AIChatActivity extends BaseActivity {
                     updateEmptyState();
                 }
                 refreshHistoryDrawer();
-                showToast(getString(R.string.h_5cc23262));
+                updateRecycleBinLabel();
+                showToast(movedToTrash
+                        ? "已移入回收站：" + (session.title == null ? "会话" : session.title)
+                        : getString(R.string.h_5cc23262));
             });
         }).start();
     }
