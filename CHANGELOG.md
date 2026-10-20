@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 修发送链路：先发 ID 再上屏，滚动取插入后的最新位置
+
+### 查到的事实
+
+- 正常文字发送走 `addUserMessage`：先 `applyMasterId/applySubId`，再 add + notify，顺序正确。
+- 但附件发送（`sendMessage` 附件分支、`sendMessageWithAttachments`）直接
+  `createUserMessage`，**没有 turnId/subId**，AI 占位消息只能沿用上一轮 `currentTurnId`，
+  造成"AI 回复配到另一对消息"。
+- Agent 路径的 AI 占位消息只写了 `turnId`，**漏了 `subId`**；`addAIMessage`（缓存/远程直连）
+  也完全没绑 turn/sub。
+- `scrollToBottom()` 在 post 之前就取了 `lastPosition`；用户消息先触发滚动、AI 占位消息
+  紧接着插入时，`scrollPending` 去重让滚动仍停在旧位置，随后 AI 消息在下方首次绑定/流式刷新，
+  看起来像"先滑到另一对消息再重新渲染"。
+
+### 由此改掉的事
+
+- 新增 `newUserMessageForTurn()`：所有用户消息（文字/附件/无文字附件）统一先分配
+  `turnId + Tn-U1`，再交给调用方插入列表。
+- `addAIMessage`（缓存/远程直连）补 `turnId + Tn-A1`；Agent 路径 AI 占位消息补 `subId`。
+- 工具/步骤消息的 TOOL 子 id 改为显式 `applySubId(TOOL, currentTurnId)`，
+  不再读隐式 currentMasterId。
+- `scrollToBottom()` 的 `lastPosition` 移到 `post` 内取，确保 AI 占位消息插入后
+  滚动到最新一条，而不是旧末条。
+
+### 验证
+
+- 全量单测 **478 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 未在真机主动发新消息复测滚动（会改用户会话）；ID 链路与滚动时序的修复点已在代码中。
+
 ## [2026-10-21 凌晨] 新增动态工具结果渲染器：任意结果按形状选卡
 
 ### 背景

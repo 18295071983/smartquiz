@@ -1091,6 +1091,18 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. **验证**：`DynamicToolResultRendererTest` 5 条；全量 478 单测全绿，`assembleDebug` 通过。
    设备 `279b6c51` 当前未连接，未安装。
 
+### 4.31 发送链路 ID 先行 + 滚动时序（2026-10-21 凌晨）
+
+1. **附件发送分支**（`sendMessage` 附件、`sendMessageWithAttachments`）原来直接
+   `createUserMessage`，没有 turnId/subId；新增 `newUserMessageForTurn()` 统一先发
+   `applyMasterId/applySubId(USER)`，再插列表。
+2. **AI 侧**：`addAIMessage`（缓存/远程直连）补 `turnId + Tn-A1`；Agent 路径 AI 占位消息
+   原来只写 turnId，补 `subId`。
+3. **TOOL 子 id** 改显式 `applySubId(TOOL, currentTurnId)`，不依赖隐式 currentMasterId。
+4. **滚动**：`scrollToBottom()` 的 `lastPosition` 从 post 之前移到 post 内取；
+   用户消息先触发滚动、AI 占位消息紧接插入时，滚动会落到最新一条而不是旧末条。
+5. **验证**：478 单测全绿，装机；未主动发新消息做真机复测。
+
 ---
 
 ## 5. 关键文件 / 改动地图

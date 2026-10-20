@@ -3927,11 +3927,9 @@ public class AIChatActivity extends BaseActivity {
 
         if (!savedAttachments.isEmpty()) {
             String userContent = message.isEmpty() ? DEFAULT_ATTACHMENT_MESSAGE : message;
-            ChatMessage userMessage = ChatMessage.createUserMessage(userContent, savedAttachments);
-            if (pendingVoiceInputSource) {
-                userMessage.voiceInput = true;
-                pendingVoiceInputSource = false;
-            }
+            ChatMessage userMessage = newUserMessageForTurn(userContent, savedAttachments,
+                    pendingVoiceInputSource);
+            pendingVoiceInputSource = false;
             chatHistory.add(userMessage);
             if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
             scrollToBottom(true);
@@ -5947,6 +5945,8 @@ public class AIChatActivity extends BaseActivity {
                 initialMessage.inferenceProgress = new ChatMessage.InferenceProgress(ChatMessage.InferencePhase.INITIALIZING);
                 initialMessage.status = ChatMessage.MessageStatus.GENERATING;
                 initialMessage.turnId = currentTurnId; // 消息对绑定
+                initialMessage.subId = ChatIdDispatcher.getInstance()
+                        .applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
                 chatHistory.add(initialMessage);
                 currentStreamingMessageIndex = chatHistory.size() - 1;
                 if (chatAdapter != null) chatAdapter.notifyItemInserted(currentStreamingMessageIndex);
@@ -9531,18 +9531,31 @@ public class AIChatActivity extends BaseActivity {
         addUserMessage(message, false);
     }
 
+    /**
+     * 新建一条用户消息并**先**绑定回合/子 id，再交给调用方插列表。
+     * 附件发送、无文字发送也必须走这里，不能各自 createUserMessage 绕过派发器。
+     */
+    private ChatMessage newUserMessageForTurn(String message, List<ChatMessage.Attachment> attachments,
+                                               boolean voiceInput) {
+        currentTurnId = ChatIdDispatcher.getInstance().applyMasterId();
+        ChatMessage msg = (attachments == null || attachments.isEmpty())
+                ? ChatMessage.createUserMessage(java.util.UUID.randomUUID().toString(),
+                        message, System.currentTimeMillis())
+                : ChatMessage.createUserMessage(message, attachments);
+        msg.turnId = currentTurnId;
+        msg.subId = ChatIdDispatcher.getInstance()
+                .applySubId(ChatIdDispatcher.IdType.USER, currentTurnId);
+        msg.voiceInput = voiceInput;
+        return msg;
+    }
+
     private void addUserMessage(String message, boolean voiceInput) {
         if (chatHistory == null) return;
 
         // 隐藏空状态
         updateEmptyState();
-        // 回合 id（消息对绑定）：由 ID 派发器发放主 id，本回合所有 UI 组件消息共享；
-        // 消息自身申请子 id（对内序号）。清空对话时派发器重置（见 clearChat/startNewConversation）
-        currentTurnId = ChatIdDispatcher.getInstance().applyMasterId();
-        ChatMessage msg = ChatMessage.createUserMessage(java.util.UUID.randomUUID().toString(), message, System.currentTimeMillis());
-        msg.turnId = currentTurnId;
-        msg.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.USER);
-        msg.voiceInput = voiceInput;
+        // 回合 id（消息对绑定）：由 ID 派发器发放主 id，本消息与后续 AI/工具消息共享
+        ChatMessage msg = newUserMessageForTurn(message, null, voiceInput);
         chatHistory.add(msg);
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
@@ -9556,7 +9569,13 @@ public class AIChatActivity extends BaseActivity {
     private void addAIMessage(String message) {
         if (chatHistory == null) return;
 
-        chatHistory.add(ChatMessage.createAIMessage(java.util.UUID.randomUUID().toString(), message, System.currentTimeMillis(), null, 0, 0));
+        ChatMessage ai = ChatMessage.createAIMessage(java.util.UUID.randomUUID().toString(),
+                message, System.currentTimeMillis(), null, 0, 0);
+        // 非流式回复（缓存/远程直连）也必须绑定当前回合，否则历史里 AI 与 user 脱对
+        ai.turnId = currentTurnId;
+        ai.subId = ChatIdDispatcher.getInstance()
+                .applySubId(ChatIdDispatcher.IdType.AI, currentTurnId);
+        chatHistory.add(ai);
         if (chatAdapter != null) {
             chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         }
@@ -9652,7 +9671,8 @@ public class AIChatActivity extends BaseActivity {
         ChatMessage msg = ChatMessage.createToolCallMessage(toolCallId, toolName, parameters);
         // 消息对绑定：与本回合 user/AI 消息共享 turnId（跨任务/恢复后配对不丢）+ 子 id（工具类）
         msg.turnId = currentTurnId;
-        msg.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.TOOL);
+        msg.subId = ChatIdDispatcher.getInstance()
+                .applySubId(ChatIdDispatcher.IdType.TOOL, currentTurnId);
         // 标记所属agent组
         if (currentAgentGroupId != null) {
             msg.agentGroupId = currentAgentGroupId;
@@ -9679,7 +9699,8 @@ public class AIChatActivity extends BaseActivity {
         ChatMessage msg = ChatMessage.createAgentStepMessage(stepInfo);
         // 消息对绑定：与本回合 user/AI 消息共享 turnId + 子 id（工具执行步骤类）
         msg.turnId = currentTurnId;
-        msg.subId = ChatIdDispatcher.getInstance().applySubId(ChatIdDispatcher.IdType.TOOL);
+        msg.subId = ChatIdDispatcher.getInstance()
+                .applySubId(ChatIdDispatcher.IdType.TOOL, currentTurnId);
         // 标记所属agent组
         if (currentAgentGroupId != null) {
             msg.agentGroupId = currentAgentGroupId;
@@ -10103,9 +10124,13 @@ public class AIChatActivity extends BaseActivity {
         // 防抖：已有滚动任务在队列中时不再重复 post，避免高频 token 刷新堆积大量滚动任务卡住主线程
         if (!force && scrollPending) return;
         scrollPending = true;
-        int lastPosition = chatAdapter.getItemCount() - 1;
         messageList.post(() -> {
             scrollPending = false;
+            // 关键：lastPosition 必须在 post 执行时取。发送用户消息后 AI 占位消息会紧接着
+            // 插入，若在 post 之前捕获旧 index，滚动会停在"上一对消息"，新 AI 消息在下面
+            // 首次绑定/流式刷新，看起来像"先滑到别处再重新渲染"。
+            int lastPosition = chatAdapter.getItemCount() - 1;
+            if (lastPosition < 0) return;
             boolean isStreaming;
             synchronized (streamingLock) {
                 isStreaming = isInThinking || (currentStreamingContent != null && currentStreamingContent.length() > 0);
@@ -11814,7 +11839,9 @@ public class AIChatActivity extends BaseActivity {
         inputManager.clearAttachments();
 
         String defaultMessage = DEFAULT_ATTACHMENT_MESSAGE;
-        ChatMessage userMessage = ChatMessage.createUserMessage(defaultMessage, savedAttachments);
+        ChatMessage userMessage = newUserMessageForTurn(defaultMessage, savedAttachments,
+                pendingVoiceInputSource);
+        pendingVoiceInputSource = false;
         chatHistory.add(userMessage);
         if (chatAdapter != null) chatAdapter.notifyItemInserted(chatHistory.size() - 1);
         scrollToBottom();
