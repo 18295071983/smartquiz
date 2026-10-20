@@ -195,6 +195,35 @@ public class PartsCoverageTest {
         }
     }
 
+    @Test
+    public void dataPartRendererRendersViaFactory() {
+        FakeFactory factory = new FakeFactory();
+        DataPartRenderer d = new DataPartRenderer(factory);
+        org.json.JSONObject props = new org.json.JSONObject();
+        try {
+            props.put("title", "销量");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        ComponentData cd = ComponentData.of("chart", props);
+        AssistantTurn.Part p = AssistantTurn.Part.data("d1", cd, 1L);
+
+        assertTrue(d.canRender(p));
+        assertFalse(d.canRender(AssistantTurn.Part.text("t", "x", 1L)));
+
+        View view = d.createView(new TestHost(ctx), container);
+        d.bindView(view, p, new TestHost(ctx));
+        assertEquals("组件经工厂出卡一次", 1, factory.created.size());
+        assertEquals("销量", factory.created.get(0).optString("title"));
+        assertEquals("卡挂进宿主容器", 1, ((ViewGroup) view).getChildCount());
+
+        // data==null 的 part 不应崩、不出卡
+        int before = factory.created.size();
+        d.bindView(d.createView(new TestHost(ctx), container),
+                AssistantTurn.Part.data("empty", null, 1L), new TestHost(ctx));
+        assertEquals(before, factory.created.size());
+    }
+
     private TurnPartsHost hostWith(PartRenderer... renderers) {
         PartRendererRegistry reg = new PartRendererRegistry();
         for (PartRenderer r : renderers) reg.register(r);

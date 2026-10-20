@@ -64,6 +64,8 @@ public class AssistantTurn {
         public static final String TYPE_ERROR = "error";
         /** 审批/人机确认块（对齐 AI SDK 的 approval-requested/responded 态）。 */
         public static final String TYPE_APPROVAL = "approval";
+        /** 产物/数据卡块（chart/table/json/文件…，对齐 AI SDK 的 data-* part）。 */
+        public static final String TYPE_DATA = "data";
 
         /** 生成态（对齐 AI SDK UIMessage part.state）。缺省/null 视为已定稿。 */
         public static final String STATE_STREAMING = "streaming";
@@ -86,6 +88,11 @@ public class AssistantTurn {
         public String status;
         public String state;
         public long timestamp;
+        /**
+         * 产物/数据 part 携带的组件数据（chart/table/json/文件…）。transient：权威真值是
+         * {@code ChatMessage.components}，这里只是渲染期引用，不落库、不参与 equals/指纹。
+         */
+        public transient com.oilquiz.app.ai.chat.component.ComponentData data;
 
         public Part() {
         }
@@ -163,6 +170,16 @@ public class AssistantTurn {
             p.toolName = permission;
             p.text = prompt != null ? prompt : "";
             p.status = status != null ? status : APPROVAL_PENDING;
+            p.timestamp = ts;
+            return p;
+        }
+
+        /** 产物/数据 part：真正内容在 {@code data}（引用 {@code ChatMessage.components}）。 */
+        public static Part data(String id, com.oilquiz.app.ai.chat.component.ComponentData data, long ts) {
+            Part p = new Part();
+            p.id = id;
+            p.type = TYPE_DATA;
+            p.data = data;
             p.timestamp = ts;
             return p;
         }
@@ -265,7 +282,39 @@ public class AssistantTurn {
             }
         }
         fillToolPartsFromComponents(turn, msg);
+        appendDataParts(turn, msg);
         return turn;
+    }
+
+    /**
+     * 把 {@code msg.components} 里非 tool_call 的组件（chart/table/json/文件…）追加成 data part。
+     *
+     * <p>id 稳定：优先 {@code data:{componentId}}，缺 id 用序号（components 顺序确定，重建稳定）。
+     * 把组件内容摘要写进 {@code args}（参与指纹）——否则同类型的两个卡片指纹全同，引擎会误判"没变"
+     * 而跳过第二个的绑定。{@code data} 本身是渲染用的 transient 引用。</p>
+     */
+    private static void appendDataParts(AssistantTurn turn, ChatMessage msg) {
+        if (msg.components == null || msg.components.isEmpty()) {
+            return;
+        }
+        int idx = 0;
+        for (com.oilquiz.app.ai.chat.component.ComponentData c : msg.components) {
+            if (c == null || "tool_call".equals(c.type)) {
+                idx++;
+                continue;
+            }
+            String id = (c.id != null && !c.id.isEmpty()) ? ("data:" + c.id) : ("data#" + idx);
+            Part p = Part.data(id, c, 0L);
+            p.args = contentDigest(c);
+            turn.parts.add(p);
+            idx++;
+        }
+    }
+
+    /** 组件内容稳定摘要（String.hashCode 规范稳定），写进 data part 的 args 供指纹区分。 */
+    private static String contentDigest(com.oilquiz.app.ai.chat.component.ComponentData c) {
+        String key = c.type + "|" + (c.props != null ? c.props.toString() : "");
+        return Integer.toString(key.hashCode());
     }
 
     /** 从消息的 tool_call 组件回填 name/args/status/result，并补 TOOL_RESULT part。 */
@@ -386,6 +435,7 @@ public class AssistantTurn {
             n.status = p.status;
             n.state = p.state;
             n.timestamp = p.timestamp;
+            n.data = p.data; // transient 引用浅拷贝，保证副本仍可渲染
             t.parts.add(n);
         }
         return t;

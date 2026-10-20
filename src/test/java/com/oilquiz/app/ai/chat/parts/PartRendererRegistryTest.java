@@ -42,13 +42,15 @@ public class PartRendererRegistryTest {
                 instanceof ToolCallPartRenderer);
         assertTrue(r.resolve(tool(AssistantTurn.Part.TYPE_TOOL_RESULT, "call_1"))
                 instanceof ToolResultPartRenderer);
+        assertTrue(r.resolve(AssistantTurn.Part.approval("a1", "c1", "p", "q", null, 1L))
+                instanceof ApprovalPartRenderer);
+        assertTrue(r.resolve(AssistantTurn.Part.data("d1", null, 1L)) instanceof DataPartRenderer);
     }
 
     @Test
     public void unresolvedTypesReturnNull() {
         PartRendererRegistry r = PartRendererRegistry.createDefault();
-        // data 暂无 part 源/未注册 → 解析为 null（引擎会跳过，不静默崩）。
-        assertNull(r.resolve(part("data", null)));
+        // 只有真正未注册的类型解析为 null（引擎据此跳过，不静默崩）。
         assertNull(r.resolve(part("unknown_type", null)));
         assertNull(r.resolve(null));
     }

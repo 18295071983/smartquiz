@@ -7,7 +7,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.component.ComponentData;
 
+import org.json.JSONObject;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -252,5 +254,81 @@ public class AssistantTurnTest {
         assertFalse("cancelled 不是流式", cancelled.isStreaming());
         // 用户中断收尾也应触发重绑（指纹随 state 变）
         assertNotEquals(done.fingerprint(), cancelled.fingerprint());
+    }
+
+    private static int countType(AssistantTurn turn, String type) {
+        int n = 0;
+        for (AssistantTurn.Part p : turn.parts) {
+            if (type.equals(p.type)) n++;
+        }
+        return n;
+    }
+
+    @Test
+    public void fromMessageEmitsDataPartsFromNonToolComponents() {
+        ChatMessage msg = ChatMessage.createAIMessage("a1", "正文", 1L);
+        msg.turnId = "T9";
+        msg.components = new ArrayList<>();
+        JSONObject chartProps = new JSONObject();
+        try {
+            chartProps.put("title", "销量");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        ComponentData chart = ComponentData.of("chart", chartProps);
+        chart.id = "cmp1";
+        msg.components.add(chart);
+        // tool_call 组件应走工具路径，不应变成 data part
+        ComponentData toolComp = ComponentData.of("tool_call", new JSONObject());
+        toolComp.id = "cmp2";
+        msg.components.add(toolComp);
+
+        AssistantTurn turn = AssistantTurn.fromMessage(msg);
+
+        assertEquals("非 tool_call 组件产 1 个 data part", 1, countType(turn, AssistantTurn.Part.TYPE_DATA));
+        boolean hasStableId = false;
+        for (AssistantTurn.Part p : turn.parts) {
+            if ("data:cmp1".equals(p.id)) {
+                hasStableId = true;
+                assertNotNull("data part 应引用回组件", p.data);
+                assertEquals("chart", p.data.type);
+            }
+        }
+        assertTrue(hasStableId);
+    }
+
+    @Test
+    public void twoDataPartsOfSameTypeHaveDistinctFingerprints() {
+        ChatMessage msg = ChatMessage.createAIMessage("a1", "正文", 1L);
+        msg.turnId = "T9";
+        msg.components = new ArrayList<>();
+        ComponentData c1 = ComponentData.of("chart", props("title", "A"));
+        c1.id = "x1";
+        ComponentData c2 = ComponentData.of("chart", props("title", "B"));
+        c2.id = "x2";
+        msg.components.add(c1);
+        msg.components.add(c2);
+
+        AssistantTurn turn = AssistantTurn.fromMessage(msg);
+        assertEquals(2, countType(turn, AssistantTurn.Part.TYPE_DATA));
+
+        AssistantTurn.Part d1 = null;
+        AssistantTurn.Part d2 = null;
+        for (AssistantTurn.Part p : turn.parts) {
+            if ("data:x1".equals(p.id)) d1 = p;
+            if ("data:x2".equals(p.id)) d2 = p;
+        }
+        // 同类型不同内容：指纹必须不同，否则引擎会误判第二个"没变"而跳过绑定
+        assertNotEquals(d1.fingerprint(), d2.fingerprint());
+    }
+
+    private static JSONObject props(String k, String v) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put(k, v);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return o;
     }
 }

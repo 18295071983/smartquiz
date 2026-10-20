@@ -1,5 +1,20 @@
 # 变更日志
 
+## [2026-10-21] parts P2.7：data/产物 part（有真实来源的一类）
+
+数据审计后定的取舍：#2 执行结果块（ToolCallInfo 只有 result 串，无 stdout/stderr/exit 分字段）与
+#5 citations（无结构化源）、#4 plan（ThinkingStep 已在 reasoning 通道）都缺**规范生产者**，先不做免得又是死 renderer。
+唯 **data** 有真实源——`msg.components`（非 tool_call 组件）与 `ToolCallInfo.presentCard`，正是 AI SDK 的 `data-*` 家族。
+
+- `AssistantTurn.Part` 加 `TYPE_DATA` + `transient ComponentData data` 引用 + `data()` 工厂；`copy()` 浅带上 data。
+- `fromMessage` 追加 data part：每个非 tool_call 组件一个，id `data:{componentId}`（缺则序号，稳定）。
+  把组件内容摘要写进 `args`（参与指纹），**否则同类型不同内容的两卡指纹全同、引擎会误跳过第二张绑定**。
+- 新增 `DataPartRenderer`：复用 `ComponentRegistry.render`（图表/表格/文件卡能力全继承），挂进宿主 FrameLayout；注册进 createDefault。
+- `applyToMessage` 只读 TEXT/TOOL_CALL，data part 不进投影 → 现网 content/bounds 不变。未接 ChatAdapter、flag 默认 false。
+
+测试：+3（fromMessage 产 data part 且跳过 tool_call / 同类型两卡指纹相异 / DataPartRenderer 经工厂出卡），
+全量 `--offline` **537** 全绿（0/0/0），无回归（fromMessage 为在用路径，特意跑全量）。
+
 ## [2026-10-21] parts P2.6：审批 part（块级动作第一步）+ cancelled 态
 
 对标开源 agent 面板（cdesktop / clawpanel：均含 approval「确认」块）与 AI SDK approval 态。

@@ -42,8 +42,8 @@ public final class PartRendererRegistry {
     }
 
     /**
-     * P2.5 默认注册表：text + reasoning + error + approval + tool_call + tool_result。
-     * tool_result 与 tool_call 共用同一组件工厂（都走 ComponentRegistry）。data 暂无 part 源，留后。
+     * P2.7 默认注册表：text + reasoning + error + approval + tool_call + tool_result + data。
+     * tool_result 与 tool_call/data 共用组件工厂（都走 ComponentRegistry）。
      */
     public static PartRendererRegistry createDefault() {
         ToolCallPartRenderer toolCall = new ToolCallPartRenderer();
@@ -53,6 +53,7 @@ public final class PartRendererRegistry {
                 .register(new ErrorPartRenderer())
                 .register(new ApprovalPartRenderer())
                 .register(toolCall)
-                .register(new ToolResultPartRenderer(toolCall.componentFactory()));
+                .register(new ToolResultPartRenderer(toolCall.componentFactory()))
+                .register(new DataPartRenderer());
     }
 }

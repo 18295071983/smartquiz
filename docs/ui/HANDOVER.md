@@ -1353,6 +1353,18 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. 生产者（现有 Agent 权限请求 → approval part）与 ChatAdapter 接线在 P3；未接、flag 默认 false，现网零变化。
 6. **验证**：新增 5 条（canRender/按钮点击回调/已决收起/注册解析/cancelled 指纹），全量 534 全绿、无回归。
 
+### 4.56 parts P2.7：data/产物 part（2026-10-21）
+
+1. 数据审计定取舍：#2 执行结果（`ToolCallInfo` 只有 result 串，无 stdout/stderr/exit 分字段）、
+   #5 citations（无结构化源）、#4 plan（ThinkingStep 已在 reasoning 通道）都**缺生产者**，不做（免死 renderer）。
+   唯 **data** 有真实源：`msg.components` 非 tool_call 组件 + `ToolCallInfo.presentCard`。
+2. `Part` 加 `TYPE_DATA` + `transient ComponentData data` + `data()` 工厂；`copy()` 浅带 data。
+3. `fromMessage` 每个非 tool_call 组件产一个 data part（id `data:{componentId}`，缺则序号，稳定）；
+   内容摘要写进 `args` 参与指纹（**同类型不同内容的两卡必须指纹相异，否则引擎误跳过第二张绑定**）。
+4. `DataPartRenderer` 复用 `ComponentRegistry.render`；注册进 createDefault。`applyToMessage` 不读 data → 投影不变。
+5. 未接 ChatAdapter、flag 默认 false；产物卡"挂所属工具卡下"与 PEEK/HIDDEN 档位归属留 P3。
+6. **验证**：新增 3 条，全量 537 全绿、无回归（fromMessage 在用路径，特意跑全量）。
+
 ---
 
 ## 5. 关键文件 / 改动地图
