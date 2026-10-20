@@ -242,4 +242,15 @@ public class AssistantTurnTest {
         p.state = AssistantTurn.Part.STATE_DONE;
         assertFalse(p.isStreaming());
     }
+
+    @Test
+    public void cancelledStateIsDistinctAndNotStreaming() {
+        AssistantTurn.Part done = AssistantTurn.Part.text("t", "半截", 1L);
+        done.state = AssistantTurn.Part.STATE_DONE;
+        AssistantTurn.Part cancelled = AssistantTurn.Part.text("t", "半截", 1L);
+        cancelled.state = AssistantTurn.Part.STATE_CANCELLED;
+        assertFalse("cancelled 不是流式", cancelled.isStreaming());
+        // 用户中断收尾也应触发重绑（指纹随 state 变）
+        assertNotEquals(done.fingerprint(), cancelled.fingerprint());
+    }
 }

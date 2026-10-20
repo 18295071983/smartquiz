@@ -149,6 +149,9 @@ public class TextAndReasoningRendererTest {
             mdCalls.add(markdown);
         }
         @Override
+        public void onApprovalDecision(String partId, String toolCallId, boolean approved) {
+        }
+        @Override
         public void invalidateSize() {
         }
     }
@@ -187,6 +190,9 @@ public class TextAndReasoningRendererTest {
         @Override
         public void renderMarkdown(android.widget.TextView target, String markdown) {
             target.setText(markdown);
+        }
+        @Override
+        public void onApprovalDecision(String partId, String toolCallId, boolean approved) {
         }
         @Override
         public void invalidateSize() {

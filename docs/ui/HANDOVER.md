@@ -1343,6 +1343,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. 修多段 text part 被整条消息级 streaming 误套的 bug。`state` 的真实写入随 P3 在线引擎落到尾段 part。
 5. **验证**：新增 3 条（fingerprint 随 state / isStreaming / 引擎 done 收尾重绑），全量 529 全绿、无回归。
 
+### 4.55 parts P2.6：审批 part + cancelled 态（2026-10-21）
+
+1. 对标开源 agent 面板（`cdesktop`/`clawpanel` 均有 approval「确认」块）与 AI SDK approval 态。
+2. `Part` 加 `TYPE_APPROVAL`（toolName=权限名/text=说明/status=pending|approved|denied/toolCallId 关联）
+   + `approval()` 工厂 + `isApproval*()`；加 `STATE_CANCELLED`（计入 fingerprint，中断收尾可重绑）。
+3. `PartHost.onApprovalDecision(partId, toolCallId, approved)` = 第一个**块级动作**回调通道。
+4. `ApprovalPartRenderer`：pending→「允许/拒绝」按钮回调宿主；已决→收起、显示"已允许/已拒绝"、ThemeColors 上色、无 emoji。
+5. 生产者（现有 Agent 权限请求 → approval part）与 ChatAdapter 接线在 P3；未接、flag 默认 false，现网零变化。
+6. **验证**：新增 5 条（canRender/按钮点击回调/已决收起/注册解析/cancelled 指纹），全量 534 全绿、无回归。
+
 ---
 
 ## 5. 关键文件 / 改动地图

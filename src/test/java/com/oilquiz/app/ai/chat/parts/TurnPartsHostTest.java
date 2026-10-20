@@ -248,6 +248,9 @@ public class TurnPartsHostTest {
             target.setText(markdown);
         }
         @Override
+        public void onApprovalDecision(String partId, String toolCallId, boolean approved) {
+        }
+        @Override
         public void invalidateSize() {
         }
     }

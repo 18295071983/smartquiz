@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-10-21] parts P2.6：审批 part（块级动作第一步）+ cancelled 态
+
+对标开源 agent 面板（cdesktop / clawpanel：均含 approval「确认」块）与 AI SDK approval 态。
+- `AssistantTurn.Part` 加 `TYPE_APPROVAL`（`toolName`=权限名、`text`=说明、`status`=pending/approved/denied、
+  `toolCallId`=关联工具）+ `approval()` 工厂 + `isApproval/isApprovalPending()`；加 `STATE_CANCELLED`
+  （用户中断收尾，已计入 fingerprint）。
+- `PartHost` 加 `onApprovalDecision(partId, toolCallId, approved)` —— 第一个"块级动作"回调通道。
+- 新增 `ApprovalPartRenderer`：pending 显「允许/拒绝」按钮并回调宿主；已决收起按钮、显示"已允许/已拒绝"并上色
+  （ThemeColors，无 emoji）。注册进 createDefault。
+- 生产者（把现有 Agent 权限请求落成 approval part）与 ChatAdapter 接线在 P3；本轮未接、flag 默认 false，现网零变化。
+
+测试：+5（审批 canRender / pending 按钮点击回调 / 已决收起 / 注册解析 / cancelled 态指纹），全量 `--offline` **534** 全绿（0/0/0）。
+
 ## [2026-10-21] parts：Part 增 per-part `state`（对齐 AI SDK 流式，修多段误套）
 
 - 业界口径（AI SDK UIMessage）：流式是**每个 part 的 `state: 'streaming'|'done'`**，不是整条消息级布尔。

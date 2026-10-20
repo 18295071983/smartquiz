@@ -50,6 +50,15 @@ public interface PartHost {
      */
     void renderMarkdown(TextView target, String markdown);
 
+    /**
+     * 审批 part 上用户做出决策时回调宿主（块级动作的第一个）。
+     *
+     * @param partId     该审批 part 的稳定 id
+     * @param toolCallId 关联的工具调用 id（可空）
+     * @param approved   允许为 true、拒绝为 false
+     */
+    void onApprovalDecision(String partId, String toolCallId, boolean approved);
+
     /** 内容高度变化后请求宿主重排（WebView 高度回调、RecyclerView item 重测量都走这里）。 */
     void invalidateSize();
 }

@@ -62,10 +62,19 @@ public class AssistantTurn {
         public static final String TYPE_TOOL_CALL = "tool_call";
         public static final String TYPE_TOOL_RESULT = "tool_result";
         public static final String TYPE_ERROR = "error";
+        /** 审批/人机确认块（对齐 AI SDK 的 approval-requested/responded 态）。 */
+        public static final String TYPE_APPROVAL = "approval";
 
         /** 生成态（对齐 AI SDK UIMessage part.state）。缺省/null 视为已定稿。 */
         public static final String STATE_STREAMING = "streaming";
         public static final String STATE_DONE = "done";
+        /** 被用户中断的收尾态：半截输出，不再流式。 */
+        public static final String STATE_CANCELLED = "cancelled";
+
+        /** 审批 part 的决策态（复用 {@code status} 字段承载）。 */
+        public static final String APPROVAL_PENDING = "pending";
+        public static final String APPROVAL_APPROVED = "approved";
+        public static final String APPROVAL_DENIED = "denied";
 
         public String id;
         public String type;
@@ -84,6 +93,16 @@ public class AssistantTurn {
         /** 该 part 是否正在流式生成（per-part 信号，取代旧的整条消息级 streaming 布尔）。 */
         public boolean isStreaming() {
             return STATE_STREAMING.equals(state);
+        }
+
+        /** 该 part 是否处于待用户确认的审批态。 */
+        public boolean isApproval() {
+            return TYPE_APPROVAL.equals(type);
+        }
+
+        /** 审批是否还没决（pending）；已批/已拒返回 false。 */
+        public boolean isApprovalPending() {
+            return isApproval() && (status == null || APPROVAL_PENDING.equals(status));
         }
 
         public static Part text(String id, String text, long ts) {
@@ -126,6 +145,24 @@ public class AssistantTurn {
             p.toolName = call != null ? call.toolName : null;
             p.result = result != null ? result : "";
             p.status = call != null ? call.status : null;
+            p.timestamp = ts;
+            return p;
+        }
+
+        /**
+         * 审批/人机确认 part：{@code text} 承载说明文案，{@code toolName} 承载权限名，
+         * {@code status} 承载决策态（{@link #APPROVAL_PENDING}/{@link #APPROVAL_APPROVED}/
+         * {@link #APPROVAL_DENIED}），{@code toolCallId} 关联被审批的工具调用。
+         */
+        public static Part approval(String id, String toolCallId, String permission,
+                                    String prompt, String status, long ts) {
+            Part p = new Part();
+            p.id = id;
+            p.type = TYPE_APPROVAL;
+            p.toolCallId = toolCallId;
+            p.toolName = permission;
+            p.text = prompt != null ? prompt : "";
+            p.status = status != null ? status : APPROVAL_PENDING;
             p.timestamp = ts;
             return p;
         }
