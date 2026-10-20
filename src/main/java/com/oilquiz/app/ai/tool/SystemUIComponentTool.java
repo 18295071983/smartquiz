@@ -450,6 +450,15 @@ public class SystemUIComponentTool implements AITool {
             // 别名映射：模型传 web/image → 实际渲染组件类型（html / image_grid，进聊天流）
             String renderType = COMPONENT_ALIAS.containsKey(componentType)
                     ? COMPONENT_ALIAS.get(componentType) : componentType;
+            // info.card / info-card → info_card：归一后再落 ComponentData，
+            // 避免持久化/展示层拿到带点的名字（渲染层已能 resolve，这里把数据也洗干净）。
+            String normalizedType = com.oilquiz.app.ai.chat.component.ComponentTypes
+                    .normalize(renderType);
+            if (!normalizedType.equals(renderType)
+                    && com.oilquiz.app.ai.chat.component.ComponentRegistry.getInstance()
+                    .hasType(normalizedType)) {
+                renderType = normalizedType;
+            }
             org.json.JSONObject props = new org.json.JSONObject();
             Object propsObj = parameters.get("props");
             if (propsObj != null) {

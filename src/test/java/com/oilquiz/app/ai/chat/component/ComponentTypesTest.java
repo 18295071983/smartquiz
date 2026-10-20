@@ -37,6 +37,22 @@ public class ComponentTypesTest {
     }
 
     @Test
+    public void dotAndDashSeparatedNamesResolveLikeUnderscore() {
+        // 2026-10-21：ui_component 报「未识别的 info.card」——模型把 info_card 写成 info.card。
+        assertEquals("info", ComponentTypes.resolve("info.card"));
+        assertEquals("info", ComponentTypes.resolve("info-card"));
+        assertEquals("info", ComponentTypes.resolve(" Info.Card "));
+        assertEquals("table", ComponentTypes.resolve("table.card"));
+        assertEquals("steps", ComponentTypes.resolve("steps.card"));
+        assertEquals("chart", ComponentTypes.resolve("bar.chart"));
+        // ui_component 的 isRegisteredCardType 走的就是这个入口，必须认出来
+        assertTrue(ComponentRegistry.getInstance().hasType("info.card"));
+        // 归一后仍不认识的名字不能被改写（否则注册表/兜底渲染拿不到原名）
+        assertEquals("foo.bar", ComponentTypes.resolve("foo.bar"));
+        assertEquals("foo_bar", ComponentTypes.normalize("foo.bar"));
+    }
+
+    @Test
     public void canonicalNamesPointAtNativeImplementations() {
         ComponentRegistry registry = ComponentRegistry.getInstance();
         for (String canonical : ComponentTypes.CANONICAL_TARGET.keySet()) {

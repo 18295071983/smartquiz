@@ -1,5 +1,33 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 修 ui_component「未识别的 info.card」：类型名归一
+
+### 查到的事实
+
+- 注册表里的内置卡类型是下划线命名：`info_card` / `table_card` / `steps_card`；
+  `ComponentTypes` 的 canonical 是 `info`，alias 只登记了 `info_card`。
+- 模型传的是 `info.card`（点号）。`SystemUIComponentTool#create` 用
+  `ComponentRegistry#hasType("info.card")` 判类型，`ComponentTypes.resolve` 只做
+  精确名/alias 查表、不做归一，于是 `info.card` 落到"非原生/非内置/非注册/非插件"，
+  返回 `组件类型不存在或已被删除: info.card`。
+- 渲染层本来就有 canonical 兜底，坏在"入口白名单"和"数据落库名"没归一。
+
+### 由此改掉的事
+
+- `ComponentTypes#normalize`：去空白、转小写、点/横线/空格统一成下划线；
+  `resolve` 在精确名/alias 都未命中时，用归一后的名字再查一次；仍不认识则原样返回。
+  这样 `info.card`、`info-card`、`table.card`、`bar.chart` 都能落到内置卡。
+- `SystemUIComponentTool#createBuiltinChatComponent` 把 `renderType` 归一后再写入
+  `ComponentData`，持久化/展示层不再拿到带点的名字。
+- 单测补 `dotAndDashSeparatedNamesResolveLikeUnderscore`，并断言
+  `ComponentRegistry.hasType("info.card")`。
+
+### 验证
+
+- 全量单测 **457 / 0 skipped / 0 failed / 0 errors**（新增 1 条），`assembleDebug` 通过；已装机。
+- 未在真机上让 Agent 再调一次 `ui_component`（会触发一轮生成），
+  但入口判断与渲染解析走的是同一套 `resolve`，单测已钉住。
+
 ## [2026-10-21 凌晨] 模型面板改成 demo 的 BottomSheet（在线/本地 + 列表 + 温度 + 上下文）
 
 ### 查到的事实

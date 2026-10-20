@@ -937,6 +937,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. 验证：456 单测全绿、装机后真机打开面板，列表/温度/上下文/应用均正常渲染。
    **未点应用**（会改用户配置）。
 
+### 4.19 ui_component 类型名归一（2026-10-21 凌晨，修「未识别的 info.card」）
+
+1. **根因**：内置卡注册名是 `info_card`，模型传 `info.card`；`ComponentTypes.resolve`
+   只做精确名/alias，不做分隔符归一，`SystemUIComponentTool#create` 的白名单判断
+   `hasType("info.card")` 为 false，直接返回「组件类型不存在」。
+2. **改法**：`ComponentTypes.normalize()` 把点/横线/空格统一成下划线、转小写；
+   `resolve()` 精确名/alias 未命中时用归一名字再查一次，仍不认识才原样返回
+   （不吞未知类型）。`SystemUIComponentTool` 写 `ComponentData` 前也归一，
+   持久化里不再出现 `info.card`。
+3. **覆盖**：`info.card` / `info-card` / ` Info.Card ` → `info`；
+   `table.card` / `steps.card` / `bar.chart` 同理；`foo.bar` 仍原样透传。
+4. **验证**：457 单测全绿（新增 1 条），装机；未在真机触发一轮 Agent 生成去复测。
+
 ---
 
 ## 5. 关键文件 / 改动地图

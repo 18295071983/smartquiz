@@ -162,9 +162,39 @@ public final class ComponentTypes {
      */
     public static String resolve(String type) {
         if (type == null || type.isEmpty()) return type;
-        String canonical = CANONICAL_TARGET.containsKey(type) ? type : null;
-        if (canonical == null) canonical = ALIAS.get(type);
+        String canonical = lookup(type);
+        if (canonical == null) {
+            // 模型常把 info_card 写成 info.card / info-card；先归一再看一次。
+            // 归一后的名字仍不认识时保留原样，交给注册表/兜底渲染，不吞掉未知类型。
+            String normalized = normalize(type);
+            if (!normalized.equals(type)) canonical = lookup(normalized);
+        }
         return canonical != null ? canonical : type;
+    }
+
+    /** 类型名归一：去空白、转小写、点/横线/空格统一成下划线 */
+    public static String normalize(String type) {
+        if (type == null) return null;
+        String t = type.trim().toLowerCase(java.util.Locale.ROOT);
+        StringBuilder sb = new StringBuilder(t.length());
+        boolean lastUnderscore = false;
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            char out = (c == '.' || c == '-' || c == ' ' || c == '\t' || c == '\n') ? '_' : c;
+            if (out == '_') {
+                if (lastUnderscore) continue;
+                lastUnderscore = true;
+            } else {
+                lastUnderscore = false;
+            }
+            sb.append(out);
+        }
+        return sb.toString();
+    }
+
+    private static String lookup(String type) {
+        if (CANONICAL_TARGET.containsKey(type)) return type;
+        return ALIAS.get(type);
     }
 
     /** 注册表实际存放该组件用的 key（canonical → 原生实现的类型名） */
