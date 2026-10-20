@@ -1,5 +1,36 @@
 # 变更日志
 
+## [2026-10-20 夜] 合并 S3–S4：动作抽成真方法（去掉 performClick 转发）、模型/状态行收敛、入场动效收轻
+
+### 查到的事实
+
+- v2 的三颗图标与「更多」面板全部靠 `performClick()` 转发给被 GONE 的 7 颗旧胶囊；
+  胶囊上的文字还承担朗读中/已反馈的状态表达。删掉任一侧视图，另一侧的动作或状态就失效
+  （合并报告耦合 C1）。
+- 模型名/延迟/成本行与「点时间戳 → 消息详情」卡片是同一份数据的两处展示；
+  详情卡片本来就含模型信息块。
+- v2 的活动区 header 已经表达"正在思考/正在运行工具/失败"，而 `agentStatus` 行
+  在流式/失败时还会再显示一遍同一句话。
+- 入场动画是 30dp/200ms，对"正在读的列表"偏重，且不检查系统动画开关。
+
+### 由此改掉的事
+
+- 新增 `doCopy / doSpeak / doShare / doRegenerate / doNewChat / doLike / doDislike`
+  七个动作方法；v1 胶囊、v2 图标、「更多」面板全部直接调它们。
+  删掉 `forwardToLegacyAction`，v2 不再依赖任何旧胶囊视图（S5 删视图的前置条件已满足）。
+- `applyFeedbackVisual` 在 v2 下用「更多」图标的着色做反馈回执（赞/踩没有独立图标）；
+  面板文案与 Toast 仍是主要确认。
+- v2 隐藏模型信息行（技术信息统一进消息详情卡片）与 `agentStatus` 行（活动区 header 已表达）。
+- 入场动画改为 8dp/180ms，并在 `ValueAnimator.areAnimatorsEnabled()` 为 false 时跳过。
+
+### 验证
+
+- `compileDebugJavaWithJavac` 通过；全量 `testDebugUnitTest` = **43 类 / 454 tests / 0 skipped /
+  0 failures / 0 errors**；`assembleDebug` 通过、APK 已重出。
+- **真机未验**：v2 的复制/重新生成/更多、面板六项、赞踩回执、模型行隐藏后的详情入口。
+- 未做（S5）：删 v1 的视图树/布局/资源/开关；旧胶囊字段与 `applySpeakingVisual` 的 v1 文字更新
+  仍在，删它们时要一起改 `DynamicAiMessageRoot` 构造器。
+
 ## [2026-10-20 夜] 合并 S0–S2：开关搬出 v2 面板、档位判据归一、思考与工具合成一条活动时间线
 
 ### 查到的事实

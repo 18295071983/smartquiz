@@ -182,8 +182,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.messageClickListener = listener;
     }
 
-    // 动画配置
-    private static final long ANIMATION_DURATION = 200;
+    // 动画配置（2026-10-20 S4：与 demo 的 motion 口径对齐——180ms、短位移、尊重系统动画开关）
+    private static final long ANIMATION_DURATION = 180;
     private boolean animationsEnabled = true;
     /** 已播放进入动画的消息 id（避免滚动回滚后重复动画） */
     private final java.util.Set<String> animatedMessageIds = new java.util.HashSet<>();
@@ -738,12 +738,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         actionButtons.addView(btnNewChat);
 
         // ===== v2 操作段：三个图标 +「更多」（demo .ai-actions / #tpl-actions）=====
-        // 刻意不新建一套按钮：旧版那 7 个 TextView 原样留着（在 v2 里整体 GONE），
-        // 点击逻辑仍由 bindAIMessage 绑在这 7 个上；v2 的图标与面板条目一律
-        // 转发成"对相应旧按钮 performClick()"，动作口径（含 ComponentActions.dispatch 埋点）
-        // 与旧版逐字相同，不会出现"两条路径行为不一致"。
-        // 另外 applySpeakingVisual / applyFeedbackVisual 会 setText 改这几个旧按钮的文字，
-        // 它们在此路径上仍是唯一的状态载体，所以不能删、只能藏。
+        // 2026-10-20 S3：图标与「更多」面板直接调 doCopy/doRegenerate/... 这一组方法，
+        // 不再 performClick() 转发给旧胶囊；动作只有一份实现（报告耦合 C1）。
+        // 旧版那 7 个 TextView 在 v2 下仍会建但整体 GONE——S3 只改变动作的调用方式，
+        // 视图删除留到 S5；applyFeedbackVisual 仍会写它们的文字（v1 档需要）。
         LinearLayout v2Actions = null;
         ImageView v2BtnCopy = null;
         ImageView v2BtnRegenerate = null;
@@ -1348,63 +1346,28 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
 
             if (lastAi) {
-                // 复制/分享用剥离组件标记后的可读文本（Fix A）
-                final String exportContent = stripComponentMarkersForExport(message.content);
-                if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(v -> {
-                    copyToClipboard(v.getContext(), exportContent);
-                    if (actionClickListener != null) {
-                        actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
-                    }
-                });
-
-                if (holder.btnSpeak != null) holder.btnSpeak.setOnClickListener(v -> {
-                    if (actionClickListener != null) {
-                        actionClickListener.onAction(ChatMessage.Action.speak(message.id, exportContent));
-                    }
-                    boolean speakingNow = message.id != null && message.id.equals(speakingMessageId);
-                    ComponentActions.dispatchChatAction(v.getContext(),
-                            speakingNow ? "stop_speak" : ("speak:" + message.id));
-                });
-
-                if (holder.btnShare != null) holder.btnShare.setOnClickListener(v -> {
-                    shareText(v.getContext(), message.content);
-                    if (actionClickListener != null) {
-                        actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
-                    }
-                });
-
-                if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(v -> {
-                    if (actionClickListener != null) {
-                        actionClickListener.onAction(ChatMessage.Action.regenerate(message.id));
-                    }
-                    ComponentActions.dispatchChatAction(v.getContext(), "regen:" + message.id);
-                });
-
-                if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(v -> {
-                    if (actionClickListener != null) {
-                        actionClickListener.onAction(ChatMessage.Action.newChat());
-                    }
-                    ComponentActions.dispatchChatAction(v.getContext(), "new_chat");
-                });
-
-                if (holder.btnLike != null) holder.btnLike.setOnClickListener(v -> {
-                    message.feedbackState = (message.feedbackState == 1) ? 0 : 1;
-                    applyFeedbackVisual(holder, message);
-                    if (actionClickListener != null && message.feedbackState == 1) {
-                        actionClickListener.onAction(ChatMessage.Action.like(message.id));
-                    }
-                    ComponentActions.dispatchChatAction(v.getContext(),
-                            (message.feedbackState == 1 ? "like:" : "unlike:") + message.id);
-                });
-                if (holder.btnDislike != null) holder.btnDislike.setOnClickListener(v -> {
-                    message.feedbackState = (message.feedbackState == -1) ? 0 : -1;
-                    applyFeedbackVisual(holder, message);
-                    if (actionClickListener != null && message.feedbackState == -1) {
-                        actionClickListener.onAction(ChatMessage.Action.dislike(message.id));
-                    }
-                    ComponentActions.dispatchChatAction(v.getContext(),
-                            (message.feedbackState == -1 ? "dislike:" : "undislike:") + message.id);
-                });
+                // 旧胶囊只保留"视图 + 状态文字"的职责，动作统一走 doXxx（v2 图标/面板同一份）
+                if (holder.btnCopy != null) {
+                    holder.btnCopy.setOnClickListener(v -> doCopy(v.getContext(), message));
+                }
+                if (holder.btnSpeak != null) {
+                    holder.btnSpeak.setOnClickListener(v -> doSpeak(v.getContext(), message));
+                }
+                if (holder.btnShare != null) {
+                    holder.btnShare.setOnClickListener(v -> doShare(v.getContext(), message));
+                }
+                if (holder.btnRegenerate != null) {
+                    holder.btnRegenerate.setOnClickListener(v -> doRegenerate(v.getContext(), message));
+                }
+                if (holder.btnNewChat != null) {
+                    holder.btnNewChat.setOnClickListener(v -> doNewChat(v.getContext()));
+                }
+                if (holder.btnLike != null) {
+                    holder.btnLike.setOnClickListener(v -> doLike(v.getContext(), holder, message));
+                }
+                if (holder.btnDislike != null) {
+                    holder.btnDislike.setOnClickListener(v -> doDislike(v.getContext(), holder, message));
+                }
                 applyFeedbackVisual(holder, message);
                 applySpeakingVisual(holder, message);
             } else {
@@ -1434,15 +1397,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /**
-     * v2 操作段：把"复制 / 重新生成 / 更多"三颗图标接到旧版同名按钮上。
+     * v2 操作段（demo .ai-actions）：复制 / 重新生成 / 更多。
      *
-     * <p>旧版那 7 个胶囊在 v2 下整块 GONE，但<b>不删也不改绑定</b>：
-     * 它们的 listener 已经写好了动作（含 {@code ComponentActions.dispatchChatAction} 埋点、
-     * 反馈状态翻转、{@code applySpeakingVisual} 等状态文字），
-     * 图标与动作面板条目一律转发成 {@code performClick()}，
-     * 与 {@code ChatUiV2Chrome} 复用汉堡键/清空键的既有做法一致，避免出现第二条动作实现。</p>
+     * <p>2026-10-20 S3：图标直接调 {@link #doCopy} 等方法，不再 performClick() 转发给旧胶囊——
+     * 动作只有一份实现，删掉 v1 视图也不会让 v2 按钮失效（报告耦合 C1）。</p>
      *
-     * <p>{@code holder.v2ActionRow == null} 表示当前是旧版档位，直接返回，旧行为一字不变。</p>
+     * <p>{@code holder.v2ActionRow == null} 表示当前是旧版档位，直接返回。</p>
      */
     private void bindV2Actions(AIMessageViewHolder holder, ChatMessage message, boolean show) {
         if (holder.v2ActionRow == null) return;
@@ -1457,26 +1417,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.v2BtnMore != null) holder.v2BtnMore.setOnClickListener(null);
             return;
         }
+        // 直接调动作方法，不再转发给被 GONE 的旧胶囊（2026-10-20 S3，解报告耦合 C1）
         if (holder.v2BtnCopy != null) {
-            holder.v2BtnCopy.setOnClickListener(v -> forwardToLegacyAction(holder.btnCopy));
+            holder.v2BtnCopy.setOnClickListener(v -> doCopy(v.getContext(), message));
         }
         if (holder.v2BtnRegenerate != null) {
-            holder.v2BtnRegenerate.setOnClickListener(v -> forwardToLegacyAction(holder.btnRegenerate));
+            holder.v2BtnRegenerate.setOnClickListener(v -> doRegenerate(v.getContext(), message));
         }
         if (holder.v2BtnMore != null) {
             holder.v2BtnMore.setOnClickListener(v -> openMessageActionSheet(holder, message));
         }
-    }
-
-    /**
-     * 把 v2 图标/面板条目的点击转给旧版那颗按钮。
-     *
-     * <p>{@link android.view.View#performClick()} 不检查可见性，所以被 GONE 的旧按钮
-     * 仍会照常执行它的 listener——这正是我们要的：动作只有一份实现。</p>
-     */
-    private void forwardToLegacyAction(android.view.View legacy) {
-        if (legacy == null) return;
-        legacy.performClick();
     }
 
     /**
@@ -1494,18 +1444,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         List<ChatV2ActionSheet.Item> items = new ArrayList<>();
         items.add(new ChatV2ActionSheet.Item(R.drawable.ic_speaker, R.string.chat_speak,
                 ctx.getString(speaking ? R.string.chat_stop : R.string.chat_speak),
-                v -> forwardToLegacyAction(holder.btnSpeak)));
+                v -> doSpeak(ctx, message)));
         items.add(new ChatV2ActionSheet.Item(R.drawable.ic_copy, R.string.chat_copy,
-                v -> forwardToLegacyAction(holder.btnCopy)));
+                v -> doCopy(ctx, message)));
         items.add(new ChatV2ActionSheet.Item(R.drawable.ic_share, R.string.chat_share,
-                v -> forwardToLegacyAction(holder.btnShare)));
+                v -> doShare(ctx, message)));
         // feedbackState：1=有帮助、-1=没帮助（与旧版那颗胶囊同一字段，不另存一份状态）
         items.add(new ChatV2ActionSheet.Item(R.drawable.ic_thumb_up, R.string.chat_like,
                 message.feedbackState == 1
                         ? ctx.getString(R.string.chat_v2_feedback_saved, ctx.getString(R.string.chat_like))
                         : null,
                 v -> {
-                    forwardToLegacyAction(holder.btnLike);
+                    doLike(ctx, holder, message);
                     toastFeedbackSaved(ctx, message.feedbackState == 1);
                 }));
         items.add(new ChatV2ActionSheet.Item(R.drawable.ic_thumb_down, R.string.chat_dislike,
@@ -1513,11 +1463,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                         ? ctx.getString(R.string.chat_v2_feedback_saved, ctx.getString(R.string.chat_dislike))
                         : null,
                 v -> {
-                    forwardToLegacyAction(holder.btnDislike);
+                    doDislike(ctx, holder, message);
                     toastFeedbackSaved(ctx, message.feedbackState == -1);
                 }));
         items.add(new ChatV2ActionSheet.Item(R.drawable.ic_add, R.string.chat_new_chat,
-                v -> forwardToLegacyAction(holder.btnNewChat)));
+                v -> doNewChat(ctx)));
         ChatV2ActionSheet.show(ctx, R.string.chat_v2_msg_actions, items);
     }
 
@@ -1535,11 +1485,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void bindAgentStepStatus(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.agentStatus != null) {
-            // 完成后步骤行让位给汇总行：仅进行中显示；FAILED 保留（显示失败原因）
+            // v2：状态文案已经由活动区 header 承担（"正在思考…"/"正在运行工具…"/失败），
+            // 这一行再显示一遍就是同一句话出现两次；v1 档保持原行为。
             boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
                     || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
             boolean failed = message.status == ChatMessage.MessageStatus.FAILED;
-            if ((streaming || failed) && message.agentStepStatus != null && !message.agentStepStatus.isEmpty()) {
+            if (holder.v2Look) {
+                holder.agentStatus.setVisibility(View.GONE);
+            } else if ((streaming || failed) && message.agentStepStatus != null && !message.agentStepStatus.isEmpty()) {
                 holder.agentStatus.setText(message.agentStepStatus);
                 holder.agentStatus.setVisibility(View.VISIBLE);
             } else {
@@ -2213,7 +2166,81 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
-    /** 反馈按钮（👍/👎）按状态变色 */
+    // ---------------------------------------------------------------- 消息动作（唯一实现）
+    // 2026-10-20 S3：以前 v2 的三颗图标与「更多」面板全部 performClick() 转发给被 GONE 的
+    // 旧胶囊，删掉胶囊就等于删掉 v2 的动作后端（报告耦合 C1）。现在动作只在这里实现，
+    // v1 胶囊与 v2 图标/面板都直接调，删任一侧的视图都不影响行为。
+
+    /** 复制：剥离组件标记后的可读文本 */
+    private void doCopy(android.content.Context ctx, ChatMessage message) {
+        if (message == null) return;
+        String exportContent = stripComponentMarkersForExport(message.content);
+        copyToClipboard(ctx, exportContent);
+        if (actionClickListener != null) {
+            actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
+        }
+    }
+
+    /** 朗读 / 停止朗读（状态由 Activity 回写 speakingMessageId 驱动） */
+    private void doSpeak(android.content.Context ctx, ChatMessage message) {
+        if (message == null) return;
+        String exportContent = stripComponentMarkersForExport(message.content);
+        if (actionClickListener != null) {
+            actionClickListener.onAction(ChatMessage.Action.speak(message.id, exportContent));
+        }
+        boolean speakingNow = message.id != null && message.id.equals(speakingMessageId);
+        ComponentActions.dispatchChatAction(ctx,
+                speakingNow ? "stop_speak" : ("speak:" + message.id));
+    }
+
+    /** 分享（沿用旧口径：同时派发 copy 的埋点，不改语义） */
+    private void doShare(android.content.Context ctx, ChatMessage message) {
+        if (message == null) return;
+        String exportContent = stripComponentMarkersForExport(message.content);
+        shareText(ctx, message.content);
+        if (actionClickListener != null) {
+            actionClickListener.onAction(ChatMessage.Action.copy(exportContent));
+        }
+    }
+
+    private void doRegenerate(android.content.Context ctx, ChatMessage message) {
+        if (message == null) return;
+        if (actionClickListener != null) {
+            actionClickListener.onAction(ChatMessage.Action.regenerate(message.id));
+        }
+        ComponentActions.dispatchChatAction(ctx, "regen:" + message.id);
+    }
+
+    private void doNewChat(android.content.Context ctx) {
+        if (actionClickListener != null) {
+            actionClickListener.onAction(ChatMessage.Action.newChat());
+        }
+        ComponentActions.dispatchChatAction(ctx, "new_chat");
+    }
+
+    private void doLike(android.content.Context ctx, AIMessageViewHolder holder, ChatMessage message) {
+        if (message == null) return;
+        message.feedbackState = (message.feedbackState == 1) ? 0 : 1;
+        applyFeedbackVisual(holder, message);
+        if (actionClickListener != null && message.feedbackState == 1) {
+            actionClickListener.onAction(ChatMessage.Action.like(message.id));
+        }
+        ComponentActions.dispatchChatAction(ctx,
+                (message.feedbackState == 1 ? "like:" : "unlike:") + message.id);
+    }
+
+    private void doDislike(android.content.Context ctx, AIMessageViewHolder holder, ChatMessage message) {
+        if (message == null) return;
+        message.feedbackState = (message.feedbackState == -1) ? 0 : -1;
+        applyFeedbackVisual(holder, message);
+        if (actionClickListener != null && message.feedbackState == -1) {
+            actionClickListener.onAction(ChatMessage.Action.dislike(message.id));
+        }
+        ComponentActions.dispatchChatAction(ctx,
+                (message.feedbackState == -1 ? "dislike:" : "undislike:") + message.id);
+    }
+
+    /** 反馈按钮（👍/👎）按状态变色；v2 没有赞/踩图标，用「更多」的着色做同一状态的可见回执 */
     private void applyFeedbackVisual(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.btnLike != null) {
             holder.btnLike.setText(message.feedbackState == 1 ? "👍✓" : "👍");
@@ -2222,6 +2249,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (holder.btnDislike != null) {
             holder.btnDislike.setText(message.feedbackState == -1 ? "👎✓" : "👎");
             holder.btnDislike.setAlpha(message.feedbackState == -1 ? 1f : 0.7f);
+        }
+        if (holder.v2BtnMore != null) {
+            android.content.Context ctx = holder.itemView.getContext();
+            int color = androidx.core.content.ContextCompat.getColor(ctx,
+                    message.feedbackState != 0 ? R.color.chat_v2_brand : R.color.chat_v2_text_3);
+            holder.v2BtnMore.setImageTintList(
+                    android.content.res.ColorStateList.valueOf(color));
         }
     }
 
@@ -3560,6 +3594,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void bindModelInfo(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.modelInfoContainer == null) return;
+        // v2（2026-10-20 S3）：模型名/延迟/成本不再占消息行——技术信息统一进
+        // 「点时间戳 → 消息详情」的卡片（buildDetailHtml 里本来就有这一段）。
+        if (holder.v2Look) {
+            holder.modelInfoContainer.setVisibility(View.GONE);
+            return;
+        }
         if (!(holder.modelInfoContainer instanceof LinearLayout)) {
             // 兼容旧结构：走原路径
             bindModelInfoLegacy(holder, message);
@@ -6076,9 +6116,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
          */
         TextView dayLabel;
         /**
-         * v2 操作段整行（三图标 + 更多）。旧版那 7 个 TextView 依然存在并继续承担
-         * 动作绑定与状态文字（朗读中/已反馈），v2 下被隐藏，图标与面板条目用
-         * performClick() 转发到它们，避免第二条动作实现。
+         * v2 操作段整行（三图标 + 更多）。2026-10-20 S3 起图标/面板直接调 doXxx 动作方法，
+         * 不再依赖旧胶囊；旧胶囊（v1 档）保留到 S5 与布局一起删。
          */
         LinearLayout v2ActionRow;
         ImageView v2BtnCopy;
@@ -6942,13 +6981,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void setAnimation(View viewToAnimate, ChatMessage message) {
         if (!animationsEnabled || message == null || viewToAnimate == null) return;
+        // 系统关闭动画（开发者选项/省电）时不再播；180ms 的位移对"正在读的列表"是干扰
+        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
         if (animatedMessageIds.contains(message.id)) return;
         animatedMessageIds.add(message.id);
 
         boolean isUser = message.isUserMessage();
-        // 用固定 dp 偏移替代 getWidth()*0.15f：首帧未布局时 getWidth()==0，
-        // 固定值保证首次 bind 也有可见的方向感。30dp ≈ 主流聊天 App 的滑入距离。
-        int offsetPx = dpToPx(30, viewToAnimate.getContext());
+        // 固定位移替代 getWidth()*0.15f：首帧未布局时 getWidth()==0。
+        // 2026-10-20 S4：30dp/200ms → 8dp/180ms（demo 的 motion 口径，短、轻、不抢阅读）。
+        int offsetPx = dpToPx(8, viewToAnimate.getContext());
         float fromX = isUser ? offsetPx : -offsetPx;
         android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(true);
         android.view.animation.TranslateAnimation translate = new android.view.animation.TranslateAnimation(

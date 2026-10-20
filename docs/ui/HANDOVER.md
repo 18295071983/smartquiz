@@ -783,6 +783,28 @@ header 显示"已深度思考 4.6s · 2 步"，下面两行分别是
 7. **下一步（S3–S5）**：7 颗文字胶囊与 `performClick()` 转发抽成真方法 → 模型信息行下沉 →
    删 v1 else 腿/三对布局/旧资源 → 删 `ChatUiFlags`/`ChatUiSetting`。
    在 S3 之前 v2 的反馈/朗读状态仍靠被 GONE 的胶囊承载，**不要先删胶囊**。
+   （S3/S4 已落地，见 §4.11；胶囊动作依赖已解除，但视图删除仍留到 S5。）
+
+### 4.11 合并 S3–S4 落地记录（2026-10-20 夜，真机未验）
+
+1. **动作解耦（解 C1）**：新增 `doCopy / doSpeak / doShare / doRegenerate / doNewChat /
+   doLike / doDislike` 七个方法，v1 胶囊、v2 三图标、「更多」面板全部直接调；
+   `forwardToLegacyAction` 已删。删除 v1 视图不再会让 v2 按钮失效，S5 的前置条件满足。
+   注意 `doShare` 仍按旧口径同时派发 `Action.copy`（不是笔误，别顺手"修正"）。
+2. **状态回执**：`applyFeedbackVisual` 在 v2 下额外给「更多」图标着色表示"已反馈"
+   （赞/踩没有独立图标）；面板文案与 Toast 不变。`applySpeakingVisual` 仍只写 v1 胶囊文字，
+   删胶囊时要把它改成空实现或接到面板状态。
+3. **模型/状态行收敛**：v2 不再显示模型名/延迟/成本行，信息在"点时间戳 → 消息详情"
+   卡片里（`buildDetailHtml` 本就有）；`agentStatus` 行在 v2 隐藏，状态由活动区 header 表达。
+4. **动效（S4 第一刀）**：入场 30dp/200ms → **8dp/180ms**，并在
+   `ValueAnimator.areAnimatorsEnabled()` 为 false 时跳过。思考高度动画是 v1 专属，
+   留到 S5 与 v1 分支一起删；流式光标/三点脉冲未做。
+5. **验证**：编译通过；全量单测 454 / 0 skipped / 0 failed / 0 errors；APK 重出。
+   **真机未验**：v2 复制/重新生成/更多、面板六项、赞踩回执、模型行隐藏后的详情入口。
+6. **S5 待办**：删 `createAiMessageItem` 的 v1 else 腿、三对旧布局与 `view_chat_input_bar.xml`、
+   7 颗胶囊 + 相关 holder 字段 + `DynamicAiMessageRoot` 的构造参数、v1 思考拼接段与高度动画、
+   AI `blockLabel`、`ChatUiFlags`/`ChatUiSetting`。动 `DynamicAiMessageRoot` 构造器时
+   按"减参"处理，不要顺手扩参。
 
 ---
 
