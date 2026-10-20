@@ -12,7 +12,7 @@
                   ┌─ 通道一：官方内核（首选，无限次、稳定）
 用户链接 ──→ 工具 ─┤      assets/dy_builtin 内置（随 APK 发布，~1.06MB）
                   │      本地计算签名 → 直连抖音官方 aweme/v1/web/aweme/detail 接口
-                  │      缺 UIFID → 自动开内置 WebView 抓取（自愈）
+                  │      缺 UIFID → 桌面模式内置 WebView 轮询抓取（拿不到则提示登录）
                   │      官方失败 → 自动重试一次 → 仍失败回退
                   └─ 通道二：第三方源 suxun（兜底，每日限 20 次 + 24h 缓存）
 ```
@@ -28,9 +28,15 @@
 2. **自解包落袋**：首次调用自动解包到应用私有目录 `files/dy_builtin/`（幂等：完整则跳过；半解包/损坏自动清理重解）。Python 加载内核时生成 `__pycache__/dy_official_core.cpython-310.pyc`。
 3. **签名直连**：本地用 aBogus/websign 算签名，直连抖音官方接口，不走第三方解析服务。
 4. **UIFID 自愈闭环**：
-   - 官方 detail 接口强制要求真实 UIFID（只有浏览器能下发）；
-   - 无正式 UIFID → 工具自动驱动内置 WebView 加载 `www.douyin.com` → 捕获回 AppCookieStore；
+   - 官方 detail 接口强制要求真实 UIFID（100+ 位 hex，只有浏览器能下发，无公开签发接口）；
+   - 无正式 UIFID → 工具驱动内置 WebView 加载 `www.douyin.com`：**桌面 UA + 放开第三方 Cookie**，
+     页面 `onPageFinished` 后按秒轮询 CookieManager，出现正式 UIFID 即快照进 AppCookieStore，
+     并合并落盘到 `files/dy_webview_cookie.txt`（先备份 `.bak`）；
+   - 移动端 UA 会被抖音拦到"下载APP"引导页/验证码页，握手不执行，所以抓取 WebView 用专用桌面 UA
+     （不改 `WebViewDefaults.CHROME_USER_AGENT` 这个全局值）；
    - 官方报 `NEED_COOKIE`（登录态失效）→ 强制重新抓 UIFID → 自动重试官方一次；
+   - 匿名桌面 UA 也拿不到时（约 22s 超时），错误信息会明确提示"在应用内登录抖音一次"，
+     不再被第三方源的"源限流"报错误导；
    - 仍失败 → 回退 suxun。全程一次工具调用内完成。
 5. **Cookie 安全**：
    - 内核 cookie 落盘在**应用私有目录** `files/dy_webview_cookie.txt`（外部明文文件已退役）；
@@ -50,7 +56,7 @@
 ## 五、工具级行为保障
 
 - **AI 核心集常驻**：`douyin_downloader` 已加入 OnlineAgentEngine 核心工具集（CORE_TOOLS），AI 每轮直接可见、可直接调用，**无需 tool_registry 发现**。
-- **超时放宽**：工具级超时 30s → 120s（首次执行含 UIFID 自愈抓取 15~17s，避免误杀）。
+- **超时放宽**：工具级超时 30s → 120s（首次执行含 UIFID 自愈抓取，最长约 22s，避免误杀）。
 - **注册固化**：AIToolManager 内置注册 `douyin_downloader`；同名动态工具自动跳过（只留内置一份）。
 
 ## 六、存储与生命周期
@@ -78,6 +84,7 @@ AI  ：douyin_downloader(url="...", source="official")
 
 ## 八、排查指引
 
-- 返回 `官方内核：NEED_COOKIE` → 工具会自动抓 UIFID 重试；仍失败则说明抖音 PC 端未发放正式 UIFID，自动回退 suxun（结果可用，非故障）。
+- 返回 `官方内核：NEED_COOKIE` / 提示"缺少 UIFID" → 桌面 WebView 抓取也没拿到（匿名态被风控）。
+  在应用内打开抖音网页登录一次，再重试即可拿到正式 UIFID；期间仍会自动回退 suxun（结果可用，非故障）。
 - 返回 `官方内核脚本执行失败` → 看设备 logcat `DouyinDownloaderTool` / `PythonToolManager` 关键字；内核文件损坏会自动重建。
 - 首次调用偶发慢（≤30s）属正常：含解包 + UIFID 抓取；此后秒级返回（缓存 + 已有 UIFID）。

@@ -13,16 +13,19 @@ import com.oilquiz.app.util.AILogger;
 import com.oilquiz.app.webview.AppCookieStore;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -49,6 +52,25 @@ public class DouyinDownloaderTool implements AITool, StructuredParamTool {
     private static final String ASSET_SUXUN = "douyin_downloader.py";
     private static final String BUILTIN_DIR = "dy_builtin";
     private static final String DY_COOKIE_DOMAIN = "https://www.douyin.com";
+    private static final String DY_HOME_URL = "https://www.douyin.com/";
+    private static final String COOKIE_FILE_NAME = "dy_webview_cookie.txt";
+
+    /**
+     * 抓取 UIFID 专用桌面 UA。
+     * 抖音只对桌面 Chrome 正常执行 secsdk/webmssdk 握手并由服务端 Set-Cookie 下发 UIFID；
+     * 移动端 UA 会落到"下载APP"引导页或验证码中间页，握手根本不跑（2026-10-21 实测）。
+     * 注意：只用于这个隐藏抓取 WebView，不要改 WebViewDefaults.CHROME_USER_AGENT
+     * （那是全 App 网页的全局 UA，改成桌面会让登录页/移动站点布局异常）。
+     */
+    private static final String CAPTURE_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    + "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
+
+    /** 页面加载完成后轮询 UIFID 的间隔/上限（握手 + 风控挑战约 3~10s，留足余量） */
+    private static final long UIFID_POLL_INTERVAL_MS = 1000L;
+    private static final long UIFID_POLL_MAX_MS = 14000L;
+    /** 抓取总等待（含页面加载 + 轮询），超时后按失败处理，不阻塞工具主流程 */
+    private static final long CAPTURE_TOTAL_WAIT_SECONDS = 22L;
 
     private final Context context;
     private final List<ParamDefinition> definitions;
@@ -93,7 +115,7 @@ public class DouyinDownloaderTool implements AITool, StructuredParamTool {
                 + "输入分享链接/整段分享文案/纯aweme_id，自动下载：①无水印视频(无码率压缩) ②背景音乐BGM ③封面图 ④图集多图 ⑤文案，"
                 + "返回标题/作者/点赞/发布时间/文件大小。"
                 + "主通道：官方内核（assets/dy_builtin 内置，本地算签名直连 aweme/v1/web/aweme/detail，无限次、稳定，"
-                + "缺 UIFID 自动用内置 WebView 抓取，NEED_COOKIE 失效自动重试自愈）；"
+                + "缺 UIFID 时用桌面模式内置 WebView 轮询抓取（抓不到会提示登录抖音），NEED_COOKIE 失效自动重试自愈）；"
                 + "官方失败自动回退第三方解析源（每日限20次+24h缓存）。"
                 + "参数：url=分享链接/文案/纯ID(必填)；what=all|video|bgm|image(默认all)；source=auto|official|suxun(默认auto=官方优先)；"
                 + "quality=best|sd|hd；force=true强制重解析；save_dir=保存目录(默认files)。"
@@ -160,11 +182,36 @@ public class DouyinDownloaderTool implements AITool, StructuredParamTool {
 
             // ---- 通道二：第三方源（suxun / auto 回退）----
             AIToolResult fallback = trySuxun(toolManager, parameters);
-            if (officialFail != null && fallback != null && fallback.isSuccess()) {
-                // 官方失败后回退成功：保留官方诊断供排查
-                Map<String, Object> info = fallback.getAdditionalInfo();
-                if (info != null) {
-                    info.put("fallbackFrom", officialFail.getErrorMessage());
+            if (officialFail != null) {
+                Map<String, Object> oi = officialFail.getAdditionalInfo();
+                String code = oi != null && oi.get("officialErrorCode") != null
+                        ? String.valueOf(oi.get("officialErrorCode")) : "";
+                if (fallback != null && fallback.isSuccess()) {
+                    // 官方失败后回退成功：保留官方诊断供排查
+                    Map<String, Object> info = fallback.getAdditionalInfo();
+                    if (info != null) {
+                        info.put("fallbackFrom", officialFail.getErrorMessage());
+                        if (!code.isEmpty()) {
+                            info.put("officialErrorCode", code);
+                        }
+                    }
+                } else if (fallback != null) {
+                    // 两条通道同时失败：必须把官方诊断一并带出，否则 cookie 问题会被显示成"源限流"
+                    Map<String, Object> info = fallback.getAdditionalInfo();
+                    if (info == null) {
+                        info = new HashMap<>();
+                    }
+                    if (!code.isEmpty()) {
+                        info.put("officialErrorCode", code);
+                    }
+                    String msg = fallback.getErrorMessage() == null ? "下载未完成" : fallback.getErrorMessage();
+                    if ("NEED_COOKIE".equals(code)) {
+                        info.put("needsLogin", true);
+                        msg += "\n官方内核未生效：缺少 UIFID。可在应用内打开抖音登录一次，再让我重试官方通道。";
+                    } else if (officialFail.getErrorMessage() != null) {
+                        msg += "\n官方通道：" + officialFail.getErrorMessage();
+                    }
+                    return AIToolResult.fail(msg, info);
                 }
             }
             return fallback;
@@ -347,80 +394,209 @@ public class DouyinDownloaderTool implements AITool, StructuredParamTool {
      * 用内置 WebView 自动抓取正式 UIFID（官方 detail 接口的必需登录态，只有浏览器能拿到）。
      * - force=false：已有正式 UIFID 或本进程已尝试过则跳过（正常解析路径）
      * - force=true：强制重新抓取（官方报 NEED_COOKIE 后的自愈路径）
-     * 抓取方式：隐藏 WebView 加载 https://www.douyin.com/ → 页面 JS 种下 HttpOnly UIFID →
-     * 加载完成后延迟 4 秒捕获回 AppCookieStore（provider 即可读到）。
+     *
+     * 抓取方式：隐藏 WebView（桌面 UA + 放开第三方 Cookie）加载 https://www.douyin.com/，
+     * 页面 secsdk 完成握手后服务端下发 HttpOnly UIFID；页面加载完成后按秒轮询，
+     * 一旦出现正式 UIFID 就快照进 AppCookieStore 并落盘到私有 cookie 文件，不再固定 sleep。
      */
     private boolean ensureFormalUifid(boolean force) {
         if (!force && uifidAutoAttempted) {
             return false;
         }
-        try {
-            AppCookieStore store = AppCookieStore.getInstance();
-            if (!force) {
-                String www = store.getCookieHeader("https://www.douyin.com");
-                if (www != null && www.contains("UIFID=")) {
-                    return true; // 已有正式 UIFID
-                }
-            }
-            uifidAutoAttempted = true;
-            final CountDownLatch latch = new CountDownLatch(1);
-            final WebView[] holder = new WebView[1];
-            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                try {
-                    WebView wv = new WebView(context);
-                    holder[0] = wv;
-                    WebSettings s = wv.getSettings();
-                    s.setJavaScriptEnabled(true);
-                    s.setDomStorageEnabled(true);
-                    s.setUserAgentString(com.oilquiz.app.webview.WebViewDefaults.CHROME_USER_AGENT);
-                    s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-                    s.setAllowFileAccess(false);
-                    wv.setWebViewClient(new WebViewClient() {
-                        @Override
-                        public void onPageFinished(WebView view, String url) {
-                            // UIFID 常由页面 JS / 后续接口延迟种下：加载完成后等待 4 秒再捕获
-                            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                                try {
-                                    AppCookieStore.getInstance().captureFromWebView("https://www.douyin.com");
-                                    AILogger.i(TAG, "WebView 捕获抖音 Cookie 完成");
-                                } catch (Throwable ignored) {
-                                } finally {
-                                    latch.countDown();
-                                }
-                            }, 4000);
+        AppCookieStore store = AppCookieStore.getInstance();
+        if (!force && hasFormalUifid(store)) {
+            return true; // 已有正式 UIFID
+        }
+        uifidAutoAttempted = true;
+        final CountDownLatch latch = new CountDownLatch(1);
+        final WebView[] holder = new WebView[1];
+        final java.util.concurrent.atomic.AtomicBoolean polling =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                CookieManager cm = CookieManager.getInstance();
+                cm.setAcceptCookie(true);
+                WebView wv = new WebView(context);
+                holder[0] = wv;
+                // 抖音 secsdk 在子域/iframe 里握手：不放开第三方 Cookie 会把下发值直接丢掉
+                cm.setAcceptThirdPartyCookies(wv, true);
+                WebSettings s = wv.getSettings();
+                s.setJavaScriptEnabled(true);
+                s.setDomStorageEnabled(true);
+                s.setUserAgentString(CAPTURE_USER_AGENT);
+                s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+                s.setAllowFileAccess(false);
+                wv.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        // 加载完成 ≠ 握手完成：不猜时长，改为轮询等 UIFID 出现
+                        if (polling.compareAndSet(false, true)) {
+                            pollForUifid(latch);
                         }
-                    });
-                    wv.loadUrl("https://www.douyin.com/");
-                    // 总超时兜底（15 秒），避免阻塞工具执行
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(15000);
-                        } catch (InterruptedException ignored) {
-                        }
-                        latch.countDown();
-                    }).start();
-                } catch (Throwable t) {
-                    AILogger.w(TAG, "UIFID WebView 启动失败: " + t.getMessage());
-                    latch.countDown();
-                }
-            });
-            latch.await(17, TimeUnit.SECONDS);
-            // 主线程销毁 WebView
-            if (holder[0] != null) {
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                    try {
-                        holder[0].stopLoading();
-                        holder[0].loadUrl("about:blank");
-                        holder[0].destroy();
-                    } catch (Throwable ignored) {
                     }
                 });
+                wv.loadUrl(DY_HOME_URL);
+                // 兜底：个别机型 onPageFinished 不回调（加载被中断/重定向卡住）时也要开始轮询
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    if (polling.compareAndSet(false, true)) {
+                        pollForUifid(latch);
+                    }
+                }, 6000L);
+            } catch (Throwable t) {
+                AILogger.w(TAG, "UIFID WebView 启动失败: " + t.getMessage());
+                latch.countDown();
             }
-            String www = store.getCookieHeader("https://www.douyin.com");
-            return www != null && www.contains("UIFID=");
-        } catch (Throwable t) {
-            AILogger.w(TAG, "ensureFormalUifid failed: " + t.getMessage());
+        });
+        try {
+            latch.await(CAPTURE_TOTAL_WAIT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        // 主线程销毁 WebView
+        if (holder[0] != null) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                try {
+                    holder[0].stopLoading();
+                    holder[0].loadUrl("about:blank");
+                    holder[0].destroy();
+                } catch (Throwable ignored) {
+                }
+            });
+        }
+        boolean ok = hasFormalUifid(store);
+        AILogger.i(TAG, "UIFID 抓取结束：" + (ok ? "成功" : "未取到（桌面UA+轮询后仍无 UIFID，多半需要用户在应用内登录抖音）"));
+        return ok;
+    }
+
+    /**
+     * 页面加载完成后按 {@link #UIFID_POLL_INTERVAL_MS} 轮询 CookieManager，
+     * 抓到格式合法的 UIFID 立即落盘并结束；到 {@link #UIFID_POLL_MAX_MS} 仍未出现则放弃。
+     */
+    private void pollForUifid(CountDownLatch latch) {
+        if (latch.getCount() == 0) {
+            return;
+        }
+        final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        final long start = android.os.SystemClock.elapsedRealtime();
+        final Runnable[] task = new Runnable[1];
+        task[0] = () -> {
+            boolean done = false;
+            try {
+                AppCookieStore.getInstance().captureFromWebView(DY_HOME_URL);
+                String raw = CookieManager.getInstance().getCookie(DY_HOME_URL);
+                String uifid = extractCookieValue(raw, "UIFID");
+                if (isFormalUifid(uifid)) {
+                    try {
+                        CookieManager.getInstance().flush();
+                    } catch (Throwable ignored) {
+                    }
+                    persistCapturedCookie(raw);
+                    done = true;
+                    AILogger.i(TAG, "抓到正式 UIFID（长度 " + uifid.length() + "），已写入 " + COOKIE_FILE_NAME);
+                }
+            } catch (Throwable t) {
+                AILogger.w(TAG, "轮询 UIFID 异常: " + t.getMessage());
+            }
+            if (done || android.os.SystemClock.elapsedRealtime() - start >= UIFID_POLL_MAX_MS) {
+                latch.countDown();
+                return;
+            }
+            main.postDelayed(task[0], UIFID_POLL_INTERVAL_MS);
+        };
+        main.post(task[0]);
+    }
+
+    /** 是否已有服务端下发的正式 UIFID（长度 ≥100 的 hex；乱填值会被服务端 403 Validate Error） */
+    private boolean hasFormalUifid(AppCookieStore store) {
+        if (store == null) {
             return false;
+        }
+        String www = store.getCookieHeader(DY_COOKIE_DOMAIN);
+        return isFormalUifid(extractCookieValue(www, "UIFID"));
+    }
+
+    private static boolean isFormalUifid(String uifid) {
+        return uifid != null && uifid.matches("[0-9a-fA-F]{100,}");
+    }
+
+    /** 从 "k=v; k2=v2" 中取指定键的值，没有返回 null */
+    private static String extractCookieValue(String cookieLine, String name) {
+        if (cookieLine == null || cookieLine.isEmpty()) {
+            return null;
+        }
+        for (String part : cookieLine.split(";")) {
+            String p = part.trim();
+            int eq = p.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            if (p.substring(0, eq).trim().equals(name)) {
+                return p.substring(eq + 1).trim();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 把 WebView 抓到的全量 Cookie 合并进私有 cookie 文件（先备份 .bak），
+     * 这样官方内核（Python 侧）下次直接用文件里的 UIFID，不必每次重新抓。
+     * 合并而非覆盖：WebView 只持有 www 域，m 域的 UIFID_TEMP 等已有值要保留。
+     */
+    private void persistCapturedCookie(String rawCookie) {
+        try {
+            File file = new File(context.getFilesDir(), COOKIE_FILE_NAME);
+            LinkedHashMap<String, String> merged = new LinkedHashMap<>();
+            if (file.exists() && file.length() > 0) {
+                mergeCookiePairs(merged, readTextFile(file));
+                try (InputStream in = new FileInputStream(file);
+                     FileOutputStream out = new FileOutputStream(new File(file.getPath() + ".bak"))) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        out.write(buf, 0, n);
+                    }
+                }
+            }
+            mergeCookiePairs(merged, rawCookie);
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, String> e : merged.entrySet()) {
+                if (sb.length() > 0) {
+                    sb.append("; ");
+                }
+                sb.append(e.getKey()).append('=').append(e.getValue());
+            }
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            }
+        } catch (Throwable t) {
+            AILogger.w(TAG, "写入 " + COOKIE_FILE_NAME + " 失败: " + t.getMessage());
+        }
+    }
+
+    private static void mergeCookiePairs(LinkedHashMap<String, String> into, String cookieLine) {
+        if (cookieLine == null || cookieLine.isEmpty()) {
+            return;
+        }
+        for (String part : cookieLine.split(";")) {
+            String p = part.trim();
+            int eq = p.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            into.put(p.substring(0, eq).trim(), p.substring(eq + 1).trim());
+        }
+    }
+
+    private static String readTextFile(File f) throws java.io.IOException {
+        try (InputStream in = new FileInputStream(f)) {
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                bos.write(buf, 0, n);
+            }
+            return new String(bos.toByteArray(), StandardCharsets.UTF_8);
         }
     }
 
@@ -531,7 +707,7 @@ public class DouyinDownloaderTool implements AITool, StructuredParamTool {
     /** 装配官方内核执行代码：注入解包目录、私有 cookie 文件、WebView Cookie、script_args */
     private String buildOfficialCode(String wrapper, String filesDir, String cookie,
                                      Map<String, Object> parameters) {
-        File cookieFile = new File(context.getFilesDir(), "dy_webview_cookie.txt");
+        File cookieFile = new File(context.getFilesDir(), COOKIE_FILE_NAME);
         String code = wrapper
                 .replace("__FILES_DIR__", filesDir)
                 .replace("__COOKIE_FILE__", cookieFile.getAbsolutePath())
@@ -554,7 +730,7 @@ public class DouyinDownloaderTool implements AITool, StructuredParamTool {
      */
     private void migrateExternalCookie() {
         try {
-            File priv = new File(context.getFilesDir(), "dy_webview_cookie.txt");
+            File priv = new File(context.getFilesDir(), COOKIE_FILE_NAME);
             File ext = new File("/storage/emulated/0/Download/OilQuiz/agent_workspace/files/dy_webview_cookie.txt");
             if (!ext.exists()) {
                 return;
