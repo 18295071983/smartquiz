@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-10-21] parts 架构升级 P1+P2：Part 稳定 id/指纹 + PartRenderer 引擎（flag 默认关）
+
+- **P1** `AssistantTurn.Part`：`fromMessage` 稳定化 id——reasoning/text 按 `{callId}:reasoning|:text`，
+  tool_call 按 `{callId}:tool:{toolCallId}`（键于 toolCallId，前序工具增删不漂移），tool_result 派生
+  `...:result`；新增 `fingerprint()`（FNV-1a 内容哈希，不含 id/timestamp）与 `toolResult` 工厂；
+  修 `fillToolPartsFromComponents` 的 `ConcurrentModificationException`。不改 ChatAdapter、不删 bounds。
+- **P2** 新建包 `ai/chat/parts`：`PartRenderer`/`PartHost` 接口、`PartRendererRegistry`、
+  `TurnPartsHost` 增量引擎（viewById + fingerprintById，复用同 id / 指纹相同不重绑 / 删除必 releaseView /
+  按序对齐，杜绝裸 `for(Part) removeAllViews`）；`TextPartRenderer` 复用 MarkdownWebView/MarkdownRenderer，
+  `ReasoningPartRenderer` 复用同一 markdown 原语 + 折叠行；`PartsRendererFlag`（`ai_chat_prefs/parts_renderer`，默认 false）。
+- **未接线 ChatAdapter**：flag=false 完全走旧路径，现网零行为变化；真机 flag=true 端到端一致留 P3。
+- **验证**：新增 27 条单测（P1 计 10 + P2 计 17），`--offline testDebugUnitTest` 全绿，无回归。手机不在，未做装机（P2 无需）。
+
 ## [2026-10-21 凌晨] 「正在思考」真正根因：非流式 fallback 文案写错
 
 - 上一条结构指纹修复只覆盖「轮次活动组重建」；本次抓到实际路径：

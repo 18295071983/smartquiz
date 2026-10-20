@@ -1284,6 +1284,35 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    4.49 的 S0/S1 指纹修复保留，负责轮次活动组重建。
 4. **验证**：496 单测全绿，装机。
 
+### 4.51 parts P1：Part 稳定 id + 内容指纹（2026-10-21）
+
+1. `AssistantTurn.Part` 的 id 由 `fromMessage` 统一并稳定化：reasoning/text →
+   `{callId}:reasoning` / `{callId}:text`；tool_call → `{callId}:tool:{toolCallId}`
+   （键于真实 toolCallId，前序工具增删不再让 id 漂移）；tool_result 由 call id 派生 `...:result`。
+2. 新增 `Part.fingerprint()`：FNV-1a 64 位对内容字段（type/text/toolCallId/toolName/args/
+   result/status）哈希，**不含 id/timestamp**，null≡空串；供渲染层判"同 id 内容是否变化"。
+   另加 `Part.toolResult(call, result, ts)` 工厂集中结果 part 的 id 派生。
+3. 修 `fillToolPartsFromComponents`：遍历 `turn.parts` 时插入 result part 触发的
+   `ConcurrentModificationException`（改遍历防御性副本）。
+4. 不改 ChatAdapter，不删 contentRoundBounds。**验证**：AssistantTurnTest 14 条全绿。
+
+### 4.52 parts P2：PartRenderer 体系 + Text/Reasoning + flag（2026-10-21）
+
+1. 新建包 `com.oilquiz.app.ai.chat.parts`：`PartRenderer`/`PartHost` 接口、
+   `PartRendererRegistry`（按 type 解析，P2 只注册 text/reasoning）、`TurnPartsHost` 增量协调
+   引擎——`viewById` + `fingerprintById`，复用同 id、指纹相同不重绑、删除必 `releaseView`、
+   末尾按 parts 顺序对齐子视图，杜绝文档 §3 禁止的裸 `for(Part) removeAllViews`。
+2. `TextPartRenderer` 复用 `MarkdownWebView`（web 开）/`MarkdownRenderer.render`+TextView（原生）；
+   `ReasoningPartRenderer` 复用同一 markdown 原语 + 折叠行。think line 的 header 文案/逐轮展开态
+   长在 ChatAdapter 私有方法里，留 P3 由 ChatAdapter 实现 `PartHost` 时透出，避免与旧 think line 双份展示。
+3. feature flag `ai_chat_prefs/parts_renderer` 默认 **false**，沿用 `LayoutCanvasConstraints.enabled`
+   读法；**P2 未接线 ChatAdapter，flag=false 完全走旧路径，现网零行为变化**。
+4. **验证**：新增 17 条单测（引擎 8 / registry 4 / flag 3 / renderer 2），全量单测 BUILD SUCCESSFUL。
+   真机端到端"flag=true 与旧 UI 一致"待 P3 接线后再验（手机不在时无法做，属 P3 范畴）。
+5. **下一步（P3）**：ChatAdapter 实现 `PartHost`；注册 `ToolCallPartRenderer`/
+   `ToolResultPartRenderer`/`DataPartRenderer`；parts 模式下 `bindComponents` 跳过 tool_call；
+   flag=true 时 AI 消息树走 `TurnPartsHost`。
+
 ---
 
 ## 5. 关键文件 / 改动地图
