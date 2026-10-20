@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-10-20 晚] 思考段重做：一个入口 + 一步一行（真机已验），并修掉会话重复的第三层主因
+
+### 查到的事实
+
+- 聊天页确实在叠实例，但**它不是"多一条会话"的主因**：装机后 START 的 flag 已是 `0x20020000`
+  （`SINGLE_TOP|REORDER_TO_FRONT`），三次仍是三个新实例——用户按的是返回键，实例已销毁，
+  `REORDER_TO_FRONT` 无从复用。主因（认领比对了窗口最后一条消息，而会话文件只存 USER/AI）
+  与修法见上面「2026-10-19 晚」一节，本轮是**装机复验它真的修好了**。
+- 用户对着真机说"思考段设计有些不对"，查证后确认：业界是**一个回合一个折叠容器**、
+  header 随状态从"正在思考…"变成"已思考 X 秒 · N 步"、展开后一步一行且收起只给摘要
+  （assistant-ui 的 thinking accordion、Gemini Interactions 的 steps、
+  LangChain 的 default collapsed + truncated preview、OpenCode 要的动态摘要标题、
+  IronClaw 的 working→静态行）。**"第 N 轮"是模型内部结构，不该当 UI 单位。**
+
+### 由此改掉的事
+
+- 思考段：v2 走 `updateThinkingSectionV2` + `buildThinkingStepRow`
+  （header 唯一入口 / 一步一行 / 收起给摘要 + 右对齐耗时 / 流式自动展开且当前轮用纯文本追加），
+  步骤容器 `chat_v2_think_steps` 与 header、实时正文同属一节；
+  轮次模式下 header 只做信息行并藏起箭头（消除"两层折叠"）；
+  旧档恢复成改动前的一入口一坨文本。耗时格式与 `AgentSummaryInfo#getFormattedTime` 同口径。
+- 真机还顺手验了 A1 第四段两半：日期分隔行（"今天 10:02"）与操作段三图标
+  （无障碍树里 `复制` / `重新生成` / `消息操作`，各带 contentDescription）都生效。
+
+### 验证
+
+- **真机（279b6c51）**：4 次恢复全部认领回同一个会话 id、`files/conversations/` 只有 1 个文件、
+  `E ChatHistoryManager` 0 条、crash buffer 无本应用条目；
+  思考段 header 显示"已深度思考 4.6s · 2 步"，两行摘要分别带 2.1s / 2.5s 与各自箭头，
+  与工具卡、正文按时间混排（截图 `D:/Temp/shot/v2_think_fix.png`）。
+- **第 1 轮没有秒数**这个缺口也在真机抓到并修了：`AIChatActivity` 有 7 处
+  `currentThinkingContent = new StringBuilder()`，而"新一轮"判定是 `== null`，
+  缓冲区先被建好就不进那个分支 → 起点恒 0。收成一个 `startThinkingBuffer()` 全走它。
+- `testDebugUnitTest --rerun-tasks` = **42 类 / 444 tests / 0 failed / 0 skipped**。
+- **遗留**：工具行"已运行 1 个工具"仍单独占一节，实际发生在第 1、2 步之间——
+  把工具并进同一条时间线是下一步（要动 `renderToolLine` 与 `renderRoundAssembled` 的槽位计算）。
+
+
 ## [2026-10-20 上午] 思考段改成"每轮一行、每行独立折叠"，删掉消息级统一折叠
 
 用户提的：一条消息里所有思考轮拼成一坨、一个总开关统一折叠，点开要读一整屏，

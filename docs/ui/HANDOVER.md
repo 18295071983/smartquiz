@@ -702,6 +702,51 @@ demo 的 `#tpl-actions` 只有三颗图标（复制 / 重新生成 / 更多）�
 ③ 流式中实时行显示"正在思考（第 N 轮）"、定稿后变成独立一行；
 ④ 有工具轮次的 Agent 消息不再需要"先点开总开关"；⑤ 旧会话恢复出来的消息没有秒数也不炸。
 
+### 4.9b 同一天二次修正（真机已验）：思考段改成"一个入口 + 一步一行"，取代 §4.9 的"每轮一行"
+
+用户对着一张真机截图说"我感觉设计的有些不对啊"，让我去查别家怎么设计。查完他是对的，
+而且错得比"看着别扭"更具体。**§4.9 那一版方向对了一半**：它满足了"每轮独立折叠"，
+但把"轮"当成了 UI 单位，还留了"实时行 + 每轮行"两套机制。业界口径（有出处，别凭感觉改）：
+
+- **一个回合一个折叠容器**：assistant-ui 的 Chain of Thought 把连续的 reasoning 与 tool call
+  "group into a single collapsible 'thinking' accordion"；setproduct 的 AI 聊天界面总结同口径
+  （"Treat it as a collapsible section above the answer. Default collapsed."）。
+- **流式与完成是同一容器的两个状态**：assistant-ui 的 `Reasoning` 检测到正在流式就自动展开、
+  加 shimmer，收起时是"脑图标 + 时长"的紧凑触发器；IronClaw 的 Agent 活动流是
+  working 显示"Thinking…"+elapsed 计时，完成后计时文本消失、换成静态"Worked for Ns"。
+- **收起态给摘要、按时间顺序混排**：LangChain 的 reasoning 最佳实践列了
+  default collapsed / show character count / truncated preview / 视觉区分 / `aria-expanded`；
+  Gemini Interactions API 把 reasoning 表达成与 function call **按时间并列的 steps**；
+  Claude 的 interleaved thinking 就是 `[thinking]→[tool_use]→[thinking]→…`。
+- **"第 N 轮"是实现细节泄漏**：OpenCode 的 feature request 要的是收起态显示
+  动态短摘要（"Searching codebase for API definitions"），不是内部循环计数。
+
+改成了什么（`bd928505`）：
+
+- v2 走 `updateThinkingSectionV2`：header 是整段唯一入口，文案随状态变
+  ——流式"正在思考…"，完成后"已深度思考 4.6s · 2 步"；
+  步骤列表住进 `view_chat_v2_think_line` 新增的 `chat_v2_think_steps`
+  （与 header、实时正文同一节，不再在 `bubble` 里另建容器）。
+- `buildThinkingStepRow` = 一行摘要（该段首句 truncated）+ 右对齐耗时 + 箭头，点开才出全文；
+  折叠锚点仍是 `message.thinkingExpandedRounds`（按轮 id），只是**单位从"轮"换成"步"**。
+- 流式期间整节自动展开，当前轮正文用**纯文本**追加（每帧跑全量 Markdown 是本地模型闪烁成因之一），
+  定稿后才按 Markdown 渲染一次。
+- 轮次模式（有工具边界）下 header 只做信息行：不兼任总开关、箭头一并藏起来
+  ——留着箭头就是在暗示一个不存在的行为，而那正是"两层折叠"的来源。
+- `formatThinkingDuration` 与 `AgentSummaryInfo#getFormattedTime` 同口径（ms / N.Ns / Nm Ns）：
+  工具行、汇总卡、思考 header 三处显示"一段时间"的格式必须一致。
+- **旧档（开关关着）恢复成 §4.9 之前的样子**：一个入口 + 一段拼好的推理文本。
+  它本身就是业界说的"一个折叠区里面是推理文本"，只是不分步；分步先在 v2 落地，跑稳后再决定推不推。
+
+真机已验（279b6c51，v2 开，截图 `D:/Temp/shot/v2_think_fix.png`）：
+header 显示"已深度思考 4.6s · 2 步"，下面两行分别是
+"用户重复问同一个问题。我刚查过。… 2.1s ›"与"Same data. Present concisely, note it's unchange 2.5s ›"，
+与工具卡、正文按时间顺序混排。
+
+**遗留（下一步）**：工具行"已运行 1 个工具"仍单独占一节，但它实际发生在第 1、2 步之间——
+把工具并进同一条时间线才是完整形态，这一步没做，因为它要动 `renderToolLine` 与
+`renderRoundAssembled` 的槽位计算（昨天刚在真机验过 11 行明细那条链）。
+
 ---
 
 ## 5. 关键文件 / 改动地图
