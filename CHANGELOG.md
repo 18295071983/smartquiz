@@ -1,5 +1,13 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 语音不再抢先：按轮次渲染时关掉逐 token 朗读
+
+- 根因：`handleStreamToken` 每 token 调 `feedStreamingTts`，但正文被
+  `ROUND_BATCH_RENDER` 压到轮次边界/完成才显示 → 语音先响、文字后出。
+- 修法：`feedStreamingTts` 在 `ROUND_BATCH_RENDER` 下直接 return；
+  `finishAutoSpeak` 在正文完成/显示后走整条朗读（`maybeAutoSpeak`）。
+- 验证：482 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 修生成本中断：思考 token 回调必须在主线程
 
 ### 现场

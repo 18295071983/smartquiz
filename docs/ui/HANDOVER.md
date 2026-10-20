@@ -1167,6 +1167,14 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. **修法**：`onThinkingToken` 整体 `runOnUiThread` 后再执行所有 UI/状态操作。
 4. **验证**：482 单测全绿，装机。
 
+### 4.38 语音与按轮次正文同步（2026-10-21 凌晨）
+
+1. **现象**：语音先出现，文字在轮次边界/完成才显示。
+2. **根因**：`feedStreamingTts` 每 token 朗读，而正文被 `ROUND_BATCH_RENDER` 延后。
+3. **修法**：`ROUND_BATCH_RENDER` 下不逐 token 喂 TTS；`finishAutoSpeak` 在完成后
+   整条朗读。
+4. **验证**：482 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

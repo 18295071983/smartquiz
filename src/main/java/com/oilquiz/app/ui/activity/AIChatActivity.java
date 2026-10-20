@@ -11329,6 +11329,9 @@ public class AIChatActivity extends BaseActivity {
     /** 向流式朗读器投喂 token（仅自动朗读开启时生效） */
     private void feedStreamingTts(String token) {
         if (!autoTtsEnabled || token == null || token.isEmpty()) return;
+        // 按轮次渲染时正文还没上屏，逐 token 喂 TTS 会造成“语音先出现、文字后出现”。
+        // 本轮不流式朗读；complete 的 finishAutoSpeak 会在正文显示后再整条朗读。
+        if (ROUND_BATCH_RENDER) return;
         if (streamingTtsSpeaker == null) return;
         streamTtsFed = true;
         streamingTtsSpeaker.feed(token);
