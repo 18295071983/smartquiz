@@ -853,6 +853,25 @@ header 显示"已深度思考 4.6s · 2 步"，下面两行分别是
 5. **仍存在的历史数据现象**：旧会话里独立的 `AGENT_SUMMARY` 消息仍以 MetricCard + emoji
    显示（不是 AI 消息内的汇总，是单独一条消息）；本轮没动，若要一套视觉需在 A2/C1 里收掉。
 
+### 4.14 输入区 chip 重做 + 服务状态口径（2026-10-21 凌晨，真机已验）
+
+1. **chip 位置与外观**：从输入胶囊上方移到下方；顺序 `深度思考 / 联网 / 智能助手`；
+   去 emoji 与 `ON`；图标 `ic_chat_v2_sparkle/globe/bulb`；28dp 高、无描边、
+   选中 brand-soft 底 + brand-ink 字/图标。**唯一上色点**是
+   `ChatUiV2Chrome#styleModeChip`，`AIChatActivity` 的
+   `updateAgentChip/updateWebSearchChip/updateDeepThinkChip` 只写 checked 与文案
+   （这解掉了报告 §3③ 的"两个写入者"）。
+2. **字数**：`chat_v2_char_count`（`0 / 4000`）在 chip 行最右，TextWatcher 实时刷新；
+   超 4000 只变红、不截断。口径常量在 `AIChatActivity#CHAT_INPUT_MAX_CHARS`。
+3. **副标题口径**：根因是 `activity_ai_chat.xml` 的 `service_status_text` 默认文案
+   "AI服务未初始化"，而 `ServiceStatusManager` 只写这个隐藏控件、从不更新 v2 副标题。
+   现在新增 `publishStatusText()` 同时写两处；UNINITIALIZED 按真实情况显示
+   「本地模型 · 待加载 / 未导入本地模型 / 本地模型 · 就绪」；在线状态
+   `engineStatusLine("就绪")` 不再把模型名重复塞两次。布局默认文案改「正在检查模型…」。
+4. **验证**：456 单测全绿；装机后副标题 `在线模型 · deepseek-flash · 就绪`，
+   输入区三 chip + `0 / 4000` 与用户截图一致（真机截图已看）。
+   未验：1.3× 字号换行、深色档、超限变红。
+
 ---
 
 ## 5. 关键文件 / 改动地图

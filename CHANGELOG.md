@@ -1,5 +1,41 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 输入区模式 chip 按 demo 重做 + 服务状态副标题改口径
+
+### 查到的事实
+
+- 输入区三个 chip 还是旧样子：`智能助手 ON` / `🧠 深度思考 ON` / `🔍 联网搜索`，
+  排在输入胶囊上方，颜色和文案由 `AIChatActivity#updateAgentChip/updateWebSearchChip/
+  updateDeepThinkChip` 各写一套（主色底白字/灰底灰字），与 `ChatUiV2Chrome#styleModeChip`
+  的 checked 状态列表互相覆盖；也没有字数显示。
+- 顶栏副标题一直显示"AI服务未初始化"：`activity_ai_chat.xml` 的 `service_status_text`
+  默认文案就是这个，而 `ServiceStatusManager` 只写隐藏的 `service_status_text`，
+  从不调 `ChatUiV2Chrome.updateSubtitle`；v2 顶栏建好时复制的是这个默认值，之后再没变过。
+  真实状态可能是"在线模型 · deepseek-flash · 就绪"或本地模型待加载。
+- 在线状态文案还有一处重复：`updateOnlineModelStatus` 把模型名塞进 `engineStatusLine(state)`，
+  而该方法自己就会拼模型名，真机上显示成 `deepseek-flash · deepseek-flash 就绪`。
+
+### 由此改掉的事
+
+- **模式 chip 按截图重做**：移到输入胶囊下方，顺序 `深度思考 / 联网 / 智能助手`，
+  去 emoji、去 `ON` 后缀；图标换 `ic_chat_v2_sparkle/globe/bulb`；
+  选中态 brand-soft 底 + brand-ink 字/图标，未选中透明底，全部由
+  `ChatUiV2Chrome#styleModeChip` 一处上色（Activity 三个 update 方法只写 checked 与文案）。
+- **字数**：新增 `chat_v2_char_count`（`0 / 4000`），TextWatcher 实时刷新；
+  超过 4000 只变红提示，不强行截断用户输入。
+- **服务状态口径**：`ServiceStatusManager` 新增 `publishStatusText()`，同时写
+  `service_status_text` 与 v2 副标题；`UNINITIALIZED` 时按真实情况显示
+  `本地模型 · 待加载` / `未导入本地模型` / `本地模型 · 就绪`，不再说"AI服务未初始化"；
+  布局默认文案改成"正在检查模型…"；在线状态去掉重复的模型名。
+- 删除 `AIServiceState` 里 UNINITIALIZED 的"AI服务未初始化"默认文案，改"等待加载模型"。
+
+### 验证
+
+- 编译、全量单测 **456 / 0 skipped / 0 failed / 0 errors**、`assembleDebug` 通过；已装机复查。
+- 真机截图确认：副标题 `在线模型 · deepseek-flash · 就绪`；输入胶囊下方
+  `深度思考 / 联网 / 智能助手` 三枚 chip + 右侧 `0 / 4000`，与用户给的截图一致。
+- 未验：字号 1.3× 下 chip 行是否换行、深色档配色、输入超 4000 字的变红提示。
+
 ## [2026-10-20 深夜·真机首验] S5 包装上：活动时间线生效；工具结果预览改取 formatted_result
 
 ### 查到的事实

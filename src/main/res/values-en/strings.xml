@@ -555,7 +555,7 @@ Enter \'Help\' to see more functions.</string>
     <string name="chat_no_model_selected">No Model Selected</string>
     <string name="chat_regenerate">Regenerate</string>
     <string name="chat_send">Send</string>
-    <string name="chat_service_not_initialized">AI service not initialized</string>
+    <string name="chat_service_not_initialized">Checking model…</string>
     <string name="chat_share">Share</string>
     <string name="chat_speak">🔊 Read Aloud</string>
     <string name="chat_stop">Stop</string>

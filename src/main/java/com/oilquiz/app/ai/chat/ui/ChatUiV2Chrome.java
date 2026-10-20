@@ -197,9 +197,13 @@ public final class ChatUiV2Chrome {
 
     // ---------------------------------------------------------------- 输入区密度
 
-    /** 输入区上方的模式 chip：压到 28dp 一行，并按 demo {@code .mode} 上色 */
+    /**
+     * 输入区下方的模式 chip（demo {@code .mode}）：28dp、无描边、未选中透明底，
+     * 选中 brand-soft 底 + brand-ink 字/图标。这里是<b>唯一</b>上色点；
+     * {@code AIChatActivity} 的三个 updateXxxChip 只负责 checked 与文案，不再覆盖颜色。
+     */
     private static void compressStatsBar(Activity activity) {
-        int[] chips = {R.id.chip_local_agent, R.id.chip_deep_think, R.id.chip_web_search};
+        int[] chips = {R.id.chip_deep_think, R.id.chip_web_search, R.id.chip_local_agent};
         for (int id : chips) {
             View chip = activity.findViewById(id);
             if (chip == null) continue;
@@ -218,8 +222,8 @@ public final class ChatUiV2Chrome {
     }
 
     /**
-     * demo {@code .mode} 的配色口径：未选中透明底 + text-2，选中 brand-soft 底 + brand-ink 字。
-     * 只改颜色状态列表，不动 chip 的交互（checked 仍由原有 setChecked 逻辑驱动）。
+     * 只改样式，不动 chip 的交互（checked 仍由原有 setChecked 逻辑驱动）。
+     * 图标 tint 也走同一组状态：选中 brand-ink，未选中 text-3。
      */
     private static void styleModeChip(View chip) {
         if (!(chip instanceof com.google.android.material.chip.Chip)) return;
@@ -227,7 +231,8 @@ public final class ChatUiV2Chrome {
         Context ctx = c.getContext();
         int soft = ContextCompat.getColor(ctx, R.color.chat_v2_brand_soft);
         int ink = ContextCompat.getColor(ctx, R.color.chat_v2_brand_ink);
-        int idle = ContextCompat.getColor(ctx, R.color.chat_v2_text_2);
+        int idleText = ContextCompat.getColor(ctx, R.color.chat_v2_text_2);
+        int idleIcon = ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
         int transparent = android.graphics.Color.TRANSPARENT;
         int[][] states = new int[][]{
                 new int[]{android.R.attr.state_checked},
@@ -236,8 +241,20 @@ public final class ChatUiV2Chrome {
         };
         c.setChipBackgroundColor(new android.content.res.ColorStateList(states,
                 new int[]{soft, transparent, transparent}));
-        c.setTextColor(new android.content.res.ColorStateList(states, new int[]{ink, idle, idle}));
+        c.setTextColor(new android.content.res.ColorStateList(states,
+                new int[]{ink, idleText, idleText}));
+        c.setChipIconTint(new android.content.res.ColorStateList(states,
+                new int[]{ink, idleIcon, idleIcon}));
         c.setChipStrokeWidth(0f);
+        c.setCheckedIconVisible(false);
+        // 默认 48dp 触控热区会把 28dp 的行撑高；这里只保留视觉高度（点击热区仍由父容器兜底）
+        c.setEnsureMinTouchTargetSize(false);
+        c.setChipStartPadding(dp(ctx, 8));
+        c.setChipEndPadding(dp(ctx, 10));
+        c.setIconStartPadding(dp(ctx, 2));
+        c.setIconEndPadding(dp(ctx, 4));
+        c.setTextStartPadding(dp(ctx, 2));
+        c.setTextEndPadding(dp(ctx, 2));
     }
 
     // ---------------------------------------------------------------- 信息面板

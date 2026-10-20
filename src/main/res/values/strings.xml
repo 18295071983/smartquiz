@@ -638,7 +638,7 @@
     <string name="chat_stop">停止</string>
     <string name="chat_send">发送</string>
     <string name="chat_loading">加载中...</string>
-    <string name="chat_service_not_initialized">AI服务未初始化</string>
+    <string name="chat_service_not_initialized">正在检查模型…</string>
     <string name="chat_no_model_selected">未选择模型</string>
     <string name="chat_tokens_format">⚡ %1$d tokens</string>
     <string name="chat_model_loading">模型加载中...</string>
@@ -728,6 +728,11 @@
     <string name="chat_voice_desc">语音输入</string>
     <string name="chat_send_desc">发送</string>
     <string name="chat_v2_generating">正在生成</string>
+    <!-- 输入区模式 chip（demo .mode）：选中态由 ChatUiV2Chrome 统一样式，文案只在这里 -->
+    <string name="chat_mode_think">深度思考</string>
+    <string name="chat_mode_web">联网</string>
+    <string name="chat_mode_agent">智能助手</string>
+    <string name="chat_v2_char_count">%1$d / %2$d</string>
     <!-- 聊天页 v2 顶栏（demo .appbar） -->
     <string name="chat_v2_history_desc">对话历史</string>
     <string name="chat_v2_switch_model">切换模型</string>

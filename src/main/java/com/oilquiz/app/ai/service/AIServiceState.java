@@ -168,7 +168,7 @@ public class AIServiceState {
     
     private String getDefaultMessageForStage(ServiceStage stage) {
         switch (stage) {
-            case UNINITIALIZED: return "AI服务未初始化";
+            case UNINITIALIZED: return "等待加载模型";
             case NATIVE_LIBRARY_LOADING: return "加载原生库...";
             case MODEL_FILE_PREPARING: return "准备模型文件...";
             case MODEL_LOADING: return "加载模型...";

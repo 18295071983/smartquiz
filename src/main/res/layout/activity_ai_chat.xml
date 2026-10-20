@@ -489,61 +489,6 @@
                 android:padding="@dimen/space_8"
                 android:gravity="center_vertical">
 
-                <!-- 对话模式行：智能助手开关 + 深度思考开关（对齐官方：输入区顶部） -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingHorizontal="4dp"
-                    android:paddingBottom="@dimen/space_6">
-                    <!-- 智能助手开关（最左）：开启后AI可用天气/时间/搜索/记忆等工具，即时生效 -->
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chip_local_agent"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="@dimen/space_8"
-                        android:text="智能助手"
-                        android:checkable="true"
-                        app:chipIcon="@drawable/ic_ai_agent"
-                        app:chipIconSize="20dp"
-                        app:chipIconTint="@color/chip_gray_text"
-                        app:chipBackgroundColor="@color/chip_gray_bg"
-                        android:textColor="?attr/colorControlTextSecondary"
-                        app:chipStrokeWidth="1dp"
-                        app:chipStrokeColor="@color/border_light"
-                        app:checkedIconVisible="false"/>
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chip_deep_think"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🧠 深度思考"
-                        android:checkable="true"
-                        app:chipBackgroundColor="@color/chip_gray_bg"
-                        android:textColor="?attr/colorControlTextSecondary"
-                        app:chipStrokeWidth="1dp"
-                        app:chipStrokeColor="@color/border_light"
-                        app:checkedIconVisible="false"/>
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chip_web_search"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="@dimen/space_8"
-                        android:text="🔍 联网搜索"
-                        android:checkable="false"
-                        app:chipBackgroundColor="@color/chip_gray_bg"
-                        android:textColor="?attr/colorControlTextSecondary"
-                        app:chipStrokeWidth="1dp"
-                        app:chipStrokeColor="@color/border_light"
-                        app:checkedIconVisible="false"/>
-                    <View
-                        android:layout_width="@dimen/size_0"
-                        android:layout_height="@dimen/size_1"
-                        android:layout_weight="1"/>
-                    <!-- 上下文占用仪表已并入 session_stats_bar（ContextMeter pill）——
-                         原最右位置会被右侧工具抽屉覆盖，2026-09-23 移除 -->
-                </LinearLayout>
-
                 <!-- 发送队列条：忙时排队模式显示待发送消息，可一键清空 -->
                 <LinearLayout
                     android:id="@+id/queue_bar"
@@ -580,6 +525,69 @@
                     android:id="@+id/chat_input_bar"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"/>
+
+                <!-- 对话模式行（demo .mode）：输入胶囊下方。
+                     选中态（brand-soft 底 + brand-ink 字）由 ChatUiV2Chrome#styleModeChip
+                     统一上色，Activity 的三个 updateXxxChip 只负责 checked 与文案。 -->
+                <LinearLayout
+                    android:id="@+id/chat_mode_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="4dp"
+                    android:paddingTop="@dimen/space_8">
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_deep_think"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/size_28"
+                        android:layout_marginEnd="@dimen/space_2"
+                        android:checkable="true"
+                        android:minHeight="@dimen/size_28"
+                        android:text="@string/chat_mode_think"
+                        android:textSize="@dimen/text_11"
+                        app:checkedIconVisible="false"
+                        app:chipIcon="@drawable/ic_chat_v2_sparkle"
+                        app:chipIconSize="14dp"/>
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_web_search"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/size_28"
+                        android:layout_marginEnd="@dimen/space_2"
+                        android:checkable="true"
+                        android:minHeight="@dimen/size_28"
+                        android:text="@string/chat_mode_web"
+                        android:textSize="@dimen/text_11"
+                        app:checkedIconVisible="false"
+                        app:chipIcon="@drawable/ic_chat_v2_globe"
+                        app:chipIconSize="14dp"/>
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chip_local_agent"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/size_28"
+                        android:checkable="true"
+                        android:minHeight="@dimen/size_28"
+                        android:text="@string/chat_mode_agent"
+                        android:textSize="@dimen/text_11"
+                        app:checkedIconVisible="false"
+                        app:chipIcon="@drawable/ic_chat_v2_bulb"
+                        app:chipIconSize="14dp"/>
+
+                    <View
+                        android:layout_width="@dimen/size_0"
+                        android:layout_height="@dimen/size_1"
+                        android:layout_weight="1"/>
+
+                    <TextView
+                        android:id="@+id/chat_v2_char_count"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/chat_v2_text_3"
+                        android:textSize="@dimen/text_11"/>
+                </LinearLayout>
         </LinearLayout>
 
     </LinearLayout>

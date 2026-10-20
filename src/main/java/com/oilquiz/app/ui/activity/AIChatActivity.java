@@ -175,6 +175,8 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnVoice; // 语音输入按钮（点击弹出语音识别组件，录音→ASR→填入输入框）
     private MaterialButton btnAutoTts; // 全局自动语音合成开关按钮
     private MaterialButton btnToolResultDisplay; // 工具结果卡片展示档位（整卡/摘要/不显示）入口
+    private TextView chatV2CharCount; // 输入区右下角字数（demo "0 / 4000"）
+    private static final int CHAT_INPUT_MAX_CHARS = 4000;
 
     private boolean autoTtsEnabled = false; // 自动语音合成是否开启（AI回复完成后自动朗读）
     private String lastAutoSpokenMessageId; // 已自动朗读的消息ID（防止重复朗读）
@@ -500,6 +502,7 @@ public class AIChatActivity extends BaseActivity {
                 }
             }
             inputMessage = findViewById(R.id.input_message);
+            chatV2CharCount = findViewById(R.id.chat_v2_char_count);
             btnSend = findViewById(R.id.btn_send);
             btnAttach = findViewById(R.id.btn_attach);
             btnVoice = findViewById(R.id.btn_voice);
@@ -1893,12 +1896,30 @@ public class AIChatActivity extends BaseActivity {
         }
 
         inputMessage.setOnEditorActionListener((v, actionId, event) -> { sendMessage(); return true; });
+
+        // 输入区字数（demo 右下 "0 / 4000"）：只做展示，不强行截断用户输入
+        inputMessage.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override public void afterTextChanged(android.text.Editable s) { updateChatV2CharCount(); }
+        });
+        updateChatV2CharCount();
         
         // 长按输入框显示更多选项
         inputMessage.setOnLongClickListener(v -> {
             if (dialogHelper != null) dialogHelper.showInputOptions(inputMessage);
             return true;
         });
+    }
+
+    /** 输入区右下角字数：超过上限只变红提示，不截断（截断会让长文用户丢内容） */
+    private void updateChatV2CharCount() {
+        if (chatV2CharCount == null) return;
+        int len = inputMessage != null && inputMessage.getText() != null
+                ? inputMessage.getText().length() : 0;
+        chatV2CharCount.setText(getString(R.string.chat_v2_char_count, len, CHAT_INPUT_MAX_CHARS));
+        chatV2CharCount.setTextColor(getColor(len > CHAT_INPUT_MAX_CHARS
+                ? R.color.error : R.color.chat_v2_text_3));
     }
 
     private void cancelGeneration() {
@@ -8278,25 +8299,11 @@ public class AIChatActivity extends BaseActivity {
     private void updateAgentChip(com.google.android.material.chip.Chip chip) {
         if (chip == null) return;
         boolean on = aiConfig != null && aiConfig.isLocalAgentEnabled();
-        if (on) {
-            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    ThemeColors.attr(this, R.attr.colorPrimary)));
-            chip.setTextColor(getColor(R.color.white));
-            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    ThemeColors.attr(this, R.attr.colorPrimary)));
-            chip.setText(getString(R.string.h_43435c9f));
-            chip.setChipIconTint(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.white)));
-        } else {
-            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_bg)));
-            chip.setTextColor(getColor(R.color.chip_gray_text));
-            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_stroke)));
-            chip.setText(getString(R.string.h_e224c0b3));
-            chip.setChipIconTint(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_text)));
-        }
+        // 只写状态与文案；配色/图标 tint 由 ChatUiV2Chrome#styleModeChip 统一负责
+        chip.setChecked(on);
+        chip.setText(R.string.chat_mode_agent);
+        chip.setEnabled(true);
+        chip.setAlpha(1f);
     }
 
     /** 切换当前在线模型的联网搜索能力（写配置持久化，即时生效）。仅服务商声明 webSearch 参数时可用 */
@@ -8357,31 +8364,9 @@ public class AIChatActivity extends BaseActivity {
         }
         chipWebSearch.setEnabled(true); // 保持可点击：不可用时点击给原因提示（不切换状态）
         chipWebSearch.setChecked(on);
-        if (!available) {
-            // 不可用：灰底灰字 + 半透明 + "不可用"标记，点击仅提示原因，不会意外启用
-            chipWebSearch.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_bg)));
-            chipWebSearch.setTextColor(getColor(R.color.chip_gray_text));
-            chipWebSearch.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_stroke)));
-            chipWebSearch.setAlpha(0.5f);
-            chipWebSearch.setText("🔍 联网搜索·不可用");
-        } else if (on) {
-            chipWebSearch.setAlpha(1f);
-            chipWebSearch.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    ThemeColors.attr(this, R.attr.colorPrimary)));
-            chipWebSearch.setTextColor(getColor(R.color.white));
-            chipWebSearch.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    ThemeColors.attr(this, R.attr.colorPrimary)));
-        } else {
-            chipWebSearch.setAlpha(1f);
-            chipWebSearch.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_bg)));
-            chipWebSearch.setTextColor(getColor(R.color.chip_gray_text));
-            chipWebSearch.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_stroke)));
-            chipWebSearch.setText("🔍 联网搜索");
-        }
+        chipWebSearch.setText(R.string.chat_mode_web);
+        // 不可用只降透明度，不再换成"·不可用"长文案；点击仍会说明原因
+        chipWebSearch.setAlpha(available ? 1f : 0.5f);
     }
 
     /** 深度思考开关 chip 高亮状态：开启=主色底白字, 关闭=灰色底灰字 */
@@ -8398,33 +8383,16 @@ public class AIChatActivity extends BaseActivity {
         if (alwaysThinking) {
             chip.setEnabled(false);
             chip.setChecked(true);
-            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    ThemeColors.attr(this, R.attr.colorPrimary)));
-            chip.setTextColor(getColor(R.color.white));
-            chip.setText(getString(R.string.h_931c3c94));
+            chip.setText(R.string.chat_mode_think);
             return;
         }
         ChatModeManager modeManager = ChatModeManager.getInstance(this);
         ChatModeManager.ThinkingEffort effort = modeManager.getThinkingEffort();
-        boolean on = effort.isEnabled();
-        if (on) {
-            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    ThemeColors.attr(this, R.attr.colorPrimary)));
-            chip.setTextColor(getColor(R.color.white));
-            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    ThemeColors.attr(this, R.attr.colorPrimary)));
-            // 开启时把强度档位带在标签上（长按可切换），让"当前强度"一眼可见
-            String base = getString(R.string.h_931c3c94);
-            chip.setText(effort == ChatModeManager.ThinkingEffort.HIGH
-                    ? base : base + " · " + effort.displayName);
-        } else {
-            chip.setChipBackgroundColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_bg)));
-            chip.setTextColor(getColor(R.color.chip_gray_text));
-            chip.setChipStrokeColor(android.content.res.ColorStateList.valueOf(
-                    getColor(R.color.chip_gray_stroke)));
-            chip.setText(getString(R.string.h_89093f20));
-        }
+        // 只写状态与文案；选中态配色由 ChatUiV2Chrome#styleModeChip 统一负责
+        chip.setEnabled(true);
+        chip.setChecked(effort.isEnabled());
+        chip.setText(R.string.chat_mode_think);
+        chip.setAlpha(1f);
     }
 
     /**

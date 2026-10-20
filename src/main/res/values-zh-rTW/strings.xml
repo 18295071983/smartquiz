@@ -534,7 +534,7 @@
     <string name="chat_no_model_selected">未選擇模型</string>
     <string name="chat_regenerate">重新生成</string>
     <string name="chat_send">傳送</string>
-    <string name="chat_service_not_initialized">AI 服務未初始化</string>
+    <string name="chat_service_not_initialized">正在檢查模型…</string>
     <string name="chat_share">分享</string>
     <string name="chat_speak">🔊 朗讀</string>
     <string name="chat_stop">停止</string>

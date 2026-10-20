@@ -278,10 +278,29 @@ public class ServiceStatusManager {
         if (aiService == null) return;
         AIServiceState state = aiService.getServiceState();
         if (state == null) {
-            updateStatusDisplay(AIServiceState.ServiceStage.UNINITIALIZED, "AI服务未初始化", 0, 0);
+            updateStatusDisplay(AIServiceState.ServiceStage.UNINITIALIZED,
+                    "本地模型 · 待加载", 0, 0);
             return;
         }
         AIServiceState.ServiceStage stage = state.getCurrentStage();
+        if (stage == AIServiceState.ServiceStage.UNINITIALIZED) {
+            // 口径修正（2026-10-21）：UNINITIALIZED 只表示"还没开始加载"，不等于服务不可用。
+            // 本地模型是懒加载的：之前加载过（isInitialized）就显示就绪；有模型文件就显示待加载；
+            // 一个模型都没导入才说"未导入"。别再把"未初始化"甩给用户。
+            if (aiService.isInitialized()) {
+                updateStatusDisplay(AIServiceState.ServiceStage.INITIALIZED,
+                        "本地模型 · 就绪", 100, 0);
+                return;
+            }
+            boolean hasModel = false;
+            try {
+                hasModel = aiService.isCurrentModelFileExists();
+            } catch (Throwable ignored) {
+            }
+            updateStatusDisplay(AIServiceState.ServiceStage.UNINITIALIZED,
+                    hasModel ? "本地模型 · 待加载" : "未导入本地模型", 0, 0);
+            return;
+        }
         String message = state.getStageDescription();
         if (message == null || message.isEmpty()) {
             message = getStageDisplayName(stage);
@@ -301,7 +320,7 @@ public class ServiceStatusManager {
         }
 
         if (aiService == null) {
-            callback.onShowToast("AI服务未初始化");
+            callback.onShowToast("本地模型尚未加载");
             return;
         }
 
@@ -516,11 +535,15 @@ public class ServiceStatusManager {
         // 而那是各调用点手写的中文长句（如"加载模型到内存中..."），与 NPU 侧风格不一致。
         // 这里让 AIServiceState.getStageLabel() 作为唯一来源；它取不到时再退回 stageMessage。
         String humanLabel = null;
-        try {
-            if (aiService != null && aiService.getServiceState() != null) {
-                humanLabel = aiService.getServiceState().getStageLabel();
+        // UNINITIALIZED 的短标签是"AI 待加载"，会把上面按"是否有模型文件/是否已加载"分好的
+        // 口径盖掉；这一档直接用调用方传进来的 message。
+        if (stage != AIServiceState.ServiceStage.UNINITIALIZED) {
+            try {
+                if (aiService != null && aiService.getServiceState() != null) {
+                    humanLabel = aiService.getServiceState().getStageLabel();
+                }
+            } catch (Throwable ignored) {
             }
-        } catch (Throwable ignored) {
         }
         String displayMessage = (humanLabel != null && !humanLabel.isEmpty())
                 ? humanLabel
@@ -561,7 +584,20 @@ public class ServiceStatusManager {
         }
 
         serviceStatusIcon.setText(stageIcon);
-        serviceStatusText.setText(displayMessage);
+        publishStatusText(displayMessage);
+    }
+
+    /**
+     * 状态文案的唯一出口：既写旧的 service_status_text（v2 下隐藏，但「⋯」面板还在读），
+     * 也同步 v2 顶栏副标题。此前只写前者，导致副标题一直停在布局默认的
+     * "AI服务未初始化"——服务其实已经就绪。
+     */
+    private void publishStatusText(String text) {
+        if (serviceStatusText != null) serviceStatusText.setText(text);
+        try {
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateSubtitle(activity, text);
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
@@ -639,13 +675,10 @@ public class ServiceStatusManager {
             serviceStatusProgress.setVisibility(View.GONE);
         }
 
-        String modelName = inferenceRouter != null ? inferenceRouter.getCurrentModelName() : null;
-        String displayName = modelName != null && !modelName.isEmpty() ? modelName : "在线模型";
         if (serviceStatusIcon != null) serviceStatusIcon.setText("\u2601\uFE0F");
-        // 统一文案：在线模型 · 模型名 · 就绪（原先只有"云端推理就绪 · 模型名"）
-        if (serviceStatusText != null) {
-            serviceStatusText.setText(engineStatusLine(displayName + " 就绪"));
-        }
+        // 统一文案：engineStatusLine 自己会拼「在线模型 · 模型名 · 状态」，
+        // 不能再把模型名塞进 state（会变成 "deepseek-flash · deepseek-flash 就绪"）。
+        publishStatusText(engineStatusLine("就绪"));
     }
 
     private void startLoadingTimer(AIServiceState.ServiceStage stage, String message, int progress) {
@@ -672,7 +705,7 @@ public class ServiceStatusManager {
                 }
 
                 if (serviceStatusIcon != null) serviceStatusIcon.setText(stageIcon);
-                if (serviceStatusText != null) serviceStatusText.setText(displayMessage);
+                publishStatusText(displayMessage);
 
                 if (aiService.getServiceState().isLoading()) {
                     uiHandler.postDelayed(this, LOADING_TIMER_INTERVAL_MS);
@@ -938,7 +971,7 @@ public class ServiceStatusManager {
     private String getStageDisplayName(AIServiceState.ServiceStage stage) {
         if (stage == null) return "处理中";
         switch (stage) {
-            case UNINITIALIZED: return "未初始化";
+            case UNINITIALIZED: return "待加载";
             case NATIVE_LIBRARY_LOADING: return "加载原生库";
             case MODEL_FILE_PREPARING: return "准备模型文件";
             case MODEL_LOADING: return "加载模型";
