@@ -2006,6 +2006,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private boolean renderToolLine(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.toolSection == null) return false;
         java.util.List<ComponentData> tools = collectToolComponents(message);
+        // 2026-10-20：轮次模式（有工具边界）下工具已经按时间顺序内联进步骤时间线了
+        // （renderRoundAssembled 每轮挂一张 tool_call 卡），这条"已运行 N 个工具"的总行
+        // 就落在整条时间线上方，看着像"工具发生在所有思考之前"——顺序是错的，而且和
+        // 内联卡重复。所以这一档不再显示总行，但仍要接管 agentSummary（返回 true），
+        // 否则那组数字会换成汇总文本/汇总卡再出现一遍。
+        // 兜底：只有当这条消息里【确实有工具卡会被挂载】时才收掉总行——
+        // 产物展示档位可能被设成 HIDDEN（一张卡都不挂），那时总行是工具唯一的痕迹，不能藏。
+        if (message.contentRoundBounds != null && !message.contentRoundBounds.isEmpty()
+                && hasMountableToolCard(holder.itemView.getContext(), tools)) {
+            holder.toolSection.setVisibility(View.GONE);
+            holder.toolLineFp = null;
+            return true;
+        }
         ChatMessage.AgentSummaryInfo summary = message.agentSummaryInfo;
         int count = summary != null && summary.toolCallCount > 0 ? summary.toolCallCount : tools.size();
         if (count <= 0) {
@@ -2124,6 +2137,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         String s = raw.replaceAll("[\\r\\n\\t]+", " ").trim();
         if (s.length() > 60) s = s.substring(0, 60) + "…";
         return s;
+    }
+
+    /** 这批工具卡里是否至少有一张会真正挂载（受产物展示档位影响） */
+    private boolean hasMountableToolCard(Context ctx, java.util.List<ComponentData> tools) {
+        if (tools == null) return false;
+        for (ComponentData t : tools) {
+            if (t == null) continue;
+            if (ComponentDisplay.mounts(ComponentDisplay.resolve(ctx, t))) return true;
+        }
+        return false;
     }
 
     /** 工具状态文案（demo 用耗时占位，本仓没有逐调用耗时，先给状态） */
@@ -2457,23 +2480,55 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 一次展开要读完整段历史思考，还和"每轮自己的折叠"叠成两层。
         // 现在每轮块恒挂载，收起/展开只看该步自己的 thinkingExpandedRounds（buildThinkingStepRow 内读）；
         // 顶部那条实时思考行只服务"正在进行的这一轮"，点它折叠的是这一轮的正文。
-        if (holder.thinkingLabel != null) holder.thinkingLabel.setVisibility(View.VISIBLE);
-        // 流式期间这一节自动展开（与 updateThinkingSectionV2 同一口径），
-        // 否则"正在进行的这一轮"在轮次模式下会被藏起来，用户看不到实时思考。
+        if (holder.thinkingLabel != null) {
+            holder.thinkingLabel.setVisibility(View.VISIBLE);
+            // 轮次模式下 header 只做信息行：每一步自己折叠，它不兼任总开关，
+            // 文案也换成与 v2 同一句"已深度思考 X · N 步"
+            //（旧版那句"▼ 思考过程"带向下箭头，暗示一个已经不存在的手势）。
+            holder.thinkingLabel.setClickable(false);
+            holder.thinkingLabel.setOnClickListener(null);
+            long total = 0L;
+            int nSteps = 0;
+            if (thinks != null) {
+                for (int i = 0; i < thinks.size(); i++) {
+                    String t = thinks.get(i);
+                    if (t == null || t.trim().isEmpty()) continue;
+                    nSteps++;
+                    total += message.thinkingRoundDurationMs(i);
+                }
+            }
+            if (nSteps > 0 && total > 0L) {
+                holder.thinkingLabel.setText(ctx.getString(
+                        R.string.chat_v2_thought_for_steps, formatThinkingDuration(total), nSteps));
+            } else if (nSteps > 0) {
+                holder.thinkingLabel.setText(ctx.getString(R.string.chat_v2_thought_steps_only, nSteps));
+            } else {
+                holder.thinkingLabel.setText(R.string.chat_v2_thinking_now);
+            }
+        }
+        // 轮次模式下这条"合并思考块"只能装**正在进行的当前轮**：
+        // 已定稿的轮次下面已经按时序逐块内联了，再显示合并块就是同一段文字出现两遍
+        // （真机 19:56 旧档截图里"▼ 思考过程"整坨 + 下面 2.1s/2.5s 两步就是这个问题）。
+        // 本方法是绑定链路上最后一个写 thinkingContent 可见性的人（updateThinkingContent 在前），
+        // 所以收口必须放在这里，不能只在前面的分支里"尽量不写"。
         boolean liveStreaming = message.status == ChatMessage.MessageStatus.GENERATING
                 || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+        String liveThink = stripThinkingTagMarkers(
+                message.thinkingContent == null ? "" : message.thinkingContent).trim();
+        if (!liveThink.isEmpty() && thinks != null && !thinks.isEmpty()) {
+            String lastRound = thinks.get(thinks.size() - 1);
+            if (lastRound != null
+                    && liveThink.equals(stripThinkingTagMarkers(lastRound).trim())) {
+                liveThink = "";   // 已经作为独立一块内联了，别再出现在合并块里
+            }
+        }
         if (holder.thinkingContent != null) {
-            holder.thinkingContent.setVisibility(
-                    (message.thinkingExpanded || liveStreaming) ? View.VISIBLE : View.GONE);
+            boolean showLive = liveStreaming && !liveThink.isEmpty();
+            holder.thinkingContent.setVisibility(showLive ? View.VISIBLE : View.GONE);
+            if (showLive) holder.thinkingContent.setText(liveThink);
         }
         if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
-        holder.thinkingLabel.setOnClickListener(v -> {
-            message.thinkingExpanded = !message.thinkingExpanded;
-            int pos = holder.getBindingAdapterPosition();
-            if (pos != RecyclerView.NO_POSITION) {
-                notifyItemChanged(pos);
-            }
-        });
+
 
         // 轮次结构指纹（2026-10-07 本地 Agent 闪烁修复）：
         // S=实时行展开位 + K=思考块（紧跟该轮展开位 0/1）+ T=正文段 + C:type|props=工具卡片；
