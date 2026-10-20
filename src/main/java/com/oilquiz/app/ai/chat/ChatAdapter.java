@@ -145,6 +145,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 清理 Agent 执行面板缓存字段（面板本身随 holder 复用，只需重置指纹）
             ai.agentExecFp = null;
             ai.agentExecBlockCount = -1;
+            // 活动区行指纹随消息走：回收后必须作废，否则下一条消息可能被误判成"结构未变"而沿用旧行
+            ai.activityFp = null;
+            ai.roundStructureFingerprint = null;
+            ai.roundRenderedChildren = 0;
             if (ai.agentExecutionView != null) ai.agentExecutionView.hide();
             // 回收时重置 WebView 正文渲染器（清占位高/待渲染状态），复用到别的消息不残留
             if (ai.markdownView != null) ai.markdownView.resetForReuse();
@@ -345,11 +349,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         switch (viewType) {
             case VIEW_TYPE_USER:
                 // v2（demo .row.user）只换外壳观感：两套布局的控件 id 完全一致，
-                // UserMessageViewHolder 的绑定逻辑不需要分支。
-                return new UserMessageViewHolder(inflater.inflate(
-                        ChatUiFlags.isUiV2Enabled(parent.getContext())
-                                ? R.layout.item_user_message_v2 : R.layout.item_user_message,
+                // UserMessageViewHolder 的绑定逻辑不需要分支；档位在建视图时定死，
+                // 绑定期一律读 holder.v2Look，不再重读开关（见 bindUserMessage）。
+                boolean userV2 = ChatUiFlags.isUiV2Enabled(parent.getContext());
+                UserMessageViewHolder userHolder = new UserMessageViewHolder(inflater.inflate(
+                        userV2 ? R.layout.item_user_message_v2 : R.layout.item_user_message,
                         parent, false));
+                userHolder.v2Look = userV2;
+                return userHolder;
             case VIEW_TYPE_AI:
                 // AI 消息完全动态构建（不依赖布局文件/id），杜绝 id 错乱
                 return createAiMessageItem(parent.getContext());
@@ -1103,16 +1110,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /**
      * 日期分隔行（demo {@code .day}："今天 14:32"）。
      *
-     * <p>只在 {@code chat_ui_v2} 开启时显示；旧版视图树里没有这个控件（{@code dayLabel == null}），
-     * 直接返回，所以关掉开关就是原来的逐条时间戳样子。</p>
+     * <p>档位由调用方按 <b>holder 建视图时</b> 的档位传进来（{@code v2Look}），不在这里重读开关：
+     * 开关是运行时可改的，绑定期重读会让"v2 的树"按"v1 的判据"藏日期，
+     * 而时间戳显隐又判 {@code dayLabel != null}，两边一错就出现"既没日期也没时间"。
+     * 旧版视图树里没有这个控件（{@code dayLabel == null}），直接返回。</p>
      *
      * <p>v2 下逐条时间戳按设计收起（时间信息已经进这一行日期），
      * "点时间看详情"的入口跟着挪到分隔行上；长按菜单里本来也有「详情」，入口不会丢。</p>
      */
-    private void bindDayLabel(TextView dayLabel, int position, ChatMessage message) {
+    private void bindDayLabel(TextView dayLabel, boolean v2Look, int position, ChatMessage message) {
         if (dayLabel == null || message == null) return;
         android.content.Context ctx = dayLabel.getContext();
-        if (!ChatUiFlags.isUiV2Enabled(ctx)) {
+        if (!v2Look) {
             dayLabel.setVisibility(View.GONE);
             return;
         }
@@ -1271,11 +1280,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.messageText.setText(message.content);
         holder.timestampText.setText(timeStr);
         bindTimestampClick(holder.timestampText, message);
-        bindDayLabel(holder.dayLabel, position, message);
-        // v2：逐条时间戳收进日期分隔行。dayLabel 只存在于 v2 的布局/视图树里，
-        // 关开关时它是 null、这里维持旧版的一直显示；开开关时显式收起（复用池要清状态）。
-        holder.timestampText.setVisibility(
-                holder.dayLabel != null ? View.GONE : View.VISIBLE);
+        bindDayLabel(holder.dayLabel, holder.v2Look, position, message);
+        // v2：逐条时间戳收进日期分隔行。日期与时间戳必须由同一个档位布尔成对决定，
+        // 否则复用池里留下 v2 holder 时会出现"两边都藏"（§3①）。holder.v2Look 在
+        // onCreateViewHolder 里按当时的开关定死，绑定期不再重读。
+        holder.timestampText.setVisibility(holder.v2Look ? View.GONE : View.VISIBLE);
 
         setupItemViewInteraction(holder.itemView, message);
 
@@ -1305,11 +1314,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.messageText.setMovementMethod(LinkMovementMethod.getInstance());
         holder.timestampText.setText(timeStr);
         bindTimestampClick(holder.timestampText, message);
-        bindDayLabel(holder.dayLabel, position, message);
+        bindDayLabel(holder.dayLabel, holder.v2Look, position, message);
         // 时间栏只对最终轮（最后一条 AI 消息）显示；中间轮次隐藏。
-        // v2（holder.dayLabel 存在）下逐条时间戳整体收起，时间信息由日期分隔行承担。
+        // v2 下逐条时间戳整体收起，时间信息由日期分隔行承担——判据同样只认 holder.v2Look。
         holder.timestampText.setVisibility(
-                holder.dayLabel == null && isLastAiMessage(position) ? View.VISIBLE : View.GONE);
+                !holder.v2Look && isLastAiMessage(position) ? View.VISIBLE : View.GONE);
 
         // blockLabel 当前未使用，确保隐藏
         if (holder.blockLabel != null) {
@@ -1539,7 +1548,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         // v2（demo .tool-line）：工具活动行接管"跑了几个工具/多久/成没成"，
         // 返回 false 表示旧版布局、或这条消息没有可汇总的工具调用。
-        boolean toolLineTookOver = renderToolLine(holder, message);
+        boolean toolLineTookOver;
+        if (holder.v2Look) {
+            // 2026-10-20 S2：过程行（思考 + 工具）已由活动区统一承载，
+            // agentSummary 的文本与汇总卡不再出现——否则同一组数字在气泡里摆两遍。
+            ActivityTimeline.Model model = ActivityTimeline.build(message);
+            toolLineTookOver = !model.isEmpty();
+            if (holder.toolSection != null) {
+                holder.toolSection.setVisibility(View.GONE);
+                holder.toolLineFp = null;
+            }
+        } else {
+            toolLineTookOver = renderToolLine(holder, message);
+        }
         if (holder.agentSummary != null) {
             if (toolLineTookOver) {
                 // 汇总文本与汇总卡片都要让位，否则同一组数字在气泡里出现两遍
@@ -2475,153 +2496,57 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (p != null && !"tool_call".equals(p.type)) tailProds.add(p);
             }
         }
-        // 2026-10-20：轮次模式下也【没有消息级统一折叠】了。
-        // 以前 thinkingLabel 是一个总开关，点开才把所有轮的思考块内嵌进来——
-        // 一次展开要读完整段历史思考，还和"每轮自己的折叠"叠成两层。
-        // 现在每轮块恒挂载，收起/展开只看该步自己的 thinkingExpandedRounds（buildThinkingStepRow 内读）；
-        // 顶部那条实时思考行只服务"正在进行的这一轮"，点它折叠的是这一轮的正文。
-        if (holder.thinkingLabel != null) {
-            holder.thinkingLabel.setVisibility(View.VISIBLE);
-            // 轮次模式下 header 只做信息行：每一步自己折叠，它不兼任总开关，
-            // 文案也换成与 v2 同一句"已深度思考 X · N 步"
-            //（旧版那句"▼ 思考过程"带向下箭头，暗示一个已经不存在的手势）。
-            holder.thinkingLabel.setClickable(false);
-            holder.thinkingLabel.setOnClickListener(null);
-            long total = 0L;
-            int nSteps = 0;
-            if (thinks != null) {
-                for (int i = 0; i < thinks.size(); i++) {
-                    String t = thinks.get(i);
-                    if (t == null || t.trim().isEmpty()) continue;
-                    nSteps++;
-                    total += message.thinkingRoundDurationMs(i);
-                }
-            }
-            if (nSteps > 0 && total > 0L) {
-                holder.thinkingLabel.setText(ctx.getString(
-                        R.string.chat_v2_thought_for_steps, formatThinkingDuration(total), nSteps));
-            } else if (nSteps > 0) {
-                holder.thinkingLabel.setText(ctx.getString(R.string.chat_v2_thought_steps_only, nSteps));
-            } else {
-                holder.thinkingLabel.setText(R.string.chat_v2_thinking_now);
-            }
-        }
-        // 轮次模式下这条"合并思考块"只能装**正在进行的当前轮**：
-        // 已定稿的轮次下面已经按时序逐块内联了，再显示合并块就是同一段文字出现两遍
-        // （真机 19:56 旧档截图里"▼ 思考过程"整坨 + 下面 2.1s/2.5s 两步就是这个问题）。
-        // 本方法是绑定链路上最后一个写 thinkingContent 可见性的人（updateThinkingContent 在前），
-        // 所以收口必须放在这里，不能只在前面的分支里"尽量不写"。
-        boolean liveStreaming = message.status == ChatMessage.MessageStatus.GENERATING
-                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-        String liveThink = stripThinkingTagMarkers(
-                message.thinkingContent == null ? "" : message.thinkingContent).trim();
-        if (!liveThink.isEmpty() && thinks != null && !thinks.isEmpty()) {
-            String lastRound = thinks.get(thinks.size() - 1);
-            if (lastRound != null
-                    && liveThink.equals(stripThinkingTagMarkers(lastRound).trim())) {
-                liveThink = "";   // 已经作为独立一块内联了，别再出现在合并块里
-            }
-        }
-        if (holder.thinkingContent != null) {
-            boolean showLive = liveStreaming && !liveThink.isEmpty();
-            holder.thinkingContent.setVisibility(showLive ? View.VISIBLE : View.GONE);
-            if (showLive) holder.thinkingContent.setText(liveThink);
-        }
-        if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
+        // 2026-10-20 S2：活动区（思考 + 工具）由 updateThinkingSectionV2 统一渲染，
+        // 这里不再写 thinkingLabel / thinkingContent，也不再往正文里内联思考块与工具卡。
 
 
-        // 轮次结构指纹（2026-10-07 本地 Agent 闪烁修复）：
-        // S=实时行展开位 + K=思考块（紧跟该轮展开位 0/1）+ T=正文段 + C:type|props=工具卡片；
-        // 不编码正文文本内容。
-        // 2026-10-20：原来的 E/F 总开关位拆成"逐轮一位"——折叠状态变成每轮一份之后，
-        // 不把该轮展开态编进指纹，点某轮标题时指纹不变，就会走增量路径、那一轮永远不重建。
-        // D=展示默认档（2026-10-20 设置页）：换档时内容一个字没变，不编码进指纹就永远不会重建。
-        // 流式期间轮次结构稳定时只增量刷新正文段，不 removeAllViews、不重建工具卡片。
+        // 轮次结构指纹（2026-10-20 S2）：只编码正文段 T 与产物 P。
+        // 思考/工具已经移到活动区，不再参与正文结构；D=展示默认档（换档必须重建）。
         StringBuilder fp = new StringBuilder();
-        fp.append('S').append(message.thinkingExpanded ? '1' : '0');
         fp.append('D').append(ComponentDisplay.name(ComponentDisplay.defaultTier(ctx)));
         int expect = 0;
-        int thinkIdx = 0;
-        int compIdx = 0;
         int start = 0;
         for (int i = 0; i <= bounds.size(); i++) {
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
             if (end > content.length()) end = content.length();
-            if (thinks != null && thinkIdx < thinks.size()) {
-                String t = thinks.get(thinkIdx);
-                if (t != null && !t.trim().isEmpty()) {
-                    fp.append('K').append(roundExpandedBit(message, thinkIdx) ? '1' : '0');
-                    expect++;
-                }
-                thinkIdx++;
-            }
             String seg = start < content.length() ? content.substring(start, end) : "";
             if (seg != null && !seg.trim().isEmpty()) { fp.append('T'); expect++; }
             start = end;
-            if (i < bounds.size() && compIdx < toolComps.size()) {
-                ComponentData comp = toolComps.get(compIdx);
-                int tkey = compIdx;
-                compIdx++;
-                if (comp != null && comp.props != null) {
-                    fp.append('C').append(comp.type).append('|').append(comp.props.toString()).append(';');
-                } else {
-                    fp.append("Cnull;");
-                }
-                expect++;
-                // 该工具卡的内联产物（P 段随工具卡一起编码，产物 props 变化会触发重建）
-                // HIDDEN 档产物不进指纹也不计数：它们压根不挂载，算进去会让 expect 比实际子 View 多
-                if (tkey < nRounds) {
-                    for (ComponentData p : roundProds.get(tkey)) {
-                        if (!ComponentDisplay.mounts(ComponentDisplay.resolve(ctx, p))) continue;
-                        fp.append('P').append(p.type).append('|')
-                          .append(p.props != null ? p.props.toString() : "null").append(';');
-                        expect++;
-                    }
+            if (i < nRounds) {
+                for (ComponentData p : roundProds.get(i)) {
+                    if (!ComponentDisplay.mounts(ComponentDisplay.resolve(ctx, p))) continue;
+                    fp.append('P').append(p.type).append('|')
+                      .append(p.props != null ? p.props.toString() : "null").append(';');
+                    expect++;
                 }
             }
         }
-        // 尾部兜底产物（无归属标注 / 匹配不到任何工具）；同 P 段：HIDDEN 不进指纹、不计数
         for (ComponentData p : tailProds) {
             if (!ComponentDisplay.mounts(ComponentDisplay.resolve(ctx, p))) continue;
             fp.append('P').append(p.type).append('|')
               .append(p.props != null ? p.props.toString() : "null").append(';');
             expect++;
         }
-        // 2026-10-20：正在流式的当前轮【不再补一块】。
-        // 以前补这一块是为了"总开关展开时连当前轮一起看"，代价是与顶部实时思考行重复渲染同一段文本；
-        // 现在实时行就是当前轮那一行，块序列只装"已定稿的轮"。
-        String curThink = message.thinkingContent != null ? message.thinkingContent.trim() : "";
-        String lastThink = (thinks != null && !thinks.isEmpty()) ? thinks.get(thinks.size() - 1).trim() : "";
         String newFp = fp.toString();
 
         boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
                 || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
 
-        // ---- 结构未变：增量更新（复用已挂载 View，不重建容器与工具卡片） ----
+        // ---- 结构未变：只增量刷新正文段文本 ----
         if (newFp.equals(holder.roundStructureFingerprint)
                 && holder.contentHost.getChildCount() == expect) {
             int childIdx = 0;
-            thinkIdx = 0;
-            compIdx = 0;
             start = 0;
             for (int i = 0; i <= bounds.size(); i++) {
                 int end = (i < bounds.size()) ? bounds.get(i) : content.length();
                 if (end > content.length()) end = content.length();
-                if (thinks != null && thinkIdx < thinks.size()) {
-                    String t = thinks.get(thinkIdx);
-                    if (t != null && !t.trim().isEmpty()) childIdx++;  // 思考块已挂载，跳过
-                    thinkIdx++;
-                }
                 String seg = start < content.length() ? content.substring(start, end) : "";
                 if (seg != null && !seg.trim().isEmpty()) {
                     View v = holder.contentHost.getChildAt(childIdx);
                     if (v instanceof TextView) {
                         TextView tv = (TextView) v;
-                        // 流式轻量 setText（普通文本）；非流式走完整 Markdown 渲染
                         if (streaming) {
-                            if (!seg.equals(tv.getText().toString())) {
-                                tv.setText(seg);
-                            }
+                            if (!seg.equals(tv.getText().toString())) tv.setText(seg);
                         } else {
                             setRenderedText(tv, seg, availableWidth);
                             tv.setMovementMethod(LinkMovementMethod.getInstance());
@@ -2630,44 +2555,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     childIdx++;
                 }
                 start = end;
-                if (i < bounds.size() && compIdx < toolComps.size()) {
-                    int tkey = compIdx;
-                    compIdx++;
-                    childIdx++;  // 工具卡片已挂载，跳过
-                    // 内联产物已挂载，跳过——只跳"真的挂了"的那些（HIDDEN 档没挂 View）
-                    if (tkey < nRounds) childIdx += ComponentDisplay.countMounting(roundProds.get(tkey), ctx);
-                }
+                if (i < nRounds) childIdx += ComponentDisplay.countMounting(roundProds.get(i), ctx);
             }
-            childIdx += ComponentDisplay.countMounting(tailProds, ctx);  // 尾部兜底产物已挂载，跳过
+            childIdx += ComponentDisplay.countMounting(tailProds, ctx);
             return;
         }
 
-        // ---- 结构变化：重建（原逻辑） ----
-        // 旧组件 View 本轮不再复用：先显式释放（WebView 不 destroy 会常驻原生内存），
-        // 并作废组件段缓存，防止下次指纹命中时复用已销毁的 View
+        // ---- 结构变化：重建（正文段 + 产物卡片；不再挂思考块/工具卡） ----
         releaseAndClearComponents(holder.contentHost);
         holder.componentSegmentViews = null;
         holder.componentSegmentsFingerprint = null;
         start = 0;
-        thinkIdx = 0;
-        compIdx = 0;
-        // 产物序号：只用于没有组件 id 时的展开状态锚点（ComponentDisplay#stateKey 的兜底），
-        // 对每个产物推进一次（含 HIDDEN），同一消息重建前后同一张卡拿到同一个键
         int prodSeq = 0;
-        java.util.List<String> thinkIds = message.thinkingRoundIds;
         for (int i = 0; i <= bounds.size(); i++) {
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
             if (end > content.length()) end = content.length();
-            // 该轮思考块（第 i+1 轮思考，独立组件；消息级展开时显示，轮级独立折叠可收起）
-            if (thinks != null && thinkIdx < thinks.size()) {
-                String t = thinks.get(thinkIdx);
-                String roundId = (thinkIds != null && thinkIdx < thinkIds.size()) ? thinkIds.get(thinkIdx) : null;
-                if (t != null && !t.trim().isEmpty()) {
-                    addRoundThinkingBlock(holder, ctx, thinkIdx + 1, roundId, t.trim(), availableWidth);
-                }
-                thinkIdx++;
-            }
-            // 该轮正文段
             String seg = start < content.length() ? content.substring(start, end) : "";
             if (seg != null && !seg.trim().isEmpty()) {
                 TextView tv = createSegmentTextView(ctx, holder.messageText);
@@ -2675,21 +2577,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.contentHost.addView(tv);
             }
             start = end;
-            // 该轮后的工具卡片（第 i 个工具调用）+ 其内联产物
-            if (i < bounds.size() && compIdx < toolComps.size()) {
-                ComponentData comp = toolComps.get(compIdx);
-                int tkey = compIdx;
-                compIdx++;
-                mountRoundComponent(holder, ctx, message, comp, -1);
-                if (tkey < nRounds) {
-                    for (ComponentData p : roundProds.get(tkey)) {
-                        mountRoundComponent(holder, ctx, message, p, prodSeq++);
-                    }
+            if (i < nRounds) {
+                for (ComponentData p : roundProds.get(i)) {
+                    mountRoundComponent(holder, ctx, message, p, prodSeq++);
                 }
             }
         }
-
-        // 尾部兜底产物（无归属标注 / 匹配不到任何工具）
         for (ComponentData p : tailProds) {
             mountRoundComponent(holder, ctx, message, p, prodSeq++);
         }
@@ -2739,75 +2632,35 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * header 仍然只当那一段的总入口。</p>
      */
     private void updateThinkingSectionV2(AIMessageViewHolder holder, ChatMessage message,
-                                         boolean isStreaming, boolean roundAssembled) {
+                                         boolean isStreaming) {
         Context ctx = holder.itemView.getContext();
         android.widget.LinearLayout host = holder.thinkingRowsHost;
         if (host != null) host.removeAllViews();
 
-        List<String> rounds = message.thinkingRounds;
-        int steps = 0;
-        long totalMs = 0L;
-        // header 的"N 步 / 总耗时"按 rounds 统计，与是否轮次模式无关；
-        // 只有非轮次模式才在这里建行（轮次模式下这些行由 renderRoundAssembled
-        // 按"思考→正文→工具"的时序内嵌到正文里，这里再建就是两份）。
-        if (rounds != null) {
-            for (int i = 0; i < rounds.size(); i++) {
-                String t = rounds.get(i);
-                if (t == null || t.trim().isEmpty()) continue;
-                steps++;
-                totalMs += message.thinkingRoundDurationMs(i);
-            }
-        }
-        int rowSteps = 0;
-        if (!roundAssembled && rounds != null) {
-            int width = holder.itemView.getWidth()
-                    - holder.itemView.getPaddingLeft() - holder.itemView.getPaddingRight();
-            if (width <= 0) width = getScreenWidth(ctx);
-            for (int i = 0; i < rounds.size(); i++) {
-                String text = rounds.get(i);
-                if (text == null || text.trim().isEmpty()) continue;
-                String roundId = (message.thinkingRoundIds != null
-                        && i < message.thinkingRoundIds.size())
-                        ? message.thinkingRoundIds.get(i) : null;
-                long dur = message.thinkingRoundDurationMs(i);
-                host.addView(buildThinkingStepRow(holder, ctx, roundId, text, dur, width));
-                rowSteps++;
-            }
-            if (rowSteps > 0) {
-                holder.thinkingRowsHost.setVisibility(View.VISIBLE);
-            } else {
-                holder.thinkingRowsHost.setVisibility(View.GONE);
-            }
-        }
+        ActivityTimeline.Model model = ActivityTimeline.build(message);
 
         // 正在进行的当前轮：挂在时间线末尾那条实时正文里（thinkingContent）
         String live = message.thinkingContent == null ? "" : message.thinkingContent.trim();
         live = stripThinkingTagMarkers(live);
-        if (!live.isEmpty() && rounds != null && !rounds.isEmpty()) {
-            String last = rounds.get(rounds.size() - 1);
+        if (!live.isEmpty() && message.thinkingRounds != null && !message.thinkingRounds.isEmpty()) {
+            String last = message.thinkingRounds.get(message.thinkingRounds.size() - 1);
             if (last != null && live.equals(stripThinkingTagMarkers(last).trim())) live = "";
         }
         // 流式期间这一节自动展开（业界：streaming 时实时显示），完成后回到"默认收起"
         boolean expanded = isStreaming || message.thinkingExpanded;
-        boolean hasAnything = steps > 0 || !live.isEmpty() || isStreaming || roundAssembled;
+        boolean hasAnything = !model.isEmpty() || !live.isEmpty() || isStreaming;
 
         holder.thinkingLabel.setVisibility(hasAnything ? View.VISIBLE : View.GONE);
         if (!hasAnything) {
             holder.thinkingContent.setVisibility(View.GONE);
+            if (host != null) host.setVisibility(View.GONE);
             if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
             return;
         }
 
-        if (isStreaming) {
-            holder.thinkingLabel.setText(R.string.chat_v2_thinking_now);
-        } else if (steps > 0 && totalMs > 0L) {
-            holder.thinkingLabel.setText(ctx.getString(
-                    R.string.chat_v2_thought_for_steps, formatThinkingDuration(totalMs), steps));
-        } else if (steps > 0) {
-            holder.thinkingLabel.setText(ctx.getString(R.string.chat_v2_thought_steps_only, steps));
-        } else {
-            holder.thinkingLabel.setText(R.string.chat_v2_thinking_now);
-        }
+        holder.thinkingLabel.setText(activityHeaderText(ctx, message, model, isStreaming, live));
+        holder.thinkingLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+                model.anyFailed && !isStreaming ? R.color.chat_v2_danger : R.color.chat_v2_text_2));
 
         // 实时正文：流式期间用纯文本追加（每帧跑全量 Markdown 是本地模型闪烁的成因之一），
         // 定稿后如果这一节还展开着，才按 Markdown 渲染一次
@@ -2825,8 +2678,33 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 setRenderedText(holder.thinkingContent, live, w);
             }
         }
-        if (holder.thinkingRowsHost != null) {
-            holder.thinkingRowsHost.setVisibility(expanded && rowSteps > 0 ? View.VISIBLE : View.GONE);
+        // 行容器：指纹不变就不重建，流式期间只刷 header 与实时正文。
+        // 思考行与工具行都从这里出——轮次模式下不再由 renderRoundAssembled 往正文里内联。
+        if (host != null) {
+            String fp = activityFingerprint(message, model, expanded, isStreaming);
+            if (!fp.equals(holder.activityFp) || host.getChildCount() != model.items.size()) {
+                host.removeAllViews();
+                int width = holder.itemView.getWidth()
+                        - holder.itemView.getPaddingLeft() - holder.itemView.getPaddingRight();
+                if (width <= 0) width = getScreenWidth(ctx);
+                LayoutInflater inflater = LayoutInflater.from(ctx);
+                for (int i = 0; i < model.items.size(); i++) {
+                    ActivityTimeline.Item item = model.items.get(i);
+                    if (item.kind == ActivityTimeline.Kind.THINKING) {
+                        host.addView(buildThinkingStepRow(holder, ctx, item.id,
+                                item.body != null ? item.body : item.summary,
+                                item.durationMs, width));
+                    } else if (item.kind == ActivityTimeline.Kind.TOOL) {
+                        host.addView(buildToolActivityRow(holder, inflater, ctx, item, i, width));
+                    } else {
+                        // 规划 / 反思 / 错误：先与思考行同一形状（摘要 + 展开全文）
+                        host.addView(buildThinkingStepRow(holder, ctx, item.id,
+                                item.body != null ? item.body : item.summary, 0L, width));
+                    }
+                }
+                holder.activityFp = fp;
+            }
+            host.setVisibility(expanded && !model.isEmpty() ? View.VISIBLE : View.GONE);
         }
         // 箭头跟随"整节"的展开态：ThinkLineBody 只在正文可见时转它，
         // 而这里可能只有步骤列表、没有实时正文，所以补一次显式旋转
@@ -2835,18 +2713,150 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         // 轮次模式下每一步自己折叠，header 不兼任总开关（否则又是"两层折叠"），
         // 箭头也一并藏掉——留着箭头就是在暗示一个不存在的行为。
-        if (roundAssembled) {
-            holder.thinkingLabel.setOnClickListener(null);
-            holder.thinkingLabel.setClickable(false);
-            if (holder.thinkingChevron != null) holder.thinkingChevron.setVisibility(View.GONE);
-        } else {
-            holder.thinkingLabel.setClickable(true);
-            holder.thinkingLabel.setOnClickListener(v -> {
-                message.thinkingExpanded = !message.thinkingExpanded;
-                int pos = holder.getBindingAdapterPosition();
-                if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
-            });
+        holder.thinkingLabel.setClickable(true);
+        holder.thinkingLabel.setOnClickListener(v -> {
+            message.thinkingExpanded = !message.thinkingExpanded;
+            int pos = holder.getBindingAdapterPosition();
+            if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
+        });
+    }
+
+    /** header 文案：流式看状态、完成看计数；思考与工具同时存在时并在同一行 */
+    private String activityHeaderText(Context ctx, ChatMessage message,
+                                      ActivityTimeline.Model model, boolean streaming, String live) {
+        if (streaming) {
+            if (!live.isEmpty() || model.thinkingSteps > 0) {
+                return ctx.getString(R.string.chat_v2_thinking_now);
+            }
+            return ctx.getString(model.toolCalls > 0
+                    ? R.string.chat_v2_tool_running_now : R.string.chat_v2_thinking_now);
         }
+        if (model.anyFailed) {
+            return ctx.getString(R.string.chat_v2_activity_failed);
+        }
+        if (model.thinkingSteps > 0 && model.toolCalls > 0) {
+            return model.thinkingDurationMs > 0L
+                    ? ctx.getString(R.string.chat_v2_thought_steps_tools,
+                    formatThinkingDuration(model.thinkingDurationMs),
+                    model.thinkingSteps, model.toolCalls)
+                    : ctx.getString(R.string.chat_v2_thought_steps_tools_no_time,
+                    model.thinkingSteps, model.toolCalls);
+        }
+        if (model.thinkingSteps > 0) {
+            return model.thinkingDurationMs > 0L
+                    ? ctx.getString(R.string.chat_v2_thought_for_steps,
+                    formatThinkingDuration(model.thinkingDurationMs), model.thinkingSteps)
+                    : ctx.getString(R.string.chat_v2_thought_steps_only, model.thinkingSteps);
+        }
+        if (model.toolCalls > 0) {
+            String t = message.agentSummaryInfo != null
+                    ? message.agentSummaryInfo.getFormattedTime() : "";
+            return (t == null || t.isEmpty())
+                    ? ctx.getString(R.string.chat_v2_tools_ran, model.toolCalls)
+                    : ctx.getString(R.string.chat_v2_tools_ran_time, model.toolCalls, t);
+        }
+        return ctx.getString(R.string.chat_v2_thinking_now);
+    }
+
+    /** 活动区行指纹：行种类/锚点/状态/耗时/展开位/结果长度变了才重建 */
+    private String activityFingerprint(ChatMessage message, ActivityTimeline.Model model,
+                                       boolean expanded, boolean streaming) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(expanded ? '1' : '0').append(streaming ? 'S' : 'D');
+        for (ActivityTimeline.Item it : model.items) {
+            sb.append('|').append(it.kind).append(':').append(it.id)
+                    .append(':').append(it.status).append(':').append(it.durationMs);
+            if (message.isThinkingRoundExpanded(it.id)) sb.append(":x");
+            if (it.hasBody()) sb.append(":b").append(it.body.length());
+        }
+        return sb.toString();
+    }
+
+    /** 工具行：名称/参数摘要/状态 + 展开后的结果预览（点行展开，截断的再点开全文） */
+    private View buildToolActivityRow(AIMessageViewHolder holder, LayoutInflater inflater,
+                                      Context ctx, ActivityTimeline.Item item, int index,
+                                      int availableWidth) {
+        final ChatMessage msg = holder.holderMessage;
+        android.widget.LinearLayout wrap = new android.widget.LinearLayout(ctx);
+        wrap.setOrientation(android.widget.LinearLayout.VERTICAL);
+        View line = inflater.inflate(R.layout.item_chat_v2_tool_row, wrap, false);
+        TextView name = line.findViewById(R.id.chat_v2_tool_row_name);
+        if (name != null) {
+            name.setText(item.title.isEmpty()
+                    ? ctx.getString(R.string.chat_v2_tool_unknown) : item.title);
+        }
+        TextView desc = line.findViewById(R.id.chat_v2_tool_row_desc);
+        if (desc != null) {
+            desc.setText(item.summary);
+            desc.setVisibility(item.summary.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+        TextView state = line.findViewById(R.id.chat_v2_tool_row_time);
+        if (state != null) {
+            state.setText(toolRowStatusText(ctx, itemStatusName(item.status)));
+            state.setTextColor(toolRowStatusColor(ctx, itemStatusName(item.status)));
+        }
+        View divider = line.findViewById(R.id.chat_v2_tool_row_divider);
+        if (divider != null) divider.setVisibility(index == 0 ? View.GONE : View.VISIBLE);
+
+        final boolean hasBody = item.hasBody();
+        final boolean expanded = msg != null && msg.isThinkingRoundExpanded(item.id);
+        if (hasBody && line instanceof ViewGroup && ((ViewGroup) line).getChildCount() > 1
+                && ((ViewGroup) line).getChildAt(1) instanceof ViewGroup) {
+            // 行尾箭头：没有结果时不给"可点"的暗示
+            android.widget.ImageView chev = new android.widget.ImageView(ctx);
+            int sz = dpToPx(13, ctx);
+            android.widget.LinearLayout.LayoutParams clp =
+                    new android.widget.LinearLayout.LayoutParams(sz, sz);
+            clp.setMarginStart(dpToPx(4, ctx));
+            chev.setLayoutParams(clp);
+            chev.setImageResource(R.drawable.ic_chevron_right);
+            chev.setImageTintList(android.content.res.ColorStateList.valueOf(
+                    androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3)));
+            chev.setAlpha(0.55f);
+            chev.setRotation(expanded ? 90f : 0f);
+            ((ViewGroup) ((ViewGroup) line).getChildAt(1)).addView(chev);
+        }
+        wrap.addView(line);
+
+        if (hasBody) {
+            TextView body = new TextView(ctx);
+            body.setTextSize(12f);
+            body.setLineSpacing(0f, 1.6f);
+            body.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+                    R.color.chat_v2_text_2));
+            body.setVisibility(expanded ? View.VISIBLE : View.GONE);
+            if (expanded) {
+                com.oilquiz.app.ai.chat.util.ToolResultText.Preview preview =
+                        com.oilquiz.app.ai.chat.util.ToolResultText.preview(item.body);
+                body.setText(preview.text);
+                body.setMovementMethod(LinkMovementMethod.getInstance());
+                if (preview.truncated) {
+                    body.setOnClickListener(v -> showFullToolResult(ctx,
+                            ctx.getString(R.string.chat_v2_tool_result_title,
+                                    item.title.isEmpty()
+                                            ? ctx.getString(R.string.chat_v2_tool_unknown)
+                                            : item.title),
+                            item.body));
+                }
+            }
+            wrap.addView(body, new android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+
+        line.setOnClickListener(v -> {
+            if (msg == null || !hasBody) return;
+            msg.toggleThinkingRoundExpanded(item.id);
+            int pos = holder.getBindingAdapterPosition();
+            if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
+        });
+        return wrap;
+    }
+
+    private static String itemStatusName(ActivityTimeline.Status status) {
+        if (status == ActivityTimeline.Status.DONE) return "completed";
+        if (status == ActivityTimeline.Status.FAILED) return "failed";
+        if (status == ActivityTimeline.Status.RUNNING) return "running";
+        return "pending";
     }
 
     /** 箭头显式跟随整节展开态（ThinkLineBody 只跟正文显隐，节内只有步骤列表时它不知道） */
@@ -3036,7 +3046,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 下面这套"拼成一坨 + 一个总开关"只保留给旧档——它本身就是业界说的
         // "一个折叠区，里面是推理文本"，只是没有分步。
         if (holder.v2Look) {
-            updateThinkingSectionV2(holder, message, isStreaming, roundAssembled);
+            updateThinkingSectionV2(holder, message, isStreaming);
             return;
         }
 
@@ -3205,7 +3215,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 String preview = thinkingPreview(previewSource, false);
                 if (!preview.isEmpty()) {
                     holder.thinkingLabel.setText(
-                            thinkingPrefix(ctx, false) + preview + "…");
+                            thinkingPrefix(ctx, holder.v2Look, false) + preview + "…");
                 } else {
                     holder.thinkingLabel.setText(R.string.chat_thinking_collapsed);
                 }
@@ -3218,10 +3228,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * v2 的 think-line 左侧已经带了品牌色星形图标，再留 emoji 就是重复装饰，
      * 也违反"新 UI 不用 emoji 图标"的口径 —— 所以 v2 走纯文字前缀。
      *
+     * @param v2Look    holder 建视图时的档位（不重读开关，避免"v1 的树用 v2 前缀"）
      * @param streaming 是否流式生成中（"思考中" vs 已完成的"思考过程"）
      */
-    private String thinkingPrefix(Context ctx, boolean streaming) {
-        if (ChatUiFlags.isUiV2Enabled(ctx)) {
+    private String thinkingPrefix(Context ctx, boolean v2Look, boolean streaming) {
+        if (v2Look) {
             return ctx.getString(streaming
                     ? R.string.chat_v2_thinking_prefix_streaming : R.string.chat_v2_thinking_prefix_done);
         }
@@ -5917,6 +5928,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
         /** 日期分隔行（demo .day，仅 v2 布局有；旧版布局 findViewById 返回 null） */
         TextView dayLabel;
+        /**
+         * 本 holder 的视图树是否按 v2 档建的（与 AIMessageViewHolder#v2Look 同口径）。
+         * 绑定期所有"档位相关"的判断只读它，不再重读 {@code chat_ui_v2}。
+         */
+        boolean v2Look;
 
         UserMessageViewHolder(View itemView) {
             super(itemView);
@@ -6083,6 +6099,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         boolean v2Look;
         /** 工具行明细的内容指纹（工具名|状态|参数摘要序列）：流式重绑时结构没变就不重建 */
         String toolLineFp;
+        /**
+         * 活动时间线（思考 + 工具）的行指纹（2026-10-20 S2）。
+         * 行种类/锚点/状态/耗时/展开位不变就不重建行容器，流式期间只刷 header 与实时正文。
+         */
+        String activityFp;
         /** Agent 汇总卡片的指纹缓存，字段变化才重渲染 */
         String agentSummaryFp;
         /** Agent 执行面板指纹缓存（blocks 数 + 当前步 + tokens + status） */

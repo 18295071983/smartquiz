@@ -749,6 +749,41 @@ header 显示"已深度思考 4.6s · 2 步"，下面两行分别是
 把工具并进同一条时间线才是完整形态，这一步没做，因为它要动 `renderToolLine` 与
 `renderRoundAssembled` 的槽位计算（昨天刚在真机验过 11 行明细那条链）。
 
+### 4.10 合并 S0–S2 落地记录（2026-10-20 夜，真机未验）
+
+用户口径改为"以 v1 为能力基线、吸收 v2 的优点，合成一套"。因此不改写两个大文件，
+按 **S0 开关 → S1 活动模型 → S2 活动时间线** 三步落地，v1 分支暂时保留作退路。
+
+1. **S0 开关的家**：新增 `ai/chat/ui/ChatUiSetting`，抽屉按钮 `btn_chat_ui_mode`
+   （旧版/新版都能打开），选中后写 pref 并**立即 `recreate()`**；生成中只 Toast、不切换。
+   `ChatUiFlags` 默认值翻成 `true`。v2「⋯」面板里的 `addSwitchRow` 已删——它既是唯一写入点，
+   又只在 v2 存在，是个只能关不能开的单向门。`ChatUiSetting` 与 `ChatUiFlags` 都是过渡件，
+   S5 与 v1 一起删。
+2. **P1 档位归一**：`UserMessageViewHolder` 补 `v2Look`（建视图时定死），
+   `bindDayLabel(dayLabel, v2Look, …)`、USER/AI 时间戳、`thinkingPrefix` 全部读 holder 的档位，
+   绑定期不再重读开关。日期与时间戳由同一个布尔成对决定，修掉"既没日期也没时间"。
+3. **S1 `ActivityTimeline`**：纯 Java 模型，输入 `ChatMessage`、输出有序活动行
+   （THINKING / TOOL / PLAN / REFLECTION / ERROR）。排序按 `contentRoundBounds` 交替，
+   同一 `toolCallId` 后到状态覆盖先到；无 rounds/tools 时退回 `AgentExecutionState.blocks`。
+   `ActivityTimelineTest` 10 条钉住顺序/去重/计数/旧数据锚点。
+4. **S2 活动时间线**：`updateThinkingSectionV2` 改为按模型渲染行，
+   header 文案："已深度思考 4.6s · 2 步 · 3 个工具" / 完成但无耗时 / 只有工具 / 失败；
+   展开行指纹不重建（`activityFp`），流式只刷 header 与实时正文。
+   工具行复用 `item_chat_v2_tool_row`，点行展开结果预览（`ToolResultText` 截断），
+   再点开全文（`showFullToolResult`）。
+   `renderRoundAssembled` 删掉思考块/工具卡内联与 header/live 写入，只挂正文段 + 产物；
+   正文结构指纹相应只剩 `T`/`P`/`D`。`renderToolLine` 在 v2 下不再执行，
+   `agentSummary` 文本与汇总卡由 `bindAgentStepStatus` 直接让位。
+5. **未验与风险**：活动区在真机上的观感（尤其 11 次工具调用的 Agent 消息、深浅两档、
+   流式展开/收起）、工具行"查看全部"、抽屉开关 recreate 都**没装过**。
+   `renderRoundAssembled` 的正文段现在只由 `contentRoundBounds` 切分，若某轮正文为空、
+   产物又归属不到工具，会出现"只有产物卡"的正文——需要真机拿一条多轮 Agent 消息确认。
+6. **没动的**：`ToolResultCardBinder` / `ToolResultStore` / `handleAiInterpretAction`、
+   B0 沙箱与卡壳、`ChatMessage` 持久化结构（只用了既有 transient 字段）。
+7. **下一步（S3–S5）**：7 颗文字胶囊与 `performClick()` 转发抽成真方法 → 模型信息行下沉 →
+   删 v1 else 腿/三对布局/旧资源 → 删 `ChatUiFlags`/`ChatUiSetting`。
+   在 S3 之前 v2 的反馈/朗读状态仍靠被 GONE 的胶囊承载，**不要先删胶囊**。
+
 ---
 
 ## 5. 关键文件 / 改动地图

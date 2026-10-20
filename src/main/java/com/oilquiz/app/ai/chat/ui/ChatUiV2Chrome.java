@@ -289,8 +289,8 @@ public final class ChatUiV2Chrome {
                     Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
                 }
             });
-            addSwitchRow(ctx, box);
-
+            // 界面开关已搬到工具抽屉（ChatUiSetting）：面板只在 v2 存在，
+            // 留在这里就是一个只能关、不能开的单向门，而且切换后不重建页面会造成分脑。
             sheet.setContentView(box);
             sheet.show();
         } catch (Throwable t) {
@@ -355,30 +355,6 @@ public final class ChatUiV2Chrome {
         row.setClickable(true);
         row.setFocusable(true);
         row.setOnClickListener(onClick);
-        box.addView(row);
-    }
-
-    private static void addSwitchRow(Context ctx, LinearLayout box) {
-        LinearLayout row = new LinearLayout(ctx);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(ctx, 10), 0, dp(ctx, 4));
-
-        TextView label = new TextView(ctx);
-        label.setText(R.string.chat_v2_ui_switch);
-        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
-        label.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlText));
-        row.addView(label, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        Switch toggle = new Switch(ctx);
-        toggle.setChecked(ChatUiFlags.isUiV2Enabled(ctx));
-        row.addView(toggle);
-
-        toggle.setOnCheckedChangeListener((b, checked) -> {
-            ChatUiFlags.setUiV2Enabled(ctx, checked);
-            Toast.makeText(ctx, R.string.chat_v2_restart_hint, Toast.LENGTH_SHORT).show();
-        });
         box.addView(row);
     }
 

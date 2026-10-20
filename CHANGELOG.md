@@ -1,5 +1,48 @@
 # 变更日志
 
+## [2026-10-20 夜] 合并 S0–S2：开关搬出 v2 面板、档位判据归一、思考与工具合成一条活动时间线
+
+### 查到的事实
+
+- 开关 `chat_ui_v2` 的**唯一写入点**在 v2 自己 inflate 的「⋯」面板里，而外壳 `ChatUiV2Chrome.apply()`
+  只在 `initData` 跑一次、切换后不重建页面：切完开关，外壳还是 v2、消息层从下一次 bind 起
+  按新值走。池里的 v2 holder 被重绑时，`bindDayLabel` 读开关把日期行藏掉，时间戳又因
+  `dayLabel != null` 一起藏掉——**日期与时间同时消失**。旧版 holder 则只会"混排"，不会丢。
+- `thinkingPrefix` 那处开关读取（原 `ChatAdapter:3224`）实际不可达：`updateThinkingContent`
+  对 v2Look 提前 return，`updateThinkingLabel` 的调用点全在 v1 路径上。风险是 v1 树被塞进 v2 前缀。
+- 同一份过程数据有 5 种表示：独立 `THINKING` 行、独立 `TOOL_CALL` 行、正文内联的 `tool_call` 卡、
+  v2 思考步骤列表、v2 工具总行 + 明细；Agent 消息另有 `AgentExecutionState.blocks` 的
+  执行面板 / 进度环 / timeline 三个渲染器。`AGENT_STEP` 的唯一生产者 `addAgentStepMessage`
+  全仓零调用，`THINKING` 也没有生产者——两者都只剩旧数据兼容价值。
+- 工具卡与思考块在轮次模式下由 `renderRoundAssembled` 内联进正文，与顶部的思考 header、
+  工具总行各自判断轮次，顺序取决于谁先绑定。
+
+### 由此改掉的事
+
+- **S0**：新增 `ChatUiSetting`，把开关从 v2 面板搬到工具抽屉（`btn_chat_ui_mode`，旧版/新版都能打开），
+  选中后写 pref 并**立即 recreate**（生成中只提示、不切换）；默认值翻成 `true`；
+  删掉面板里的 `addSwitchRow`，写入点回到 1 处。
+- **P1**：holder 建视图时定死 `v2Look`（USER 侧补字段），`bindDayLabel` / 时间戳 / `thinkingPrefix`
+  一律读它，不再在绑定期重读开关；日期与时间戳由同一个布尔成对决定。
+- **S1**：新增 `ActivityTimeline`（纯 Java）：把 `thinkingRounds` + `tool_call` components 按
+  `contentRoundBounds` 排成有序行（思考/工具/规划/反思/错误），同一 `toolCallId` 去重、后到状态覆盖；
+  没有 rounds/tools 时退回 `AgentExecutionState.blocks`。附 10 条 JVM 用例。
+- **S2**：v2 的思考段升级为**活动时间线**：header 一行报"已深度思考 X · N 步 · M 个工具"，
+  展开后思考行与工具行按轮次交替；工具行复用 `item_chat_v2_tool_row`，点行看结果预览、
+  截断的再点开全文；轮次模式下 header 恢复为唯一入口（不再"总开关 + 每步"两层）。
+  `renderRoundAssembled` 不再内联思考块与工具卡，只负责正文段 + 产物卡片；
+  `renderToolLine` 在 v2 下不再执行，`agentSummary` 文本/汇总卡随之让位。
+- 顺带：holder 回收时作废 `activityFp` / 轮次指纹，避免复用误判"结构未变"。
+
+### 验证
+
+- `compileDebugJavaWithJavac` 通过；全量 `testDebugUnitTest` = **43 个类 / 454 tests / 0 skipped /
+  0 failures / 0 errors**（444 条基线 + `ActivityTimelineTest` 10 条）。
+- `assembleDebug` 通过，`build/outputs/apk/debug/答题宝-debug-2.0.apk` 已重新出包。
+- **真机未验**：活动时间线的实际观感（11 次工具调用的 Agent 消息、深浅两档、流式展开/收起）、
+  工具行展开后的预览与"查看全部"、开关抽屉入口与 recreate。设备仍不在 adb 上。
+- 未做（S3–S5）：7 颗文字胶囊与 `performClick()` 转发、模型信息行下沉、v1 else 腿与资源删除、开关删除。
+
 ## [2026-10-20 深夜] 清掉 5 个从没接进渲染链的消息布局 + 订正两处说谎的文档
 
 ### 查到的事实

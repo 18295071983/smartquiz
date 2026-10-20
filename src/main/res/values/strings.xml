@@ -721,6 +721,16 @@
     <string name="chat_v2_console">智能体控制台</string>
     <string name="chat_v2_ui_switch">启用新版界面</string>
     <string name="chat_v2_restart_hint">重进聊天页后生效</string>
+    <!-- 聊天页界面档位（2026-10-20）：从 v2 自己的面板搬到工具抽屉，
+         从旧版也能切到新版，不再是单向门；切完立即重建页面。 -->
+    <string name="chat_ui_mode_title">聊天页界面</string>
+    <string name="chat_ui_mode_v1">旧版界面</string>
+    <string name="chat_ui_mode_v2">新版界面（推荐）</string>
+    <string name="chat_ui_mode_v1_desc">深色胶囊 + 逐条时间戳 + 文字操作按钮；功能最全，观感旧。</string>
+    <string name="chat_ui_mode_v2_desc">浅色页面 + 日期分隔 + 图标操作；仍在往一套界面收敛。</string>
+    <string name="chat_ui_mode_busy">正在生成，结束后再切换</string>
+    <string name="chat_ui_mode_button_v1">聊天页：旧版</string>
+    <string name="chat_ui_mode_button_v2">聊天页：新版</string>
     <string name="chat_v2_no_data">暂无数据</string>
     <!-- 聊天页 v2 输入胶囊（demo .composer）：旧布局里这些文案是硬编码的，v2 走资源 -->
     <string name="chat_input_hint">输入消息…</string>
@@ -771,6 +781,13 @@
     <string name="chat_v2_thinking_now">正在思考…</string>
     <string name="chat_v2_thought_for_steps">已深度思考 %1$s · %2$d 步</string>
     <string name="chat_v2_thought_steps_only">已深度思考 %1$d 步</string>
+    <!-- 活动时间线（2026-10-20 S2）：思考与工具合成一条时间线，header 同时报两类计数 -->
+    <string name="chat_v2_thought_steps_tools">已深度思考 %1$s · %2$d 步 · %3$d 个工具</string>
+    <string name="chat_v2_thought_steps_tools_no_time">已深度思考 %1$d 步 · %2$d 个工具</string>
+    <string name="chat_v2_tools_ran_time">已运行 %1$d 个工具 · %2$s</string>
+    <string name="chat_v2_tool_running_now">正在运行工具…</string>
+    <string name="chat_v2_activity_failed">处理失败，点开查看</string>
+    <string name="chat_v2_tool_result_title">%1$s · 结果</string>
     <string name="chat_v2_yesterday">昨天</string>
     <!-- 作为 SimpleDateFormat 的 pattern 使用，不是展示文案 -->
     <string name="chat_v2_date_format" translatable="false">M月d日</string>
