@@ -766,6 +766,11 @@
     <string name="chat_v2_think_round_secs">第 %1$d 轮思考 · %2$s</string>
     <string name="chat_v2_think_round_live">正在思考（第 %1$d 轮）</string>
     <string name="chat_v2_secs">%1$.1fs</string>
+    <!-- v2 思考段 header（2026-10-20 重做：整段一个入口，展开后是一步一行的时间线）。
+         业界口径：进行中显示"正在思考…"，完成后换成"已思考 X 秒 · N 步"。 -->
+    <string name="chat_v2_thinking_now">正在思考…</string>
+    <string name="chat_v2_thought_for_steps">已深度思考 %1$s · %2$d 步</string>
+    <string name="chat_v2_thought_steps_only">已深度思考 %1$d 步</string>
     <string name="chat_v2_yesterday">昨天</string>
     <!-- 作为 SimpleDateFormat 的 pattern 使用，不是展示文案 -->
     <string name="chat_v2_date_format" translatable="false">M月d日</string>

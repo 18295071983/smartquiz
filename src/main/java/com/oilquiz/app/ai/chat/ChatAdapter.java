@@ -544,16 +544,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentControlBar.addView(btnRewind);
         bubble.addView(agentControlBar);
 
-        // --- 已定稿思考轮的容器（2026-10-20：每轮单独成行、单独折叠）---
-        // 位置在"实时思考行"之前：顺序就是 第1轮 → 第2轮 → … → 正在进行的这一轮。
-        // 为什么不让 RecyclerView 插条目：chatHistory 是数据源本体，各处按 position 取消息。
-        LinearLayout thinkingRowsHost = new LinearLayout(ctx);
-        thinkingRowsHost.setOrientation(LinearLayout.VERTICAL);
-        thinkingRowsHost.setVisibility(View.GONE);
-        thinkingRowsHost.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        bubble.addView(thinkingRowsHost);
-
         // --- 思考区 ---
         // v2（demo .think-line / .think-body）：一行"星形图标 + 摘要 + 箭头"，点开才是左侧竖线正文；
         // 旧版：标签 + 内容 + 分隔线三段直接堆在气泡里。
@@ -562,11 +552,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         TextView thinkingLabel;
         TextView thinkingContent;
         View thinkingDivider;
+        // 2026-10-20：整段思考只有一个折叠入口（上面那行 header），
+        // 展开后是"一步一行"的时间线：steps 容器装已定稿的每一步，
+        // thinkingContent 仍是"正在进行的当前轮"的实时正文，挂在时间线末尾。
+        LinearLayout thinkingStepsHost;
+        ImageView thinkingChevron;
         if (uiV2) {
             View thinkSection = LayoutInflater.from(ctx)
                     .inflate(R.layout.view_chat_v2_think_line, bubble, false);
             thinkingLabel = thinkSection.findViewById(R.id.chat_v2_think_text);
             thinkingContent = thinkSection.findViewById(R.id.chat_v2_think_body);
+            thinkingStepsHost = thinkSection.findViewById(R.id.chat_v2_think_steps);
+            thinkingChevron = thinkSection.findViewById(R.id.chat_v2_think_chev);
             // 藏标签会连带藏整行（ThinkLineLabel 把可见性转发给行容器），
             // 否则会剩下一行孤零零的图标和箭头
             thinkingLabel.setVisibility(View.GONE);
@@ -612,6 +609,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             legacyDivider.setLayoutParams(tdLp);
             bubble.addView(legacyDivider);
             thinkingDivider = legacyDivider;
+            // 旧档不做分步时间线：一个入口 + 一段拼好的推理文本
+            thinkingStepsHost = null;
+            thinkingChevron = null;
         }
 
         // --- 工具活动行（v2 / demo .tool-line）---
@@ -847,7 +847,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         dynamicRoot.addView(root);
         AIMessageViewHolder holder = new AIMessageViewHolder(dynamicRoot);
         holder.dayLabel = dayLabel;
-        holder.thinkingRowsHost = thinkingRowsHost;
+        holder.thinkingRowsHost = thinkingStepsHost;
+        holder.thinkingChevron = thinkingChevron;
         holder.v2Look = uiV2;
         holder.v2ActionRow = v2Actions;
         holder.v2BtnCopy = v2BtnCopy;
@@ -2454,11 +2455,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 2026-10-20：轮次模式下也【没有消息级统一折叠】了。
         // 以前 thinkingLabel 是一个总开关，点开才把所有轮的思考块内嵌进来——
         // 一次展开要读完整段历史思考，还和"每轮自己的折叠"叠成两层。
-        // 现在每轮块恒挂载，收起/展开只看该轮自己的 thinkingExpandedRounds（buildThinkingRow 内读）；
+        // 现在每轮块恒挂载，收起/展开只看该步自己的 thinkingExpandedRounds（buildThinkingStepRow 内读）；
         // 顶部那条实时思考行只服务"正在进行的这一轮"，点它折叠的是这一轮的正文。
         if (holder.thinkingLabel != null) holder.thinkingLabel.setVisibility(View.VISIBLE);
+        // 流式期间这一节自动展开（与 updateThinkingSectionV2 同一口径），
+        // 否则"正在进行的这一轮"在轮次模式下会被藏起来，用户看不到实时思考。
+        boolean liveStreaming = message.status == ChatMessage.MessageStatus.GENERATING
+                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
         if (holder.thinkingContent != null) {
-            holder.thinkingContent.setVisibility(message.thinkingExpanded ? View.VISIBLE : View.GONE);
+            holder.thinkingContent.setVisibility(
+                    (message.thinkingExpanded || liveStreaming) ? View.VISIBLE : View.GONE);
         }
         if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
         holder.thinkingLabel.setOnClickListener(v -> {
@@ -2640,7 +2646,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /**
      * 第 index 轮思考当前是否处于展开态（轮次折叠的唯一读法）。
      *
-     * <p>没有 id 的旧数据用 {@code round-<n>} 兜底锚点，与 {@link #buildThinkingRow} 保持一致，
+     * <p>没有 id 的旧数据用 identity 兜底锚点，与 {@link #buildThinkingStepRow} 保持一致，
      * 否则同一轮在指纹和渲染两处算出不同 key，点了不会翻。</p>
      */
     private boolean roundExpandedBit(ChatMessage message, int index) {
@@ -2653,145 +2659,230 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /**
-     * 一行思考的标题：「第 N 轮思考」，有耗时才追加「· 1.8s」。
-     * 耗时 0 表示没打点（旧会话文件、或异常路径），这时宁可不显示秒数也不显示 0.0s。
+     * 与 AgentSummaryInfo#getFormattedTime 同一口径的耗时格式（<b>不要另立一套</b>：
+     * 工具行、汇总卡、思考 header 三处显示的都是"这一段时间"，格式不一致会被当成 bug）。
      */
-    private String thinkingRoundLabel(Context ctx, int roundNo, long durationMs) {
-        if (durationMs > 0L) {
-            String secs = ctx.getString(R.string.chat_v2_secs, durationMs / 1000d);
-            return ctx.getString(R.string.chat_v2_think_round_secs, roundNo, secs);
-        }
-        return ctx.getString(R.string.chat_v2_think_round, roundNo);
+    private static String formatThinkingDuration(long ms) {
+        if (ms < 1000L) return ms + "ms";
+        if (ms < 60000L) return String.format(java.util.Locale.getDefault(), "%.1fs", ms / 1000.0);
+        return String.format(java.util.Locale.getDefault(), "%dm %ds", ms / 60000, (ms % 60000) / 1000);
     }
 
     /**
-     * 造一条"思考行"（2026-10-20：每轮一行、每行独立折叠，取代原来的"全部轮次拼一坨 + 一个总开关"）。
+     * v2 思考段：整段<b>一个入口</b>，展开后是"一步一行"的时间线（2026-10-20 重做）。
      *
-     * <p>v2 档直接复用 {@code view_chat_v2_think_line}（星形 + 摘要 + 箭头 + 竖线正文），
-     * 与消息级实时思考行同一观感；旧档用"标签 + 正文"两段，跟旧版思考区一致。
-     * 折叠状态读 {@code message.thinkingExpandedRounds}——按轮 id 存，
-     * 所以 RecyclerView 复用、整条重建、甚至切到别的会话再回来都不会串轮。</p>
+     * <p>为什么重做：上一版把"已定稿的每轮"做成各自独立折叠的一行、再在上面留一条
+     * "正在进行的这一轮"的实时行，等于同一个信息有两套机制、两个开关；
+     * 而"第 N 轮"这个单位是模型内部结构（一次 reasoning→工具 的循环），对用户没有意义。
+     * 业界口径是：一个回合一个折叠容器，header 文案随状态从"正在思考…"变成
+     * "已思考 4.2s · 6 步"，展开后按时间顺序一步一行、每行默认只给一句摘要
+     * （assistant-ui 的 thinking accordion、Gemini 的 steps、LangChain 的
+     * "default collapsed + truncated preview"）。</p>
      *
-     * <p>收起态就是收起：正文整个 GONE（v2 的箭头由 {@code ThinkLineBody} 跟着显隐转，
-     * 如果收起时还留一行摘要，箭头会一直显示成"已展开"）。摘要预览只在旧档保留，
-     * 因为旧档没有"箭头表示展开态"这套约定。</p>
-     *
-     * @param roundId 该轮 THINKING 子 id：折叠状态与 {@link #updateThinkingRound} 的热更新锚点
-     * @return 行容器（{@code tag=roundId}，正文 {@code tag=round_body_<roundId>}）
+     * <p>轮次模式（contentRoundBounds 非空）下思考块仍由 {@link #renderRoundAssembled}
+     * 按"思考→正文→工具"的时序内嵌到正文里，这里不重复渲染，
+     * header 仍然只当那一段的总入口。</p>
      */
-    private View buildThinkingRow(AIMessageViewHolder holder, Context ctx, int roundNo,
-                                  String roundId, String thinkText, int availableWidth,
-                                  boolean v2Look, long durationMs) {
-        final ChatMessage msg = holder.holderMessage;
-        final String anchorId = (roundId == null || roundId.isEmpty()) ? ("round-" + roundNo) : roundId;
-        boolean expanded = msg != null && msg.isThinkingRoundExpanded(anchorId);
+    private void updateThinkingSectionV2(AIMessageViewHolder holder, ChatMessage message,
+                                         boolean isStreaming, boolean roundAssembled) {
+        Context ctx = holder.itemView.getContext();
+        android.widget.LinearLayout host = holder.thinkingRowsHost;
+        if (host != null) host.removeAllViews();
 
-        LinearLayout row;
-        TextView label;
-        TextView body;
-        if (v2Look) {
-            row = (LinearLayout) LayoutInflater.from(ctx)
-                    .inflate(R.layout.view_chat_v2_think_line, holder.thinkingRowsHost, false);
-            label = row.findViewById(R.id.chat_v2_think_text);
-            body = row.findViewById(R.id.chat_v2_think_body);
-            body.setTextSize(13f);
-            body.setLineSpacing(0f, 1.7f);
-        } else {
-            row = new LinearLayout(ctx);
-            row.setOrientation(LinearLayout.VERTICAL);
-            row.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            label = new TextView(ctx);
-            label.setTextSize(11f);
-            label.setTextColor(ThemeColors.attr(ctx, R.attr.colorPrimary));
-            label.setTypeface(label.getTypeface(), android.graphics.Typeface.BOLD);
-            label.setClickable(true);
-            label.setFocusable(true);
-            label.setForeground(getSelectableItemBackground(ctx));
-            label.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            row.addView(label);
-            body = new TextView(ctx);
-            body.setTextSize(12f);
-            body.setTextColor(ThemeColors.attr(ctx, R.attr.colorOnSurfaceVariant));
-            body.setLineSpacing(0f, 1.2f);
-            body.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            row.addView(body);
+        List<String> rounds = message.thinkingRounds;
+        int steps = 0;
+        long totalMs = 0L;
+        // header 的"N 步 / 总耗时"按 rounds 统计，与是否轮次模式无关；
+        // 只有非轮次模式才在这里建行（轮次模式下这些行由 renderRoundAssembled
+        // 按"思考→正文→工具"的时序内嵌到正文里，这里再建就是两份）。
+        if (rounds != null) {
+            for (int i = 0; i < rounds.size(); i++) {
+                String t = rounds.get(i);
+                if (t == null || t.trim().isEmpty()) continue;
+                steps++;
+                totalMs += message.thinkingRoundDurationMs(i);
+            }
         }
-        // id 锚点：updateThinkingRound 按 tag 定位这一轮，做不重建整条消息的热更新
-        row.setTag(anchorId);
-        body.setTag("round_body_" + anchorId);
-
-        label.setText(thinkingRoundLabel(ctx, roundNo, durationMs));
-        label.setVisibility(View.VISIBLE);
-        String cleaned = stripThinkingTagMarkers(thinkText == null ? "" : thinkText);
-        if (expanded) {
-            body.setVisibility(View.VISIBLE);
-            body.setMaxLines(Integer.MAX_VALUE);
-            body.setEllipsize(null);
-            body.setAlpha(1f);
-            setRenderedText(body, cleaned, availableWidth);
-            body.setMovementMethod(LinkMovementMethod.getInstance());
-        } else {
-            body.setVisibility(View.GONE);
-            if (!v2Look) {
-                // 旧档没有"箭头表示展开态"，保留一行摘要让用户知道收起的是什么
-                String preview = thinkingPreview(cleaned, false);
-                body.setText(preview);
+        int rowSteps = 0;
+        if (!roundAssembled && rounds != null) {
+            int width = holder.itemView.getWidth()
+                    - holder.itemView.getPaddingLeft() - holder.itemView.getPaddingRight();
+            if (width <= 0) width = getScreenWidth(ctx);
+            for (int i = 0; i < rounds.size(); i++) {
+                String text = rounds.get(i);
+                if (text == null || text.trim().isEmpty()) continue;
+                String roundId = (message.thinkingRoundIds != null
+                        && i < message.thinkingRoundIds.size())
+                        ? message.thinkingRoundIds.get(i) : null;
+                long dur = message.thinkingRoundDurationMs(i);
+                host.addView(buildThinkingStepRow(holder, ctx, roundId, text, dur, width));
+                rowSteps++;
+            }
+            if (rowSteps > 0) {
+                holder.thinkingRowsHost.setVisibility(View.VISIBLE);
+            } else {
+                holder.thinkingRowsHost.setVisibility(View.GONE);
             }
         }
 
-        View.OnClickListener toggle = v -> {
+        // 正在进行的当前轮：挂在时间线末尾那条实时正文里（thinkingContent）
+        String live = message.thinkingContent == null ? "" : message.thinkingContent.trim();
+        live = stripThinkingTagMarkers(live);
+        if (!live.isEmpty() && rounds != null && !rounds.isEmpty()) {
+            String last = rounds.get(rounds.size() - 1);
+            if (last != null && live.equals(stripThinkingTagMarkers(last).trim())) live = "";
+        }
+        // 流式期间这一节自动展开（业界：streaming 时实时显示），完成后回到"默认收起"
+        boolean expanded = isStreaming || message.thinkingExpanded;
+        boolean hasAnything = steps > 0 || !live.isEmpty() || isStreaming || roundAssembled;
+
+        holder.thinkingLabel.setVisibility(hasAnything ? View.VISIBLE : View.GONE);
+        if (!hasAnything) {
+            holder.thinkingContent.setVisibility(View.GONE);
+            if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
+            return;
+        }
+
+        if (isStreaming) {
+            holder.thinkingLabel.setText(R.string.chat_v2_thinking_now);
+        } else if (steps > 0 && totalMs > 0L) {
+            holder.thinkingLabel.setText(ctx.getString(
+                    R.string.chat_v2_thought_for_steps, formatThinkingDuration(totalMs), steps));
+        } else if (steps > 0) {
+            holder.thinkingLabel.setText(ctx.getString(R.string.chat_v2_thought_steps_only, steps));
+        } else {
+            holder.thinkingLabel.setText(R.string.chat_v2_thinking_now);
+        }
+
+        // 实时正文：流式期间用纯文本追加（每帧跑全量 Markdown 是本地模型闪烁的成因之一），
+        // 定稿后如果这一节还展开着，才按 Markdown 渲染一次
+        if (live.isEmpty()) {
+            holder.thinkingContent.setVisibility(View.GONE);
+        } else {
+            holder.thinkingContent.setVisibility(expanded ? View.VISIBLE : View.GONE);
+            holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
+            if (isStreaming) {
+                holder.thinkingContent.setText(live);
+            } else if (expanded) {
+                int w = holder.itemView.getWidth()
+                        - holder.itemView.getPaddingLeft() - holder.itemView.getPaddingRight()
+                        - dpToPx(2, ctx);
+                setRenderedText(holder.thinkingContent, live, w);
+            }
+        }
+        if (holder.thinkingRowsHost != null) {
+            holder.thinkingRowsHost.setVisibility(expanded && rowSteps > 0 ? View.VISIBLE : View.GONE);
+        }
+        // 箭头跟随"整节"的展开态：ThinkLineBody 只在正文可见时转它，
+        // 而这里可能只有步骤列表、没有实时正文，所以补一次显式旋转
+        rotateThinkChevron(holder, expanded);
+        if (holder.thinkingDivider != null) holder.thinkingDivider.setVisibility(View.GONE);
+
+        // 轮次模式下每一步自己折叠，header 不兼任总开关（否则又是"两层折叠"），
+        // 箭头也一并藏掉——留着箭头就是在暗示一个不存在的行为。
+        if (roundAssembled) {
+            holder.thinkingLabel.setOnClickListener(null);
+            holder.thinkingLabel.setClickable(false);
+            if (holder.thinkingChevron != null) holder.thinkingChevron.setVisibility(View.GONE);
+        } else {
+            holder.thinkingLabel.setClickable(true);
+            holder.thinkingLabel.setOnClickListener(v -> {
+                message.thinkingExpanded = !message.thinkingExpanded;
+                int pos = holder.getBindingAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
+            });
+        }
+    }
+
+    /** 箭头显式跟随整节展开态（ThinkLineBody 只跟正文显隐，节内只有步骤列表时它不知道） */
+    private void rotateThinkChevron(AIMessageViewHolder holder, boolean expanded) {
+        if (holder.thinkingChevron == null) return;
+        holder.thinkingChevron.setRotation(expanded ? 90f : 0f);
+    }
+
+    /**
+     * 时间线里的一步：一行摘要 + 右侧耗时 + 箭头，点开才是这一段的全文。
+     *
+     * <p>摘要取该段首句（{@link #thinkingPreview}），点开的全文按 Markdown 渲染。
+     * 折叠状态仍按轮 id 记在 {@code message.thinkingExpandedRounds}——
+     * 单位换了但锚点没换，历史恢复/复用后不会串。</p>
+     */
+    private View buildThinkingStepRow(AIMessageViewHolder holder, Context ctx, String roundId,
+                                      String text, long durationMs, int availableWidth) {
+        final ChatMessage msg = holder.holderMessage;
+        final String anchorId = (roundId == null || roundId.isEmpty())
+                ? ("round-" + System.identityHashCode(text)) : roundId;
+        final boolean expanded = msg != null && msg.isThinkingRoundExpanded(anchorId);
+
+        android.widget.LinearLayout row = new android.widget.LinearLayout(ctx);
+        row.setOrientation(android.widget.LinearLayout.VERTICAL);
+        android.widget.LinearLayout.LayoutParams rlp = new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        row.setLayoutParams(rlp);
+
+        android.widget.LinearLayout head = new android.widget.LinearLayout(ctx);
+        head.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        head.setClickable(true);
+        head.setFocusable(true);
+        head.setForeground(getSelectableItemBackground(ctx));
+        head.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        android.widget.TextView summary = new android.widget.TextView(ctx);
+        summary.setTextSize(12f);
+        summary.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_2));
+        summary.setSingleLine(true);
+        summary.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        String preview = thinkingPreview(stripThinkingTagMarkers(text), false);
+        summary.setText(preview.isEmpty() ? "…" : preview);
+        head.addView(summary, new android.widget.LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (durationMs > 0L) {
+            android.widget.TextView dur = new android.widget.TextView(ctx);
+            dur.setTextSize(11f);
+            dur.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3));
+            dur.setPadding(dpToPx(6, ctx), 0, 0, 0);
+            dur.setText(formatThinkingDuration(durationMs));
+            head.addView(dur, new android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+
+        android.widget.ImageView chev = new android.widget.ImageView(ctx);
+        int sz = dpToPx(13, ctx);
+        android.widget.LinearLayout.LayoutParams clp = new android.widget.LinearLayout.LayoutParams(sz, sz);
+        clp.setMarginStart(dpToPx(4, ctx));
+        chev.setLayoutParams(clp);
+        chev.setImageResource(R.drawable.ic_chevron_right);
+        chev.setImageTintList(android.content.res.ColorStateList.valueOf(
+                androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3)));
+        chev.setAlpha(0.55f);
+        chev.setRotation(expanded ? 90f : 0f);
+        head.addView(chev);
+
+        android.widget.TextView body = new android.widget.TextView(ctx);
+        body.setTextSize(12f);
+        body.setLineSpacing(0f, 1.6f);
+        body.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_2));
+        body.setVisibility(expanded ? View.VISIBLE : View.GONE);
+        row.setTag(anchorId);
+        body.setTag("round_body_" + anchorId);
+        if (expanded) {
+            setRenderedText(body, stripThinkingTagMarkers(text), availableWidth);
+            body.setMovementMethod(LinkMovementMethod.getInstance());
+        }
+
+        head.setOnClickListener(v -> {
             if (msg == null) return;
             msg.toggleThinkingRoundExpanded(anchorId);
             int pos = holder.getBindingAdapterPosition();
             if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
-        };
-        // v2 的 ThinkLineLabel 会把点击转发给整行，这里两边都绑一次，点行内任意处都能折叠
-        label.setOnClickListener(toggle);
-        row.setOnClickListener(toggle);
+        });
+        row.addView(head);
+        row.addView(body, new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return row;
-    }
-
-    /**
-     * 渲染"已定稿"的各轮思考（每轮一行）。
-     *
-     * <p>只画 {@code thinkingRounds} 里已定稿的轮次；正在流式的当前轮仍由消息级
-     * 实时思考行（{@code thinkingLabel} / {@code thinkingContent}）承担，
-     * 顺序天然是 第1轮 → 第2轮 → … → 正在进行的这一轮。</p>
-     *
-     * <p>轮次模式（{@code contentRoundBounds} 非空）下本方法不画——那一模式的正文与思考
-     * 要按时序内嵌到 {@code contentHost}，由 {@link #renderRoundAssembled} 逐轮放置，
-     * 否则会渲染两份。</p>
-     */
-    private void renderThinkingRounds(AIMessageViewHolder holder, ChatMessage message) {
-        if (holder == null || holder.thinkingRowsHost == null || message == null) return;
-        boolean roundAssembled = message.contentRoundBounds != null
-                && !message.contentRoundBounds.isEmpty();
-        holder.thinkingRowsHost.removeAllViews();
-        List<String> rounds = message.thinkingRounds;
-        if (roundAssembled || rounds == null || rounds.isEmpty()) {
-            holder.thinkingRowsHost.setVisibility(View.GONE);
-            return;
-        }
-        Context ctx = holder.thinkingRowsHost.getContext();
-        int width = holder.itemView.getWidth()
-                - holder.itemView.getPaddingLeft() - holder.itemView.getPaddingRight();
-        if (width <= 0) width = getScreenWidth(ctx);
-        int added = 0;
-        for (int i = 0; i < rounds.size(); i++) {
-            String text = rounds.get(i);
-            if (text == null || text.trim().isEmpty()) continue;
-            String roundId = (message.thinkingRoundIds != null && i < message.thinkingRoundIds.size())
-                    ? message.thinkingRoundIds.get(i) : null;
-            View row = buildThinkingRow(holder, ctx, i + 1, roundId, text, width,
-                    holder.v2Look, message.thinkingRoundDurationMs(i));
-            holder.thinkingRowsHost.addView(row, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            added++;
-        }
-        holder.thinkingRowsHost.setVisibility(added > 0 ? View.VISIBLE : View.GONE);
     }
 
     /**
@@ -2803,15 +2894,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void addRoundThinkingBlock(AIMessageViewHolder holder, Context ctx, int roundNo,
                                        String roundId, String thinkText, int availableWidth) {
-        // 2026-10-20：这一轮的渲染统一走 buildThinkingRow ——
-        // 之前这里自己拼了一套"标题 + ▸/▾ + 摘要"的观感，与 v2 那条思考行是两种样子，
-        // 同一个 App 里"有工具轮次的消息"和"普通消息"的思考区长得不一样。
-        // 现在两条路径共用一个行构造器：外观按建树时的档位走，折叠状态一律读
-        // message.thinkingExpandedRounds（按轮 id），耗时从 message.thinkingRoundDurationsMs 取。
+        // 2026-10-20：这一轮的渲染与 v2 时间线共用 buildThinkingStepRow，
+        // 不再自己拼"标题 + ▸/▾"——同一个 App 里两种思考区长得不一样本身就是问题。
         long durationMs = holder.holderMessage != null
                 ? holder.holderMessage.thinkingRoundDurationMs(roundNo - 1) : 0L;
-        View row = buildThinkingRow(holder, ctx, roundNo, roundId, thinkText, availableWidth,
-                holder.v2Look, durationMs);
+        View row = buildThinkingStepRow(holder, ctx, roundId, thinkText, durationMs, availableWidth);
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp.topMargin = dpToPx(roundNo == 1 ? 0 : 10, ctx);
@@ -2890,17 +2977,38 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final boolean roundAssembled = message.contentRoundBounds != null
                 && !message.contentRoundBounds.isEmpty();
 
-        // 每轮思考单独成行（2026-10-20）：已定稿的轮次交给 thinkingRowsHost 逐轮渲染，
-        // 这条消息级"实时思考行"从此只代表**正在进行的这一轮**——
-        // 以前它是"把 rounds 拼成一坨 + 一个总开关"，点开一次要读一整屏别人的思考。
-        renderThinkingRounds(holder, message);
+        // v2 档：整段思考走"一个入口 + 分步时间线"的新渲染（见 updateThinkingSectionV2），
+        // 下面这套"拼成一坨 + 一个总开关"只保留给旧档——它本身就是业界说的
+        // "一个折叠区，里面是推理文本"，只是没有分步。
+        if (holder.v2Look) {
+            updateThinkingSectionV2(holder, message, isStreaming, roundAssembled);
+            return;
+        }
+
+        // 多轮思考：分块展示（每轮加粗标题 + 段落分隔，布局上明显分开）
         String displayContent = message.thinkingContent != null ? message.thinkingContent : "";
-        if (!roundAssembled && message.thinkingRounds != null && !message.thinkingRounds.isEmpty()) {
-            // 定稿与流式交接的瞬间，thinkingContent 可能还等于最后一轮文本：去重，避免同一句出现两次
-            String lastRound = message.thinkingRounds.get(message.thinkingRounds.size() - 1);
-            if (lastRound != null && displayContent.trim().equals(lastRound.trim())) {
-                displayContent = "";
+        if (message.thinkingRounds != null && !message.thinkingRounds.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            List<String> rounds = message.thinkingRounds;
+            // 流式时：已完成轮次 + 当前轮；非流式时：全部轮次
+            for (int i = 0; i < rounds.size(); i++) {
+                String r = rounds.get(i);
+                if (r == null || r.trim().isEmpty()) continue;
+                if (sb.length() > 0) sb.append("\n\n");
+                String label = SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)
+                        + (i + 1) + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e);
+                sb.append("**").append(label).append("**\n").append(r.trim());
             }
+            // 当前轮（最后一轮,thinkingContent 可能等于 thinkingRounds 末位，去重）
+            String cur = displayContent.trim();
+            String lastRound = rounds.isEmpty() ? "" : rounds.get(rounds.size() - 1).trim();
+            if (!cur.isEmpty() && !cur.equals(lastRound)) {
+                if (sb.length() > 0) sb.append("\n\n");
+                String label = SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)
+                        + (rounds.size() + 1) + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e);
+                sb.append("**").append(label).append("**\n").append(cur);
+            }
+            displayContent = sb.toString();
         }
 
         if (displayContent != null && !displayContent.isEmpty()) {
@@ -5910,6 +6018,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
          * 顺序 = 第 1 轮 … 第 N 轮 → 实时思考行（thinkingLabel / thinkingContent 那一行）。
          */
         LinearLayout thinkingRowsHost;
+        /** v2 think-line 的箭头：整节展开态由它表示（ThinkLineBody 只跟正文显隐） */
+        ImageView thinkingChevron;
         /**
          * 本 holder 的视图树是否按 v2 档建的。
          * 思考行外观必须跟"建树时"的档位一致——开关是运行时可改的，
