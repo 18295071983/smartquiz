@@ -4,6 +4,7 @@ import android.content.Context;
 
 import androidx.test.core.app.ApplicationProvider;
 
+import com.oilquiz.app.ai.chat.ActivityTimeline;
 import com.oilquiz.app.ai.chat.ChatMessage;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 
@@ -200,6 +201,45 @@ public class ChatHistoryManagerSessionTest {
         assertEquals(1, saved.components.size());
         assertEquals("info_card", saved.components.get(0).type);
         assertNull("展开状态是 UI transient，不能持久化", saved.toolSectionExpandedIds);
+    }
+
+    /**
+     * 2026-10-21：保存/恢复必须保留轮次身份，恢复后 ActivityTimeline 仍按 toolCallId 配对，
+     * 不能退回组件顺序（实时与重进两种形态不一致的根因之一）。
+     */
+    @Test
+    public void savedRoundToolIdsSurviveReloadAndStillPairTools() throws Exception {
+        ChatMessage msg = ChatMessage.createAIMessage("a-pair", "正文内容", System.currentTimeMillis());
+        msg.turnId = "T9";
+        msg.contentRoundBounds = new ArrayList<>(Arrays.asList(0, 0));
+        msg.contentRoundToolIds = new ArrayList<>(Arrays.asList("b", "a"));
+        msg.components = new ArrayList<>();
+        msg.components.add(tool("a", "network_search"));
+        msg.components.add(tool("b", "ui_component"));
+
+        manager.saveAIChatHistory(Collections.singletonList(msg));
+        List<ChatMessage> loaded = manager.loadAIChatHistory();
+        ChatMessage restored = null;
+        for (ChatMessage m : loaded) {
+            if (m != null && "a-pair".equals(m.id)) restored = m;
+        }
+        assertNotNull(restored);
+        assertEquals(Arrays.asList(0, 0), restored.contentRoundBounds);
+        assertEquals(Arrays.asList("b", "a"), restored.contentRoundToolIds);
+
+        List<String> toolIds = new ArrayList<>();
+        for (ActivityTimeline.Item it : ActivityTimeline.build(restored).items) {
+            if (it.kind == ActivityTimeline.Kind.TOOL) toolIds.add(it.toolCallId);
+        }
+        assertEquals("恢复后仍应按保存的 toolCallId 配对", Arrays.asList("b", "a"), toolIds);
+    }
+
+    private static ComponentData tool(String id, String name) throws Exception {
+        JSONObject props = new JSONObject();
+        props.put("toolCallId", id);
+        props.put("toolName", name);
+        props.put("status", "done");
+        return ComponentData.of("tool_call", props);
     }
 
     private int conversationFileCount() {

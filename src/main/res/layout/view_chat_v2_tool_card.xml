@@ -90,6 +90,7 @@
         android:id="@+id/chat_v2_tool_card_products"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="@drawable/chat_v2_tool_body_bg"
         android:orientation="vertical"
         android:paddingStart="@dimen/chat_v2_line_pad"
         android:paddingTop="@dimen/space_6"

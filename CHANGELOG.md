@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 补恢复/渲染配对的回归与工具卡视觉包裹
+
+### 查到的事实
+
+- 现有历史数据里 T8/T9/T10/T11 的 `contentRoundBounds` 数量、`contentRoundToolIds`、
+  `tool_call.toolCallId`、产物 `producerToolCallId` 已经一一对应；
+  但此前没有"保存 → 恢复 → ActivityTimeline 配对"的回归用例，属于只靠肉眼。
+- 工具卡里的结果卡挂在 `chat_v2_tool_card_products`，该容器原来没有背景，
+  视觉上像工具卡下面又漂了一张独立卡。
+
+### 由此改掉的事
+
+- 新增 `savedRoundToolIdsSurviveReloadAndStillPairTools`：
+  保存两条工具（a、b，顺序 a,b），但 `contentRoundToolIds=["b","a"]`；
+  恢复后断言 bounds/ids 原样，且 `ActivityTimeline` 的工具顺序仍是 b、a。
+- `view_chat_v2_tool_card_products` 加 `chat_v2_tool_body_bg`，让模型可控制的
+  结果卡在视觉上属于这张工具卡。
+
+### 验证
+
+- 全量单测 **469 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 历史文件实际数据抽查：T8 9 工具/9 bounds/9 ids；T9 4/4/4；T10 5/5/5；
+  T11 1/1/1，产物 producer id 均能在对应工具里找到。
+
 ## [2026-10-21 凌晨] contentRoundBounds 全面加固：数量/身份/范围/内容改写
 
 ### 背景

@@ -1049,6 +1049,17 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. **验证**：`RoundBoundsTest` 4 条；`ActivityTimelineTest` 新增"按 id 配对而非组件顺序"；
    全量 468 单测全绿，装机。
 
+### 4.27 恢复/渲染配对回归 + 工具卡视觉包裹（2026-10-21 凌晨）
+
+1. **数据抽查**：当前历史 T8/T9/T10/T11 的 bounds 数、`contentRoundToolIds`、
+   `tool_call.toolCallId`、产物 `producerToolCallId` 全部一一对应
+   （T8 9/9/9，T9 4/4/4，T10 5/5/5，T11 1/1/1）。
+2. **补回归**：`savedRoundToolIdsSurviveReloadAndStillPairTools` 保存"组件顺序 a,b、
+   边界身份 b,a"的消息，恢复后断言 ids 原样且 ActivityTimeline 仍按 b,a 配对。
+3. **视觉**：`chat_v2_tool_card_products` 加 `chat_v2_tool_body_bg`，
+   模型控制显隐的结果卡在视觉上归属这张工具卡，不再像独立漂卡。
+4. **验证**：469 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图
