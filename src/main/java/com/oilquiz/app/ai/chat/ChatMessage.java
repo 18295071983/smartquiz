@@ -331,9 +331,15 @@ public class ChatMessage {
         return v == null ? 0L : Math.max(0L, v);
     }
 
-    /** 正文轮次边界：content 中每个工具调用处的位置（工具调用 = 轮次边界）。
-     *  第 i 个边界 = 第 i 轮正文结束位置；UI 按边界切分正文并与思考轮次/工具卡片组装显示。 */
+    /** 正文轮次边界：content 中每个工具调用开始处的位置（工具调用 = 轮次边界）。
+     *  第 i 个边界与第 i 个 tool_call 一一对应；UI 按边界切分正文并与思考轮次/工具卡组装显示。
+     *  旧数据可能只有偏移、没有 {@link #contentRoundToolIds}，由
+     *  {@link RoundBounds#normalize(ChatMessage)} 补齐。 */
     public java.util.List<Integer> contentRoundBounds;
+
+    /** 与 {@link #contentRoundBounds} 等长的 toolCallId 列表；旧数据为 null。
+     *  用于把"边界"从纯下标对齐升级为按工具身份对齐（并行/重试/缺回调时防止错位）。 */
+    public java.util.List<String> contentRoundToolIds;
 
     /** 系统消息动作载荷（如本地Agent拦截时保存的原始问题，供"强行执行"按钮重发），仅运行时使用 */
     public String actionPayload;

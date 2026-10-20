@@ -1753,6 +1753,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * contentRoundBounds 为工具调用边界；thinkingRounds 为每轮思考；components 为工具卡片。
      */
     /** 工具卡片归属键：toolCallId 优先，空则退化到 toolName（本地 Agent 无 id 场景）。 */
+    /**
+     * 第 i 轮产物的归属键：优先用 ActivityTimeline 按 toolCallId 配对后的工具身份，
+     * 旧数据没有 id 时退回 tools 列表下标。
+     */
+    private static String roundKeyForIndex(java.util.List<ActivityGroup> groups,
+                                           java.util.List<ComponentData> tools, int i) {
+        if (i >= 0 && i < groups.size() && !groups.get(i).tools.isEmpty()) {
+            ActivityTimeline.Item item = groups.get(i).tools.get(0);
+            if (item.toolCallId != null && !item.toolCallId.isEmpty()) {
+                return "id:" + item.toolCallId;
+            }
+        }
+        return toolRoundKey(tools.size() > i ? tools.get(i) : null);
+    }
+
     private static String toolRoundKey(ComponentData tool) {
         if (tool == null) return "";
         String id = tool.props != null ? tool.props.optString("toolCallId", "") : "";
@@ -1868,37 +1883,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /** 轮次边界归一（数量/范围/单调/toolCallId）统一委托给 {@link RoundBounds}。 */
+    static void ensureRoundBounds(ChatMessage message) {
+        RoundBounds.normalize(message);
+    }
+
     /**
      * 把 ActivityTimeline 的线性 items 按 TOOL 切成"每轮一组"：
      * 思考0 → 工具0 → 思考1 → 工具1 → … → 末尾只剩思考。
      * 组的数量与 contentRoundBounds 对齐（第 i 组就是第 i 个边界）。
      */
-    /**
-     * 修复轮次边界数量：一次工具调用 = 一个 bound，即使多次工具都在同一个正文偏移（常见于
-     * 先连续调工具、最后才输出正文）。旧逻辑对相同 offset 去重，6 个工具只留下 [0]，
-     * 后续工具产物无法按轮归属，只能全堆到正文末尾。
-     *
-     * <p>只补不改：边界多于工具数时保留原样；补出来的值沿用最后一个 offset。</p>
-     */
-    static void ensureRoundBounds(ChatMessage message) {
-        if (message == null || message.components == null) return;
-        int toolCount = 0;
-        for (ComponentData c : message.components) {
-            if (c != null && "tool_call".equals(c.type)) toolCount++;
-        }
-        if (toolCount <= 0) return;
-        java.util.List<Integer> bounds = message.contentRoundBounds;
-        if (bounds == null) {
-            bounds = new java.util.ArrayList<>();
-            message.contentRoundBounds = bounds;
-        }
-        if (bounds.size() >= toolCount) return;
-        java.util.List<Integer> repaired = new java.util.ArrayList<>(bounds);
-        int fill = repaired.isEmpty() ? 0 : repaired.get(repaired.size() - 1);
-        while (repaired.size() < toolCount) repaired.add(fill);
-        message.contentRoundBounds = repaired;
-    }
-
     static java.util.List<ActivityGroup> buildActivityGroups(ChatMessage message) {
         ensureRoundBounds(message);
         java.util.List<ActivityGroup> groups = new java.util.ArrayList<>();
@@ -2128,7 +2122,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         for (int i = 0; i < nRounds; i++) roundProds.add(new java.util.ArrayList<ComponentData>());
         if (comps != null && nRounds > 0) {
             for (int i = 0; i < nRounds; i++) {
-                String key = toolRoundKey(toolComps.size() > i ? toolComps.get(i) : null);
+                String key = roundKeyForIndex(activityGroups, toolComps, i);
                 java.util.List<ComponentData> bucket = roundProds.get(i);
                 for (ComponentData p : comps) {
                     if (p == null || "tool_call".equals(p.type)) continue;

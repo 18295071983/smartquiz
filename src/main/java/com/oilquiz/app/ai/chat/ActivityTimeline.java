@@ -106,16 +106,20 @@ public final class ActivityTimeline {
             if (bounds > 0) {
                 // 轮次模式：第 i 轮思考 → 第 i 个工具（contentRoundBounds 每个边界对应一次工具调用），
                 // 最后一轮（i == bounds）只有思考、没有工具。
+                // 2026-10-21：优先按 contentRoundToolIds 找工具身份；只有旧数据没有 id 时才按顺序取。
                 int ri = 0;
-                int ti = 0;
+                boolean[] used = new boolean[tools.size()];
                 for (int i = 0; i <= bounds; i++) {
                     if (rounds != null && ri < rounds.size()) {
                         addThinking(items, indexById, message, ri);
                         ri++;
                     }
-                    if (i < bounds && ti < tools.size()) {
-                        addTool(items, indexById, tools.get(ti), ti);
-                        ti++;
+                    if (i < bounds) {
+                        int pick = pickTool(message, tools, used, i);
+                        if (pick >= 0) {
+                            used[pick] = true;
+                            addTool(items, indexById, tools.get(pick), pick);
+                        }
                     }
                 }
                 // 数据比边界长（旧数据/异常路径）：剩余项按原顺序补在末尾，不丢。
@@ -123,9 +127,8 @@ public final class ActivityTimeline {
                     addThinking(items, indexById, message, ri);
                     ri++;
                 }
-                while (ti < tools.size()) {
-                    addTool(items, indexById, tools.get(ti), ti);
-                    ti++;
+                for (int j = 0; j < tools.size(); j++) {
+                    if (!used[j]) addTool(items, indexById, tools.get(j), j);
                 }
             } else {
                 // 无边界：思考轮在前、工具在后（现有 v2 的快照形状；没有时序信息时不假装知道）
@@ -138,6 +141,32 @@ public final class ActivityTimeline {
             addBlocksFallback(items, message.agentExecutionState);
         }
         return finish(items);
+    }
+
+    /** 第 i 轮应使用哪个工具：优先按 contentRoundToolIds[i] 的身份找，找不到再取下一个未用工具。 */
+    private static int pickTool(ChatMessage message, List<ComponentData> tools,
+                                boolean[] used, int roundIndex) {
+        if (tools.isEmpty()) return -1;
+        String wanted = null;
+        if (message.contentRoundToolIds != null
+                && roundIndex < message.contentRoundToolIds.size()) {
+            wanted = message.contentRoundToolIds.get(roundIndex);
+        }
+        if (wanted != null && !wanted.isEmpty()) {
+            for (int j = 0; j < tools.size(); j++) {
+                if (!used[j] && wanted.equals(toolId(tools.get(j)))) return j;
+            }
+        }
+        for (int j = 0; j < tools.size(); j++) {
+            if (!used[j]) return j;
+        }
+        return -1;
+    }
+
+    private static String toolId(ComponentData tool) {
+        if (tool == null || tool.props == null) return "";
+        String id = tool.props.optString("toolCallId", "");
+        return id != null ? id : "";
     }
 
     private static void addThinking(List<Item> items, Map<String, Integer> indexById,

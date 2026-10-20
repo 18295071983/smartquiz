@@ -229,6 +229,25 @@ public class ActivityTimelineTest {
     }
 
     @Test
+    public void pairsToolsByRoundToolIdsNotComponentOrder() throws Exception {
+        ChatMessage m = aiMessage();
+        m.thinkingRounds = new ArrayList<>(Arrays.asList("t0", "t1"));
+        m.components = new ArrayList<>();
+        m.components.add(tool("a", "tool_a", "done"));
+        m.components.add(tool("b", "tool_b", "done"));
+        m.contentRoundBounds = new ArrayList<>(Arrays.asList(0, 0));
+        m.contentRoundToolIds = new ArrayList<>(Arrays.asList("b", "a"));
+
+        ActivityTimeline.Model model = ActivityTimeline.build(m);
+
+        List<String> toolIds = new ArrayList<>();
+        for (ActivityTimeline.Item it : model.items) {
+            if (it.kind == ActivityTimeline.Kind.TOOL) toolIds.add(it.toolCallId);
+        }
+        assertEquals(Arrays.asList("b", "a"), toolIds);
+    }
+
+    @Test
     public void previewTakesFirstLineAndStripsMarkdownNoise() {
         assertEquals("第一行摘要", ActivityTimeline.preview("**第一行摘要**\n第二行", 48));
         assertEquals("只有一段", ActivityTimeline.preview("只有一段", 48));

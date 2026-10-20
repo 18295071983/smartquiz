@@ -1034,6 +1034,21 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    全量 463 单测全绿，装机。真机 6 工具消息已按
    「思考行 → 工具卡 → 该轮搜索结果」逐轮显示，正文末尾不再堆卡。
 
+### 4.26 contentRoundBounds 全面加固（2026-10-21 凌晨）
+
+1. **纯逻辑收口**：新增 `ai/chat/RoundBounds`，统一处理：
+   - 数量 = `tool_call` 数；
+   - 值单调不减、夹在 `[0, content.length()]`；
+   - 新增 `ChatMessage#contentRoundToolIds`（与 bounds 等长，记录每轮 toolCallId）。
+2. **内容改写重映射**：AI 完成时剥离嵌入 thinking 标签会删除一段正文并 trim，
+   `remapAfterRemoval()` 按删除区间/前导空白把旧 bounds 映射到新 content，避免卡片落错段。
+3. **生产/加载/保存**：`onToolCallStart` 同步写 bound + toolCallId；
+   `ChatHistoryManager` 在 load、session load、save deep copy 三处 normalize。
+4. **按身份配对**：`ActivityTimeline` 优先用 `contentRoundToolIds` 找该轮工具；
+   `ChatAdapter` 的产物归属键也优先用配对后的 toolCallId；旧数据缺 id 才退回下标。
+5. **验证**：`RoundBoundsTest` 4 条；`ActivityTimelineTest` 新增"按 id 配对而非组件顺序"；
+   全量 468 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

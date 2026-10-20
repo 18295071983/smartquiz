@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-21 凌晨] contentRoundBounds 全面加固：数量/身份/范围/内容改写
+
+### 背景
+
+上一条只修了"数量"（一个工具一条 bound），但 `contentRoundBounds` 仍是裸偏移：
+没有工具身份、没有单调/范围校验、正文剥离 thinking 后偏移不重映射。
+这条按设计走查的 P0–P3 全部补齐。
+
+### 改动
+
+- 新增 `ai/chat/RoundBounds`（纯 Java）：
+  - `normalize()`：数量对齐 `tool_call` 数、值单调不减、夹在 `[0, content.length()]`；
+  - 新增 `ChatMessage#contentRoundToolIds`，与 bounds 等长，记录每轮 toolCallId；
+  - `remapAfterRemoval()`：正文删除一段 + 前导 trim 后，把旧偏移映射到新 content。
+- 生产侧：`AIChatActivity.onToolCallStart` 同时追加 bound 与 toolCallId；
+  AI 完成时剥离 thinking 标签后调用 remap。
+- 加载/保存侧：`ChatHistoryManager` 在 load、session load、save deep copy 三处调用
+  `RoundBounds.normalizeAll()`，坏数据不落盘。
+- 配对侧：`ActivityTimeline` 优先按 `contentRoundToolIds` 找工具，
+  `ChatAdapter` 的产物归属键也优先用配对后的 toolCallId；旧数据缺 id 才按顺序。
+- 删除 Adapter 里重复的补数量逻辑，统一委托 `RoundBounds`。
+
+### 验证
+
+- 新增 `RoundBoundsTest` 4 条（补数量/夹范围/裁剪/remap）；
+  `ActivityTimelineTest` 新增"工具按 id 配对而非组件顺序"；
+  `ChatRoundActivityTest` 保留"3 工具同偏移"回归。
+- 全量单测 **468 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+
 ## [2026-10-21 凌晨] 修轮次边界被去重：多工具结果不再堆到正文末尾
 
 ### 查到的事实

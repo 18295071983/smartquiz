@@ -15,6 +15,7 @@ import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 import com.google.gson.reflect.TypeToken;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.RoundBounds;
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.model.AgentTask;
 
@@ -242,6 +243,9 @@ public class ChatHistoryManager {
             // 内联"思考→正文→工具"时序）被跳过，工具卡片退回通道 B「工具过程」折叠渲染，
             // 导致实时（内联）与重进（折叠）两种形态不一致。补拷后历史加载与实时走同一渲染路径。
             m.contentRoundBounds = msg.contentRoundBounds != null ? new ArrayList<>(msg.contentRoundBounds) : null;
+            // 边界身份（2026-10-21）：与 bounds 等长的 toolCallId，旧数据可为 null
+            m.contentRoundToolIds = msg.contentRoundToolIds != null
+                    ? new ArrayList<>(msg.contentRoundToolIds) : null;
             // 思考轮 id 随轮次内容一起拷贝（2026-09-14）：恢复后 id 与轮次一一对应不丢
             m.thinkingRoundIds = msg.thinkingRoundIds != null ? new ArrayList<>(msg.thinkingRoundIds) : null;
             // 每轮耗时也要跟着拷（2026-10-20）："每轮单独成行"后行尾要显示这一轮的秒数，
@@ -263,6 +267,8 @@ public class ChatHistoryManager {
             m.agentExecutionState = msg.agentExecutionState;
             copy.add(m);
         }
+        // 保存前把轮次边界归一（数量/单调/范围/toolCallId），坏数据不落盘
+        RoundBounds.normalizeAll(copy);
         return copy;
     }
 public void saveAIChatHistory(List<ChatMessage> chatHistory) {
@@ -308,7 +314,9 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             Type type = new TypeToken<List<ChatMessage>>() {}.getType();
             List<ChatMessage> chatHistory = gson.fromJson(reader, type);
             reader.close();
-            return chatHistory != null ? chatHistory : new ArrayList<>();
+            if (chatHistory == null) chatHistory = new ArrayList<>();
+            RoundBounds.normalizeAll(chatHistory);
+            return chatHistory;
         } catch (OutOfMemoryError e) {
             // 兜底：大文件解析内存不足时保命，不删用户文件（后续保存已按上限裁剪）
             Log.e(TAG, "OutOfMemory loading AI chat history (file too large), keep file intact", e);
@@ -362,7 +370,9 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             Type type = new TypeToken<List<ChatMessage>>() {}.getType();
             List<ChatMessage> chatHistory = gson.fromJson(reader, type);
             reader.close();
-            return chatHistory != null ? chatHistory : new ArrayList<>();
+            if (chatHistory == null) chatHistory = new ArrayList<>();
+            RoundBounds.normalizeAll(chatHistory);
+            return chatHistory;
         } catch (OutOfMemoryError e) {
             Log.e(TAG, "OutOfMemory loading Agent chat history, keep file intact", e);
             return new ArrayList<>();
@@ -508,6 +518,7 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
             FileReader reader = new FileReader(file);
             ConversationSession session = gson.fromJson(reader, ConversationSession.class);
             reader.close();
+            if (session != null) RoundBounds.normalizeAll(session.messages);
             return session;
         } catch (OutOfMemoryError e) {
             // 兜底：超大会话解析内存不足时保命（不删文件，后续保存已按上限裁剪）
@@ -1107,7 +1118,10 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
                 reader.skipValue();
             } else if (out.size() < limit) {
                 ChatMessage m = gson.fromJson(reader, ChatMessage.class);
-                if (m != null) out.add(m);
+                if (m != null) {
+                    RoundBounds.normalize(m);
+                    out.add(m);
+                }
             } else {
                 reader.skipValue();
             }

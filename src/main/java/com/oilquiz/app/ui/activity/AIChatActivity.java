@@ -6832,8 +6832,22 @@ public class AIChatActivity extends BaseActivity {
                     if (tcClose >= 0) {
                         String embeddedThinking =
                                 finalMsg.content.substring(ts + embeddedT.getStartTag().length(), tcClose).trim();
-                        finalMsg.content = (finalMsg.content.substring(0, ts)
-                                + finalMsg.content.substring(tcClose + tcCloseLen)).trim();
+                        int removedStart = ts;
+                        int removedEnd = tcClose + tcCloseLen;
+                        String combined = finalMsg.content.substring(0, removedStart)
+                                + finalMsg.content.substring(removedEnd);
+                        int leadingTrim = 0;
+                        while (leadingTrim < combined.length()
+                                && Character.isWhitespace(combined.charAt(leadingTrim))) {
+                            leadingTrim++;
+                        }
+                        String newContent = combined.trim();
+                        // bounds 是在原始流（含 thinking 标签）上记的；剥离标签 + trim 后
+                        // 必须重映射，否则工具卡会落到错误正文段，甚至被 clamp 到末尾。
+                        finalMsg.contentRoundBounds = com.oilquiz.app.ai.chat.RoundBounds
+                                .remapAfterRemoval(finalMsg.contentRoundBounds,
+                                        removedStart, removedEnd, leadingTrim, newContent.length());
+                        finalMsg.content = newContent;
                         if (embeddedThinking.length() > 0) {
                             synchronized (streamingLock) {
                                 if (currentThinkingContent == null) startThinkingBuffer();
@@ -7018,11 +7032,19 @@ public class AIChatActivity extends BaseActivity {
                         if (msg.contentRoundBounds == null) {
                             msg.contentRoundBounds = new java.util.ArrayList<>();
                         }
+                        if (msg.contentRoundToolIds == null) {
+                            msg.contentRoundToolIds = new java.util.ArrayList<>();
+                        }
                         int bound = currentStreamingContent != null ? currentStreamingContent.length() : 0;
                         // 一个工具调用一条边界，哪怕多次工具都发生在正文偏移 0：
                         // 不能对相同 offset 去重，否则第 2..N 个工具没有轮次槽位，
                         // 产物只能被当成 tail 堆到正文末尾。
                         msg.contentRoundBounds.add(bound);
+                        // 边界的身份（toolCallId）与 bounds 等长，后续按 id 校验/对齐
+                        while (msg.contentRoundToolIds.size() < msg.contentRoundBounds.size() - 1) {
+                            msg.contentRoundToolIds.add("");
+                        }
+                        msg.contentRoundToolIds.add(toolCallId != null ? toolCallId : "");
                         // 工具调用前思考落库（若本轮思考尚未结束）：思考轮次与正文轮次一一对应
                         if (currentThinkingContent != null && currentThinkingContent.length() > 0 && !thinkingRoundEnded) {
                             msg.addThinkingRound(currentThinkingContent.toString(), null, elapsedThinkingRound());

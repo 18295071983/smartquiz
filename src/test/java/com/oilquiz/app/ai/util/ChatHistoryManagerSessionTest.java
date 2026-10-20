@@ -177,9 +177,10 @@ public class ChatHistoryManagerSessionTest {
      */
     @Test
     public void saveCopyKeepsRoundDataAndDropsTransientExpansionState() throws Exception {
-        ChatMessage msg = ChatMessage.createAIMessage("a-round", "回答", System.currentTimeMillis());
+        ChatMessage msg = ChatMessage.createAIMessage("a-round", "回答内容", System.currentTimeMillis());
         msg.turnId = "T7";
         msg.contentRoundBounds = new ArrayList<>(Arrays.asList(0, 4));
+        msg.contentRoundToolIds = new ArrayList<>(Arrays.asList("T7-F1", "T7-F2"));
         msg.thinkingRounds = new ArrayList<>(Arrays.asList("t0", "t1"));
         msg.thinkingRoundIds = new ArrayList<>(Arrays.asList("T7-K1", "T7-K2"));
         msg.components = new ArrayList<>();
@@ -194,6 +195,7 @@ public class ChatHistoryManagerSessionTest {
 
         assertEquals("T7", saved.turnId);
         assertEquals(Arrays.asList(0, 4), saved.contentRoundBounds);
+        assertEquals(Arrays.asList("T7-F1", "T7-F2"), saved.contentRoundToolIds);
         assertEquals(2, saved.thinkingRounds.size());
         assertEquals(1, saved.components.size());
         assertEquals("info_card", saved.components.get(0).type);
