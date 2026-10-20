@@ -1,5 +1,36 @@
 # 变更日志
 
+## [2026-10-21 凌晨] USER/AI 成对展示兜底 + 模型面板重复层修复
+
+### 1. 孤儿 USER 自动补 AI 占位
+
+- 新增 `ChatTurnPairing`：USER 有 turnId、但没有同 turn 的 AI 时，就地插入一条
+  `ERROR` AI 占位，内容「未生成回复。点重新生成重试。」。
+- Activity `repairOrphanTurns()`：
+  - 历史加载（单文件 + 会话分页）后补；
+  - 新 USER 入队前先补上一轮；
+  - 发送后 1.5s 兜底补（生成中/已有 AI 占位时跳过）。
+- 占位发 subId（`Tn-A*`），持久化；`ChatAdapter` 对 `ERROR/FAILED` 也显示操作段，
+  所以占位底下有复制/重新生成/更多。
+- `regenerateMessage()` 改为**复用原 USER 的 turn**，不再 `addUserMessage` 复制一条
+  相同 USER；点孤儿占位的重新生成会清掉该 turn 后续消息并重跑。
+
+### 2. 模型与参数面板重复/叠层
+
+- UI dump 实测一个面板里出现 4 组「深度求索/小米/打开模型中心」，且可能多个
+  BottomSheet 叠着。
+- `ModelSheet` 增加静态 `showingSheet`：重复打开先 dismiss 旧的，避免叠层。
+- `renderOnline` / `renderLocal` 入口先 `list.removeAllViews()`，任何重复 render
+  都不会把列表越叠越长。
+- 「打开模型中心」底部间距 4dp → 12dp，不再紧贴温度滑杆。
+
+### 验证
+
+- 全量单测 **482 / 0 skipped / 0 failed / 0 errors**（新增 `ChatTurnPairingTest` 4 条），
+  `assembleDebug` 通过，已装机。
+- 真机验证：T32「介绍下木星」孤儿 USER 已自动出现「未生成回复」AI 占位 + 三个操作图标；
+  模型面板 UI dump 只剩 1 组模型/1 个「打开模型中心」。
+
 ## [2026-10-21 凌晨] 修启动恢复与实时发送的竞态：历史快照不再覆盖刚建的 AI 占位
 
 ### 现场

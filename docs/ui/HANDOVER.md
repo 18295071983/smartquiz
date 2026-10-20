@@ -1121,6 +1121,18 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    单文件恢复与会话分页恢复都走它。
 4. **验证**：478 单测全绿，装机；旧 T22 孤儿不会自动补 AI，新发送受 merge 保护。
 
+### 4.34 USER/AI 成对展示 + 模型面板重复层（2026-10-21 凌晨）
+
+1. **成对不变式**：`ChatTurnPairing.insertMissingReplies()` 给缺 AI 的 USER 补
+   `ERROR` AI 占位（「未生成回复。点重新生成重试。」）。
+2. **接入点**：历史加载两条路径、`newUserMessageForTurn()` 开新回合前、
+   `sendMessage` 后 1.5s 兜底；生成中/已有 AI 时跳过。
+3. **重试**：占位有 subId；ChatAdapter 对 ERROR/FAILED 也显示操作段；
+   `regenerateMessage()` 复用原 USER turn，不再复制 USER。
+4. **模型面板**：`ModelSheet` 静态 showingSheet 防叠层；renderOnline/renderLocal
+   入口 removeAllViews；「打开模型中心」底部间距 12dp。
+5. **验证**：482 单测全绿，装机；真机确认 T32 占位与单组模型面板。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -66,6 +66,7 @@ import com.oilquiz.app.ai.agent.online.OnlineToolResult;
 import com.oilquiz.app.ai.agent.software.engine.AgentLoopEngine;
 import com.oilquiz.app.ai.chat.MessageAttachmentAdapter;
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.ChatTurnPairing;
 import com.oilquiz.app.ai.jni.LlamaHelper;
 import com.oilquiz.app.ai.chat.ChatAdapter;
 import com.oilquiz.app.ai.refactor.AIConfig;
@@ -908,6 +909,7 @@ public class AIChatActivity extends BaseActivity {
                                 // 若刚把这份历史认领回某个会话，这里必须沿用它的前端未加载条数：
                                 // 清零会让后续"更新同一条会话"的保存截掉会话头部（丢旧消息）。
                                 sessionFrontSkipped = Math.max(0, adoptedFrontSkipped[0]);
+                                repairOrphanTurns();
                                 updateLoadMoreButton();
                                 if (chatAdapter != null) {
                                     chatAdapter.notifyDataSetChanged();
@@ -951,6 +953,7 @@ public class AIChatActivity extends BaseActivity {
                                         historySourceSessionId = sessionId;
                                         sessionFrontSkipped = sessSkipped[0];
                                         aiHistoryFrontSkipped = 0;
+                                        repairOrphanTurns();
                                         updateLoadMoreButton();
                                         // 同步引擎会话：恢复该会话的 Agent 上下文（如存在）
                                         if (agentChatHandler != null) {
@@ -3917,6 +3920,7 @@ public class AIChatActivity extends BaseActivity {
             AppLogger.aiW(TAG, "[sendMessage] ensureModelLoaded 返回 false，仅加入历史不推理，msg=" + message);
             addUserMessage(message);
             inputMessage.setText("");
+            scheduleOrphanRepair();
             return;
         }
         AppLogger.ai(TAG, "[sendMessage] 通过守卫，进入 processChatMessage: " + message);
@@ -3949,12 +3953,14 @@ public class AIChatActivity extends BaseActivity {
                 processMessageWithAttachments(agentMessage, savedAttachments);
             } else {
                 processChatMessage(agentMessage);
+                scheduleOrphanRepair();
             }
         } else {
             // dsh 对齐：发送前插入 SystemPromptRow（prompt 变更时）/ ContextInjectionRow（本地 Agent 记忆任务注入）
             maybeInsertSystemPromptRow();
             maybeInsertContextInjectionRow();
             processChatMessage(message);
+            scheduleOrphanRepair();
         }
 
         // 深度思考开关保持用户设定：打开后持续生效，不随本条消息发送后自动复位
@@ -8364,6 +8370,36 @@ public class AIChatActivity extends BaseActivity {
                 + " localNew=" + localNew.size() + " total=" + merged.size());
     }
 
+    /**
+     * 成对展示兜底：USER 有 turnId 但没有同 turn 的 AI 回复时，补一条
+     * 「未生成回复」的 AI ERROR 占位，并给占位发 subId；这样消息流里不会只出现
+     * 一条孤零零的 USER。生成中不补，避免和正在创建的 AI 占位抢位。
+     */
+    private void scheduleOrphanRepair() {
+        if (messageList == null) return;
+        // 给正常 processChatMessage 同步创建 AI 占位留出时间；只有提前返回/真正没建
+        // 占位时才补 ERROR 占位，避免和正在创建的 AI 抢位。
+        messageList.postDelayed(this::repairOrphanTurns, 1500);
+    }
+
+    private int repairOrphanTurns() {
+        if (chatHistory == null || chatHistory.isEmpty()) return 0;
+        if (isGenerating || currentStreamingMessageId != null) return 0;
+        java.util.List<ChatMessage> added = ChatTurnPairing.insertMissingReplies(
+                chatHistory, ChatTurnPairing.ORPHAN_REPLY_TEXT);
+        if (added.isEmpty()) return 0;
+        for (ChatMessage ai : added) {
+            if (ai != null && (ai.subId == null || ai.subId.isEmpty())) {
+                ai.subId = ChatIdDispatcher.getInstance()
+                        .applySubId(ChatIdDispatcher.IdType.AI, ai.turnId);
+            }
+        }
+        if (chatAdapter != null) chatAdapter.notifyDataSetChanged();
+        saveHistoryAsync();
+        AppLogger.ai(TAG, "[pair] 补齐 " + added.size() + " 条孤儿 USER 的 AI 占位");
+        return added.size();
+    }
+
     private void clearChat() {
         // NPU-SESSION-RESET: 清空对话时同步重置 NPU 会话（GenieX LlmWrapper.reset()）——
         // 官方 demo 在新会话时调用（MainActivity.kt:1136）；不调用会让 KV 里残留旧上下文。
@@ -8671,15 +8707,19 @@ public class AIChatActivity extends BaseActivity {
             // 2. 向前找最后一条用户消息
             String userContent = null;
             int userIndex = -1;
+            ChatMessage userMessage = null;
             for (int i = aiIndex - 1; i >= 0; i--) {
                 ChatMessage m = chatHistory.get(i);
                 if (m != null && m.type == ChatMessage.MessageType.USER && m.content != null) {
                     userContent = m.content;
                     userIndex = i;
+                    userMessage = m;
                     break;
                 }
             }
-            if (userContent == null) { showToast(getString(R.string.h_2130ef69)); return; }
+            if (userContent == null || userMessage == null) {
+                showToast(getString(R.string.h_2130ef69)); return;
+            }
 
             // 3. 删除 userIndex 之后的所有消息（保留用户消息本身）
             int removeStart = userIndex + 1;
@@ -8695,9 +8735,17 @@ public class AIChatActivity extends BaseActivity {
             // 重新生成时失效缓存，确保重新推理而非返回缓存结果
             if (cacheManager != null) cacheManager.invalidateCache(userContent);
 
-            addUserMessage(userContent);
-            processChatMessage(userContent);
-            AILogger.i(TAG, "Regenerating from user message at index " + userIndex);
+            // 有 turnId 的 user 直接复用原回合，不再 addUserMessage 复制一条新 USER：
+            // 否则重试孤儿占位会变成「两条一样的用户消息 + 一条新 AI」，配对更乱。
+            if (userMessage.turnId != null && !userMessage.turnId.isEmpty()) {
+                currentTurnId = userMessage.turnId;
+                processChatMessage(userContent);
+            } else {
+                addUserMessage(userContent);
+                processChatMessage(userContent);
+            }
+            AILogger.i(TAG, "Regenerating from user message at index " + userIndex
+                    + ", turn=" + userMessage.turnId);
         } catch (Exception e) {
             AppLogger.aiE(TAG, "Error regenerating message: " + e.getMessage());
             showToast(getString(R.string.h_0b7ce83c));
@@ -9566,6 +9614,9 @@ public class AIChatActivity extends BaseActivity {
      */
     private ChatMessage newUserMessageForTurn(String message, List<ChatMessage.Attachment> attachments,
                                                boolean voiceInput) {
+        // 上一轮如果是孤儿 USER（有 user 无 AI），先补占位再开新回合，避免消息流
+        // 里出现「上一条 user 永远等不到回复」的错位观感。
+        repairOrphanTurns();
         currentTurnId = ChatIdDispatcher.getInstance().applyMasterId();
         ChatMessage msg = (attachments == null || attachments.isEmpty())
                 ? ChatMessage.createUserMessage(java.util.UUID.randomUUID().toString(),

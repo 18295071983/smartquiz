@@ -38,13 +38,24 @@ import java.util.Locale;
  */
 public final class ModelSheet {
 
+    /** 当前正在显示的模型面板。重复点标题/重复 apply 时先 dismiss 旧的，避免多个
+     *  BottomSheet 叠在一起（表现为列表/按钮重复、关闭一层下面还有一层）。 */
+    private static BottomSheetDialog showingSheet;
+
     private ModelSheet() {
     }
 
     public static void show(final Activity activity, final Runnable onApplied) {
         if (activity == null) return;
         try {
+            if (showingSheet != null && showingSheet.isShowing()) {
+                showingSheet.dismiss();
+            }
             final BottomSheetDialog sheet = new BottomSheetDialog(activity);
+            showingSheet = sheet;
+            sheet.setOnDismissListener(d -> {
+                if (showingSheet == sheet) showingSheet = null;
+            });
             View root = LayoutInflater.from(activity)
                     .inflate(R.layout.view_chat_v2_model_sheet, null);
             View close = root.findViewById(R.id.chat_v2_model_sheet_close);
@@ -156,6 +167,8 @@ public final class ModelSheet {
     private static void renderOnline(Activity activity, LinearLayout list,
                                      OnlineModelManager manager, String[] selected,
                                      Runnable2 onPicked, BottomSheetDialog sheet) {
+        // 防御性清空：任何调用方重复 render 都不应把列表越叠越长
+        list.removeAllViews();
         List<OnlineModelManager.OnlineModelConfig> models = manager.getModelList();
         if (models == null || models.isEmpty()) {
             TextView empty = new TextView(activity);
@@ -181,6 +194,7 @@ public final class ModelSheet {
 
     private static void renderLocal(Activity activity, LinearLayout list,
                                     BottomSheetDialog sheet) {
+        list.removeAllViews();
         TextView hint = new TextView(activity);
         hint.setText(R.string.chat_v2_model_local_hint);
         hint.setTextSize(12f);
@@ -263,7 +277,8 @@ public final class ModelSheet {
         link.setTypeface(Typeface.DEFAULT_BOLD);
         link.setTextColor(ContextCompat.getColor(activity, R.color.chat_v2_brand));
         link.setGravity(Gravity.CENTER);
-        link.setPadding(0, dp(activity, 12), 0, dp(activity, 4));
+        // 底部留足间距：链接在 ScrollView 末尾，紧贴下面的温度行会看起来像压在滑杆上
+        link.setPadding(0, dp(activity, 12), 0, dp(activity, 12));
         link.setOnClickListener(v -> {
             sheet.dismiss();
             activity.startActivity(new Intent(activity, ModelCenterActivity.class));

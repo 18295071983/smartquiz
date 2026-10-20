@@ -1171,8 +1171,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         applyFeedbackVisual(holder, message);
-        // 操作段（三图标 + 更多）只在最终轮、已完成时出现
-        bindV2Actions(holder, message, message.isCompleted() && lastAi);
+        // 操作段（三图标 + 更多）：最终轮正常显示；ERROR/FAILED 的孤儿占位也显示，
+        // 让用户能对「未生成回复」那一条直接点重新生成，而不是只能重试最后一条。
+        boolean retryable = message.status == ChatMessage.MessageStatus.ERROR
+                || message.status == ChatMessage.MessageStatus.FAILED;
+        bindV2Actions(holder, message, (message.isCompleted() && lastAi) || retryable);
     }
 
     /**
