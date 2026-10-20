@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 引入 AssistantTurn parts 模型（canonical 回合）
+
+- 新增 `AssistantTurn`：`modelCalls[]` + 有序 `parts[]`（reasoning/text/tool_call/
+  tool_result/error），对齐 OpenAI Responses output items / Anthropic content blocks /
+  Vercel AI SDK parts 的结构。
+- `ChatMessage.assistantTurn` 作为 canonical 字段；`content` 保留为兼容投影，
+  不再作为唯一真值。
+- 完成时由 `roundSnapshots` 构建 `AssistantTurn`（无快照的旧消息回退成单 call +
+  text part），`clone` / `deepCopyForSave` 深拷贝落库。
+- 影响边界：UI 仍读 `content`，渲染层尚未切到 parts；在线 Agent 的逐轮 fullText
+  仍待接入。当前先把“单一权威”数据层建起来，避免一次性改 UI。
+- 验证：新增 `AssistantTurnTest` 3 条；全量 **485** 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 本地 Agent 工具调用 id 补齐
 
 - 之前 `AgentLoopEngine.LoopCallback` 只传 `toolName`，`AgentChatHandler` 只能给

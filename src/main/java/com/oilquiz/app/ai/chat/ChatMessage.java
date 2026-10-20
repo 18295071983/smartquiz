@@ -351,6 +351,12 @@ public class ChatMessage {
      */
     public java.util.List<RoundSnapshot> roundSnapshots;
 
+    /**
+     * 单轮用户请求的 canonical 助手回合（parts 模型，2026-10-21）。
+     * `content` 仍是兼容投影；真正的顺序/每轮全量/工具结构以这里为准。
+     */
+    public com.oilquiz.app.ai.chat.turn.AssistantTurn assistantTurn;
+
     /** 一轮模型生成的完整快照。 */
     public static class RoundSnapshot {
         /** 第几轮（从 1 开始） */
@@ -1926,6 +1932,7 @@ public class ChatMessage {
             .build();
         cloned.roundSnapshots = this.roundSnapshots != null
                 ? new java.util.ArrayList<>(this.roundSnapshots) : null;
+        cloned.assistantTurn = this.assistantTurn != null ? this.assistantTurn.copy() : null;
         return cloned;
     }
 

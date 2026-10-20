@@ -246,6 +246,7 @@ public class ChatHistoryManager {
             // 每轮完整正文快照（2026-10-21）：clone() 的 Builder 不覆盖，需显式拷贝
             m.roundSnapshots = msg.roundSnapshots != null
                     ? new ArrayList<>(msg.roundSnapshots) : null;
+            m.assistantTurn = msg.assistantTurn != null ? msg.assistantTurn.copy() : null;
             // 边界身份（2026-10-21）：与 bounds 等长的 toolCallId，旧数据可为 null
             m.contentRoundToolIds = msg.contentRoundToolIds != null
                     ? new ArrayList<>(msg.contentRoundToolIds) : null;

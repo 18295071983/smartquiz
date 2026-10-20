@@ -1223,6 +1223,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    - `RoundSnapshot.toolCallIds` 可记录本地 id。
 3. **验证**：482 单测全绿，装机。
 
+### 4.44 AssistantTurn parts 模型（2026-10-21 凌晨）
+
+1. `AssistantTurn`：`modelCalls[]`（每轮 fullText/reasoning/stopReason/toolIds）+ 有序
+   `parts[]`（reasoning/text/tool_call/tool_result/error）。
+2. `ChatMessage.assistantTurn` canonical；`content` 保留兼容投影。
+3. 完成时从 `roundSnapshots` 构建；旧消息回退单 call+text；`clone/deepCopy` 深拷贝。
+4. **未完成**：UI 仍读 content；在线 Agent 逐轮快照未接。
+5. **验证**：`AssistantTurnTest` 3 条；485 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

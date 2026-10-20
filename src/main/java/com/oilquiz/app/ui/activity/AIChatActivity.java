@@ -6696,6 +6696,8 @@ public class AIChatActivity extends BaseActivity {
                     if (msg != null) {
                         msg.content = finalContent;
                         msg.status = ChatMessage.MessageStatus.COMPLETED;
+                        msg.assistantTurn =
+                                com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessage(msg);
                     }
                 }
                 saveHistoryAsync();
@@ -6896,6 +6898,9 @@ public class AIChatActivity extends BaseActivity {
                     finalMsg.components.addAll(drained);
                 }
                 
+                // canonical 回合落库：parts/modelCalls 是权威，content 只做兼容投影
+                finalMsg.assistantTurn =
+                        com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessage(finalMsg);
                 int finalTokenCount = tokenCount;
                 // 优先使用 native 层 token 计数（仅本地模型；在线模式不调用 native，避免未初始化崩溃）
                 if (!shouldUseOnlineModel()) {
