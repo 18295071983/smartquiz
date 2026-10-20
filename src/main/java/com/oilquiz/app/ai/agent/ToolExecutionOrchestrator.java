@@ -183,7 +183,7 @@ public class ToolExecutionOrchestrator {
         if (ToolErrorRecovery.allAutoFillable(missing)) {
             host.onAddSystemMessage("📍 正在自动获取...");
             host.onScrollToBottom();
-            autoFillMissingParams(missing, params, () ->
+            autoFillMissingParams(toolName, missing, params, () ->
                     executeToolWithRecovery(toolName, params, msgPos, retryCount + 1, onComplete));
         } else {
             host.onPromptUserForMissingParams(toolName, params, msgPos, missing, retryCount, onComplete);
@@ -191,16 +191,26 @@ public class ToolExecutionOrchestrator {
     }
 
     /** 自动获取缺失参数（定位/时间），补充到 params */
-    public void autoFillMissingParams(final List<ToolErrorRecovery.MissingParam> missing,
+    public void autoFillMissingParams(final String toolName,
+                                      final List<ToolErrorRecovery.MissingParam> missing,
                                       final Map<String, Object> params,
                                       final Runnable onComplete) {
         if (ToolErrorRecovery.needsLocation(missing)) {
             ToolContextProvider.getCurrentLocation(AppServices.appContext(), new ToolContextProvider.LocationCallback() {
                 @Override
                 public void onLocationReady(String city, double lat, double lon) {
-                    if (!ToolParamResolver.hasParamValue(params, "city")) params.put("city", city);
-                    if (!ToolParamResolver.hasParamValue(params, "lat")) params.put("lat", lat);
-                    if (!ToolParamResolver.hasParamValue(params, "lon")) params.put("lon", lon);
+                    if ("ai_weather".equals(toolName)) {
+                        // 天气工具的位置契约：city / lat+lon 二选一。
+                        // 已有城市名就不再补坐标；否则只补坐标（城市名由工具反查），避免"参数冲突"。
+                        if (!ToolParamResolver.hasParamValue(params, "city")) {
+                            if (!ToolParamResolver.hasParamValue(params, "lat")) params.put("lat", lat);
+                            if (!ToolParamResolver.hasParamValue(params, "lon")) params.put("lon", lon);
+                        }
+                    } else {
+                        if (!ToolParamResolver.hasParamValue(params, "city")) params.put("city", city);
+                        if (!ToolParamResolver.hasParamValue(params, "lat")) params.put("lat", lat);
+                        if (!ToolParamResolver.hasParamValue(params, "lon")) params.put("lon", lon);
+                    }
                     host.onAddSystemMessage("📍 已自动获取位置: " + city);
                     host.onScrollToBottom();
                     ToolParamResolver.fillTimeParams(missing, params);
@@ -210,9 +220,16 @@ public class ToolExecutionOrchestrator {
                 @Override
                 public void onLocationFailed(String error) {
                     host.onAddSystemMessage("⚠️ 自动定位失败: " + error + "，使用默认城市北京");
-                    if (!ToolParamResolver.hasParamValue(params, "city")) params.put("city", "北京");
-                    if (!ToolParamResolver.hasParamValue(params, "lat")) params.put("lat", 39.9042);
-                    if (!ToolParamResolver.hasParamValue(params, "lon")) params.put("lon", 116.4074);
+                    if ("ai_weather".equals(toolName)) {
+                        if (!ToolParamResolver.hasParamValue(params, "city")) {
+                            if (!ToolParamResolver.hasParamValue(params, "lat")) params.put("lat", 39.9042);
+                            if (!ToolParamResolver.hasParamValue(params, "lon")) params.put("lon", 116.4074);
+                        }
+                    } else {
+                        if (!ToolParamResolver.hasParamValue(params, "city")) params.put("city", "北京");
+                        if (!ToolParamResolver.hasParamValue(params, "lat")) params.put("lat", 39.9042);
+                        if (!ToolParamResolver.hasParamValue(params, "lon")) params.put("lon", 116.4074);
+                    }
                     host.onScrollToBottom();
                     ToolParamResolver.fillTimeParams(missing, params);
                     onComplete.run();

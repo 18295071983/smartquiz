@@ -103,7 +103,8 @@ public class CompositeGuideFlow {
         step2.fixedParams = new HashMap<>();
         step2.fixedParams.put("action", "current");
         step2.paramRefs = new HashMap<>();
-        step2.paramRefs.put("city", "$prev.city");
+        // 和风天气工具的位置契约是 city / lat+lon 二选一：这里只传上一步的坐标，
+        // 同时传 city 会被工具判为"参数冲突"（城市名由工具用坐标反查得到）。
         step2.paramRefs.put("lat", "$prev.lat");
         step2.paramRefs.put("lon", "$prev.lon");
         steps.add(step2);

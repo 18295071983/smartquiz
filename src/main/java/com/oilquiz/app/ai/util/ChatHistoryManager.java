@@ -638,13 +638,60 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
 
     /**
      * 清空所有会话记录。
+     *
+     * 软删除：会话文件移动到私有目录 conversations_trash/（带清空时间戳），
+     * 不再直接 file.delete() —— 工具中心的「清空对话」chip 曾经是一次误触就永久删除全部
+     * conversations/*.json，没有任何恢复途径（2026-10-21 实际发生过）。
+     * 回收目录只保留最近 40 个快照，超出按修改时间清理。
      */
     public void clearAllConversationSessions() {
         File dir = getConversationsDir();
         File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
-        if (files != null) {
+        if (files == null || files.length == 0) {
+            return;
+        }
+        File trash = new File(context.getFilesDir(), "conversations_trash");
+        if (!trash.exists() && !trash.mkdirs()) {
             for (File file : files) {
                 file.delete();
+            }
+            return;
+        }
+        String stamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                .format(new java.util.Date());
+        for (File file : files) {
+            File target = new File(trash, stamp + "_" + file.getName());
+            if (!file.renameTo(target)) {
+                try {
+                    copyFile(file, target);
+                    file.delete();
+                } catch (Exception ignore) {
+                    // 回收失败也不能留下半截文件，保持原文件不动（宁可不删）
+                }
+            }
+        }
+        trimTrash(trash, 40);
+    }
+
+    /** 回收目录超过上限时，按最后修改时间从旧到新清理 */
+    private void trimTrash(File trash, int keep) {
+        File[] archived = trash.listFiles((d, name) -> name.endsWith(".json"));
+        if (archived == null || archived.length <= keep) {
+            return;
+        }
+        java.util.Arrays.sort(archived, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+        for (int i = 0; i < archived.length - keep; i++) {
+            archived[i].delete();
+        }
+    }
+
+    private static void copyFile(File src, File dst) throws java.io.IOException {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(src);
+             java.io.FileOutputStream out = new java.io.FileOutputStream(dst)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
             }
         }
     }

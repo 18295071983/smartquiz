@@ -1795,19 +1795,7 @@ public class AIChatActivity extends BaseActivity {
             });
         }
         if (btnClearAllHistory != null) {
-            btnClearAllHistory.setOnClickListener(v -> {
-                new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                    .setTitle(getString(R.string.h_2e5be76a))
-                    .setMessage(getString(R.string.h_fadd8853))
-                    .setPositiveButton(getString(R.string.h_288f0c40), (dialog, which) -> {
-                        clearChat();
-                        refreshHistoryDrawer();
-                        if (drawerLayout != null) drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
-                        showToast(getString(R.string.h_3683077f));
-                    })
-                    .setNegativeButton(getString(R.string.h_625fb26b), null)
-                    .show();
-            });
+            btnClearAllHistory.setOnClickListener(v -> confirmClearChat());
         }
 
         // 快捷工具 chip 模块：统一绑定抽屉静态 chip 引导 + 动态创建聚合方案 chip
@@ -1824,8 +1812,13 @@ public class AIChatActivity extends BaseActivity {
             }
 
             @Override
+            public void onToolPackList() {
+                showToolPackPicker();
+            }
+
+            @Override
             public void onClearChat() {
-                clearChat();
+                confirmClearChat();
             }
         });
         quickToolModule.bindStaticToolChips(
@@ -2425,19 +2418,9 @@ public class AIChatActivity extends BaseActivity {
             });
             container.addView(nextBtn);
         } else if (step.type == ToolGuideFlow.GuideStep.StepType.CONFIRM) {
-            // 展示已选参数摘要
+            // 展示已选参数摘要（键名/取值都换成人话，避免直接摊 action=current）
             TextView summaryView = new TextView(this);
-            StringBuilder sb = new StringBuilder();
-            if (selectedParams.isEmpty()) {
-                sb.append(getString(R.string.h_c9f8beec));
-            } else {
-                for (Map.Entry<String, String> entry : selectedParams.entrySet()) {
-                    if (entry.getValue() != null && !entry.getValue().isEmpty()) {
-                        sb.append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
-                    }
-                }
-            }
-            summaryView.setText(sb.toString().trim());
+            summaryView.setText(buildGuideConfirmSummary(toolName, selectedParams));
             summaryView.setTextSize(13);
             summaryView.setTextColor(ThemeColors.get(R.color.hc_ff333333));
             LinearLayout.LayoutParams sumLp = new LinearLayout.LayoutParams(
@@ -2491,10 +2474,11 @@ public class AIChatActivity extends BaseActivity {
                         @Override
                         public void onLocationReady(String city, double lat, double lon) {
                             // 定位成功：注入坐标到执行参数与自动上下文，更新提示条后执行
+                            // 注意：和风天气工具的位置契约是 city / lat+lon 二选一，
+                            // 同传会被判"参数冲突"——这里只传坐标，城市名仅用于提示条展示。
                             autoContext.put("city", city);
                             autoContext.put("lat", String.valueOf(lat));
                             autoContext.put("lon", String.valueOf(lon));
-                            execParams.put("city", city);
                             execParams.put("lat", lat);   // Double类型，天气工具需要Double/Number
                             execParams.put("lon", lon);   // Double类型，天气工具需要Double/Number
                             addSystemMessage("📍 已定位到: " + city);
@@ -2521,18 +2505,122 @@ public class AIChatActivity extends BaseActivity {
         dialog.setContentView(container);
     }
 
+    /**
+     * 引导确认页的参数摘要：把 paramKey / 原始取值换成用户看得懂的中文；
+     * 天气这类"位置二选一"的参数合并展示（自动定位时显示城市 + 坐标，不再出现两行互相矛盾的位置）。
+     */
+    private String buildGuideConfirmSummary(String toolName, Map<String, String> selectedParams) {
+        if (selectedParams == null || selectedParams.isEmpty()) {
+            return getString(R.string.h_c9f8beec);
+        }
+        StringBuilder sb = new StringBuilder();
+        String action = selectedParams.get("action");
+        if (action != null && !action.isEmpty()) {
+            sb.append("查询：").append(guideActionLabel(toolName, action)).append("\n");
+        }
+        String city = selectedParams.get("city");
+        String lat = selectedParams.get("lat");
+        String lon = selectedParams.get("lon");
+        boolean hasCity = city != null && !city.trim().isEmpty();
+        boolean hasCoords = lat != null && !lat.trim().isEmpty() && lon != null && !lon.trim().isEmpty();
+        if (hasCity) {
+            sb.append("城市：").append(city).append("\n");
+        } else if (hasCoords) {
+            String autoCity = autoContext.get("city");
+            if (autoCity != null && !autoCity.isEmpty()) {
+                sb.append("位置：").append(autoCity)
+                        .append("（自动定位 ").append(lat).append(", ").append(lon).append("）\n");
+            } else {
+                sb.append("位置：").append(lat).append(", ").append(lon).append("\n");
+            }
+        } else if (autoContext.get("city") != null && !autoContext.get("city").isEmpty()) {
+            sb.append("位置：").append(autoContext.get("city")).append("（自动定位）\n");
+        }
+        for (Map.Entry<String, String> e : selectedParams.entrySet()) {
+            String k = e.getKey();
+            if (k == null || "action".equals(k) || "city".equals(k) || "lat".equals(k) || "lon".equals(k)) {
+                continue;
+            }
+            if (e.getValue() == null || e.getValue().trim().isEmpty()) {
+                continue;
+            }
+            sb.append(guideParamLabel(k)).append("：").append(e.getValue()).append("\n");
+        }
+        String out = sb.toString().trim();
+        return out.isEmpty() ? getString(R.string.h_c9f8beec) : out;
+    }
+
+    /** 参数键 → 中文名（未登记的键原样返回） */
+    private static String guideParamLabel(String key) {
+        switch (key) {
+            case "query":
+            case "keyword":
+                return "关键词";
+            case "question":
+                return "问题";
+            case "url":
+                return "网页地址";
+            case "file_path":
+                return "文件";
+            case "limit":
+                return "条数";
+            case "text":
+                return "内容";
+            case "page":
+                return "页面";
+            default:
+                return key;
+        }
+    }
+
+    /** action 取值 → 中文名（天气用专表，其它工具按通用词表） */
+    private static String guideActionLabel(String toolName, String action) {
+        if ("ai_weather".equals(toolName)) {
+            switch (action) {
+                case "current": return "实时天气";
+                case "forecast": return "未来几天预报";
+                case "hourly": return "24小时逐小时";
+                case "air_quality": return "空气质量";
+                case "alerts": return "天气预警";
+                case "indices": return "生活指数";
+                case "all": return "全部天气信息";
+                default: return action;
+            }
+        }
+        switch (action) {
+            case "search": return "联网搜索";
+            case "ask": return "智能问答";
+            case "read_url": return "读取网页";
+            default: return action;
+        }
+    }
+
     /** 将已自动获取的上下文合并进执行参数（不覆盖用户已填的值） */
     private void injectAutoContext(Map<String, Object> execParams) {
         if (autoContext == null || autoContext.isEmpty() || execParams == null) return;
+        // 位置类参数互斥：用户已选城市 → 不再补坐标；已有成对坐标 → 不再补城市。
+        // （和风天气工具 city / lat+lon 二选一，同传会报参数冲突）
+        boolean hasCity = execParams.get("city") != null
+                && !String.valueOf(execParams.get("city")).trim().isEmpty();
+        boolean hasCoords = execParams.get("lat") != null && execParams.get("lon") != null;
         for (Map.Entry<String, String> e : autoContext.entrySet()) {
-            if (e.getValue() != null && !e.getValue().isEmpty() && !execParams.containsKey(e.getKey())) {
-                // lat/lon 用 Double 类型注入，天气工具需要 Double/Number
-                if ("lat".equals(e.getKey()) || "lon".equals(e.getKey())) {
-                    try { execParams.put(e.getKey(), Double.parseDouble(e.getValue())); }
-                    catch (NumberFormatException ex) { execParams.put(e.getKey(), e.getValue()); }
-                } else {
-                    execParams.put(e.getKey(), e.getValue());
-                }
+            if (e.getValue() == null || e.getValue().isEmpty() || execParams.containsKey(e.getKey())) {
+                continue;
+            }
+            boolean locationKey = "city".equals(e.getKey())
+                    || "lat".equals(e.getKey()) || "lon".equals(e.getKey());
+            if (locationKey && hasCity) {
+                continue; // 用户选了城市，坐标只用于展示
+            }
+            if ("city".equals(e.getKey()) && hasCoords) {
+                continue; // 已有坐标，城市名只用于展示
+            }
+            // lat/lon 用 Double 类型注入，天气工具需要 Double/Number
+            if ("lat".equals(e.getKey()) || "lon".equals(e.getKey())) {
+                try { execParams.put(e.getKey(), Double.parseDouble(e.getValue())); }
+                catch (NumberFormatException ex) { execParams.put(e.getKey(), e.getValue()); }
+            } else {
+                execParams.put(e.getKey(), e.getValue());
             }
         }
     }
@@ -2693,7 +2781,7 @@ public class AIChatActivity extends BaseActivity {
             // 全部可自动获取（如位置类参数）
             addSystemMessage("📍 正在自动获取...");
             scrollToBottom();
-            autoFillMissingParams(missing, params, new Runnable() {
+            autoFillMissingParams(toolName, missing, params, new Runnable() {
                 @Override
                 public void run() {
                     // 补充完成，重试执行
@@ -2709,7 +2797,8 @@ public class AIChatActivity extends BaseActivity {
     /**
      * 自动获取缺失参数（定位、时间等），补充到params中。
      */
-    private void autoFillMissingParams(final java.util.List<ToolErrorRecovery.MissingParam> missing,
+    private void autoFillMissingParams(final String toolName,
+                                       final java.util.List<ToolErrorRecovery.MissingParam> missing,
                                        final Map<String, Object> params,
                                        final Runnable onComplete) {
         if (ToolErrorRecovery.needsLocation(missing)) {
@@ -2717,9 +2806,18 @@ public class AIChatActivity extends BaseActivity {
             ToolContextProvider.getCurrentLocation(this, new ToolContextProvider.LocationCallback() {
                 @Override
                 public void onLocationReady(String city, double lat, double lon) {
-                    if (!hasParamValue(params, "city")) params.put("city", city);
-                    if (!hasParamValue(params, "lat")) params.put("lat", lat);
-                    if (!hasParamValue(params, "lon")) params.put("lon", lon);
+                    if ("ai_weather".equals(toolName)) {
+                        // 天气工具位置契约为 city / lat+lon 二选一：
+                        // 已有城市名就不再补坐标；否则只补坐标（城市名由工具反查），避免"参数冲突"。
+                        if (!hasParamValue(params, "city")) {
+                            if (!hasParamValue(params, "lat")) params.put("lat", lat);
+                            if (!hasParamValue(params, "lon")) params.put("lon", lon);
+                        }
+                    } else {
+                        if (!hasParamValue(params, "city")) params.put("city", city);
+                        if (!hasParamValue(params, "lat")) params.put("lat", lat);
+                        if (!hasParamValue(params, "lon")) params.put("lon", lon);
+                    }
                     addSystemMessage("📍 已自动获取位置: " + city);
                     scrollToBottom();
                     // 补充时间类参数
@@ -2729,10 +2827,17 @@ public class AIChatActivity extends BaseActivity {
                 @Override
                 public void onLocationFailed(String error) {
                     addSystemMessage("⚠️ 自动定位失败: " + error + "，使用默认城市北京");
-                    if (!hasParamValue(params, "city")) params.put("city", "北京");
-                    // 北京坐标
-                    if (!hasParamValue(params, "lat")) params.put("lat", 39.9042);
-                    if (!hasParamValue(params, "lon")) params.put("lon", 116.4074);
+                    if ("ai_weather".equals(toolName)) {
+                        if (!hasParamValue(params, "city")) {
+                            if (!hasParamValue(params, "lat")) params.put("lat", 39.9042);
+                            if (!hasParamValue(params, "lon")) params.put("lon", 116.4074);
+                        }
+                    } else {
+                        if (!hasParamValue(params, "city")) params.put("city", "北京");
+                        // 北京坐标
+                        if (!hasParamValue(params, "lat")) params.put("lat", 39.9042);
+                        if (!hasParamValue(params, "lon")) params.put("lon", 116.4074);
+                    }
                     scrollToBottom();
                     fillTimeParams(missing, params);
                     onComplete.run();
@@ -3006,6 +3111,90 @@ public class AIChatActivity extends BaseActivity {
      *
      * @param flowId 聚合流程ID（如 "go_out"）
      */
+    /**
+     * 聚合工具包入口：列出全部聚合方案（出行准备 / 学习查询 / 网页研究…），
+     * 选中后进入该方案的聚合引导。
+     * （此前的 chip_calc 只有 XML 声明、没有绑定点击事件，点了没有任何反应 —— 死入口）
+     */
+    private void showToolPackPicker() {
+        final java.util.List<CompositeGuideFlow> flows = CompositeGuideFlow.getAllFlows();
+        if (flows == null || flows.isEmpty()) {
+            showToast("暂无聚合方案");
+            return;
+        }
+        final com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(dp(24), dp(20), dp(24), dp(12));
+
+        TextView title = new TextView(this);
+        title.setText("🧰 聚合工具包");
+        title.setTextSize(18);
+        title.setTextColor(ThemeColors.get(R.color.hc_ff333333));
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        container.addView(title);
+
+        TextView subtitle = new TextView(this);
+        subtitle.setText("多个工具按顺序自动执行，一步到位");
+        subtitle.setTextSize(13);
+        subtitle.setTextColor(ThemeColors.get(R.color.hc_ff666666));
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subLp.topMargin = dp(6);
+        subLp.bottomMargin = dp(12);
+        subtitle.setLayoutParams(subLp);
+        container.addView(subtitle);
+
+        for (final CompositeGuideFlow flow : flows) {
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(16), dp(14), dp(16), dp(14));
+            card.setClickable(true);
+            card.setFocusable(true);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setColor(ThemeColors.get(R.color.hc_ffffffff));
+            bg.setCornerRadius(dp(16));
+            bg.setStroke(dp(1), ThemeColors.get(R.color.hc_ffe0e0e0));
+            card.setBackground(bg);
+            card.setElevation(dp(2));
+            LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            cardLp.bottomMargin = dp(12);
+            card.setLayoutParams(cardLp);
+
+            TextView name = new TextView(this);
+            name.setText((flow.icon != null ? flow.icon + " " : "") + flow.displayName);
+            name.setTextSize(15);
+            name.setTextColor(ThemeColors.get(R.color.hc_ff333333));
+            name.setTypeface(null, android.graphics.Typeface.BOLD);
+            card.addView(name);
+
+            TextView desc = new TextView(this);
+            String stepInfo = flow.steps == null ? "" : " · 共 " + flow.steps.size() + " 步";
+            desc.setText((flow.description == null ? "" : flow.description) + stepInfo);
+            desc.setTextSize(12);
+            desc.setTextColor(ThemeColors.get(R.color.hc_ff666666));
+            LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            descLp.topMargin = dp(4);
+            desc.setLayoutParams(descLp);
+            card.addView(desc);
+
+            card.setOnClickListener(v -> {
+                dialog.dismiss();
+                showCompositeGuideDialog(flow.flowId);
+            });
+            container.addView(card);
+        }
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(container);
+        dialog.setContentView(scroll);
+        dialog.show();
+    }
+
     private void showCompositeGuideDialog(String flowId) {
         final CompositeGuideFlow flow = CompositeGuideFlow.getFlow(flowId);
         if (flow == null) {
@@ -3274,7 +3463,7 @@ public class AIChatActivity extends BaseActivity {
         if (ToolErrorRecovery.allAutoFillable(missing)) {
             addSystemMessage("📍 正在自动获取...");
             scrollToBottom();
-            autoFillMissingParams(missing, params, new Runnable() {
+            autoFillMissingParams(step != null ? step.toolName : null, missing, params, new Runnable() {
                 @Override
                 public void run() {
                     // 重试执行该步骤
@@ -7937,6 +8126,28 @@ public class AIChatActivity extends BaseActivity {
             })
             .setNegativeButton(getString(R.string.h_625fb26b), null)
             .show();
+    }
+
+    /**
+     * 清空对话前二次确认。
+     * 工具中心的「🗑️ 清空对话」chip 之前直接调 clearChat()，误触一次就把
+     * 全部会话文件（conversations/*.json）删干净，没有任何挽回余地；
+     * 这里与历史抽屉入口共用同一个确认框。
+     */
+    private void confirmClearChat() {
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.h_2e5be76a))
+                .setMessage(getString(R.string.h_fadd8853))
+                .setPositiveButton(getString(R.string.h_288f0c40), (dialog, which) -> {
+                    clearChat();
+                    refreshHistoryDrawer();
+                    if (drawerLayout != null) {
+                        drawerLayout.closeDrawer(findViewById(R.id.history_drawer));
+                    }
+                    showToast(getString(R.string.h_3683077f));
+                })
+                .setNegativeButton(getString(R.string.h_625fb26b), null)
+                .show();
     }
 
     private void clearChat() {

@@ -28,6 +28,9 @@ public class QuickToolChipModule {
         /** 弹出聚合方案引导（flowId 如 go_out / study / research） */
         void onCompositeGuide(String flowId);
 
+        /** 聚合工具包：弹出全部聚合方案的选择列表 */
+        void onToolPackList();
+
         /** 清空当前对话 */
         void onClearChat();
     }
@@ -49,17 +52,22 @@ public class QuickToolChipModule {
      * @param chipFile     文件   → file_reader
      * @param chipLocation 定位   → location
      * @param chipApp      应用   → app_operation
+     * @param chipComposite 聚合工具包 → 打开聚合方案列表（本身不是工具）
      * @param chipClear    清空对话
      */
     public void bindStaticToolChips(Chip chipWeather, Chip chipSearch, Chip chipDatabase,
                                     Chip chipFile, Chip chipLocation, Chip chipApp,
-                                    Chip chipCalc, Chip chipClear) {
+                                    Chip chipComposite, Chip chipClear) {
         bindToolChip(chipWeather, "ai_weather");
         bindToolChip(chipSearch, "network_search");
         bindToolChip(chipDatabase, "database");
         bindToolChip(chipFile, "file_reader");
         bindToolChip(chipLocation, "location");
         bindToolChip(chipApp, "app_operation");
+        // 聚合工具包：不是单个工具，点开列出全部聚合方案（出行准备/学习查询/网页研究…）
+        if (chipComposite != null) {
+            chipComposite.setOnClickListener(v -> callback.onToolPackList());
+        }
         if (chipClear != null) {
             chipClear.setOnClickListener(v -> callback.onClearChat());
         }

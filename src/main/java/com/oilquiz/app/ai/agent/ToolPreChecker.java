@@ -269,11 +269,15 @@ public class ToolPreChecker {
 
         switch (toolName) {
             case "ai_weather":
-                // 天气工具总是需要city和坐标：空气质量、预警等需要精确坐标
-                // 预先获取GPS，避免切换操作时缺少经纬度导致失败
-                required.add("city");
-                required.add("lat");
-                required.add("lon");
+                // 和风天气工具的位置契约：city 与 lat/lon 二选一，同传会被工具判为"参数冲突"。
+                // 所以这里只在两种情况补坐标：① 没有城市名；② 经纬度不成对。
+                // 已有城市名就完全交给工具按城市解析，不再塞 GPS（旧逻辑无条件补 city+lat+lon，
+                // 导致点"查天气"→选城市→确认后必然报参数冲突）。
+                if (!hasValue(params, "city")
+                        && !(hasValue(params, "lat") && hasValue(params, "lon"))) {
+                    required.add("lat");
+                    required.add("lon");
+                }
                 break;
 
             case "network_search":
