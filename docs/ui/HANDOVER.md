@@ -1130,8 +1130,10 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. **重试**：占位有 subId；ChatAdapter 对 ERROR/FAILED 也显示操作段；
    `regenerateMessage()` 复用原 USER turn，不再复制 USER。
 4. **模型面板**：`ModelSheet` 静态 showingSheet 防叠层；renderOnline/renderLocal
-   入口 removeAllViews；「打开模型中心」底部间距 12dp。
-5. **验证**：482 单测全绿，装机；真机确认 T32 占位与单组模型面板。
+   入口 removeAllViews；「打开模型中心」底部间距 12dp；默认 tab 跟随 active
+   （本地模型时打开「本地」）；本地列表过滤 `.mmproj` 投影文件。
+5. **验证**：482 单测全绿，装机；真机确认 T32 占位、单组模型面板、本地列表无
+   mmproj；T32 重试后已落成 `T32-A2` 完整回复。
 
 ---
 

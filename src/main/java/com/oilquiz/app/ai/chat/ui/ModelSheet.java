@@ -69,7 +69,9 @@ public final class ModelSheet {
             final String activeId = manager.getActiveModel() != null
                     ? manager.getActiveModel().id : null;
             final String[] selected = {activeId};
-            final boolean[] onlineTab = {true};
+            // 当前没有在线 active（例如正在用本地模型）时默认打开「本地」，
+            // 避免出现「在线 tab 高亮但一个模型都没选中」的错位状态。
+            final boolean[] onlineTab = {activeId != null};
 
             final Runnable render = () -> {
                 if (list == null) return;
@@ -150,7 +152,7 @@ public final class ModelSheet {
                 });
             }
 
-            styleTabs(tabOnline, tabLocal, true);
+            styleTabs(tabOnline, tabLocal, onlineTab[0]);
             render.run();
             sheet.setContentView(root);
             sheet.show();
@@ -212,6 +214,8 @@ public final class ModelSheet {
         if (names != null && names.length > 0) {
             for (String name : names) {
                 if (name == null || name.isEmpty()) continue;
+                // mmproj 是多模态投影文件，不能单独当模型加载；列出来会让用户选中后必然失败
+                if (name.toLowerCase(Locale.US).contains(".mmproj")) continue;
                 boolean picked = name.equals(current);
                 list.addView(modelRow(activity, name,
                         picked ? activity.getString(R.string.chat_v2_model) : "", picked, null));
