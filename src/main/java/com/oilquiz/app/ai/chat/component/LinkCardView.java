@@ -107,13 +107,8 @@ public class LinkCardView implements ChatComponent {
     }
 
     private static void openUrl(Context context, String url) {
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-        } catch (Exception e) {
-            Toast.makeText(context, "无法打开链接", Toast.LENGTH_SHORT).show();
-        }
+        // 统一走应用内 WebViewActivity；不再把 http(s) 丢给系统浏览器
+        ComponentActions.openLink(context, url);
     }
 
     private static String parseDomain(String url) {

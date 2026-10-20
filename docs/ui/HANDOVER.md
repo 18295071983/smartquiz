@@ -1103,6 +1103,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    用户消息先触发滚动、AI 占位消息紧接插入时，滚动会落到最新一条而不是旧末条。
 5. **验证**：478 单测全绿，装机；未主动发新消息做真机复测。
 
+### 4.32 网页链接统一 App 内跳转（2026-10-21 凌晨）
+
+1. `MarkdownLinkRouter` 正文 http(s) 从系统浏览器改为
+   `ComponentActions.openLink` → `WebViewActivity`。
+2. `LinkCardView`、`LinkOpener`、`AppCardView` 的 web URI、`ChatInputManager` 附件 URL
+   同样走应用内 WebView；file/content/tel 等仍按原逻辑。
+3. `ComponentActions.openLink` 是唯一 http(s) 入口；`HtmlCardView` 的卡片内/安全策略不动。
+4. **验证**：478 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

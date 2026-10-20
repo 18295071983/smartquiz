@@ -7,8 +7,8 @@ import android.net.Uri;
 /**
  * 链接打开器（全局可复用）。
  *
- * 从 AIChatActivity openUri 抽取：以系统浏览器/应用打开链接，
- * 带 READ_URI_PERMISSION 授权；失败返回 false 由宿主提示。
+ * 网页走应用内 WebViewActivity；文件/其它 URI 交系统，带 READ_URI_PERMISSION 授权；
+ * 失败返回 false 由宿主提示。
  */
 public final class LinkOpener {
 
@@ -18,6 +18,16 @@ public final class LinkOpener {
     public static boolean open(Context context, String url) {
         if (url == null || context == null) return false;
         try {
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                // 网页统一应用内打开，不跳系统浏览器
+                Intent intent = new Intent(context, com.oilquiz.app.WebViewActivity.class);
+                intent.putExtra("url", url);
+                if (!(context instanceof android.app.Activity)) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                }
+                context.startActivity(intent);
+                return true;
+            }
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             context.startActivity(intent);

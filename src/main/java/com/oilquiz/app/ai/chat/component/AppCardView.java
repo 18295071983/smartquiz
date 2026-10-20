@@ -88,6 +88,10 @@ public class AppCardView implements ChatComponent {
             } else if (!TextUtils.isEmpty(pkg)) {
                 intent = context.getPackageManager().getLaunchIntentForPackage(pkg);
             } else if (!TextUtils.isEmpty(uri)) {
+                if (uri.startsWith("http://") || uri.startsWith("https://")) {
+                    ComponentActions.openLink(context, uri);
+                    return;
+                }
                 intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
             }
             if (intent == null) {

@@ -346,7 +346,13 @@ public class ChatInputManager {
                     showImagePreview(url);
                     return;
                 }
-                activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    activity.startActivity(new Intent(activity, com.oilquiz.app.WebViewActivity.class)
+                            .putExtra("url", url));
+                } else {
+                    activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+                }
             } catch (Exception e) {
                 callback.onShowToast("无法打开");
             }

@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 网页链接统一 App 内跳转，不再调系统浏览器
+
+### 查到的事实
+
+- `ComponentActions.openLink` 早已把 http(s) 交给 `WebViewActivity`，但仍有几条旁路：
+  - `LinkCardView` 自己 `ACTION_VIEW`；
+  - `MarkdownLinkRouter` 正文链接显式走系统浏览器（注释还写着"不进 App 内"）；
+  - `LinkOpener` 通用工具走 `ACTION_VIEW`；
+  - `AppCardView` 的 `uri` 分支、`ChatInputManager` 附件 URL 也会直接 ACTION_VIEW。
+
+### 由此改掉的事
+
+- `MarkdownLinkRouter`：http(s) → `ComponentActions.openLink`（App 内 WebViewActivity）。
+- `LinkCardView`：`openUrl` 统一走 `ComponentActions.openLink`。
+- `LinkOpener`：http(s) 启动 `WebViewActivity`，其它 URI 仍交系统。
+- `AppCardView` 的 `uri` 若是 http(s) 也走应用内。
+- `ChatInputManager.openUri`：附件 URL 是 http(s) 时进应用内 WebView。
+- `HtmlCardView` 原本已有应用内/卡片内行为，不改安全策略。
+
+### 验证
+
+- 全量单测 **478 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 未点具体链接做真机 UI 复测（会改变当前会话导航状态）。
+
 ## [2026-10-21 凌晨] 修发送链路：先发 ID 再上屏，滚动取插入后的最新位置
 
 ### 查到的事实

@@ -22,7 +22,7 @@ import android.util.Log;
  *   <li>{@code content://} → 应用内 {@code FileRenderActivity}；失败才交系统并带
  *       {@code FLAG_GRANT_READ_URI_PERMISSION}。不能直接 ACTION_VIEW：无 App 能渲染
  *       Markdown 时系统会把 Intent 转给浏览器，中文文件名被 punycode 当域名解析必然失败。</li>
- *   <li>{@code http(s)} → 系统浏览器，且先做 IDN + 百分号编码（同上 Punycode 实测 bug）。</li>
+ *   <li>{@code http(s)} → App 内 {@code WebViewActivity}（不再跳系统浏览器）。</li>
  *   <li>{@code file://}、绝对路径、工作区相对名 → 解析后应用内预览；不存在给可读提示，
  *       并列出工作区相似文件（模型常缩写文件名）。</li>
  *   <li>其余合法 scheme（tel:/sms:/mailto:/geo:…）→ 交系统；{@code javascript:}/{@code intent:}/
@@ -85,10 +85,8 @@ public final class MarkdownLinkRouter {
             }
 
             if ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) {
-                // 3) 网页 → 系统浏览器（与主气泡一贯行为一致，不进 App 内 WebViewActivity）
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(encodeUrlForBrowser(target)));
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(intent);
+                // 3) 网页 → App 内 WebViewActivity（不跳系统浏览器，保留返回/会话上下文）
+                com.oilquiz.app.ai.chat.component.ComponentActions.openLink(context, target);
                 return;
             }
 
