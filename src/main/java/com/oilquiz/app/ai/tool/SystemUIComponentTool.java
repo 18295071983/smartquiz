@@ -590,15 +590,6 @@ public class SystemUIComponentTool implements AITool {
                 }
             }
 
-            // 顶层 display（展示档位：inline/peek/hidden，见 ComponentDisplay）并入 props，
-            // 与 title/content/actions 同口径：模型放顶层或放 props 内都有效
-            if (!props.has("display")) {
-                Object topDisplay = parameters.get("display");
-                if (topDisplay != null && !topDisplay.toString().trim().isEmpty()) {
-                    props.put("display", topDisplay.toString().trim());
-                }
-            }
-
             // file_card/file_list 路径解析：模型常传工作区相对路径（如 "report.md" / "files/报告.pdf"）
             // 或缩写/幻觉路径，统一解析为真实存在的绝对路径，否则打开/分享"文件不存在"
             try {
@@ -654,15 +645,7 @@ public class SystemUIComponentTool implements AITool {
                 }
             }
 
-            // 显式 ui_component 默认整卡展示：模型说"创建一张 info_card"时，
-            // 用户要看的是卡片本身，不该只剩一行 "▸ 运行状态速览 · 8 项"。
-            // 自动补挂的工具结果卡仍走用户默认档（peek），两者语义不同。
-            if (!props.has("display") && parameters.get("display") != null) {
-                props.put("display", String.valueOf(parameters.get("display")));
-            }
-            if (!props.has("display")) {
-                props.put("display", "inline");
-            }
+            // 展示位置/档位由 UI 决定（工具卡内部），不再接受模型传 display 控制显隐。
             com.oilquiz.app.ai.chat.component.ComponentData data =
                     com.oilquiz.app.ai.chat.component.ComponentData.of(renderType, props);
             // 返回带组件的结果：AIToolManager 会自动 collect 进聊天流

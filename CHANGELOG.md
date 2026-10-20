@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 工具结果卡归位工具卡；模型 display 参数下线
+
+### 查到的事实
+
+- 工具产物卡（info_card / table_card / image_grid…）此前挂在 `contentHost` 正文里，
+  由 `ComponentDisplay` 决定整卡/摘要/隐藏；模型还能通过 `props.display`、
+  `props.collapsed` 控制显隐——AI 能决定用户看不看得到工具结果，权限反了。
+- 工具卡只显示"工具名/参数/状态"，真正的结果卡却飘在正文；两者没有父子关系。
+
+### 由此改掉的事
+
+- `bindRoundToolCard`：该轮产物卡直接挂进**工具卡 body**，排在工具行之后；
+  工具卡展开即可看到结果卡，不再进正文 `contentHost`。
+- `renderRoundAssembled`：轮次产物不再 `mountRoundComponent` 到正文；
+  指纹里仍保留产物内容（`Q` 段），内容变化会触发工具卡重建。
+  数据缺组时产物退回正文尾部兜底，不丢卡。
+- `ComponentDisplay.resolveMode`：**不再读取 `props.display` / `props.collapsed`**；
+  只剩"类型底线 → 用户默认档"，且用户默认档只作用于无轮次/无归属的兜底产物。
+- `ui_component` 工具定义移除 `display` 参数；`ComponentTypes` 目录不再教模型
+  `display=inline|peek|hidden`；`SystemUIComponentTool` 不再默认写 `display=inline`。
+- `ToolResultDisplaySetting` 文案改成"只作用于兜底产物"，避免与工具卡内固定整卡矛盾。
+
+### 验证
+
+- `ComponentDisplayTest` 改为钉住"模型 display/collapsed 一律忽略"，
+  并断言组件目录不再出现 `display=` / `collapsed=true`。
+- 全量单测 **462 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 当前会话为空，工具卡内结果卡的最终视觉尚未在真机发消息复测；代码路径与布局已编译通过。
+
 ## [2026-10-21 凌晨] T/C 子 ID 改成跨会话唯一：主计数器落盘，清空历史不回收
 
 ### 查到的事实

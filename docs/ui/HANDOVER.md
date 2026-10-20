@@ -995,6 +995,20 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. **验证**：`ChatIdDispatcherTest` 两条（reset 后不重号、seed 后必须大于历史最大 T）；
    全量 462 单测全绿，装机。
 
+### 4.23 工具结果卡归位工具卡 + 模型 display 下线（2026-10-21 凌晨）
+
+1. **归位**：`bindRoundToolCard` 把该轮产物卡挂进**工具卡 body**（工具行之后），
+   不再进正文 `contentHost`；工具卡展开即可看到结果卡。无轮次/无归属才退回正文尾部。
+2. **模型不能控制显隐**：`ComponentDisplay.resolveMode` 删除 `props.display` /
+   `props.collapsed` 分支，只保留"类型底线 → 用户默认档"；`ui_component` 工具定义
+   移除 `display` 参数，`ComponentTypes` 目录不再教模型三档，`SystemUIComponentTool`
+   也不再默认写 `display=inline`。
+3. **用户默认档**：只作用于无轮次/无归属的兜底产物卡；工具卡内结果卡固定整卡显示，
+   `ToolResultDisplaySetting` 文案同步改口径。
+4. **指纹**：轮次产物不再占 contentHost 子 View，但仍以 `Q` 段进指纹；
+   数据缺组时回退正文尾部，避免产物丢失。
+5. **验证**：462 单测全绿，装机；当前会话为空，工具卡内结果卡的最终视觉尚未真机复测。
+
 ---
 
 ## 5. 关键文件 / 改动地图

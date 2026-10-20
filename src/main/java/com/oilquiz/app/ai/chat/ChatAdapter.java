@@ -1892,6 +1892,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** 构造一轮的活动视图：思考行（有思考才挂）+ 工具卡（有工具才挂）。 */
     private View buildRoundActivityView(AIMessageViewHolder holder, Context ctx,
                                         ChatMessage message, ActivityGroup group,
+                                        java.util.List<ComponentData> products,
                                         int groupIndex, int groupCount,
                                         int availableWidth, boolean streaming) {
         LinearLayout col = new LinearLayout(ctx);
@@ -1959,7 +1960,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             View card = LayoutInflater.from(ctx)
                     .inflate(R.layout.view_chat_v2_tool_card, col, false);
             bindRoundToolCard(holder, ctx, message, card, group.tools,
-                    group.key(), availableWidth);
+                    group.key(), products, availableWidth);
             col.addView(card);
         }
         return col;
@@ -1968,7 +1969,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** 绑定一轮工具卡（卡头/耗时/✓/展开 + 行）。 */
     private void bindRoundToolCard(AIMessageViewHolder holder, Context ctx, ChatMessage message,
                                    View card, java.util.List<ActivityTimeline.Item> tools,
-                                   String groupKey, int availableWidth) {
+                                   String groupKey, java.util.List<ComponentData> products,
+                                   int availableWidth) {
         int running = 0;
         int failed = 0;
         long toolMs = 0L;
@@ -2010,6 +2012,22 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 LayoutInflater inflater = LayoutInflater.from(ctx);
                 for (int i = 0; i < tools.size(); i++) {
                     body.addView(buildToolActivityRow(holder, inflater, ctx, tools.get(i), i, width));
+                }
+                // 工具产生的内置卡片/结果组件挂在"它自己的工具卡"里，而不是飘到正文。
+                // 这里不走 ComponentDisplay：放哪里由归属决定，模型参数不能控制显隐。
+                if (products != null) {
+                    for (ComponentData p : products) {
+                        if (p == null || p.props == null) continue;
+                        View pv = ComponentRegistry.getInstance().render(ctx, p);
+                        if (pv == null) {
+                            pv = ComponentRegistry.getInstance().renderFallback(ctx, p);
+                        }
+                        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT);
+                        plp.topMargin = dpToPx(8, ctx);
+                        body.addView(pv, plp);
+                    }
                 }
                 body.setVisibility(View.VISIBLE);
             } else {
@@ -2118,12 +2136,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (seg != null && !seg.trim().isEmpty()) { fp.append('T'); expect++; }
             start = end;
             if (i < nRounds) {
+                // 产物卡现在挂在工具卡内部，不占 contentHost 的子 View；
+                // 但仍进指纹，卡片内容变化必须触发重建。
                 for (ComponentData p : roundProds.get(i)) {
-                    if (!ComponentDisplay.mounts(ComponentDisplay.resolve(ctx, p))) continue;
-                    fp.append('P').append(p.type).append('|')
+                    fp.append('Q').append(p.type).append('|')
                       .append(p.props != null ? p.props.toString() : "null").append(';');
-                    expect++;
                 }
+                // 没有对应活动组时产物退回正文尾部，这时它确实占一个子 View
+                boolean hasGroup = i < activityGroups.size() && !activityGroups.get(i).isEmpty();
+                if (!hasGroup) expect += roundProds.get(i).size();
             }
         }
         for (ComponentData p : tailProds) {
@@ -2163,8 +2184,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
                 start = end;
                 if (i < nRounds) {
-                    if (i < activityGroups.size() && !activityGroups.get(i).isEmpty()) childIdx++;
-                    childIdx += ComponentDisplay.countMounting(roundProds.get(i), ctx);
+                    if (i < activityGroups.size() && !activityGroups.get(i).isEmpty()) {
+                        childIdx++;
+                    } else {
+                        childIdx += roundProds.get(i).size();
+                    }
                 }
             }
             childIdx += ComponentDisplay.countMounting(tailProds, ctx);
@@ -2181,7 +2205,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // 末尾活动组（最后一轮思考，没有后续工具）在最后一段正文之前
             if (i == nRounds && trailingGroup != null && !trailingGroup.isEmpty()) {
                 holder.contentHost.addView(buildRoundActivityView(holder, ctx, message,
-                        trailingGroup, nRounds, activityGroups.size(), availableWidth, streaming));
+                        trailingGroup, java.util.Collections.<ComponentData>emptyList(),
+                        nRounds, activityGroups.size(), availableWidth, streaming));
             }
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
             if (end > content.length()) end = content.length();
@@ -2195,11 +2220,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (i < nRounds) {
                 if (i < activityGroups.size() && !activityGroups.get(i).isEmpty()) {
                     holder.contentHost.addView(buildRoundActivityView(holder, ctx, message,
-                            activityGroups.get(i), i, activityGroups.size(),
+                            activityGroups.get(i), roundProds.get(i), i, activityGroups.size(),
                             availableWidth, streaming));
-                }
-                for (ComponentData p : roundProds.get(i)) {
-                    mountRoundComponent(holder, ctx, message, p, prodSeq++);
+                } else {
+                    // 数据缺组（旧历史/异常）不能把产物丢掉：退回正文尾部兜底
+                    for (ComponentData p : roundProds.get(i)) {
+                        mountRoundComponent(holder, ctx, message, p, prodSeq++);
+                    }
                 }
             }
         }

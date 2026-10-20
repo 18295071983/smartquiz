@@ -208,6 +208,11 @@ public class AppLogger {
     public static void ai(String tag, String message) {
         AILogger.i(tag, message);
     }
+
+    /** info 级别别名（与 aiD/aiW/aiE 同一套命名，供新代码使用） */
+    public static void aiI(String tag, String message) {
+        AILogger.i(tag, message);
+    }
     
     public static void aiD(String tag, String message) {
         AILogger.d(tag, message);

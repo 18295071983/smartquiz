@@ -123,11 +123,9 @@ public final class ComponentTypes {
         SCHEMA.put("chart", new String[]{CATEGORY_DATA, "类型 chartType=bar|line|pie", "系列 series[{name,data[]}]", "分类 categories[], 标题 title"});
         SCHEMA.put("metric", new String[]{CATEGORY_DATA, "指标 items[{label,value}]", "标题 title", "单位 unit, trend"});
         SCHEMA.put("progress", new String[]{CATEGORY_DATA, "百分比 percent", "标题 title", "文案 label"});
-        // collapsed 这个字段目录里写了很久、渲染端一直没人读；2026-10-20 起
-        // ComponentDisplay 同时认它（true=收成一行）和新加的 display 三档。
+        // 2026-10-21：模型不再能声明 display/collapsed 控制显隐；卡片位置与档位由 UI 决定。
         SCHEMA.put("json", new String[]{CATEGORY_DATA, "数据 data",
-                "标题 title, 展示 display=inline|peek|hidden",
-                "旧字段 collapsed=true 等效 peek；三档口径见 ui_component 的 display 参数"});
+                "标题 title", "显隐由 UI 决定，不要传 display/collapsed"});
         SCHEMA.put("image", new String[]{CATEGORY_MEDIA, "图片 images[]", "标题 title", "columns"});
         SCHEMA.put("video", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "封面 poster"});
         SCHEMA.put("audio", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "时长 duration"});
