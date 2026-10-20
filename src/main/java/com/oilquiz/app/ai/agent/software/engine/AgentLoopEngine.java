@@ -225,6 +225,8 @@ public class AgentLoopEngine {
     public interface LoopCallback {
         void onIterationStart(int iteration, String promptSummary);
         void onIterationEnd(int iteration, String response);
+        /** 可选：该轮模型生成的完整正文快照（清理后的 fullText）。 */
+        default void onRoundComplete(int iteration, String fullText) {}
         void onThinkingUpdate(String thought);
         void onToolCall(String toolName, String args);
         void onToolResult(String toolName, boolean success, String result);
@@ -592,6 +594,10 @@ public class AgentLoopEngine {
             }
 
             String response = genResult.content;
+            if (callback != null && response != null) {
+                // 每轮独立 fullText 快照：不是 delta，不是最后拼接
+                callback.onRoundComplete(iteration, cleanResponse(response));
+            }
             int iterTokens = response != null ? response.length() : 0;
             totalTokens += iterTokens;
 

@@ -1,5 +1,36 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 每轮 fullText 快照：不再只有最后一轮 finalAnswer
+
+### 新增
+
+- `ChatMessage.RoundSnapshot`：
+  - `round`：第几轮
+  - `content`：该轮清理后的完整正文（不是 delta）
+  - `thinking`：该轮思考
+  - `timestamp`
+  - `toolCallIds`：该轮调用的工具 id（工具边界补）
+- `ChatMessage.roundSnapshots`：多轮 Agent 的逐轮快照列表，随会话持久化。
+- 回调链：
+  `AgentLoopEngine.onRoundComplete(iteration, cleanResponse(fullText))`
+  → `AgentSoftwareLayer`
+  → `AgentChatHandler`
+  → `AIChatActivity.AgentCallbackImpl`
+  → `ChatMessage.addRoundSnapshot()`。
+- `ChatHistoryManager.deepCopyForSave` 与 `ChatMessage.clone` 补拷 `roundSnapshots`。
+- 工具边界把 `toolCallId` 挂到最近一轮快照。
+
+### 边界
+
+- `ChatMessage.content` 仍是最终回答（finalAnswer）的权威内容；
+  `roundSnapshots` 是逐轮完整正文的留档/组装源，不直接替换 UI 正文。
+- 当前接入的是本地 Agent 的 `AgentLoopEngine` 轮次；在线 Agent 的逐轮
+  fullText 还未接入（后续可在 OnlineAgentEngine 的 iteration 回调补同一结构）。
+
+### 验证
+
+- 全量单测 **482 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] Markdown 表格完成后自动按最终宽度重排
 
 - 现象：WebView 正文里的 Markdown 表格在流式期间按旧宽度排好列宽，完成后

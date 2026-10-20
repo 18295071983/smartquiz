@@ -243,6 +243,9 @@ public class ChatHistoryManager {
             // 内联"思考→正文→工具"时序）被跳过，工具卡片退回通道 B「工具过程」折叠渲染，
             // 导致实时（内联）与重进（折叠）两种形态不一致。补拷后历史加载与实时走同一渲染路径。
             m.contentRoundBounds = msg.contentRoundBounds != null ? new ArrayList<>(msg.contentRoundBounds) : null;
+            // 每轮完整正文快照（2026-10-21）：clone() 的 Builder 不覆盖，需显式拷贝
+            m.roundSnapshots = msg.roundSnapshots != null
+                    ? new ArrayList<>(msg.roundSnapshots) : null;
             // 边界身份（2026-10-21）：与 bounds 等长的 toolCallId，旧数据可为 null
             m.contentRoundToolIds = msg.contentRoundToolIds != null
                     ? new ArrayList<>(msg.contentRoundToolIds) : null;

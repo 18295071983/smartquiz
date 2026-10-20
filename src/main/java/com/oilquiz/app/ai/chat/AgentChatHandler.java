@@ -32,6 +32,8 @@ public class AgentChatHandler {
         void onToken(String token);
         void onThinkingToken(String token);
         void onThinkingEnd();
+        /** 可选：该轮模型生成的完整正文快照。 */
+        default void onRoundComplete(int iteration, String fullText) {}
         void onComplete(String fullText);
         void onError(String error);
         void onModeSwitched(String mode);
@@ -117,6 +119,13 @@ public class AgentChatHandler {
             public void onThinkingUpdate(String thought) {
                 if (isValid()) {
                     callback.onThinkingToken(thought);
+                }
+            }
+
+            @Override
+            public void onRoundComplete(int iteration, String fullText) {
+                if (isValid()) {
+                    callback.onRoundComplete(iteration, fullText);
                 }
             }
 

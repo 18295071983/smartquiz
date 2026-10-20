@@ -1201,6 +1201,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    `bodyHtml.contains("<table")` 时整篇 `loadDocument()` 一次；其余仍原地 swapBody。
 3. **验证**：482 单测全绿，装机。
 
+### 4.42 每轮 fullText 快照（2026-10-21 凌晨）
+
+1. `ChatMessage.RoundSnapshot` + `roundSnapshots`：每轮独立 `content/thinking/timestamp/toolCallIds`。
+2. 回调链：`AgentLoopEngine.onRoundComplete` → `AgentSoftwareLayer` → `AgentChatHandler`
+   → `AgentCallbackImpl` → `ChatMessage.addRoundSnapshot`。
+3. 工具边界把 `toolCallId` 挂到最近快照；`clone` / `deepCopyForSave` 补拷。
+4. **边界**：最终 `ChatMessage.content` 仍是 finalAnswer 权威；快照是逐轮留档/组装源，
+   不直接替换 UI 正文。在线 Agent 逐轮接入待补。
+5. **验证**：482 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

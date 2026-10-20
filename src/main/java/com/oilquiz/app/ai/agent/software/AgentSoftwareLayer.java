@@ -44,6 +44,8 @@ public class AgentSoftwareLayer {
     public interface AgentCallback {
         void onStepUpdate(String step, String detail);
         void onThinkingUpdate(String thought);
+        /** 可选：该轮模型生成的完整正文快照。 */
+        default void onRoundComplete(int iteration, String fullText) {}
         void onToolCallStart(String toolName, String args);
         void onToolCallComplete(String toolName, boolean success, String result);
         void onToken(String token);
@@ -96,6 +98,11 @@ public class AgentSoftwareLayer {
                     // 思考区只接收 onThinkingUpdate 的真实 reasoning 事件，避免正文污染思考气泡
                     callback.onStepUpdate("第 " + iteration + " 轮", truncate(clean, 40));
                 }
+            }
+
+            @Override
+            public void onRoundComplete(int iteration, String fullText) {
+                if (callback != null) callback.onRoundComplete(iteration, fullText);
             }
 
             @Override

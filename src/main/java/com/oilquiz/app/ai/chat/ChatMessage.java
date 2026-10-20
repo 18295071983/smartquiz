@@ -341,6 +341,47 @@ public class ChatMessage {
      *  用于把"边界"从纯下标对齐升级为按工具身份对齐（并行/重试/缺回调时防止错位）。 */
     public java.util.List<String> contentRoundToolIds;
 
+    /**
+     * 每轮模型生成的完整正文快照（2026-10-21）。
+     *
+     * <p>注意：这不是 {@code ChatMessage.content} 的替代品，也不是把所有轮次拼成一条。
+     * Agent 多轮时，每轮 complete 都有自己的 fullText；之前只保存了最后一轮
+     * finalAnswer，前几轮正文只剩 contentRoundBounds 的位置信息。该列表把每轮
+     * 清理后的 fullText + 思考 + 时间留档，供恢复/重放/组装使用。</p>
+     */
+    public java.util.List<RoundSnapshot> roundSnapshots;
+
+    /** 一轮模型生成的完整快照。 */
+    public static class RoundSnapshot {
+        /** 第几轮（从 1 开始） */
+        public int round;
+        /** 该轮清理后的完整正文（不是 delta） */
+        public String content;
+        /** 该轮思考内容（没有则为空） */
+        public String thinking;
+        /** 该轮结束时间 */
+        public long timestamp;
+        /** 该轮使用的工具调用 id（可空；由 UI 工具边界补） */
+        public java.util.List<String> toolCallIds;
+
+        public RoundSnapshot() {
+        }
+
+        public RoundSnapshot(int round, String content, String thinking, long timestamp) {
+            this.round = round;
+            this.content = content != null ? content : "";
+            this.thinking = thinking != null ? thinking : "";
+            this.timestamp = timestamp;
+        }
+    }
+
+    /** 追加快照；空正文也保留轮次占位，便于对齐 toolCallIds。 */
+    public void addRoundSnapshot(RoundSnapshot snapshot) {
+        if (snapshot == null) return;
+        if (roundSnapshots == null) roundSnapshots = new java.util.ArrayList<>();
+        roundSnapshots.add(snapshot);
+    }
+
     /** 系统消息动作载荷（如本地Agent拦截时保存的原始问题，供"强行执行"按钮重发），仅运行时使用 */
     public String actionPayload;
 
@@ -1883,6 +1924,8 @@ public class ChatMessage {
             .retryable(this.retryable)
             .inferenceProgress(this.inferenceProgress)
             .build();
+        cloned.roundSnapshots = this.roundSnapshots != null
+                ? new java.util.ArrayList<>(this.roundSnapshots) : null;
         return cloned;
     }
 

@@ -7037,6 +7037,23 @@ public class AIChatActivity extends BaseActivity {
         }
 
         @Override
+        public void onRoundComplete(int iteration, String fullText) {
+            if (uiDetached) return;
+            runOnUiThread(() -> {
+                int idx = resolveStreamingIndex();
+                if (idx < 0 || idx >= chatHistory.size()) return;
+                ChatMessage msg = chatHistory.get(idx);
+                String thinking;
+                synchronized (streamingLock) {
+                    thinking = currentThinkingContent != null
+                            ? currentThinkingContent.toString() : "";
+                }
+                msg.addRoundSnapshot(new ChatMessage.RoundSnapshot(
+                        iteration, fullText, thinking, System.currentTimeMillis()));
+            });
+        }
+
+        @Override
         public void onToolCallStart(String toolCallId, String toolName, String args) {
             // 工具调用开始：插入式组件显示到 AI 消息内（执行中卡片）+ 状态栏更新
             // 多轮回答在同一气泡内按轮次组装：工具调用 = 轮次边界
@@ -7048,6 +7065,20 @@ public class AIChatActivity extends BaseActivity {
                     int idx = resolveStreamingIndex();
                     if (idx >= 0 && idx < chatHistory.size()) {
                         ChatMessage msg = chatHistory.get(idx);
+                        // 把本工具调用挂到刚刚结束的那轮快照上（可空）
+                        if (msg.roundSnapshots != null && !msg.roundSnapshots.isEmpty()) {
+                            ChatMessage.RoundSnapshot last =
+                                    msg.roundSnapshots.get(msg.roundSnapshots.size() - 1);
+                            if (last != null) {
+                                if (last.toolCallIds == null) {
+                                    last.toolCallIds = new java.util.ArrayList<>();
+                                }
+                                if (toolCallId != null && !toolCallId.isEmpty()
+                                        && !last.toolCallIds.contains(toolCallId)) {
+                                    last.toolCallIds.add(toolCallId);
+                                }
+                            }
+                        }
                         if (msg.contentRoundBounds == null) {
                             msg.contentRoundBounds = new java.util.ArrayList<>();
                         }
