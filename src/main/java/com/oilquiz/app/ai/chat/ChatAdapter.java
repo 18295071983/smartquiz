@@ -10,7 +10,6 @@ import com.oilquiz.app.ai.chat.component.ComponentDisplay;
 import com.oilquiz.app.ai.chat.component.ComponentRegistry;
 import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.render.RenderExecutor;
-import com.oilquiz.app.ai.chat.ui.ChatUiFlags;
 import com.oilquiz.app.ai.chat.ui.ChatV2ActionSheet;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
 import com.oilquiz.app.ai.chat.util.ToolResultText;
@@ -142,14 +141,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             ai.holderMessage = null;
             // 回收时清理 Agent 汇总组件槽位，避免残留 view 挂到下一个绑定的消息上
             clearAgentSummarySlot(ai);
-            // 清理 Agent 执行面板缓存字段（面板本身随 holder 复用，只需重置指纹）
-            ai.agentExecFp = null;
-            ai.agentExecBlockCount = -1;
             // 活动区行指纹随消息走：回收后必须作废，否则下一条消息可能被误判成"结构未变"而沿用旧行
             ai.activityFp = null;
             ai.roundStructureFingerprint = null;
             ai.roundRenderedChildren = 0;
-            if (ai.agentExecutionView != null) ai.agentExecutionView.hide();
             // 回收时重置 WebView 正文渲染器（清占位高/待渲染状态），复用到别的消息不残留
             if (ai.markdownView != null) ai.markdownView.resetForReuse();
         }
@@ -348,15 +343,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
         switch (viewType) {
             case VIEW_TYPE_USER:
-                // v2（demo .row.user）只换外壳观感：两套布局的控件 id 完全一致，
-                // UserMessageViewHolder 的绑定逻辑不需要分支；档位在建视图时定死，
-                // 绑定期一律读 holder.v2Look，不再重读开关（见 bindUserMessage）。
-                boolean userV2 = ChatUiFlags.isUiV2Enabled(parent.getContext());
-                UserMessageViewHolder userHolder = new UserMessageViewHolder(inflater.inflate(
-                        userV2 ? R.layout.item_user_message_v2 : R.layout.item_user_message,
-                        parent, false));
-                userHolder.v2Look = userV2;
-                return userHolder;
+                return new UserMessageViewHolder(inflater.inflate(
+                        R.layout.item_user_message_v2, parent, false));
             case VIEW_TYPE_AI:
                 // AI 消息完全动态构建（不依赖布局文件/id），杜绝 id 错乱
                 return createAiMessageItem(parent.getContext());
@@ -365,18 +353,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case VIEW_TYPE_SYSTEM_PROMPT:
                 return new SystemMessageViewHolder(inflater.inflate(R.layout.item_system_message, parent, false));
             case VIEW_TYPE_THINKING:
-                // v2 页面底色换成纯色 token，旧布局里壁纸专用的半透明白文字会看不见
                 return new ThinkingMessageViewHolder(inflater.inflate(
-                        ChatUiFlags.isUiV2Enabled(parent.getContext())
-                                ? R.layout.item_thinking_message_v2 : R.layout.item_thinking_message,
-                        parent, false));
+                        R.layout.item_thinking_message_v2, parent, false));
             case VIEW_TYPE_TOOL_CALL:
                 return new ToolCallViewHolder(inflater.inflate(R.layout.item_tool_call_message, parent, false));
             case VIEW_TYPE_AGENT_STEP:
                 return new AgentStepViewHolder(inflater.inflate(
-                        ChatUiFlags.isUiV2Enabled(parent.getContext())
-                                ? R.layout.item_agent_step_message_v2 : R.layout.item_agent_step_message,
-                        parent, false));
+                        R.layout.item_agent_step_message_v2, parent, false));
             case VIEW_TYPE_AGENT_SUMMARY:
                 return new AgentSummaryViewHolder(inflater.inflate(R.layout.item_agent_summary_message, parent, false));
             case VIEW_TYPE_ERROR:
@@ -390,24 +373,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /**
      * 动态构建 AI 消息视图树（完全代码创建，不依赖布局文件与 id）。
-     * 结构：根容器 → 主气泡（思考区 + 工具卡片 + 正文）→ 展开按钮 → 操作按钮 → 状态 → 模型信息 → 时间戳。
+     * 结构：根容器 → 日期分隔 → 活动区（思考 + 工具，一个入口）→ 正文/产物 → 状态 → 操作段。
      */
     private AIMessageViewHolder createAiMessageItem(Context ctx) {
         int dp4 = dpToPx(4, ctx);
         int dp6 = dpToPx(6, ctx);
         int dp10 = dpToPx(10, ctx);
-        int dp12 = dpToPx(12, ctx);
         int dp14 = dpToPx(14, ctx);
-        // 一次读开关，本方法内所有分支共用（同一棵视图树里不允许一半 v2 一半旧版）
-        final boolean uiV2 = ChatUiFlags.isUiV2Enabled(ctx);
 
-        // 主题色解析
-        int colorOnSurface = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOnSurface);
+        // 主题色解析（AI 消息树只保留 v2 token；正文/元信息色已全部走 chat_v2_*）
         int colorOnSurfaceVariant = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant);
-        int colorOutlineVariant = resolveAttrColor(ctx, com.google.android.material.R.attr.colorOutlineVariant);
         int colorPrimary = ThemeColors.attr(ctx, R.attr.colorPrimary);
-        int colorTextSecondary = ThemeColors.attr(ctx, R.attr.colorControlTextSecondary);
-        int colorTextTertiary = ThemeColors.attr(ctx, R.attr.colorControlTextHint);
 
         // ===== 根容器 =====
         LinearLayout root = new LinearLayout(ctx);
@@ -422,33 +398,19 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 消息列表就是 chatHistory 本体，各处直接用 position 取消息
         //（Activity 里 notifyItemRangeInserted / chatHistory.get(position) 一大片），
         // 插虚拟条目会让所有位置计算偏移，风险远大于收益。
-        // 旧版界面没有这个控件（保持 null），只有 v2 建它。
-        TextView dayLabel = null;
-        if (uiV2) {
-            dayLabel = new TextView(ctx);
-            dayLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
-                    ctx.getResources().getDimension(R.dimen.chat_v2_status_text));
-            dayLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3));
-            dayLabel.setGravity(android.view.Gravity.CENTER);
-            LinearLayout.LayoutParams dayLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            dayLp.topMargin = dpToPx(10, ctx);
-            dayLp.bottomMargin = dpToPx(6, ctx);
-            dayLabel.setLayoutParams(dayLp);
-            dayLabel.setVisibility(View.GONE);
-            root.addView(dayLabel);
-        }
-
-        // ===== blockLabel（未使用，保持隐藏） =====
-        TextView blockLabel = new TextView(ctx);
-        blockLabel.setTextSize(10f);
-        blockLabel.setTextColor(0xB3FFFFFF); // 深蓝渐变背景上用半透明白
-        blockLabel.setVisibility(View.GONE);
-        LinearLayout.LayoutParams blockLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        blockLp.bottomMargin = dpToPx(1, ctx);
-        blockLabel.setLayoutParams(blockLp);
-        root.addView(blockLabel);
+        // 日期分隔是本条消息行的第一个子 View（不是 RecyclerView 虚拟条目）。
+        TextView dayLabel = new TextView(ctx);
+        dayLabel.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,
+                ctx.getResources().getDimension(R.dimen.chat_v2_status_text));
+        dayLabel.setTextColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3));
+        dayLabel.setGravity(android.view.Gravity.CENTER);
+        LinearLayout.LayoutParams dayLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dayLp.topMargin = dpToPx(10, ctx);
+        dayLp.bottomMargin = dpToPx(6, ctx);
+        dayLabel.setLayoutParams(dayLp);
+        dayLabel.setVisibility(View.GONE);
+        root.addView(dayLabel);
 
         // ===== 横向容器（气泡在 weight=1 列内） =====
         LinearLayout hRow = new LinearLayout(ctx);
@@ -467,15 +429,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // ===== 主气泡：思考区 + 工具卡片 + 正文 全部包裹 =====
         LinearLayout bubble = new LinearLayout(ctx);
         bubble.setOrientation(LinearLayout.VERTICAL);
-        if (uiV2) {
-            // demo 的 AI 侧没有"气泡"：正文直接坐在页面底色上，靠字号/行距与卡片分层。
-            // 页面底色由 ChatUiV2Chrome 铺成 chat_v2_bg（纯色），所以这里去掉 ai_message_background
-            // 和它的内边距；卡片仍自带 CardShell 背景，不会跟着失去底。
-            bubble.setPadding(0, dpToPx(2, ctx), 0, 0);
-        } else {
-            bubble.setBackgroundResource(R.drawable.ai_message_background);
-            bubble.setPadding(dp12, dp10, dp12, dp10);
-        }
+        // demo 的 AI 侧没有"气泡"：正文直接坐在页面底色上，靠字号/行距与卡片分层。
+        // 页面底色由 ChatUiV2Chrome 铺成 chat_v2_bg（纯色），所以这里去掉 ai_message_background
+        // 和它的内边距；卡片仍自带 CardShell 背景，不会跟着失去底。
+        bubble.setPadding(0, dpToPx(2, ctx), 0, 0);
         bubble.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         vCol.addView(bubble);
@@ -491,30 +448,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentStatus.setLayoutParams(asLp);
         bubble.addView(agentStatus);
 
-        // --- Agent 进度环（progress_ring 组件挂载槽位）：currentStep/totalSteps + tokens 占比 ---
-        LinearLayout agentProgressSlot = new LinearLayout(ctx);
-        agentProgressSlot.setOrientation(LinearLayout.HORIZONTAL);
-        agentProgressSlot.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        agentProgressSlot.setVisibility(View.GONE);
-        LinearLayout.LayoutParams apsLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        apsLp.bottomMargin = dpToPx(4, ctx);
-        agentProgressSlot.setLayoutParams(apsLp);
-        bubble.addView(agentProgressSlot);
-
-        // --- Agent 步骤时间线（timeline primitive 挂载槽位）：blocks 序列可视化 ---
-        LinearLayout agentTimelineSlot = new LinearLayout(ctx);
-        agentTimelineSlot.setOrientation(LinearLayout.VERTICAL);
-        agentTimelineSlot.setVisibility(View.GONE);
-        LinearLayout.LayoutParams atsLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        atsLp.bottomMargin = dpToPx(4, ctx);
-        agentTimelineSlot.setLayoutParams(atsLp);
-        bubble.addView(agentTimelineSlot);
-
         // --- 停止生成按钮（流式生成中显示，其他状态隐藏） ---
         TextView btnStop = new TextView(ctx);
-        btnStop.setText("⏹ 停止生成");
+        btnStop.setText(R.string.chat_stop_generating);
         btnStop.setTextSize(11f);
         btnStop.setTextColor(colorPrimary);
         btnStop.setPadding(dpToPx(8, ctx), dpToPx(4, ctx), dpToPx(8, ctx), dpToPx(4, ctx));
@@ -543,19 +479,20 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         acbLp.bottomMargin = dpToPx(4, ctx);
         agentControlBar.setLayoutParams(acbLp);
-        TextView btnPause = createActionButton(ctx, "⏸ 暂停", colorOnSurfaceVariant, true);
-        TextView btnStep = createActionButton(ctx, "👣 单步", colorOnSurfaceVariant, true);
-        TextView btnRewind = createActionButton(ctx, "⏮ 回退", colorOnSurfaceVariant, false);
+        TextView btnPause = createActionButton(ctx, ctx.getString(R.string.button_pause),
+                colorOnSurfaceVariant, true);
+        TextView btnStep = createActionButton(ctx, ctx.getString(R.string.chat_agent_step),
+                colorOnSurfaceVariant, true);
+        TextView btnRewind = createActionButton(ctx, ctx.getString(R.string.chat_agent_rewind),
+                colorOnSurfaceVariant, false);
         agentControlBar.addView(btnPause);
         agentControlBar.addView(btnStep);
         agentControlBar.addView(btnRewind);
         bubble.addView(agentControlBar);
 
-        // --- 思考区 ---
-        // v2（demo .think-line / .think-body）：一行"星形图标 + 摘要 + 箭头"，点开才是左侧竖线正文；
-        // 旧版：标签 + 内容 + 分隔线三段直接堆在气泡里。
-        // 两条路都只交出 thinkingLabel / thinkingContent / thinkingDivider 三个引用，
-        // 后面那 20 多处折叠、流式预览、高度动画的调用点不需要知道开关的存在。
+        // --- 活动区（demo .think-line / .think-body）---
+        // header 是唯一入口，展开后是思考行 + 工具行的时间线；
+        // thinkingLabel / thinkingContent / thinkingDivider 三个引用仍由 holder 持有。
         TextView thinkingLabel;
         TextView thinkingContent;
         View thinkingDivider;
@@ -564,74 +501,21 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // thinkingContent 仍是"正在进行的当前轮"的实时正文，挂在时间线末尾。
         LinearLayout thinkingStepsHost;
         ImageView thinkingChevron;
-        if (uiV2) {
-            View thinkSection = LayoutInflater.from(ctx)
-                    .inflate(R.layout.view_chat_v2_think_line, bubble, false);
-            thinkingLabel = thinkSection.findViewById(R.id.chat_v2_think_text);
-            thinkingContent = thinkSection.findViewById(R.id.chat_v2_think_body);
-            thinkingStepsHost = thinkSection.findViewById(R.id.chat_v2_think_steps);
-            thinkingChevron = thinkSection.findViewById(R.id.chat_v2_think_chev);
-            // 藏标签会连带藏整行（ThinkLineLabel 把可见性转发给行容器），
-            // 否则会剩下一行孤零零的图标和箭头
-            thinkingLabel.setVisibility(View.GONE);
-            thinkingContent.setTextSize(13f);
-            thinkingContent.setLineSpacing(0f, 1.7f);
-            bubble.addView(thinkSection);
-            // v2 不需要"思考与正文之间的分隔线"（正文自带左侧竖线）：
-            // 给一个不入树的占位，holder 字段保持非空，调用点不用加判空
-            thinkingDivider = new View(ctx);
-        } else {
-            TextView legacyThinkingLabel = new TextView(ctx);
-            legacyThinkingLabel.setText(R.string.chat_thinking_process);
-            legacyThinkingLabel.setTextSize(11f);
-            legacyThinkingLabel.setTextColor(colorOnSurfaceVariant);
-            legacyThinkingLabel.setClickable(true);
-            legacyThinkingLabel.setFocusable(true);
-            legacyThinkingLabel.setForeground(getSelectableItemBackground(ctx));
-            legacyThinkingLabel.setVisibility(View.GONE);
-            LinearLayout.LayoutParams tlLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            tlLp.bottomMargin = dpToPx(2, ctx);
-            legacyThinkingLabel.setLayoutParams(tlLp);
-            bubble.addView(legacyThinkingLabel);
-            thinkingLabel = legacyThinkingLabel;
-
-            TextView legacyThinkingContent = new TextView(ctx);
-            legacyThinkingContent.setTextColor(colorOnSurfaceVariant);
-            legacyThinkingContent.setTextSize(12f);
-            legacyThinkingContent.setLineSpacing(0f, 1.2f);
-            legacyThinkingContent.setVisibility(View.GONE);
-            legacyThinkingContent.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            bubble.addView(legacyThinkingContent);
-            thinkingContent = legacyThinkingContent;
-
-            View legacyDivider = new View(ctx);
-            legacyDivider.setBackgroundColor(colorOutlineVariant);
-            legacyDivider.setVisibility(View.GONE);
-            LinearLayout.LayoutParams tdLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(1, ctx));
-            tdLp.topMargin = dp6;
-            tdLp.bottomMargin = dpToPx(2, ctx);
-            legacyDivider.setLayoutParams(tdLp);
-            bubble.addView(legacyDivider);
-            thinkingDivider = legacyDivider;
-            // 旧档不做分步时间线：一个入口 + 一段拼好的推理文本
-            thinkingStepsHost = null;
-            thinkingChevron = null;
-        }
-
-        // --- 工具活动行（v2 / demo .tool-line）---
-        // 位置紧跟思考行：demo 的一条 AI 消息就是 思考行 → 工具行 → 正文 → 操作 四段。
-        // 旧版没有这一行（工具信息散在 agentSummary 文本/汇总卡里），所以只在 v2 建树，
-        // 由 renderToolLine() 在绑定时接管 agentSummary 的显示。
-        View toolSection = null;
-        if (uiV2) {
-            toolSection = LayoutInflater.from(ctx)
-                    .inflate(R.layout.view_chat_v2_tool_line, bubble, false);
-            toolSection.setVisibility(View.GONE);
-            bubble.addView(toolSection);
-        }
+        View thinkSection = LayoutInflater.from(ctx)
+                .inflate(R.layout.view_chat_v2_think_line, bubble, false);
+        thinkingLabel = thinkSection.findViewById(R.id.chat_v2_think_text);
+        thinkingContent = thinkSection.findViewById(R.id.chat_v2_think_body);
+        thinkingStepsHost = thinkSection.findViewById(R.id.chat_v2_think_steps);
+        thinkingChevron = thinkSection.findViewById(R.id.chat_v2_think_chev);
+        // 藏标签会连带藏整行（ThinkLineLabel 把可见性转发给行容器），
+        // 否则会剩下一行孤零零的图标和箭头
+        thinkingLabel.setVisibility(View.GONE);
+        thinkingContent.setTextSize(13f);
+        thinkingContent.setLineSpacing(0f, 1.7f);
+        bubble.addView(thinkSection);
+        // v2 的正文自带左侧竖线，不需要"思考与正文之间的分隔线"：
+        // 给一个不入树的占位，holder 字段保持非空，调用点不用加判空
+        thinkingDivider = new View(ctx);
 
         // --- 推理进度 ---
         InferenceProgressView inferenceProgressView = new InferenceProgressView(ctx);
@@ -639,15 +523,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         inferenceProgressView.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         bubble.addView(inferenceProgressView);
-
-        // --- Agent 执行面板（结构化 blocks 可视化：日志/当前步骤/工具参数/结果） ---
-        AgentExecutionView agentExecutionView = new AgentExecutionView(ctx);
-        agentExecutionView.setVisibility(View.GONE);
-        LinearLayout.LayoutParams aevLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        aevLp.topMargin = dpToPx(4, ctx);
-        agentExecutionView.setLayoutParams(aevLp);
-        bubble.addView(agentExecutionView);
 
         // --- 工具卡片组件容器 ---
         LinearLayout componentContainer = new LinearLayout(ctx);
@@ -677,17 +552,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // --- 正文 ---
         TextView messageText = new TextView(ctx);
         messageText.setLayoutDirection(View.LAYOUT_DIRECTION_LOCALE);
-        if (uiV2) {
-            // demo .ai-text：15px / 行高 1.68 / 主文本色（页面已是纯色底，不再靠气泡底色撑对比）
-            messageText.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
-                    R.color.chat_v2_text));
-            messageText.setTextSize(15f);
-            messageText.setLineSpacing(0f, 1.68f);
-        } else {
-            messageText.setTextColor(colorOnSurface);
-            messageText.setTextSize(14f);
-            messageText.setLineSpacing(0f, 1.3f);
-        }
+        // demo .ai-text：15px / 行高 1.68 / 主文本色（页面已是纯色底，不再靠气泡底色撑对比）
+        messageText.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+                R.color.chat_v2_text));
+        messageText.setTextSize(15f);
+        messageText.setLineSpacing(0f, 1.68f);
         messageText.setTextIsSelectable(true);
         if (android.os.Build.VERSION.SDK_INT >= 23) {
             messageText.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY);
@@ -708,61 +577,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentSummary.setLayoutParams(sumLp);
         bubble.addView(agentSummary);
 
-        // ===== 操作按钮行 =====
-        LinearLayout actionButtons = new LinearLayout(ctx);
-        actionButtons.setOrientation(LinearLayout.HORIZONTAL);
-        actionButtons.setVisibility(View.GONE);
-        actionButtons.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(actionButtons);
-
-        // 操作栏位于消息卡片之外的深蓝渐变背景上，固定浅色文字(半透明白)保证可读
-        // 操作栏在旧版坐在深蓝壁纸上，用半透明白；v2 页面是 chat_v2_bg 纯色底，
-        // 半透明白会直接看不见，所以按 token 取色（这一处必须跟着页面底色一起换）。
-        int actionTextColor = uiV2
-                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_2)
-                : 0xE8FFFFFF;
-        TextView btnCopy = createActionButton(ctx, R.string.chat_copy, actionTextColor, true);
-        TextView btnSpeak = createActionButton(ctx, R.string.chat_speak, actionTextColor, true);
-        TextView btnShare = createActionButton(ctx, R.string.chat_share, actionTextColor, true);
-        TextView btnRegenerate = createActionButton(ctx, R.string.chat_regenerate, actionTextColor, true);
-        TextView btnNewChat = createActionButton(ctx, R.string.chat_new_chat, actionTextColor, false);
-        TextView btnLike = createActionButton(ctx, "👍", actionTextColor, true);
-        TextView btnDislike = createActionButton(ctx, "👎", actionTextColor, false);
-        actionButtons.addView(btnCopy);
-        actionButtons.addView(btnSpeak);
-        actionButtons.addView(btnShare);
-        actionButtons.addView(btnRegenerate);
-        actionButtons.addView(btnLike);
-        actionButtons.addView(btnDislike);
-        actionButtons.addView(btnNewChat);
-
-        // ===== v2 操作段：三个图标 +「更多」（demo .ai-actions / #tpl-actions）=====
-        // 2026-10-20 S3：图标与「更多」面板直接调 doCopy/doRegenerate/... 这一组方法，
-        // 不再 performClick() 转发给旧胶囊；动作只有一份实现（报告耦合 C1）。
-        // 旧版那 7 个 TextView 在 v2 下仍会建但整体 GONE——S3 只改变动作的调用方式，
-        // 视图删除留到 S5；applyFeedbackVisual 仍会写它们的文字（v1 档需要）。
-        LinearLayout v2Actions = null;
-        ImageView v2BtnCopy = null;
-        ImageView v2BtnRegenerate = null;
-        ImageView v2BtnMore = null;
-        if (uiV2) {
-            v2Actions = new LinearLayout(ctx);
-            v2Actions.setOrientation(LinearLayout.HORIZONTAL);
-            v2Actions.setVisibility(View.GONE);
-            LinearLayout.LayoutParams v2Lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            v2Lp.topMargin = dpToPx(8, ctx);
-            v2Actions.setLayoutParams(v2Lp);
-            int iconColor = androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
-            v2BtnCopy = createIconAction(ctx, R.drawable.ic_copy, R.string.chat_copy, dp10, iconColor);
-            v2BtnRegenerate = createIconAction(ctx, R.drawable.ic_refresh, R.string.chat_regenerate, dp10, iconColor);
-            v2BtnMore = createIconAction(ctx, R.drawable.ic_more_vert, R.string.chat_v2_msg_actions, 0, iconColor);
-            v2Actions.addView(v2BtnCopy);
-            v2Actions.addView(v2BtnRegenerate);
-            v2Actions.addView(v2BtnMore);
-            root.addView(v2Actions);
-        }
+        // ===== 操作段：三个图标 +「更多」（demo .ai-actions / #tpl-actions）=====
+        LinearLayout v2Actions = new LinearLayout(ctx);
+        v2Actions.setOrientation(LinearLayout.HORIZONTAL);
+        v2Actions.setVisibility(View.GONE);
+        LinearLayout.LayoutParams v2Lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        v2Lp.topMargin = dpToPx(8, ctx);
+        v2Actions.setLayoutParams(v2Lp);
+        int iconColor = androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
+        ImageView v2BtnCopy = createIconAction(ctx, R.drawable.ic_copy,
+                R.string.chat_copy, dp10, iconColor);
+        ImageView v2BtnRegenerate = createIconAction(ctx, R.drawable.ic_refresh,
+                R.string.chat_regenerate, dp10, iconColor);
+        ImageView v2BtnMore = createIconAction(ctx, R.drawable.ic_more_vert,
+                R.string.chat_v2_msg_actions, 0, iconColor);
+        v2Actions.addView(v2BtnCopy);
+        v2Actions.addView(v2BtnRegenerate);
+        v2Actions.addView(v2BtnMore);
+        root.addView(v2Actions);
 
         // ===== 状态行 =====
         LinearLayout statusRow = new LinearLayout(ctx);
@@ -778,55 +611,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         statusIcon.setLayoutParams(new LinearLayout.LayoutParams(dp14, dp14));
         statusRow.addView(statusIcon);
 
-        // 状态行 / 模型信息行 / 时间戳这些"元信息"文字同理：旧版半透明白是给深蓝壁纸用的
-        int metaTextColor = uiV2
-                ? androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3)
-                : 0xB3FFFFFF;
+        int metaTextColor = androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
         TextView statusText = new TextView(ctx);
         statusText.setTextSize(10f);
         statusText.setTextColor(metaTextColor);
         statusText.setVisibility(View.GONE);
         statusRow.addView(statusText);
-
-        // ===== 在线模型信息行 =====
-        LinearLayout modelInfoContainer = new LinearLayout(ctx);
-        modelInfoContainer.setOrientation(LinearLayout.HORIZONTAL);
-        modelInfoContainer.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        modelInfoContainer.setPadding(dp6, dp6, dp6, dp6);
-        modelInfoContainer.setVisibility(View.GONE);
-        modelInfoContainer.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(modelInfoContainer);
-
-        View modelStatusIndicator = new View(ctx);
-        modelStatusIndicator.setBackgroundResource(R.drawable.status_indicator_unknown);
-        LinearLayout.LayoutParams msiLp = new LinearLayout.LayoutParams(dpToPx(5, ctx), dpToPx(5, ctx));
-        msiLp.setMarginStart(dpToPx(5, ctx));
-        modelStatusIndicator.setLayoutParams(msiLp);
-        modelInfoContainer.addView(modelStatusIndicator);
-
-        TextView modelNameText = new TextView(ctx);
-        modelNameText.setTextSize(10f);
-        modelNameText.setTextColor(metaTextColor); // v2 用 token，旧版深蓝壁纸上用半透明白
-        LinearLayout.LayoutParams mntLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT);
-        mntLp.weight = 1f;
-        mntLp.setMarginStart(dpToPx(5, ctx));
-        modelNameText.setLayoutParams(mntLp);
-        modelInfoContainer.addView(modelNameText);
-
-        TextView modelLatencyText = new TextView(ctx);
-        modelLatencyText.setTextSize(10f);
-        modelLatencyText.setTextColor(metaTextColor);
-        modelInfoContainer.addView(modelLatencyText);
-
-        TextView modelCostText = new TextView(ctx);
-        modelCostText.setTextSize(10f);
-        modelCostText.setTextColor(metaTextColor);
-        LinearLayout.LayoutParams mctLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        mctLp.setMarginStart(dp6);
-        modelCostText.setLayoutParams(mctLp);
-        modelInfoContainer.addView(modelCostText);
 
         // ===== 时间戳 =====
         TextView timestampText = new TextView(ctx);
@@ -839,14 +629,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         root.addView(timestampText);
 
         // 组装为动态根容器（携带全部子视图引用，避免 findViewById）
-        DynamicAiMessageRoot dynamicRoot = new DynamicAiMessageRoot(ctx, blockLabel, messageText,
+        DynamicAiMessageRoot dynamicRoot = new DynamicAiMessageRoot(ctx, messageText,
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
-                agentStatus, agentSummary, actionButtons, btnCopy, btnSpeak, btnShare, btnRegenerate,
-                btnNewChat, btnLike, btnDislike, btnStop, btnPause, btnStep, btnRewind,
+                agentStatus, agentSummary, btnStop, btnPause, btnStep, btnRewind,
                 agentControlBar, timestampText, statusIcon, statusText,
-                inferenceProgressView, agentExecutionView, agentProgressSlot, agentTimelineSlot,
-                attachmentsRecycler, modelInfoContainer, modelStatusIndicator, modelNameText,
-                modelLatencyText, modelCostText);
+                inferenceProgressView, attachmentsRecycler);
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         dynamicRoot.addView(root);
@@ -854,12 +641,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.dayLabel = dayLabel;
         holder.thinkingRowsHost = thinkingStepsHost;
         holder.thinkingChevron = thinkingChevron;
-        holder.v2Look = uiV2;
         holder.v2ActionRow = v2Actions;
         holder.v2BtnCopy = v2BtnCopy;
         holder.v2BtnRegenerate = v2BtnRegenerate;
         holder.v2BtnMore = v2BtnMore;
-        holder.toolSection = toolSection;
         // 纯文本气泡的 WebView 渲染器：作为 contentHost 的第二子 View，默认 GONE，
         // 仅 webMarkdownEnabled 时接管正文（与 messageText 二选一）。随 holder 复用，
         // 存活上限由 Activity 侧 setMaxRecycledViews(VIEW_TYPE_AI, N) 兜底。
@@ -892,8 +677,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /**
      * v2 操作段的图标按钮（demo {@code .act}：30×30、圆角 9、无底色、图标 18）。
      *
-     * <p>只负责"长什么样 + 可点/可达"，不接管任何动作语义：点击转发由 bindAIMessage 绑到
-     * 旧版那颗同名按钮上，行为与旧版逐字一致。</p>
+     * <p>只负责"长什么样 + 可点/可达"，不接管任何动作语义：点击在 bindV2Actions 里
+     * 直接绑到 doCopy/doRegenerate 等方法上。</p>
      *
      * <p>contentDescription 是必需的：这一版把文字换成了图标，
      * 没有它 TalkBack 就念不出这颗键是干什么的（无障碍在 B2 清单里，但改一步就补一步）。</p>
@@ -935,12 +720,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private TextView finalizeActionButton(Context ctx, TextView tv, int color, boolean marginEnd) {
         tv.setTextSize(11f);
         tv.setTextColor(color);
-        // 2026-09-29: 操作栏压在深蓝渐变背景上，加半透明白描边胶囊+极淡白底，避免无边框看不清
+        // 2026-10-20 S5：这套胶囊现在只服务 Agent 控制条（暂停/单步/回退）。
+        // 原来的半透明白描边是给深蓝壁纸用的，浅底上等于隐形（报告 §3②），改读 chat_v2_* token。
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
         gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-        gd.setCornerRadius(dpToPx(12, ctx));
-        gd.setStroke(dpToPx(1, ctx), 0x59FFFFFF);
-        gd.setColor(0x1AFFFFFF);
+        gd.setCornerRadius(dpToPx(10, ctx));
+        gd.setStroke(dpToPx(1, ctx), androidx.core.content.ContextCompat.getColor(
+                ctx, R.color.chat_v2_border_strong));
+        gd.setColor(androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_surface_2));
         tv.setBackground(gd);
         tv.setPadding(dpToPx(8, ctx), dpToPx(3, ctx), dpToPx(8, ctx), dpToPx(3, ctx));
         tv.setClickable(true);
@@ -1108,21 +895,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /**
      * 日期分隔行（demo {@code .day}："今天 14:32"）。
      *
-     * <p>档位由调用方按 <b>holder 建视图时</b> 的档位传进来（{@code v2Look}），不在这里重读开关：
-     * 开关是运行时可改的，绑定期重读会让"v2 的树"按"v1 的判据"藏日期，
-     * 而时间戳显隐又判 {@code dayLabel != null}，两边一错就出现"既没日期也没时间"。
-     * 旧版视图树里没有这个控件（{@code dayLabel == null}），直接返回。</p>
-     *
-     * <p>v2 下逐条时间戳按设计收起（时间信息已经进这一行日期），
+     * <p>逐条时间戳按设计收起（时间信息已经进这一行日期），
      * "点时间看详情"的入口跟着挪到分隔行上；长按菜单里本来也有「详情」，入口不会丢。</p>
      */
-    private void bindDayLabel(TextView dayLabel, boolean v2Look, int position, ChatMessage message) {
+    private void bindDayLabel(TextView dayLabel, int position, ChatMessage message) {
         if (dayLabel == null || message == null) return;
         android.content.Context ctx = dayLabel.getContext();
-        if (!v2Look) {
-            dayLabel.setVisibility(View.GONE);
-            return;
-        }
         if (startsNewDay(position)) {
             dayLabel.setText(com.oilquiz.app.ai.chat.ui.ChatDayLabel.divider(ctx, message.timestamp));
             dayLabel.setVisibility(View.VISIBLE);
@@ -1278,11 +1056,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.messageText.setText(message.content);
         holder.timestampText.setText(timeStr);
         bindTimestampClick(holder.timestampText, message);
-        bindDayLabel(holder.dayLabel, holder.v2Look, position, message);
-        // v2：逐条时间戳收进日期分隔行。日期与时间戳必须由同一个档位布尔成对决定，
-        // 否则复用池里留下 v2 holder 时会出现"两边都藏"（§3①）。holder.v2Look 在
-        // onCreateViewHolder 里按当时的开关定死，绑定期不再重读。
-        holder.timestampText.setVisibility(holder.v2Look ? View.GONE : View.VISIBLE);
+        bindDayLabel(holder.dayLabel, position, message);
+        // 逐条时间戳收进日期分隔行（时间信息已进这一行日期）
+        holder.timestampText.setVisibility(View.GONE);
 
         setupItemViewInteraction(holder.itemView, message);
 
@@ -1312,23 +1088,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.messageText.setMovementMethod(LinkMovementMethod.getInstance());
         holder.timestampText.setText(timeStr);
         bindTimestampClick(holder.timestampText, message);
-        bindDayLabel(holder.dayLabel, holder.v2Look, position, message);
-        // 时间栏只对最终轮（最后一条 AI 消息）显示；中间轮次隐藏。
-        // v2 下逐条时间戳整体收起，时间信息由日期分隔行承担——判据同样只认 holder.v2Look。
-        holder.timestampText.setVisibility(
-                !holder.v2Look && isLastAiMessage(position) ? View.VISIBLE : View.GONE);
-
-        // blockLabel 当前未使用，确保隐藏
-        if (holder.blockLabel != null) {
-            holder.blockLabel.setVisibility(View.GONE);
-        }
+        bindDayLabel(holder.dayLabel, position, message);
+        // 逐条时间戳整体收起：时间信息由日期分隔行承担
+        holder.timestampText.setVisibility(View.GONE);
 
         bindAttachments(holder, message);
         bindComponents(holder, message);
         updateThinkingContent(holder, message);
         bindAgentStepStatus(holder, message);
         updateMessageStatus(holder, message);
-        bindModelInfo(holder, message);
 
         setupItemViewInteraction(holder.itemView, message);
 
@@ -1339,76 +1107,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (holder.statusIcon != null) holder.statusIcon.setVisibility(View.GONE);
         }
 
-        if (message.isCompleted()) {
-            // 操作栏只对最终轮显示并设置 listener；非最终轮 GONE 且不分配 lambda（Fix F）
-            if (holder.actionButtons != null) {
-                holder.actionButtons.setVisibility(lastAi ? View.VISIBLE : View.GONE);
-            }
-
-            if (lastAi) {
-                // 旧胶囊只保留"视图 + 状态文字"的职责，动作统一走 doXxx（v2 图标/面板同一份）
-                if (holder.btnCopy != null) {
-                    holder.btnCopy.setOnClickListener(v -> doCopy(v.getContext(), message));
-                }
-                if (holder.btnSpeak != null) {
-                    holder.btnSpeak.setOnClickListener(v -> doSpeak(v.getContext(), message));
-                }
-                if (holder.btnShare != null) {
-                    holder.btnShare.setOnClickListener(v -> doShare(v.getContext(), message));
-                }
-                if (holder.btnRegenerate != null) {
-                    holder.btnRegenerate.setOnClickListener(v -> doRegenerate(v.getContext(), message));
-                }
-                if (holder.btnNewChat != null) {
-                    holder.btnNewChat.setOnClickListener(v -> doNewChat(v.getContext()));
-                }
-                if (holder.btnLike != null) {
-                    holder.btnLike.setOnClickListener(v -> doLike(v.getContext(), holder, message));
-                }
-                if (holder.btnDislike != null) {
-                    holder.btnDislike.setOnClickListener(v -> doDislike(v.getContext(), holder, message));
-                }
-                applyFeedbackVisual(holder, message);
-                applySpeakingVisual(holder, message);
-            } else {
-                // 非最终轮：清除 listener 防止复用残留
-                if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(null);
-                if (holder.btnSpeak != null) holder.btnSpeak.setOnClickListener(null);
-                if (holder.btnShare != null) holder.btnShare.setOnClickListener(null);
-                if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(null);
-                if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(null);
-                if (holder.btnLike != null) holder.btnLike.setOnClickListener(null);
-                if (holder.btnDislike != null) holder.btnDislike.setOnClickListener(null);
-            }
-        } else {
-            if (holder.actionButtons != null) holder.actionButtons.setVisibility(View.GONE);
-            // 清除按钮点击事件，避免 ViewHolder 复用时旧消息的监听器残留
-            if (holder.btnCopy != null) holder.btnCopy.setOnClickListener(null);
-            if (holder.btnSpeak != null) holder.btnSpeak.setOnClickListener(null);
-            if (holder.btnShare != null) holder.btnShare.setOnClickListener(null);
-            if (holder.btnRegenerate != null) holder.btnRegenerate.setOnClickListener(null);
-            if (holder.btnNewChat != null) holder.btnNewChat.setOnClickListener(null);
-            if (holder.btnLike != null) holder.btnLike.setOnClickListener(null);
-            if (holder.btnDislike != null) holder.btnDislike.setOnClickListener(null);
-        }
-
-        // v2 操作段（三图标 + 更多）：放在旧胶囊行的显隐逻辑之后，因为它要把旧行整块收起
-        bindV2Actions(holder, message, message.isCompleted() && isLastAiMessage(position));
+        applyFeedbackVisual(holder, message);
+        // 操作段（三图标 + 更多）只在最终轮、已完成时出现
+        bindV2Actions(holder, message, message.isCompleted() && lastAi);
     }
 
     /**
      * v2 操作段（demo .ai-actions）：复制 / 重新生成 / 更多。
      *
-     * <p>2026-10-20 S3：图标直接调 {@link #doCopy} 等方法，不再 performClick() 转发给旧胶囊——
-     * 动作只有一份实现，删掉 v1 视图也不会让 v2 按钮失效（报告耦合 C1）。</p>
-     *
-     * <p>{@code holder.v2ActionRow == null} 表示当前是旧版档位，直接返回。</p>
+     * <p>图标直接调 {@link #doCopy} 等方法，与「更多」面板共用一份动作实现（报告耦合 C1）。</p>
      */
     private void bindV2Actions(AIMessageViewHolder holder, ChatMessage message, boolean show) {
-        if (holder.v2ActionRow == null) return;
-        if (holder.actionButtons != null) {
-            holder.actionButtons.setVisibility(View.GONE);
-        }
         holder.v2ActionRow.setVisibility(show ? View.VISIBLE : View.GONE);
         if (!show) {
             // 复用池里防残留：非最终轮/流式中都要清掉，否则点图标会打到上一条消息的动作
@@ -1433,9 +1142,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 「更多」面板（demo {@code #sheet-message}）：朗读 / 复制 / 分享 / 有帮助 / 没帮助 / 在新对话中继续。
      * 条目顺序与 demo 一致。
      *
-     * <p>旧版靠胶囊上的 {@code 👍✓}/{@code 🔊 朗读} 文字表达状态，v2 把胶囊整块收起来了，
-     * 所以状态改由两处表达：面板里的文案（已反馈时写"已反馈"），以及点完的一条 Toast——
-     * 否则用户点了「有帮助」什么都看不到，等于把旧版已有的确认感做丢了。</p>
+     * <p>状态由两处表达：面板里的文案（已反馈时写"已反馈"）与点完的一条 Toast；
+     * 「更多」图标另以着色表示这条已反馈（没有独立的赞/踩图标）。</p>
      */
     private void openMessageActionSheet(AIMessageViewHolder holder, ChatMessage message) {
         if (holder == null || message == null) return;
@@ -1449,7 +1157,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 v -> doCopy(ctx, message)));
         items.add(new ChatV2ActionSheet.Item(R.drawable.ic_share, R.string.chat_share,
                 v -> doShare(ctx, message)));
-        // feedbackState：1=有帮助、-1=没帮助（与旧版那颗胶囊同一字段，不另存一份状态）
+        // feedbackState：1=有帮助、-1=没帮助（状态存在消息上，不另存一份）
         items.add(new ChatV2ActionSheet.Item(R.drawable.ic_thumb_up, R.string.chat_like,
                 message.feedbackState == 1
                         ? ctx.getString(R.string.chat_v2_feedback_saved, ctx.getString(R.string.chat_like))
@@ -1485,35 +1193,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void bindAgentStepStatus(AIMessageViewHolder holder, ChatMessage message) {
         if (holder.agentStatus != null) {
-            // v2：状态文案已经由活动区 header 承担（"正在思考…"/"正在运行工具…"/失败），
-            // 这一行再显示一遍就是同一句话出现两次；v1 档保持原行为。
-            boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
-                    || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-            boolean failed = message.status == ChatMessage.MessageStatus.FAILED;
-            if (holder.v2Look) {
-                holder.agentStatus.setVisibility(View.GONE);
-            } else if ((streaming || failed) && message.agentStepStatus != null && !message.agentStepStatus.isEmpty()) {
-                holder.agentStatus.setText(message.agentStepStatus);
-                holder.agentStatus.setVisibility(View.VISIBLE);
-            } else {
-                holder.agentStatus.setVisibility(View.GONE);
-            }
+            // 状态文案由活动区 header 承担，这一行不再显示（v1 已删除，保留视图占位避免树结构变动）
+            holder.agentStatus.setVisibility(View.GONE);
         }
-        // v2（demo .tool-line）：工具活动行接管"跑了几个工具/多久/成没成"，
-        // 返回 false 表示旧版布局、或这条消息没有可汇总的工具调用。
-        boolean toolLineTookOver;
-        if (holder.v2Look) {
-            // 2026-10-20 S2：过程行（思考 + 工具）已由活动区统一承载，
-            // agentSummary 的文本与汇总卡不再出现——否则同一组数字在气泡里摆两遍。
-            ActivityTimeline.Model model = ActivityTimeline.build(message);
-            toolLineTookOver = !model.isEmpty();
-            if (holder.toolSection != null) {
-                holder.toolSection.setVisibility(View.GONE);
-                holder.toolLineFp = null;
-            }
-        } else {
-            toolLineTookOver = renderToolLine(holder, message);
-        }
+        // 过程行（思考 + 工具）由活动区统一承载：有过程行时 agentSummary 文本/汇总卡让位
+        ActivityTimeline.Model model = ActivityTimeline.build(message);
+        boolean toolLineTookOver = !model.isEmpty();
         if (holder.agentSummary != null) {
             if (toolLineTookOver) {
                 // 汇总文本与汇总卡片都要让位，否则同一组数字在气泡里出现两遍
@@ -1551,12 +1236,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 holder.btnStop.setOnClickListener(null);
             }
         }
-        // Agent 执行面板：结构化 blocks 可视化（日志/当前步骤/工具参数/结果）
-        renderAgentExecutionView(holder, message);
-        // Agent 进度环：steps 完成比 + tokens 占用比
-        renderAgentProgressRing(holder, message);
-        // Agent 步骤时间线：blocks 序列（timeline primitive）
-        renderAgentTimeline(holder, message);
         // Agent 控制组（暂停/单步/回退）：流式生成中显示
         bindAgentControlBar(holder, message);
     }
@@ -1598,186 +1277,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         });
     }
 
-    /**
-     * 用 timeline primitive 组件渲染 Agent 执行步骤序列：
-     * 每个 block 变成一个节点（图标+标题+内容摘要+状态色），流式追加。
-     * 指纹：block 数 + 最后 block 状态；变化才重渲染，避免每 token 抖动。
-     */
-    private void renderAgentTimeline(AIMessageViewHolder holder, ChatMessage message) {
-        if (holder.agentTimelineSlot == null) return;
-        com.oilquiz.app.ai.agent.AgentExecutionState st = message.agentExecutionState;
-        if (st == null || !message.agentMode
-                || st.getBlocks() == null || st.getBlocks().isEmpty()) {
-            holder.agentTimelineSlot.setVisibility(View.GONE);
-            holder.agentTimelineFp = null;
-            return;
-        }
-        java.util.List<com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock> blocks = st.getBlocks();
-        com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock last = blocks.get(blocks.size() - 1);
-        final String fp = blocks.size() + "_" + (last.getStatus() != null ? last.getStatus().name() : "");
-        if (fp.equals(holder.agentTimelineFp) && holder.agentTimelineSlot.getChildCount() > 0) {
-            holder.agentTimelineSlot.setVisibility(View.VISIBLE);
-            return;
-        }
-        try {
-            org.json.JSONArray items = new org.json.JSONArray();
-            for (com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock b : blocks) {
-                if (b == null) continue;
-                org.json.JSONObject node = new org.json.JSONObject();
-                node.put("title", b.getTitle() != null ? b.getTitle() : mapBlockTypeToLabel(b.getType()));
-                node.put("icon", blockTypeToIcon(b.getType()));
-                String content = b.getContent();
-                if (content != null && content.length() > 120) content = content.substring(0, 120) + "…";
-                node.put("description", content != null ? content : "");
-                node.put("status", blockStatusToTimelineStatus(b.getStatus()));
-                items.put(node);
-            }
-            org.json.JSONObject props = new org.json.JSONObject()
-                    .put("items", items)
-                    .put("title", "执行时间线");
-            ComponentData data = new ComponentData("timeline", props);
-            View v = ComponentRegistry.getInstance().render(
-                    holder.agentTimelineSlot.getContext(), data);
-            holder.agentTimelineSlot.removeAllViews();
-            if (v != null) {
-                holder.agentTimelineSlot.addView(v);
-                holder.agentTimelineSlot.setVisibility(View.VISIBLE);
-                holder.agentTimelineFp = fp;
-            } else {
-                holder.agentTimelineSlot.setVisibility(View.GONE);
-            }
-        } catch (Throwable t) {
-            holder.agentTimelineSlot.setVisibility(View.GONE);
-        }
-    }
-
-    private static String blockTypeToIcon(
-            com.oilquiz.app.ai.agent.AgentExecutionState.BlockType t) {
-        if (t == null) return "•";
-        switch (t) {
-            case THINKING: return "💭";
-            case PLANNING: return "📋";
-            case TOOL_CALL: return "🔧";
-            case TOOL_RESULT: return "📤";
-            case INFERENCE: return "🧠";
-            case OBSERVATION: return "👁";
-            case REFLECTION: return "🔄";
-            case ERROR: return "❌";
-            default: return "📝";
-        }
-    }
-
-    private static String blockStatusToTimelineStatus(
-            com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock.BlockStatus s) {
-        if (s == null) return "pending";
-        switch (s) {
-            case COMPLETED: return "done";
-            case RUNNING: return "active";
-            case FAILED: return "error";
-            default: return "pending";
-        }
-    }
-
-    /**
-     * 用 progress_ring primitive 渲染 Agent 进度：
-     *  - 中心显示"当前步/总步"或百分比
-     *  - 数据源：AgentExecutionState.currentStep/totalSteps 与 totalTokens
-     *  - 无 Agent 状态或流式未开始时隐藏
-     */
-    private void renderAgentProgressRing(AIMessageViewHolder holder, ChatMessage message) {
-        if (holder.agentProgressSlot == null) return;
-        com.oilquiz.app.ai.agent.AgentExecutionState st = message.agentExecutionState;
-        if (st == null || !message.agentMode || st.getTotalSteps() <= 0) {
-            holder.agentProgressSlot.setVisibility(View.GONE);
-            holder.agentProgressFp = null;
-            return;
-        }
-        int pct = (int) Math.min(100, (st.getCurrentStep() * 100L) / st.getTotalSteps());
-        final String fp = pct + "_" + st.getTotalTokens();
-        if (fp.equals(holder.agentProgressFp) && holder.agentProgressSlot.getChildCount() > 0) {
-            holder.agentProgressSlot.setVisibility(View.VISIBLE);
-            return;
-        }
-        try {
-            org.json.JSONObject props = new org.json.JSONObject()
-                    .put("value", pct)
-                    .put("max", 100)
-                    .put("label", st.getCurrentStep() + "/" + st.getTotalSteps() + " 步")
-                    .put("hint", st.getTotalTokens() + " tokens");
-            ComponentData data = new ComponentData("progress_ring", props);
-            View v = ComponentRegistry.getInstance().render(
-                    holder.agentProgressSlot.getContext(), data);
-            holder.agentProgressSlot.removeAllViews();
-            if (v != null) {
-                holder.agentProgressSlot.addView(v);
-                holder.agentProgressSlot.setVisibility(View.VISIBLE);
-                holder.agentProgressFp = fp;
-            } else {
-                holder.agentProgressSlot.setVisibility(View.GONE);
-            }
-        } catch (Throwable t) {
-            holder.agentProgressSlot.setVisibility(View.GONE);
-        }
-    }
-
-    /**
-     * 把 ChatMessage.agentExecutionState 的结构化数据同步到 AgentExecutionView。
-     * 无 state 或非 Agent 模式时隐藏面板。用 blocks.size()+currentStep+status 做指纹，
-     * 只在数据变化时更新，避免流式重复 bind 抖动。
-     */
-    private void renderAgentExecutionView(AIMessageViewHolder holder, ChatMessage message) {
-        if (holder.agentExecutionView == null) return;
-        com.oilquiz.app.ai.agent.AgentExecutionState st = message.agentExecutionState;
-        if (st == null || !message.agentMode) {
-            holder.agentExecutionView.hide();
-            return;
-        }
-        holder.agentExecutionView.show();
-        // 指纹：blocks 数量 + 当前步 + 状态
-        int blocksCount = st.getBlocks() != null ? st.getBlocks().size() : 0;
-        final String fp = blocksCount + "_" + st.getCurrentStep() + "_" + st.getTotalTokens()
-                + "_" + (message.status != null ? message.status.name() : "");
-        if (fp.equals(holder.agentExecFp)) return;
-        holder.agentExecFp = fp;
-        try {
-            // 步骤计数
-            holder.agentExecutionView.updateCurrentStep(
-                    st.getCurrentStep(),
-                    st.getCurrentStep() > 0 && st.getBlocks() != null
-                            ? mapBlockTypeToLabel(st.getBlocks().get(st.getCurrentStep() - 1).getType())
-                            : "准备",
-                    st.getMessageId(),
-                    st.getFinalAnswer() != null ? st.getFinalAnswer() : "");
-            // Token 统计
-            holder.agentExecutionView.updateInferenceProgress(
-                    st.getTotalTokens(),
-                    st.getTotalTokens() > 0 && st.getEndTime() > st.getStartTime()
-                            ? (st.getTotalTokens() * 1000f / (st.getEndTime() - st.getStartTime()))
-                            : 0f);
-            // 遍历 blocks 呈现日志（首次或数量变化时全量重建，避免重复 addLogEntry）
-            if (st.getBlocks() != null && blocksCount > 0) {
-                // 简化：只在数量变化时重放；AgentExecutionView 内部会滚动到底部
-                if (holder.agentExecBlockCount != blocksCount) {
-                    // 清空旧日志：AgentExecutionView 无 clearLogs API，用反射或直接依赖 addLogEntry 追加
-                    // 这里采用简化策略：只把最新 block 加进去
-                    com.oilquiz.app.ai.agent.AgentExecutionState.ExecutionBlock last =
-                            st.getBlocks().get(blocksCount - 1);
-                    holder.agentExecutionView.addLogEntry(
-                            mapBlockTypeToLabel(last.getType()),
-                            last.getContent() != null ? last.getContent() : last.getTitle());
-                    holder.agentExecBlockCount = blocksCount;
-                }
-            }
-            // 完成/失败状态
-            if (message.status == ChatMessage.MessageStatus.COMPLETED) {
-                holder.agentExecutionView.completeExecution(st.getFinalAnswer());
-            } else if (message.status == ChatMessage.MessageStatus.FAILED) {
-                holder.agentExecutionView.failExecution(
-                        message.errorDetail != null ? message.errorDetail : "执行失败");
-            }
-        } catch (Throwable ignored) {
-        }
-    }
 
     /** BlockType → 中文标签（用于 AgentExecutionView 步骤类型显示） */
     private static String mapBlockTypeToLabel(
@@ -1966,162 +1465,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return sb.toString();
     }
 
-    /**
-     * v2（demo {@code .tool-line}）：把"调用工具 N 次 · 思考 N 轮 · 输入/输出 tokens · 缓存命中率"
-     * 那一坨汇总文本压成一条折叠行 ——「已运行 N 个工具 · 耗时 · 成败」，点开才是逐个工具的名称/参数摘要/状态。
-     *
-     * <p>数据不新造：计数与耗时/成败取自 {@code message.agentSummaryInfo}（与汇总卡同一个源），
-     * 明细取自 {@code message.components} 里 {@code type=tool_call} 的那些卡（生产方是
-     * {@code AIChatActivity} 的 onToolCallStart/完成回调，props 带 toolName/status/args/result）。
-     *
-     * @return true 表示这条行已接管汇总信息，调用方要跳过 agentSummary 文本与汇总卡片，
-     *         否则同一组数字会在气泡里出现两遍
-     */
-    private boolean renderToolLine(AIMessageViewHolder holder, ChatMessage message) {
-        if (holder.toolSection == null) return false;
-        java.util.List<ComponentData> tools = collectToolComponents(message);
-        // 2026-10-20：轮次模式（有工具边界）下工具已经按时间顺序内联进步骤时间线了
-        // （renderRoundAssembled 每轮挂一张 tool_call 卡），这条"已运行 N 个工具"的总行
-        // 就落在整条时间线上方，看着像"工具发生在所有思考之前"——顺序是错的，而且和
-        // 内联卡重复。所以这一档不再显示总行，但仍要接管 agentSummary（返回 true），
-        // 否则那组数字会换成汇总文本/汇总卡再出现一遍。
-        // 兜底：只有当这条消息里【确实有工具卡会被挂载】时才收掉总行——
-        // 产物展示档位可能被设成 HIDDEN（一张卡都不挂），那时总行是工具唯一的痕迹，不能藏。
-        if (message.contentRoundBounds != null && !message.contentRoundBounds.isEmpty()
-                && hasMountableToolCard(holder.itemView.getContext(), tools)) {
-            holder.toolSection.setVisibility(View.GONE);
-            holder.toolLineFp = null;
-            return true;
-        }
-        ChatMessage.AgentSummaryInfo summary = message.agentSummaryInfo;
-        int count = summary != null && summary.toolCallCount > 0 ? summary.toolCallCount : tools.size();
-        if (count <= 0) {
-            holder.toolSection.setVisibility(View.GONE);
-            holder.toolLineFp = null;
-            return false;
-        }
-        Context ctx = holder.toolSection.getContext();
-        holder.toolSection.setVisibility(View.VISIBLE);
-
-        TextView lineText = holder.toolSection.findViewById(R.id.chat_v2_tool_text);
-        TextView lineTime = holder.toolSection.findViewById(R.id.chat_v2_tool_time);
-        View lineOk = holder.toolSection.findViewById(R.id.chat_v2_tool_ok);
-        final LinearLayout body = holder.toolSection.findViewById(R.id.chat_v2_tool_body);
-        if (lineText != null) lineText.setText(ctx.getString(R.string.chat_v2_tools_ran, count));
-        if (lineTime != null) {
-            lineTime.setText(summary != null ? summary.getFormattedTime() : "");
-            lineTime.setVisibility(summary != null ? View.VISIBLE : View.GONE);
-        }
-        if (lineOk != null) lineOk.setVisibility(summary == null || summary.isSuccess
-                ? View.VISIBLE : View.GONE);
-        if (body == null) return true;
-
-        String fp = toolLineFingerprint(tools);
-        if (!fp.equals(holder.toolLineFp) || body.getChildCount() == 0) {
-            // 流式期间工具数每轮都在长，重建明细时保留用户已展开的状态
-            boolean wasExpanded = body.getVisibility() == View.VISIBLE;
-            body.removeAllViews();
-            LayoutInflater inflater = LayoutInflater.from(ctx);
-            int index = 0;
-            for (ComponentData tool : tools) {
-                body.addView(buildToolRow(inflater, body, tool, index++));
-            }
-            // 汇总计数比明细多（工具卡被合并/丢弃）时，补一行说明，避免"5 个工具但只列 3 行"
-            if (count > tools.size()) {
-                TextView more = new TextView(ctx);
-                more.setText(ctx.getString(R.string.chat_v2_tool_more, count - tools.size()));
-                more.setTextSize(11f);
-                more.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-                more.setPadding(0, dpToPx(6, ctx), 0, dpToPx(2, ctx));
-                body.addView(more);
-            }
-            holder.toolLineFp = fp;
-            body.setVisibility(wasExpanded ? View.VISIBLE : View.GONE);
-        }
-
-        View line = holder.toolSection.findViewById(R.id.chat_v2_tool_line);
-        if (line != null) {
-            line.setOnClickListener(v -> {
-                boolean expand = body.getVisibility() != View.VISIBLE;
-                body.setVisibility(expand ? View.VISIBLE : View.GONE);
-                View chev = holder.toolSection.findViewById(R.id.chat_v2_tool_chev);
-                if (chev != null) {
-                    chev.animate().rotation(expand ? 90f : 0f).setDuration(180).start();
-                }
-            });
-        }
-        return true;
-    }
-
-    /** 取消息里的工具调用卡（type=tool_call），保持生产顺序；null 安全 */
-    private java.util.List<ComponentData> collectToolComponents(ChatMessage message) {
-        java.util.List<ComponentData> out = new java.util.ArrayList<>();
-        if (message == null || message.components == null) return out;
-        for (ComponentData c : message.components) {
-            if (c != null && "tool_call".equals(c.type)) out.add(c);
-        }
-        return out;
-    }
-
-    /** 明细行内容指纹：名称|状态|参数摘要序列，流式重绑时结构没变就不重建视图 */
-    private String toolLineFingerprint(java.util.List<ComponentData> tools) {
-        StringBuilder sb = new StringBuilder();
-        for (ComponentData tool : tools) {
-            org.json.JSONObject p = tool.props;
-            sb.append(p != null ? p.optString("toolCallId", "") : "").append('|')
-                    .append(p != null ? p.optString("toolName", "") : "").append('|')
-                    .append(p != null ? p.optString("status", "") : "").append(';');
-        }
-        return sb.toString();
-    }
-
-    /** 单条工具明细（demo {@code .tool-item}）：图标 + 中文名/参数摘要 + 状态 */
-    private View buildToolRow(LayoutInflater inflater, android.view.ViewGroup parent,
-                              ComponentData tool, int index) {
-        Context ctx = inflater.getContext();
-        View row = inflater.inflate(R.layout.item_chat_v2_tool_row, parent, false);
-        org.json.JSONObject p = tool.props;
-        String toolName = p != null ? p.optString("toolName", "") : "";
-        String status = p != null ? p.optString("status", "running") : "running";
-        String args = p != null ? p.optString("args", "") : "";
-        TextView name = row.findViewById(R.id.chat_v2_tool_row_name);
-        if (name != null) {
-            String label = ToolMetaRegistry.displayName(toolName);
-            name.setText(label.isEmpty() ? ctx.getString(R.string.chat_v2_tool_unknown) : label);
-        }
-        TextView desc = row.findViewById(R.id.chat_v2_tool_row_desc);
-        if (desc != null) {
-            String brief = oneLineBrief(args);
-            desc.setText(brief);
-            desc.setVisibility(brief.isEmpty() ? View.GONE : View.VISIBLE);
-        }
-        TextView state = row.findViewById(R.id.chat_v2_tool_row_time);
-        if (state != null) {
-            state.setText(toolRowStatusText(ctx, status));
-            state.setTextColor(toolRowStatusColor(ctx, status));
-        }
-        View divider = row.findViewById(R.id.chat_v2_tool_row_divider);
-        if (divider != null) divider.setVisibility(index == 0 ? View.GONE : View.VISIBLE);
-        return row;
-    }
-
-    /** 参数摘要：压成一行、限长，避免把整段 JSON 摆进明细 */
-    private String oneLineBrief(String raw) {
-        if (raw == null) return "";
-        String s = raw.replaceAll("[\\r\\n\\t]+", " ").trim();
-        if (s.length() > 60) s = s.substring(0, 60) + "…";
-        return s;
-    }
-
-    /** 这批工具卡里是否至少有一张会真正挂载（受产物展示档位影响） */
-    private boolean hasMountableToolCard(Context ctx, java.util.List<ComponentData> tools) {
-        if (tools == null) return false;
-        for (ComponentData t : tools) {
-            if (t == null) continue;
-            if (ComponentDisplay.mounts(ComponentDisplay.resolve(ctx, t))) return true;
-        }
-        return false;
-    }
 
     /** 工具状态文案（demo 用耗时占位，本仓没有逐调用耗时，先给状态） */
     private String toolRowStatusText(Context ctx, String status) {
@@ -2240,30 +1583,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 (message.feedbackState == -1 ? "dislike:" : "undislike:") + message.id);
     }
 
-    /** 反馈按钮（👍/👎）按状态变色；v2 没有赞/踩图标，用「更多」的着色做同一状态的可见回执 */
+    /** 反馈状态回执：没有赞/踩图标，用「更多」的着色表示"这条已反馈" */
     private void applyFeedbackVisual(AIMessageViewHolder holder, ChatMessage message) {
-        if (holder.btnLike != null) {
-            holder.btnLike.setText(message.feedbackState == 1 ? "👍✓" : "👍");
-            holder.btnLike.setAlpha(message.feedbackState == 1 ? 1f : 0.7f);
-        }
-        if (holder.btnDislike != null) {
-            holder.btnDislike.setText(message.feedbackState == -1 ? "👎✓" : "👎");
-            holder.btnDislike.setAlpha(message.feedbackState == -1 ? 1f : 0.7f);
-        }
-        if (holder.v2BtnMore != null) {
-            android.content.Context ctx = holder.itemView.getContext();
-            int color = androidx.core.content.ContextCompat.getColor(ctx,
-                    message.feedbackState != 0 ? R.color.chat_v2_brand : R.color.chat_v2_text_3);
-            holder.v2BtnMore.setImageTintList(
-                    android.content.res.ColorStateList.valueOf(color));
-        }
-    }
-
-    /** 朗读按钮按当前 speakingMessageId 切换文案 */
-    private void applySpeakingVisual(AIMessageViewHolder holder, ChatMessage message) {
-        if (holder.btnSpeak == null) return;
-        boolean speaking = message.id != null && message.id.equals(speakingMessageId);
-        holder.btnSpeak.setText(speaking ? "⏹ 停止" : "🔊 朗读");
+        if (holder.v2BtnMore == null) return;
+        android.content.Context ctx = holder.itemView.getContext();
+        int color = androidx.core.content.ContextCompat.getColor(ctx,
+                message.feedbackState != 0 ? R.color.chat_v2_brand : R.color.chat_v2_text_3);
+        holder.v2BtnMore.setImageTintList(
+                android.content.res.ColorStateList.valueOf(color));
     }
 
     /** 时间戳点击查看消息详情对话框 */
@@ -2625,20 +1952,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.roundRenderedChildren = expect;
     }
 
-    /**
-     * 第 index 轮思考当前是否处于展开态（轮次折叠的唯一读法）。
-     *
-     * <p>没有 id 的旧数据用 identity 兜底锚点，与 {@link #buildThinkingStepRow} 保持一致，
-     * 否则同一轮在指纹和渲染两处算出不同 key，点了不会翻。</p>
-     */
-    private boolean roundExpandedBit(ChatMessage message, int index) {
-        if (message == null) return false;
-        String roundId = (message.thinkingRoundIds != null && index >= 0
-                && index < message.thinkingRoundIds.size())
-                ? message.thinkingRoundIds.get(index) : null;
-        if (roundId == null || roundId.isEmpty()) roundId = "round-" + (index + 1);
-        return message.isThinkingRoundExpanded(roundId);
-    }
 
     /**
      * 与 AgentSummaryInfo#getFormattedTime 同一口径的耗时格式（<b>不要另立一套</b>：
@@ -2661,15 +1974,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * （assistant-ui 的 thinking accordion、Gemini 的 steps、LangChain 的
      * "default collapsed + truncated preview"）。</p>
      *
-     * <p>轮次模式（contentRoundBounds 非空）下思考块仍由 {@link #renderRoundAssembled}
-     * 按"思考→正文→工具"的时序内嵌到正文里，这里不重复渲染，
-     * header 仍然只当那一段的总入口。</p>
+     * <p>轮次模式也一样：思考/工具只在这条时间线里出现，正文不再内嵌过程块，
+     * header 始终是这一节的唯一入口。</p>
      */
     private void updateThinkingSectionV2(AIMessageViewHolder holder, ChatMessage message,
                                          boolean isStreaming) {
         Context ctx = holder.itemView.getContext();
         android.widget.LinearLayout host = holder.thinkingRowsHost;
-        if (host != null) host.removeAllViews();
 
         ActivityTimeline.Model model = ActivityTimeline.build(message);
 
@@ -2984,25 +2295,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return row;
     }
 
-    /**
-     * 添加一个轮次思考块（第N轮思考）：【独立 UI 组件】
-     * 2026-09-14 升级：每个思考轮 = 独立容器（roundBox），tag 绑定该轮 THINKING 子 id（thinkingRoundIds），
-     * - 标题行可【独立点击展开/收起】该轮（状态存 message.thinkingExpandedRounds，重建后保留）；
-     *   2026-10-20 语义反转：默认收起，只留一行摘要，点开才出全文；
-     * - 内容区按 id 可被 updateThinkingRound(roundId, content) 定位并热更新（不重建整条消息）。
-     */
-    private void addRoundThinkingBlock(AIMessageViewHolder holder, Context ctx, int roundNo,
-                                       String roundId, String thinkText, int availableWidth) {
-        // 2026-10-20：这一轮的渲染与 v2 时间线共用 buildThinkingStepRow，
-        // 不再自己拼"标题 + ▸/▾"——同一个 App 里两种思考区长得不一样本身就是问题。
-        long durationMs = holder.holderMessage != null
-                ? holder.holderMessage.thinkingRoundDurationMs(roundNo - 1) : 0L;
-        View row = buildThinkingStepRow(holder, ctx, roundId, thinkText, durationMs, availableWidth);
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        rlp.topMargin = dpToPx(roundNo == 1 ? 0 : 10, ctx);
-        holder.contentHost.addView(row, rlp);
-    }
 
     /**
      * 按思考轮 id 定位并更新单个思考轮内容（不重建整条消息）。
@@ -3066,212 +2358,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void updateThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
-        // 判断是否为流式生成中
         boolean isStreaming = message.status == ChatMessage.MessageStatus.GENERATING
                 || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-
-        // 分隔线仅在思考区实际显示时可见（思考内容与正文之间）
-        boolean showDivider = false;
-        // 轮次模式：thinkingLabel 由 renderRoundAssembled 管理点击，本方法不覆盖 listener
-        final boolean roundAssembled = message.contentRoundBounds != null
-                && !message.contentRoundBounds.isEmpty();
-
-        // v2 档：整段思考走"一个入口 + 分步时间线"的新渲染（见 updateThinkingSectionV2），
-        // 下面这套"拼成一坨 + 一个总开关"只保留给旧档——它本身就是业界说的
-        // "一个折叠区，里面是推理文本"，只是没有分步。
-        if (holder.v2Look) {
-            updateThinkingSectionV2(holder, message, isStreaming);
-            return;
-        }
-
-        // 多轮思考：分块展示（每轮加粗标题 + 段落分隔，布局上明显分开）
-        String displayContent = message.thinkingContent != null ? message.thinkingContent : "";
-        if (message.thinkingRounds != null && !message.thinkingRounds.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            List<String> rounds = message.thinkingRounds;
-            // 流式时：已完成轮次 + 当前轮；非流式时：全部轮次
-            for (int i = 0; i < rounds.size(); i++) {
-                String r = rounds.get(i);
-                if (r == null || r.trim().isEmpty()) continue;
-                if (sb.length() > 0) sb.append("\n\n");
-                String label = SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)
-                        + (i + 1) + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e);
-                sb.append("**").append(label).append("**\n").append(r.trim());
-            }
-            // 当前轮（最后一轮,thinkingContent 可能等于 thinkingRounds 末位，去重）
-            String cur = displayContent.trim();
-            String lastRound = rounds.isEmpty() ? "" : rounds.get(rounds.size() - 1).trim();
-            if (!cur.isEmpty() && !cur.equals(lastRound)) {
-                if (sb.length() > 0) sb.append("\n\n");
-                String label = SmartQuizApplication.getAppContext().getString(R.string.h_71505bcf)
-                        + (rounds.size() + 1) + SmartQuizApplication.getAppContext().getString(R.string.h_1d8b034e);
-                sb.append("**").append(label).append("**\n").append(cur);
-            }
-            displayContent = sb.toString();
-        }
-
-        if (displayContent != null && !displayContent.isEmpty()) {
-            holder.thinkingLabel.setVisibility(View.VISIBLE);
-
-            // 清理思考标签并格式化内容（标签来自 chat template，不硬编码）
-            String cleanedContent = stripThinkingTagMarkers(displayContent);
-
-            // 如果内容为空，隐藏思考区域
-            if (cleanedContent.isEmpty()) {
-                holder.thinkingLabel.setVisibility(View.GONE);
-                holder.thinkingContent.setVisibility(View.GONE);
-                if (holder.thinkingDivider != null) {
-                    holder.thinkingDivider.setVisibility(View.GONE);
-                }
-                return;
-            }
-
-            // 设置思考内容：全量 Markdown 渲染（恢复简单直接渲染）。
-            // STREAM-FLICKER(2026-10-07 本地 Agent)：思考区默认折叠（thinkingContent GONE），
-            // 折叠时跳过每帧 post + 全量 Markdown 解析渲染（本地模型流式闪烁源之一）；
-            // 用户点击展开（thinkingExpanded=true）时本方法再走渲染，展开即显示。
-            if (message.thinkingExpanded) {
-                holder.thinkingContent.post(() -> {
-                    int width = holder.itemView.getWidth()
-                        - holder.itemView.getPaddingLeft()
-                        - holder.itemView.getPaddingRight()
-                        - dpToPx(2, holder.itemView.getContext());
-                    setRenderedText(holder.thinkingContent, cleanedContent, width);
-                });
-            }
-            holder.thinkingContent.setMovementMethod(LinkMovementMethod.getInstance());
-
-            // 展开状态完全由 thinkingExpanded 控制：思考中/思考完毕均默认折叠，
-            // 用户点击标签展开（思考中展开可实时看到思考过程，思考后保留展开直到再次点击）。
-            // 状态未变化时不重复 setVisibility/height，避免流式 token 更新打断点击展开/折叠动画
-            //
-            // THINK-OWNER(2026-10-09)：多轮按轮次组装时（contentRoundBounds 非空），思考渲染
-            // 归 renderRoundAssembled 所有 —— 它把每一轮的思考块内嵌到 contentHost，并**强制**
-            // 隐藏下面这个合并块（见 renderRoundAssembled 里对 thinkingContent 的 GONE）。
-            // 而本方法在展开态会把它设为 VISIBLE，于是同一个视图被两条路径争夺：
-            // 全量绑定（先本方法后 renderRoundAssembled）最终隐藏，payload 流式路径
-            // （先 renderRoundAssembled 后本方法）最终显示 —— 用户展开思考区时每个 token
-            // 都抖动一次，且展开态下同一段思考被渲染两份（合并块 + 逐轮块）。
-            // 因此轮次模式下本方法只负责标签文案与分隔线，不碰合并块的显隐。
-            boolean wasExpanded = holder.thinkingContent.getVisibility() == View.VISIBLE;
-            if (message.thinkingExpanded) {
-                if (!wasExpanded && !roundAssembled) {
-                    cancelThinkingAnimator(holder);
-                    holder.thinkingContent.setVisibility(View.VISIBLE);
-                    holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                }
-                updateThinkingLabel(holder, true, isStreaming, message);
-                showDivider = !roundAssembled;
-            } else {
-                if (wasExpanded) {
-                    cancelThinkingAnimator(holder);
-                    holder.thinkingContent.setVisibility(View.GONE);
-                }
-                updateThinkingLabel(holder, false, isStreaming, message);
-            }
-
-            // 非轮次模式：点击展开/折叠带动画；轮次模式：listener 由 renderRoundAssembled 管理
-            if (!roundAssembled) {
-                holder.thinkingLabel.setOnClickListener(v -> {
-                    if (message.thinkingExpanded) {
-                        collapseThinkingContent(holder, message);
-                    } else {
-                        expandThinkingContent(holder, message);
-                    }
-                });
-            }
-
-        } else if (isStreaming) {
-            // 流式中但思考内容还没到，显示思考中标签让用户有感知
-            holder.thinkingLabel.setVisibility(View.VISIBLE);
-            holder.thinkingContent.setVisibility(View.GONE);
-            updateThinkingLabel(holder, false, true, message);
-            // 非轮次模式占位标签点击；轮次模式由 renderRoundAssembled 管理
-            if (!roundAssembled) {
-                holder.thinkingLabel.setOnClickListener(v -> {
-                    message.thinkingExpanded = !message.thinkingExpanded;
-                    if (message.thinkingContent != null && !message.thinkingContent.isEmpty()) {
-                        if (message.thinkingExpanded) {
-                            expandThinkingContent(holder, message);
-                        } else {
-                            collapseThinkingContent(holder, message);
-                        }
-                    }
-                });
-            }
-        } else {
-            holder.thinkingLabel.setVisibility(View.GONE);
-            holder.thinkingContent.setVisibility(View.GONE);
-        }
-
-        if (holder.thinkingDivider != null) {
-            holder.thinkingDivider.setVisibility(showDivider ? View.VISIBLE : View.GONE);
-        }
+        updateThinkingSectionV2(holder, message, isStreaming);
     }
 
-    /**
-     * 更新思考标签文字
-     * @param expanded 是否展开
-     * @param isStreaming 是否处于流式生成中
-     * @param message 绑定消息（折叠+流式时用于实时思考预览）
-     */
-    private void updateThinkingLabel(AIMessageViewHolder holder, boolean expanded, boolean isStreaming, ChatMessage message) {
-        Context ctx = holder.thinkingLabel.getContext();
-        holder.thinkingLabel.setMaxLines(2);
-        holder.thinkingLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        // 实时行只显示"正在进行的这一轮"。
-        // 以前 thinkingContent 为空时会退回取 rounds[0] 当预览源——那是"统一折叠"时代的遗产
-        // （这一行是全部轮次的唯一入口）；现在每一轮有自己的行，再取 rounds[0]
-        // 就会让第 1 轮的文本同时出现在"第 1 轮思考"和实时行两处。
-        String previewSource = "";
-        if (message != null && message.thinkingContent != null) {
-            previewSource = message.thinkingContent;
-        }
-        // 实时行是第几轮：已定稿 N 轮 → 正在跑的就是第 N+1 轮
-        final int liveRoundNo = (message != null && message.thinkingRounds != null)
-                ? message.thinkingRounds.size() + 1 : 1;
-        final String liveLabel = ctx.getString(R.string.chat_v2_think_round_live, liveRoundNo);
-        if (isStreaming) {
-            if (expanded) {
-                holder.thinkingLabel.setText(liveLabel);
-            } else {
-                String preview = thinkingPreview(previewSource, true);
-                if (!preview.isEmpty()) {
-                    holder.thinkingLabel.setText(liveLabel + " · " + preview + "…");
-                } else {
-                    holder.thinkingLabel.setText(R.string.chat_thinking_streaming_expand);
-                }
-            }
-        } else {
-            if (expanded) {
-                holder.thinkingLabel.setText(R.string.chat_thinking_expanded);
-            } else {
-                String preview = thinkingPreview(previewSource, false);
-                if (!preview.isEmpty()) {
-                    holder.thinkingLabel.setText(
-                            thinkingPrefix(ctx, holder.v2Look, false) + preview + "…");
-                } else {
-                    holder.thinkingLabel.setText(R.string.chat_thinking_collapsed);
-                }
-            }
-        }
-    }
 
-    /**
-     * 折叠行的文字前缀。旧版在深蓝壁纸上没有图标，所以用 🧠/ 当视觉锚点；
-     * v2 的 think-line 左侧已经带了品牌色星形图标，再留 emoji 就是重复装饰，
-     * 也违反"新 UI 不用 emoji 图标"的口径 —— 所以 v2 走纯文字前缀。
-     *
-     * @param v2Look    holder 建视图时的档位（不重读开关，避免"v1 的树用 v2 前缀"）
-     * @param streaming 是否流式生成中（"思考中" vs 已完成的"思考过程"）
-     */
-    private String thinkingPrefix(Context ctx, boolean v2Look, boolean streaming) {
-        if (v2Look) {
-            return ctx.getString(streaming
-                    ? R.string.chat_v2_thinking_prefix_streaming : R.string.chat_v2_thinking_prefix_done);
-        }
-        return streaming ? "🧠 思考中：" : "💭 思考过程：";
-    }
 
     /**
      * dsh ReasoningRow.latestCompletedParagraphFirstLine 移植：取"最新已完成段落"的首行作折叠摘要。
@@ -3333,97 +2425,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return true;
     }
 
-    /** 取消思考区进行中的展开/折叠动画（点击切换/流式更新前调用，防止动画竞争 height） */
-    private void cancelThinkingAnimator(AIMessageViewHolder holder) {
-        if (holder.thinkingAnimator != null) {
-            try {
-                holder.thinkingAnimator.cancel();
-            } catch (Throwable ignored) {
-            }
-            holder.thinkingAnimator = null;
-        }
-    }
-
-    private void expandThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
-        boolean isStreaming = message.status == ChatMessage.MessageStatus.GENERATING
-                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-        cancelThinkingAnimator(holder);
-        holder.thinkingContent.setVisibility(View.VISIBLE);
-        final int targetHeight = holder.thinkingContent.getHeight();
-        if (targetHeight == 0) {
-            holder.thinkingContent.measure(
-                View.MeasureSpec.makeMeasureSpec(holder.thinkingContent.getWidth(), View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-            );
-            final int measuredHeight = holder.thinkingContent.getMeasuredHeight();
-            holder.thinkingContent.getLayoutParams().height = 0;
-            holder.thinkingContent.requestLayout();
-
-            ValueAnimator animator = ValueAnimator.ofInt(0, measuredHeight);
-            holder.thinkingAnimator = animator;
-            animator.addUpdateListener(animation -> {
-                holder.thinkingContent.getLayoutParams().height = (int) animation.getAnimatedValue();
-                holder.thinkingContent.requestLayout();
-            });
-            animator.addListener(new android.animation.AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(android.animation.Animator animation) {
-                    holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                    holder.thinkingContent.requestLayout();
-                }
-            });
-            animator.setDuration(250);
-            animator.setInterpolator(new android.view.animation.DecelerateInterpolator());
-            animator.start();
-        } else {
-            holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-        }
-        message.thinkingExpanded = true;
-        updateThinkingLabel(holder, true, isStreaming, message);
-        if (holder.thinkingDivider != null) {
-            holder.thinkingDivider.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void collapseThinkingContent(AIMessageViewHolder holder, ChatMessage message) {
-        boolean isStreaming = message.status == ChatMessage.MessageStatus.GENERATING
-                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-        final int initialHeight = holder.thinkingContent.getHeight();
-        if (initialHeight == 0) {
-            cancelThinkingAnimator(holder);
-            holder.thinkingContent.setVisibility(View.GONE);
-            message.thinkingExpanded = false;
-            updateThinkingLabel(holder, false, isStreaming, message);
-            if (holder.thinkingDivider != null) {
-                holder.thinkingDivider.setVisibility(View.GONE);
-            }
-            return;
-        }
-
-        cancelThinkingAnimator(holder);
-        ValueAnimator animator = ValueAnimator.ofInt(initialHeight, 0);
-        holder.thinkingAnimator = animator;
-        animator.addUpdateListener(animation -> {
-            holder.thinkingContent.getLayoutParams().height = (int) animation.getAnimatedValue();
-            holder.thinkingContent.requestLayout();
-        });
-        animator.addListener(new android.animation.AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(android.animation.Animator animation) {
-                holder.thinkingContent.setVisibility(View.GONE);
-                holder.thinkingContent.getLayoutParams().height = ViewGroup.LayoutParams.WRAP_CONTENT;
-            }
-        });
-        animator.setDuration(200);
-        animator.setInterpolator(new android.view.animation.AccelerateInterpolator());
-        animator.start();
-
-        message.thinkingExpanded = false;
-        updateThinkingLabel(holder, false, isStreaming, message);
-        if (holder.thinkingDivider != null) {
-            holder.thinkingDivider.setVisibility(View.GONE);
-        }
-    }
 
     /**
      * 判断 position 是否为列表中最后一条可交互 AI 消息（操作栏/统计/时间只显示在此）。
@@ -3581,133 +2582,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             case "vulkan":  return "Vulkan";
             case "auto":    return "自动";
             default:        return "GPU";
-        }
-    }
-
-    /**
-     * 绑定在线模型信息
-     */
-    /**
-     * 绑定在线模型信息条：委托 MetricCardView 组件（type=metric_card）。
-     * 保留旧 holder 字段兼容（回收时清空），主体走 ComponentRegistry 渲染，
-     * Agent 端也可通过下发 metric_card 组件复用同一渲染管线。
-     */
-    private void bindModelInfo(AIMessageViewHolder holder, ChatMessage message) {
-        if (holder.modelInfoContainer == null) return;
-        // v2（2026-10-20 S3）：模型名/延迟/成本不再占消息行——技术信息统一进
-        // 「点时间戳 → 消息详情」的卡片（buildDetailHtml 里本来就有这一段）。
-        if (holder.v2Look) {
-            holder.modelInfoContainer.setVisibility(View.GONE);
-            return;
-        }
-        if (!(holder.modelInfoContainer instanceof LinearLayout)) {
-            // 兼容旧结构：走原路径
-            bindModelInfoLegacy(holder, message);
-            return;
-        }
-        LinearLayout container = (LinearLayout) holder.modelInfoContainer;
-        if (message.modelInfo == null || message.modelInfo.modelName == null
-                || message.modelInfo.modelName.isEmpty()) {
-            container.setVisibility(View.GONE);
-            container.removeAllViews();
-            return;
-        }
-        // 缓存上一次渲染，避免流式重复 bind 抖动
-        final String key = modelInfoCacheKey(message.modelInfo);
-        Object cachedTag = container.getTag();
-        if (cachedTag instanceof String && cachedTag.equals(key)) {
-            container.setVisibility(View.VISIBLE);
-            return;
-        }
-        container.removeAllViews();
-        try {
-            org.json.JSONArray metrics = new org.json.JSONArray();
-            metrics.put(new org.json.JSONObject()
-                    .put("label", "模型")
-                    .put("value", message.modelInfo.modelName)
-                    .put("color", "primary"));
-            if (message.modelInfo.status > 0) {
-                metrics.put(new org.json.JSONObject()
-                        .put("label", "状态")
-                        .put("value", message.modelInfo.getStatusText())
-                        .put("color", message.modelInfo.status == 1 ? "success"
-                                : message.modelInfo.status == 3 ? "error" : "warning"));
-            }
-            if (message.modelInfo.latencyMs > 0) {
-                metrics.put(new org.json.JSONObject()
-                        .put("label", "延迟")
-                        .put("value", formatLatency(message.modelInfo.latencyMs)));
-            }
-            if (message.modelInfo.costEstimate > 0) {
-                metrics.put(new org.json.JSONObject()
-                        .put("label", "成本")
-                        .put("value", String.format(Locale.getDefault(),
-                                "$%.4f", message.modelInfo.costEstimate))
-                        .put("color", "accent"));
-            }
-            org.json.JSONObject props = new org.json.JSONObject().put("metrics", metrics);
-            ComponentData data = new ComponentData("metric_card", props);
-            View v = ComponentRegistry.getInstance().render(container.getContext(), data);
-            if (v != null) {
-                container.addView(v);
-                container.setVisibility(View.VISIBLE);
-                container.setTag(key);
-            } else {
-                // 组件不可用回退旧结构
-                bindModelInfoLegacy(holder, message);
-            }
-        } catch (Throwable t) {
-            bindModelInfoLegacy(holder, message);
-        }
-    }
-
-    /** 模型信息指纹：字段变化才重渲染 */
-    private static String modelInfoCacheKey(ChatMessage.ModelInfo mi) {
-        if (mi == null) return "null";
-        return (mi.modelName == null ? "" : mi.modelName) + "|" + mi.status + "|"
-                + mi.latencyMs + "|" + mi.costEstimate;
-    }
-
-    /** 旧的 4-TextView 渲染路径，作为组件不可用时的回退 */
-    private void bindModelInfoLegacy(AIMessageViewHolder holder, ChatMessage message) {
-        if (message.modelInfo == null) {
-            if (holder.modelInfoContainer != null) holder.modelInfoContainer.setVisibility(View.GONE);
-            return;
-        }
-        holder.modelInfoContainer.setVisibility(View.VISIBLE);
-        if (holder.modelNameText != null) {
-            holder.modelNameText.setText(message.modelInfo.modelName != null ? message.modelInfo.modelName : "");
-        }
-        if (holder.modelStatusIndicator != null) {
-            int ind;
-            switch (message.modelInfo.status) {
-                case 1: ind = R.drawable.status_indicator_online; break;
-                case 2: ind = R.drawable.status_indicator_offline; break;
-                case 3: ind = R.drawable.status_indicator_error; break;
-                default: ind = R.drawable.status_indicator_unknown; break;
-            }
-            holder.modelStatusIndicator.setBackgroundResource(ind);
-        }
-        if (holder.modelLatencyText != null) {
-            if (message.modelInfo.latencyMs > 0) {
-                holder.modelLatencyText.setVisibility(View.VISIBLE);
-                holder.modelLatencyText.setText(formatLatency(message.modelInfo.latencyMs));
-            } else holder.modelLatencyText.setVisibility(View.GONE);
-        }
-        if (holder.modelCostText != null) {
-            if (message.modelInfo.costEstimate > 0) {
-                holder.modelCostText.setVisibility(View.VISIBLE);
-                holder.modelCostText.setText(String.format(Locale.getDefault(),
-                        "$%.4f", message.modelInfo.costEstimate));
-            } else holder.modelCostText.setVisibility(View.GONE);
-        }
-    }
-
-    private String formatLatency(long latencyMs) {
-        if (latencyMs < 1000) {
-            return latencyMs + "ms";
-        } else {
-            return String.format(Locale.getDefault(), "%.1fs", latencyMs / 1000.0);
         }
     }
 
@@ -5966,13 +4840,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ImageView statusIcon;
         TextView statusText;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
-        /** 日期分隔行（demo .day，仅 v2 布局有；旧版布局 findViewById 返回 null） */
+        /** 日期分隔行（demo .day） */
         TextView dayLabel;
-        /**
-         * 本 holder 的视图树是否按 v2 档建的（与 AIMessageViewHolder#v2Look 同口径）。
-         * 绑定期所有"档位相关"的判断只读它，不再重读 {@code chat_ui_v2}。
-         */
-        boolean v2Look;
 
         UserMessageViewHolder(View itemView) {
             super(itemView);
@@ -5991,7 +4860,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 仅用于 createAiMessageItem 动态路径；其直接子 View 是实际内容根。
      */
     static class DynamicAiMessageRoot extends LinearLayout {
-        final TextView blockLabel;
         final TextView messageText;
         final LinearLayout contentHost;
         final LinearLayout componentContainer;
@@ -6000,14 +4868,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final View thinkingDivider;
         final TextView agentStatus;
         final TextView agentSummary;
-        final View actionButtons;
-        final TextView btnCopy;
-        final TextView btnSpeak;
-        final TextView btnShare;
-        final TextView btnRegenerate;
-        final TextView btnNewChat;
-        final TextView btnLike;
-        final TextView btnDislike;
         final TextView btnStop;
         final TextView btnPause;
         final TextView btnStep;
@@ -6017,31 +4877,17 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final ImageView statusIcon;
         final TextView statusText;
         final InferenceProgressView inferenceProgressView;
-        final AgentExecutionView agentExecutionView;
-        final LinearLayout agentProgressSlot;
-        final LinearLayout agentTimelineSlot;
         final androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
-        final View modelInfoContainer;
-        final View modelStatusIndicator;
-        final TextView modelNameText;
-        final TextView modelLatencyText;
-        final TextView modelCostText;
 
-        DynamicAiMessageRoot(Context ctx, TextView blockLabel, TextView messageText,
+        DynamicAiMessageRoot(Context ctx, TextView messageText,
                 LinearLayout contentHost, LinearLayout componentContainer, TextView thinkingLabel,
-                TextView thinkingContent, View thinkingDivider, TextView agentStatus, TextView agentSummary,
-                View actionButtons, TextView btnCopy, TextView btnSpeak, TextView btnShare,
-                TextView btnRegenerate, TextView btnNewChat, TextView btnLike, TextView btnDislike,
-                TextView btnStop, TextView btnPause, TextView btnStep, TextView btnRewind,
-                LinearLayout agentControlBar, TextView timestampText, ImageView statusIcon,
-                TextView statusText, InferenceProgressView inferenceProgressView,
-                AgentExecutionView agentExecutionView, LinearLayout agentProgressSlot,
-                LinearLayout agentTimelineSlot,
-                androidx.recyclerview.widget.RecyclerView attachmentsRecycler, View modelInfoContainer,
-                View modelStatusIndicator, TextView modelNameText, TextView modelLatencyText,
-                TextView modelCostText) {
+                TextView thinkingContent, View thinkingDivider, TextView agentStatus,
+                TextView agentSummary, TextView btnStop, TextView btnPause, TextView btnStep,
+                TextView btnRewind, LinearLayout agentControlBar, TextView timestampText,
+                ImageView statusIcon, TextView statusText,
+                InferenceProgressView inferenceProgressView,
+                androidx.recyclerview.widget.RecyclerView attachmentsRecycler) {
             super(ctx);
-            this.blockLabel = blockLabel;
             this.messageText = messageText;
             this.contentHost = contentHost;
             this.componentContainer = componentContainer;
@@ -6050,14 +4896,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.thinkingDivider = thinkingDivider;
             this.agentStatus = agentStatus;
             this.agentSummary = agentSummary;
-            this.actionButtons = actionButtons;
-            this.btnCopy = btnCopy;
-            this.btnSpeak = btnSpeak;
-            this.btnShare = btnShare;
-            this.btnRegenerate = btnRegenerate;
-            this.btnNewChat = btnNewChat;
-            this.btnLike = btnLike;
-            this.btnDislike = btnDislike;
             this.btnStop = btnStop;
             this.btnPause = btnPause;
             this.btnStep = btnStep;
@@ -6067,20 +4905,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.statusIcon = statusIcon;
             this.statusText = statusText;
             this.inferenceProgressView = inferenceProgressView;
-            this.agentExecutionView = agentExecutionView;
-            this.agentProgressSlot = agentProgressSlot;
-            this.agentTimelineSlot = agentTimelineSlot;
             this.attachmentsRecycler = attachmentsRecycler;
-            this.modelInfoContainer = modelInfoContainer;
-            this.modelStatusIndicator = modelStatusIndicator;
-            this.modelNameText = modelNameText;
-            this.modelLatencyText = modelLatencyText;
-            this.modelCostText = modelCostText;
         }
     }
 
     static class AIMessageViewHolder extends RecyclerView.ViewHolder {
-        TextView blockLabel;
         TextView messageText;
         /** 纯文本气泡的 WebView 渲染器（webMarkdownEnabled 时接管正文，与 messageText 二选一显示） */
         MarkdownWebView markdownView;
@@ -6100,44 +4929,30 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         List<View> componentSegmentViews;
         /** 组件段指纹（type|props 序列）：与缓存 View 对应，指纹不变则复用 */
         String componentSegmentsFingerprint;
-        /** 轮次组装（contentRoundBounds 工具轮次消息）结构指纹：E/F 展开态 + K/T/C(含组件props) 序列，
-         *  结构未变时流式更新只刷正文段、不重建容器与工具卡片（2026-10-07 本地 Agent 闪烁修复） */
+        /** 轮次组装（contentRoundBounds 工具轮次消息）结构指纹：T 正文段 + P 产物卡序列，
+         *  结构未变时流式更新只刷正文段、不重建容器与产物卡（2026-10-07 本地 Agent 闪烁修复） */
         String roundStructureFingerprint;
         /** 与 roundStructureFingerprint 对应的已挂载子 View 数（增量路径校验用） */
         int roundRenderedChildren;
         /** Agent 汇总卡片组件挂载视图（MetricCardView 渲染结果）；null 表示走文本回退 */
         View agentSummarySlot;
-        /** v2 工具活动行（demo .tool-line 整块：行 + 折叠明细）；旧版布局下为 null */
-        View toolSection;
         /**
-         * 日期分隔行（demo .day，仅 v2 建）。null 表示当前界面档位没这个控件。
-         * 与 markdownView 一样在 createAiMessageItem 里建好后直接挂 holder，
-         * 不进 DynamicAiMessageRoot 那 36 参构造器。
+         * 日期分隔行（demo .day）。与 markdownView 一样在 createAiMessageItem 里建好后
+         * 直接挂 holder，不进 DynamicAiMessageRoot 构造器。
          */
         TextView dayLabel;
-        /**
-         * v2 操作段整行（三图标 + 更多）。2026-10-20 S3 起图标/面板直接调 doXxx 动作方法，
-         * 不再依赖旧胶囊；旧胶囊（v1 档）保留到 S5 与布局一起删。
-         */
+        /** 操作段整行（三图标 + 更多）；动作走 doCopy/doRegenerate/...，不依赖旧胶囊 */
         LinearLayout v2ActionRow;
         ImageView v2BtnCopy;
         ImageView v2BtnRegenerate;
         ImageView v2BtnMore;
         /**
-         * 已定稿思考轮的容器（2026-10-20：每轮一行、每行独立折叠）。
-         * 顺序 = 第 1 轮 … 第 N 轮 → 实时思考行（thinkingLabel / thinkingContent 那一行）。
+         * 活动区行容器（已定稿思考轮 + 工具行）。
+         * 顺序 = 第 1 行 … 第 N 行 → 实时思考行（thinkingLabel / thinkingContent）。
          */
         LinearLayout thinkingRowsHost;
-        /** v2 think-line 的箭头：整节展开态由它表示（ThinkLineBody 只跟正文显隐） */
+        /** think-line 的箭头：整节展开态由它表示（ThinkLineBody 只跟正文显隐） */
         ImageView thinkingChevron;
-        /**
-         * 本 holder 的视图树是否按 v2 档建的。
-         * 思考行外观必须跟"建树时"的档位一致——开关是运行时可改的，
-         * 绑定时重读会出现"旧版树里塞一条 v2 思考行"的混排。
-         */
-        boolean v2Look;
-        /** 工具行明细的内容指纹（工具名|状态|参数摘要序列）：流式重绑时结构没变就不重建 */
-        String toolLineFp;
         /**
          * 活动时间线（思考 + 工具）的行指纹（2026-10-20 S2）。
          * 行种类/锚点/状态/耗时/展开位不变就不重建行容器，流式期间只刷 header 与实时正文。
@@ -6145,25 +4960,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         String activityFp;
         /** Agent 汇总卡片的指纹缓存，字段变化才重渲染 */
         String agentSummaryFp;
-        /** Agent 执行面板指纹缓存（blocks 数 + 当前步 + tokens + status） */
-        String agentExecFp;
-        /** Agent 执行面板已呈现的 block 数（增量 addLogEntry 用） */
-        int agentExecBlockCount = -1;
-        /** 思考区展开/折叠动画：点击切换时先取消旧动画，防止连续点击/流式更新时动画竞争 */
-        android.animation.ValueAnimator thinkingAnimator;
         TextView thinkingLabel;
         TextView thinkingContent;
         View thinkingDivider;
         TextView agentStatus;
         TextView agentSummary;
-        View actionButtons;
-        TextView btnCopy;
-        TextView btnSpeak;
-        TextView btnShare;
-        TextView btnRegenerate;
-        TextView btnNewChat;
-        TextView btnLike;
-        TextView btnDislike;
         TextView btnStop;
         TextView btnPause;
         TextView btnStep;
@@ -6173,26 +4974,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ImageView statusIcon;
         TextView statusText;
         InferenceProgressView inferenceProgressView;
-        AgentExecutionView agentExecutionView;
-        LinearLayout agentProgressSlot;
-        LinearLayout agentTimelineSlot;
-        /** Agent 进度环指纹缓存（steps/tokens 变化才重渲染） */
-        String agentProgressFp;
-        /** Agent 时间线指纹缓存（block 数+最后状态变化才重渲染） */
-        String agentTimelineFp;
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler;
-        // 在线模型信息
-        View modelInfoContainer;
-        View modelStatusIndicator;
-        TextView modelNameText;
-        TextView modelLatencyText;
-        TextView modelCostText;
 
         AIMessageViewHolder(View itemView) {
             super(itemView);
             // AI 消息完全动态构建（createAiMessageItem），itemView 必为 DynamicAiMessageRoot
             DynamicAiMessageRoot dr = (DynamicAiMessageRoot) itemView;
-            this.blockLabel = dr.blockLabel;
             this.messageText = dr.messageText;
             this.contentHost = dr.contentHost;
             this.componentContainer = dr.componentContainer;
@@ -6201,14 +4988,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.thinkingDivider = dr.thinkingDivider;
             this.agentStatus = dr.agentStatus;
             this.agentSummary = dr.agentSummary;
-            this.actionButtons = dr.actionButtons;
-            this.btnCopy = dr.btnCopy;
-            this.btnSpeak = dr.btnSpeak;
-            this.btnShare = dr.btnShare;
-            this.btnRegenerate = dr.btnRegenerate;
-            this.btnNewChat = dr.btnNewChat;
-            this.btnLike = dr.btnLike;
-            this.btnDislike = dr.btnDislike;
             this.btnStop = dr.btnStop;
             this.btnPause = dr.btnPause;
             this.btnStep = dr.btnStep;
@@ -6218,15 +4997,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.statusIcon = dr.statusIcon;
             this.statusText = dr.statusText;
             this.inferenceProgressView = dr.inferenceProgressView;
-            this.agentExecutionView = dr.agentExecutionView;
-            this.agentProgressSlot = dr.agentProgressSlot;
-            this.agentTimelineSlot = dr.agentTimelineSlot;
             this.attachmentsRecycler = dr.attachmentsRecycler;
-            this.modelInfoContainer = dr.modelInfoContainer;
-            this.modelStatusIndicator = dr.modelStatusIndicator;
-            this.modelNameText = dr.modelNameText;
-            this.modelLatencyText = dr.modelLatencyText;
-            this.modelCostText = dr.modelCostText;
         }
     }
 

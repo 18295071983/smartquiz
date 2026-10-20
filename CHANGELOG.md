@@ -1,5 +1,60 @@
 # 变更日志
 
+## [2026-10-20 深夜] 合并 S5：删掉 v1 消息层、旧布局/资源与界面开关，只剩一套渲染
+
+### 查到的事实
+
+- S3 解耦之后，v1 的消息树已经没有任何运行时价值，但它还在：`createAiMessageItem` 里 10 处
+  `if (uiV2)` 的 else 腿、7 颗文字胶囊、AI 侧 `blockLabel`、模型信息行、Agent 执行面板/进度环/
+  timeline 三个重复渲染器、v1 思考拼接段与高度动画、`toolSection` 与 `renderToolLine`。
+- `AGENT_STEP` 与 `THINKING` 的独立条目早已没有生产者，只剩旧数据兼容；它们的 v1 布局
+  与 v2 布局控件 id 完全一致，因此只保留 `_v2` 文件即可。
+- 旧布局/资源删前逐个 grep 过：`item_user_message.xml` / `item_thinking_message.xml` /
+  `item_agent_step_message.xml` / `view_chat_input_bar.xml` 只剩各自 inflate 一处引用；
+  `message_card_thinking` / `agent_step_tag_background` / `user_message_background`
+  只被对应 v1 布局引用；`ai_message_background` 仍被 `item_inference_progress` 使用，保留。
+- Agent 控制条的胶囊仍用半透明白描边（报告 §3②），浅底上几乎看不见；三颗按钮还是
+  `⏸/👣/⏮` + 硬编码中文。
+- `updateThinkingSectionV2` 顶部无条件 `host.removeAllViews()`，把 S2 的行指纹架空了——
+  每次绑定时都重建活动行（流式下每 token 一次）。
+
+### 由此改掉的事
+
+- **消息树只剩 v2**：删掉 `createAiMessageItem` 的 `uiV2` 与全部 else 腿；
+  USER/THINKING/AGENT_STEP/输入栏一律 inflate `_v2`；日期分隔、无气泡正文、`chat_v2_*` 色
+  成为唯一路径。
+- **删掉**：7 颗文字胶囊与 `DynamicAiMessageRoot` 对应 9 个构造参数、AI `blockLabel`、
+  模型信息行（技术信息改由"点时间戳 → 消息详情"承载）、Agent 执行面板/进度环/timeline
+  三个渲染器、`renderToolLine` + `buildToolRow` + `collectToolComponents` 等 helper、
+  v1 思考拼接段、`updateThinkingLabel`/`thinkingPrefix`、展开/折叠高度动画与 `thinkingAnimator`、
+  `addRoundThinkingBlock`/`roundExpandedBit`、`v2Look` 档位字段。
+- **`updateThinkingContent` 收成三行**：只算 `isStreaming` 后交给 `updateThinkingSectionV2`；
+  活动行指纹恢复生效（顶部那句 `removeAllViews()` 已删）。
+- **开关整体删除**：`ChatUiFlags`、`ChatUiSetting`、抽屉按钮 `btn_chat_ui_mode`、
+  `ChatUiV2Chrome`/`ChatV2EmptyState`/`ChatInputBar` 里的开关判断、`chat_ui_mode_*` 与
+  `chat_v2_ui_switch/restart_hint` 字符串全部移除。进页面即 v2，没有回退开关。
+- **资源删除**：`item_user_message.xml`、`item_thinking_message.xml`、
+  `item_agent_step_message.xml`、`view_chat_input_bar.xml`、`view_chat_v2_tool_line.xml`、
+  `message_card_thinking.xml`、`agent_step_tag_background.xml`、`user_message_background.xml`。
+- **顺手修报告 §3②**：Agent 控制条（暂停/单步/回退）改读 `chat_v2_border_strong` /
+  `chat_v2_surface_2`，去掉白描边；文案去 emoji 走 `strings.xml`；
+  停止生成文案改用 `chat_stop_generating`。
+- 删掉 4 条只被已删代码引用的字符串（`chat_v2_thought_for`、`chat_v2_tool_more`、
+  两个 `chat_v2_thinking_prefix_*`）。
+
+### 验证
+
+- `compileDebugJavaWithJavac`、`assembleDebug` 通过；全量 `testDebugUnitTest` =
+  **43 类 / 454 tests / 0 skipped / 0 failures / 0 errors**；APK 已重出。
+- 资源侧靠编译与 `assembleDebug` 的 `processDebugResources` 兜住（删掉的布局/颜色/字符串
+  仍有引用会在这里红）。
+- **真机未验**：S2–S5 的全部视觉与交互（活动时间线、工具行展开、三图标/更多面板、
+  暂停/单步/回退新配色、无开关后的首屏）。设备仍不在 adb 上。
+- **仍保留的壳层**：`service_status_bar` / `remote_dsh_bar` / `log_container` /
+  `session_stats_bar` / `empty_state_view` 仍在 `activity_ai_chat.xml` 里被隐藏，
+  因为它们是「⋯」信息面板的读数源；彻底删需要先引入 `ChatShellState`（原 P3c，未做）。
+  旧 `THINKING` / `TOOL_CALL` / `AGENT_STEP` 行仍保留 `_v2` 布局做旧数据兼容。
+
 ## [2026-10-20 夜] 合并 S3–S4：动作抽成真方法（去掉 performClick 转发）、模型/状态行收敛、入场动效收轻
 
 ### 查到的事实

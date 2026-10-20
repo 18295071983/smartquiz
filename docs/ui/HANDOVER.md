@@ -806,6 +806,36 @@ header 显示"已深度思考 4.6s · 2 步"，下面两行分别是
    AI `blockLabel`、`ChatUiFlags`/`ChatUiSetting`。动 `DynamicAiMessageRoot` 构造器时
    按"减参"处理，不要顺手扩参。
 
+### 4.12 合并 S5 落地记录（2026-10-20 深夜，真机未验）：只剩一套渲染
+
+1. **消息树只剩 v2**：`createAiMessageItem` 的 `uiV2` 与全部 else 腿已删；USER/THINKING/
+   AGENT_STEP/输入栏一律 inflate `_v2`；日期分隔、无气泡正文、`chat_v2_*` 色成为唯一路径。
+   `DynamicAiMessageRoot` 从 36 参减到 19 参，`AIMessageViewHolder` 同步减字段。
+2. **删掉的重复渲染**：7 颗文字胶囊、AI `blockLabel`、模型信息行、Agent 执行面板/进度环/
+   timeline、`toolSection` + `renderToolLine` + `buildToolRow` + `collectToolComponents`、
+   v1 思考拼接段、`updateThinkingLabel`/`thinkingPrefix`、高度动画与 `thinkingAnimator`、
+   `addRoundThinkingBlock`/`roundExpandedBit`、`v2Look` 档位字段。
+   `updateThinkingContent` 收成"算 isStreaming → updateThinkingSectionV2"。
+3. **修掉一处 S2 遗留的性能问题**：`updateThinkingSectionV2` 顶部原先无条件
+   `host.removeAllViews()`，让活动行指纹永远命中不了、流式每个 token 都重建行；
+   已删掉这句，指纹现在真正生效。
+4. **开关删除**：`ChatUiFlags`、`ChatUiSetting`、抽屉按钮、三处 `isUiV2Enabled` 判断、
+   `chat_ui_mode_*` / `chat_v2_ui_switch` / `chat_v2_restart_hint` 字符串全部移除。
+   没有回退开关，回退靠 git。
+5. **资源删除**：`item_user_message.xml`、`item_thinking_message.xml`、
+   `item_agent_step_message.xml`、`view_chat_input_bar.xml`、`view_chat_v2_tool_line.xml`、
+   `message_card_thinking.xml`、`agent_step_tag_background.xml`、`user_message_background.xml`。
+   `ai_message_background` 保留（`item_inference_progress` 仍在用）。
+6. **顺手修报告 §3②**：Agent 控制条改读 `chat_v2_border_strong` / `chat_v2_surface_2`，
+   去掉深蓝壁纸时代的白描边；暂停/单步/回退与停止生成文案去 emoji 并走 strings。
+7. **验证**：`compileDebugJavaWithJavac` + `assembleDebug` 通过；全量单测
+   **454 / 0 skipped / 0 failed / 0 errors**；APK 已重出。
+   **真机未验**：S2–S5 的全部视觉与交互。
+8. **仍保留**：`service_status_bar` / `remote_dsh_bar` / `log_container` /
+   `session_stats_bar` / `empty_state_view` 仍在布局里被隐藏，作为「⋯」面板的读数源；
+   彻底删需要 `ChatShellState`（原 P3c）。旧 THINKING/TOOL_CALL/AGENT_STEP 行保留 `_v2`
+   布局做旧数据兼容。
+
 ---
 
 ## 5. 关键文件 / 改动地图

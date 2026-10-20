@@ -26,9 +26,9 @@ import com.oilquiz.app.theme.ThemeColors;
  * 聊天页 v2 外壳（Track A0）：一屏只留 顶栏 / 对话流 / 输入胶囊 三层。
  *
  * <p>做法是<b>运行时改造现有布局</b>而不是重写 {@code activity_ai_chat.xml}：
- * 开关（{@link ChatUiFlags} 默认关）打开时，把技术信息行（服务状态条、远程 DSH 连接条、
- * 统计条里的 token 段、日志面板）收起来，插一条只讲"在和哪个模型说话"的顶栏，
- * 技术细节改由右上「⋯」的 BottomSheet 承载。这样新旧两套能并行跑，出问题关开关即回原样。
+ * 把技术信息行（服务状态条、远程 DSH 连接条、统计条里的 token 段、日志面板）收起来，
+ * 插一条只讲"在和哪个模型说话"的顶栏，技术细节改由右上「⋯」的 BottomSheet 承载。
+ * （2026-10-20 S5：v1 已删除，本类不再有开关，进页面即改造。）
  *
  * <p>数据来源不另起一套：被收起的那几个 TextView 仍由原有逻辑刷新，
  * 打开面板时直接读它们的当前值，避免在 {@code AIChatActivity} 里再插一遍更新代码。
@@ -84,11 +84,10 @@ public final class ChatUiV2Chrome {
         }
     }
 
-    /** 开关关闭时什么都不做；开启时改造外壳 */
+    /** 改造外壳（2026-10-20 S5 起无开关，进页面即生效） */
     public static void apply(Activity activity) {
         if (activity == null) return;
         try {
-            if (!ChatUiFlags.isUiV2Enabled(activity)) return;
             doApply(activity);
         } catch (Throwable t) {
             // 外壳改造失败只影响视觉，绝不能让聊天页起不来
@@ -289,8 +288,6 @@ public final class ChatUiV2Chrome {
                     Toast.makeText(ctx, R.string.chat_v2_no_data, Toast.LENGTH_SHORT).show();
                 }
             });
-            // 界面开关已搬到工具抽屉（ChatUiSetting）：面板只在 v2 存在，
-            // 留在这里就是一个只能关、不能开的单向门，而且切换后不重建页面会造成分脑。
             sheet.setContentView(box);
             sheet.show();
         } catch (Throwable t) {

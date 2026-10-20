@@ -324,22 +324,6 @@
             android:paddingHorizontal="8dp"
             android:minWidth="@dimen/min_0"/>
 
-        <!-- 聊天页界面档位（2026-10-20）：旧版/新版二选一，切完立即重建。
-             放在抽屉里而不是 v2 的「⋯」面板里——面板只在 v2 存在，从旧版切不到新版。 -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_chat_ui_mode"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/size_40"
-            android:layout_marginTop="@dimen/space_8"
-            android:text="@string/chat_ui_mode_button_v2"
-            android:textSize="@dimen/text_12"
-            android:textColor="?attr/colorOnSecondaryContainer"
-            app:backgroundTint="?attr/colorSecondaryContainer"
-            app:cornerRadius="@dimen/radius_12"
-            android:textAllCaps="false"
-            android:paddingHorizontal="8dp"
-            android:minWidth="@dimen/min_0"/>
-
         <!-- 系统日志（统一日志中心：AppLogger + AILogger + 崩溃报告 + 操作记录） -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_log_viewer"

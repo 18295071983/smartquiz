@@ -11,7 +11,6 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
 import com.oilquiz.app.R;
-import com.oilquiz.app.ai.chat.ui.ChatUiFlags;
 
 /**
  * 聊天输入栏组件（全局可复用）。
@@ -57,22 +56,18 @@ public class ChatInputBar extends LinearLayout {
     }
 
     private void init(Context context) {
-        boolean v2 = ChatUiFlags.isUiV2Enabled(context);
-        // v2 是「生成提示行 + 胶囊」两层竖排，胶囊内部自己横向排控件；旧版整块只有一行
-        setOrientation(v2 ? VERTICAL : HORIZONTAL);
+        // 「生成提示行 + 胶囊」两层竖排，胶囊内部自己横向排控件
+        setOrientation(VERTICAL);
         setGravity(android.view.Gravity.CENTER_VERTICAL);
-        LayoutInflater.from(context).inflate(
-                v2 ? R.layout.view_chat_input_bar_v2 : R.layout.view_chat_input_bar, this, true);
+        LayoutInflater.from(context).inflate(R.layout.view_chat_input_bar_v2, this, true);
         inputMessage = findViewById(R.id.input_message);
         btnAttach = findViewById(R.id.btn_attach);
         btnVoice = findViewById(R.id.btn_voice);
         btnSend = findViewById(R.id.btn_send);
         btnStopGeneration = findViewById(R.id.btn_stop_generation);
-        if (v2) {
-            genRow = findViewById(R.id.chat_v2_gen_row);
-            genDot = findViewById(R.id.chat_v2_gen_dot);
-            genText = findViewById(R.id.chat_v2_gen_text);
-        }
+        genRow = findViewById(R.id.chat_v2_gen_row);
+        genDot = findViewById(R.id.chat_v2_gen_dot);
+        genText = findViewById(R.id.chat_v2_gen_text);
     }
 
     // ==================== 控件 getter ====================

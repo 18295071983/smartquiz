@@ -56,12 +56,11 @@ public final class ChatV2EmptyState {
     }
 
     /**
-     * 开关关闭、或页面上没有 v2 空状态视图时返回 null（调用方按 null 走旧逻辑）。
+     * 页面上没有 v2 空状态视图时返回 null（调用方按 null 走兜底逻辑）。
      */
     public static ChatV2EmptyState bind(Activity activity, Listener listener) {
         if (activity == null || listener == null) return null;
         try {
-            if (!ChatUiFlags.isUiV2Enabled(activity)) return null;
             View root = activity.findViewById(R.id.empty_state_v2_view);
             if (root == null) return null;
             return new ChatV2EmptyState(root, listener);

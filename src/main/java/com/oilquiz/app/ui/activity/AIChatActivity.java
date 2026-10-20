@@ -175,7 +175,7 @@ public class AIChatActivity extends BaseActivity {
     private MaterialButton btnVoice; // 语音输入按钮（点击弹出语音识别组件，录音→ASR→填入输入框）
     private MaterialButton btnAutoTts; // 全局自动语音合成开关按钮
     private MaterialButton btnToolResultDisplay; // 工具结果卡片展示档位（整卡/摘要/不显示）入口
-    private MaterialButton btnChatUiMode; // 聊天页界面档位（新版/旧版）入口，切完立即重建
+
     private boolean autoTtsEnabled = false; // 自动语音合成是否开启（AI回复完成后自动朗读）
     private String lastAutoSpokenMessageId; // 已自动朗读的消息ID（防止重复朗读）
     private com.oilquiz.app.ai.speech.StreamingTtsSpeaker streamingTtsSpeaker; // 流式按句朗读器（边生成边朗读）
@@ -505,7 +505,6 @@ public class AIChatActivity extends BaseActivity {
             btnVoice = findViewById(R.id.btn_voice);
             btnAutoTts = findViewById(R.id.btn_auto_tts);
             btnToolResultDisplay = findViewById(R.id.btn_tool_result_display);
-            btnChatUiMode = findViewById(R.id.btn_chat_ui_mode);
             btnCloseHistory = findViewById(R.id.btn_close_history);
             btnNewConversation = findViewById(R.id.btn_new_conversation);
             btnClearAllHistory = findViewById(R.id.btn_clear_all_history);
@@ -1730,13 +1729,6 @@ public class AIChatActivity extends BaseActivity {
                             chatAdapter.notifyItemRangeChanged(0, chatAdapter.getItemCount());
                         }
                     }));
-        }
-        // 聊天页界面档位（2026-10-20 P0）：入口在工具抽屉，旧版/新版都能打开。
-        // 切完由 ChatUiSetting 直接 recreate——外壳与消息层必须同时换档。
-        if (btnChatUiMode != null) {
-            btnChatUiMode.setText(com.oilquiz.app.ai.chat.ui.ChatUiSetting.buttonLabel(this));
-            btnChatUiMode.setOnClickListener(v -> com.oilquiz.app.ai.chat.ui.ChatUiSetting
-                    .showPicker(this, isGenerating));
         }
         updateVoiceButtonAvailability();
 
