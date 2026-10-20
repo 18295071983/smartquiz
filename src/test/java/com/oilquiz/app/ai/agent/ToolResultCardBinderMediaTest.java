@@ -53,6 +53,21 @@ public class ToolResultCardBinderMediaTest {
     }
 
     @Test
+    public void appOperationResultBecomesAppCard() throws Exception {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("status", "success");
+        result.put("message", "已导航到: AI 生图");
+        result.put("page", "AI 生图");
+        result.put("target", "com.oilquiz.app.ui.activity.MediaGenActivity");
+        ComponentData card = ToolResultCardBinder.appCard(
+                AIToolResult.success(result));
+        assertEquals("app_card", card.type);
+        assertEquals("AI 生图", card.props.optString("title"));
+        assertEquals("com.oilquiz.app.ui.activity.MediaGenActivity",
+                card.props.optString("target"));
+    }
+
+    @Test
     public void singleNonImageStillUsesMediaCard() throws Exception {
         JSONObject root = new JSONObject().put("file", "/tmp/voice.m4a");
         List<ComponentData> cards = ToolResultCardBinder.mediaToolkitCards(

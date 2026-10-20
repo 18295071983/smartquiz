@@ -277,6 +277,8 @@ public final class ToolResultCardBinder {
             case "screen_capture":
             case "screen_watch":
                 return wrap(screenCard(result));
+            case "app_operation":
+                return wrap(appCard(result));
             default:
                 return Collections.emptyList();
         }
@@ -1279,6 +1281,25 @@ public final class ToolResultCardBinder {
         }
         return ComponentData.of("image_grid", new JSONObject()
                 .put("columns", 1).put("images", new JSONArray().put(single)));
+    }
+
+    /** app_operation 导航成功：给一张原生 app_card，可再次进入。 */
+    static ComponentData appCard(AIToolResult result) throws Exception {
+        Map<String, Object> m = asMap(result.getResult());
+        if (m == null || !"success".equalsIgnoreCase(str(m.get("status")))) return null;
+        String target = str(m.get("target"));
+        if (target.isEmpty()) return null;
+        String page = str(m.get("page"));
+        if (page.isEmpty()) {
+            int dot = target.lastIndexOf('.');
+            page = dot >= 0 ? target.substring(dot + 1) : target;
+        }
+        JSONObject p = new JSONObject();
+        p.put("title", page);
+        p.put("message", str(m.get("message")));
+        p.put("target", target);
+        p.put("page", page);
+        return ComponentData.of("app_card", p);
     }
 
     // ==================== 产物路径探测（动态工具兜底） ====================

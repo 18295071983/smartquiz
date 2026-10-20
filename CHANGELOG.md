@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 新增 app_card：应用/页面导航卡
+
+### 背景
+
+`app_operation` 之前只执行 Intent 跳转，结果没有卡片；用户看不到"打开了哪个页面"，
+也无法再次进入。原生应用功能缺少一个可回看的入口。
+
+### 改动
+
+- 新增 `AppCardView`（type=`app_card`）：图标 + 页面名 + 结果文案 + 「打开」按钮；
+  内部页面按 `target` 类名启动，外部 App 按 `package`，URI 按 ACTION_VIEW；
+  可选 `params` JSON 重开时注入 extras。没有目标时显示错误态，不给死按钮。
+- `ComponentRegistry` 注册 `app_card`；`ComponentDisplay` 把 `app_card` 列入永远 inline
+  （按钮必须可点）。
+- `AppOperationTool.handleNavigate` 结果补 `page` 字段。
+- `ToolResultCardBinder` 新增 `app_operation` → `appCard` 映射。
+- 新增字符串与测试（app_operation 结果 → app_card）。
+
+### 验证
+
+- 全量单测 **473 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+
 ## [2026-10-21 凌晨] 接回原生媒体组件：视频/音频/图片/文件卡片
 
 ### 查到的事实

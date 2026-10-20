@@ -79,7 +79,7 @@ public final class ComponentDisplay {
                     "snackbar", "notification", "toast",
                     // 实时状态
                     "progress", "progress_card", "progress_ring", "media_task", "steps_card",
-                    "agent_status", "feedback_bar",
+                    "agent_status", "feedback_bar", "app_card",
                     // Layout 原语里的输入/选择控件（ui_component 用 primitive_ 名或直接命中被归一的名字时，
                     // 用户要拨的就是卡片本体，收起来等于把控件藏掉）
                     "toggle", "stepper", "slider_range", "tag_input",

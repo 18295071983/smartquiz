@@ -685,6 +685,10 @@
     <string name="card_shell_step_failed">已失败</string>
     <string name="card_file_no_target">该文件卡片没有可用的路径或 URI</string>
     <string name="card_file_open">打开</string>
+    <string name="card_app_open">打开</string>
+    <string name="card_app_no_target">该应用卡片没有可打开的目标</string>
+    <string name="card_app_not_found">找不到可打开的应用</string>
+    <string name="card_app_open_failed">打开失败：%1$s</string>
     <string name="card_file_share">分享</string>
     <string name="card_chart_type_bar">柱状图</string>
     <string name="card_chart_type_line">折线图</string>

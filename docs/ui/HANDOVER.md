@@ -1071,6 +1071,14 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    百炼文生视频、`video_to_player` 下载视频改挂 `video` 原生播放卡。
 4. **测试**：`ToolResultCardBinderMediaTest` 三条；全量 472 单测全绿，装机。
 
+### 4.29 app_card（2026-10-21 凌晨）
+
+1. 新增 `AppCardView`（type=`app_card`）：页面名 + 结果文案 + 「打开」；
+   `target` 类名 / `package` / `uri` 三种打开方式，`params` 可重开注入 extras。
+2. `ComponentRegistry` 注册；`ComponentDisplay` 列入 always-inline，保证按钮可点。
+3. `AppOperationTool` 结果补 `page`；`ToolResultCardBinder` 新增 `app_operation → app_card`。
+4. **验证**：473 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

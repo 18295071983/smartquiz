@@ -81,6 +81,8 @@ public class ComponentRegistry {
         // 媒体播放（原生播放器：视频/音频）
         register(new VideoCardView());
         register(new AudioCardView());
+        // 应用/页面卡片：app_operation 的导航回执 + 再次进入
+        register(new AppCardView());
         // Agent 执行过程（插入式显示在 AI 消息内）
         register(new ToolCallCardView());
         register(new FeedbackBarCardView());

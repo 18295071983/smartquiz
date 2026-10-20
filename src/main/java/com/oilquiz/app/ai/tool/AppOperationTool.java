@@ -198,6 +198,7 @@ public class AppOperationTool implements AITool {
             Map<String, Object> result = new HashMap<>();
             result.put("status", "success");
             result.put("message", "已导航到: " + page);
+            result.put("page", page);
             result.put("target", targetClass.getName());
             return new AIToolResult(result, parameters);
         } catch (Exception e) {
