@@ -1334,6 +1334,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    `renderMarkdown/dark/markdownThemeVars` 的真实实现随 P3 由 ChatAdapter 落地，视觉一致端到端验证届时做（手机在手）。
 6. **验证**：parts 包 30 条（含 status 归一 3），全量 526 全绿、无回归；flag 默认 false、未接 ChatAdapter，现网零变化。
 
+### 4.54 parts：per-part `state` 对齐 AI SDK 流式（2026-10-21）
+
+1. 业界（AI SDK UIMessage）流式是 **part 级 `state:'streaming'|'done'`**，不是消息级布尔。
+2. `AssistantTurn.Part` 加 `state`+`isStreaming()`（null≡done），`fingerprint()` 计入 state
+   → 正文不变、running→done 收尾也能重绑（补全 markdown）；`copy()` 带上 state。
+3. `TextPartRenderer` web 用 `part.isStreaming()`；**删 `PartHost.streaming()`**（消息级信号，已弃）。
+4. 修多段 text part 被整条消息级 streaming 误套的 bug。`state` 的真实写入随 P3 在线引擎落到尾段 part。
+5. **验证**：新增 3 条（fingerprint 随 state / isStreaming / 引擎 done 收尾重绑），全量 529 全绿、无回归。
+
 ---
 
 ## 5. 关键文件 / 改动地图

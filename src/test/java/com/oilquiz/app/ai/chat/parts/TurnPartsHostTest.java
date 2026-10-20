@@ -164,6 +164,22 @@ public class TurnPartsHostTest {
         assertEquals(2, host.releaseCount);
     }
 
+    @Test
+    public void streamingToDoneStateRebindsSameText() {
+        AssistantTurn.Part streaming = textPart("a", "正文不变");
+        streaming.state = AssistantTurn.Part.STATE_STREAMING;
+        host.bind(Arrays.asList(streaming));
+        int bindsBefore = host.bindCount;
+
+        // 同一 id、正文相同，只 state 由 streaming→done（收尾）：应重绑一次，但不重建视图。
+        AssistantTurn.Part done = textPart("a", "正文不变");
+        done.state = AssistantTurn.Part.STATE_DONE;
+        host.bind(Arrays.asList(done));
+
+        assertEquals("state 变→指纹变→重绑一次", bindsBefore + 1, host.bindCount);
+        assertEquals("不重建视图", 1, host.createCount);
+    }
+
     private boolean isInContainer(View v) {
         for (int i = 0; i < container.getChildCount(); i++) {
             if (container.getChildAt(i) == v) return true;
@@ -217,10 +233,6 @@ public class TurnPartsHostTest {
         }
         @Override
         public boolean webMarkdownEnabled() {
-            return false;
-        }
-        @Override
-        public boolean streaming() {
             return false;
         }
         @Override

@@ -63,6 +63,10 @@ public class AssistantTurn {
         public static final String TYPE_TOOL_RESULT = "tool_result";
         public static final String TYPE_ERROR = "error";
 
+        /** 生成态（对齐 AI SDK UIMessage part.state）。缺省/null 视为已定稿。 */
+        public static final String STATE_STREAMING = "streaming";
+        public static final String STATE_DONE = "done";
+
         public String id;
         public String type;
         public String text;
@@ -71,9 +75,15 @@ public class AssistantTurn {
         public String args;
         public String result;
         public String status;
+        public String state;
         public long timestamp;
 
         public Part() {
+        }
+
+        /** 该 part 是否正在流式生成（per-part 信号，取代旧的整条消息级 streaming 布尔）。 */
+        public boolean isStreaming() {
+            return STATE_STREAMING.equals(state);
         }
 
         public static Part text(String id, String text, long ts) {
@@ -121,9 +131,12 @@ public class AssistantTurn {
         }
 
         /**
-         * 内容指纹：对 Part 的展示相关内容做确定性哈希（type / text / toolCallId /
+         * 内容指纹：对 Part 的展示相关内容做确定性哈希（type / state / text / toolCallId /
          * toolName / args / result / status）。<b>不含 id、timestamp</b>——它回答的是
          * "同一个 id 的内容是否变化"：逐字段相同则指纹相同，任一内容字段变化则指纹变化。
+         *
+         * <p>含 {@code state}：text/reasoning 从 streaming→done（即便正文没变）也必须触发重渲，
+         * 好让渲染器补全 markdown、关掉未闭合围栏处理。</p>
          *
          * <p>算法为 FNV-1a 64 位，仅做字符算术运算，跨 JVM/设备结果稳定；每个字段带
          * 长度前缀，避免相邻字段拼接产生歧义；null 与空串视为等价。</p>
@@ -131,6 +144,7 @@ public class AssistantTurn {
         public String fingerprint() {
             long h = FNV_OFFSET;
             h = fnvField(h, type);
+            h = fnvField(h, state);
             h = fnvField(h, text);
             h = fnvField(h, toolCallId);
             h = fnvField(h, toolName);
@@ -333,6 +347,7 @@ public class AssistantTurn {
             n.args = p.args;
             n.result = p.result;
             n.status = p.status;
+            n.state = p.state;
             n.timestamp = p.timestamp;
             t.parts.add(n);
         }

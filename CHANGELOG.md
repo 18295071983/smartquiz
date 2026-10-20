@@ -1,5 +1,15 @@
 # 变更日志
 
+## [2026-10-21] parts：Part 增 per-part `state`（对齐 AI SDK 流式，修多段误套）
+
+- 业界口径（AI SDK UIMessage）：流式是**每个 part 的 `state: 'streaming'|'done'`**，不是整条消息级布尔。
+- `AssistantTurn.Part` 加 `state` 字段 + `isStreaming()`（null≡done）；`fingerprint()` 计入 `state`，
+  使正文不变但 running→done 的收尾**能触发重渲**（补全 markdown / 关未闭合围栏）；`copy()` 带上 state。
+- `TextPartRenderer` web 路径改用 `part.isStreaming()`；移除已冗余的 `PartHost.streaming()`（消息级信号）。
+- 修上一轮发现的 bug：多段 text part 不再被整条消息级 streaming 误标；未闭合 markdown 在 done 时正确收尾。
+- 测试：+3（fingerprint 随 state 变 / isStreaming 语义 / 引擎 streaming→done 重绑不重建），全量 **529** 全绿（0/0/0）。
+  flag 仍默认 false、未接 ChatAdapter，现网零变化；`state` 的真实赋值随 P3 在线引擎落到尾段。
+
 ## [2026-10-21] parts P2.5：渲染器功能补全（text 链接/图片/主题/流式 + 工具卡 + 错误色）
 
 彻查 renderer 功能面 vs ChatAdapter 现有渲染，补齐"够不够"里不足的：

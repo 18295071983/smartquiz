@@ -35,9 +35,6 @@ public interface PartHost {
      */
     boolean webMarkdownEnabled();
 
-    /** 该 part 是否处于流式生成中（决定 WebView.setContent(streaming) 与局部更新策略）。 */
-    boolean streaming();
-
     /** 当前是否夜间模式（喂 {@code MarkdownWebView.setNight}）。 */
     boolean dark();
 

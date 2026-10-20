@@ -136,10 +136,6 @@ public class TextAndReasoningRendererTest {
             return false;
         }
         @Override
-        public boolean streaming() {
-            return false;
-        }
-        @Override
         public boolean dark() {
             return false;
         }
@@ -179,10 +175,6 @@ public class TextAndReasoningRendererTest {
         @Override
         public boolean webMarkdownEnabled() {
             return web;
-        }
-        @Override
-        public boolean streaming() {
-            return false;
         }
         @Override
         public boolean dark() {

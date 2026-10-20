@@ -58,7 +58,8 @@ public final class TextPartRenderer implements PartRenderer {
             MarkdownWebView web = (MarkdownWebView) view;
             web.setNight(host.dark());
             web.setThemeColors(host.markdownThemeVars());
-            web.setContent(text, host.streaming());
+            // per-part 流式态（对齐 AI SDK part.state），非整条消息级布尔。
+            web.setContent(text, part.isStreaming());
         } else if (view instanceof TextView) {
             host.renderMarkdown((TextView) view, text);
         }

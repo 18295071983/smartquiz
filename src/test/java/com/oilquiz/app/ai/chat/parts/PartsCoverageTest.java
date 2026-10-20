@@ -295,10 +295,6 @@ public class PartsCoverageTest {
             return false;
         }
         @Override
-        public boolean streaming() {
-            return false;
-        }
-        @Override
         public boolean dark() {
             return false;
         }

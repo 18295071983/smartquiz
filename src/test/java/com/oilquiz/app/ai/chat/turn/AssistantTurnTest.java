@@ -1,6 +1,7 @@
 package com.oilquiz.app.ai.chat.turn;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -220,5 +221,25 @@ public class AssistantTurnTest {
         assertNotEquals(r1, r2);
         // 结果 part 与调用 part 指纹不同（type/result 不同）
         assertNotEquals(call.fingerprint(), r1);
+    }
+
+    @Test
+    public void fingerprintReflectsStreamingState() {
+        // 正文相同、只有流式态不同：done 收尾必须触发重渲（补全 markdown）
+        AssistantTurn.Part streaming = AssistantTurn.Part.text("t", "同一句话", 1L);
+        streaming.state = AssistantTurn.Part.STATE_STREAMING;
+        AssistantTurn.Part done = AssistantTurn.Part.text("t", "同一句话", 1L);
+        done.state = AssistantTurn.Part.STATE_DONE;
+        assertNotEquals(streaming.fingerprint(), done.fingerprint());
+    }
+
+    @Test
+    public void isStreamingOnlyTrueForStreamingState() {
+        AssistantTurn.Part p = AssistantTurn.Part.text("t", "x", 1L);
+        assertFalse("null 默认非流式", p.isStreaming());
+        p.state = AssistantTurn.Part.STATE_STREAMING;
+        assertTrue(p.isStreaming());
+        p.state = AssistantTurn.Part.STATE_DONE;
+        assertFalse(p.isStreaming());
     }
 }
