@@ -1278,6 +1278,7 @@ public class AgentLoopEngine {
                         case "complete":
                             contentHolder[0] = event.optString("content", "");
                             stopReasonHolder[0] = event.optString("stop_reason", "normal");
+
                             done[0] = true;
                             latch.countDown();
                             break;
@@ -2741,6 +2742,7 @@ public class AgentLoopEngine {
         // Agent 的单轮 prompt 预算与历史裁剪会全部失真。按引擎选数据源。
         return com.oilquiz.app.ai.engine.NpuAwareText.countTokens(text);
     }
+
 
     private String truncate(String s, int maxLen) {
         if (s == null) return "";

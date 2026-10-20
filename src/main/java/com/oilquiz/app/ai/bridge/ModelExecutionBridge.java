@@ -616,6 +616,7 @@ public class ModelExecutionBridge {
      * chatJson 普通对话回调：token -> onToken（正文），reasoning -> onThinkingUpdate（思考区），
      * complete -> onGenerationComplete（干净正文并记录 assistant 到本地 history），error -> onGenerationError。
      */
+
     private class BridgeJsonCallback implements LlamaHelper.JsonCallback {
         private final String messageId;
         private final BridgeCallback callback;
@@ -687,6 +688,7 @@ public class ModelExecutionBridge {
                         String content = event.optString("content", "");
                         final String finalContent = content != null && !content.isEmpty()
                                 ? content : bodyBuf.toString();
+
                         final int finalCount = tokenCount;
                         final long finalElapsed = System.currentTimeMillis() - startTime;
                         final float finalTps = finalElapsed > 0 ? (finalCount * 1000.0f) / finalElapsed : 0;
@@ -1418,6 +1420,7 @@ public class ModelExecutionBridge {
                         String content = event.optString("content", "");
                         final String finalContent = content != null && !content.isEmpty()
                                 ? content : bodyBuf.toString();
+
                         if (!toolCalls.isEmpty() && !toolCallsHandled) {
                             toolCallsHandled = true;
                             handleNativeToolCalls(finalContent, messageId, callback);

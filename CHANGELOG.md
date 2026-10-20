@@ -1,5 +1,42 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 修上游：完成消息必须用 native complete 全文，而不是流式 token 缓冲
+
+### 现场
+
+本地模型回复里的 Markdown 全粘成一行：
+
+`### **木星（Jupiter）**#### **基本信息**- **类型**：气态巨行星---### **物理特性**| 参数 | 数据 |...`
+
+渲染器把 `####`、`- **`、`||` 当普通文字显示成裸 Markdown。
+
+### 根因
+
+`AIChatActivity.completeGeneration()` 里：
+
+```java
+finalContent = currentStreamingContent != null
+        ? currentStreamingContent.toString()
+        : fullText;
+```
+
+`fullText` 是 native `complete` 事件带回来的**权威全文**（诊断日志实测
+`chatJson complete nl=11`，换行完整）；`currentStreamingContent` 是 UI 过程缓冲，
+换行在流式 token 路径里丢了。完成时用过程缓冲覆盖全文，落库/渲染就都没有换行。
+
+### 修法
+
+- `completeGeneration()` 两个分支（uiDetached / 正常）都改为：
+  **`fullText` 非空时优先用 `fullText`**，流式缓冲只做兜底。
+- 不再在下游 `ChatAdapter` 里做 Markdown 换行修复（已删除临时方案）。
+- 诊断日志已清理。
+
+### 验证
+
+- 重新生成「介绍下冥王星」后落盘 `T34-A1`：**52 个换行**，`####`/表格/列表结构完整，
+  未经过任何下游修复。
+- 全量单测 **482 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] USER/AI 成对展示兜底 + 模型面板重复层修复
 
 ### 1. 孤儿 USER 自动补 AI 占位

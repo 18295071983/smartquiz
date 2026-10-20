@@ -6677,7 +6677,11 @@ public class AIChatActivity extends BaseActivity {
                 final int idx = resolveStreamingIndex();
                 final String finalContent;
                 synchronized (streamingLock) {
-                    finalContent = currentStreamingContent != null ? currentStreamingContent.toString() : fullText;
+                    // complete 事件带的是 native 权威全文（含换行/Markdown 块）；流式 token
+                    // 缓冲只用于 UI 过程显示，不能反过来覆盖全文，否则 ####/表格/列表会粘成一行。
+                    finalContent = fullText != null && !fullText.isEmpty()
+                            ? fullText
+                            : (currentStreamingContent != null ? currentStreamingContent.toString() : "");
                 }
                 if (idx >= 0 && idx < chatHistory.size()) {
                     ChatMessage msg = chatHistory.get(idx);
@@ -6700,7 +6704,10 @@ public class AIChatActivity extends BaseActivity {
             final int messageIndex = resolveStreamingIndex();
             final String finalContent;
             synchronized (streamingLock) {
-                finalContent = currentStreamingContent != null ? currentStreamingContent.toString() : fullText;
+                // 同上：优先 native complete 的权威全文，流式缓冲只作兜底。
+                finalContent = fullText != null && !fullText.isEmpty()
+                        ? fullText
+                        : (currentStreamingContent != null ? currentStreamingContent.toString() : "");
             }
             final long generationStart = chatStartTime;
             
