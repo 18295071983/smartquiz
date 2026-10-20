@@ -1,5 +1,37 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 按 demo 再对齐一轮：顶栏居中/状态点绿、输入胶囊按钮态、消息状态行收起
+
+### 查到的事实
+
+- demo `phone-light.png` 的顶栏是**标题居中**（44 / 1fr / 44 三栏），而 `view_chat_appbar_v2`
+  用 LinearLayout + weight，标题被左侧汉堡与右侧两个按钮挤到偏左；状态点是品牌紫，
+  demo 是就绪绿。
+- demo 输入胶囊按 `data-state` 切按钮：空 → 只有麦克风；有文字 → 只有发送；
+  生成中 → 只有停止。当前实现发送按钮**常驻**，空输入时旁边还并着麦克风。
+- demo 的消息里没有「已完成 · N token · Ns」统计行，USER 气泡下也没有「已完成」；
+  当前两种都显示。左下角历史悬浮球在 demo 里也不存在（顶栏已经有汉堡键）。
+
+### 由此改掉的事
+
+- `view_chat_appbar_v2.xml` 改成 FrameLayout：标题/副标题真正居中，左右按钮贴边；
+  `ChatUiV2Chrome.updateStatusDot()` 按阶段上色（就绪绿 / 错误红 / 加载中品牌紫 / 未知灰），
+  `ServiceStatusManager` 写状态时同步调用。
+- 输入胶囊按钮态：新增 `AIChatActivity#updateComposerActions()`，空输入只显示麦克风、
+  有文字/附件显示发送、生成中只显示停止；字数 watcher、附件添加、`toggleStopButton` 都会刷新。
+- 消息状态行：AI 完成/生成中不再显示 token/耗时/速度（失败/错误/暂停保留）；
+  USER 完成后隐藏「已完成」。
+- 隐藏左下角 `btn_history_fab`（与顶栏汉堡重复且会盖正文）。
+- v2 操作图标间距从 10dp 收到 2dp（demo `.ai-actions`）。
+
+### 验证
+
+- 全量单测 **456 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 真机（深色档）截图确认：标题居中、状态点绿、副标题真实、空输入只有麦克风、
+  消息下无「已完成 · token」行、历史悬浮球消失。
+- 仍未对齐：demo 的「思考行 + 独立的工具卡」两段式（当前是合并的一条活动区）、
+  浅色档观感、demo 的模型/会话面板样式。
+
 ## [2026-10-21 凌晨] 输入区模式 chip 按 demo 重做 + 服务状态副标题改口径
 
 ### 查到的事实

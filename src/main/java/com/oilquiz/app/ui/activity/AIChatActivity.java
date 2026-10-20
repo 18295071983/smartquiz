@@ -1279,9 +1279,8 @@ public class AIChatActivity extends BaseActivity {
         if (btnStopGeneration != null) {
             btnStopGeneration.setVisibility(show ? View.VISIBLE : View.GONE);
         }
-        if (btnSend != null) {
-            btnSend.setVisibility(show ? View.GONE : View.VISIBLE);
-        }
+        // 发送/麦克风/停止三者互斥，统一由内容与生成态决定（demo .shell[data-state]）
+        updateComposerActions();
         if (chatInputBar != null) {
             chatInputBar.setGeneratingHint(show, null);
         }
@@ -1901,15 +1900,39 @@ public class AIChatActivity extends BaseActivity {
         inputMessage.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
-            @Override public void afterTextChanged(android.text.Editable s) { updateChatV2CharCount(); }
+            @Override public void afterTextChanged(android.text.Editable s) {
+                updateChatV2CharCount();
+                updateComposerActions();
+            }
         });
         updateChatV2CharCount();
+        updateComposerActions();
         
         // 长按输入框显示更多选项
         inputMessage.setOnLongClickListener(v -> {
             if (dialogHelper != null) dialogHelper.showInputOptions(inputMessage);
             return true;
         });
+    }
+
+    /**
+     * 输入胶囊右侧按钮态（demo 的 .shell[data-state]）：
+     * 空 & 非生成 → 只有麦克风；有文字/附件 & 非生成 → 只有发送；生成中 → 只有停止。
+     */
+    private void updateComposerActions() {
+        boolean generating = btnStopGeneration != null
+                && btnStopGeneration.getVisibility() == View.VISIBLE;
+        boolean hasText = inputMessage != null && inputMessage.getText() != null
+                && inputMessage.getText().length() > 0;
+        boolean hasAttach = attachmentList != null && attachmentList.getAdapter() != null
+                && attachmentList.getAdapter().getItemCount() > 0;
+        boolean hasContent = hasText || hasAttach;
+        if (btnSend != null) {
+            btnSend.setVisibility(!generating && hasContent ? View.VISIBLE : View.GONE);
+        }
+        if (btnVoice != null) {
+            btnVoice.setVisibility(!generating && !hasContent ? View.VISIBLE : View.GONE);
+        }
     }
 
     /** 输入区右下角字数：超过上限只变红提示，不截断（截断会让长文用户丢内容） */
@@ -10831,6 +10854,7 @@ public class AIChatActivity extends BaseActivity {
             // 统一走 inputManager 添加（sendMessage 从 inputManager 取附件）
             if (inputManager != null) {
                 inputManager.addAttachment(attachment);
+                updateComposerActions();
             } else {
                 currentAttachments.add(attachment);
             }
@@ -10935,6 +10959,7 @@ public class AIChatActivity extends BaseActivity {
                 // 统一走 inputManager 添加
                 if (inputManager != null) {
                     inputManager.addAttachment(attachment);
+                updateComposerActions();
                 } else {
                     currentAttachments.add(attachment);
                 }
@@ -11297,6 +11322,7 @@ public class AIChatActivity extends BaseActivity {
         for (ChatMessage.Attachment attachment : created) {
             if (inputManager != null) {
                 inputManager.addAttachment(attachment);
+                updateComposerActions();
             } else {
                 currentAttachments.add(attachment);
             }

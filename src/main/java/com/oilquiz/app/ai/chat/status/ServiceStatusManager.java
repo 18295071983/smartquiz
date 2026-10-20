@@ -585,6 +585,17 @@ public class ServiceStatusManager {
 
         serviceStatusIcon.setText(stageIcon);
         publishStatusText(displayMessage);
+        int dotColor = stage == AIServiceState.ServiceStage.INITIALIZED
+                ? R.color.chat_v2_success
+                : stage == AIServiceState.ServiceStage.ERROR
+                ? R.color.chat_v2_danger
+                : stage == AIServiceState.ServiceStage.UNINITIALIZED
+                ? R.color.chat_v2_text_3
+                : R.color.chat_v2_brand;
+        try {
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(activity, dotColor);
+        } catch (Throwable ignored) {
+        }
     }
 
     /**
@@ -679,6 +690,11 @@ public class ServiceStatusManager {
         // 统一文案：engineStatusLine 自己会拼「在线模型 · 模型名 · 状态」，
         // 不能再把模型名塞进 state（会变成 "deepseek-flash · deepseek-flash 就绪"）。
         publishStatusText(engineStatusLine("就绪"));
+        try {
+            com.oilquiz.app.ai.chat.ui.ChatUiV2Chrome.updateStatusDot(
+                    activity, R.color.chat_v2_success);
+        } catch (Throwable ignored) {
+        }
     }
 
     private void startLoadingTimer(AIServiceState.ServiceStage stage, String message, int progress) {

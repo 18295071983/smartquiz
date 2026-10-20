@@ -60,6 +60,21 @@ public final class ChatUiV2Chrome {
     }
 
     /**
+     * 顶栏状态点颜色（demo 的 .s .dot）：就绪绿、错误红、加载中品牌色、未知灰。
+     * 与副标题文案同源，由 {@code ServiceStatusManager} 在写状态时一起调用。
+     */
+    public static void updateStatusDot(Activity activity, int colorRes) {
+        if (activity == null) return;
+        View dot = activity.findViewById(R.id.chat_v2_status_dot);
+        if (dot == null) return;
+        try {
+            dot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(activity, colorRes)));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
      * 同步 v2 顶栏主标题（会话标题）。开关关着或还没插顶栏时静默忽略，
      * 旧版头部没有标题位，因此这里不回落写任何控件。
      */
@@ -107,6 +122,8 @@ public final class ChatUiV2Chrome {
             ((View) statusBar.getParent()).setVisibility(View.GONE);
         }
         hide(activity, R.id.btn_back);
+        // demo 没有左下角历史悬浮球：v2 的历史入口就是顶栏汉堡键，悬浮球会盖住正文
+        hide(activity, R.id.btn_history_fab);
         // 会话统计胶囊条（token/耗时/轮次/上下文仪表）：demo 的输入区上方只有模式 chip，
         // 这些技术读数在「⋯」面板里都有，v2 下把整条连同它下面的分隔线一起收起。
         // 数据源不动：ChatStatsBar 仍被原逻辑刷新，面板打开时照旧读它的值。

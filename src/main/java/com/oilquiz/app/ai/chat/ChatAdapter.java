@@ -586,12 +586,22 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         v2Lp.topMargin = dpToPx(8, ctx);
         v2Actions.setLayoutParams(v2Lp);
         int iconColor = androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
+        // demo .ai-actions 的图标间距只有 2px：30dp 的点击区紧挨着排，不要拉开
+        int iconGap = dpToPx(2, ctx);
         ImageView v2BtnCopy = createIconAction(ctx, R.drawable.ic_copy,
-                R.string.chat_copy, dp10, iconColor);
+                R.string.chat_copy, 0, iconColor);
         ImageView v2BtnRegenerate = createIconAction(ctx, R.drawable.ic_refresh,
-                R.string.chat_regenerate, dp10, iconColor);
+                R.string.chat_regenerate, 0, iconColor);
+        if (v2BtnCopy != null && v2BtnRegenerate != null) {
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v2BtnRegenerate.getLayoutParams();
+            lp.setMarginStart(iconGap);
+        }
         ImageView v2BtnMore = createIconAction(ctx, R.drawable.ic_more_vert,
                 R.string.chat_v2_msg_actions, 0, iconColor);
+        if (v2BtnMore != null) {
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v2BtnMore.getLayoutParams();
+            lp.setMarginStart(iconGap);
+        }
         v2Actions.addView(v2BtnCopy);
         v2Actions.addView(v2BtnRegenerate);
         v2Actions.addView(v2BtnMore);
@@ -1063,6 +1073,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         setupItemViewInteraction(holder.itemView, message);
 
         bindMessageStatus(holder.statusIcon, holder.statusText, message.status);
+        // demo 的 USER 气泡下没有"已完成"这一行；只有失败/发送中需要说明
+        if (message.status == ChatMessage.MessageStatus.COMPLETED) {
+            if (holder.statusIcon != null) holder.statusIcon.setVisibility(View.GONE);
+            if (holder.statusText != null) holder.statusText.setVisibility(View.GONE);
+        }
 
         if (message.hasError()) {
             holder.statusIcon.setImageResource(R.drawable.ic_error);
@@ -1097,6 +1112,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         updateThinkingContent(holder, message);
         bindAgentStepStatus(holder, message);
         updateMessageStatus(holder, message);
+        // demo 的消息里不再重复 token/耗时/速度（技术读数在「⋯」面板与消息详情里）；
+        // 只有失败/错误/暂停这类需要用户注意的状态才保留状态行。
+        if (message.status != ChatMessage.MessageStatus.FAILED
+                && message.status != ChatMessage.MessageStatus.ERROR
+                && message.status != ChatMessage.MessageStatus.PAUSED) {
+            if (holder.statusText != null) holder.statusText.setVisibility(View.GONE);
+            if (holder.statusIcon != null) holder.statusIcon.setVisibility(View.GONE);
+        }
 
         setupItemViewInteraction(holder.itemView, message);
 
@@ -2551,7 +2574,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         // STATUS-LASTAI-GATE：非最终轮不显示统计行（上面各分支可能刚把它设为 VISIBLE）。
         // 门控写在这一处，所有 return 之外的分支都会经过，不会再被后续 payload 刷新复活。
-        if (!showStatusRow) {
+        // 2026-10-21：demo 的消息里没有「已完成 · N token · Ns」这一行，完成后/生成中的
+        // 统计一律收起（「⋯」面板与消息详情里仍有），只有失败/错误/暂停保留。
+        boolean quietStatus = message.status == ChatMessage.MessageStatus.COMPLETED
+                || message.status == ChatMessage.MessageStatus.GENERATING
+                || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
+        if (!showStatusRow || quietStatus) {
             if (holder.statusIcon != null) holder.statusIcon.setVisibility(View.GONE);
             if (holder.statusText != null) holder.statusText.setVisibility(View.GONE);
         }
