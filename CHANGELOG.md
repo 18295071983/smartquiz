@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-10-21 凌晨] Markdown 表格完成后自动按最终宽度重排
+
+- 现象：WebView 正文里的 Markdown 表格在流式期间按旧宽度排好列宽，完成后
+  `swapBody` 不重算表格布局，只能退出重进恢复。
+- 修法：`MarkdownWebView.setContent()` 检测「流式 → 定稿且 body 含 `<table>`」时
+  整篇 `loadDocument()` 一次，让浏览器按最终气泡宽度重新排版；普通正文仍走原地
+  `swapBody`，不逐 token 重载。
+- 验证：482 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 收口权威边界：预览 token 不再直接写最终消息
 
 - `onTextOutput` 的 `msg.content = contentSnapshot` 增加 `!ROUND_BATCH_RENDER` 条件：

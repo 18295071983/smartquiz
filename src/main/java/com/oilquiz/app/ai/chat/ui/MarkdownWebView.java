@@ -259,6 +259,7 @@ public class MarkdownWebView extends FrameLayout {
         // 内容一换，之前排队写缓存的动作作废（防止旧页迟到的测量写到新 hash 下）
         cancelPendingCacheWrite();
         currentContentHash = hash;
+        boolean wasStreaming = lastStreaming;
         lastStreaming = streaming;
         // 内容变了，之前"这份文档正在加载"的判断与补发额度都要作废重来
         if (!hash.equals(lastIssuedContentHash)) {
@@ -283,7 +284,12 @@ public class MarkdownWebView extends FrameLayout {
         String doc = MarkdownHtmlConverter.wrapDocument(bodyHtml, night, themeVars);
         pendingHtml = doc;
         boolean documentReady = pageReady && docGeneration > 0 && readyGeneration == docGeneration;
-        if (documentReady) {
+        // 表格在流式页面里按旧的 body/宽度算过列宽；完成时 swapBody 不一定重算表格布局，
+        // 表现为“表格列宽挤在一起，退出重进才正常”。流式→定稿且含表格时整篇重载一次，
+        // 让浏览器按最终气泡宽度重新排版。只发生一次，不会逐 token 重载。
+        boolean finalTableNeedsReload = documentReady && wasStreaming && !streaming
+                && bodyHtml.contains("<table");
+        if (documentReady && !finalTableNeedsReload) {
             // 页面就是这份文档且已就绪：原地换 body，不重载（流式逐 token 也走这里，避免闪烁）
             swapBody(bodyHtml);
             return;
