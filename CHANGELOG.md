@@ -24,6 +24,10 @@ flag=false（默认）→ 新增分支根本不执行，旧路径字节级不变
 - **流式→完成 切换残留**：原只 GONE 掉 messageText/markdownView，未清 contentHost/componentContainer 里旧渲染残留子 View。
   改为 parts 接管时 contentHost 只留 partsContainer + 清 componentContainer。
 - 核实纠正：`AIChatActivity` 完成时确实 `msg.assistantTurn = fromMessage(msg)`（:6699/:6903），gate 非死代码。
+- **内联组件标记漏渲**（查 ComponentContentSplitter 链路）：组件有两个源——① `msg.components`（工具产物/卡片，`appendDataParts` 已覆盖）；
+  ② 正文内联 ` ```component:xxx``` `，由 `ComponentContentSplitter.split(content)` 现场解析、**不进 msg.components**。parts 的 data 源只看 ①，
+  会漏渲 ② 且把标记当代码块显示。**先加护栏**：`bindMessageContent` 的 parts gate 增加 `!containsComponent(content)` → 含内联标记的消息
+  暂回落 legacy（现网/测试都不漏渲）。把 content 按标记切成"交错 text+data part"是后续 fromMessage 改造，未做。
 
 验证：`assembleDebug` 通过；全量 `--offline` **543** 全绿（0/0/0）无回归。flag=false 现网不变。
 

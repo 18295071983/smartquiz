@@ -1389,7 +1389,9 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. **自审修复**（接线后复查，非设备相关）：① 工具卡 result 丢——`ToolCallPartRenderer.bindView` 改 `mergeCall` 增量合并保留 result
    （result 在独立 tool_result part，整体重建会在 call 后续重绑时抹掉结果）+ 回归单测；② 流式→完成切换：parts 接管时
    `contentHost.removeAllViews()` 只留 partsContainer + 清 `componentContainer`，去掉旧渲染残留子 View；③ 核实
-   `AIChatActivity` 完成时 `msg.assistantTurn = fromMessage(msg)`（:6699/:6903），gate 非死代码。
+   `AIChatActivity` 完成时 `msg.assistantTurn = fromMessage(msg)`（:6699/:6903），gate 非死代码；④ 内联
+   ` ```component``` ` 标记（`ComponentContentSplitter` 从 content 现场解析、**不进 msg.components**）parts 的 data 源看不到会漏渲
+   → gate 加 `!containsComponent(content)` 让这类消息暂回落 legacy；"content 切成 text+data part"留后续。
 6. **验证**：`assembleDebug` 通过；全量 543 全绿、无回归；flag=false 现网不变。
 
 ---
