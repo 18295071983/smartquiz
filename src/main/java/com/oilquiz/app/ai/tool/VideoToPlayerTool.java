@@ -127,6 +127,8 @@ public class VideoToPlayerTool implements AITool {
             props.put("size", formatSize(size));
             props.put("local_path", target.getAbsolutePath());
             props.put("title", title != null && !title.trim().isEmpty() ? title : fileName);
+            // 原生 VideoCardView 读取 url；path/name 仍保留供分享/兜底
+            props.put("url", target.getAbsolutePath());
 
             JSONObject result = new JSONObject();
             result.put("status", "success");
@@ -137,7 +139,7 @@ public class VideoToPlayerTool implements AITool {
                     + "可创建 video_player 组件（local_path=" + target.getAbsolutePath() + "）播放");
 
             AIToolResult r = new AIToolResult(result.toString(), parameters);
-            r.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("file_card", props));
+            r.withComponent(com.oilquiz.app.ai.chat.component.ComponentData.of("video", props));
             return r;
         } catch (Exception e) {
             android.util.Log.w(TAG, "视频下载失败: " + e.getMessage());

@@ -1,5 +1,34 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 接回原生媒体组件：视频/音频/图片/文件卡片
+
+### 查到的事实
+
+- 仓库里已有原生 `ImageGridCardView`（Glide + PhotoView 全屏）、
+  `VideoCardView`（Media3 ExoPlayer）、`AudioCardView`（ExoPlayer）、
+  `FileCardView`（FileRenderActivity 原生预览）与 `FileListCardView`，
+  并且 `ComponentRegistry` 都已注册。
+- 但 `ui_component` 的工具定义没把 `video`/`audio` 列进内置类型，
+  模型不知道能直接建原生播放卡；`media_toolkit` 多文件产物一律塞 `image_grid`；
+  百炼文生视频/`video_to_player` 生成视频只挂 `file_card`，没有直接用 VideoCardView。
+
+### 由此改掉的事
+
+- `ui_component` 工具定义补上 `video`/`audio` 类型与字段说明；
+  `SystemUIComponentTool` 里已有顶层 url/src/default_value → props.url 的适配。
+- `media_toolkit` 多文件按扩展名分流：
+  图片→`image_grid`、视频→`video`、音频→`audio`、其他→`file_card`/`file_list`，
+  不再全部当图片。
+- `DashscopeMediaTool` 文生视频、`VideoToPlayerTool` 下载视频改为挂 `video`
+  （原生 ExoPlayer 直接播），不再只给 file_card。
+- 新增 `ToolResultCardBinderMediaTest`：mp4+mp3 → video+audio；图片+视频 → image_grid+video；
+  单音频 → audio。
+
+### 验证
+
+- 全量单测 **472 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 原生图片预览/文件渲染链路本来已通（ImageGridCardView/FileCardView），本次只补媒体卡类型与工具映射。
+
 ## [2026-10-21 凌晨] 补恢复/渲染配对的回归与工具卡视觉包裹
 
 ### 查到的事实

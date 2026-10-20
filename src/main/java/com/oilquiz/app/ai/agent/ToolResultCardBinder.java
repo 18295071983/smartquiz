@@ -259,7 +259,7 @@ public final class ToolResultCardBinder {
             case "import_list_files":
                 return wrap(importFilesCard(result));
             case "media_toolkit":
-                return wrap(mediaToolKitCard(result));
+                return mediaToolkitCards(result);
             case "speech_synthesis":
                 return wrap(speechCard(result));
             case "douyin_downloader":
@@ -963,33 +963,34 @@ public final class ToolResultCardBinder {
 
     // ==================== 媒体 / 语音 / 下载 ====================
 
-    /** media_toolkit 的 result 是 JSON 字符串：单产物用 file 键，多帧用 files 数组 */
-    private static ComponentData mediaToolKitCard(AIToolResult result) throws Exception {
+    /**
+     * media_toolkit 的 result 是 JSON 字符串：单产物用 file 键，多帧/批处理用 files 数组。
+     * 按扩展名分流到原生卡：图片→image_grid、视频→video(ExoPlayer)、音频→audio(ExoPlayer)、
+     * 其他→file_card/file_list；不再把所有多文件都塞进 image_grid。
+     */
+    static List<ComponentData> mediaToolkitCards(AIToolResult result) throws Exception {
         JSONObject o = jsonOf(result.getResult());
-        if (o == null) {
-            return null;
-        }
+        if (o == null) return Collections.emptyList();
+        List<String> images = new ArrayList<>();
+        List<String> videos = new ArrayList<>();
+        List<String> audios = new ArrayList<>();
+        List<String> others = new ArrayList<>();
         JSONArray files = o.optJSONArray("files");
-        if (files != null && files.length() > 1) {
-            JSONArray urls = new JSONArray();
-            for (int i = 0; i < files.length() && i < 6; i++) {
+        if (files != null) {
+            for (int i = 0; i < files.length() && i < 12; i++) {
                 Object raw = files.opt(i);
-                String path;
-                JSONObject f = raw instanceof JSONObject ? (JSONObject) raw : null;
-                if (f != null) {
-                    path = f.optString("file", "");
+                String path = "";
+                if (raw instanceof JSONObject) {
+                    path = ((JSONObject) raw).optString("file", "");
                 } else if (raw instanceof String) {
                     path = (String) raw;
-                } else {
-                    path = "";
                 }
-                if (!path.isEmpty()) {
-                    urls.put(path);
-                }
-            }
-            if (urls.length() > 0) {
-                return ComponentData.of("image_grid", new JSONObject()
-                        .put("columns", Math.min(3, urls.length())).put("images", urls));
+                if (path.isEmpty()) continue;
+                String ext = extensionOf(path);
+                if (IMAGE_EXT.contains(ext)) images.add(path);
+                else if (VIDEO_EXT.contains(ext)) videos.add(path);
+                else if (AUDIO_EXT.contains(ext)) audios.add(path);
+                else others.add(path);
             }
         }
         String single = o.optString("file", "");
@@ -997,7 +998,47 @@ public final class ToolResultCardBinder {
             JSONObject f = files.optJSONObject(0);
             single = f != null ? f.optString("file", "") : "";
         }
-        return mediaCard(single, o.optString("kind", ""));
+        if (images.isEmpty() && videos.isEmpty() && audios.isEmpty() && others.isEmpty()
+                && !single.isEmpty()) {
+            ComponentData one = mediaCard(single, o.optString("kind", ""));
+            return one == null ? Collections.emptyList() : Collections.singletonList(one);
+        }
+
+        List<ComponentData> out = new ArrayList<>();
+        if (!images.isEmpty()) {
+            JSONArray urls = new JSONArray();
+            for (String p : images) {
+                urls.put(p);
+                if (urls.length() >= 6) break;
+            }
+            out.add(ComponentData.of("image_grid", new JSONObject()
+                    .put("columns", Math.min(3, urls.length())).put("images", urls)));
+        }
+        for (String p : videos) {
+            if (out.size() >= MAX_CARDS_PER_CALL) break;
+            out.add(ComponentData.of("video", new JSONObject()
+                    .put("url", p).put("title", fileNameOf(p))));
+        }
+        for (String p : audios) {
+            if (out.size() >= MAX_CARDS_PER_CALL) break;
+            out.add(ComponentData.of("audio", new JSONObject()
+                    .put("url", p).put("title", fileNameOf(p))));
+        }
+        if (!others.isEmpty() && out.size() < MAX_CARDS_PER_CALL) {
+            if (others.size() == 1) {
+                ComponentData card = mediaCard(others.get(0), "");
+                if (card != null) out.add(card);
+            } else {
+                JSONArray arr = new JSONArray();
+                for (String p : others) {
+                    arr.put(new JSONObject().put("name", fileNameOf(p)).put("path", p)
+                            .put("size", sizeText(p)).put("type", extensionOf(p)));
+                }
+                out.add(ComponentData.of("file_list", new JSONObject()
+                        .put("title", "媒体产物 · " + others.size() + " 个").put("files", arr)));
+            }
+        }
+        return out.size() > MAX_CARDS_PER_CALL ? out.subList(0, MAX_CARDS_PER_CALL) : out;
     }
 
     private static ComponentData speechCard(AIToolResult result) throws Exception {

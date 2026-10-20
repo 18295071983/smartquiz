@@ -984,13 +984,12 @@ public class DashscopeMediaTool implements AITool {
                         props.put("images", images);
                         toolResult.withComponent(ComponentData.of("image_grid", props));
                     } else {
+                        // 生成的视频用原生 VideoCardView（ExoPlayer）直接播，
+                        // 不再只给一张 file_card 让用户再点开预览页。
                         JSONObject props = new JSONObject();
-                        props.put("name", target.getName());
-                        props.put("size", formatSize(target.length()));
-                        props.put("type", "mp4");
-                        props.put("path", target.getAbsolutePath());
-                        props.put("uri", contentUri.toString());
-                        toolResult.withComponent(ComponentData.of("file_card", props));
+                        props.put("url", target.getAbsolutePath());
+                        props.put("title", target.getName());
+                        toolResult.withComponent(ComponentData.of("video", props));
                     }
                 } catch (Exception ignored) {
                 }
