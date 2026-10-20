@@ -84,13 +84,45 @@ public final class ToolCallPartRenderer implements PartRenderer {
     static final class ToolCardProps {
         static final String TYPE = "tool_call";
 
+        /**
+         * 词表归一：parts/fromMessage 的 status 与内联工具卡（{@code ToolCallCardView}）认的
+         * {@code running/success/failed} 不是同一套词——快照兜底路径写的是 {@code "done"}，直接喂
+         * 卡片会落到 default 分支显示"⏳ 执行中"。这里在 renderer 边界收敛成卡片词表，不改共享卡。
+         */
+        static String normalizeStatus(String raw) {
+            if (raw == null) {
+                return "running";
+            }
+            String s = raw.trim().toLowerCase(java.util.Locale.US);
+            switch (s) {
+                case "success":
+                case "done":
+                case "completed":
+                case "complete":
+                case "ok":
+                    return "success";
+                case "failed":
+                case "fail":
+                case "error":
+                    return "failed";
+                case "running":
+                case "pending":
+                case "started":
+                case "in_progress":
+                case "progress":
+                    return "running";
+                default:
+                    return s.isEmpty() ? "running" : s; // 未知词原样透传，卡片 default 仍归"执行中"
+            }
+        }
+
         static JSONObject fromCall(AssistantTurn.Part call) {
             JSONObject o = new JSONObject();
             try {
                 o.put("toolCallId", nz(call.toolCallId));
                 o.put("toolName", nz(call.toolName));
                 o.put("args", nz(call.args));
-                o.put("status", nz(call.status));
+                o.put("status", normalizeStatus(call.status));
                 o.put("result", nz(call.result));
             } catch (JSONException ignore) {
             }
@@ -101,8 +133,8 @@ public final class ToolCallPartRenderer implements PartRenderer {
         static void mergeResult(JSONObject props, AssistantTurn.Part result) {
             try {
                 if (result.result != null) props.put("result", result.result);
-                if (result.status != null) props.put("status", result.status);
-                if ((props.optString("toolName").isEmpty())) props.put("toolName", nz(result.toolName));
+                if (result.status != null) props.put("status", normalizeStatus(result.status));
+                if (props.optString("toolName").isEmpty()) props.put("toolName", nz(result.toolName));
             } catch (JSONException ignore) {
             }
         }

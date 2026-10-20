@@ -1325,10 +1325,14 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 2. **reasoning/error** 正文统一走 `PartHost.renderMarkdown`；**error** 加语义状态色（ThemeColors + R.color.error）。
 3. **工具卡**：`ToolCallPartRenderer` 复用 `ComponentRegistry.render("tool_call")`（卡片能力全继承，零复制）；
    `ToolResultPartRenderer` 按 `toolCallId` 经 `anchorIdFor` 挂回所属卡、合并 result 原地重渲染，不建第二张卡（§4.6）。
+   工具卡**以组件内联通道为准**（AI 气泡内联工具就是 `bindComponents`→`ComponentRegistry` 这条；消息级
+   `VIEW_TYPE_TOOL_CALL`/枚举 `ToolCallInfo` 是独立列表项的另一形态，不对应 parts 单树）。
+   `ToolCardProps.normalizeStatus` 把 parts 的 `done/completed` 归一到内联卡认的 `success/failed/running`
+   （快照路径写 `done`，不归一会被 `ToolCallCardView` 落到 default 显"⏳ 执行中"）。
 4. `PartHost` 扩展 `streaming()/dark()/markdownThemeVars()/renderMarkdown()`。
 5. **data 暂无 renderer**：Part 模型尚无 data 类型/源（组件仍走 msg.components→bindComponents），不造无源轮子；
    `renderMarkdown/dark/markdownThemeVars` 的真实实现随 P3 由 ChatAdapter 落地，视觉一致端到端验证届时做（手机在手）。
-6. **验证**：parts 包 27 条，全量 523 全绿、无回归；flag 默认 false、未接 ChatAdapter，现网零变化。
+6. **验证**：parts 包 30 条（含 status 归一 3），全量 526 全绿、无回归；flag 默认 false、未接 ChatAdapter，现网零变化。
 
 ---
 

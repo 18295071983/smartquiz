@@ -10,8 +10,11 @@
 - **工具卡**：新增 `ToolCallPartRenderer`（复用 `ComponentRegistry.render("tool_call")`，卡片状态色/结果限长/"查看全部"全继承，零复制）+ `ToolResultPartRenderer`
   （按 `toolCallId` 经 `anchorIdFor` 挂回所属工具卡、合并 result 原地重渲染，**不建第二张卡**，落实 §4.6）。
 - **PartHost 扩展**：+`streaming()/dark()/markdownThemeVars()/renderMarkdown(TextView,String)`。
+- **工具 status 词表归一**：parts/fromMessage 快照路径写 `done`，而内联 `ToolCallCardView` 只认
+  `success/failed/running`，直喂会显示"⏳ 执行中"。`ToolCardProps.normalizeStatus` 在 renderer 边界收敛
+  （done/completed/ok→success、error/fail→failed、pending/started/空→running），不改共享卡。
 - **data 暂缺 renderer**：Part 模型尚无 data 类型/源（组件仍走 msg.components→bindComponents），先不造无源轮子，待数据层补 data part 再接。
-- 验证：parts 包共 **27** 条（新增 tool 归属 2 + text/reasoning 委托 2 等），全量 `--offline` **523** 全绿（0/0/0），无回归。flag 仍默认 false、未接 ChatAdapter，现网零变化；
+- 验证：parts 包共 **30** 条（新增 status 归一 3 等），全量 `--offline` **526** 全绿（0/0/0），无回归。flag 仍默认 false、未接 ChatAdapter，现网零变化；
   `renderMarkdown`/`dark`/`markdownThemeVars` 的真实实现随 P3 由 ChatAdapter 落地后才有端到端视觉一致验证。
 
 ## [2026-10-21] parts 架构升级 P1+P2：Part 稳定 id/指纹 + PartRenderer 引擎（flag 默认关）
