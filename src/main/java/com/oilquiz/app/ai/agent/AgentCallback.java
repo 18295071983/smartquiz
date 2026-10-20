@@ -41,6 +41,9 @@ public interface AgentCallback {
     /** 错误 */
     void onError(String error);
 
+    /** 可选：该轮模型生成的完整正文快照（在线/本地统一）。 */
+    default void onRoundComplete(int iteration, String fullText) {}
+
     // ========== 可选回调（默认空实现） ==========
 
     /** 在线模型执行步骤变化（OnlineExecutionStep） */

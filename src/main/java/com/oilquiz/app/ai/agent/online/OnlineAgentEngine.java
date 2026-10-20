@@ -652,6 +652,10 @@ public class OnlineAgentEngine {
             if (result == null) {
                 return; // 错误已处理
             }
+            if (callback != null && result.content != null) {
+                // 在线逐轮 fullText 快照（与本地 AgentLoopEngine.onRoundComplete 同构）
+                callback.onRoundComplete(iteration, result.content);
+            }
             // 取消检查：流被中断后立即退出，不继续处理工具调用
             if (isCancelled.get()) {
                 finishGeneration();
@@ -933,6 +937,9 @@ public class OnlineAgentEngine {
         debugLlmStart();
         IterationResult finalResult = streamOneIteration(cfg, maxTokens, null);
         if (finalResult != null) {
+            if (callback != null && finalResult.content != null) {
+                callback.onRoundComplete(maxIterations, finalResult.content);
+            }
             notifyExecutionStep(OnlineExecutionStep.COMPLETED, "完成");
             notifyComplete(finalResult.content);
         } else {

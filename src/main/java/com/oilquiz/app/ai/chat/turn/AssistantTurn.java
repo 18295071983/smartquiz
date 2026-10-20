@@ -156,7 +156,67 @@ public class AssistantTurn {
                 turn.parts.add(Part.text("R1-text", msg.content, base));
             }
         }
+        fillToolPartsFromComponents(turn, msg);
         return turn;
+    }
+
+    /** 从消息的 tool_call 组件回填 name/args/status/result，并补 TOOL_RESULT part。 */
+    private static void fillToolPartsFromComponents(AssistantTurn turn, ChatMessage msg) {
+        if (msg.components == null || msg.components.isEmpty()) return;
+        java.util.Map<String, org.json.JSONObject> byId = new java.util.HashMap<>();
+        java.util.List<org.json.JSONObject> all = new java.util.ArrayList<>();
+        for (com.oilquiz.app.ai.chat.component.ComponentData c : msg.components) {
+            if (c == null || c.props == null || !"tool_call".equals(c.type)) continue;
+            all.add(c.props);
+            String id = c.props.optString("toolCallId", "");
+            if (!id.isEmpty()) byId.put(id, c.props);
+        }
+        java.util.Set<org.json.JSONObject> used =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        int seq = 0;
+        for (Part p : turn.parts) {
+            if (p == null || !Part.TYPE_TOOL_CALL.equals(p.type)) continue;
+            org.json.JSONObject props = p.toolCallId != null ? byId.get(p.toolCallId) : null;
+            if (props == null) continue;
+            used.add(props);
+            p.toolName = props.optString("toolName", p.toolName);
+            p.args = props.optString("args", p.args);
+            p.status = props.optString("status", p.status);
+            String result = props.optString("result", "");
+            if (!result.isEmpty()) {
+                Part r = new Part();
+                r.id = (p.id != null ? p.id : "tool") + "-result";
+                r.type = Part.TYPE_TOOL_RESULT;
+                r.toolCallId = p.toolCallId;
+                r.toolName = p.toolName;
+                r.result = result;
+                r.status = p.status;
+                r.timestamp = p.timestamp;
+                int at = turn.parts.indexOf(p) + 1;
+                turn.parts.add(at, r);
+            }
+        }
+        // 没有快照/没有 toolCallIds 的旧数据：组件里的工具调用补到末尾
+        for (org.json.JSONObject props : all) {
+            if (used.contains(props)) continue;
+            String id = props.optString("toolCallId", "tool_legacy_" + (seq++));
+            Part p = Part.toolCall("tool-" + id, id,
+                    props.optString("toolName", ""), props.optString("args", ""),
+                    props.optString("status", "done"), System.currentTimeMillis());
+            turn.parts.add(p);
+            String result = props.optString("result", "");
+            if (!result.isEmpty()) {
+                Part r = new Part();
+                r.id = p.id + "-result";
+                r.type = Part.TYPE_TOOL_RESULT;
+                r.toolCallId = id;
+                r.toolName = p.toolName;
+                r.result = result;
+                r.status = p.status;
+                r.timestamp = p.timestamp;
+                turn.parts.add(r);
+            }
+        }
     }
 
     /** 兼容投影：按 parts 顺序拼出正文（不含 tool 参数/结果）。 */

@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-10-21 凌晨] AssistantTurn 二期：在线逐轮快照 + 工具 parts
+
+- `AgentCallback` 新增 `onRoundComplete(iteration, fullText)`；`OnlineAgentEngine`
+  在每次 `streamOneIteration` 后回调该轮完整正文（含最大轮次后的最终回答）。
+- `AgentChatHandler` 在线回调透传到 `AgentChatCallback` → Activity，本地/在线
+  统一进入 `roundSnapshots`。
+- `AssistantTurn.fromMessage()` 从 `tool_call` 组件回填工具 `name/args/status/result`，
+  并按顺序补 `TOOL_RESULT` part；旧数据里没有 toolCallId 的工具也补到末尾。
+- 仍未做：`content` 由 `deriveText()` 派生、UI 按 parts 渲染、移除
+  `contentRoundBounds`（下一步）。
+- 验证：485 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 引入 AssistantTurn parts 模型（canonical 回合）
 
 - 新增 `AssistantTurn`：`modelCalls[]` + 有序 `parts[]`（reasoning/text/tool_call/

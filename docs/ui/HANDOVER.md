@@ -1232,6 +1232,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. **未完成**：UI 仍读 content；在线 Agent 逐轮快照未接。
 5. **验证**：`AssistantTurnTest` 3 条；485 单测全绿，装机。
 
+### 4.45 AssistantTurn 二期：在线快照 + 工具 parts（2026-10-21 凌晨）
+
+1. `AgentCallback.onRoundComplete` + `OnlineAgentEngine` 每轮回调 → AgentChatHandler
+   → Activity，本地/在线统一 `roundSnapshots`。
+2. `AssistantTurn.fromMessage` 从 tool_call 组件回填 name/args/status/result，
+   按序补 `TOOL_RESULT` part。
+3. 仍未做：content 派生、UI parts 渲染、移除 contentRoundBounds。
+4. **验证**：485 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -239,6 +239,11 @@ public class AgentChatHandler {
             }
 
             @Override
+            public void onRoundComplete(int iteration, String fullText) {
+                if (isValid()) callback.onRoundComplete(iteration, fullText);
+            }
+
+            @Override
             public void onToolCallStart(String toolCallId, String toolName, String args) {
                 if (isValid()) {
                     callback.onToolCallStart(toolCallId, toolName, args);
