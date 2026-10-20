@@ -908,6 +908,22 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    另外真机暴露出旧 `SYSTEM` / `AGENT_SUMMARY` 消息仍以 emoji 卡片出现，
    与 demo 的 Plan/Summary 卡不是一套，属于 Agent 子 UI（A2）的缺口。
 
+### 4.17 聊天页收尾（2026-10-21 凌晨，真机已验）
+
+1. **重复停止按钮**：删掉 AI 气泡内的 `btnStop` 及 `DynamicAiMessageRoot`/
+   `AIMessageViewHolder` 的字段与绑定；停止只留输入框右侧。
+2. **附件面板**：新增 `view_chat_attach_sheet.xml`，2×3 网格（拍照/相册/文件/语音/工具/截屏），
+   动作复用既有入口；相册只是 `attachFileLauncher` 限定 `image/*`；
+   截屏 tile 目前提示"对智能助手说「截屏」"，没有直接拉起 MediaProjection 授权。
+   新增 `ic_chat_v2_camera/gallery/screenshot` 三个矢量图标。
+3. **旧 Agent 行**：`shouldHideLegacyRow()` 把 `AGENT_SUMMARY`/`AGENT_STEP` 与
+   INFO/SUCCESS/TIP/TASK/PROGRESS 系统消息整行高度 0 收起，保留
+   WARNING/ERROR/CONTEXT_INJECTION/SYSTEM_PROMPT；位置不变，不破坏 position 计算。
+4. **验证**：456 单测全绿、装机；真机看到附件网格与干净的消息流。
+5. **未做**：`已停止 · 继续生成`。仓库没有"从部分回答续写"的入口；
+   要做必须新增一条生成链路（历史 + 部分 assistant 内容 + "继续"），
+   不能拿 `regenerateLastMessage()` 冒充，否则会丢掉已生成内容。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -449,28 +449,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentStatus.setLayoutParams(asLp);
         bubble.addView(agentStatus);
 
-        // --- 停止生成按钮（流式生成中显示，其他状态隐藏） ---
-        TextView btnStop = new TextView(ctx);
-        btnStop.setText(R.string.chat_stop_generating);
-        btnStop.setTextSize(11f);
-        btnStop.setTextColor(colorPrimary);
-        btnStop.setPadding(dpToPx(8, ctx), dpToPx(4, ctx), dpToPx(8, ctx), dpToPx(4, ctx));
-        btnStop.setClickable(true);
-        btnStop.setFocusable(true);
-        btnStop.setForeground(getSelectableItemBackground(ctx));
-        btnStop.setVisibility(View.GONE);
-        android.graphics.drawable.GradientDrawable stopBg = new android.graphics.drawable.GradientDrawable();
-        stopBg.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
-        stopBg.setCornerRadius(dpToPx(10, ctx));
-        stopBg.setStroke(dpToPx(1, ctx), colorPrimary & 0x00FFFFFF | 0x66000000);
-        stopBg.setColor(0x14000000);
-        btnStop.setBackground(stopBg);
-        LinearLayout.LayoutParams bsLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bsLp.bottomMargin = dpToPx(4, ctx);
-        btnStop.setLayoutParams(bsLp);
-        bubble.addView(btnStop);
-
         // --- Agent 控制组（暂停/单步/回退），流式生成中显示 ---
         LinearLayout agentControlBar = new LinearLayout(ctx);
         agentControlBar.setOrientation(LinearLayout.HORIZONTAL);
@@ -650,7 +628,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 组装为动态根容器（携带全部子视图引用，避免 findViewById）
         DynamicAiMessageRoot dynamicRoot = new DynamicAiMessageRoot(ctx, messageText,
                 contentHost, componentContainer, thinkingLabel, thinkingContent, thinkingDivider,
-                agentStatus, agentSummary, btnStop, btnPause, btnStep, btnRewind,
+                agentStatus, agentSummary, btnPause, btnStep, btnRewind,
                 agentControlBar, timestampText, statusIcon, statusText,
                 inferenceProgressView, attachmentsRecycler);
         dynamicRoot.setLayoutParams(new RecyclerView.LayoutParams(
@@ -768,6 +746,26 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (position < 0 || position >= messages.size()) return;
         ChatMessage message = messages.get(position);
         String timeStr = shouldShowDate(position) ? dateFormat.format(new Date(message.timestamp)) : timeFormat.format(new Date(message.timestamp));
+
+        // 旧 Agent 过程消息在 v2 消息流里不再单独占一行（demo 用 Plan/Tool/Log 卡承担）：
+        // AGENT_SUMMARY / AGENT_STEP 以及 INFO/SUCCESS/PROGRESS 类系统消息整行收起，
+        // 位置保留、高度为 0，不影响 Activity 里按 position 取消息的所有计算。
+        if (shouldHideLegacyRow(message)) {
+            ViewGroup.LayoutParams hiddenLp = holder.itemView.getLayoutParams();
+            if (hiddenLp != null) {
+                hiddenLp.height = 0;
+                holder.itemView.setLayoutParams(hiddenLp);
+            }
+            holder.itemView.setVisibility(View.GONE);
+            return;
+        }
+        // 复用池里可能带着上一条的 0 高度：可见消息必须复位
+        holder.itemView.setVisibility(View.VISIBLE);
+        ViewGroup.LayoutParams shownLp = holder.itemView.getLayoutParams();
+        if (shownLp != null && shownLp.height == 0) {
+            shownLp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            holder.itemView.setLayoutParams(shownLp);
+        }
 
         // ===== Agent执行组折叠：非header且组已折叠 → 隐藏（height=0） =====
         if (message.agentGroupId != null && !message.isAgentGroupHeader) {
@@ -888,6 +886,33 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     ((ThinkingMessageViewHolder) holder).bind(message);
                 }
             }
+        }
+    }
+
+    /**
+     * 旧 Agent 过程消息是否在 v2 消息流里收起。
+     * demo 的过程信息由 Agent 计划/工具/日志卡承担，不再有"收到你的消息…""Agent模式已激活"
+     * 这类 INFO 卡片，也没有独立的 AGENT_SUMMARY/AGENT_STEP 行。
+     */
+    private static boolean shouldHideLegacyRow(ChatMessage m) {
+        if (m == null) return false;
+        if (m.type == ChatMessage.MessageType.AGENT_SUMMARY
+                || m.type == ChatMessage.MessageType.AGENT_STEP) {
+            return true;
+        }
+        if (m.type != ChatMessage.MessageType.SYSTEM) return false;
+        if (m.isAgentGroupHeader) return true;
+        ChatMessage.SystemMessageType t = m.systemType;
+        if (t == null) return false;
+        switch (t) {
+            case INFO:
+            case SUCCESS:
+            case TIP:
+            case TASK:
+            case PROGRESS:
+                return true;
+            default:
+                return false;
         }
     }
 
@@ -1253,23 +1278,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             }
         }
-        // 停止生成按钮：仅在流式生成中显示，点击触发 Action.stopGeneration
-        if (holder.btnStop != null) {
-            boolean streaming = message.status == ChatMessage.MessageStatus.GENERATING
-                    || message.status == ChatMessage.MessageStatus.IN_PROGRESS;
-            holder.btnStop.setVisibility(streaming ? View.VISIBLE : View.GONE);
-            if (streaming) {
-                final String msgId = message.id;
-                holder.btnStop.setOnClickListener(v -> {
-                    if (actionClickListener != null) {
-                        actionClickListener.onAction(ChatMessage.Action.stopGeneration(msgId));
-                    }
-                    ComponentActions.dispatchChatAction(v.getContext(), "stop:" + msgId);
-                });
-            } else {
-                holder.btnStop.setOnClickListener(null);
-            }
-        }
+        // 停止生成只保留输入框右侧那一颗（demo 口径）；消息内不再重复一颗文字按钮。
         // Agent 控制组（暂停/单步/回退）：流式生成中显示
         bindAgentControlBar(holder, message);
     }
@@ -4955,7 +4964,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final View thinkingDivider;
         final TextView agentStatus;
         final TextView agentSummary;
-        final TextView btnStop;
         final TextView btnPause;
         final TextView btnStep;
         final TextView btnRewind;
@@ -4969,7 +4977,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         DynamicAiMessageRoot(Context ctx, TextView messageText,
                 LinearLayout contentHost, LinearLayout componentContainer, TextView thinkingLabel,
                 TextView thinkingContent, View thinkingDivider, TextView agentStatus,
-                TextView agentSummary, TextView btnStop, TextView btnPause, TextView btnStep,
+                TextView agentSummary, TextView btnPause, TextView btnStep,
                 TextView btnRewind, LinearLayout agentControlBar, TextView timestampText,
                 ImageView statusIcon, TextView statusText,
                 InferenceProgressView inferenceProgressView,
@@ -4983,7 +4991,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.thinkingDivider = thinkingDivider;
             this.agentStatus = agentStatus;
             this.agentSummary = agentSummary;
-            this.btnStop = btnStop;
             this.btnPause = btnPause;
             this.btnStep = btnStep;
             this.btnRewind = btnRewind;
@@ -5057,7 +5064,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         View thinkingDivider;
         TextView agentStatus;
         TextView agentSummary;
-        TextView btnStop;
         TextView btnPause;
         TextView btnStep;
         TextView btnRewind;
@@ -5080,7 +5086,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             this.thinkingDivider = dr.thinkingDivider;
             this.agentStatus = dr.agentStatus;
             this.agentSummary = dr.agentSummary;
-            this.btnStop = dr.btnStop;
             this.btnPause = dr.btnPause;
             this.btnStep = dr.btnStep;
             this.btnRewind = dr.btnRewind;

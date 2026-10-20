@@ -555,4 +555,27 @@
         <item name="android:overScrollMode">always</item>
     </style>
 
+    <!-- 聊天页「添加」面板的 2×3 网格（demo #sheet-attach） -->
+    <style name="ChatV2AttachTile">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center</item>
+        <item name="android:background">@drawable/chat_v2_scene_card_bg</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:foreground">?attr/selectableItemBackground</item>
+        <item name="android:paddingTop">@dimen/space_12</item>
+        <item name="android:paddingBottom">@dimen/space_12</item>
+    </style>
+
+    <style name="ChatV2AttachLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">@dimen/space_6</item>
+        <item name="android:textColor">@color/chat_v2_text_2</item>
+        <item name="android:textSize">@dimen/chat_v2_status_text</item>
+    </style>
+
 </resources>

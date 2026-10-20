@@ -10362,28 +10362,59 @@ public class AIChatActivity extends BaseActivity {
         else showToast(getString(R.string.h_3f036f4f));
     }
 
-    /** 显示附件选项对话框 */
+    /**
+     * 「添加」面板（demo #sheet-attach）：2×3 图标网格。
+     * 2026-10-21：从 4 项 AlertDialog 改成卡片网格；动作全部复用既有入口，
+     * 相册只是把文件选择器限定成 image/*（不新建一套图片读取）。
+     */
     private void showAttachmentOptionsDialog() {
-        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
-        builder.setTitle(getString(R.string.h_a9c3646a))
-            .setItems(new String[]{getString(R.string.h_bbd24cc2), getString(R.string.h_7cfb7c97), getString(R.string.h_e5417e44), getString(R.string.h_0fdd25cd)}, (dialog, which) -> {
-                switch (which) {
-                    case 0: // 拍照
-                        handleTakePhoto();
-                        break;
-                    case 1: // 选择文件
-                        handleAttachFile();
-                        break;
-                    case 2: // 录制语音附件
-                        handleRecordAudio();
-                        break;
-                    case 3: // 语音模型设置
-                        handleSpeechModelConfig();
-                        break;
+        try {
+            final com.google.android.material.bottomsheet.BottomSheetDialog sheet =
+                    new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+            View content = getLayoutInflater().inflate(R.layout.view_chat_attach_sheet, null);
+            View close = content.findViewById(R.id.chat_v2_attach_close);
+            if (close != null) close.setOnClickListener(v -> sheet.dismiss());
+
+            bindAttachTile(content, R.id.chat_v2_attach_camera, sheet, this::handleTakePhoto);
+            bindAttachTile(content, R.id.chat_v2_attach_gallery, sheet, () -> {
+                if (attachFileLauncher != null) {
+                    attachFileLauncher.launch(new String[]{"image/*"});
+                } else {
+                    showToast(getString(R.string.h_3f036f4f));
                 }
-            })
-            .setNegativeButton(getString(R.string.h_625fb26b), null)
-            .show();
+            });
+            bindAttachTile(content, R.id.chat_v2_attach_file, sheet, this::handleAttachFile);
+            bindAttachTile(content, R.id.chat_v2_attach_voice, sheet, this::startVoiceRecognitionTool);
+            bindAttachTile(content, R.id.chat_v2_attach_tool, sheet, () -> {
+                if (drawerLayout != null) {
+                    drawerLayout.openDrawer(findViewById(R.id.tool_drawer));
+                }
+            });
+            bindAttachTile(content, R.id.chat_v2_attach_screen, sheet,
+                    () -> showToast("对智能助手说「截屏」即可让 Agent 截图"));
+
+            sheet.setContentView(content);
+            sheet.show();
+        } catch (Throwable t) {
+            AppLogger.aiW("AIChat", "attach sheet failed: " + t.getMessage());
+            showToast(getString(R.string.h_3f036f4f));
+        }
+    }
+
+    /** 给「添加」面板的一个格子挂动作；点完先关面板再执行 */
+    private void bindAttachTile(View root, int id,
+                                com.google.android.material.bottomsheet.BottomSheetDialog sheet,
+                                Runnable action) {
+        View tile = root.findViewById(id);
+        if (tile == null) return;
+        tile.setOnClickListener(v -> {
+            sheet.dismiss();
+            try {
+                action.run();
+            } catch (Throwable t) {
+                AppLogger.aiW("AIChat", "attach action failed: " + t.getMessage());
+            }
+        });
     }
 
     /** 打开相机拍照 */

@@ -1,5 +1,39 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 聊天页收尾：删消息内重复停止、附件面板 2×3、旧 Agent 消息行收起
+
+### 查到的事实
+
+- 消息气泡内还留着一颗「停止生成」文字按钮（`btnStop`），和输入框右侧的停止重复；
+  demo / `ai-chat-redesign.md` §5.4 都要求停止只固定在输入框。
+- 附件面板还是 4 项 `AlertDialog`；demo #sheet-attach 是 2×3 卡片网格
+  （拍照 / 相册 / 文件 / 语音 / 工具 / 截屏）。
+- 旧 Agent 过程消息仍以独立行出现：`SYSTEM`（"收到你的消息，我正在处理 🤖"、
+  "Agent模式已激活"）与 `AGENT_SUMMARY`（5 列指标卡、emoji）。demo 的过程信息由
+  Plan/Tool/Log 卡承担，没有这些行。
+
+### 由此改掉的事
+
+- 删除 AI 消息树内的 `btnStop` 及 `DynamicAiMessageRoot`/`AIMessageViewHolder` 的字段与绑定；
+  停止只留输入框那一颗。
+- 新增 `view_chat_attach_sheet.xml`（2×3 网格 + 标题/关闭）与
+  `ChatV2AttachTile`/`ChatV2AttachLabel` 样式；动作复用既有入口：
+  拍照=handleTakePhoto、相册=文件选择器限定 image/*、文件=handleAttachFile、
+  语音=startVoiceRecognitionTool、工具=打开工具抽屉、截屏=提示对 Agent 说「截屏」。
+  新增 3 个矢量图标（相机/相册/截屏），不用 emoji。
+- `ChatAdapter#shouldHideLegacyRow`：v2 下 `AGENT_SUMMARY`/`AGENT_STEP` 与
+  `INFO/SUCCESS/TIP/TASK/PROGRESS` 类系统消息整行高度 0 收起（WARNING/ERROR/
+  上下文注入/系统提示词保留），位置不变、Activity 的 position 计算不受影响。
+
+### 验证
+
+- 全量单测 **456 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 真机截图确认：附件面板为 2×3 网格（相机/相册/文件/语音/工具/截屏）；
+  聊天流里旧的 "收到你的消息…/Agent模式已激活/5 列指标卡" 已消失；
+  工具卡显示为「已运行 8 个工具 ✓ ›」。
+- **未做**：「已停止 · 继续生成」——项目里没有"从部分回答继续"的生成入口，
+  需要新增一条续写链路，不能拿"重新生成"冒充。
+
 ## [2026-10-21 凌晨] 拆回 demo 两段式：思考行 + 独立工具卡
 
 ### 查到的事实

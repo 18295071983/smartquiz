@@ -725,6 +725,13 @@
     <!-- 聊天页 v2 输入胶囊（demo .composer）：旧布局里这些文案是硬编码的，v2 走资源 -->
     <string name="chat_input_hint">输入消息…</string>
     <string name="chat_attach_desc">添加附件</string>
+    <string name="chat_attach_title">添加</string>
+    <string name="chat_attach_camera">拍照</string>
+    <string name="chat_attach_gallery">相册</string>
+    <string name="chat_attach_file">文件</string>
+    <string name="chat_attach_voice">语音</string>
+    <string name="chat_attach_tool">工具</string>
+    <string name="chat_attach_screen">截屏</string>
     <string name="chat_voice_desc">语音输入</string>
     <string name="chat_send_desc">发送</string>
     <string name="chat_v2_generating">正在生成</string>
