@@ -1,5 +1,31 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 模型面板改成 demo 的 BottomSheet（在线/本地 + 列表 + 温度 + 上下文）
+
+### 查到的事实
+
+- 点顶栏标题直接 `performClick(btn_model_select)` 跳 `ModelCenterActivity` 整页；
+  demo #sheet-model 是 BottomSheet：在线/本地区段、模型列表、上下文占用、温度、应用。
+- 模型参数不是没有：`UserModelParamsManager` 已有温度（回答轮/决策轮）与上下文长度，
+  在线模型切换走 `OnlineModelManager#setActiveModel`；温度改完不需要重载模型。
+- 本地模型切换需要重新加载 native 模型，不适合塞进这个轻面板。
+
+### 由此改掉的事
+
+- 新增 `ai/chat/ui/ModelSheet` + `view_chat_v2_model_sheet.xml`：
+  在线/本地分段、在线模型列表（当前项打勾）、温度滑杆（0.1–1.5，读
+  `UserModelParamsManager#getAnswerTemperature`）、上下文长度（自动/手动 N tokens）、应用。
+- 在线列表选中后 `setActiveModel`；温度 `setTemperature` 同时写决策轮/回答轮；
+  本地页列出已下载模型并提供「打开模型中心」，不在这里做假切换。
+- 顶栏标题点击改为打开该 BottomSheet；面板里仍保留「打开模型中心」入口，完整管理不丢。
+
+### 验证
+
+- 全量单测 **456 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 真机打开面板：在线列表（深度求索/deepseek-flash、小米/mimo）、温度滑杆、
+  `上下文长度：自动`、应用按钮都正常渲染；当前模型有勾选。
+- 未验：真正切换模型/拖动温度后应用（会改用户配置，未在验证时点）。
+
 ## [2026-10-21 凌晨] 聊天页收尾：删消息内重复停止、附件面板 2×3、旧 Agent 消息行收起
 
 ### 查到的事实

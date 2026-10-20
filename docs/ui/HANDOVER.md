@@ -924,6 +924,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    要做必须新增一条生成链路（历史 + 部分 assistant 内容 + "继续"），
    不能拿 `regenerateLastMessage()` 冒充，否则会丢掉已生成内容。
 
+### 4.18 模型面板 BottomSheet（2026-10-21 凌晨，真机已打开）
+
+1. 新增 `ai/chat/ui/ModelSheet` + `view_chat_v2_model_sheet.xml`，
+   顶栏标题点击从"跳 ModelCenterActivity"改为打开 BottomSheet：
+   在线/本地分段、在线模型列表（当前项 ✓）、温度滑杆 0.1–1.5、
+   上下文长度（自动/手动 N tokens）、应用。
+2. 数据全部复用现有实现：在线模型 `OnlineModelManager#getModelList/setActiveModel`，
+   温度/上下文 `UserModelParamsManager`（`setTemperature` 同时写决策轮/回答轮）。
+   本地模型切换要重载 native 模型，面板只列名字 + 「打开模型中心」，不做假切换。
+3. 面板保留「打开模型中心」入口，完整管理（增删/密钥/用量）仍在那页。
+4. 验证：456 单测全绿、装机后真机打开面板，列表/温度/上下文/应用均正常渲染。
+   **未点应用**（会改用户配置）。
+
 ---
 
 ## 5. 关键文件 / 改动地图

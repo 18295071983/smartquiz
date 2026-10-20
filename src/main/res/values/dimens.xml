@@ -161,6 +161,8 @@
     <dimen name="chat_v2_think_text">12.5sp</dimen>
     <dimen name="chat_v2_tool_height">38dp</dimen>
     <dimen name="chat_v2_tool_radius">12dp</dimen>
+    <dimen name="chat_v2_model_list_max">300dp</dimen>
+    <dimen name="size_180">180dp</dimen>
     <dimen name="chat_v2_composer_radius">26dp</dimen>
     <dimen name="chat_v2_composer_min_height">52dp</dimen>
     <dimen name="chat_v2_send_size">38dp</dimen>

@@ -183,9 +183,8 @@ public final class ChatUiV2Chrome {
         click(header, R.id.chat_v2_btn_history, v -> perform(activity, R.id.btn_history));
         click(header, R.id.chat_v2_btn_new, v -> perform(activity, R.id.btn_new_conversation));
         click(header, R.id.chat_v2_btn_more, v -> openInfoSheet(ctx));
-        click(header, R.id.chat_v2_btn_model, v -> {
-            if (!perform(activity, R.id.btn_model_select)) openInfoSheet(ctx);
-        });
+        click(header, R.id.chat_v2_btn_model, v ->
+                ModelSheet.show(activity, () -> updateSubtitle(activity, modelSubtitle(activity))));
         return header;
     }
 
