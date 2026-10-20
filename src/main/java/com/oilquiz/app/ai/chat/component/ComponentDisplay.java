@@ -33,7 +33,7 @@ import java.util.Locale;
  * </ol>
  *
  * <p>展开状态不放 View、也不进持久化：{@code ChatMessage.componentBodyExpanded}
- * 记"哪些卡片被用户点开过"，与思考轮折叠（{@code thinkingCollapsedRounds}）同一套路子；
+ * 记"哪些卡片被用户点开过"，与思考轮展开（{@code thinkingExpandedRounds}）同一套路子；
  * RecyclerView 复用/重建时按这个集合重新决定初始档位，不会像 v2 工具行那样
  * 把状态只挂在 View 上一次绑定。
  *

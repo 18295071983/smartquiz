@@ -313,13 +313,21 @@ public class GenerationStreamController {
 
     // ==================== Agent 思考轮次 ====================
 
+    /**
+     * 当前思考轮的开始时刻（毫秒）。只在"新建缓冲区"那一刻打点，
+     * 轮次定稿时算成该轮耗时写进 {@code ChatMessage.thinkingRoundDurationsMs}。
+     * 0 = 本轮没有起点（旧流程/异常路径），该轮耗时记 0，UI 就不显示秒数。
+     */
+    private long thinkingRoundStartedAt;
+
     /** 新一轮思考开始（轮次切换时先保存上一轮） */
     public void startThinkingRound(List<ChatMessage> history) {
         if (thinkingRoundEnded || currentThinkingContent == null) {
             if (currentThinkingContent != null && currentThinkingContent.length() > 0) {
                 final int curIdx = resolveStreamingIndex(history);
                 if (curIdx >= 0 && curIdx < history.size()) {
-                    history.get(curIdx).addThinkingRound(currentThinkingContent.toString());
+                    history.get(curIdx).addThinkingRound(currentThinkingContent.toString(),
+                            null, elapsedThinkingRound());
                 }
             }
             thinkingRoundEnded = false;
@@ -327,12 +335,25 @@ public class GenerationStreamController {
             synchronized (streamingLock) {
                 currentThinkingContent = new StringBuilder();
             }
+            thinkingRoundStartedAt = System.currentTimeMillis();
         }
+    }
+
+    /** 结束当前思考轮并返回其耗时（毫秒）；没有起点返回 0 */
+    private long elapsedThinkingRound() {
+        long start = thinkingRoundStartedAt;
+        thinkingRoundStartedAt = 0L;
+        return start > 0L ? Math.max(0L, System.currentTimeMillis() - start) : 0L;
     }
 
     public void appendThinkingToken(String token, List<ChatMessage> history) {
         synchronized (streamingLock) {
-            if (currentThinkingContent == null) currentThinkingContent = new StringBuilder();
+            if (currentThinkingContent == null) {
+                currentThinkingContent = new StringBuilder();
+                // 缓冲区在这里被兜底重建（没走 startThinkingRound）：补一个起点，
+                // 否则该轮永远算不出耗时
+                thinkingRoundStartedAt = System.currentTimeMillis();
+            }
             currentThinkingContent.append(token);
         }
         final int idx = resolveStreamingIndex(history);
@@ -360,7 +381,9 @@ public class GenerationStreamController {
         if (msg == null) return;
         if (!snapshot.isEmpty()) {
             msg.thinkingContent = snapshot;
-            msg.addThinkingRound(snapshot);
+            msg.addThinkingRound(snapshot, null, elapsedThinkingRound());
+        } else {
+            elapsedThinkingRound();   // 空轮不记账，但起点要清掉，避免串到下一轮
         }
         msg.thinkingExpanded = false;
         host.onRefreshMessage(idx);

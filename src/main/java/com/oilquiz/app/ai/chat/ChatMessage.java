@@ -216,21 +216,40 @@ public class ChatMessage {
      *  适配器按 id 定位/折叠/展开单个思考轮。 */
     public List<String> thinkingRoundIds;
 
-    /** 已折叠的思考轮 id 集合（仅运行时 UI 状态，不持久化）：
-     *  每轮思考块独立折叠/展开；null 或空 = 全部跟随消息级 thinkingExpanded */
-    public transient java.util.Set<String> thinkingCollapsedRounds;
+    /**
+     * 各思考轮的耗时（毫秒），与 {@link #thinkingRounds} 一一对应（2026-10-20）。
+     *
+     * <p>加这个字段是因为"每轮单独成行"之后，行尾要跟这一轮的耗时（"第 2 轮思考 · 1.8s"）；
+     * 耗时只在流式过程中由 {@code GenerationStreamController} 知道（轮开始/定稿两个时刻），
+     * 定稿后不记就永久丢了，所以必须落到消息模型上、跟着会话一起持久化。</p>
+     *
+     * <p>兼容：旧会话文件里没有这个字段 → 反序列化后为 null，UI 退回只显示"第 N 轮思考"；
+     * 长度与轮数不一致时按短的那边取值，缺位不炸。0 / 负值视为"没有耗时"。</p>
+     */
+    public List<Long> thinkingRoundDurationsMs;
 
-    /** 该思考轮是否处于折叠状态（独立折叠优先于消息级展开） */
-    public boolean isThinkingRoundCollapsed(String roundId) {
-        return thinkingCollapsedRounds != null && roundId != null && thinkingCollapsedRounds.contains(roundId);
+    /**
+     * 被用户点开的思考轮 id（仅运行时 UI 状态，不持久化，2026-10-20 语义反转）。
+     *
+     * <p>原来这里是反着的：记的是"已折叠"的轮，默认全部展开。改成记"已展开"是因为
+     * 每轮独立成行之后，默认全展开会让一条 10 轮的 Agent 消息变成 10 坨正文，
+     * 比统一折叠更难读。现在的默认口径是：<b>已定稿的轮收起（只留一行摘要），
+     * 正在流式的当前轮展开</b>；用户点开哪一轮，就只展开那一条。</p>
+     */
+    public transient java.util.Set<String> thinkingExpandedRounds;
+
+    /** 该思考轮是否处于展开状态（未记录 = 收起；正在流式的当前轮由 UI 侧强制展开） */
+    public boolean isThinkingRoundExpanded(String roundId) {
+        return thinkingExpandedRounds != null && roundId != null
+                && thinkingExpandedRounds.contains(roundId);
     }
 
-    /** 切换单个思考轮的折叠状态（独立折叠） */
-    public void toggleThinkingRoundCollapsed(String roundId) {
+    /** 切换单个思考轮的展开/收起 */
+    public void toggleThinkingRoundExpanded(String roundId) {
         if (roundId == null || roundId.isEmpty()) return;
-        if (thinkingCollapsedRounds == null) thinkingCollapsedRounds = new java.util.HashSet<>();
-        if (!thinkingCollapsedRounds.add(roundId)) {
-            thinkingCollapsedRounds.remove(roundId);
+        if (thinkingExpandedRounds == null) thinkingExpandedRounds = new java.util.HashSet<>();
+        if (!thinkingExpandedRounds.add(roundId)) {
+            thinkingExpandedRounds.remove(roundId);
         }
     }
 
@@ -238,7 +257,7 @@ public class ChatMessage {
      * 被用户点开过的产物卡（2026-10-20）：peek 档卡片默认收成一行摘要
      * （见 {@link com.oilquiz.app.ai.chat.component.ComponentDisplay}），此集合记"这条已展开"。
      *
-     * <p>仅运行时 UI 状态、不持久化，与 {@link #thinkingCollapsedRounds} 同套路子：
+     * <p>仅运行时 UI 状态、不持久化，与 {@link #thinkingExpandedRounds} 同套路子：
      * 状态放在消息模型上而不是 View 上，RecyclerView 复用/整条重建后按它还原，
      * 不会像 v2 工具行那样一次绑定结束就丢。
      */
@@ -268,6 +287,14 @@ public class ChatMessage {
 
     /** 追加一轮思考内容 + 该轮的 THINKING 子 id（与 thinkingRounds 一一对应） */
     public void addThinkingRound(String roundContent, String roundId) {
+        addThinkingRound(roundContent, roundId, 0L);
+    }
+
+    /**
+     * 追加一轮思考内容 + 子 id + 该轮耗时（毫秒，0 = 未知）。
+     * 三个列表（内容 / id / 耗时）严格同下标，缺位一律补占位，避免 UI 取值错位。
+     */
+    public void addThinkingRound(String roundContent, String roundId, long durationMs) {
         if (roundContent == null || roundContent.trim().isEmpty()) return;
         if (thinkingRounds == null) thinkingRounds = new java.util.ArrayList<>();
         thinkingRounds.add(roundContent);
@@ -288,6 +315,20 @@ public class ChatMessage {
             thinkingRoundIds.add(null);
         }
         thinkingRoundIds.add(roundId);
+        // 耗时同口径补齐：旧数据/未计时的那轮记 0（UI 侧 0 视为"没有耗时"，不显示秒数）
+        if (thinkingRoundDurationsMs == null) thinkingRoundDurationsMs = new java.util.ArrayList<>();
+        while (thinkingRoundDurationsMs.size() < thinkingRounds.size() - 1) {
+            thinkingRoundDurationsMs.add(0L);
+        }
+        thinkingRoundDurationsMs.add(Math.max(0L, durationMs));
+    }
+
+    /** 第 index 轮的耗时（毫秒）；没有记录返回 0，调用方按 0 当作"未知"处理 */
+    public long thinkingRoundDurationMs(int index) {
+        if (thinkingRoundDurationsMs == null || index < 0
+                || index >= thinkingRoundDurationsMs.size()) return 0L;
+        Long v = thinkingRoundDurationsMs.get(index);
+        return v == null ? 0L : Math.max(0L, v);
     }
 
     /** 正文轮次边界：content 中每个工具调用处的位置（工具调用 = 轮次边界）。

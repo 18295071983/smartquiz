@@ -244,6 +244,10 @@ public class ChatHistoryManager {
             m.contentRoundBounds = msg.contentRoundBounds != null ? new ArrayList<>(msg.contentRoundBounds) : null;
             // 思考轮 id 随轮次内容一起拷贝（2026-09-14）：恢复后 id 与轮次一一对应不丢
             m.thinkingRoundIds = msg.thinkingRoundIds != null ? new ArrayList<>(msg.thinkingRoundIds) : null;
+            // 每轮耗时也要跟着拷（2026-10-20）："每轮单独成行"后行尾要显示这一轮的秒数，
+            // 丢了就只能退回"第 N 轮思考"没有耗时
+            m.thinkingRoundDurationsMs = msg.thinkingRoundDurationsMs != null
+                    ? new ArrayList<>(msg.thinkingRoundDurationsMs) : null;
             // Agent 运行时字段（clone() 的 Builder 未覆盖，直接赋值）
             m.agentToolsExpanded = msg.agentToolsExpanded;
             m.agentMode = msg.agentMode;

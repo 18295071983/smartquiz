@@ -285,6 +285,12 @@ public class AIChatActivity extends BaseActivity {
     private volatile boolean thinkingRoundEnded = false;
     /** 思考轮次计数（agent多轮迭代时递增） */
     private volatile int thinkingRoundCount = 0;
+    /**
+     * 当前思考轮的开始时刻（毫秒，2026-10-20）：0 = 本轮没有起点。
+     * 轮次定稿时算成该轮耗时写进 {@code ChatMessage.thinkingRoundDurationsMs}，
+     * 供"每轮思考单独成行"的行尾显示"第 N 轮思考 · 1.8s"。
+     */
+    private volatile long thinkingRoundStartedAt = 0L;
     private volatile Boolean lastUseOnlineModel = null;
     /** 在线模型变更监听器，用于实时更新模型名称显示 */
     private OnlineModelManager.ModelChangeListener modelChangeListener;
@@ -6105,6 +6111,18 @@ public class AIChatActivity extends BaseActivity {
      * Agent 思考结束：把最终思考内容写入 AI 消息内嵌思考区并折叠（用户可点击展开）。
      * 同时把本轮内容追加到 thinkingRounds（多轮独立展示）。
      */
+    /** 开一轮新思考：记下落点，供定稿时算该轮耗时 */
+    private void markThinkingRoundStarted() {
+        thinkingRoundStartedAt = System.currentTimeMillis();
+    }
+
+    /** 结束当前思考轮并返回耗时（毫秒）；无起点返回 0（UI 侧 0 就不显示秒数） */
+    private long elapsedThinkingRound() {
+        long start = thinkingRoundStartedAt;
+        thinkingRoundStartedAt = 0L;
+        return start > 0L ? Math.max(0L, System.currentTimeMillis() - start) : 0L;
+    }
+
     private void finalizeAgentThinking() {
         final int idx = resolveStreamingIndex();
         if (idx < 0) return;
@@ -6116,7 +6134,7 @@ public class AIChatActivity extends BaseActivity {
         if (msg == null) return;
         if (!snapshot.isEmpty()) {
             msg.thinkingContent = snapshot;
-            msg.addThinkingRound(snapshot);
+            msg.addThinkingRound(snapshot, null, elapsedThinkingRound());
         }
         msg.thinkingExpanded = false; // 思考完毕自动折叠，用户可点击重新展开
         cancelThinkingRefresh(); // 取消待执行的思考节流刷新（下面全量 notify 已带最新 thinkingContent）
@@ -6564,7 +6582,10 @@ public class AIChatActivity extends BaseActivity {
                                 + finalMsg.content.substring(tcClose + tcCloseLen)).trim();
                         if (embeddedThinking.length() > 0) {
                             synchronized (streamingLock) {
-                                if (currentThinkingContent == null) currentThinkingContent = new StringBuilder();
+                                if (currentThinkingContent == null) {
+                    currentThinkingContent = new StringBuilder();
+                    markThinkingRoundStarted();
+                }
                                 if (currentThinkingContent.length() == 0) {
                                     currentThinkingContent.append(embeddedThinking);
                                     finalMsg.thinkingContent = embeddedThinking;
@@ -6753,10 +6774,11 @@ public class AIChatActivity extends BaseActivity {
                         }
                         // 工具调用前思考落库（若本轮思考尚未结束）：思考轮次与正文轮次一一对应
                         if (currentThinkingContent != null && currentThinkingContent.length() > 0 && !thinkingRoundEnded) {
-                            msg.addThinkingRound(currentThinkingContent.toString());
+                            msg.addThinkingRound(currentThinkingContent.toString(), null, elapsedThinkingRound());
                             thinkingRoundEnded = true; // 落库即视为结束，防 finalize 重复
                         }
                         if (currentThinkingContent != null) currentThinkingContent = new StringBuilder();
+                        markThinkingRoundStarted();
                     }
                 }
                 appendAgentToolCall(toolCallId, toolName, "running", args, null);
@@ -6855,11 +6877,12 @@ public class AIChatActivity extends BaseActivity {
                     final int curIdx = resolveStreamingIndex();
                     if (curIdx >= 0 && curIdx < chatHistory.size()) {
                         ChatMessage prevMsg = chatHistory.get(curIdx);
-                        prevMsg.addThinkingRound(currentThinkingContent.toString());
+                        prevMsg.addThinkingRound(currentThinkingContent.toString(), null, elapsedThinkingRound());
                     }
                 }
                 thinkingRoundEnded = false;
                 thinkingRoundCount++;
+                markThinkingRoundStarted();
                 setAgentStepStatus("🔍 思考中...（第" + thinkingRoundCount + "轮）");
                 // 新一轮思考开始：默认折叠思考区（不打扰正文阅读），用户可点击展开实时查看
                 final int newRoundIdx = resolveStreamingIndex();
