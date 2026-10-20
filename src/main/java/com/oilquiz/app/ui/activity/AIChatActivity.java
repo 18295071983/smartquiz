@@ -1420,7 +1420,7 @@ public class AIChatActivity extends BaseActivity {
                     final int idx = resolveStreamingIndex();
                     synchronized (streamingLock) {
                         if (currentThinkingContent == null) {
-                            currentThinkingContent = new StringBuilder();
+                            startThinkingBuffer();
                         }
                         // 立即显示思考状态，让用户感知到模型在思考
                         if (currentThinkingContent.length() == 0 && idx >= 0) {
@@ -5072,7 +5072,7 @@ public class AIChatActivity extends BaseActivity {
             agentGroupToolCount = 0;
             agentToolNames.clear();
             currentStreamingContent = new StringBuilder();
-            currentThinkingContent = new StringBuilder();
+            startThinkingBuffer();
             currentStreamingMessageId = java.util.UUID.randomUUID().toString();
             resetStreamingTts();
             resetStreamingState();
@@ -5698,7 +5698,7 @@ public class AIChatActivity extends BaseActivity {
                 agentGroupToolCount = 0;
                 agentToolNames.clear();
                 currentStreamingContent = new StringBuilder();
-                currentThinkingContent = new StringBuilder();
+                startThinkingBuffer();
                 currentStreamingMessageId = java.util.UUID.randomUUID().toString();
                 resetStreamingTts();
                 resetStreamingState();
@@ -6042,7 +6042,7 @@ public class AIChatActivity extends BaseActivity {
         String snapshot;
         synchronized (streamingLock) {
             if (currentThinkingContent == null) {
-                currentThinkingContent = new StringBuilder();
+                startThinkingBuffer();
             }
             currentThinkingContent.append(token);
             snapshot = currentThinkingContent.toString();
@@ -6093,7 +6093,7 @@ public class AIChatActivity extends BaseActivity {
         String snapshot;
         synchronized (streamingLock) {
             if (currentThinkingContent == null) {
-                currentThinkingContent = new StringBuilder();
+                startThinkingBuffer();
             }
             currentThinkingContent.append(token);
             snapshot = currentThinkingContent.toString();
@@ -6111,7 +6111,21 @@ public class AIChatActivity extends BaseActivity {
      * Agent 思考结束：把最终思考内容写入 AI 消息内嵌思考区并折叠（用户可点击展开）。
      * 同时把本轮内容追加到 thinkingRounds（多轮独立展示）。
      */
-    /** 开一轮新思考：记下落点，供定稿时算该轮耗时 */
+    /**
+     * 开一轮新思考：重建缓冲区并打耗时起点——这两件事必须绑成一个动作。
+     *
+     * <p>真机 2026-10-20 19:04 那条对话里，第一行是"第 1 轮思考"（没有秒数）、
+     * 第二行才是"第 2 轮思考 · 4.0s"。原因是缓冲区在生成开始时被某处 new 出来但没打点，
+     * 而 {@code onThinkingToken} 判"新一轮"用的是 {@code currentThinkingContent == null}，
+     * 缓冲区已存在就不进那个分支，于是第 1 轮的起点永远是 0。
+     * 散在 7 处的 new 每处各配一次打点迟早再漏，所以收成一个方法。</p>
+     */
+    private void startThinkingBuffer() {
+        currentThinkingContent = new StringBuilder();
+        thinkingRoundStartedAt = System.currentTimeMillis();
+    }
+
+    /** 只补打耗时起点（缓冲区已由别处建好时的兜底） */
     private void markThinkingRoundStarted() {
         thinkingRoundStartedAt = System.currentTimeMillis();
     }
@@ -6582,10 +6596,7 @@ public class AIChatActivity extends BaseActivity {
                                 + finalMsg.content.substring(tcClose + tcCloseLen)).trim();
                         if (embeddedThinking.length() > 0) {
                             synchronized (streamingLock) {
-                                if (currentThinkingContent == null) {
-                    currentThinkingContent = new StringBuilder();
-                    markThinkingRoundStarted();
-                }
+                                if (currentThinkingContent == null) startThinkingBuffer();
                                 if (currentThinkingContent.length() == 0) {
                                     currentThinkingContent.append(embeddedThinking);
                                     finalMsg.thinkingContent = embeddedThinking;
@@ -6777,8 +6788,7 @@ public class AIChatActivity extends BaseActivity {
                             msg.addThinkingRound(currentThinkingContent.toString(), null, elapsedThinkingRound());
                             thinkingRoundEnded = true; // 落库即视为结束，防 finalize 重复
                         }
-                        if (currentThinkingContent != null) currentThinkingContent = new StringBuilder();
-                        markThinkingRoundStarted();
+                        if (currentThinkingContent != null) startThinkingBuffer();
                     }
                 }
                 appendAgentToolCall(toolCallId, toolName, "running", args, null);
@@ -6895,7 +6905,7 @@ public class AIChatActivity extends BaseActivity {
                     runOnUiThread(() -> updateAgentStatusBar("🧠 思考中...", true));
                 }
                 synchronized (streamingLock) {
-                    currentThinkingContent = new StringBuilder();
+                    startThinkingBuffer();
                 }
             }
             if (onUi) {
