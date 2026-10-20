@@ -5,7 +5,9 @@ import android.content.Context;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.component.ComponentData;
 
+import org.json.JSONObject;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -14,11 +16,14 @@ import org.robolectric.RobolectricTestRunner;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -164,6 +169,35 @@ public class ChatHistoryManagerSessionTest {
         assertEquals("带 id 保存应复用同一条会话", created.id, again.id);
         assertEquals("不该多出新的会话文件", before, conversationFileCount());
         assertEquals(3, manager.countConversationMessages(created.id));
+    }
+
+    /**
+     * 2026-10-21 每轮活动区之后：保存深拷贝必须保留轮次/组件数据，但不能把
+     * toolSectionExpandedIds 这类 transient 展开状态带进持久化。
+     */
+    @Test
+    public void saveCopyKeepsRoundDataAndDropsTransientExpansionState() throws Exception {
+        ChatMessage msg = ChatMessage.createAIMessage("a-round", "回答", System.currentTimeMillis());
+        msg.turnId = "T7";
+        msg.contentRoundBounds = new ArrayList<>(Arrays.asList(0, 4));
+        msg.thinkingRounds = new ArrayList<>(Arrays.asList("t0", "t1"));
+        msg.thinkingRoundIds = new ArrayList<>(Arrays.asList("T7-K1", "T7-K2"));
+        msg.components = new ArrayList<>();
+        JSONObject props = new JSONObject();
+        props.put("title", "运行状态");
+        msg.components.add(ComponentData.of("info_card", props));
+        msg.toolSectionExpandedIds = new HashSet<>(Collections.singletonList("T7-F1"));
+
+        List<ChatMessage> copy = ChatHistoryManager.deepCopyForSave(
+                Collections.singletonList(msg));
+        ChatMessage saved = copy.get(0);
+
+        assertEquals("T7", saved.turnId);
+        assertEquals(Arrays.asList(0, 4), saved.contentRoundBounds);
+        assertEquals(2, saved.thinkingRounds.size());
+        assertEquals(1, saved.components.size());
+        assertEquals("info_card", saved.components.get(0).type);
+        assertNull("展开状态是 UI transient，不能持久化", saved.toolSectionExpandedIds);
     }
 
     private int conversationFileCount() {
