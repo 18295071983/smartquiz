@@ -1,5 +1,46 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 修生成本中断：思考 token 回调必须在主线程
+
+### 现场
+
+日志：
+
+```text
+[ERROR] [AgentLoopEngine] onJson parse error:
+Only the original thread that created a view hierarchy can touch its views.
+Expected: main Calling: pool-23-thread-1
+[WARN] [AgentLoopEngine] genResult null at iteration 2, breaking
+```
+
+表现：回答只生成到一半（如「谷神星是一颗位于火星和木星之间小行星带的小行星：」），
+退出再进才从会话文件恢复出完整内容。
+
+### 根因
+
+本地 Agent 的 `onThinkingToken` 直接在推理线程回调；方法里只有
+`appendAgentThinkingToken` / 状态栏分支做了主线程切换，前面的
+`setAgentStepStatus()`、`chatHistory`、`startThinkingBuffer()` 仍在 **pool 线程**
+执行，触发 Android view 线程校验异常；`AgentLoopEngine.onJson` 捕获后把本轮
+generation 直接判失败并 break，后续只走了兜底/恢复。
+
+### 修法
+
+`AIChatActivity` 的 `AgentChatCallback.onThinkingToken` **整体切主线程**：
+
+```java
+if (Looper.myLooper() != Looper.getMainLooper()) {
+    runOnUiThread(() -> onThinkingToken(token));
+    return;
+}
+```
+
+之后再做思考轮切换、状态栏、思考缓冲、UI 追加。
+
+### 验证
+
+全量单测 **482 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] UI 改为按轮次刷新：生成中不再逐 token 重排
 
 - 新增 `ROUND_BATCH_RENDER`：生成过程中 `safeUpdateMessage()` 不再逐 token

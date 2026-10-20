@@ -7156,9 +7156,17 @@ public class AIChatActivity extends BaseActivity {
         @Override
         public void onThinkingToken(String token) {
             if (uiDetached) return; // UI 已分离：思考区仅界面展示，跳过
+            // 本地 Agent 的 onJson 在推理线程回调；这里必须整体切主线程。
+            // 原先只有 append/状态栏分支切了主线程，上面的 setAgentStepStatus/
+            // chatHistory 操作仍在 pool 线程执行，触发
+            // "Only the original thread that created a view hierarchy can touch its views"，
+            // 被 AgentLoopEngine.onJson 捕获后直接中止本轮生成（回答只剩半截）。
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                runOnUiThread(() -> onThinkingToken(token));
+                return;
+            }
             // 思考 token：直接写入 AI 消息内嵌思考区（与本地模型一致，不创建独立消息）
-            // 注意：本回调已通过 OnlineAgentEngine.runOnUiThread 在UI线程调用
-            boolean onUi = Looper.myLooper() == Looper.getMainLooper();
+            boolean onUi = true;
             // 新一轮思考开始：状态栏显示思考中；若上一轮已有内容，先存入多轮列表（分块展示）
             if (thinkingRoundEnded || currentThinkingContent == null) {
                 // 保存上一轮思考（轮次切换时，避免被覆盖丢失）

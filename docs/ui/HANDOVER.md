@@ -1156,6 +1156,17 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. **代价**：无打字机；无工具单轮在完成时一次显示。
 5. **验证**：482 单测全绿，装机。
 
+### 4.37 思考 token 线程修复（2026-10-21 凌晨）
+
+1. **现场**：日志 `onJson parse error: Only the original thread that created a view
+   hierarchy can touch its views ... pool-23-thread-1`，随后 `genResult null`，
+   回答只剩半截，退出重进才恢复。
+2. **根因**：本地 Agent `onThinkingToken` 在推理线程回调，`setAgentStepStatus` /
+   `chatHistory` / `startThinkingBuffer` 未切主线程；Android view 校验抛异常，
+   `AgentLoopEngine.onJson` 捕获后中止本轮。
+3. **修法**：`onThinkingToken` 整体 `runOnUiThread` 后再执行所有 UI/状态操作。
+4. **验证**：482 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图
