@@ -324,6 +324,12 @@ public class AIChatActivity extends BaseActivity {
     private final Object streamingLock = new Object();
 
     /**
+     * 按轮次刷新 UI：生成过程中不逐 token notify，只在「工具调用边界 / 最终完成」刷新。
+     * 目的：避免高频重排和 Markdown 半成品闪烁；生成中仍显示状态条/思考区。
+     */
+    private static final boolean ROUND_BATCH_RENDER = true;
+
+    /**
      * 历史持久化跨实例全局锁：旋转重建时旧 Activity 的异步保存线程与新 Activity 的
      * 保存/加载线程并发写读同一会话文件，synchronized(this) 实例锁不互斥会导致
      * 半写文件 → Gson 解析失败 → 会话被跳过/历史丢失。此锁跨 Activity 实例互斥。
@@ -7033,6 +7039,8 @@ public class AIChatActivity extends BaseActivity {
             // 工具调用开始：插入式组件显示到 AI 消息内（执行中卡片）+ 状态栏更新
             // 多轮回答在同一气泡内按轮次组装：工具调用 = 轮次边界
             runOnUiThread(() -> {
+                // 轮次边界：先把本轮已生成的正文一次性显示出来，再插工具卡。
+                flushRoundContentToMessage();
                 // 记录正文轮次边界 + 落库本轮思考（思考/正文/工具卡片按轮次一一对应）
                 synchronized (streamingLock) {
                     int idx = resolveStreamingIndex();
@@ -7525,7 +7533,26 @@ public class AIChatActivity extends BaseActivity {
         return findMessageIndexById(currentStreamingMessageId);
     }
 
+    /** 轮次边界（工具调用前）把当前流式正文一次性刷进消息；token 过程不刷新。 */
+    private void flushRoundContentToMessage() {
+        final int idx = resolveStreamingIndex();
+        if (idx < 0) return;
+        String snapshot;
+        synchronized (streamingLock) {
+            if (currentStreamingContent == null) return;
+            snapshot = currentStreamingContent.toString();
+        }
+        ChatMessage msg = chatHistory.get(idx);
+        if (msg == null || snapshot.equals(msg.content)) return;
+        msg.content = snapshot;
+        msg.status = ChatMessage.MessageStatus.GENERATING;
+        if (chatAdapter != null) {
+            chatAdapter.updateAIMessageContent(idx, snapshot);
+        }
+    }
+
     private void safeUpdateMessage() {
+        if (ROUND_BATCH_RENDER) return;
         try {
             final int idx = resolveStreamingIndex();
             if (idx < 0) return;
@@ -7554,6 +7581,7 @@ public class AIChatActivity extends BaseActivity {
     }
 
     private void safeUpdateMessageFromStreamingManager(String accumulatedContent, int tokensSinceLastUpdate) {
+        if (ROUND_BATCH_RENDER) return;
         try {
             final int idx = resolveStreamingIndex();
             if (idx < 0) return;

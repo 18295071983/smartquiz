@@ -1146,6 +1146,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    删除下游 `MarkdownTextRepair` 临时方案。
 4. **验证**：新增「介绍下冥王星」`T34-A1` 落盘 52 个换行，结构完整；482 单测全绿，装机。
 
+### 4.36 UI 按轮次刷新（2026-10-21 凌晨）
+
+1. `ROUND_BATCH_RENDER=true`：生成中 `safeUpdateMessage()` 直接 return，
+   不再逐 token notify；状态条/思考区仍给反馈。
+2. `onToolCallStart` 调 `flushRoundContentToMessage()`：本轮正文一次性刷进消息，
+   再记录 `contentRoundBounds`/插工具卡。
+3. 最终 `completeGeneration` 用 native `fullText` 整条刷新并落库。
+4. **代价**：无打字机；无工具单轮在完成时一次显示。
+5. **验证**：482 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

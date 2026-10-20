@@ -1,5 +1,18 @@
 # 变更日志
 
+## [2026-10-21 凌晨] UI 改为按轮次刷新：生成中不再逐 token 重排
+
+- 新增 `ROUND_BATCH_RENDER`：生成过程中 `safeUpdateMessage()` 不再逐 token
+  `notifyItemChanged`，只保留状态条/思考区反馈。
+- 轮次边界（`onToolCallStart`）调用 `flushRoundContentToMessage()`，把本轮已生成
+  正文一次性刷进消息，再插工具卡；最终完成仍用 native `fullText` 整条刷新。
+- 效果：
+  - 不再出现 Markdown 半成品逐 token 闪烁/换行粘连；
+  - 无工具的单轮回复在完成时一次显示；
+  - 多工具/多轮在每次工具调用边界分轮显示。
+- 代价：没有打字机效果；生成中只有状态条/思考区在动。
+- 验证：482 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 修上游：完成消息必须用 native complete 全文，而不是流式 token 缓冲
 
 ### 现场
