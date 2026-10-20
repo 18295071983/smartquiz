@@ -1,5 +1,24 @@
 # 变更日志
 
+## [2026-10-21] parts P3b：ChatAdapter 接线（flag 门控，首次改动 ChatAdapter）
+
+把 P3a 的消费端机器插进绑定路径。仅在 `parts_renderer=true` 且"消息已完成且有 assistantTurn"时接管；
+flag=false（默认）→ 新增分支根本不执行，旧路径字节级不变。
+
+- `ChatAdapter.bindMessageContent` 在 `applyToMessage` 后加 flag 门控：命中则 `bindWithParts(...)` 渲染并 return，否则原样走
+  `renderRoundAssembled`/纯文本/组件旧路径。
+- 新增 `bindWithParts`：holder 独占一个 `partsContainer`（`TurnPartsHost` 唯一写入者，旧渲染绝不碰它，避免争抢子 View 顺序），
+  隐藏 `messageText`/`markdownView`；惰性建 `ChatPartsHost` + `PartsTurnBinder`，每次刷 message/宽度/web 开关后 `bind(message)`。
+  旧路径 `ensurePlainTextHostViews` 的 removeAllViews 会把 partsContainer 从 contentHost 摘走，引擎视图随容器存活，回接即恢复复用。
+- `AIMessageViewHolder` 加 3 个 parts 字段（flag=false 时恒 null，无构造器改动）。
+- 审批 `onApprovalDecision` 留空实现（生产者未接入）；`onPartsContentChanged`→ requestLayout。
+
+**未做（诚实）**：flag=true 的端到端视觉一致 / 并行同名工具不串卡 / 滚动回收旋转 / contentHost 里 legacy 子 View 与 partsContainer 顺序，
+均需真机验证（用户一次性测）。data 卡"挂所属工具卡下 + PEEK/HIDDEN 档位"归属仍按旧 bindComponents 语义，未在 parts 路径复刻。
+`bindComponents` 未改（parts 模式直接 return，不再调它，故天然不双渲 tool_call）。
+
+验证：`assembleDebug` 通过；全量 `--offline` 542 全绿（0/0/0）无回归。flag=false 现网不变。
+
 ## [2026-10-21] parts P3a：消费端机器 ChatPartsHost + PartsTurnBinder（仍未接 ChatAdapter）
 
 P3 按风险拆两步；本次只做**可 JVM 验、且不碰在用绑定路径**的消费端机器，flag=false 时 ChatAdapter 根本不构造它们 → 现网字节级不变。

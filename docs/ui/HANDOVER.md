@@ -1376,6 +1376,18 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    加 flag 门控改走 binder + `bindComponents` 跳 tool_call + holder 生命周期 + 真机视觉/不串卡验证。
 5. **验证**：新增 5 条，全量 542 全绿、无回归。
 
+### 4.58 parts P3b：ChatAdapter 接线（flag 门控，首次改 ChatAdapter）（2026-10-21）
+
+1. `bindMessageContent` 在 `applyToMessage` 后加 flag 门控：`PartsRendererFlag.enabled && isCompleted && assistantTurn!=null`
+   → `bindWithParts` 渲染并 return；否则旧路径字节级不变（flag=false 默认根本不进新代码）。
+2. `bindWithParts`：holder 独占 `partsContainer`（`TurnPartsHost` 唯一写入者，旧渲染不碰）；隐藏 messageText/markdownView；
+   惰性建 `ChatPartsHost`+`PartsTurnBinder`，每绑刷 message/width/web。旧路径 `ensurePlainTextHostViews` 的 removeAllViews
+   会摘走 partsContainer，但引擎视图随容器存活，`getParent()!=contentHost` 时回接即恢复复用。
+3. `AIMessageViewHolder` 加 partsHost/partsContainer/partsBinder 三字段（flag=false 恒 null，未动构造器）。审批回调暂空（无生产者）。
+4. **未做，需真机（用户一次性测）**：flag=true 视觉一致 / 并行同名工具不串卡 / 滚动回收旋转 / contentHost 内 legacy 子 View 与
+   partsContainer 顺序 / data 卡 PEEK/HIDDEN 档位归属（parts 路径未复刻 bindComponents 语义）。
+5. **验证**：`assembleDebug` 通过；全量 542 全绿、无回归；flag=false 现网不变。
+
 ---
 
 ## 5. 关键文件 / 改动地图

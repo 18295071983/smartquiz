@@ -3503,12 +3503,78 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 文本段 → Markdown TextView，组件段 → ComponentRegistry 组件 View（插入在标记所在位置）。
      * 无标记时走纯文本模式（messageText 渲染全文 + 消息级组件容器）。
      */
+    /**
+     * parts 渲染器接管的绑定（P3b）。仅当 {@code parts_renderer=true} 且消息已完成、有
+     * canonical {@code assistantTurn} 时被调用。用一个 holder 独占的 {@code partsContainer}
+     * 让 {@link com.oilquiz.app.ai.chat.parts.TurnPartsHost} 增量渲染，旧正文视图隐藏；
+     * 旧渲染路径绝不往 partsContainer 里加 View，避免争抢子 View 顺序。
+     *
+     * @return 成功接管返回 true；无法接管（contentHost 为空）返回 false，调用方回落旧路径。
+     */
+    private boolean bindWithParts(AIMessageViewHolder holder, ChatMessage message,
+                                  int availableWidth, Context ctx) {
+        if (holder.contentHost == null) {
+            return false;
+        }
+        if (holder.partsHost == null) {
+            holder.partsHost = new ChatPartsHost(ctx, new ChatPartsHost.Callback() {
+                @Override
+                public void onApprovalDecision(String partId, String toolCallId, boolean approved) {
+                    // 审批 part 的生产者（在线引擎/权限流）尚未接入，这里先占位；接入后回调权限流。
+                }
+
+                @Override
+                public void onPartsContentChanged() {
+                    if (holder.contentHost != null) {
+                        holder.contentHost.post(holder.contentHost::requestLayout);
+                    }
+                }
+            });
+        }
+        holder.partsHost.setMessage(message);
+        holder.partsHost.setAvailableWidth(availableWidth);
+        holder.partsHost.setWebMarkdownEnabled(webMarkdownEnabled);
+
+        // 隐藏旧正文视图（messageText/markdownView 仍留 contentHost，但 GONE，不与 parts 树并存）。
+        if (holder.messageText != null) holder.messageText.setVisibility(View.GONE);
+        if (holder.markdownView != null) holder.markdownView.setVisibility(View.GONE);
+
+        // parts 引擎独占容器：首次建，之后确保仍挂在 contentHost 上
+        //（旧路径 ensurePlainTextHostViews 的 removeAllViews 会把它从 contentHost 摘掉，
+        //  容器实例与引擎内部视图仍存活，这里回接即可恢复复用）。
+        if (holder.partsContainer == null) {
+            holder.partsContainer = new LinearLayout(ctx);
+            holder.partsContainer.setOrientation(LinearLayout.VERTICAL);
+            holder.partsContainer.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        if (holder.partsContainer.getParent() != holder.contentHost) {
+            holder.contentHost.addView(holder.partsContainer);
+        }
+        if (holder.partsBinder == null) {
+            holder.partsBinder = new com.oilquiz.app.ai.chat.parts.PartsTurnBinder(
+                    holder.partsContainer,
+                    com.oilquiz.app.ai.chat.parts.PartRendererRegistry.createDefault(),
+                    holder.partsHost);
+        }
+        holder.partsBinder.bind(message);
+        return true;
+    }
+
     private void bindMessageContent(AIMessageViewHolder holder, ChatMessage message, int availableWidth) {
         Context ctx = holder.itemView.getContext();
         // canonical parts → 兼容投影：UI 在每次完成态绑定前都用 parts 重算
         // content/bounds/toolIds，避免历史里旧的投影字段与 AssistantTurn 漂移。
         if (message.isCompleted() && message.assistantTurn != null) {
             message.assistantTurn.applyToMessage(message);
+        }
+        // parts 渲染器接管（P3b）。flag 默认 false → 整个分支跳过，下面旧路径字节级不变。
+        // 仅"已完成且有 canonical assistantTurn"的消息走 parts；流式/无 turn 仍走旧路径。
+        if (com.oilquiz.app.ai.chat.parts.PartsRendererFlag.enabled(ctx)
+                && message.isCompleted() && message.assistantTurn != null) {
+            if (bindWithParts(holder, message, availableWidth, ctx)) {
+                return;
+            }
         }
         // 按轮次组装：存在工具轮次边界时，思考块+正文段+工具卡片按轮次交替渲染
         // （轮1思考+正文 → 工具卡片 → 轮2思考+正文 → …）；单轮无边界走现有逻辑
@@ -5265,6 +5331,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         MarkdownWebView markdownView;
         LinearLayout contentHost;
         LinearLayout componentContainer;
+        // ---- parts 渲染器（P3b，flag 默认 false 时这三个恒为 null，下面旧路径原样走）----
+        /** parts 渲染环境（复用 ChatAdapter.renderInto 等）；按 holder 惰性建，跨绑定复用。 */
+        com.oilquiz.app.ai.chat.ChatPartsHost partsHost;
+        /** parts 引擎独占的容器：contentHost 的一个子 View，旧渲染绝不往它里面加东西。 */
+        LinearLayout partsContainer;
+        /** parts→视图 增量绑定器，持有 TurnPartsHost 的复用状态。 */
+        com.oilquiz.app.ai.chat.parts.PartsTurnBinder partsBinder;
         /** 当前绑定的消息（2026-09-14：思考轮独立折叠状态读写 / 轮次组件 id 锚点） */
         ChatMessage holderMessage;
         /** 尚未触发的"等布局完成再按真实宽度渲染"监听器。持有它才能在重绑/回收时摘除，
