@@ -10,8 +10,14 @@
   `TurnPartsHost` 增量引擎（viewById + fingerprintById，复用同 id / 指纹相同不重绑 / 删除必 releaseView /
   按序对齐，杜绝裸 `for(Part) removeAllViews`）；`TextPartRenderer` 复用 MarkdownWebView/MarkdownRenderer，
   `ReasoningPartRenderer` 复用同一 markdown 原语 + 折叠行；`PartsRendererFlag`（`ai_chat_prefs/parts_renderer`，默认 false）。
+- **P2 补齐（同一 Phase 内追加）**：注册 `ErrorPartRenderer`（error 独立视图，复用 markdown 原语）；
+  引擎新增 **attached part** 支持（`PartRenderer.anchorIdFor`）——tool_result/data 这类"写进 anchor
+  视图、不建第二张卡"的 part 由 `TurnPartsHost` 两阶段协调：拥有独立视图的先建，attached 的按 id 挂到
+  anchor 视图、anchor 重建时强制重绑、anchor 缺失则跳过并清理残留指纹。这是 §4.6 工具卡归属所需的地基，
+  P3 的 ToolResult/Data renderer 直接复用该能力即可，避免那时才被迫改双卡。
 - **未接线 ChatAdapter**：flag=false 完全走旧路径，现网零行为变化；真机 flag=true 端到端一致留 P3。
-- **验证**：新增 27 条单测（P1 计 10 + P2 计 17），`--offline testDebugUnitTest` 全绿，无回归。手机不在，未做装机（P2 无需）。
+- **验证**：parts 包共 23 条（引擎 8 / registry 4 / flag 3 / text+reasoning 2 / coverage·error·attach 6），
+  全量 `--offline testDebugUnitTest` **519** 全绿（0 fail/0 error/0 skipped），无回归。手机不在，未装机（P2 无需）。
 
 ## [2026-10-21 凌晨] 「正在思考」真正根因：非流式 fallback 文案写错
 

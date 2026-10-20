@@ -23,21 +23,22 @@ public class PartRendererRegistryTest {
     }
 
     @Test
-    public void defaultRegistryResolvesTextAndReasoning() {
+    public void defaultRegistryResolvesTextReasoningAndError() {
         PartRendererRegistry r = PartRendererRegistry.createDefault();
 
-        PartRenderer forText = r.resolve(part(AssistantTurn.Part.TYPE_TEXT, "t"));
-        PartRenderer forReasoning = r.resolve(part(AssistantTurn.Part.TYPE_REASONING, "t"));
-
-        assertTrue(forText instanceof TextPartRenderer);
-        assertTrue(forReasoning instanceof ReasoningPartRenderer);
+        assertTrue(r.resolve(part(AssistantTurn.Part.TYPE_TEXT, "t")) instanceof TextPartRenderer);
+        assertTrue(r.resolve(part(AssistantTurn.Part.TYPE_REASONING, "t"))
+                instanceof ReasoningPartRenderer);
+        assertTrue(r.resolve(part(AssistantTurn.Part.TYPE_ERROR, "t")) instanceof ErrorPartRenderer);
     }
 
     @Test
     public void unresolvedTypesReturnNull() {
         PartRendererRegistry r = PartRendererRegistry.createDefault();
+        // tool_call/tool_result/data 留到 P3，P2 未注册 → 解析为 null（引擎会跳过，不静默崩）。
         assertNull(r.resolve(part(AssistantTurn.Part.TYPE_TOOL_CALL, null)));
-        assertNull(r.resolve(part(AssistantTurn.Part.TYPE_ERROR, null)));
+        assertNull(r.resolve(part(AssistantTurn.Part.TYPE_TOOL_RESULT, null)));
+        assertNull(r.resolve(part("data", null)));
         assertNull(r.resolve(null));
     }
 

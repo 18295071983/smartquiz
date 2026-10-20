@@ -1299,16 +1299,20 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 ### 4.52 parts P2：PartRenderer 体系 + Text/Reasoning + flag（2026-10-21）
 
 1. 新建包 `com.oilquiz.app.ai.chat.parts`：`PartRenderer`/`PartHost` 接口、
-   `PartRendererRegistry`（按 type 解析，P2 只注册 text/reasoning）、`TurnPartsHost` 增量协调
-   引擎——`viewById` + `fingerprintById`，复用同 id、指纹相同不重绑、删除必 `releaseView`、
-   末尾按 parts 顺序对齐子视图，杜绝文档 §3 禁止的裸 `for(Part) removeAllViews`。
+   `PartRendererRegistry`（按 type 解析，P2 注册 text/reasoning/error，tool/data 留 P3）、
+   `TurnPartsHost` 增量协调引擎——`viewById` + `fingerprintById`，复用同 id、指纹相同不重绑、
+   删除必 `releaseView`、末尾按 parts 顺序对齐子视图，杜绝文档 §3 禁止的裸 `for(Part) removeAllViews`。
+   并支持 §4.6 工具卡归属所需的 **attached part**：`PartRenderer.anchorIdFor(part, ordered)` 返回
+   anchor 的 part id 时，该 part 不建独立视图、`bindView` 写到 anchor 视图上；anchor 重建→强制重绑，
+   anchor 缺失→跳过并清理残留指纹（P3 的 tool_result/data renderer 直接复用此能力，不会改出双卡）。
 2. `TextPartRenderer` 复用 `MarkdownWebView`（web 开）/`MarkdownRenderer.render`+TextView（原生）；
    `ReasoningPartRenderer` 复用同一 markdown 原语 + 折叠行。think line 的 header 文案/逐轮展开态
    长在 ChatAdapter 私有方法里，留 P3 由 ChatAdapter 实现 `PartHost` 时透出，避免与旧 think line 双份展示。
 3. feature flag `ai_chat_prefs/parts_renderer` 默认 **false**，沿用 `LayoutCanvasConstraints.enabled`
    读法；**P2 未接线 ChatAdapter，flag=false 完全走旧路径，现网零行为变化**。
-4. **验证**：新增 17 条单测（引擎 8 / registry 4 / flag 3 / renderer 2），全量单测 BUILD SUCCESSFUL。
-   真机端到端"flag=true 与旧 UI 一致"待 P3 接线后再验（手机不在时无法做，属 P3 范畴）。
+4. **验证**：parts 包 23 条单测（引擎 8 / registry 4 / flag 3 / text+reasoning 2 / coverage·error·attach 6），
+   全量 `--offline testDebugUnitTest` 519 全绿、无回归。真机端到端"flag=true 与旧 UI 一致"待 P3 接线后再验
+   （手机不在时无法做，属 P3 范畴）。
 5. **下一步（P3）**：ChatAdapter 实现 `PartHost`；注册 `ToolCallPartRenderer`/
    `ToolResultPartRenderer`/`DataPartRenderer`；parts 模式下 `bindComponents` 跳过 tool_call；
    flag=true 时 AI 消息树走 `TurnPartsHost`。

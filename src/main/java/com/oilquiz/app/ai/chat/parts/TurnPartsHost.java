@@ -69,35 +69,86 @@ public final class TurnPartsHost {
     /**
      * 把一组有序 parts 协调到容器：复用同 id、只绑变化项、删除消失项、按序对齐。
      *
+     * <p>支持两类 part：拥有独立视图的（默认），和通过
+     * {@link PartRenderer#anchorIdFor} 声明"挂进 anchor 视图"的（§4.6 工具卡归属，如
+     * tool_result/data 写进所属 tool_call 卡，不建第二张卡）。attached part 不占独立子视图，
+     * 其 anchor 视图重建时会被强制重绑。</p>
+     *
      * @param parts 权威顺序；null/空表示清空（释放并移除全部）。
      */
     public void bind(List<AssistantTurn.Part> parts) {
-        Set<String> seen = new HashSet<>();
+        // 预解析：每个 part 的 renderer + 它要挂进的 anchor（若有）。
+        Map<String, PartRenderer> rendererBy = new HashMap<>();
+        Map<String, String> anchorBy = new HashMap<>();
         if (parts != null) {
             for (AssistantTurn.Part part : parts) {
                 if (part == null || part.id == null || part.id.isEmpty()) {
                     continue;
                 }
-                PartRenderer renderer = registry.resolve(part);
-                if (renderer == null) {
+                PartRenderer r = registry.resolve(part);
+                if (r == null) {
                     // 未注册类型（如 P3 之前的 tool_call）：跳过，保留既有视图不受影响。
                     continue;
                 }
-                seen.add(part.id);
-                bindOne(part, renderer);
+                rendererBy.put(part.id, r);
+                String anchor = r.anchorIdFor(part, parts);
+                if (anchor != null && !anchor.equals(part.id)) {
+                    anchorBy.put(part.id, anchor);
+                }
             }
         }
 
-        removeUnseen(seen);
+        Set<String> ownSeen = new HashSet<>();
+        Set<String> attachedSeen = new HashSet<>();
+        Set<String> recreated = new HashSet<>();
+
         if (parts != null) {
-            reconcileOrder(parts);
+            // phase1：拥有独立视图的 part。
+            for (AssistantTurn.Part part : parts) {
+                if (part == null || !rendererBy.containsKey(part.id)
+                        || anchorBy.containsKey(part.id)) {
+                    continue;
+                }
+                ownSeen.add(part.id);
+                if (bindOwn(part, rendererBy.get(part.id))) {
+                    recreated.add(part.id);
+                }
+            }
+            // phase2：attached part → 写进 anchor 视图，不建自己的视图。
+            for (AssistantTurn.Part part : parts) {
+                String anchor = part == null ? null : anchorBy.get(part.id);
+                if (anchor == null) {
+                    continue;
+                }
+                View anchorView = viewById.get(anchor);
+                if (anchorView == null) {
+                    continue; // anchor 未渲染
+                }
+                attachedSeen.add(part.id);
+                PartRenderer r = rendererBy.get(part.id);
+                String fp = part.fingerprint();
+                // anchor 刚重建（新视图内容是空的）→ 强制把 attached 数据写进去。
+                if (recreated.contains(anchor) || !Objects.equals(fp, fingerprintById.get(part.id))) {
+                    r.bindView(anchorView, part, host);
+                    bindCount++;
+                    fingerprintById.put(part.id, fp);
+                }
+            }
+        }
+
+        removeUnseenOwnViews(ownSeen);
+        pruneStaleFingerprints(ownSeen, attachedSeen);
+        if (parts != null) {
+            reconcileOrder(parts); // 只有 own 视图参与顺序
         }
     }
 
-    private void bindOne(AssistantTurn.Part part, PartRenderer renderer) {
+    /** 处理拥有独立视图的 part；返回本次是否新建了视图（供 attached 强制重绑判断）。 */
+    private boolean bindOwn(AssistantTurn.Part part, PartRenderer renderer) {
         String id = part.id;
         View existing = viewById.get(id);
         PartRenderer prev = rendererById.get(id);
+        boolean created = false;
 
         // id 相同但类型变了：先释放旧视图，再按新类型重建。
         if (existing != null && prev != null && !prev.canRender(part)) {
@@ -117,6 +168,7 @@ public final class TurnPartsHost {
             viewById.put(id, view);
             rendererById.put(id, renderer);
             fingerprintById.remove(id); // 新视图强制首绑
+            created = true;
         }
 
         // 只在内容指纹变化时重绑；指纹相同（含流式无变化）跳过。
@@ -126,12 +178,13 @@ public final class TurnPartsHost {
             bindCount++;
             fingerprintById.put(id, fp);
         }
+        return created;
     }
 
-    private void removeUnseen(Set<String> seen) {
+    private void removeUnseenOwnViews(Set<String> ownSeen) {
         List<String> toRemove = new ArrayList<>();
         for (String id : viewById.keySet()) {
-            if (!seen.contains(id)) {
+            if (!ownSeen.contains(id)) {
                 toRemove.add(id);
             }
         }
@@ -148,6 +201,19 @@ public final class TurnPartsHost {
             viewById.remove(id);
             fingerprintById.remove(id);
             rendererById.remove(id);
+        }
+    }
+
+    /** 清掉已消失 part（尤其 attached，无独立视图故不走 removeUnseenOwnViews）的指纹，防泄漏。 */
+    private void pruneStaleFingerprints(Set<String> ownSeen, Set<String> attachedSeen) {
+        List<String> drop = new ArrayList<>();
+        for (String id : fingerprintById.keySet()) {
+            if (!ownSeen.contains(id) && !attachedSeen.contains(id)) {
+                drop.add(id);
+            }
+        }
+        for (String id : drop) {
+            fingerprintById.remove(id);
         }
     }
 

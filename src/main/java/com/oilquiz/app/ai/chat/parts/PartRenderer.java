@@ -5,6 +5,8 @@ import android.view.ViewGroup;
 
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 
+import java.util.List;
+
 /**
  * 单个 {@link AssistantTurn.Part} 的渲染器（parts 架构升级 P2，2026-10-21）。
  *
@@ -36,4 +38,21 @@ public interface PartRenderer {
 
     /** 释放视图持有的重资源（WebView 缓存、播放器等）。删除视图前由引擎调用。 */
     void releaseView(View view);
+
+    /**
+     * 该 part 是否"不拥有独立视图"，而是写进某个兄弟 part（anchor）已有的视图里。
+     * 返回 anchor 的 part id；返回 null（默认）表示它拥有自己的视图。
+     *
+     * <p>对应文档 §4.6 工具卡归属：{@code tool_result} 只把结果写进所属 {@code tool_call} 卡、
+     * {@code data}/产物卡挂在所属工具卡下，<b>不新建第二张卡</b>。引擎据此把该 part 的
+     * {@link #bindView} 指到 anchor 的视图上（view 参数即 anchor 视图），并保证其 anchor 视图
+     * 重建时强制重绑。renderer 自己按 {@code orderedParts} 找归属（如向前找最近的同 toolCallId
+     * 的 tool_call）。</p>
+     *
+     * <p>P2 无实际 attached renderer（tool/data 在 P3），但引擎与契约先支持并用假 renderer 单测钉死，
+     * 避免 P3 加 tool_result 时才被迫改成双卡或另起机制。</p>
+     */
+    default String anchorIdFor(AssistantTurn.Part part, List<AssistantTurn.Part> orderedParts) {
+        return null;
+    }
 }

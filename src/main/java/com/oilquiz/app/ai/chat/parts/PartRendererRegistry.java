@@ -41,10 +41,11 @@ public final class PartRendererRegistry {
         return renderers.size();
     }
 
-    /** P2 默认注册表：text + reasoning。 */
+    /** P2 默认注册表：text + reasoning + error。tool/data 留 P3。 */
     public static PartRendererRegistry createDefault() {
         return new PartRendererRegistry()
                 .register(new TextPartRenderer())
-                .register(new ReasoningPartRenderer());
+                .register(new ReasoningPartRenderer())
+                .register(new ErrorPartRenderer());
     }
 }
