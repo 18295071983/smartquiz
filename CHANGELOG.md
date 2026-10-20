@@ -1,5 +1,61 @@
 # 变更日志
 
+## [2026-10-20 上午] 思考段改成"每轮一行、每行独立折叠"，删掉消息级统一折叠
+
+用户提的：一条消息里所有思考轮拼成一坨、一个总开关统一折叠，点开要读一整屏，
+要改成每轮单独显示、单独折叠。两档（`chat_ui_v2` 开与关）一起改，不留第二套折叠形态。
+
+### 查到的事实
+
+- 思考数据本来就是分轮的：`thinkingRounds`（内容）+ `thinkingRoundIds`（`T1-K1`…），两条都持久化。
+- **按轮折叠的机制早就有**：`addRoundThinkingBlock` 在"有工具轮次"那条路径里每轮建独立
+  `roundBox`、点标题行独立翻。所以这不是"缺功能"，是**两条路径不一致**：
+  轮次模式下逐轮块外面还套一层消息级 `thinkingExpanded`（折叠两层）；
+  普通模式下 `updateThinkingContent` 把 rounds 拼成一整段 Markdown 塞进**一个**
+  `ThinkLineBody`，一个总开关管全部——用户看到的"统一折叠"就是这个。
+- 原折叠状态记的是"已折叠"的轮，默认全展开。每轮独立成行之后这个默认必须反过来：
+  一条 10 轮的消息全展开比统一折叠更难读。
+- `updateThinkingLabel` 在 `thinkingContent` 为空时会回退取 `rounds[0]` 当摘要源——
+  那是统一折叠时代的遗产（这一行是全部轮次的唯一入口），逐轮成行后会让第 1 轮文本
+  同时出现在"第 1 轮思考"和实时行两处。
+- 每轮耗时**从来没被记过**：`thinkingRounds` 是 `List<String>`，只有 `ThinkingStep` 带
+  `startTime/endTime`。耗时只在流式过程中知道（轮开始→定稿），不落盘就永久丢。
+- 在线与本地两条流式路径各有一套思考轮生命周期（`GenerationStreamController` 与
+  `AIChatActivity` 里的 `currentThinkingContent`/`thinkingRoundEnded`），打点要两边都打。
+
+### 由此改掉的事
+
+- **折叠语义反转**：`thinkingCollapsedRounds` → `thinkingExpandedRounds`（记已展开，默认收起），
+  仍是 `transient`，与产物卡展开集 `componentBodyExpandedIds` 同口径。
+- **`buildThinkingRow` 成为唯一的"一行思考"构造器**：v2 档复用 `view_chat_v2_think_line`，
+  旧档"标签 + 正文"两段；`addRoundThinkingBlock` 改为委托它，两条路径同一个样子。
+  收起态正文整个 GONE（v2 箭头由 `ThinkLineBody` 跟正文显隐联动，收起还留摘要会让箭头
+  永远显示成已展开）；摘要预览只在旧档保留。
+- **删掉消息级统一折叠**：轮次模式下思考块恒挂载，`thinkingExpanded` 从此只管实时行那一轮。
+- **实时行只表示当前轮**：不再拼 rounds、不再回退取 `rounds[0]`，标签改成"正在思考（第 N 轮）"。
+- **指纹跟着改（不改会静默失灵）**：轮次结构指纹里的 `E/F` 总开关位拆成"逐轮一位"
+  （`roundExpandedBit`）——否则点某轮标题指纹不变，走增量路径，那一轮永远不重建；
+  "当前轮补一块"那段删掉，与实时行重复渲染同一段文本。
+- **新字段 `thinkingRoundDurationsMs`**（与 rounds 同下标，可空可缺位）+
+  `addThinkingRound(content, id, durationMs)` 重载 + `thinkingRoundDurationMs(i)` 安全取值；
+  `deepCopyForSave` 补拷；两处流式路径各加 `markThinkingRoundStarted()` / `elapsedThinkingRound()`。
+  0 = 未知 → UI 退回"第 N 轮思考"，不显示 0.0s。
+- 已定稿轮的行放进新容器 `thinkingRowsHost`（`bubble` 内、实时思考行之前），
+  顺序天然是 第1轮 → … → 第N轮 → 正在进行的这一轮；**仍然不是 RecyclerView 虚拟条目**
+  （理由同 §4.8：`chatHistory` 是数据源本体，各处按 position 取消息）。
+- 新字符串：`chat_v2_think_round` / `chat_v2_think_round_secs` / `chat_v2_think_round_live` /
+  `chat_v2_secs`。
+
+### 验证
+
+- 新增 `ChatMessageThinkingRoundsTest` 5 条：三条列表同下标、空轮不占位、
+  旧数据缺耗时/长度不齐时补位不越界、折叠默认收起且点两次回到收起、
+  `thinkingExpandedRounds` 必须仍是 `transient`（反射钉住，防以后有人顺手落盘）。
+- `testDebugUnitTest --rerun-tasks` = **42 个类 / 444 tests / 0 failed / 0 skipped**（2m01s 真跑）。
+- **真机未验**：装机时设备 279b6c51 从 adb 掉线，包已打好
+  （`build/outputs/apk/debug/答题宝-debug-2.0.apk`）。要看的五件事写在 HANDOVER §4.9 末尾。
+
+
 ## [2026-10-20 补] 「工具结果显示」档位进设置入口（聊天页工具抽屉）
 
 卡片三档那节留了一句"新 pref 没有设置页入口"，这次补上，并把 `tool_auto_ui_bridge` 之外的

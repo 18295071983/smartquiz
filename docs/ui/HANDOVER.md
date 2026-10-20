@@ -645,6 +645,63 @@ demo 的 `#tpl-actions` 只有三颗图标（复制 / 重新生成 / 更多）�
 3. 点「更多」出底部面板，六项齐全，点「有帮助」有 Toast 且再开面板该条显示"（已反馈）"；
 4. 关掉 `chat_ui_v2` 后以上全部回到旧样子（胶囊文字 + 逐条时间戳）。
 
+### 4.9 思考段改成"每轮一行、每行独立折叠"（2026-10-20，两档一起改，统一折叠已删除）
+
+用户提的：现在一条消息里所有思考轮拼成一坨、由一个总开关统一折叠，要点开才读一整屏；
+要改成每轮单独显示、单独折叠。
+
+**先盘清现状（这段是关键，别重复踩）**：思考数据本来就是分轮的——
+`thinkingRounds`（内容）+ `thinkingRoundIds`（THINKING 子 id，`T1-K1`…），两条都持久化。
+而且**按轮折叠的机制早就有**：`addRoundThinkingBlock` 在"有工具轮次"那条路径里
+每轮建独立 `roundBox`、点标题行独立翻。所以问题不是"缺功能"，是**两条路径不一致**：
+
+- 轮次模式（`contentRoundBounds` 非空）：逐轮块，但外面还套一层消息级 `thinkingExpanded` 总开关
+  → **折叠两层**。
+- 普通模式：`updateThinkingContent` 把 rounds 拼成一整段 Markdown（`**第N轮思考**\n…`）
+  塞进**一个** `ThinkLineBody`，一个总开关管全部 → 用户看到的"统一折叠"。
+
+**改法（只留一条渲染路径）**：
+
+1. **折叠语义反转**：`thinkingCollapsedRounds`（记已折叠，默认全展开）→
+   `thinkingExpandedRounds`（记已展开，**默认收起**）。不反转的话，每轮独立成行之后
+   一条 10 轮的消息会一次铺开 10 坨正文，比统一折叠更难读。仍是 `transient`，
+   与产物卡展开集 `componentBodyExpandedIds` 同口径：运行时状态，不落盘。
+2. **`buildThinkingRow(...)`** 成为唯一的"一行思考"构造器：v2 档 inflate
+   `view_chat_v2_think_line`（星形 + 摘要 + 箭头 + 竖线正文），旧档"标签 + 正文"两段；
+   折叠读 `thinkingExpandedRounds`，行尾耗时读新字段。
+   `addRoundThinkingBlock` 改成委托它 —— 两条路径从此同一个样子。
+   收起态就是收起（正文整个 GONE）：v2 的箭头由 `ThinkLineBody` 跟正文显隐联动，
+   收起时还留一行摘要会让箭头永远显示成"已展开"。摘要预览只在旧档保留。
+3. **删掉消息级统一折叠**：轮次模式下思考块恒挂载，`thinkingExpanded` 从此只管
+   "正在进行的这一轮"那条实时行。
+4. **实时行不再当"全部轮次的入口"**：`updateThinkingContent` 不再拼 rounds（只给当前轮文本），
+   `updateThinkingLabel` 也不再在 `thinkingContent` 为空时回退取 `rounds[0]`
+   ——那是统一折叠时代的遗产，现在会让第 1 轮文本同时出现在"第 1 轮思考"和实时行两处。
+5. **指纹必须跟着改**（不做会静默失灵）：`renderRoundAssembled` 的轮次结构指纹里
+   原来只有 `E/F` 总开关位；折叠变成每轮一份之后，要把**该轮展开位**编进 `K` 后面
+   （`roundExpandedBit`），否则点某轮标题指纹不变 → 走增量路径 → 那一轮永远不重建。
+   同理，"当前轮补一块"那段（`curThink` 与末轮不同就追加一块）删掉——实时行已经承担，
+   留着就是同一段文字渲染两份。
+6. **每轮耗时**：`ChatMessage.thinkingRoundDurationsMs`（与 rounds 同下标，可空/可缺位）。
+   耗时只有流式过程知道（轮开始→定稿），不落盘就永久丢，所以必须进模型并随会话持久化；
+   `ChatHistoryManager.deepCopyForSave` 补拷。打点：`GenerationStreamController`
+   与 `AIChatActivity` 各自的 `markThinkingRoundStarted()` / `elapsedThinkingRound()`
+   （在线与本地两条流式路径都有自己的一套轮次生命周期，两边都要打）。
+   0 = 未知（旧文件、异常路径）→ UI 退回"第 N 轮思考"不显示秒数，不显示 0.0s。
+7. 已定稿轮的行放在新容器 `thinkingRowsHost`（`bubble` 内、实时思考行之前），
+   顺序天然是 第1轮 → … → 第N轮 → 正在进行的这一轮。
+   **仍然不是 RecyclerView 虚拟条目**，理由与 §4.8 日期分隔同一条。
+
+**测了什么**：`ChatMessageThinkingRoundsTest` 5 条——三条列表同下标、空轮不占位、
+旧数据缺耗时/长度不齐时补位不越界、折叠默认收起且点两次回到收起、
+`thinkingExpandedRounds` 必须仍是 `transient`（反射钉住，防以后有人顺手落盘）。
+全量 `testDebugUnitTest` = **444 tests / 0 failed / 0 skipped**。
+
+**真机未验**（装机时设备掉线，包已打好）：要看的是
+① 多轮思考的消息里每轮一行、行尾带秒数；② 点某一行只翻那一行；
+③ 流式中实时行显示"正在思考（第 N 轮）"、定稿后变成独立一行；
+④ 有工具轮次的 Agent 消息不再需要"先点开总开关"；⑤ 旧会话恢复出来的消息没有秒数也不炸。
+
 ---
 
 ## 5. 关键文件 / 改动地图

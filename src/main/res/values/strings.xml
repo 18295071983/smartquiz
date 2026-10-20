@@ -761,6 +761,11 @@
     <string name="chat_v2_feedback_saved">%1$s（已反馈）</string>
     <string name="chat_v2_feedback_thanks">感谢反馈</string>
     <string name="chat_v2_feedback_cleared">已取消反馈</string>
+    <!-- 每轮思考单独成行（2026-10-20）：行尾带该轮耗时；耗时未知（旧数据/没打点）时用无秒数那条 -->
+    <string name="chat_v2_think_round">第 %1$d 轮思考</string>
+    <string name="chat_v2_think_round_secs">第 %1$d 轮思考 · %2$s</string>
+    <string name="chat_v2_think_round_live">正在思考（第 %1$d 轮）</string>
+    <string name="chat_v2_secs">%1$.1fs</string>
     <string name="chat_v2_yesterday">昨天</string>
     <!-- 作为 SimpleDateFormat 的 pattern 使用，不是展示文案 -->
     <string name="chat_v2_date_format" translatable="false">M月d日</string>
