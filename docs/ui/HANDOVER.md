@@ -444,7 +444,9 @@
 
 **A1 · 消息重构（3–6 天）— 已开始，思考段见 §4.5**
 
-- [ ] 新建 `item_ai_message_v2.xml`：思考行 / 工具组 / 正文 / 操作四段。
+- [x] ~~新建 `item_ai_message_v2.xml`：思考行 / 工具组 / 正文 / 操作四段~~ —— **作废，别照做**。
+      AI 消息没有布局文件：整棵树是 `ChatAdapter#createAiMessageItem` 用约 330 行代码 new 出来的，
+      四段只能**在代码树里一段一段换**（§4.4/§4.5/§4.8/§4.9 就是这么做的）。
       （think/tool 行的行视图已由 §4.4 做成 `view_chat_v2_think_line` / `view_chat_v2_tool_line`）
 - [ ] `ChatAdapter` 拆 Binder：`UserBinder` / `AiBinder` / `SystemBinder` / `ToolBinder`；**不要一次性重写 5,302 行**，按 viewType 逐步切。
 - [ ] 思考折叠 + 工具组折叠 + 流式光标。
@@ -756,7 +758,7 @@ header 显示"已深度思考 4.6s · 2 步"，下面两行分别是
 | 聊天页布局 | `res/layout/activity_ai_chat.xml` | 重写，删状态胶囊/连接条/统计条/日志 |
 | 输入区 | `res/layout/view_chat_input_bar.xml`、`ai/chat/input/ChatInputBar.java` | 胶囊输入 + 停止按钮 |
 | 用户消息 | `res/layout/item_user_message.xml` | 去头像/时间戳 |
-| AI 消息 | 新增 `res/layout/item_ai_message_v2.xml` | 四段结构 |
+| AI 消息 | `ai/chat/ChatAdapter.java#createAiMessageItem`（**代码树，无布局文件**） | 四段在代码里逐段替换；新增视图走"挂 holder 字段"，不扩 36 参构造器 |
 | Adapter | `ai/chat/ChatAdapter.java` | 拆 Binder；AI 构造器重写 |
 | 统计 | `ai/chat/ui/ChatStatsBar.java` | 改为 `SessionInfoSheet` |
 | 工具抽屉 | `res/layout/view_tool_drawer.xml` | 改为 `ToolCenterSheet` |

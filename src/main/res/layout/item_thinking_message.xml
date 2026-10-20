@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 思考过程消息：与 AI 消息内嵌思考区（item_ai_message 的 thinking_label/thinking_content）保持完全一致的视觉 -->
+<!-- 思考过程消息（TYPE_THINKING 独立条目）：视觉与 AI 消息内嵌的思考区保持一致。
+     注意那个内嵌思考区【不在布局文件里】——AI 消息整棵视图树是 ChatAdapter#createAiMessageItem
+     用代码 new 出来的（thinkingLabel / thinkingContent 两个字段），仓库里从来没有
+     item_ai_message.xml；早先这条注释写的文件名是错的，已按实际位置订正。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"

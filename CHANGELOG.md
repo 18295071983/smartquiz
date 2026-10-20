@@ -1,5 +1,45 @@
 # 变更日志
 
+## [2026-10-20 深夜] 清掉 5 个从没接进渲染链的消息布局 + 订正两处说谎的文档
+
+### 查到的事实
+
+- 用户问"不是还有旧的正文布局吗"，查完确认：**`item_message_ai.xml`（80 行）与
+  `item_message_user.xml`（79 行）确实存在，但是死文件**——早期原型的通用聊天气泡
+  （36dp 头像 `ic_menu_help` + `rounded_avatar`、发送者名、时间戳、正文，
+  id 是 `textViewSender/textViewTimestamp/textViewMessage`）。
+  四层证据：`src/main/java` 与 `src/main/res` 零引用；没有 `getIdentifier("…")` 按字符串
+  inflate 的旁路；全仓唯一命中是 `_archive/…/build/intermediates/` 的 data-binding 中间产物；
+  `git log -S item_message_ai` 在 src/docs 里没有任何一次引用提交。
+- 同类死文件还有三个：`item_summary_message.xml`、`item_task_message.xml`、
+  `item_tool_result_message.xml`——它们对应的消息类型都换了渲染器
+  （`TASK_BREAKDOWN/TASK_PROGRESS/SUMMARY` 在 `getItemViewType` 里归并成系统消息样式，
+  `TOOL_RESULT` 归并进工具卡，汇总走组件卡片）。
+- 删前逐个 id 核过安全性：这些 id 要么 Java 零引用，要么同时被活布局声明
+  （`btn_export` 在两个 activity 里、`tool_icon/tool_name/tool_result/message_text`
+  在 `item_tool_call_message` 与几个活消息布局里），所以不会把 `R.id.*` 弄丢。
+- 两处注释/文档在说谎：`item_thinking_message.xml` 第 2 行说"与 `item_ai_message` 的
+  thinking_label/thinking_content 一致"，而**这个文件不存在**（内嵌思考区在
+  `createAiMessageItem` 的代码树里）；`docs/ui/ai-chat-redesign.md` 与 HANDOVER 的任务清单、
+  文件地图共 5 处仍把"新建 `item_ai_message_v2.xml`"当 P1 实现基线，
+  而 §4.4 早就论证过 AI 消息没有布局文件、只能逐段替换。
+
+### 由此改掉的事
+
+- 删除 5 个死布局（371 行）。留着真正的代价不是行数，是**误导**：
+  下一个人 `ls res/layout | grep message` 会看到 `item_message_ai.xml` 并以为那就是正文，
+  改完发现界面上一点变化都没有。
+- 订正 `item_thinking_message.xml` 的注释，指明内嵌思考区在代码树里、仓库没有 `item_ai_message.xml`。
+- 5 处文档基线改成"`createAiMessageItem` 代码树逐段替换 + Binder 拆分"，
+  原条目划掉而不是删除，保留"当初为什么这么写"的痕迹。
+
+### 验证
+
+- 删除后 `compileDebugJavaWithJavac` + `testDebugUnitTest` 通过（1m37s，无资源/引用报错）。
+- 装机未做（设备仍未接回）。
+
+
+
 ## [2026-10-20 深夜] 工具行并进时间线（轮次模式不再单列总行）+ 修掉思考内容重复两遍
 
 ### 查到的事实

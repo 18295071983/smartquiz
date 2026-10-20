@@ -452,7 +452,9 @@ agentSummary（汇总）
 
 ### P1 · 消息重构（3–6 天）
 
-- [ ] 新建 `item_ai_message_v2.xml`，固定"思考行 / 工具组 / 正文 / 操作"四段
+- [x] ~~新建 `item_ai_message_v2.xml`，固定"思考行 / 工具组 / 正文 / 操作"四段~~
+      → 落地时作废：AI 消息是 `ChatAdapter#createAiMessageItem` 代码构建的，没有布局文件，
+      四段只能在代码树里逐段替换（见 `docs/ui/HANDOVER.md` §4.4 与 §4.9）
 - [ ] `ChatAdapter` 拆分：`UserBinder` / `AiBinder` / `SystemBinder` / `ToolBinder`
 - [ ] 思考折叠 + 工具组折叠 + 流式光标
 - [ ] 操作行改 3 图标 + 更多面板；末条常驻
@@ -481,7 +483,7 @@ agentSummary（汇总）
 | `res/layout/activity_ai_chat.xml` | 重写，-40% 层级 |
 | `res/layout/view_chat_input_bar.xml` | 重写胶囊输入 |
 | `res/layout/item_user_message.xml` | 去头像/时间戳 |
-| 新增 `item_ai_message_v2.xml` | AI 四段结构 |
+| `ChatAdapter#createAiMessageItem`（代码树） | AI 四段结构，逐段替换 |
 | `ChatAdapter.java` | 拆 Binder，AI 构造器重写 |
 | `ChatStatsBar.java` | 改为 `SessionInfoSheet` |
 | `view_tool_drawer.xml` | 改为 `ToolCenterSheet` |
@@ -535,7 +537,8 @@ agentSummary（汇总）
 - 发送消息 → 模拟"思考 → 工具 → 流式正文 → 卡片 → 操作"全过程；可中途停止
 - 点击选项可答题；"设计标注"开关显示 5 个关键改动点
 
-Demo 只验证视觉与交互，不含业务逻辑；P1 落地时以 `item_ai_message_v2.xml` + Binder 为实现基线。
+Demo 只验证视觉与交互，不含业务逻辑；P1 落地基线已修正为"`createAiMessageItem` 代码树逐段替换 + Binder 拆分"
+（`item_ai_message_v2.xml` 这条不成立，理由见 `docs/ui/HANDOVER.md` §4.4）。
 
 ---
 
