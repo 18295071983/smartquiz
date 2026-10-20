@@ -2158,6 +2158,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 思考/工具已经移到活动区，不再参与正文结构；D=展示默认档（换档必须重建）。
         StringBuilder fp = new StringBuilder();
         fp.append('D').append(ComponentDisplay.name(ComponentDisplay.defaultTier(ctx)));
+        // STREAM-STATUS(2026-10-21)：生成中/已完成必须参与轮次结构指纹。
+        // 否则流式建出的「正在思考」轮次头在完成时结构没变，增量路径只更新正文，
+        // 头部文案停留在“正在思考”，退出重进才因整体重建恢复。
+        fp.append('S').append(
+                (message.status == ChatMessage.MessageStatus.GENERATING
+                        || message.status == ChatMessage.MessageStatus.IN_PROGRESS) ? '1' : '0');
         int expect = 0;
         // 每轮活动区也是结构的一部分：轮次/状态/耗时/展开位变化必须触发重建。
         for (int g = 0; g < activityGroups.size(); g++) {
