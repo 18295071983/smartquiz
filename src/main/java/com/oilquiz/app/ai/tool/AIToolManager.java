@@ -479,6 +479,10 @@ public class AIToolManager {
             java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> cards =
                     com.oilquiz.app.ai.agent.ToolResultCardBinder.build(
                             context, toolName, result, parameters);
+            // 静态映射没命中时走动态结果渲染：按结果形状选媒体/表格/列表/指标/信息卡。
+            if (cards.isEmpty()) {
+                cards = com.oilquiz.app.ai.agent.DynamicToolResultRenderer.render(toolName, result);
+            }
             // 模型可通过工具调用参数 display=inline|peek|hidden 控制自动补挂卡的显隐
             Object displayParam = parameters.get("display");
             for (int i = 0; i < cards.size(); i++) {

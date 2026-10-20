@@ -1,5 +1,37 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 新增动态工具结果渲染器：任意结果按形状选卡
+
+### 背景
+
+之前只有两层：
+- `ToolResultCardBinder` 按工具名 switch 的静态映射；
+- `DynamicCardView` 只是"未知 component 类型"的兜底，不会把任意工具结果转成卡片。
+
+没命中静态映射的工具只能在正文看文本，没有结构化卡片。
+
+### 改动
+
+- 新增 `DynamicToolResultRenderer`：只在静态 binder 返回空时调用，按结果形状选卡：
+  - 媒体路径/数组 → `image_grid` / `video` / `audio` / `file_card`/`file_list`
+  - `headers` + `rows` → `table_card`
+  - `items` → `list_card`
+  - `metrics` → `metric_card`
+  - `html` → `html`
+  - `url` → `link_card`
+  - `data` → `json_viewer`
+  - 其余标量对象 → `info_card`
+  - 纯文本/无结构结果不造卡，避免刷屏
+- `AIToolManager.collectAutoUiCards`：静态 binder 空 → 动态兜底；
+  模型参数 `display` 仍会覆盖到动态卡上。
+- 新增 `DynamicToolResultRendererTest` 5 条。
+
+### 验证
+
+- 全量单测 **478 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过。
+- 真机安装失败：设备 `279b6c51` 当前未连接（`adb devices` 为空），APK 已产出，
+  重连后可安装验证。
+
 ## [2026-10-21 凌晨] 新增 app_card：应用/页面导航卡
 
 ### 背景
