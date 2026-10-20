@@ -1410,10 +1410,12 @@ public class AIChatActivity extends BaseActivity {
                     if (!isComplete) {
                         feedStreamingTts(text);
                     }
-                    // 定时渲染：正文 UI 统一交给 StreamingUpdateManager（50~200ms 批量 + 去抖），
-                    // 流式期间不再每 token 同步 msg.content/notifyItemChanged（否则变化检测失效且画面抽搐）。
-                    // 完成事件（全文重发）或节流器不可用（异常/未初始化）时立即刷新兜底。
-                    if (isComplete || streamingUpdateManager == null) {
+                    // 权威边界（2026-10-21）：轮次渲染下，token/预览缓冲绝不直接写
+                    // msg.content；只允许 flushRoundContentToMessage()（工具边界）和
+                    // completeGeneration()（最终 fullText）两个提交点写。
+                    // 否则完成事件里的流式文本会先一步覆盖消息，final 再改一次，
+                    // 既造成闪烁，也让“谁才是最终内容”变得不可判定。
+                    if (!ROUND_BATCH_RENDER && (isComplete || streamingUpdateManager == null)) {
                         ChatMessage msg = chatHistory.get(idx);
                         msg.content = contentSnapshot;
                         if (chatAdapter != null) {

@@ -1,5 +1,16 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 收口权威边界：预览 token 不再直接写最终消息
+
+- `onTextOutput` 的 `msg.content = contentSnapshot` 增加 `!ROUND_BATCH_RENDER` 条件：
+  轮次渲染下，正文只允许两个提交点写：
+  1. `flushRoundContentToMessage()`：工具调用边界；
+  2. `completeGeneration()`：native `fullText` 最终快照。
+- 流式 token / `currentStreamingContent` 只更新预览缓冲，不再抢写
+  `ChatMessage.content`；最终内容来源唯一，避免“完成事件先写流式文本、final 再改一次”。
+- 非轮次渲染路径保持原行为。
+- 验证：482 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 完成态内容编排动画（按子块错峰入场）
 
 - 生成期间仍然不逐 token 动；完成后对已经上屏的子块（思考行/工具卡/正文段）
