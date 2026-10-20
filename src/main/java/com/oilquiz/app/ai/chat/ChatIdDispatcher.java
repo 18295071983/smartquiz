@@ -1,5 +1,10 @@
 package com.oilquiz.app.ai.chat;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import com.oilquiz.app.SmartQuizApplication;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -17,11 +22,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * - applyMasterId()：开启新回合，返回主 id（T1、T2、T3…），并重置所有子类型序号。
  * - applySubId(IdType)：在当前主 id 下按类型申请子 id；无当前主 id 时自动先申请主 id。
  * - peekMasterId()：查看当前主 id（不推进序号）。
- * - reset()：对话历史清空时调用，派发器归零重来（T1 重新开始）。
+ * - reset()：对话历史清空时调用，只清当前回合/子序号，**不回收主 id 计数器**。
  *
  * 线程安全：AtomicLong + synchronized 保证并发申请不重号。
- * 唯一性说明：主/子 id 仅保证"当前会话内"唯一（reset 后重新计数）；
- * 消息级全局唯一 id 仍由 ChatMessage.id（UUID）承担（跨会话恢复不冲突）。
+ * 唯一性说明（2026-10-21）：主 id 计数器持久化在
+ * {@code chat_id_dispatcher.next_master}，清空历史、杀进程、重进都不会把 Tn 发第二遍；
+ * 子 id 都带主 id 前缀，因此 T/C 等子 id 也跨会话唯一。消息级全局唯一 id 仍由
+ * ChatMessage.id（UUID）承担。
  */
 public class ChatIdDispatcher {
 
@@ -60,14 +67,58 @@ public class ChatIdDispatcher {
     private final ConcurrentHashMap<String, AtomicLong> subCounters = new ConcurrentHashMap<>();
     private volatile String currentMasterId = null;
 
+    /** 主 id 计数器落盘位置：跨会话/跨进程都不能回收，否则 T1 会被发第二遍 */
+    private static final String PREFS_NAME = "chat_id_dispatcher";
+    private static final String KEY_NEXT_MASTER = "next_master";
+    private SharedPreferences prefs;
+    private boolean loaded;
+
     private ChatIdDispatcher() {
+    }
+
+    /** 可选初始化：传入 Context 可提前绑定 SharedPreferences；不调用也会在首次发号时
+     *  通过 {@link SmartQuizApplication#getAppContext()} 懒加载。 */
+    public synchronized void init(Context context) {
+        if (context == null) return;
+        prefs = context.getApplicationContext()
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        loaded = false;
+        ensureLoadedLocked();
+    }
+
+    private void ensureLoadedLocked() {
+        if (loaded) return;
+        loaded = true;
+        if (prefs == null) {
+            try {
+                Context ctx = SmartQuizApplication.getAppContext();
+                if (ctx != null) {
+                    prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                }
+            } catch (Throwable ignored) {
+                // 单元测试/极早启动没有 App 上下文：退化到进程内计数，行为同旧版
+            }
+        }
+        if (prefs != null) {
+            long next = prefs.getLong(KEY_NEXT_MASTER, 1L);
+            if (next > masterCounter.get()) masterCounter.set(next);
+        }
+    }
+
+    private void persistLocked() {
+        if (prefs != null) {
+            prefs.edit().putLong(KEY_NEXT_MASTER, masterCounter.get()).apply();
+        }
     }
 
     /** 申请主 id（新回合开始）：T1、T2…
      *  <p>不在此清子计数器：子计数已按"主id|类型"分桶（见 {@link #subCounters}），
      *  清掉只会让迟到回调给旧回合补出重号 id。</p> */
     public synchronized String applyMasterId() {
-        currentMasterId = "T" + masterCounter.getAndIncrement();
+        ensureLoadedLocked();
+        long n = masterCounter.getAndIncrement();
+        persistLocked();
+        currentMasterId = "T" + n;
         return currentMasterId;
     }
 
@@ -103,9 +154,12 @@ public class ChatIdDispatcher {
         return currentMasterId;
     }
 
-    /** 重置派发器：对话历史清空时调用，主 id 从 T1 重新开始、子序号清零 */
+    /**
+     * 清空对话时调用：只清当前回合计与子序号，<b>不回收主 id 计数器</b>。
+     * 主计数器已落盘，回收会让下一个回合又拿 T1，与已导出的历史/残留组件重号。
+     */
     public synchronized void reset() {
-        masterCounter.set(1);
+        ensureLoadedLocked();
         subCounters.clear();
         currentMasterId = null;
     }
@@ -127,6 +181,7 @@ public class ChatIdDispatcher {
      * @return 播种后的下一个主 id 序号（用于日志）；无有效 turnId 时返回当前值
      */
     public synchronized long seedFromTurnIds(java.util.Collection<String> turnIds) {
+        ensureLoadedLocked();
         if (turnIds == null || turnIds.isEmpty()) {
             return masterCounter.get();
         }
@@ -145,6 +200,7 @@ public class ChatIdDispatcher {
         }
         if (max > 0 && max >= masterCounter.get()) {
             masterCounter.set(max + 1);
+            persistLocked();
             currentMasterId = null;
         }
         return masterCounter.get();

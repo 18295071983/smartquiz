@@ -982,6 +982,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 5. **验证**：459 单测全绿（新增 `ChatRoundActivityTest` 两条）；装机后长会话未崩溃。
    当前会话太长，逐轮活动区没有在一屏内完整做视觉核对，这是已知的验证缺口。
 
+### 4.22 T/C 子 ID 跨会话唯一（2026-10-21 凌晨，已装机）
+
+1. **根因**：`ChatIdDispatcher.masterCounter` 只在进程内，`reset()`（清空历史）会把它设回 1；
+   子 id 带主 id 前缀，主 id 复用 → `T1-C1` 在不同会话重号。
+2. **改法**：主计数器落盘 `chat_id_dispatcher.next_master`，每次 `applyMasterId()` 发号后写回
+   "下一个可用值"；`seedFromTurnIds()` 抬到历史最大 `T<n>+1` 时也写回。
+   `reset()` 只清 `currentMasterId` 和子序号计数，**不回收主计数器**。
+3. **兼容**：`init(Context)` 可提前绑定 prefs；不调用时首次发号用
+   `SmartQuizApplication.getAppContext()` 懒加载；无上下文（单测/极早启动）退化为进程内计数。
+   消息级 `ChatMessage.id` 仍是 UUID。
+4. **验证**：`ChatIdDispatcherTest` 两条（reset 后不重号、seed 后必须大于历史最大 T）；
+   全量 462 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图

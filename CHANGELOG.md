@@ -1,5 +1,31 @@
 # 变更日志
 
+## [2026-10-21 凌晨] T/C 子 ID 改成跨会话唯一：主计数器落盘，清空历史不回收
+
+### 查到的事实
+
+- `ChatIdDispatcher` 的主计数器 `masterCounter` 原来只存在进程内，`reset()`（清空对话）
+  会把它设回 1；`seedFromTurnIds` 只在恢复历史时抬到最大 `T<n>+1`。
+- 子 id 形如 `T<n>-C<m>`，只要主 id 复用，`T1-C1` 就会在不同会话里重号；
+  适配器按 id 定位/更新/移除时会命中错误对象。
+- 用户已清空历史，正好可以从现在开始使用"只增不退"的全局计数器。
+
+### 由此改掉的事
+
+- 主计数器落盘到 `chat_id_dispatcher.next_master`：每次 `applyMasterId()` 先读一次，
+  发号后把"下一个可用值"写回；`seedFromTurnIds()` 抬到历史最大 `T<n>+1` 时也写回。
+- `reset()` 只清 `currentMasterId` 与子序号计数，**不再把 masterCounter 设回 1**。
+- `init(Context)` 可提前绑定 SharedPreferences；不调用时首次发号通过
+  `SmartQuizApplication.getAppContext()` 懒加载，单元测试/极早启动退化为进程内计数。
+- 消息级 `ChatMessage.id` 仍是 UUID，不依赖这套计数。
+
+### 验证
+
+- 新增 `ChatIdDispatcherTest`：
+  - `reset()` 后主 id 与组件 id 都不能与 reset 前重复；
+  - `seedFromTurnIds(["T900000"])` 后新回合必须大于 900000。
+- 全量单测 **462 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+
 ## [2026-10-21 凌晨] 每轮活动区：第 N 轮思考/工具卡跟着第 N 段正文走
 
 ### 查到的事实
