@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 完成态内容编排动画（按子块错峰入场）
+
+- 生成期间仍然不逐 token 动；完成后对已经上屏的子块（思考行/工具卡/正文段）
+  做一次 220ms 淡入 + 6dp 上移，按 35ms 错峰，最多 6 块。
+- AI 消息不再在占位插入时整条滑入（避免空气泡先动）；用户/系统消息保留原方向性入场。
+- 按 message id 去重，滚动回滚不重播；只对 120s 内完成的消息播放，重进历史不整屏乱动。
+- 尊重 `animationsEnabled` 与系统动画开关（`ValueAnimator.areAnimatorsEnabled()`）。
+- 验证：482 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 语音不再抢先：按轮次渲染时关掉逐 token 朗读
 
 - 根因：`handleStreamToken` 每 token 调 `feedStreamingTts`，但正文被

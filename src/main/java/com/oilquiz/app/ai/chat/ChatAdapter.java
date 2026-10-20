@@ -183,6 +183,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private boolean animationsEnabled = true;
     /** 已播放进入动画的消息 id（避免滚动回滚后重复动画） */
     private final java.util.Set<String> animatedMessageIds = new java.util.HashSet<>();
+    /** 已播放完成态内容编排动画的 AI 消息 id（按子块错峰，只播一次） */
+    private final java.util.Set<String> revealedContentMessageIds = new java.util.HashSet<>();
 
     // 选择模式
     private boolean selectionMode = false;
@@ -817,8 +819,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 bindAgentReflectionMessage((AgentReflectionViewHolder) holder, message);
                 break;
         }
-        // 消息进入动画：仅新消息触发（id 去重），用户消息右滑入、AI/系统左滑入
-        setAnimation(holder.itemView, message);
+        if (holder instanceof AIMessageViewHolder) {
+            // 完成态按内容块（思考行/工具卡/正文段）错峰入场，替代 AI 整条滑入
+            scheduleContentReveal((AIMessageViewHolder) holder, message);
+        } else {
+            // 用户/系统消息：整条方向性入场
+            setAnimation(holder.itemView, message);
+        }
     }
 
     @Override
@@ -6079,6 +6086,47 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /**
+     * 完成态内容编排动画：正文、思考行、工具卡按从上到下的顺序错峰淡入 + 轻微上移。
+     *
+     * <p>不是 token 动画：生成期间不动，完成后一次性对已经上屏的子块做 180–240ms
+     * 的入场编排；按 message id 去重，滚动回滚不重播。后台只需保证“完成”事件，
+     * 前端负责节奏。</p>
+     */
+    private void scheduleContentReveal(AIMessageViewHolder holder, ChatMessage message) {
+        if (!animationsEnabled || message == null || holder.contentHost == null) return;
+        if (!message.isCompleted()) return;
+        // 只给刚完成的消息编排；重进历史时不要整屏乱动
+        if (System.currentTimeMillis() - message.timestamp > 120_000L) return;
+        if (message.id == null) return;
+        final LinearLayout host = holder.contentHost;
+        host.post(() -> {
+            if (holder.holderMessage != message) return;
+            int count = host.getChildCount();
+            if (count <= 0) return;
+            synchronized (revealedContentMessageIds) {
+                if (!revealedContentMessageIds.add(message.id)) return;
+            }
+            if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
+            int dp6 = dpToPx(6, host.getContext());
+            int i = 0;
+            for (int c = 0; c < count; c++) {
+                View child = host.getChildAt(c);
+                if (child == null || child.getVisibility() != View.VISIBLE) continue;
+                child.setAlpha(0f);
+                child.setTranslationY(dp6);
+                child.animate()
+                        .alpha(1f)
+                        .translationY(0f)
+                        .setStartDelay(Math.min(i, 6) * 35L)
+                        .setDuration(220L)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .start();
+                i++;
+            }
+        });
+    }
+
+    /**
      * 应用进入动画（方向性：用户消息从右滑入，AI/系统消息从左滑入 + 淡入）。
      * 参考主流聊天应用（微信/Signal）与 wasabeef/recyclerview-animators 建议：
      * 消息进入用轻量方向滑动 + 透明度，避免纯淡入的"无方向感"和过度动画。
@@ -6086,6 +6134,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      */
     private void setAnimation(View viewToAnimate, ChatMessage message) {
         if (!animationsEnabled || message == null || viewToAnimate == null) return;
+        // AI 消息在占位插入时是空的；整条入场动画留到完成态按内容块编排，
+        // 避免“空气泡先滑入、正文完成时又不动”。
+        if (message.isAIMessage()) return;
         // 系统关闭动画（开发者选项/省电）时不再播；180ms 的位移对"正在读的列表"是干扰
         if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return;
         if (animatedMessageIds.contains(message.id)) return;
