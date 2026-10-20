@@ -1,5 +1,43 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 修启动恢复与实时发送的竞态：历史快照不再覆盖刚建的 AI 占位
+
+### 现场
+
+用户截图里同时有「写个流程图」和「继续」两条 USER，但只有后一条有 AI 回复。
+拉 `ai_chat_history.json` 与 session 文件确认：
+
+- T22 USER「写个流程图」存在，**T22 没有 AI 消息**；
+- T23 USER「继续」与 T23-A1 正常；
+- T22 的流式日志 `startAgentLoop` 已启动，说明 AI 占位消息曾在内存里创建。
+
+### 根因
+
+启动恢复在后台读历史，`runOnUiThread` 回来时直接：
+
+```java
+chatHistory.clear();
+chatHistory.addAll(historyToLoad);
+```
+
+如果用户在恢复完成前就发了消息：addUserMessage 已落盘（快照含 T22 user），
+AI 占位消息稍后才创建（快照里没有）。旧快照一覆盖，AI 占位被抹掉，
+只剩一条永远没有回复的 USER。
+
+### 改法
+
+- 新增 `mergeLoadedHistory()`：以磁盘历史为底，把快照里没有的**本地新消息**
+  按原顺序补在后面；既保留旧历史，也不丢刚创建的一轮。
+- 单文件历史与会话分页两条恢复路径都改走 merge。
+- 配合前一轮的 ID 先行/滚动时序修复，形成“先有 turn/sub，再有 AI 占位，最后才允许旧快照回填”的顺序。
+
+### 验证
+
+- 全量单测 **478 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 已拉取用户截图、`ai_chat_history.json`、session 文件核对 T22/T23/T24 的 turn/sub。
+- 未主动复现“启动瞬间发送”竞态；旧 T22 孤儿消息不会自动补 AI（数据已缺），
+  新发送会走 merge 保护。
+
 ## [2026-10-21 凌晨] 网页链接统一 App 内跳转，不再调系统浏览器
 
 ### 查到的事实

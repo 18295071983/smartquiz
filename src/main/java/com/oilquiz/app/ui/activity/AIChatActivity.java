@@ -898,10 +898,7 @@ public class AIChatActivity extends BaseActivity {
                                 // 文件历史是权威持久化源（含最新组件）。VM observe 可能已用
                                 // 启动时快照填充（旋转重建时 VM 保留，快照缺本次会话新组件），
                                 // 这里必须用文件数据替换而非跳过，否则最新组件/消息会丢失。
-                                if (chatHistory != historyToLoad) {
-                                    chatHistory.clear();
-                                    chatHistory.addAll(historyToLoad);
-                                }
+                                mergeLoadedHistory(historyToLoad);
                                 // 恢复补发 id：旧数据组件/思考轮 id 缺失时按 turnId 前缀补发
                                 ensureRecoveredIds(chatHistory);
                                 fileHistoryLoaded = true;
@@ -945,8 +942,7 @@ public class AIChatActivity extends BaseActivity {
                                     runOnUiThread(() -> {
                                         // 用户已主动清空/新建对话：丢弃本次历史加载结果，防止回灌顶掉新消息
                                         if (historyLoadStale) return;
-                                        chatHistory.clear();
-                                        chatHistory.addAll(pageMsgs);
+                                        mergeLoadedHistory(pageMsgs);
                                         // 恢复补发 id：旧会话组件/思考轮 id 缺失时按 turnId 前缀补发
                                         ensureRecoveredIds(chatHistory);
                                         fileHistoryLoaded = true;
@@ -8333,6 +8329,39 @@ public class AIChatActivity extends BaseActivity {
                 })
                 .setNegativeButton(getString(R.string.h_625fb26b), null)
                 .show();
+    }
+
+    /**
+     * 合并“磁盘历史快照”和“加载期间刚产生的本地消息”。
+     *
+     * <p>真实时序：用户在启动恢复完成前就发了一条消息，addUserMessage 已落盘、
+     * AI 占位消息稍后才创建；后台读到的快照可能只包含 user，不含刚建的 AI。
+     * 旧逻辑直接 clear + addAll 会用旧快照覆盖内存，AI 占位被抹掉，留下一条
+     * 永远没有回复的 USER（截图里的 T22）。这里以文件历史为底，把快照里没有的
+     * 本地消息按原顺序补在后面，既不丢旧历史，也不丢刚发的一轮。</p>
+     */
+    private void mergeLoadedHistory(java.util.List<ChatMessage> loaded) {
+        if (loaded == null) return;
+        java.util.Set<String> loadedIds = new java.util.HashSet<>();
+        for (ChatMessage m : loaded) {
+            if (m != null && m.id != null) loadedIds.add(m.id);
+        }
+        java.util.List<ChatMessage> localNew = new java.util.ArrayList<>();
+        for (ChatMessage m : chatHistory) {
+            if (m != null && (m.id == null || !loadedIds.contains(m.id))) localNew.add(m);
+        }
+        if (localNew.isEmpty()) {
+            chatHistory.clear();
+            chatHistory.addAll(loaded);
+            return;
+        }
+        java.util.List<ChatMessage> merged = new java.util.ArrayList<>(loaded.size() + localNew.size());
+        merged.addAll(loaded);
+        merged.addAll(localNew);
+        chatHistory.clear();
+        chatHistory.addAll(merged);
+        AppLogger.ai(TAG, "[history] merged loaded=" + loaded.size()
+                + " localNew=" + localNew.size() + " total=" + merged.size());
     }
 
     private void clearChat() {
