@@ -830,23 +830,67 @@ public void saveAIChatHistory(List<ChatMessage> chatHistory) {
         }
     }
 
-    /** 彻底删除一个回收站会话 */
+    /** 彻底删除一个回收站会话（连同该会话遗留的本地推理历史文件） */
     public boolean deleteTrashedSession(TrashEntry entry) {
-        return entry != null && entry.file != null && entry.file.delete();
+        if (entry == null || entry.file == null) {
+            return false;
+        }
+        String sessionId = entry.sessionId;
+        if (sessionId == null && entry.file.getName().contains("_")) {
+            sessionId = entry.file.getName().substring(
+                    entry.file.getName().indexOf('_') + 1).replace(".json", "");
+        }
+        boolean deleted = entry.file.delete();
+        if (deleted) {
+            deleteLocalHistoryArtifacts(sessionId);
+        }
+        return deleted;
     }
 
-    /** 清空回收站（不可恢复） */
+    /**
+     * 清空回收站（不可恢复）。
+     * 除了删回收目录里的会话 JSON，同时清掉这些会话遗留的
+     * local_chat_history_&lt;sessionId&gt;_default.json —— 否则"清空"只是清了个列表，
+     * 本地推理上下文还堆在 files/ 下。
+     */
     public int clearTrash() {
         File[] files = getTrashDir().listFiles((d, name) -> name.endsWith(".json"));
         int removed = 0;
         if (files != null) {
             for (File f : files) {
+                String name = f.getName();
+                String sessionId = name.indexOf('_') >= 0
+                        ? name.substring(name.indexOf('_') + 1).replace(".json", "")
+                        : name.replace(".json", "");
                 if (f.delete()) {
                     removed++;
+                    deleteLocalHistoryArtifacts(sessionId);
                 }
             }
         }
+        android.util.Log.i("ChatHistoryManager", "clearTrash removed=" + removed);
         return removed;
+    }
+
+    /** 删除某个会话遗留的本地推理历史文件（local_chat_history_&lt;sessionId&gt;_*.json） */
+    private void deleteLocalHistoryArtifacts(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) {
+            return;
+        }
+        final String prefix = "local_chat_history_" + sessionId + "_";
+        File[] leftovers = context.getFilesDir().listFiles(
+                (d, name) -> name.startsWith(prefix) && name.endsWith(".json"));
+        if (leftovers == null || leftovers.length == 0) {
+            return;
+        }
+        int removed = 0;
+        for (File f : leftovers) {
+            if (f.delete()) {
+                removed++;
+            }
+        }
+        android.util.Log.i("ChatHistoryManager",
+                "deleted " + removed + " local history file(s) for " + sessionId);
     }
 
     /** 文件名前缀 yyyyMMdd_HHmmss → 毫秒时间戳；解析失败退回文件 mtime */

@@ -103,6 +103,10 @@
   不再直接 `deleteConversationSession()` 硬删。
 - **恢复**：`restoreTrashedSession()` 把文件移回 `conversations/`；若同 id 会话仍在（重复恢复），换一个新 UUID 写回 JSON 的 `id` 字段，不覆盖现有会话。
 - **彻底删除**：单个删除带二次确认；**清空回收站**同样二次确认。
+- **真删，不是假清空**：`clearTrash()` / `deleteTrashedSession()` 会真正 `File.delete()` 掉 `conversations_trash/*.json`，
+  并同时清理这些会话遗留的 `local_chat_history_<sessionId>_*.json`（本地推理上下文快照）——
+  否则"清空回收站"只清了列表，`files/` 下还堆着一坨没人认领的会话文件。
+  验证：往 `conversations_trash/` 放 2 个会话后点清空，目录被清空（`ls` 为空）。
 - 清空历史的确认文案同步改为「移入回收站，可随时恢复」，不再写「不可撤销」。
 
 验证：造一个测试会话 → 清空 → `conversations_trash/20261021_014015_test-recycle-0001.json` 落位 → 回收站列表可见 → 点恢复 → 文件回到 `conversations/`、列表出现、回收站变空。
