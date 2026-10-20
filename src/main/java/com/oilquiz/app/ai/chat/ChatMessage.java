@@ -349,6 +349,27 @@ public class ChatMessage {
      */
     public transient boolean toolSectionExpanded = false;
 
+    /**
+     * 每轮工具卡的展开状态（2026-10-21 每轮活动区）：key = 该轮首个 toolCallId，
+     * 无 id 时退化到锚点。仅运行时 UI 状态，不持久化。
+     */
+    public transient java.util.Set<String> toolSectionExpandedIds;
+
+    public boolean isToolSectionExpanded(String key) {
+        return key != null && !key.isEmpty()
+                && toolSectionExpandedIds != null && toolSectionExpandedIds.contains(key);
+    }
+
+    public void toggleToolSectionExpanded(String key) {
+        if (key == null || key.isEmpty()) return;
+        if (toolSectionExpandedIds == null) {
+            toolSectionExpandedIds = new java.util.HashSet<>();
+        }
+        if (!toolSectionExpandedIds.add(key)) {
+            toolSectionExpandedIds.remove(key);
+        }
+    }
+
     /** 附件列表 */
     public List<Attachment> attachments;
 

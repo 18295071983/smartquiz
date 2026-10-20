@@ -1,5 +1,35 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 每轮活动区：第 N 轮思考/工具卡跟着第 N 段正文走
+
+### 查到的事实
+
+- `contentRoundBounds` 是"工具调用开始时的正文字符偏移"；`contentRoundBounds[i]` 之前是
+  第 i 轮工具前的正文，之后是下一段正文。`ActivityTimeline` 的 items 顺序正好是
+  思考0 → 工具0 → 思考1 → 工具1 → … → 末尾思考。
+- 上一版把所有思考/工具收进一个 `activitySection` 钉在正文上方，单轮看起来对，
+  多轮时第 2 轮工具卡仍显示在第 1 段正文上面，过程与正文时序错位。
+
+### 由此改掉的事
+
+- `ChatMessage` 新增 `toolSectionExpandedIds`（transient）：工具卡展开状态按轮
+  （key = 该轮首个 toolCallId）记录，不再全局一个布尔。
+- `ChatAdapter#buildActivityGroups`：把 `ActivityTimeline` 按 TOOL 切成"每轮一组"，
+  最后只剩思考的一组单独保留。
+- `renderRoundAssembled`：在每个 `contentRoundBounds[i]` 处挂该轮活动视图
+  （思考行 + 工具卡），再挂该轮产物；末尾只有思考的组挂在最后一段正文之前。
+- 有轮次且确实有活动项时隐藏顶部全局活动区；数据缺失（旧历史/异常）自动回退全局，
+  避免"两边都不画"。
+- 工具卡仍复用 `view_chat_v2_tool_card` 与 `buildToolActivityRow`，思考行复用
+  `view_chat_v2_think_line` 与 `buildThinkingStepRow`，没有第二套样式。
+- 新增 `ChatRoundActivityTest`：钉住"工具切组 + 末尾思考不丢"。
+
+### 验证
+
+- 全量单测 **459 / 0 skipped / 0 failed / 0 errors**（新增 2 条），`assembleDebug` 通过；已装机。
+- 真机打开长会话未崩溃；由于当前会话很长，逐轮活动区的最终视觉未在一屏内完整核对，
+  代码路径已由分组单测 + 既有渲染单测覆盖。
+
 ## [2026-10-21 凌晨] AI 消息流收敛：活动区 / 正文 / 产物单列，删旧工具折叠卡
 
 ### 查到的事实

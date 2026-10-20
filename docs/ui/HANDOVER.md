@@ -967,6 +967,21 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 7. **仍未做**：真正的"每轮活动区"（第 N 轮工具卡跟着第 N 段正文走）。当前活动区仍是
    整条消息一个，固定在正文上方；多轮时过程与正文的时序仍不完美。
 
+### 4.21 每轮活动区（2026-10-21 凌晨，已装机，分组单测钉住）
+
+1. **分组**：`ChatAdapter#buildActivityGroups` 把 `ActivityTimeline.items` 按 TOOL
+   切成"每轮一组"（思考0→工具0→思考1→工具1→…→末尾思考）；组顺序与
+   `contentRoundBounds` 对齐，末尾只剩思考的那组单独保留。
+2. **插入位置**：`renderRoundAssembled` 在每个 `contentRoundBounds[i]` 处挂该轮的
+   思考行 + 工具卡，再挂该轮产物；末尾思考组挂在最后一段正文之前。工具卡/思考行
+   复用原布局与行构造，没有第二套样式。
+3. **展开状态**：`ChatMessage#toolSectionExpandedIds`（transient）按轮记录，
+   key = 该轮首个 toolCallId；思考展开仍用全局 `thinkingExpanded`。
+4. **回退**：有轮次且 `ActivityTimeline` 确有活动项时才隐藏顶部全局活动区；
+   数据缺失（旧历史/异常）回退全局，避免"两边都不画"。
+5. **验证**：459 单测全绿（新增 `ChatRoundActivityTest` 两条）；装机后长会话未崩溃。
+   当前会话太长，逐轮活动区没有在一屏内完整做视觉核对，这是已知的验证缺口。
+
 ---
 
 ## 5. 关键文件 / 改动地图

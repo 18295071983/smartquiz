@@ -639,6 +639,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         dynamicRoot.addView(root);
         AIMessageViewHolder holder = new AIMessageViewHolder(dynamicRoot);
         holder.dayLabel = dayLabel;
+        holder.thinkSection = thinkSection;
         holder.thinkingRowsHost = thinkingStepsHost;
         holder.thinkingChevron = thinkingChevron;
         holder.toolCard = toolCard;
@@ -1851,6 +1852,180 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return (expanded ? "▾ " : "▸ ") + ComponentDisplay.peekLabel(comp);
     }
 
+    /** 每轮活动区：一轮的思考项 + 工具项（按 ActivityTimeline 的顺序切组）。 */
+    static final class ActivityGroup {
+        final java.util.List<ActivityTimeline.Item> thinks = new java.util.ArrayList<>();
+        final java.util.List<ActivityTimeline.Item> tools = new java.util.ArrayList<>();
+
+        boolean isEmpty() {
+            return thinks.isEmpty() && tools.isEmpty();
+        }
+
+        String key() {
+            if (!tools.isEmpty() && tools.get(0).id != null) return tools.get(0).id;
+            if (!thinks.isEmpty() && thinks.get(0).id != null) return thinks.get(0).id;
+            return "";
+        }
+    }
+
+    /**
+     * 把 ActivityTimeline 的线性 items 按 TOOL 切成"每轮一组"：
+     * 思考0 → 工具0 → 思考1 → 工具1 → … → 末尾只剩思考。
+     * 组的数量与 contentRoundBounds 对齐（第 i 组就是第 i 个边界）。
+     */
+    static java.util.List<ActivityGroup> buildActivityGroups(ChatMessage message) {
+        java.util.List<ActivityGroup> groups = new java.util.ArrayList<>();
+        ActivityGroup cur = new ActivityGroup();
+        for (ActivityTimeline.Item item : ActivityTimeline.build(message).items) {
+            if (item.kind == ActivityTimeline.Kind.TOOL) {
+                cur.tools.add(item);
+                groups.add(cur);
+                cur = new ActivityGroup();
+            } else {
+                cur.thinks.add(item);
+            }
+        }
+        if (!cur.isEmpty() || groups.isEmpty()) groups.add(cur);
+        return groups;
+    }
+
+    /** 构造一轮的活动视图：思考行（有思考才挂）+ 工具卡（有工具才挂）。 */
+    private View buildRoundActivityView(AIMessageViewHolder holder, Context ctx,
+                                        ChatMessage message, ActivityGroup group,
+                                        int groupIndex, int groupCount,
+                                        int availableWidth, boolean streaming) {
+        LinearLayout col = new LinearLayout(ctx);
+        col.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams colLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        colLp.topMargin = dpToPx(6, ctx);
+        col.setLayoutParams(colLp);
+
+        // ---- 思考行 ----
+        if (!group.thinks.isEmpty()) {
+            View think = LayoutInflater.from(ctx)
+                    .inflate(R.layout.view_chat_v2_think_line, col, false);
+            TextView label = think.findViewById(R.id.chat_v2_think_text);
+            TextView body = think.findViewById(R.id.chat_v2_think_body);
+            LinearLayout steps = think.findViewById(R.id.chat_v2_think_steps);
+            ImageView chev = think.findViewById(R.id.chat_v2_think_chev);
+            if (body != null) body.setVisibility(View.GONE);
+            int count = group.thinks.size();
+            long duration = 0L;
+            for (ActivityTimeline.Item it : group.thinks) duration += it.durationMs;
+            boolean expanded = streaming || message.thinkingExpanded;
+            boolean lastGroup = groupIndex == groupCount - 1;
+            if (label != null) {
+                label.setVisibility(View.VISIBLE);
+                String header;
+                if (streaming && lastGroup) {
+                    header = ctx.getString(R.string.chat_v2_thinking_now);
+                } else if (duration > 0L) {
+                    header = ctx.getString(R.string.chat_v2_thought_for_steps,
+                            formatThinkingDuration(duration), count);
+                } else {
+                    header = ctx.getString(R.string.chat_v2_thought_steps_only, count);
+                }
+                label.setText(header);
+                label.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+                        R.color.chat_v2_text_2));
+                label.setClickable(true);
+                label.setOnClickListener(v -> {
+                    message.thinkingExpanded = !message.thinkingExpanded;
+                    int pos = holder.getBindingAdapterPosition();
+                    if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
+                });
+            }
+            if (chev != null) chev.setRotation(expanded ? 90f : 0f);
+            if (steps != null) {
+                if (expanded) {
+                    steps.removeAllViews();
+                    int width = availableWidth > 0 ? availableWidth : getScreenWidth(ctx);
+                    for (ActivityTimeline.Item item : group.thinks) {
+                        steps.addView(buildThinkingStepRow(holder, ctx, item.id,
+                                item.body != null ? item.body : item.summary,
+                                item.durationMs, width));
+                    }
+                    steps.setVisibility(View.VISIBLE);
+                } else {
+                    steps.setVisibility(View.GONE);
+                }
+            }
+            col.addView(think);
+        }
+
+        // ---- 工具卡 ----
+        if (!group.tools.isEmpty()) {
+            View card = LayoutInflater.from(ctx)
+                    .inflate(R.layout.view_chat_v2_tool_card, col, false);
+            bindRoundToolCard(holder, ctx, message, card, group.tools,
+                    group.key(), availableWidth);
+            col.addView(card);
+        }
+        return col;
+    }
+
+    /** 绑定一轮工具卡（卡头/耗时/✓/展开 + 行）。 */
+    private void bindRoundToolCard(AIMessageViewHolder holder, Context ctx, ChatMessage message,
+                                   View card, java.util.List<ActivityTimeline.Item> tools,
+                                   String groupKey, int availableWidth) {
+        int running = 0;
+        int failed = 0;
+        long toolMs = 0L;
+        for (ActivityTimeline.Item item : tools) {
+            if (item.status == ActivityTimeline.Status.RUNNING) running++;
+            if (item.status == ActivityTimeline.Status.FAILED) failed++;
+            toolMs += item.durationMs;
+        }
+        boolean expanded = message.isToolSectionExpanded(groupKey);
+        TextView text = card.findViewById(R.id.chat_v2_tool_card_text);
+        if (text != null) {
+            if (running > 0) {
+                text.setText(R.string.chat_v2_tool_running_now);
+            } else {
+                text.setText(ctx.getString(R.string.chat_v2_tools_ran, tools.size()));
+            }
+            text.setTextColor(androidx.core.content.ContextCompat.getColor(ctx,
+                    failed > 0 ? R.color.chat_v2_danger : R.color.chat_v2_text_2));
+        }
+        TextView time = card.findViewById(R.id.chat_v2_tool_card_time);
+        if (time != null) {
+            if (toolMs > 0L) {
+                time.setText(formatThinkingDuration(toolMs));
+                time.setVisibility(View.VISIBLE);
+            } else {
+                time.setVisibility(View.GONE);
+            }
+        }
+        View ok = card.findViewById(R.id.chat_v2_tool_card_ok);
+        if (ok != null) ok.setVisibility(running == 0 && failed == 0 ? View.VISIBLE : View.GONE);
+        View chev = card.findViewById(R.id.chat_v2_tool_card_chev);
+        if (chev != null) chev.setRotation(expanded ? 90f : 0f);
+
+        LinearLayout body = card.findViewById(R.id.chat_v2_tool_card_body);
+        if (body != null) {
+            if (expanded) {
+                body.removeAllViews();
+                int width = availableWidth > 0 ? availableWidth : getScreenWidth(ctx);
+                LayoutInflater inflater = LayoutInflater.from(ctx);
+                for (int i = 0; i < tools.size(); i++) {
+                    body.addView(buildToolActivityRow(holder, inflater, ctx, tools.get(i), i, width));
+                }
+                body.setVisibility(View.VISIBLE);
+            } else {
+                body.setVisibility(View.GONE);
+            }
+        }
+        View header = card.findViewById(R.id.chat_v2_tool_card_header);
+        if (header != null) {
+            header.setOnClickListener(v -> {
+                message.toggleToolSectionExpanded(groupKey);
+                int pos = holder.getBindingAdapterPosition();
+                if (pos != RecyclerView.NO_POSITION) notifyItemChanged(pos);
+            });
+        }
+    }
+
     private void renderRoundAssembled(AIMessageViewHolder holder, ChatMessage message, int availableWidth, Context ctx) {
         if (holder.contentHost == null) return;
         String content = message.content != null ? message.content : "";
@@ -1877,6 +2052,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // 每个产物只归属首个键匹配的轮次（同一 toolName 出现在多轮时，产物落在第一轮，后续轮空手），
         // 用 assigned 身份集去重。三处循环（指纹/增量/重建）都读同一份 roundProds/tailProds 保持一致。
         int nRounds = bounds.size();
+        // 2026-10-21 每轮活动区：思考/工具按 TOOL 切组，第 i 组挂在第 i 个 contentRoundBounds 处。
+        java.util.List<ActivityGroup> activityGroups = buildActivityGroups(message);
+        ActivityGroup trailingGroup = activityGroups.size() > nRounds
+                ? activityGroups.get(nRounds) : null;
         java.util.List<java.util.List<ComponentData>> roundProds =
                 new java.util.ArrayList<>(Math.max(0, nRounds));
         java.util.List<ComponentData> tailProds = new java.util.ArrayList<>();
@@ -1912,6 +2091,25 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         StringBuilder fp = new StringBuilder();
         fp.append('D').append(ComponentDisplay.name(ComponentDisplay.defaultTier(ctx)));
         int expect = 0;
+        // 每轮活动区也是结构的一部分：轮次/状态/耗时/展开位变化必须触发重建。
+        for (int g = 0; g < activityGroups.size(); g++) {
+            ActivityGroup group = activityGroups.get(g);
+            if (group == null || group.isEmpty()) continue;
+            fp.append('A').append(g).append(':').append(group.key())
+              .append(':').append(message.thinkingExpanded ? '1' : '0');
+            for (ActivityTimeline.Item it : group.thinks) {
+                fp.append('t').append(it.id).append(':').append(it.status)
+                  .append(':').append(it.durationMs)
+                  .append(':').append(it.hasBody() ? it.body.length() : 0);
+            }
+            for (ActivityTimeline.Item it : group.tools) {
+                fp.append('x').append(it.id).append(':').append(it.status)
+                  .append(':').append(it.durationMs)
+                  .append(':').append(message.isToolSectionExpanded(group.key()) ? '1' : '0')
+                  .append(':').append(it.hasBody() ? it.body.length() : 0);
+            }
+            expect++;
+        }
         int start = 0;
         for (int i = 0; i <= bounds.size(); i++) {
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
@@ -1945,6 +2143,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             int childIdx = 0;
             start = 0;
             for (int i = 0; i <= bounds.size(); i++) {
+                // 末尾那个"只有思考、没有工具"的活动组挂在最后一段正文之前
+                if (i == nRounds && trailingGroup != null && !trailingGroup.isEmpty()) childIdx++;
                 int end = (i < bounds.size()) ? bounds.get(i) : content.length();
                 if (end > content.length()) end = content.length();
                 String seg = start < content.length() ? content.substring(start, end) : "";
@@ -1962,7 +2162,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     childIdx++;
                 }
                 start = end;
-                if (i < nRounds) childIdx += ComponentDisplay.countMounting(roundProds.get(i), ctx);
+                if (i < nRounds) {
+                    if (i < activityGroups.size() && !activityGroups.get(i).isEmpty()) childIdx++;
+                    childIdx += ComponentDisplay.countMounting(roundProds.get(i), ctx);
+                }
             }
             childIdx += ComponentDisplay.countMounting(tailProds, ctx);
             return;
@@ -1975,6 +2178,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         start = 0;
         int prodSeq = 0;
         for (int i = 0; i <= bounds.size(); i++) {
+            // 末尾活动组（最后一轮思考，没有后续工具）在最后一段正文之前
+            if (i == nRounds && trailingGroup != null && !trailingGroup.isEmpty()) {
+                holder.contentHost.addView(buildRoundActivityView(holder, ctx, message,
+                        trailingGroup, nRounds, activityGroups.size(), availableWidth, streaming));
+            }
             int end = (i < bounds.size()) ? bounds.get(i) : content.length();
             if (end > content.length()) end = content.length();
             String seg = start < content.length() ? content.substring(start, end) : "";
@@ -1985,6 +2193,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
             start = end;
             if (i < nRounds) {
+                if (i < activityGroups.size() && !activityGroups.get(i).isEmpty()) {
+                    holder.contentHost.addView(buildRoundActivityView(holder, ctx, message,
+                            activityGroups.get(i), i, activityGroups.size(),
+                            availableWidth, streaming));
+                }
                 for (ComponentData p : roundProds.get(i)) {
                     mountRoundComponent(holder, ctx, message, p, prodSeq++);
                 }
@@ -2026,6 +2239,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private void updateThinkingSectionV2(AIMessageViewHolder holder, ChatMessage message,
                                          boolean isStreaming) {
         Context ctx = holder.itemView.getContext();
+        // 2026-10-21 每轮活动区：有轮次边界时，思考行/工具卡由 renderRoundAssembled
+        // 按轮插到正文之间，不再使用顶部这一个全局活动区。
+        if (message.contentRoundBounds != null && !message.contentRoundBounds.isEmpty()) {
+            ActivityTimeline.Model roundModel = ActivityTimeline.build(message);
+            // 只有确实有活动项时才交给逐轮渲染；数据缺失（旧历史/异常）仍回退全局活动区，
+            // 避免"两边都不画"导致思考/工具凭空消失。
+            if (roundModel != null && !roundModel.isEmpty()) {
+                if (holder.thinkSection != null) holder.thinkSection.setVisibility(View.GONE);
+                if (holder.toolCard != null) holder.toolCard.setVisibility(View.GONE);
+                return;
+            }
+        }
         android.widget.LinearLayout host = holder.thinkingRowsHost;
         ActivityTimeline.Model model = ActivityTimeline.build(message);
 
@@ -5000,6 +5225,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         String activityFp;
         /** Agent 汇总卡片的指纹缓存，字段变化才重渲染 */
         String agentSummaryFp;
+        View thinkSection;
         TextView thinkingLabel;
         TextView thinkingContent;
         View thinkingDivider;
