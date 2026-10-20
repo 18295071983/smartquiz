@@ -14,11 +14,10 @@ import java.util.Arrays;
 /**
  * 工具结果卡片的展示档位口径（2026-10-20）。
  *
- * <p>2026-10-21 起，模型不能通过 {@code display}/{@code collapsed} 控制显隐；
- * 这张表只钉住 UI 口径：
+ * <p>这张表钉住"模型通过工具调用参数控制卡片显隐"的口径：
  * <ol>
- *   <li>模型的 {@code display}/{@code collapsed} 一律忽略，只认用户默认档；</li>
- *   <li>交互/正文类底线仍然压过用户默认档，避免按钮被收起；</li>
+ *   <li>模型的 {@code display} 声明优先于用户默认档，但压不过交互/正文类底线；</li>
+ *   <li>{@code collapsed} 历史字段仍然生效；</li>
  *   <li>{@link ComponentDisplay#countMounting} 与渲染端"挂不挂"同口径；</li>
  *   <li>摘要行文案（{@link ComponentDisplay#peekLabel}）在 RecyclerView 绑定路径上跑，
  *       任何 props 形状都不能抛。</li>
@@ -37,19 +36,19 @@ public class ComponentDisplayTest {
     // ==================== 档位优先级 ====================
 
     @Test
-    public void modelDeclarationIsIgnored() {
+    public void modelDeclarationBeatsUserDefaultTier() {
         ComponentData table = comp("table_card",
                 "{\"title\":\"成绩\",\"headers\":[\"姓名\",\"分数\"],\"rows\":[[\"甲\",90]]}");
         assertEquals(ComponentDisplay.Mode.PEEK,
                 ComponentDisplay.resolveMode(table, ComponentDisplay.Mode.PEEK));
         assertEquals(ComponentDisplay.Mode.INLINE,
                 ComponentDisplay.resolveMode(table, ComponentDisplay.Mode.INLINE));
-        // 模型写 display 也不能改变档位：只认用户默认档
+        // 模型的工具调用参数 display 可以压过默认档
         ComponentData forcedInline = comp("table_card", "{\"display\":\"inline\",\"rows\":[]}");
-        assertEquals(ComponentDisplay.Mode.HIDDEN,
+        assertEquals(ComponentDisplay.Mode.INLINE,
                 ComponentDisplay.resolveMode(forcedInline, ComponentDisplay.Mode.HIDDEN));
         ComponentData forcedHidden = comp("table_card", "{\"display\":\"hidden\"}");
-        assertEquals(ComponentDisplay.Mode.INLINE,
+        assertEquals(ComponentDisplay.Mode.HIDDEN,
                 ComponentDisplay.resolveMode(forcedHidden, ComponentDisplay.Mode.INLINE));
     }
 
@@ -85,13 +84,15 @@ public class ComponentDisplayTest {
     }
 
     @Test
-    public void legacyCollapsedFlagIsIgnored() {
+    public void legacyCollapsedFlagWorks() {
         ComponentData collapsed = comp("json_viewer", "{\"title\":\"数据\",\"collapsed\":true}");
-        assertEquals(ComponentDisplay.Mode.INLINE,
+        assertEquals(ComponentDisplay.Mode.PEEK,
                 ComponentDisplay.resolveMode(collapsed, ComponentDisplay.Mode.INLINE));
         ComponentData open = comp("json_viewer", "{\"title\":\"数据\",\"collapsed\":false}");
-        assertEquals(ComponentDisplay.Mode.PEEK,
+        assertEquals(ComponentDisplay.Mode.INLINE,
                 ComponentDisplay.resolveMode(open, ComponentDisplay.Mode.PEEK));
+        assertEquals(ComponentDisplay.Mode.PEEK, ComponentDisplay.resolveMode(
+                comp("json_viewer", "{\"collapsed\":\"true\"}"), ComponentDisplay.Mode.INLINE));
     }
 
     @Test
@@ -114,14 +115,13 @@ public class ComponentDisplayTest {
     // ==================== 挂不挂：与渲染端同口径 ====================
 
     @Test
-    public void countMountingUsesUserTierNotModelParams() {
+    public void countMountingSkipsOnlyHidden() {
         ComponentData peek = comp("table_card", "{\"rows\":[]}");
-        ComponentData modelHidden = comp("list_card", "{\"display\":\"hidden\",\"items\":[]}");
-        ComponentData interactive = comp("quiz_card", "{\"display\":\"hidden\"}");
-        java.util.List<ComponentData> list =
-                Arrays.asList(peek, modelHidden, interactive, null);
-        // 模型 display:hidden 被忽略：数据卡按默认档 PEEK 挂，交互卡 INLINE 挂，null 不算 → 3 个
-        assertEquals(3, ComponentDisplay.countMounting(list, null));
+        ComponentData hidden = comp("list_card", "{\"display\":\"hidden\",\"items\":[]}");
+        ComponentData hiddenButInteractive = comp("quiz_card", "{\"display\":\"hidden\"}");
+        java.util.List<ComponentData> list = Arrays.asList(peek, hidden, hiddenButInteractive, null);
+        // 模型 display:hidden 的数据卡不挂；交互类被底线救回 INLINE；null 不算 → 挂 2 个
+        assertEquals(2, ComponentDisplay.countMounting(list, null));
         assertFalse(ComponentDisplay.mounts(ComponentDisplay.Mode.HIDDEN));
         assertTrue(ComponentDisplay.mounts(ComponentDisplay.Mode.PEEK));
     }
@@ -225,15 +225,17 @@ public class ComponentDisplayTest {
     }
 
     @Test
-    public void catalogDoesNotAdvertiseModelControlledDisplay() {
-        // 模型目录里不能再出现 display/collapsed 的显隐口径
+    public void displayDocIsExposedForToolDefinitions() {
+        // 模型靠工具定义/组件目录知道 display 三档
+        assertTrue(ComponentDisplay.DISPLAY_DOC.contains("inline|peek|hidden"));
         JSONArray catalog = ComponentTypes.catalogJson();
+        boolean jsonEntryMentionsDisplay = false;
         for (int i = 0; i < catalog.length(); i++) {
             JSONObject o = catalog.optJSONObject(i);
-            if (o == null) continue;
-            String text = o.optString("optional") + o.optString("note");
-            assertFalse("目录仍在教模型控制显隐: " + o.optString("type"),
-                    text.contains("display=") || text.contains("collapsed=true"));
+            if (o != null && "json".equals(o.optString("type"))) {
+                jsonEntryMentionsDisplay = o.optString("optional").contains("display");
+            }
         }
+        assertTrue("组件目录里的 json 条目必须告诉模型 display 三档", jsonEntryMentionsDisplay);
     }
 }

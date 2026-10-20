@@ -1,6 +1,31 @@
 # 变更日志
 
-## [2026-10-21 凌晨] 工具结果卡归位工具卡；模型 display 参数下线
+## [2026-10-21 凌晨] 纠正：恢复模型对卡片显隐的控制，结果卡仍在各自工具卡内
+
+### 纠正了什么
+
+- 上一条 `cdd9f742` 把"模型不能控制显隐"当成了需求，实际口径是：
+  **工具和内置卡片全部交给模型管理，模型可以通过工具调用参数控制卡片是否显示**。
+- 这次恢复 `display` 参数链路，同时保留"结果卡挂在各自工具卡里"的位置。
+
+### 由此改掉的事
+
+- `ui_component` 工具定义恢复 `display` 参数；`ComponentTypes` 目录恢复三档说明；
+  `SystemUIComponentTool` 恢复顶层 display 转发与默认 `inline`。
+- 自动补挂的工具结果卡也读工具调用参数 `display`（`AIToolManager.collectAutoUiCards`）。
+- `ComponentDisplay.resolveMode` 恢复优先级：模型 `display` → 历史 `collapsed` → 类型底线 →
+  用户默认档；模型能隐藏/摘要/整卡。
+- 工具结果卡挂在 `chat_v2_tool_card_products`（工具卡内、不随工具行折叠）；
+  `display=inline` 整卡、`peek` 摘要行、`hidden` 不挂载。
+- 修 `view_chat_v2_tool_card` 根默认 `GONE` 导致逐轮工具卡整张不显示的问题
+  （`bindRoundToolCard` 显式 `setVisibility(VISIBLE)`）。
+
+### 验证
+
+- 全量单测 **462 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- `ComponentDisplayTest` 恢复"模型声明压过默认档"与"collapsed 生效"的断言。
+
+## [2026-10-21 凌晨] 工具结果卡归位工具卡；模型 display 参数下线（已被上一条纠正）
 
 ### 查到的事实
 

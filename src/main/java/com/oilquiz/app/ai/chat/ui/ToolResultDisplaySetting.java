@@ -44,16 +44,16 @@ public final class ToolResultDisplaySetting {
         }
     }
 
-    /** 档位说明：只作用于"无归属/无轮次"的兜底产物卡；工具卡内的结果卡固定整卡。 */
+    /** 档位说明：模型未声明 display 时的默认档；模型显式声明优先。 */
     public static String description(ComponentDisplay.Mode mode) {
         switch (mode) {
             case INLINE:
-                return "兜底产物卡整卡摊开；工具卡里的结果卡本来就在工具卡内整卡显示";
+                return "工具结果默认整卡摊开（2026-10-20 之前的老样子）：长表格、图集会占空间";
             case HIDDEN:
-                return "兜底产物卡不挂载；工具卡里的结果卡仍随工具卡展开显示，交互类与正文类强制显示";
+                return "工具结果默认不挂载，只留工具过程与结果文字；交互类（按钮/表单/进度）与正文类仍强制显示";
             case PEEK:
             default:
-                return "兜底产物卡收成一行摘要，点开才是完整卡；工具卡里的结果卡固定整卡";
+                return "工具结果默认收成一行摘要（标题+关键值），点开才是完整卡；交互类与正文类不受影响";
         }
     }
 

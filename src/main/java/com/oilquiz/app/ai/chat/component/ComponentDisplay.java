@@ -17,10 +17,11 @@ import java.util.Locale;
  * {@code renderRoundAssembled} 的 roundProds/tailProds）。长表格、图集、JSON 一多，
  * 正文被自己的过程数据顶出屏幕；模型也没有任何入口说"这条不重要，收起来"。
  *
- * <p>口径（2026-10-21 修正）：<b>模型不能通过参数控制显隐</b>。
- * {@code props.display} / {@code props.collapsed} 一律忽略；卡片放在工具卡里还是正文兜底，
- * 由 UI 的数据归属决定。档位只剩两条：
+ * <p>口径（2026-10-21 修正）：<b>工具与内置卡片由模型管理，模型通过工具调用参数控制显隐</b>。
+ * 展示档位优先级从高到低：
  * <ol>
+ *   <li><b>模型显式声明</b>：{@code props.display = "inline" | "peek" | "hidden"}；</li>
+ *   <li><b>历史声明</b>：{@code props.collapsed = true/false}；</li>
  *   <li><b>类型底线</b>：交互类与正文类组件永远 {@link Mode#INLINE}
  *       （按钮/表单/进度/问答卡收起后用户点不到，markdown/html/code 收起等于正文消失）；</li>
  *   <li><b>用户默认档</b>：SharedPreferences
@@ -52,6 +53,17 @@ public final class ComponentDisplay {
     public static final String PREFS_NAME = "ai_chat_prefs";
     /** 用户默认档：inline / peek / hidden，缺省 peek */
     public static final String PREF_KEY_DEFAULT_MODE = "tool_result_display_default";
+    /** 模型可声明的展示档位字段（放 props 内或顶层，与其它组件参数同口径自动合并） */
+    public static final String PROP_DISPLAY = "display";
+    /** 历史字段：true=摘要行，false=整卡 */
+    public static final String PROP_COLLAPSED = "collapsed";
+
+    /** 一句话说明，供 ui_component 工具定义复用（模型靠它决定卡片显隐）。 */
+    public static final String DISPLAY_DOC =
+            "display:'inline|peek|hidden' 通用可选（放 props 内或顶层）：结果本身就是答案用 inline，"
+                    + "过程性数据/长表格/图集用 peek（收成一行，用户点开才展开），"
+                    + "刷屏又无价值用 hidden（不挂载）；交互类（按钮/表单/进度/答题）与正文类"
+                    + "（markdown/html/code）会被强制 inline，声明无效";
 
     /**
      * 永远整卡显示的类型：交互控件（收起就点不到）+ 实时状态（进度/任务监控折叠会丢可见反馈）
@@ -194,23 +206,43 @@ public final class ComponentDisplay {
         return n;
     }
 
-    /** 完整决策：类型底线 → 用户默认档。模型参数不参与显隐决策。 */
+    /** 完整决策：模型声明 → 历史 collapsed → 类型底线 → 用户默认档 */
     public static Mode resolve(Context context, ComponentData comp) {
         return resolveMode(comp, defaultTier(context));
     }
 
-    /**
-     * 决策本体（不碰 Context，单测直接调这条）。
-     *
-     * <p>2026-10-21：<b>不再读取 props.display / props.collapsed</b>。
-     * 卡片放哪里、是否折叠由 UI 决定（工具结果在工具卡里），模型写参数控制显隐一律忽略；
-     * 只有交互/正文类底线与用户自己的默认档参与。</p>
-     */
+    /** 决策本体（不碰 Context，单测直接调这条） */
     public static Mode resolveMode(ComponentData comp, Mode tier) {
         if (comp == null) return tier;
-        // 底线：交互/正文类不受用户默认档影响
+        // 底线先算：交互/正文类不受声明与默认档影响
         if (isAlwaysInline(comp)) return Mode.INLINE;
-        return tier != null ? tier : Mode.PEEK;
+        Mode fallback = tier != null ? tier : Mode.PEEK;
+        JSONObject props = comp.props;
+        if (props == null) return fallback;
+        // 模型通过工具调用参数控制显隐
+        Mode declaredMode = parse(props.optString(PROP_DISPLAY, ""), null);
+        if (declaredMode != null) return declaredMode;
+        // 历史字段：json 类型的 collapsed（true=摘要行，false=整卡）
+        if (props.has(PROP_COLLAPSED)) {
+            Boolean collapsed = optBoolean(props, PROP_COLLAPSED);
+            if (collapsed != null) return collapsed ? Mode.PEEK : Mode.INLINE;
+        }
+        return fallback;
+    }
+
+    /** props 里的布尔容错：模型常写 "true"/1/0 字符串 */
+    private static Boolean optBoolean(JSONObject props, String key) {
+        try {
+            Object v = props.opt(key);
+            if (v == null || v == JSONObject.NULL) return null;
+            if (v instanceof Boolean) return (Boolean) v;
+            if (v instanceof Number) return ((Number) v).intValue() != 0;
+            String s = String.valueOf(v).trim().toLowerCase(Locale.US);
+            if ("true".equals(s) || "1".equals(s) || "yes".equals(s)) return Boolean.TRUE;
+            if ("false".equals(s) || "0".equals(s) || "no".equals(s)) return Boolean.FALSE;
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     /** 交互类 / 正文类 / 带按钮的卡片：一律整卡显示，用户默认档也不能把它们收起 */

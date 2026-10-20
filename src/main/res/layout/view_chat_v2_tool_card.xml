@@ -83,4 +83,17 @@
         android:paddingEnd="@dimen/chat_v2_line_pad"
         android:paddingBottom="@dimen/space_6"
         android:visibility="gone"/>
+
+    <!-- 工具结果卡：始终挂在这张工具卡内，不随工具行折叠；
+         是否显示/整卡/摘要由模型通过工具调用参数 display 决定。 -->
+    <LinearLayout
+        android:id="@+id/chat_v2_tool_card_products"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/chat_v2_line_pad"
+        android:paddingTop="@dimen/space_6"
+        android:paddingEnd="@dimen/chat_v2_line_pad"
+        android:paddingBottom="@dimen/space_2"
+        android:visibility="gone"/>
 </LinearLayout>

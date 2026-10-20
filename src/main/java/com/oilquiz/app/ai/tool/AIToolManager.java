@@ -479,8 +479,15 @@ public class AIToolManager {
             java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> cards =
                     com.oilquiz.app.ai.agent.ToolResultCardBinder.build(
                             context, toolName, result, parameters);
+            // 模型可通过工具调用参数 display=inline|peek|hidden 控制自动补挂卡的显隐
+            Object displayParam = parameters.get("display");
             for (int i = 0; i < cards.size(); i++) {
-                com.oilquiz.app.ai.chat.component.ComponentCollector.collect(cards.get(i));
+                com.oilquiz.app.ai.chat.component.ComponentData card = cards.get(i);
+                if (card != null && card.props != null && !card.props.has("display")
+                        && displayParam != null && !String.valueOf(displayParam).trim().isEmpty()) {
+                    card.props.put("display", String.valueOf(displayParam).trim());
+                }
+                com.oilquiz.app.ai.chat.component.ComponentCollector.collect(card);
             }
             // 产出留痕：与上面卡片同源，不额外解析
             com.oilquiz.app.ai.agent.WorkspaceActivityLog.getInstance()
@@ -1544,6 +1551,8 @@ public class AIToolManager {
                     .addParameter("url", "string", "网址或HTML内容(web用)", false)
                     .addParameter("props", "object", "内置组件参数(component_type为内置类型时用)。各类型字段：chart:{chartType:'bar|line|pie',title,categories:[分类],series:[{name,data:[数值]}]}; info_card:{title,items:[{label,value}]}; table_card:{title,headers:[列名],rows:[[值]]}; image_grid:{images:[url],columns}; link_card:{url,title,description}; list_card:{title,items:[{icon,title,description,value}]}; alert_card:{type:'success|warning|error|info',title,content}; metric_card:{title,metrics:[{label,value,color}]}; json_viewer:{title,data,maxHeight}; steps_card:{title,steps:[{status:'done|current|failed|todo',title,description}]}; note_card/grid_card 已删实现：笔记与引用用 quote:{text 或 content,author}；条目用 info_card:{title,items:[{label,value}]}；file_list:{title,files:[{name,path,size,type}]}; contact_card:{type:'phone|sms|email',title,value,description}; todo_card:{title,items:[{done:bool,text}]}; quiz_card:{type:'single|multiple|judge',question,options:[],answer,analysis}; weather_card:{city,temp,text,icon,humidity,windDir,windScale,forecast:[{date,text,tempMin,tempMax}]}; file_card:{name,size,type,path}; code_card:{language,code,title}; progress_card:{title,progress,description}; html:{html:'<h3>标题</h3>...' 或 url:'https://...'(网页直接加载),title,maxHeight(可选,内容区最大高度dp),style(内容级:{background,color,fontSize}整页应用)};html内容支持双指缩放/横向滚动/图片点击全屏预览,卡片内链接自身加载,右上角←浮标可返回; markdown_card:{content:'**加粗** 文本',title}; 任务需要用户提供信息/反馈(确认/选择/输入/点赞等)时加actions:[{label:'按钮文字',value:'回传值',action:'callback'}]或[{label,link:url}]/[{label,copy:文本}],创建后get_result取回用户点击值；临时layout时也可用props={layout:{控件树}}", false)
                     .addParameter("wait_seconds", "integer", "等待秒数(get_result用,默认30)", false)
+                    .addParameter("display", "string",
+                            com.oilquiz.app.ai.chat.component.ComponentDisplay.DISPLAY_DOC, false)
                     .addParameter("persist", "string", "是否持久化组件实例(true/false,默认false)：跨重启/会话保留，list_components 可见；恢复后默认静默不弹窗(get_result 返回 inactive)，传 reactivate=true 才重建弹窗；close 取消持久化", false)
                     .addParameter("reactivate", "string", "是否重建跨会话恢复的持久化组件弹窗(true/false,默认false)：仅对恢复的历史组件生效，true 时 get_result/update 重建弹窗让用户操作", false)
                     .addParameter("auto_close", "integer", "自动关闭秒数(create时指定,到点自动关闭并置result=closed;如提示类组件auto_close=5五秒后消失)", false)

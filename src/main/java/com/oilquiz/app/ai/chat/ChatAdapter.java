@@ -1971,6 +1971,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                                    View card, java.util.List<ActivityTimeline.Item> tools,
                                    String groupKey, java.util.List<ComponentData> products,
                                    int availableWidth) {
+        // XML 根默认 GONE（全局活动区按需显示）；逐轮挂载时必须显式打开
+        card.setVisibility(View.VISIBLE);
         int running = 0;
         int failed = 0;
         long toolMs = 0L;
@@ -2013,26 +2015,42 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 for (int i = 0; i < tools.size(); i++) {
                     body.addView(buildToolActivityRow(holder, inflater, ctx, tools.get(i), i, width));
                 }
-                // 工具产生的内置卡片/结果组件挂在"它自己的工具卡"里，而不是飘到正文。
-                // 这里不走 ComponentDisplay：放哪里由归属决定，模型参数不能控制显隐。
-                if (products != null) {
-                    for (ComponentData p : products) {
-                        if (p == null || p.props == null) continue;
-                        View pv = ComponentRegistry.getInstance().render(ctx, p);
-                        if (pv == null) {
-                            pv = ComponentRegistry.getInstance().renderFallback(ctx, p);
-                        }
-                        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.WRAP_CONTENT);
-                        plp.topMargin = dpToPx(8, ctx);
-                        body.addView(pv, plp);
-                    }
-                }
                 body.setVisibility(View.VISIBLE);
             } else {
                 body.setVisibility(View.GONE);
             }
+        }
+
+        // 工具结果卡：挂在工具卡内、但不随工具行折叠；显隐/整卡/摘要由模型通过
+        // 工具调用参数 display 决定（ComponentDisplay 的模型声明优先级）。
+        LinearLayout productHost = card.findViewById(R.id.chat_v2_tool_card_products);
+        if (productHost != null) {
+            productHost.removeAllViews();
+            int shown = 0;
+            int prodIndex = 0;
+            if (products != null) {
+                for (ComponentData p : products) {
+                    if (p == null || p.props == null) continue;
+                    ComponentDisplay.Mode mode = ComponentDisplay.resolve(ctx, p);
+                    int index = prodIndex++;
+                    if (!ComponentDisplay.mounts(mode)) continue;
+                    View pv = ComponentRegistry.getInstance().render(ctx, p);
+                    if (pv == null) {
+                        pv = ComponentRegistry.getInstance().renderFallback(ctx, p);
+                    }
+                    if (mode == ComponentDisplay.Mode.PEEK) {
+                        pv = wrapProductPeek(ctx, message, p, pv, index);
+                        if (pv == null) continue;
+                    }
+                    LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+                    plp.topMargin = dpToPx(6, ctx);
+                    productHost.addView(pv, plp);
+                    shown++;
+                }
+            }
+            productHost.setVisibility(shown > 0 ? View.VISIBLE : View.GONE);
         }
         View header = card.findViewById(R.id.chat_v2_tool_card_header);
         if (header != null) {

@@ -590,6 +590,14 @@ public class SystemUIComponentTool implements AITool {
                 }
             }
 
+            // 顶层 display（卡片显隐由模型通过工具调用参数控制）并入 props
+            if (!props.has("display")) {
+                Object topDisplay = parameters.get("display");
+                if (topDisplay != null && !topDisplay.toString().trim().isEmpty()) {
+                    props.put("display", topDisplay.toString().trim());
+                }
+            }
+
             // file_card/file_list 路径解析：模型常传工作区相对路径（如 "report.md" / "files/报告.pdf"）
             // 或缩写/幻觉路径，统一解析为真实存在的绝对路径，否则打开/分享"文件不存在"
             try {
@@ -645,7 +653,13 @@ public class SystemUIComponentTool implements AITool {
                 }
             }
 
-            // 展示位置/档位由 UI 决定（工具卡内部），不再接受模型传 display 控制显隐。
+            // 模型显式创建的卡片默认整卡；模型可用 display=hidden/peek 覆盖。
+            if (!props.has("display") && parameters.get("display") != null) {
+                props.put("display", String.valueOf(parameters.get("display")));
+            }
+            if (!props.has("display")) {
+                props.put("display", "inline");
+            }
             com.oilquiz.app.ai.chat.component.ComponentData data =
                     com.oilquiz.app.ai.chat.component.ComponentData.of(renderType, props);
             // 返回带组件的结果：AIToolManager 会自动 collect 进聊天流
