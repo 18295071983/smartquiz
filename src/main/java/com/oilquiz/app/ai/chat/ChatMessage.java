@@ -343,6 +343,12 @@ public class ChatMessage {
      */
     public boolean thinkingExpanded = false;
 
+    /**
+     * 独立工具卡是否展开（2026-10-21 拆回 demo 两段式）。仅运行时 UI 状态，不持久化，
+     * 与 {@link #thinkingExpanded} 同一口径：默认收起，点卡头才展开逐条明细。
+     */
+    public transient boolean toolSectionExpanded = false;
+
     /** 附件列表 */
     public List<Attachment> attachments;
 

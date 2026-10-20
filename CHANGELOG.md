@@ -1,5 +1,33 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 拆回 demo 两段式：思考行 + 独立工具卡
+
+### 查到的事实
+
+- `docs/ui/ai-chat-redesign.md` §5.4 与 demo `phone-light.png` 都是两段式：
+  一行 `✦ 已深度思考 6 秒 ›`，下面一张 `⚙ 已运行 2 个工具 · 2.8s ✓ ›` 的卡片。
+- S2 为"顺序正确"把两者合成了一条活动区，header 写 `已深度思考 X · N 步 · M 个工具`；
+  用户明确要求按 demo 拆开。
+- 旧工具卡的 drawable（`chat_v2_tool_line_bg` / `chat_v2_tool_body_bg`）与行布局
+  （`item_chat_v2_tool_row`）在 S5 后仍保留，可直接复用，无需新造样式。
+
+### 由此改掉的事
+
+- 新增 `view_chat_v2_tool_card.xml`（卡头：工具图标 + 已运行 N 个工具 + 耗时 + ✓ + 箭头；
+  卡体：复用工具行），`createAiMessageItem` 里挂在思考行之后。
+- `ActivityTimeline` 的 items 在渲染时按 kind 拆成两组：THINKING/PLAN/REFLECTION 进思考行，
+  TOOL 进工具卡；思考 header 只报步数/耗时，工具卡 header 只报工具数与耗时。
+- 工具卡默认收起，点卡头展开（`ChatMessage#toolSectionExpanded`，transient，不落盘）；
+  工具行本身仍可点开看结果预览/全文。
+- 指纹拆成 `activityFp`（思考行）与 `toolCardFp`（工具卡），互不触发重建。
+
+### 验证
+
+- 全量单测 **456 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 真机（生成中的 Agent 消息）看到：`正在思考…` 行 + 步骤行 + 独立
+  `正在运行工具…` 卡，两段式生效。
+- 尚未逐项对齐：思考行/工具卡的展开动画、工具卡内多工具的耗时汇总精度。
+
 ## [2026-10-21 凌晨] 按 demo 再对齐一轮：顶栏居中/状态点绿、输入胶囊按钮态、消息状态行收起
 
 ### 查到的事实

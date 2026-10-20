@@ -892,6 +892,22 @@ header 显示"已深度思考 4.6s · 2 步"，下面两行分别是
 demo 的模型面板/会话抽屉样式也未逐项对齐。
 真机验证：456 单测全绿、装机后深色档截图确认上述五项。
 
+### 4.16 按 demo 拆回两段式（2026-10-21 凌晨，真机已看到拆分生效）
+
+1. **结构**：新增 `view_chat_v2_tool_card.xml`，在 `createAiMessageItem` 里挂在思考行之后；
+   卡头 = 工具图标 + `已运行 N 个工具` + 耗时 + ✓ + 箭头，卡体 = 工具行。
+2. **数据分流**：`updateThinkingSectionV2` 把 `ActivityTimeline.items` 按 kind 分成两组：
+   THINKING/PLAN/REFLECTION 进思考行，TOOL 进工具卡。思考 header 只报步数/耗时，
+   工具卡 header 只报工具数/耗时，不再出现"合并一句话"。
+3. **状态**：`ChatMessage#toolSectionExpanded`（transient）记工具卡展开；默认收起。
+   工具行点开仍是结果预览 → 全文。
+4. **指纹**：`activityFp` 只管思考行，`toolCardFp` 只管工具卡；互不触发重建。
+5. **验证**：456 单测全绿、装机；真机生成中的 Agent 消息已看到
+   `正在思考…` + 步骤行 + `正在运行工具…` 卡。
+6. **仍未对齐**：demo 的思考行/工具卡展开动画、工具卡多工具的耗时汇总精度；
+   另外真机暴露出旧 `SYSTEM` / `AGENT_SUMMARY` 消息仍以 emoji 卡片出现，
+   与 demo 的 Plan/Summary 卡不是一套，属于 Agent 子 UI（A2）的缺口。
+
 ---
 
 ## 5. 关键文件 / 改动地图
