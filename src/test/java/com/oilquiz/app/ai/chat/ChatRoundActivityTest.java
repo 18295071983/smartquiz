@@ -48,6 +48,28 @@ public class ChatRoundActivityTest {
     }
 
     @Test
+    public void repairsMissingBoundsForToolsAtSameOffset() throws Exception {
+        ChatMessage m = new ChatMessage.Builder(ChatMessage.MessageType.AI).build();
+        m.thinkingRounds = new ArrayList<>(Arrays.asList("t0", "t1", "t2"));
+        m.components = new ArrayList<>();
+        m.components.add(tool("tc0"));
+        m.components.add(tool("tc1"));
+        m.components.add(tool("tc2"));
+        // 旧数据：三个工具都发生在正文偏移 0，被去重成一个边界
+        m.contentRoundBounds = new ArrayList<>(Arrays.asList(0));
+
+        ChatAdapter.ensureRoundBounds(m);
+
+        assertEquals("一个工具一条边界", 3, m.contentRoundBounds.size());
+        assertEquals(Integer.valueOf(0), m.contentRoundBounds.get(1));
+        List<ChatAdapter.ActivityGroup> groups = ChatAdapter.buildActivityGroups(m);
+        assertEquals("三个工具应各成一组", 3, groups.size());
+        assertEquals(1, groups.get(0).tools.size());
+        assertEquals(1, groups.get(1).tools.size());
+        assertEquals(1, groups.get(2).tools.size());
+    }
+
+    @Test
     public void singleGroupWhenNoToolBoundary() {
         ChatMessage m = new ChatMessage.Builder(ChatMessage.MessageType.AI).build();
         m.thinkingRounds = new ArrayList<>(Arrays.asList("only-think"));

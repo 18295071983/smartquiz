@@ -1,5 +1,30 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 修轮次边界被去重：多工具结果不再堆到正文末尾
+
+### 查到的事实
+
+- 真机一条 AI 消息有 6 个 `tool_call`，但 `contentRoundBounds` 只有 `[0]`：
+  多个工具都在正文偏移 0 开始，`onToolCallStart` 对相同 offset 做了去重。
+- `ActivityTimeline`/`renderRoundAssembled` 按 bounds 数量分轮，于是只有第 1 个工具
+  有轮次槽位；第 2..6 个工具的产物没有 `roundProds` 归属，全部落进 `tailProds`，
+  被挂到最后一段正文后面——正是截图里"三行搜索结果 + 两张整卡在最后"。
+
+### 由此改掉的事
+
+- `AIChatActivity.onToolCallStart`：一个工具调用追加一条 bound，**相同 offset 不再去重**。
+- `ChatAdapter.ensureRoundBounds()`：对旧历史做内存修复——tool_call 数大于 bounds 数时，
+  用最后一个 offset 补齐；渲染前调用，下一次保存会落盘。
+- 新增 `ChatRoundActivityTest#repairsMissingBoundsForToolsAtSameOffset`：
+  3 个工具 + `[0]` → 修成 3 条 → 3 组，每组一个工具。
+
+### 验证
+
+- 全量单测 **463 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 真机截图：一条 6 工具消息现在按轮显示为
+  「思考行 → 工具卡 → 该轮搜索结果」，不再把卡片堆到正文末尾；
+  正文结束后不再出现孤立的整卡。
+
 ## [2026-10-21 凌晨] 纠正：恢复模型对卡片显隐的控制，结果卡仍在各自工具卡内
 
 ### 纠正了什么

@@ -1022,6 +1022,18 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    否则整张工具卡不显示。
 6. **验证**：462 单测全绿（恢复模型声明/collapsed 断言），装机。
 
+### 4.25 修轮次边界去重导致的"产物堆末尾"（2026-10-21 凌晨）
+
+1. **现场**：一条 AI 消息 6 个 `tool_call`，`contentRoundBounds` 只有 `[0]`。
+   `onToolCallStart` 对相同正文 offset 去重，导致只有第 1 个工具有轮次槽位；
+   其余工具的产物落到 `tailProds`，全部挂到最后一段正文后面。
+2. **修法**：一个工具调用追加一条 bound，不再因 offset 相同而跳过；
+   旧历史在 `ChatAdapter.ensureRoundBounds()` 里按 tool_call 数用最后一个 offset 补齐，
+   渲染前修复、下次保存落盘。
+3. **验证**：新增 `ChatRoundActivityTest#repairsMissingBoundsForToolsAtSameOffset`；
+   全量 463 单测全绿，装机。真机 6 工具消息已按
+   「思考行 → 工具卡 → 该轮搜索结果」逐轮显示，正文末尾不再堆卡。
+
 ---
 
 ## 5. 关键文件 / 改动地图

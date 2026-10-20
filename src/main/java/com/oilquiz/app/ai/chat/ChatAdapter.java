@@ -1873,7 +1873,34 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * 思考0 → 工具0 → 思考1 → 工具1 → … → 末尾只剩思考。
      * 组的数量与 contentRoundBounds 对齐（第 i 组就是第 i 个边界）。
      */
+    /**
+     * 修复轮次边界数量：一次工具调用 = 一个 bound，即使多次工具都在同一个正文偏移（常见于
+     * 先连续调工具、最后才输出正文）。旧逻辑对相同 offset 去重，6 个工具只留下 [0]，
+     * 后续工具产物无法按轮归属，只能全堆到正文末尾。
+     *
+     * <p>只补不改：边界多于工具数时保留原样；补出来的值沿用最后一个 offset。</p>
+     */
+    static void ensureRoundBounds(ChatMessage message) {
+        if (message == null || message.components == null) return;
+        int toolCount = 0;
+        for (ComponentData c : message.components) {
+            if (c != null && "tool_call".equals(c.type)) toolCount++;
+        }
+        if (toolCount <= 0) return;
+        java.util.List<Integer> bounds = message.contentRoundBounds;
+        if (bounds == null) {
+            bounds = new java.util.ArrayList<>();
+            message.contentRoundBounds = bounds;
+        }
+        if (bounds.size() >= toolCount) return;
+        java.util.List<Integer> repaired = new java.util.ArrayList<>(bounds);
+        int fill = repaired.isEmpty() ? 0 : repaired.get(repaired.size() - 1);
+        while (repaired.size() < toolCount) repaired.add(fill);
+        message.contentRoundBounds = repaired;
+    }
+
     static java.util.List<ActivityGroup> buildActivityGroups(ChatMessage message) {
+        ensureRoundBounds(message);
         java.util.List<ActivityGroup> groups = new java.util.ArrayList<>();
         ActivityGroup cur = new ActivityGroup();
         for (ActivityTimeline.Item item : ActivityTimeline.build(message).items) {
@@ -2064,6 +2091,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private void renderRoundAssembled(AIMessageViewHolder holder, ChatMessage message, int availableWidth, Context ctx) {
         if (holder.contentHost == null) return;
+        ensureRoundBounds(message);
         String content = message.content != null ? message.content : "";
         java.util.List<Integer> bounds = message.contentRoundBounds;
         java.util.List<String> thinks = message.thinkingRounds;

@@ -7019,10 +7019,10 @@ public class AIChatActivity extends BaseActivity {
                             msg.contentRoundBounds = new java.util.ArrayList<>();
                         }
                         int bound = currentStreamingContent != null ? currentStreamingContent.length() : 0;
-                        if (msg.contentRoundBounds.isEmpty()
-                                || msg.contentRoundBounds.get(msg.contentRoundBounds.size() - 1) != bound) {
-                            msg.contentRoundBounds.add(bound);
-                        }
+                        // 一个工具调用一条边界，哪怕多次工具都发生在正文偏移 0：
+                        // 不能对相同 offset 去重，否则第 2..N 个工具没有轮次槽位，
+                        // 产物只能被当成 tail 堆到正文末尾。
+                        msg.contentRoundBounds.add(bound);
                         // 工具调用前思考落库（若本轮思考尚未结束）：思考轮次与正文轮次一一对应
                         if (currentThinkingContent != null && currentThinkingContent.length() > 0 && !thinkingRoundEnded) {
                             msg.addThinkingRound(currentThinkingContent.toString(), null, elapsedThinkingRound());
