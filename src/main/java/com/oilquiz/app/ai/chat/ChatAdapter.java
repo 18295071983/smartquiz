@@ -2488,7 +2488,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     formatThinkingDuration(model.thinkingDurationMs), model.thinkingSteps)
                     : ctx.getString(R.string.chat_v2_thought_steps_only, model.thinkingSteps);
         }
-        return ctx.getString(R.string.chat_v2_thinking_now);
+        // 非流式但没有结构化 thinkingSteps（常见：本地 Agent 只回填了 thinkingContent）：
+        // 不能回落成“正在思考”，否则完成后轮次头永远停在生成态。
+        return ctx.getString(R.string.chat_v2_thought_done);
     }
 
     /** 思考行指纹（只管思考/规划/反思；工具已拆到 toolCard） */

@@ -796,6 +796,7 @@
     <!-- v2 思考段 header（2026-10-20 重做：整段一个入口，展开后是一步一行的时间线）。
          业界口径：进行中显示"正在思考…"，完成后换成"已思考 X 秒 · N 步"。 -->
     <string name="chat_v2_thinking_now">正在思考…</string>
+    <string name="chat_v2_thought_done">已深度思考</string>
     <string name="chat_v2_thought_for_steps">已深度思考 %1$s · %2$d 步</string>
     <string name="chat_v2_thought_steps_only">已深度思考 %1$d 步</string>
     <!-- 活动时间线（2026-10-20 S2）：思考与工具合成一条时间线，header 同时报两类计数 -->

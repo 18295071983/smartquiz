@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-10-21 凌晨] 「正在思考」真正根因：非流式 fallback 文案写错
+
+- 上一条结构指纹修复只覆盖「轮次活动组重建」；本次抓到实际路径：
+  `thinkingHeaderText()` 在 `streaming=false` 且 `model.thinkingSteps==0` 时
+  **仍然 return `chat_v2_thinking_now`**。
+- 本地 Agent 常见状态：有 `thinkingContent`，但没有结构化 `thinkingSteps`，
+  于是完成态一直显示「正在思考…」。
+- 修法：非流式、无 steps 时返回新文案 `chat_v2_thought_done`（「已深度思考」），
+  不再回落到「正在思考」。
+- 结构指纹 S0/S1 修复保留，用于轮次活动组重建。
+- 验证：全量 **496** 单测全绿，`assembleDebug` 通过，已装机。
+
 ## [2026-10-21 凌晨] 修轮次头停留在「正在思考」
 
 - 根因：`renderRoundAssembled` 的结构指纹只编码正文段/活动组/产物，没有把

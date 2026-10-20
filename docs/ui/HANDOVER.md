@@ -1275,6 +1275,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 2. **修法**：指纹加 `S0/S1` 状态位，完成时强制重建轮次头。
 3. **验证**：486 单测全绿，装机。
 
+### 4.50 「正在思考」真正根因：fallback 文案（2026-10-21 凌晨）
+
+1. `thinkingHeaderText()`：`streaming=false` 且 `thinkingSteps==0` 时仍回落
+   `chat_v2_thinking_now`。
+2. 本地 Agent 有 `thinkingContent` 但无结构化 steps，因此完成态一直显示「正在思考」。
+3. 修法：非流式无 steps 返回 `chat_v2_thought_done`（「已深度思考」）；
+   4.49 的 S0/S1 指纹修复保留，负责轮次活动组重建。
+4. **验证**：496 单测全绿，装机。
+
 ---
 
 ## 5. 关键文件 / 改动地图
