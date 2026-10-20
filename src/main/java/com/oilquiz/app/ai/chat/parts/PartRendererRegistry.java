@@ -41,11 +41,17 @@ public final class PartRendererRegistry {
         return renderers.size();
     }
 
-    /** P2 默认注册表：text + reasoning + error。tool/data 留 P3。 */
+    /**
+     * P2.5 默认注册表：text + reasoning + error + tool_call + tool_result。
+     * tool_result 与 tool_call 共用同一组件工厂（都走 ComponentRegistry）。data 暂无 part 源，留后。
+     */
     public static PartRendererRegistry createDefault() {
+        ToolCallPartRenderer toolCall = new ToolCallPartRenderer();
         return new PartRendererRegistry()
                 .register(new TextPartRenderer())
                 .register(new ReasoningPartRenderer())
-                .register(new ErrorPartRenderer());
+                .register(new ErrorPartRenderer())
+                .register(toolCall)
+                .register(new ToolResultPartRenderer(toolCall.componentFactory()));
     }
 }

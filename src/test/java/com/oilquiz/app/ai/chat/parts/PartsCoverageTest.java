@@ -15,6 +15,7 @@ import android.widget.TextView;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.oilquiz.app.ai.chat.ChatMessage;
+import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 
 import org.junit.Before;
@@ -129,6 +130,71 @@ public class PartsCoverageTest {
         assertEquals("comp:结果A", host.views().get("t1").getTag());
     }
 
+    @Test
+    public void toolResultAttachesIntoToolCard_noSecondCard() {
+        FakeFactory factory = new FakeFactory();
+        ToolCallPartRenderer call = new ToolCallPartRenderer(factory);
+        TurnPartsHost host = hostWith(call, new ToolResultPartRenderer(call.componentFactory()));
+
+        AssistantTurn.Part tc = AssistantTurn.Part.toolCall(
+                "R1:tool:c1", "c1", "weather", "{\"city\":\"北京\"}", "running", 1L);
+        AssistantTurn.Part tr = new AssistantTurn.Part();
+        tr.id = "R1:tool:c1:result";
+        tr.type = AssistantTurn.Part.TYPE_TOOL_RESULT;
+        tr.toolCallId = "c1";
+        tr.result = "晴天 25度";
+
+        host.bind(Arrays.asList(tc, tr));
+
+        // §4.6：只有一张工具卡，result 不建第二张卡。
+        assertEquals("工具卡只建一个宿主视图", 1, container.getChildCount());
+        assertTrue(host.views().containsKey("R1:tool:c1"));
+        assertFalse("tool_result 不应有独立视图", host.views().containsKey("R1:tool:c1:result"));
+
+        // 工厂被调用两次：先建卡（result 空），再合并 result 原地重渲染同一张卡。
+        assertEquals(2, factory.created.size());
+        assertEquals("", factory.created.get(0).optString("result"));
+        assertEquals("晴天 25度", factory.created.get(1).optString("result"));
+        assertEquals("weather", factory.created.get(1).optString("toolName"));
+    }
+
+    @Test
+    public void identicalToolPartsDoNotRebind() {
+        FakeFactory factory = new FakeFactory();
+        ToolCallPartRenderer call = new ToolCallPartRenderer(factory);
+        TurnPartsHost host = hostWith(call, new ToolResultPartRenderer(call.componentFactory()));
+
+        AssistantTurn.Part tc = AssistantTurn.Part.toolCall(
+                "c1", "c1", "weather", "{}", "done", 1L);
+        AssistantTurn.Part tr = new AssistantTurn.Part();
+        tr.id = "c1-result";
+        tr.type = AssistantTurn.Part.TYPE_TOOL_RESULT;
+        tr.toolCallId = "c1";
+        tr.result = "ok";
+
+        host.bind(Arrays.asList(tc, tr));
+        int created = factory.created.size();
+        host.bind(Arrays.asList(tc, tr)); // 完全相同
+        assertEquals("同内容不重复渲染卡片", created, factory.created.size());
+    }
+
+    /** 假组件工厂：在每次 create 时快照 props，返回空壳视图，不触真实 ToolCallCardView。 */
+    private static final class FakeFactory implements ToolCallPartRenderer.ComponentFactory {
+        final java.util.List<org.json.JSONObject> created = new ArrayList<>();
+        @Override
+        public View create(Context context, ComponentData data) {
+            try {
+                created.add(new org.json.JSONObject(data.props.toString())); // 快照，避免共享引用被后续合并改写
+            } catch (org.json.JSONException e) {
+                created.add(new org.json.JSONObject());
+            }
+            View v = new View(context);
+            v.setLayoutParams(new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            return v;
+        }
+    }
+
     private TurnPartsHost hostWith(PartRenderer... renderers) {
         PartRendererRegistry reg = new PartRendererRegistry();
         for (PartRenderer r : renderers) reg.register(r);
@@ -227,6 +293,22 @@ public class PartsCoverageTest {
         @Override
         public boolean webMarkdownEnabled() {
             return false;
+        }
+        @Override
+        public boolean streaming() {
+            return false;
+        }
+        @Override
+        public boolean dark() {
+            return false;
+        }
+        @Override
+        public String markdownThemeVars() {
+            return "";
+        }
+        @Override
+        public void renderMarkdown(android.widget.TextView target, String markdown) {
+            target.setText(markdown);
         }
         @Override
         public void invalidateSize() {

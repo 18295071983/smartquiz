@@ -1317,6 +1317,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    `ToolResultPartRenderer`/`DataPartRenderer`；parts 模式下 `bindComponents` 跳过 tool_call；
    flag=true 时 AI 消息树走 `TurnPartsHost`。
 
+### 4.53 parts P2.5：渲染器功能补全（2026-10-21）
+
+1. **text 原生**改走 `PartHost.renderMarkdown`（宿主后台渲染原语：renderInto 同源，含 LinkMovementMethod +
+   Glide 异步图片 + 主题），修 `setText(Spanned)` 丢链接/丢图 + 主线程解析；**text web** 补
+   `setNight(dark)`/`setThemeColors(markdownThemeVars)`/`setContent(streaming)`。
+2. **reasoning/error** 正文统一走 `PartHost.renderMarkdown`；**error** 加语义状态色（ThemeColors + R.color.error）。
+3. **工具卡**：`ToolCallPartRenderer` 复用 `ComponentRegistry.render("tool_call")`（卡片能力全继承，零复制）；
+   `ToolResultPartRenderer` 按 `toolCallId` 经 `anchorIdFor` 挂回所属卡、合并 result 原地重渲染，不建第二张卡（§4.6）。
+4. `PartHost` 扩展 `streaming()/dark()/markdownThemeVars()/renderMarkdown()`。
+5. **data 暂无 renderer**：Part 模型尚无 data 类型/源（组件仍走 msg.components→bindComponents），不造无源轮子；
+   `renderMarkdown/dark/markdownThemeVars` 的真实实现随 P3 由 ChatAdapter 落地，视觉一致端到端验证届时做（手机在手）。
+6. **验证**：parts 包 27 条，全量 523 全绿、无回归；flag 默认 false、未接 ChatAdapter，现网零变化。
+
 ---
 
 ## 5. 关键文件 / 改动地图

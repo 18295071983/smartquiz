@@ -220,6 +220,22 @@ public class TurnPartsHostTest {
             return false;
         }
         @Override
+        public boolean streaming() {
+            return false;
+        }
+        @Override
+        public boolean dark() {
+            return false;
+        }
+        @Override
+        public String markdownThemeVars() {
+            return "";
+        }
+        @Override
+        public void renderMarkdown(android.widget.TextView target, String markdown) {
+            target.setText(markdown);
+        }
+        @Override
         public void invalidateSize() {
         }
     }

@@ -1,21 +1,21 @@
 package com.oilquiz.app.ai.chat.parts;
 
 import android.content.Context;
-import android.text.Spanned;
+import android.text.method.LinkMovementMethod;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
-import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
+import com.oilquiz.app.R;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
+import com.oilquiz.app.theme.ThemeColors;
 
 /**
- * 错误 part 渲染器（parts 架构升级 P2 补齐，2026-10-21）。
+ * 错误 part 渲染器（parts 架构升级 P2.5，2026-10-21）。
  *
- * <p>错误行是独立视图，正文复用 markdown 原语 {@link MarkdownRenderer#render}（与 text 同源，
- * 不新写渲染器）。P2 能安全落地是因为它不依赖 ChatAdapter 宿主、也不涉及工具卡归属；
- * tool_call/tool_result/data 要等 P3（需宿主 + ToolCallCardView 复用 + 真机"不串卡"验证）。</p>
+ * <p>独立视图；正文复用宿主 markdown 原语（{@link PartHost#renderMarkdown}），并给一个语义
+ * 错误色（{@code R.color.error}，走 ThemeColors 不写死十六进制），链接可点。</p>
  */
 public final class ErrorPartRenderer implements PartRenderer {
 
@@ -33,6 +33,12 @@ public final class ErrorPartRenderer implements PartRenderer {
                 ctx.getResources().getDisplayMetrics());
         tv.setPadding(pad, pad, pad, pad);
         tv.setTextIsSelectable(true);
+        tv.setMovementMethod(LinkMovementMethod.getInstance());
+        try {
+            tv.setTextColor(ThemeColors.get(ctx, R.color.error));
+        } catch (Throwable ignore) {
+            // 取色失败用默认前景色
+        }
         tv.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -45,8 +51,7 @@ public final class ErrorPartRenderer implements PartRenderer {
             return;
         }
         String text = part.text != null ? part.text : (part.result != null ? part.result : "");
-        Spanned spanned = MarkdownRenderer.render(text, host.context(), host.availableWidth());
-        ((TextView) view).setText(spanned);
+        host.renderMarkdown((TextView) view, text);
     }
 
     @Override

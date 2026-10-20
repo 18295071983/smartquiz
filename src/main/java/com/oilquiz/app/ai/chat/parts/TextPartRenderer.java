@@ -1,24 +1,24 @@
 package com.oilquiz.app.ai.chat.parts;
 
 import android.content.Context;
-import android.text.Spanned;
+import android.text.method.LinkMovementMethod;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
-import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
 
 /**
  * 文本 part 渲染器（parts 架构升级 P2，2026-10-21）。
  *
- * <p>完全复用既有 markdown 渲染通路，不新写渲染器：</p>
+ * <p>完全复用既有 markdown 渲染通路，不新写渲染逻辑：</p>
  * <ul>
- *   <li>{@link PartHost#webMarkdownEnabled()} 为真 → {@link MarkdownWebView#setContent}
- *       （沿用其高度回调、内部高度上限与回收策略）；</li>
- *   <li>否则 → {@link MarkdownRenderer#render(String, Context, int)} 出 Spanned 塞进
- *       一个 {@link TextView}（沿用完成态重载：确保 Markwon 初始化、处理未闭合代码围栏）。</li>
+ *   <li>web（{@link PartHost#webMarkdownEnabled()}）→ {@link MarkdownWebView}：
+ *       {@code setNight(dark)} + {@code setThemeColors(themeVars)} 对齐卡片配色，
+ *       {@code setContent(text, streaming)} 沿用其高度回调、内部上限与回收；</li>
+ *   <li>原生 → {@link PartHost#renderMarkdown}：走宿主后台渲染 + LinkMovementMethod +
+ *       Glide 异步图片 + 主题，避免在本类 {@code setText(Spanned)} 丢图/丢链接、压主线程。</li>
  * </ul>
  *
  * <p>一个 text part 对应一个渲染实例（不拼接成巨型 WebView），符合文档 §4.5 的边界。</p>
@@ -41,6 +41,8 @@ public final class TextPartRenderer implements PartRenderer {
         } else {
             TextView tv = new TextView(ctx);
             tv.setTextIsSelectable(true);
+            // 链接可点（图片/异步 span 由 renderMarkdown 在绑定时挂上）。
+            tv.setMovementMethod(LinkMovementMethod.getInstance());
             view = tv;
         }
         view.setLayoutParams(new ViewGroup.LayoutParams(
@@ -53,11 +55,12 @@ public final class TextPartRenderer implements PartRenderer {
     public void bindView(View view, AssistantTurn.Part part, PartHost host) {
         String text = part.text != null ? part.text : "";
         if (view instanceof MarkdownWebView) {
-            // 完成态：streaming=false，沿用 WebView 内部一次性加载。
-            ((MarkdownWebView) view).setContent(text, false);
+            MarkdownWebView web = (MarkdownWebView) view;
+            web.setNight(host.dark());
+            web.setThemeColors(host.markdownThemeVars());
+            web.setContent(text, host.streaming());
         } else if (view instanceof TextView) {
-            Spanned spanned = MarkdownRenderer.render(text, host.context(), host.availableWidth());
-            ((TextView) view).setText(spanned);
+            host.renderMarkdown((TextView) view, text);
         }
     }
 

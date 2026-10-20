@@ -3,6 +3,7 @@ package com.oilquiz.app.ai.chat.parts;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
@@ -18,6 +19,8 @@ import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 import com.oilquiz.app.ai.chat.ui.MarkdownWebView;
 
 import org.junit.Test;
+
+import java.util.ArrayList;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
@@ -76,6 +79,84 @@ public class TextAndReasoningRendererTest {
         assertEquals("思考默认折叠", View.GONE, row.getChildAt(1).getVisibility());
     }
 
+    @Test
+    public void nativeTextBindDelegatesToHostRenderMarkdown() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx);
+        TextPartRenderer r = new TextPartRenderer();
+
+        View view = r.createView(host, new LinearLayout(ctx));
+        AssistantTurn.Part p = part(AssistantTurn.Part.TYPE_TEXT, "带[链接](http://x)的正文");
+        r.bindView(view, p, host);
+
+        assertEquals("原生正文应交给宿主 renderMarkdown（复用后台渲染/链接/图片）",
+                1, host.mdCalls.size());
+        assertSame(view, host.mdTargets.get(0));
+        assertEquals("带[链接](http://x)的正文", host.mdCalls.get(0));
+        // 不该走 MarkdownRenderer.render→setText 自渲染：RecordingHost 的 renderMarkdown 只记不调 setText
+        assertTrue(((TextView) view).getText().length() == 0);
+    }
+
+    @Test
+    public void reasoningBodyDelegatesToHostRenderMarkdown() {
+        Context ctx = ApplicationProvider.getApplicationContext();
+        RecordingHost host = new RecordingHost(ctx);
+        ReasoningPartRenderer r = new ReasoningPartRenderer();
+
+        LinearLayout row = (LinearLayout) r.createView(host, new LinearLayout(ctx));
+        r.bindView(row, part(AssistantTurn.Part.TYPE_REASONING, "思考内容"), host);
+
+        assertEquals(1, host.mdCalls.size());
+        assertSame(row.getChildAt(1), host.mdTargets.get(0)); // 写进 body，不是 header
+        assertEquals("思考内容", host.mdCalls.get(0));
+    }
+
+    /** 记录 renderMarkdown 调用；renderMarkdown 故意不调 setText，以证明 renderer 没自渲染。 */
+    private static final class RecordingHost implements PartHost {
+        final java.util.List<String> mdCalls = new ArrayList<>();
+        final java.util.List<android.widget.TextView> mdTargets = new ArrayList<>();
+        private final Context ctx;
+        RecordingHost(Context ctx) {
+            this.ctx = ctx;
+        }
+        @Override
+        public Context context() {
+            return ctx;
+        }
+        @Override
+        public int availableWidth() {
+            return 1080;
+        }
+        @Override
+        public ChatMessage message() {
+            return null;
+        }
+        @Override
+        public boolean webMarkdownEnabled() {
+            return false;
+        }
+        @Override
+        public boolean streaming() {
+            return false;
+        }
+        @Override
+        public boolean dark() {
+            return false;
+        }
+        @Override
+        public String markdownThemeVars() {
+            return "";
+        }
+        @Override
+        public void renderMarkdown(android.widget.TextView target, String markdown) {
+            mdTargets.add(target);
+            mdCalls.add(markdown);
+        }
+        @Override
+        public void invalidateSize() {
+        }
+    }
+
     private static final class TestHost implements PartHost {
         private final Context ctx;
         private final boolean web;
@@ -98,6 +179,22 @@ public class TextAndReasoningRendererTest {
         @Override
         public boolean webMarkdownEnabled() {
             return web;
+        }
+        @Override
+        public boolean streaming() {
+            return false;
+        }
+        @Override
+        public boolean dark() {
+            return false;
+        }
+        @Override
+        public String markdownThemeVars() {
+            return "";
+        }
+        @Override
+        public void renderMarkdown(android.widget.TextView target, String markdown) {
+            target.setText(markdown);
         }
         @Override
         public void invalidateSize() {

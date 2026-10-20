@@ -1,14 +1,13 @@
 package com.oilquiz.app.ai.chat.parts;
 
 import android.content.Context;
-import android.text.Spanned;
+import android.text.method.LinkMovementMethod;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import com.oilquiz.app.ai.chat.render.MarkdownRenderer;
 import com.oilquiz.app.ai.chat.turn.AssistantTurn;
 
 /**
@@ -50,6 +49,7 @@ public final class ReasoningPartRenderer implements PartRenderer {
         body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
         body.setPadding(pad, 0, pad, pad);
         body.setTextIsSelectable(true);
+        body.setMovementMethod(LinkMovementMethod.getInstance());
         body.setVisibility(View.GONE); // 默认折叠
 
         header.setOnClickListener(v -> {
@@ -71,8 +71,8 @@ public final class ReasoningPartRenderer implements PartRenderer {
             return;
         }
         String text = part.text != null ? part.text : "";
-        Spanned spanned = MarkdownRenderer.render(text, host.context(), host.availableWidth());
-        row.body.setText(spanned);
+        // 正文复用宿主 markdown 原语（后台渲染 + 链接 + 图片 + 主题），不在此自渲染。
+        host.renderMarkdown(row.body, text);
     }
 
     @Override

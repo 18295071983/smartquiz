@@ -22,23 +22,34 @@ public class PartRendererRegistryTest {
         return p;
     }
 
+    private static AssistantTurn.Part tool(String type, String toolCallId) {
+        AssistantTurn.Part p = new AssistantTurn.Part();
+        p.id = "id-" + type + "-" + toolCallId;
+        p.type = type;
+        p.toolCallId = toolCallId;
+        return p;
+    }
+
     @Test
-    public void defaultRegistryResolvesTextReasoningAndError() {
+    public void defaultRegistryResolvesTextReasoningErrorAndTools() {
         PartRendererRegistry r = PartRendererRegistry.createDefault();
 
         assertTrue(r.resolve(part(AssistantTurn.Part.TYPE_TEXT, "t")) instanceof TextPartRenderer);
         assertTrue(r.resolve(part(AssistantTurn.Part.TYPE_REASONING, "t"))
                 instanceof ReasoningPartRenderer);
         assertTrue(r.resolve(part(AssistantTurn.Part.TYPE_ERROR, "t")) instanceof ErrorPartRenderer);
+        assertTrue(r.resolve(tool(AssistantTurn.Part.TYPE_TOOL_CALL, "call_1"))
+                instanceof ToolCallPartRenderer);
+        assertTrue(r.resolve(tool(AssistantTurn.Part.TYPE_TOOL_RESULT, "call_1"))
+                instanceof ToolResultPartRenderer);
     }
 
     @Test
     public void unresolvedTypesReturnNull() {
         PartRendererRegistry r = PartRendererRegistry.createDefault();
-        // tool_call/tool_result/data 留到 P3，P2 未注册 → 解析为 null（引擎会跳过，不静默崩）。
-        assertNull(r.resolve(part(AssistantTurn.Part.TYPE_TOOL_CALL, null)));
-        assertNull(r.resolve(part(AssistantTurn.Part.TYPE_TOOL_RESULT, null)));
+        // data 暂无 part 源/未注册 → 解析为 null（引擎会跳过，不静默崩）。
         assertNull(r.resolve(part("data", null)));
+        assertNull(r.resolve(part("unknown_type", null)));
         assertNull(r.resolve(null));
     }
 

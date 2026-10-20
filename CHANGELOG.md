@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-10-21] parts P2.5：渲染器功能补全（text 链接/图片/主题/流式 + 工具卡 + 错误色）
+
+彻查 renderer 功能面 vs ChatAdapter 现有渲染，补齐"够不够"里不足的：
+- **text 原生**：原 `TextView.setText(MarkdownRenderer.render())` 丢链接(无 MovementMethod)、丢图(Glide 异步 span 未挂)、且把解析压主线程。改为经新 `PartHost.renderMarkdown()`
+  走宿主既有后台渲染原语（renderInto 同源：后台线程 + LinkMovementMethod + Glide 图片 + 主题），createView 兜底设 MovementMethod。
+- **text web**：补 `setNight(dark)` + `setThemeColors(markdownThemeVars)`（对齐卡片配色，原先漏喂）与 `setContent(text, streaming)`（原恒 false）。
+- **reasoning/error 正文**统一走 `PartHost.renderMarkdown`；**error 加语义状态色**（ThemeColors/R.color.error，不写死十六进制）。
+- **工具卡**：新增 `ToolCallPartRenderer`（复用 `ComponentRegistry.render("tool_call")`，卡片状态色/结果限长/"查看全部"全继承，零复制）+ `ToolResultPartRenderer`
+  （按 `toolCallId` 经 `anchorIdFor` 挂回所属工具卡、合并 result 原地重渲染，**不建第二张卡**，落实 §4.6）。
+- **PartHost 扩展**：+`streaming()/dark()/markdownThemeVars()/renderMarkdown(TextView,String)`。
+- **data 暂缺 renderer**：Part 模型尚无 data 类型/源（组件仍走 msg.components→bindComponents），先不造无源轮子，待数据层补 data part 再接。
+- 验证：parts 包共 **27** 条（新增 tool 归属 2 + text/reasoning 委托 2 等），全量 `--offline` **523** 全绿（0/0/0），无回归。flag 仍默认 false、未接 ChatAdapter，现网零变化；
+  `renderMarkdown`/`dark`/`markdownThemeVars` 的真实实现随 P3 由 ChatAdapter 落地后才有端到端视觉一致验证。
+
 ## [2026-10-21] parts 架构升级 P1+P2：Part 稳定 id/指纹 + PartRenderer 引擎（flag 默认关）
 
 - **P1** `AssistantTurn.Part`：`fromMessage` 稳定化 id——reasoning/text 按 `{callId}:reasoning|:text`，
