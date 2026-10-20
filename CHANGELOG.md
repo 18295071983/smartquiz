@@ -1,5 +1,37 @@
 # 变更日志
 
+## [2026-10-21 凌晨] AI 消息流收敛：活动区 / 正文 / 产物单列，删旧工具折叠卡
+
+### 查到的事实
+
+- AI 消息树里 `bubble` 只是一个无背景的 `LinearLayout`，外面 `vCol` 已经是同样的竖列；
+  真正的问题是它把子 View 顺序在创建时钉死：状态/控制/思考/工具/进度/组件容器/附件/正文/汇总。
+- 产物卡有两条挂载路径：轮次模式进 `contentHost`（正文段之后），无轮次模式进
+  `componentContainer`（在 `contentHost` **前面**）——同一张卡会因数据形态不同出现在正文上/下。
+- `componentContainer` 还保留旧的「🔧 工具过程 N 个」折叠卡；v2 的过程已经由
+  思考行 + 工具卡承担，同一份过程两套 UI。
+- 真机复测发现 `ui_component` 创建的 `info_card` 默认落到 `peek` 档，只显示
+  「▸ 运行状态速览（真实数据）· 8 项」一行，看起来像"卡片没出来"。
+
+### 由此改掉的事
+
+- 删除 `bubble` 包装层，AI 消息只剩一个 `vCol` 主列。
+- 新增 `activitySection`：Agent 状态、暂停/单步/回退、思考行、工具卡、推理进度全部收进去；
+  思考与工具从"两个固定兄弟 View"变成同一个活动区。
+- 消息列顺序固定为：`activitySection` → `contentHost`（正文 + 轮次产物）→ 附件 →
+  `componentContainer`（无轮次兜底产物）→ 汇总。
+- `bindComponents` 不再渲染 `tool_call` 过程卡，只兜底非工具产物；旧折叠卡/展开收起文案不再出现。
+- `SystemUIComponentTool#createBuiltinChatComponent`：模型显式创建的卡片默认
+  `display=inline`（整卡展示）；自动补挂的工具结果卡仍按用户默认档（peek）。
+
+### 验证
+
+- 全量单测 **457 / 0 skipped / 0 failed / 0 errors**，`assembleDebug` 通过；已装机。
+- 真机确认：思考行展开、工具卡、正文、`▸ 下载结果 · 11 项` 的 peek 产物行都还在；
+  旧的"工具过程 N 个"折叠卡不再出现。
+- 历史消息里已落库的 `info_card` 仍按 peek 显示（数据里没有 `display`）；
+  新发起的 `ui_component` 才会默认整卡。
+
 ## [2026-10-21 凌晨] 修 ui_component「未识别的 info.card」：类型名归一
 
 ### 查到的事实

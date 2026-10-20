@@ -427,16 +427,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         vCol.setLayoutParams(vColLp);
         hRow.addView(vCol);
 
-        // ===== 主气泡：思考区 + 工具卡片 + 正文 全部包裹 =====
-        LinearLayout bubble = new LinearLayout(ctx);
-        bubble.setOrientation(LinearLayout.VERTICAL);
-        // demo 的 AI 侧没有"气泡"：正文直接坐在页面底色上，靠字号/行距与卡片分层。
-        // 页面底色由 ChatUiV2Chrome 铺成 chat_v2_bg（纯色），所以这里去掉 ai_message_background
-        // 和它的内边距；卡片仍自带 CardShell 背景，不会跟着失去底。
-        bubble.setPadding(0, dpToPx(2, ctx), 0, 0);
-        bubble.setLayoutParams(new LinearLayout.LayoutParams(
+        // ===== 主消息列：没有视觉气泡，只有一个竖列 =====
+        // 2026-10-21 收敛：思考行 + 工具卡收进同一个 activitySection；
+        // 正文与产物卡收进 contentHost；不再用"固定顺序的 bubble"把过程钉死在正文上方。
+        // demo 的 AI 侧本来就没有气泡底色，页面底由 ChatUiV2Chrome 铺 chat_v2_bg。
+        LinearLayout activitySection = new LinearLayout(ctx);
+        activitySection.setOrientation(LinearLayout.VERTICAL);
+        activitySection.setPadding(0, dpToPx(2, ctx), 0, 0);
+        activitySection.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        vCol.addView(bubble);
+        vCol.addView(activitySection);
 
         // --- Agent 执行状态行（思考中/调用工具/完成），实时步骤可视化 ---
         TextView agentStatus = new TextView(ctx);
@@ -447,7 +447,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         asLp.bottomMargin = dpToPx(4, ctx);
         agentStatus.setLayoutParams(asLp);
-        bubble.addView(agentStatus);
+        activitySection.addView(agentStatus);
 
         // --- Agent 控制组（暂停/单步/回退），流式生成中显示 ---
         LinearLayout agentControlBar = new LinearLayout(ctx);
@@ -467,7 +467,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         agentControlBar.addView(btnPause);
         agentControlBar.addView(btnStep);
         agentControlBar.addView(btnRewind);
-        bubble.addView(agentControlBar);
+        activitySection.addView(agentControlBar);
 
         // --- 活动区（demo .think-line / .think-body）---
         // header 是唯一入口，展开后是思考行 + 工具行的时间线；
@@ -481,7 +481,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         LinearLayout thinkingStepsHost;
         ImageView thinkingChevron;
         View thinkSection = LayoutInflater.from(ctx)
-                .inflate(R.layout.view_chat_v2_think_line, bubble, false);
+                .inflate(R.layout.view_chat_v2_think_line, activitySection, false);
         thinkingLabel = thinkSection.findViewById(R.id.chat_v2_think_text);
         thinkingContent = thinkSection.findViewById(R.id.chat_v2_think_body);
         thinkingStepsHost = thinkSection.findViewById(R.id.chat_v2_think_steps);
@@ -491,7 +491,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         thinkingLabel.setVisibility(View.GONE);
         thinkingContent.setTextSize(13f);
         thinkingContent.setLineSpacing(0f, 1.7f);
-        bubble.addView(thinkSection);
+        activitySection.addView(thinkSection);
         // v2 的正文自带左侧竖线，不需要"思考与正文之间的分隔线"：
         // 给一个不入树的占位，holder 字段保持非空，调用点不用加判空
         thinkingDivider = new View(ctx);
@@ -499,9 +499,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // --- 独立工具卡（demo .tool-line / .tool-body）---
         // 2026-10-21：按 demo 拆成两段——思考行在上，工具卡在下；卡头是唯一入口。
         View toolCard = LayoutInflater.from(ctx)
-                .inflate(R.layout.view_chat_v2_tool_card, bubble, false);
+                .inflate(R.layout.view_chat_v2_tool_card, activitySection, false);
         toolCard.setVisibility(View.GONE);
-        bubble.addView(toolCard);
+        activitySection.addView(toolCard);
         LinearLayout toolCardBody = toolCard.findViewById(R.id.chat_v2_tool_card_body);
 
         // --- 推理进度 ---
@@ -509,7 +509,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         inferenceProgressView.setVisibility(View.GONE);
         inferenceProgressView.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        bubble.addView(inferenceProgressView);
+        activitySection.addView(inferenceProgressView);
 
         // --- 工具卡片组件容器 ---
         LinearLayout componentContainer = new LinearLayout(ctx);
@@ -517,7 +517,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         componentContainer.setVisibility(View.GONE);
         componentContainer.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        bubble.addView(componentContainer);
 
         // --- 附件 RecyclerView ---
         androidx.recyclerview.widget.RecyclerView attachmentsRecycler = new androidx.recyclerview.widget.RecyclerView(ctx);
@@ -527,14 +526,18 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         arLp.bottomMargin = dpToPx(3, ctx);
         attachmentsRecycler.setLayoutParams(arLp);
-        bubble.addView(attachmentsRecycler);
 
-        // --- 内容宿主（正文；含组件标记时动态追加段落） ---
+        // --- 内容宿主（正文 + 产物卡；含组件标记时动态追加段落） ---
         LinearLayout contentHost = new LinearLayout(ctx);
         contentHost.setOrientation(LinearLayout.VERTICAL);
         contentHost.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        bubble.addView(contentHost);
+        // 顺序固定为：活动区（思考/工具）→ 正文/产物 → 附件 → 无轮次兜底卡。
+        // componentContainer 必须排在 contentHost 之后：无轮次消息的产物卡若挂在正文前面，
+        // 会和轮次模式的"正文段→产物"顺序相反（同一张卡两个位置）。
+        vCol.addView(contentHost);
+        vCol.addView(attachmentsRecycler);
+        vCol.addView(componentContainer);
 
         // --- 正文 ---
         TextView messageText = new TextView(ctx);
@@ -562,7 +565,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sumLp.topMargin = dpToPx(6, ctx);
         agentSummary.setLayoutParams(sumLp);
-        bubble.addView(agentSummary);
+        vCol.addView(agentSummary);
 
         // ===== 操作段：三个图标 +「更多」（demo .ai-actions / #tpl-actions）=====
         LinearLayout v2Actions = new LinearLayout(ctx);
@@ -1341,7 +1344,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /**
      * 用 MetricCardView 组件渲染 Agent 汇总卡片：耗时/步骤/工具/Token 四栏 + 状态/重试徽章。
-     * 挂载在 agentSummary TextView 之后（同 bubble 内），带指纹缓存避免流式重复重建。
+     * 挂载在 agentSummary TextView 之后（同一条消息列内），带指纹缓存避免流式重复重建。
      * 返回 true 表示渲染成功；false 时调用方应回退到文本路径。
      */
     private boolean renderAgentSummaryMetricCard(AIMessageViewHolder holder, ChatMessage message) {
@@ -3120,34 +3123,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         Context ctx = holder.itemView.getContext();
         holder.componentContainer.setVisibility(View.VISIBLE);
 
-        // 分离 tool_call 工具过程卡片与其他组件
-        java.util.List<ComponentData> toolCalls = new java.util.ArrayList<>();
-        java.util.List<ComponentData> others = new java.util.ArrayList<>();
-        for (ComponentData data : message.components) {
-            if (data == null || data.props == null) continue;
-            if ("tool_call".equals(data.type)) toolCalls.add(data);
-            else others.add(data);
-        }
-
-        // ROUND-OWNER(2026-10-13)：轮次组装模式（contentRoundBounds 非空）下，工具卡片**及其产物**
-        // 由 renderRoundAssembled 按"思考→正文→工具→该工具产物→下一轮"时序内联到 contentHost 独占渲染。
-        // roundProds/tailProds 覆盖了 components 里每一个非 tool_call 组件，若这里再走 componentContainer
-        // 会把同一批卡片显示两遍。故轮次模式下 toolCalls 与 others 一并清空，componentContainer 不参与。
+        // v2 口径：工具过程只由 activitySection（思考行 + 工具卡）渲染，
+        // 这里不再画旧的 "🔧 工具过程 N 个" 折叠卡——同一份过程有两套 UI 正是要收掉的。
+        // 本容器只兜底"无轮次"消息的产物卡，并且已经排在 contentHost 之后。
         boolean roundAssembled = message.contentRoundBounds != null
                 && !message.contentRoundBounds.isEmpty();
-        if (roundAssembled) {
-            toolCalls.clear();
-            others.clear();
-        }
-
-        // 工具卡片是否全部执行完成（存在 running 则保持实时显示不折叠）
-        boolean allToolsDone = !toolCalls.isEmpty();
-        for (ComponentData tc : toolCalls) {
-            String st = tc.props != null ? tc.props.optString("status", "running") : "running";
-            if ("running".equals(st)) { allToolsDone = false; break; }
-        }
-        boolean toolsCollapsed = allToolsDone && !message.agentToolsExpanded;
-
         boolean first = true;
         int rendered = 0;
 
@@ -3155,71 +3135,32 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // INLINE 整卡；PEEK 收成一行摘要（点开才是完整卡）；HIDDEN 不挂载（卡片数据仍在 message.components 里，可复盘）。
         // prodIndex 对每个产物都推进（含 hidden），保证没有 id 的组件在同一消息里的锚点稳定。
         int prodIndex = 0;
-        for (ComponentData data : others) {
-            ComponentDisplay.Mode mode = ComponentDisplay.resolve(ctx, data);
-            if (!ComponentDisplay.mounts(mode)) {
-                prodIndex++;
-                continue;
-            }
-            View view = ComponentRegistry.getInstance().render(ctx, data);
-            if (view == null) {
-                // 渲染失败降级占位（统一错误态卡片，不显示组件源码）
-                view = ComponentRegistry.getInstance().renderFallback(ctx, data);
-            }
-            View mounted = mode == ComponentDisplay.Mode.PEEK
-                    ? wrapProductPeek(ctx, message, data, view, prodIndex++)
-                    : view;
-            if (mounted == null) {
-                prodIndex++;
-                continue;
-            }
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
-            holder.componentContainer.addView(mounted, lp);
-            first = false;
-            rendered++;
-        }
-
-        // 工具过程卡片：全部完成 → 折叠一行（可点击展开）；执行中或已展开 → 逐个渲染
-        if (!toolCalls.isEmpty()) {
-            if (toolsCollapsed) {
-                TextView foldRow = new TextView(ctx);
-                foldRow.setText(SmartQuizApplication.getAppContext().getString(R.string.h_17f41f0b) + toolCalls.size() + SmartQuizApplication.getAppContext().getString(R.string.h_c8290962));
-                foldRow.setTextSize(12);
-                foldRow.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-                foldRow.setPadding(dpToPx(4, ctx), dpToPx(6, ctx), dpToPx(4, ctx), dpToPx(6, ctx));
-                foldRow.setOnClickListener(v -> toggleAgentToolsExpanded(holder, message));
+        if (!roundAssembled && message.components != null) {
+            for (ComponentData data : message.components) {
+                if (data == null || data.props == null || "tool_call".equals(data.type)) continue;
+                ComponentDisplay.Mode mode = ComponentDisplay.resolve(ctx, data);
+                if (!ComponentDisplay.mounts(mode)) {
+                    prodIndex++;
+                    continue;
+                }
+                View view = ComponentRegistry.getInstance().render(ctx, data);
+                if (view == null) {
+                    // 渲染失败降级占位（统一错误态卡片，不显示组件源码）
+                    view = ComponentRegistry.getInstance().renderFallback(ctx, data);
+                }
+                View mounted = mode == ComponentDisplay.Mode.PEEK
+                        ? wrapProductPeek(ctx, message, data, view, prodIndex++)
+                        : view;
+                if (mounted == null) {
+                    prodIndex++;
+                    continue;
+                }
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
-                holder.componentContainer.addView(foldRow, lp);
+                holder.componentContainer.addView(mounted, lp);
                 first = false;
                 rendered++;
-            } else {
-                for (ComponentData tc : toolCalls) {
-                    View view = ComponentRegistry.getInstance().render(ctx, tc);
-                    if (view == null) continue;
-                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                    lp.topMargin = first ? dpToPx(6, ctx) : dpToPx(8, ctx);
-                    holder.componentContainer.addView(view, lp);
-                    first = false;
-                    rendered++;
-                }
-                // 展开态底部提供收起入口
-                if (allToolsDone) {
-                    TextView collapseRow = new TextView(ctx);
-                    collapseRow.setText(SmartQuizApplication.getAppContext().getString(R.string.h_ef56d078));
-                    collapseRow.setTextSize(11);
-                    collapseRow.setTextColor(ThemeColors.attr(ctx, R.attr.colorControlTextSecondary));
-                    collapseRow.setPadding(dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx), dpToPx(4, ctx));
-                    collapseRow.setOnClickListener(v -> toggleAgentToolsExpanded(holder, message));
-                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                    lp.topMargin = dpToPx(4, ctx);
-                    holder.componentContainer.addView(collapseRow, lp);
-                }
             }
         }
         if (rendered == 0) {

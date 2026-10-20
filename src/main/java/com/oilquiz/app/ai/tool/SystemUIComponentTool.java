@@ -654,6 +654,15 @@ public class SystemUIComponentTool implements AITool {
                 }
             }
 
+            // 显式 ui_component 默认整卡展示：模型说"创建一张 info_card"时，
+            // 用户要看的是卡片本身，不该只剩一行 "▸ 运行状态速览 · 8 项"。
+            // 自动补挂的工具结果卡仍走用户默认档（peek），两者语义不同。
+            if (!props.has("display") && parameters.get("display") != null) {
+                props.put("display", String.valueOf(parameters.get("display")));
+            }
+            if (!props.has("display")) {
+                props.put("display", "inline");
+            }
             com.oilquiz.app.ai.chat.component.ComponentData data =
                     com.oilquiz.app.ai.chat.component.ComponentData.of(renderType, props);
             // 返回带组件的结果：AIToolManager 会自动 collect 进聊天流
