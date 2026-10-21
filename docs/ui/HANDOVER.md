@@ -1527,6 +1527,23 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. 下一步（第 2 步）：`HtmlJsBridge.submit(payload)` + prefs 开关 `html_component_submit` 默认 false；
    第 3 步：模型可见文案。**真机项**：JS↔native 端到端、`get_result` 唤醒、内滚不抢手势。
 
+### 4.71 feat(component)：`HtmlJsBridge.submit`——html 卡页面内回传 Agent（开关默认 false）（2026-10-21）
+
+设计文档 §3.2 的第 2 步。把 `html` 卡从"仅本地交互"接进"真往返"那一档，**不新造通道、不扩权限**。
+
+1. `HtmlJsBridge` 加 `@JavascriptInterface submit(String payload)`：只转投既有 `ComponentActions.dispatchResult`
+   →按 id 回调/全局兜底→`PythonToolManager`→`ui_component(get_result)` 同一回收口；成功 Toast「已提交」。
+2. **id 由 native 绑定**：新 `HtmlJsBridge(context, componentId)`（留旧单参构造），id 取 `resolveComponentId(data)`；
+   **JS 不能指定 id**（否则任意页面可往别的组件结果槽写）。id 为空＝非交互卡（创建时没带 `actions`）→ 静默 no-op。
+3. **payload 不透明 + 16KB 上限**（`HtmlCardView.MAX_SUBMIT_CHARS`）：不解析/不执行/不进 openLink，超限 Toast 拒。
+4. **`HtmlSubmitFlag`＝`ai_chat_prefs/html_component_submit` 默认 false**：关掉时不接地址，四个既有桥方法一字未动，
+   现网逐字节同今天；挂载档位也没扩大（只 `LOCAL_FILE` 有桥，`INLINE_UNTRUSTED` JS 关、`INTERNAL_TEMPLATE`/`REMOTE_PAGE` 无桥）。
+   parts 接管侧零改动（html 卡仍走自包含 `ComponentRegistry.render`）。
+5. **验证**：`HtmlBridgeSubmitTest` 8 项（真回调注册表：恰好派发一次 + payload 原样、纯值形状可通、
+   null/空 id 与旧构造不派发、空 payload 不派发、超限拒且等于上限放行、四档 allowsBridge 只 LOCAL_FILE 真、
+   开关默认 false 可读写、交互卡才有地址）；`HtmlSandboxTest` 17 项仍绿。**待真机**：JS↔native 端到端、
+   `get_result` 唤醒、长报表内滚不抢手势、flag=true 下 inline/peek 两档均可提交。
+
 ---
 
 ## 5. 关键文件 / 改动地图

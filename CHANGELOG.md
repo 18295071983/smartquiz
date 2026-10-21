@@ -1,5 +1,27 @@
 # 变更日志
 
+## [2026-10-21] feat(component)：html 卡页面内可回传 Agent（`HtmlJsBridge.submit`，开关默认 false）
+
+设计文档第 2 步落地（`docs/ui/html-card-agent-roundtrip-design.md`），把 `html` 卡从"仅本地交互"升到能进
+"真往返回传"那一档，且**不新造通道、不扩权限**：
+- `HtmlJsBridge` 加 `@JavascriptInterface submit(String payload)`：内部只转投既有
+  `ComponentActions.dispatchResult` → 按 id 回调 / 全局兜底 → `PythonToolManager` → `ui_component(get_result)`
+  同一个回收口；成功 Toast「已提交」（与 footer 按钮 `perform` 的反馈一致）。
+- **回传地址由 native 绑定**：新增 `HtmlJsBridge(context, componentId)`（保留旧单参构造），id 取
+  `ComponentActions.resolveComponentId(data)`；**JS 不能指定 id**，否则任意页面可往别的组件结果槽写。
+  id 为空（非交互卡／创建时没带 actions）→ `submit` 静默 no-op。
+- **payload 不透明 + 上限 16 KB**（`HtmlCardView.MAX_SUBMIT_CHARS`）：不解析、不执行、不进 `openLink`，超限 Toast 拒。
+- **新增 `HtmlSubmitFlag`（`ai_chat_prefs/html_component_submit`，默认 false）**：关掉时不接地址，
+  `showToast/copy/openLink/previewImage` 四个既有方法一字未动 → 现网行为与今天逐字节相同。
+  挂载档位也没扩大（仍只有 `HtmlSandbox.allowsBridge`＝`LOCAL_FILE` 有桥；模型直给的 `INLINE_UNTRUSTED`
+  连 JS 都关，`INTERNAL_TEMPLATE`(mermaid/katex) 与 `REMOTE_PAGE` 依旧无桥）。
+- parts 接管侧**零改动**：html 卡走同一个自包含 `ComponentRegistry.render`，`ChatPartsHost.context()` 已是 Activity。
+
+测试：新增 `HtmlBridgeSubmitTest` 8 项（走真回调注册表断言恰好派发一次 + payload 原样透传、纯值形状也通、
+null/空 id 与旧单参构造不派发、空 payload 不派发、超限拒收且等于上限放行、四档 `allowsBridge` 只有 LOCAL_FILE 为真、
+开关默认 false 且可读写、交互卡才有地址）。`HtmlSandboxTest` 17 项仍全绿。
+待真机：JS↔native 端到端、`get_result` 唤醒、长报表内滚不抢手势、flag=true 下 inline/peek 两档均可提交。
+
 ## [2026-10-21] refactor(component)：抽出 `ComponentActions.resolveComponentId`（html submit 第 1 步，纯重构）
 
 按 `docs/ui/html-card-agent-roundtrip-design.md` 开工，第一步只把**回传取址**收成一个家，行为零变化：

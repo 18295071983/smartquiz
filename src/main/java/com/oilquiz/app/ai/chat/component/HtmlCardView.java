@@ -51,6 +51,13 @@ public class HtmlCardView implements ChatComponent {
     /** 默认内容区最大高度(dp) */
     private static final int DEFAULT_MAX_HEIGHT_DP = 360;
 
+    /**
+     * {@code HtmlJsBridge.submit} 的 payload 上限（字符）。
+     * 提交的是"用户操作"而不是数据本体，超限基本是页面在往结果槽里灌大对象；
+     * 与 {@code HtmlSandbox.MAX_INLINE_HTML_CHARS} 同思路，用硬上限守住通道。
+     */
+    static final int MAX_SUBMIT_CHARS = 16 * 1024;
+
     /** 脚本关闭时（默认档）WebView 的固定高度(dp)：读不到内容高度，靠内部滚动兜住 */
     private static final int FALLBACK_HEIGHT_DP = 160;
 
@@ -111,7 +118,11 @@ public class HtmlCardView implements ChatComponent {
 
         // 桥只给工作区本地文件档：模型内联内容永远拿不到 Android.* 回调
         if (HtmlSandbox.allowsBridge(trust)) {
-            webView.setBridge(new HtmlJsBridge(context), HtmlWebView.BRIDGE_NAME);
+            // 回传地址由 native 绑定（JS 不能指定）；开关关或非交互卡 → null，submit 静默 no-op，
+            // showToast/copy/openLink/previewImage 四个既有方法不受影响。
+            String roundTripId = HtmlSubmitFlag.enabled(context)
+                    ? ComponentActions.resolveComponentId(data) : null;
+            webView.setBridge(new HtmlJsBridge(context, roundTripId), HtmlWebView.BRIDGE_NAME);
         }
 
         // 组件可操作：阻止外层 RecyclerView 拦截触摸，WebView 内可滚动/点击。
@@ -600,9 +611,53 @@ public class HtmlCardView implements ChatComponent {
      */
     public static class HtmlJsBridge {
         private final Context context;
+        /**
+         * 本卡回传地址（{@code props.actions[].component_id}，由 native 在构造时绑定）。
+         * null/空＝这张卡不是交互组件（创建时没带 actions），或 {@link HtmlSubmitFlag} 关着 → {@link #submit} no-op。
+         * <b>故意不做成 JS 可传的参数</b>：否则任意页面都能往别的组件结果槽里写。
+         */
+        private final String componentId;
 
         public HtmlJsBridge(Context context) {
+            this(context, null);
+        }
+
+        public HtmlJsBridge(Context context, String componentId) {
             this.context = context;
+            this.componentId = componentId;
+        }
+
+        /**
+         * 页面内提交用户操作 → 走既有唯一回传通道 {@link ComponentActions#dispatchResult}
+         * → 按 id 的回调 / 全局兜底 → {@code get_result} 取回。<b>不另造第二套通道。</b>
+         *
+         * <p>口径（html submit 设计 §3.2）：payload 当<b>不透明字符串</b>——不解析、不执行、不进 openLink；
+         * 上限 {@link #MAX_SUBMIT_CHARS} 字符，超限拒收（防超大内容刷爆结果槽）。形状沿用
+         * {@code ComponentActions.perform} 的既有约定：纯值，或 {@code {"action":..., "inputs":{...}}}。</p>
+         *
+         * <p>安全边界：只有 {@code HtmlSandbox.allowsBridge} 为真的档位（{@code LOCAL_FILE}，
+         * 即 Agent 产在工作区内的本地报表 HTML）才挂桥；模型直给的 HTML 字符串档（{@code INLINE_UNTRUSTED}）
+         * 连 JS 都是关的，拿不到本方法。</p>
+         */
+        @android.webkit.JavascriptInterface
+        public void submit(String payload) {
+            try {
+                if (componentId == null || componentId.isEmpty()) {
+                    return; // 非交互卡 / 开关关：静默忽略
+                }
+                if (payload == null || payload.isEmpty()) {
+                    return;
+                }
+                if (payload.length() > MAX_SUBMIT_CHARS) {
+                    Log.w(TAG, "bridge submit payload too long: " + payload.length());
+                    showToast("提交内容过长，请缩减后重试");
+                    return;
+                }
+                ComponentActions.dispatchResult(context, componentId, payload);
+                showToast("已提交");
+            } catch (Throwable t) {
+                Log.w(TAG, "bridge submit failed: " + t.getMessage());
+            }
         }
 
         @android.webkit.JavascriptInterface
