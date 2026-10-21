@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-10-21] parts P3c：内联 component → text+data 交错，parts 接管含标记消息（撤护栏）
+
+补掉 P3b 护栏挡住的漏渲：正文内联 ` ```component:xxx``` ` 由 `ComponentContentSplitter` 现场解析、不进 `msg.components`，
+之前 parts 看不到会漏渲、且把标记当代码块显示。
+
+- `AssistantTurn.expandInline(turn)`（public）+ `fromMessageForParts(msg)`：把含标记的 text part 就地展开成交错
+  text 段 + data part（data 引用解析出的 ComponentData、id 唯一、args 写内容摘要参与指纹）。
+- **不污染现网投影**：`PartsTurnBinder` 对 `msg.assistantTurn` 取 `.copy()` 后再 `expandInline`（或无 turn 才 `fromMessage`），
+  `fromMessage`/`applyToMessage` 一律不改 → flag=false 现网字节级不变。
+- 撤掉 `bindMessageContent` 的 `!containsComponent` 护栏：parts 现在能忠实渲染内联卡，含标记消息也走 parts。
+
+测试：+2（fromMessageForParts 拆分 text+data·text 段不含标记·id 唯一；fromMessageForParts 不改 live assistantTurn），
+全量 `--offline` **545** 全绿（0/0/0），assembleDebug 通过。flag=false 现网不变；flag=true 端到端仍需真机验。
+
 ## [2026-10-21] parts P3b：ChatAdapter 接线（flag 门控，首次改动 ChatAdapter）
 
 把 P3a 的消费端机器插进绑定路径。仅在 `parts_renderer=true` 且"消息已完成且有 assistantTurn"时接管；

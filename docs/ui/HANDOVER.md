@@ -1394,6 +1394,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    → gate 加 `!containsComponent(content)` 让这类消息暂回落 legacy；"content 切成 text+data part"留后续。
 6. **验证**：`assembleDebug` 通过；全量 543 全绿、无回归；flag=false 现网不变。
 
+### 4.59 parts P3c：内联 component 拆成 text+data 交错（撤 4.58-④ 护栏）（2026-10-21）
+
+1. 新增 `AssistantTurn.expandInline(turn)`（public）+ `fromMessageForParts(msg)`：含 ` ```component``` ` 标记的 text part
+   就地展开成交错 text 段 + data part（data 引用解析的 ComponentData、id 唯一、args 写内容摘要参与指纹）。
+2. **不污染现网**：`PartsTurnBinder` 对 `msg.assistantTurn` 先 `.copy()` 再 expandInline（无 turn 才 fromMessage）；
+   `fromMessage`/`applyToMessage` 不改 → flag=false 现网字节级不变。
+3. 撤掉 4.58-④ 的 `!containsComponent` 护栏：parts 现能忠实渲染内联卡，含标记消息也走 parts。
+4. **验证**：+2 单测，全量 545 全绿、`assembleDebug` 通过、无回归。仍待真机验 flag=true 内联卡渲染。
+
 ---
 
 ## 5. 关键文件 / 改动地图

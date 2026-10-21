@@ -44,7 +44,12 @@ public final class PartsTurnBinder {
         if (msg == null) {
             return null;
         }
-        AssistantTurn turn = msg.assistantTurn != null ? msg.assistantTurn : AssistantTurn.fromMessage(msg);
-        return turn != null ? turn.parts : null;
+        // 复用现网 canonical（含引擎写入的 state），但操作其副本，避免污染 msg.assistantTurn；
+        // 再把内联 component 标记展开成 text+data 交错 part。
+        AssistantTurn base = msg.assistantTurn != null
+                ? msg.assistantTurn.copy()
+                : AssistantTurn.fromMessage(msg);
+        AssistantTurn.expandInline(base);
+        return base != null ? base.parts : null;
     }
 }

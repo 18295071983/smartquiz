@@ -3573,13 +3573,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         // parts 渲染器接管（P3b）。flag 默认 false → 整个分支跳过，下面旧路径字节级不变。
         // 仅"已完成且有 canonical assistantTurn"的消息走 parts；流式/无 turn 仍走旧路径。
-        // 护栏：正文含内联 ```component``` 标记的消息暂回落 legacy——parts 的 data 源只看
-        // message.components，漏这类从 content 现场解析的内联卡（且会把标记当代码块显示）。
-        // 真正的"content 按标记切成交错 text+data part"是后续 fromMessage 改造。
+        // 内联 ```component``` 标记由 fromMessageForParts 切成 text+data part，在 parts 内渲染。
         if (com.oilquiz.app.ai.chat.parts.PartsRendererFlag.enabled(ctx)
-                && message.isCompleted() && message.assistantTurn != null
-                && !com.oilquiz.app.ai.chat.component.ComponentContentSplitter
-                        .containsComponent(message.content)) {
+                && message.isCompleted() && message.assistantTurn != null) {
             if (bindWithParts(holder, message, availableWidth, ctx)) {
                 return;
             }

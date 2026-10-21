@@ -331,4 +331,56 @@ public class AssistantTurnTest {
         }
         return o;
     }
+
+    @Test
+    public void fromMessageForPartsSplitsInlineComponentMarkers() {
+        ChatMessage msg = ChatMessage.createAIMessage("a",
+                "开头说明\n```component:chart\n{\"title\":\"A\"}\n```\n结尾说明", 1L);
+        msg.turnId = "T1";
+
+        AssistantTurn split = AssistantTurn.fromMessageForParts(msg);
+
+        int data = 0;
+        boolean anyTextHasMarker = false;
+        boolean sawHead = false, sawTail = false;
+        for (AssistantTurn.Part p : split.parts) {
+            if (AssistantTurn.Part.TYPE_DATA.equals(p.type)) {
+                data++;
+                assertNotNull("内联 data part 引用组件", p.data);
+                assertEquals("chart", p.data.type);
+            }
+            if (AssistantTurn.Part.TYPE_TEXT.equals(p.type)) {
+                assertFalse("切出的 text 段不应再含 component 标记",
+                        p.text.contains("```component"));
+                if (p.text.contains("开头说明")) sawHead = true;
+                if (p.text.contains("结尾说明")) sawTail = true;
+            }
+        }
+        assertEquals(1, data);
+        assertTrue("头段保留", sawHead);
+        assertTrue("尾段保留", sawTail);
+        // 两个 text 段 id 必须不同（否则引擎撞 id）
+        Set<String> ids = new HashSet<>();
+        for (AssistantTurn.Part p : split.parts) ids.add(p.id);
+        assertEquals("所有 part id 唯一", split.parts.size(), ids.size());
+    }
+
+    @Test
+    public void fromMessageForPartsDoesNotMutateLiveAssistantTurn() {
+        ChatMessage msg = ChatMessage.createAIMessage("a",
+                "文\n```component:chart\n{\"title\":\"A\"}\n```", 1L);
+        msg.turnId = "T1";
+        // 现网 canonical（AIChatActivity 会这么建）：整段含标记的 text part
+        msg.assistantTurn = AssistantTurn.fromMessage(msg);
+        int livePartsBefore = msg.assistantTurn.parts.size();
+        String liveText = msg.assistantTurn.parts.get(0).text;
+
+        AssistantTurn split = AssistantTurn.fromMessageForParts(msg);
+
+        // 现网 turn 不被改动：仍是单个含标记 text part
+        assertEquals(livePartsBefore, msg.assistantTurn.parts.size());
+        assertTrue(liveText.contains("```component"));
+        // 但返回的是展开后的新 turn（>1 part，且不含标记）
+        assertTrue(split.parts.size() > livePartsBefore);
+    }
 }

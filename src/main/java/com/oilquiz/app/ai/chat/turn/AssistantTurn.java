@@ -230,6 +230,63 @@ public class AssistantTurn {
         static final String ID_RESULT_SUFFIX = ":result";
     }
 
+    /**
+     * parts 渲染专用的 canonical 构建：在 {@link #fromMessage} 结果上，把含内联
+     * {@code ```component```} 标记的 text part 展开成「text 段 / data 段」交错序列
+     * （{@code data} 段承载从标记现场解析出的组件，legacy 只渲染 data part 卡、text 段不再含标记）。
+     *
+     * <p>返回<b>新建</b>的 turn，绝不返回/改动 {@code msg.assistantTurn}，故不影响
+     * {@link #applyToMessage} 的现网投影（flag=false 零影响）。仅 {@code PartsTurnBinder} 用。</p>
+     */
+    public static AssistantTurn fromMessageForParts(ChatMessage msg) {
+        if (msg == null) {
+            return null;
+        }
+        AssistantTurn base = fromMessage(msg);
+        expandInline(base);
+        return base;
+    }
+
+    /**
+     * 就地展开：把含内联 {@code ```component```} 标记的 text part 拆成交错 text+data part。
+     * 调用方须保证传入的是<b>可安全修改</b>的 turn（新建的，或 {@code msg.assistantTurn.copy()}），
+     * 不要直接传 live {@code msg.assistantTurn}，否则会污染现网投影。
+     */
+    public static void expandInline(AssistantTurn base) {
+        if (base == null) {
+            return;
+        }
+        java.util.List<Part> out = new java.util.ArrayList<>();
+        int inlineSeq = 0;
+        for (Part p : base.parts) {
+            if (p == null || !Part.TYPE_TEXT.equals(p.type)
+                    || p.text == null
+                    || !com.oilquiz.app.ai.chat.component.ComponentContentSplitter
+                            .containsComponent(p.text)) {
+                out.add(p);
+                continue;
+            }
+            java.util.List<com.oilquiz.app.ai.chat.component.ComponentContentSplitter.Segment> segs =
+                    com.oilquiz.app.ai.chat.component.ComponentContentSplitter.split(p.text);
+            for (com.oilquiz.app.ai.chat.component.ComponentContentSplitter.Segment seg : segs) {
+                if (seg == null) {
+                    continue;
+                }
+                if (seg.isComponent && seg.component != null) {
+                    Part dp = Part.data(p.id + ":inline:" + (inlineSeq++), seg.component, p.timestamp);
+                    dp.args = contentDigest(seg.component); // 参与指纹，区分同类型不同内容的内联卡
+                    out.add(dp);
+                } else if (!seg.isComponent && seg.text != null && !seg.text.trim().isEmpty()) {
+                    // 每个 text 段带唯一后缀 id，避免同 parent 多段撞 id
+                    Part tp = Part.text(p.id + ":seg" + inlineSeq, seg.text, p.timestamp);
+                    tp.state = p.state;
+                    out.add(tp);
+                }
+            }
+        }
+        base.parts = out;
+    }
+
     /** 从当前 ChatMessage 的兼容字段构建 canonical turn。 */
     public static AssistantTurn fromMessage(ChatMessage msg) {
         if (msg == null) return null;
