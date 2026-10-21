@@ -64,10 +64,15 @@ public final class ToolGroupPartRenderer implements PartRenderer {
         LinearLayout body = new LinearLayout(ctx);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setVisibility(View.GONE);
+        // 产物区与折叠体分离：对齐 legacy 的 chat_v2_tool_card_products（挂在 expanded 判断之外）。
+        // 若把产物塞进 body，折叠组卡时会连产物一起藏掉，用户必须点开才看得到图/表——那是回归。
+        LinearLayout products = new LinearLayout(ctx);
+        products.setOrientation(LinearLayout.VERTICAL);
 
         root.addView(header);
         root.addView(body);
-        root.setTag(new Views(header, body));
+        root.addView(products);
+        root.setTag(new Views(header, body, products));
         return root;
     }
 
@@ -96,18 +101,16 @@ public final class ToolGroupPartRenderer implements PartRenderer {
 
         // 成员卡（复用 registry），折叠也预建，展开即时。
         releaseChildren(v.body);
+        releaseChildren(v.products);
         for (Part m : members) {
-            LinearLayout row = new LinearLayout(ctx);
-            row.setOrientation(LinearLayout.VERTICAL);
             ComponentData cd = ComponentData.of(ToolCallPartRenderer.ToolCardProps.TYPE,
                     ToolCallPartRenderer.ToolCardProps.fromCall(m));
             View card = factory.create(ctx, cd);
             if (card != null) {
-                row.addView(card);
+                v.body.addView(card);
             }
-            // 所属产物（§11.3）：挂在成员工具卡下方，随组一起折叠/展开。
-            ProductCards.mountAll(productFactory, row, m.products, m.id + ":prod:", host);
-            v.body.addView(row);
+            // 所属产物（§11.3）：进<b>产物区</b>而不是折叠体——折叠时仍可见（同 legacy）。
+            ProductCards.mountAll(productFactory, v.products, m.products, m.id + ":prod:", host);
         }
 
         final PartHost h = host;
@@ -125,6 +128,7 @@ public final class ToolGroupPartRenderer implements PartRenderer {
             Views v = (Views) ((LinearLayout) view).getTag();
             if (v != null) {
                 releaseChildren(v.body);
+                releaseChildren(v.products);
             }
         }
     }
@@ -144,9 +148,12 @@ public final class ToolGroupPartRenderer implements PartRenderer {
     private static final class Views {
         final TextView header;
         final LinearLayout body;
-        Views(TextView header, LinearLayout body) {
+        /** 产物区：在折叠体之外，折叠时仍可见（对齐 legacy chat_v2_tool_card_products）。 */
+        final LinearLayout products;
+        Views(TextView header, LinearLayout body, LinearLayout products) {
             this.header = header;
             this.body = body;
+            this.products = products;
         }
     }
 }

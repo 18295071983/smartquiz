@@ -1615,6 +1615,21 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. **A/B 未做成**：翻回 false 后我两次滑动落在不同消息上，"48 vs 17 条"是滚动位置差异，不能当内容对比；
    消息操作行（复制/重新生成/⋯）在 parts 下是否仍在**仍未证**。设备由用户持有时不要抢点击。
 
+### 4.77 fix(parts)：组卡折叠不再吞产物（P3i 回归，真机用户报）（2026-10-21）
+
+1. 现象：`🔧 已运行 N 个工具` 折叠后，附在工具下的图/表卡也一起不见了，必须点开组才看得到。
+2. 查实为**我 P3i 引入的回归**：legacy 组卡有两个容器——工具行 `chat_v2_tool_card_body`（随折叠 GONE，
+   `ChatAdapter:2040-2051`）与**独立的**产物容器 `chat_v2_tool_card_products`（`:2057`，写在 `if (expanded)` 之外），
+   即 legacy 折叠只藏工具行、产物常显；我把产物塞进了折叠体。
+3. 修：`ToolGroupPartRenderer` 三段式 `header / body(折叠) / products(常显)`，成员行进 body、成员产物进 products；
+   重绑与 `releaseView` 都清两段（产物含 WebView，须 `ComponentLifecycle` 深度释放）。单工具卡本就不折叠，不受影响。
+4. 测试：`groupProductsStayVisibleWhenCollapsed`——折叠档下产物到根每级 VISIBLE，**且成员工具行仍不可见**
+   （防"把折叠删掉"式假修）。`FakeFactory` 增记返回 View。全量 593 全绿（+1）、`assembleDebug` 通过。
+5. 同轮另一条已查实**未修、待拍**：parts 组内成员渲成整张 `ToolCallCardView`，而 legacy 是紧凑行
+   `item_chat_v2_tool_row`（`buildToolActivityRow:2525/2531`）→ 用户看到的"和以前不一样"。
+   选型：复用旧行布局（需把 `buildToolActivityRow` 依赖的 `ActivityTimeline.Item`+inflater 路径接进 parts）
+   vs 接受卡片长相。
+
 ---
 
 ## 5. 关键文件 / 改动地图

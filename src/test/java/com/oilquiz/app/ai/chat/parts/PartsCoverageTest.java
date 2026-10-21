@@ -204,6 +204,7 @@ public class PartsCoverageTest {
     /** 假组件工厂：在每次 create 时快照 props，返回空壳视图，不触真实 ToolCallCardView。 */
     private static final class FakeFactory implements ToolCallPartRenderer.ComponentFactory {
         final java.util.List<org.json.JSONObject> created = new ArrayList<>();
+        final java.util.List<View> views = new ArrayList<>();
         @Override
         public View create(Context context, ComponentData data) {
             try {
@@ -214,6 +215,7 @@ public class PartsCoverageTest {
             View v = new View(context);
             v.setLayoutParams(new ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            views.add(v);
             return v;
         }
     }
@@ -318,6 +320,58 @@ public class PartsCoverageTest {
         call.bindView(bareHost, bare, h);
         assertEquals("无产物不调产品工厂", 0, prodF.created.size());
         assertEquals("裸工具卡只有一个子", 1, ((ViewGroup) bareHost).getChildCount());
+    }
+
+    /**
+     * 折叠组卡时<b>产物必须仍然可见</b>（对齐 legacy：工具行在 chat_v2_tool_card_body 里随折叠隐藏，
+     * 产物挂在独立的 chat_v2_tool_card_products 上、在 expanded 判断之外）。
+     *
+     * <p>P3i 曾把产物塞进折叠体，导致"看图还得先点开工具组"——这条把该约束钉死。</p>
+     */
+    @Test
+    public void groupProductsStayVisibleWhenCollapsed() {
+        FakeFactory toolF = new FakeFactory();
+        FakeFactory prodF = new FakeFactory();
+        ToolGroupPartRenderer r = new ToolGroupPartRenderer(toolF, prodF);
+
+        AssistantTurn.Part m1 = AssistantTurn.Part.toolCall("g:c1", "c1", "weather", "{}", "done", 1L);
+        AssistantTurn.Part m2 = AssistantTurn.Part.toolCall("g:c2", "c2", "database", "{}", "done", 2L);
+        org.json.JSONObject pp = new org.json.JSONObject();
+        try {
+            pp.put("display", "inline");
+            pp.put("title", "天气图");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        m1.products = new ArrayList<>();
+        m1.products.add(ComponentData.of("chart", pp));
+        AssistantTurn.Part grp = AssistantTurn.Part.toolGroup("grp1",
+                new ArrayList<>(Arrays.asList(m1, m2)), 1L);
+
+        TestHost h = new TestHost(ctx); // 默认 toolGroupExpanded=false（折叠档）
+        View root = r.createView(h, container);
+        r.bindView(root, grp, h);
+
+        assertEquals("成员工具卡应有 2 张", 2, toolF.created.size());
+        assertEquals("产物应出卡一次", 1, prodF.created.size());
+
+        View product = prodF.views.isEmpty() ? null : prodF.views.get(0);
+        assertNotNull(product);
+        assertTrue("折叠时产物被藏进折叠体了（必须挂在折叠体之外的产物区）",
+                visibleUpTo(root, product));
+        // 而工具行仍应随折叠隐藏
+        ViewGroup body = (ViewGroup) ((ViewGroup) root).getChildAt(1);
+        assertFalse("折叠时成员工具卡应不可见", visibleUpTo(root, body.getChildAt(0)));
+    }
+
+    /** 从 view 往上走到 stop，任一级 GONE 即视为不可见。 */
+    private static boolean visibleUpTo(View stop, View v) {
+        for (View c = v; c != null && c != stop; c = c.getParent() instanceof View ? (View) c.getParent() : null) {
+            if (c.getVisibility() != View.VISIBLE) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private TurnPartsHost hostWith(PartRenderer... renderers) {

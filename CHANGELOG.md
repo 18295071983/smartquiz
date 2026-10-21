@@ -1,5 +1,23 @@
 # 变更日志
 
+## [2026-10-21] fix(parts)：组卡折叠把产物一起藏了——产物区移出折叠体（P3i 回归）
+
+真机 flag=true 下用户报"已运行 N 个工具后面附的卡片都被折叠，要看还得点开"。查 legacy 证实**是我 P3i 引入的回归**：
+legacy 组卡里有两个容器——工具行在 `chat_v2_tool_card_body`（随折叠 GONE，`ChatAdapter:2040-2051`），
+产物挂在**独立的** `chat_v2_tool_card_products`（`:2057`，在 `if (expanded)` **之外**），
+所以 legacy 折叠只藏工具行、**产物始终可见**。我把产物塞进了折叠体 `v.body`，于是连产物一起藏。
+
+- 修：`ToolGroupPartRenderer` 拆成三段 `header / body(折叠) / products(常显)`，成员工具行进 `body`、
+  成员所属产物进 `products`；`releaseView` 与重绑同时清两段（产物可能是 WebView，走 `ComponentLifecycle` 深度释放）。
+- 单工具卡不受影响（它本来不折叠，产物一直可见）。
+- 测试：`PartsCoverageTest.groupProductsStayVisibleWhenCollapsed`——折叠档下断言产物到根的每一级都 VISIBLE，
+  同时成员工具行必须仍不可见（防有人把折叠整个去掉来"修"这个 bug）。`FakeFactory` 增记返回的 View 以便走可见性链。
+- 全量 `--offline` **593** 全绿（+1，0 skip/fail/err）、`assembleDebug` 通过。待真机复验：折叠组卡时图/表直接可见。
+
+同轮用户还报"工具执行后的视图和以前不一样"：已查实是 **legacy 组内每个工具是一行紧凑
+`R.layout.item_chat_v2_tool_row`（`buildToolActivityRow:2525/2531`）**，而 parts 把成员渲成了整张
+`ToolCallCardView`（组件 `tool_call`）→ 长相不同。属选型问题不是笔误，**待拍**：parts 复用旧行布局，还是接受卡片长相。
+
 ## [2026-10-21] fix(parts)：深度思考点开是空的——bindView 前视图未入树，异步渲染被代次清理丢弃
 
 真机 flag=true 下用户报"深度思考点开是空的"。诊断链（先排除数据侧再动代码）：
