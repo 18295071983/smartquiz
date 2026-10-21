@@ -66,6 +66,8 @@ public class AssistantTurn {
         public static final String TYPE_APPROVAL = "approval";
         /** 产物/数据卡块（chart/table/json/文件…，对齐 AI SDK 的 data-* part）。 */
         public static final String TYPE_DATA = "data";
+        /** 连续多工具折叠成的一张组卡（对齐 legacy "已运行N个工具"），成员在 {@link #group}。 */
+        public static final String TYPE_TOOL_GROUP = "tool_group";
 
         /** 生成态（对齐 AI SDK UIMessage part.state）。缺省/null 视为已定稿。 */
         public static final String STATE_STREAMING = "streaming";
@@ -95,6 +97,8 @@ public class AssistantTurn {
          * {@code ChatMessage.components}，这里只是渲染期引用，不落库、不参与 equals/指纹。
          */
         public transient com.oilquiz.app.ai.chat.component.ComponentData data;
+        /** tool_group part 的成员（每个是已并入 result 的 tool_call part）。transient。 */
+        public transient java.util.List<Part> group;
 
         public Part() {
         }
@@ -186,6 +190,16 @@ public class AssistantTurn {
             return p;
         }
 
+        /** 工具组 part：成员是已并入 result 的若干 tool_call part。 */
+        public static Part toolGroup(String id, java.util.List<Part> members, long ts) {
+            Part p = new Part();
+            p.id = id;
+            p.type = TYPE_TOOL_GROUP;
+            p.group = members;
+            p.timestamp = ts;
+            return p;
+        }
+
         /**
          * 内容指纹：对 Part 的展示相关内容做确定性哈希（type / state / text / toolCallId /
          * toolName / args / result / status）。<b>不含 id、timestamp</b>——它回答的是
@@ -208,6 +222,11 @@ public class AssistantTurn {
             h = fnvField(h, result);
             h = fnvField(h, status);
             h = fnvField(h, Long.toString(durationMs));
+            if (group != null) {
+                for (Part m : group) {
+                    h = fnvField(h, m != null ? m.fingerprint() : "-"); // 成员变化→组卡重绑
+                }
+            }
             return Long.toString(h, 36);
         }
 
@@ -242,12 +261,7 @@ public class AssistantTurn {
      * {@link #applyToMessage} 的现网投影（flag=false 零影响）。仅 {@code PartsTurnBinder} 用。</p>
      */
     public static AssistantTurn fromMessageForParts(ChatMessage msg) {
-        if (msg == null) {
-            return null;
-        }
-        AssistantTurn base = fromMessage(msg);
-        expandInline(base, false);
-        return base;
+        return fromMessageForParts(msg, false);
     }
 
     /** 带主题（mermaid/公式 html 需 isDark）的 parts 构建。 */
@@ -257,7 +271,69 @@ public class AssistantTurn {
         }
         AssistantTurn base = fromMessage(msg);
         expandInline(base, dark);
+        groupTools(base);
         return base;
+    }
+
+    /**
+     * 把 parts 里的工具序列整理成组卡（§11.1）：
+     * ① 每条 {@code tool_result} 并入其 {@code tool_call}（按 toolCallId），删掉独立 result part；
+     * ② 连续 ≥2 个 {@code tool_call} 折叠成一个 {@link Part#TYPE_TOOL_GROUP}（成员存 {@link Part#group}）；
+     *    单个 tool_call 保持独立卡。
+     * 只作用于传入的可安全修改 turn（fromMessageForParts 新建的），勿传 live turn。
+     */
+    public static void groupTools(AssistantTurn base) {
+        if (base == null || base.parts == null) {
+            return;
+        }
+        // ① 合并 result 到对应 tool_call，丢弃独立 tool_result part
+        java.util.Map<String, Part> callById = new java.util.HashMap<>();
+        java.util.List<Part> merged = new java.util.ArrayList<>();
+        for (Part p : base.parts) {
+            if (p == null) {
+                continue;
+            }
+            if (Part.TYPE_TOOL_CALL.equals(p.type) && p.toolCallId != null) {
+                callById.put(p.toolCallId, p);
+                merged.add(p);
+            } else if (Part.TYPE_TOOL_RESULT.equals(p.type)) {
+                Part call = p.toolCallId != null ? callById.get(p.toolCallId) : null;
+                if (call != null) {
+                    if (p.result != null && !p.result.isEmpty()) call.result = p.result;
+                    if ((call.status == null || call.status.isEmpty()) && p.status != null) call.status = p.status;
+                    if (call.durationMs == 0L) call.durationMs = p.durationMs;
+                }
+                // 没匹配到 call 的孤儿 result：丢弃（避免悬空）
+            } else {
+                merged.add(p);
+            }
+        }
+        // ② 连续 ≥2 tool_call 折叠成组卡
+        java.util.List<Part> out = new java.util.ArrayList<>();
+        int i = 0;
+        while (i < merged.size()) {
+            Part p = merged.get(i);
+            if (p != null && Part.TYPE_TOOL_CALL.equals(p.type)) {
+                java.util.List<Part> run = new java.util.ArrayList<>();
+                run.add(p);
+                int j = i + 1;
+                while (j < merged.size() && merged.get(j) != null
+                        && Part.TYPE_TOOL_CALL.equals(merged.get(j).type)) {
+                    run.add(merged.get(j));
+                    j++;
+                }
+                if (run.size() >= 2) {
+                    out.add(Part.toolGroup(run.get(0).id + ":grp", run, run.get(0).timestamp));
+                } else {
+                    out.add(p);
+                }
+                i = j;
+            } else {
+                out.add(p);
+                i++;
+            }
+        }
+        base.parts = out;
     }
 
     public static void expandInline(AssistantTurn base) {

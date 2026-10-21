@@ -1441,6 +1441,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. 现 flag=true 覆盖文本/思考/工具卡/产物卡/mermaid/公式；仅 error/approval（无生产者）回落。工具组折叠/产物归属未做（单卡）。
 4. **验证**：+1 单测（mermaid→html data part、text 无残留围栏），全量 548 全绿、`assembleDebug` 通过。
 
+### 4.64 parts P3h：工具组折叠卡（§11.1，最后一个未复刻子布局）（2026-10-21）
+
+1. `AssistantTurn.groupTools(base)`（`fromMessageForParts` 内、expandInline 之后）：① 每条 `tool_result` 按
+   `toolCallId` 并入其 `tool_call`（result/status/durationMs），删独立 result part（孤儿丢弃）；② 连续 ≥2 个
+   `tool_call` 折成 `tool_group`（成员存 `Part.group`），单个工具留独立卡。`Part.fingerprint()` 计入成员指纹→组内变化即重绑。
+2. `ToolGroupPartRenderer`：折叠头"🔧 已运行 N 个工具"（含 running→"⏳ N 个工具执行中"），点击展开逐成员卡；
+   成员卡复用 `ComponentRegistry` 的 `tool_call` 卡（同源），展开态走 `PartHost.toolGroupExpanded/toggleToolGroup`（存 `ChatMessage`）。
+3. `createDefault()` 注册组渲染器；`bindWithParts` allowed 扩 `TYPE_TOOL_GROUP`。现 flag=true 覆盖文本/思考/单卡/组折叠/产物/mermaid/公式，仅 error/approval 回落。
+4. **验证**：+3 单测（折叠并入 / 单工具不折叠 / 组指纹随成员变化），`--offline` 定向 parts+turn 全绿（AssistantTurn 25、parts 42，0 skip/fail/err）。待真机：组卡折叠交互。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -59,6 +59,15 @@ public interface PartHost {
      */
     void onApprovalDecision(String partId, String toolCallId, boolean approved);
 
+    /** 工具组"已运行N个工具"折叠卡是否展开（宿主按 groupId 记，通常存于 ChatMessage）。默认折叠。 */
+    default boolean toolGroupExpanded(String groupId) {
+        return false;
+    }
+
+    /** 切换工具组展开态。默认无操作（无宿主支撑时不报错）。 */
+    default void toggleToolGroup(String groupId) {
+    }
+
     /** 内容高度变化后请求宿主重排（WebView 高度回调、RecyclerView item 重测量都走这里）。 */
     void invalidateSize();
 }

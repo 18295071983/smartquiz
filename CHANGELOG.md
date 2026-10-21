@@ -1,5 +1,23 @@
 # 变更日志
 
+## [2026-10-21] parts P3h：工具组折叠卡（§11.1）+ 结果并入调用
+
+按"自造渲染器、把数据接上"补最后一个还没复刻的子布局——连续多工具的组折叠：
+- `AssistantTurn.groupTools(base)`（在 `fromMessageForParts` 内 expandInline 之后调用）：
+  ① 每条 `tool_result` 按 `toolCallId` 并入其 `tool_call`（`result`/`status`/`durationMs`），删除独立
+  result part（孤儿 result 丢弃）；② 连续 ≥2 个 `tool_call` 折叠成一个 `tool_group` part（成员存
+  `Part.group`），单个工具保持独立卡。`Part.fingerprint()` 计入成员指纹 → 组内任一工具变化即重绑组卡。
+- `ToolGroupPartRenderer`：折叠卡头"🔧 已运行 N 个工具"（有 running 则"⏳ N 个工具执行中"），
+  点击展开逐成员卡；成员卡复用 `ComponentRegistry` 的 `tool_call` 卡（与单工具同源），
+  展开态走 `PartHost.toolGroupExpanded/toggleToolGroup`（宿主存于 `ChatMessage`）。
+- `PartRendererRegistry.createDefault()` 注册组渲染器；`ChatAdapter.bindWithParts` allowed 扩到
+  `TYPE_TOOL_GROUP`。接管后工具序列：单工具→独立卡，多工具→一张可折叠组卡，不再有散落工具卡 + 独立结果。
+
+现 flag=true 覆盖：文本/思考/工具单卡/工具组折叠/产物卡/mermaid/公式；仅 error/approval（无生产者）仍回落。
+flag=false 现网不变。测试：+3（groupTools 折叠+并入 / 单工具不折叠 / 组指纹随成员变化），
+`--offline` 定向 parts+turn 全绿（AssistantTurn 25、parts 42，0 skipped/failures/errors），主源随 testDebug 编译通过。
+待真机：组卡折叠交互与展开即时性、成员卡呈现（设备离线未验）。
+
 ## [2026-10-21] parts P3g：mermaid/公式切成 html data part，去掉该回落（§11.4）
 
 按"自造渲染器、把数据接上"，mermaid/`$$公式` 不再整条回落 legacy：

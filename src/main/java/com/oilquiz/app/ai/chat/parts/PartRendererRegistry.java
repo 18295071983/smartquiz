@@ -74,6 +74,7 @@ public final class PartRendererRegistry {
                 .register(new ApprovalPartRenderer())
                 .register(toolCall)
                 .register(new ToolResultPartRenderer(toolCall.componentFactory()))
+                .register(new ToolGroupPartRenderer())
                 .register(new DataPartRenderer());
     }
 }

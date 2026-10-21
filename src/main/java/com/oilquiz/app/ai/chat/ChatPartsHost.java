@@ -114,6 +114,18 @@ public final class ChatPartsHost implements PartHost {
     }
 
     @Override
+    public boolean toolGroupExpanded(String groupId) {
+        return message != null && message.isToolGroupExpanded(groupId);
+    }
+
+    @Override
+    public void toggleToolGroup(String groupId) {
+        if (message != null) {
+            message.toggleToolGroupExpanded(groupId);
+        }
+    }
+
+    @Override
     public void invalidateSize() {
         if (callback != null) {
             callback.onPartsContentChanged();

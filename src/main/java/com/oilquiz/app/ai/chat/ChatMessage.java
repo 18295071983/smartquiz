@@ -280,6 +280,24 @@ public class ChatMessage {
         return true;
     }
 
+    /** 工具组"已运行N个工具"折叠卡的展开态集合（parts 渲染器用；transient 不入库）。 */
+    public transient java.util.Set<String> toolGroupExpandedIds;
+
+    public boolean isToolGroupExpanded(String key) {
+        return key != null && !key.isEmpty()
+                && toolGroupExpandedIds != null && toolGroupExpandedIds.contains(key);
+    }
+
+    public boolean toggleToolGroupExpanded(String key) {
+        if (key == null || key.isEmpty()) return false;
+        if (toolGroupExpandedIds == null) {
+            toolGroupExpandedIds = new java.util.HashSet<>();
+        }
+        if (toolGroupExpandedIds.remove(key)) return false;
+        toolGroupExpandedIds.add(key);
+        return true;
+    }
+
     /** 追加一轮思考内容（自动创建列表；轮次 id 为空时由派发器自动发放） */
     public void addThinkingRound(String roundContent) {
         addThinkingRound(roundContent, null);

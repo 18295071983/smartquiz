@@ -3536,6 +3536,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_REASONING.equals(p.type)
                     || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_CALL.equals(p.type)
                     || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_RESULT.equals(p.type)
+                    || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)
                     || com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_DATA.equals(p.type);
             if (!allowed) {
                 return false; // 含 error/approval 等未忠实复刻的 part → 整条回落 legacy

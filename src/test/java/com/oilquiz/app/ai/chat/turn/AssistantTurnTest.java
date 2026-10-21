@@ -392,6 +392,92 @@ public class AssistantTurnTest {
     }
 
     @Test
+    public void groupToolsCollapsesConsecutiveCallsAndMergesResults() {
+        AssistantTurn turn = new AssistantTurn();
+        turn.turnId = "T1";
+        AssistantTurn.Part c1 = AssistantTurn.Part.toolCall(
+                "T1:tool:c1", "c1", "weather", "{\"city\":\"北京\"}", "done", 1L);
+        AssistantTurn.Part r1 = AssistantTurn.Part.toolResult(c1, "晴天 25度", 1L);
+        AssistantTurn.Part c2 = AssistantTurn.Part.toolCall(
+                "T1:tool:c2", "c2", "database", "{}", "done", 2L);
+        AssistantTurn.Part r2 = AssistantTurn.Part.toolResult(c2, "10 题", 2L);
+        turn.parts.add(AssistantTurn.Part.text("t0", "正文", 1L));
+        turn.parts.add(c1);
+        turn.parts.add(r1);
+        turn.parts.add(c2);
+        turn.parts.add(r2);
+        turn.parts.add(AssistantTurn.Part.text("t1", "收尾", 3L));
+
+        AssistantTurn.groupTools(turn);
+
+        // 2 个连续工具 → 1 个 tool_group；无独立 tool_result 残留。
+        assertEquals(1, countType(turn, AssistantTurn.Part.TYPE_TOOL_GROUP));
+        assertEquals("结果已并入，不该有独立 tool_result",
+                0, countType(turn, AssistantTurn.Part.TYPE_TOOL_RESULT));
+        assertEquals("不该再散着两个 tool_call",
+                0, countType(turn, AssistantTurn.Part.TYPE_TOOL_CALL));
+
+        AssistantTurn.Part grp = null;
+        for (AssistantTurn.Part p : turn.parts) {
+            if (AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)) grp = p;
+        }
+        assertNotNull(grp);
+        assertEquals(2, grp.group.size());
+        assertEquals("晴天 25度", grp.group.get(0).result);
+        assertEquals("10 题", grp.group.get(1).result);
+        // 头尾正文保留，顺序不变：text → group → text
+        assertEquals(AssistantTurn.Part.TYPE_TEXT, turn.parts.get(0).type);
+        assertEquals(AssistantTurn.Part.TYPE_TEXT, turn.parts.get(2).type);
+    }
+
+    @Test
+    public void groupToolsKeepsSingleCallStandalone() {
+        AssistantTurn turn = new AssistantTurn();
+        AssistantTurn.Part c1 = AssistantTurn.Part.toolCall(
+                "x:tool:c1", "c1", "weather", "{}", "done", 1L);
+        turn.parts.add(AssistantTurn.Part.text("t0", "正文", 1L));
+        turn.parts.add(c1);
+        turn.parts.add(AssistantTurn.Part.toolResult(c1, "晴", 1L));
+        turn.parts.add(AssistantTurn.Part.text("t1", "收尾", 2L));
+
+        AssistantTurn.groupTools(turn);
+
+        // 单个工具不折叠成组，仍是独立 tool_call，且 result 已并入。
+        assertEquals(0, countType(turn, AssistantTurn.Part.TYPE_TOOL_GROUP));
+        assertEquals(1, countType(turn, AssistantTurn.Part.TYPE_TOOL_CALL));
+        assertEquals(0, countType(turn, AssistantTurn.Part.TYPE_TOOL_RESULT));
+    }
+
+    @Test
+    public void groupToolsFingerprintTracksMemberChanges() {
+        AssistantTurn a = new AssistantTurn();
+        AssistantTurn b = new AssistantTurn();
+        AssistantTurn.Part c1a = AssistantTurn.Part.toolCall("i:c1", "c1", "w", "{}", "done", 1L);
+        AssistantTurn.Part c2a = AssistantTurn.Part.toolCall("i:c2", "c2", "d", "{}", "done", 2L);
+        a.parts.add(c1a);
+        a.parts.add(c2a);
+        AssistantTurn.Part c1b = AssistantTurn.Part.toolCall("i:c1", "c1", "w", "{}", "done", 1L);
+        AssistantTurn.Part c2b = AssistantTurn.Part.toolCall("i:c2", "c2", "d", "{}", "done", 2L);
+        c2b.result = "新结果";
+        b.parts.add(c1b);
+        b.parts.add(c2b);
+        AssistantTurn.groupTools(a);
+        AssistantTurn.groupTools(b);
+
+        AssistantTurn.Part ga = null;
+        AssistantTurn.Part gb = null;
+        for (AssistantTurn.Part p : a.parts) {
+            if (AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)) ga = p;
+        }
+        for (AssistantTurn.Part p : b.parts) {
+            if (AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)) gb = p;
+        }
+        assertNotNull(ga);
+        assertNotNull(gb);
+        assertNotEquals("成员结果变化应改变组卡指纹", ga.fingerprint(), gb.fingerprint());
+    }
+
+    @Test
     public void fromMessageForPartsDoesNotMutateLiveAssistantTurn() {
         ChatMessage msg = ChatMessage.createAIMessage("a",
                 "文\n```component:chart\n{\"title\":\"A\"}\n```", 1L);
