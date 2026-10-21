@@ -53,6 +53,49 @@ public class TurnPartsHostTest {
         return AssistantTurn.Part.text(id, text, 1L);
     }
 
+    /**
+     * 根因守卫：{@code bindView} 被调用时，视图必须<b>已经在容器里</b>。
+     *
+     * <p>渲染器常在 bindView 里发起异步渲染（markdown/WebView）。宿主若在绑定之后才把视图
+     * {@code addView} 进容器，这些 TextView 在异步结果回来前是"未 attach"状态，而
+     * {@code ChatAdapter} 的渲染队列会清掉未 attach 视图的代次 token，结果被判过期直接丢弃；
+     * 又因指纹没变不会重绑 → 真机表现为"深度思考点开是空的"（正文永久空白，无声无息）。</p>
+     */
+    @Test
+    public void bindViewSeesViewAlreadyAttachedToContainer() {
+        final boolean[] attachedAtBind = new boolean[1];
+        PartRenderer probe = new PartRenderer() {
+            @Override
+            public boolean canRender(AssistantTurn.Part part) {
+                return part != null && AssistantTurn.Part.TYPE_TEXT.equals(part.type);
+            }
+            @Override
+            public View createView(PartHost h, ViewGroup parent) {
+                android.widget.TextView tv = new android.widget.TextView(h.context());
+                tv.setLayoutParams(new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                return tv;
+            }
+            @Override
+            public void bindView(View view, AssistantTurn.Part part, PartHost h) {
+                attachedAtBind[0] = view.getParent() != null;
+                h.renderMarkdown((android.widget.TextView) view, part.text);
+            }
+            @Override
+            public void releaseView(View view) {
+            }
+        };
+        TurnPartsHost probed = new TurnPartsHost(container,
+                new PartRendererRegistry().register(probe), new FakeHost(ctx));
+
+        probed.bind(java.util.Collections.singletonList(textPart("a", "思考正文")));
+
+        assertTrue("bindView 时视图必须已入树，否则异步渲染会被代次清理丢弃", attachedAtBind[0]);
+        assertEquals(1, container.getChildCount());
+        assertEquals("正文应已落到视图上", "思考正文",
+                ((android.widget.TextView) container.getChildAt(0)).getText().toString());
+    }
+
     @Test
     public void rebindingIdenticalPartsDoesNotRecreateOrRebind() {
         List<AssistantTurn.Part> parts = Arrays.asList(

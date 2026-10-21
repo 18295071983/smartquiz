@@ -1595,6 +1595,26 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    （统一办法：`ComponentTypes.ALIAS` 加 `line_chart→chart`）。
 4. **验证**：全量 591 全绿（+2）、`assembleDebug` 通过、已装机。真机待复验：让模型出 `timeline`/`stat` 卡看是否还掉 JSON。
 
+### 4.76 fix(parts)：真机 flag=true 首验——思考正文空（bindView 前视图未入树）（2026-10-21）
+
+真机开 `parts_renderer=true` 的第一轮实测（会话「看一下后天的油价」，无障碍树 48 条）：
+接管把该轮子布局**全渲出来了**——4×`▸ 已深度思考 N 秒`、**2×`🔧 已运行 2 个工具`（P3h 组折叠成立）**、
+3 张单工具卡带 `✅` 结果、2 张 PEEK 产物行（`当前位置 · 3 项`/`搜索结果 · 6 条 · 6 项`）、
+末尾 `table_card` 出真表格（含 CardShell 的 `共 4 行`），logcat 无 FATAL。
+
+用户报的缺陷与修法：
+1. **「深度思考点开是空的」**。诊断先排数据再动代码：header 无「· N 步」→ 确是 parts 在渲；
+   `durationMs` 只在 `snap.thinking` 非空分支赋值 → 正文有数据；空在应用环节：
+   `TurnPartsHost` 先 `bindView` 后 `reconcileOrder` 才 addView，异步 markdown 的 TextView 当时未 attach，
+   被 `ChatAdapter:3254-3256` 的代次清理丢掉结果，且指纹未变不再重绑 → 永久空白无报错。
+2. 修：根因＝**新建视图先入树再 bindView**；自愈＝展开时正文为空则重发 `renderMarkdown`。
+   新增探针测试断言 `bindView` 时 `getParent()!=null`。（想做"撤修复看变红"的变异验证被安全策略拦下，未绕过，
+   故该测试失败面是时序推演、非实测反证。）
+3. 同屏另一现象**未归因**：`table_card`/`sparkline` 创建成功后模型仍用 Markdown 表格做对比（表在手机上横向截断）。
+   属模型选型问题，不是渲染器 bug，待单独看。
+4. **A/B 未做成**：翻回 false 后我两次滑动落在不同消息上，"48 vs 17 条"是滚动位置差异，不能当内容对比；
+   消息操作行（复制/重新生成/⋯）在 parts 下是否仍在**仍未证**。设备由用户持有时不要抢点击。
+
 ---
 
 ## 5. 关键文件 / 改动地图

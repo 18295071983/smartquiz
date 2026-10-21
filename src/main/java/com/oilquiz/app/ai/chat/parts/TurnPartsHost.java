@@ -165,6 +165,14 @@ public final class TurnPartsHost {
         if (view == null) {
             view = renderer.createView(host, container);
             createCount++;
+            // 先入树再绑定：渲染器常在 bindView 里发起异步渲染（markdown/WebView），
+            // 而 ChatAdapter 的渲染队列会把**尚未 attach** 的 TextView 的代次 token 清掉
+            // （ChatAdapter#drainPendingRenders 的清理段），结果回来时 isRenderCurrent 判过期直接丢弃。
+            // 折叠态的 part（如思考正文）就永久空白——且因为指纹没变不会再重绑，现场表现为
+            // "深度思考点开是空的"。顺序摆正在此，reconcileOrder 仍负责最终次序。
+            if (view != null && view.getParent() == null) {
+                container.addView(view);
+            }
             viewById.put(id, view);
             rendererById.put(id, renderer);
             fingerprintById.remove(id); // 新视图强制首绑

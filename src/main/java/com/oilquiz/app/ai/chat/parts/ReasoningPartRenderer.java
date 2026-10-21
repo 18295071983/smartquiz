@@ -55,6 +55,16 @@ public final class ReasoningPartRenderer implements PartRenderer {
         final Row row = new Row(header, body);
         header.setOnClickListener(v -> {
             boolean expanded = body.getVisibility() == View.VISIBLE;
+            if (!expanded) {
+                // 自愈：折叠期间异步渲染结果可能因代次过期被丢弃（视图当时未 attach 等），
+                // 展开这一刻若正文仍为空就重发一次，避免"点开是空的"。
+                PartHost h = row.host;
+                AssistantTurn.Part p = row.part;
+                if (h != null && p != null && body.getText().length() == 0
+                        && p.text != null && !p.text.isEmpty()) {
+                    h.renderMarkdown(body, p.text);
+                }
+            }
             body.setVisibility(expanded ? View.GONE : View.VISIBLE);
             applyHeader(row, !expanded);
         });
@@ -72,6 +82,8 @@ public final class ReasoningPartRenderer implements PartRenderer {
             return;
         }
         String text = part.text != null ? part.text : "";
+        row.part = part;
+        row.host = host;
         // 正文复用宿主 markdown 原语（后台渲染 + 链接 + 图片 + 主题），不在此自渲染。
         host.renderMarkdown(row.body, text);
         // header 用上接到的思考时长（"已深度思考 X 秒"），无时长则退回"深度思考"。
@@ -95,6 +107,9 @@ public final class ReasoningPartRenderer implements PartRenderer {
         final TextView header;
         final TextView body;
         String baseLabel = HEADER_PLAIN;
+        /** 最近一次绑定的 part/宿主，供展开时"正文为空就重发渲染"自愈用。 */
+        AssistantTurn.Part part;
+        PartHost host;
         Row(TextView header, TextView body) {
             this.header = header;
             this.body = body;

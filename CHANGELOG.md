@@ -1,5 +1,28 @@
 # 变更日志
 
+## [2026-10-21] fix(parts)：深度思考点开是空的——bindView 前视图未入树，异步渲染被代次清理丢弃
+
+真机 flag=true 下用户报"深度思考点开是空的"。诊断链（先排除数据侧再动代码）：
+- 屏上 header 是「已深度思考 2 秒」**没有**「· N 步」→ 是 parts 渲染器的文案格式（legacy 带步数），
+  确认走的是接管路径而非回落；
+- `AssistantTurn.fromMessage` 里 `durationMs` 只在 `snap.thinking` 非空分支内赋值 → 思考**正文数据是有的**；
+- 所以空在"应用渲染结果"这步：`TurnPartsHost.bindOwn` 先 `bindView`、到 `reconcileOrder` 才把视图
+  `addView` 进容器 → 渲染器在 bindView 里发起的异步 markdown 渲染，其 TextView 当时**未 attach**；
+  `ChatAdapter#drainPendingRenders` 收尾会清掉未 attach 视图的代次 token（`:3254-3256`），
+  结果回来时 `isRenderCurrent` 判过期直接丢弃；又因 part 指纹没变不会再 `bindView` → 永久空白、无任何报错。
+  legacy 不碰这条，因为它绑的视图早已在树上。
+
+修两处：
+- 根因：`TurnPartsHost` 新建视图后**先入树再 bindView**（次序仍由 `reconcileOrder` 收口）。
+- 自愈：`ReasoningPartRenderer` 展开那一刻若正文为空则重发一次 `host.renderMarkdown`
+  （`Row` 记住最近一次的 part/host），防同类时序问题再次静默空白。
+
+测试：`TurnPartsHostTest.bindViewSeesViewAttachedToContainer`——探针渲染器断言 `bindView` 时
+`view.getParent() != null` 且正文已落视图。**注意**：本想再做"撤掉修复看它变红"的变异验证，
+被安全策略拦下（合理，不绕过），所以该测试的失败面是按代码时序推演的（bind 阶段确实尚未 addView），
+未做实机反证。全量 `--offline` **592** 全绿（+1，0 skip/fail/err）、`assembleDebug` 通过。
+待真机：重新装机后点开思考块看正文是否出来。
+
 ## [2026-10-21] fix(component)：排查"名字归一了、参数没归一"整族——timeline / stat 也会掉 JSON
 
 饼图修完后做了一张**别名形状矩阵**（`ChartAliasShapeMatrixTest`）：把工具说明里对每个名字教的**字面形状**
