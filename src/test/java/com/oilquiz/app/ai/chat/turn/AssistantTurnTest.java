@@ -478,6 +478,85 @@ public class AssistantTurnTest {
     }
 
     @Test
+    public void attachOwnedProductsFoldsProductUnderOwningToolAndRemovesTopLevel() {
+        AssistantTurn turn = new AssistantTurn();
+        AssistantTurn.Part call = AssistantTurn.Part.toolCall(
+                "T1:tool:c1", "c1", "weather", "{}", "done", 1L);
+        JSONObject prod = new JSONObject();
+        try {
+            prod.put("title", "天气图");
+            prod.put("producerToolCallId", "c1");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        ComponentData chart = ComponentData.of("chart", prod);
+        chart.id = "cmp1";
+        turn.parts.add(call);
+        turn.parts.add(AssistantTurn.Part.data("data:cmp1", chart, 1L));
+        turn.parts.add(AssistantTurn.Part.text("t1", "正文", 2L));
+
+        AssistantTurn.attachOwnedProducts(turn);
+
+        assertEquals("产物折进工具后顶层不再有 data part",
+                0, countType(turn, AssistantTurn.Part.TYPE_DATA));
+        assertNotNull("所属工具应挂上产物", call.products);
+        assertEquals(1, call.products.size());
+        assertEquals("cmp1", call.products.get(0).id);
+        // 正文 part 不受影响
+        assertEquals(AssistantTurn.Part.TYPE_TEXT, turn.parts.get(1).type);
+    }
+
+    @Test
+    public void attachOwnedProductsKeepsUnownedAndNameFallback() {
+        AssistantTurn turn = new AssistantTurn();
+        AssistantTurn.Part call = AssistantTurn.Part.toolCall(
+                "T1:tool:c1", "c1", "weather", "{}", "done", 1L);
+        // 仅 producerToolName（本地无 id 场景）→ 按名字归属
+        JSONObject byName = propsKV("title", "N1", "producerToolName", "weather");
+        ComponentData owned = ComponentData.of("chart", byName);
+        owned.id = "own";
+        // 无 producer → 保持顶层
+        ComponentData orphan = ComponentData.of("chart", props("title", "独立"));
+        orphan.id = "orph";
+        turn.parts.add(call);
+        turn.parts.add(AssistantTurn.Part.data("data:own", owned, 1L));
+        turn.parts.add(AssistantTurn.Part.data("data:orph", orphan, 1L));
+
+        AssistantTurn.attachOwnedProducts(turn);
+
+        assertEquals(1, countType(turn, AssistantTurn.Part.TYPE_DATA)); // orphan 仍顶层
+        assertNotNull(call.products);
+        assertEquals(1, call.products.size());
+        assertEquals("own", call.products.get(0).id);
+    }
+
+    @Test
+    public void toolFingerprintChangesWhenOwnedProductChanges() {
+        AssistantTurn.Part a = AssistantTurn.Part.toolCall("c1", "c1", "w", "{}", "done", 1L);
+        AssistantTurn.Part b = AssistantTurn.Part.toolCall("c1", "c1", "w", "{}", "done", 1L);
+        ComponentData p1 = ComponentData.of("chart", props("title", "A"));
+        ComponentData p2 = ComponentData.of("chart", props("title", "B"));
+        a.products = new ArrayList<>(Arrays.asList(p1));
+        b.products = new ArrayList<>(Arrays.asList(p2));
+        assertNotEquals("产物内容变化应改变工具卡指纹", a.fingerprint(), b.fingerprint());
+
+        // 无产物 vs 有产物也应不同
+        AssistantTurn.Part c = AssistantTurn.Part.toolCall("c1", "c1", "w", "{}", "done", 1L);
+        assertNotEquals(c.fingerprint(), a.fingerprint());
+    }
+
+    private static JSONObject propsKV(String k1, String v1, String k2, String v2) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put(k1, v1);
+            o.put(k2, v2);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return o;
+    }
+
+    @Test
     public void fromMessageForPartsDoesNotMutateLiveAssistantTurn() {
         ChatMessage msg = ChatMessage.createAIMessage("a",
                 "文\n```component:chart\n{\"title\":\"A\"}\n```", 1L);

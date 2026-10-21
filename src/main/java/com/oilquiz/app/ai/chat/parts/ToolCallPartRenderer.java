@@ -3,7 +3,7 @@ package com.oilquiz.app.ai.chat.parts;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 
 import com.oilquiz.app.ai.chat.component.ComponentData;
 import com.oilquiz.app.ai.chat.component.ComponentRegistry;
@@ -32,13 +32,20 @@ public final class ToolCallPartRenderer implements PartRenderer {
     }
 
     private final ComponentFactory factory;
+    /** 所属产物卡（§11.3）的渲染工厂；默认走 {@link ComponentRegistry}，与工具卡同源。 */
+    private final ComponentFactory productFactory;
 
     public ToolCallPartRenderer() {
         this((ctx, data) -> ComponentRegistry.getInstance().render(ctx, data));
     }
 
     ToolCallPartRenderer(ComponentFactory factory) {
+        this(factory, (ctx, data) -> ComponentRegistry.getInstance().render(ctx, data));
+    }
+
+    ToolCallPartRenderer(ComponentFactory factory, ComponentFactory productFactory) {
         this.factory = factory;
+        this.productFactory = productFactory;
     }
 
     ComponentFactory componentFactory() {
@@ -52,10 +59,13 @@ public final class ToolCallPartRenderer implements PartRenderer {
 
     @Override
     public View createView(PartHost host, ViewGroup parent) {
-        FrameLayout frame = new FrameLayout(host.context());
-        frame.setLayoutParams(new ViewGroup.LayoutParams(
+        // 竖排宿主：[工具卡] 在上，其所属产物卡依次在下（§11.3）。单写者——本 part 独占整棵子树，
+        // 不靠 attached-companion 往回写，规避"工具卡重绑 removeAllViews 抹掉产物"的双写 bug。
+        LinearLayout column = new LinearLayout(host.context());
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return frame;
+        return column;
     }
 
     @Override
@@ -64,26 +74,27 @@ public final class ToolCallPartRenderer implements PartRenderer {
             return;
         }
         // 增量合并进 anchor 视图已有的 props，而不是从 call 部分整个重建：
-        // canonical 模型里 result 挂在独立的 tool_result part（call.result 恒空），若整体重建会
-        // 把已合并的 result 抹掉——典型场景是结果回来后工具状态再 running→success 触发本 part 重绑，
-        // 而 tool_result 指纹没变被引擎跳过 → 卡片结果丢失。故只覆盖调用字段、保留已有 result。
+        // 结果回来后工具状态再 running→success 触发本 part 重绑时，保留已合并的 result。
         JSONObject props = view.getTag() instanceof JSONObject
                 ? (JSONObject) view.getTag()
                 : new JSONObject();
         ToolCardProps.mergeCall(props, part);
         view.setTag(props);
-        View card = factory.create(host.context(), ComponentData.of(ToolCardProps.TYPE, props));
         ViewGroup group = (ViewGroup) view;
-        group.removeAllViews();
+        ProductCards.releaseAll(group); // 先深度释放旧子树（含产物 WebView）
+        View card = factory.create(host.context(), ComponentData.of(ToolCardProps.TYPE, props));
         if (card != null) {
             group.addView(card);
         }
+        // 所属产物（§11.3）：挂在工具卡下方，与工具同进同出。
+        ProductCards.mountAll(productFactory, group, part.products,
+                part.id + ":prod:", host);
     }
 
     @Override
     public void releaseView(View view) {
         if (view instanceof ViewGroup) {
-            ((ViewGroup) view).removeAllViews();
+            ProductCards.releaseAll((ViewGroup) view);
         }
     }
 

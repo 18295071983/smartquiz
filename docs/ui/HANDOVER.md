@@ -1451,6 +1451,17 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. `createDefault()` 注册组渲染器；`bindWithParts` allowed 扩 `TYPE_TOOL_GROUP`。现 flag=true 覆盖文本/思考/单卡/组折叠/产物/mermaid/公式，仅 error/approval 回落。
 4. **验证**：+3 单测（折叠并入 / 单工具不折叠 / 组指纹随成员变化），`--offline` 定向 parts+turn 全绿（AssistantTurn 25、parts 42，0 skip/fail/err）。待真机：组卡折叠交互。
 
+### 4.65 parts P3i：产物归所属工具卡下（§11.3，模型层归属 + 单写者渲染）（2026-10-21）
+
+1. 模型：`Part` 加 `transient List<ComponentData> products`（计入 `fingerprint()` 的 `contentDigest` + `copy()`）；
+   `attachOwnedProducts(base)`（expandInline 之后、groupTools 之前）按 `producerToolCallId`（缺则 `producerToolName`，同 legacy `productOwnerKey`）
+   把 data part 折进所属 `tool_call.products` 并移顶层；无归属（内联/mermaid）保留顶层；归属先于折叠→组成员也带产物。
+2. 渲染改**单写者**（规避 anchor 卡 removeAllViews 抹掉产物的双写 bug）：抽 `ProductCards`（HIDDEN/PEEK/INLINE）供
+   `DataPartRenderer`/工具卡/组卡共用；`ToolCallPartRenderer` 宿主改竖排 LinearLayout `[工具卡]+[产物卡…]`（重绑 `ComponentLifecycle` 深度释放）；
+   `ToolGroupPartRenderer` 成员行 `[成员卡]+[其产物卡…]`，随组折叠。
+3. flag=false 现网不变；接管闸门无需改（无归属 data 仍 allowed）。现 flag=true 覆盖文本/思考/单卡(+产物)/组折叠(+成员产物)/产物/mermaid/公式，仅 error/approval 回落。
+4. **验证**：+4 单测（折入移顶层 / 无归属+名字退化 / 产物变→工具指纹变 / 工具卡渲产物在卡下·裸工具不碰产品工厂），全量 555 全绿、`assembleDebug` 通过。待真机：产物视觉/peek 展开/组内归属。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-10-21] parts P3i：产物归所属工具卡下（§11.3，模型层归属 + 单写者渲染）
+
+按"把数据接上 + 自造渲染器"补 §11.3——产物卡随其生产工具出现，而非散在顶层：
+- `AssistantTurn.Part` 加 `transient List<ComponentData> products`（§11.3 归属产物），
+  `fingerprint()` 计入每个产物的 `contentDigest`（产物变→工具卡重绑），`copy()` 浅拷贝携带。
+- `AssistantTurn.attachOwnedProducts(base)`（`fromMessageForParts` 内 expandInline 之后、groupTools 之前）：
+  带 `producerToolCallId`（缺 id 退化 `producerToolName`，与 legacy `productOwnerKey` 同口径）的 data part
+  折进所属 `tool_call` part 的 `products` 并从顶层移除；无归属的（内联/mermaid 切出的）保持顶层。
+  归属先于折叠 → 组卡成员也带各自产物。
+- 渲染改**单写者**，规避"anchor 卡 removeAllViews 抹掉产物"的双写 bug（此前工具丢结果是同类问题）：
+  - 抽 `ProductCards`（HIDDEN 不挂 / PEEK 摘要可展开 / INLINE 整卡），`DataPartRenderer`、工具卡、组卡共用；
+  - `ToolCallPartRenderer` 宿主由 FrameLayout 改竖排 LinearLayout：`[工具卡]+[所属产物卡…]`，重绑先
+    `ComponentLifecycle` 深度释放（含产物 WebView）；
+  - `ToolGroupPartRenderer` 每个成员行 `[成员卡]+[其产物卡…]`，随组折叠/展开。
+- flag=false 现网不变；接管闸门无需改（无归属 data part 仍 allowed）。
+
+现 flag=true 覆盖：文本/思考/工具单卡(+归属产物)/工具组折叠(+成员产物)/产物卡/mermaid/公式；仅 error/approval 回落。
+测试：+4（归属折入并移顶层 / 无归属+名字退化保留 / 产物变→工具指纹变 / 工具卡渲产物在卡下且裸工具不碰产品工厂），
+全量 `--offline` **555** 全绿（0 skip/fail/err），`assembleDebug` 通过。待真机：产物视觉与 peek 展开、组内归属呈现。
+
 ## [2026-10-21] parts P3h：工具组折叠卡（§11.1）+ 结果并入调用
 
 按"自造渲染器、把数据接上"补最后一个还没复刻的子布局——连续多工具的组折叠：

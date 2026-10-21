@@ -25,13 +25,21 @@ import java.util.List;
 public final class ToolGroupPartRenderer implements PartRenderer {
 
     private final ToolCallPartRenderer.ComponentFactory factory;
+    /** 所属产物卡（§11.3）的渲染工厂；默认走 {@link ComponentRegistry}。 */
+    private final ToolCallPartRenderer.ComponentFactory productFactory;
 
     public ToolGroupPartRenderer() {
         this((ctx, data) -> ComponentRegistry.getInstance().render(ctx, data));
     }
 
     ToolGroupPartRenderer(ToolCallPartRenderer.ComponentFactory factory) {
+        this(factory, (ctx, data) -> ComponentRegistry.getInstance().render(ctx, data));
+    }
+
+    ToolGroupPartRenderer(ToolCallPartRenderer.ComponentFactory factory,
+                          ToolCallPartRenderer.ComponentFactory productFactory) {
         this.factory = factory;
+        this.productFactory = productFactory;
     }
 
     @Override
@@ -89,12 +97,17 @@ public final class ToolGroupPartRenderer implements PartRenderer {
         // 成员卡（复用 registry），折叠也预建，展开即时。
         releaseChildren(v.body);
         for (Part m : members) {
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(LinearLayout.VERTICAL);
             ComponentData cd = ComponentData.of(ToolCallPartRenderer.ToolCardProps.TYPE,
                     ToolCallPartRenderer.ToolCardProps.fromCall(m));
             View card = factory.create(ctx, cd);
             if (card != null) {
-                v.body.addView(card);
+                row.addView(card);
             }
+            // 所属产物（§11.3）：挂在成员工具卡下方，随组一起折叠/展开。
+            ProductCards.mountAll(productFactory, row, m.products, m.id + ":prod:", host);
+            v.body.addView(row);
         }
 
         final PartHost h = host;

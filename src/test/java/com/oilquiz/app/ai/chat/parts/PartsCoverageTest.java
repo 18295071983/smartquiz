@@ -281,6 +281,45 @@ public class PartsCoverageTest {
         assertEquals("INLINE 整卡直接挂", 1, ((ViewGroup) iv).getChildCount());
     }
 
+    @Test
+    public void toolCardRendersOwnedProductBelowCard() {
+        FakeFactory toolF = new FakeFactory();
+        FakeFactory prodF = new FakeFactory();
+        ToolCallPartRenderer call = new ToolCallPartRenderer(toolF, prodF);
+
+        org.json.JSONObject pp = new org.json.JSONObject();
+        try {
+            pp.put("display", "inline");
+            pp.put("title", "销量");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        ComponentData prod = ComponentData.of("chart", pp);
+        prod.id = "cmp1";
+        AssistantTurn.Part tc = AssistantTurn.Part.toolCall(
+                "c1", "c1", "weather", "{}", "success", 1L);
+        tc.products = new ArrayList<>();
+        tc.products.add(prod);
+
+        TestHost h = new TestHost(ctx);
+        View host = call.createView(h, container);
+        call.bindView(host, tc, h);
+
+        assertEquals("工具卡出卡一次", 1, toolF.created.size());
+        assertEquals("所属产物出卡一次", 1, prodF.created.size());
+        assertEquals("销量", prodF.created.get(0).optString("title"));
+        assertTrue("宿主竖排", host instanceof LinearLayout);
+        assertEquals("宿主 = 工具卡 + 产物卡", 2, ((ViewGroup) host).getChildCount());
+
+        // 无产物时不碰产品工厂，工具卡渲染不变
+        prodF.created.clear();
+        AssistantTurn.Part bare = AssistantTurn.Part.toolCall("c2", "c2", "db", "{}", "success", 1L);
+        View bareHost = call.createView(h, container);
+        call.bindView(bareHost, bare, h);
+        assertEquals("无产物不调产品工厂", 0, prodF.created.size());
+        assertEquals("裸工具卡只有一个子", 1, ((ViewGroup) bareHost).getChildCount());
+    }
+
     private TurnPartsHost hostWith(PartRenderer... renderers) {
         PartRendererRegistry reg = new PartRendererRegistry();
         for (PartRenderer r : renderers) reg.register(r);

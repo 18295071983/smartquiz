@@ -99,6 +99,11 @@ public class AssistantTurn {
         public transient com.oilquiz.app.ai.chat.component.ComponentData data;
         /** tool_group part 的成员（每个是已并入 result 的 tool_call part）。transient。 */
         public transient java.util.List<Part> group;
+        /**
+         * 该工具所属的产物组件（§11.3 归属）：渲染时挂在工具卡下方，随工具进组折叠。transient——
+         * 权威真值仍是 {@code ChatMessage.components}，这里只是渲染期引用，供指纹区分内容变化。
+         */
+        public transient java.util.List<com.oilquiz.app.ai.chat.component.ComponentData> products;
 
         public Part() {
         }
@@ -222,6 +227,11 @@ public class AssistantTurn {
             h = fnvField(h, result);
             h = fnvField(h, status);
             h = fnvField(h, Long.toString(durationMs));
+            if (products != null) {
+                for (com.oilquiz.app.ai.chat.component.ComponentData pd : products) {
+                    h = fnvField(h, pd != null ? contentDigest(pd) : "-"); // 产物变化→工具卡重绑（§11.3）
+                }
+            }
             if (group != null) {
                 for (Part m : group) {
                     h = fnvField(h, m != null ? m.fingerprint() : "-"); // 成员变化→组卡重绑
@@ -271,6 +281,7 @@ public class AssistantTurn {
         }
         AssistantTurn base = fromMessage(msg);
         expandInline(base, dark);
+        attachOwnedProducts(base);
         groupTools(base);
         return base;
     }
@@ -334,6 +345,62 @@ public class AssistantTurn {
             }
         }
         base.parts = out;
+    }
+
+    /**
+     * 产物归属（§11.3）：把带 {@code producerToolCallId}/{@code producerToolName} 的 data part
+     * 折进其所属 {@code tool_call} part 的 {@link Part#products}（渲染时挂在工具卡下、随工具进组折叠），
+     * 并从顶层序列移除；无归属的 data part（含内联/mermaid 切出的）保持顶层。
+     * 须在 {@link #expandInline} 之后、{@link #groupTools} 之前调用（成员先带上产物再折叠）。
+     * 只作用于可安全修改的 turn（fromMessageForParts 新建的），勿传 live turn。
+     */
+    public static void attachOwnedProducts(AssistantTurn base) {
+        if (base == null || base.parts == null) {
+            return;
+        }
+        // 归属键 → 该工具 part（id 优先，缺 id 退化 name；与 legacy productOwnerKey 同口径）
+        java.util.Map<String, Part> byId = new java.util.HashMap<>();
+        java.util.Map<String, Part> byName = new java.util.HashMap<>();
+        for (Part p : base.parts) {
+            if (p == null || !Part.TYPE_TOOL_CALL.equals(p.type)) {
+                continue;
+            }
+            if (p.toolCallId != null && !p.toolCallId.isEmpty()) {
+                byId.putIfAbsent(p.toolCallId, p);
+            }
+            if (p.toolName != null && !p.toolName.isEmpty()) {
+                byName.putIfAbsent(p.toolName, p);
+            }
+        }
+        if (byId.isEmpty() && byName.isEmpty()) {
+            return; // 无工具 → 全部保持顶层
+        }
+        java.util.List<Part> kept = new java.util.ArrayList<>();
+        for (Part p : base.parts) {
+            if (p == null) {
+                continue;
+            }
+            Part owner = null;
+            if (Part.TYPE_DATA.equals(p.type) && p.data != null && p.data.props != null) {
+                String prodId = p.data.props.optString("producerToolCallId", "");
+                String prodName = p.data.props.optString("producerToolName", "");
+                if (!prodId.isEmpty()) {
+                    owner = byId.get(prodId);
+                }
+                if (owner == null && !prodName.isEmpty()) {
+                    owner = byName.get(prodName);
+                }
+            }
+            if (owner != null) {
+                if (owner.products == null) {
+                    owner.products = new java.util.ArrayList<>();
+                }
+                owner.products.add(p.data); // 折进所属工具，移除顶层卡
+            } else {
+                kept.add(p);
+            }
+        }
+        base.parts = kept;
     }
 
     public static void expandInline(AssistantTurn base) {
@@ -636,6 +703,7 @@ public class AssistantTurn {
             n.durationMs = p.durationMs;
             n.timestamp = p.timestamp;
             n.data = p.data; // transient 引用浅拷贝，保证副本仍可渲染
+            n.products = p.products; // transient 引用浅拷贝（§11.3 归属产物）
             t.parts.add(n);
         }
         return t;
