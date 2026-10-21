@@ -420,3 +420,76 @@ git switch -c feat/chat-parts-renderer
   https://platform.claude.com/docs/en/api/messages
 
 核心结论：**parts 是数据权威；渲染用类型注册表 + 稳定 key + 增量复用，不是裸 for。**
+
+---
+
+## 11. 完整接管剩余设计（P3f 起，逐类复刻→逐类放开→最后接线）
+
+现状：接管闸门只允许 `text`/`reasoning`，其余 part 的消息整条回落 legacy（P3e）。要"全量接管"，
+每类都要复刻 legacy 在 `contentHost`/`componentContainer` 里手搭的子布局，逐类真机验证后才从回落名单移出。
+下列每项 = 目标 legacy 行为 + parts 侧做法 + 需要的 PartHost 能力 + 验收。
+
+### 11.1 工具：单卡（已做）→ 组级折叠（待做）
+
+- legacy 目标：`buildActivityGroups` 把一轮内连续 TOOL 过程聚成"已运行 N 个工具"一行，
+  全部完成后**默认折叠**、点击展开列每个工具+结果；执行中保持实时展开（`ChatAdapter:1906/3401`）。
+- parts 做法（复用现有 attached 机制，不引入第二套）：
+  - `ToolCallPartRenderer.anchorIdFor`：同一"折叠组"内非首个 tool_call → 锚到该组首个 tool_call 的
+    组卡 id（新增一个 **GroupCard** 由组首 part 建，其余 tool_call 用 `bindView` 往组卡追加一行）。
+  - 组卡容器需要"折叠头(已运行N个工具) + 展开体(逐工具行)"，展开态记在 `ChatMessage`（新增
+    `toolGroupExpandedIds` 或复用 `isThinkingRoundExpanded` 同款 keyed 存）。
+  - 判"整组完成才折叠"：`anchorIdFor` 需要看到全序 parts（已具备），据组内是否有 running/pending 决定折叠。
+- PartHost 新增：`boolean toolGroupExpanded(String groupId)` / `toggleToolGroup(String groupId)`；
+  结果行限长/「查看全部」走 `ToolCallCardView`/`ComponentRegistry` 既有能力（单卡已复用）。
+- 验收：多工具串行/并行/两轮同名 → 折叠成一行、点开展示每个、结果对上、不串卡；与 legacy 截图一致。
+
+### 11.2 工具结果 AI 深度解读覆盖层（待做，可延后）
+
+- legacy：`buildResultWithInterpretChip`（`ChatAdapter:4349`）——结果预览 + 「查看全部」+ 「AI 深度解读」chip，
+  依赖 `ToolCallInfo.canInterpret/interpretedMessage/interpretationDone`。
+- parts 做法：解读是**交互+异步**行为，属工具卡的扩展。短期：parts 工具卡只到"结果限长+查看全部"
+  （`ToolCallCardView` 已给 summarize 预览），解读 chip 暂不接管（含未解读标记的消息可仍走 parts，仅少一个 chip）
+  或**列入回落**直到做齐。决策：解读 chip 依赖模型可用性 + 点击回调，放最后；先保证不崩、不重复卡。
+- PartHost 新增：`void requestInterpret(String toolCallId)`；`boolean canInterpret(...)`。
+
+### 11.3 产物 / data 卡（档位已做）→ 与工具卡同属分组挂载（待做）
+
+- legacy：`mountRoundComponent` 里 tool_call 不参与 `ComponentDisplay` 分档；产物卡 INLINE/PEEK/HIDDEN，
+  PEEK 用 `wrapProductPeek`（已复刻到 `DataPartRenderer`）。**产物挂在所属工具卡下**（§4.6）尚未做：
+  data part 若其 ComponentData 关联某 toolCallId → `anchorIdFor` 锚到该工具组卡，而非独立顶层。
+- 做法：`DataPartRenderer.anchorIdFor`：`comp.props.optString("toolCallId")` 命中某 tool_call → 返回其组卡 id。
+  无归属 → 独立 data part（顶层）。HIDDEN 不挂（已做）。
+- 验收：天气/图表等产物卡，随工具出现时挂在卡下、独立时顶层，peek/hide 与 legacy 一致。
+
+### 11.4 mermaid / 数学公式（当前回落，待做）
+
+- legacy：`renderMermaidMath`（`ChatAdapter:3527` 分支）把 ` ```mermaid ` 与 `$$..$$` 交 WebView(html) 专门渲染。
+- parts 做法：`expandInline` 里，text 段命中 `MermaidMathSplitter.containsStructure` 时，**不再回落**，
+  而是切成 `data` part（type=chart? 用现成 html/mermaid 组件），交 `ComponentRegistry` 的 Html/Mermaid 卡渲染。
+  即把 mermaid/math 归一到"内联 data part"，与 §11.3 同一渲染器。
+- 前置：确认 `ComponentRegistry` 有 mermaid/katex 组件（有 `HtmlCardView`；mermaid 是否独立组件需核）。
+- 验收：含流程图/公式的回答在 parts 下正常出图，不再整条回落。
+
+### 11.5 围栏代码（web 关时的 CodeCardView）
+
+- legacy web 开：`MarkdownWebView` 自带 highlight.js（parts 走同一 WebView → 已一致）。
+  web 关：legacy 用 `renderWithCodeCards`/CodeCardView；parts 原生走 `renderInto`（Markwon+Prism4j 高亮，内联代码块）。
+- 决策：parts 原生代码块用 renderInto 的高亮即可，不强求 CodeCardView 卡壳；若目视不一致再补 data part 化。
+
+### 11.6 流式（保持现状）
+
+- 流式（未完成）仍走 legacy 旧路径，不进 parts；parts 只接管已完成消息。§11 全部完成后仍维持此边界
+  （AI SDK 也是"定稿结构 + 局部流式"分离）。`part.state=streaming/cancelled` 留给在线引擎在需要时写。
+
+### 11.7 审批 / error part（无生产者，暂不参与接管）
+
+- 无 part 生产者前不进 allowed 名单；审批源接入（在线引擎产出 approval part）后再单独做交互卡 + 回调。
+
+### 11.8 放开顺序与接线（“接”留最后）
+
+1. data 独立卡（11.3 顶层部分）→ 真机对齐 → allowed 加 `data`；
+2. 工具组折叠（11.1）→ 真机 → 加 `tool_call/tool_result`；
+3. 产物归工具卡（11.3 归属）→ 真机；
+4. mermaid/公式（11.4）→ 真机 → 去掉 `MermaidMathSplitter` 回落；
+5. 全绿后 P4：`parts_renderer` 默认 true；P5：新消息不再写 `contentRoundBounds`、旧数据补 `assistantTurn`、删 legacy 分支。
+- 每步只扩 `ChatAdapter.bindWithParts` 的 allowed 判定（覆盖不了仍整条回落，见 P3e），单步可回退。

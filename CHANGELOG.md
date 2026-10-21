@@ -1,5 +1,13 @@
 # 变更日志
 
+## [2026-10-21] docs(parts)：完整接管剩余设计 §11（先设计全再接）
+
+flag=true 全量接管前，把每个还没忠实复刻的子布局设计到位（写进 `parts-architecture-upgrade.md §11`）：
+工具组级折叠（复用 attached 机制，anchor 到组卡）、产物挂所属工具卡、mermaid/公式→data part 化、
+围栏代码、流式/审批/error 边界，每项含"目标 legacy 行为 + parts 做法 + 需新增的 PartHost 能力 + 验收"。
+§11.8 定放开顺序：data→工具组→产物归属→mermaid，每步只扩 `bindWithParts` 的 allowed 类型、
+覆盖不了仍整条回落、可单步回退，逐类真机对齐后才 P4 默认开 / P5 删旧。纯文档，无代码改动。
+
 ## [2026-10-21] parts P3e：能力覆盖才接管，否则整条回落 legacy（修 flag=true 子布局失效）
 
 真机反馈：flag=true 时 parts 接管把未复刻的原生子布局清掉了（"原生子布局都失效"）。根因：接管 gate 太宽
