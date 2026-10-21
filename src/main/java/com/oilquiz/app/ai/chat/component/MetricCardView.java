@@ -35,12 +35,46 @@ public class MetricCardView implements ChatComponent {
 
     @Override
     public boolean canRender(ComponentData data) {
-        return data != null && data.props != null && data.props.optJSONArray("metrics") != null;
+        return data != null && normalize(data.props).optJSONArray("metrics") != null;
+    }
+
+    /**
+     * 别名形状归一：{@code stat} 已被 {@link ComponentTypes} 归一到本卡（"原生实现赢名字"），
+     * 但工具说明教它的是单指标 {@code stat(label,value)}；本卡只读 {@code metrics[]}。
+     * 名字换了、形状没换 → 模型照说明传就 {@code canRender=false} → 静默落 {@code DynamicCardView}
+     * 贴原始 JSON（与饼图 {@code pie_chart(data)} 同一类事故）。这里把单指标折成一条 metrics。
+     *
+     * <p>返回副本，绝不原地写回 {@code data.props}（它会被持久化）。</p>
+     */
+    static JSONObject normalize(JSONObject p) {
+        if (p == null) {
+            return new JSONObject();
+        }
+        if (p.optJSONArray("metrics") != null) {
+            return p; // 已是本卡形状
+        }
+        boolean hasSingle = p.has("label") || p.has("value");
+        if (!hasSingle) {
+            return p;
+        }
+        try {
+            JSONObject one = new JSONObject();
+            one.put("label", p.optString("label", ""));
+            one.put("value", p.optString("value", ""));
+            if (p.has("color")) one.put("color", p.optString("color", ""));
+            JSONArray arr = new JSONArray();
+            arr.put(one);
+            JSONObject out = new JSONObject(p.toString());
+            out.put("metrics", arr);
+            return out;
+        } catch (Exception e) {
+            return p;
+        }
     }
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props != null ? data.props : new JSONObject();
+        JSONObject p = normalize(data.props != null ? data.props : new JSONObject());
         String title = p.optString("title", "");
         JSONArray metrics = p.optJSONArray("metrics");
 

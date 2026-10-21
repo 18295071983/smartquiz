@@ -1582,6 +1582,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 4. **验证**：`ChartAliasShapeTest` 7 项（真机那条必须 canRender、别名推图型、纯数值成 series、显式 series 不回归、
    两形状皆无仍判不可渲、不改源 props、**走真注册表渲出的视图含 `ChartView`**）；全量 589 全绿、`assembleDebug` 通过、已装机待复验。
 
+### 4.75 fix(component)：别名形状矩阵——timeline / stat 也会掉 JSON（饼图同族排查）（2026-10-21）
+
+1. 手段：`ChartAliasShapeMatrixTest` 把**工具说明对每个名字教的字面形状**照抄成 props（34 个），逐个要求 `canRender` 通过。
+   这比"改一张卡测一张卡"强在：它按模型的视角扫全族，一次列出所有"照说明做就失败"的名字。
+2. 抓到并修 2 条真 bug（与饼图同一根因：名字被 canonical 抢去指原生卡，**参数形状没跟着换**）：
+   `timeline`→`StepsCardView` 只读 `steps[]` 而说明教 `items[]`；`stat`→`MetricCardView` 只读 `metrics[]` 而说明教 `label/value`。
+   修法同饼图：`StepsCardView.normalize` / `MetricCardView.normalize` 在渲染器侧归一（历史存量也要能渲），
+   `canRender` 与 `createView` 同走，**返回副本不写回 `data.props`**。
+3. 两个**假阳性已排除**，别重复查：`empty`/`notice` 没有原生对应卡、也不是 alias，由原语渲是设计如此；
+   `line_chart` **能出图**，只是 B1-2"原生赢名字"漏了它 → 与同族长得不一样，属一致性欠账，**改动会换观感，留给用户拍**
+   （统一办法：`ComponentTypes.ALIAS` 加 `line_chart→chart`）。
+4. **验证**：全量 591 全绿（+2）、`assembleDebug` 通过、已装机。真机待复验：让模型出 `timeline`/`stat` 卡看是否还掉 JSON。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -1,5 +1,29 @@
 # 变更日志
 
+## [2026-10-21] fix(component)：排查"名字归一了、参数没归一"整族——timeline / stat 也会掉 JSON
+
+饼图修完后做了一张**别名形状矩阵**（`ChartAliasShapeMatrixTest`）：把工具说明里对每个名字教的**字面形状**
+照抄成 props，逐个喂给 `canRender`，一次列出所有"模型照说明传就渲不出"的名字。结果：
+
+真 bug（同饼图那一类，已修）：
+- `timeline` → 被 canonical 归一到 `StepsCardView`（原生赢名字），但说明教的是原语形状 `items[]`，
+  本卡只读 `steps[]` → `canRender=false` → 落 `DynamicCardView` 贴原始 JSON。
+- `stat` → 归一到 `MetricCardView`，但说明教 `stat(label,value)` 单指标，本卡只读 `metrics[]` → 同样掉兜底。
+
+修法与饼图一致，落在渲染器侧（历史会话里已存量的 `timeline{items}`/`stat{label,value}` 也必须能渲）：
+`StepsCardView.normalize`（`items` → `steps`）、`MetricCardView.normalize`（单 `label/value` → 一条 `metrics`），
+`canRender` 与 `createView` 同走归一；**都返回副本，不原地写回 `data.props`**（会被持久化）。
+
+排查中排除的两个"假阳性"（都不是 bug，别再当问题查）：
+- `empty`/`notice` **本来就没有原生对应卡**、也不是 alias，由 layout 原语渲是设计如此；
+  断言只对"真的抢过名字"的别名/canonical/场景类型要求命中原生卡，不误伤它们。
+- `line_chart` **能正常出图**，但 B1-2 那轮"原生赢名字"把 `bar_chart/pie_chart/sparkline` 归到
+  `ChartCardView` 时**唯独漏了它** → 它仍由原语渲，与同族长得不一样。这是"名字漏归一"的一致性欠账，
+  改了会换观感，**留给你拍**：要统一就给 `ComponentTypes.ALIAS` 加 `line_chart→chart`，矩阵测试会自动把它纳入断言。
+
+测试：`ChartAliasShapeMatrixTest` 2 项（34 个名字的形状矩阵 + 抢名字必须命中原生卡）。
+全量 `--offline` **591** 全绿（+2，0 skip/fail/err）、`assembleDebug` 通过、已装机待真机复验 timeline/stat。
+
 ## [2026-10-21] fix(component)：饼图不出图——图表别名的 props 形状归一到 chartType/series
 
 真机截图抓到（用户报"piechart 错误"）：模型按工具说明调 `ui_component(create, component_type=pie_chart,

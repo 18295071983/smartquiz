@@ -42,12 +42,43 @@ public class StepsCardView implements ChatComponent {
 
     @Override
     public boolean canRender(ComponentData data) {
-        return data != null && data.props != null && data.props.optJSONArray("steps") != null;
+        return data != null && stepsOf(normalize(data.props)) != null;
+    }
+
+    /**
+     * 别名形状归一：{@code timeline} 已被 {@link ComponentTypes} 归一到本卡（"原生实现赢名字"），
+     * 但工具说明教它的参数仍是原语那套 {@code items}。名字换了、形状没换 → 模型照说明传就
+     * {@code canRender=false} → 静默落 {@code DynamicCardView} 贴原始 JSON。这里认 {@code items} 作 {@code steps}。
+     *
+     * <p>返回副本，绝不原地写回 {@code data.props}（它会被持久化）。</p>
+     */
+    static JSONObject normalize(JSONObject p) {
+        if (p == null) {
+            return null;
+        }
+        if (p.optJSONArray("steps") != null) {
+            return p; // 已是本卡形状，省一次拷贝
+        }
+        JSONArray items = p.optJSONArray("items");
+        if (items == null) {
+            return p;
+        }
+        try {
+            JSONObject out = new JSONObject(p.toString());
+            out.put("steps", items);
+            return out;
+        } catch (Exception e) {
+            return p;
+        }
+    }
+
+    private static JSONArray stepsOf(JSONObject p) {
+        return p == null ? null : p.optJSONArray("steps");
     }
 
     @Override
     public View createView(Context context, ComponentData data) {
-        JSONObject p = data.props != null ? data.props : new JSONObject();
+        JSONObject p = normalize(data.props != null ? data.props : new JSONObject());
         JSONArray steps = p.optJSONArray("steps");
 
         CardShell shell = CardShell.create(context)
