@@ -1,5 +1,32 @@
 # 变更日志
 
+## [2026-10-22] fix(parts)：修接管与 legacy 的两个并行写者冲突（产物双渲 / 思考行双份）
+
+排查"接管之外还有哪些界面"时查实两处真实冲突（都因 `PartsRendererFlag` 只在 `bindMessageContent:3600`
+一处生效，legacy 的两个并行写者没人让路）：
+
+- **产物双渲**：`bindWithParts` 清了 `componentContainer`，却没作废 `boundComponents`/指纹缓存；
+  而 `bindComponents` 在 `bindAIMessage:1164` 于其后运行 → 又把产物挂回容器，与 parts 的 data part 重复。
+  触发条件还随布局摆动（holder 已布局时接管同步跑→双渲；未布局时接管延后到 `onGlobalLayout`→反而正常）。
+- **思考行双份**：`updateThinkingSectionV2` 只在"有轮次边界且时间线非空"时才隐藏全局思考行/工具卡
+  （`2316-2324`）。所以**带思考但无工具**的纯回答，legacy 思考行与 parts 的 reasoning part 会同时显示。
+  真机那轮会话有工具（有边界）被隐藏，才没暴露。
+
+修法（新增 `AIMessageViewHolder.partsTookOver`，两种时序都收敛）：
+- `bindWithParts` 成功时置真 + 作废组件缓存 + 隐藏 `thinkSection`/`toolCard`；
+- `bindAIMessage` 每次开头复位（防延后绑定时残留上一条的标记）；`onViewRecycled` 一并复位（防回收后
+  下一条不被接管的消息被误跳过 → 产物/思考凭空消失）；
+- `bindComponents` 与 `updateThinkingContent` 在接管时跳过（含流式 payload 那条刷新路径 `:870`）；
+- 回退安全：覆盖闸门不过时 `bindWithParts` 在碰任何容器前就 `return false`，legacy 分支照常渲染。
+
+全量 `--offline` **593** 全绿（0 skip/fail/err）、`assembleDebug` 通过。**诚实标注**：这两条是
+ChatAdapter holder 层的行为，JVM 侧没有能覆盖 holder 绑定的测试，**只能真机证**——
+要验的点：① 带产物的工具轮不再出现两张同样的图/表；② 纯思考无工具的回答只有一处思考行；
+③ 关掉 flag 后产物仍显示（缓存作废生效）。
+
+顺带记下同日排查结论：聊天流里**没有** OCR 识别布局（进度/汇总是 SYSTEM 消息、识别文本静默进 prompt、
+Agent 侧只有通用工具卡且图卡不含识别文字），属待新功能设计，不是接管遗漏。
+
 ## [2026-10-21] feat(parts)：组内工具改回 legacy 紧凑行 + 单工具也走活动卡（观感对齐）
 
 接上一条待拍项，用户选"复用旧行布局"。同时查实一个更基本的偏差：**legacy 每个工具轮都走活动卡**

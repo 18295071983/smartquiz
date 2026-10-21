@@ -146,6 +146,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             ai.toolCardFp = null;
             ai.roundStructureFingerprint = null;
             ai.roundRenderedChildren = 0;
+            // 接管标记随 holder 走，回收必须复位：残留 true 会让下一条（可能不被接管的）消息
+            // 跳过 bindComponents/updateThinkingContent，表现为产物与思考行凭空消失。
+            ai.partsTookOver = false;
             // 回收时重置 WebView 正文渲染器（清占位高/待渲染状态），复用到别的消息不残留
             if (ai.markdownView != null) ai.markdownView.resetForReuse();
         }
@@ -867,7 +870,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     // bindComponents；而工具卡片状态更新（running→success）正是通过这个 payload
                     // 送达的。缺这一步时，消息级组件容器（折叠行 / 非 tool_call 组件）会停在旧状态，
                     // 直到下一次全量绑定。bindComponents 内部有内容指纹早退，重复调用不会重建。
-                    bindComponents(aiHolder, message);
+                    // 接管中跳过：组件由 parts 的 data part 渲，再挂一份就是双渲。
+                    if (!aiHolder.partsTookOver) {
+                        bindComponents(aiHolder, message);
+                    }
                 } else if (holder instanceof UserMessageViewHolder) {
                     ((UserMessageViewHolder) holder).messageText.setText(message.content);
                 } else if (holder instanceof ThinkingMessageViewHolder) {
@@ -1138,6 +1144,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private void bindAIMessage(AIMessageViewHolder holder, ChatMessage message, String timeStr, int position) {
         // 消息引用绑定（2026-09-14）：思考轮独立折叠状态 / 轮次组件 id 锚点读写
         holder.holderMessage = message;
+        // 每次绑定先复位接管标记：holder 已布局时接管在下面的 renderWithCorrectWidth 里同步发生，
+        // 未布局时延后到 onGlobalLayout——两种时序下，本方法后面的 legacy 写者都必须看到"本次"的结果。
+        holder.partsTookOver = false;
         // 获取 messageText 的实际宽度用于表格自动换行：
         // 已布局（rebind 场景）立即按真实宽度渲染；未布局则等测量完成后渲染。
         // 修复：生成完成 rebind 时 holder 已布局、onGlobalLayoutListener 不再触发，
@@ -1155,8 +1164,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.timestampText.setVisibility(View.GONE);
 
         bindAttachments(holder, message);
-        bindComponents(holder, message);
-        updateThinkingContent(holder, message);
+        // 接管后组件由 parts 的 data part 渲，legacy 组件容器必须让路（否则双渲）；
+        // 思考行/工具卡同理（否则与 parts 的 reasoning part 双份）。
+        if (!holder.partsTookOver) {
+            bindComponents(holder, message);
+            updateThinkingContent(holder, message);
+        }
         bindAgentStepStatus(holder, message);
         updateMessageStatus(holder, message);
         // demo 的消息里不再重复 token/耗时/速度（技术读数在「⋯」面板与消息详情里）；
@@ -3578,6 +3591,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         holder.contentHost.addView(holder.partsContainer);
         // 组件容器也清空：parts 模式不再走 bindComponents，残留的是上一轮旧渲染（同样先 release）。
         releaseAndClearComponents(holder.componentContainer);
+        // 作废组件缓存：接管期间不写 componentContainer，但缓存字段还留着上一条消息的指纹，
+        // 不清会让"关掉 flag 后回 legacy"的那次绑定误判成"组件未变"而早退 → 产物凭空消失。
+        holder.boundComponents = null;
+        holder.boundComponentsFingerprint = 0;
+        // 全局思考行 / 工具卡让路：parts 自己渲 reasoning part 与工具组卡，留着会双份。
+        if (holder.thinkSection != null) holder.thinkSection.setVisibility(View.GONE);
+        if (holder.toolCard != null) holder.toolCard.setVisibility(View.GONE);
+        holder.partsTookOver = true;
 
         if (holder.partsBinder == null) {
             holder.partsBinder = new com.oilquiz.app.ai.chat.parts.PartsTurnBinder(
@@ -5375,6 +5396,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         /** 已绑定组件列表的内容指纹。仅比较列表引用不够：生产方会就地 append 组件
          *  （引用不变、内容已变），只比引用会导致新组件永不显示。 */
         int boundComponentsFingerprint;
+        /**
+         * 本次绑定是否由 parts 引擎接管（P4 前置修复，2026-10-22）。
+         *
+         * <p>接管会自己渲组件与思考块，legacy 的两个并行写者必须让路，否则：
+         * ① {@code bindComponents} 又把产物挂进 {@code componentContainer} → 与 parts 的 data part <b>双渲</b>；
+         * ② 全局思考行/工具卡不隐藏 → 与 parts 的 reasoning part <b>双份</b>。
+         * 每次 {@code bindAIMessage} 开头复位（延后绑定时序下不能残留上一条的值）。</p>
+         */
+        boolean partsTookOver;
         /** 宿主模式（插入式组件）组件段 View 缓存：流式更新时复用，避免 WebView/图表/图片反复重建闪烁 */
         List<View> componentSegmentViews;
         /** 组件段指纹（type|props 序列）：与缓存 View 对应，指纹不变则复用 */

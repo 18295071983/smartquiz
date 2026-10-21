@@ -1647,6 +1647,23 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    组卡测试改断言"成员各成一行 + 产物区常显"；清掉组渲染器已无人用的工具卡工厂字段。
    全量 593 全绿、`assembleDebug` 通过。**待真机**：展开组卡应是细行列表而非大卡；单工具轮显示「已运行 1 个工具」。
 
+### 4.79 fix(parts)：接管与 legacy 两个并行写者的冲突（产物双渲 / 思考行双份）（2026-10-22）
+
+1. 根因：`PartsRendererFlag` 只在 `bindMessageContent:3600` 一处生效，legacy 的并行写者没人让路。
+2. **产物双渲**：`bindWithParts` 清了 `componentContainer` 却没作废 `boundComponents`/指纹缓存，
+   其后 `bindAIMessage:1164` 的 `bindComponents` 又把产物挂回去。触发还随布局摆动
+   （已布局→接管同步跑→双渲；未布局→接管延后到 onGlobalLayout→正常）。
+3. **思考行双份**：`updateThinkingSectionV2` 只在"有轮次边界且时间线非空"时隐藏全局思考行/工具卡
+   （`2316-2324`）→ **带思考但无工具**的纯回答会双份。真机首轮会话有工具，才没暴露。
+4. 修：新增 `AIMessageViewHolder.partsTookOver`——`bindWithParts` 成功置真 + 作废组件缓存 + 隐藏
+   `thinkSection`/`toolCard`；`bindAIMessage` 每次开头复位、`onViewRecycled` 复位（防残留把下一条
+   非接管消息的产物/思考跳没）；`bindComponents`+`updateThinkingContent`（含流式 payload `:870`）接管时跳过。
+   回退安全：闸门不过时 `bindWithParts` 碰容器前就 return false。
+5. **验证**：全量 593 全绿、`assembleDebug` 通过。**holder 层行为 JVM 证不了，三条待真机**：
+   ① 工具轮不再出现两张同样图/表；② 纯思考无工具回答只有一处思考行；③ 关 flag 后产物仍显示（缓存作废生效）。
+6. 同日排查记录：聊天流**没有 OCR 识别布局**（进度/汇总是 SYSTEM 消息、识别文本静默进 prompt、
+   Agent 侧仅通用工具卡且图卡不含识别文字）→ 属新功能设计，非接管遗漏。
+
 ---
 
 ## 5. 关键文件 / 改动地图
