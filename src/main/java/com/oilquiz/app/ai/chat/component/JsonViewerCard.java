@@ -3,27 +3,33 @@ package com.oilquiz.app.ai.chat.component;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.text.TextUtils;
-import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
  * JSON 查看器组件：格式化展示工具返回的原始 JSON 数据（调试/原始结果）。
  *
- * 数据格式（ComponentData.props）：
+ * <p>数据格式（ComponentData.props）：</p>
  * <pre>
  * {
  *   "title": "原始数据",     // 可选
- *   "data": {...},          // 任意 JSON 对象
+ *   "data": {...},          // 任意 JSON 对象/数组；**也接受字符串形态的 JSON**（工具常把 JSON 塞成字符串返回）
  *   "maxHeight": 240        // 可选，dp；超长内容滚动上限
  * }
  * </pre>
+ *
+ * <p>外壳统一走 {@link CardShell}（与 info/table/metric 等内置卡同一套视觉），限高滚动复用
+ * {@link CardShell.MaxHeightScrollView}，字号/颜色走 {@link ComponentTheme} token——此前本卡自绘
+ * LinearLayout + 背景，是"组件和聊天页不是一套语言"（component-system-review §2 P0）的残留实例。</p>
  */
 public class JsonViewerCard implements ChatComponent {
+
+    /** maxHeight 缺省值（dp） */
+    private static final int DEFAULT_MAX_HEIGHT_DP = 200;
 
     @Override
     public String getType() {
@@ -39,97 +45,100 @@ public class JsonViewerCard implements ChatComponent {
     @Override
     public View createView(Context context, ComponentData data) {
         JSONObject p = data.props != null ? data.props : new JSONObject();
-        String title = p.optString("title", "");
         Object raw = p.has("data") ? p.opt("data") : p.opt("json");
-        String jsonText = raw != null ? prettyPrint(raw) : "";
+        String jsonText = raw == null ? "" : prettyPrint(raw);
 
-        LinearLayout card = new LinearLayout(context);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(context, 12), dp(context, 10), dp(context, 12), dp(context, 10));
-        card.setBackground(cardBackground(context));
-
-        if (!TextUtils.isEmpty(title)) {
-            TextView titleTv = new TextView(context);
-            titleTv.setText(title);
-            titleTv.setTextSize(13);
-            titleTv.setTextColor(ComponentColors.textPrimary(context));
-            titleTv.setTypeface(Typeface.DEFAULT_BOLD);
-            titleTv.setPadding(0, 0, 0, dp(context, 6));
-            card.addView(titleTv);
+        CardShell shell = CardShell.create(context)
+                .setHeader(p.optString("title", ""),
+                        TextUtils.isEmpty(jsonText) ? null : lineCount(jsonText) + " 行");
+        if (TextUtils.isEmpty(jsonText)) {
+            shell.setState(CardShell.State.EMPTY);
+            return shell;
         }
 
         TextView jsonTv = new TextView(context);
         jsonTv.setText(jsonText);
-        jsonTv.setTextSize(11);
-        jsonTv.setTextColor(ComponentColors.textSecondary(context));
+        jsonTv.setTextSize(ComponentTheme.metaTextSize());
+        jsonTv.setTextColor(ComponentTheme.textSecondary(context));
         jsonTv.setTypeface(Typeface.MONOSPACE);
-        jsonTv.setLineSpacing(0, 1.2f);
+        jsonTv.setLineSpacing(0, 1.25f);
         jsonTv.setTextIsSelectable(true);
-        jsonTv.setBackgroundColor(ComponentColors.fieldBg(context));
-        jsonTv.setPadding(dp(context, 8), dp(context, 6), dp(context, 8), dp(context, 6));
 
-        int maxHeight = p.optInt("maxHeight", 200);
-        // ScrollView 包裹：超长 JSON 内容可滚动查看（maxHeight 限制显示高度，内容不截断；
-        // 短内容自适应高度不强制撑满）
-        MaxHeightScrollView sv = new MaxHeightScrollView(context);
-        sv.setFillViewport(false);
-        sv.setVerticalScrollBarEnabled(true);
-        if (maxHeight > 0) {
-            sv.setMaxHeightPx(dp(context, maxHeight));
-        }
-        sv.addView(jsonTv, new android.widget.FrameLayout.LayoutParams(
+        // 限高可滚动：maxHeight<=0 时不设上限（内容自适应高度）
+        int maxHeightDp = p.optInt("maxHeight", DEFAULT_MAX_HEIGHT_DP);
+        CardShell.MaxHeightScrollView scroller = new CardShell.MaxHeightScrollView(context,
+                maxHeightDp > 0 ? ComponentTheme.dp(context, maxHeightDp) : 0);
+        scroller.setFillViewport(false);
+        scroller.addView(jsonTv, new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        card.addView(sv, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        return card;
+        shell.addBody(scroller);
+        return shell;
     }
 
-    /** 美化 JSON 文本（容错） */
+    /**
+     * 美化 JSON 文本（容错）。
+     *
+     * <p>{@code data} 常以<b>字符串</b>形态进来（工具结果把 JSON 序列化后当文本返回、或模型直接传字符串），
+     * 此前只有 {@link JSONObject}/{@link JSONArray} 会被格式化，字符串走 {@code String.valueOf} 原样吐——
+     * 结果是一整行不换行的转义文本，看起来像"卡渲染失败贴了段原文"。现在字符串形态的 JSON 也解析后美化，
+     * 解析不了（真·纯文本/数字/布尔）才原样显示。</p>
+     */
     private static String prettyPrint(Object raw) {
+        if (raw instanceof JSONObject) {
+            return indent((JSONObject) raw);
+        }
+        if (raw instanceof JSONArray) {
+            return indent((JSONArray) raw);
+        }
+        String s = String.valueOf(raw).trim();
+        if (looksLikeJson(s)) {
+            try {
+                if (s.charAt(0) == '{') {
+                    return indent(new JSONObject(s));
+                }
+                return indent(new JSONArray(s));
+            } catch (org.json.JSONException ignored) {
+                // 看着像 JSON 但解析失败：按原文显示，不吞内容
+            }
+        }
+        return s;
+    }
+
+    /** 两空格缩进；toString(2) 抛异常时退回紧凑格式，保证不渲染空白卡 */
+    private static String indent(JSONObject o) {
         try {
-            if (raw instanceof JSONObject) {
-                return ((JSONObject) raw).toString(2);
-            }
-            if (raw instanceof org.json.JSONArray) {
-                return ((org.json.JSONArray) raw).toString(2);
-            }
-            return String.valueOf(raw);
-        } catch (Exception e) {
-            return String.valueOf(raw);
+            return o.toString(2);
+        } catch (org.json.JSONException e) {
+            return o.toString();
         }
     }
 
-    private static android.graphics.drawable.Drawable cardBackground(Context context) {
-        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
-        gd.setColor(ComponentColors.background(context));
-        gd.setCornerRadius(dp(context, 10));
-        gd.setStroke(dp(context, 1), ComponentColors.border(context));
-        return gd;
+    private static String indent(JSONArray a) {
+        try {
+            return a.toString(2);
+        } catch (org.json.JSONException e) {
+            return a.toString();
+        }
     }
 
-    /** 支持最大高度的 ScrollView：内容超过 maxHeight 时截断滚动，短内容自适应高度 */
-    private static class MaxHeightScrollView extends android.widget.ScrollView {
-        private int maxHeightPx = Integer.MAX_VALUE;
-
-        MaxHeightScrollView(Context c) {
-            super(c);
+    /** 首尾花括号/方括号且长度>1 才当 JSON 试解析，避免把普通句子送去解析 */
+    private static boolean looksLikeJson(String s) {
+        if (s.length() < 2) {
+            return false;
         }
+        char a = s.charAt(0);
+        char z = s.charAt(s.length() - 1);
+        return (a == '{' && z == '}') || (a == '[' && z == ']');
+    }
 
-        void setMaxHeightPx(int px) {
-            maxHeightPx = px;
-        }
-
-        @Override
-        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-            if (maxHeightPx > 0 && getMeasuredHeight() > maxHeightPx) {
-                setMeasuredDimension(getMeasuredWidth(), maxHeightPx);
+    /** 行数（表头 meta 用），按换行符数计 */
+    private static int lineCount(String text) {
+        int n = 1;
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) == '\n') {
+                n++;
             }
         }
-    }
-
-    private static int dp(Context context, float value) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value,
-                context.getResources().getDisplayMetrics());
+        return n;
     }
 }

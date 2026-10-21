@@ -1487,6 +1487,21 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. 新测 `ComponentFieldIntegrityTest`(+4)：目录教的必填必须 `canRender==true` + 反向锁死旧错字段 + 场景卡在目录 + 已删实现不售卖（旧名仍可渲）。json 卡本体（字符串 JSON 美化 + CardShell）单开。
 4. **验证**：全量 560 全绿（+4，0 skip/fail/err）、`assembleDebug` 通过；改到共享 `ComponentRegistry`/`ComponentTypes`（additive）。待真机：短名 weather/todo/contact 出正卡。
 
+### 4.68 fix(component)：json 卡适配（字符串 JSON 美化 + CardShell 统一外壳）（2026-10-21）
+
+上一批单开的 json 卡本体（§2 P0"组件和聊天页不是一套语言"残留实例）。
+
+1. 字符串 JSON 也美化：旧 `prettyPrint` 只认 `JSONObject`/`JSONArray`，字符串（工具常把 JSON 序列化后返回）走
+   `String.valueOf` 原样吐 → 一整行转义文本，看着像渲染失败。现按首尾 `{}`/`[]` 试探解析后缩进 2 空格；
+   解析失败或纯文本原样显示，不吞内容、不崩。
+2. 外壳接 `CardShell`：删自绘 LinearLayout/背景/私有 MaxHeightScrollView，复用 `CardShell.MaxHeightScrollView`
+   （`props.maxHeight` dp 仍生效，缺省 200）+ `ComponentTheme` token（`metaTextSize`/`textSecondary`）；
+   空数据 `State.EMPTY`，表头 meta 显示行数。写法对齐 `DynamicCardView` 原始 JSON 折叠区。
+3. 目录 `json` 必填说明补"或字符串形态的 JSON 也会美化"，模型可直接塞序列化结果。
+4. **验证**：新增 `JsonViewerCardTest` 8 项（走真 `ComponentRegistry.render`：字符串对象/数组美化、对象数组不回归、
+   纯文本原样、坏 JSON 留原文、根 View 是 CardShell、空白不崩、短名 json 命中），全量 568 全绿（+8）、`assembleDebug` 通过。
+   待真机：json 卡视觉与长内容滚动观感。
+
 ---
 
 ## 5. 关键文件 / 改动地图

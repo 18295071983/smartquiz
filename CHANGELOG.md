@@ -1,5 +1,22 @@
 # 变更日志
 
+## [2026-10-21] fix(component)：json 卡适配——字符串 JSON 美化 + 接 CardShell 统一外壳
+
+上一批单开的 json 卡本体（component-system-review §2 P0"组件和聊天页不是一套语言"的残留实例之一）：
+- **字符串形态的 JSON 现在也美化**：工具结果常把 JSON 序列化后当字符串返回（或模型直接传字符串），
+  旧 `prettyPrint` 只认 `JSONObject`/`JSONArray`，字符串走 `String.valueOf` 原样吐 → 渲染成一整行
+  不换行的转义文本，看着就像"卡渲染失败贴了段原文"。现按首尾花/方括号试探解析，成功则缩进 2 空格美化，
+  解析失败/纯文本（含数字布尔）原样显示、不吞内容也不崩。
+- **外壳改走 `CardShell`**：删掉自绘的 `LinearLayout` + `GradientDrawable` 背景 + 私有 `MaxHeightScrollView`，
+  复用共享 `CardShell.MaxHeightScrollView`（`props.maxHeight` dp 仍生效，缺省 200），字号/颜色改走
+  `ComponentTheme` token（`metaTextSize`/`textSecondary`），空数据显示 `State.EMPTY`；
+  表头 meta 显示行数。与 `DynamicCardView` 原始 JSON 折叠区同一套写法。
+- 目录里把 `json` 的必填说明补成"对象/数组，或字符串形态的 JSON 也会美化"，模型知道可以直接塞序列化结果。
+
+测试：新增 `JsonViewerCardTest` 8 项（走真 `ComponentRegistry.render` 路径）——字符串对象/数组被美化成多行缩进、
+对象与数组口径不回归、纯文本原样、坏 JSON 保留原文、根 View 必须是 CardShell、空白 data 不崩、短名 `json` 命中实现。
+全量 `--offline` **568** 全绿（+8，0 skip/fail/err），`assembleDebug` 通过。待真机：json 卡视觉与长内容滚动观感。
+
 ## [2026-10-21] fix(component)：目录教的字段/短名与卡片真实读取对齐（json 兜底根因）
 
 "有些卡出来是原始 JSON 原文"——查实是 `ComponentTypes.SCHEMA`（模型可见目录）与卡片真实读取不一致；

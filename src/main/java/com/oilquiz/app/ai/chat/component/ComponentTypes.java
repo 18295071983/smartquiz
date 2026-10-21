@@ -143,7 +143,7 @@ public final class ComponentTypes {
         SCHEMA.put("progress", new String[]{CATEGORY_DATA, "进度 progress(0-100)", "标题 title",
                 "文案 description, 状态 status"});
         // 模型可通过工具调用参数声明 display/collapsed 控制卡片显隐。
-        SCHEMA.put("json", new String[]{CATEGORY_DATA, "数据 data",
+        SCHEMA.put("json", new String[]{CATEGORY_DATA, "数据 data(对象/数组，或字符串形态的 JSON 也会美化)",
                 "标题 title, 展示 display=inline|peek|hidden",
                 "旧字段 collapsed=true 等效 peek；交互/正文类仍强制 inline"});
         SCHEMA.put("image", new String[]{CATEGORY_MEDIA, "图片 images[]", "标题 title", "columns"});
