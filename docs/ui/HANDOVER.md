@@ -1544,6 +1544,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    开关默认 false 可读写、交互卡才有地址）；`HtmlSandboxTest` 17 项仍绿。**待真机**：JS↔native 端到端、
    `get_result` 唤醒、长报表内滚不抢手势、flag=true 下 inline/peek 两档均可提交。
 
+### 4.72 docs(html桥)：submit 落地状态回写 + 第 3 步（模型文案）主动推迟（2026-10-21）
+
+1. 设计文档状态改为"第 1、2 步已落地（`99e77714` 抽 `resolveComponentId`、`349e3b85` `submit`+`HtmlSubmitFlag` 默认 false），第 3 步推迟"。
+   决策按文档推荐落定：id 来源＝方案 A、payload 16 KB、开关默认 false（用户"你开始把"＝按推荐走）。
+2. **第 4 条决策（写进模型可见说明）作废并推迟**，理由：`@Param(props)` 是静态文本、无法跟着开关变；
+   开关默认 false 时 `submit` 静默 no-op，此时教模型"页面内可 `Android.submit` 回传"是在提示词里画死路
+   （对齐 [[no-renderers-without-producer]]）。等真机验收 + 开关翻默认 true 后再补 `ComponentTypes.SCHEMA` html 行与工具 props 说明。
+3. 顺带核实：`src/test/resources/golden/{assist,takeover}.txt` **没有内联** props 字段表
+   （`chartType/maxHeight/json_viewer` 零命中），所以改工具文案不会动 golden；golden 只由 `OnlinePromptBuilderAssemblyTest` 比。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -1,5 +1,14 @@
 # 变更日志
 
+## [2026-10-21] docs(html桥)：submit 落地状态回写；第 3 步（模型文案）主动推迟
+
+设计文档 `html-card-agent-roundtrip-design.md` 更新为"第 1、2 步已落地、第 3 步推迟"，并记偏离原因：
+- `@Param(props)` 的工具说明是**静态文本**，不能随 `html_component_submit` 开关状态变化；
+- 开关现在默认 false、`submit` 静默 no-op → 此时在提示词里教"页面内可用 `Android.submit` 回传"等于画一条死路
+  （模型以为能 `get_result`，实际永远拿不到），与"别教没有通路的能力"冲突。
+- 决定：真机验收通过、开关翻默认 true 之后再补文案（`ComponentTypes.SCHEMA` html 行 + 工具 props 说明）。
+  原 §7 决策 4 的"推荐要写"据此作废。纯文档，不动代码。
+
 ## [2026-10-21] feat(component)：html 卡页面内可回传 Agent（`HtmlJsBridge.submit`，开关默认 false）
 
 设计文档第 2 步落地（`docs/ui/html-card-agent-roundtrip-design.md`），把 `html` 卡从"仅本地交互"升到能进

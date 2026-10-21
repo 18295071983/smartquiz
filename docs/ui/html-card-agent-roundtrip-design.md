@@ -1,6 +1,12 @@
 # 设计：让本地 HTML 卡把用户操作回传 Agent（js 桥 submit）
 
-状态：**待批准**（未开工）。日期 2026-10-21。分支 `feat/chat-parts-renderer`。
+状态：**第 1、2 步已落地（开关默认 false）；第 3 步（模型可见文案）主动推迟**。日期 2026-10-21。分支 `feat/chat-parts-renderer`。
+落地记录：`99e77714` 抽 `ComponentActions.resolveComponentId`（纯重构）；`349e3b85` `HtmlJsBridge.submit` + `HtmlSubmitFlag`（默认 false）+ `HtmlBridgeSubmitTest` 8 项。
+决策落定（用户"你开始把"，按文档推荐取值）：id 来源＝方案 A（只带 `actions` 的卡可回传，不改生产者）；payload 上限 16 KB；prefs 开关默认 false。
+**§7 第 4 条偏离原推荐**：文案**暂不写**。理由是 `@Param(props)` 的工具说明是静态文本，没法跟着开关状态变；而开关现在默认 false、`submit` 静默 no-op，
+此时告诉模型"页面内可用 `Android.submit` 回传"就是在提示词里画一条死路（模型以为能 `get_result`，实际永远拿不到）——与"别教没有通路的能力"同一条规矩。
+等真机验收通过、`html_component_submit` 翻成默认 true 之后再补这段文案（写进 `ComponentTypes.SCHEMA` 的 html 行 + `SystemUIComponentTool` props 说明）。
+
 关联：`component-system-review.md §7`（可操作三档清单）、`parts-architecture-upgrade.md`（内置组件靠 `ComponentRegistry` 自包含）。
 安全前提：记忆 `webview-jsbridge-security`——桥只挂低危方法、不暴露 execTool/queryDb；本方案不改这条。
 
