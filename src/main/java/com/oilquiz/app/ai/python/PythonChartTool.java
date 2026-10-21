@@ -111,9 +111,11 @@ public class PythonChartTool extends BaseAITool {
         String colors = arrayParam(parameters, "colors");
         boolean showValues = boolParam(parameters, "show_values", true);
 
-        // 默认输出：工作区 files/agent_chart_时间戳.png
-        String wsFiles = new java.io.File(context.getFilesDir(),
-                "agent_workspace" + java.io.File.separator + "files").getAbsolutePath();
+        // 默认输出：工作区 files/agent_chart_时间戳.png。
+        // 走 AgentWorkspace 取"当前"工作区（公共↔私有随授权切换）——原来硬编码私有目录，
+        // 授权后图落在旧侧，聊天流卡片与文件管理页两头找不到
+        String wsFiles = com.oilquiz.app.ai.agent.online.AgentWorkspace
+                .getInstance(context).getFilesDir().getAbsolutePath();
         if (outputPath == null || outputPath.isEmpty()) {
             outputPath = wsFiles + java.io.File.separator + "agent_chart_" + System.currentTimeMillis() + ".png";
         } else if (!outputPath.startsWith("/")) {

@@ -104,8 +104,8 @@ public class FileGeneratorTool implements AITool {
     /**
      * 规范化参数：工具Schema声明的参数名为 file_name，但内部实现读取 file_path。
      * 这里将 file_name 映射到 file_path，保证LLM按Schema传参时工具能正常工作。
-     * 未指定绝对路径时文件统一保存到 Agent 工作区长期文件区（filesDir/agent_workspace/files/，
-     * 无需额外权限，可用 workspace 工具查看/读取）。
+     * 未指定绝对路径时文件统一保存到"当前"Agent 工作区长期文件区（AgentWorkspace.getFilesDir()，
+     * 公共↔私有随存储授权切换；无需额外权限，可用 workspace 工具查看/读取）。
      */
     private void normalizeParameters(Map<String, Object> parameters) {
         if (parameters == null) return;
@@ -116,7 +116,8 @@ public class FileGeneratorTool implements AITool {
         if (!parameters.containsKey("file_name") && parameters.containsKey("file_path")) {
             parameters.put("file_name", parameters.get("file_path"));
         }
-        // 文件默认保存到 Agent 工作区（filesDir/agent_workspace/，无需存储权限，管理页统一可见）；
+        // 文件默认保存到"当前"Agent 工作区（AgentWorkspace.getFilesDir()，未授权时为私有目录，
+        // 授权后为公共目录；管理页统一可见）；
         // Agent 明确指定绝对路径（/ 开头或 file://）时保留原路径
         Object fpObj = parameters.get("file_path");
         if (fpObj instanceof String) {

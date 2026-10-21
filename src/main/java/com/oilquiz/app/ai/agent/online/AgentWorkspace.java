@@ -345,7 +345,8 @@ public class AgentWorkspace {
      * 2. file:// 前缀剥离
      * 3. 绝对路径存在 → 直接返回
      * 4. 相对路径 → 依次尝试 files/ → tmp/ → 工作区根
-     * 5. 仍找不到 → 按文件名（basename）在 files/、tmp/、工作区根搜索
+     * 5. 仍找不到 → 按文件名（basename）在当前侧 files/、tmp/、工作区根搜索，
+     *    再兜底搜公共↔私有另一侧（见 {@link #otherSideDirs()}）
      */
     public File resolveExistingFile(String pathOrName) {
         if (pathOrName == null || pathOrName.trim().isEmpty()) return null;
@@ -382,6 +383,19 @@ public class AgentWorkspace {
         if (inTmp.isFile()) return inTmp;
         File inRoot = new File(workspaceDir, p);
         if (inRoot.isFile()) return inRoot;
+        // 跨侧精确拼接：工作区切换过（或写者默认落另一侧）时，文件可能在公共↔私有另一侧
+        for (File dir : otherSideDirs()) {
+            File f1 = new File(dir, p);
+            if (f1.isFile()) return f1;
+            if (!rel.equals(p)) {
+                File f2 = new File(dir, rel);
+                if (f2.isFile()) return f2;
+            }
+        }
+        // 数据根目录相对形态：python_execute 进程 cwd 是应用数据目录，模型写的
+        // "files/agent_workspace/xxx" 实为相对应用 files 根（剥掉 files/ 前缀即 rel）
+        File inAppFiles = new File(appContext.getFilesDir(), rel);
+        if (inAppFiles.isFile()) return inAppFiles;
         // 纯文件名兜底搜索（模型常只传文件名/去掉目录前缀）
         String name = p;
         int lastSlash = p.lastIndexOf('/');
@@ -391,19 +405,65 @@ public class AgentWorkspace {
         return searchByName(name);
     }
 
-    /** 按文件名在工作区 files/、tmp/、根目录搜索（返回第一个匹配的文件） */
+    /** 按文件名在工作区 files/、tmp/、根目录搜索（返回第一个匹配的文件）；当前侧未命中再搜另一侧 */
     private File searchByName(String name) {
         if (name == null || name.isEmpty()) return null;
         ensureDirs();
-        for (File dir : new File[]{filesDir, tmpDir, workspaceDir}) {
-            File[] list = dir.listFiles();
-            if (list != null) {
-                for (File f : list) {
-                    if (f.isFile() && f.getName().equals(name)) return f;
-                }
-            }
+        File[] current = new File[]{filesDir, tmpDir, workspaceDir};
+        File[] other = otherSideDirs();
+        for (File dir : current) {
+            File hit = findFileNamed(dir, name);
+            if (hit != null) return hit;
+        }
+        for (File dir : other) {
+            File hit = findFileNamed(dir, name);
+            if (hit != null) return hit;
         }
         return null;
+    }
+
+    /** 在单个目录（不递归）里找同名文件；目录不可读返回 null */
+    private File findFileNamed(File dir, String name) {
+        if (dir == null || !dir.isDirectory()) return null;
+        File[] list = dir.listFiles();
+        if (list == null) return null;
+        for (File f : list) {
+            if (f.isFile() && f.getName().equals(name)) return f;
+        }
+        return null;
+    }
+
+    /**
+     * 公共↔私有工作区的<b>另一侧</b>（当前未使用的那侧）：files/、tmp/、根目录。
+     * 不存在或不可访问时返回空数组。
+     *
+     * <p><b>为什么解析要兜底另一侧</b>（2026-10-22 修真机"图片加载失败"）：工作区随
+     * MANAGE_EXTERNAL_STORAGE 授权在公共/私有之间切换，但部分写者仍会落到旧侧 ——
+     * 模型在 python_execute 里用相对路径 savefig（进程 cwd 是应用数据根目录，永远写到
+     * 私有侧），默认私有路径的工具也一样。解析器只搜当前侧就会出现
+     * "文件明明在磁盘上、卡片却加载失败"。构造期的 {@code migrateFromOtherSide} 只搬
+     * 重建实例之前落盘的文件，之后的新文件要靠这里兜底。</p>
+     */
+    private File[] otherSideDirs() {
+        try {
+            File other;
+            if (publicWorkspace) {
+                other = new File(appContext.getFilesDir(), WORKSPACE_DIR);
+            } else {
+                // 未授权时公共侧本就不可读，不必浪费一次扫描
+                boolean hasPermission = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R
+                        || android.os.Environment.isExternalStorageManager();
+                if (!hasPermission) return new File[0];
+                java.io.File downloadDir = android.os.Environment
+                        .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+                if (downloadDir == null) return new File[0];
+                other = new File(downloadDir, PUBLIC_ROOT + "/" + WORKSPACE_DIR);
+            }
+            if (!other.isDirectory()) return new File[0];
+            return new File[]{new File(other, FILES_DIR), new File(other, TMP_DIR), other};
+        } catch (Throwable t) {
+            return new File[0];
+        }
     }
 
     /**

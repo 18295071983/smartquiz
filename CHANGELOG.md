@@ -1,5 +1,54 @@
 # 变更日志
 
+## [2026-10-22] fix(workspace)：写者侧统一到"当前"工作区（承接上一条的两侧漂移）
+
+上一条给解析器补了跨侧兜底；本轮治源头——写者不再硬编码私有目录，产物直接落**当前**工作区
+（公共↔私有随 MANAGE_EXTERNAL_STORAGE 授权切换，`AgentWorkspace.getInstance` 是唯一真值来源）。
+
+排查口径：全仓扫 `getFilesDir()+agent_workspace` 的构造点，逐个判"写者/读者/有意为之"。
+
+- `SystemResourceTool.httpDownload`：默认下载目录 `filesDir/agent_workspace/files`（私有硬编码）
+  → `AgentWorkspace.getFilesDir()`。这就是本轮现场里 `weather_yc.json`/`openmeteo_yc.json`
+  落私有的写者；模型看到工具回显的私有绝对路径后，python 里照着写相对路径又被 cwd 带偏。
+- `PythonChartTool.buildChartCode`：默认输出与相对路径解析的 `wsFiles` 同上替换。
+- `PythonExecuteTool.buildSafeCode`：**不能 chdir**（Chaquopy 在进程内执行，会连带改整个 App
+  进程 cwd），改为前导注入 `WORKSPACE_DIR`/`WORKSPACE_FILES` 常量 + 一行注释锚点，
+  让模型产出文件有正确的拼接目标。未动工具 description（golden 快照口径）。
+- `FileGeneratorTool`：代码本就走 `AgentWorkspace`，只把两处"filesDir/agent_workspace/"陈旧注释
+  改成"当前工作区"口径，避免误导下一个读者。
+- **明确不动**（有意为之，非漂移）：`AgentWorkspaceView` 私有侧列表（管理页要看两侧）、
+  `DashscopeMediaTool`/`DouyinDownloaderTool` 的公共侧硬编码（前者是 API Key 兜底读、
+  后者是旧版外部 cookie 的一次性迁移读，都不是工作区产物写者）。
+
+测试：全量 `--offline` **597** 全绿（597/0/0/0，四数核过）；`assembleDebug` 通过并覆盖安装，
+应用冷启动正常。真机项（需新跑一轮 python_execute 才能验）已列交接清单。
+
+## [2026-10-22] fix(workspace)：解析器补公共↔私有另一侧兜底（真机"图片加载失败"两张卡同根因）
+
+真机现场：python_execute 产物自动挂的 image_grid（"图集 · 1 张图"）与 ui_component 显式创建的
+image 组件同屏都报"⚠ 图片加载失败"。会话文件里两卡的图片路径分别是
+`files/agent_workspace/files/weather_yc_chart.png`（数据根相对）与
+`/storage/emulated/0/Download/OilQuiz/agent_workspace/files/weather_yc_chart.png`（公共侧绝对路径），
+而文件实际只在**私有侧** `/data/user/0/com.oilquiz.app/files/agent_workspace/files/`。
+
+根因是**工作区两侧漂移**：本轮会话中途授予了 MANAGE_EXTERNAL_STORAGE，`AgentWorkspace` 单例切到
+公共目录，但写者仍落私有 —— python_execute 进程 cwd 是应用数据目录，模型相对路径 savefig 必写到
+`files/agent_workspace/`（私有）；`migrateFromOtherSide` 只搬重建实例**之前**的文件，搬不到之后的。
+而 `resolveExistingFile` 的相对拼接与 basename 兜底搜索**只搜当前（公共）侧**，两条路径都解析失败 →
+`MediaPathResolver` 按契约返回原值 → Glide ENOENT。（Glide 日志实证：`Load failed for
+[files/agent_workspace/files/weather_yc_chart.png]`。）
+
+修法（`AgentWorkspace.resolveExistingFile` 单点，全项目经 `MediaPathResolver` 共享口径）：
+- 相对路径分支补两段兜底：按 `otherSideDirs()`（另一侧 files/、tmp/、根）做精确拼接；
+  以及 `appContext.getFilesDir() + rel` 专治"files/agent_workspace/…"这种数据根相对形态。
+- `searchByName` 当前侧未命中后继续搜另一侧（治 C15 那种"公共侧绝对路径但文件在私有"的幻觉/漂移路径）。
+- 未授权时公共侧不可读，`otherSideDirs()` 直接返回空，不白扫。
+
+**已真机复验**：覆盖安装后不重新生成，直接重开同一会话，两张失败图都恢复渲染
+（相对路径卡与 /storage 绝对路径卡各一张），表格卡与正文不受影响。
+写者侧不一致（工具默认私有路径 vs 列表工具报公共 workspacePath）本轮未动，留待单独拍。
+全量 `--offline` 单测 **597** 全绿（tests/skipped/failures/errors 四数核过：597/0/0/0）。
+
 ## [2026-10-22] fix(chat)：MessageAttachmentAdapter 数据入口加固（不删死链）
 
 查 `MessageAttachmentAdapter` 的结果。绑定骨架本身是稳的（空附件走 `GONE + setAdapter(null)`、非空必调

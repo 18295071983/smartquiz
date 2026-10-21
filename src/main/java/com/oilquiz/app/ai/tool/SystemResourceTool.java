@@ -1702,7 +1702,9 @@ public class SystemResourceTool implements AITool {
         url = url.trim();
         String path = (String) parameters.get("path");
         File dest;
-        File wsFiles = new File(context.getFilesDir(), "agent_workspace/files");
+        // 默认落"当前"工作区 files/（公共↔私有随授权切换）——原来硬编码私有目录，
+        // 授权后会出现"列表在工作区看不到刚下载的文件"与解析器跨侧兜底的额外负担
+        File wsFiles = AgentWorkspace.getInstance(context).getFilesDir();
         if (path != null && !path.trim().isEmpty()) {
             String pt = path.trim();
             dest = pt.startsWith("/") ? new File(pt) : new File(wsFiles, pt);

@@ -465,6 +465,19 @@ public class PythonExecuteTool extends BaseAITool {
         // pip 动态安装的包存放在用户目录
         String userPipDir = new java.io.File(context.getFilesDir(), "python_user_packages").getAbsolutePath();
         sb.append("sys.path.insert(0, '").append(userPipDir.replace("\\", "\\\\")).append("')\n\n");
+
+        // ===== 工作区锚点（2026-10-22 写者侧统一）=====
+        // 进程 cwd 是应用数据目录，模型用相对路径产出文件（savefig/open(...,'w')）
+        // 会落进私有侧、脱离当前工作区（公共↔私有随存储授权切换），聊天卡片与文件管理页两头找。
+        // 不能 chdir：Chaquopy 在进程内执行，会连带改了整个 App 进程的 cwd。
+        // 故注入 WORKSPACE_DIR/WORKSPACE_FILES 常量 + 注释，给模型一个正确的产出锚点。
+        com.oilquiz.app.ai.agent.online.AgentWorkspace ws =
+                com.oilquiz.app.ai.agent.online.AgentWorkspace.getInstance(context);
+        String wsDir = ws.getWorkspaceDir().getAbsolutePath().replace("\\", "\\\\");
+        String wsFiles = ws.getFilesDir().getAbsolutePath().replace("\\", "\\\\");
+        sb.append("# 产出文件写到工作区：用 WORKSPACE_FILES 拼绝对路径（相对路径会落到应用数据目录，不在工作区）\n");
+        sb.append("WORKSPACE_DIR = '").append(wsDir).append("'\n");
+        sb.append("WORKSPACE_FILES = '").append(wsFiles).append("'\n\n");
         
         // ===== 标准库：基础与系统（Chaquopy保证可用） =====
         sb.append("import io, re, math, random, time, datetime, json, csv\n");
