@@ -1,5 +1,20 @@
 # 变更日志
 
+## [2026-10-21] parts P3d：data 卡按 ComponentDisplay 档位对齐（HIDDEN/PEEK/INLINE）
+
+- `DataPartRenderer` 复用公共 `ComponentDisplay`（`resolve/mounts/peekLabel`）+ `ChatMessage` 展开态，与 legacy
+  `mountRoundComponent`/`wrapProductPeek` 同口径：HIDDEN 不挂、PEEK 摘要行点击就地展开、INLINE 整卡；
+  默认档（`tool_result_display_default`）多为 peek，此前 parts 一律 INLINE → 现对齐。
+- 展开态按 `part.id` 作 key（parts 自成一路，不借用 legacy prodIndex）。删除/替换卡时 `ComponentLifecycle.release`
+  深度释放嵌套 WebView。**不改动 legacy 挂载代码** → flag=false 现网不受影响。
+- 工具组"全部完成后折成一行 · 已运行N个工具"（`buildActivityGroups`）是结构性折叠，与 parts 的
+  一 part 一视图模型不同，**未做**，留待单独设计决策（不在本次盲移）。
+
+真机（本次已连）：装 P3c 包 + 开 flag=true，重载历史仍走 legacy（`assistantTurn` 不落盘、gate 不满足，属预期，P5 才补旧数据），
+未见崩溃/parts 异常栈；uiautomator 文本不足以判视觉（WebView 内容不入树），data 卡档位差异需你目视确认。
+
+测试：+1（HIDDEN 不建卡不挂、INLINE 建卡挂载），全量 `--offline` **546** 全绿（0/0/0），`assembleDebug` 通过。
+
 ## [2026-10-21] parts P3c：内联 component → text+data 交错，parts 接管含标记消息（撤护栏）
 
 补掉 P3b 护栏挡住的漏渲：正文内联 ` ```component:xxx``` ` 由 `ComponentContentSplitter` 现场解析、不进 `msg.components`，

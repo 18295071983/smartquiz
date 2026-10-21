@@ -1403,6 +1403,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. 撤掉 4.58-④ 的 `!containsComponent` 护栏：parts 现能忠实渲染内联卡，含标记消息也走 parts。
 4. **验证**：+2 单测，全量 545 全绿、`assembleDebug` 通过、无回归。仍待真机验 flag=true 内联卡渲染。
 
+### 4.60 parts P3d：data 卡档位对齐（2026-10-21）
+
+1. `DataPartRenderer` 复用公共 `ComponentDisplay`（resolve/mounts/peekLabel）+ `ChatMessage.isComponentBodyExpanded/toggle`，
+   与 legacy `mountRoundComponent`/`wrapProductPeek` 同口径：HIDDEN 不挂、PEEK 摘要行可点展开（key=part.id）、INLINE 整卡。
+2. 删/换卡调 `ComponentLifecycle.release` 深释放嵌套 WebView。**未改 legacy 挂载** → flag=false 不受影响。
+3. 工具组"已运行N个工具/全部完成折一行"（`buildActivityGroups`）结构性折叠，与一 part 一视图模型冲突，**未盲移**，留决策。
+4. 真机本次已连：开 flag=true、重载历史仍 legacy（assistantTurn 不落盘、gate 不满足，预期，P5 补），无崩溃/parts 异常；
+   uiautomator 读不到 WebView 内文本，data 卡档位差异需目视确认。
+5. **验证**：+1 单测（HIDDEN/INLINE），全量 546 全绿、`assembleDebug` 通过、无回归。
+
 ---
 
 ## 5. 关键文件 / 改动地图

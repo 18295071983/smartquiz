@@ -247,6 +247,40 @@ public class PartsCoverageTest {
         assertEquals(before, factory.created.size());
     }
 
+    @Test
+    public void dataPartDisplayTiersRespected() {
+        FakeFactory factory = new FakeFactory();
+        DataPartRenderer d = new DataPartRenderer(factory);
+
+        // HIDDEN：不建卡、不挂载
+        org.json.JSONObject hidden = new org.json.JSONObject();
+        try {
+            hidden.put("display", "hidden");
+            hidden.put("title", "销量");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        View hv = d.createView(new TestHost(ctx), container);
+        d.bindView(hv, AssistantTurn.Part.data("dh", ComponentData.of("chart", hidden), 1L),
+                new TestHost(ctx));
+        assertEquals("HIDDEN 不调工厂", 0, factory.created.size());
+        assertEquals("HIDDEN 不挂载", 0, ((ViewGroup) hv).getChildCount());
+
+        // INLINE：建卡并直接挂载（整卡，无摘要行）
+        org.json.JSONObject inline = new org.json.JSONObject();
+        try {
+            inline.put("display", "inline");
+            inline.put("title", "销量");
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+        View iv = d.createView(new TestHost(ctx), container);
+        d.bindView(iv, AssistantTurn.Part.data("di", ComponentData.of("chart", inline), 1L),
+                new TestHost(ctx));
+        assertEquals(1, factory.created.size());
+        assertEquals("INLINE 整卡直接挂", 1, ((ViewGroup) iv).getChildCount());
+    }
+
     private TurnPartsHost hostWith(PartRenderer... renderers) {
         PartRendererRegistry reg = new PartRendererRegistry();
         for (PartRenderer r : renderers) reg.register(r);
