@@ -1,5 +1,6 @@
 package com.oilquiz.app.ai.chat.component;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -15,6 +16,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -83,7 +85,96 @@ public class ComponentFieldIntegrityTest {
         assertFalse("weather 卡不读 data", renderableWithOnly("weather", "data", obj("temp", "1")));
     }
 
-    /** file_list 是场景卡但以前不进目录，模型只能猜字段。 */
+    /**
+     * 目录漂移的<b>自动</b>守卫：不再用手抄 fixture，而是把每条目录项"必填"里教的字段名
+     * 解析出来当场构造 props，再要求卡片 {@code canRender} 为真。
+     *
+     * <p>这条才是本类的价值所在：上一批那三条错配（{@code progress}/{@code metric}/{@code contact}）
+     * 之所以能长期存活，就是因为"目录教什么"和"卡片读什么"之间没有任何自动联系。
+     * 手抄 fixture 只能钉住已知三条，将来谁再往目录里加一个字段名写错的条目，只有派生式测试会红。</p>
+     */
+    @Test
+    public void catalogTaughtRequiredFields_aloneSatisfyCardGates() {
+        JSONArray catalog = ComponentTypes.catalogJson();
+        assertTrue("目录为空", catalog.length() > 0);
+        int checked = 0;
+        for (int i = 0; i < catalog.length(); i++) {
+            JSONObject entry = catalog.optJSONObject(i);
+            String type = entry.optString("type");
+            String required = entry.optString("required");
+            List<String> fields = tokensIn(required);
+            assertFalse("目录项没给出可解析的必填字段名，无法守卫漂移: " + type,
+                    fields.isEmpty());
+
+            JSONObject props = new JSONObject();
+            for (String f : fields) {
+                putByShape(props, f, required);
+            }
+            ChatComponent c = implFor(type);
+            assertNotNull("目录里的类型没有渲染实现: " + type, c);
+            assertTrue("目录教的必填字段渲染不出卡（模型照目录填就会掉原始 JSON 兜底）: "
+                            + type + " 必填=" + required + " 构造出=" + props,
+                    c.canRender(ComponentData.of(type, props)));
+            checked++;
+        }
+        assertEquals("目录条目应全部被检查过", catalog.length(), checked);
+    }
+
+    /**
+     * 从"进度 progress(0-100)" / "指标 metrics[{label,value}]" / "类型 chartType=bar|line|pie"
+     * 这类描述里抠出字段名：<b>每个逗号段只取第一个英文词</b>。
+     *
+     * <p>两个必须的预处理，否则测试在校验现实中不存在的形状：</p>
+     * <ul>
+     *   <li>先把 {@code [...]} 里的内容整体抹掉——里面的逗号（{@code series[{name,data[]}]}）
+     *       会被当成分段符，把内层 key（{@code data}）误当成必填字段；</li>
+     *   <li>不把所有英文词都当字段——{@code bar|line|pie} 这些枚举值不是字段名。</li>
+     * </ul>
+     */
+    private static List<String> tokensIn(String text) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (text == null) {
+            return out;
+        }
+        String stripped = text.replaceAll("\\[[^\\]]*", "[").replaceAll("\\{[^\\}]*", "{");
+        java.util.regex.Pattern first = java.util.regex
+                .Pattern.compile("\\b([a-zA-Z][a-zA-Z0-9_]{1,24})\\b");
+        for (String seg : stripped.split("[,，]")) {
+            java.util.regex.Matcher m = first.matcher(seg);
+            if (m.find() && !out.contains(m.group(1))) {
+                out.add(m.group(1));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 按描述里的形状给值：名字后面紧跟 {@code [} 的给<b>非空</b>数组（{@code chart} 的 canRender
+     * 要 {@code series.length() > 0}，空数组照样渲不出），其余给非空标量（canRender 常查 has/非空）。
+     */
+    private static void putByShape(JSONObject props, String field, String shapeHint) {
+        try {
+            if (field.contains("url")) {
+                props.put(field, "https://example.test/a.mp4");
+            } else if (field.contains("path")) {
+                props.put(field, "/workspace/a.txt");
+            } else if ("chartType".equals(field)) {
+                props.put(field, "bar");
+            } else if ("progress".equals(field)) {
+                props.put(field, 50);
+            } else if (shapeHint.contains(field + "[")) {
+                JSONArray a = new JSONArray();
+                a.put(new JSONObject());
+                props.put(field, a);
+            } else {
+                props.put(field, "x");
+            }
+        } catch (org.json.JSONException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** 场景卡是"有专用渲染器"的一类，必须都在目录里（否则模型只能从工具长名单里猜字段）。 */
     @Test
     public void sceneCardsAreExposedInCatalog() {
         for (String scene : new String[]{"weather", "contact", "todo", "file_list"}) {

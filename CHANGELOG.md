@@ -1,5 +1,24 @@
 # 变更日志
 
+## [2026-10-21] fix(component)：目录必填/可选再纠 3 条 + 把字段守卫改成"从目录派生"
+
+上一批的 `ComponentFieldIntegrityTest` 用**手抄 fixture** 校验，有个真实弱点：目录再写错一个新字段名，
+它不会自动变红（fixture 是我照卡片真读抄的）。本轮改成**从目录文本派生 props**，一连抓到 3 条新错配：
+- 新测 `catalogTaughtRequiredFields_aloneSatisfyCardGates`：解析每条目录项"必填"里教的字段名，
+  自动构造 props，要求卡片 `canRender` 为真；目录里出现"无可解析字段名"也算失败（防止条目失去守卫）。
+  解析两个必要预处理：先抹掉 `[{...}]` 内层内容（内层逗号会把 `data` 误当必填字段）、
+  每段只取第一个英文词（`bar|line|pie` 是枚举值不是字段名）；集合字段给**非空**数组
+  （`ChartCardView.canRender` 要 `series.length() > 0`）。
+- 抓到并修的 3 条真错配：
+  ① `info` 必填/可选**写反**——目录教必填 `title`，而 `InfoCardView.canRender` 要 `items` 数组；
+  ② `table` 的 `rows` 被归到"可选"，而 `TableCardView:46-48` 同时要求 `headers` 与 `rows`；
+  ③ `chart` 的 `series` 被归到"可选"、`categories` 混在注释位，而 `ChartCardView:47-50` 要求
+     `chartType` 非空**且** `series` 非空数组。
+  三者都是"模型照目录只填必填 → `canRender=false` → 静默掉 `DynamicCardView` 原始 JSON 兜底"的同一类。
+
+全量 `--offline` **582** 全绿（+1，0 skip/fail/err）、`assembleDebug` 通过。golden 不受影响
+（`assist/takeover.txt` 未内联 props 字段表，`OnlinePromptBuilderAssemblyTest` 7 项仍绿）。
+
 ## [2026-10-21] docs(html桥)：submit 落地状态回写；第 3 步（模型文案）主动推迟
 
 设计文档 `html-card-agent-roundtrip-design.md` 更新为"第 1、2 步已落地、第 3 步推迟"，并记偏离原因：

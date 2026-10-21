@@ -1554,6 +1554,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. 顺带核实：`src/test/resources/golden/{assist,takeover}.txt` **没有内联** props 字段表
    （`chartType/maxHeight/json_viewer` 零命中），所以改工具文案不会动 golden；golden 只由 `OnlinePromptBuilderAssemblyTest` 比。
 
+### 4.73 fix(component)：字段守卫改为"从目录派生"，并再纠 3 条必填/可选错配（2026-10-21）
+
+1. 上一批 `ComponentFieldIntegrityTest` 用手抄 fixture，弱点明显：目录再写错**新**字段名它不会红。
+   新增 `catalogTaughtRequiredFields_aloneSatisfyCardGates`——解析目录"必填"文本 → 自动造 props → 要求 `canRender` 为真；
+   目录项解析不出字段名也判失败（防止某条目失去守卫）。
+2. 解析必须做两件事，否则在校验现实中不存在的形状：先抹掉 `[{...}]` 内层（内层逗号会把 `data` 当必填字段）、
+   每段只取第一个英文词（`bar|line|pie` 是枚举值）；集合字段给**非空**数组（`series.length()>0` 才是闸）。
+3. 派生守卫当场抓到 3 条我上一轮漏掉的真错配（都是"照目录填必填→canRender=false→静默掉原始 JSON"）：
+   `info` 必填/可选写反（卡片要 `items` 不是 `title`）；`table` 的 `rows` 被误列可选（`TableCardView:46-48` 双要求）；
+   `chart` 的 `series` 被误列可选（`ChartCardView:47-50` 要 chartType 非空且 series 非空）。均已改正。
+4. **验证**：全量 582 全绿（+1，0 skip/fail/err）、`assembleDebug` 通过；golden 未内联 props 表，
+   `OnlinePromptBuilderAssemblyTest` 7 项仍绿。这条守卫的价值=将来目录再漂移会自动红。
+
 ---
 
 ## 5. 关键文件 / 改动地图

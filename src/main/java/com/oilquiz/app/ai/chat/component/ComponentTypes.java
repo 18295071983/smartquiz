@@ -124,7 +124,9 @@ public final class ComponentTypes {
         ALIAS = Collections.unmodifiableMap(alias);
 
         // required/optional 只列真正决定渲染的字段，其余按 props 自由扩展
-        SCHEMA.put("info", new String[]{CATEGORY_CONTENT, "标题 title", "条目 items[{label,value}]", ""});
+        // info 的必填是 items：InfoCardView.canRender 就是 optJSONArray("items") != null，
+        // title 反而可选。此前必填/可选写反（目录教"必填 title"），派生式守卫抓到后改正。
+        SCHEMA.put("info", new String[]{CATEGORY_CONTENT, "条目 items[{label,value}]", "标题 title", ""});
         // list 的可选字段按 ListCardView 真读的字段写（icon/title/description/value/url）；
         // 此前目录里承诺的 "布局 variant=list|grid, columns" 渲染器一个字都不读，2026-10-20 删掉。
         SCHEMA.put("list", new String[]{CATEGORY_CONTENT, "条目 items[{icon,title,description,value}]", "标题 title",
@@ -134,8 +136,14 @@ public final class ComponentTypes {
         SCHEMA.put("markdown", new String[]{CATEGORY_CONTENT, "正文 content", "标题 title", ""});
         SCHEMA.put("code", new String[]{CATEGORY_CONTENT, "代码 code", "语言 language", "标题 title"});
         SCHEMA.put("html", new String[]{CATEGORY_CONTENT, "html 或 url", "标题 title", "maxHeight(dp)；脚本按来源分档，见 HtmlSandbox"});
-        SCHEMA.put("table", new String[]{CATEGORY_DATA, "表头 headers[]", "数据 rows[[]]", "标题 title, align=left|center"});
-        SCHEMA.put("chart", new String[]{CATEGORY_DATA, "类型 chartType=bar|line|pie", "系列 series[{name,data[]}]", "分类 categories[], 标题 title"});
+        // table 两个都是必填：TableCardView.canRender 同时要求 headers 与 rows 数组存在，
+        // rows 此前被放进"可选"，模型只给 headers 就会掉原始 JSON 兜底。
+        SCHEMA.put("table", new String[]{CATEGORY_DATA, "表头 headers[], 数据 rows[[]]",
+                "标题 title, align=left|center", ""});
+        // chart 两个都是必填：ChartCardView.canRender 要求 chartType 非空 **且** series 非空数组，
+        // 此前 series 被归到"可选"、categories 混在注释里 → 模型只给 chartType+categories 就渲不出卡。
+        SCHEMA.put("chart", new String[]{CATEGORY_DATA, "类型 chartType=bar|line|pie, 系列 series[{name,data[]}]",
+                "分类 categories[], 标题 title", ""});
         SCHEMA.put("metric", new String[]{CATEGORY_DATA, "指标 metrics[{label,value,color}]", "标题 title",
                 "单位 unit, trend"});
         // progress 的必填名必须是 progress：ProgressCardView.canRender 就是 props.has("progress")，
