@@ -1,5 +1,11 @@
 # 变更日志
 
+## [2026-10-21] docs(component)：HANDOVER §4.66 交叉引用"可操作性三档清单"
+
+`docs/ui/HANDOVER.md §4.66` 加一条指针到 `component-system-review.md §7`，让 parts 接管验收时能翻到
+各组件"能操作/仅本地/纯展示"三档（真往返=layout·ui_component 树卡+quiz+feedback+actions 底栏；
+内联 layout 原语丢 viewRefs=纯展示；接管不改交互能力）。纯文档，不动代码。
+
 ## [2026-10-21] docs(component)：固化"可操作性三档清单"到 component-system-review §7
 
 盘点 UI 工具里"点了有用"的组件，逐条核到 file:line，写进 `docs/ui/component-system-review.md §7`：

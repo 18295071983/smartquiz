@@ -1474,6 +1474,8 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    mermaid/公式 WebView 不被 `ComponentLifecycle.release` → 渲染器进程随滚动泄漏；改用既有 `releaseAndClearComponents`。
 4. 工具卡"重试/编辑参数"属独立 `ToolCallViewHolder`（非 AI 消息 parts 范围）；`ToolCallCardView` 已显示名称/参数/状态/结果/查看全部/耗时。"AI 深度解读" chip 仍按 §11.2 有意延后（无 parts 生产者）。
 5. **验证**：+1 单测，全量 556 全绿、`assembleDebug` 通过。待真机：内置卡片交互可用性与不泄漏。
+6. 可操作组件清单：接管不改变交互能力，各组件"能操作/仅本地/纯展示"三档逐条 file:line 见 `component-system-review.md §7`
+   （真往返回传 = `layout`/`ui_component` 树卡 + quiz + feedback + `props.actions` 底栏；内联 layout 原语 `LayoutPrimitiveCardView:72-73` 丢 viewRefs、纯展示；parts 只在卡自身指纹变化才重渲→未提交输入天然保留）。
 
 ---
 
