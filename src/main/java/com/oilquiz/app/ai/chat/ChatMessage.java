@@ -298,6 +298,27 @@ public class ChatMessage {
         return true;
     }
 
+    /**
+     * 组内<b>单条工具行</b>的结果展开态（parts §11.1 对齐 legacy 紧凑行：点行展开该工具的结果全文）。
+     * transient：与 {@link #toolGroupExpandedIds} 同理，是本次浏览的视图状态，不固化落盘。
+     */
+    public transient java.util.Set<String> toolRowExpandedIds;
+
+    public boolean isToolRowExpanded(String key) {
+        return key != null && !key.isEmpty()
+                && toolRowExpandedIds != null && toolRowExpandedIds.contains(key);
+    }
+
+    public boolean toggleToolRowExpanded(String key) {
+        if (key == null || key.isEmpty()) return false;
+        if (toolRowExpandedIds == null) {
+            toolRowExpandedIds = new java.util.HashSet<>();
+        }
+        if (toolRowExpandedIds.remove(key)) return false;
+        toolRowExpandedIds.add(key);
+        return true;
+    }
+
     /** 追加一轮思考内容（自动创建列表；轮次 id 为空时由派发器自动发放） */
     public void addThinkingRound(String roundContent) {
         addThinkingRound(roundContent, null);

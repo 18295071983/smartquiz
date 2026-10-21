@@ -28,11 +28,15 @@ import java.util.Locale;
  */
 public final class ChatPartsHost implements PartHost {
 
-    /** 宿主回调：审批决策与内容尺寸变化。 */
+    /** 宿主回调：审批决策、内容尺寸变化、全屏展示工具结果全文。 */
     public interface Callback {
         void onApprovalDecision(String partId, String toolCallId, boolean approved);
 
         void onPartsContentChanged();
+
+        /** 行内预览被截断时点开全文；由 ChatAdapter 复用它现成的结果对话框。 */
+        default void onShowFullResult(String title, String fullText) {
+        }
     }
 
     private final Context ctx;
@@ -122,6 +126,26 @@ public final class ChatPartsHost implements PartHost {
     public void toggleToolGroup(String groupId) {
         if (message != null) {
             message.toggleToolGroupExpanded(groupId);
+        }
+    }
+
+    @Override
+    public boolean toolRowExpanded(String rowId) {
+        return message != null && message.isToolRowExpanded(rowId);
+    }
+
+    @Override
+    public void toggleToolRow(String rowId) {
+        if (message != null) {
+            message.toggleToolRowExpanded(rowId);
+        }
+    }
+
+    @Override
+    public void showFullResult(String title, String fullText) {
+        // 复用 ChatAdapter 现成的全屏结果对话框，不另造一套弹层。
+        if (callback != null) {
+            callback.onShowFullResult(title, fullText);
         }
     }
 

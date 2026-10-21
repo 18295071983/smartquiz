@@ -431,7 +431,7 @@ public class AssistantTurnTest {
     }
 
     @Test
-    public void groupToolsKeepsSingleCallStandalone() {
+    public void singleToolAlsoBecomesGroupCard() {
         AssistantTurn turn = new AssistantTurn();
         AssistantTurn.Part c1 = AssistantTurn.Part.toolCall(
                 "x:tool:c1", "c1", "weather", "{}", "done", 1L);
@@ -442,10 +442,18 @@ public class AssistantTurnTest {
 
         AssistantTurn.groupTools(turn);
 
-        // 单个工具不折叠成组，仍是独立 tool_call，且 result 已并入。
-        assertEquals(0, countType(turn, AssistantTurn.Part.TYPE_TOOL_GROUP));
-        assertEquals(1, countType(turn, AssistantTurn.Part.TYPE_TOOL_CALL));
-        assertEquals(0, countType(turn, AssistantTurn.Part.TYPE_TOOL_RESULT));
+        // legacy 每个工具轮都走活动卡（单工具也显示"已运行 1 个工具"），
+        // 所以 ≥1 就成组；若留成裸 tool_call，parts 会渲成整张 ToolCallCardView，观感与现网不一致。
+        assertEquals(1, countType(turn, AssistantTurn.Part.TYPE_TOOL_GROUP));
+        assertEquals(0, countType(turn, AssistantTurn.Part.TYPE_TOOL_CALL));
+        assertEquals("结果已并入，不该有独立 tool_result",
+                0, countType(turn, AssistantTurn.Part.TYPE_TOOL_RESULT));
+        AssistantTurn.Part grp = null;
+        for (AssistantTurn.Part p : turn.parts) {
+            if (AssistantTurn.Part.TYPE_TOOL_GROUP.equals(p.type)) grp = p;
+        }
+        assertEquals(1, grp.group.size());
+        assertEquals("晴", grp.group.get(0).result);
     }
 
     @Test

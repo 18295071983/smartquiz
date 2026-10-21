@@ -68,6 +68,25 @@ public interface PartHost {
     default void toggleToolGroup(String groupId) {
     }
 
+    /**
+     * 组内单条工具行的<b>结果全文</b>是否展开（对齐 legacy 紧凑行：点一行看它的结果）。默认折叠。
+     * 与 {@link #toolGroupExpanded(String)} 是两层：组卡折叠管"整组露不露"，本方法管"某一行的结果全文"。
+     */
+    default boolean toolRowExpanded(String rowId) {
+        return false;
+    }
+
+    /** 切换单条工具行的结果展开态。 */
+    default void toggleToolRow(String rowId) {
+    }
+
+    /**
+     * 用宿主的全屏对话框展示工具结果全文（行内预览被截断时点开）。
+     * 默认退回 {@link #renderMarkdown} 不可用时的空实现：无宿主的单测环境不弹框。
+     */
+    default void showFullResult(String title, String fullText) {
+    }
+
     /** 内容高度变化后请求宿主重排（WebView 高度回调、RecyclerView item 重测量都走这里）。 */
     void invalidateSize();
 }

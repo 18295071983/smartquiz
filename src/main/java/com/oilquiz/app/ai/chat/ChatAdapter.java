@@ -1525,24 +1525,13 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /** 工具状态文案（demo 用耗时占位，本仓没有逐调用耗时，先给状态） */
     private String toolRowStatusText(Context ctx, String status) {
-        if ("completed".equals(status) || "success".equals(status)) {
-            return ctx.getString(R.string.chat_v2_tool_done);
-        }
-        if ("failed".equals(status) || "error".equals(status)) {
-            return ctx.getString(R.string.chat_v2_tool_failed);
-        }
-        return ctx.getString(R.string.chat_v2_tool_running);
+        // 措辞与 parts 的工具行共用（见 ToolRowStyle），避免两套叫法各自漂移。
+        return com.oilquiz.app.ai.chat.ui.ToolRowStyle.statusText(ctx, status);
     }
 
     /** 单条工具明细的状态色（字符串状态来自 tool_call 卡 props，与枚举版的 toolStatusColor 不是一条通道） */
     private int toolRowStatusColor(Context ctx, String status) {
-        if ("completed".equals(status) || "success".equals(status)) {
-            return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_success);
-        }
-        if ("failed".equals(status) || "error".equals(status)) {
-            return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_danger);
-        }
-        return androidx.core.content.ContextCompat.getColor(ctx, R.color.chat_v2_text_3);
+        return com.oilquiz.app.ai.chat.ui.ToolRowStyle.statusColor(ctx, status);
     }
 
     /** 当前正在朗读的消息 id（由 Activity 通过 setSpeakingMessageId 设置）；null 表示未朗读 */
@@ -3556,6 +3545,12 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (holder.contentHost != null) {
                         holder.contentHost.post(holder.contentHost::requestLayout);
                     }
+                }
+
+                @Override
+                public void onShowFullResult(String title, String fullText) {
+                    // 复用 legacy 同一个全屏结果对话框，parts 行展开全文时不另造弹层。
+                    showFullToolResult(ctx, title, fullText);
                 }
             });
         }

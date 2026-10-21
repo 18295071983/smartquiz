@@ -1630,6 +1630,23 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    选型：复用旧行布局（需把 `buildToolActivityRow` 依赖的 `ActivityTimeline.Item`+inflater 路径接进 parts）
    vs 接受卡片长相。
 
+### 4.78 feat(parts)：组内工具改回 legacy 紧凑行 + 单工具也走活动卡（观感对齐）（2026-10-21）
+
+用户拍"复用旧行布局"。查实还有一层更基本的偏差：**legacy 每个工具轮都走活动卡**（单工具也显示
+「已运行 1 个工具」，真机基线截图可见），我原先 ≥2 才折叠 → 单工具渲成整张 `ToolCallCardView`。
+
+1. `groupTools` 阈值 ≥2 → **≥1**：任何连续 `tool_call` 都成组。
+2. 新增 `parts/ToolActivityRowView`：复用同一个 `R.layout.item_chat_v2_tool_row`
+   （名称/参数摘要/状态/首行不画分隔线/有结果才给箭头/点行展开结果全文，截断走 `ToolResultText.preview` + 全屏框）。
+3. 抽 `ai/chat/ui/ToolRowStyle`（状态文案+色，纯函数）：`ChatAdapter` 两私有方法改委托，parts 也调它
+   → **状态措辞单一来源**，不再两处各写一份。
+4. 行展开态 `ChatMessage.toolRowExpandedIds`（transient，浏览态不落盘）+ `PartHost.toolRowExpanded/toggleToolRow`；
+   全文走 `PartHost.showFullResult` → `ChatPartsHost.Callback.onShowFullResult` → ChatAdapter 现成 `showFullToolResult`。
+   两层展开分开：组折叠管"整组露不露"，行展开管"某一行结果全文"。
+5. 测试：`singleToolAlsoBecomesGroupCard`（旧"单工具保持裸卡"按新口径反转改名）、
+   组卡测试改断言"成员各成一行 + 产物区常显"；清掉组渲染器已无人用的工具卡工厂字段。
+   全量 593 全绿、`assembleDebug` 通过。**待真机**：展开组卡应是细行列表而非大卡；单工具轮显示「已运行 1 个工具」。
+
 ---
 
 ## 5. 关键文件 / 改动地图

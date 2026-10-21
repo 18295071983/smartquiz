@@ -24,21 +24,14 @@ import java.util.List;
  */
 public final class ToolGroupPartRenderer implements PartRenderer {
 
-    private final ToolCallPartRenderer.ComponentFactory factory;
-    /** 所属产物卡（§11.3）的渲染工厂；默认走 {@link ComponentRegistry}。 */
+    /** 产物卡渲染工厂（成员行已改走 {@link ToolActivityRowView}，不再经组件工厂出工具卡）。 */
     private final ToolCallPartRenderer.ComponentFactory productFactory;
 
     public ToolGroupPartRenderer() {
         this((ctx, data) -> ComponentRegistry.getInstance().render(ctx, data));
     }
 
-    ToolGroupPartRenderer(ToolCallPartRenderer.ComponentFactory factory) {
-        this(factory, (ctx, data) -> ComponentRegistry.getInstance().render(ctx, data));
-    }
-
-    ToolGroupPartRenderer(ToolCallPartRenderer.ComponentFactory factory,
-                          ToolCallPartRenderer.ComponentFactory productFactory) {
-        this.factory = factory;
+    ToolGroupPartRenderer(ToolCallPartRenderer.ComponentFactory productFactory) {
         this.productFactory = productFactory;
     }
 
@@ -99,16 +92,13 @@ public final class ToolGroupPartRenderer implements PartRenderer {
                 ? ("⏳ " + n + " 个工具执行中")
                 : ("🔧 已运行 " + n + " 个工具"));
 
-        // 成员卡（复用 registry），折叠也预建，展开即时。
+        // 成员行（对齐 legacy 紧凑行 item_chat_v2_tool_row，不是整张 ToolCallCardView），
+        // 折叠也预建，展开即时；产物进常显区。
         releaseChildren(v.body);
         releaseChildren(v.products);
+        int idx = 0;
         for (Part m : members) {
-            ComponentData cd = ComponentData.of(ToolCallPartRenderer.ToolCardProps.TYPE,
-                    ToolCallPartRenderer.ToolCardProps.fromCall(m));
-            View card = factory.create(ctx, cd);
-            if (card != null) {
-                v.body.addView(card);
-            }
+            v.body.addView(ToolActivityRowView.build(ctx, v.body, m, idx++, host));
             // 所属产物（§11.3）：进<b>产物区</b>而不是折叠体——折叠时仍可见（同 legacy）。
             ProductCards.mountAll(productFactory, v.products, m.products, m.id + ":prod:", host);
         }

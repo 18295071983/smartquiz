@@ -1,5 +1,26 @@
 # 变更日志
 
+## [2026-10-21] feat(parts)：组内工具改回 legacy 紧凑行 + 单工具也走活动卡（观感对齐）
+
+接上一条待拍项，用户选"复用旧行布局"。同时查实一个更基本的偏差：**legacy 每个工具轮都走活动卡**
+（单工具也显示「已运行 1 个工具」，真机基线截图里就有），我原先 ≥2 才折叠，单工具渲成整张 `ToolCallCardView`。
+
+- 折叠阈值 `groupTools` 从 ≥2 改为 **≥1**：任何连续 `tool_call` 都成组，与 legacy 一一对应。
+- 新增 `parts/ToolActivityRowView`：复用 legacy 同一个布局 `R.layout.item_chat_v2_tool_row`
+  （名称 / 参数摘要 / 状态 / 首行不画分隔线 / 有结果才给行尾箭头 / 点行展开该工具结果全文，
+  截断走 `ToolResultText.preview` + 全屏对话框），组卡成员由"整张大卡"改回"一行"。
+- 抽出 `ai/chat/ui/ToolRowStyle`（状态文案 + 状态色，纯函数），`ChatAdapter` 两个私有方法改为委托它，
+  parts 也调它——**状态措辞单一来源**，不再两处各写一份（组件目录字段那类漂移就是这么来的）。
+- 行展开态：`ChatMessage.toolRowExpandedIds`（transient，同组折叠态，是浏览态不落盘）+
+  `PartHost.toolRowExpanded/toggleToolRow`；全文对话框走 `PartHost.showFullResult`
+  → `ChatPartsHost.Callback.onShowFullResult` → ChatAdapter 现成的 `showFullToolResult`，不另造弹层。
+- 两层展开是分开的：组折叠管"整组露不露"，行展开管"某一行的结果全文"。
+
+测试：`singleToolAlsoBecomesGroupCard`（原"单工具保持裸卡"那条按新口径反转并改名）、
+`groupProductsStayVisibleWhenCollapsed` 改断言"成员各成一行 + 产物区常显"；清掉组渲染器里已无人用的
+工具卡工厂字段（成员不再出卡）。全量 `--offline` **593** 全绿（0 skip/fail/err）、`assembleDebug` 通过。
+待真机：组卡展开后应是细行列表而非大卡；单工具轮应显示「已运行 1 个工具」。
+
 ## [2026-10-21] fix(parts)：组卡折叠把产物一起藏了——产物区移出折叠体（P3i 回归）
 
 真机 flag=true 下用户报"已运行 N 个工具后面附的卡片都被折叠，要看还得点开"。查 legacy 证实**是我 P3i 引入的回归**：

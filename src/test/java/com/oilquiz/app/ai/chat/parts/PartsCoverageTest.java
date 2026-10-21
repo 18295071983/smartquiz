@@ -330,9 +330,8 @@ public class PartsCoverageTest {
      */
     @Test
     public void groupProductsStayVisibleWhenCollapsed() {
-        FakeFactory toolF = new FakeFactory();
         FakeFactory prodF = new FakeFactory();
-        ToolGroupPartRenderer r = new ToolGroupPartRenderer(toolF, prodF);
+        ToolGroupPartRenderer r = new ToolGroupPartRenderer(prodF);
 
         AssistantTurn.Part m1 = AssistantTurn.Part.toolCall("g:c1", "c1", "weather", "{}", "done", 1L);
         AssistantTurn.Part m2 = AssistantTurn.Part.toolCall("g:c2", "c2", "database", "{}", "done", 2L);
@@ -352,16 +351,18 @@ public class PartsCoverageTest {
         View root = r.createView(h, container);
         r.bindView(root, grp, h);
 
-        assertEquals("成员工具卡应有 2 张", 2, toolF.created.size());
+        ViewGroup body = (ViewGroup) ((ViewGroup) root).getChildAt(1);
+        ViewGroup products = (ViewGroup) ((ViewGroup) root).getChildAt(2);
+        assertEquals("成员应各渲成一行（legacy 紧凑行，不是整张工具卡）", 2, body.getChildCount());
         assertEquals("产物应出卡一次", 1, prodF.created.size());
 
         View product = prodF.views.isEmpty() ? null : prodF.views.get(0);
         assertNotNull(product);
         assertTrue("折叠时产物被藏进折叠体了（必须挂在折叠体之外的产物区）",
                 visibleUpTo(root, product));
+        assertEquals("产物区本身常显", View.VISIBLE, products.getVisibility());
         // 而工具行仍应随折叠隐藏
-        ViewGroup body = (ViewGroup) ((ViewGroup) root).getChildAt(1);
-        assertFalse("折叠时成员工具卡应不可见", visibleUpTo(root, body.getChildAt(0)));
+        assertFalse("折叠时成员工具行应不可见", visibleUpTo(root, body.getChildAt(0)));
     }
 
     /** 从 view 往上走到 stop，任一级 GONE 即视为不可见。 */

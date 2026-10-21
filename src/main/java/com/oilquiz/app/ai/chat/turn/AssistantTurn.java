@@ -289,8 +289,8 @@ public class AssistantTurn {
     /**
      * 把 parts 里的工具序列整理成组卡（§11.1）：
      * ① 每条 {@code tool_result} 并入其 {@code tool_call}（按 toolCallId），删掉独立 result part；
-     * ② 连续 ≥2 个 {@code tool_call} 折叠成一个 {@link Part#TYPE_TOOL_GROUP}（成员存 {@link Part#group}）；
-     *    单个 tool_call 保持独立卡。
+     * ② 连续 {@code tool_call}（≥1 个即算一组）折叠成一个 {@link Part#TYPE_TOOL_GROUP}（成员存 {@link Part#group}）；
+     *    阈值取 1 是为了对齐 legacy：每个工具轮都走活动卡，单工具也显示"已运行 1 个工具"。
      * 只作用于传入的可安全修改 turn（fromMessageForParts 新建的），勿传 live turn。
      */
     public static void groupTools(AssistantTurn base) {
@@ -333,7 +333,9 @@ public class AssistantTurn {
                     run.add(merged.get(j));
                     j++;
                 }
-                if (run.size() >= 2) {
+                if (run.size() >= 1) {
+                    // 阈值取 1：legacy 每个工具轮都走活动卡（单工具也显示"已运行 1 个工具"，
+                    // 真机基线截图可见），若只在 ≥2 时成组，单工具会渲成整张 ToolCallCardView，观感与现网不一致。
                     out.add(Part.toolGroup(run.get(0).id + ":grp", run, run.get(0).timestamp));
                 } else {
                     out.add(p);
