@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-10-21] docs(html桥)：本地 HTML 卡回传 Agent 的设计文档（待批准，未开工）
+
+回答"js 桥够不够"后落的设计：`docs/ui/html-card-agent-roundtrip-design.md`。
+- 现状核实（纠正两处口头说法）：信任档实为**四档** `INTERNAL_TEMPLATE/LOCAL_FILE/REMOTE_PAGE/INLINE_UNTRUSTED`，
+  桥只在 `LOCAL_FILE` 挂（`HtmlSandbox.allowsBridge:444`）；mermaid/katex 属 `INTERNAL_TEMPLATE`＝无桥；
+  回传地址是工具注入的 `props.actions[].component_id`（`SystemUIComponentTool:630-653`，`LayoutCardView:60-70` 同此取址），
+  **不是 `ComponentData.id`**（那是 COMPONENT 子 id）。
+- 缺口：桥只有 `showToast/copy/openLink/previewImage`，没有通往 `ComponentActions.dispatchResult`→`get_result` 的方法；
+  富桥 `app/webview/js/*` 同样零命中 → `html` 卡只能"仅本地交互"。
+- 方案：给 `HtmlJsBridge` 加 `submit(String payload)`，native 绑死本卡 component_id（JS 不得指定）、payload 当不透明串 +16KB 上限、
+  只转投既有 `dispatchResult`，不新造通道；取址逻辑抽成 `ComponentActions.resolveComponentId` 单一口径。
+  **不给 `INLINE_UNTRUSTED`（模型直给 HTML）开任何回传**。建议加 prefs 开关默认 false。
+- 文档含安全评估（诚实写明"静态值→运行时任意串"是能力增量）、JVM 与真机两级验证计划、回滚方式、4 个待点决策。纯文档，不动代码。
+
 ## [2026-10-21] fix(component)：json 卡适配——字符串 JSON 美化 + 接 CardShell 统一外壳
 
 上一批单开的 json 卡本体（component-system-review §2 P0"组件和聊天页不是一套语言"的残留实例之一）：

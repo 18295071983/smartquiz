@@ -1502,6 +1502,19 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    纯文本原样、坏 JSON 留原文、根 View 是 CardShell、空白不崩、短名 json 命中），全量 568 全绿（+8）、`assembleDebug` 通过。
    待真机：json 卡视觉与长内容滚动观感。
 
+### 4.69 docs(html桥)：本地 HTML 卡回传 Agent 设计（**待批准，未开工**）（2026-10-21）
+
+1. 设计文档 `docs/ui/html-card-agent-roundtrip-design.md`。核实纠正两处口径：信任档是**四档**
+   （`INTERNAL_TEMPLATE`/`LOCAL_FILE`/`REMOTE_PAGE`/`INLINE_UNTRUSTED`），桥只在 `LOCAL_FILE` 挂（`HtmlSandbox:444`），
+   mermaid/katex 属 `INTERNAL_TEMPLATE`＝**无桥**；回传地址是 `props.actions[].component_id`（工具注入，`:630-653`），
+   **不是 `ComponentData.id`**（那是 COMPONENT 子 id）。
+2. 缺口与方案：桥现仅 `showToast/copy/openLink/previewImage`，无通往 `dispatchResult`→`get_result` 的方法
+   （富桥 `app/webview/js/*` 亦零命中）。拟加 `HtmlJsBridge.submit(payload)`：native 绑死本卡 id、payload 不透明 +16KB、
+   只转投既有 `ComponentActions.dispatchResult`；取址抽 `ComponentActions.resolveComponentId` 统一口径；
+   **不为 `INLINE_UNTRUSTED` 开任何回传**；建议 prefs 开关默认 false。
+3. 接管侧**零改动**（html 卡走同一个自包含 `ComponentRegistry.render`，Activity ctx 已具备）。
+4. 文档含安全评估（写明"静态值→运行时任意串"属能力增量）、JVM/真机两级验证计划、回滚、4 个待用户点头的决策项。**未获批准前不要开工**。
+
 ---
 
 ## 5. 关键文件 / 改动地图
