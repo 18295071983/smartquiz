@@ -56,22 +56,14 @@ public class LayoutCardView implements ChatComponent {
                 // 注册输入收集器：props.actions[].component_id 是按钮回调的目标组件，
                 // 提交时 collectValues(viewRefs) 把卡片内 input/select/switch 等输入值
                 // 一并回传（修复 layout 卡片输入值无法回传：按钮只回传自身 value）。
+                // 取址口径已抽到 ComponentActions.resolveComponentId（layout 卡与 html 卡 submit 共用）。
                 try {
-                    org.json.JSONArray actions = p.optJSONArray("actions");
-                    if (actions != null) {
-                        for (int i = 0; i < actions.length(); i++) {
-                            org.json.JSONObject a = actions.optJSONObject(i);
-                            if (a != null) {
-                                String cid = a.optString("component_id", "");
-                                if (!cid.isEmpty()) {
-                                    final java.util.Map<String, Object> refs = viewRefs;
-                                    ComponentActions.registerInputCollector(cid,
-                                            () -> com.oilquiz.app.ai.python.NativeLayoutRenderer
-                                                    .collectValues(refs));
-                                    break;
-                                }
-                            }
-                        }
+                    final String cid = ComponentActions.resolveComponentId(data);
+                    if (cid != null && !cid.isEmpty()) {
+                        final java.util.Map<String, Object> refs = viewRefs;
+                        ComponentActions.registerInputCollector(cid,
+                                () -> com.oilquiz.app.ai.python.NativeLayoutRenderer
+                                        .collectValues(refs));
                     }
                 } catch (Throwable ignored) {
                 }

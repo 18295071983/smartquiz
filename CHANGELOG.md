@@ -1,5 +1,17 @@
 # 变更日志
 
+## [2026-10-21] refactor(component)：抽出 `ComponentActions.resolveComponentId`（html submit 第 1 步，纯重构）
+
+按 `docs/ui/html-card-agent-roundtrip-design.md` 开工，第一步只把**回传取址**收成一个家，行为零变化：
+- 原逻辑只写在 `LayoutCardView`（取 `props.actions[].component_id` 第一个非空值后注册输入收集器）。
+  抽成 `ComponentActions.resolveComponentId(ComponentData | JSONObject)`，`LayoutCardView` 改调它。
+- 明确并测死一条口径：回传地址是 `actions[].component_id`（工具仅在 `props.has("actions")` 时生成注入），
+  **不是 `ComponentData.id`**（COMPONENT 子 id，如 `T1-C1`）；拿错会让 `notifyResult` 找不到回调、静默失败。
+- 无 `actions` / id 全空 / `actions` 不是数组 → 返回 null（该卡非交互组件，下一步的 `submit` 须据此 no-op）。
+
+测试：新增 `ComponentActionsResolveIdTest` 5 项（首个非空、空值跳过、无 actions、坏数据不抛、
+ComponentData.id 不参与取址、两个重载一致）。component 包 53 项全绿、0 skipped。第 2 步（`HtmlJsBridge.submit` + flag）随后。
+
 ## [2026-10-21] docs(html桥)：本地 HTML 卡回传 Agent 的设计文档（待批准，未开工）
 
 回答"js 桥够不够"后落的设计：`docs/ui/html-card-agent-roundtrip-design.md`。

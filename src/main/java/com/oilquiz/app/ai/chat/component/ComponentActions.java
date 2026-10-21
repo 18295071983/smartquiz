@@ -58,6 +58,47 @@ public final class ComponentActions {
         }
     }
 
+    /**
+     * 组件的回传地址（{@code get_result} 认领的那个 id）：取 {@code props.actions[].component_id}
+     * 里第一个非空值；没有则返回 null。
+     *
+     * <p>这个 id 由 {@code SystemUIComponentTool.create} 在卡片<b>带 actions</b>（＝交互组件）时生成并
+     * 注入到每个 action（{@code interactive = props.has("actions")} 时才注册回调）。它**不是**
+     * {@code ComponentData.id}（那是 COMPONENT 子 id，如 {@code T1-C1}，只用于会话内定位/更新组件），
+     * 拿错会让 {@link #notifyResult} 找不到回调、静默失败。</p>
+     *
+     * <p>口径原先只写在 {@code LayoutCardView} 的渲染里；抽到这里后，layout 卡与 html 卡的
+     * {@code submit} 共用同一条取址逻辑，避免长出第二套约定。</p>
+     */
+    public static String resolveComponentId(com.oilquiz.app.ai.chat.component.ComponentData data) {
+        if (data == null || data.props == null) {
+            return null;
+        }
+        return resolveComponentId(data.props);
+    }
+
+    /** {@link #resolveComponentId(ComponentData)} 的 props 版（渲染现场常只有 props）。 */
+    public static String resolveComponentId(JSONObject props) {
+        if (props == null) {
+            return null;
+        }
+        JSONArray actions = props.optJSONArray("actions");
+        if (actions == null) {
+            return null;
+        }
+        for (int i = 0; i < actions.length(); i++) {
+            JSONObject a = actions.optJSONObject(i);
+            if (a == null) {
+                continue;
+            }
+            String cid = a.optString("component_id", "");
+            if (!cid.isEmpty()) {
+                return cid;
+            }
+        }
+        return null;
+    }
+
     /** 收集组件的输入控件值；无收集器或已失效返回 null。 */
     public static java.util.Map<String, Object> collectInputs(String componentId) {
         if (componentId == null) return null;

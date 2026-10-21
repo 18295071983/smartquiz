@@ -1515,6 +1515,18 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 3. 接管侧**零改动**（html 卡走同一个自包含 `ComponentRegistry.render`，Activity ctx 已具备）。
 4. 文档含安全评估（写明"静态值→运行时任意串"属能力增量）、JVM/真机两级验证计划、回滚、4 个待用户点头的决策项。**未获批准前不要开工**。
 
+### 4.70 refactor(component)：抽出回传取址 `resolveComponentId`（html submit 第 1 步）（2026-10-21）
+
+设计文档 §3.1/§3.3 的第一步，**纯重构、行为零变化**，先把口径收成一个家：
+
+1. 取址逻辑原先只活在 `LayoutCardView` 渲染里（`props.actions[].component_id` 第一个非空 → 注册输入收集器）；
+   抽成 `ComponentActions.resolveComponentId(ComponentData)` 与 `(JSONObject)` 重载，`LayoutCardView` 改调它。
+2. 钉死口径：回传地址是 `actions[].component_id`（工具仅在 `props.has("actions")` 时生成并注入），
+   **不是 `ComponentData.id`**（COMPONENT 子 id `T1-C1`，只用于会话内定位/更新）；无 actions/全空/actions 非数组 → null。
+3. **验证**：新增 `ComponentActionsResolveIdTest` 5 项；component 包 53 项全绿（0 skipped/fail/error）。
+4. 下一步（第 2 步）：`HtmlJsBridge.submit(payload)` + prefs 开关 `html_component_submit` 默认 false；
+   第 3 步：模型可见文案。**真机项**：JS↔native 端到端、`get_result` 唤醒、内滚不抢手势。
+
 ---
 
 ## 5. 关键文件 / 改动地图
