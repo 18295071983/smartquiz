@@ -1,5 +1,21 @@
 # 变更日志
 
+## [2026-10-21] docs(component)：固化"可操作性三档清单"到 component-system-review §7
+
+盘点 UI 工具里"点了有用"的组件，逐条核到 file:line，写进 `docs/ui/component-system-review.md §7`：
+- 档一 真往返（值回传 Agent）：`ui_component`/`layout` 树卡（`LayoutCardView.java:68` 注册 inputCollector →
+  `ComponentActions.perform:249/262` 合并 → `notifyResult:164` → `PythonToolManager.notifyChatComponentResult:330` →
+  `SystemUIComponentTool.get_result:291/305`）、`QuizCardView:131/244`、`FeedbackBarCardView:99/101`、任意卡 `props.actions`
+  底栏（callback/refresh/link/copy）。
+- 档二 仅本地交互（不回传）：Video/Audio 播放器、ImageGrid/File/FileList/Link/Contact/App/Html 打开预览、Chart 查看数据表、
+  Markdown/List 行内链接。
+- 档三 看着像可操作实则纯展示（重点，易误判）：聊天流内联 layout 原语（toggle/stepper/slider_range/tag_input/checkbox_group/
+  radio_group/search_bar/calendar）`LayoutPrimitiveCardView:72-73` 把 viewRefs 丢进一次性 HashMap、无收集无提交；
+  `TodoCardView` ✅/⬜ 无监听；`breadcrumb` 空 click(`:3144`)、`notice` 操作标签无 listener(`:2241/2244`)、accordion/carousel 仅本地。
+- 附两处全 App 既有边界（非 parts 引入）：`ContactCardView startActivity` 缺 `FLAG_ACTIVITY_NEW_TASK`（传 Activity 才不触发）；
+  parts `TurnPartsHost` 只在卡自身指纹变化才重渲 → 未提交输入态天然保留。
+纯文档，不动代码。
+
 ## [2026-10-21] parts P3j：内置组件体系接管核对 + 修 WebView 释放泄漏
 
 "接内置组件/工具卡/内置卡片/原生 JS 桥/工作区/原生控件"——核对 parts 接管路径是否真的把它们接上：

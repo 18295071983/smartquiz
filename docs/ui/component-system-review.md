@@ -260,3 +260,51 @@ public interface ChatComponent {
 - 颜色只走 `surface / surface-2 / border / text / brand / success / warning / danger`
 
 先做 P0，能同时解决"安全 + 风格不统一"；P1 的 quiz 交互是产品收益最大的一项；P2 再处理类型收敛和生命周期。
+
+---
+
+## 7. 可操作性三档清单（可操作 / 仅本地 / 纯展示）
+
+> 固化于 2026-10-21，逐条核到代码。用于判断"某组件点了到底有没有用、值去哪了"，
+> 也用于 parts 接管（`docs/ui/parts-architecture-upgrade.md`）验收：接管不改变这三档，
+> 只照搬 `ComponentRegistry.render(activityCtx, comp)` 的自包含结果。
+
+判据：`activityCtx` 必须是真的 Activity 上下文（现网与 parts 都用 `itemView.getContext()`），
+否则依赖窗口令牌的输入/弹层会静默失败（IME 不弹、`Dialog` 抛 `BadTokenException` 被 try/catch 吞）。
+
+### 档一 · 能操作并把值回传 Agent（真往返）
+
+| 组件 / 机制 | 交互 | 回传链路（证据） |
+|---|---|---|
+| `ui_component` / `layout` 树卡 | 卡内 input/选择/开关 + 提交按钮 | `LayoutCardView.java:68` 注册 `registerInputCollector(cid, ()->collectValues(refs))`；按钮 `callback` 点击 `ComponentActions.perform:262` 合并 `collectInputs` → `notifyResult:164` → `PythonToolManager.notifyChatComponentResult:330` → `setComponentResult:4784` 唤醒 `SystemUIComponentTool.get_result:291`（`interactive`/`registerComponentCallback` 见 `SystemUIComponentTool.java:630/636`） |
+| `QuizCardView` | 点选项答题 | `QuizCardView.java:131` 点击 → `dispatchResult` 提交 `quiz_answer`（`:244`）走 `chat_ui_actions` 通道 |
+| `FeedbackBarCardView` | 赞 / 踩 | `FeedbackBarCardView.java:99` → `dispatchResult` 到 `chat_ui_actions`（`:101`） |
+| 任意卡的底栏 `props.actions` | callback / refresh / link / copy | `ComponentActions.renderActions:199`→`perform:249`/`execute:287`；`callback` 回传值、`refresh` 回传 `"refresh"`、`link`(`:310`)/`copy`(`:290`) 本地 |
+
+### 档二 · 仅本地交互（点了动，但不向 Agent 回传）
+
+`VideoCardView`（ExoPlayer 起停/进度，`:111`）、`AudioCardView`（播放+`SeekBar`，`:199/:212`）、
+`ImageGridCardView`（点开大图 `Dialog`，`:223/:323`）、`ChartCardView`（"查看数据表"本地 `AlertDialog`，`:111/:147`）、
+`FileCardView`（预览 `:104`/分享 `:254`/图弹层 `:196`）、`FileListCardView`（行跳转 `:153`）、
+`LinkCardView`（整卡开 URL `:58`）、`ContactCardView`（拨号/短信/邮件/地图 `startActivity:150`）、
+`AppCardView`（再次进入 `startActivity:104`）、`HtmlCardView`（WebView 导航/返回 `:153`、复制链接 `:621`、图弹层 `:718`）、
+`MarkdownCardView`（`LinkMovementMethod` 内联链接可点 `:68`）、`ListCardView`（行 `openLink:132`）。
+（`VideoCardView`/`AudioCardView` 的播放器在 `onDetachedFromWindow` 自毁——重挂同一路径即死卡，须"渲一次挂一次"。）
+
+### 档三 · 看着像可操作、实则纯展示（易误判，重点）
+
+- 聊天流里的**内联 layout 原语** `toggle / stepper / slider_range / tag_input / checkbox_group / radio_group / search_bar / calendar`：
+  `LayoutPrimitiveCardView.createView` 把 viewRefs 传成 `new HashMap<>()` 即丢弃（`LayoutPrimitiveCardView.java:72-73`），
+  **既不注册收集器、也无提交动作**——点了不回收。类注释自认"本卡片主要用于展示类，交互控件请走 ui_component 弹窗/插件链路"（`:19-20`）。
+  要可操作：改用 `layout` 树卡（档一）或 `ui_component`。
+- `TodoCardView`：`✅/⬜` 是无监听 TextView、整行无 click（`TodoCardView.java:74-91`）；勾选态只由 Agent 重发组件驱动。
+- `NativeLayoutRenderer` 里 `breadcrumb` 的 `crumbTv.setOnClickListener` 是**空 body**（`:3144`）、`notice` 的"操作"标签只 `setTag` 存进 viewRefs、无 click listener（`:2241/:2244`）、
+  `accordion`/`carousel` 只改本地展开/翻页、不 collectValues、不注册收集器。名字像交互，实为本地/静态。
+
+### 全 App 既有两处边界（非 parts 引入）
+
+1. `ContactCardView` 的 dial/sms/email/map 调 `startActivity` **没加** `FLAG_ACTIVITY_NEW_TASK`（`:150/158/167/175`）——
+   非 Activity 上下文会抛错落到"无法打开"Toast。现网/parts 都传 Activity，故不触发；但它是与其余卡（都正确加 NEW_TASK）不一致的孤例。
+2. parts 的 `TurnPartsHost` 仅在**某卡自身指纹变化**时才重渲该卡；用户在卡内输入未提交时，别的 part 更新不会重建这张卡 → 输入态天然保留，
+   不需旧 `componentSegmentViews` 那套段缓存来防重建。
+
