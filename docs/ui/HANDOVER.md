@@ -1477,6 +1477,16 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
 6. 可操作组件清单：接管不改变交互能力，各组件"能操作/仅本地/纯展示"三档逐条 file:line 见 `component-system-review.md §7`
    （真往返回传 = `layout`/`ui_component` 树卡 + quiz + feedback + `props.actions` 底栏；内联 layout 原语 `LayoutPrimitiveCardView:72-73` 丢 viewRefs、纯展示；parts 只在卡自身指纹变化才重渲→未提交输入天然保留）。
 
+### 4.67 fix(component)：目录字段/短名与卡片真实读取对齐（"掉原始 JSON"根因）（2026-10-21）
+
+1. 现象根因：卡片 `canRender=false` → `ComponentRegistry.render:174` 静默落 `DynamicCardView` 通配兜底（贴原始 JSON、无报错）。
+   `ComponentTypes.SCHEMA`（模型目录，`getSchema`/`list_types` 都从它生成）教的字段名与卡片真读字段对不上。既有 `ComponentNameIntegrityTest` 只查名字不查字段。
+2. 修一（字段）：`progress`→`progress`（非 percent）、`metric`→`metrics[]`（非 items）、`contact`→`value`（非 name/phone）、`weather`→`temp`（非 city/data）。
+   修二（下架实现）：`SystemUIComponentTool.getParameterDescriptions` component_type/props 去掉 `note_card`/`grid_card`（实现已删、alias 保留、历史可渲）。
+   修三（短名）：新增 `ComponentTypes.SCENE_TARGET`(weather/contact/todo/file_list/layout) 并在 `registerBuiltin` 占短名 key（目录教短名但实现报 `*_card`，模型用短名会掉兜底）；`isScene` 改读它；`file_list` 补进目录。
+3. 新测 `ComponentFieldIntegrityTest`(+4)：目录教的必填必须 `canRender==true` + 反向锁死旧错字段 + 场景卡在目录 + 已删实现不售卖（旧名仍可渲）。json 卡本体（字符串 JSON 美化 + CardShell）单开。
+4. **验证**：全量 560 全绿（+4，0 skip/fail/err）、`assembleDebug` 通过；改到共享 `ComponentRegistry`/`ComponentTypes`（additive）。待真机：短名 weather/todo/contact 出正卡。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -1,5 +1,25 @@
 # 变更日志
 
+## [2026-10-21] fix(component)：目录教的字段/短名与卡片真实读取对齐（json 兜底根因）
+
+"有些卡出来是原始 JSON 原文"——查实是 `ComponentTypes.SCHEMA`（模型可见目录）与卡片真实读取不一致；
+卡片 `canRender` 返回 false 时 `ComponentRegistry.render` 静默落到 `DynamicCardView` 通配兜底（贴原始 JSON、不报错）。
+既有 `ComponentNameIntegrityTest` 只查"名字能否命中实现"，不查"字段/短名对不对"，故能长期漂移。
+
+修（范围一/二/三，json 卡本体单开）：
+- 字段名按卡片真闸改正：`progress` 必填 percent→**progress**（`ProgressCardView:36` 读 has("progress")）；
+  `metric` items→**metrics[]**（`MetricCardView:38`）；`contact` name/phone→**value**（`ContactCardView` canRender 读 value）；
+  `weather` 必填 city+data→**temp**（`WeatherCardView` 读 temp，data 一字不读）。
+- 删已下架实现的售卖文案：`SystemUIComponentTool.getParameterDescriptions` 的 component_type/props 两处
+  去掉 `note_card`/`grid_card`（实现 2026-10-20 已删，仅留 alias 归一；历史数据仍可渲染，alias 不动）。
+- 场景短名注册：目录教 `weather/contact/todo` 短名，但实现 `getType()` 报 `*_card`、注册表只有长 key →
+  模型用短名解析不到实现。新增 `ComponentTypes.SCENE_TARGET` 并在 `ComponentRegistry.registerBuiltin` 为短名占 key
+  （与既有 `CANONICAL_TARGET` 短名占位同法，additive）；`isScene` 改读 `SCENE_TARGET`。`file_list` 补进目录。
+- 新测 `ComponentFieldIntegrityTest`（4 项）：目录教的必填 → 卡片必须 `canRender==true`；反向锁死旧错字段
+  （percent/items/name/data 必须仍渲不出）；场景卡在目录内；已删实现不出现在模型文案（且旧名仍可渲染）。
+
+全量 `--offline` **560** 全绿（+4，0 skip/fail/err），`assembleDebug` 通过。待真机：各内置卡实际渲染（尤其短名 weather/todo/contact 出正卡不再掉 JSON）。
+
 ## [2026-10-21] docs(component)：HANDOVER §4.66 交叉引用"可操作性三档清单"
 
 `docs/ui/HANDOVER.md §4.66` 加一条指针到 `component-system-review.md §7`，让 parts 接管验收时能翻到

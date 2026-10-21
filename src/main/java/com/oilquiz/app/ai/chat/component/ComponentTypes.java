@@ -33,6 +33,13 @@ public final class ComponentTypes {
     /** canonical 名 → 注册表里原生实现占用的 key（即该组件 getType() 的返回值） */
     public static final Map<String, String> CANONICAL_TARGET;
 
+    /**
+     * 场景短名 → 实现自报名（与 {@link #CANONICAL_TARGET} 同样需要在注册表里占上短名 key）。
+     * 目录教模型用 weather/contact/todo 短名，但实现 {@code getType()} 报的是 *_card；
+     * 不注册短名 key 时，模型照目录用短名会解析不到实现而掉进 DynamicCardView 原始 JSON 兜底。
+     */
+    public static final Map<String, String> SCENE_TARGET;
+
     /** 旧名 / 重复名 / 场景别名 → canonical */
     public static final Map<String, String> ALIAS;
 
@@ -71,6 +78,14 @@ public final class ComponentTypes {
         // 任务/学习
         target.put("quiz", "quiz_card");
         CANONICAL_TARGET = Collections.unmodifiableMap(target);
+
+        Map<String, String> scene = new LinkedHashMap<>();
+        scene.put("weather", "weather_card");
+        scene.put("contact", "contact_card");
+        scene.put("todo", "todo_card");
+        scene.put("file_list", "file_list");
+        scene.put("layout", "layout");
+        SCENE_TARGET = Collections.unmodifiableMap(scene);
 
         Map<String, String> alias = new LinkedHashMap<>();
         // 2026-10-20：note_card / grid_card 的原生实现（NoteCardView/GridCardView）已删——
@@ -121,8 +136,12 @@ public final class ComponentTypes {
         SCHEMA.put("html", new String[]{CATEGORY_CONTENT, "html 或 url", "标题 title", "maxHeight(dp)；脚本按来源分档，见 HtmlSandbox"});
         SCHEMA.put("table", new String[]{CATEGORY_DATA, "表头 headers[]", "数据 rows[[]]", "标题 title, align=left|center"});
         SCHEMA.put("chart", new String[]{CATEGORY_DATA, "类型 chartType=bar|line|pie", "系列 series[{name,data[]}]", "分类 categories[], 标题 title"});
-        SCHEMA.put("metric", new String[]{CATEGORY_DATA, "指标 items[{label,value}]", "标题 title", "单位 unit, trend"});
-        SCHEMA.put("progress", new String[]{CATEGORY_DATA, "百分比 percent", "标题 title", "文案 label"});
+        SCHEMA.put("metric", new String[]{CATEGORY_DATA, "指标 metrics[{label,value,color}]", "标题 title",
+                "单位 unit, trend"});
+        // progress 的必填名必须是 progress：ProgressCardView.canRender 就是 props.has("progress")，
+        // 目录此前教的是 percent（0 处读取）→ 模型照目录传就掉进 DynamicCardView 原始 JSON 兜底。
+        SCHEMA.put("progress", new String[]{CATEGORY_DATA, "进度 progress(0-100)", "标题 title",
+                "文案 description, 状态 status"});
         // 模型可通过工具调用参数声明 display/collapsed 控制卡片显隐。
         SCHEMA.put("json", new String[]{CATEGORY_DATA, "数据 data",
                 "标题 title, 展示 display=inline|peek|hidden",
@@ -133,8 +152,17 @@ public final class ComponentTypes {
         SCHEMA.put("file", new String[]{CATEGORY_MEDIA, "文件名 name", "路径 path 或 uri", "大小 size, 类型 type"});
         SCHEMA.put("link", new String[]{CATEGORY_MEDIA, "地址 url", "标题 title", "描述 description, 图标 icon"});
         SCHEMA.put("quiz", new String[]{CATEGORY_TASK, "题干 question", "选项 options[]", "答案 answer, 解析 analysis, 题型 type=single|multiple|judge"});
-        SCHEMA.put("weather", new String[]{CATEGORY_SCENE, "城市 city", "数据 data", "标题 title"});
-        SCHEMA.put("contact", new String[]{CATEGORY_SCENE, "姓名 name", "电话 phone", "actions[]"});
+        // contact 必填必须是 value：ContactCardView.canRender 读 optString("value") 非空，
+        // 目录此前教 name/phone（卡片一个字都不读）→ 照目录填会渲染不出联系卡。
+        SCHEMA.put("contact", new String[]{CATEGORY_SCENE, "号码/地址 value",
+                "类型 type=phone|sms|email", "标题 title, 描述 description, actions[]"});
+        // weather 必填必须是 temp：WeatherCardView.canRender 读 optString("temp") 非空；
+        // 目录此前写必填 city + 可选 data，而 data 没有任何一处被读取。
+        SCHEMA.put("weather", new String[]{CATEGORY_SCENE, "温度 temp", "城市 city",
+                "天气 text, 图标 icon, 湿度 humidity, 风向 windDir, 风级 windScale, 预报 forecast[{date,text,tempMin,tempMax}]"});
+        // file_list 是场景卡但以前不进目录 → 模型只能从工具那行长名单里猜字段
+        SCHEMA.put("file_list", new String[]{CATEGORY_MEDIA, "文件 files[{name,path,size,type}]",
+                "标题 title", ""});
         SCHEMA.put("todo", new String[]{CATEGORY_SCENE, "待办 items[{text,done}]", "标题 title", ""});
     }
 
@@ -208,8 +236,7 @@ public final class ComponentTypes {
 
     /** 场景类型（有专用渲染器，不进 18 个通用目录） */
     public static boolean isScene(String type) {
-        return "weather".equals(type) || "contact".equals(type) || "todo".equals(type)
-                || "layout".equals(type) || "file_list".equals(type);
+        return SCENE_TARGET.containsKey(type);
     }
 
     /**

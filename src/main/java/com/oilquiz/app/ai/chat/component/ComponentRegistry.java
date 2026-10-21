@@ -112,6 +112,14 @@ public class ComponentRegistry {
                 components.put(e.getKey(), impl);
             }
         }
+        // 场景短名同样占位（weather/contact/todo…）：目录教的是短名，实现 getType() 报 *_card，
+        // 不补短名 key 的话模型照目录用短名会解析不到实现、掉进 DynamicCardView 原始 JSON 兜底。
+        for (Map.Entry<String, String> e : ComponentTypes.SCENE_TARGET.entrySet()) {
+            ChatComponent impl = components.get(e.getValue());
+            if (impl != null) {
+                components.put(e.getKey(), impl);
+            }
+        }
     }
 
     /**
