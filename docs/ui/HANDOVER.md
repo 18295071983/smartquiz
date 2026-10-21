@@ -1432,6 +1432,15 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    error/approval 仍整条回落 legacy。工具组级折叠(§11.1)未做 → 先出单卡，真机确认差异。
 3. **验证**：全量 547 全绿、`assembleDebug` 通过；flag=false 不变；flag=true 需真机验收工具/产物/思考卡呈现。
 
+### 4.63 parts P3g：mermaid/公式 → html data part（§11.4，去回落）（2026-10-21）
+
+1. `expandInline(base, dark)`：text part 含 ` ```component``` ` 用 ComponentContentSplitter；否则含 mermaid/`$$`
+   用 `MermaidMathSplitter.split(text,dark)`，切成交错 text+html data part（同 legacy renderMermaidMath 的组件源）。
+2. `fromMessageForParts(msg,dark)`；`bindWithParts` 传 isNightMode，接管 allowed 含 text/reasoning/tool_call/tool_result/data
+   （mermaid 已是 data，不再回落）。DataPartRenderer 经 ComponentRegistry 的 html 卡渲 mermaid.js/katex。
+3. 现 flag=true 覆盖文本/思考/工具卡/产物卡/mermaid/公式；仅 error/approval（无生产者）回落。工具组折叠/产物归属未做（单卡）。
+4. **验证**：+1 单测（mermaid→html data part、text 无残留围栏），全量 548 全绿、`assembleDebug` 通过。
+
 ---
 
 ## 5. 关键文件 / 改动地图

@@ -256,6 +256,32 @@ public class AssistantTurnTest {
         assertNotEquals(done.fingerprint(), cancelled.fingerprint());
     }
 
+    @Test
+    public void fromMessageForPartsSplitsMermaidIntoDataPart() {
+        ChatMessage msg = ChatMessage.createAIMessage("a",
+                "前面文字\n```mermaid\ngraph TD; A-->B;\n```\n后面文字", 1L);
+        msg.turnId = "T1";
+
+        AssistantTurn t = AssistantTurn.fromMessageForParts(msg, false);
+
+        int data = 0;
+        boolean textStillHasFence = false;
+        boolean htmlComp = false;
+        for (AssistantTurn.Part p : t.parts) {
+            if (AssistantTurn.Part.TYPE_DATA.equals(p.type)) {
+                data++;
+                if (p.data != null && "html".equals(p.data.type)) htmlComp = true;
+            }
+            if (AssistantTurn.Part.TYPE_TEXT.equals(p.type)
+                    && p.text != null && p.text.contains("```mermaid")) {
+                textStillHasFence = true;
+            }
+        }
+        assertTrue("mermaid 应切成 html data part", data >= 1);
+        assertTrue("data part 是 html 组件", htmlComp);
+        assertFalse("残留 text 段不应再含 mermaid 围栏", textStillHasFence);
+    }
+
     private static int countType(AssistantTurn turn, String type) {
         int n = 0;
         for (AssistantTurn.Part p : turn.parts) {

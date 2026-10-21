@@ -3522,7 +3522,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // ③ text part 不含 parts 未复刻的 mermaid/公式结构。
         // 任一不满足 → 直接 return false，**不碰 contentHost**。
         final com.oilquiz.app.ai.chat.turn.AssistantTurn partsTurn =
-                com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessageForParts(message);
+                com.oilquiz.app.ai.chat.turn.AssistantTurn.fromMessageForParts(message, isNightMode(ctx));
         final com.oilquiz.app.ai.chat.parts.PartRendererRegistry partsRegistry =
                 com.oilquiz.app.ai.chat.parts.PartRendererRegistry.createDefault();
         if (partsTurn == null || !partsRegistry.canRenderAll(partsTurn.parts)) {
@@ -3540,10 +3540,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (!allowed) {
                 return false; // 含 error/approval 等未忠实复刻的 part → 整条回落 legacy
             }
-            if (com.oilquiz.app.ai.chat.turn.AssistantTurn.Part.TYPE_TEXT.equals(p.type)
-                    && com.oilquiz.app.ai.chat.component.MermaidMathSplitter.containsStructure(p.text)) {
-                return false; // 含 mermaid/公式：parts 未复刻，交回 legacy
-            }
+            // mermaid/公式已被 expandInline 切成 html data part，text part 不再含其结构。
         }
 
         if (holder.partsHost == null) {

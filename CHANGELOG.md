@@ -1,5 +1,19 @@
 # 变更日志
 
+## [2026-10-21] parts P3g：mermaid/公式切成 html data part，去掉该回落（§11.4）
+
+按"自造渲染器、把数据接上"，mermaid/`$$公式` 不再整条回落 legacy：
+- `AssistantTurn.expandInline(base, dark)`：text part 若含 ` ```component``` ` → `ComponentContentSplitter`；
+  否则含 mermaid/公式 → `MermaidMathSplitter.split(text, dark)`，切成交错 text + html data part
+  （与 legacy `renderMermaidMath` 同一 html 组件源）。data part id 统一 `:p{n}` 保证唯一。
+- `fromMessageForParts(msg, dark)`；`ChatAdapter.bindWithParts` 传 `isNightMode(ctx)`，
+  接管 allowed = text/reasoning/tool_call/tool_result/data（mermaid 已成 data，不再判回落）。
+- `DataPartRenderer` → `ComponentRegistry` 的 `html` 卡（HtmlCardView 沙箱）渲 mermaid.js/katex。
+
+现 flag=true 覆盖：文本/思考/工具卡/产物卡/mermaid/公式；仅 error/approval（无生产者）仍回落。
+测试：+1（mermaid→html data part、text 无残留围栏），全量 `--offline` **548** 全绿，`assembleDebug` 通过。
+待真机：出图正确性（mermaid/公式视觉）、工具未做组折叠（现单卡）。
+
 ## [2026-10-21] parts P3f：把工具/思考"耗时"数据接进 part + 接管扩到 tool/data
 
 按"渲染器可自造、但数据要接全"推进 §11：

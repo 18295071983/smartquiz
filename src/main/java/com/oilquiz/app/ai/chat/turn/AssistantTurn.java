@@ -246,48 +246,102 @@ public class AssistantTurn {
             return null;
         }
         AssistantTurn base = fromMessage(msg);
-        expandInline(base);
+        expandInline(base, false);
         return base;
     }
 
-    /**
-     * 就地展开：把含内联 {@code ```component```} 标记的 text part 拆成交错 text+data part。
-     * 调用方须保证传入的是<b>可安全修改</b>的 turn（新建的，或 {@code msg.assistantTurn.copy()}），
-     * 不要直接传 live {@code msg.assistantTurn}，否则会污染现网投影。
-     */
+    /** 带主题（mermaid/公式 html 需 isDark）的 parts 构建。 */
+    public static AssistantTurn fromMessageForParts(ChatMessage msg, boolean dark) {
+        if (msg == null) {
+            return null;
+        }
+        AssistantTurn base = fromMessage(msg);
+        expandInline(base, dark);
+        return base;
+    }
+
     public static void expandInline(AssistantTurn base) {
+        expandInline(base, false);
+    }
+
+    /**
+     * 就地展开：把 text part 里内嵌的富结构切成交错 text+data part，让 parts 路径自己渲：
+     * ① {@code ```component```} 标记 → {@code ComponentContentSplitter}；
+     * ② mermaid / {@code $$公式$$} → {@code MermaidMathSplitter}（产出 html 组件，与 legacy 同源）。
+     * 调用方须传<b>可安全修改</b>的 turn（新建或 {@code msg.assistantTurn.copy()}），勿传 live turn。
+     */
+    public static void expandInline(AssistantTurn base, boolean dark) {
         if (base == null) {
             return;
         }
         java.util.List<Part> out = new java.util.ArrayList<>();
-        int inlineSeq = 0;
         for (Part p : base.parts) {
-            if (p == null || !Part.TYPE_TEXT.equals(p.type)
-                    || p.text == null
-                    || !com.oilquiz.app.ai.chat.component.ComponentContentSplitter
-                            .containsComponent(p.text)) {
+            if (p == null || !Part.TYPE_TEXT.equals(p.type) || p.text == null) {
                 out.add(p);
                 continue;
             }
-            java.util.List<com.oilquiz.app.ai.chat.component.ComponentContentSplitter.Segment> segs =
-                    com.oilquiz.app.ai.chat.component.ComponentContentSplitter.split(p.text);
-            for (com.oilquiz.app.ai.chat.component.ComponentContentSplitter.Segment seg : segs) {
-                if (seg == null) {
-                    continue;
-                }
-                if (seg.isComponent && seg.component != null) {
-                    Part dp = Part.data(p.id + ":inline:" + (inlineSeq++), seg.component, p.timestamp);
-                    dp.args = contentDigest(seg.component); // 参与指纹，区分同类型不同内容的内联卡
-                    out.add(dp);
-                } else if (!seg.isComponent && seg.text != null && !seg.text.trim().isEmpty()) {
-                    // 每个 text 段带唯一后缀 id，避免同 parent 多段撞 id
-                    Part tp = Part.text(p.id + ":seg" + inlineSeq, seg.text, p.timestamp);
-                    tp.state = p.state;
-                    out.add(tp);
-                }
+            if (com.oilquiz.app.ai.chat.component.ComponentContentSplitter
+                    .containsComponent(p.text)) {
+                emitSegments(out, splitComponent(p.text), p);
+            } else if (com.oilquiz.app.ai.chat.component.MermaidMathSplitter
+                    .containsStructure(p.text)) {
+                emitSegments(out, splitMermaidMath(p.text, dark), p);
+            } else {
+                out.add(p);
             }
         }
         base.parts = out;
+    }
+
+    private interface Seg {
+        boolean isComponent();
+        String text();
+        com.oilquiz.app.ai.chat.component.ComponentData component();
+    }
+
+    private static java.util.List<Seg> splitComponent(String text) {
+        java.util.List<Seg> r = new java.util.ArrayList<>();
+        for (com.oilquiz.app.ai.chat.component.ComponentContentSplitter.Segment s
+                : com.oilquiz.app.ai.chat.component.ComponentContentSplitter.split(text)) {
+            r.add(new Seg() {
+                public boolean isComponent() { return s.isComponent; }
+                public String text() { return s.text; }
+                public com.oilquiz.app.ai.chat.component.ComponentData component() { return s.component; }
+            });
+        }
+        return r;
+    }
+
+    private static java.util.List<Seg> splitMermaidMath(String text, boolean dark) {
+        java.util.List<Seg> r = new java.util.ArrayList<>();
+        for (com.oilquiz.app.ai.chat.component.MermaidMathSplitter.Segment s
+                : com.oilquiz.app.ai.chat.component.MermaidMathSplitter.split(text, dark)) {
+            r.add(new Seg() {
+                public boolean isComponent() { return s.isComponent; }
+                public String text() { return s.text; }
+                public com.oilquiz.app.ai.chat.component.ComponentData component() { return s.component; }
+            });
+        }
+        return r;
+    }
+
+    private static void emitSegments(java.util.List<Part> out, java.util.List<Seg> segs, Part src) {
+        int seq = 0;
+        for (Seg seg : segs) {
+            if (seg == null) {
+                continue;
+            }
+            if (seg.isComponent() && seg.component() != null) {
+                Part dp = Part.data(src.id + ":p" + (seq++), seg.component(), src.timestamp);
+                dp.args = contentDigest(seg.component()); // 参与指纹，区分同类型不同内容的内联卡
+                dp.state = src.state;
+                out.add(dp);
+            } else if (!seg.isComponent() && seg.text() != null && !seg.text().trim().isEmpty()) {
+                Part tp = Part.text(src.id + ":p" + (seq++), seg.text(), src.timestamp);
+                tp.state = src.state;
+                out.add(tp);
+            }
+        }
     }
 
     /** 从当前 ChatMessage 的兼容字段构建 canonical turn。 */
