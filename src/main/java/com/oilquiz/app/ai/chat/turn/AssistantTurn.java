@@ -87,6 +87,8 @@ public class AssistantTurn {
         public String result;
         public String status;
         public String state;
+        /** 工具耗时 / 思考时长（ms），0=无。供渲染器显示"Xs·N步""耗时 Xs"。 */
+        public long durationMs;
         public long timestamp;
         /**
          * 产物/数据 part 携带的组件数据（chart/table/json/文件…）。transient：权威真值是
@@ -205,6 +207,7 @@ public class AssistantTurn {
             h = fnvField(h, args);
             h = fnvField(h, result);
             h = fnvField(h, status);
+            h = fnvField(h, Long.toString(durationMs));
             return Long.toString(h, 36);
         }
 
@@ -306,8 +309,15 @@ public class AssistantTurn {
                 turn.modelCalls.add(call);
 
                 if (snap.thinking != null && !snap.thinking.trim().isEmpty()) {
-                    turn.parts.add(Part.reasoning(callId + Part.ID_REASONING_SUFFIX, snap.thinking,
-                            call.timestamp));
+                    Part rp = Part.reasoning(callId + Part.ID_REASONING_SUFFIX, snap.thinking,
+                            call.timestamp);
+                    // 接上该轮思考耗时（legacy 用同一来源），供渲染器显示"已深度思考 Xs"。
+                    try {
+                        rp.durationMs = msg.thinkingRoundDurationMs(snap.round - 1);
+                    } catch (Throwable ignore) {
+                        rp.durationMs = 0L;
+                    }
+                    turn.parts.add(rp);
                 }
                 if (snap.content != null && !snap.content.trim().isEmpty()) {
                     turn.parts.add(Part.text(callId + Part.ID_TEXT_SUFFIX, snap.content,
@@ -398,6 +408,7 @@ public class AssistantTurn {
             p.toolName = props.optString("toolName", p.toolName);
             p.args = props.optString("args", p.args);
             p.status = props.optString("status", p.status);
+            p.durationMs = props.optLong("durationMs", props.optLong("executionTimeMs", 0L));
             String result = props.optString("result", "");
             if (!result.isEmpty()) {
                 Part r = Part.toolResult(p, result, p.timestamp);
@@ -416,6 +427,7 @@ public class AssistantTurn {
             Part p = Part.toolCall(partId, toolCallId,
                     props.optString("toolName", ""), props.optString("args", ""),
                     props.optString("status", "done"), System.currentTimeMillis());
+            p.durationMs = props.optLong("durationMs", props.optLong("executionTimeMs", 0L));
             turn.parts.add(p);
             String result = props.optString("result", "");
             if (!result.isEmpty()) {
@@ -491,6 +503,7 @@ public class AssistantTurn {
             n.result = p.result;
             n.status = p.status;
             n.state = p.state;
+            n.durationMs = p.durationMs;
             n.timestamp = p.timestamp;
             n.data = p.data; // transient 引用浅拷贝，保证副本仍可渲染
             t.parts.add(n);

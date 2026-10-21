@@ -131,6 +131,7 @@ public final class ToolCallPartRenderer implements PartRenderer {
                 o.put("args", nz(call.args));
                 o.put("status", normalizeStatus(call.status));
                 o.put("result", nz(call.result));
+                o.put("durationMs", call.durationMs);
             } catch (JSONException ignore) {
             }
             return o;
@@ -147,6 +148,9 @@ public final class ToolCallPartRenderer implements PartRenderer {
                 props.put("toolName", nz(call.toolName));
                 props.put("args", nz(call.args));
                 props.put("status", normalizeStatus(call.status));
+                if (call.durationMs > 0L) {
+                    props.put("durationMs", call.durationMs);
+                }
                 if (call.result != null && !call.result.isEmpty()) {
                     props.put("result", call.result);
                 }

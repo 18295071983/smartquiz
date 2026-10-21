@@ -1,5 +1,16 @@
 # 变更日志
 
+## [2026-10-21] parts P3f：把工具/思考"耗时"数据接进 part + 接管扩到 tool/data
+
+按"渲染器可自造、但数据要接全"推进 §11：
+- `AssistantTurn.Part` 加 `durationMs`（工具耗时/思考时长，计入 fingerprint + copy）。
+- `fromMessage`：reasoning part 接 `message.thinkingRoundDurationMs(round)`；tool_call part 接组件 props
+  `durationMs`/`executionTimeMs`（快照匹配 + legacy 组件两条路都填）。
+- `ReasoningPartRenderer` header 用时长显示"已深度思考 N 秒"；`ToolCardProps` 把 durationMs 并入工具卡 props。
+- `bindWithParts` allowed 扩到 `tool_call/tool_result/data`（agent 消息走 parts）；仍保留：含 mermaid/公式或
+  error/approval → 整条回落 legacy。工具组级折叠尚未做（先出单卡），待真机看是否可接受。
+flag=false 现网不变；全量 `--offline` 547 全绿，`assembleDebug` 通过。待真机验收工具/产物/思考卡呈现。
+
 ## [2026-10-21] docs(parts)：完整接管剩余设计 §11（先设计全再接）
 
 flag=true 全量接管前，把每个还没忠实复刻的子布局设计到位（写进 `parts-architecture-upgrade.md §11`）：

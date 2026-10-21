@@ -43,7 +43,7 @@ public final class ReasoningPartRenderer implements PartRenderer {
         final TextView header = new TextView(ctx);
         header.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
         header.setPadding(pad, pad, pad, pad);
-        header.setText(HEADER_COLLAPSED);
+        header.setText(HEADER_PLAIN);
 
         final TextView body = new TextView(ctx);
         body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
@@ -52,15 +52,16 @@ public final class ReasoningPartRenderer implements PartRenderer {
         body.setMovementMethod(LinkMovementMethod.getInstance());
         body.setVisibility(View.GONE); // 默认折叠
 
+        final Row row = new Row(header, body);
         header.setOnClickListener(v -> {
             boolean expanded = body.getVisibility() == View.VISIBLE;
             body.setVisibility(expanded ? View.GONE : View.VISIBLE);
-            header.setText(expanded ? HEADER_COLLAPSED : HEADER_EXPANDED);
+            applyHeader(row, !expanded);
         });
 
         root.addView(header);
         root.addView(body);
-        root.setTag(new Row(header, body));
+        root.setTag(row);
         return root;
     }
 
@@ -73,6 +74,15 @@ public final class ReasoningPartRenderer implements PartRenderer {
         String text = part.text != null ? part.text : "";
         // 正文复用宿主 markdown 原语（后台渲染 + 链接 + 图片 + 主题），不在此自渲染。
         host.renderMarkdown(row.body, text);
+        // header 用上接到的思考时长（"已深度思考 X 秒"），无时长则退回"深度思考"。
+        row.baseLabel = part.durationMs > 0L
+                ? ("已深度思考 " + Math.round(part.durationMs / 1000.0) + " 秒")
+                : HEADER_PLAIN;
+        applyHeader(row, row.body.getVisibility() == View.VISIBLE);
+    }
+
+    private static void applyHeader(Row row, boolean expanded) {
+        row.header.setText((expanded ? "▾ " : "▸ ") + row.baseLabel);
     }
 
     @Override
@@ -80,16 +90,16 @@ public final class ReasoningPartRenderer implements PartRenderer {
         // 无重资源；视图随容器移除即可。
     }
 
-    /** 折叠行的两个子视图句柄，挂在 root 的 tag 上，bindView 复用同实例时取回。 */
+    /** 折叠行的两个子视图句柄 + 当前基础文案，挂在 root 的 tag 上，bindView 复用同实例时取回。 */
     private static final class Row {
         final TextView header;
         final TextView body;
+        String baseLabel = HEADER_PLAIN;
         Row(TextView header, TextView body) {
             this.header = header;
             this.body = body;
         }
     }
 
-    private static final String HEADER_COLLAPSED = "深度思考";
-    private static final String HEADER_EXPANDED = "收起思考";
+    private static final String HEADER_PLAIN = "深度思考";
 }

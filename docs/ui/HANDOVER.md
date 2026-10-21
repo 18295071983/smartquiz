@@ -1424,6 +1424,14 @@ demo 的模型面板/会话抽屉样式也未逐项对齐。
    再把这些类型移出"回落名单"。
 5. **验证**：+1 单测；真机 flag=true 进聊天页无崩溃、纯文本正常；全量 547 全绿、`assembleDebug` 通过。
 
+### 4.62 parts P3f：接工具/思考耗时数据 + 接管扩到 tool/data（2026-10-21）
+
+1. `Part` 加 `durationMs`（计入 fingerprint/copy）。`fromMessage`：reasoning 接 `thinkingRoundDurationMs(round)`、
+   tool_call 接组件 props `durationMs`/`executionTimeMs`。`ReasoningPartRenderer` header 显示"已深度思考 N 秒"。
+2. `bindWithParts` allowed 扩到 `tool_call/tool_result/data`：agent 消息现走 parts；含 mermaid/公式 或
+   error/approval 仍整条回落 legacy。工具组级折叠(§11.1)未做 → 先出单卡，真机确认差异。
+3. **验证**：全量 547 全绿、`assembleDebug` 通过；flag=false 不变；flag=true 需真机验收工具/产物/思考卡呈现。
+
 ---
 
 ## 5. 关键文件 / 改动地图
